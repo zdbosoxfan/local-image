@@ -109,10 +109,14 @@ pub const PEN_MENU: &[Row] = &[
 
 /// Tools whose plain canvas right-click offers selection actions.
 pub fn applies(tool: Tool) -> bool {
-    matches!(
-        tool,
-        Tool::RectMarquee | Tool::EllipseMarquee | Tool::Lasso | Tool::PolygonLasso | Tool::MagneticLasso | Tool::MagicWand | Tool::ObjectSelection | Tool::Pen
-    )
+    matches!(tool, Tool::RectMarquee | Tool::EllipseMarquee | Tool::Lasso | Tool::PolygonLasso | Tool::MagneticLasso | Tool::MagicWand | Tool::ObjectSelection)
+        || path_tool(tool)
+}
+
+/// Tools whose right-click offers the path menu: the Pen, and (as in Photoshop) the path selection
+/// and Shape tools, so a path or shape keeps its menu whichever of them is active.
+pub fn path_tool(tool: Tool) -> bool {
+    matches!(tool, Tool::Pen | Tool::PathSelection | Tool::DirectSelection) || crate::vector_ui::is_shape_tool(tool)
 }
 
 /// The selection tools' rows, with or without an active selection.
@@ -124,7 +128,7 @@ pub fn selection_rows(has_selection: bool) -> &'static [Row] {
 pub fn rows(menu: &CanvasToolMenu) -> &'static [Row] {
     if menu.transform {
         TRANSFORM_MENU
-    } else if menu.tool == Tool::Pen {
+    } else if path_tool(menu.tool) {
         PEN_MENU
     } else {
         selection_rows(menu.has_selection)
@@ -156,7 +160,7 @@ pub fn open_transform(app: &mut PhotocraftApp, pos: [f32; 2]) -> bool {
 }
 
 pub fn entry_enabled(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> bool {
-    if menu.transform || menu.tool != Tool::Pen {
+    if menu.transform || !path_tool(menu.tool) {
         return crate::menus::is_enabled(app, command);
     }
     let Some(st) = app.session.active() else { return false };
@@ -212,7 +216,7 @@ pub fn choose(app: &mut PhotocraftApp, ctx: &Context, command: &str) {
     if !available(app, &menu, command) {
         return;
     }
-    let result = if menu.tool == Tool::Pen && !menu.transform {
+    let result = if path_tool(menu.tool) && !menu.transform {
         choose_pen(app, ctx, &menu, command)
     } else if command == "select.toWorkPath" {
         // Photoshop's Make Work Path… asks for the tolerance first.
@@ -715,5 +719,24 @@ mod tests {
             assert!(!entry_enabled(&app, menu, id), "{id} must not act on the layer replaced by the pending shape");
         }
         assert!(entry_enabled(&app, menu, "path.toSelection"));
+    }
+
+    /// A shape keeps its path menu with whichever vector tool selected it (Path Selection, Direct
+    /// Selection, the Shape tools), not only the Pen that drew it.
+    #[test]
+    fn shapes_keep_the_path_menu_with_every_vector_tool() {
+        for tool in [Tool::PathSelection, Tool::DirectSelection, Tool::Rectangle, Tool::Pen] {
+            let mut app = app();
+            app.run("shape.create", json!({"kind": "rect", "rect": [4, 4, 20, 20], "fill": "#ff0000"})).unwrap();
+            app.ui.tool = tool;
+            assert!(applies(tool));
+            assert!(open(&mut app, tool, [10.0, 10.0]), "{tool:?}");
+            let menu = app.ui.canvas_tool_menu.clone().unwrap();
+            assert_eq!(rows(&menu), PEN_MENU, "{tool:?}");
+            assert!(entry_enabled(&app, &menu, "path.style.copyFill"), "{tool:?}");
+            assert!(entry_enabled(&app, &menu, "path.toSelection"), "{tool:?}");
+            choose(&mut app, &Context::default(), "path.style.copyFill");
+            assert!(app.session.path_fill_clipboard.is_some(), "{tool:?}: {}", app.ui.status);
+        }
     }
 }

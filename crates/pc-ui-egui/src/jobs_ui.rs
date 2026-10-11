@@ -58,10 +58,28 @@ pub fn run(app: &mut PhotocraftApp, id: &str, params: Value) -> Result<Value, St
     if !app.background_jobs {
         return app.session.execute(id, params).map_err(|e| e.to_string());
     }
+    let open_name = (id == photocraft_engine::develop_layer_cmds::OPEN_JOB)
+        .then(|| params["name"].as_str().or_else(|| params["path"].as_str()).unwrap_or("Photo").to_string());
     match app.session.start(id, params).map_err(|e| e.to_string())? {
-        Started::Done(v) => Ok(v),
+        Started::Done(v) => {
+            if v["pending"].as_bool() == Some(true)
+                && let Some(job) = v["job"].as_u64().map(JobId).filter(|j| app.session.job(*j).is_some())
+            {
+                app.jobs.last_started = Some(job);
+                if app.jobs.opens.iter().any(|o| o.job == job) {
+                    app.jobs.focus = Some(job);
+                }
+            }
+            Ok(v)
+        }
         Started::Job(job) => {
             app.jobs.last_started = Some(job);
+            if let Some(name) = open_name {
+                // Develop sources are originals, not a compositing document's Save path.
+                app.jobs.opens.push(OpenTab { job, name, path: None, slot: None });
+                app.jobs.focus = Some(job);
+                app.ui.chrome.home = None;
+            }
             // The status bar's progress readout names the job; clear any old message.
             app.ui.status.clear();
             app.ui.status_error = false;
@@ -91,9 +109,7 @@ pub fn start_open(app: &mut PhotocraftApp, name: &str, path: Option<String>, sou
 /// Per frame: apply finished jobs and react to them; keep frames coming while jobs run; Esc
 /// cancels the job in view.
 pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    for e in app.session.poll_jobs() {
-        on_event(app, e);
-    }
+    dispatch_batch(app);
     // A focused open tab that ended (or was cancelled elsewhere) gives way to the documents.
     if app.jobs.focus.is_some_and(|j| !app.jobs.opens.iter().any(|o| o.job == j)) {
         app.jobs.focus = app.jobs.opens.last().map(|o| o.job);
@@ -113,11 +129,22 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
 
 /// local-image: [`tick`] while the editor is hidden: apply finished jobs, no key handling.
 pub fn tick_background(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    for e in app.session.poll_jobs() {
-        on_event(app, e);
-    }
+    dispatch_batch(app);
     if app.session.has_jobs() {
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
+}
+
+fn dispatch_batch(app: &mut PhotocraftApp) {
+    let events = app.session.poll_jobs();
+    let mut handoff = std::mem::take(&mut app.library_vectorize);
+    let errors: Vec<_> = events.iter().filter_map(|event| handoff.on_job_event(app, event).err()).collect();
+    app.library_vectorize = handoff;
+    for event in events {
+        on_event(app, event);
+    }
+    for error in errors {
+        notices::error(app, error);
     }
 }
 
@@ -143,6 +170,7 @@ pub fn cancel(app: &mut PhotocraftApp, id: JobId) {
 }
 
 fn on_event(app: &mut PhotocraftApp, e: JobEvent) {
+    crate::restoration_ui::repair_finished(app, &e);
     // Control requests waiting on this job.
     let reply = match &e.outcome {
         JobOutcome::Done(v) => json!({"ok": true, "result": v}),
@@ -157,7 +185,7 @@ fn on_event(app: &mut PhotocraftApp, e: JobEvent) {
             true
         }
     });
-    if e.command == OPEN_JOB {
+    if e.command == OPEN_JOB || e.command == photocraft_engine::develop_layer_cmds::OPEN_JOB {
         let Some(i) = app.jobs.opens.iter().position(|o| o.job == e.id) else { return };
         let tab = app.jobs.opens.remove(i);
         match e.outcome {
@@ -172,6 +200,12 @@ fn on_event(app: &mut PhotocraftApp, e: JobEvent) {
                 app.ui.status_error = false;
             }
         }
+        return;
+    }
+    if e.command == "develop.syncPhoto"
+        && let JobOutcome::Done(v) = &e.outcome
+    {
+        crate::develop_layer::finish_sync(app, v);
         return;
     }
     // local-image: AI jobs (Generate results, downloads).
@@ -216,7 +250,12 @@ fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Valu
         v.get("warnings").and_then(Value::as_array).map(|a| a.iter().filter_map(|w| w.as_str().map(str::to_string)).collect()).unwrap_or_default();
     app.session.set_active(index);
     if let Some(p) = path {
-        app.opened_from(p);
+        if v["nativeImport"] == true {
+            app.push_recent(p);
+            crate::filmstrip_ui::follow_file(app, p);
+        } else {
+            app.opened_from(p);
+        }
     }
     app.sync_views();
     app.ui.status = format!("Opened {name}");

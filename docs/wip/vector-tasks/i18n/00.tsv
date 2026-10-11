@@ -1,0 +1,3 @@
+# Package 00 adds no product UI strings. No catalog rows to merge.
+# Existing #1321 behavior uses the existing gradient UI and translations.
+# Package-owned translated rows arrive as i18n/NN.tsv, after their UI hooks land.

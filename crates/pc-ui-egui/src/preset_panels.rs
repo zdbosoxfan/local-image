@@ -83,13 +83,15 @@ pub fn menu(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<
     }
     let want = params.get("show").and_then(Value::as_bool);
     if let Some(tab) = color_tab(id) {
-        // A collapsed Color group counts as not showing: the item expands it (#129).
-        let showing = app.ui.panels.color && app.ui.dock_tabs.color == tab && !app.ui.dock.is_collapsed(crate::dock::Group::Color);
+        // A collapsed Color group counts as not showing: the item expands it (#129). The tab
+        // may have been dragged to another group or a floating panel.
+        let color = crate::dock::Group::Color;
+        let showing = crate::dock::tab_showing(app, color, tab);
         let show = want.unwrap_or(!showing);
-        app.ui.panels.color = show || (app.ui.panels.color && app.ui.dock_tabs.color != tab);
         if show {
-            app.ui.dock_tabs.color = tab;
-            crate::dock::reveal(app, crate::dock::Group::Color);
+            crate::dock::reveal_tab(app, color, tab);
+        } else if crate::dock::tab_checked(app, color, tab) {
+            crate::dock::hide_tab(app, color, tab);
         }
         return Some(Ok(json!({"visible": show})));
     }
@@ -100,7 +102,7 @@ pub fn menu(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<
 
 pub fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     if let Some(tab) = color_tab(id) {
-        return Some(app.ui.panels.color && app.ui.dock_tabs.color == tab);
+        return Some(crate::dock::tab_checked(app, crate::dock::Group::Color, tab));
     }
     let mut p = app.ui.presets_ui.clone();
     float_flag(&mut p, id).map(|f| *f)
@@ -864,7 +866,7 @@ pub fn tool_presets_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             } else if resp.hovered() {
                 ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.5));
             }
-            let icon = Tool::from_name(tool).map(crate::icons::tool_icon).unwrap_or("settings");
+            let icon = Tool::from_name(tool).map(crate::icons::tool_icon_name).unwrap_or("settings");
             crate::icons::paint(ui, Rect::from_center_size(pos2(r.left() + 14.0, r.center().y), vec2(16.0, 16.0)), icon, 13.0, t.icon);
             ui.painter().text(pos2(r.left() + 30.0, r.center().y), Align2::LEFT_CENTER, name, FontId::proportional(11.5), t.text);
             if resp.clicked() {

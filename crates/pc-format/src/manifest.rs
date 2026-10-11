@@ -15,7 +15,7 @@ use photocraft_geom::{Affine, Size};
 use serde::{Deserialize, Serialize};
 
 /// Current manifest version written by this build.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Hex-encoded BLAKE3 hash (64 chars).
 pub type Hash = String;
@@ -35,6 +35,16 @@ pub struct Manifest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DocM {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub symbols: Vec<SymbolDefM>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub graphic_styles: Vec<photocraft_doc::vector_design::styles::GraphicStyle>,
+    #[serde(default, skip_serializing_if = "photocraft_doc::vector_design::swatches::SwatchBook::is_empty")]
+    pub swatches: photocraft_doc::vector_design::swatches::SwatchBook,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drawing_scale: Option<photocraft_doc::vector_design::structure::DrawingScale>,
+    #[serde(default, skip_serializing_if = "photocraft_doc::DesignUnits::is_pixels")]
+    pub design_units: photocraft_doc::DesignUnits,
     pub id: u64,
     pub name: String,
     pub size: Size,
@@ -196,6 +206,8 @@ pub struct FillCacheM {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayerM {
+    #[serde(default, skip_serializing_if = "photocraft_doc::VectorData::is_empty")]
+    pub vector: photocraft_doc::VectorData,
     pub id: u64,
     pub name: String,
     pub visible: bool,
@@ -225,6 +237,9 @@ pub struct LayerM {
     pub blend_if: photocraft_doc::BlendIf,
     #[serde(default)]
     pub video: Option<VideoDataM>,
+    /// local-image: AI generation parameters (prompt, seed…) of a generated layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -232,6 +247,13 @@ pub struct LayerM {
 pub enum ContentM {
     Raster {
         surface: SurfaceM,
+    },
+    Symbol {
+        symbol: photocraft_doc::SymbolId,
+        #[serde(default)]
+        transform: Affine,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache: Option<SurfaceM>,
     },
     Group {
         children: Vec<LayerM>,
@@ -365,4 +387,12 @@ mod channel_tests {
         assert_eq!(c.opacity, 0.5);
         assert_eq!(c.indicates, photocraft_doc::ColorIndicates::MaskedAreas);
     }
+}
+
+/// Symbol master mirror: surfaces/blobs use the same content-addressed storage as root layers.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SymbolDefM {
+    pub id: photocraft_doc::SymbolId,
+    pub name: String,
+    pub layers: Vec<LayerM>,
 }

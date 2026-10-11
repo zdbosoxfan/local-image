@@ -8,6 +8,8 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+photocraft-svg = { workspace = true, features = ["svg-import-integrated"] }
+photocraft-pdf.workspace = true
 # local-image: AI services and image buffers.
 li-ai = { workspace = true }
 li-seg = { workspace = true }
@@ -23,7 +25,7 @@ photocraft-raster = { workspace = true }
 photocraft-doc = { workspace = true }
 photocraft-compose = { workspace = true }
 photocraft-gpu = { workspace = true }
-photocraft-engine = { workspace = true }
+photocraft-engine = { workspace = true, features = ["svg-import-integrated", "pdf-import-integrated"] }
 photocraft-io = { workspace = true }
 photocraft-plugins = { workspace = true }
 photocraft-algo = { workspace = true }
@@ -34,6 +36,8 @@ photocraft-format = { workspace = true }
 # Decoding the brand mark's PNG (`brand.rs`); already linked through photocraft-io.
 photocraft-codecs = { workspace = true }
 egui = { workspace = true }
+# The Attributions page (Settings / Preferences / About).
+li-attributions = { workspace = true }
 egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit"] }
 serde = { workspace = true }
@@ -49,6 +53,7 @@ rayon = { workspace = true }
 sys-locale = "=0.3.2"
 
 [dev-dependencies]
+photocraft-pathops = { workspace = true }
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot", "eframe"] }
 # Benchmark helpers for the `--json` benches `cargo xtask perf` runs (in-process RSS, percentiles).
 photocraft-testkit = { workspace = true }
@@ -58,3 +63,7 @@ photocraft-psd = { workspace = true }
 [build-dependencies]
 serde_json = { workspace = true }
 toml = "1"
+
+[features]
+default = ["pdf-import-integrated"]
+pdf-import-integrated = ["photocraft-engine/pdf-import-integrated"]

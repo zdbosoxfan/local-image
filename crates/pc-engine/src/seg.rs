@@ -1,4 +1,4 @@
-//! local-image: learned subject segmentation (`li-seg`, U²-Net / IS-Net on the CPU) behind
+//! local-image: learned subject segmentation (`li-seg`, IS-Net or a custom model on the CPU) behind
 //! Select › Subject, Remove Background and the Object Selection tool's click mode. It is used when
 //! a segmentation model is installed (Local AI window › Selection models); otherwise those commands
 //! keep PhotoCraft's classical saliency + GrabCut.
@@ -16,8 +16,8 @@ pub fn models_dir() -> PathBuf {
 }
 
 /// The installed model the commands would use, if any.
-pub fn installed() -> Option<&'static li_seg::ModelSpec> {
-    li_seg::best_installed(&models_dir()).map(|(s, _)| s)
+pub fn installed() -> Option<li_seg::InUse> {
+    li_seg::Group::Subject.in_use(&models_dir())
 }
 
 /// `"engine"`: `auto` (learned when installed), `classic` or `learned` (an error without a model).
@@ -91,9 +91,42 @@ pub fn object_at(doc: &Document, layer: Option<LayerId>, all_layers: bool, x: i3
     region(area, &obj)
 }
 
+/// What a Quick Selection prior was computed from: the canvas and the sampled pixels (the layer,
+/// or every layer for the composite). Compared by value; unchanged pixels share their tiles, so
+/// the comparison is cheap.
+#[derive(PartialEq)]
+struct PriorKey {
+    area: Rect,
+    layer: Option<photocraft_raster::Surface>,
+    layers: Option<Vec<photocraft_doc::Layer>>,
+}
+
+type PriorCache = std::sync::Mutex<Option<(PriorKey, std::sync::Arc<(Rect, Vec<f32>)>)>>;
+static QUICK_PRIOR: PriorCache = std::sync::Mutex::new(None);
+
+/// local-image: the subject probability Quick Selection uses as a weak prior (see
+/// `photocraft_algo::segment::quick`), when a model is installed. The model runs once per pixel
+/// state: later strokes on the same pixels reuse it.
+pub fn quick_prior(doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<std::sync::Arc<(Rect, Vec<f32>)>> {
+    installed()?;
+    let surf = layer.and_then(|id| doc.layer(id)).and_then(|l| l.surface()).filter(|_| !all_layers);
+    let key = PriorKey { area: doc.bounds(), layer: surf.cloned(), layers: surf.is_none().then(|| doc.layers.clone()) };
+    if let Ok(cache) = QUICK_PRIOR.lock()
+        && let Some((k, v)) = cache.as_ref()
+        && *k == key
+    {
+        return Some(v.clone());
+    }
+    let prior = std::sync::Arc::new(probability(doc, layer, all_layers)?);
+    if let Ok(mut cache) = QUICK_PRIOR.lock() {
+        *cache = Some((key, prior.clone()));
+    }
+    Some(prior)
+}
+
 /// The installed sky model, if any.
-pub fn sky_installed() -> Option<&'static li_seg::ModelSpec> {
-    li_seg::best_sky(&models_dir()).map(|(s, _)| s)
+pub fn sky_installed() -> Option<li_seg::InUse> {
+    li_seg::Group::Sky.in_use(&models_dir())
 }
 
 /// Sky probability over the canvas from the sky model, its edges snapped to the image with a
@@ -106,7 +139,7 @@ pub fn sky_probability(doc: &Document, layer: Option<LayerId>, all_layers: bool)
     let guide = photocraft_algo::segment::RgbImage {
         w,
         h,
-        px: rgba.chunks_exact(4).map(|p| [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]).collect(),
+        px: rgba.as_chunks::<4>().0.iter().map(|p| [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]).collect(),
     };
     let r = (w.max(h) / 160).clamp(2, 24);
     let refined = photocraft_algo::matting::guided_filter_color(&guide, &prob, r, 1e-3);

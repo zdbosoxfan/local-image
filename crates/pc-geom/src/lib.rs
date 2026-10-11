@@ -7,6 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod cage;
 pub mod warp;
 
 /// Edge length of a raster tile in pixels.

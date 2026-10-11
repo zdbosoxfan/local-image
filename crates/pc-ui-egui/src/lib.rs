@@ -63,14 +63,38 @@ impl Module {
 }
 
 pub mod actions;
+#[path = "vector_packages/anchor_tools.rs"]
+pub mod anchor_tools;
+#[path = "vector_packages/blend.rs"]
+pub mod blend;
+#[path = "vector_packages/blob_eraser.rs"]
+pub mod blob_eraser;
+#[path = "vector_packages/clip_compound.rs"]
+pub mod clip_compound;
+#[path = "vector_packages/library_vectorize.rs"]
+pub mod library_vectorize;
+#[path = "vector_packages/recolor.rs"]
+pub mod recolor;
+#[path = "vector_packages/repeat.rs"]
+pub mod repeat;
+#[path = "vector_packages/swatches_doc.rs"]
+pub mod swatches_doc;
+#[path = "vector_packages/symbols.rs"]
+pub mod symbols;
+#[path = "vector_packages/trace_dialog.rs"]
+pub mod trace_dialog;
+#[path = "vector_packages/width.rs"]
+pub mod width;
 // local-image: Local Image's AI tools, Generate panel and filmstrip.
 pub mod adjust_dialog;
 pub mod adjust_editors;
 pub mod adjust_preview;
 pub mod adjust_ui;
+mod ai_remove_ui;
 pub mod ai_ui;
 pub mod analysis_ui;
 pub mod artboard_ui;
+mod background_ui;
 mod brand;
 pub mod brush_panel;
 pub mod brush_picker;
@@ -82,6 +106,10 @@ mod camera_raw_detail_ui;
 mod camera_raw_preview_ui;
 mod camera_raw_scope_ui;
 pub mod camera_raw_ui;
+mod restoration_ui;
+// local-image: Edit › Transform › Cage on the canvas.
+pub mod attributions;
+pub mod cage_ui;
 pub mod canvas;
 pub mod canvas_tool_menu;
 pub mod channel_view;
@@ -95,6 +123,7 @@ pub mod context_bar;
 pub mod control;
 pub mod credits;
 pub mod crop_ui;
+pub mod develop_filter_ui;
 pub mod develop_layer;
 pub mod dialogs;
 pub mod direct_select;
@@ -114,6 +143,8 @@ pub mod gallery_ui;
 pub mod generate_ui;
 pub mod perspective_crop_ui;
 // local-image: the Model Browser.
+mod color_icon_data;
+mod color_icons;
 pub mod gpu_canvas;
 pub mod gpu_status;
 pub mod gradient_ui;
@@ -140,6 +171,9 @@ pub mod menu_nav;
 pub mod menus;
 pub mod model_browser;
 pub mod monitor_status;
+mod mono_tool_icons;
+mod move_fast;
+mod move_input;
 pub mod move_mods;
 pub mod move_ui;
 pub mod native_menu;
@@ -147,6 +181,7 @@ pub mod new_doc_ui;
 pub mod notices;
 mod opacity_keys;
 pub mod outline;
+pub mod overwrite_original;
 pub mod paint_mouse;
 pub mod palette;
 pub mod panels;
@@ -158,6 +193,11 @@ pub mod point_curve;
 pub mod prefs_ui;
 pub mod preset_files_ui;
 pub mod preset_panels;
+mod tool_icon_data;
+#[path = "vector_packages/fill_stroke_proxy/icons.rs"]
+pub mod vector_tool_icon_data;
+// local-image: Preferences › Tools › Pen pressure curve.
+pub mod pressure_curve_ui;
 pub mod props_layout;
 pub mod proxy;
 pub mod puppet_ui;
@@ -184,6 +224,8 @@ mod timeline_ui;
 mod titlebar;
 pub mod tone;
 pub mod tool_feedback;
+pub mod tool_tips;
+pub mod toolsets_ui;
 pub mod transform_tex;
 pub mod transform_tool;
 pub mod type_panels_ui;
@@ -242,6 +284,8 @@ pub type PickOpenFn = Box<dyn FnMut() -> Option<(String, Result<Vec<u8>, String>
 /// File › Open's multi-file picker: the selected paths, `None` when cancelled.
 pub type PickOpenPathsFn = Box<dyn FnMut() -> Option<Vec<String>>>;
 pub type PickSaveFn = Box<dyn FnMut(&str) -> Option<String>>;
+/// Flatten, preserve the source in Trash, and atomically replace it.
+pub type OverwriteFn = Box<dyn FnMut(&Document, &str, u8) -> Result<Vec<String>, String>>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
 /// Read bytes through the desktop control session's authorized read root.
 pub type AutomationReadFn = Box<dyn FnMut(&str) -> Result<(String, Vec<u8>), String>>;
@@ -296,6 +340,7 @@ pub struct Services {
     pub import: Option<ImportFn>,
     /// Encode a document for a file name (format chosen by extension).
     pub export: Option<ExportFn>,
+    pub overwrite_original: Option<OverwriteFn>,
     /// Show a single-file picker for commands that import one file (Open As, presets, scripts).
     pub pick_open: Option<PickOpenFn>,
     /// Show File › Open's multi-file picker; returns the selected paths.
@@ -353,6 +398,22 @@ pub struct Services {
 
 pub struct PhotocraftApp {
     pub session: Session,
+    pub vector_runtime: vector_integration::State,
+    pub shared_tools: crate::shared_tools::State,
+    pub constructive_state: crate::constructive::State,
+    pub width_state: crate::width::State,
+    pub vector_brush: crate::vector_brush::State,
+    pub envelope_state: crate::envelope::State,
+    pub vector_transform_tools: crate::vector_transform_tools::State,
+    pub clip_compound_state: crate::clip_compound::State,
+    pub blob_eraser: crate::blob_eraser::State,
+    pub mesh_state: crate::mesh::State,
+    pub svg_import: crate::vector_packages::svg_import::State,
+    pub pdf_import: crate::pdf_import::State,
+    pub affinity_import: crate::vector_packages::affinity::State,
+    pub trace_dialog: crate::trace_dialog::State,
+    pub library_vectorize: crate::library_vectorize::State,
+
     pub ui: UiState,
     pub services: Services,
     /// Canvas caches per (document, display): CPU textures hold monitor values; the GPU
@@ -366,8 +427,12 @@ pub struct PhotocraftApp {
     live_stroke: Option<canvas::LiveStroke>,
     /// Footprint trail of a retouching drag (see `stroke_trail`).
     trail: Option<stroke_trail::Trail>,
+    ai_remove: Option<ai_remove_ui::Pending>,
+    restoration: restoration_ui::Runtime,
+    draft_refine: generate_ui::draft_refine::Runtime,
     /// Move tool drag shown live (`move_ui`).
     pub(crate) move_preview: Option<move_ui::MovePreview>,
+    pub(crate) move_fast: Option<move_fast::FastMove>,
     /// Patch Tool drag: the healed document at the pointer (`patch_preview`).
     pub(crate) patch_preview: Option<patch_preview::PatchPreview>,
     /// The pixels a Magnetic Lasso border follows (`magnetic_lasso_ui`).
@@ -418,6 +483,13 @@ pub struct PhotocraftApp {
     pub browse_in_library: Option<String>,
     /// local-image: a Develop layer was double-clicked: the host shows Develop on this Library photo.
     pub develop_request: Option<u64>,
+    /// local-image: files written by Save / Save As since the host last looked (the host takes
+    /// them): the Library adds a document that came from one of its photos, stacked on top of
+    /// that photo, and reloads a file it already has (see [`develop_layer::LibrarySave`]).
+    pub library_saves: Vec<develop_layer::LibrarySave>,
+    /// local-image: Filter › Camera Raw Filter… sessions in the Library's Develop module (the host
+    /// takes `develop_filter.request`), and the prompts around them.
+    pub develop_filter: develop_filter_ui::State,
     /// local-image: the module the host shows (kept up to date by the host).
     pub current_module: Module,
     fonts_ready: bool,
@@ -511,6 +583,7 @@ pub struct PhotocraftApp {
     pub(crate) discard: Option<discard_ui::Prompt>,
     /// A Save As to a layered TIFF parked behind the TIFF Options prompt (see `tiff_options_ui`).
     pub(crate) tiff_options: Option<tiff_options_ui::Prompt>,
+    pub overwrite_prompt: Option<overwrite_original::Prompt>,
     /// Set once the user has agreed to quit, so the resulting close request goes through.
     pub(crate) allow_close: bool,
     /// Pen pressure/tilt from the platform (see `stylus`).
@@ -529,6 +602,22 @@ impl PhotocraftApp {
     pub fn new(session: Session, services: Services) -> Self {
         let mut app = Self {
             session,
+            vector_runtime: Default::default(),
+            shared_tools: Default::default(),
+            constructive_state: Default::default(),
+            width_state: Default::default(),
+            vector_brush: Default::default(),
+            envelope_state: Default::default(),
+            vector_transform_tools: Default::default(),
+            clip_compound_state: Default::default(),
+            blob_eraser: Default::default(),
+            mesh_state: Default::default(),
+            svg_import: Default::default(),
+            pdf_import: Default::default(),
+            affinity_import: Default::default(),
+            trace_dialog: Default::default(),
+            library_vectorize: Default::default(),
+
             ui: UiState::default(),
             services,
             canvases: HashMap::new(),
@@ -537,7 +626,11 @@ impl PhotocraftApp {
             drag: None,
             live_stroke: None,
             trail: None,
+            ai_remove: None,
+            restoration: Default::default(),
+            draft_refine: Default::default(),
             move_preview: None,
+            move_fast: None,
             patch_preview: None,
             magnetic: Default::default(),
             secondary_erase: false,
@@ -561,6 +654,8 @@ impl PhotocraftApp {
             switch_module: None,
             browse_in_library: None,
             develop_request: None,
+            library_saves: Vec::new(),
+            develop_filter: Default::default(),
             current_module: Module::Compositing,
             fonts_ready: false,
             last_canvas_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)),
@@ -606,6 +701,7 @@ impl PhotocraftApp {
             prefs_rt: Default::default(),
             discard: None,
             tiff_options: None,
+            overwrite_prompt: None,
             allow_close: false,
             stylus: Default::default(),
             background_jobs: false,
@@ -615,6 +711,12 @@ impl PhotocraftApp {
         };
         // Saved preferences (and recovered documents) are in place before the first frame.
         prefs_ui::load(&mut app);
+        let persona = app.session.prefs().toolbar.persona;
+        if let Some(tool) =
+            Tool::from_name(app.session.prefs().toolbar.last_tool(persona)).filter(|t| photocraft_engine::toolsets::supports(&format!("{t:?}"), persona))
+        {
+            app.ui.tool = tool;
+        }
         notices::wayland_file_drop_guidance(&mut app);
         // File › Scripts › Script Events Manager: "Start Application".
         photocraft_engine::automate_cmds::fire_event(&mut app.session, "startApplication");
@@ -653,9 +755,19 @@ impl PhotocraftApp {
         self.gpu.is_some()
     }
 
+    /// Read back the production canvas texture for offscreen acceptance/diagnostics.
+    pub fn read_canvas_texels(&self, key: u64) -> Option<(eframe::wgpu::TextureFormat, [u32; 2], Vec<[f32; 4]>)> {
+        self.gpu.as_ref()?.read_texels(key)
+    }
+
     /// The GPU canvas's device health flag (tests inject faults through it).
     pub fn gpu_health(&self) -> Option<photocraft_gpu::DeviceHealth> {
         self.gpu.as_ref().map(|g| g.health().clone())
+    }
+
+    /// Cached Move viewport targets and view uniforms, for GPU resource diagnostics.
+    pub fn gpu_move_resources(&self) -> (usize, usize) {
+        self.gpu.as_ref().map_or((0, 0), |g| g.move_resources())
     }
 
     /// Run `hook` once the app has rendered its first frames (and a document opened at launch
@@ -706,7 +818,7 @@ impl PhotocraftApp {
         }
         let t0 = gpu_canvas::now_ms();
         // The OS clipboard is read only on an explicit paste, never in the background (privacy, CPU).
-        if matches!(id, "edit.paste" | "edit.pasteSpecial.pasteInPlace" | "file.newFromClipboard") {
+        if matches!(id, "edit.paste" | "edit.pasteSpecial.pasteInPlace" | "edit.pasteSpecial.pasteSeamless" | "file.newFromClipboard") {
             if !clip_read {
                 self.import_os_clipboard();
             }
@@ -819,6 +931,9 @@ impl PhotocraftApp {
         if let Some(r) = preset_files_ui::open(self, name, bytes) {
             return r.map(|()| Vec::new());
         }
+        if crate::pdf_import::offer(self, name, bytes)? {
+            return Ok(Vec::new());
+        }
         let name = &self.open_name(name);
         // Decoded on a worker: a tab with progress appears now, the document when it's ready
         // (warnings are shown then).
@@ -826,8 +941,14 @@ impl PhotocraftApp {
             jobs_ui::start_open(self, name, None, jobs_ui::bytes(bytes))?;
             return Ok(Vec::new());
         }
-        let import = self.services.import.as_ref().ok_or("no importer configured")?;
-        let (doc, warnings) = import(name, bytes)?;
+        let (doc, warnings) =
+            if let Some(vector) = photocraft_engine::vector_integration::read_vector_file(name, bytes, &std::sync::atomic::AtomicBool::new(false)) {
+                let result = vector.map_err(|e| e.to_string())?;
+                (result.document, result.warnings)
+            } else {
+                let import = self.services.import.as_ref().ok_or("no importer configured")?;
+                import(name, bytes)?
+            };
         // Edit › Color Settings policies apply on open; mismatches can ask what to do.
         // No path yet: a bare name isn't a location to save back to (`open_file` sets the path).
         let (_, color) = self.session.open_document(doc, None);
@@ -910,7 +1031,13 @@ impl PhotocraftApp {
         }
         let st = self.session.active().ok_or("no document")?;
         // Documents are named after their file ("cat.png"): suggest "cat.psd", not "cat.png.psd".
-        let suggested = st.path.clone().unwrap_or_else(|| format!("{}.psd", st.doc.name.rsplit_once('.').map_or(st.doc.name.as_str(), |(stem, _)| stem)));
+        // local-image: a photo from the Library is suggested beside its original, as
+        // "<name>-Edit.psd" (Photoshop's Edit In from Lightroom).
+        let suggested = st
+            .path
+            .clone()
+            .or_else(|| develop_layer::library_original(self).map(|(_, original)| develop_layer::edit_path(&original)))
+            .unwrap_or_else(|| format!("{}.psd", st.doc.name.rsplit_once('.').map_or(st.doc.name.as_str(), |(stem, _)| stem)));
         let path = match path {
             Some(p) => p,
             None => self.services.pick_save.as_mut().and_then(|f| f(&suggested)).ok_or("cancelled")?,
@@ -945,6 +1072,11 @@ impl PhotocraftApp {
         }
         self.ui.status_error = false;
         notices::io_warnings(self, &format!("Saved {}", file_open::display_name(&path)), &warnings);
+        // local-image: the Library picks the file up (adds it stacked on its photo, or reloads it).
+        if self.host_modes {
+            let photo = develop_layer::active_photo(self);
+            self.library_saves.push(develop_layer::LibrarySave { path: path.clone(), photo, show: false, overwritten: false });
+        }
         self.sync_views();
         Ok((path, warnings))
     }
@@ -1035,6 +1167,14 @@ impl PhotocraftApp {
 }
 
 impl eframe::App for PhotocraftApp {
+    fn on_exit(&mut self) {
+        // Stop the ComfyUI we started (a user-started one is left running).
+        #[cfg(not(target_arch = "wasm32"))]
+        if ai_ui::shutdown_engine() {
+            log::info!("stopped the AI engine (ComfyUI) Local Image started");
+        }
+    }
+
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         i18n::set_current(i18n::Lang::from_pref(&self.session.prefs().interface.language));
         if !self.styled {
@@ -1077,8 +1217,10 @@ impl eframe::App for PhotocraftApp {
         discard_ui::guard_window_close(self, ctx);
         // Background jobs: apply finished ones, keep frames coming, Esc cancels (before the
         // shortcuts see Esc).
+        ai_remove_ui::keys(self, ctx);
         jobs_ui::tick(self, ctx);
         shortcuts::handle(self, ctx);
+        crate::vector_integration::frame(self, ctx);
         let arrived: Vec<(String, Vec<u8>)> =
             self.services.inbox.as_ref().map(|q| std::mem::take(&mut *q.lock().unwrap_or_else(|e| e.into_inner()))).unwrap_or_default();
         for (name, bytes) in arrived {
@@ -1149,16 +1291,22 @@ impl eframe::App for PhotocraftApp {
         if chrome {
             filmstrip_ui::panel(self, ui);
         }
+        crate::symbols::frame(self, &ctx);
         let t = theme::Tokens::get(&ctx);
         let backdrop = if chrome { prefs_ui::pasteboard_color(self).unwrap_or(t.canvas) } else { egui::Color32::BLACK };
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(backdrop)).show(ui, |ui| {
             canvas::document_area(self, ui);
         });
         panels::properties_window(self, &ctx);
+        if chrome {
+            panels::floating_panels(self, &ctx);
+        }
         brush_panel::window(self, &ctx);
         preset_panels::windows(self, &ctx);
         // local-image: Local AI window and the AI prompt dialogs.
         ai_ui::windows(self, &ctx);
+        ai_remove_ui::show(self, &ctx);
+        restoration_ui::show(self, &ctx);
         context_bar::show(self, &ctx);
         type_panels_ui::windows(self, &ctx);
         analysis_ui::windows(self, &ctx);
@@ -1169,8 +1317,10 @@ impl eframe::App for PhotocraftApp {
         jobs_ui::dialog(self, &ctx);
         discard_ui::show(self, &ctx);
         tiff_options_ui::show(self, &ctx);
+        overwrite_original::show(self, &ctx);
         distort_ui::show(self, &ctx);
         camera_raw_ui::show(self, &ctx);
+        develop_filter_ui::show(self, &ctx);
         wide_angle_ui::show(self, &ctx);
         canvas::extra_windows(self, &ctx);
         notices::show(self, &ctx);
@@ -1281,9 +1431,9 @@ impl PhotocraftApp {
 
     /// Cached 64px thumbnail of a pixel-ish layer, laid out in document space.
     pub fn layer_thumb(&mut self, ctx: &egui::Context, doc: &Document, layer: &photocraft_doc::Layer) -> egui::TextureId {
-        // Key by content, not document revision: COW tiles change pointer only when their pixels
-        // change, so unrelated edits (e.g. painting another layer) don't rebuild this thumbnail.
-        let rev = layer.surface().map_or(0, surface_fingerprint) ^ (doc.size.width as u64) << 40;
+        // Surface revisions keep unrelated edits (e.g. painting another layer) from rebuilding
+        // this thumbnail, without inspecting every COW tile each frame.
+        let rev = layer.surface().map_or(0, surface_fingerprint) ^ (doc.size.width as u64) << 40 ^ (doc.size.height as u64) << 20;
         let key = (layer.id, mask_thumbs_ui::THUMB_LAYER);
         if let Some((r, tex)) = self.thumbs.get(&key)
             && *r == rev
@@ -1301,7 +1451,7 @@ impl PhotocraftApp {
     }
 
     pub fn mask_thumb(&mut self, ctx: &egui::Context, doc: &Document, id: photocraft_doc::LayerId, mask: &photocraft_doc::LayerMask) -> egui::TextureId {
-        let rev = surface_fingerprint(&mask.surface) ^ (doc.size.width as u64) << 40;
+        let rev = surface_fingerprint(&mask.surface) ^ (doc.size.width as u64) << 40 ^ (doc.size.height as u64) << 20;
         let key = (id, mask_thumbs_ui::THUMB_MASK);
         if let Some((r, tex)) = self.thumbs.get(&key)
             && *r == rev
@@ -1333,14 +1483,9 @@ impl PhotocraftApp {
     }
 }
 
-/// Cheap identity of a surface's pixels: tile coordinates and `Arc` pointers.
+/// Constant-time identity of a surface's pixels (including format and default pixel).
 pub fn surface_fingerprint(s: &photocraft_raster::Surface) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ s.tile_count() as u64;
-    for (c, t) in s.tiles() {
-        let p = std::sync::Arc::as_ptr(t) as usize as u64;
-        h = (h ^ p ^ ((c.tx as u64) << 32 | c.ty as u32 as u64)).wrapping_mul(0x100_0000_01b3);
-    }
-    h
+    s.revision()
 }
 
 /// Square thumbnail of the canvas area, letterboxed, sampling `f(x, y)` in document space.
@@ -1406,6 +1551,7 @@ impl PhotocraftApp {
             return;
         }
         jobs_ui::tick_background(self, ctx);
+        prefs_ui::persist_background(self, ctx);
         // local-image: the control channel keeps answering while another module is shown
         // (screenshots capture the whole window; `app.module` switches modules).
         self.collect_screenshots(ctx);
@@ -1556,6 +1702,12 @@ impl PhotocraftApp {
         true
     }
 }
+
+#[cfg(test)]
+mod tool_icon_sheet;
+
+#[cfg(test)]
+mod tool_icon_tests;
 
 #[cfg(test)]
 mod input_tests;
@@ -1715,3 +1867,63 @@ mod clipboard_tests {
         assert!(h.state().session.clipboard.is_none());
     }
 }
+
+#[path = "vector_packages/frame_compose.rs"]
+pub mod frame_compose;
+// Package 17 module registration; persona/canvas routing stays in the 00 handoff.
+#[path = "vector_packages/brushes.rs"]
+pub mod vector_brush;
+
+#[path = "vector_packages/envelope.rs"]
+pub mod envelope;
+// Package 36; Object/menu/canvas routing is delivered to 00 in integration/36.md.
+#[path = "vector_packages/path_commands.rs"]
+pub mod object_path;
+// Package 37 compiled hooks; shared menu/canvas wiring stays in the 00 lane.
+#[path = "vector_packages/isolation.rs"]
+pub mod isolation;
+#[path = "vector_packages/live_paint.rs"]
+pub mod live_paint;
+#[path = "vector_packages/view_modes.rs"]
+pub mod view_modes;
+
+#[path = "vector_packages/styles_panel.rs"]
+pub mod graphic_styles;
+#[path = "vector_packages/eyedropper.rs"]
+pub mod vector_eyedropper;
+// Package 34 registration; persona/menu/canvas routing stays in the integration handoff.
+#[path = "vector_packages/distort_tools.rs"]
+pub mod distort_tools;
+#[path = "vector_packages/transform_tools.rs"]
+pub mod vector_transform_tools;
+
+// Package 44 canvas/menu wiring is supplied in integration/44.md.
+#[path = "vector_packages/measure.rs"]
+pub mod measure;
+
+#[path = "vector_packages/path_effects.rs"]
+pub mod path_effects;
+
+// Package 43 registration; production router/menu state belongs to 00/01.
+#[path = "vector_packages/mesh.rs"]
+pub mod mesh;
+
+#[path = "vector_packages/fill_stroke_proxy.rs"]
+pub mod fill_stroke_proxy;
+
+pub mod shared_tools;
+pub mod vector_packages;
+
+#[path = "vector_packages/constructive.rs"]
+pub mod constructive;
+
+#[path = "vector_packages/pdf_import.rs"]
+pub mod pdf_import;
+
+pub mod vector_integration;
+
+#[cfg(test)]
+pub(crate) mod gpu_test_support;
+
+#[cfg(test)]
+mod hotfix_critical_tests;

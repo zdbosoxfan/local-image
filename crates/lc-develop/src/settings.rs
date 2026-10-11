@@ -11,6 +11,12 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub struct DevelopSettings {
     pub version: u32,
     pub profile: Profile,
+    /// The base rendition of a raw photo ([`Look`]). Left out at its default.
+    #[serde(default, skip_serializing_if = "Look::is_default")]
+    pub look: Look,
+    /// The look's base-curve variant and hue preservation. Left out at defaults.
+    #[serde(default, skip_serializing_if = "LookOptions::is_default")]
+    pub look_options: LookOptions,
     pub treatment: Treatment,
     pub wb: WhiteBalance,
     pub light: Light,
@@ -19,6 +25,8 @@ pub struct DevelopSettings {
     pub mixer: Mixer,
     /// Point Color: up to [`MAX_POINT_COLORS`] sampled colours, each with its own adjustment.
     pub point_colors: Vec<PointColor>,
+    #[serde(skip_serializing_if = "SkinTone::is_default")]
+    pub skin_tone: SkinTone,
     pub bw_mix: BwMix,
     pub grading: ColorGrading,
     pub effects: Effects,
@@ -41,6 +49,19 @@ pub struct DevelopSettings {
     /// unchanged; [`DevelopSettings::to_json_full`] includes it.
     #[serde(skip_serializing_if = "Negative::is_default")]
     pub negative: Negative,
+    /// Raw processing: demosaic, highlight reconstruction, capture sharpening ([`crate::tools`];
+    /// like the sections below, left out of the JSON at its defaults).
+    #[serde(skip_serializing_if = "crate::tools::RawProcessing::is_default")]
+    pub raw: crate::tools::RawProcessing,
+    /// Lens profile corrections from the lens database.
+    #[serde(skip_serializing_if = "crate::tools::LensDb::is_default")]
+    pub lens_db: crate::tools::LensDb,
+    /// Tone equalizer.
+    #[serde(skip_serializing_if = "crate::tools::ToneEq::is_default")]
+    pub tone_eq: crate::tools::ToneEq,
+    /// Colour calibration (chromatic adaptation, gamut compression).
+    #[serde(skip_serializing_if = "crate::tools::ColorCal::is_default")]
+    pub color_cal: crate::tools::ColorCal,
     /// Section on/off toggles (the "eye" buttons on panel headers): section id → enabled.
     pub disabled_sections: Vec<String>,
 }
@@ -50,6 +71,8 @@ impl Default for DevelopSettings {
         Self {
             version: SCHEMA_VERSION,
             profile: Profile::default(),
+            look: Look::default(),
+            look_options: LookOptions::default(),
             treatment: Treatment::Color,
             wb: WhiteBalance::default(),
             light: Light::default(),
@@ -57,6 +80,7 @@ impl Default for DevelopSettings {
             color: ColorAdj::default(),
             mixer: Mixer::default(),
             point_colors: Vec::new(),
+            skin_tone: SkinTone::default(),
             bw_mix: BwMix::default(),
             grading: ColorGrading::default(),
             effects: Effects::default(),
@@ -74,8 +98,101 @@ impl Default for DevelopSettings {
             enhance: Enhance::default(),
             calibration: Calibration::default(),
             negative: Negative::default(),
+            raw: Default::default(),
+            lens_db: Default::default(),
+            tone_eq: Default::default(),
+            color_cal: Default::default(),
             disabled_sections: Vec::new(),
         }
+    }
+}
+
+/// The base rendition of a scene-referred (raw) photo: how scene light becomes
+/// display tones before any slider. Rendered photos (JPEG, …) show as the file under every look.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Look {
+    /// A Lightroom-like rendition: bright midtones, a soft toe and a long, gentle shoulder.
+    #[default]
+    Adobe,
+    /// darktable's sigmoid: a neutral scene-referred log-logistic curve, hue preserving.
+    Sigmoid,
+    /// The camera's own rendition: a curve fitted to the file's embedded JPEG (or the maker's
+    /// base curve when the file has no usable preview).
+    Camera,
+}
+
+impl Look {
+    pub const ALL: [Look; 3] = [Look::Adobe, Look::Sigmoid, Look::Camera];
+    pub fn is_default(&self) -> bool {
+        *self == Look::default()
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Look::Adobe => "Soft Film",
+            Look::Sigmoid => "Sigmoid",
+            Look::Camera => "Camera",
+        }
+    }
+    /// The JSON / command name (`adobe`, `sigmoid`, `camera`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Look::Adobe => "adobe",
+            Look::Sigmoid => "sigmoid",
+            Look::Camera => "camera",
+        }
+    }
+    pub fn from_id(id: &str) -> Option<Look> {
+        Look::ALL.into_iter().find(|l| l.id().eq_ignore_ascii_case(id))
+    }
+}
+
+/// A base-curve variant under every look (like Capture One's film curves): Standard, Extra
+/// Shadow (shadows opened up for high dynamic range sensors), High Contrast, Linear (scene-linear to 80% display luminance,
+/// then a smooth output shoulder).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ToneBase {
+    #[default]
+    Standard,
+    ExtraShadow,
+    HighContrast,
+    Linear,
+}
+
+impl ToneBase {
+    pub const ALL: [ToneBase; 4] = [ToneBase::Standard, ToneBase::ExtraShadow, ToneBase::HighContrast, ToneBase::Linear];
+    pub fn label(self) -> &'static str {
+        match self {
+            ToneBase::Standard => "Standard",
+            ToneBase::ExtraShadow => "Extra Shadow",
+            ToneBase::HighContrast => "High Contrast",
+            ToneBase::Linear => "Linear",
+        }
+    }
+}
+
+/// Options of the look.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LookOptions {
+    /// The base-curve variant (raw photos).
+    pub base: ToneBase,
+    /// Hue preservation 0..100 % of the tone curve: 100 keeps every hue as bright colours bleach
+    /// towards white; lower values let them drift towards the secondaries (yellow, cyan,
+    /// magenta) as a per-channel film curve does.
+    pub hue_preservation: f64,
+}
+
+impl Default for LookOptions {
+    fn default() -> Self {
+        Self { base: ToneBase::Standard, hue_preservation: 75.0 }
+    }
+}
+
+impl LookOptions {
+    pub fn is_default(&self) -> bool {
+        *self == LookOptions::default()
     }
 }
 
@@ -203,6 +320,27 @@ pub struct ToneCurve {
     /// Refine Saturation 0..100: 100 keeps the saturation a curve produces, lower values pull it
     /// back towards the saturation before the curve (strong contrast curves oversaturate).
     pub refine_saturation: f64,
+    /// How the parametric and master curves apply ([`CurveMode`]). Left out of the JSON at its default.
+    #[serde(skip_serializing_if = "CurveMode::is_default")]
+    pub mode: CurveMode,
+}
+
+/// How the master (and parametric) tone curve changes colours.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CurveMode {
+    /// On a luminance norm, every channel scaled by the same ratio: hue and saturation kept.
+    #[default]
+    Luminance,
+    /// On each RGB channel (encoded values): contrast also saturates and shifts hues, like a
+    /// classic per-channel curve.
+    Rgb,
+}
+
+impl CurveMode {
+    pub fn is_default(&self) -> bool {
+        *self == CurveMode::default()
+    }
 }
 
 impl Default for ToneCurve {
@@ -220,6 +358,7 @@ impl Default for ToneCurve {
             green: Vec::new(),
             blue: Vec::new(),
             refine_saturation: 100.0,
+            mode: CurveMode::default(),
         }
     }
 }
@@ -523,9 +662,50 @@ impl Negative {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClarityMode {
+    #[default]
+    Natural,
+    Punch,
+    Neutral,
+}
+impl ClarityMode {
+    pub fn is_default(&self) -> bool {
+        *self == Self::Natural
+    }
+}
+
+/// Reference and window in darktable UCS 22 JCH (white Y=1); hue in degrees.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SkinTone {
+    pub reference: Option<[f64; 3]>,
+    pub uniformity: f64,
+    pub lightness: f64,
+    pub hue_range: f64,
+    pub chroma_range: f64,
+    pub lightness_range: f64,
+    pub protect_lips: bool,
+}
+impl Default for SkinTone {
+    fn default() -> Self {
+        Self { reference: None, uniformity: 0.0, lightness: 0.0, hue_range: 30.0, chroma_range: 50.0, lightness_range: 50.0, protect_lips: true }
+    }
+}
+impl SkinTone {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Effects {
+    #[serde(skip_serializing_if = "is_zero")]
+    pub structure: f64,
+    #[serde(skip_serializing_if = "ClarityMode::is_default")]
+    pub clarity_mode: ClarityMode,
     pub texture: f64,
     pub clarity: f64,
     pub dehaze: f64,
@@ -875,10 +1055,15 @@ pub enum MaskShape {
         lo_feather: f64,
         hi_feather: f64,
     },
+    /// Distance range (0 = nearest … 1 = farthest in the photo), with a feathered edge. `seg`
+    /// holds the depth model's distance map (local-image `li-seg` depth; the logit of the
+    /// distance); without it the range selects nothing.
     DepthRange {
         lo: f64,
         hi: f64,
         feather: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seg: Option<crate::SegMask>,
     },
     /// AI / automatic selections. `seg` holds the quick segmentation model's result (local-image:
     /// `li-seg`, computed when the mask is added); without it a classical estimate is used.
@@ -943,6 +1128,9 @@ pub struct MaskComponent {
     pub shape: MaskShape,
 }
 
+/// A mask is a develop *layer* (Capture One-style): its components select where, and it holds
+/// the quick local sliders ([`LocalAdjustments`], Lightroom's mask sliders) and any develop tool
+/// that isn't image-level ([`LayerTools`]), faded by `opacity`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Mask {
@@ -955,16 +1143,257 @@ pub struct Mask {
     /// Refine Edges 0..100: the mask's edges snap to the photo's (guided filter).
     #[serde(skip_serializing_if = "is_zero")]
     pub refine: f64,
+    /// Layer opacity 0..100: scales everything the layer does (with `adjust.amount`). Left out of
+    /// the JSON at 100, so settings written before layers existed serialize (and hash) as before.
+    #[serde(skip_serializing_if = "is_hundred")]
+    pub opacity: f64,
+    /// The develop tools this layer sets (sparse; empty = none, left out of the JSON).
+    #[serde(skip_serializing_if = "LayerTools::is_empty")]
+    pub tools: LayerTools,
 }
 
 fn is_zero(v: &f64) -> bool {
     *v == 0.0
 }
 
+fn is_hundred(v: &f64) -> bool {
+    *v == 100.0
+}
+
 impl Default for Mask {
     fn default() -> Self {
-        Self { id: 0, name: "Mask 1".into(), visible: true, invert: false, components: Vec::new(), adjust: LocalAdjustments::default(), refine: 0.0 }
+        Self {
+            id: 0,
+            name: "Mask 1".into(),
+            visible: true,
+            invert: false,
+            components: Vec::new(),
+            adjust: LocalAdjustments::default(),
+            refine: 0.0,
+            opacity: 100.0,
+            tools: LayerTools::default(),
+        }
     }
+}
+
+/// The develop tools a layer ([`Mask`]) applies where it is selected: any section of
+/// [`DevelopSettings`] except the image-level ones (profile, calibration, optics, geometry, crop,
+/// orientation, negative, enhance). Each section is `None` until the layer changes it; the JSON
+/// keys are [`DevelopSettings`]'s, so `tools` is a partial settings object.
+///
+/// Values are relative to the photo's own settings, every section neutral at its defaults (a
+/// layer's exposure +1 is one stop more than the photo's; its curve is applied after the photo's),
+/// except white balance: a layer's temperature/tint is the white it renders with (as in Capture
+/// One), changed from the photo's white balance.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LayerTools {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wb: Option<WhiteBalance>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub light: Option<Light>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub curve: Option<ToneCurve>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<ColorAdj>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mixer: Option<Mixer>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub point_colors: Option<Vec<PointColor>>,
+    /// `Bw`: the layer turns its area black & white (with `bw_mix`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub treatment: Option<Treatment>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bw_mix: Option<BwMix>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grading: Option<ColorGrading>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effects: Option<Effects>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skin_tone: Option<SkinTone>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vignette: Option<Vignette>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grain: Option<Grain>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<Detail>,
+}
+
+/// The [`DevelopSettings`] keys a layer can hold (see [`LayerTools`]).
+pub const LAYER_KEYS: [&str; 14] = [
+    "wb",
+    "light",
+    "curve",
+    "color",
+    "mixer",
+    "point_colors",
+    "treatment",
+    "bw_mix",
+    "grading",
+    "effects",
+    "vignette",
+    "grain",
+    "detail",
+    "skin_tone",
+];
+
+impl LayerTools {
+    pub fn is_empty(&self) -> bool {
+        *self == LayerTools::default()
+    }
+
+    /// Whether the layer holds section `key` (one of [`LAYER_KEYS`]).
+    pub fn is_set(&self, key: &str) -> bool {
+        self.used_keys().contains(&key)
+    }
+
+    /// The sections the layer holds, in [`LAYER_KEYS`] order.
+    pub fn used_keys(&self) -> Vec<&'static str> {
+        let set = [
+            self.wb.is_some(),
+            self.light.is_some(),
+            self.curve.is_some(),
+            self.color.is_some(),
+            self.mixer.is_some(),
+            self.point_colors.is_some(),
+            self.treatment.is_some(),
+            self.bw_mix.is_some(),
+            self.grading.is_some(),
+            self.effects.is_some(),
+            self.vignette.is_some(),
+            self.grain.is_some(),
+            self.detail.is_some(),
+            self.skin_tone.is_some(),
+        ];
+        LAYER_KEYS.iter().zip(set).filter(|(_, s)| *s).map(|(k, _)| *k).collect()
+    }
+
+    /// Settings showing this layer's tools: the defaults (every tool neutral) with the layer's
+    /// sections laid over them; white balance, until the layer sets it, is `global_wb` (the
+    /// photo's white balance in effect: temperature, tint). Panels read and write layer controls
+    /// through this view.
+    pub fn view(&self, global_wb: (f64, f64)) -> DevelopSettings {
+        let d = DevelopSettings::default();
+        DevelopSettings {
+            wb: self.wb.unwrap_or(WhiteBalance { mode: WbMode::Custom, temp: global_wb.0, tint: global_wb.1 }),
+            light: self.light.unwrap_or(d.light),
+            curve: self.curve.clone().unwrap_or(d.curve),
+            color: self.color.unwrap_or(d.color),
+            mixer: self.mixer.unwrap_or(d.mixer),
+            point_colors: self.point_colors.clone().unwrap_or_default(),
+            treatment: self.treatment.unwrap_or(d.treatment),
+            bw_mix: self.bw_mix.unwrap_or(d.bw_mix),
+            grading: self.grading.unwrap_or(d.grading),
+            effects: self.effects.unwrap_or(d.effects),
+            skin_tone: self.skin_tone.unwrap_or(d.skin_tone),
+            vignette: self.vignette.unwrap_or(d.vignette),
+            grain: self.grain.unwrap_or(d.grain),
+            detail: self.detail.unwrap_or(d.detail),
+            ..d
+        }
+    }
+
+    /// Section `key` of `view` taken into the layer (`None` for an unknown key).
+    fn take(&mut self, key: &str, view: &DevelopSettings) -> Option<()> {
+        match key {
+            "wb" => self.wb = Some(WhiteBalance { mode: WbMode::Custom, ..view.wb }),
+            "light" => self.light = Some(view.light),
+            "curve" => self.curve = Some(view.curve.clone()),
+            "color" => self.color = Some(view.color),
+            "mixer" => self.mixer = Some(view.mixer),
+            "point_colors" => self.point_colors = Some(view.point_colors.iter().take(MAX_POINT_COLORS).copied().collect()),
+            "treatment" => self.treatment = Some(view.treatment),
+            "bw_mix" => self.bw_mix = Some(view.bw_mix),
+            "grading" => self.grading = Some(view.grading),
+            "effects" => self.effects = Some(view.effects),
+            "skin_tone" => self.skin_tone = Some(view.skin_tone),
+            "vignette" => self.vignette = Some(view.vignette),
+            "grain" => self.grain = Some(view.grain),
+            "detail" => self.detail = Some(view.detail),
+            _ => return None,
+        }
+        Some(())
+    }
+
+    /// Drop section `key` (the layer no longer changes it). False for an unknown key.
+    pub fn clear(&mut self, key: &str) -> bool {
+        match key {
+            "wb" => self.wb = None,
+            "light" => self.light = None,
+            "curve" => self.curve = None,
+            "color" => self.color = None,
+            "mixer" => self.mixer = None,
+            "point_colors" => self.point_colors = None,
+            "treatment" => self.treatment = None,
+            "bw_mix" => self.bw_mix = None,
+            "grading" => self.grading = None,
+            "effects" => self.effects = None,
+            "skin_tone" => self.skin_tone = None,
+            "vignette" => self.vignette = None,
+            "grain" => self.grain = None,
+            "detail" => self.detail = None,
+            _ => return false,
+        }
+        true
+    }
+
+    /// Merge a partial settings object into the layer, like a preset (objects merge, everything
+    /// else replaces; values are clamped through the control specs). Only [`LAYER_KEYS`] are
+    /// allowed; a key set to `null` drops that section. `global_wb` as in [`Self::view`].
+    pub fn merged(&self, global_wb: (f64, f64), partial: &serde_json::Value) -> Result<LayerTools, String> {
+        let Some(obj) = partial.as_object() else { return Err("layer tools must be an object".into()) };
+        if let Some(k) = obj.keys().find(|k| !LAYER_KEYS.contains(&k.as_str())) {
+            return Err(format!("`{k}` is not a layer tool (layers take {})", LAYER_KEYS.join(", ")));
+        }
+        let mut out = self.clone();
+        let patch: serde_json::Map<String, serde_json::Value> =
+            obj.iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| (k.clone(), v.clone())).collect();
+        let view = crate::presets::apply_partial_strict(&self.view(global_wb), &serde_json::Value::Object(patch.clone()))?;
+        for k in patch.keys() {
+            out.take(k, &view);
+        }
+        for (k, _) in obj.iter().filter(|(_, v)| v.is_null()) {
+            out.clear(k);
+        }
+        Ok(out)
+    }
+
+    /// Set controls by id (`light.exposure`, `pointColor.0.hueShift`, …; clamped) on the layer.
+    /// Errors name a control that is unknown or not a layer tool.
+    pub fn set_controls(&self, global_wb: (f64, f64), values: &[(String, f64)]) -> Result<LayerTools, String> {
+        let mut view = self.view(global_wb);
+        let mut out = self.clone();
+        for (id, v) in values {
+            let key = layer_key_of_control(id).ok_or_else(|| format!("`{id}` is not a layer control"))?;
+            if !crate::controls::set(&mut view, id, *v) {
+                return Err(format!("unknown control `{id}`"));
+            }
+            out.take(key, &view);
+        }
+        Ok(out)
+    }
+}
+
+/// The [`LayerTools`] section a control belongs to (`light.exposure` → `light`), or `None` for
+/// image-level controls (optics, geometry, calibration, profile, negative, crop).
+pub fn layer_key_of_control(id: &str) -> Option<&'static str> {
+    let fam = id.split('.').next()?;
+    Some(match fam {
+        "wb" => "wb",
+        "light" => "light",
+        "curve" => "curve",
+        "color" => "color",
+        "mixer" => "mixer",
+        "pointColor" => "point_colors",
+        "bw" => "bw_mix",
+        "grading" => "grading",
+        "effects" => "effects",
+        "vignette" => "vignette",
+        "grain" => "grain",
+        "detail" => "detail",
+        "skinTone" => "skin_tone",
+        _ => return None,
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -977,6 +1406,8 @@ pub enum SpotMode {
     Remove,
     Heal,
     Clone,
+    /// local-image: generative AI removal (the repaired pixels are a stored patch, [`AiPatch`]).
+    Ai,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -991,12 +1422,58 @@ pub struct Spot {
     pub opacity: f64,
     /// Source offset (normalized) from the target; None = auto (content-aware remove).
     pub source_offset: Option<Point>,
+    /// local-image: a lasso outline (normalized, closed) instead of brushed `points` (AI spots).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub polygon: Vec<Point>,
+    /// local-image: the develop layer (mask id) whose area an AI spot removed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mask: Option<u32>,
+    /// local-image: an AI spot's generated pixels (`None` on other spots). These three fields are
+    /// left out of the JSON when empty, so older settings serialize and hash as before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch: Option<AiPatch>,
 }
 
 impl Default for Spot {
     fn default() -> Self {
-        Self { mode: SpotMode::Remove, points: Vec::new(), size: 0.02, feather: 50.0, opacity: 100.0, source_offset: None }
+        Self {
+            mode: SpotMode::Remove,
+            points: Vec::new(),
+            size: 0.02,
+            feather: 50.0,
+            opacity: 100.0,
+            source_offset: None,
+            polygon: Vec::new(),
+            mask: None,
+            patch: None,
+        }
     }
+}
+
+impl Spot {
+    /// An AI removal (generated pixels), as opposed to Remove / Heal / Clone.
+    pub fn is_ai(&self) -> bool {
+        self.mode == SpotMode::Ai
+    }
+}
+
+/// The stored pixels of an AI removal: a patch in the library's AI store (local-image
+/// `lightcraft_engine::enhance`), composited by the pipeline at the retouching stage.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiPatch {
+    /// Store key (content address of the inputs).
+    pub key: String,
+    /// Content hash of the photo it was made from: a patch never applies to another photo.
+    pub source: String,
+    /// Where the patch goes: `[x0, y0, x1, y1]`, normalized coordinates (as spots).
+    pub rect: [f64; 4],
+    /// The AI engine (`klein`, `qwen-int8`, …) and seed that made it.
+    pub engine: String,
+    pub seed: u64,
+    /// The photo's geometry (orientation, lens, perspective) when it was made; another one means
+    /// the patch may not line up (Develop offers Regenerate).
+    pub geometry: String,
 }
 
 /// A red eye / pet eye correction: the user's ellipse (centre normalized, radii as fractions of
@@ -1034,7 +1511,96 @@ pub struct LensBlur {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Enhance {
+    /// How much of the stored AI result is used, 0..100.
+    #[serde(skip_serializing_if = "is_zero")]
     pub denoise: f64,
+    #[serde(skip_serializing_if = "DenoiseModel::is_auto")]
+    pub denoise_model: DenoiseModel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(deserialize_with = "deserialize_denoise_ref")]
+    pub ai: Option<DenoiseRef>,
     pub raw_details: bool,
     pub super_resolution: bool,
+}
+
+/// Denoiser family; Auto selects raw for scene-referred sources, RGB otherwise.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DenoiseModel {
+    #[default]
+    Auto,
+    Raw,
+    Rgb,
+}
+/// A 128-bit content key, written as 32 hex digits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct AiKey(pub u128);
+
+impl std::fmt::Display for AiKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:032x}", self.0)
+    }
+}
+
+impl AiKey {
+    pub fn parse(s: &str) -> Option<AiKey> {
+        (s.len() == 32).then(|| u128::from_str_radix(s, 16).ok().map(AiKey)).flatten()
+    }
+}
+
+impl Serialize for AiKey {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for AiKey {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        AiKey::parse(&s).ok_or_else(|| serde::de::Error::custom("expected 32 hex digits"))
+    }
+}
+
+/// A photo's AI Denoise result in the library's AI store (local-image).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DenoiseRef {
+    #[serde(default)]
+    pub model: DenoiseModel,
+    #[serde(default)]
+    pub preview: bool,
+    /// Store key of the result.
+    pub key: AiKey,
+    /// Content hash of the photo it was made from (never applied to another photo).
+    pub source: AiKey,
+}
+
+impl DenoiseModel {
+    pub fn is_auto(&self) -> bool {
+        *self == Self::Auto
+    }
+}
+fn deserialize_denoise_ref<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<DenoiseRef>, D::Error> {
+    Option::<DenoiseRef>::deserialize(d)
+}
+
+#[cfg(test)]
+mod ds_tests {
+    use super::*;
+    #[test]
+    fn ds_finding_layer_skin_tone_controls_are_routed() {
+        let tools = LayerTools::default().set_controls((5000.0, 0.0), &[("skinTone.uniformity".into(), 25.0)]).unwrap();
+        assert_eq!(tools.skin_tone.unwrap().uniformity, 25.0);
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_denoise_references_reject_invalid_non_null_values() {
+    use serde_json::json;
+    for ai in [json!({}), json!({"key":"bad", "source":"bad"}), json!(5)] {
+        assert!(serde_json::from_value::<Enhance>(json!({"ai": ai})).is_err());
+    }
+    assert!(serde_json::from_value::<Enhance>(json!({"ai":null})).unwrap().ai.is_none());
+    let value = Enhance { ai: Some(DenoiseRef { model: DenoiseModel::Raw, preview: false, key: AiKey(7), source: AiKey(9) }), ..Default::default() };
+    assert_eq!(serde_json::from_value::<Enhance>(serde_json::to_value(value).unwrap()).unwrap(), value);
 }

@@ -162,7 +162,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // the full-screen preview shows the photo only: no tool overlays
     let right = if fullscreen { RightPanel::None } else { app.ui.right };
     let crop_tool = right == RightPanel::Crop;
-    let frame = Frame::with_lens(photo.width.max(1) as usize, photo.height.max(1) as usize, &d, !crop_tool, photo.embedded_lens.as_ref());
+    let lens_db = lightcraft_engine::lens_db::for_photo(&photo, &d);
+    let frame =
+        Frame::with_lenses(photo.width.max(1) as usize, photo.height.max(1) as usize, &d, !crop_tool, photo.embedded_lens.as_ref(), lens_db.as_ref());
     let aspect = frame.aspect() as f32;
     let ppp = ui.ctx().pixels_per_point();
     let area = canvas.shrink(if fullscreen {
@@ -175,9 +177,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let max_edge = app.ui.settings.preview_edge.clamp(512, 8192) as f32;
     let native = [photo.width.max(1) as usize, photo.height.max(1) as usize];
     // two views (before, after): side by side or stacked
-    let split = matches!(app.ui.before_after, BeforeAfter::SideBySide | BeforeAfter::TopBottom);
-    let split_view = matches!(app.ui.before_after, BeforeAfter::Split | BeforeAfter::SplitTopBottom);
-    let areas: Vec<Rect> = match app.ui.before_after {
+    // A Library preview represents the whole layered document, regardless of remembered Develop
+    // before/after or preset-hover state. Develop itself still renders the original photo.
+    let composite = !right.is_edit_tool() && app.host_composites.contains_key(&id);
+    let split = !composite && matches!(app.ui.before_after, BeforeAfter::SideBySide | BeforeAfter::TopBottom);
+    let split_view = !composite && matches!(app.ui.before_after, BeforeAfter::Split | BeforeAfter::SplitTopBottom);
+    let areas: Vec<Rect> = match if composite { BeforeAfter::Off } else { app.ui.before_after } {
         BeforeAfter::SideBySide => {
             let half = area.width() / 2.0 - 6.0;
             vec![
@@ -200,9 +205,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     app.image_rect = Some(img_rect);
     // request renders: the loupe at display resolution (drafts during drags)
     let interacting = app.session.interaction.is_some();
-    let scale = if interacting { 0.6 } else { 1.0 };
     // render at the final size: a click-zoom animation only changes how the result is drawn
-    let want = (target_rect.width().max(target_rect.height()) * ppp * scale).min(max_edge) as usize;
+    let want = crate::render::view_edge(target_rect.width().max(target_rect.height()) * ppp, max_edge, interacting);
     let (rw, rh) = if aspect >= 1.0 { (want, (want as f32 / aspect) as usize) } else { ((want as f32 * aspect) as usize, want) };
     if let Some(job) = app.session.loupe_job(id, rw.max(8), rh.max(8), !crop_tool) {
         let job = if interacting { job.draft() } else { job };
@@ -276,7 +280,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         p.text(pos2(canvas.right() - 16.0, canvas.top() + 14.0), Align2::RIGHT_CENTER, label, t.font(12.5), Color32::from_gray(60));
     }
     let shown;
-    if split {
+    let mut composite_button = None;
+    if let Some(button) = composite.then(|| super::host_composite::loupe(app, ui, id, main_area)).flatten() {
+        composite_button = Some(button);
+        shown = "compositing";
+    } else if split {
         let br = fit_rect(areas[0], aspect, app.ui.zoom, native, ppp, app.ui.pan);
         draw(Slot::Before, br);
         shown = draw(Slot::Main, img_rect);
@@ -315,7 +323,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     }
     app.loupe_shown = Some((id, shown));
-    if app.ui.before_after == BeforeAfter::Split {
+    if split_view && app.ui.before_after == BeforeAfter::Split {
         let mid = img_rect.center().x;
         if let Some(tex) = app.renderer.textures.get(&Slot::Before).filter(|t| t.photo == id) {
             let left = Rect::from_min_max(img_rect.min, pos2(mid, img_rect.bottom()));
@@ -323,7 +331,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
         p.line_segment([pos2(mid, img_rect.top()), pos2(mid, img_rect.bottom())], Stroke::new(1.5, Color32::WHITE));
     }
-    if app.ui.before_after == BeforeAfter::SplitTopBottom {
+    if split_view && app.ui.before_after == BeforeAfter::SplitTopBottom {
         let mid = img_rect.center().y;
         if let Some(tex) = app.renderer.textures.get(&Slot::Before).filter(|t| t.photo == id) {
             let top = Rect::from_min_max(img_rect.min, pos2(img_rect.right(), mid));
@@ -375,6 +383,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     // drawn and hit-tested above the loupe and its tools: clicks on it pan
     navigator(app, ui, canvas, img_rect, id);
+    if let Some(b) = composite_button
+        && super::host_composite::button(ui, id, b)
+    {
+        app.host_composite_open = Some(id);
+    }
     if let Some(why) = photo.preview_only.as_deref().filter(|_| !fullscreen) {
         preview_only_pill(ui, canvas, why);
     }
@@ -572,7 +585,7 @@ fn region_overlay(
 /// follow them, so a filter must never be invisible here. A click clears them all. It sits in the
 /// canvas margin, so the photo does not move.
 fn filter_pill(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect) {
-    let chips = lightcraft_engine::filter_chips(&app.session.filter, &app.session.catalog);
+    let chips = super::people_workspace::filter_chips(app);
     if chips.is_empty() {
         return;
     }
@@ -725,6 +738,18 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
         return Overlay::Spots(app.ui.spots_threshold.clamp(0.0, 100.0).round() as u8);
     }
     let edit = app.ui.right == RightPanel::Edit;
+    if edit
+        && app.ui.sharpen_mask_preview
+        && app.ui.dragging_control.as_deref() == Some("detail.sharpenMasking")
+        && d.section_enabled("detail")
+        && d.detail.sharpen_amount > 0.0
+    {
+        return Overlay::SharpenMask;
+    }
+    // the tone equalizer's mask preview
+    if edit && app.ui.flyout_open("toneEqMask") && d.tone_eq.enabled && d.section_enabled("toneEq") {
+        return Overlay::ToneEqMask;
+    }
     if edit && app.ui.point_color_visualize && app.ui.flyout_open("pointColor") && app.ui.point_color < d.point_colors.len() {
         return Overlay::PointColorRange(app.ui.point_color as u8);
     }
@@ -787,13 +812,34 @@ fn general_interaction(
         }
         return;
     }
+    if app.ui.tool == "skinTone" {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        if resp.clicked()
+            && let Some(q) = resp.interact_pointer_pos()
+        {
+            let n = map.norm(q);
+            let mut args = json!({"x":n.x,"y":n.y});
+            if let Some(id) = app.ui.point_color_mask {
+                args["mask"] = json!(id);
+            }
+            if let Err(e) = app.run("skinTone.pick", args) {
+                app.toast(ui.ctx(), e);
+            }
+            app.ui.tool.clear();
+        }
+        return;
+    }
     if app.ui.tool == "pointColor" {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         if resp.clicked()
             && let Some(q) = resp.interact_pointer_pos()
         {
             let n = map.norm(q);
-            if let Ok(r) = app.run("pointColor.pick", json!({"x": n.x, "y": n.y})) {
+            let mut q = json!({"x": n.x, "y": n.y});
+            if let Some(m) = app.ui.point_color_mask {
+                q["mask"] = json!(m);
+            }
+            if let Ok(r) = app.run("pointColor.pick", q) {
                 app.ui.point_color = r["index"].as_u64().unwrap_or(0) as usize;
             }
             app.ui.tool.clear();
@@ -1327,56 +1373,161 @@ fn pin(p: &egui::Painter, c: Pos2, sel: bool) {
 
 // ------------------------------------------------------------------------ remove
 
-/// The Remove tool on the photo: every spot's outline and pin (the selected one with its source),
-/// click a pin to select its spot, drag a target or source to move it, paint elsewhere to add one.
+/// Grab radius of a spot's pin (screen points): only the pin grabs a spot, so painting next to
+/// (or over) an earlier spot always paints.
+const PIN_HIT: f32 = 8.0;
+
+/// The outline of the union of discs of radius `r` around `centres` (screen points), as polylines:
+/// a brushed spot shows as one clean contour, not a circle per dab.
+fn disc_union_outline(centres: &[Pos2], r: f32) -> Vec<Vec<Pos2>> {
+    // dabs closer than a quarter radius add nothing to the outline
+    let mut cs: Vec<Pos2> = Vec::new();
+    for (i, c) in centres.iter().enumerate() {
+        if cs.last().is_none_or(|l| l.distance(*c) >= r * 0.25) || i + 1 == centres.len() {
+            cs.push(*c);
+        }
+    }
+    let n = ((r * std::f32::consts::TAU / 4.0) as usize).clamp(12, 96);
+    let mut lines = Vec::new();
+    for (i, c) in cs.iter().enumerate() {
+        let near: Vec<Pos2> = cs.iter().enumerate().filter(|(j, o)| *j != i && o.distance(*c) < 2.0 * r).map(|(_, o)| *o).collect();
+        let at = |k: usize| {
+            let a = k as f32 / n as f32 * std::f32::consts::TAU;
+            *c + vec2(a.cos(), a.sin()) * r
+        };
+        let shown: Vec<bool> = (0..n).map(|k| near.iter().all(|o| o.distance(at(k)) >= r - 0.5)).collect();
+        if shown.iter().all(|s| *s) {
+            lines.push((0..=n).map(at).collect());
+            continue;
+        }
+        // runs of visible samples, starting after a hidden one so runs don't wrap
+        let Some(start) = shown.iter().position(|s| !*s) else { continue };
+        let mut run: Vec<Pos2> = Vec::new();
+        for k in (start + 1..=start + n).map(|k| k % n) {
+            if shown[k] {
+                if run.is_empty() {
+                    run.push(at((k + n - 1) % n).lerp(at(k), 0.5));
+                }
+                run.push(at(k));
+            } else if !run.is_empty() {
+                run.push(at((k + n - 1) % n).lerp(at(k), 0.5));
+                lines.push(std::mem::take(&mut run));
+            }
+        }
+    }
+    lines
+}
+
+/// Draw `s`'s outline (offset by `off`, its source): the brushed area's contour and its lasso.
+/// Returns the outline's box.
+fn spot_outline(p: &egui::Painter, s: &lightcraft_develop::Spot, map: &CanvasMap, long: f64, off: Point, stroke: Stroke) -> Rect {
+    let r = (s.size * long) as f32;
+    let at = |q: &Point| map.screen(Point::new(q.x + off.x, q.y + off.y));
+    let mut bb = Rect::NOTHING;
+    if !s.points.is_empty() {
+        let centres: Vec<Pos2> = s.points.iter().map(at).collect();
+        for c in &centres {
+            bb = bb.union(Rect::from_center_size(*c, vec2(2.0 * r, 2.0 * r)));
+        }
+        for line in disc_union_outline(&centres, r) {
+            p.add(egui::Shape::line(line, stroke));
+        }
+    }
+    if s.polygon.len() >= 3 {
+        let mut pts: Vec<Pos2> = s.polygon.iter().map(at).collect();
+        pts.iter().for_each(|q| bb.extend_with(*q));
+        pts.push(pts[0]);
+        p.add(egui::Shape::line(pts, stroke));
+    }
+    if s.points.is_empty()
+        && s.polygon.len() < 3
+        && let Some(pt) = &s.patch
+    {
+        // a layer-area removal: its patch's box
+        let (a, b) = (at(&Point::new(pt.rect[0], pt.rect[1])), at(&Point::new(pt.rect[2], pt.rect[3])));
+        bb = Rect::from_two_pos(a, b);
+        p.rect_stroke(bb, 0.0, stroke, StrokeKind::Middle);
+    }
+    bb
+}
+
+/// The Remove tool on the photo: spots' pins (and the selected or hovered spot's outline, with its
+/// source), click a pin to select its spot, drag a target or source to move it, paint elsewhere to
+/// add one. In AI mode strokes gather in a draft that Remove (Enter) runs and Cancel (Esc) drops.
 fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response, map: &CanvasMap, d: &DevelopSettings) {
+    use crate::state::SpotOverlay;
     let long = (map.rect.width().max(map.rect.height())) as f64;
     let p = ui.painter_at(app.canvas_rect.unwrap_or(map.rect));
     let active = app.session.active_spot.filter(|i| *i < d.spots.len());
-    // (spot, is source, screen centre, radius) of everything that can be grabbed
-    let mut grips: Vec<(usize, bool, Pos2, f32)> = Vec::new();
-    for (i, s) in d.spots.iter().enumerate() {
-        let r = (s.size * long) as f32;
-        let sel = Some(i) == active;
-        let col = Color32::from_white_alpha(if sel { 230 } else { 150 });
-        for q in &s.points {
-            p.circle_stroke(map.screen(*q), r, Stroke::new(if sel { 1.5 } else { 1.0 }, col));
-        }
-        let Some(&t) = s.points.first() else { continue };
-        let tq = map.screen(t);
-        if let Some(o) = s.source_offset.filter(|_| sel) {
-            let sq = map.screen(Point::new(t.x + o.x, t.y + o.y));
-            for q in &s.points {
-                p.circle_stroke(map.screen(Point::new(q.x + o.x, q.y + o.y)), r, Stroke::new(1.0, Color32::from_white_alpha(170)));
+    let ai = app.ui.tool == "ai";
+    let lasso = ai && app.ui.remove_lasso;
+    let overlay = app.ui.remove_overlay;
+    let pins = match overlay {
+        SpotOverlay::Always => true,
+        SpotOverlay::Auto => resp.hover_pos().is_some() || app.gesture.is_some(),
+        SpotOverlay::Never => false,
+    };
+    // (spot, is source, screen centre) of everything that can be grabbed
+    let mut grips: Vec<(usize, bool, Pos2)> = Vec::new();
+    if overlay != SpotOverlay::Never {
+        for (i, s) in d.spots.iter().enumerate() {
+            let Some(t) = spot_anchor(s) else { continue };
+            let tq = map.screen(t);
+            grips.push((i, false, tq));
+            if let Some(o) = s.source_offset.filter(|_| Some(i) == active) {
+                grips.push((i, true, map.screen(Point::new(t.x + o.x, t.y + o.y))));
             }
-            let dir = (tq - sq).normalized();
-            p.arrow(sq + dir * r, (tq - sq) - dir * (2.0 * r).min((tq - sq).length()), Stroke::new(1.0, Color32::from_white_alpha(200)));
-            register(ui.ctx(), format!("spotSource:{i}"), Rect::from_center_size(sq, vec2(14.0, 14.0)));
-            grips.push((i, true, sq, r));
         }
-        pin(&p, tq, sel);
-        register(ui.ctx(), format!("spotPin:{i}"), Rect::from_center_size(tq, vec2(14.0, 14.0)));
-        grips.push((i, false, tq, r));
+    }
+    // a pin under `q`: the nearest
+    let hit = |q: Pos2| grips.iter().filter(|g| g.2.distance(q) < PIN_HIT).min_by(|a, b| a.2.distance(q).total_cmp(&b.2.distance(q))).copied();
+    let hover = resp.hover_pos().and_then(hit);
+    let moving = match &app.gesture {
+        Some(Gesture::SpotMove { spot, .. }) => Some(*spot),
+        _ => None,
+    };
+    // outlines: the selected spot (with its source) and the hovered or moved one
+    if overlay != SpotOverlay::Never {
+        for (i, s) in d.spots.iter().enumerate() {
+            let sel = Some(i) == active;
+            if !(sel || hover.is_some_and(|h| h.0 == i) || moving == Some(i)) {
+                continue;
+            }
+            let col = Color32::from_white_alpha(if sel { 230 } else { 170 });
+            let bb = spot_outline(&p, s, map, long, Point::new(0.0, 0.0), Stroke::new(if sel { 1.5 } else { 1.0 }, col));
+            register(ui.ctx(), format!("spotOutline:{i}"), bb);
+            if let (Some(o), true, Some(t)) = (s.source_offset, sel, spot_anchor(s)) {
+                spot_outline(&p, s, map, long, o, Stroke::new(1.0, Color32::from_white_alpha(170)));
+                let (tq, sq) = (map.screen(t), map.screen(Point::new(t.x + o.x, t.y + o.y)));
+                let r = (s.size * long) as f32;
+                let dir = (tq - sq).normalized();
+                p.arrow(sq + dir * r, (tq - sq) - dir * (2.0 * r).min((tq - sq).length()), Stroke::new(1.0, Color32::from_white_alpha(200)));
+            }
+        }
+    }
+    for &(i, source, q) in &grips {
+        let sel = Some(i) == active;
+        if source {
+            register(ui.ctx(), format!("spotSource:{i}"), Rect::from_center_size(q, vec2(14.0, 14.0)));
+        } else {
+            register(ui.ctx(), format!("spotPin:{i}"), Rect::from_center_size(q, vec2(14.0, 14.0)));
+        }
+        if overlay != SpotOverlay::Never && (pins || sel) {
+            pin(&p, q, sel);
+        }
     }
     let r = (app.ui.remove_size as f64 * long) as f32;
-    // a target or source under `q`: the selected spot's first, then the nearest pin
-    let hit = |q: Pos2| {
-        grips
-            .iter()
-            .filter(|g| g.2.distance(q) < g.3.max(8.0))
-            .min_by(|a, b| {
-                (Some(a.0) != active, a.2.distance(q)).partial_cmp(&(Some(b.0) != active, b.2.distance(q))).unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .copied()
-    };
-    let hover = resp.hover_pos().and_then(hit);
     if let Some(h) = resp.hover_pos() {
         if hover.is_some() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
         } else {
             ui.ctx().set_cursor_icon(egui::CursorIcon::None);
-            p.circle_stroke(h, r, Stroke::new(1.0, Color32::WHITE));
-            p.circle_stroke(h, r * (1.0 - app.ui.remove_feather / 100.0).max(0.05), Stroke::new(1.0, Color32::from_white_alpha(110)));
+            if lasso {
+                p.circle_filled(h, 2.5, Color32::WHITE);
+            } else {
+                p.circle_stroke(h, r, Stroke::new(1.0, Color32::WHITE));
+                p.circle_stroke(h, r * (1.0 - app.ui.remove_feather / 100.0).max(0.05), Stroke::new(1.0, Color32::from_white_alpha(110)));
+            }
         }
     }
     let press = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos());
@@ -1390,7 +1541,9 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
         app.gesture = Some(Gesture::SpotMove { spot, source });
     }
     if let Some(Gesture::SpotMove { spot, source }) = app.gesture.clone() {
+        // (an AI removal stays where its pixels were generated: dragging it only selects it)
         if resp.dragged()
+            && !d.spots.get(spot).is_some_and(|s| s.is_ai())
             && let Some(q) = resp.interact_pointer_pos()
         {
             let (n, n0) = (map.norm(q), map.norm(q - resp.drag_delta()));
@@ -1420,25 +1573,256 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
             _ => app.gesture = Some(Gesture::Spot { points: vec![n] }),
         }
     }
+    // AI mode: what is painted but not removed yet, as removals being generated look
+    let pending = Color32::from_rgba_unmultiplied(120, 170, 255, 70);
+    let pending_line = Stroke::new(2.0, Color32::from_rgb(120, 170, 255));
+    if let Some(dr) = app.ui.remove_draft.as_ref().filter(|_| ai) {
+        for q in &dr.points {
+            p.circle_filled(map.screen(*q), r, pending);
+        }
+        for l in &dr.lassos {
+            let mut pts: Vec<Pos2> = l.iter().map(|q| map.screen(*q)).collect();
+            pts.push(pts[0]);
+            p.add(egui::Shape::line(pts, pending_line));
+        }
+    }
     if let Some(Gesture::Spot { points }) = &app.gesture {
-        for q in points {
-            p.circle_filled(map.screen(*q), r, Color32::from_white_alpha(60));
+        let alt = ui.input(|i| i.modifiers.alt) && ai;
+        let col = if alt { Color32::from_rgba_unmultiplied(255, 90, 90, 70) } else { Color32::from_white_alpha(60) };
+        if lasso {
+            let pts: Vec<Pos2> = points.iter().map(|q| map.screen(*q)).collect();
+            p.add(egui::Shape::line(pts, Stroke::new(1.5, if alt { Color32::from_rgb(255, 120, 120) } else { Color32::WHITE })));
+        } else {
+            for q in points {
+                p.circle_filled(map.screen(*q), r, col);
+            }
+        }
+    }
+    // AI removals and heals being generated: their strokes, until the result arrives
+    if let Some(id) = app.session.active() {
+        for j in app.session.enhance.running_for(id) {
+            if let lightcraft_engine::enhance::JobKind::Remove { stroke } = &j.kind {
+                let rr = (stroke.size * long) as f32;
+                for q in &stroke.points {
+                    p.circle_filled(map.screen(*q), rr, pending);
+                }
+                if stroke.polygon.len() >= 3 {
+                    let mut pts: Vec<Pos2> = stroke.polygon.iter().map(|q| map.screen(*q)).collect();
+                    pts.push(pts[0]);
+                    p.add(egui::Shape::line(pts, pending_line));
+                }
+            }
         }
     }
     if (resp.drag_stopped() || resp.clicked())
         && let Some(Gesture::Spot { points }) = app.gesture.take()
     {
-        let mode = match app.ui.tool.as_str() {
-            "heal" => "heal",
-            "clone" => "clone",
-            _ => "remove",
-        };
-        let pts: Vec<[f64; 2]> = points.iter().map(|q| [q.x, q.y]).collect();
-        let _ = app.run(
-            "spot.add",
-            json!({"mode": mode, "points": pts, "size": app.ui.remove_size, "feather": app.ui.remove_feather, "opacity": app.ui.remove_opacity}),
-        );
+        if ai {
+            let alt = ui.input(|i| i.modifiers.alt);
+            add_to_draft(app, points, lasso, alt, r, map);
+        } else {
+            add_spot(app, ui.ctx(), &points);
+        }
     }
+    if ai {
+        draft_buttons(app, ui, map, long);
+    }
+}
+
+/// A brushed Remove / Heal / Clone spot. Heal is content-aware (Compositing's Spot Healing:
+/// filled from the texture around it, on this computer), except in the Camera Raw Filter, where
+/// patches can't be kept: there it heals from an automatic source, like Remove.
+fn add_spot(app: &mut LightcraftApp, ctx: &egui::Context, points: &[Point]) {
+    let pts: Vec<[f64; 2]> = points.iter().map(|q| [q.x, q.y]).collect();
+    let mut params = json!({"points": pts, "size": app.ui.remove_size, "feather": app.ui.remove_feather, "opacity": app.ui.remove_opacity});
+    let ephemeral = app.session.active().is_some_and(|id| app.session.ephemeral_photo() == Some(id));
+    let mode = match app.ui.tool.as_str() {
+        "heal" if !ephemeral => "ai",
+        "heal" => "heal",
+        "clone" => "clone",
+        _ => "remove",
+    };
+    let content_aware = mode == "ai";
+    params["mode"] = json!(mode);
+    if content_aware {
+        params["engine"] = json!(lightcraft_engine::enhance::remove::LOCAL);
+    }
+    if let Err(e) = app.run("spot.add", params)
+        && content_aware
+    {
+        app.toast_error(ctx, e);
+    }
+}
+
+/// Signed area (shoelace) of a closed outline.
+fn signed_area(pts: &[Point]) -> f64 {
+    (0..pts.len()).map(|i| (pts[i].x * pts[(i + 1) % pts.len()].y - pts[(i + 1) % pts.len()].x * pts[i].y) / 2.0).sum()
+}
+
+/// Whether `q` is inside the closed outline `poly` (even-odd).
+fn inside(poly: &[Point], q: Point) -> bool {
+    let mut c = false;
+    for i in 0..poly.len() {
+        let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
+        if (a.y > q.y) != (b.y > q.y) && q.x < a.x + (q.y - a.y) / (b.y - a.y) * (b.x - a.x) {
+            c = !c;
+        }
+    }
+    c
+}
+
+/// Add a finished stroke to the AI draft (⌥: take away from it — dabs under the eraser, or dabs and
+/// lassos inside an ⌥-lasso).
+fn add_to_draft(app: &mut LightcraftApp, points: Vec<Point>, lasso: bool, alt: bool, r: f32, map: &CanvasMap) {
+    let Some(photo) = app.session.active() else { return };
+    let draft = match &mut app.ui.remove_draft {
+        Some(dr) if dr.photo == photo.0 => dr,
+        slot => slot.insert(crate::state::RemoveDraft { photo: photo.0, ..Default::default() }),
+    };
+    if lasso {
+        if points.len() < 3 {
+            return;
+        }
+        if alt {
+            draft.points.retain(|q| !inside(&points, *q));
+            draft.lassos.retain(|l| !l.iter().all(|q| inside(&points, *q)));
+        } else {
+            draft.lassos.push(points);
+        }
+    } else if alt {
+        let near = |q: &Point| points.iter().any(|e| map.screen(*e).distance(map.screen(*q)) < r);
+        draft.points.retain(|q| !near(q));
+    } else {
+        draft.points.extend(points);
+    }
+    if draft.is_empty() {
+        app.ui.remove_draft = None;
+    }
+}
+
+/// The draft's lassos as one outline for `spot.add`: each wound the same way, joined by bridges
+/// walked there and back (the engine fills it non-zero, so it covers their union).
+fn joined_lassos(lassos: &[Vec<Point>]) -> Vec<Point> {
+    if let [one] = lassos {
+        return one.clone();
+    }
+    let mut out = Vec::new();
+    let mut anchors = Vec::new();
+    for l in lassos {
+        let mut l = l.clone();
+        if signed_area(&l) < 0.0 {
+            l.reverse();
+        }
+        anchors.push(l[0]);
+        out.extend(l.iter().copied());
+        out.push(l[0]);
+    }
+    anchors.pop();
+    out.extend(anchors.into_iter().rev());
+    out
+}
+
+/// Remove what the AI draft covers (one AI removal: its dabs and lassos together).
+pub fn apply_remove_draft(app: &mut LightcraftApp, ctx: &egui::Context) {
+    let Some(dr) = app.ui.remove_draft.take() else { return };
+    if app.session.active().map(|i| i.0) != Some(dr.photo) || dr.is_empty() {
+        return;
+    }
+    let mut params = json!({"mode": "ai", "size": app.ui.remove_size, "feather": app.ui.remove_feather, "opacity": app.ui.remove_opacity});
+    if !dr.points.is_empty() {
+        params["points"] = json!(dr.points.iter().map(|q| [q.x, q.y]).collect::<Vec<_>>());
+    }
+    if !dr.lassos.is_empty() {
+        params["polygon"] = json!(joined_lassos(&dr.lassos).iter().map(|q| [q.x, q.y]).collect::<Vec<_>>());
+    }
+    if !app.ui.remove_engine.is_empty() {
+        params["engine"] = json!(app.ui.remove_engine);
+    }
+    if let Err(e) = app.run("spot.add", params) {
+        app.toast_error(ctx, e);
+    }
+}
+
+/// Each frame (before the shortcuts): drop the AI draft once it no longer applies (another photo,
+/// tool or view), and take Enter (Remove) and Esc (Cancel) while there is one.
+pub fn remove_draft_keys(app: &mut LightcraftApp, ctx: &egui::Context) {
+    let Some(dr) = &app.ui.remove_draft else { return };
+    let applies = app.ui.view == crate::state::ViewMode::Detail
+        && app.ui.right == RightPanel::Remove
+        && app.ui.tool == "ai"
+        && app.session.active().map(|i| i.0) == Some(dr.photo);
+    if !applies {
+        app.ui.remove_draft = None;
+        return;
+    }
+    if ctx.egui_wants_keyboard_input() {
+        return;
+    }
+    let (enter, esc) =
+        ctx.input_mut(|i| (i.consume_key(egui::Modifiers::NONE, egui::Key::Enter), i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)));
+    if enter {
+        apply_remove_draft(app, ctx);
+    } else if esc {
+        app.ui.remove_draft = None;
+    }
+}
+
+/// Remove / Cancel beside the AI draft on the photo.
+fn draft_buttons(app: &mut LightcraftApp, ui: &mut egui::Ui, map: &CanvasMap, long: f64) {
+    let Some(dr) = app.ui.remove_draft.as_ref() else { return };
+    if app.gesture.is_some() {
+        return;
+    }
+    let r = (app.ui.remove_size as f64 * long) as f32;
+    let mut bb = Rect::NOTHING;
+    for q in &dr.points {
+        bb = bb.union(Rect::from_center_size(map.screen(*q), vec2(2.0 * r, 2.0 * r)));
+    }
+    for q in dr.lassos.iter().flatten() {
+        bb.extend_with(map.screen(*q));
+    }
+    let area = app.canvas_rect.unwrap_or(map.rect);
+    let size = vec2(150.0, 32.0);
+    let mut at = pos2(bb.right() + 10.0, bb.top());
+    if at.x + size.x > area.right() - 8.0 {
+        at.x = bb.left() - 10.0 - size.x;
+    }
+    let at = pos2(
+        at.x.clamp(area.left() + 8.0, (area.right() - size.x - 8.0).max(area.left() + 8.0)),
+        at.y.clamp(area.top() + 8.0, (area.bottom() - size.y - 8.0).max(area.top() + 8.0)),
+    );
+    let mut apply = false;
+    let mut cancel = false;
+    egui::Area::new(egui::Id::new("removeDraftButtons")).order(egui::Order::Foreground).fixed_pos(at).show(ui.ctx(), |ui| {
+        egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                apply = crate::widgets::text_button(ui, "removeDraftApply", "Remove", true)
+                    .on_hover_text(crate::i18n::tr("Remove what you painted (Enter)"))
+                    .clicked();
+                cancel = crate::widgets::text_button(ui, "removeDraftCancel", "Cancel", false)
+                    .on_hover_text(crate::i18n::tr("Discard what you painted (Esc)"))
+                    .clicked();
+            });
+        });
+    });
+    if apply {
+        apply_remove_draft(app, ui.ctx());
+    } else if cancel {
+        app.ui.remove_draft = None;
+    }
+}
+
+/// Where a spot's pin goes: its first point, else (a lassoed or layer-area AI removal) the middle
+/// of its outline or of its patch.
+fn spot_anchor(s: &lightcraft_develop::Spot) -> Option<Point> {
+    if let Some(p) = s.points.first() {
+        return Some(*p);
+    }
+    if !s.polygon.is_empty() {
+        let n = s.polygon.len() as f64;
+        return Some(Point::new(s.polygon.iter().map(|p| p.x).sum::<f64>() / n, s.polygon.iter().map(|p| p.y).sum::<f64>() / n));
+    }
+    s.patch.as_ref().map(|p| Point::new((p.rect[0] + p.rect[2]) / 2.0, (p.rect[1] + p.rect[3]) / 2.0))
 }
 
 // ------------------------------------------------------------------------ red eye

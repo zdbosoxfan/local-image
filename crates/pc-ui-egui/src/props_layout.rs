@@ -26,6 +26,7 @@ pub fn kind_icon(content: &LayerContent) -> &'static str {
         LayerContent::Text(_) => "type",
         LayerContent::Shape(_) => "pentagon",
         LayerContent::Smart(_) => "app-window",
+        LayerContent::Symbol(_) => "copy",
         LayerContent::Raster(_) => "image",
     }
 }
@@ -122,13 +123,7 @@ pub fn field_width(avail: f32, cols: usize, label_w: f32) -> f32 {
 /// subject selection, type layers its conversions, shapes and smart objects their own.
 pub fn quick_actions(content: &LayerContent) -> &'static [(&'static str, &'static str)] {
     match content {
-        // The editor's own (CPU) and the Qwen-powered versions side by side.
-        LayerContent::Raster(_) => &[
-            ("Remove Background", "layer.removeBackground"),
-            ("Remove Background (AI)", "ai.removeBackground"),
-            ("Select Subject", "select.subject"),
-            ("Select Subject (AI)", "ai.selectSubject"),
-        ],
+        LayerContent::Raster(_) => &[("Select Subject", "select.subject"), ("Select Subject (AI)", "ai.selectSubject")],
         LayerContent::Text(_) => &[
             ("Convert to Shape", "type.convertToShape"),
             ("Convert to Paragraph Text", "type.convertToParagraphText"),
@@ -144,6 +139,7 @@ pub fn quick_actions(content: &LayerContent) -> &'static [(&'static str, &'stati
         ],
         LayerContent::Group(_) => &[("Ungroup Layers", "layer.ungroupLayers"), ("Convert to Smart Object", "layer.smartObjects.convertToSmartObject")],
         LayerContent::Fill(_) => &[("Rasterize Fill Content", "layer.rasterize.fillContent")],
+        LayerContent::Symbol(_) => &[("Symbols", "window.panel.symbols")],
         LayerContent::Adjustment(_) => &[],
     }
 }

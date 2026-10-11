@@ -8,7 +8,7 @@
 
 use egui::{Color32, Stroke, pos2};
 use photocraft_doc::LayerId;
-use photocraft_engine::snap::{SnapKind, SnapLine, SnapOptions, SnapTargets, layer_rect, union};
+use photocraft_engine::snap::{SnapKind, SnapLine, SnapOptions, SnapTargets, union};
 
 use crate::PhotocraftApp;
 use crate::canvas::{ToolEvent, ViewXform};
@@ -67,17 +67,36 @@ fn snap_on(app: &PhotocraftApp) -> bool {
 }
 
 /// Targets of the active document (smart = layer alignments only).
-fn build(app: &PhotocraftApp, exclude: &[LayerId], smart: bool) -> SnapTargets {
+fn build(app: &PhotocraftApp, exclude: &[LayerId], smart: bool, moving: bool) -> SnapTargets {
     let Some(st) = app.session.active() else { return SnapTargets::default() };
-    let opts = if smart { SnapOptions { guides: false, grid: false, layers: true, document: true, selection: false, grid_step: 0.0 } } else { options(app) };
-    let t = SnapTargets::from_document(&st.doc, &opts, exclude);
+    let mut opts =
+        if smart { SnapOptions { guides: false, grid: false, layers: true, document: true, selection: false, grid_step: 0.0 } } else { options(app) };
+    if moving && app.ui.tool == Tool::Move && st.doc.selection.is_some() {
+        opts.selection = false;
+    }
+    // A moving group carries its children; snapping to those children would snap to itself.
+    let exclude: Vec<_> = st
+        .doc
+        .walk()
+        .into_iter()
+        .filter(|(p, _, _)| (1..=p.len()).any(|n| st.doc.layer_at(&p[..n]).is_some_and(|l| exclude.contains(&l.id))))
+        .map(|(_, _, l)| l.id)
+        .collect();
+    let t = SnapTargets::from_document(&st.doc, &opts, &exclude);
     if smart { t.filtered(SnapKind::is_smart) } else { t }
 }
 
 /// Union of the selected layers' bounds (what the Move tool drags).
 fn moving_rect(app: &PhotocraftApp) -> Option<[f64; 4]> {
     let st = app.session.active()?;
-    union(st.selected_layers().into_iter().filter_map(|id| layer_rect(&st.doc, id)))
+    if let Some(sel) = &st.doc.selection {
+        let b = photocraft_compose::bounds::content_bounds(sel);
+        return (!b.is_empty()).then_some([b.x0 as f64, b.y0 as f64, b.x1 as f64, b.y1 as f64]);
+    }
+    union(photocraft_engine::layer_multi_cmds::move_targets(&st.doc, &st.selected_layers()).into_iter().filter_map(|id| {
+        let b = photocraft_engine::transform_cmds::transform_bounds(&st.doc, st.doc.layer(id)?);
+        (!b.is_empty()).then_some([b.x0 as f64, b.y0 as f64, b.x1 as f64, b.y1 as f64])
+    }))
 }
 
 fn is_point_tool(t: Tool) -> bool {
@@ -125,11 +144,10 @@ fn near_handle(q: &[[f64; 2]; 4], p: [f64; 2], tol: f64) -> bool {
     })
 }
 
-/// Photoshop: holding Ctrl (Windows) / Control (macOS) *during* a drag temporarily turns snapping
-/// off. Only the held state while dragging counts: Ctrl at the press belongs to the tool (Ctrl-click
-/// auto-selects with the Move tool), and ⌘ on the Mac never overrides snapping.
+/// Photoshop: Ctrl (Windows) / Command (macOS) during a drag temporarily disables snapping.
+/// The press still belongs to auto-select; the current held modifiers govern subsequent motion.
 fn override_held(mods: egui::Modifiers) -> bool {
-    mods.ctrl && !mods.mac_cmd
+    mods.ctrl || mods.command || mods.mac_cmd
 }
 
 /// Start snapping for a drag beginning at `p` (called on pointer down).
@@ -156,7 +174,7 @@ fn begin(app: &mut PhotocraftApp, p: [f64; 2]) {
     } else if tool == Tool::Move && crate::rulers::guide_at(app, p[0], p[1]).is_some() {
         Some((Gesture::Guide, Vec::new()))
     } else if tool == Tool::Move {
-        let exclude = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
+        let exclude = app.session.active().map(|s| photocraft_engine::layer_multi_cmds::move_targets(&s.doc, &s.selected_layers())).unwrap_or_default();
         moving_rect(app).map(|rect| (Gesture::Move { rect }, exclude))
     } else if tool == Tool::Crop
         && let Some(rect) = app.ui.crop_rect.filter(|r| crate::crop_ui::hit(*r, p, tol) == crate::crop_ui::Hit::Inside)
@@ -169,12 +187,12 @@ fn begin(app: &mut PhotocraftApp, p: [f64; 2]) {
         None
     };
     let Some((gesture, exclude)) = gesture else { return };
-    let mut targets = if snap_on(app) { build(app, &exclude, false) } else { SnapTargets::default() };
+    let mut targets = if snap_on(app) { build(app, &exclude, false, true) } else { SnapTargets::default() };
     if gesture == Gesture::Guide {
         // A guide never snaps to itself (or other guides).
         targets = targets.filtered(|k| k != SnapKind::Guide);
     }
-    let smart = if matches!(gesture, Gesture::Move { .. }) && smart_on(app) { build(app, &exclude, true) } else { SnapTargets::default() };
+    let smart = if matches!(gesture, Gesture::Move { .. }) && smart_on(app) { build(app, &exclude, true, true) } else { SnapTargets::default() };
     app.prefs_rt.snap = Some(ActiveSnap { gesture, start: p, targets, smart, disabled: false });
 }
 
@@ -262,7 +280,7 @@ pub fn snap_guide(app: &mut PhotocraftApp, vertical: bool, pos: f64) -> f64 {
     let Some(st) = app.session.active() else { return pos };
     let key = (st.doc.id, st.revision);
     if app.prefs_rt.guide_targets.as_ref().is_none_or(|(k, _)| *k != key) {
-        let t = build(app, &[], false).filtered(|k| k != SnapKind::Guide);
+        let t = build(app, &[], false, false).filtered(|k| k != SnapKind::Guide);
         app.prefs_rt.guide_targets = Some((key, t));
     }
     let tol = tolerance(app);
@@ -277,6 +295,9 @@ fn hex_color(s: &str, fallback: Color32) -> Color32 {
 /// Draw smart guides (and the moving bounds) for the drag in progress.
 pub fn draw(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
     let Some(snap) = &app.prefs_rt.snap else { return };
+    if !smart_on(app) && !snap_on(app) {
+        return;
+    }
     let smart_color = hex_color(&app.session.prefs().guides_grid_and_slices.smart_guide_color, Color32::from_rgb(255, 0, 255));
     // The moved layers' bounds follow the Move tool (Free Transform draws its own box).
     if let (Gesture::Move { rect }, Some(d)) =
@@ -371,9 +392,9 @@ mod tests {
         crate::canvas::tool_event(&mut app, ToolEvent::Move { x: 61.0, y: 60.0, pressure: 1.0 }, m);
         assert!(!app.prefs_rt.snap.as_ref().is_some_and(|s| s.disabled));
         crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 61.0, y: 60.0 }, m);
-        // ⌘ on the Mac is not the override.
+        // Adobe's current Move help also uses Command on macOS.
         let cmd = egui::Modifiers { mac_cmd: true, command: true, ..Default::default() };
-        assert!(!override_held(cmd) && override_held(ctrl));
+        assert!(override_held(cmd) && override_held(ctrl));
     }
 
     #[test]
@@ -431,6 +452,17 @@ mod tests {
         assert!((q[1][0] - 350.0).abs() < 1e-6, "{q:?}");
         crate::transform_tool::commit(&mut app);
         assert_eq!(mover_bounds(&app).x0, 300);
+    }
+
+    #[test]
+    fn ds2_guides_snap_to_selection_with_move_tool_active() {
+        let mut app = app_with_box();
+        app.ui.tool = Tool::Move;
+        app.run("select.rect", json!({"x":177,"y":113,"width":20,"height":20})).unwrap();
+        assert_eq!(snap_guide(&mut app, true, 175.), 177.);
+        assert_eq!(snap_guide(&mut app, false, 111.), 113.);
+        app.ui.tool = Tool::Brush;
+        assert_eq!(snap_guide(&mut app, true, 175.), 177.);
     }
 
     #[test]

@@ -18,12 +18,15 @@ pub mod crs;
 pub mod crs_masks;
 pub mod demo;
 pub mod devices;
+pub mod enhance;
+pub mod ephemeral;
 pub mod export;
 pub mod files;
 pub mod fonts;
 pub mod guard;
 pub mod import;
 mod import_move;
+pub mod lens_db;
 pub mod library;
 pub mod media;
 pub mod memory;
@@ -37,6 +40,7 @@ pub mod rename;
 pub mod segment;
 pub mod sidecar;
 pub mod smart;
+pub mod smart_sort;
 mod view;
 
 use std::sync::Arc;
@@ -81,6 +85,8 @@ pub struct UndoEntry {
     /// A folder to rename on disk (`from` → `to`) before `op` is applied: Rename / Move Folder
     /// (whose `op` relinks the photos inside). Never overwrites; refused when `to` exists.
     pub folder: Option<FolderMove>,
+    /// People identity changes share the catalog step without entering its op log.
+    pub people: Option<smart_sort::people::PeopleData>,
 }
 
 /// A folder renamed or moved on disk as part of an undo step.
@@ -180,6 +186,8 @@ pub struct Session {
     pub curve_presets: Vec<cmd::curves::CurvePreset>,
     /// Saved colour-label name sets.
     pub label_sets: Vec<cmd::manage::LabelSet>,
+    /// Smart Sort models and library-local embedding cache.
+    pub smart: smart_sort::SmartSort,
     /// Look-alike signatures by content key (Find Similar).
     pub signatures: std::collections::HashMap<String, [f32; 64]>,
     /// Imported `.cube` LUT profiles.
@@ -210,6 +218,11 @@ pub struct Session {
     /// Untouched Local records of folders not browsed for this many days are forgotten when the
     /// library opens (0 = never; persisted in prefs.json). See `cmd/browse.rs`.
     pub forget_local_days: u32,
+    /// local-image: the Camera Raw Filter's temporary photo (see [`ephemeral`]).
+    pub(crate) ephemeral: Option<ephemeral::Ephemeral>,
+    /// local-image: AI Remove — the host's AI services and the running jobs (see
+    /// [`enhance`]).
+    pub enhance: enhance::Enhance,
 }
 
 impl Default for Session {
@@ -260,6 +273,7 @@ impl Session {
             filter_presets: Vec::new(),
             curve_presets: Vec::new(),
             label_sets: Vec::new(),
+            smart: Default::default(),
             signatures: Default::default(),
             lut_profiles: Vec::new(),
             target_album: None,
@@ -274,6 +288,8 @@ impl Session {
             cache_mb: 0,
             smart_previews_dir: None,
             forget_local_days: lightcraft_catalog::DEFAULT_FORGET_DAYS,
+            ephemeral: None,
+            enhance: enhance::Enhance::default(),
         }
     }
 
@@ -356,7 +372,7 @@ impl Session {
         let fwd = op.clone();
         let inv = self.catalog.apply(op)?;
         self.pending_log.push(fwd);
-        self.undo.push(UndoEntry { label: label.to_string(), op: inv, folder: None });
+        self.undo.push(UndoEntry { label: label.to_string(), op: inv, folder: None, people: None });
         if self.undo.len() > 1000 {
             self.undo.remove(0);
         }
@@ -378,6 +394,9 @@ impl Session {
     /// differ from its latest version; at most [`AUTO_VERSIONS`] auto versions, oldest dropped).
     /// Saved with the library but not an undo step.
     pub fn auto_version(&mut self, id: PhotoId) {
+        if self.is_ephemeral(id) {
+            return;
+        }
         let Some(p) = self.catalog.photo(id) else { return };
         if !p.is_edited() || p.versions.last().is_some_and(|v| *v.settings == *p.develop) || self.interaction.is_some() {
             return;
@@ -405,12 +424,12 @@ impl Session {
             return;
         }
         // a step that moves a folder on disk stays on its own
-        if self.undo[self.undo.len() - n..].iter().any(|e| e.folder.is_some()) {
+        if self.undo[self.undo.len() - n..].iter().any(|e| e.folder.is_some() || e.people.is_some()) {
             return;
         }
         let tail = self.undo.split_off(self.undo.len() - n);
         let ops = tail.into_iter().rev().map(|e| e.op).collect();
-        self.undo.push(UndoEntry { label: label.to_string(), op: Op::Batch { ops }, folder: None });
+        self.undo.push(UndoEntry { label: label.to_string(), op: Op::Batch { ops }, folder: None, people: None });
     }
 
     /// Apply without recording undo (interactive previews).
@@ -421,7 +440,7 @@ impl Session {
 
     pub fn undo_step(&mut self) -> Result<String> {
         let e = self.undo.pop().ok_or_else(|| EngineError::Other("nothing to undo".into()))?;
-        let redo = match self.apply_with_files(&e.op, e.folder.as_ref()) {
+        let (redo, people) = match self.apply_people_history(&e.op, e.folder.as_ref(), e.people.as_ref()) {
             Ok(r) => r,
             Err(err) => {
                 self.undo.push(e);
@@ -429,13 +448,13 @@ impl Session {
             }
         };
         self.pending_log.push(e.op);
-        self.redo.push(UndoEntry { label: e.label.clone(), op: redo, folder: e.folder.as_ref().map(FolderMove::reversed) });
+        self.redo.push(UndoEntry { label: e.label.clone(), op: redo, folder: e.folder.as_ref().map(FolderMove::reversed), people });
         Ok(e.label)
     }
 
     pub fn redo_step(&mut self) -> Result<String> {
         let e = self.redo.pop().ok_or_else(|| EngineError::Other("nothing to redo".into()))?;
-        let undo = match self.apply_with_files(&e.op, e.folder.as_ref()) {
+        let (undo, people) = match self.apply_people_history(&e.op, e.folder.as_ref(), e.people.as_ref()) {
             Ok(r) => r,
             Err(err) => {
                 self.redo.push(e);
@@ -443,7 +462,7 @@ impl Session {
             }
         };
         self.pending_log.push(e.op);
-        self.undo.push(UndoEntry { label: e.label.clone(), op: undo, folder: e.folder.as_ref().map(FolderMove::reversed) });
+        self.undo.push(UndoEntry { label: e.label.clone(), op: undo, folder: e.folder.as_ref().map(FolderMove::reversed), people });
         Ok(e.label)
     }
 
@@ -488,6 +507,7 @@ impl Session {
 
     /// Ops applied since the last call, for the op-log store.
     pub fn drain_log(&mut self) -> Vec<Op> {
+        self.strip_ephemeral_log();
         std::mem::take(&mut self.pending_log)
     }
 
@@ -535,6 +555,13 @@ impl Session {
         if let Some(o) = delta.as_object_mut() {
             for k in ["spots", "red_eye", "version"] {
                 o.remove(k);
+            }
+            // Stored patches are bound to their source photo.
+            if let Some(Value::Object(e)) = o.get_mut("enhance") {
+                e.remove("ai");
+                if e.is_empty() {
+                    o.remove("enhance");
+                }
             }
             if o.is_empty() {
                 return Vec::new();
@@ -604,6 +631,7 @@ impl Session {
             // "in the last N days" rules count back from the session's clock
             lightcraft_catalog::rules::set_now(Some((self.clock)()));
             let mut f = self.source.to_filter(&self.filter, &self.catalog);
+            smart_sort::people::resolve_filter_ids(&mut f, &self.smart.people.data);
             if self.source == LibrarySource::Folder {
                 // no folder chosen: nothing (an empty path matches nothing)
                 let b = self.browse.clone().unwrap_or_default();
@@ -712,13 +740,19 @@ mod tests;
 #[cfg(test)]
 mod tests_color;
 #[cfg(test)]
+mod tests_enhance;
+#[cfg(test)]
 mod tests_export;
 #[cfg(test)]
 mod tests_forget_local;
 #[cfg(test)]
+mod tests_gpu;
+#[cfg(test)]
 mod tests_import;
 #[cfg(test)]
 mod tests_import_move;
+#[cfg(test)]
+mod tests_layers;
 #[cfg(test)]
 mod tests_libops;
 #[cfg(test)]
@@ -732,10 +766,16 @@ mod tests_persist;
 #[cfg(test)]
 mod tests_prefs;
 #[cfg(test)]
+mod tests_save_over;
+#[cfg(test)]
 mod tests_segment;
 #[cfg(test)]
 mod tests_settings_files;
 #[cfg(test)]
 mod tests_spots;
 #[cfg(test)]
+mod tests_toolset;
+#[cfg(test)]
 mod tests_xmp;
+
+mod dcp_profiles;

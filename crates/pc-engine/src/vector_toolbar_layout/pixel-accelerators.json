@@ -1,0 +1,8 @@
+[
+ ["li.openFolder","Cmd+Shift+O"],["edit.freeTransform","Cmd+T"],
+ ["image.adjustments.hueSaturation","Cmd+U"],["image.adjustments.colorBalance","Cmd+B"],
+ ["layer.new.layerViaCopy","Cmd+J"],["select.deselect","Cmd+D"],["view.proofColors","Cmd+Y"],
+ ["channel.target.composite","Cmd+2"],["channel.target.slot3","Cmd+3"],
+ ["channel.target.slot7","Cmd+7"],["channel.target.slot8","Cmd+8"],
+ ["tools.defaultColors","D"],["tools.swapColors","X"],["edit.copy","Cmd+C"]
+]

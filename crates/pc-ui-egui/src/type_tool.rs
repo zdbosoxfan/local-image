@@ -40,7 +40,9 @@ pub fn layout(app: &mut PhotocraftApp, id: LayerId) -> Option<(Arc<TextLayout>, 
     {
         return Some((l.clone(), t.transform, t.text.clone()));
     }
-    let l = Arc::new(photocraft_text::shared().lock().ok()?.layout(t, doc.resolution_dpi));
+    let vector = &doc.layer(id)?.vector;
+    let mut engine = photocraft_text::shared().lock().ok()?;
+    let l = Arc::new(photocraft_engine::vector_integration::text_layout(&mut engine, &doc, t, vector).ok()?);
     app.type_layout = Some((key, l.clone()));
     Some((l, t.transform, t.text.clone()))
 }
@@ -64,6 +66,9 @@ fn hit_layer(app: &mut PhotocraftApp, x: f64, y: f64) -> Option<LayerId> {
             let s = f64::from(slop);
             !r.is_empty() && x >= f64::from(r.x0) - s && x <= f64::from(r.x1) + s && y >= f64::from(r.y0) - s && y <= f64::from(r.y1) + s
         });
+        if let Some((layout, aff, _)) = path_layout(app, *id) {
+            return shown || aff.inverse().is_some_and(|inverse| layout.hit_test_distance(inverse.apply(Point::new(x, y))).1 <= f64::from(slop));
+        }
         let Some((l, aff, _)) = layout(app, *id) else { return shown };
         let (tx, ty) = to_text(&aff, x, y);
         shown || photocraft_text::text_point_inside(&l, tx, ty, slop)
@@ -118,6 +123,10 @@ pub fn edit_active(app: &mut PhotocraftApp) -> Result<(), String> {
 }
 
 fn hit_offset(app: &mut PhotocraftApp, id: LayerId, x: f64, y: f64) -> usize {
+    if let Some((layout, aff, text)) = path_layout(app, id) {
+        let p = aff.inverse().unwrap_or(Affine::IDENTITY).apply(Point::new(x, y));
+        return text[..layout.hit_test(p).min(text.len())].chars().count();
+    }
     let Some((l, aff, text)) = layout(app, id) else { return 0 };
     let (tx, ty) = to_text(&aff, x, y);
     photocraft_text::hit_char(&l, &text, tx, ty).0
@@ -561,6 +570,10 @@ pub fn commit(app: &mut PhotocraftApp) {
 pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
     let Some(ed) = app.ui.text_edit.clone() else { return };
     let id = LayerId(ed.layer);
+    if let Some((layout, aff, text)) = path_layout(app, id) {
+        draw_path_edit(painter, xf, &ed, &layout, aff, &text);
+        return;
+    }
     let Some((l, aff, text)) = layout(app, id) else { return };
     let t = crate::theme::Tokens::get(painter.ctx());
     // Text space → screen.
@@ -880,6 +893,46 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         });
     }
+}
+
+/// The Contextual Task Bar's quick edits for the selected type layer: font, size and colour,
+/// bound to the layer like the Type options bar. False when no type layer is the target.
+pub fn quick_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
+    let Some((id, _)) = target(app) else { return false };
+    let Some((mut fam, color, layer_size, layer_style)) =
+        app.session.active().and_then(|st| text_layer(&st.doc, LayerId(id))).map(|tl| {
+            (tl.font_family.clone(), tl.color, tl.size_pt, tl.char_runs().first().map_or_else(|| "Regular".to_owned(), |r| r.style.font_style.clone()))
+        })
+    else {
+        return false;
+    };
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let selected = styles_at(app);
+    let style = selected.as_ref().map_or(layer_style, |(c, _)| c.font_style.clone());
+    let mut size = selected.map_or(layer_size, |(c, _)| c.size_pt) * shown_scale(app);
+    if font_picker(ui, &mut fam, 140.0) {
+        let available = styles(&fam);
+        let st = if available.contains(&style) { style } else { available.first().cloned().unwrap_or_else(|| "Regular".into()) };
+        apply(app, ui.ctx(), json!({"font": fam, "fontStyle": st}));
+    }
+    if crate::widgets::value_field(ui, &mut size, 1.0..=1296.0, "pt", 62.0).on_hover_text(tl!("Set the font size")).changed() {
+        let k = shown_scale(app);
+        apply(app, ui.ctx(), json!({"size": size / k}));
+    }
+    let v = color.to_rgb();
+    let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(26.0, 18.0), egui::Sense::click());
+    ui.painter().rect_filled(rect, 2.0, Color32::from_rgb(q(v[0]), q(v[1]), q(v[2])));
+    ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Outside);
+    let resp = resp.on_hover_text(tl!("Set the text color"));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ColorButton, true, tl!("Set the text color")));
+    crate::widgets::swatch_popup(&resp).show(|ui| {
+        let mut col = Color32::from_rgb(q(v[0]), q(v[1]), q(v[2]));
+        if egui::color_picker::color_picker_color32(ui, &mut col, egui::color_picker::Alpha::Opaque) {
+            apply(app, ui.ctx(), json!({"color": format!("#{:02x}{:02x}{:02x}", col.r(), col.g(), col.b())}));
+        }
+    });
+    true
 }
 
 /// Character and paragraph style at the target (selection start, else the layer's first run).
@@ -1353,6 +1406,58 @@ pub fn cancel(app: &mut PhotocraftApp) {
     }
 }
 
+fn path_layout(app: &PhotocraftApp, id: LayerId) -> Option<(photocraft_text::on_path::PathLayout, Affine, String)> {
+    let st = app.session.active()?;
+    let layer = st.doc.layer(id)?;
+    let path = layer.vector.on_path.as_ref()?;
+    let LayerContent::Text(text) = &layer.content else { return None };
+    let mut engine = photocraft_text::shared().lock().ok()?;
+    let layout = photocraft_engine::vector_packages::path_text::project(&mut engine, &st.doc, text, path).ok()?;
+    Some((layout, text.transform, text.text.clone()))
+}
+fn draw_path_edit(
+    painter: &egui::Painter,
+    xf: &ViewXform,
+    ed: &crate::state::TextEdit,
+    layout: &photocraft_text::on_path::PathLayout,
+    aff: Affine,
+    text: &str,
+) {
+    let tokens = crate::theme::Tokens::get(painter.ctx());
+    let screen = |p: Point| {
+        let p = aff.apply(p);
+        xf.to_screen(p.x as f32, p.y as f32)
+    };
+    let a = byte_of(text, ed.caret.min(ed.anchor));
+    let b = byte_of(text, ed.caret.max(ed.anchor));
+    for cluster in layout.clusters.iter().filter(|c| c.visible && c.source.start < b && c.source.end > a) {
+        let source = &layout.shaped.clusters[cluster.source_index];
+        let line = &layout.shaped.lines[source.line];
+        let corners = [
+            (source.x, line.baseline - line.ascent),
+            (source.x + source.advance, line.baseline - line.ascent),
+            (source.x + source.advance, line.baseline + line.descent),
+            (source.x, line.baseline + line.descent),
+        ];
+        let points = corners
+            .into_iter()
+            .map(|(x, y)| {
+                let (x, y) = layout.shaped.to_text(x, y);
+                screen(cluster.transform.apply(Point::new(f64::from(x), f64::from(y))))
+            })
+            .collect();
+        painter.add(egui::Shape::convex_polygon(points, tokens.accent.gamma_multiply(0.4), egui::Stroke::NONE));
+    }
+    if let Some(caret) = layout.caret_segment(byte_of(text, ed.caret)) {
+        let caret = caret.map(screen);
+        painter.line_segment(caret, egui::Stroke::new(1., tokens.text));
+        let rect = egui::Rect::from_two_pos(caret[0], caret[1]).expand(1.);
+        painter.ctx().output_mut(|o| {
+            o.ime = Some(egui::output::IMEOutput { purpose: egui::IMEPurpose::Normal, rect, cursor_rect: rect, should_interrupt_composition: false })
+        });
+    }
+}
+
 #[cfg(test)]
 #[path = "type_tool_tests.rs"]
 mod canvas_tests;
@@ -1471,6 +1576,46 @@ mod tests {
         insert(&mut app, "");
         commit(&mut app);
         assert_eq!(app.session.active().unwrap().doc.layers.len(), n - 1);
+    }
+
+    #[test]
+    fn ds_finding_type_quick_bar_uses_layer_size_and_preserves_available_style() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = app();
+        let id = app.run("type.create", json!({"text":"","size":47})).unwrap()["layer"].as_u64().unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(600.0, 120.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                quick_bar(app, ui);
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(3);
+        h.get_by_value("47").click();
+        h.run_steps(2);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        // Pick two installed families with a shared non-Regular style.
+        let pair = families().iter().find_map(|a| {
+            styles(a)
+                .into_iter()
+                .filter(|s| s != "Regular")
+                .find_map(|style| families().iter().find(|b| *b != a && styles(b).contains(&style)).map(|b| (a.clone(), b.clone(), style)))
+        });
+        let (a, b, style) = pair.expect("test system has at least two families sharing a style");
+        h.state_mut().run("type.edit", json!({"layer":id,"text":"styled"})).unwrap();
+        h.state_mut().run("type.setStyle", json!({"layer":id,"font":a,"fontStyle":style})).unwrap();
+        h.run_steps(3);
+        h.get_by_value(&a).click();
+        h.run_steps(2);
+        h.event(egui::Event::Text(b.clone()));
+        h.run_steps(2);
+        h.get_by_label(&b).click();
+        h.run_steps(3);
+        let st = h.state().session.active().unwrap();
+        let layer = text_layer(&st.doc, LayerId(id)).unwrap();
+        assert_eq!(layer.font_family, b);
+        assert_eq!(layer.char_runs()[0].style.font_style, style);
     }
 
     #[test]

@@ -63,6 +63,7 @@ fn padded(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
 }
 
 fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+    let t = Tokens::get(ui.ctx());
     let d = app.session.develop_of(id).unwrap_or_default();
     header(ui, "Crop");
     padded(ui, |ui| {
@@ -123,10 +124,11 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     padded(ui, |ui| {
         ui.horizontal(|ui| {
             let on = app.ui.tool == "straighten";
-            if text_button(ui, "straightenTool", crate::i18n::tr("Straighten Tool"), on)
-                .on_hover_text(crate::i18n::tr("Drag along the horizon; double-click for Auto"))
-                .clicked()
-            {
+            let (icon_rect, icon_response) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+            crate::icons::paint_tool(ui, icon_rect, "straighten", Icon::Rotate, t.icon, true);
+            let resp = text_button(ui, "straightenTool", crate::i18n::tr("Straighten Tool"), on).union(icon_response);
+            super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::Straighten);
+            if resp.clicked() {
                 app.ui.tool = if on { String::new() } else { "straighten".into() };
             }
             if text_button(ui, "straightenAuto", crate::i18n::tr("Auto"), false).clicked() {
@@ -192,7 +194,11 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
             if guided {
                 let drawing = app.ui.tool == "guidedUpright";
-                if text_button(ui, "uprightDraw", crate::i18n::tr("Draw Guides"), drawing).clicked() {
+                let (icon_rect, icon_response) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+                crate::icons::paint_tool(ui, icon_rect, "guided-upright", Icon::Crop, t.icon, true);
+                let resp = text_button(ui, "uprightDraw", crate::i18n::tr("Draw Guides"), drawing).union(icon_response);
+                super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::Guided);
+                if resp.clicked() {
                     app.ui.tool = if drawing { String::new() } else { "guidedUpright".into() };
                 }
                 if !d.geometry.guides.is_empty() && text_button(ui, "uprightClear", crate::i18n::tr("Clear Guides"), false).clicked() {
@@ -228,9 +234,56 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     header(ui, "Remove");
     padded(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            for (label, tool) in [("Remove", "remove"), ("Heal", "heal"), ("Clone", "clone")] {
-                if text_button(ui, &format!("removeMode-{tool}"), label, app.ui.tool == tool).clicked() {
+            for (label, tool) in [("AI", "ai"), ("Remove", "remove"), ("Heal", "heal"), ("Clone", "clone")] {
+                let tip_tool = match tool {
+                    "ai" => super::tool_tips::StripTool::RemoveAi,
+                    "remove" => super::tool_tips::StripTool::RemovePixels,
+                    "heal" => super::tool_tips::StripTool::Heal,
+                    _ => super::tool_tips::StripTool::Clone,
+                };
+                let response = ui
+                    .vertical(|ui| {
+                        let icon = crate::widgets::tool_button(
+                            ui,
+                            &format!("removeMode-{tool}"),
+                            tip_tool.icon(),
+                            vec2(32.0, 28.0),
+                            app.ui.tool == tool,
+                            true,
+                            "",
+                        );
+                        let text = text_button(ui, &format!("removeMode-{tool}"), label, app.ui.tool == tool);
+                        icon.union(text)
+                    })
+                    .inner;
+                super::tool_tips::attach(app.ui.settings.tool_tips, ui, &response, tip_tool);
+                if response.clicked() {
                     app.ui.tool = tool.into();
+                    // a new brush: the spot selected before is no longer what the sliders edit
+                    if app.session.active_spot.is_some() {
+                        let _ = app.run("spot.select", json!({"index": null}));
+                    }
+                }
+            }
+        });
+        if app.ui.tool == "heal" {
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new(crate::i18n::tr("Paint over a blemish: it is filled from the texture around it, on this computer."))
+                    .size(11.0)
+                    .color(Tokens::get(ui.ctx()).text_dim),
+            );
+        }
+        ui.add_space(6.0);
+        // Lightroom's Tool Overlay: when pins and outlines show
+        ui.horizontal(|ui| {
+            ui.label(crate::i18n::tr("Overlay"));
+            use crate::state::SpotOverlay;
+            for (label, key, v) in
+                [("Auto", "auto", SpotOverlay::Auto), ("Always", "always", SpotOverlay::Always), ("Never", "never", SpotOverlay::Never)]
+            {
+                if text_button(ui, &format!("removeOverlay-{key}"), label, app.ui.remove_overlay == v).clicked() {
+                    app.ui.remove_overlay = v;
                 }
             }
         });
@@ -259,15 +312,27 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         ui.add_space(4.0);
         ui.label(egui::RichText::new(crate::i18n::tr("Paint over a distraction on the photo to remove it.")).color(Tokens::get(ui.ctx()).text_dim));
     });
-    // brush settings; with a spot selected they edit that spot too
+    // local-image: generative AI removal (engine, brush or lasso, a layer's area)
+    if app.ui.tool == "ai" {
+        super::enhance::remove_controls(app, ui, &d);
+    } else {
+        // content-aware heals being made
+        super::enhance::remove_jobs(app, ui);
+    }
+    // brush settings; with a spot selected they edit that spot too (not an AI removal's or a
+    // content-aware heal's: their size and feather are fixed, the brush keeps its own)
     let sel = app.session.active_spot.and_then(|i| d.spots.get(i).map(|sp| (i, sp.clone())));
     if let Some((i, sp)) = &sel {
-        (app.ui.remove_size, app.ui.remove_feather, app.ui.remove_opacity) = (sp.size as f32, sp.feather as f32, sp.opacity as f32);
+        if !sp.is_ai() {
+            (app.ui.remove_size, app.ui.remove_feather, app.ui.remove_opacity) = (sp.size as f32, sp.feather as f32, sp.opacity as f32);
+        }
         divider(ui);
         let mode = match sp.mode {
             lightcraft_develop::SpotMode::Heal => "Heal",
             lightcraft_develop::SpotMode::Clone => "Clone",
             lightcraft_develop::SpotMode::Remove => "Remove",
+            lightcraft_develop::SpotMode::Ai if super::enhance::is_local(sp) => "Heal",
+            lightcraft_develop::SpotMode::Ai => "AI",
         };
         super::edit::sub_title(ui, &crate::i18n::tr_format!("{mode} spot {} of {}", i + 1, d.spots.len(), mode = mode));
     }
@@ -282,10 +347,12 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         decimals: 0,
         track: lightcraft_develop::Track::Plain,
     };
+    // (a selected AI removal's or heal's opacity is its own; size and feather stay the brush's)
+    let ai_opacity = sel.as_ref().filter(|(_, sp)| sp.is_ai()).map(|(_, sp)| sp.opacity);
     let sliders = [
         (plain("ui.removeSize", "Size", 1.0, 250.0, 20.0), "size", (app.ui.remove_size * 1000.0) as f64),
         (plain("ui.removeFeather", "Feather", 0.0, 100.0, 50.0), "feather", app.ui.remove_feather as f64),
-        (plain("ui.removeOpacity", "Opacity", 0.0, 100.0, 100.0), "opacity", app.ui.remove_opacity as f64),
+        (plain("ui.removeOpacity", "Opacity", 0.0, 100.0, 100.0), "opacity", ai_opacity.unwrap_or(app.ui.remove_opacity as f64)),
     ];
     for (spec, key, v) in sliders {
         let out = slider(ui, &spec, v, true, None);
@@ -294,14 +361,18 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             match key {
                 "size" => app.ui.remove_size = (v / scale) as f32,
                 "feather" => app.ui.remove_feather = v as f32,
+                _ if ai_opacity.is_some() => {}
                 _ => app.ui.remove_opacity = v as f32,
             }
         }
-        if sel.is_some() {
+        // (an AI removal's pixels were generated for its shape: only its opacity changes)
+        if sel.as_ref().is_some_and(|(_, sp)| !sp.is_ai() || key == "opacity") {
             super::edit::apply_slider_out(app, &spec, out, |app, v| app.run("spot.update", json!({key: v / scale})));
         }
     }
-    if sel.is_some() {
+    if let Some((_, sp)) = sel.as_ref().filter(|(_, sp)| sp.is_ai()) {
+        super::enhance::spot_info(app, ui, sp);
+    } else if sel.is_some() {
         padded(ui, |ui| {
             ui.horizontal(|ui| {
                 if text_button(ui, "spotRefresh", crate::i18n::tr("Refresh Source (/)"), false).clicked() {
@@ -350,7 +421,17 @@ fn red_eye(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     padded(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             for (label, pet) in [("Red Eye", false), ("Pet Eye", true)] {
-                if text_button(ui, &format!("eyeMode-{}", if pet { "pet" } else { "red" }), label, app.ui.eye_pet == pet).clicked() {
+                let (icon_rect, icon_response) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+                crate::icons::paint_tool(ui, icon_rect, "red-eye", Icon::Eye, Tokens::get(ui.ctx()).icon, true);
+                let resp =
+                    text_button(ui, &format!("eyeMode-{}", if pet { "pet" } else { "red" }), label, app.ui.eye_pet == pet).union(icon_response);
+                super::tool_tips::attach(
+                    app.ui.settings.tool_tips,
+                    ui,
+                    &resp,
+                    if pet { super::tool_tips::StripTool::PetEye } else { super::tool_tips::StripTool::RedEye },
+                );
+                if resp.clicked() {
                     app.ui.eye_pet = pet;
                 }
             }
@@ -581,6 +662,9 @@ fn info(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             let _ = app.run("dialog.allMetadata", json!({}));
         }
     });
+    // local-image: a layered document's layers (read-only)
+    ui.add_space(6.0);
+    crate::panels::doc_layers::show(app, ui, id);
 }
 
 /// The camera card at the top of Info: camera, lens, size · file size and format, then the

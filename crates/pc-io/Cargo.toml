@@ -23,6 +23,8 @@ lightcraft-develop = { workspace = true }
 lightcraft-pipeline = { workspace = true }
 lightcraft-codecs = { workspace = true }
 lightcraft-meta = { workspace = true }
+lightcraft-raster = { workspace = true }
+lightcraft-geom = { workspace = true }
 photocraft-geom = { workspace = true }
 photocraft-color = { workspace = true }
 photocraft-cms = { workspace = true }

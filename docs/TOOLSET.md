@@ -34,7 +34,7 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | --- | --- | --- |
 | Marquee, Lasso, Polygonal, Magnetic Lasso | PhotoCraft (audit: work well) | ✅ |
 | Magic Wand | PhotoCraft + Photoshop/Compositor **Sample Size** (point to 101×101 average) | 🔧 |
-| Quick Selection | PhotoCraft graph cut (stops at specular highlights; GEGL `paint-select` reference) | 📋 |
+| Quick Selection | PhotoCraft graph cut + **highlight-aware edges**: specular highlights (dichromatic model: body colour + white) enclosed by the painted colours are filled from their surroundings before the cut, so it no longer stops at them, while a real hole showing the background stays out; **Subject Assist** adds the installed U²-Net/IS-Net map as a weak prior | ✅ |
 | Object Selection | PhotoCraft rectangle mode (excellent) + **click mode** from the local segmentation model (OmaPhoto's flood of the 320² probability map) | 🔧 |
 | **Select › Subject (AI)** | Qwen Image 2.1 matte via ComfyUI → **closed-form matting** of the edge band | ✅ |
 | Select › Subject | **Local U²-Net / IS-Net** on the CPU (`li-seg`, tract, pure Rust) when installed, PhotoCraft heuristic otherwise | 🔧 |
@@ -52,20 +52,20 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | Content-Aware Move | PhotoCraft; the audit's grey halo doesn't reproduce: regression tests cover opaque, feathered and transparent layers | ✅ |
 | Clone Stamp | PhotoCraft: Aligned, Sample (current / current & below / all layers), Clone Source panel with five sources, offset, scale and rotation — Photoshop parity (GIMP's Registered/Fixed modes not needed) | ✅ |
 | **Red Eye tool** (J group) | Red-pupil region grown from the click (GEGL / Pinta redness rule), holes filled, fitted and feathered; Pupil Size and Darken Amount | ✅ |
-| Seamless paste/clone | GIMP Seamless Clone (mean-value coordinates; port from the paper, GEGL's weights have a bug) | 📋 |
+| Seamless paste/clone | **Edit › Paste Special › Paste Seamless** and Clone Stamp **Seamless**: mean-value-coordinate cloning from Farbman et al. 2009 (adaptive boundary sampling, holes and separate parts; not GEGL's weights) | ✅ |
 
 ### Painting
 
 | Tool | Implementation | Status |
 | --- | --- | --- |
 | Brush engine | PhotoCraft (Photoshop dynamics) + **centripetal Catmull–Rom stroke path** (Compositor/Krita) so fast curves stay round | 🔧 |
-| Soft round brushes | Compositor's continuous analytic coverage (Gauss–Legendre integral of dab density) | 📋 |
+| Soft round brushes | **Continuous coverage** (Compositor's idea): the dab density per unit length at the brush's spacing is integrated along the stroke (Gauss–Legendre, or a cumulative line-integral table for constant segments), so the mean density matches stamping at that spacing with no beading; hard, textured and dynamic brushes still stamp | ✅ |
 | Smudge | **Step ≤ max(1 px, 0.5 % of diameter)** (Compositor) to remove ribbing | 🔧 |
 | Airbrush build-up | Was a dead button and the UI never sent point times, so Airbrush presets never built up: strokes now carry timestamps and a held airbrush keeps depositing | ✅ |
 | Smoothing options | Was a dead button: Pulled String, Stroke Catch-up, Catch-up on Stroke End, Adjust for Zoom (the engine had them) | ✅ |
 | Symmetry | Was a dead button: Vertical, Horizontal, Diagonal and along the work path; Dual Axis, Radial and Mandala need multi-copy compositing | 🔧 |
 | Stabilizer | Photoshop Smoothing (amount, Pulled String, catch-up, zoom-adjusted): covers Krita's stabilizer use | ✅ |
-| Pen pressure curve | Krita sensor curves (one global curve in Preferences) | 📋 |
+| Pen pressure curve | Preferences › Tools › **Pen pressure curve**: Soft / Linear / Firm presets or an edited monotone curve (Krita's global tablet curve), applied to every pen sample | ✅ |
 | Blur tool | Photoshop behaviour (brush size and strength) kept; Compositor's separate radius not adopted | ✅ |
 | Behind / Clear modes | Photoshop/PaintFE: in the Brush and Pencil Mode lists after Dissolve; Clear follows the Eraser's rules | ✅ |
 
@@ -75,8 +75,8 @@ notices kept in `licenses/`. Photopea is proprietary: behaviour only.
 | --- | --- | --- |
 | Free Transform, Warp, Perspective Warp, Puppet Warp | PhotoCraft | ✅ |
 | Liquify | PhotoCraft, **rim seam bug fixed** (strength now eases to 0 at the brush edge; was 0.5 at default density) | 🔧 |
-| Distort with folded/concave corners | Compositor two-triangle fallback | 📋 |
-| Cage transform | GIMP/Krita (Green coordinates) | 📋 |
+| Distort with folded/concave corners | Compositor's **two-triangle fallback**: a concave or self-crossing quad draws as two affine triangles (preview and result) instead of wrapping through the horizon; smart objects keep it as a fitted warp | ✅ |
+| Cage transform | **Edit › Transform › Cage**: draw a cage, ↩ to deform, drag its points, ↩ to commit; Green coordinates (Lipman et al. 2008) or mean value coordinates; pixel layers, linked masks, smart objects (as a smart filter) | ✅ |
 | Crop straighten | Options-bar angle, tilted frame preview with thirds; rotate + crop in one undo step | 🔧 |
 | Crop overlays | Was a dead button: Rule of Thirds, Grid, Diagonal, Triangle, Golden Ratio, None | ✅ |
 | Perspective Crop | PhotoCraft homography + PaintFE's UI: drag a frame, drag its corners, ↩ straightens | ✅ |

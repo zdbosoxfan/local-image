@@ -230,8 +230,9 @@ pub(crate) fn move_layers(doc: &mut Document, moves: &[(LayerId, i32, i32)]) -> 
         if locks.position || locks.all {
             return Err(EngineError::Other(format!("layer \"{}\" is position-locked", l.name)));
         }
-        crate::commands::translate_layer(&snapshot, l, dx, dy);
-        crate::vector_cmds::translate_vectors(&snapshot, l, dx as f64, dy as f64);
+        crate::commands::translate_layer(&snapshot, l, dx, dy)?;
+        crate::vector_cmds::translate_vectors(&snapshot, l, dx as f64, dy as f64)?;
+        crate::vector_packages::symbols::refresh_layer_symbols(&snapshot, l)?;
     }
     Ok(())
 }
@@ -251,7 +252,17 @@ pub fn translate(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(EngineError::Other("no active layer".into()));
     }
     let before = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
-    let ids = s.edit("Move", |doc, _| {
+    let copy = p.get("copy").and_then(Value::as_bool).unwrap_or(false);
+    let old_active = s.active().and_then(|st| st.active_layer);
+    let ids = s.edit(if copy { "Duplicate + Move" } else { "Move" }, |doc, active| {
+        if copy {
+            let (duplicated, copies, next_active) = duplicated_for_move(doc, &roots, old_active)?;
+            *doc = duplicated;
+            *active = next_active;
+            let moves: Vec<_> = copies.iter().map(|&id| (id, dx, dy)).collect();
+            move_layers(doc, &moves)?;
+            return Ok(copies);
+        }
         let ids = move_targets(doc, &roots);
         if ids.is_empty() {
             return Err(EngineError::NoLayer(roots[0]));
@@ -260,8 +271,58 @@ pub fn translate(s: &mut Session, p: &Value) -> Result<Value> {
         move_layers(doc, &moves)?;
         Ok(ids)
     })?;
+    if copy {
+        let active = s.active().and_then(|st| st.active_layer);
+        reselect(s, ids.clone(), active);
+    }
     note_damage(s, &before, &ids);
     Ok(Value::Null)
+}
+
+/// A transient Alt-drag document. Copies share their immutable pixel tiles with the originals;
+/// creating this preview does not edit a session or its history/journal. Linked targets are
+/// copied together, with links remapped so moving the copies cannot move their originals.
+pub fn duplicated_for_move(doc: &Document, roots: &[LayerId], active: Option<LayerId>) -> Result<(Document, Vec<LayerId>, Option<LayerId>)> {
+    let ids = move_targets(doc, roots);
+    if ids.is_empty() {
+        return Err(EngineError::Other("no active layer".into()));
+    }
+    let mut out = doc.clone();
+    let mut copies = Vec::new();
+    let mut next_active = None;
+    let mut links = std::collections::BTreeMap::new();
+    let mut next_link = doc.walk().iter().filter_map(|(_, _, l)| l.link_group).max().unwrap_or(0);
+    fn remap(l: &mut Layer, links: &mut std::collections::BTreeMap<u64, u64>, next: &mut u64) -> Result<()> {
+        if let Some(g) = l.link_group {
+            let mapped = match links.get(&g) {
+                Some(mapped) => *mapped,
+                None => {
+                    *next = next.checked_add(1).ok_or_else(|| EngineError::Other("too many layer link groups".into()))?;
+                    links.insert(g, *next);
+                    *next
+                }
+            };
+            l.link_group = Some(mapped);
+        }
+        if let Some(children) = l.children_mut() {
+            for c in children {
+                remap(c, links, next)?;
+            }
+        }
+        Ok(())
+    }
+    for id in ids {
+        let mut l = doc.layer(id).ok_or(EngineError::NoLayer(id))?.duplicate();
+        l.name = format!("{} copy", l.name);
+        remap(&mut l, &mut links, &mut next_link)?;
+        let new_id = out.insert_above(Some(id), l);
+        if Some(id) == active {
+            next_active = Some(new_id);
+        }
+        copies.push(new_id);
+    }
+    next_active = next_active.or(copies.last().copied());
+    Ok((out, copies, next_active))
 }
 
 /// The layers a move of `roots` takes along: their linked layers, without layers whose group
@@ -282,26 +343,21 @@ pub fn moved(doc: &Document, ids: &[LayerId], dx: i32, dy: i32) -> Result<Docume
         if locks.position || locks.all {
             return Err(EngineError::Other(format!("layer \"{}\" is position-locked", l.name)));
         }
-        shift_shown(doc, l, dx, dy);
+        shift_shown(doc, l, dx, dy)?;
     }
     Ok(out)
 }
 
-/// `photocraft_algo::resample::translate_surface` with the content scan cached per tile (a Move
-/// drag shifts the same layers every frame; scanning them each time cost more than the copy).
+/// Lossless Move preview translation, retaining pixel lineage for the stroked-shape split cache.
 pub(crate) fn shift_surface(s: &photocraft_raster::Surface, dx: i32, dy: i32) -> photocraft_raster::Surface {
-    let mut out = photocraft_raster::Surface::with_default(s.format(), &s.default_pixel());
-    let r = photocraft_compose::bounds::content_bounds(s);
-    if !r.is_empty() {
-        out.write_interleaved(r.translate(dx, dy), &s.to_interleaved(r));
-    }
-    out
+    s.translated(dx, dy)
 }
 
 /// [`crate::commands::translate_layer`] plus the vector side, without re-rendering anything.
-fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
+fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) -> Result<()> {
     use self::shift_surface as translate_surface;
     let a = photocraft_geom::Affine::translate(f64::from(dx), f64::from(dy));
+    crate::vector_cmds::transform_vector_metadata(&mut l.vector, &a);
     if let Some(r) = &mut l.effects.reference {
         *r = (r.0 + f64::from(dx), r.1 + f64::from(dy));
     }
@@ -326,21 +382,28 @@ fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
                 let b = photocraft_compose::bounds::content_bounds(c);
                 b.is_empty() || (b.x0 > canvas.x0 && b.y0 > canvas.y0 && b.x1 < canvas.x1 && b.y1 < canvas.y1)
             });
-            crate::vector_cmds::transform_shape(sh, &a);
+            crate::vector_cmds::transform_vector_shape(sh, &mut l.vector, &a)?;
             match &mut sh.cache {
                 Some(c) if inside => *c = translate_surface(c, dx, dy),
                 _ => crate::vector_cmds::refresh_shape(doc, sh),
             }
         }
         LayerContent::Smart(sm) => crate::smart_cmds::shift_smart(sm, dx, dy),
+        LayerContent::Symbol(s) => {
+            s.transform = photocraft_geom::Affine::translate(f64::from(dx), f64::from(dy)).mul(&s.transform);
+            s.cache = s.cache.as_ref().map(|c| translate_surface(c, dx, dy));
+        }
         LayerContent::Group(g) => {
             if let Some(ab) = &mut g.artboard {
                 ab.rect = ab.rect.translate(dx, dy);
             }
-            g.children.iter_mut().for_each(|c| shift_shown(doc, c, dx, dy));
+            for child in &mut g.children {
+                shift_shown(doc, child, dx, dy)?;
+            }
         }
         LayerContent::Adjustment(_) | LayerContent::Fill(_) => {}
     }
+    Ok(())
 }
 
 /// The document pixels an edit of the layers `ids` (moved, shown, hidden or restyled; contents
@@ -863,6 +926,30 @@ mod tests {
     }
 
     #[test]
+    fn group_preview_preserves_shape_cache_translation_identity() {
+        use photocraft_doc::vector::{Path, ShapeLayer, ShapeStroke, Subpath};
+        let mut d = Document::new("move", photocraft_geom::Size::new(300, 240), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
+        let mut sh = ShapeLayer {
+            path: Path::new(vec![Subpath::polygon(&[(20.25, 30.5), (80.25, 30.5), (80.25, 70.5), (20.25, 70.5)])]),
+            fill: Some(photocraft_doc::Fill::Solid(photocraft_color::Color::WHITE)),
+            stroke: Some(ShapeStroke::default()),
+            ..ShapeLayer::default()
+        };
+        sh.cache = Some(photocraft_vector::render_shape(&sh, d.pixel_format(), d.bounds()));
+        let identity = sh.cache.as_ref().unwrap().translation_identity().0;
+        let layer = Layer::new("shape", LayerContent::Shape(sh));
+        let shape_id = layer.id;
+        let group = Layer::group("group", vec![layer]);
+        let group_id = group.id;
+        d.layers.push(group);
+        for (dx, dy) in [(37, 23), (-13, -7), (256, 256)] {
+            let preview = moved(&d, &[group_id], dx, dy).unwrap();
+            let LayerContent::Shape(sh) = &preview.layer(shape_id).unwrap().content else { panic!("shape") };
+            assert_eq!(sh.cache.as_ref().unwrap().translation_identity(), (identity, i64::from(dx), i64::from(dy)));
+        }
+    }
+
+    #[test]
     fn moves_and_layer_props_report_only_their_area() {
         let mut s = session(8);
         let a = rect_layer(&mut s, Rect::new(10, 10, 20, 20));
@@ -1101,6 +1188,7 @@ mod tests {
             s.execute("layer.renameLayer", json!({"layer": c.0, "name": "Top"})).unwrap();
             select_all(&mut s, &[a, c]);
             let before = doc(&s).layer_count();
+            let original = s.active().unwrap().doc.clone();
             let m = LayerId(s.execute("layer.mergeLayers", json!({})).unwrap()["layer"].as_u64().unwrap());
             let d = doc(&s);
             assert_eq!(d.layer_count(), before - 1);
@@ -1112,12 +1200,25 @@ mod tests {
             assert!(d.layer(b).is_some() && d.layer(a).is_none());
             assert_eq!(d.layers.last().unwrap().id, m, "merged layer sits where the top-most was");
             assert_eq!(sel(&s), vec![m]);
-            s.undo();
-            assert_eq!(doc(&s).layer_count(), before);
-            assert_eq!(sel(&s), vec![c], "undo leaves a valid selection");
-            // One layer selected: Merge Down.
+            let merged = s.active().unwrap().doc.clone();
+            assert!(s.undo());
+            assert_eq!(s.active().unwrap().doc, original, "undo restores the complete document");
+            assert_eq!(sel(&s), vec![a, c], "undo restores the merge's input selection");
+            assert_eq!(s.active().unwrap().active_layer, Some(c));
+            assert!(s.redo());
+            assert_eq!(s.active().unwrap().doc, merged);
+            assert_eq!(sel(&s), vec![m]);
+            assert_eq!(s.active().unwrap().active_layer, Some(m));
+            assert!(s.undo());
+            assert_eq!(s.active().unwrap().doc, original);
+            assert_eq!(sel(&s), vec![a, c]);
+            // Explicitly select one layer for the separate Merge Down case.
+            s.execute("layer.select", json!({"layer": c.0})).unwrap();
             s.execute("layer.mergeLayers", json!({})).unwrap();
             assert_eq!(doc(&s).layer_count(), before - 1);
+            assert!(doc(&s).layer(a).is_some(), "the unselected bottom layer remains");
+            assert!(doc(&s).layer(c).is_none(), "Merge Down consumes the selected upper layer");
+            assert_eq!(layer_bounds(doc(&s).layer(b).unwrap()).unwrap(), Rect::new(20, 0, 50, 10));
         }
     }
 
@@ -1273,6 +1374,46 @@ mod tests {
         assert!(!s.is_enabled("layer.selectLinkedLayers"));
         assert!(s.execute("layer.selectLinkedLayers", json!({})).is_err());
         assert_eq!(sel(&s), before);
+    }
+
+    #[test]
+    fn move_copy_linked_layers_is_atomic_and_has_one_journal_and_undo_step() {
+        let mut s = session(8);
+        let a = rect_layer(&mut s, Rect::new(10, 10, 20, 20));
+        let b = rect_layer(&mut s, Rect::new(30, 10, 40, 20));
+        select_all(&mut s, &[a, b]);
+        s.execute("layer.linkLayers", json!({})).unwrap();
+        s.execute("layer.select", json!({"layer": a.0})).unwrap();
+        let before = doc(&s).clone();
+        let past = s.active().unwrap().history.past_len();
+        let journal = s.journal.len();
+        let (preview, copies, _) = duplicated_for_move(&before, &[a], Some(a)).unwrap();
+        assert_eq!(copies.len(), 2);
+        assert_eq!(s.active().unwrap().history.past_len(), past);
+        assert_eq!(s.journal.len(), journal);
+        assert_ne!(preview.layer(copies[0]).unwrap().link_group, before.layer(a).unwrap().link_group);
+        s.execute("layer.translate", json!({"dx": 1, "dy": 3, "copy": true})).unwrap();
+        let committed = sel(&s);
+        assert_eq!(committed.len(), 2);
+        assert_eq!(s.active().unwrap().history.past_len(), past + 1);
+        assert_eq!(s.journal.len(), journal + 1);
+        assert_eq!(doc(&s).layer(a).unwrap().surface(), before.layer(a).unwrap().surface());
+        assert_eq!(doc(&s).layer(b).unwrap().surface(), before.layer(b).unwrap().surface());
+        assert_eq!(doc(&s).layer(committed[0]).unwrap().surface().unwrap().content_bounds(), Rect::new(11, 13, 21, 23));
+        assert!(s.undo());
+        assert_eq!(doc(&s).layers.len(), before.layers.len());
+        assert!(s.redo());
+        assert_eq!(sel(&s), committed);
+        s.edit("lock", |doc, _| {
+            doc.layer_mut(committed[1]).unwrap().locks.position = true;
+            Ok(())
+        })
+        .unwrap();
+        let count = doc(&s).layers.len();
+        let past = s.active().unwrap().history.past_len();
+        assert!(s.execute("layer.translate", json!({"dx": 4, "copy": true})).is_err());
+        assert_eq!(doc(&s).layers.len(), count, "a failed copy/move leaves no copies");
+        assert_eq!(s.active().unwrap().history.past_len(), past);
     }
 
     #[test]

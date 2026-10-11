@@ -116,6 +116,11 @@ pub enum DevelopPatch {
 
 /// Parse a sidecar / XMP packet. `raw` selects absolute (raw) vs relative white balance for `crs:`.
 pub fn parse_sidecar(xmp: &str, raw: bool) -> std::result::Result<SidecarData, String> {
+    // Text with no markup at all (empty, or a stray text file) is not an XMP packet. Anything that
+    // *is* markup stays lenient: a packet with no recognised properties is a valid, empty sidecar.
+    if !xmp.contains('<') {
+        return Err("not an XMP packet (no XML markup)".to_string());
+    }
     let d = lightcraft_meta::parse_xmp(xmp).map_err(|e| e.to_string())?;
     let m = &d.metadata;
     let lc = |k: &str| d.properties.get(&format!("lc:{k}")).and_then(|v| v.first()).cloned();
@@ -504,7 +509,8 @@ impl Session {
         }
         let owners = StemOwners::of(&self.catalog);
         for id in ids {
-            if self.catalog.photo(id).is_some_and(|p| file_path(p).is_some() && p.copy_of.is_none())
+            if !self.is_ephemeral(id)
+                && self.catalog.photo(id).is_some_and(|p| file_path(p).is_some() && p.copy_of.is_none())
                 && let Err(e) = self.save_sidecar_with(id, &owners)
             {
                 log::warn!("auto-write XMP: {e}");

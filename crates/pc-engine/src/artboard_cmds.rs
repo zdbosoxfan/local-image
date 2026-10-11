@@ -108,10 +108,17 @@ fn background_param(p: &Value, cmd: &str) -> Result<Option<ArtboardBackground>> 
 
 /// `rect` as `[x, y, w, h]` or `x`/`y`/`width`/`height` keys over `base`.
 fn rect_param(p: &Value, base: Rect, cmd: &str) -> Result<Rect> {
-    if let Some(Value::Array(a)) = p.get("rect") {
-        let v: Vec<i32> = a.iter().filter_map(|x| x.as_f64().filter(|f| f.is_finite()).map(|f| f.round() as i32)).collect();
-        if v.len() != 4 || v[2] <= 0 || v[3] <= 0 {
-            return Err(bad(cmd, "\"rect\" must be [x, y, width, height] with a positive size"));
+    if let Some(value) = p.get("rect") {
+        let a = value.as_array().ok_or_else(|| bad(cmd, "rect must be an array"))?;
+        let values = a.iter().map(|v| v.as_f64().ok_or_else(|| bad(cmd, "rect must contain numbers"))).collect::<Result<Vec<_>>>()?;
+        let rect: [f64; 4] = values.try_into().map_err(|_| bad(cmd, "rect must have four values"))?;
+        crate::vector_packages::constraints::arithmetic::validate_rect(rect).map_err(|e| bad(cmd, e.to_string()))?;
+        if rect[2] > 300_000. || rect[3] > 300_000. {
+            return Err(bad(cmd, "artboard exceeds 300000 pixel dimension budget"));
+        }
+        let v = rect.map(|f| f.round() as i32);
+        if v[2] <= 0 || v[3] <= 0 {
+            return Err(bad(cmd, "artboard rounds to an empty size"));
         }
         return Ok(Rect::from_xywh(v[0], v[1], v[2] as u32, v[3] as u32));
     }
@@ -122,8 +129,8 @@ fn rect_param(p: &Value, base: Rect, cmd: &str) -> Result<Rect> {
     if w <= 0 || h <= 0 {
         return Err(bad(cmd, "the artboard size must be positive"));
     }
-    if w > i32::MAX as i64 || h > i32::MAX as i64 {
-        return Err(bad(cmd, "the artboard size is too large for a 32-bit canvas"));
+    if w > 300_000 || h > 300_000 || x.abs_diff(0) > 1_000_000 || y.abs_diff(0) > 1_000_000 {
+        return Err(bad(cmd, "artboard geometry exceeds the dimension/coordinate budget"));
     }
     Ok(Rect::from_xywh(x, y, w as u32, h as u32))
 }
@@ -178,7 +185,7 @@ fn new_artboard(s: &mut Session, p: &Value) -> Result<Value> {
     let name = p.get("name").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_string);
     let id = s.edit("New Artboard", |doc, active| {
         let mut g = Layer::group(name.unwrap_or_else(|| next_artboard_name(doc)), vec![]);
-        set_artboard(&mut g, Artboard { rect, background, preset });
+        set_artboard(&mut g, Artboard { rect, background, preset, drawing_scale: None });
         let id = doc.insert_above(None, g);
         fit_canvas(doc);
         *active = Some(id);
@@ -199,7 +206,7 @@ fn artboard_from_group(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         let rect = crate::layer_multi_cmds::layer_bounds(l).unwrap_or(canvas);
-        set_artboard(l, Artboard { rect, background, preset: String::new() });
+        set_artboard(l, Artboard { rect, background, preset: String::new(), drawing_scale: None });
         fit_canvas(doc);
         *active = Some(id);
         Ok(rect)
@@ -224,7 +231,7 @@ fn artboard_from_layers(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let rect = children.iter().filter_map(crate::layer_multi_cmds::layer_bounds).reduce(|a, b| a.union(&b)).unwrap_or(canvas);
         let mut g = Layer::group(name.unwrap_or_else(|| next_artboard_name(doc)), children);
-        set_artboard(&mut g, Artboard { rect, background, preset: String::new() });
+        set_artboard(&mut g, Artboard { rect, background, preset: String::new(), drawing_scale: None });
         let gid = doc.insert_above(None, g);
         crate::layer_multi_cmds::check_group_depth(doc, "Artboard from Layers")?;
         fit_canvas(doc);
@@ -255,13 +262,37 @@ fn set_props(s: &mut Session, p: &Value) -> Result<Value> {
     let background = background_param(p, cmd)?;
     let name = p.get("name").and_then(Value::as_str).map(str::to_string);
     let move_contents = p.get("moveContents").and_then(Value::as_bool).unwrap_or(true);
+    // V8 constraints are prepared before the existing single edit. Ordinary artboards
+    // with no constraints retain the legacy moveContents/size behavior.
+    let constraints =
+        p.get("constraints").and_then(Value::as_bool).unwrap_or_else(|| d.doc.layer(id).is_some_and(crate::vector_packages::constraints::has_constraints));
+    let prepared = if constraints {
+        let mut snapshot = (*d.doc).clone();
+        snapshot.size = Size::new(snapshot.size.width.max(rect.x1.max(0) as u32), snapshot.size.height.max(rect.y1.max(0) as u32));
+        let mut target = crate::vector_packages::layout::box_from_rect(rect);
+        if !move_contents {
+            target[0] = f64::from(old.rect.x0);
+            target[1] = f64::from(old.rect.y0);
+        }
+        Some(crate::vector_packages::constraints::prepare_resize(
+            &snapshot,
+            id,
+            crate::vector_packages::layout::box_from_rect(old.rect),
+            target,
+            p.get("scaleChildren").and_then(Value::as_bool).unwrap_or(false),
+        )?)
+    } else {
+        None
+    };
     s.edit("Edit Artboard", |doc, _| {
         let (dx, dy) = (rect.x0 - old.rect.x0, rect.y0 - old.rect.y0);
-        if move_contents && (dx, dy) != (0, 0) {
+        if let Some(prepared) = prepared {
+            *doc.layer_mut(id).ok_or(EngineError::NoLayer(id))? = prepared;
+        } else if move_contents && (dx, dy) != (0, 0) {
             let snapshot = doc.clone();
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-            crate::commands::translate_layer(&snapshot, l, dx, dy);
-            crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(dx), f64::from(dy));
+            crate::commands::translate_layer(&snapshot, l, dx, dy)?;
+            crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(dx), f64::from(dy))?;
         }
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         if let Some(n) = name {
@@ -308,8 +339,8 @@ pub fn artboard_document(doc: &Document, id: LayerId) -> Option<Document> {
     let r = l.artboard()?.rect;
     let mut group = l.clone();
     group.visible = true;
-    crate::commands::translate_layer(doc, &mut group, -r.x0, -r.y0);
-    crate::vector_cmds::translate_vectors(doc, &mut group, f64::from(-r.x0), f64::from(-r.y0));
+    crate::commands::translate_layer(doc, &mut group, -r.x0, -r.y0).ok()?;
+    crate::vector_cmds::translate_vectors(doc, &mut group, f64::from(-r.x0), f64::from(-r.y0)).ok()?;
     let mut one = doc.clone();
     one.name = l.name.clone();
     one.size = Size::new(r.width(), r.height());

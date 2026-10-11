@@ -20,9 +20,12 @@ use serde::{Deserialize, Serialize};
 
 pub mod bg_erase;
 pub mod brush;
+// local-image: continuous coverage for soft round brushes; the global pen pressure curve.
+pub mod continuous;
 pub mod dynamics;
 pub mod mixer;
 pub mod presets;
+pub mod pressure;
 pub mod procedural;
 pub mod render;
 pub mod replace;

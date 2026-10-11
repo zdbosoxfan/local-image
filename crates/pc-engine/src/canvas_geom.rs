@@ -74,7 +74,10 @@ fn retag_text(dpi: f32, t: &mut TextLayer) {
 /// Applies `a` to one layer's (and its children's) non-pixel geometry. With `content` false only
 /// the parts Free Transform (`transform_layer`) doesn't move are touched: unlinked vector masks,
 /// gradient fill angles, effect reference points and artboards.
-pub(crate) fn transform_layer_geometry(l: &mut Layer, a: &Affine, content: bool, dpi: f32) {
+pub(crate) fn transform_layer_geometry(l: &mut Layer, a: &Affine, content: bool, dpi: f32) -> crate::Result<()> {
+    if content {
+        crate::vector_cmds::transform_vector_metadata(&mut l.vector, a);
+    }
     if let Some(vm) = l.vector_mask.as_mut()
         && (content || !vm.linked)
     {
@@ -97,7 +100,7 @@ pub(crate) fn transform_layer_geometry(l: &mut Layer, a: &Affine, content: bool,
                 map_fill(a, f);
             }
             if content {
-                crate::vector_cmds::transform_shape(sh, a);
+                crate::vector_cmds::transform_vector_shape(sh, &mut l.vector, a)?;
             }
         }
         LayerContent::Text(t) if content => {
@@ -105,16 +108,18 @@ pub(crate) fn transform_layer_geometry(l: &mut Layer, a: &Affine, content: bool,
             retag_text(dpi, t);
         }
         LayerContent::Smart(sm) if content => crate::smart_cmds::transform_placement(sm, a),
+        LayerContent::Symbol(s) if content => s.transform = a.mul(&s.transform),
         LayerContent::Group(g) => {
             if let Some(ab) = &mut g.artboard {
                 ab.rect = map_rect(a, ab.rect);
             }
             for c in &mut g.children {
-                transform_layer_geometry(c, a, content, dpi);
+                transform_layer_geometry(c, a, content, dpi)?;
             }
         }
         _ => {}
     }
+    Ok(())
 }
 
 /// Document-level geometry: paths, notes, Count/Ruler marks, slices and guides. Guides survive
@@ -163,12 +168,13 @@ pub(crate) fn transform_doc_marks(doc: &mut Document, a: &Affine) {
 }
 
 /// Applies `a` to all non-pixel geometry of the document (layers and document marks).
-pub(crate) fn transform_geometry(doc: &mut Document, a: &Affine) {
+pub(crate) fn transform_geometry(doc: &mut Document, a: &Affine) -> crate::Result<()> {
     let dpi = doc.resolution_dpi;
     for l in &mut doc.layers {
-        transform_layer_geometry(l, a, true, dpi);
+        transform_layer_geometry(l, a, true, dpi)?;
     }
     transform_doc_marks(doc, a);
+    Ok(())
 }
 
 /// What to re-render after the geometry moved.
@@ -181,22 +187,28 @@ pub(crate) enum Refresh {
     All,
 }
 
-pub(crate) fn refresh(doc: &mut Document, what: Refresh) {
-    fn rec(snapshot: &Document, layers: &mut [Layer], what: Refresh) {
+pub(crate) fn refresh(doc: &mut Document, what: Refresh) -> crate::Result<()> {
+    fn rec(snapshot: &Document, layers: &mut [Layer], what: Refresh) -> crate::Result<()> {
         for l in layers {
             match &mut l.content {
-                LayerContent::Group(g) => rec(snapshot, &mut g.children, what),
+                LayerContent::Group(g) => rec(snapshot, &mut g.children, what)?,
                 LayerContent::Shape(sh) => crate::vector_cmds::refresh_shape(snapshot, sh),
-                LayerContent::Text(t) if what == Refresh::All => crate::type_cmds::refresh(snapshot, t),
+                LayerContent::Symbol(s) => {
+                    if let Ok(cache) = crate::vector_packages::symbols::render_instance(snapshot, s) {
+                        s.cache = Some(cache);
+                    }
+                }
+                LayerContent::Text(t) if what == Refresh::All => crate::vector_integration::refresh_text(snapshot, t, &l.vector)?,
                 LayerContent::Smart(_) if what == Refresh::All => {
                     let _ = crate::smart_cmds::refresh_layer(snapshot, l);
                 }
                 _ => {}
             }
         }
+        Ok(())
     }
     let snapshot = doc.clone();
-    rec(&snapshot, &mut doc.layers, what);
+    rec(&snapshot, &mut doc.layers, what)
 }
 
 /// Image › Image Rotation by a right angle or a flip.
@@ -253,6 +265,7 @@ fn remap_pixels(doc: &mut Document, map: &dyn Fn(i32, i32) -> (i32, i32)) {
                 LayerContent::Raster(s) => re(s),
                 LayerContent::Text(t) => t.cache.iter_mut().for_each(re),
                 LayerContent::Shape(sh) => sh.cache.iter_mut().for_each(re),
+                LayerContent::Symbol(s) => s.cache.iter_mut().for_each(re),
                 LayerContent::Smart(sm) => {
                     sm.cache.iter_mut().for_each(re);
                     if let Some(m) = &mut sm.filter_mask {
@@ -275,7 +288,7 @@ fn remap_pixels(doc: &mut Document, map: &dyn Fn(i32, i32) -> (i32, i32)) {
 
 /// Turns or flips the whole canvas. Pixels (and rendered caches) are remapped exactly, so nothing
 /// is re-rendered; vector geometry follows through the matching affine map.
-pub(crate) fn turn_canvas(doc: &mut Document, turn: Turn) {
+pub(crate) fn turn_canvas(doc: &mut Document, turn: Turn) -> crate::Result<()> {
     let (w, h) = (doc.size.width as i32, doc.size.height as i32);
     let map = turn.pixel_map(w, h);
     remap_pixels(doc, &map);
@@ -283,7 +296,7 @@ pub(crate) fn turn_canvas(doc: &mut Document, turn: Turn) {
     if turn.swaps() {
         doc.size = photocraft_doc::Size::new(doc.size.height, doc.size.width);
     }
-    transform_geometry(doc, &a);
+    transform_geometry(doc, &a)
 }
 
 #[cfg(test)]

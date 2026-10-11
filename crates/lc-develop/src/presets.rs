@@ -98,26 +98,26 @@ impl SettingsGroup {
     /// Top-level JSON keys of `DevelopSettings` that belong to the group.
     pub fn keys(self) -> &'static [&'static str] {
         match self {
-            SettingsGroup::Profile => &["profile"],
+            SettingsGroup::Profile => &["profile", "look", "look_options"],
             SettingsGroup::Treatment => &["treatment"],
             SettingsGroup::WhiteBalance => &["wb"],
-            SettingsGroup::Light => &["light"],
+            SettingsGroup::Light => &["light", "tone_eq"],
             SettingsGroup::ToneCurve => &["curve"],
-            SettingsGroup::Color => &["color"],
+            SettingsGroup::Color => &["color", "skin_tone"],
             SettingsGroup::ColorMixer => &["mixer", "bw_mix", "point_colors"],
             SettingsGroup::ColorGrading => &["grading"],
             SettingsGroup::Effects => &["effects"],
             SettingsGroup::Vignette => &["vignette"],
             SettingsGroup::Grain => &["grain"],
-            SettingsGroup::Detail => &["detail", "enhance"],
-            SettingsGroup::Optics => &["optics"],
+            SettingsGroup::Detail => &["detail", "enhance", "raw"],
+            SettingsGroup::Optics => &["optics", "lens_db"],
             SettingsGroup::Geometry => &["geometry"],
             SettingsGroup::Crop => &["crop", "orientation"],
             SettingsGroup::Masks => &["masks"],
             SettingsGroup::Spots => &["spots"],
             SettingsGroup::RedEye => &["red_eye"],
             SettingsGroup::LensBlur => &["lens_blur"],
-            SettingsGroup::Calibration => &["calibration"],
+            SettingsGroup::Calibration => &["calibration", "color_cal"],
             SettingsGroup::Negative => &["negative"],
         }
     }
@@ -136,7 +136,19 @@ pub fn extract_groups(s: &DevelopSettings, groups: &[SettingsGroup]) -> Value {
             }
         }
     }
+    strip_photo_bound(&mut out);
     Value::Object(out)
+}
+
+/// local-image: drop what belongs to one photo's pixels — AI removals
+/// (generated from that photo) — from settings copied to others (copy/paste, sync, presets).
+pub fn strip_photo_bound(out: &mut Map<String, Value>) {
+    if let Some(Value::Object(e)) = out.get_mut("enhance") {
+        e.remove("ai");
+    }
+    if let Some(Value::Array(spots)) = out.get_mut("spots") {
+        spots.retain(|s| s.get("mode").and_then(Value::as_str) != Some("ai"));
+    }
 }
 
 /// Recursively merge `patch` into `base` (objects merge; everything else replaces).
@@ -188,12 +200,42 @@ pub fn apply_partial(s: &DevelopSettings, partial: &Value, amount: f64) -> Devel
     let base = s.to_json_full();
     let patch = if (amount - 1.0).abs() < 1e-9 { partial.clone() } else { scale_patch(&base, partial, amount) };
     let mut out = s.merged(&patch).unwrap_or_else(|_| s.clone());
+    if partial.get("spots").is_some() {
+        keep_ai_spots(s, &mut out);
+    }
+    clamp_controls(&mut out);
+    out
+}
+
+/// local-image: pasted, synced or preset spots replace the photo's Remove / Heal / Clone spots,
+/// never its AI removals (generated from its own pixels, they can't be pasted back). The photo's
+/// AI spots come first, then the incoming spots; incoming AI spots the photo already has (its own
+/// settings read back, e.g. from its sidecar) aren't doubled.
+fn keep_ai_spots(target: &DevelopSettings, out: &mut DevelopSettings) {
+    let mut spots: Vec<crate::Spot> = target.spots.iter().filter(|x| x.is_ai()).cloned().collect();
+    if spots.is_empty() {
+        return;
+    }
+    let key = |x: &crate::Spot| x.patch.as_ref().map(|p| p.key.clone());
+    let have: Vec<Option<String>> = spots.iter().map(key).collect();
+    spots.extend(out.spots.drain(..).filter(|x| !x.is_ai() || !have.contains(&key(x))));
+    out.spots = spots;
+}
+
+/// [`apply_partial`] at 100 %, failing (instead of keeping `s`) when the patch doesn't fit the
+/// settings schema.
+pub fn apply_partial_strict(s: &DevelopSettings, partial: &Value) -> Result<DevelopSettings, String> {
+    let mut out = s.merged(partial).map_err(|e| e.to_string())?;
+    clamp_controls(&mut out);
+    Ok(out)
+}
+
+fn clamp_controls(out: &mut DevelopSettings) {
     for c in crate::controls::CONTROLS {
-        if let Some(v) = crate::controls::get(&out, c.id) {
-            crate::controls::set(&mut out, c.id, v);
+        if let Some(v) = crate::controls::get(out, c.id) {
+            crate::controls::set(out, c.id, v);
         }
     }
-    out
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

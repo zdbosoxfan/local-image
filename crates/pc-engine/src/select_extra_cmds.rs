@@ -192,6 +192,16 @@ fn transform_selection(s: &mut Session, p: &Value) -> Result<Value> {
         })?;
         return Ok(json!({"changed": true, "selected": selected, "bounds": bounds_json(s)}));
     }
+    // local-image: a concave or folded quad warps the outline as two triangles.
+    if let Some(m) = quad(p).and_then(|q| photocraft_algo::transform::QuadMap::new(rect, q)).filter(|m| m.is_folded()) {
+        let selected = s.edit("Transform Selection", |doc, _| {
+            if let Some(sel) = &doc.selection {
+                doc.selection = Some(crate::transform_cmds::warp_gray_map(sel, &m, interp)).filter(|s| !s.content_bounds().is_empty());
+            }
+            Ok(doc.selection.is_some())
+        })?;
+        return Ok(json!({"changed": true, "selected": selected, "bounds": bounds_json(s)}));
+    }
     let h = if let Some(q) = quad(p) {
         Homography::rect_to_quad(rect, q).ok_or_else(|| bad(CMD, "degenerate quad"))?
     } else if let Some(m) = p.get("matrix").and_then(Value::as_array) {

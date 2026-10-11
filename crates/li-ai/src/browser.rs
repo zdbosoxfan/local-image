@@ -3,7 +3,7 @@
 //! card ([`Item`]) with its family, capabilities, download size, rough GPU memory and licence;
 //! plus install planning with Local Image's guardrails:
 //!
-//! - only `.safetensors` and `.gguf` files;
+//! - `.safetensors` and `.gguf`, plus the immutable restoration policy's pinned PTH files;
 //! - every file needs a known size and SHA-256 (Hugging Face's LFS hash from the repo tree;
 //!   Civitai's published SHA-256, size confirmed with a HEAD request) or it is refused;
 //! - downloads come only from the allow-listed hosts ([`crate::download::host_allowed`]);
@@ -240,6 +240,33 @@ fn is_weights(name: &str) -> bool {
 // ------------------------------------------------------------------------------ parsers
 
 /// `GET {hf}/api/models?…` (a JSON array).
+/// Hugging Face pipeline tags of models the editor can't use (their LoRAs are hidden from the browser).
+const NON_IMAGE_PIPELINES: &[&str] = &[
+    "text-generation",
+    "text2text-generation",
+    "image-text-to-text",
+    "text-classification",
+    "token-classification",
+    "feature-extraction",
+    "sentence-similarity",
+    "automatic-speech-recognition",
+    "text-to-speech",
+    "text-to-audio",
+    "audio-to-audio",
+    "question-answering",
+    "summarization",
+    "translation",
+];
+
+/// The installed name of a Hugging Face LoRA file: `<repo>-<file>` (subfolders joined with `-`), unless the file is
+/// already named after its repo, so two repos' `adapter_model.safetensors` never collide in the LoRA folder.
+pub fn lora_file_name(repo_id: &str, path: &str) -> String {
+    let repo = repo_id.rsplit('/').next().unwrap_or(repo_id);
+    let flat = path.replace('/', "-");
+    let clean = |s: &str| s.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '_' }).collect::<String>();
+    if flat.to_ascii_lowercase().starts_with(&repo.to_ascii_lowercase()) { clean(&flat) } else { clean(&format!("{repo}-{flat}")) }
+}
+
 pub fn parse_hf_list(reg: &Registry, hf_base: &str, v: &Value, kind: Kind) -> Vec<Item> {
     let Some(arr) = v.as_array() else { return Vec::new() };
     arr.iter()
@@ -247,16 +274,35 @@ pub fn parse_hf_list(reg: &Registry, hf_base: &str, v: &Value, kind: Kind) -> Ve
             let id = m.get("id").or_else(|| m.get("modelId"))?.as_str()?.to_owned();
             let tags: Vec<String> =
                 m.get("tags").and_then(Value::as_array).map(|a| a.iter().filter_map(|t| t.as_str().map(str::to_owned)).collect()).unwrap_or_default();
-            let is_lora = tags.iter().any(|t| t == "lora" || t.starts_with("base_model:adapter:"));
+            let weights: Vec<&str> = m
+                .get("siblings")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|s| s.get("rfilename").and_then(Value::as_str))
+                .filter(|f| is_weights(f))
+                .collect();
+            // A LoRA repo by its tags, its name ("flux-lora-collection"), or because every weights
+            // file in it is named as a LoRA: none of those may install into a model folder.
+            let looks_lora = crate::arch::name_looks_like_lora;
+            let is_lora = tags.iter().any(|t| t == "lora" || t.starts_with("base_model:adapter:"))
+                || looks_lora(id.rsplit('/').next().unwrap_or(&id))
+                || (!weights.is_empty() && weights.iter().all(|f| looks_lora(f)));
             if (kind == Kind::Lora) != is_lora {
                 return None;
             }
+            // The editor runs image models only: LoRAs for language, speech or audio models never load in ComfyUI here.
+            let pipeline = m.get("pipeline_tag").and_then(Value::as_str).unwrap_or("");
+            if NON_IMAGE_PIPELINES.contains(&pipeline) || tags.iter().any(|t| NON_IMAGE_PIPELINES.contains(&t.as_str())) {
+                return None;
+            }
+            let file_kind = if is_lora { crate::arch::FileKind::Lora } else { crate::arch::FileKind::DiffusionModel };
             let base = tags.iter().find_map(|t| t.strip_prefix("base_model:").map(|b| b.rsplit(':').next().unwrap_or(b).to_owned()));
             let family = tags
                 .iter()
                 .find_map(|t| family_for_label(reg, t))
                 .or_else(|| base.as_deref().and_then(|b| crate::arch::guess_from_name(b, crate::arch::FileKind::DiffusionModel)))
-                .or_else(|| crate::arch::guess_from_name(&id, crate::arch::FileKind::DiffusionModel))
+                .or_else(|| crate::arch::guess_from_name(&id, file_kind))
                 .filter(|f| reg.family(f).is_some());
             let card = m.get("cardData");
             let license = card
@@ -265,16 +311,15 @@ pub fn parse_hf_list(reg: &Registry, hf_base: &str, v: &Value, kind: Kind) -> Ve
                 .map(str::to_owned)
                 .or_else(|| tags.iter().find_map(|t| t.strip_prefix("license:").map(str::to_owned)))
                 .unwrap_or_default();
-            let files = m
-                .get("siblings")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(|s| s.get("rfilename").and_then(Value::as_str))
-                .filter(|f| is_weights(f))
-                .map(|f| {
-                    let name = f.rsplit('/').next().unwrap_or(f).to_owned();
-                    let folder = if is_lora { "loras" } else { model_folder(reg, family.as_deref(), f) };
+            let files = weights
+                .iter()
+                .map(|&f| {
+                    let file = f.rsplit('/').next().unwrap_or(f);
+                    // A LoRA shipped beside a model (a speed-up LoRA, say) goes to the LoRAs.
+                    let folder = if is_lora || looks_lora(f) { "loras" } else { model_folder(reg, family.as_deref(), f) };
+                    // Every LoRA shares one folder and many repos use generic names (adapter_model.safetensors,
+                    // pytorch_lora_weights.safetensors), so a LoRA file is named after its repo (and subfolder).
+                    let name = if folder == "loras" { lora_file_name(&id, f) } else { file.to_owned() };
                     CatalogFile { name, folder: folder.into(), url: format!("{}/{id}/resolve/main/{f}", hf_base.trim_end_matches('/')), ..Default::default() }
                 })
                 .collect();
@@ -309,7 +354,11 @@ pub fn parse_hf_tree(v: &Value) -> BTreeMap<String, (u64, String)> {
         .filter_map(|e| {
             let path = e.get("path")?.as_str()?.to_owned();
             let lfs = e.get("lfs")?;
+            // A gated repo read without its token masks the hashes ("****…"): no hash, so the plan explains the gate.
             let sha = lfs.get("oid").or_else(|| lfs.get("sha256"))?.as_str()?.to_owned();
+            if sha.starts_with('*') {
+                return None;
+            }
             let size = lfs.get("size").or_else(|| e.get("size"))?.as_u64()?;
             Some((path, (size, sha)))
         })
@@ -530,6 +579,7 @@ pub fn template_files(template: &Value) -> Vec<CatalogFile> {
                     folder: dir.to_owned(),
                     url: url.to_owned(),
                     sha256: sha.map(str::to_ascii_lowercase),
+                    bytes: m.get("size").or_else(|| m.get("bytes")).and_then(Value::as_u64),
                     ..Default::default()
                 });
             }
@@ -597,6 +647,9 @@ pub struct Query {
 
 /// The catalogue URLs a query fetches.
 pub fn urls(cfg: &Config, reg: &Registry, q: &Query) -> Vec<(Source, String)> {
+    if matches!(&q.view, View::Family(f) if f == "restoration") {
+        return Vec::new();
+    }
     let enc = |s: &str| urlencode(s);
     let mut out = Vec::new();
     let family = match &q.view {
@@ -660,6 +713,16 @@ pub fn urlencode(s: &str) -> String {
 
 /// Turns fetched catalogue bodies into cards, filtered and sorted for the query.
 pub fn items(reg: &Registry, cfg: &Config, q: &Query, bodies: &[(Source, Value)]) -> Vec<Item> {
+    if matches!(&q.view, View::Family(f) if f == "restoration") {
+        if q.kind != Kind::Model {
+            return Vec::new();
+        }
+        let needle = q.search.trim().to_ascii_lowercase();
+        return restoration_items()
+            .into_iter()
+            .filter(|i| i.title.to_ascii_lowercase().contains(&needle) || i.description.to_ascii_lowercase().contains(&needle))
+            .collect();
+    }
     let mut out = Vec::new();
     for (src, v) in bodies {
         match src {
@@ -688,6 +751,7 @@ pub fn items(reg: &Registry, cfg: &Config, q: &Query, bodies: &[(Source, Value)]
         }
     }
     let needle = q.search.trim().to_ascii_lowercase();
+    out.retain(|i| !external_only_item(i));
     out.retain(|i| needle.is_empty() || i.title.to_ascii_lowercase().contains(&needle) || i.description.to_ascii_lowercase().contains(&needle));
     match &q.view {
         View::Family(f) => {
@@ -724,6 +788,7 @@ pub struct HttpNet {
 impl HttpNet {
     pub fn new(cfg: Config) -> Self {
         let agent = ureq::Agent::config_builder()
+            .tls_config(crate::tls::config())
             .timeout_connect(Some(std::time::Duration::from_secs(15)))
             .timeout_global(Some(std::time::Duration::from_secs(60)))
             .max_redirects(4)
@@ -854,6 +919,44 @@ pub struct Plan {
     pub gated: bool,
 }
 
+/// Offline curated cards: the embedded restoration policy cannot be replaced by an online list.
+fn external_only_item(item: &Item) -> bool {
+    crate::restoration::byo::external_only(&format!("{}/{}/{}", item.id, item.title, item.page_url))
+        || item.files.iter().any(|f| crate::restoration::byo::external_only(&format!("{}/{}", f.url, f.name)))
+}
+
+/// Offline curated cards: the embedded restoration policy cannot be replaced by an online list.
+pub fn restoration_items() -> Vec<Item> {
+    crate::restoration::policy()
+        .models
+        .iter()
+        .map(|m| Item {
+            id: format!("restoration:{}", m.key),
+            kind: Some(Kind::Model),
+            title: m.label.clone(),
+            description: format!("{} {}", m.description, m.notes),
+            family: Some("restoration".into()),
+            license: m.license.clone().unwrap_or_default(),
+            license_url: m.license_url.clone(),
+            commercial: Some(true),
+            page_url: m.license_url.clone().unwrap_or_default(),
+            files: m.presets[0]
+                .files
+                .iter()
+                .map(|f| CatalogFile {
+                    name: f.name.clone(),
+                    folder: f.folder.clone(),
+                    url: f.url.clone(),
+                    bytes: Some(f.bytes),
+                    sha256: Some(f.sha256.clone()),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        })
+        .collect()
+}
+
 impl Plan {
     pub fn total(&self) -> u64 {
         self.files.iter().map(|f| f.bytes).sum()
@@ -879,6 +982,25 @@ fn installed(info: &ObjectInfo, folder: &str, name: &str) -> bool {
 /// Resolves exact sizes and hashes and adds the family's missing text encoders and VAE. Fails
 /// (with the reason) for anything Local Image won't install unverified.
 pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &ObjectInfo, cfg: &Config, net: &dyn Net) -> Result<Plan> {
+    if external_only_item(item) || files.iter().any(|f| crate::restoration::byo::external_only(&format!("{}/{}", f.url, f.name))) {
+        bail!("This model is user-installed only; Local Image never downloads it");
+    }
+    if item.family.as_deref() == Some("restoration") || files.iter().any(|f| crate::restoration::pinned_file(&f.name).is_some()) {
+        let canonical = restoration_items().into_iter().find(|i| i.id == item.id).context("Unknown restoration browser card")?;
+        if files != canonical.files {
+            bail!("Restoration browser files differ from the built-in allowlist");
+        }
+        let mut plan = Plan { license: canonical.license, license_url: canonical.license_url, ..Default::default() };
+        for f in canonical.files {
+            if installed(info, &f.folder, &f.name) {
+                plan.present.push(f.name);
+            } else {
+                plan.files.push(PlannedFile { name: f.name, folder: f.folder, url: f.url, bytes: f.bytes.unwrap(), sha256: f.sha256.unwrap() });
+            }
+        }
+        return Ok(plan);
+    }
+
     let mut want: Vec<CatalogFile> = files.to_vec();
     // The family's components that ComfyUI doesn't have.
     if let Some(f) = fam
@@ -952,6 +1074,12 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
             bytes = exact;
         }
         let (Some(bytes), Some(sha)) = (bytes, sha.filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))) else {
+            if item.gated && cfg.hf_token.as_deref().is_none_or(str::is_empty) && f.hf_path(&cfg.hf).is_some() {
+                bail!(
+                    "{} is gated: accept its terms on its Hugging Face page and add a Hugging Face token in Local AI › Accounts, then install again.",
+                    f.name
+                );
+            }
             bail!("{} has no published size and SHA-256, so it can't be verified; Local Image doesn't install unverified files.", f.name);
         };
         out.files.push(PlannedFile { name: f.name, folder: f.folder, url: f.url, bytes, sha256: sha.to_ascii_lowercase() });
@@ -962,6 +1090,14 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
 /// Downloads a plan into `model_dir/<folder>/<name>` (verified, atomic). Tokens go only to their
 /// own hosts.
 pub fn install(plan: &Plan, model_dir: &Path, cfg: &Config, ctl: &crate::comfy::JobControl, on_progress: &dyn Fn(u64, u64, &str)) -> Result<()> {
+    for f in &plan.files {
+        if crate::restoration::byo::external_only(&format!("{}/{}", f.url, f.name)) {
+            bail!("This model is user-installed only; Local Image never downloads it");
+        }
+        if f.name.to_ascii_lowercase().ends_with(".pth") || crate::restoration::pinned_file(&f.name).is_some() {
+            crate::restoration::validate_download(&f.name, &f.folder, &f.url, f.bytes, &f.sha256)?;
+        }
+    }
     let total = plan.total();
     let mut done = 0u64;
     for f in &plan.files {
@@ -1004,6 +1140,28 @@ mod tests {
     use crate::family::registry;
     use serde_json::json;
 
+    #[test]
+    fn lora_files_are_named_after_their_repo() {
+        assert_eq!(lora_file_name("me/cool-style", "adapter_model.safetensors"), "cool-style-adapter_model.safetensors");
+        assert_eq!(lora_file_name("me/cool-style", "v2/pytorch_lora_weights.safetensors"), "cool-style-v2-pytorch_lora_weights.safetensors");
+        assert_eq!(lora_file_name("me/Cool-Style", "cool-style_v1.safetensors"), "cool-style_v1.safetensors");
+        assert_ne!(lora_file_name("a/x", "adapter_model.safetensors"), lora_file_name("b/y", "adapter_model.safetensors"));
+    }
+
+    #[test]
+    fn gated_and_text_loras() {
+        let tree =
+            json!([{"path": "a.safetensors", "size": 10, "lfs": {"oid": "****************************************************************", "size": 10}}]);
+        assert!(parse_hf_tree(&tree).is_empty(), "masked hashes are not hashes");
+        let list = json!([
+            {"id": "x/text-lora", "tags": ["lora"], "pipeline_tag": "text-generation", "siblings": [{"rfilename": "adapter_model.safetensors"}]},
+            {"id": "x/img-lora", "tags": ["lora"], "pipeline_tag": "text-to-image", "siblings": [{"rfilename": "adapter_model.safetensors"}]}
+        ]);
+        let items = parse_hf_list(registry(), "https://huggingface.co", &list, Kind::Lora);
+        assert_eq!(items.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["img-lora"]);
+        assert_eq!(items[0].files[0].name, "img-lora-adapter_model.safetensors");
+    }
+
     fn hf_list() -> Value {
         json!([
             {"id": "Comfy-Org/z_image_turbo", "author": "Comfy-Org", "likes": 900, "downloads": 45000000, "trendingScore": 80, "createdAt": "2025-11-27T00:00:00Z",
@@ -1038,6 +1196,28 @@ mod tests {
         assert_eq!(loras.len(), 1);
         assert_eq!(loras[0].files[0].folder, "loras");
         assert_eq!(loras[0].family.as_deref(), Some("qwen-image"));
+    }
+
+    /// LoRA collections without the `lora` tag are LoRAs (not models installing into
+    /// `diffusion_models`), and a LoRA shipped beside a model installs into `loras`.
+    #[test]
+    fn untagged_lora_repos_and_files_go_to_the_loras() {
+        let reg = registry();
+        let list = json!([
+            {"id": "XLabs-AI/flux-lora-collection", "tags": ["text-to-image"], "siblings": [{"rfilename": "realism_lora.safetensors"}, {"rfilename": "art_lora.safetensors"}]},
+            {"id": "someone/ink-styles", "tags": [], "siblings": [{"rfilename": "sdxl/ink_lora.safetensors"}, {"rfilename": "sdxl/pencil-LoRA.safetensors"}]},
+            {"id": "someone/qwen-image-pack", "tags": ["text-to-image"],
+             "siblings": [{"rfilename": "qwen_image_bf16.safetensors"}, {"rfilename": "Qwen-Image-Lightning-8steps-lora.safetensors"}]}
+        ]);
+        let models = parse_hf_list(reg, "https://huggingface.co", &list, Kind::Model);
+        assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), vec!["hf:someone/qwen-image-pack"]);
+        let pack = &models[0];
+        assert_eq!(pack.files[0].folder, "diffusion_models");
+        assert_eq!(pack.files[1].folder, "loras", "{:?}", pack.files);
+        let loras = parse_hf_list(reg, "https://huggingface.co", &list, Kind::Lora);
+        assert_eq!(loras.len(), 2);
+        assert!(loras.iter().all(|l| l.files.iter().all(|f| f.folder == "loras")));
+        assert_eq!(loras[0].family.as_deref(), Some("flux1"));
     }
 
     fn civitai() -> Value {

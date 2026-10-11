@@ -73,6 +73,8 @@ pub enum ResizeMode {
     Height,
     /// Fit inside `value × height` pixels, whichever way round the photo is (long edge ≤ the larger).
     Dimensions,
+    /// Fit inside a `value` (width) × `height` box as given (Lightroom's "Width & Height").
+    WidthHeight,
     /// `value` = megapixels.
     Megapixels,
     /// `value` = percent of the full size.
@@ -116,6 +118,7 @@ impl Resize {
                 let (a, b) = (v, self.height as f64);
                 (a.max(b) / long).min(a.min(b) / short)
             }
+            ResizeMode::WidthHeight => (v / w).min(self.height as f64 / h),
             ResizeMode::Megapixels => (v * 1e6 / (w * h)).sqrt(),
             ResizeMode::Percent => v / 100.0,
         };
@@ -159,6 +162,24 @@ pub fn builtin_presets() -> Vec<ExportPreset> {
         p("Original + Settings", serde_json::json!({"format": "original"})),
         p("DNG", serde_json::json!({"format": "dng"})),
     ]
+}
+
+/// Restoration method for export enlargement. Absent in old settings: ordinary resizing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnhanceMethod {
+    Faithful,
+    Rescue,
+    Generative,
+}
+impl EnhanceMethod {
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Faithful => "faithful",
+            Self::Rescue => "rescue",
+            Self::Generative => "generative",
+        }
+    }
 }
 
 /// Output sharpening target (applied after resizing, in display-encoded values).
@@ -503,6 +524,8 @@ pub struct ExportOptions {
     pub quality: u8,
     /// Output size (`None` = full size).
     pub resize: Option<Resize>,
+    /// AI method used only when resizing enlarges the developed image (sRGB model input).
+    pub enhance: Option<EnhanceMethod>,
     /// Print resolution written into the file (pixels per inch).
     pub ppi: u16,
     /// JPEG only: largest quality whose file fits in this many KB.
@@ -519,6 +542,10 @@ pub struct ExportOptions {
     pub start_number: u32,
     /// Created inside the destination folder (empty = none).
     pub subfolder: String,
+    /// Export each photo into the folder of its own original (Lightroom's "Same folder as original
+    /// photo") instead of the batch's destination folder; `subfolder` still applies. The usual
+    /// guard holds: an original is never written over.
+    pub same_folder: bool,
     /// When a file of the same name exists in the destination folder.
     pub conflict: Conflict,
     /// TIFF compression.
@@ -528,6 +555,9 @@ pub struct ExportOptions {
     pub metadata: MetadataPolicy,
     /// Strip GPS / location even when the policy would include it.
     pub remove_location: bool,
+    /// Explicit opt-in: project named face regions into People keywords on exported copies.
+    #[serde(default)]
+    pub include_people_names: bool,
     /// Text watermark (none when absent or the text is empty).
     pub watermark: Option<Watermark>,
     /// Output colour space (AVIF is always sRGB: its muxer cannot embed a profile).
@@ -535,6 +565,25 @@ pub struct ExportOptions {
     /// Bits per channel: 8, 16 (PNG, TIFF), 32 (TIFF: float, linear) or 10 (AVIF); `None` = the
     /// format's default (TIFF 16, everything else 8). See [`ExportOptions::effective_depth`].
     pub bit_depth: Option<u8>,
+    /// JPEG chroma subsampling (`None` = 4:4:4, or 4:2:0 with a file-size limit). Not a user
+    /// setting: Save Over Original keeps the original's.
+    #[serde(skip)]
+    pub jpeg_chroma: Option<ChromaSubsampling>,
+    /// Explicit Save Over Original only: encode into the source's matrix/TRC profile.
+    /// Internal render state must never become part of a preset.
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub source_encoding: Option<Box<SourceEncoding>>,
+    #[serde(skip)]
+    #[doc(hidden)]
+    pub source_metadata: Option<Box<Metadata>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+#[doc(hidden)]
+pub struct SourceEncoding {
+    pub space: lightcraft_codecs::SourceSpace,
+    pub profile: Vec<u8>,
 }
 
 impl Default for ExportOptions {
@@ -543,6 +592,7 @@ impl Default for ExportOptions {
             format: ExportFormat::Jpeg,
             quality: 90,
             resize: None,
+            enhance: None,
             ppi: 240,
             limit_kb: None,
             sharpen: SharpenFor::None,
@@ -550,14 +600,19 @@ impl Default for ExportOptions {
             naming: "{name}".into(),
             start_number: 1,
             subfolder: String::new(),
+            same_folder: false,
             conflict: Conflict::Unique,
             tiff_compression: TiffCompression::Deflate,
             dng_compression: DngCompression::Lossless,
             metadata: MetadataPolicy::All,
             remove_location: false,
+            include_people_names: false,
             watermark: None,
             color_space: OutputSpace::Srgb,
             bit_depth: None,
+            jpeg_chroma: None,
+            source_encoding: None,
+            source_metadata: None,
         }
     }
 }
@@ -580,6 +635,7 @@ impl ExportOptions {
             format: s("format").and_then(ExportFormat::parse).unwrap_or(d.format),
             quality: u("quality").map_or(d.quality, |q| q.clamp(1, 100) as u8),
             resize: Self::resize_from_json(p),
+            enhance: enm(p, "enhance"),
             ppi: u("ppi").filter(|v| *v > 0).map_or(d.ppi, |v| v.min(u16::MAX as u64) as u16),
             limit_kb: u("limitKb").filter(|v| *v > 0).map(|v| v.min(u32::MAX as u64) as u32),
             sharpen: enm(p, "sharpen").unwrap_or(d.sharpen),
@@ -587,6 +643,7 @@ impl ExportOptions {
             naming: s("naming").map_or(d.naming, str::to_string),
             start_number: u("startNumber").map_or(d.start_number, |v| v.min(999_999) as u32),
             subfolder: s("subfolder").map_or(d.subfolder, |v| v.trim().replace(['\\', ':', '\0'], "_")),
+            same_folder: p.get("sameFolder").and_then(Value::as_bool).unwrap_or(d.same_folder),
             conflict: enm(p, "conflict").unwrap_or(d.conflict),
             tiff_compression: match s("tiffCompression").map(str::to_ascii_lowercase).as_deref() {
                 Some("none") => TiffCompression::None,
@@ -597,6 +654,7 @@ impl ExportOptions {
             dng_compression: enm(p, "dngCompression").unwrap_or(d.dng_compression),
             metadata: enm(p, "metadata").unwrap_or(d.metadata),
             remove_location: p.get("removeLocation").and_then(Value::as_bool).unwrap_or(d.remove_location),
+            include_people_names: p.get("includePeopleNames").and_then(Value::as_bool).unwrap_or(false),
             watermark: match p.get("watermark") {
                 Some(Value::String(t)) => Some(Watermark { text: t.clone(), ..Default::default() }),
                 Some(v @ Value::Object(_)) => serde_json::from_value(v.clone()).ok(),
@@ -605,6 +663,9 @@ impl ExportOptions {
             .filter(|w: &Watermark| !w.text.trim().is_empty() || !w.image.trim().is_empty()),
             color_space: s("colorSpace").and_then(OutputSpace::parse).unwrap_or(d.color_space),
             bit_depth: u("bitDepth").filter(|b| matches!(b, 8 | 10 | 16 | 32)).map(|b| b as u8),
+            jpeg_chroma: None,
+            source_encoding: None,
+            source_metadata: None,
         }
     }
 
@@ -817,7 +878,7 @@ pub fn encode_with_metadata(img: &Rgba8, o: &ExportOptions, meta: Option<&Metada
     let r = match o.format {
         ExportFormat::Jpeg => {
             // 4:4:4 normally; 4:2:0 when targeting a file size (much smaller at equal visual quality).
-            let sub = if o.limit_kb.is_some() { ChromaSubsampling::S420 } else { ChromaSubsampling::S444 };
+            let sub = if o.limit_kb.is_some() { ChromaSubsampling::S420 } else { o.jpeg_chroma.unwrap_or(ChromaSubsampling::S444) };
             let jpeg = |q: u8| encode::encode_jpeg(&e, q, sub, &meta);
             match o.limit_kb {
                 Some(kb) => {
@@ -879,10 +940,61 @@ pub fn srgb8_in(space: OutputSpace, c: [u8; 3]) -> [u8; 3] {
 /// Encode a render according to `o`: its high-bit-depth samples when it has them (16-bit PNG/TIFF,
 /// 10-bit AVIF, 32-bit float linear TIFF), else its 8-bit image.
 pub fn encode_rendered(r: &lightcraft_pipeline::Rendered, o: &ExportOptions, meta: Option<&Metadata>) -> Result<Vec<u8>, String> {
+    if let Some(source) = &o.source_encoding {
+        return encode_in_source_space(r, o, source, meta);
+    }
     match &r.deep {
         Some(d) if o.effective_depth() != OutputDepth::U8 => encode_deep(d, o, meta),
         _ => encode_with_metadata(&r.image, o, meta),
     }
+}
+
+/// The render still uses the export pipeline, delivered as linear Rec.2020 floats to avoid
+/// an 8-bit/sRGB intermediate. Convert those pixels back to the original profile's primaries
+/// and per-channel curves before encoding, including nonstandard RGB matrix/TRC profiles.
+fn encode_in_source_space(
+    r: &lightcraft_pipeline::Rendered,
+    o: &ExportOptions,
+    source: &SourceEncoding,
+    meta: Option<&Metadata>,
+) -> Result<Vec<u8>, String> {
+    let deep = r.deep.as_ref().ok_or("source-profile export needs a float render")?;
+    let DeepSamples::F32(samples) = &deep.samples else { return Err("source-profile export needs linear floats".into()) };
+    let matrix = source.space.to_working().inverse().ok_or("the original's colour matrix is singular")?;
+    let curves = source.space.trc.as_ref().ok_or("the original's encoding curves are unknown")?;
+    let mut converted = Vec::with_capacity(samples.len());
+    let depth = o.effective_depth();
+    let float = depth == OutputDepth::F32Linear;
+    for pixel in samples.as_chunks::<3>().0 {
+        let linear = matrix.apply([pixel[0] as f64, pixel[1] as f64, pixel[2] as f64]);
+        for (i, value) in linear.into_iter().enumerate() {
+            let encoded = curves[i].from_linear(value as f32);
+            converted.push(if float { encoded } else { encoded.clamp(0.0, 1.0) });
+        }
+    }
+    let exif = meta.map(lightcraft_meta::write_exif);
+    let xmp = meta.map(|m| lightcraft_meta::write_xmp(m, None));
+    let meta = EncodeMeta { icc: Some(&source.profile), exif: exif.as_deref(), xmp: xmp.as_deref(), ppi: Some(o.ppi) };
+    let u16s;
+    let u8s;
+    let samples = if float {
+        Samples::F32(&converted)
+    } else if depth == OutputDepth::U16 {
+        u16s = converted.iter().map(|v| (v * 65535.0 + 0.5) as u16).collect::<Vec<_>>();
+        Samples::U16(&u16s)
+    } else {
+        u8s = converted.iter().map(|v| (v * 255.0 + 0.5) as u8).collect::<Vec<_>>();
+        Samples::U8(&u8s)
+    };
+    let image = EncodeImage::new(deep.width as u32, deep.height as u32, 3, samples);
+    match o.format {
+        ExportFormat::Jpeg => encode::encode_jpeg(&image, o.quality, o.jpeg_chroma.unwrap_or(ChromaSubsampling::S444), &meta),
+        ExportFormat::Png => encode::encode_png(&image, &meta),
+        ExportFormat::Tiff => encode::encode_tiff(&image, o.tiff_compression, &meta),
+        ExportFormat::Webp => encode::encode_webp_lossless(&image, &meta),
+        _ => return Err("this format cannot preserve the original colour profile".into()),
+    }
+    .map_err(|e| e.to_string())
 }
 
 /// Encode a high-bit-depth image (see [`encode_rendered`]).
@@ -954,6 +1066,9 @@ pub fn export_metadata(photo: &lightcraft_catalog::Photo, o: &ExportOptions) -> 
         out.country = text(&m.country);
     }
     out.keywords = m.keywords.clone();
+    if o.include_people_names {
+        add_people_keywords(&mut out.keywords, &m.regions);
+    }
     out.capture_time = photo.captured.as_deref().and_then(DateTime::parse_iso);
     out.rating = (photo.rating > 0).then_some(photo.rating as i8);
     // Pixels are exported upright: orientation is baked in.
@@ -970,6 +1085,22 @@ pub fn export_metadata(photo: &lightcraft_catalog::Photo, o: &ExportOptions) -> 
         out.iso = m.iso;
     }
     Some(out)
+}
+
+/// Names leave the face store only as explicit export metadata; never include IDs or vectors.
+fn add_people_keywords(keywords: &mut Vec<String>, regions: &[lightcraft_meta::Region]) {
+    for name in regions
+        .iter()
+        .filter(|r| r.kind == lightcraft_meta::RegionKind::Face)
+        .filter_map(|r| r.name.as_deref())
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+    {
+        let keyword = format!("People|{name}");
+        if !keywords.iter().any(|k| k.eq_ignore_ascii_case(&keyword)) {
+            keywords.push(keyword);
+        }
+    }
 }
 
 /// One exported file.
@@ -1004,13 +1135,19 @@ pub fn export_photo(session: &mut crate::Session, id: lightcraft_catalog::PhotoI
 pub struct PreparedExport {
     pub photo: lightcraft_catalog::PhotoId,
     pub file_name: String,
+    /// Relative folder within a batch destination (Smart Sort). Validated before rendering.
+    pub subfolder: Option<String>,
     work: Work,
     /// The library's originals, which [`run_batch`] never writes over (shared by a batch).
     guard: std::sync::Arc<crate::originals::OriginalGuard>,
+    /// The folder of the photo's original (`None` for a generated demo photo): the destination
+    /// with [`ExportOptions::same_folder`].
+    source_dir: Option<String>,
 }
 
 struct RenderWork {
     job: crate::media::RenderJob,
+    upscale: Option<(std::sync::Arc<dyn crate::enhance::AiHost>, (usize, usize))>,
     meta: Option<Metadata>,
     opts: ExportOptions,
 }
@@ -1047,7 +1184,7 @@ pub fn prepare_batch(session: &mut crate::Session, ids: &[lightcraft_catalog::Ph
     ids.iter().enumerate().map(|(i, id)| prepare_guarded(session, *id, o, i + 1, guard.clone())).collect()
 }
 
-fn prepare_guarded(
+pub(crate) fn prepare_guarded(
     session: &mut crate::Session,
     id: lightcraft_catalog::PhotoId,
     o: &ExportOptions,
@@ -1056,11 +1193,41 @@ fn prepare_guarded(
 ) -> Result<PreparedExport, String> {
     let p = session.catalog.photo(id).ok_or("no such photo")?;
     let file_name = o.file_name_for(p, seq);
+    let source_dir = match &p.source {
+        lightcraft_catalog::Source::File { path } => std::path::Path::new(path).parent().map(|d| d.to_string_lossy().to_string()),
+        lightcraft_catalog::Source::Demo { .. } => None,
+    };
     let work = if o.format.is_rendered() {
         let (w, h) = output_size(p, o);
-        let meta = export_metadata(p, o);
-        let job = session.export_job(id, w, h, o.effective_space(), o.effective_depth())?;
-        Work::Render(Box::new(RenderWork { job, meta, opts: o.clone() }))
+        let mut meta = export_metadata(p, o);
+        if let (Some(meta), Some(original)) = (&mut meta, &o.source_metadata) {
+            meta.fill_missing(original);
+            if let (Some(gps), Some(old)) = (&mut meta.gps, &original.gps)
+                && gps.latitude == old.latitude
+                && gps.longitude == old.longitude
+            {
+                gps.altitude = old.altitude;
+            }
+            // Orientation and dimensions describe the new, upright rendered pixels.
+            meta.orientation = Some(lightcraft_meta::Orientation::Normal);
+            meta.width = Some(w as u32);
+            meta.height = Some(h as u32);
+        }
+        let (space, depth) =
+            if o.source_encoding.is_some() { (OutputSpace::Rec2020, OutputDepth::F32Linear) } else { (o.effective_space(), o.effective_depth()) };
+        let (nw, nh) = lightcraft_pipeline::native_output_size(p.width.max(1) as usize, p.height.max(1) as usize, &p.develop);
+        let native = (nw.round().max(1.0) as usize, nh.round().max(1.0) as usize);
+        let upscale = if o.enhance.is_some() && w > native.0 && h > native.1 {
+            Some((session.enhance.host.clone().ok_or("AI enlargement is not available in this host")?, (w, h)))
+        } else {
+            None
+        };
+        let job = if upscale.is_some() {
+            session.export_job(id, native.0, native.1, OutputSpace::Srgb, OutputDepth::U8)?
+        } else {
+            session.export_job(id, w, h, space, depth)?
+        };
+        Work::Render(Box::new(RenderWork { job, upscale, meta, opts: o.clone() }))
     } else {
         let lightcraft_catalog::Source::File { path } = &p.source else {
             return Err(format!("{} is a generated demo photo: it has no original file to export", p.file_name));
@@ -1068,22 +1235,47 @@ fn prepare_guarded(
         Work::File {
             path: path.clone(),
             read: session.media.file_bytes.clone(),
-            packet: crate::sidecar::sidecar_packet(p, &session.catalog),
+            packet: { crate::sidecar::sidecar_packet(&photo_for_sidecar(p, o.include_people_names), &session.catalog) },
             dng: (o.format == ExportFormat::Dng).then_some(o.dng_compression),
             label: p.file_name.clone(),
             size: (p.width as usize, p.height as usize),
         }
     };
-    Ok(PreparedExport { photo: id, file_name, work, guard })
+    Ok(PreparedExport { photo: id, file_name, subfolder: None, work, guard, source_dir })
 }
 
 impl PreparedExport {
     pub fn run(self) -> Result<Exported, String> {
+        self.run_with_ctl(&crate::enhance::JobCtl::new())
+    }
+
+    pub fn run_with_ctl(self, ctl: &crate::enhance::JobCtl) -> Result<Exported, String> {
+        if ctl.cancelled() {
+            return Err(crate::enhance::CANCELLED.to_owned());
+        }
         let file_name = self.file_name;
         match self.work {
             Work::Render(w) => {
-                let RenderWork { job, meta, opts } = *w;
-                let r = job.run().rendered?;
+                let RenderWork { job, upscale, meta, opts } = *w;
+                let mut r = job.run().rendered?;
+                if let Some((host, target)) = upscale {
+                    let request = crate::enhance::UpscaleRequest {
+                        width: r.image.width,
+                        height: r.image.height,
+                        rgba: r.image.data.clone(),
+                        target,
+                        method: opts.enhance.ok_or("missing enhancement method")?.key().into(),
+                    };
+                    let pixels = host.upscale(&request, ctl)?;
+                    if pixels.len() != target.0 * target.1 {
+                        return Err("AI enlargement returned an unexpected size".into());
+                    }
+                    r.image = Rgba8 { width: target.0, height: target.1, data: pixels };
+                    r.deep = enhanced_samples(&mut r.image, &opts);
+                }
+                if ctl.cancelled() {
+                    return Err(crate::enhance::CANCELLED.to_owned());
+                }
                 let bytes = encode_rendered(&r, &opts, meta.as_ref())?;
                 Ok(Exported { file_name, bytes, width: r.image.width, height: r.image.height, sidecars: Vec::new() })
             }
@@ -1135,6 +1327,35 @@ pub struct Destination {
     pub exact: Option<String>,
 }
 
+/// Where each of `ids` would be exported to under `o` and `to`, before any conflict policy:
+/// the folder ([`ExportOptions::same_folder`]: the photo's own; plus the subfolder) and the file
+/// name ([`ExportOptions::file_name_for`]). `None` for a photo with no folder of its own. Used to
+/// preview names and to ask about existing files before an export starts.
+pub fn planned_paths(
+    catalog: &lightcraft_catalog::Catalog,
+    ids: &[lightcraft_catalog::PhotoId],
+    o: &ExportOptions,
+    to: &Destination,
+) -> Vec<Option<String>> {
+    let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
+    let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
+    ids.iter()
+        .enumerate()
+        .map(|(i, id)| {
+            let p = catalog.photo(*id)?;
+            if let Some(exact) = to.exact.as_deref().filter(|_| ids.len() == 1) {
+                return Some(exact.to_string());
+            }
+            let dir = match (&p.source, o.same_folder) {
+                (_, false) => in_sub(&to.dir),
+                (lightcraft_catalog::Source::File { path }, true) => in_sub(&std::path::Path::new(path).parent()?.to_string_lossy()),
+                (lightcraft_catalog::Source::Demo { .. }, true) => return None,
+            };
+            Some(join(&dir, &o.file_name_for(p, i + 1)))
+        })
+        .collect()
+}
+
 /// Export `ids` in order ([`prepare_batch`] + [`run_batch`]), stopping at the first error.
 pub fn export_batch(
     session: &mut crate::Session,
@@ -1172,6 +1393,34 @@ fn write_with(path: &str, bytes: &[u8], durable: bool) -> Result<(), String> {
     if durable { write_atomic(p, bytes) } else { write_atomic_nosync(p, bytes) }.map_err(|e| format!("{path}: {e}"))
 }
 
+/// The model emits sRGB8; preserve the requested output primaries, curve and container depth.
+/// Restoration has 8-bit source precision even in 16/32-bit exports.
+fn enhanced_samples(image: &mut Rgba8, opts: &ExportOptions) -> Option<DeepImage> {
+    let (space, depth) = if opts.source_encoding.is_some() {
+        (OutputSpace::Rec2020, OutputDepth::F32Linear)
+    } else {
+        (opts.effective_space(), opts.effective_depth())
+    };
+    let matrix = lightcraft_color::SRGB.to_space(&space.rgb_space());
+    let trc = space.trc();
+    let mut values = Vec::with_capacity(image.data.len() * 3);
+    let linear = depth == OutputDepth::F32Linear;
+    for pixel in &mut image.data {
+        let rgb = matrix.apply([pixel[0], pixel[1], pixel[2]].map(|v| lightcraft_color::transfer::decode_srgb8(v) as f64));
+        for c in 0..3 {
+            let encoded = trc.encode(rgb[c] as f32).clamp(0.0, 1.0);
+            values.push(if linear { rgb[c] as f32 } else { encoded });
+            pixel[c] = (encoded * 255.0).round() as u8;
+        }
+    }
+    let samples = match depth {
+        OutputDepth::U8 => return None,
+        OutputDepth::U16 => DeepSamples::U16(values.into_iter().map(|v| (v * 65535.0).round() as u16).collect()),
+        OutputDepth::F32Linear => DeepSamples::F32(values),
+    };
+    Some(DeepImage { width: image.width, height: image.height, space, samples })
+}
+
 /// The path of the sidecar with extension `ext` of the exported file `main`.
 fn sidecar_path(main: &str, ext: &str) -> String {
     std::path::Path::new(main).with_extension(ext).to_string_lossy().to_string()
@@ -1182,7 +1431,7 @@ fn sidecar_path(main: &str, ext: &str) -> String {
 /// sidecars as one: with Unique both get the same free name, with Skip the photo is skipped when
 /// either is taken. A path that is a catalogued original (or its sidecar) is refused whatever the
 /// policy. `progress(done, next file)` is called before each photo; returning false cancels the
-/// rest. Returns one JSON object per photo: `{path, width, height, bytes, sidecars}`,
+/// rest. Returns one JSON object per photo: `{path, photo, width, height, bytes, sidecars}`,
 /// `{skipped: path}` or (unless `stop_on_error`) `{photo, file, error}`.
 pub fn run_batch(
     items: Vec<PreparedExport>,
@@ -1193,18 +1442,51 @@ pub fn run_batch(
     stop_on_error: bool,
     progress: &mut dyn FnMut(usize, &str) -> bool,
 ) -> Result<Vec<serde_json::Value>, String> {
+    run_batch_with_ctl(items, o, to, write, exists, stop_on_error, progress, &crate::enhance::JobCtl::new())
+}
+
+/// The background export uses this control for cancellation within a restoration tile/job.
+pub fn run_batch_with_ctl(
+    items: Vec<PreparedExport>,
+    o: &ExportOptions,
+    to: &Destination,
+    write: &mut dyn FnMut(&str, &[u8]) -> Result<(), String>,
+    exists: &dyn Fn(&str) -> bool,
+    stop_on_error: bool,
+    progress: &mut dyn FnMut(usize, &str) -> bool,
+    ctl: &crate::enhance::JobCtl,
+) -> Result<Vec<serde_json::Value>, String> {
     use serde_json::json;
     let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
-    let dir = if o.subfolder.is_empty() { to.dir.clone() } else { join(&to.dir, &o.subfolder) };
+    let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
+    let batch_dir = in_sub(&to.dir);
     let single = items.len() == 1;
     let mut taken = std::collections::HashSet::new();
     let mut out = Vec::new();
     for (i, item) in items.into_iter().enumerate() {
-        if !progress(i, &item.file_name) {
+        if ctl.cancelled() || !progress(i, &item.file_name) {
             break;
         }
         let (photo, name, guard) = (item.photo, item.file_name.clone(), item.guard.clone());
-        let e = match item.run() {
+        // the batch's folder, or (Same folder as original photo) the photo's own
+        let has_subfolder = item.subfolder.is_some();
+        let mut dir = match (o.same_folder && !has_subfolder, &item.source_dir) {
+            (false, _) => batch_dir.clone(),
+            (true, Some(d)) => in_sub(d),
+            (true, None) => {
+                let err = format!("{name}: a generated demo photo has no folder of its own; choose a specific folder");
+                if stop_on_error {
+                    return Err(err);
+                }
+                out.push(json!({"photo": photo.0, "file": name, "error": err}));
+                continue;
+            }
+        };
+        if let Some(sub) = &item.subfolder {
+            let sub = crate::smart_sort::plan::sanitize(sub)?;
+            dir = join(&dir, &sub);
+        }
+        let e = match item.run_with_ctl(ctl) {
             Ok(e) => e,
             Err(err) if stop_on_error => return Err(err),
             Err(err) => {
@@ -1214,7 +1496,7 @@ pub fn run_batch(
         };
         // the exported file and its sidecars
         let group = |main: &str| std::iter::once(main.to_string()).chain(e.sidecars.iter().map(|(x, _)| sidecar_path(main, x))).collect::<Vec<_>>();
-        let path = match to.exact.as_deref().filter(|_| single) {
+        let path = match to.exact.as_deref().filter(|_| single && !has_subfolder) {
             Some(p) => Ok(p.to_string()),
             None => {
                 let path = join(&dir, &e.file_name);
@@ -1237,6 +1519,9 @@ pub fn run_batch(
                 }
             }
         };
+        if ctl.cancelled() {
+            break;
+        }
         let file = path.clone().unwrap_or_else(|_| name.clone());
         let written = path.and_then(|path| {
             let files = group(&path);
@@ -1255,7 +1540,7 @@ pub fn run_batch(
         match written {
             Ok((path, files, sidecars)) => {
                 taken.extend(files);
-                out.push(json!({"path": path, "width": e.width, "height": e.height, "bytes": e.bytes.len(), "sidecars": sidecars}));
+                out.push(json!({"path": path, "photo": photo.0, "width": e.width, "height": e.height, "bytes": e.bytes.len(), "sidecars": sidecars}));
             }
             Err(err) if stop_on_error => return Err(err),
             Err(err) => out.push(json!({"photo": photo.0, "file": file, "error": err})),
@@ -1465,6 +1750,66 @@ mod tests {
         assert_eq!(ExportOptions { format: ExportFormat::Dng, ..Default::default() }.file_name_for(&named("a.cr2"), 1), "a.dng");
     }
 
+    #[test]
+    fn enhance_samples_keep_source_profile_float_encoding() {
+        let profile = icc::write_matrix_trc(&lightcraft_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
+        let Some(icc::IccInfo { kind: icc::IccKind::MatrixTrc { to_xyz_d50, trc }, .. }) = icc::parse(&profile) else { panic!("matrix profile") };
+        let source = lightcraft_codecs::SourceSpace { named: None, to_xyz_d50, trc: Some(trc), origin: lightcraft_codecs::SpaceOrigin::IccMatrixTrc };
+        let options = ExportOptions { source_encoding: Some(Box::new(SourceEncoding { space: source, profile })), ..Default::default() };
+        let mut image = Rgba8::from_fn(1, 1, |_, _| [50, 120, 200, 255]);
+        let deep = enhanced_samples(&mut image, &options).unwrap();
+        assert_eq!(deep.space, OutputSpace::Rec2020);
+        let DeepSamples::F32(values) = deep.samples else { panic!("source encoding requires linear floats") };
+        let expected = lightcraft_color::SRGB
+            .to_space(&lightcraft_color::REC2020)
+            .apply([50, 120, 200].map(|v| lightcraft_color::transfer::decode_srgb8(v) as f64));
+        for (actual, expected) in values.iter().zip(expected) {
+            assert!((*actual as f64 - expected).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn source_profile_encoding_converts_pixels_and_stays_out_of_presets() {
+        let profile = icc::write_matrix_trc(&lightcraft_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
+        let Some(icc::IccInfo { kind: icc::IccKind::MatrixTrc { to_xyz_d50, trc }, .. }) = icc::parse(&profile) else { panic!("matrix profile") };
+        let source = lightcraft_codecs::SourceSpace { named: None, to_xyz_d50, trc: Some(trc), origin: lightcraft_codecs::SpaceOrigin::IccMatrixTrc };
+        let linear = [0.2, 0.4, 0.1];
+        let working = source.to_working().apply(linear).map(|v| v as f32).to_vec();
+        let image = Rgba8::new(1, 1);
+        let render = lightcraft_pipeline::Rendered {
+            histogram: lightcraft_raster::Histogram::of_srgb8(&image),
+            image,
+            deep: Some(DeepImage { width: 1, height: 1, space: OutputSpace::Rec2020, samples: DeepSamples::F32(working) }),
+        };
+        let options = ExportOptions {
+            format: ExportFormat::Png,
+            bit_depth: Some(16),
+            source_encoding: Some(Box::new(SourceEncoding { space: source, profile: profile.clone() })),
+            ..Default::default()
+        };
+        let bytes = encode_rendered(&render, &options, None).unwrap();
+        let decoded = lightcraft_codecs::decode(&bytes, Default::default()).unwrap();
+        assert_eq!(decoded.icc.as_deref(), Some(profile.as_slice()));
+        for (value, expected) in decoded.image.data[0].iter().zip(linear) {
+            assert!((*value as f64 - expected).abs() < 5e-5, "{value} != {expected}");
+        }
+        let params = serde_json::to_value(&options).unwrap();
+        assert!(params.get("sourceEncoding").is_none());
+        assert!(params.get("sourceMetadata").is_none());
+        let loaded: ExportOptions = serde_json::from_value(params).unwrap();
+        assert!(loaded.source_encoding.is_none());
+        let old: ExportOptions = serde_json::from_value(json!({"format": "jpeg", "quality": 80})).unwrap();
+        assert!(!old.same_folder);
+        for (format, bit_depth, expected_depth) in
+            [(ExportFormat::Tiff, None, 16), (ExportFormat::Png, Some(32), 16), (ExportFormat::Jpeg, Some(16), 8), (ExportFormat::Webp, Some(32), 8)]
+        {
+            let options = ExportOptions { format, bit_depth, ..options.clone() };
+            let bytes = encode_rendered(&render, &options, None).unwrap();
+            let decoded = lightcraft_codecs::decode(&bytes, Default::default()).unwrap();
+            assert_eq!(decoded.bit_depth, expected_depth, "{format:?} {bit_depth:?}");
+        }
+    }
+
     fn named(file_name: &str) -> lightcraft_catalog::Photo {
         use lightcraft_catalog::{Photo, PhotoId, Source};
         Photo::new(PhotoId(1), Source::Demo { scene: 0 }, file_name, "", 1, 1, "2026-01-01T00:00:00")
@@ -1638,6 +1983,8 @@ mod tests {
     fn distinct_levels(bytes: &[u8]) -> (usize, lightcraft_codecs::Decoded) {
         let d = lightcraft_codecs::decode(bytes, Default::default()).expect("decodes");
         let mut v: Vec<u32> = (0..d.image.width).map(|x| d.image.get(x, 1)[1].to_bits()).collect();
+        // Dither alternates adjacent levels: count distinct values, not transitions.
+        v.sort_unstable();
         v.dedup();
         (v.len(), d)
     }
@@ -1720,4 +2067,33 @@ mod tests {
             Err(e) => assert!(e.contains("not available"), "{e}"),
         }
     }
+}
+
+fn photo_for_sidecar(photo: &lightcraft_catalog::Photo, include_people_names: bool) -> std::borrow::Cow<'_, lightcraft_catalog::Photo> {
+    let mut photo = std::borrow::Cow::Borrowed(photo);
+    if include_people_names {
+        let copy = photo.to_mut();
+        add_people_keywords(&mut copy.meta.keywords, &copy.meta.regions);
+    }
+    photo
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_original_export_borrows_photo_unless_people_keywords_are_requested() {
+    let photo = lightcraft_catalog::Photo::new(
+        lightcraft_catalog::PhotoId(1),
+        lightcraft_catalog::Source::Demo { scene: 1 },
+        "fixture.jpg",
+        "JPEG",
+        8,
+        8,
+        "2026-10-10",
+    );
+    let borrowed = photo_for_sidecar(&photo, false);
+    assert!(matches!(borrowed, std::borrow::Cow::Borrowed(_)));
+    assert!(std::ptr::eq(borrowed.as_ref(), &photo));
+    let augmented = photo_for_sidecar(&photo, true);
+    assert!(matches!(augmented, std::borrow::Cow::Owned(_)));
+    assert_eq!(augmented.meta.keywords, photo.meta.keywords);
 }

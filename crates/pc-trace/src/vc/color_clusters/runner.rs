@@ -1,0 +1,145 @@
+//! Colour clustering, speckle absorption and layering for image tracing.
+//!
+//! Ported from visioncortex @ 0062088c89645aac76c00e066deb7e8f53980dd7.
+// Copyright (c) 2026 TSANG, Hao Fung, visioncortex contributors.
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// See licenses/visioncortex-LICENSE-MIT and -APACHE.
+use super::*;
+use crate::vc::{Color, ColorI32, ColorImage};
+
+pub struct Runner {
+    config: RunnerConfig,
+    image: ColorImage,
+}
+
+pub struct RunnerConfig {
+    pub diagonal: bool,
+    pub hierarchical: u32,
+    pub batch_size: i32,
+    pub good_min_area: usize,
+    pub good_max_area: usize,
+    pub is_same_color_a: i32,
+    pub is_same_color_b: i32,
+    pub deepen_diff: i32,
+    pub hollow_neighbours: usize,
+    pub key_color: Color,
+    pub keying_action: KeyingAction,
+}
+
+impl Default for RunnerConfig {
+    fn default() -> Self {
+        Self {
+            diagonal: false,
+            hierarchical: HIERARCHICAL_MAX,
+            batch_size: 25600,
+            good_min_area: 16,
+            good_max_area: 256 * 256,
+            is_same_color_a: 4,
+            is_same_color_b: 1,
+            deepen_diff: 64,
+            hollow_neighbours: 1,
+            key_color: Color::default(),
+            keying_action: KeyingAction::default(),
+        }
+    }
+}
+
+impl Default for Runner {
+    fn default() -> Self {
+        Self { config: RunnerConfig::default(), image: ColorImage::new() }
+    }
+}
+
+impl Runner {
+    pub fn new(config: RunnerConfig, image: ColorImage) -> Self {
+        Self { config, image }
+    }
+
+    pub fn init(&mut self, image: ColorImage) {
+        self.image = image;
+    }
+
+    #[allow(clippy::type_complexity)] // the four `impl Fn` params cannot be aliased in return position
+    pub fn builder(
+        self,
+    ) -> Builder<
+        impl Fn(Color, Color) -> bool,
+        impl Fn(Color, Color) -> i32,
+        impl Fn(&ClustersView, &Cluster, &[NeighbourInfo]) -> bool,
+        impl Fn(&ClustersView, &Cluster, &[NeighbourInfo]) -> bool,
+    > {
+        let RunnerConfig {
+            diagonal,
+            hierarchical,
+            batch_size,
+            good_min_area,
+            good_max_area,
+            is_same_color_a,
+            is_same_color_b,
+            deepen_diff,
+            hollow_neighbours,
+            key_color,
+            keying_action,
+        } = self.config;
+
+        let is_same_color_a = is_same_color_a.clamp(0, 7);
+
+        Builder::new()
+            .from(self.image)
+            .diagonal(diagonal)
+            .hierarchical(hierarchical)
+            .key(key_color)
+            .keying_action(keying_action)
+            .batch_size(batch_size as u32)
+            .same(
+                move |a: Color, b: Color| {
+                    if key_color != Color::default() && (a == key_color || b == key_color) {
+                        a == b
+                    } else {
+                        color_same(a, b, is_same_color_a, is_same_color_b)
+                    }
+                },
+            )
+            .diff(color_diff)
+            .deepen(move |view: &ClustersView, patch: &Cluster, neighbours: &[NeighbourInfo]| {
+                patch_good(view, patch, good_min_area, good_max_area) && neighbours[0].diff > deepen_diff
+            })
+            .hollow(move |_view: &ClustersView, _patch: &Cluster, neighbours: &[NeighbourInfo]| neighbours.len() <= hollow_neighbours)
+    }
+
+    #[allow(clippy::type_complexity)] // the four `impl Fn` params cannot be aliased in return position
+    pub fn run_cancellable(self, cancel: &impl Fn() -> bool) -> Result<Clusters, crate::Error> {
+        self.builder().run_cancellable(cancel)
+    }
+
+    pub fn run(self) -> Clusters {
+        self.builder().run()
+    }
+}
+
+pub fn color_diff(a: Color, b: Color) -> i32 {
+    let a = ColorI32::new(&a);
+    let b = ColorI32::new(&b);
+    (a.r - b.r).abs() + (a.g - b.g).abs() + (a.b - b.b).abs()
+}
+
+pub fn color_same(a: Color, b: Color, shift: i32, thres: i32) -> bool {
+    let diff = ColorI32 { r: (a.r >> shift) as i32, g: (a.g >> shift) as i32, b: (a.b >> shift) as i32 }.diff(&ColorI32 {
+        r: (b.r >> shift) as i32,
+        g: (b.g >> shift) as i32,
+        b: (b.b >> shift) as i32,
+    });
+
+    diff.r.abs() <= thres && diff.g.abs() <= thres && diff.b.abs() <= thres
+}
+
+fn patch_good(view: &ClustersView, patch: &Cluster, good_min_area: usize, good_max_area: usize) -> bool {
+    if good_min_area < patch.area() && patch.area() < good_max_area {
+        if good_min_area == 0 || (patch.perimeter(view) as usize) < patch.area() {
+            return true;
+        } else {
+            // cluster is thread-like and thinner than 2px
+        }
+    }
+    false
+}

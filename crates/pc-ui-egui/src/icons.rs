@@ -1,4 +1,5 @@
-//! Icon rendering. SVGs are embedded (see `icon_data.rs`), recoloured to white, rasterized by the
+//! Icon rendering. Generic SVGs (`icon_data.rs`) and Glossy Duotone tools (`tool_icon_data.rs`)
+//! are embedded, recoloured to white, rasterized by the
 //! egui_extras SVG loader at the exact on-screen pixel size (crisp at any DPI), and tinted per use.
 //!
 //! (History: the first shell used Unicode glyphs; half of them rendered as tofu boxes because the
@@ -27,11 +28,17 @@ fn white_icons() -> &'static HashMap<&'static str, Arc<[u8]>> {
 }
 
 pub fn exists(name: &str) -> bool {
-    white_icons().contains_key(name)
+    crate::mono_tool_icons::exists(name) || white_icons().contains_key(name)
 }
 
 /// An egui image for an icon, tinted.
 pub fn image(name: &str, size: f32, tint: Color32) -> egui::Image<'static> {
+    // Generic tool IDs embed the same sourced mono geometry; the cursor has its own ID.
+    if !white_icons().contains_key(name)
+        && let Some(image) = crate::mono_tool_icons::image(name, size, tint)
+    {
+        return image;
+    }
     let bytes = white_icons().get(name).or_else(|| white_icons().get("square")).cloned().unwrap_or_default();
     egui::Image::from_bytes(format!("bytes://icons/{name}.svg"), egui::load::Bytes::Shared(bytes)).fit_to_exact_size(Vec2::splat(size)).tint(tint)
 }
@@ -46,6 +53,7 @@ pub fn paint(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color32) {
 /// icon box) on `p`, white with a dark outline so it reads on any image. The caller hides the OS
 /// cursor (`CursorIcon::None`).
 pub fn cursor(ctx: &egui::Context, name: &str, p: egui::Pos2, hot: Vec2, size: f32) {
+    let name = if name == "pipette" { "cursor-pipette" } else { name };
     let rect = Rect::from_min_size(p - hot * size, Vec2::splat(size));
     let area = egui::Area::new(egui::Id::new("pc-icon-cursor")).order(egui::Order::Tooltip).fixed_pos(rect.min).constrain(false).interactable(false);
     area.show(ctx, |ui| {
@@ -57,9 +65,98 @@ pub fn cursor(ctx: &egui::Context, name: &str, p: egui::Pos2, hot: Vec2, size: f
     });
 }
 
-pub fn tool_icon(t: Tool) -> &'static str {
+pub fn tool_icon_name_for(t: Tool, persona: photocraft_engine::toolsets::Persona) -> &'static str {
+    if persona == photocraft_engine::toolsets::Persona::Vector || t.key() == '\0' {
+        let id = format!("{t:?}");
+        if let Some((_, name, _, _)) = crate::fill_stroke_proxy::icons::ICONS.iter().find(|(tool, _, _, _)| *tool == id) {
+            return name;
+        }
+    }
+    tool_icon_name(t)
+}
+pub fn tool_icon_name(t: Tool) -> &'static str {
+    if t.key() == '\0' {
+        let id = format!("{t:?}");
+        if let Some((_, name, _, _)) = crate::fill_stroke_proxy::icons::ICONS.iter().find(|(tool, _, _, _)| *tool == id) {
+            return name;
+        }
+    }
     match t {
         Tool::Move => "move",
+        Tool::PointTransform => "move",
+        Tool::VectorPencil => "pencil",
+        Tool::VectorBrush => "brush",
+        Tool::Smooth => "spline",
+        Tool::PathEraser => "eraser",
+        Tool::Join => "spline",
+        Tool::Corner => "rectangle-horizontal",
+        Tool::RoundedRectangle => "square",
+        Tool::Star => "star",
+        Tool::DoubleStar => "star",
+        Tool::SquareStar => "star",
+        Tool::Trapezoid => "square",
+        Tool::Diamond => "diamond",
+        Tool::Donut => "circle",
+        Tool::Pie => "circle",
+        Tool::Segment => "circle",
+        Tool::Arrow => "arrow-left-right",
+        Tool::Callout => "message-square",
+        Tool::Cog => "settings",
+        Tool::Heart => "heart",
+        Tool::Tear => "droplet",
+        Tool::Crescent => "moon",
+        Tool::Cloud => "cloud",
+        Tool::Spiral => "spline",
+        Tool::Arc => "circle",
+        Tool::RectGrid => "grid-2x2",
+        Tool::PolarGrid => "circle",
+        Tool::VectorFill => "blend",
+        Tool::Transparency => "blend",
+        Tool::ShapeBuilder => "layers",
+        Tool::Contour => "circle",
+        Tool::Knife => "scissors",
+        Tool::Scissors => "scissors",
+        Tool::LineCut => "scissors",
+        Tool::Width => "arrow-left-right",
+        Tool::ArtText => "type",
+        Tool::FrameText => "type",
+        Tool::TextOnPath => "type",
+        Tool::Blend => "blend",
+        Tool::Repeat => "copy",
+        Tool::Envelope => "square",
+        Tool::VectorCrop => "crop",
+        Tool::Artboard => "square",
+        Tool::GroupSelection => "mouse-pointer-2",
+        Tool::VectorMagicWand => "wand",
+        Tool::VectorLasso => "lasso",
+        Tool::Curvature => "pen-tool",
+        Tool::AddAnchor => "plus",
+        Tool::DeleteAnchor => "minus",
+        Tool::AnchorPoint => "pen-tool",
+        Tool::Rotate => "rotate-cw",
+        Tool::Reflect => "flip-horizontal",
+        Tool::Scale => "maximize",
+        Tool::Shear => "move",
+        Tool::Reshape => "spline",
+        Tool::FreeTransform => "move",
+        Tool::StylePicker => "pipette",
+        Tool::BlobBrush => "brush",
+        Tool::VectorEraser => "eraser",
+        Tool::VectorWarp => "move",
+        Tool::VectorTwirl => "rotate-cw",
+        Tool::VectorPucker => "minimize",
+        Tool::VectorBloat => "maximize",
+        Tool::Scallop => "circle",
+        Tool::Crystallize => "star",
+        Tool::Wrinkle => "spline",
+        Tool::VectorPuppetWarp => "move",
+        Tool::LivePaintBucket => "paint-bucket",
+        Tool::VectorFloodFill => "paint-bucket",
+        Tool::LivePaintSelection => "mouse-pointer-2",
+        Tool::Mesh => "grid-2x2",
+        Tool::Measure => "ruler",
+        Tool::Area => "square",
+
         Tool::RectMarquee => "square-dashed",
         Tool::EllipseMarquee => "circle-dashed",
         Tool::Brush => "brush",
@@ -79,35 +176,37 @@ pub fn tool_icon(t: Tool) -> &'static str {
         Tool::Crop => "crop",
         Tool::PerspectiveCrop => "perspective-crop",
         Tool::Slice => "slice-knife",
-        Tool::SliceSelect => "square-dashed-mouse-pointer",
+        Tool::SliceSelect => "slice-select",
         Tool::Gradient => "blend",
         Tool::PaintBucket => "paint-bucket",
-        Tool::Type | Tool::VerticalType => "type",
+        Tool::Type => "type",
+        Tool::VerticalType => "vertical-type",
         Tool::Hand => "hand",
         Tool::Zoom => "zoom-in",
-        Tool::SpotHealing | Tool::Healing => "bandage",
+        Tool::SpotHealing => "spot-healing",
+        Tool::Healing => "healing",
         Tool::Patch => "lasso-select",
         Tool::ContentAwareMove => "arrow-left-right",
-        Tool::RedEye => "eye",
+        Tool::RedEye => "red-eye",
         Tool::CloneStamp => "stamp",
-        Tool::HistoryBrush => "clock",
-        Tool::Blur => "droplet",
-        Tool::Sharpen => "triangle",
-        Tool::Smudge => "pointer",
-        Tool::Dodge => "lollipop",
+        Tool::HistoryBrush => "history-brush",
+        Tool::Blur => "blur",
+        Tool::Sharpen => "sharpen",
+        Tool::Smudge => "smudge",
+        Tool::Dodge => "dodge",
         Tool::Burn => "flame",
-        Tool::Sponge => "cloud",
-        Tool::QuickSelection => "circle-dashed",
-        Tool::ObjectSelection => "square-dashed-mouse-pointer",
+        Tool::Sponge => "sponge",
+        Tool::QuickSelection => "quick-selection",
+        Tool::ObjectSelection => "object-selection",
         Tool::Pen => "pen-tool",
         Tool::PathSelection => "mouse-pointer-2",
         Tool::DirectSelection => "direct-select",
         Tool::Rectangle => "rectangle-horizontal",
         Tool::EllipseShape => "circle",
-        Tool::Triangle => "triangle",
-        Tool::Polygon => "pentagon",
+        Tool::Triangle => "shape-triangle",
+        Tool::Polygon => "shape-polygon",
         Tool::Line => "slash",
-        Tool::CustomShape => "cloud",
+        Tool::CustomShape => "custom-shape",
         Tool::AiRemove => "sparkles",
         Tool::AiCutout => "scissors",
     }
@@ -154,14 +253,94 @@ pub fn rail_button(ui: &mut egui::Ui, name: &str, box_size: f32, on: bool, toolt
     resp.on_hover_text(tl!(tooltip))
 }
 
+fn monochrome_tool_image(name: &str, size: f32, tint: Color32) -> egui::Image<'static> {
+    crate::mono_tool_icons::image(name, size, tint).unwrap_or_else(|| image(name, size, tint))
+}
+
+/// Tool image for toolbar buttons and the rich tooltip's 32 px slot. Colour keeps its SVG
+/// colours; monochrome uses matching geometry with the existing theme tint. Set from preferences each frame.
+pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> egui::Image<'static> {
+    if crate::color_icons::enabled(ui.ctx())
+        && let Some(image) = crate::color_icons::image(ui, name, size, !ui.is_enabled())
+    {
+        return image;
+    }
+    monochrome_tool_image(name, size, if ui.is_enabled() { Tokens::get(ui.ctx()).icon } else { Tokens::get(ui.ctx()).text_faint })
+}
+
+pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color32) {
+    let tint = if ui.is_enabled() { tint } else { Tokens::get(ui.ctx()).text_faint };
+    if crate::color_icons::enabled(ui.ctx())
+        && let Some(image) = crate::color_icons::image(ui, name, size, !ui.is_enabled())
+    {
+        image.paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(size)));
+    } else {
+        monochrome_tool_image(name, size, tint).paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(size)));
+    }
+}
+
+/// The same button chrome as other icons; only the tool image changes.
+pub fn tool_button(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bool, tooltip: &str) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(box_size), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, tl!(tooltip)));
+    let tint = button_chrome(ui, rect, selected, resp.hovered());
+    paint_tool(ui, rect, name, (box_size * 0.62).round().clamp(20.0, 24.0), tint);
+    if tooltip.is_empty() { resp } else { resp.on_hover_text(tl!(tooltip)) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn generic_cursor_artwork_and_tool_artwork_use_separate_sources() {
+        let ctx = egui::Context::default();
+        for (icon, expected) in [
+            (image("cursor-pipette", 20.0, Color32::WHITE), "bytes://icons/cursor-pipette.svg"),
+            (monochrome_tool_image("pipette", 20.0, Color32::WHITE), "bytes://sourced-tool-icons/pipette.svg"),
+        ] {
+            match icon.source(&ctx) {
+                egui::ImageSource::Bytes { uri, .. } => assert_eq!(uri.as_ref(), expected),
+                other => panic!("unexpected source: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn ds_finding_disabled_monochrome_tool_has_faint_tint_and_ignores_click() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(120., 80.)).build_ui_state(
+            |ui, clicked: &mut bool| {
+                egui_extras::install_image_loaders(ui.ctx());
+                crate::color_icons::set_enabled(ui.ctx(), false);
+                ui.add_enabled_ui(false, |ui| {
+                    *clicked |= tool_button(ui, "crop", 40., false, "Disabled tool").clicked();
+                });
+            },
+            false,
+        );
+        h.run_steps(3);
+        let faint = Tokens::get(&h.ctx).text_faint;
+        let tint = h.output().shapes.iter().find_map(|s| if let egui::Shape::Rect(r) = &s.shape { r.brush.as_ref().map(|_| r.fill) } else { None }).unwrap();
+        assert_eq!(tint, faint.gamma_multiply(0.5), "egui also applies disabled UI opacity");
+        h.get_by_label("Disabled tool").click();
+        h.run_steps(2);
+        assert!(!h.state());
+    }
+
+    #[test]
+    fn generic_tool_ids_embed_the_same_sourced_monochrome_glyph() {
+        for (name, tool) in crate::tool_icon_data::TOOL_ICONS {
+            if let Some((_, generic)) = ICONS.iter().find(|(id, _)| id == name) {
+                assert_eq!(generic, tool, "generic tool ID uses a different silhouette: {name}");
+            }
+        }
+    }
+
+    #[test]
     fn every_tool_has_an_icon() {
         for t in Tool::ALL {
-            assert!(exists(tool_icon(t)), "{t:?}");
+            assert!(exists(tool_icon_name(t)), "{t:?}");
         }
     }
 

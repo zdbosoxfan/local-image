@@ -219,7 +219,7 @@ pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> R
         opts.encode.webp_quality = q;
         opts.encode.webp_lossless = false;
     }
-    photocraft_io::export(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| EngineError::Other(format!("{path}: {e}")))
+    crate::vector_integration::export_document(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| EngineError::Other(format!("{path}: {e}")))
 }
 
 pub(crate) fn save_doc(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> Result<Vec<String>> {
@@ -328,7 +328,13 @@ pub fn open_bytes_as(s: &mut Session, name: &str, bytes: &[u8], as_ext: Option<&
         Some(ext) => format!("{}.{}", stem(name), ext.trim_start_matches('.')),
         None => name.to_string(),
     };
-    let r = photocraft_io::import(&decode_name, bytes).map_err(|e| EngineError::Other(format!("{decode_name}: {e}")))?;
+    let native_import = crate::vector_integration::is_native_vector_file(bytes);
+    let vector = crate::vector_integration::read_vector_file(&decode_name, bytes, &std::sync::atomic::AtomicBool::new(false));
+    let r = if let Some(vector) = vector {
+        vector?
+    } else {
+        photocraft_io::import(&decode_name, bytes).map_err(|e| EngineError::Other(format!("{decode_name}: {e}")))?
+    };
     let mut doc = r.document;
     let path = match template_name(s, name) {
         Some(untitled) => {
@@ -341,9 +347,9 @@ pub fn open_bytes_as(s: &mut Session, name: &str, bytes: &[u8], as_ext: Option<&
         }
     };
     // Color Settings policies (preserve / convert / discard the embedded profile).
-    let (i, color) = s.open_document(doc, path);
+    let (i, color) = s.open_document(doc, if native_import { None } else { path });
     // Import notes (e.g. how a camera raw was developed, or that only its preview opened).
-    Ok(json!({"document": i, "color": color, "warnings": r.warnings}))
+    Ok(json!({"document": i, "color": color, "warnings": r.warnings, "nativeImport": native_import}))
 }
 
 fn open_as(s: &mut Session, p: &Value) -> Result<Value> {
@@ -362,6 +368,19 @@ pub const PLACE_EMBEDDED: &str = "Place Embedded";
 /// scaled down to fit, like Photoshop's Place with "Resize Image During Place". `linked` makes it
 /// a linked smart object that refers to that path instead of embedding the bytes.
 pub fn place_bytes(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Option<String>, p: &Value) -> Result<Value> {
+    if photocraft_affinity::is_affinity(&bytes) {
+        let mut request = crate::vector_packages::affinity::capture(s, bytes)?;
+        request.name = name.into();
+        let scene = crate::vector_packages::affinity::decode(s, &request)?;
+        let id = crate::vector_packages::affinity::commit(s, &request, &scene)?;
+        return Ok(json!({"layer": id.0, "warnings": scene.warnings, "nativeImport": true}));
+    }
+    if photocraft_svg::import::recognizes(&bytes) {
+        let source = photocraft_svg::import::source(&bytes, &Default::default()).map_err(|e| EngineError::Other(e.to_string()))?;
+        let request = crate::vector_packages::svg_import::capture(s, source)?;
+        let scene = crate::vector_packages::svg_import::decode(s, &request)?;
+        return crate::vector_packages::svg_import::commit_prepared(s, &request, &scene);
+    }
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let (cw, ch) = (d.doc.size.width as f64, d.doc.size.height as f64);
     let fmt = d.doc.pixel_format();

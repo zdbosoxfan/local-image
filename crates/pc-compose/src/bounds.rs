@@ -38,6 +38,9 @@ fn scan(t: &Tile, dp: &[u8]) -> Option<(u16, u16, u16, u16)> {
 
 /// `Surface::content_bounds`, cached per tile.
 pub fn content_bounds(s: &Surface) -> Rect {
+    if let Some(bounds) = s.known_content_bounds() {
+        return bounds;
+    }
     if s.tile_count() == 0 {
         return Rect::EMPTY;
     }

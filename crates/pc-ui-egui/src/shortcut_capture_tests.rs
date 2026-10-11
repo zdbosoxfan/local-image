@@ -59,7 +59,15 @@ fn ctrl_f_is_recorded_as_ctrl_f_not_the_control_key() {
         assert!(!message.as_str().unwrap().contains("ontrol"), "@{ppp}x: {message}");
         // The row shows the new shortcut.
         h.get_by_label(&crate::shortcuts::pretty("Cmd+F"));
-        h.render().ok();
+        // The assertions above are headless; the optional screenshot needs an adapter.
+        if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| h.render().ok())) {
+            let message = panic.downcast_ref::<String>().map(String::as_str).or_else(|| panic.downcast_ref::<&str>().copied());
+            if message.is_some_and(|m| m.contains("No adapter found")) {
+                eprintln!("skipped: no GPU adapter for shortcut screenshot");
+            } else {
+                std::panic::resume_unwind(panic);
+            }
+        }
     }
 }
 

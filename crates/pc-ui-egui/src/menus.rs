@@ -13,6 +13,10 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("file.open", "Open…", &["File"], Some("Cmd+O")),
     ("file.save", "Save", &["File"], Some("Cmd+S")),
     ("file.saveAs", "Save As…", &["File"], Some("Cmd+Shift+S")),
+    // local-image: save a photo from the Library beside its original and show it there, stacked.
+    (crate::overwrite_original::SAVE_ID, "Save Over Original…", &["File"], None),
+    (crate::overwrite_original::RETURN_ID, "Save Over Original and Return to Library…", &["File"], None),
+    (crate::develop_layer::SAVE_RETURN_ID, "Save and Return to Library", &["File"], None),
     ("file.exit", "Exit", &["File"], Some("Cmd+Q")),
     ("edit.freeTransform", "Free Transform", &["Edit"], Some("Cmd+T")),
     ("file.export.exportAs", "Export As…", &["File", "Export"], Some("Cmd+Alt+Shift+W")),
@@ -115,6 +119,9 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Va
 
 /// [`invoke`] without the unsaved-changes prompt, for once the user has already answered it.
 pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    if let Some(result) = crate::vector_integration::menu(app, ctx, id, &params) {
+        return result;
+    }
     // local-image: AI, Generate, folder and Local AI commands.
     if let Some(r) = crate::ai_ui::menu(app, ctx, id, &params) {
         return r;
@@ -179,6 +186,12 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     if let Some(r) = crate::distort_ui::menu(app, ctx, id, &params) {
         return r;
     }
+    // local-image: Camera Raw Filter in the Library's Develop module (and its prompt).
+    if id == photocraft_engine::develop_filter_cmds::DEVELOP
+        && let Some(r) = crate::develop_filter_ui::invoke(app, ctx, &params)
+    {
+        return r;
+    }
     // Camera Raw Filter dialog (and its control params).
     if let Some(r) = crate::camera_raw_ui::menu(app, ctx, id, &params) {
         return r;
@@ -191,8 +204,15 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         app.run("view.proofSetup", json!({"profile": profile}))?;
         return app.run("view.proofColors", json!({"on": true}));
     }
+    if id == "window.panel.symbols" {
+        crate::symbols::open_panel(app);
+        return Ok(json!({}));
+    }
     if let Some(alias) = panel_alias(id) {
         return invoke(app, ctx, alias, params);
+    }
+    if let Some(r) = crate::toolsets_ui::run(app, id) {
+        return r;
     }
     if let Some(ws) = workspace_name(id) {
         // Reset re-applies the current workspace; Essentials is the default layout.
@@ -232,12 +252,14 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             }
         }
         "file.save" => {
-            // Writes back only to a layered file; a flat one goes through Save As.
+            // Writes back only to a layered file; a flat one goes through Save As. local-image: an
+            // unsaved photo from the Library saves beside its original (`<name>-Edit.psd`).
             let path = params
                 .get("path")
                 .and_then(Value::as_str)
                 .map(str::to_string)
-                .or_else(|| app.session.active().and_then(|d| d.path.clone()).filter(|p| photocraft_engine::file_cmds::saves_in_place(p)));
+                .or_else(|| app.session.active().and_then(|d| d.path.clone()).filter(|p| photocraft_engine::file_cmds::saves_in_place(p)))
+                .or_else(|| crate::develop_layer::library_save_path(app));
             app.save_as(path).map(|(p, w)| json!({"path": p, "warnings": w}))
         }
         "file.exit" => {
@@ -261,6 +283,12 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                 let _ = app;
                 Err("Open Recent is unavailable on the web".to_string())
             }
+        }
+        crate::develop_layer::SAVE_RETURN_ID => crate::develop_layer::save_and_return(app, &params),
+        crate::overwrite_original::SAVE_ID | crate::overwrite_original::RETURN_ID => {
+            let doc = app.session.active().ok_or("no document")?.doc.id;
+            crate::overwrite_original::request(app, doc, id == crate::overwrite_original::RETURN_ID)?;
+            Ok(json!({"confirmation": app.overwrite_prompt.is_some()}))
         }
         "file.saveAs" => app.save_as(params.get("path").and_then(Value::as_str).map(str::to_string)).map(|(p, w)| json!({"path": p, "warnings": w})),
         "view.zoomIn" | "view.zoomOut" | "view.fitOnScreen" | "view.actualPixels" => {
@@ -468,6 +496,12 @@ fn open_path(app: &mut PhotocraftApp, path: &str) -> Result<Value, String> {
 }
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
+    if matches!(id, "ui.pdf.export" | "file.export.pdf") {
+        return app.session.active().is_some() && app.services.pick_save.is_some() && app.services.write.is_some();
+    }
+    if crate::vector_integration::handles(id) {
+        return app.session.active().is_some();
+    }
     // Photoshop greys these for the Background layer, other layer kinds or single-layer documents.
     if crate::enable_rules::disabled(app, id) {
         return false;
@@ -494,10 +528,15 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         return e;
     }
     match id {
-        "file.open" | "file.exit" | "file.clearRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
+        "window.panel.symbols" | "file.open" | "file.exit" | "file.clearRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
         i if i.starts_with("file.openRecent.") => true,
+        i if crate::toolsets_ui::handles(i) => true,
         i if crate::links::url_for(i).is_some() => true,
         i if i.starts_with("window.theme.") => true,
+        crate::overwrite_original::SAVE_ID | crate::overwrite_original::RETURN_ID => {
+            app.session.active().is_some_and(|d| crate::overwrite_original::disabled_reason(app, d.doc.id).is_none())
+        }
+        crate::develop_layer::SAVE_RETURN_ID => app.host_modes && app.services.export.is_some() && crate::develop_layer::library_original(app).is_some(),
         "file.save" | "file.saveAs" | "file.export.exportAs" | "file.export.quickExportAsPng" => {
             app.session.active().is_some() && app.services.export.is_some()
         }
@@ -545,13 +584,22 @@ const MODE_CHECKS: [&str; 11] = ["rgb", "grayscale", "cmyk", "lab", "multichanne
 /// Is a UI-level panel toggle currently on (for checkmarks)?
 fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     use photocraft_doc::{ColorMode, SampleType};
+    if id == "window.panel.symbols" {
+        return Some(
+            app.ui.panels.layers && crate::dock::active_tab(app, crate::dock::Place::Docked(crate::dock::Group::Layers)) == Some(crate::dock::Tab::Symbols),
+        );
+    }
     if let Some(name) = id.strip_prefix("window.theme.").filter(|n| *n != "toggle") {
         return Some(crate::theme::ThemeKind::from_name(name) == Some(app.ui.theme));
     }
     if let Some(c) = crate::view_cmds::checked(app, id) {
         return Some(c);
     }
-    if let Some(c) = crate::analysis_ui::checked(app, id).or_else(|| crate::workspace_ui::checked(app, id)).or_else(|| crate::file_ui::checked(app, id)) {
+    if let Some(c) = crate::analysis_ui::checked(app, id)
+        .or_else(|| crate::toolsets_ui::checked(app, id))
+        .or_else(|| crate::workspace_ui::checked(app, id))
+        .or_else(|| crate::file_ui::checked(app, id))
+    {
         return Some(c);
     }
     if let Some(c) = crate::preset_panels::checked(app, id).or_else(|| crate::context_bar::checked(app, id)) {
@@ -634,20 +682,25 @@ pub struct MenuItem {
     /// Edit › Menus colour (red, orange, …).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tooltip: Option<String>,
 }
 
 /// Is `id` implemented by the engine or the shell (a live menu item)? Shared by the menus and
 /// the parity report ([`crate::parity`]).
 pub fn is_live(id: &str) -> bool {
-    photocraft_engine::commands::find(id).is_some()
+    crate::vector_integration::handles(id)
+        || photocraft_engine::commands::find(id).is_some()
         || UI_COMMANDS.iter().any(|c| c.0 == id)
         || panel_alias(id).is_some()
         || workspace_name(id).is_some()
         || proof_preset(id).is_some()
+        || id == "window.panel.symbols"
         || id == "view.proofSetup.custom"
         || crate::view_cmds::handles(id)
         || crate::analysis_ui::handles(id)
         || crate::workspace_ui::handles(id)
+        || crate::toolsets_ui::handles(id)
         || crate::preset_panels::handles(id)
         || crate::type_panels_ui::handles(id)
         || crate::timeline_ui::handles(id)
@@ -655,7 +708,13 @@ pub fn is_live(id: &str) -> bool {
 }
 
 /// Commands outside the catalogue that belong right after a catalogue item: `(id, after)`.
-const PLACE_AFTER: &[(&str, &str)] = &[("file.newFromClipboard", "file.new"), ("filter.render.relight", "filter.render.lightingEffects")];
+const PLACE_AFTER: &[(&str, &str)] = &[
+    (crate::overwrite_original::SAVE_ID, "file.saveAs"),
+    (crate::overwrite_original::RETURN_ID, crate::overwrite_original::SAVE_ID),
+    ("file.newFromClipboard", "file.new"),
+    (crate::develop_layer::SAVE_RETURN_ID, crate::overwrite_original::RETURN_ID),
+    ("filter.render.relight", "filter.render.lightingEffects"),
+];
 
 pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     // 1) Photoshop's full menu tree, in Photoshop order; live where we implement the command.
@@ -671,6 +730,11 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             shortcut: if known(id) { crate::shortcuts::default_shortcut(id) } else { sc.map(Into::into) },
             enabled: known(id) && is_enabled(app, id),
             checked: checked(app, id),
+            tooltip: if matches!(id, crate::overwrite_original::SAVE_ID | crate::overwrite_original::RETURN_ID) {
+                app.session.active().and_then(|d| crate::overwrite_original::disabled_reason(app, d.doc.id)).map(str::to_string)
+            } else {
+                None
+            },
             color: None,
         })
         .collect();
@@ -684,6 +748,11 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             shortcut: sc.map(Into::into),
             enabled: is_enabled(app, id),
             checked: checked(app, id),
+            tooltip: if matches!(id, crate::overwrite_original::SAVE_ID | crate::overwrite_original::RETURN_ID) {
+                app.session.active().and_then(|d| crate::overwrite_original::disabled_reason(app, d.doc.id)).map(str::to_string)
+            } else {
+                None
+            },
             color: None,
         });
     }
@@ -695,6 +764,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             shortcut: c.shortcut.map(Into::into),
             enabled: is_enabled(app, c.id),
             checked: None,
+            tooltip: None,
             color: None,
         });
     }
@@ -709,7 +779,15 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             items.insert(at, e);
         }
     }
+    for item in crate::vector_integration::menu_items(app) {
+        if let Some(old) = items.iter_mut().find(|old| old.id == item.id || old.path == item.path && old.label == item.label) {
+            *old = item;
+        } else {
+            items.push(item);
+        }
+    }
     crate::plugin_ui::insert_menu_items(app, &mut items);
+    crate::toolsets_ui::menu_items(app, &mut items);
     // File › Open Recent: a dynamic submenu of recently opened files (inserted after "Open As…").
     if let Some(after) = items.iter().position(|i| i.id == "file.openAs") {
         let rp: Vec<String> = vec!["File".into(), "Open Recent".into()];
@@ -720,11 +798,29 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             .enumerate()
             .map(|(i, p)| {
                 let label = std::path::Path::new(p).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.clone());
-                MenuItem { id: format!("file.openRecent.{i}"), label, path: rp.clone(), shortcut: None, enabled: true, checked: None, color: None }
+                MenuItem {
+                    id: format!("file.openRecent.{i}"),
+                    label,
+                    path: rp.clone(),
+                    shortcut: None,
+                    enabled: true,
+                    checked: None,
+                    tooltip: None,
+                    color: None,
+                }
             })
             .collect();
         if !recent.is_empty() {
-            recent.push(MenuItem { id: "---".into(), label: "---".into(), path: rp.clone(), shortcut: None, enabled: false, checked: None, color: None });
+            recent.push(MenuItem {
+                id: "---".into(),
+                label: "---".into(),
+                path: rp.clone(),
+                shortcut: None,
+                enabled: false,
+                checked: None,
+                tooltip: None,
+                color: None,
+            });
         }
         recent.push(MenuItem {
             id: "file.clearRecent".into(),
@@ -733,6 +829,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             shortcut: None,
             enabled: !app.ui.recent_files.is_empty(),
             checked: None,
+            tooltip: None,
             color: None,
         });
         for (k, it) in recent.into_iter().enumerate() {
@@ -743,7 +840,16 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     if let Some(at) = items.iter().position(|i| i.id == "help.systemInfo" || i.id == "help.about") {
         items.insert(
             at,
-            MenuItem { id: "---".into(), label: "---".into(), path: vec!["Help".into()], shortcut: None, enabled: false, checked: None, color: None },
+            MenuItem {
+                id: "---".into(),
+                label: "---".into(),
+                path: vec!["Help".into()],
+                shortcut: None,
+                enabled: false,
+                checked: None,
+                tooltip: None,
+                color: None,
+            },
         );
     }
     // Edit › Keyboard Shortcuts overrides, Edit › Menus hidden items and colours.
@@ -802,7 +908,8 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
             ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
             nav.bar_bottom = Some(ui.max_rect().bottom());
             let mut buttons = Vec::with_capacity(TOP_MENUS.len());
-            for top in TOP_MENUS {
+            let vector = app_ref.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector;
+            for top in TOP_MENUS.into_iter().chain(vector.then_some("Object")).chain(vector.then_some("Effect")) {
                 // egui's menu_button toggles on release; these titles open on the press (one
                 // gesture can press, drag to an item and release), so each drives its popup.
                 let title = ui.add(egui::Button::new(egui::RichText::new(crate::i18n::tr(lang, top)).color(t.text_dim)));
@@ -845,6 +952,7 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
             nav.keys(ui.ctx(), &tops, &mut clicked);
         });
     });
+    crate::vector_integration::menus(app, ui);
     nav.store(ui.ctx());
     // The press-drag gesture ends with the button (its release was handled by the rows above).
     if ui.input(|i| i.pointer.primary_released() || !i.pointer.primary_down()) {
@@ -995,6 +1103,7 @@ fn help_search(ui: &mut egui::Ui, items: &[MenuItem], clicked: &mut Option<Strin
             }
             let hit = nav.row(ui, 0, it.enabled, Some(&it.id), |ui, _| {
                 let r = ui.add_enabled(it.enabled, b);
+                let r = if let Some(tip) = &it.tooltip { r.on_disabled_hover_text(tip).on_hover_text(tip) } else { r };
                 let hit = r.clicked() || released_on(ui, &r);
                 (r, hit)
             });
@@ -1065,6 +1174,7 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
                     "image.mode.bits32" => r.on_hover_text(crate::i18n::tr(lang, "Floating point")),
                     _ => r,
                 };
+                let r = if let Some(tip) = &it.tooltip { r.on_disabled_hover_text(tip).on_hover_text(tip) } else { r };
                 let hit = r.clicked() || released_on(ui, &r);
                 (r, hit)
             });

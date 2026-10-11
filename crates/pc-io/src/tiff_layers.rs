@@ -179,9 +179,19 @@ fn interleave(planes: &[u8], w: u32, h: u32, channels: usize, color_channels: us
 
 /// Saves `doc` as a layered TIFF. Documents whose colour mode a TIFF cannot hold in our
 /// codec (Lab) are saved flat, with a warning.
-pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions) -> Result<ExportResult, IoError> {
+pub(crate) fn export_layered(
+    doc: &Document,
+    opts: &ExportOptions,
+    projection: Option<&dyn crate::vector_map::fallback::Projection>,
+) -> Result<ExportResult, IoError> {
+    let losses = crate::vector_map::fallback::LossCollector::document(doc);
+    let prepared = crate::vector_map::fallback::prepare(doc, projection)?;
+    let doc = &prepared;
     if !layered_mode(doc) {
         let mut r = crate::flat::export_flat(doc, Format::Tiff, opts)?;
+        if let Some(notice) = losses.notice_for("TIFF") {
+            r.warnings.push(notice);
+        }
         if !doc.layers.is_empty() {
             r.warnings.push(format!("{:?} documents are saved as a flat TIFF: their layers are not kept", doc.pixel_format().mode));
         }
@@ -193,7 +203,11 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions) -> Result<Exp
     // keeps straight alpha) and uncompressed (its planes are interleaved below).
     let psd_opts = PsdExportOptions { force_psb: opts.force_psb || big, merged_matte: false, merged_compression: Compression::Raw };
     let (file, w) = document_to_psd_with(doc, &psd_opts);
-    warnings.extend(w);
+    let prepared_notice = crate::vector_map::fallback::LossCollector::document(doc).notice();
+    warnings.extend(w.into_iter().filter(|warning| Some(warning) != prepared_notice.as_ref()));
+    if let Some(notice) = losses.notice_for("TIFF") {
+        warnings.push(notice);
+    }
     let order = if codecs::tiff_writes_little_endian() { ByteOrder::Little } else { ByteOrder::Big };
     let (layers, w) = ImageSourceData::from_psd(&file).to_bytes(order)?;
     warnings.extend(w.into_iter().map(|w| format!("layer data: {w}")));

@@ -1,6 +1,6 @@
 //! Edit › Free Transform / Transform: projective transforms of layers (and the selection).
 
-use photocraft_algo::transform::{Homography, Interp, warp_surface};
+use photocraft_algo::transform::{Homography, Interp, QuadMap, warp_surface, warp_surface_map};
 use photocraft_color::PixelFormat;
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, Locks};
 use photocraft_geom::{Affine, Rect};
@@ -36,6 +36,11 @@ pub fn transform_bounds(doc: &Document, layer: &Layer) -> Rect {
 /// Warp a surface whose pixels outside the content read as `default` (masks, selections):
 /// warp the content with alpha, then flatten back onto the default value.
 pub(crate) fn warp_gray(s: &Surface, h: &Homography, interp: Interp) -> Surface {
+    warp_gray_map(s, &QuadMap::Projective(*h), interp)
+}
+
+/// local-image: [`warp_gray`] through a [`QuadMap`] (folded Distort / Perspective quads too).
+pub(crate) fn warp_gray_map(s: &Surface, h: &QuadMap, interp: Interp) -> Surface {
     let default = s.default_pixel().first().copied().unwrap_or(0.0);
     let fmt = s.format();
     let src = s.content_bounds();
@@ -48,7 +53,7 @@ pub(crate) fn warp_gray(s: &Surface, h: &Homography, interp: Interp) -> Surface 
     let mut tmp = Surface::new(with_alpha);
     let v = s.read_region(src);
     tmp.write_region(src, &v.iter().flat_map(|g| [*g, 1.0]).collect::<Vec<f32>>());
-    let w = warp_surface(&tmp, src, h, interp);
+    let w = warp_surface_map(&tmp, src, h, interp);
     // Clear the old content region, then composite the warped content over it. These are written as
     // two sparse regions rather than one dense `src ∪ warped` block: a transform that moves the
     // content far away (e.g. a huge translation) would otherwise allocate a buffer spanning both and
@@ -102,12 +107,17 @@ pub fn split_gray_selected(s: &Surface, sel: &Surface) -> Option<(Surface, Surfa
 /// [`warp_gray`] limited to a selection: only the selected values move (the vacated area reads as
 /// the default), as the selected pixels of the layer do.
 pub(crate) fn warp_gray_selected(s: &Surface, sel: &Surface, h: &Homography, interp: Interp) -> Surface {
-    let Some((lifted, mut out)) = split_gray_selected(s, sel) else { return warp_gray(s, h, interp) };
+    warp_gray_selected_map(s, sel, &QuadMap::Projective(*h), interp)
+}
+
+/// local-image: [`warp_gray_selected`] through a [`QuadMap`].
+pub(crate) fn warp_gray_selected_map(s: &Surface, sel: &Surface, h: &QuadMap, interp: Interp) -> Surface {
+    let Some((lifted, mut out)) = split_gray_selected(s, sel) else { return warp_gray_map(s, h, interp) };
     let src = lifted.content_bounds();
     if src.is_empty() {
         return out;
     }
-    let w = warp_surface(&lifted, src, h, interp);
+    let w = warp_surface_map(&lifted, src, h, interp);
     let b = w.content_bounds();
     if !b.is_empty() {
         let moved = w.read_region(b);
@@ -167,6 +177,13 @@ pub(crate) fn group_locks(doc: &Document, id: LayerId) -> Locks {
 
 /// `group` holds the locks `l` inherits from the groups around it ([`group_locks`]).
 pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, h: &Homography, affine: Option<Affine>, interp: Interp) -> Result<()> {
+    transform_layer_map(doc_sel, group, l, &QuadMap::Projective(*h), affine, interp)
+}
+
+/// local-image: [`transform_layer`] through a [`QuadMap`]: a folded (concave or self-crossing)
+/// Distort / Perspective quad draws as two affine triangles. Smart objects take folded quads as
+/// a warp (see [`transform`]); here they need a projective map.
+pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, m: &QuadMap, affine: Option<Affine>, interp: Interp) -> Result<()> {
     // Photoshop turns the Background into a normal layer before transforming it.
     if l.locks.position && l.name == "Background" {
         l.locks.position = false;
@@ -179,11 +196,13 @@ pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut L
     }
     // With a selection only the selected pixels move, and so only the same region of a linked
     // mask (#205). Groups, type, shapes and smart objects move whole.
-    let mask_sel = doc_sel.filter(|_| !matches!(l.content, LayerContent::Group(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_)));
+    let mask_sel = doc_sel.filter(|_| {
+        !matches!(l.content, LayerContent::Group(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_) | LayerContent::Symbol(_))
+    });
     match &mut l.content {
         LayerContent::Group(g) => {
             for c in g.children.iter_mut() {
-                transform_layer(None, locks, c, h, affine, interp)?;
+                transform_layer_map(None, locks, c, m, affine, interp)?;
             }
         }
         LayerContent::Text(t) => {
@@ -196,9 +215,18 @@ pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut L
             let Some(a) = affine else {
                 return Err(EngineError::Other("Distort and Perspective need a rasterized shape (Layer › Rasterize › Shape)".into()));
             };
-            crate::vector_cmds::transform_shape(sh, &a);
+            crate::vector_cmds::transform_vector_shape(sh, &mut l.vector, &a)?;
+        }
+        LayerContent::Symbol(s) => {
+            let a = affine.ok_or_else(|| EngineError::Other("Perspective needs detached or rasterized symbols".into()))?;
+            crate::vector_packages::symbols::transform_cached_instance(s, a)?;
         }
         LayerContent::Smart(sm) => {
+            let Some(h) = m.homography() else {
+                return Err(EngineError::Other(
+                    "Distort with folded corners on a smart object inside a group needs the smart object selected by itself".into(),
+                ));
+            };
             // Smart objects keep the transform and re-render from their source afterwards
             // (`refresh_text`), so repeated transforms don't degrade the pixels. Distort and
             // Perspective keep the full projective map, so the fourth corner survives re-renders.
@@ -222,23 +250,26 @@ pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut L
                     // Only the selected pixels move: lift them, clear them, warp and paste back.
                     Some(sel) => {
                         let (lifted, mut rest) = split_selected(surf, sel);
-                        let moved = warp_surface(&lifted, src, h, interp);
+                        let moved = warp_surface_map(&lifted, src, m, interp);
                         composite_over(&mut rest, &moved);
                         rest.prune();
                         rest
                     }
-                    None => warp_surface(surf, src, h, interp),
+                    None => warp_surface_map(surf, src, m, interp),
                 };
             }
         }
     }
-    if let Some(m) = l.mask.as_mut()
-        && m.linked
+    if let Some(mask) = l.mask.as_mut()
+        && mask.linked
     {
-        m.surface = match mask_sel {
-            Some(sel) => warp_gray_selected(&m.surface, sel, h, interp),
-            None => warp_gray(&m.surface, h, interp),
+        mask.surface = match mask_sel {
+            Some(sel) => warp_gray_selected_map(&mask.surface, sel, m, interp),
+            None => warp_gray_map(&mask.surface, m, interp),
         };
+    }
+    if let Some(a) = affine {
+        crate::vector_cmds::transform_vector_metadata(&mut l.vector, &a);
     }
     if let Some(vm) = l.vector_mask.as_mut()
         && vm.linked
@@ -276,17 +307,27 @@ pub fn split_selected(surf: &Surface, sel: &Surface) -> (Surface, Surface) {
     (lifted, rest)
 }
 
-pub(crate) fn refresh_text(doc: &Document, l: &mut Layer) {
+pub(crate) fn refresh_text(doc: &Document, l: &mut Layer) -> Result<()> {
     match &mut l.content {
-        LayerContent::Text(t) => crate::type_cmds::refresh(doc, t),
+        LayerContent::Text(t) => crate::vector_integration::refresh_text(doc, t, &l.vector)?,
         LayerContent::Shape(sh) => crate::vector_cmds::refresh_shape(doc, sh),
         LayerContent::Smart(_) => {
             // Unavailable sources keep the warped cache.
             let _ = crate::smart_cmds::refresh_layer(doc, l);
         }
-        LayerContent::Group(g) => g.children.iter_mut().for_each(|c| refresh_text(doc, c)),
+        LayerContent::Group(g) => {
+            for child in &mut g.children {
+                refresh_text(doc, child)?;
+            }
+        }
+        LayerContent::Symbol(s) => {
+            if let Ok(cache) = crate::vector_packages::symbols::render_instance(doc, s) {
+                s.cache = Some(cache);
+            }
+        }
         _ => {}
     }
+    Ok(())
 }
 
 /// Normal-blend `top` over `dst` (both straight alpha, same format).
@@ -327,10 +368,18 @@ fn quad_param(p: &Value) -> Option<[[f64; 2]; 4]> {
 
 fn transform(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
-    let id = match p.get("layer").and_then(Value::as_u64) {
-        Some(v) => Some(LayerId(v)),
-        None => st.active_layer,
-    };
+    let roots = p
+        .get("layers")
+        .map(|value| -> Result<Vec<LayerId>> {
+            let values = value.as_array().filter(|v| !v.is_empty()).ok_or_else(|| bad("layers must be a non-empty array of layer ids"))?;
+            let ids: Vec<_> = values.iter().map(|v| v.as_u64().map(LayerId).ok_or_else(|| bad("layers must contain layer ids"))).collect::<Result<_>>()?;
+            if let Some(id) = ids.iter().find(|id| st.doc.layer(**id).is_none()) {
+                return Err(EngineError::NoLayer(*id));
+            }
+            Ok(crate::layer_multi_cmds::move_targets(&st.doc, &ids))
+        })
+        .transpose()?;
+    let id = roots.as_ref().and_then(|ids| ids.first().copied()).or_else(|| p.get("layer").and_then(Value::as_u64).map(LayerId)).or(st.active_layer);
     let lone = lone_target(&st.doc, id, p)?;
     let id = match (id, lone.is_some() && crate::channel_cmds::is_channel_target(p)) {
         (_, true) => None,
@@ -343,10 +392,14 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
             [v[0], v[1], v[2], v[3]]
         }
         _ => {
-            let b = match (lone, id) {
-                (Some(surf), _) => target_bounds(&st.doc, surf),
-                (None, Some(id)) => transform_bounds(&st.doc, st.doc.layer(id).ok_or(EngineError::NoLayer(id))?),
-                (None, None) => Rect::EMPTY,
+            let b = match (lone, roots.as_deref(), id) {
+                (Some(surf), _, _) => target_bounds(&st.doc, surf),
+                (None, Some(ids), _) => ids.iter().try_fold(Rect::EMPTY, |bounds, id| {
+                    let layer = st.doc.layer(*id).ok_or(EngineError::NoLayer(*id))?;
+                    Ok::<_, EngineError>(bounds.union(&transform_bounds(&st.doc, layer)))
+                })?,
+                (None, None, Some(id)) => transform_bounds(&st.doc, st.doc.layer(id).ok_or(EngineError::NoLayer(id))?),
+                (None, None, None) => Rect::EMPTY,
             };
             if b.is_empty() {
                 return Err(EngineError::Other("nothing to transform".into()));
@@ -354,6 +407,16 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
             [b.x0 as f64, b.y0 as f64, b.x1 as f64, b.y1 as f64]
         }
     };
+    // local-image: a concave or folded quad (a Distort corner dragged past its neighbours) draws
+    // as two affine triangles instead of turning inside out through the horizon.
+    if let Some(q) = quad_param(p)
+        && let Some(folded) = QuadMap::new(rect, q).filter(QuadMap::is_folded)
+    {
+        if roots.as_ref().is_some_and(|ids| ids.len() > 1) {
+            return Err(bad("folded transforms need one layer or group"));
+        }
+        return transform_folded(s, p, id, rect, folded);
+    }
     let h = if let Some(q) = quad_param(p) {
         Homography::rect_to_quad(rect, q).ok_or_else(|| bad("degenerate quad"))?
     } else if let Some(m) = p.get("matrix").and_then(Value::as_array) {
@@ -388,15 +451,22 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
             }
             return Ok(());
         }
-        let id = id.ok_or_else(|| EngineError::Other("no active layer".into()))?;
-        let is_group = doc.layer(id).is_some_and(Layer::is_group);
-        let group = group_locks(doc, id);
-        let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-        transform_layer(if is_group { None } else { sel.as_ref() }, group, l, &h, affine, interp)?;
+        let ids = match &roots {
+            Some(ids) => ids.clone(),
+            None => vec![id.ok_or_else(|| EngineError::Other("no active layer".into()))?],
+        };
+        for id in &ids {
+            let is_group = doc.layer(*id).is_some_and(Layer::is_group);
+            let group = group_locks(doc, *id);
+            let l = doc.layer_mut(*id).ok_or(EngineError::NoLayer(*id))?;
+            transform_layer(if is_group { None } else { sel.as_ref() }, group, l, &h, affine, interp)?;
+        }
         // Type layers re-render from their new transform.
         let snapshot = doc.clone();
-        if let Some(l) = doc.layer_mut(id) {
-            refresh_text(&snapshot, l);
+        for id in ids {
+            if let Some(l) = doc.layer_mut(id) {
+                refresh_text(&snapshot, l)?;
+            }
         }
         // The selection outline moves with the pixels.
         if let Some(sel) = &doc.selection {
@@ -407,13 +477,65 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"rect": rect}))
 }
 
+/// Free Transform with a folded quad ([`QuadMap::Folded`]): pixel layers, groups, masks,
+/// channels and the selection warp through the two triangles; a smart object takes it as a
+/// custom warp (a fine mesh fitted to the two-triangle map, which keeps it re-renderable).
+fn transform_folded(s: &mut Session, p: &Value, id: Option<LayerId>, rect: [f64; 4], m: QuadMap) -> Result<Value> {
+    let interp = Interp::parse(p.get("interpolation").and_then(Value::as_str).unwrap_or("bicubic"));
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    if let Some(LayerContent::Smart(sm)) = id.and_then(|id| st.doc.layer(id)).map(|l| &l.content) {
+        if sm.warp.is_some() {
+            return Err(EngineError::Other("Distort with folded corners can't be combined with the smart object's warp".into()));
+        }
+        const N: usize = 16;
+        let knots: Vec<f64> = (0..=N).map(|i| i as f64 / N as f64).collect();
+        let (w, h) = (rect[2] - rect[0], rect[3] - rect[1]);
+        let mesh = photocraft_geom::warp::BezierMesh::fit(
+            &|u, v| {
+                let (x, y) = m.apply(rect[0] + u * w, rect[1] + v * h);
+                [x, y]
+            },
+            knots.clone(),
+            knots,
+        );
+        let warp = photocraft_geom::warp::Warp::custom(mesh, rect);
+        let layer = id.map(|l| l.0);
+        return s.execute(
+            "edit.transform.warp",
+            json!({"layer": layer, "rect": rect, "warp": warp, "interpolation": p.get("interpolation").cloned().unwrap_or(json!("bicubic"))}),
+        );
+    }
+    let lone = lone_target(&st.doc, id, p)?.is_some();
+    s.edit("Free Transform", |doc, _| {
+        let sel = doc.selection.clone();
+        if lone {
+            let (surf, _) = crate::channel_cmds::target_surface(doc, id, p)?;
+            *surf = match &sel {
+                Some(sel) => warp_gray_selected_map(surf, sel, &m, interp),
+                None => warp_gray_map(surf, &m, interp),
+            };
+        } else {
+            let id = id.ok_or_else(|| EngineError::Other("no active layer".into()))?;
+            let is_group = doc.layer(id).is_some_and(Layer::is_group);
+            let group = group_locks(doc, id);
+            let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+            transform_layer_map(if is_group { None } else { sel.as_ref() }, group, l, &m, None, interp)?;
+        }
+        if let Some(sel) = &doc.selection {
+            doc.selection = Some(warp_gray_map(sel, &m, Interp::Bilinear)).filter(|s| !s.content_bounds().is_empty());
+        }
+        Ok(())
+    })?;
+    Ok(json!({"rect": rect, "folded": true}))
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![CommandSpec {
         id: "edit.transform",
         label: "Free Transform",
         menu: &[],
         shortcut: None,
-        params: r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (source frame; default = layer content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left),"matrix":[a,b,c,d,e,f]? (affine alternative),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
+        params: r##"{"layer":id?,"layers":[id]? (transform these layers together, with linked layers),"rect":[x0,y0,x1,y1]? (source frame; default = layer content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left; a concave or folded quad draws as two triangles),"matrix":[a,b,c,d,e,f]? (affine alternative),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
         enabled: has_layer,
         journal: true,
         run: transform,
@@ -440,6 +562,98 @@ mod tests {
     fn active_bounds(s: &Session) -> Rect {
         let st = s.active().unwrap();
         st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().content_bounds()
+    }
+
+    #[test]
+    fn transform_multiple_layers_is_atomic_and_one_undo_step() {
+        let mut s = session();
+        let a = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.duplicate", json!({})).unwrap();
+        let b = s.active().unwrap().active_layer.unwrap();
+        let before = s.active().unwrap().doc.clone();
+        let steps = s.active().unwrap().history.past_len();
+        let p = json!({"layers": [a.0, b.0], "matrix": [1, 0, 0, 1, 20, 10], "interpolation": "nearest"});
+        s.execute("edit.transform", p.clone()).unwrap();
+        assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
+        for id in [a, b] {
+            assert_eq!(s.active().unwrap().doc.layer(id).unwrap().surface().unwrap().content_bounds(), Rect::new(30, 20, 50, 30));
+        }
+        s.undo();
+        assert_eq!(*s.active().unwrap().doc, *before);
+        s.edit("lock", |d, _| {
+            d.layer_mut(b).unwrap().locks.position = true;
+            Ok(())
+        })
+        .unwrap();
+        let locked = s.active().unwrap().doc.clone();
+        assert!(s.execute("edit.transform", p).is_err());
+        assert_eq!(*s.active().unwrap().doc, *locked, "failure rolls back every layer");
+    }
+
+    #[test]
+    fn concave_distort_draws_two_triangles_and_undoes() {
+        let mut s = session();
+        // The 20×10 red box with its bottom-right corner dragged inside: a concave quad.
+        let quad = json!([[10, 10], [30, 10], [18, 14], [10, 20]]);
+        let r = s.execute("edit.transform", json!({"quad": quad})).unwrap();
+        assert_eq!(r["folded"], json!(true));
+        let b = active_bounds(&s);
+        // Only the anti-aliased edge (a sharp corner's filter reach) leaves the quad's box.
+        assert!(b.x0 >= 7 && b.y0 >= 7 && b.x1 <= 33 && b.y1 <= 23, "nothing far outside the quad: {b:?}");
+        let st = s.active().unwrap();
+        let surf = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+        assert!(surf.pixel(13, 12)[3] > 0.9, "inside the quad");
+        assert!(surf.pixel(26, 18)[3] < 0.1, "outside the dent");
+        assert!(s.undo());
+        assert_eq!(active_bounds(&s), Rect::new(10, 10, 30, 20));
+        // A bow-tie still draws.
+        s.execute("edit.transform", json!({"quad": [[10, 10], [30, 20], [30, 10], [10, 20]]})).unwrap();
+        assert!(!active_bounds(&s).is_empty());
+    }
+
+    #[test]
+    fn folded_distort_on_a_smart_object_becomes_a_warp() {
+        let mut s = session();
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        s.execute("edit.transform", json!({"quad": [[10, 10], [30, 10], [18, 14], [10, 20]]})).unwrap();
+        let st = s.active().unwrap();
+        let LayerContent::Smart(sm) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("smart object expected") };
+        assert!(sm.warp.is_some(), "kept as a re-renderable warp");
+        let c = sm.cache.as_ref().unwrap();
+        assert!(c.pixel(13, 12)[3] > 0.8 && c.pixel(26, 18)[3] < 0.2, "{:?} {:?}", c.pixel(13, 12), c.pixel(26, 18));
+    }
+
+    #[test]
+    fn ds2_transform_layers_uses_union_and_rejects_empty_requests() {
+        let mut s = session();
+        let a = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        let b = s.active().unwrap().active_layer.unwrap();
+        s.edit("paint second", |doc, _| {
+            doc.layer_mut(b).unwrap().surface_mut().unwrap().fill_rect(Rect::new(50, 10, 70, 20), &[0.0, 1.0, 0.0, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        let before = s.active().unwrap().doc.clone();
+        for value in [json!([]), json!("bad"), json!([a.0, "bad"])] {
+            assert!(s.execute("edit.transform", json!({"layers":value,"matrix":[1,0,0,1,5,0]})).is_err());
+            assert_eq!(*s.active().unwrap().doc, *before);
+        }
+        let result = s.execute("edit.transform", json!({"layers":[a.0,b.0],"quad":[[10,10],[130,10],[130,20],[10,20]],"interpolation":"nearest"})).unwrap();
+        assert_eq!(result["rect"], json!([10.0, 10.0, 70.0, 20.0]));
+        assert_eq!(s.active().unwrap().doc.layer(a).unwrap().surface().unwrap().content_bounds(), Rect::new(10, 10, 50, 20));
+        assert_eq!(s.active().unwrap().doc.layer(b).unwrap().surface().unwrap().content_bounds(), Rect::new(90, 10, 130, 20));
+    }
+
+    #[test]
+    fn ds2_single_layer_array_accepts_folded_quad_and_targets_named_layer() {
+        let mut s = session();
+        let a = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        let other = s.active().unwrap().active_layer.unwrap();
+        let result = s.execute("edit.transform", json!({"layers":[a.0],"quad":[[10,10],[30,10],[10,20],[30,20]]}));
+        assert!(result.is_ok(), "{result:?}");
+        assert!(s.active().unwrap().doc.layer(other).unwrap().surface().unwrap().content_bounds().is_empty());
     }
 
     #[test]

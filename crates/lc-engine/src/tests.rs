@@ -878,3 +878,20 @@ fn negative_film_base_pick_and_auto() {
     s.execute("develop.reset", &json!({})).unwrap();
     assert_eq!(active_dev(&s).negative, Negative::default());
 }
+
+#[test]
+fn ds_finding_reset_restores_import_preset_look() {
+    use lightcraft_catalog::{Op, Photo, PhotoId, Source};
+    use lightcraft_develop::{DevelopSettings, Look};
+    let mut s = Session::new();
+    let mut p = Photo::new(PhotoId(900), Source::File { path: "synthetic.png".into() }, "Synthetic", "PNG", 16, 16, "");
+    let baseline = DevelopSettings { look: Look::Camera, ..Default::default() };
+    p.import_look = Some(std::sync::Arc::new(baseline.clone()));
+    p.develop = std::sync::Arc::new(baseline);
+    p.look = Look::Adobe;
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    s.execute("library.select", &json!({"ids":[900],"active":900})).unwrap();
+    s.execute("develop.look", &json!({"look":"sigmoid"})).unwrap();
+    s.execute("develop.reset", &json!({})).unwrap();
+    assert_eq!(s.develop_of(PhotoId(900)).unwrap().look, Look::Camera);
+}

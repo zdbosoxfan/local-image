@@ -348,7 +348,11 @@ impl Acc {
             if matches!(layer.get("Enabled"), Some(Plist::Bool(false))) {
                 continue;
             }
-            let opacity = weight * layer.get("Amount").and_then(Plist::num).unwrap_or(1.0).clamp(0.0, 1.0);
+            let amount = layer.get("Amount").and_then(Plist::num);
+            if amount.is_some_and(|a| !a.is_finite()) {
+                continue;
+            }
+            let opacity = weight * amount.unwrap_or(1.0).clamp(0.0, 1.0);
             if opacity <= 0.0 {
                 continue;
             }
@@ -364,7 +368,8 @@ impl Acc {
                 let id = effect.get("Identifier").and_then(Plist::str).unwrap_or("?");
                 let Some(Plist::Dict(params)) = effect.get("Parameters") else { continue };
                 for (name, pv) in params {
-                    let value = pv.get("Value").and_then(Plist::num).or(pv.num());
+                    // Non-finite sliders (NaN/inf) have no place in a real develop setting.
+                    let value = pv.get("Value").and_then(Plist::num).or(pv.num()).filter(|v| v.is_finite());
                     if literal && id == "MIPLCurveEffect" {
                         let crs = match name.as_str() {
                             "RGB" => Some("ToneCurvePV2012"),
@@ -508,6 +513,15 @@ mod tests {
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
              <plist version=\"1.0\"><dict><key>AdjustmentLayers</key><array>{layers}</array>{extra}<key>group_identifier</key><string>Custom</string></dict></plist>"
         )
+    }
+
+    #[test]
+    fn ds_finding_nonfinite_layer_amount_is_skipped() {
+        let good = layer("Develop", 1.0, "Normal", &[("MIPLDevelopCommonEffectID", param("Exposure", 0.5))], "");
+        let bad = layer("Develop", f64::NEG_INFINITY, "Normal", &[("MIPLDevelopCommonEffectID", param("Exposure", 3.0))], "");
+        let baseline = read_presets("x.lmp", look(&good, "").as_bytes(), None).unwrap();
+        let imported = read_presets("x.lmp", look(&(good + &bad), "").as_bytes(), None).unwrap();
+        assert_eq!(serde_json::to_value(&imported[0].preset).unwrap(), serde_json::to_value(&baseline[0].preset).unwrap());
     }
 
     /// A newer-style look (develop sliders nested in sublayers) written for this test.

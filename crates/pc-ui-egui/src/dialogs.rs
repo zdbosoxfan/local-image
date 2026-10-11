@@ -141,7 +141,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     let tab = about_tab(&fields);
                     let mut chosen = tab;
                     ui.horizontal(|ui| {
-                        for (key, label) in [("about", tl!("About")), ("contributors", tl!("Contributors")), ("models", tl!("Models"))] {
+                        for (key, label) in
+                            [("about", tl!("About")), ("contributors", tl!("Contributors")), ("models", tl!("Models")), ("attributions", tl!("Attributions"))]
+                        {
                             if crate::widgets::pill_tab(ui, label, tab == key).clicked() {
                                 chosen = key;
                             }
@@ -154,6 +156,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     match chosen {
                         "contributors" => crate::credits::contributors_ui(ui),
                         "models" => crate::credits::models_ui(ui),
+                        "attributions" => crate::attributions::about(app, ui),
                         _ => {
                             ui.label(tl!("Local Image — an open-source, native image editor written in Rust."));
                             ui.label(crate::i18n::fmt(tl!("Version {version}"), &[("version", &photocraft_engine::build_info::long_version())]));
@@ -255,7 +258,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 let _ = confirm(app, d.id);
             }
             Some(false) => {
-                app.ui.close_dialog(d.id);
+                cancel(app, d.id);
                 app.filter_preview = None;
                 app.color_range = None;
             }
@@ -266,7 +269,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 /// The About window's tabs, as stored in its `tab` field.
-pub const ABOUT_TABS: [&str; 3] = ["about", "contributors", "models"];
+pub const ABOUT_TABS: [&str; 4] = ["about", "contributors", "models", "attributions"];
 
 /// The About tab to show: the `tab` field when it names one, otherwise "about".
 fn about_tab(fields: &serde_json::Map<String, Value>) -> &'static str {
@@ -297,6 +300,13 @@ pub fn title(d: &Dialog) -> String {
         DialogKind::Command => d.fields.get("__label").and_then(Value::as_str).unwrap_or("Command").trim_end_matches('…').to_string(),
         DialogKind::Error => "Error".into(),
     }
+}
+
+/// Cancel a dialog, including any toolbar preview. Used by the UI and automation.
+pub fn cancel(app: &mut PhotocraftApp, id: u64) -> Option<crate::state::Dialog> {
+    let dialog = app.ui.close_dialog(id)?;
+    crate::prefs_ui::cancel(app, &dialog.fields);
+    Some(dialog)
 }
 
 /// Confirm a dialog: run its action and close it. Used by the OK button and by automation.

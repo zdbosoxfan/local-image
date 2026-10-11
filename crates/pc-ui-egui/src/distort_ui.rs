@@ -23,13 +23,15 @@ pub struct Distort {
     pub liquify: Option<crate::liquify_ui::LiquifyDialog>,
     pub puppet: Option<crate::puppet_ui::PuppetSession>,
     pub perspective: Option<crate::perspective_ui::PerspSession>,
+    /// local-image: Edit › Transform › Cage (cage_ui).
+    pub cage: Option<crate::cage_ui::CageSession>,
     /// Filter Gallery dialog (gallery_ui).
     pub gallery: Option<crate::gallery_ui::GalleryDialog>,
 }
 
 impl Distort {
     pub fn active(&self) -> bool {
-        self.liquify.is_some() || self.puppet.is_some() || self.perspective.is_some()
+        self.liquify.is_some() || self.puppet.is_some() || self.perspective.is_some() || self.cage.is_some()
     }
 
     /// Short description for `ui.inspect`.
@@ -38,6 +40,7 @@ impl Distort {
             "liquify": self.liquify.as_ref().map(|d| d.describe()),
             "puppet": self.puppet.as_ref().map(|p| p.describe()),
             "perspective": self.perspective.as_ref().map(|p| p.describe()),
+            "cage": self.cage.as_ref().map(|c| c.describe()),
             "gallery": self.gallery.as_ref().map(|g| g.describe()),
         })
     }
@@ -94,6 +97,10 @@ pub fn display_doc(app: &PhotocraftApp, idx: usize) -> Option<(Arc<Document>, u6
     if let Some(p) = &app.distort.perspective {
         return Some((p.preview_doc.clone(), (1 << 42) + p.key));
     }
+    // local-image: while a closed cage deforms, the layer shows through the preview mesh.
+    if let Some(c) = app.distort.cage.as_ref().filter(|c| c.closed) {
+        return Some((c.preview_doc.clone(), (1 << 42) + c.key));
+    }
     None
 }
 
@@ -118,6 +125,8 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
         "edit.perspectiveWarp" | "layer.smartObjects.perspectiveWarp" if ui.is_some() && app.distort.perspective.is_some() => {
             Some(crate::perspective_ui::control(app, ui.unwrap_or(&Value::Null)))
         }
+        "edit.transform.cage" if empty => Some(crate::cage_ui::begin(app).map(|_| json!({"cage": app.distort.describe()["cage"]}))),
+        "edit.transform.cage" if ui.is_some() && app.distort.cage.is_some() => Some(crate::cage_ui::control(app, ctx, ui.unwrap_or(&Value::Null))),
         _ => None,
     }
 }
@@ -134,6 +143,10 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
     }
     if app.distort.perspective.is_some() {
         crate::perspective_ui::pointer(app, ev, mods);
+        return true;
+    }
+    if app.distort.cage.is_some() {
+        crate::cage_ui::pointer(app, ev);
         return true;
     }
     false
@@ -179,6 +192,10 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
         }
         return true;
     }
+    if app.distort.cage.is_some() {
+        crate::cage_ui::keys(app, ctx);
+        return true;
+    }
     false
 }
 
@@ -190,6 +207,9 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
     if let Some(p) = &app.distort.perspective {
         crate::perspective_ui::draw(p, painter, xf);
     }
+    if let Some(c) = &app.distort.cage {
+        crate::cage_ui::draw(c, painter, xf);
+    }
 }
 
 /// Options bar for the on-canvas modes. True when drawn.
@@ -200,6 +220,10 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     }
     if app.distort.perspective.is_some() {
         crate::perspective_ui::options_bar(app, ui);
+        return true;
+    }
+    if app.distort.cage.is_some() {
+        crate::cage_ui::options_bar(app, ui);
         return true;
     }
     false

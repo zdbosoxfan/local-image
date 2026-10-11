@@ -29,6 +29,9 @@ pub(crate) struct MovePreview {
     shown: Option<Arc<Document>>,
     /// Shows a floating selection (`select.float`): offsets are the piece's, from where it was cut.
     floating: bool,
+    /// Selected pixels lifted once, rather than cutting the layer on every pointer move.
+    pixels: Option<photocraft_engine::float_cmds::CutParts>,
+    copy_pixels: bool,
 }
 
 impl MovePreview {
@@ -49,7 +52,7 @@ impl MovePreview {
 }
 
 /// The whole-pixel offset of the current Move drag on document `idx`, if one is under way.
-fn drag_offset(app: &PhotocraftApp) -> Option<(i32, i32)> {
+pub(crate) fn drag_offset(app: &PhotocraftApp) -> Option<(i32, i32)> {
     let d = app.drag.as_ref().filter(|d| d.tool == Tool::Move)?;
     let end = d.points.last().map_or(d.start, |p| [p[0], p[1]]);
     let dx = (end[0] - d.start[0]).round().clamp(-1e7, 1e7) as i32;
@@ -67,8 +70,10 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> Option<(Arc<Do
     {
         return floating_doc(app, idx);
     }
-    // Preferences › Interface › Show bounding box when dragging layer: outline and arrow only.
-    if app.session.active_index() != Some(idx) || app.session.prefs().interface.show_bounding_box_when_dragging_layer {
+    if app.session.active_index() != Some(idx) {
+        return None;
+    }
+    if app.move_fast.as_ref().is_some_and(|f| f.showing()) && app.drag.as_ref().is_some_and(|d| d.tool == Tool::Move) {
         return None;
     }
     let Some(offset) = drag_offset(app) else {
@@ -76,17 +81,33 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> Option<(Arc<Do
         return None;
     };
     let st = app.session.documents().get(idx)?;
-    let (doc_id, revision, doc) = (st.doc.id, st.revision, st.doc.clone());
+    let doc = crate::move_mods::copy_source(app).map_or_else(|| st.doc.clone(), |(doc, _)| doc);
+    let (doc_id, revision) = (st.doc.id, st.revision);
     let fresh = app.move_preview.as_ref().is_some_and(|p| p.doc == doc_id && p.revision == revision);
     if !fresh {
-        let ids = photocraft_engine::layer_multi_cmds::move_targets(&doc, &st.selected_layers());
+        let ids = crate::move_mods::copy_source(app)
+            .map_or_else(|| photocraft_engine::layer_multi_cmds::move_targets(&st.doc, &st.selected_layers()), |(_, ids)| ids);
+        if doc.selection.is_some() {
+            return None;
+        }
         if ids.is_empty() {
             return None;
         }
         let all = Rect::new(i32::MIN / 2, i32::MIN / 2, i32::MAX / 2, i32::MAX / 2);
         let bounds = ids.iter().try_fold(Rect::EMPTY, |acc, id| Some(acc.union(&photocraft_compose::change_bounds(doc.layer(*id)?, all)?)));
         let canvas = doc.bounds();
-        app.move_preview = Some(MovePreview { doc: doc_id, revision, ids, bounds, canvas, offsets: Vec::new(), shown: None, floating: false });
+        app.move_preview = Some(MovePreview {
+            doc: doc_id,
+            revision,
+            ids,
+            bounds,
+            canvas,
+            offsets: Vec::new(),
+            shown: None,
+            floating: false,
+            pixels: None,
+            copy_pixels: false,
+        });
     }
     let p = app.move_preview.as_mut()?;
     if offset == (0, 0) && p.offsets.is_empty() {
@@ -94,7 +115,11 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> Option<(Arc<Do
     }
     if p.offsets.last() != Some(&offset) {
         let t0 = crate::gpu_canvas::now_ms();
-        match photocraft_engine::layer_multi_cmds::moved(&doc, &p.ids, offset.0, offset.1) {
+        let moved = match &p.pixels {
+            Some(parts) => parts.moved(&doc, offset.0, offset.1),
+            None => photocraft_engine::layer_multi_cmds::moved(&doc, &p.ids, offset.0, offset.1),
+        };
+        match moved {
             Ok(d) => {
                 // Duotone documents display through their inks.
                 let d = photocraft_engine::mode_cmds::display_document(&d).unwrap_or(d);
@@ -110,6 +135,30 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> Option<(Arc<Do
     }
     let p = app.move_preview.as_ref()?;
     Some((p.shown.clone()?, p.key()))
+}
+
+/// A selection makes Move operate on its pixels, regardless of the Auto-Select option.
+pub(crate) fn begin_pixels(app: &mut PhotocraftApp, copy: bool) {
+    app.move_preview = None;
+    let Some(st) = app.session.active().filter(|s| s.doc.selection.is_some()) else { return };
+    let Some(id) = st.active_layer else { return };
+    let locks = st.doc.effective_locks(id);
+    if locks.all || locks.position {
+        return;
+    }
+    let Ok(parts) = photocraft_engine::float_cmds::CutParts::with_copy(&st.doc, id, copy) else { return };
+    app.move_preview = Some(MovePreview {
+        doc: st.doc.id,
+        revision: st.revision,
+        ids: vec![id],
+        bounds: st.doc.selection.as_ref().map(|s| s.content_bounds()),
+        canvas: st.doc.bounds(),
+        offsets: Vec::new(),
+        shown: None,
+        floating: false,
+        pixels: Some(parts),
+        copy_pixels: copy,
+    });
 }
 
 /// A floating selection's offset plus a drag of it in progress (`canvas::selection_drag_delta`).
@@ -131,7 +180,18 @@ fn floating_doc(app: &mut PhotocraftApp, idx: usize) -> Option<(Arc<Document>, u
     if !fresh {
         let bounds = st.doc.selection.as_ref().map(|s| s.content_bounds());
         let canvas = st.doc.bounds();
-        app.move_preview = Some(MovePreview { doc: doc_id, revision, ids: vec![f.layer], bounds, canvas, offsets: Vec::new(), shown: None, floating: true });
+        app.move_preview = Some(MovePreview {
+            doc: doc_id,
+            revision,
+            ids: vec![f.layer],
+            bounds,
+            canvas,
+            offsets: Vec::new(),
+            shown: None,
+            floating: true,
+            pixels: None,
+            copy_pixels: false,
+        });
     }
     let st = app.session.documents().get(idx)?;
     let shown = app.move_preview.as_ref()?.offsets.last() != Some(&offset);
@@ -169,6 +229,7 @@ pub(crate) fn damage(app: &PhotocraftApp, doc: DocId, revision: u64, seen: u64, 
 /// Whether the canvas shows a Move drag's layers at the pointer.
 pub(crate) fn showing(app: &PhotocraftApp) -> bool {
     app.move_preview.as_ref().is_some_and(|p| p.shown.is_some())
+        || (app.drag.as_ref().is_some_and(|d| d.tool == Tool::Move) && app.move_fast.as_ref().is_some_and(|f| f.showing()))
 }
 
 /// Whether `key` is a Move drag preview key.
@@ -179,13 +240,18 @@ pub(crate) fn is_preview_key(key: u64) -> bool {
 /// Release: one `layer.translate` by the drag's offset. The canvas already shows the result, so
 /// its caches are told it showed the document: the command's damage rect refreshes that area.
 pub(crate) fn finish(app: &mut PhotocraftApp, dx: f64, dy: f64) {
+    app.move_fast = None;
     // Only when the canvas shows this very offset (else it recomposites everything once).
     let at = (dx.clamp(-1e7, 1e7) as i32, dy.clamp(-1e7, 1e7) as i32);
-    let shown = app.move_preview.take().filter(|p| p.shown.is_some() && p.offsets.last() == Some(&at));
+    let preview = app.move_preview.take();
+    let copy = preview.as_ref().is_some_and(|p| p.copy_pixels) || crate::move_mods::copy_source(app).is_some();
+    let pixels = app.session.active().is_some_and(|s| s.doc.selection.is_some());
+    let shown = preview.filter(|p| p.shown.is_some() && p.offsets.last() == Some(&at));
     if dx == 0.0 && dy == 0.0 {
         return;
     }
-    if app.run("layer.translate", serde_json::json!({"dx": dx, "dy": dy})).is_err() {
+    let cmd = if pixels { "select.movePixels" } else { "layer.translate" };
+    if app.run(cmd, serde_json::json!({"dx": dx, "dy": dy, "copy": copy})).is_err() {
         return;
     }
     let Some(p) = shown else { return };
@@ -249,8 +315,8 @@ mod tests {
     }
 
     #[test]
-    fn bounding_box_preference_turns_the_live_drag_off() {
+    fn bounding_box_preference_keeps_the_live_drag() {
         assert!(live(false), "by default the layer follows the pointer");
-        assert!(!live(true), "with the preference on, only the outline and arrow move");
+        assert!(live(true), "a bounding box must never disable the live pixels");
     }
 }

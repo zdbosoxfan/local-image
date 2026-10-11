@@ -78,6 +78,8 @@ struct State {
     confirm: Option<Confirm>,
     profiles: Option<Slot<Result<Vec<String>, String>>>,
     profiles_msg: String,
+    installed: Option<(std::time::Instant, Arc<HashSet<String>>)>,
+    installed_at: Option<std::time::Instant>,
 }
 
 impl Default for State {
@@ -97,6 +99,8 @@ impl Default for State {
             confirm: None,
             profiles: None,
             profiles_msg: String::new(),
+            installed: None,
+            installed_at: None,
         }
     }
 }
@@ -115,6 +119,17 @@ pub fn open() {
     with(|s| s.open = true);
 }
 
+pub(crate) fn open_restoration() {
+    with(|s| {
+        s.open = true;
+        s.kind = Kind::Model;
+        s.nav = Nav::Family("restoration".into());
+        s.search.clear();
+        s.fetch = None;
+        s.loaded = None;
+    });
+}
+
 /// Opens it on the LoRAs that fit `family`.
 pub fn open_loras(family: &str) {
     with(|s| {
@@ -122,6 +137,33 @@ pub fn open_loras(family: &str) {
         s.kind = Kind::Lora;
         s.nav = Nav::Family(family.to_owned());
     });
+}
+
+/// Opens it on LoRAs (trending), for a model whose family is unknown.
+pub fn open_loras_any() {
+    with(|s| {
+        s.open = true;
+        s.kind = Kind::Lora;
+        s.nav = Nav::Trending;
+    });
+}
+
+/// Which list it shows: (LoRAs, family) — for tests.
+pub fn showing() -> (bool, Option<String>) {
+    with(|s| {
+        (
+            s.kind == Kind::Lora,
+            match &s.nav {
+                Nav::Family(f) => Some(f.clone()),
+                _ => None,
+            },
+        )
+    })
+}
+
+/// Closes the window.
+pub fn close() {
+    with(|s| s.open = false);
 }
 
 pub fn is_open() -> bool {
@@ -222,7 +264,7 @@ fn installed_items(kind: Kind) -> Vec<Item> {
         Kind::Model => li_ai::catalog::catalog()
             .models
             .iter()
-            .filter(|m| !m.tool && li_ai::catalog::presets_for(m.id).any(|p| st.ready(m.id, &p.variant).is_ok()))
+            .filter(|m| (!m.tool || m.family == "restoration") && li_ai::catalog::presets_for(m.id).any(|p| st.ready(m.id, &p.variant).is_ok()))
             .map(|m| Item {
                 id: format!("installed:{}", m.id.key()),
                 source: Some(Source::Installed),
@@ -250,16 +292,84 @@ fn installed_items(kind: Kind) -> Vec<Item> {
     }
 }
 
+/// The model folder (the settings re-read every two seconds, not for every card every frame).
+fn model_dir() -> std::path::PathBuf {
+    thread_local! { static DIR: RefCell<Option<(std::time::Instant, std::path::PathBuf)>> = const { RefCell::new(None) }; }
+    DIR.with(|d| {
+        let mut d = d.borrow_mut();
+        match d.as_ref() {
+            Some((t, p)) if t.elapsed() < Duration::from_secs(2) => p.clone(),
+            _ => {
+                let p = AiSettings::load().model_dir();
+                *d = Some((std::time::Instant::now(), p.clone()));
+                p
+            }
+        }
+    })
+}
+
+/// What removing an Installed card takes out, when its files are in the model folder: a curated
+/// model's downloaded presets, or the one file of a model or LoRA ComfyUI found.
+fn removal_for(item: &Item) -> Option<crate::ai_ui::RemoveTarget> {
+    use crate::ai_ui::RemoveTarget;
+    if item.source != Some(Source::Installed) {
+        return None;
+    }
+    let dir = model_dir();
+    if let Some(name) = item.id.strip_prefix("installed-lora:") {
+        return li_ai::download::listed_file(&dir, &["loras"], name).map(|_| RemoveTarget::Listed { folders: vec!["loras"], name: name.to_owned() });
+    }
+    let key = item.id.strip_prefix("installed:")?;
+    let m = li_ai::catalog::ModelId::from_key(key)?;
+    let info = m.try_info()?;
+    if info.origin == li_ai::catalog::Origin::Profile {
+        let ids: Vec<String> =
+            li_ai::catalog::presets_for(m).filter(|p| li_ai::download::missing_files(&dir, p).len() < p.files.len()).map(|p| p.id()).collect();
+        return (!ids.is_empty()).then_some(RemoveTarget::Presets(ids));
+    }
+    let (folders, name): (Vec<&'static str>, &str) = match key.split_once(':')? {
+        ("ckpt", n) => (vec!["checkpoints"], n),
+        ("unet", n) => (vec!["diffusion_models", "unet", "unet_gguf"], n),
+        _ => return None,
+    };
+    li_ai::download::listed_file(&dir, &folders, name).map(|_| RemoveTarget::Listed { folders, name: name.to_owned() })
+}
+
 /// File names ComfyUI already has (main models and LoRAs), by base name.
+fn cached_installed(s: &mut State, scan: impl FnOnce() -> HashSet<String>) -> Arc<HashSet<String>> {
+    if let Some((at, names)) = &s.installed
+        && at.elapsed() < std::time::Duration::from_secs(1)
+    {
+        return names.clone();
+    }
+    let names = Arc::new(scan());
+    s.installed = Some((std::time::Instant::now(), names.clone()));
+    names
+}
+
 fn installed_names() -> HashSet<String> {
     let base = |n: &str| n.rsplit('/').next().unwrap_or(n).to_ascii_lowercase();
     let mut out: HashSet<String> = li_ai::catalog::catalog().models.iter().filter_map(|m| m.id.key().split_once(':').map(|(_, n)| base(n))).collect();
     out.extend(li_ai::inventory::loras().iter().map(|l| base(&l.name)));
+    let dir = model_dir();
+    out.extend(
+        li_ai::restoration::policy()
+            .models
+            .iter()
+            .flat_map(|m| &m.presets)
+            .flat_map(|p| &p.files)
+            .filter(|f| li_ai::download::target_path(&dir, f).is_file())
+            .map(|f| base(&f.name)),
+    );
     out
 }
 
 fn is_installed(item: &Item, names: &HashSet<String>) -> bool {
-    let weights: Vec<_> = item.files.iter().filter(|f| f.name.ends_with(".safetensors") || f.name.ends_with(".gguf")).collect();
+    let weights: Vec<_> = item
+        .files
+        .iter()
+        .filter(|f| f.name.ends_with(".safetensors") || f.name.ends_with(".gguf") || li_ai::restoration::pinned_file(&f.name).is_some())
+        .collect();
     item.source == Some(Source::Installed) || (!weights.is_empty() && weights.iter().all(|f| names.contains(&f.name.to_ascii_lowercase())))
 }
 
@@ -291,12 +401,19 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
         let r = (|| -> anyhow::Result<(Plan, Option<Value>)> {
             let cfg = config();
             let net = HttpNet::new(cfg.clone());
-            let info = li_ai::service().client.object_info().map_err(|e| {
-                anyhow::anyhow!(
-                    "{}",
-                    crate::i18n::fmt(tl!("Start the AI engine first: Local Image checks what ComfyUI already has. ({error})"), &[("error", &format!("{e:#}"))])
-                )
-            })?;
+            let info = if item.family.as_deref() == Some("restoration") {
+                li_ai::comfy::ObjectInfo::default()
+            } else {
+                li_ai::service().client.object_info().map_err(|e| {
+                    anyhow::anyhow!(
+                        "{}",
+                        crate::i18n::fmt(
+                            tl!("Start the AI engine first: Local Image checks what ComfyUI already has. ({error})"),
+                            &[("error", &format!("{e:#}"))]
+                        )
+                    )
+                })?
+            };
             let reg = li_ai::family::registry();
             if let Some(name) = &item.template {
                 let (ui, files) = browser::fetch_template(&cfg, &net, name)?;
@@ -498,7 +615,13 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         .frame(egui::Frame::window(&ctx.global_style()).fill(t.card).stroke(Stroke::new(1.0, t.card_border)).inner_margin(egui::Margin::same(0)))
         .open(&mut open)
         .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
-        .show(ctx, |ui| with(|s| body(ui, s, &t)));
+        .show(ctx, |ui| {
+            if with(|s| matches!(&s.nav, Nav::Family(f) if f == "restoration")) && ui.button(tl!("Bring your own model…")).clicked() {
+                crate::restoration_ui::open(app);
+                close();
+            }
+            with(|s| body(ui, s, &t));
+        });
     confirm_window(ctx, &t);
     if !open {
         with(|s| {
@@ -512,15 +635,28 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
 fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
     // Start or collect the catalogue fetch.
     let key = (s.nav.clone(), s.kind, s.search.trim().to_owned(), s.sources);
+    if s.loaded.as_ref() != Some(&key) && matches!(&s.nav, Nav::Family(f) if f == "restoration") {
+        s.fetch = None;
+    }
     if s.loaded.as_ref() != Some(&key) && s.fetch.is_none() {
         s.loaded = Some(key);
         if s.nav == Nav::Installed {
+            s.installed_at = Some(std::time::Instant::now());
             s.items = installed_items(s.kind);
             s.items.retain(|i| s.search.trim().is_empty() || i.title.to_lowercase().contains(&s.search.trim().to_lowercase()));
+            s.notes.clear();
+        } else if matches!(&s.nav, Nav::Family(f) if f == "restoration") {
+            s.items = browser::items(li_ai::family::registry(), &Config::default(), &query(s), &[]);
             s.notes.clear();
         } else {
             s.fetch = Some(start_fetch(query(s)));
         }
+    }
+    // Installed: always current (no network), so removed models drop off once ComfyUI re-scans.
+    if s.nav == Nav::Installed && s.fetch.is_none() && s.installed_at.is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(1)) {
+        s.installed_at = Some(std::time::Instant::now());
+        s.items = installed_items(s.kind);
+        s.items.retain(|i| s.search.trim().is_empty() || i.title.to_lowercase().contains(&s.search.trim().to_lowercase()));
     }
     if let Some(f) = s.fetch.as_ref().and_then(|f| f.lock().ok().and_then(|mut o| o.take())) {
         s.items = f.items;
@@ -565,7 +701,9 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                 egui::ScrollArea::vertical().id_salt("browser-families").auto_shrink([false, false]).show(ui, |ui| {
                     let reg = li_ai::family::registry();
                     let mut group = "";
-                    for f in reg.families.iter().filter(|f| f.models.iter().any(|m| !m.tool) || f.base.is_some() || f.models.is_empty()) {
+                    for f in
+                        reg.families.iter().filter(|f| f.id == "restoration" || f.models.iter().any(|m| !m.tool) || f.base.is_some() || f.models.is_empty())
+                    {
                         if f.id == "seedvr2" {
                             continue;
                         }
@@ -664,7 +802,7 @@ fn grid(ui: &mut egui::Ui, s: &mut State, t: &Tokens, loading: bool) {
         });
         return;
     }
-    let names = installed_names();
+    let names = cached_installed(s, installed_names);
     let gap = 12.0;
     let w = ui.available_width();
     let cols = ((w + gap) / (228.0 + gap)).floor().max(1.0) as usize;
@@ -862,6 +1000,14 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
         }
         None if installed => {
             ui.label(RichText::new(tl!("Installed")).size(11.5).color(Color32::from_rgb(70, 190, 110)));
+            if let Some(target) = removal_for(item) {
+                let tip = if li_ai::trash::available() { tl!("Remove (moves the files to the Trash)") } else { tl!("Remove (deletes the files)") };
+                let r = crate::icons::button(ui, "trash", 22.0, false, tip);
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Remove")));
+                if r.clicked() {
+                    crate::ai_ui::ask_remove(item.title.clone(), target);
+                }
+            }
         }
         None if item.source != Some(Source::Installed)
             && widgets::primary_button(ui, if item.template.is_some() { tl!("Get Template") } else { tl!("Install") }, 0.0).clicked() =>
@@ -902,7 +1048,12 @@ fn footer_ui(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
     ui.painter().hline(r.x_range(), r.top(), Stroke::new(1.0, t.separator));
     egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 6)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(tl!("Only .safetensors and .gguf files with a published size and SHA-256 are installed.")).size(11.0).color(t.text_faint));
+            let note = if matches!(&s.nav, Nav::Family(f) if f == "restoration") {
+                tl!("Restoration installs only vetted official weights with pinned size and SHA-256.")
+            } else {
+                tl!("Only .safetensors and .gguf files with a published size and SHA-256 are installed.")
+            };
+            ui.label(RichText::new(note).size(11.0).color(t.text_faint));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let busy = s.profiles.is_some();
                 if ui
@@ -1043,4 +1194,56 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
             s.confirm = None;
         }
     });
+}
+
+#[cfg(test)]
+mod ds_tests {
+    use super::*;
+    #[test]
+    fn ds_finding_unknown_family_loras_always_open_trending() {
+        for nav in [Nav::Installed, Nav::New, Nav::Family("flux".into())] {
+            with(|s| s.nav = nav);
+            open_loras_any();
+            with(|s| {
+                assert_eq!(s.nav, Nav::Trending);
+                assert_eq!(s.kind, Kind::Lora);
+                assert!(s.open);
+            });
+        }
+        with(|s| *s = State::default());
+    }
+    #[test]
+    fn ds_finding_installed_names_are_cached_across_repaints() {
+        let mut state = State::default();
+        let first = cached_installed(&mut state, || HashSet::from(["sample.safetensors".into()]));
+        for _ in 0..20 {
+            let next = cached_installed(&mut state, || panic!("filesystem rescan on repaint"));
+            assert!(Arc::ptr_eq(&first, &next));
+        }
+        state.installed.as_mut().unwrap().0 -= std::time::Duration::from_secs(2);
+        assert!(cached_installed(&mut state, HashSet::new).is_empty());
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_restoration_cards_supersede_pending_catalogue_fetch() {
+    let mut state = State { nav: Nav::Family("restoration".into()), fetch: Some(Arc::new(Mutex::new(None))), ..Default::default() };
+    let old_fetch = state.fetch.clone().unwrap();
+    let mut initialized = false;
+    let mut h = egui_kittest::Harness::builder().with_size(vec2(1000.0, 700.0)).build_ui(move |ui| {
+        if !initialized {
+            PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+            initialized = true;
+            ui.ctx().request_repaint();
+            return;
+        }
+        body(ui, &mut state, &Tokens::get(ui.ctx()));
+    });
+    h.run_steps(3);
+    use egui_kittest::kittest::Queryable;
+    assert!(h.get_all_by_label("FBCNN · JPEG cleanup").count() > 0);
+    *old_fetch.lock().unwrap() = Some(Fetched { items: vec![], notes: vec!["old family".into()] });
+    h.run_steps(2);
+    assert!(h.get_all_by_label("FBCNN · JPEG cleanup").count() > 0);
 }

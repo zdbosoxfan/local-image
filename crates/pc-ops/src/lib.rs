@@ -199,11 +199,16 @@ impl History {
     }
 }
 
-/// Bytes of the pixel tiles of `doc` (layers, masks, alpha channels) not already in `seen`.
+/// Bytes of the pixel tiles of `doc` (layers, symbol masters, masks, alpha channels)
+/// not already in `seen`. Masters are not composited, but history owns their tiles too.
 fn tile_bytes(doc: &Document, seen: &mut HashSet<usize>) -> usize {
     let mut add = |s: &photocraft_doc::Surface| s.tiles().filter(|(_, t)| seen.insert(Arc::as_ptr(t) as usize)).map(|(_, t)| t.bytes().len()).sum::<usize>();
     let mut n = 0;
-    for (_, _, l) in doc.walk() {
+    let mut layers: Vec<_> = doc.layers.iter().chain(doc.symbols.iter().flat_map(|s| &s.layers)).collect();
+    while let Some(l) = layers.pop() {
+        if let Some(children) = l.children() {
+            layers.extend(children);
+        }
         if let Some(s) = l.surface() {
             n += add(s);
         }
@@ -233,6 +238,29 @@ mod tests {
         f(&mut d);
         *cur = Arc::new(d);
         h.record(label, before, LayerTarget::default());
+    }
+
+    #[test]
+    fn vector_symbol_master_tiles_share_and_count_in_history() {
+        use photocraft_doc::{SymbolDef, SymbolId};
+        let mut d = base();
+        let mut master = Layer::raster("Master", d.pixel_format());
+        master.surface_mut().unwrap().fill_rect(d.bounds(), &[0.2, 0.3, 0.4, 1.0]);
+        let tile = master.surface().unwrap().tiles().next().unwrap().1.bytes().len();
+        d.symbols.push(SymbolDef { id: SymbolId(1), name: "Master".into(), layers: vec![Layer::group("Nested", vec![master.clone()])] });
+        d.symbols.push(SymbolDef { id: SymbolId(2), name: "Shared tiles".into(), layers: vec![master] });
+        let mut cur = Arc::new(d);
+        let mut h = History::default();
+        assert_eq!(h.pixel_bytes(&cur), 2 * tile, "one root tile plus the shared master tile");
+        edit(&mut h, &mut cur, "Edit master", |d| {
+            let bounds = d.bounds();
+            d.symbols[0].layers[0].children_mut().unwrap()[0].surface_mut().unwrap().fill_rect(bounds, &[0.8, 0.2, 0.1, 1.0]);
+        });
+        assert_eq!(h.pixel_bytes(&cur), 3 * tile, "changed master tile plus shared old tile and root");
+        assert_eq!(h.unique_bytes(&cur), 0, "old master tile is still referenced by another master");
+        let before = h.undo(cur.clone()).unwrap().0;
+        assert_eq!(before.symbols[0].layers[0].children().unwrap()[0].surface().unwrap().sample_channel(1, 1, 0), 0.2);
+        assert_eq!(h.redo(before).unwrap().0, cur);
     }
 
     #[test]

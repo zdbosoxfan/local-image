@@ -8,13 +8,13 @@
 //! live shape) or a layer's vector mask. Knots are addressed by `subpath` and `knot` index, as
 //! listed by `path.info`, and the result is `{name, path}` in the compact JSON form.
 
-use photocraft_doc::{LayerContent, Path};
+use crate::vector_packages::node::{self, Operation, Target};
 use photocraft_geom::Point;
-use photocraft_vector::edit::{self, Handle};
+use photocraft_vector::edit::Handle;
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
-use crate::vector_cmds::{bad, has_doc, layer_id, nums, path_json, path_mut, pt, with_shape};
+use crate::vector_cmds::{bad, has_doc, layer_id, nums, path_json, pt};
 use crate::{Result, Session};
 
 /// Coordinates and offsets beyond this are mistakes (the same bound as `path.transform`).
@@ -45,41 +45,48 @@ fn knot(cmd: &str, p: &Value) -> Result<[usize; 2]> {
 }
 
 /// Applies `f` to the targeted path in one undoable step labelled `label`.
-fn edit_path(s: &mut Session, cmd: &str, p: &Value, label: &str, f: impl FnOnce(&mut Path) -> std::result::Result<(), String>) -> Result<Value> {
+fn edit_path(s: &mut Session, p: &Value, label: &str, op: Operation, anchors: Vec<[usize; 2]>) -> Result<Value> {
+    let mut params = p.clone();
     let name = p.get("name").and_then(Value::as_str).unwrap_or("work").to_owned();
-    let layer = if name == "layer" { Some(layer_id(s, p)?) } else { None };
-    let shape = layer.filter(|id| s.active().and_then(|d| d.doc.layer(*id)).is_some_and(|l| matches!(l.content, LayerContent::Shape(_))));
-    let path = match shape {
-        Some(id) => with_shape(s, id, label, |sh, _| {
-            f(&mut sh.path).map_err(|e| bad(cmd, e))?;
-            sh.live = None;
-            sh.psd_raw = None;
-            Ok(path_json(&sh.path))
-        })?,
-        None => s.edit(label, |doc, _| {
-            let path = path_mut(doc, &name, layer)?;
-            f(path).map_err(|e| bad(cmd, e))?;
-            Ok(path_json(path))
-        })?,
-    };
-    Ok(json!({ "name": name, "path": path }))
+    let single = p.get("targets").is_none();
+    if single {
+        let layer = if name == "layer" { Some(layer_id(s, p)?.0) } else { None };
+        params["targets"] = json!([Target { name: name.clone(), layer, anchors }]);
+        // Existing automation clients explicitly editing a path retain their conversion behavior.
+        // Captured UI gestures send targets plus convertLive only after the conversion prompt.
+        if params.get("convertLive").is_none() {
+            params["convertLive"] = json!(true);
+        }
+    }
+    let result = node::apply(s, &params, label, op)?;
+    if single {
+        let targets: Vec<Target> = serde_json::from_value(result["targets"].clone()).map_err(|e| bad("path.edit", e.to_string()))?;
+        let target = targets.first().ok_or_else(|| bad("path.edit", "missing result target"))?;
+        let path = node::path(&s.active().ok_or(crate::EngineError::NoDocument)?.doc, target)?;
+        Ok(json!({"name": name, "path": path_json(path)}))
+    } else {
+        Ok(result)
+    }
 }
 
 fn move_anchors(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "path.moveAnchors";
-    let anchors: Vec<[usize; 2]> = p
-        .get("anchors")
-        .and_then(Value::as_array)
-        .filter(|a| !a.is_empty())
-        .ok_or_else(|| bad(CMD, "`anchors` must list [subpath, knot] pairs"))?
-        .iter()
-        .map(|a| {
-            let n = |i: usize| a.get(i).and_then(Value::as_u64).and_then(|v| usize::try_from(v).ok());
-            n(0).zip(n(1)).map(|(s, k)| [s, k]).ok_or_else(|| bad(CMD, "each anchor is [subpath, knot]"))
-        })
-        .collect::<Result<_>>()?;
+    let anchors: Vec<[usize; 2]> = if p.get("targets").is_some() {
+        Vec::new()
+    } else {
+        p.get("anchors")
+            .and_then(Value::as_array)
+            .filter(|a| !a.is_empty())
+            .ok_or_else(|| bad(CMD, "`anchors` must list [subpath, knot] pairs"))?
+            .iter()
+            .map(|a| {
+                let n = |i: usize| a.get(i).and_then(Value::as_u64).and_then(|v| usize::try_from(v).ok());
+                n(0).zip(n(1)).map(|(s, k)| [s, k]).ok_or_else(|| bad(CMD, "each anchor is [subpath, knot]"))
+            })
+            .collect::<Result<_>>()?
+    };
     let d = offset(CMD, p)?;
-    edit_path(s, CMD, p, "Drag Anchor Points", |path| edit::move_anchors(path, &anchors, d))
+    edit_path(s, p, "Drag Anchor Points", Operation::Move { delta: d }, anchors)
 }
 
 fn move_handle(s: &mut Session, p: &Value) -> Result<Value> {
@@ -88,7 +95,7 @@ fn move_handle(s: &mut Session, p: &Value) -> Result<Value> {
     let h = p.get("handle").and_then(Value::as_str).and_then(Handle::parse).ok_or_else(|| bad(CMD, "`handle` must be \"in\" or \"out\""))?;
     let to = point(CMD, p, "to")?.ok_or_else(|| bad(CMD, "missing `to`"))?;
     let independent = p.get("independent").and_then(Value::as_bool).unwrap_or(false);
-    edit_path(s, CMD, p, "Drag Direction Point", |path| edit::move_handle(path, k, h, to, independent))
+    edit_path(s, p, "Drag Direction Point", Operation::Handle { knot: k, handle: h.name().into(), to: [to.x, to.y], independent }, Vec::new())
 }
 
 fn bend_segment(s: &mut Session, p: &Value) -> Result<Value> {
@@ -99,14 +106,14 @@ fn bend_segment(s: &mut Session, p: &Value) -> Result<Value> {
         None => 0.5,
     };
     let d = offset(CMD, p)?;
-    edit_path(s, CMD, p, "Drag Segment", |path| edit::bend_segment(path, k, t, d))
+    edit_path(s, p, "Drag Segment", Operation::Bend { knot: k, t, delta: d }, Vec::new())
 }
 
 fn convert_point(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "path.convertPoint";
     let k = knot(CMD, p)?;
     let out = point(CMD, p, "out")?;
-    edit_path(s, CMD, p, "Convert Point", |path| edit::convert_point(path, k, out))
+    edit_path(s, p, "Convert Point", Operation::Convert { knot: k, out: out.map(|p| [p.x, p.y]) }, Vec::new())
 }
 
 pub fn specs() -> Vec<CommandSpec> {
@@ -116,7 +123,9 @@ pub fn specs() -> Vec<CommandSpec> {
         label,
         menu: &[],
         shortcut: None,
-        params: crate::vector_cmds::leak(format!("{{{TARGET},{params}}} → {{name,path}}")),
+        params: crate::vector_cmds::leak(format!(
+            "{{{TARGET},{params},targets?:[{{name,layer?,anchors}}],document?:id,revision?:u64,convertLive?:bool}} → {{name,path}}|{{targets}}"
+        )),
         enabled: has_doc,
         run,
         journal: true,

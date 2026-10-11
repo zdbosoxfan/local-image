@@ -1,4 +1,4 @@
-//! The Settings dialog (⌘,): General, Import, Performance, Interface.
+//! The Settings dialog (⌘,): General, Import, Performance, Interface, Attributions.
 //!
 //! Changes apply immediately (no OK/Cancel). Where they are stored:
 //! - **app settings** ([`crate::state::AppSettings`]: startup view, delete confirmation, GPU,
@@ -17,7 +17,8 @@ use crate::theme::Tokens;
 use crate::widgets::register;
 
 /// (id, label) of the tabs, in order.
-pub const TABS: &[(&str, &str)] = &[("general", "General"), ("import", "Import"), ("performance", "Performance"), ("interface", "Interface")];
+pub const TABS: &[(&str, &str)] =
+    &[("general", "General"), ("import", "Import"), ("performance", "Performance"), ("interface", "Interface"), ("attributions", "Attributions")];
 
 /// Thumbnail cache sizes offered (MB).
 const CACHE_SIZES: [u32; 5] = [512, 1024, 2048, 4096, 8192];
@@ -43,6 +44,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
         "import" => import_tab(app, ui, &t),
         "performance" => performance_tab(app, ui, &t),
         "interface" => interface_tab(app, ui, &t),
+        "attributions" => crate::panels::attributions::body(app, ui, crate::panels::attributions::SETTINGS),
         _ => general_tab(app, ui, &t),
     }
 }
@@ -114,6 +116,33 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             hint(ui, t, crate::i18n::tr("not available here"));
         }
     });
+    heading(ui, t, "Face recognition");
+    hint(ui, t, "Face data stays in this library. Clearing it does not load face models.");
+    if crate::widgets::text_button(ui, "settingsClearFaces", crate::i18n::tr("Clear face data…"), false).clicked() {
+        app.ui.people.clear = true;
+    }
+    if app.ui.people.clear {
+        check(ui, "removeFaceNames", &mut app.ui.people.remove_names, "Also remove names Smart Sort added");
+        hint(ui, t, "Delete stored faces, headshot embeddings and person matches?");
+        let r = ui.add_enabled(app.people_task.is_none() && app.smart_sort.is_none(), egui::Button::new(crate::i18n::tr("Clear face data")));
+        register(ui.ctx(), "smartSort:clearFaceData", r.rect);
+        if r.clicked() {
+            match app.session.execute("smartSort.clearFaceData", &json!({"removeNames":app.ui.people.remove_names})) {
+                Ok(_) => {
+                    app.ui.people = Default::default();
+                    app.people_images = Default::default();
+                    app.session.smart.people.tagger = None;
+                }
+                Err(e) => app.ui.people.error = e.to_string(),
+            }
+        }
+        if !app.ui.people.error.is_empty() {
+            ui.colored_label(t.caution, &app.ui.people.error);
+        }
+        if crate::widgets::text_button(ui, "settingsClearFacesCancel", crate::i18n::tr("Cancel"), false).clicked() {
+            app.ui.people.clear = false;
+        }
+    }
     heading(ui, t, crate::i18n::tr("Startup"));
     row(ui, t, crate::i18n::tr("Open in"), |ui| {
         choices(
@@ -126,6 +155,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     heading(ui, t, crate::i18n::tr("Culling"));
     check(ui, "settings.autoAdvance", &mut app.ui.auto_advance, "Auto Advance: move to the next photo after rating or flagging");
     check(ui, "settings.confirmDelete", &mut app.ui.settings.confirm_delete, "Confirm before moving photos to Recently Deleted");
+    check(ui, "settings.confirmSaveOver", &mut app.ui.settings.confirm_save_over, "Ask before File ▸ Save Over Original replaces a file");
     heading(ui, t, crate::i18n::tr("External Editor"));
     row(ui, t, crate::i18n::tr("Application"), |ui| {
         let r = ui
@@ -191,6 +221,37 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             let _ = app.run("library.preferences", json!({"import": {"rawPreset": v}}));
         }
     });
+    row(ui, t, crate::i18n::tr("Default look for new photos"), |ui| {
+        crate::panels::process::default_look_combo(app, ui);
+    });
+    hint(ui, t, crate::i18n::tr("New raw photos use this look; each photo can change it in Develop (Profile › Look)."));
+    row(ui, t, crate::i18n::tr("Camera profiles folder"), |ui| {
+        let edit_id = ui.id().with("cameraProfilesFolderEdit");
+        let mut folder = ui.data(|data| data.get_temp::<String>(edit_id)).unwrap_or_else(|| d.camera_profiles_folder.clone());
+        let response = ui.text_edit_singleline(&mut folder);
+        crate::widgets::register(ui.ctx(), "settings:cameraFolder", response.rect);
+        if response.has_focus() {
+            ui.data_mut(|data| data.insert_temp(edit_id, folder.clone()));
+        } else {
+            ui.data_mut(|data| data.remove::<String>(edit_id));
+        }
+        let (choose, choosing) = if app.services.pick_folder.is_some() {
+            let r = ui.button(crate::i18n::tr("Choose…"));
+            crate::widgets::register(ui.ctx(), "settings:cameraFolderChoose", r.rect);
+            (r.clicked(), r.is_pointer_button_down_on())
+        } else {
+            (false, false)
+        };
+        if choose {
+            if let Some(folder) = app.services.pick_folder.as_mut().and_then(|f| f()) {
+                let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
+            }
+            ui.data_mut(|data| data.remove::<String>(edit_id));
+        } else if !choosing && response.lost_focus() && folder != d.camera_profiles_folder {
+            let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
+        }
+    });
+    hint(ui, t, crate::i18n::tr("Read DCP profiles for matching cameras from this folder."));
     let mut per = d.per_camera;
     row(ui, t, "", |ui| {
         if check(ui, "settings.perCamera", &mut per, "Use camera-specific defaults") {
@@ -504,6 +565,19 @@ fn smart_previews(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 // ---------------------------------------------------------------------------------- Interface
 
 fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
+    heading(ui, t, crate::i18n::tr("Tools"));
+    row(ui, t, crate::i18n::tr("Tool tips"), |ui| {
+        use crate::panels::tool_tips::ToolTipMode as M;
+        choices(
+            ui,
+            "settingsToolTips",
+            &[(M::Rich, crate::i18n::tr("Rich")), (M::Simple, crate::i18n::tr("Simple (name and shortcut)")), (M::Off, crate::i18n::tr("Off"))],
+            &mut app.ui.settings.tool_tips,
+        );
+    });
+    row(ui, t, "Tool icons", |ui| {
+        choices(ui, "settingsToolIcons", &[(true, "Colour (default)"), (false, "Monochrome")], &mut app.ui.settings.color_tool_icons);
+    });
     heading(ui, t, crate::i18n::tr("Filmstrip"));
     check(ui, "settings.filmNames", &mut app.ui.settings.film_names, "Show file names");
     check(ui, "settings.filmBadges", &mut app.ui.settings.film_badges, "Show ratings, flags and edit badges");
@@ -543,6 +617,10 @@ pub fn open_library(app: &mut LightcraftApp, p: &Value) -> Result<Value, String>
     app.session.close_library().map_err(|e| e.to_string())?;
     app.session.open_library(&path, false).map_err(|e| e.to_string())?;
     app.renderer.forget_all();
+    app.people_task = None;
+    app.smart_sort = None;
+    app.people_images = Default::default();
+    app.ui.people = Default::default();
     app.ui.compare = None;
     app.ui.settings.library_path = path.clone();
     Ok(json!({"path": path, "photos": app.session.catalog.len()}))

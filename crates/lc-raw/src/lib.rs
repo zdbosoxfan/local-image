@@ -10,6 +10,8 @@
 //! - [`color`] implements the DNG colour model (dual-illuminant interpolation, forward matrices, white balance)
 //!   and produces camera → linear Rec.2020 D65 matrices; [`profile`] reads and applies a DNG's own profile
 //!   look tables and tone curve.
+//! - [`highlight`] rebuilds clipped channels (our own fill, or darktable's "inpaint opposed");
+//!   [`capture`] estimates the capture-sharpening radius from the mosaic.
 //!
 //! Formats: DNG (uncompressed, lossless JPEG, lossy JPEG (Smart Previews), Deflate incl. floating point, tiled/stripped, CFA and LinearRaw),
 //! Canon CR2, Nikon NEF/NRW (uncompressed, Huffman lossless / lossy compressed), Sony ARW (uncompressed, ARW2, lossless), Fujifilm RAF (uncompressed Bayer
@@ -23,20 +25,28 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod binned;
+pub mod capture;
 pub mod color;
 pub mod demosaic;
 mod dng;
 pub mod dngwrite;
 pub mod highlight;
 pub mod ljpeg;
+mod numerics;
 pub mod opcodes;
 mod preview;
 pub mod profile;
+#[cfg(test)]
+#[path = "../examples/quality_support/mod.rs"]
+mod quality_support;
+
+#[cfg(test)]
+mod test_vectors;
 mod tiffraw;
 mod unpack;
 mod vendor;
 
-pub use demosaic::{Method, demosaic};
+pub use demosaic::{DemosaicOptions, Method, demosaic, demosaic_with};
 pub use dngwrite::{DngCompression, DngWriteOptions, write_dng};
 pub use lightcraft_color::Mat3;
 pub use lightcraft_geom::Orientation;
@@ -445,6 +455,30 @@ pub struct Normalized {
     pub cfa: Option<Cfa>,
 }
 
+/// Normalized active-area samples without a full float copy for ordinary files. DNG
+/// opcodes retain the full-buffer path because their corrections may depend on neighbours.
+pub struct NormalizedSamples<'a> {
+    pub width: usize,
+    pub height: usize,
+    pub cpp: usize,
+    pub cfa: Option<Cfa>,
+    raw: &'a RawImage,
+    prepared: Option<Normalized>,
+    scale: [f32; 4],
+}
+impl NormalizedSamples<'_> {
+    #[inline]
+    pub fn get(&self, x: usize, y: usize, sample: usize) -> f32 {
+        if let Some(n) = &self.prepared {
+            n.data[(y * self.width + x) * self.cpp + sample]
+        } else {
+            let a = self.raw.active_area;
+            let i = ((a.y + y) * self.raw.width + a.x + x) * self.cpp + sample;
+            (self.raw.data.get(i) - self.raw.black.at(x, y, sample, self.cpp)) * self.scale[sample]
+        }
+    }
+}
+
 impl RawImage {
     /// The description without the samples (what [`probe_info`] returns for the same file).
     pub fn info(&self) -> RawInfo {
@@ -518,6 +552,25 @@ impl RawImage {
         self.white.get(s).or_else(|| self.white.first()).copied().unwrap_or(65535.0)
     }
 
+    pub fn normalized_samples(&self) -> Result<NormalizedSamples<'_>> {
+        self.validate()?;
+        let prepared = if self.opcodes.list1.is_empty() && self.opcodes.list2.is_empty() { None } else { Some(self.normalized()?) };
+        let a = self.active_area;
+        let scale = std::array::from_fn(|s| {
+            let range = self.white_at(s) - self.black.mean();
+            if range > 0.0 { 1.0 / range } else { 1.0 }
+        });
+        Ok(NormalizedSamples {
+            width: a.width,
+            height: a.height,
+            cpp: self.cpp,
+            cfa: self.cfa.as_ref().map(|c| c.shifted(a.x, a.y)),
+            raw: self,
+            prepared,
+            scale,
+        })
+    }
+
     /// Black-subtract, white-scale and crop to the active area, applying `OpcodeList1` (on raw values) first and
     /// `OpcodeList2` (on normalised values) after. 1.0 = white level.
     pub fn normalized(&self) -> Result<Normalized> {
@@ -563,8 +616,20 @@ impl RawImage {
     /// Full "raw → camera RGB" path: normalise, demosaic with `method`, apply `OpcodeList3`, then the default crop.
     /// The result is camera RGB (not white balanced), white level = 1.0, not oriented.
     pub fn develop(&self, method: Method) -> Result<Rgb32f> {
-        let n = self.normalized()?;
-        let mut rgb = demosaic(&n, method);
+        self.develop_with(method, &DemosaicOptions::default())
+    }
+
+    /// [`Self::develop`] with the demosaic methods' parameters.
+    pub fn develop_with(&self, method: Method, opts: &DemosaicOptions) -> Result<Rgb32f> {
+        self.develop_with_cfa(method, opts, |_| {})
+    }
+
+    /// Develop with a CFA-stage operation after normalization/opcodes 1/2 and before demosaic.
+    /// The callback sees the active area; opcodes 3 and the default crop are applied afterwards.
+    pub fn develop_with_cfa(&self, method: Method, opts: &DemosaicOptions, hook: impl FnOnce(&mut Normalized)) -> Result<Rgb32f> {
+        let mut n = self.normalized()?;
+        hook(&mut n);
+        let mut rgb = demosaic_with(&n, method, opts);
         drop(n);
         opcodes::apply_list3(&self.opcodes.list3, &mut rgb);
         let c = self.crop.clipped(rgb.width, rgb.height);
@@ -624,3 +689,10 @@ mod tests {
         assert_eq!(decode(b"junk"), Err(RawError::NotRaw));
     }
 }
+
+pub mod camera_matrices;
+pub mod dcp;
+mod dcp_bundled;
+
+#[cfg(test)]
+mod tests_camera_matrices;

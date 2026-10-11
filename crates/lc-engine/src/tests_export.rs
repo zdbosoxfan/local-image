@@ -6,6 +6,59 @@ use crate::Session;
 use crate::export::{ExportFormat, ExportOptions, export_photo};
 use crate::tests_xmp::{synthetic_dng_with, temp_dir};
 
+struct EnhanceHost(std::sync::Arc<std::sync::Mutex<Vec<crate::enhance::UpscaleRequest>>>);
+impl crate::enhance::AiHost for EnhanceHost {
+    fn remove_engines(&self) -> Vec<crate::enhance::RemoveEngine> {
+        vec![]
+    }
+    fn remove(&self, _: &crate::enhance::RemoveRequest, _: &crate::enhance::JobCtl) -> Result<crate::enhance::RemoveResult, String> {
+        Err("unused".into())
+    }
+    fn upscale(&self, req: &crate::enhance::UpscaleRequest, ctl: &crate::enhance::JobCtl) -> Result<Vec<[u8; 4]>, String> {
+        ctl.check()?;
+        self.0.lock().unwrap().push(req.clone());
+        Ok(vec![[50, 120, 200, 255]; req.target.0 * req.target.1])
+    }
+}
+
+#[test]
+fn enhance_export_restores_native_pixels_before_encoding_and_defaults_load() {
+    let mut s = Session::with_demo();
+    let id = s.active().unwrap();
+    // Small native fixture exercises the same export path without three full-photo encodes.
+    let mut photo = (**s.catalog.photo(id).unwrap()).clone();
+    let reduction = f64::from(photo.width.max(photo.height)) / 96.0;
+    photo.width = (f64::from(photo.width) / reduction).round() as u32;
+    photo.height = (f64::from(photo.height) / reduction).round() as u32;
+    s.catalog.apply(lightcraft_catalog::Op::RemovePhoto { id }).unwrap();
+    s.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    s.enhance.host = Some(std::sync::Arc::new(EnhanceHost(calls.clone())));
+    let native = crate::export::output_size(s.catalog.photo(id).unwrap(), &ExportOptions::default());
+    for method in ["faithful", "rescue", "generative"] {
+        let opts = ExportOptions::from_json(
+            &json!({"format": "png", "percent": 200, "dontEnlarge": false, "enhance": method, "bitDepth": 16, "colorSpace": "displayP3"}),
+        );
+        let out = export_photo(&mut s, id, &opts, 1).unwrap();
+        assert_eq!((out.width, out.height), (native.0 * 2, native.1 * 2));
+        let last = calls.lock().unwrap().last().unwrap().clone();
+        assert_eq!((last.width, last.height), native);
+        assert_eq!(last.rgba.len(), native.0 * native.1);
+        assert_eq!(last.method, method);
+        assert_eq!(ExportOptions::from_json(&opts.to_json()).enhance, opts.enhance);
+    }
+    assert_eq!(serde_json::from_value::<ExportOptions>(json!({})).unwrap().enhance, None);
+    let old_count = calls.lock().unwrap().len();
+    let smaller = ExportOptions::from_json(&json!({"percent": 50, "enhance": "rescue"}));
+    export_photo(&mut s, id, &smaller, 1).unwrap();
+    assert_eq!(calls.lock().unwrap().len(), old_count);
+    let ctl = crate::enhance::JobCtl::new();
+    ctl.cancel();
+    let opts = ExportOptions::from_json(&json!({"percent": 200, "dontEnlarge": false, "enhance": "faithful"}));
+    let prepared = crate::export::prepare_export(&mut s, id, &opts, 1).unwrap();
+    assert_eq!(prepared.run_with_ctl(&ctl).err().unwrap(), crate::enhance::CANCELLED);
+}
+
 #[test]
 fn full_size_export_of_a_cropped_photo_is_not_upscaled() {
     let mut s = Session::with_demo();
@@ -180,6 +233,8 @@ fn prepared_exports_run_on_another_thread() {
 /// image — with the reason recorded.
 #[test]
 fn export_falls_back_to_the_cpu_when_gpu_work_is_lost() {
+    // the injected failure stops the GPU for the whole process until `reset_failures`
+    let _gpu = crate::tests_gpu::gpu_state();
     let mut s = Session::with_demo();
     let id = s.active().unwrap();
     s.execute("develop.set", &json!({"control": "light.exposure", "value": 0.4})).unwrap();
@@ -369,4 +424,37 @@ fn exports_are_atomic_without_a_sync() {
     crate::export::write_file_durable(&out.join("edit.tif").to_string_lossy(), b"tiff").unwrap();
     assert!(syncs_on_this_thread() > before, "the durable writer syncs");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn people_names_export_opt_in_metadata_and_original_sidecar() {
+    use lightcraft_catalog::{Op, Photo, Source};
+    use lightcraft_meta::{Rect, Region, RegionKind};
+    let mut s = Session::new();
+    let id = s.catalog.alloc_photo_id();
+    let dir = temp_dir("people-names-export");
+    let path = dir.join("original.png");
+    let image = lightcraft_raster::Rgba8::filled(16, 16, [80, 90, 100, 255]);
+    let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+    let mut p = Photo::new(id, Source::File { path: path.to_string_lossy().into_owned() }, "original.png", "PNG", 16, 16, "2026-10-09");
+    p.meta.regions = vec![Region { kind: RegionKind::Face, name: Some("Jane Doe".into()), rect: Rect::UNIT, description: None, auto: true }];
+    p.meta.keywords = vec!["Event".into()];
+    s.commit("fixture", Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    for on in [false, true] {
+        let opts = ExportOptions::from_json(&json!({"includePeopleNames":on}));
+        let metadata = crate::export::export_metadata(s.catalog.photo(id).unwrap(), &opts).unwrap();
+        assert_eq!(metadata.keywords.contains(&"People|Jane Doe".to_string()), on);
+        assert!(metadata.regions.is_empty());
+        let exported = export_photo(&mut s, id, &ExportOptions { format: ExportFormat::Original, ..opts }, 1).unwrap();
+        assert_eq!(exported.bytes, bytes);
+        let sidecar = std::str::from_utf8(&exported.sidecars[0].1).unwrap();
+        assert_eq!(sidecar.contains("People|Jane Doe"), on);
+        assert!(!sidecar.contains("personIds"));
+        assert!(!sidecar.contains("embedding"));
+    }
+    assert_eq!(s.catalog.photo(id).unwrap().meta.keywords, ["Event"]);
+    let old: ExportOptions = serde_json::from_value(json!({})).unwrap();
+    assert!(!old.include_people_names);
+    std::fs::remove_dir_all(dir).unwrap();
 }

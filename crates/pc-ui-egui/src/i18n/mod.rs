@@ -570,6 +570,176 @@ mod tests {
         }
     }
 
+    // docs/wip/CODEX-TASK.md explicitly defers translations for AI Remove and
+    // Draft/Refinement. These English additions intentionally use runtime fallback.
+    // Remove entries as their translations land; all other labels remain required.
+    // Overwrite Original: English until the owner resumes translations.
+    const PENDING_OVERWRITE_TRANSLATIONS: &[&str] = &[
+        "Save Over Original…",
+        "Save Over Original and Return to Library…",
+        "Overwrite Original",
+        "Don't ask again",
+        "This document has no Library original",
+        "Raw files can't be overwritten; save a copy instead",
+        "This format can't be overwritten; save a copy instead",
+        "This PSD colour mode can't be overwritten; save a copy instead",
+        "Animated, multi-page or damaged originals can't be overwritten; save a copy instead",
+        "Couldn't keep the previous version in Trash: {error}",
+        "Overwrite requires a recoverable system Trash",
+        "This replaces the original file. The previous version will be kept in Trash so you can recover it.",
+        "Overwrite {name}?",
+        "Overwrote {path}; previous version kept in Trash",
+        "Couldn't overwrite the original: {error}",
+        "Overwrote {path}; updated {name} in the Library; previous version kept in Trash",
+        "The Library shows a preview of your layers. Save a copy or overwrite the original to keep this edit.",
+    ];
+
+    const PENDING_AI_TRANSLATIONS: &[&str] = &[
+        "Install the selected SeedVR2 model and VAE, then refresh ComfyUI.",
+        "Invalid enhancement choices file",
+        "invalid convolution padding",
+        "invalid output padding",
+        "concat channels overflow",
+        "invalid PixelShuffle block",
+        "PixelShuffle height overflow",
+        "PixelShuffle width overflow",
+        "Invalid upscale output dimensions",
+        "Restoration architecture inspection timed out",
+        "Probe stdout reader failed",
+        "Probe stderr reader failed",
+        "Missing probe stdout",
+        "Missing probe stderr",
+        "This model shares files with another installed model; remove the shared bundle instead.",
+        "AI Enhance…",
+        "Faithful",
+        "Upscale Faithful",
+        "Upscale Rescue",
+        "Generative",
+        "Change…",
+        "Use default",
+        "Choose a fixed-tile ONNX RGB model with 2× or 4× output. It is tested before use.",
+        "Enter installed SeedVR2-compatible model and VAE filenames.",
+        "Use custom models",
+        "Your own models, run on the GPU.",
+        "Custom ONNX restoration models run on the CPU.",
+        "Choose the custom model again in Settings › Local AI.",
+        "Start ComfyUI to use the custom SeedVR2 models.",
+        "Rescue",
+        "Generative (SeedVR2)",
+        "Enlarges clean photos while preserving their detail.",
+        "Enlarges photos and cleans noise, JPEG artefacts and mild blur.",
+        "Adds detail with SeedVR2. The result may change textures.",
+        "Enlarges the image. The result opens as a new document.",
+        "Download CPU model",
+        "Download GPU model",
+        "Download the CPU model first.",
+        "Enlarges clean photos while preserving their detail. Fixed tiles with overlap blending; runs locally on the CPU.",
+        "Enlarges photos and cleans noise, JPEG artefacts and mild blur. The download includes both scales; runs locally on the CPU.",
+        "Fix JPEG artefacts",
+        "Clean up scan",
+        "Repair old photo",
+        "No scratches detected.",
+        "Restore model installed.",
+        "Runs on this computer with the installed Restore model.",
+        "Choose the approved ONNX model to install locally.",
+        "Preview marks detected scratches in red. Review and adjust the mask in AI Remove, then click Remove to fill it.",
+        "Colourise after repair",
+        "Review scratches in AI Remove",
+        "Import Restore model…",
+        li_ai::restoration::byo::NOTICE,
+        li_ai::restoration::byo::DATA_NOTICE,
+        "Permissive models",
+        "Bring your own model",
+        "Bring your own model…",
+        "Use models you installed in ComfyUI. Local Image does not download these models or install their nodes.",
+        "Detect installed models",
+        "No supported user-installed models detected.",
+        "I have read the licence and understand the commercial-use restrictions",
+        "Choose your installed StableSR-compatible diffusion checkpoint",
+        "LED",
+        "Zero-DCE",
+        "Zero-DCE++",
+        "StableSR",
+        "CodeFormer",
+        "PromptIR",
+        "GFPGAN v1.4",
+        "RestoreFormer++",
+        li_ai::restoration::COLOURISE_UNAVAILABLE,
+        li_ai::restoration::OLD_PHOTO_UNAVAILABLE,
+        "Restoration",
+        "Restore…",
+        "Restore Photo",
+        "Task",
+        "Before",
+        "After",
+        "JPEG cleanup",
+        "Scan cleanup",
+        "Colourise",
+        "Old-photo preset",
+        "Before / after split",
+        "The image changed. Preview restoration again.",
+        "Preview restoration first.",
+        "Restoration returned unexpected dimensions.",
+        "Open an image to restore.",
+        "Original resolution. Apply creates a new layer and hides the source layers.",
+        "Preview time",
+        "Preview restoration",
+        "Apply as new layer",
+        "Install restoration models…",
+        "Restoration installs only vetted official weights with pinned size and SHA-256.",
+        "Use RawNIND linear variant",
+        "Linear Rec.2020 input (RawNIND)",
+        "Custom Raw Denoise models use three-channel linear Rec.2020 input and output.",
+        "Your selected restoration model, with CPU fallback.",
+        "Selected model · {size} · licence from its provider",
+        "{name} · {size} download · GPU with CPU fallback · {licence}",
+        "Raw Denoise",
+        "RGB Denoise",
+        "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Uses the GPU when available, with a CPU fallback.",
+        "Removes noise from JPEG, TIFF and edited RGB images locally with NIND UNet.",
+        "Raw denoising and Bayer demosaic on the GPU, with CPU fallback. Linear Rec.2020 variant for other sensors.",
+        "Local denoising for JPEG, TIFF and edited RGB images. Uses the GPU with a CPU fallback.",
+        "+",
+        "Choose or generate an image.",
+        "Compare with input",
+        "Comparison",
+        "Create a draft, then choose Draft result as the refinement input.",
+        "Denoise",
+        "Describe the draft…",
+        "Draft",
+        "Draft / Refinement",
+        "Draft / Refinement…",
+        "Draft preview",
+        "Draft result",
+        "Edit models — refine by reference",
+        "Generate draft",
+        "Grid: {multiple} px",
+        "Image models — refine by denoise",
+        "Input",
+        "Keep painting",
+        "Low variety by design: different seeds give similar layouts. Change the prompt (or raise Variety) for different compositions.",
+        "Higher Variety can change compositions and loosen prompt details. Set to 0 to turn it off.",
+        "Variety must be between 0 and 100.",
+        "Variety",
+        "Open as new document",
+        "Open image (composite)",
+        "Paint to mark removal; Alt/Option-drag subtracts",
+        "Refine image",
+        "Refinement",
+        "Refinement preview",
+        "Refinement uses the current pixels of the open image.",
+        "Refines by denoise: lower keeps more of the image",
+        "Refines by reference: the image guides the result",
+        "Remove immediately on release",
+        "Running…",
+        "Select a layer first.",
+        "Selected layer",
+        "Wheel to zoom; drag to pan",
+        "−",
+    ];
+
+    const PENDING_VECTOR_TRANSLATIONS: &[&str] = include!("pending_vector.rs");
+
     /// Languages that claim complete menus have an entry for every label and path segment.
     #[test]
     fn complete_languages_translate_every_menu_string() {
@@ -589,7 +759,15 @@ mod tests {
         strings.remove("---");
         for l in LANGUAGES.iter().filter(|l| l.complete_menus) {
             let cat = l.catalog();
-            let missing: Vec<_> = strings.iter().filter(|s| cat.plain(s).is_none()).collect();
+            let missing: Vec<_> = strings
+                .iter()
+                .filter(|s| {
+                    !PENDING_AI_TRANSLATIONS.contains(s)
+                        && !PENDING_OVERWRITE_TRANSLATIONS.contains(s)
+                        && !PENDING_VECTOR_TRANSLATIONS.contains(s)
+                        && cat.plain(s).is_none()
+                })
+                .collect();
             assert!(missing.is_empty(), "{}: untranslated menu strings: {missing:#?}", l.code);
         }
     }
@@ -599,7 +777,31 @@ mod tests {
     /// they are (names, units) are listed in `KEEP_AS_IS`.
     #[test]
     fn every_tl_literal_is_translated() {
-        const KEEP_AS_IS: &[&str] = &[];
+        // English until the next translation pass (GPU start-up recovery, October 2026).
+        // English until translations resume (owner, 2026-10-09: language work paused).
+        const KEEP_AS_IS: &[&str] = &[
+            "CPU",
+            "GPU",
+            "Denoise",
+            "Refine denoise",
+            "Refine steps",
+            "Refine guidance",
+            "ComfyUI denoise: 1 regenerates the image, lower values keep more of it",
+        ];
+        // docs/wip/CODEX-TASK.md explicitly defers translation of the new background
+        // controls. Keep this exception scoped to their keys; remove it when translated.
+        const PENDING_BACKGROUND_TRANSLATIONS: &[&str] = &[
+            "Background blur amount",
+            "Background colour",
+            "Background removal options",
+            "Colour",
+            "IS-Net · CPU",
+            "Install a Subject & Background model to use Standard.",
+            "Keep…",
+            "Output",
+            "Remove the background using the chosen model and output",
+            "Subject & Background model: {model}",
+        ];
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut literals = std::collections::BTreeSet::new();
         let mut stack = vec![dir];
@@ -632,7 +834,17 @@ mod tests {
         assert!(literals.len() > 300, "scan found only {} literals", literals.len());
         for l in LANGUAGES.iter().filter(|l| l.complete_menus) {
             let cat = l.catalog();
-            let missing: Vec<_> = literals.iter().filter(|s| !KEEP_AS_IS.contains(&s.as_str()) && cat.plain(s).is_none()).collect();
+            let missing: Vec<_> = literals
+                .iter()
+                .filter(|s| {
+                    !KEEP_AS_IS.contains(&s.as_str())
+                        && !PENDING_BACKGROUND_TRANSLATIONS.contains(&s.as_str())
+                        && !PENDING_AI_TRANSLATIONS.contains(&s.as_str())
+                        && !PENDING_OVERWRITE_TRANSLATIONS.contains(&s.as_str())
+                        && !PENDING_VECTOR_TRANSLATIONS.contains(&s.as_str())
+                        && cat.plain(s).is_none()
+                })
+                .collect();
             assert!(missing.is_empty(), "{}: untranslated tl! strings: {missing:#?}", l.code);
         }
     }

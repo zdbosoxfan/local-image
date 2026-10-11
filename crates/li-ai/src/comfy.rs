@@ -3,7 +3,8 @@
 //!
 //! Behaviour follows the 0.7 Python client (`local_comfy_client.py`): submit once, poll
 //! `/history/{id}` (0.15 s for 10 s, then 0.5 s, then 1 s, 20 min deadline), use the WebSocket for
-//! progress only, and cancel only our own prompt (never the global `/interrupt`).
+//! progress only, and cancel only our own prompt (explicit Stop signals local controls as well as the job-specific API:
+//! [`ComfyClient::interrupt_ours`]).
 
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -105,7 +106,7 @@ impl JobControl {
             p.message = message.into();
         }
     }
-    fn set_step(&self, value: u32, max: u32) {
+    pub fn set_step(&self, value: u32, max: u32) {
         if let Ok(mut p) = self.progress.lock() {
             p.stage = Stage::Sampling;
             p.step = Some((value, max));
@@ -116,6 +117,16 @@ impl JobControl {
         if self.is_cancelled() { Err(anyhow!(Cancelled)) } else { Ok(()) }
     }
 }
+
+/// Queue contention is transient; background checks must never persist it as unsupported.
+#[derive(Debug)]
+pub struct Busy;
+impl std::fmt::Display for Busy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ComfyUI is busy")
+    }
+}
+impl std::error::Error for Busy {}
 
 /// The error a cancelled job ends with (test with `err.is::<Cancelled>()`).
 #[derive(Debug, Clone, Copy)]
@@ -131,7 +142,26 @@ impl std::error::Error for Cancelled {}
 #[derive(Clone, Debug, Default)]
 pub struct ObjectInfo(pub Value);
 
+/// The limits ComfyUI's own sampler node reports for its inputs (`KSampler` in `/object_info`): what the backend accepts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SamplerLimits {
+    pub steps: (f32, f32),
+    pub cfg: (f32, f32),
+    pub denoise: (f32, f32),
+}
+
 impl ObjectInfo {
+    /// The sampler's input limits as ComfyUI reports them (`KSampler`, else `KSamplerAdvanced`).
+    pub fn sampler_limits(&self) -> Option<SamplerLimits> {
+        let node = ["KSampler", "KSamplerAdvanced"].iter().find_map(|c| self.0.get(*c))?;
+        let input = |name: &str| -> Option<(f32, f32)> {
+            let spec = node.pointer("/input/required").and_then(|r| r.get(name)).or_else(|| node.pointer("/input/optional").and_then(|o| o.get(name)))?;
+            let opts = spec.get(1)?;
+            Some((opts.get("min")?.as_f64()? as f32, opts.get("max")?.as_f64()? as f32))
+        };
+        Some(SamplerLimits { steps: input("steps")?, cfg: input("cfg")?, denoise: input("denoise").unwrap_or((0.0, 1.0)) })
+    }
+
     pub fn has_node(&self, class: &str) -> bool {
         self.0.get(class).is_some()
     }
@@ -323,9 +353,68 @@ impl ComfyClient {
         Ok(())
     }
 
+    /// Stops this process's running prompts using atomic job-specific cancellation, and
+    /// signals their local job controls. Ordinary cancellation uses [`Self::cancel`].
+    pub fn interrupt_ours(&self) -> Result<bool> {
+        let prompts = OURS.lock().map(|v| v.iter().filter(|(host, _, _)| host == &self.host).cloned().collect::<Vec<_>>()).unwrap_or_default();
+        let ids = prompts.iter().map(|(_, id, _)| id.clone()).collect::<Vec<_>>();
+        for (_, _, control) in prompts {
+            control.cancel();
+        }
+        self.interrupt_if_running(&ids)
+    }
+
+    /// [`Self::interrupt_ours`] for prompts noted earlier with [`our_prompts`] (before their jobs
+    /// were cancelled, which takes them off the list).
+    pub fn interrupt_if_running(&self, ours: &[String]) -> Result<bool> {
+        if ours.is_empty() {
+            return Ok(false);
+        }
+        let q = self.queue_state()?;
+        let running = q.get("queue_running").and_then(Value::as_array);
+        let mut stopped = false;
+        for id in ours.iter().filter(|id| running.is_some_and(|items| items.iter().any(|i| item_has(i, id)))) {
+            // ComfyUI's job endpoint checks and interrupts under the queue lock. A stale
+            // snapshot can only become a harmless no-op, never an interrupt of another job.
+            let mut response = self.quick.post(&self.url(&format!("/api/jobs/{}/cancel", enc(id)))).send_json(json!({}))?;
+            if !response.status().is_success() {
+                bail!("This ComfyUI version cannot stop a single running job. Update ComfyUI, or wait for it to finish.");
+            }
+            let result: Value = response.body_mut().read_json()?;
+            stopped |= result["cancelled"].as_bool().unwrap_or(false);
+        }
+        Ok(stopped)
+    }
+
     /// Runs `graph`: uploads `images` (node id → PNG bytes) into those `LoadImage` nodes, queues,
     /// reports progress into `ctl`, and returns the first output image's bytes.
-    pub fn run(&self, mut graph: Value, images: &[(String, Vec<u8>)], ctl: &JobControl) -> Result<Vec<u8>> {
+    pub fn run(&self, graph: Value, images: &[(String, Vec<u8>)], ctl: &JobControl) -> Result<Vec<u8>> {
+        self.run_with_admission(graph, images, ctl, false, None)
+    }
+
+    /// Background checks repeat queue admission after uploads, immediately before submission.
+    pub fn run_when_idle(&self, graph: Value, images: &[(String, Vec<u8>)], ctl: &JobControl) -> Result<Vec<u8>> {
+        self.run_with_admission(graph, images, ctl, true, None)
+    }
+
+    pub(crate) fn run_when_idle_checked(
+        &self,
+        graph: Value,
+        images: &[(String, Vec<u8>)],
+        ctl: &JobControl,
+        check: &dyn Fn() -> Result<()>,
+    ) -> Result<Vec<u8>> {
+        self.run_with_admission(graph, images, ctl, true, Some(check))
+    }
+
+    fn run_with_admission(
+        &self,
+        mut graph: Value,
+        images: &[(String, Vec<u8>)],
+        ctl: &JobControl,
+        idle_only: bool,
+        check: Option<&dyn Fn() -> Result<()>>,
+    ) -> Result<Vec<u8>> {
         ctl.check()?;
         ctl.set_stage(Stage::Uploading);
         for (node, png) in images {
@@ -334,10 +423,21 @@ impl ComfyClient {
             slot["image"] = Value::String(name);
             ctl.check()?;
         }
+        if idle_only && !crate::refine::queue_idle(self)? {
+            return Err(anyhow!(Busy));
+        }
         let client_id = uuid::Uuid::new_v4().to_string();
         let socket = ProgressSocket::start(&self.host, &client_id, ctl.clone());
         ctl.set_stage(Stage::Queued);
+        if let Some(check) = check {
+            check()?;
+            ctl.check()?;
+            if idle_only && !crate::refine::queue_idle(self)? {
+                return Err(anyhow!(Busy));
+            }
+        }
         let prompt_id = self.queue_prompt(&graph, &client_id)?;
+        let _ours = OurPrompt::new(&self.host, &prompt_id, ctl);
         if let Some(s) = &socket {
             s.set_prompt(&prompt_id, &graph);
         }
@@ -395,6 +495,34 @@ impl ComfyClient {
                 1000
             };
             std::thread::sleep(Duration::from_millis(wait));
+        }
+    }
+}
+
+/// Prompts this process queued and still waits for, as `(host, prompt id)`.
+static OURS: Mutex<Vec<(String, String, JobControl)>> = Mutex::new(Vec::new());
+
+/// The prompts this process is waiting for on `host`.
+pub fn our_prompts(host: &str) -> Vec<String> {
+    OURS.lock().map(|v| v.iter().filter(|(h, _, _)| h == host).map(|(_, id, _)| id.clone()).collect()).unwrap_or_default()
+}
+
+/// Lists a prompt in [`OURS`] while [`ComfyClient::run`] waits for it.
+struct OurPrompt(String, String);
+
+impl OurPrompt {
+    fn new(host: &str, id: &str, ctl: &JobControl) -> Self {
+        if let Ok(mut v) = OURS.lock() {
+            v.push((host.to_owned(), id.to_owned(), ctl.clone()));
+        }
+        Self(host.to_owned(), id.to_owned())
+    }
+}
+
+impl Drop for OurPrompt {
+    fn drop(&mut self) {
+        if let Ok(mut v) = OURS.lock() {
+            v.retain(|(h, id, _)| !(*h == self.0 && *id == self.1));
         }
     }
 }

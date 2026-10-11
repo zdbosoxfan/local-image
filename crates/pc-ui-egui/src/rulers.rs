@@ -177,8 +177,7 @@ pub fn draw_rulers(app: &mut PhotocraftApp, ui: &mut egui::Ui, full: Rect, xf: &
     let font = egui::FontId::proportional(9.0);
     let tick = Stroke::new(1.0, t.text_faint);
     // Preferences › Units & Rulers: labels in the ruler unit (percent of the document's side).
-    let ur = &app.session.prefs().units_and_rulers;
-    let (unit, ppi) = (ur.rulers, ur.point_size.per_inch());
+    let (unit, ppi) = crate::vector_packages::layout_app_hooks::ruler_units(app);
     let (dpi, size) =
         app.session.active().map_or((72.0, [1.0, 1.0]), |d| (d.doc.resolution_dpi.max(1.0) as f64, [d.doc.size.width as f64, d.doc.size.height as f64]));
     let whole = unit == photocraft_engine::prefs::Unit::Pixels;

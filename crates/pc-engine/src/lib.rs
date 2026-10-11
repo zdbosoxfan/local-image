@@ -23,12 +23,15 @@ pub mod brush_cmds;
 pub mod brush_key_cmds;
 pub mod brush_preset_cmds;
 pub mod build_info;
+// local-image: Edit › Transform › Cage.
+pub mod cage_cmds;
 mod canvas_geom;
 pub mod channel_cmds;
 pub mod color_cmds;
 pub mod commands;
 pub mod comps_cmds;
 pub mod cutout_cmds;
+pub mod develop_filter_cmds;
 pub mod develop_layer_cmds;
 pub mod display_color;
 pub mod distort_cmds;
@@ -81,6 +84,10 @@ pub mod proof_sim;
 pub mod redeye_cmds;
 pub mod render_cmds;
 pub mod retouch_cmds;
+pub mod toolsets;
+// local-image: Edit › Paste Special › Paste Seamless.
+pub mod pathops_cmds;
+pub mod seamless_cmds;
 pub mod select_extra_cmds;
 pub mod selection_cmds;
 pub mod slice_cmds;
@@ -98,7 +105,10 @@ pub mod type_extra_cmds;
 pub mod type_spell_cmds;
 pub mod type_styles_cmds;
 mod variables_cmds;
+pub mod vector_api;
 pub mod vector_cmds;
+pub mod vector_packages;
+pub mod vectorize_cmds;
 mod video_cmds;
 pub mod vp_cmds;
 pub mod warp_cmds;
@@ -153,6 +163,10 @@ pub(crate) fn active_layer_of(s: &Session) -> std::result::Result<&photocraft_do
 /// Per-document editing state.
 #[derive(Clone, Debug)]
 pub struct DocState {
+    pub vector_selection: vector_packages::selection::Memory,
+    pub vector_selection_scope: vector_packages::selection::Scope,
+    pub vector_isolation: vector_packages::isolation::State,
+    pub vector_view: vector_packages::isolation::ViewState,
     pub doc: Arc<Document>,
     pub history: History,
     /// The primary ("key") layer: what single-layer commands act on. Always a member of
@@ -197,6 +211,10 @@ impl DocState {
         let mut history = History::default();
         history.set_current_layers(LayerTarget { active: active_layer, selected: active_layer.into_iter().collect() });
         Self {
+            vector_selection: Default::default(),
+            vector_selection_scope: Default::default(),
+            vector_isolation: Default::default(),
+            vector_view: Default::default(),
             doc: Arc::new(doc),
             history,
             active_layer,
@@ -222,7 +240,20 @@ impl DocState {
     pub fn selected_layers(&self) -> Vec<LayerId> {
         let Some(active) = self.active_layer else { return Vec::new() };
         let set: &[LayerId] = if self.selected_layers.contains(&active) { &self.selected_layers } else { std::slice::from_ref(&active) };
-        self.doc.walk().into_iter().map(|(_, _, l)| l.id).filter(|id| set.contains(id)).collect()
+        let members = (set.len() > 8).then(|| set.iter().copied().collect::<std::collections::HashSet<_>>());
+        fn collect(layers: &[photocraft_doc::Layer], set: &[LayerId], members: Option<&std::collections::HashSet<LayerId>>, out: &mut Vec<LayerId>) {
+            for layer in layers {
+                if members.map_or_else(|| set.contains(&layer.id), |ids| ids.contains(&layer.id)) {
+                    out.push(layer.id);
+                }
+                if let Some(children) = layer.children() {
+                    collect(children, set, members, out);
+                }
+            }
+        }
+        let mut out = Vec::with_capacity(set.len());
+        collect(&self.doc.layers, set, members.as_ref(), &mut out);
+        out
     }
     pub fn is_layer_selected(&self, id: LayerId) -> bool {
         self.active_layer == Some(id) || (self.active_layer.is_some_and(|a| self.selected_layers.contains(&a)) && self.selected_layers.contains(&id))
@@ -274,6 +305,8 @@ impl Default for ToolState {
 
 #[derive(Default)]
 pub struct Session {
+    /// Captured insertion policy for the active vector drawing gesture; never persisted.
+    pub vector_insertion: Option<vector_integration::Insertion>,
     docs: Vec<DocState>,
     active: Option<usize>,
     pub tools: ToolState,
@@ -323,6 +356,10 @@ pub struct Session {
     pub authorize: Option<fn(&str, &serde_json::Value) -> Result<()>>,
     /// Background jobs (see [`jobs`]).
     jobs: jobs::Jobs,
+    /// A finished live stroke for the next `paint.stroke` / `paint.pencil` (see
+    /// [`Session::prepare_live_commit`]), and how many commits reused one.
+    live_commit: Option<brush_cmds::LiveStroke>,
+    live_commits_reused: u64,
 }
 
 /// Move item `i` of `v` to position `to`, clamped to the end. Returns where it went; `None` when
@@ -339,7 +376,29 @@ pub fn move_item<T>(v: &mut Vec<T>, i: usize, to: usize) -> Option<usize> {
 
 impl Session {
     pub fn new() -> Self {
+        vector_integration::initialize();
         Self::default()
+    }
+
+    /// Hand the live stroke the canvas showed while it was drawn to the `paint.stroke` /
+    /// `paint.pencil` that commits it: when that command's document, target, brush, params and
+    /// points are exactly the ones the live stroke rendered, it takes the live stroke's pixels
+    /// instead of rendering the whole stroke again (the pixels are the same: a stroke renders
+    /// identically however its points are chunked). Anything else and the command renders as
+    /// usual. History, the journal and the damage rect are the same either way.
+    pub fn prepare_live_commit(&mut self, live: brush_cmds::LiveStroke) {
+        self.live_commit = Some(live);
+    }
+
+    /// Drop a live stroke [`Session::prepare_live_commit`] handed over that no command took.
+    pub fn discard_live_commit(&mut self) {
+        self.live_commit = None;
+    }
+
+    /// Stroke commits that reused their live stroke's pixels (see
+    /// [`Session::prepare_live_commit`]).
+    pub fn live_commits_reused(&self) -> u64 {
+        self.live_commits_reused
     }
 
     pub fn documents(&self) -> &[DocState] {
@@ -376,6 +435,7 @@ impl Session {
     /// Preserve its identity unless another open document already owns it.
     /// Identity-dependent callers must read the admitted document at the returned index.
     pub fn add_document(&mut self, mut doc: Document, path: Option<String>) -> usize {
+        vector_integration::initialize();
         // Persisted IDs can overlap the allocator, so check every replacement too.
         while self.docs.iter().any(|st| st.doc.id == doc.id) {
             doc.id = photocraft_doc::DocId::fresh();
@@ -411,6 +471,7 @@ impl Session {
     /// Runs synchronously, including job-capable commands (see [`jobs`]; [`Session::start`] runs
     /// those in the background).
     pub fn execute(&mut self, id: &str, params: Value) -> Result<Value> {
+        vector_integration::initialize();
         match self.dispatch(id, params, false)? {
             jobs::Started::Done(v) => Ok(v),
             // Not reached: inline dispatch never starts a job. Waiting is still correct.
@@ -443,6 +504,9 @@ impl Session {
 
     /// The command's own precondition for a call with `params` (their target filled in).
     fn precondition(&self, spec: &commands::CommandSpec, params: &Value) -> std::result::Result<(), String> {
+        if matches!(spec.id, "layer.vectorize" | "layer.vectorize.preview") {
+            return vectorize_cmds::enabled_with(self, params);
+        }
         channel_cmds::mask_target_enabled(self, spec.id, params).unwrap_or_else(|| (spec.enabled)(self))
     }
 
@@ -457,6 +521,9 @@ impl Session {
         if let (Some(k), Some(id)) = (restrict, active) {
             channel_cmds::restrict_to_color(&before, &mut doc, id, k);
         }
+        vector_integration::maintain_metadata(&mut doc)?;
+        // Preserve the current non-editing selection as the undo target.
+        st.history.set_current_layers(st.layer_target());
         st.doc = Arc::new(doc);
         st.active_layer = active;
         fix_selection(st);
@@ -572,3 +639,16 @@ pub(crate) fn fix_selection(st: &mut DocState) {
 
 #[cfg(test)]
 mod tests;
+
+// Package 46 layout; shared shell/router hookup is supplied in integration/46.md.
+pub mod vector_toolbar_layout;
+
+pub mod shared_tools;
+
+pub mod vector_integration;
+
+#[cfg(test)]
+mod gpu_test_support;
+
+#[cfg(test)]
+mod hotfix_critical_tests;

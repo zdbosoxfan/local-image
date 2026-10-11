@@ -51,6 +51,8 @@ pub struct CardResponse {
     pub tabs: Vec<(usize, Rect)>,
     /// The » overflow button, when some tabs didn't fit.
     pub chevron: Option<Rect>,
+    /// A tab started being dragged this frame (the dock tears it off).
+    pub tab_drag_started: Option<usize>,
 }
 
 /// [`card`] that can be collapsed to its tab strip and reports strip and menu interactions.
@@ -81,7 +83,14 @@ pub fn card_ex(ui: &mut Ui, id: &str, tabs: &[&str], selected: &mut usize, colla
                 ui.add_space(6.0);
                 body(ui, *selected);
             }
-            CardResponse { strip, menu, tab_double_clicked: tabs_out.double_clicked, tabs: tabs_out.tabs, chevron: tabs_out.chevron }
+            CardResponse {
+                strip,
+                menu,
+                tab_double_clicked: tabs_out.double_clicked,
+                tabs: tabs_out.tabs,
+                chevron: tabs_out.chevron,
+                tab_drag_started: tabs_out.drag_started,
+            }
         })
         .inner;
     ui.add_space(6.0);
@@ -119,15 +128,29 @@ fn pro_panel(ui: &mut Ui, id: &str, tabs: &[&str], selected: &mut usize, collaps
             });
     }
     ui.add_space(2.0);
-    CardResponse { strip: strip_resp, menu: mresp, tab_double_clicked: tabs_out.double_clicked, tabs: tabs_out.tabs, chevron: tabs_out.chevron }
+    CardResponse {
+        strip: strip_resp,
+        menu: mresp,
+        tab_double_clicked: tabs_out.double_clicked,
+        tabs: tabs_out.tabs,
+        chevron: tabs_out.chevron,
+        tab_drag_started: tabs_out.drag_started,
+    }
 }
 
 pub fn pill_tab(ui: &mut Ui, label: &str, selected: bool) -> Response {
+    pill_tab_translated(ui, tl!(label), selected)
+}
+
+/// [`pill_tab`] for a label already in the UI language (see [`slider_row_translated`]).
+pub fn pill_tab_translated(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let font = theme::medium(12.5);
-    let galley = ui.painter().layout_no_wrap(tl!(label).to_owned(), font, t.text);
+    let galley = ui.painter().layout_no_wrap(label.to_owned(), font, t.text);
     let size = vec2(galley.size().x + 20.0, 24.0);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    // the label is painted, not a widget: tell accessibility (and kittest) what the tab says
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, ui.is_enabled(), selected, label));
     if selected {
         surface(ui, rect, t.hover, true);
         if !t.bevel {
@@ -143,6 +166,19 @@ pub fn pill_tab(ui: &mut Ui, label: &str, selected: bool) -> Response {
 
 /// Monospace numeric field with a dimmed unit suffix, Photoshop style. Drag to scrub.
 pub fn value_field(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, suffix: &str, width: f32) -> Response {
+    let decimals = if range.end() - range.start() <= 10.0 { 2 } else { 1 };
+    value_field_with_precision(ui, value, range, suffix, width, decimals)
+}
+
+/// A value field whose precision is independent of the backend's range (e.g. ComfyUI guidance).
+pub fn value_field_with_precision<T: egui::emath::Numeric>(
+    ui: &mut Ui,
+    value: &mut T,
+    range: std::ops::RangeInclusive<T>,
+    suffix: &str,
+    width: f32,
+    decimals: usize,
+) -> Response {
     let t = Tokens::get(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(vec2(width, 24.0), Sense::hover());
     surface(ui, rect, t.field, false);
@@ -152,7 +188,6 @@ pub fn value_field(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive
     let suffix_w = if suffix.is_empty() { 0.0 } else { 16.0 };
     let field = Rect::from_min_max(rect.min + vec2(4.0, 2.0), rect.max - vec2(4.0 + suffix_w, 2.0));
     // Small ranges (gamma 0.01–9.99, 0–1 centres) need two decimals and a finer drag, like Photoshop.
-    let fine = range.end() - range.start() <= 10.0;
     // new_child (not scope_builder): a scope would move the parent cursor back to the child rect.
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(field));
     let resp = {
@@ -166,7 +201,7 @@ pub fn value_field(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive
             ui.style_mut().override_font_id = Some(theme::mono(12.0));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let layout = egui::Layout::centered_and_justified(ui.layout().main_dir());
-                ui.allocate_ui_with_layout(field.size(), layout, |ui| number_edit(ui, value, range, fine)).inner
+                ui.allocate_ui_with_layout(field.size(), layout, |ui| number_edit(ui, value, range, decimals)).inner
             })
             .inner
         }
@@ -180,7 +215,7 @@ pub fn value_field(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive
 /// The number in a [`value_field`]. A typed number applies as it's typed; arithmetic waits for
 /// Enter, Tab or click-away, because per keystroke `5/2` would land first and a caller that
 /// rounds it would cut `5/2*2` short. `changed()` means a new value, not just a keystroke.
-fn number_edit(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, fine: bool) -> Response {
+fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::ops::RangeInclusive<T>, decimals: usize) -> Response {
     let (id, ctx) = (ui.next_auto_id(), ui.ctx().clone());
     let held = id.with("arithmetic");
     let math = ui.memory(|m| m.has_focus(id)) && ui.data(|d| d.get_temp(held)).unwrap_or(false);
@@ -188,9 +223,14 @@ fn number_edit(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32
     let before = *value;
     let mut resp = ui.add(
         egui::DragValue::new(value)
-            .range(range)
-            .speed(if fine { 0.01 } else { 0.5 })
-            .custom_formatter(move |v, _| if fine { fmt_num2(v) } else { fmt_num(v) })
+            .range(range.start().to_f64()..=range.end().to_f64())
+            .speed(if decimals >= 2 { 0.01 } else { 0.5 })
+            .custom_formatter(move |v, _| match decimals {
+                0 => format!("{v:.0}"),
+                1 => fmt_num(v),
+                2 => fmt_num2(v),
+                _ => format!("{v:.decimals$}"),
+            })
             .update_while_editing(!math)
             // Focus is read when parsing, not above: Tab hands it on inside `ui.add`.
             .custom_parser(move |s| {
@@ -270,10 +310,23 @@ pub fn slider(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>
 
 /// Labelled slider row: `Label ........ [value field]` above a full-width thin slider.
 pub fn slider_row(ui: &mut Ui, label: &str, value: &mut f32, range: std::ops::RangeInclusive<f32>, suffix: &str, gradient: Option<&[Color32]>) -> Response {
+    slider_row_translated(ui, tl!(label), value, range, suffix, gradient)
+}
+
+/// [`slider_row`] for a label that is already in the UI language (e.g. a contextual translation): it is shown as is,
+/// never looked up again, so a translation that happens to equal another English message keeps its own text.
+pub fn slider_row_translated(
+    ui: &mut Ui,
+    label: &str,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    suffix: &str,
+    gradient: Option<&[Color32]>,
+) -> Response {
     let t = Tokens::get(ui.ctx());
     let mut changed_resp = None;
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(tl!(label)).color(t.text_dim));
+        ui.label(egui::RichText::new(label).color(t.text_dim));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             changed_resp = Some(value_field(ui, value, range.clone(), suffix, 74.0));
         });
@@ -479,8 +532,13 @@ pub fn rgb_histogram(ui: &mut Ui, histogram: &photocraft_algo::histogram::RgbHis
 
 /// Small caps section label.
 pub fn section_label(ui: &mut Ui, text: &str) {
+    section_label_translated(ui, tl!(text));
+}
+
+/// [`section_label`] for text already in the UI language (see [`slider_row_translated`]).
+pub fn section_label_translated(ui: &mut Ui, text: &str) {
     let t = Tokens::get(ui.ctx());
-    ui.label(egui::RichText::new(tl!(text)).font(theme::medium(11.5)).color(t.text_faint));
+    ui.label(egui::RichText::new(text).font(theme::medium(11.5)).color(t.text_faint));
 }
 
 /// Hairline separator.
@@ -512,7 +570,7 @@ pub fn hue_stops() -> Vec<Color32> {
 pub fn dropdown<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &mut T, options: &[(T, &str)], width: f32) -> bool {
     let label = options.iter().find(|(v, _)| v == current).map(|(_, l)| tl!(l)).unwrap_or("—");
     let mut changed = false;
-    egui::ComboBox::from_id_salt(id).selected_text(label).width(width).height(420.0).icon(chevron_icon).show_ui(ui, |ui| {
+    dropdown_menu(ui, id, label, width, |ui| {
         for (v, l) in options {
             if ui.selectable_label(v == current, tl!(l)).clicked() {
                 *current = v.clone();
@@ -521,6 +579,11 @@ pub fn dropdown<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &mut T, op
         }
     });
     changed
+}
+
+/// The same dropdown shell for grouped choices with icons, hints and trailing actions.
+pub fn dropdown_menu<R>(ui: &mut Ui, id: &str, selected: &str, width: f32, contents: impl FnOnce(&mut Ui) -> R) {
+    egui::ComboBox::from_id_salt(id).selected_text(selected).width(width).height(420.0).icon(chevron_icon).show_ui(ui, contents);
 }
 
 /// The body of a right-click menu: as tall as its items up to the part of the window that can be
@@ -840,4 +903,36 @@ mod tests {
         assert_eq!(super::fmt_num(12.46), "12.5");
         assert_eq!(super::fmt_num(-3.0), "-3");
     }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_value_field_displays_requested_four_decimal_precision() {
+    let mut initialized = false;
+    let mut h = egui_kittest::Harness::builder().with_size(vec2(300., 100.)).build_ui_state(
+        move |ui, state: &mut (f64, Rect)| {
+            if !initialized {
+                crate::PhotocraftApp::setup_context(ui.ctx(), Default::default());
+                initialized = true;
+                return;
+            }
+            state.1 = value_field_with_precision(ui, &mut state.0, 0.0..=1.0, "", 140., 4).rect;
+        },
+        (0.1234, Rect::NOTHING),
+    );
+    h.run_steps(4);
+    assert!(h.output().shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Text(t) if t.galley.text()=="0.1234")));
+    let pos = h.state().1.center();
+    h.hover_at(pos);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+        h.step();
+    }
+    h.run_steps(2);
+    h.event(egui::Event::Key { key: egui::Key::A, physical_key: Some(egui::Key::A), pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND });
+    h.event(egui::Event::Text("0.5678".into()));
+    h.step();
+    h.event(egui::Event::Key { key: egui::Key::Enter, physical_key: Some(egui::Key::Enter), pressed: true, repeat: false, modifiers: Default::default() });
+    h.run_steps(2);
+    assert!((h.state().0 - 0.5678).abs() < 1e-8);
 }

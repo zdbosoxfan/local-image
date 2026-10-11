@@ -181,10 +181,32 @@ pub fn developed_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, settings
         return Ok(img);
     }
     let doc = crate::develop_layer_cmds::developed_doc(file_name, bytes, settings)?;
-    let buf = photocraft_compose::flatten(&doc);
-    let img = SourceImage { surface: Arc::new(buffer_to_surface(&buf, fmt)), bounds: doc.bounds() };
+    let img = match plain_layer_surface(&doc, fmt) {
+        Some(surface) => SourceImage { surface: Arc::new(surface), bounds: doc.bounds() },
+        None => SourceImage { surface: Arc::new(buffer_to_surface(&photocraft_compose::flatten(&doc), fmt)), bounds: doc.bounds() },
+    };
     cache_put(key, img.clone());
     Ok(img)
+}
+
+/// A developed photo is one plain, opaque raster layer: in the document's own pixel format its
+/// composite is that layer's pixels. Taking them skips flattening and converting back (about
+/// 0.5 s of each re-develop of a 21 MP raw).
+fn plain_layer_surface(doc: &Document, fmt: PixelFormat) -> Option<Surface> {
+    let [l] = doc.layers.as_slice() else { return None };
+    let LayerContent::Raster(s) = &l.content else { return None };
+    let plain = l.visible
+        && l.opacity == 1.0
+        && l.fill_opacity == 1.0
+        && l.blend == photocraft_doc::BlendMode::Normal
+        && l.mask.is_none()
+        && l.vector_mask.is_none()
+        && !photocraft_compose::effects::has_effects(l)
+        && l.excluded_channels == 0
+        && l.blend_if == photocraft_doc::BlendIf::default()
+        && s.format() == fmt
+        && doc.pixel_format() == fmt;
+    plain.then(|| s.clone())
 }
 
 /// Layer › Smart Objects › Stack Mode: the source's layers (or, when it holds a single group, the
@@ -292,6 +314,12 @@ fn mask_mix(base: &Surface, filtered: &Surface, mask: &LayerMask) -> Surface {
 
 /// Runs the smart filter stack on the placed (unfiltered) content.
 pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> Surface {
+    apply_smart_filters_in(placed, sm, canvas, None)
+}
+
+/// [`apply_smart_filters`] in a document whose RGB profile is `profile` (the Camera Raw Filter
+/// converts through it; `None` = sRGB).
+pub fn apply_smart_filters_in(placed: &Surface, sm: &SmartObject, canvas: Rect, profile: Option<&photocraft_cms::Profile>) -> Surface {
     if !sm.filters_enabled || !sm.smart_filters.iter().any(|f| f.visible) {
         return placed.clone();
     }
@@ -300,7 +328,7 @@ pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> 
     let extent = canvas.union(&placed.content_bounds());
     for f in sm.smart_filters.iter().filter(|f| f.visible) {
         // Unknown ids (e.g. Photoshop filters we don't implement) leave the pixels alone.
-        let Some(out) = crate::filters::apply_filter_to_surface(&f.command, &f.params, &cur, canvas, None, extent) else { continue };
+        let Some(out) = crate::filters::apply_filter_to_surface_in(&f.command, &f.params, &cur, canvas, None, extent, profile) else { continue };
         cur = if f.blend == BlendMode::Normal && f.opacity >= 1.0 { out } else { blend_surfaces(&cur, &out, f.blend, f.opacity.clamp(0.0, 1.0)) };
     }
     match sm.filter_mask.as_ref().filter(|m| m.enabled) {
@@ -323,7 +351,8 @@ pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
         Some(p) => photocraft_algo::warp::place_source_projective(&img.surface, img.bounds, &Homography(*p), sm.warp.as_ref()),
         None => photocraft_algo::warp::place_source(&img.surface, img.bounds, &sm.transform, sm.warp.as_ref()),
     };
-    Ok(Some(apply_smart_filters(&placed, sm, doc.bounds())))
+    let profile = sm.smart_filters.iter().any(|f| f.command == crate::develop_filter_cmds::DEVELOP).then(|| crate::color_cmds::composite_profile(doc));
+    Ok(Some(apply_smart_filters_in(&placed, sm, doc.bounds(), profile.as_deref())))
 }
 
 /// The smart object's pixels below smart filter `index` (the input that filter edits): the placed
@@ -390,6 +419,7 @@ fn mask_from_selection(sel: &Surface) -> LayerMask {
 pub(crate) fn add_smart_filter(doc: &mut Document, id: LayerId, sf: photocraft_doc::SmartFilter, selection: Option<&Surface>) -> Result<()> {
     let canvas = doc.bounds();
     let renderable = source_bytes(&doc.metadata, &smart(doc, id)?.source).is_some();
+    let profile = crate::color_cmds::composite_profile(doc);
     let sm = smart_mut(doc, id)?;
     if renderable {
         if let Some(sel) = selection
@@ -402,7 +432,7 @@ pub(crate) fn add_smart_filter(doc: &mut Document, id: LayerId, sf: photocraft_d
     }
     let bounds = selection.map(Surface::content_bounds).filter(|b| !b.is_empty()).unwrap_or(canvas);
     let cache = sm.cache.as_ref().ok_or_else(|| other("smart object has no pixels"))?;
-    let out = crate::filters::apply_filter_to_surface(&sf.command, &sf.params, cache, bounds, selection, canvas)
+    let out = crate::filters::apply_filter_to_surface_in(&sf.command, &sf.params, cache, bounds, selection, canvas, Some(&profile))
         .ok_or_else(|| other(format!("unknown filter {}", sf.command)))?;
     sm.cache = Some(out);
     sm.smart_filters.push(sf);
@@ -504,6 +534,10 @@ fn shift_layer(l: &mut Layer, dx: i32, dy: i32) {
             }
         }
         LayerContent::Smart(sm) => shift_smart(sm, dx, dy),
+        LayerContent::Symbol(s) => {
+            s.transform = a.mul(&s.transform);
+            s.cache = s.cache.as_ref().map(mv);
+        }
         LayerContent::Group(g) => g.children.iter_mut().for_each(|c| shift_layer(c, dx, dy)),
         LayerContent::Adjustment(_) | LayerContent::Fill(_) => {}
     }

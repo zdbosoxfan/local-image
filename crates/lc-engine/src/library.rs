@@ -128,6 +128,8 @@ impl Library {
 #[serde(default, rename_all = "camelCase")]
 struct PrefsFile {
     xmp: crate::sidecar::XmpPrefs,
+    #[serde(default)]
+    smart_sort: crate::smart_sort::SmartSortPrefs,
     /// Parameters of the last export (for Export with Previous).
     #[serde(alias = "last_export")]
     last_export: Option<serde_json::Value>,
@@ -332,6 +334,10 @@ impl Session {
         // preferences
         let prefs = settings.read::<PrefsFile>(files.as_mut(), "prefs.json").unwrap_or_default();
         self.xmp = prefs.xmp;
+        self.smart.prefs = prefs.smart_sort;
+        self.smart.tag_sets = settings.read::<Vec<crate::smart_sort::tagsets::TagSet>>(files.as_mut(), "smart-sort-tagsets.json").unwrap_or_default();
+        self.smart.store = crate::smart_sort::Store::new(on_disk.then_some(dir.as_path()));
+        self.smart.people = crate::smart_sort::PeopleEngine::new(on_disk.then_some(dir.as_path()));
         self.last_export = prefs.last_export;
         self.export_presets = prefs.export_presets;
         self.metadata_presets = prefs.metadata_presets;
@@ -344,6 +350,7 @@ impl Session {
         self.keyword_set = prefs.keyword_set;
         self.recent_keywords = prefs.recent_keywords;
         self.import_defaults = prefs.import;
+        crate::dcp_profiles::configure(&self.import_defaults.camera_profiles_folder);
         self.cache_mb = prefs.cache_mb;
         self.forget_local_days = prefs.forget_local_days.unwrap_or(lightcraft_catalog::DEFAULT_FORGET_DAYS);
         self.smart_previews_dir = prefs.smart_previews_dir.filter(|_| on_disk).map(PathBuf::from);
@@ -370,6 +377,9 @@ impl Session {
         if on_disk {
             self.media.attach_disk_cache(&dir.join("thumbs"), self.cache_bytes());
         }
+        // local-image: AI Remove patches live beside the catalog
+        crate::enhance::store::set_root(on_disk.then(|| crate::enhance::store::root_for_library(&dir)));
+        crate::enhance::remove::install();
         let view_written = self.view_json();
         self.library = Some(Library {
             dir,
@@ -407,6 +417,7 @@ impl Session {
     /// Called after every top-level command; cheap when nothing changed. Fails (with
     /// [`EngineError::NotSaved`]) only when the queued ops couldn't be written; they stay queued.
     pub fn persist(&mut self) -> Result<()> {
+        self.strip_ephemeral_log();
         let Some(lib) = self.library.as_mut() else { return Ok(()) };
         if !self.pending_log.is_empty() {
             if let Err(e) = lib.journal.append(&self.pending_log) {
@@ -432,6 +443,7 @@ impl Session {
         // reported (`library.info` → `lastError`), not returned.
         if lib.journal.wants_snapshot()
             && self.interaction.is_none()
+            && self.ephemeral.is_none()
             && let Err(e) = lib.journal.snapshot_in_background(&self.catalog)
         {
             log::error!("library: compaction: {e}");
@@ -478,6 +490,7 @@ impl Session {
             return Ok(());
         }
         let _ = self.end_interaction();
+        self.close_ephemeral();
         let persisted = self.persist();
         self.save_view();
         let unlogged = if persisted.is_err() { self.pending_log.len() as u64 } else { 0 };
@@ -523,9 +536,19 @@ impl Session {
     }
 
     /// Save the library preferences (no-op for in-memory sessions).
+    pub fn save_smart_tag_sets(&mut self) -> Result<()> {
+        let v = serde_json::to_vec_pretty(&self.smart.tag_sets).map_err(|e| EngineError::Other(e.to_string()))?;
+        let Some(lib) = self.library.as_mut() else { return Ok(()) };
+        if lib.blocked.contains(&"smart-sort-tagsets.json") {
+            return Err(EngineError::Other("tag sets file could not be read; reopen the library before saving".into()));
+        }
+        lib.files.write_atomic("smart-sort-tagsets.json", &v).map_err(|e| EngineError::Other(e.to_string()))
+    }
+
     pub fn save_prefs(&mut self) -> Result<()> {
         let v = serde_json::to_vec_pretty(&PrefsFile {
             xmp: self.xmp,
+            smart_sort: self.smart.prefs.clone(),
             last_export: self.last_export.clone(),
             export_presets: self.export_presets.clone(),
             metadata_presets: self.metadata_presets.clone(),

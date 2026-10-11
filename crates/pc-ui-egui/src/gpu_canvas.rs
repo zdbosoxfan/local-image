@@ -21,8 +21,8 @@
 //! GPU resources live in the renderer's `callback_resources` type map; the per-frame callback only
 //! carries plain view parameters, so it is `Send + Sync` on every target (including wasm).
 //!
-//! The document pixels still come from the CPU compositor (`photocraft-compose`) for now; the wgpu
-//! compositor (M5) will render straight into these tiles.
+//! Supported documents composite straight into these tiles on the GPU. Unsupported features
+//! and recoverable errors use the CPU reference compositor for the affected refresh.
 
 use std::collections::HashMap;
 use std::num::NonZeroU64;
@@ -31,6 +31,9 @@ use eframe::egui_wgpu::{self, CallbackResources, CallbackTrait, RenderState, Scr
 use eframe::wgpu;
 
 pub use photocraft_gpu::{DeviceHealth, Fault};
+
+#[path = "vector_packages/view.rs"]
+pub mod scaled_view;
 
 /// Default tile side; documents up to this size (and the device limit) use a single texture.
 pub const DEFAULT_TILE: u32 = 8192;
@@ -42,9 +45,9 @@ const FORMAT_HIGH: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// documents (a 14000² one would need 2.1 GB) use `Rgba8Unorm`, so they stay on the GPU like
 /// 8-bit ones. `PHOTOCRAFT_CANVAS_F16=0` turns the float canvas off, `=1` ignores this budget.
 pub const F16_BUDGET_PX: u64 = 100_000_000;
-const VIEW_UNIFORM_SIZE: u64 = 112;
-const VIEW_FLOATS: usize = 28;
-const TILE_UNIFORM_SIZE: u64 = 16;
+const VIEW_UNIFORM_SIZE: u64 = 128;
+const VIEW_FLOATS: usize = 32;
+const TILE_UNIFORM_SIZE: u64 = 32;
 
 /// Parameters for drawing one document view. Positions are in egui points.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -72,6 +75,19 @@ pub struct ViewParams {
     /// before the display LUT; `None` when off. The display LUT must then leave it out
     /// (`ColorState::gpu_canvas_lut`).
     pub hdr: Option<[f32; 2]>,
+    /// View › Flip Horizontal: the document is drawn mirrored left-right about the view centre
+    /// (document x grows to the left).
+    pub flip: bool,
+}
+
+/// A cached section of the layer stack, positioned in document coordinates by the Move shader.
+#[derive(Clone, Debug)]
+pub(crate) struct MovePlane {
+    pub key: u64,
+    pub size: [u32; 2],
+    pub origin: [i32; 2],
+    pub moving: bool,
+    pub offset: [i32; 2],
 }
 
 /// When high-bit documents get an `Rgba16Float` canvas texture.
@@ -87,15 +103,18 @@ enum HighPolicy {
 
 /// Uploads documents to the GPU and paints them. Cheap to clone.
 ///
-/// Once the device is lost or reports an uncaptured error (see [`GpuCanvas::fault`]), every
-/// method is a no-op or an `Err`, so nothing reaches the GPU again; the app then switches to the
-/// CPU canvas (#243).
+/// Once the device is lost or keeps reporting uncaptured errors (see [`GpuCanvas::fault`]),
+/// every method is a no-op or an `Err`, so nothing reaches the GPU again; the app then switches
+/// to the CPU canvas (#243). A single uncaptured error only makes the refresh that raised it
+/// redo its work on the CPU (see `photocraft_gpu::health`).
 #[derive(Clone)]
 pub struct GpuCanvas {
     rs: RenderState,
     tile: u32,
     high: HighPolicy,
     health: photocraft_gpu::DeviceHealth,
+    seen_errors: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    health_frame: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Can `adapter` use `Rgba16Float` as a sampled, filtered, render-target and copy texture?
@@ -129,9 +148,25 @@ impl GpuCanvas {
         res.health = health.clone();
         rs.renderer.write().callback_resources.insert(res);
         log::info!("gpu canvas: target {:?}, max texture {max}, tile {tile}, 16F canvas {high:?}", rs.target_format);
-        Self { rs: rs.clone(), tile, high, health }
+        Self {
+            rs: rs.clone(),
+            tile,
+            high,
+            health,
+            seen_errors: Default::default(),
+            health_frame: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX)),
+        }
     }
 
+    pub fn set_pixel_preview(&self, key: u64, enabled: bool) {
+        if let Some(res) = self.rs.renderer.write().callback_resources.get_mut::<Resources>() {
+            if enabled {
+                res.pixel_previews.insert(key);
+            } else {
+                res.pixel_previews.remove(&key);
+            }
+        }
+    }
     /// The device's health flag (shared with the wgpu compositor and the paint callback).
     pub fn health(&self) -> &photocraft_gpu::DeviceHealth {
         &self.health
@@ -142,6 +177,46 @@ impl GpuCanvas {
         self.health.fault()
     }
 
+    /// Advance strikes once per app frame, even when the host checks health twice.
+    pub fn begin_frame(&self, frame: u64) {
+        if self.health_frame.swap(frame, std::sync::atomic::Ordering::AcqRel) != frame {
+            self.health.tick();
+        }
+    }
+
+    /// Errors can arrive during paint, after refresh returned. Invalidate the affected canvas
+    /// at the next frame boundary and retry once through the CPU without dropping the device.
+    pub fn recover_transient_errors(&self) -> bool {
+        let count = self.health.errors();
+        if !self.health.is_ok() || self.seen_errors.swap(count, std::sync::atomic::Ordering::AcqRel) == count {
+            return false;
+        }
+        let mut r = self.rs.renderer.write();
+        if let Some(res) = r.callback_resources.get_mut::<Resources>() {
+            res.retry_cpu = true;
+            res.compositor = None;
+            res.encode_pool.clear();
+            res.docs.clear();
+            clear_move_resources(res);
+            res.scaled_sources.clear();
+            res.scaled_frames.clear();
+        }
+        true
+    }
+
+    /// Cached Move viewport targets and view uniforms (for resource diagnostics).
+    pub fn move_resources(&self) -> (usize, usize) {
+        let renderer = self.rs.renderer.read();
+        renderer.callback_resources.get::<Resources>().map_or((0, 0), |res| (res.move_frames.len(), res.views.len()))
+    }
+
+    pub(crate) fn clear_move_frames(&self) {
+        let mut renderer = self.rs.renderer.write();
+        if let Some(res) = renderer.callback_resources.get_mut::<Resources>() {
+            clear_move_resources(res);
+        }
+    }
+
     /// Free every GPU resource the canvas holds (compositor pages, document textures, LUTs) after
     /// a fault; the paint callback draws nothing from then on.
     pub fn release(&self) {
@@ -149,8 +224,12 @@ impl GpuCanvas {
         if let Some(res) = r.callback_resources.get_mut::<Resources>() {
             res.compositor = None;
             res.compositor_failed = Some(photocraft_gpu::Unsupported(self.fault().map_or_else(|| "GPU canvas released".into(), |f| f.to_string())));
+            res.encode_pool.clear();
             res.docs.clear();
+            res.scaled_sources.clear();
+            res.scaled_frames.clear();
             res.luts.clear();
+            res.move_frames.clear();
             res.display_lut_signatures.clear();
             res.views.clear();
         }
@@ -198,6 +277,15 @@ impl GpuCanvas {
         let mut r = self.rs.renderer.write();
         if let Some(res) = r.callback_resources.get_mut::<Resources>() {
             res.compositor_budget = Some(bytes);
+            let share = bytes / (res.scaled_frames.len() as u64 + 1);
+            if let Some(comp) = &mut res.compositor {
+                comp.set_memory_budget(share);
+            }
+            for frame in res.scaled_frames.values_mut() {
+                if let Some(comp) = &mut frame.compositor {
+                    comp.set_memory_budget(share);
+                }
+            }
         }
     }
 
@@ -205,6 +293,19 @@ impl GpuCanvas {
     pub fn memory_budget(&self) -> Option<u64> {
         let r = self.rs.renderer.read();
         r.callback_resources.get::<Resources>()?.compositor_budget
+    }
+
+    /// Relevant font/master/appearance generations, folded per dependent layer by feature
+    /// projection. A CMS change uses the existing LUT and does not rebuild geometry.
+    pub fn set_scaled_dependencies(&self, doc: u64, dependencies: HashMap<photocraft_doc::LayerId, u64>) {
+        let mut renderer = self.rs.renderer.write();
+        if let Some(res) = renderer.callback_resources.get_mut::<Resources>()
+            && let Some(source) = res.scaled_sources.get_mut(&doc)
+            && source.dependencies != dependencies
+        {
+            source.dependencies = dependencies;
+            source.generation = source.generation.wrapping_add(1);
+        }
     }
 
     /// The document area the view shows: full refreshes composite it last, so its layer pages
@@ -219,8 +320,13 @@ impl GpuCanvas {
     /// GPU bytes the wgpu compositor holds: resident layer pages and cached effect maps.
     pub fn compositor_bytes(&self) -> Option<(u64, usize)> {
         let r = self.rs.renderer.read();
-        let c = r.callback_resources.get::<Resources>()?.compositor.as_ref()?;
-        Some((c.resident_bytes(), c.fx_cache_bytes()))
+        let res = r.callback_resources.get::<Resources>()?;
+        Some(
+            res.compositor
+                .iter()
+                .chain(res.scaled_frames.values().filter_map(|f| f.compositor.as_ref()))
+                .fold((0u64, 0usize), |(bytes, fx), c| (bytes.saturating_add(c.resident_bytes()), fx.saturating_add(c.fx_cache_bytes()))),
+        )
     }
 
     /// Set the checkerboard and gamut warning colours.
@@ -349,8 +455,12 @@ impl GpuCanvas {
         if let Some(f) = self.fault() {
             return Err(photocraft_gpu::Unsupported(f.to_string()));
         }
+        let errors = self.health.errors();
         let mut renderer = self.rs.renderer.write();
         let Some(res) = renderer.callback_resources.get_mut::<Resources>() else { return Err(photocraft_gpu::Unsupported("no GPU canvas".into())) };
+        if std::mem::take(&mut res.retry_cpu) {
+            return Err(photocraft_gpu::Unsupported(format!("GPU error: {}; retrying this frame on the CPU", self.health.last_error().unwrap_or_default())));
+        }
         // A driver that couldn't build the pipelines once won't later: stay on the CPU compositor.
         if let Some(e) = &res.compositor_failed {
             return Err(e.clone());
@@ -368,7 +478,7 @@ impl GpuCanvas {
         };
         comp.set_health(self.health.clone());
         if let Some(b) = res.compositor_budget {
-            comp.set_memory_budget(b);
+            comp.set_memory_budget(b / (res.scaled_frames.len() as u64 + 1));
         }
         comp.set_focus(res.compositor_focus);
         let key = doc.id.0;
@@ -380,13 +490,6 @@ impl GpuCanvas {
             res.compositor = Some(comp);
             return Err(e);
         }
-        // A full refresh whose layer pages don't fit the memory budget would re-upload the
-        // evicted ones every time (no faster than the CPU, and more memory): the banded CPU
-        // compositor does it, and edits in the view (damage rects) stay on the GPU.
-        if region == doc.bounds() && !comp.fits_budget(doc, region) {
-            res.compositor = Some(comp);
-            return Err(photocraft_gpu::Unsupported("layers exceed the GPU memory budget; full refresh on the CPU".into()));
-        }
         if fresh {
             let tex = DocTextures::new(device, res, size, self.tile, format);
             res.docs.insert(key, tex);
@@ -395,49 +498,85 @@ impl GpuCanvas {
             res.compositor = Some(comp);
             return Err(photocraft_gpu::Unsupported(format!("no {format:?} canvas texture or pipeline")));
         };
-        let bgl = &res.encode_bgl;
+        let pipe = pipe.clone();
+        let d = d.clone();
+        let bgl = res.encode_bgl.clone();
+        let mip_pipe = res.mip_pipeline(format).cloned();
+        let mut encode_pool = std::mem::take(&mut res.encode_pool);
+        drop(renderer);
+        let mut encode_index = 0usize;
         // A float canvas keeps values above 1.0 (32-bit documents, for the 32-bit preview).
         let keep_hdr = i32::from(format == FORMAT_HIGH);
         // Last-resort guard: a wgpu panic (e.g. polling a device lost mid-refresh) marks the
         // device lost instead of taking the app and its documents down.
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            comp.render(device, queue, doc, region, |enc, out| {
-                for t in &d.tiles {
-                    let [tx, ty, tw, th] = t.rect.map(|v| v as i32);
-                    let r = out.rect.intersect(&photocraft_geom::Rect::from_xywh(tx, ty, tw as u32, th as u32));
-                    if r.is_empty() {
-                        continue;
+            comp.render_with_finish(
+                device,
+                queue,
+                doc,
+                region,
+                |enc, out| {
+                    for t in &d.tiles {
+                        let [tx, ty, tw, th] = t.rect.map(|v| v as i32);
+                        let r = out.rect.intersect(&photocraft_geom::Rect::from_xywh(tx, ty, tw as u32, th as u32));
+                        if r.is_empty() {
+                            continue;
+                        }
+                        let offset = [out.rect.x0 - tx, out.rect.y0 - ty, i32::from(encode_srgb), keep_hdr];
+                        if encode_index == encode_pool.len() {
+                            let ubuf = device.create_buffer(&wgpu::BufferDescriptor {
+                                label: Some("pc_encode"),
+                                size: 16,
+                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                                mapped_at_creation: false,
+                            });
+                            encode_pool.push((ubuf, None));
+                        }
+                        let (ubuf, cached) = &mut encode_pool[encode_index];
+                        encode_index += 1;
+                        queue.write_buffer(ubuf, 0, &offset.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>());
+                        if cached.as_ref().is_none_or(|(v, _)| v != out.view) {
+                            let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("pc_encode"),
+                                layout: &bgl,
+                                entries: &[
+                                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(out.view) },
+                                    wgpu::BindGroupEntry { binding: 1, resource: ubuf.as_entire_binding() },
+                                ],
+                            });
+                            *cached = Some((out.view.clone(), bg));
+                        }
+                        let Some((_, bg)) = cached else { continue };
+                        let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("pc_encode"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &t.levels[0],
+                                resolve_target: None,
+                                depth_slice: None,
+                                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                            })],
+                            depth_stencil_attachment: None,
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                            multiview_mask: None,
+                        });
+                        pass.set_pipeline(&pipe);
+                        pass.set_bind_group(0, &*bg, &[]);
+                        pass.set_scissor_rect((r.x0 - tx) as u32, (r.y0 - ty) as u32, r.width(), r.height());
+                        pass.draw(0..3, 0..1);
                     }
-                    let offset = [out.rect.x0 - tx, out.rect.y0 - ty, i32::from(encode_srgb), keep_hdr];
-                    let ubuf = init_buffer(device, "pc_encode", &offset.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>(), wgpu::BufferUsages::UNIFORM);
-                    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("pc_encode"),
-                        layout: bgl,
-                        entries: &[
-                            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(out.view) },
-                            wgpu::BindGroupEntry { binding: 1, resource: ubuf.as_entire_binding() },
-                        ],
-                    });
-                    let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("pc_encode"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &t.levels[0],
-                            resolve_target: None,
-                            depth_slice: None,
-                            ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
-                        })],
-                        depth_stencil_attachment: None,
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                        multiview_mask: None,
-                    });
-                    pass.set_pipeline(pipe);
-                    pass.set_bind_group(0, &bg, &[]);
-                    pass.set_scissor_rect((r.x0 - tx) as u32, (r.y0 - ty) as u32, r.width(), r.height());
-                    pass.draw(0..3, 0..1);
-                }
-            })
+                },
+                |enc| {
+                    if let Some(pipe) = &mip_pipe {
+                        d.encode_mips(enc, pipe, [region.x0 as u32, region.y0 as u32, region.x1 as u32, region.y1 as u32]);
+                    }
+                },
+            )
         }));
+        let mut renderer = self.rs.renderer.write();
+        let Some(res) = renderer.callback_resources.get_mut::<Resources>() else { return Err(photocraft_gpu::Unsupported("no GPU canvas".into())) };
+        encode_pool.truncate(encode_index);
+        res.encode_pool = encode_pool;
         let Ok(result) = result else {
             self.health.mark(photocraft_gpu::Fault::Lost("the GPU compositor stopped (internal error)".into()));
             res.docs.remove(&key);
@@ -448,18 +587,59 @@ impl GpuCanvas {
             Some(f) => Err(photocraft_gpu::Unsupported(f.to_string())),
             None => result,
         };
-        if result.is_ok() {
-            d.regenerate_mips(device, queue, res, [region.x0 as u32, region.y0 as u32, region.x1 as u32, region.y1 as u32]);
-            if std::env::var_os("PHOTOCRAFT_GPU_SYNC").is_some() {
-                // Benchmarking: wait for the GPU so callers can time the whole refresh.
-                #[cfg(not(target_arch = "wasm32"))]
-                self.health.wait(device, None);
+        if result.is_ok() && std::env::var_os("PHOTOCRAFT_GPU_SYNC").is_some() {
+            // Benchmarking: wait for the GPU so callers can time the whole refresh.
+            #[cfg(not(target_arch = "wasm32"))]
+            self.health.wait(device, None);
+        }
+        // An uncaptured error during the refresh (a validation error, out of memory): its output
+        // can't be trusted, so the caller redoes it on the CPU into a new texture, and the
+        // compositor drops its cached textures. The GPU stays in use unless errors repeat.
+        let end_errors = self.health.errors();
+        let errored = end_errors != errors;
+        self.seen_errors.store(end_errors, std::sync::atomic::Ordering::Release);
+        if errored {
+            comp.forget_all();
+            res.encode_pool.clear();
+        }
+        let result = match result {
+            Ok(_) if errored => {
+                let why = self.fault().map_or_else(|| format!("GPU error: {}", self.health.last_error().unwrap_or_default()), |f| f.to_string());
+                log::warn!("{why}; this refresh is redone on the CPU");
+                Err(photocraft_gpu::Unsupported(why))
             }
-        } else if fresh {
+            r => r,
+        };
+        if result.is_err() && (fresh || errored) {
             res.docs.remove(&key);
         }
         res.compositor = Some(comp);
         result
+    }
+
+    /// Refresh from an immutable app snapshot, avoiding repeated structural key formatting.
+    pub fn refresh_snapshot(
+        &self,
+        key: u64,
+        doc: &std::sync::Arc<photocraft_doc::Document>,
+        damage: Option<photocraft_geom::Rect>,
+        display: Option<&photocraft_engine::display_color::CanvasDisplay>,
+    ) -> Refresh {
+        let remember = || {
+            let r = self.rs.renderer.read();
+            if let Some(c) = r.callback_resources.get::<Resources>().and_then(|r| r.compositor.as_ref()) {
+                let _ = c.prepare_snapshot(doc);
+            }
+        };
+        remember();
+        let out = self.refresh(key, doc, damage, display);
+        remember();
+        out
+    }
+
+    /// Uniform/bind-group slots held for the last composite (profiling/tests).
+    pub fn encode_bindings(&self) -> usize {
+        self.rs.renderer.read().callback_resources.get::<Resources>().map_or(0, |r| r.encode_pool.len())
     }
 
     /// Bring document `key`'s display texture up to date with `doc`: only `damage` when given (a
@@ -488,6 +668,15 @@ impl GpuCanvas {
             // Nothing changed on the canvas (selecting a layer, say): don't even plan.
             out.kind = "rect";
             return out;
+        }
+        {
+            let mut renderer = self.rs.renderer.write();
+            if let Some(res) = renderer.callback_resources.get_mut::<Resources>() {
+                let generation = res.scaled_sources.get(&key).map_or(1, |s| s.generation.wrapping_add(1));
+                let dependencies = res.scaled_sources.get(&key).map(|s| s.dependencies.clone()).unwrap_or_default();
+                res.scaled_sources
+                    .insert(key, ScaledSource { doc: doc.clone(), encode_srgb: display.is_some_and(|d| d.encode_srgb), generation, dependencies });
+            }
         }
         let region = damage.unwrap_or(bounds);
         let encode_srgb = display.is_some_and(|d| d.encode_srgb);
@@ -580,11 +769,24 @@ impl GpuCanvas {
                 }
             }
             res.docs.retain(|k, _| live.contains(k));
+            res.encode_pool.clear();
         }
         // LUTs and identity-transform signatures can outlive document textures. Prune both,
         // or a preserved-ID reopen can skip rebuilding a missing LUT.
+        res.scaled_sources.retain(|k, _| live.contains(k));
+        res.scaled_frames.retain(|_, f| live.contains(&f.source));
         res.luts.retain(|k, _| live.contains(&k.0));
         res.display_lut_signatures.retain(|k, _| live.contains(&k.0));
+        // Per-drag plane uniforms and the viewport target must leave with their source planes.
+        let gone: Vec<_> = res.move_frames.iter().filter(|(_, f)| f.sources.iter().any(|k| !live.contains(k))).map(|(k, _)| *k).collect();
+        for key in gone {
+            if let Some(frame) = res.move_frames.remove(&key) {
+                for view in frame.view_keys {
+                    res.views.remove(&view);
+                }
+                res.views.remove(&key);
+            }
+        }
     }
 
     pub(crate) fn display_lut_signature(&self, doc: u64, output: u32) -> Option<(u64, u8)> {
@@ -685,6 +887,10 @@ impl GpuCanvas {
     /// Add the paint callback drawing `params` into `rect` (clipped by the painter's clip rect).
     pub fn paint(painter: &egui::Painter, rect: egui::Rect, params: ViewParams) {
         painter.add(egui_wgpu::Callback::new_paint_callback(rect, CanvasCallback { rect, params }));
+    }
+
+    pub(crate) fn paint_move(painter: &egui::Painter, rect: egui::Rect, params: ViewParams, planes: Vec<MovePlane>) {
+        painter.add(egui_wgpu::Callback::new_paint_callback(rect, MoveCallback { base: CanvasCallback { rect, params }, planes }));
     }
 }
 
@@ -822,6 +1028,9 @@ pub struct GpuInfo {
     pub canvas: String,
     /// Why the GPU canvas was dropped during this session (device lost or a GPU error).
     pub lost: Option<String>,
+    /// Why the app is in CPU mode because of a GPU failure (this launch's or an earlier one's
+    /// that left CPU mode on). The status bar and Preferences › Performance keep showing it.
+    pub recovery: Option<String>,
 }
 
 impl GpuInfo {
@@ -867,7 +1076,19 @@ impl GpuInfo {
         if let Some(l) = &self.lost {
             v.push(format!("This session: {l}"));
         }
+        if let Some(r) = self.recovery.as_ref().filter(|r| self.fallback.as_ref() != Some(*r)) {
+            v.push(format!("CPU mode after a GPU failure: {r}"));
+        }
         v
+    }
+
+    /// Why GPU acceleration is off because of a failure, when it is (`None` when the GPU canvas
+    /// is in use or the user chose CPU rendering).
+    pub fn failure(&self) -> Option<&str> {
+        if self.canvas == "gpu" {
+            return None;
+        }
+        self.lost.as_deref().or(self.recovery.as_deref())
     }
 }
 
@@ -1086,11 +1307,45 @@ fn detect_physical_memory() -> Option<u64> {
     None
 }
 
+type EncodePool = Vec<(wgpu::Buffer, Option<(wgpu::TextureView, wgpu::BindGroup)>)>;
+
+struct ScaledSource {
+    doc: photocraft_doc::Document,
+    encode_srgb: bool,
+    generation: u64,
+    dependencies: HashMap<photocraft_doc::LayerId, u64>,
+}
+
+struct ScaledFrame {
+    source: u64,
+    previous: photocraft_doc::Document,
+    dependencies: HashMap<photocraft_doc::LayerId, u64>,
+    generation: u64,
+    scale: f64,
+    rect: photocraft_geom::Rect,
+    textures: DocTextures,
+    projection: scaled_view::cpu::ProjectionCache,
+    // Base and scaled surfaces share layer IDs but have different pixels. Each
+    // view must retain its own upload cache instead of evicting the 1x pages.
+    compositor: Option<photocraft_gpu::Compositor>,
+    uploads: u64,
+    rebuilds: u64,
+}
+
 struct Resources {
+    pixel_previews: std::collections::HashSet<u64>,
+    scaled_sources: HashMap<u64, ScaledSource>,
+    scaled_frames: HashMap<u64, ScaledFrame>,
+    encode_pool: EncodePool,
+    retry_cpu: bool,
     view_bgl: wgpu::BindGroupLayout,
     tile_bgl: wgpu::BindGroupLayout,
     shadow_pipeline: wgpu::RenderPipeline,
     tile_pipeline: wgpu::RenderPipeline,
+    move_plane_pipeline: wgpu::RenderPipeline,
+    move_final_pipeline: wgpu::RenderPipeline,
+    move_format: wgpu::TextureFormat,
+    move_frames: HashMap<u64, MoveFrame>,
     sampler: wgpu::Sampler,
     mip_bgl: wgpu::BindGroupLayout,
     mip_pipeline: wgpu::RenderPipeline,
@@ -1122,6 +1377,23 @@ struct Resources {
     identity_lut: wgpu::BindGroup,
     /// Transparency checkerboard and gamut warning colours (Preferences › Transparency & Gamut).
     style: CanvasStyle,
+}
+
+fn clear_move_resources(res: &mut Resources) {
+    for (key, frame) in res.move_frames.drain() {
+        for view in frame.view_keys {
+            res.views.remove(&view);
+        }
+        res.views.remove(&key);
+    }
+}
+
+struct MoveFrame {
+    size: [u32; 2],
+    view: wgpu::TextureView,
+    bind_group: wgpu::BindGroup,
+    sources: Vec<u64>,
+    view_keys: Vec<u64>,
 }
 
 /// Canvas colours from Preferences › Transparency & Gamut.
@@ -1180,17 +1452,20 @@ struct ViewGpu {
     frame_data: [f32; VIEW_FLOATS],
 }
 
+#[derive(Clone)]
 struct DocTextures {
     size: [u32; 2],
     format: wgpu::TextureFormat,
     tiles: Vec<Tile>,
 }
 
+#[derive(Clone)]
 struct Tile {
     /// Document-pixel rect: x, y, w, h.
     rect: [u32; 4],
     texture: wgpu::Texture,
     levels: Vec<wgpu::TextureView>,
+    mip_groups: Vec<wgpu::BindGroup>,
     bind_group: wgpu::BindGroup,
     _uniform: wgpu::Buffer,
 }
@@ -1304,6 +1579,9 @@ impl Resources {
         };
         let shadow_pipeline = pipeline(device, "pc_canvas_shadow", &shadow_layout, &module, ("vs_shadow", "fs_shadow"), target, Some(blend));
         let tile_pipeline = pipeline(device, "pc_canvas_tile", &layout, &module, ("vs_tile", "fs_tile"), target, Some(blend));
+        let move_format = if high { FORMAT_HIGH } else { FORMAT };
+        let move_plane_pipeline = pipeline(device, "pc_move_plane", &layout, &module, ("vs_tile", "fs_plane"), move_format, Some(blend));
+        let move_final_pipeline = pipeline(device, "pc_move_final", &layout, &module, ("vs_move", "fs_move"), target, Some(blend));
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("pc_canvas_trilinear"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -1351,6 +1629,11 @@ impl Resources {
         let encode_pipeline_high = high.then(|| pipeline(device, "pc_encode_16f", &encode_layout, &encode_module, ("vs", "fs"), FORMAT_HIGH, None));
         let identity_lut = lut_bind_group(device, queue, &lut_bgl, 2, &identity_lut_bytes());
         Self {
+            pixel_previews: Default::default(),
+            scaled_sources: HashMap::new(),
+            scaled_frames: HashMap::new(),
+            encode_pool: Vec::new(),
+            retry_cpu: false,
             lut_bgl,
             luts: HashMap::new(),
             display_lut_signatures: HashMap::new(),
@@ -1360,6 +1643,10 @@ impl Resources {
             tile_bgl,
             shadow_pipeline,
             tile_pipeline,
+            move_plane_pipeline,
+            move_final_pipeline,
+            move_format,
+            move_frames: HashMap::new(),
             sampler,
             mip_bgl,
             mip_pipeline,
@@ -1410,10 +1697,24 @@ fn init_buffer(device: &wgpu::Device, label: &str, contents: &[u8], usage: wgpu:
 
 impl DocTextures {
     fn new(device: &wgpu::Device, res: &Resources, size: [u32; 2], tile: u32, format: wgpu::TextureFormat) -> Self {
+        Self::region(device, res, size, tile, format, photocraft_geom::Rect::from_xywh(0, 0, size[0], size[1]), 0)
+    }
+
+    fn region(
+        device: &wgpu::Device,
+        res: &Resources,
+        size: [u32; 2],
+        tile: u32,
+        format: wgpu::TextureFormat,
+        region: photocraft_geom::Rect,
+        gutter: u32,
+    ) -> Self {
         let mut tiles = Vec::new();
-        for ty in (0..size[1]).step_by(tile as usize) {
-            for tx in (0..size[0]).step_by(tile as usize) {
-                let (w, h) = (tile.min(size[0] - tx), tile.min(size[1] - ty));
+        for ty in (region.y0 as u32..region.y1 as u32).step_by(tile as usize) {
+            for tx in (region.x0 as u32..region.x1 as u32).step_by(tile as usize) {
+                let (cw, ch) = (tile.min(region.x1 as u32 - tx), tile.min(region.y1 as u32 - ty));
+                let (sx, sy) = (tx.saturating_sub(gutter), ty.saturating_sub(gutter));
+                let (w, h) = ((tx + cw + gutter).min(size[0]) - sx, (ty + ch + gutter).min(size[1]) - sy);
                 let levels_n = mip_count(w, h);
                 let texture = device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("pc_canvas_tile"),
@@ -1428,11 +1729,30 @@ impl DocTextures {
                         | wgpu::TextureUsages::RENDER_ATTACHMENT,
                     view_formats: &[],
                 });
-                let levels = (0..levels_n)
+                let levels: Vec<_> = (0..levels_n)
                     .map(|l| texture.create_view(&wgpu::TextureViewDescriptor { base_mip_level: l, mip_level_count: Some(1), ..Default::default() }))
                     .collect();
+                let mip_groups = levels
+                    .iter()
+                    .take(levels.len().saturating_sub(1))
+                    .map(|view| {
+                        device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("pc_mip"),
+                            layout: &res.mip_bgl,
+                            entries: &[
+                                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view) },
+                                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&res.mip_sampler) },
+                            ],
+                        })
+                    })
+                    .collect();
                 let full = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let uniform = init_buffer(device, "pc_canvas_tile", &f32_bytes(&[tx as f32, ty as f32, w as f32, h as f32]), wgpu::BufferUsages::UNIFORM);
+                let uniform = init_buffer(
+                    device,
+                    "pc_canvas_tile",
+                    &f32_bytes(&[tx as f32, ty as f32, cw as f32, ch as f32, sx as f32, sy as f32, w as f32, h as f32]),
+                    wgpu::BufferUsages::UNIFORM,
+                );
                 let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("pc_canvas_tile"),
                     layout: &res.tile_bgl,
@@ -1441,7 +1761,7 @@ impl DocTextures {
                         wgpu::BindGroupEntry { binding: 1, resource: uniform.as_entire_binding() },
                     ],
                 });
-                tiles.push(Tile { rect: [tx, ty, w, h], texture, levels, bind_group, _uniform: uniform });
+                tiles.push(Tile { rect: [sx, sy, w, h], texture, levels, mip_groups, bind_group, _uniform: uniform });
             }
         }
         Self { size, format, tiles }
@@ -1477,6 +1797,11 @@ impl DocTextures {
     fn regenerate_mips(&self, device: &wgpu::Device, queue: &wgpu::Queue, res: &Resources, r: [u32; 4]) {
         let Some(mip_pipeline) = res.mip_pipeline(self.format) else { return };
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pc_mips") });
+        self.encode_mips(&mut encoder, mip_pipeline, r);
+        queue.submit([encoder.finish()]);
+    }
+
+    fn encode_mips(&self, encoder: &mut wgpu::CommandEncoder, mip_pipeline: &wgpu::RenderPipeline, r: [u32; 4]) {
         for t in &self.tiles {
             let [tx, ty, tw, th] = t.rect;
             let (mut x0, mut y0, mut x1, mut y1) = (r[0].max(tx), r[1].max(ty), r[2].min(tx + tw), r[3].min(ty + th));
@@ -1489,14 +1814,7 @@ impl DocTextures {
                 // Damage at this level, padded by one texel for odd-size rounding.
                 (x0, y0) = ((x0 / 2).saturating_sub(1), (y0 / 2).saturating_sub(1));
                 (x1, y1) = ((x1.div_ceil(2) + 1).min(lw), (y1.div_ceil(2) + 1).min(lh));
-                let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("pc_mip"),
-                    layout: &res.mip_bgl,
-                    entries: &[
-                        wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&t.levels[level - 1]) },
-                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&res.mip_sampler) },
-                    ],
-                });
+                let bg = &t.mip_groups[level - 1];
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("pc_mip"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1511,12 +1829,11 @@ impl DocTextures {
                     multiview_mask: None,
                 });
                 pass.set_pipeline(mip_pipeline);
-                pass.set_bind_group(0, &bg, &[]);
+                pass.set_bind_group(0, bg, &[]);
                 pass.set_scissor_rect(x0, y0, x1 - x0, y1 - y0);
                 pass.draw(0..3, 0..1);
             }
         }
-        queue.submit([encoder.finish()]);
     }
 }
 
@@ -1526,6 +1843,167 @@ impl DocTextures {
 struct CanvasCallback {
     rect: egui::Rect,
     params: ViewParams,
+}
+
+struct MoveCallback {
+    base: CanvasCallback,
+    planes: Vec<MovePlane>,
+}
+
+impl MoveCallback {
+    fn callbacks(&self) -> Vec<CanvasCallback> {
+        self.planes
+            .iter()
+            .map(|plane| {
+                let mut params = self.base.params;
+                params.doc = plane.key;
+                params.doc_size = plane.size;
+                params.center = [params.center[0] - (plane.origin[0] + plane.offset[0]) as f32, params.center[1] - (plane.origin[1] + plane.offset[1]) as f32];
+                params.view_key = egui::Id::new(("move-plane", params.view_key, plane.key)).value();
+                params.shadow = false;
+                params.display = 0;
+                params.hdr = None;
+                params.pixel_grid = false;
+                CanvasCallback { rect: self.base.rect, params }
+            })
+            .collect()
+    }
+}
+
+impl CallbackTrait for MoveCallback {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        screen: &ScreenDescriptor,
+        encoder: &mut wgpu::CommandEncoder,
+        resources: &mut CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let _ = self.base.prepare(device, queue, screen, encoder, resources);
+        let callbacks = self.callbacks();
+        for cb in &callbacks {
+            let _ = cb.prepare(device, queue, screen, encoder, resources);
+        }
+        let Some(res) = resources.get_mut::<Resources>() else { return Vec::new() };
+        let size = screen.size_in_pixels;
+        if !res.health.is_ok() || size.contains(&0) {
+            return Vec::new();
+        }
+        let key = self.base.params.view_key;
+        if res.move_frames.get(&key).is_none_or(|f| f.size != size) {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("pc_move_viewport"),
+                size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: res.move_format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let view = texture.create_view(&Default::default());
+            let r = [0.0, 0.0, size[0] as f32, size[1] as f32];
+            let tile = init_buffer(device, "pc_move_viewport_tile", &f32_bytes(&[r, r].concat()), wgpu::BufferUsages::UNIFORM);
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("pc_move_viewport"),
+                layout: &res.tile_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
+                    wgpu::BindGroupEntry { binding: 1, resource: tile.as_entire_binding() },
+                ],
+            });
+            if let Some(old) = res.move_frames.remove(&key) {
+                for key in old.view_keys {
+                    if !callbacks.iter().any(|cb| cb.params.view_key == key) {
+                        res.views.remove(&key);
+                    }
+                }
+            }
+            res.move_frames.insert(key, MoveFrame { size, view, bind_group, sources: Vec::new(), view_keys: Vec::new() });
+        }
+        let new_keys: Vec<_> = callbacks.iter().map(|cb| cb.params.view_key).collect();
+        if let Some(old) = res.move_frames.get(&key) {
+            for old_key in &old.view_keys {
+                if !new_keys.contains(old_key) {
+                    res.views.remove(old_key);
+                }
+            }
+        }
+        let Some(frame) = res.move_frames.get_mut(&key) else { return Vec::new() };
+        frame.sources = self.planes.iter().map(|p| p.key).collect();
+        frame.view_keys = new_keys;
+        let ppp = screen.pixels_per_point;
+        let rect = self.base.rect;
+        let x0 = (rect.left() * ppp).round().clamp(0.0, size[0] as f32) as u32;
+        let y0 = (rect.top() * ppp).round().clamp(0.0, size[1] as f32) as u32;
+        let x1 = (rect.right() * ppp).round().clamp(x0 as f32, size[0] as f32) as u32;
+        let y1 = (rect.bottom() * ppp).round().clamp(y0 as f32, size[1] as f32) as u32;
+        if x0 == x1 || y0 == y1 {
+            return Vec::new();
+        }
+        let mut command = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pc_move_viewport") });
+        {
+            let mut pass = command.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("pc_move_viewport"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &frame.view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&res.move_plane_pipeline);
+            pass.set_viewport(0.0, 0.0, size[0] as f32, size[1] as f32, 0.0, 1.0);
+            pass.set_scissor_rect(x0, y0, x1 - x0, y1 - y0);
+            pass.set_bind_group(2, &res.identity_lut, &[]);
+            for cb in &callbacks {
+                let Some(view) = res.views.get(&cb.params.view_key) else { continue };
+                let scaled = res.scaled_frames.get(&cb.params.view_key).filter(|f| f.source == cb.params.doc && view.frame_data[29] > 1.0);
+                let Some(doc) = scaled.map(|f| &f.textures).or_else(|| res.docs.get(&cb.params.doc)) else { continue };
+                pass.set_bind_group(0, &view.bind_group, &[]);
+                let (origin, scale) = cb.placement(ppp);
+                for tile in &doc.tiles {
+                    let [tx, ty, tw, th] = tile.rect.map(|v| v as f32 / view.frame_data[29]);
+                    let (left, right) = cb.screen_x(origin[0], scale, tx, tx + tw);
+                    let (top, bottom) = (origin[1] + ty * scale, origin[1] + (ty + th) * scale);
+                    if right < x0 as f32 || bottom < y0 as f32 || left > x1 as f32 || top > y1 as f32 {
+                        continue;
+                    }
+                    pass.set_bind_group(1, &tile.bind_group, &[]);
+                    pass.draw(0..6, 0..1);
+                }
+            }
+        }
+        vec![command.finish()]
+    }
+
+    fn paint(&self, info: egui::PaintCallbackInfo, pass: &mut wgpu::RenderPass<'static>, resources: &CallbackResources) {
+        let Some(res) = resources.get::<Resources>() else { return };
+        if !res.health.is_ok() {
+            return;
+        }
+        let key = self.base.params.view_key;
+        let (Some(view), Some(frame)) = (res.views.get(&key), res.move_frames.get(&key)) else { return };
+        let clip = info.clip_rect_in_pixels();
+        if clip.width_px <= 0 || clip.height_px <= 0 {
+            return;
+        }
+        pass.set_viewport(0.0, 0.0, info.screen_size_px[0] as f32, info.screen_size_px[1] as f32, 0.0, 1.0);
+        pass.set_scissor_rect(clip.left_px.max(0) as u32, clip.top_px.max(0) as u32, clip.width_px as u32, clip.height_px as u32);
+        pass.set_bind_group(0, &view.bind_group, &[]);
+        if self.base.params.shadow {
+            pass.set_pipeline(&res.shadow_pipeline);
+            pass.draw(0..6, 0..1);
+        }
+        pass.set_pipeline(&res.move_final_pipeline);
+        pass.set_bind_group(1, &frame.bind_group, &[]);
+        pass.set_bind_group(2, res.luts.get(&(self.base.params.doc, self.base.params.output)).unwrap_or(&res.identity_lut), &[]);
+        pass.draw(0..6, 0..1);
+    }
 }
 
 /// Sampling mode: 0 trilinear, 1 bilinear, 2 anti-aliased nearest.
@@ -1540,14 +2018,260 @@ fn filter_mode(scale: f32) -> (f32, f32) {
 }
 
 impl CanvasCallback {
+    fn prepare_scaled(&self, device: &wgpu::Device, queue: &wgpu::Queue, screen: &ScreenDescriptor, res: &mut Resources) -> f64 {
+        use photocraft_geom::Rect;
+        use scaled_view::cpu::{ProjectionCache, ViewRequest, scaled_rect};
+        if res.pixel_previews.contains(&self.params.doc) {
+            return 1.0;
+        }
+        let physical = f64::from(self.params.zoom) * f64::from(screen.pixels_per_point);
+        if !physical.is_finite() || physical <= 1.0 || !self.params.center.iter().all(|v| v.is_finite()) {
+            return 1.0;
+        }
+        let Some(source) = res.scaled_sources.get(&self.params.doc) else { return 1.0 };
+        if !source
+            .doc
+            .walk()
+            .iter()
+            .any(|(_, _, l)| l.visible && matches!(l.content, photocraft_doc::LayerContent::Shape(_) | photocraft_doc::LayerContent::Text(_)))
+        {
+            return 1.0;
+        }
+        let (origin, screen_scale) = self.placement(screen.pixels_per_point);
+        let x = |p: f32| (p * screen.pixels_per_point - origin[0]) / screen_scale * if self.params.flip { -1.0 } else { 1.0 };
+        let y = |p: f32| (p * screen.pixels_per_point - origin[1]) / screen_scale;
+        let (a, b) = (x(self.rect.left()), x(self.rect.right()));
+        let visible = Rect::new(a.min(b).floor() as i32, y(self.rect.top()).floor() as i32, a.max(b).ceil() as i32, y(self.rect.bottom()).ceil() as i32)
+            .intersect(&source.doc.bounds());
+        let request = ViewRequest {
+            document: source.doc.id,
+            revision: source.generation,
+            view_key: self.params.view_key,
+            logical_zoom: f64::from(self.params.zoom),
+            pixels_per_point: f64::from(screen.pixels_per_point),
+            visible,
+            display_generation: 0,
+            dependencies: HashMap::new(),
+        };
+        let Ok(scale) = request.scale() else { return 1.0 };
+        let (Ok(mut rect), Ok(canvas)) = (scaled_rect(visible, scale), scaled_rect(source.doc.bounds(), scale)) else { return 1.0 };
+        if rect.is_empty() {
+            return 1.0;
+        }
+        let required = rect.inflate(1).intersect(&canvas);
+        // Global tile cells plus one cell of sampling apron. Panning within this region is warm.
+        const SIDE: i32 = 256;
+        rect = Rect::new(
+            rect.x0.div_euclid(SIDE) * SIDE,
+            rect.y0.div_euclid(SIDE) * SIDE,
+            (-(-rect.x1).div_euclid(SIDE)) * SIDE,
+            (-(-rect.y1).div_euclid(SIDE)) * SIDE,
+        )
+        .inflate(SIDE)
+        .intersect(&canvas);
+        if u64::from(rect.width()) * u64::from(rect.height()) > scaled_view::cpu::MAX_VIEW_PIXELS {
+            return 1.0;
+        }
+        let key = self.params.view_key;
+        let cache_count = res.scaled_frames.len() + usize::from(!res.scaled_frames.contains_key(&key)) + 1;
+        if let Some(b) = res.compositor_budget {
+            let share = b / cache_count as u64;
+            if let Some(comp) = &mut res.compositor {
+                comp.set_memory_budget(share);
+            }
+            for frame in res.scaled_frames.values_mut() {
+                if let Some(comp) = &mut frame.compositor {
+                    comp.set_memory_budget(share);
+                }
+            }
+        }
+        let mut frame = res.scaled_frames.remove(&key);
+        if let Some(f) = &frame
+            && f.source == self.params.doc
+            && f.generation == source.generation
+            && f.scale == scale
+            && f.rect.contains_rect(&required)
+        {
+            if let Some(frame) = frame.take() {
+                res.scaled_frames.insert(key, frame);
+            }
+            return scale;
+        }
+        let source_doc = source.doc.clone();
+        let dependencies = source.dependencies.clone();
+        let generation = source.generation;
+        let encode_srgb = source.encode_srgb;
+        // Keep composite coverage until final screen quantization, including 8-bit docs.
+        let format = if res.encode_pipeline_high.is_some() { FORMAT_HIGH } else { FORMAT };
+        let fresh = frame.as_ref().is_none_or(|f| {
+            f.source != self.params.doc
+                || f.scale != scale
+                || !f.rect.contains_rect(&required)
+                || f.textures.format != format
+                || f.textures.size != [canvas.width(), canvas.height()]
+        });
+        if fresh {
+            let textures = DocTextures::region(device, res, [canvas.width(), canvas.height()], SIDE as u32, format, rect, 1);
+            frame = Some(ScaledFrame {
+                source: self.params.doc,
+                previous: source_doc.clone(),
+                dependencies: HashMap::new(),
+                generation: 0,
+                scale,
+                rect,
+                textures,
+                projection: ProjectionCache::default(),
+                compositor: None,
+                uploads: 0,
+                rebuilds: 0,
+            });
+        }
+        let Some(mut frame) = frame else { return 1.0 };
+        let mut changed = if fresh {
+            frame.rect
+        } else {
+            scaled_view::damage(&frame.previous, &source_doc).and_then(|r| scaled_rect(r, scale).ok()).unwrap_or(frame.rect).intersect(&frame.rect)
+        };
+        let dependencies_changed = !fresh && frame.dependencies != dependencies;
+        if dependencies_changed {
+            for (_, _, layer) in source_doc.walk() {
+                if frame.dependencies.get(&layer.id) != dependencies.get(&layer.id) {
+                    let r = scaled_view::source_change_bounds(layer, source_doc.bounds()).and_then(|r| scaled_rect(r, scale).ok()).unwrap_or(frame.rect);
+                    changed = changed.union(&r.intersect(&frame.rect));
+                }
+            }
+        }
+        if changed.is_empty() && !dependencies_changed {
+            frame.dependencies = dependencies;
+            frame.generation = generation;
+            frame.previous = source_doc;
+            res.scaled_frames.insert(key, frame);
+            return scale;
+        }
+        // Every displayed tile owns a one-pixel sampling gutter. Update both copies at
+        // shared edges; only the core rectangle is drawn, so translucent tiles do not overlap.
+        changed = changed.inflate(1).intersect(&canvas);
+        let inverse = Rect::new(
+            (f64::from(frame.rect.x0) / scale).floor() as i32,
+            (f64::from(frame.rect.y0) / scale).floor() as i32,
+            (f64::from(frame.rect.x1) / scale).ceil() as i32,
+            (f64::from(frame.rect.y1) / scale).ceil() as i32,
+        );
+        let projected = match frame.projection.project_at(&source_doc, inverse, scale, &dependencies, scaled_view::project) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("scaled canvas: {e}");
+                return 1.0;
+            }
+        };
+        if dependencies_changed {
+            // A font/master/appearance generation can expand ink while the persisted 1x
+            // cache stays unchanged (including previously missing/empty glyphs). Include
+            // the newly projected coverage, not just the old source bounds.
+            let padding = projected
+                .walk()
+                .iter()
+                .filter(|(_, _, l)| photocraft_compose::effects::has_effects(l))
+                .map(|(_, _, l)| photocraft_compose::effects::margin(l))
+                .fold(1i32, i32::saturating_add);
+            for (_, _, layer) in projected.walk() {
+                if frame.dependencies.get(&layer.id) != dependencies.get(&layer.id) {
+                    let r = photocraft_compose::change_bounds(layer, projected.bounds()).unwrap_or(frame.rect);
+                    changed = changed.union(&r.inflate(padding).intersect(&frame.rect.inflate(1).intersect(&canvas)));
+                }
+            }
+        }
+        let pipe = res.encode_pipeline(format).cloned();
+        let mut compositor = frame.compositor.take().or_else(|| photocraft_gpu::Compositor::try_new_with_format(device, wgpu::TextureFormat::Rgba32Float).ok());
+        let mut ok = false;
+        if let (Some(comp), Some(pipe)) = (&mut compositor, pipe) {
+            comp.set_health(res.health.clone());
+            if let Some(b) = res.compositor_budget {
+                comp.set_memory_budget(b / cache_count as u64);
+            }
+            let bgl = &res.encode_bgl;
+            let textures = &frame.textures;
+            let result = scaled_view::gpu::render_scaled(comp, device, queue, &projected, changed, |encoder, out| {
+                for tile in &textures.tiles {
+                    let [tx, ty, tw, th] = tile.rect.map(|v| v as i32);
+                    let r = out.rect.intersect(&Rect::from_xywh(tx, ty, tw as u32, th as u32));
+                    if r.is_empty() {
+                        continue;
+                    }
+                    let offset = [out.rect.x0 - tx, out.rect.y0 - ty, i32::from(encode_srgb), i32::from(format == FORMAT_HIGH)];
+                    let ub =
+                        init_buffer(device, "pc_scaled_encode", &offset.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>(), wgpu::BufferUsages::UNIFORM);
+                    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("pc_scaled_encode"),
+                        layout: bgl,
+                        entries: &[
+                            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(out.view) },
+                            wgpu::BindGroupEntry { binding: 1, resource: ub.as_entire_binding() },
+                        ],
+                    });
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("pc_scaled_encode"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &tile.levels[0],
+                            resolve_target: None,
+                            depth_slice: None,
+                            ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_pipeline(&pipe);
+                    pass.set_bind_group(0, &bg, &[]);
+                    pass.set_scissor_rect((r.x0 - tx) as u32, (r.y0 - ty) as u32, r.width(), r.height());
+                    pass.draw(0..3, 0..1);
+                }
+            });
+            match result {
+                Ok(s) => {
+                    frame.uploads += s.tiles_uploaded as u64;
+                    ok = true;
+                }
+                Err(e) => log::warn!("scaled canvas GPU fallback: {e}"),
+            }
+        }
+        frame.compositor = compositor;
+        if !ok {
+            let buffer = photocraft_compose::render(&projected, changed);
+            let mut pixels = buffer.px;
+            if encode_srgb {
+                for p in &mut pixels {
+                    for c in p.iter_mut().take(3) {
+                        *c = photocraft_color::convert::linear_to_srgb(*c);
+                    }
+                }
+            }
+            frame.textures.write(queue, [changed.x0 as u32, changed.y0 as u32], [changed.width(), changed.height()], changed.width(), &texels(format, &pixels));
+        }
+        frame.textures.regenerate_mips(device, queue, res, [changed.x0 as u32, changed.y0 as u32, changed.x1 as u32, changed.y1 as u32]);
+        frame.rebuilds = frame.projection.rebuilds;
+        frame.dependencies = dependencies;
+        frame.generation = generation;
+        frame.previous = source_doc;
+        res.scaled_frames.insert(key, frame);
+        scale
+    }
+
     /// Screen-pixel origin of document (0, 0) (snapped to whole pixels) and device px per doc px.
+    /// Document x maps to `origin.x + x · scale`, or `origin.x − x · scale` when flipped.
     fn placement(&self, ppp: f32) -> ([f32; 2], f32) {
         let p = &self.params;
         let scale = p.zoom * ppp;
         let c = self.rect.center();
-        let ox = (c.x * ppp - p.center[0] * scale).round();
+        let ox = if p.flip { (c.x * ppp + p.center[0] * scale).round() } else { (c.x * ppp - p.center[0] * scale).round() };
         let oy = (c.y * ppp - p.center[1] * scale).round();
         ([ox, oy], scale)
+    }
+
+    /// Screen-pixel x extent of document columns `x0..x1` (left, right).
+    fn screen_x(&self, origin: f32, scale: f32, x0: f32, x1: f32) -> (f32, f32) {
+        if self.params.flip { (origin - x1 * scale, origin - x0 * scale) } else { (origin + x0 * scale, origin + x1 * scale) }
     }
 
     fn uniforms(&self, screen: [u32; 2], ppp: f32, out_linear: bool, style: &CanvasStyle) -> [f32; VIEW_FLOATS] {
@@ -1591,6 +2315,10 @@ impl CanvasCallback {
             g[1],
             g[2],
             inv_gamma,
+            if p.flip { -1.0 } else { 1.0 },
+            1.0,
+            0.0,
+            0.0,
         ]
     }
 }
@@ -1608,7 +2336,20 @@ impl CallbackTrait for CanvasCallback {
         if !res.health.is_ok() {
             return Vec::new();
         }
-        let data = self.uniforms(screen.size_in_pixels, screen.pixels_per_point, res.out_linear, &res.style);
+        let scaled = self.prepare_scaled(device, queue, screen, res);
+        let mut data = self.uniforms(screen.size_in_pixels, screen.pixels_per_point, res.out_linear, &res.style);
+        data[29] = scaled as f32;
+        let (mode, lod) = filter_mode(data[2] / data[29]);
+        // Buckets oversample by at most a quarter octave. Sample level zero with its
+        // shared gutter instead of mixing independently generated per-tile mip edges.
+        data[8] = if res.pixel_previews.contains(&self.params.doc) {
+            3.0
+        } else if scaled > 1.0 && mode == 0.0 {
+            1.0
+        } else {
+            mode
+        };
+        data[9] = if scaled > 1.0 { 0.0 } else { lod };
         let (bgl, sampler) = (&res.view_bgl, &res.sampler);
         let v = res.views.entry(self.params.view_key).or_insert_with(|| {
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1653,8 +2394,9 @@ impl CallbackTrait for CanvasCallback {
             pass.set_pipeline(&res.shadow_pipeline);
             pass.draw(0..6, 0..1);
         }
-        let Some(doc) = res.docs.get(&self.params.doc) else { return };
-        if doc.size != self.params.doc_size {
+        let scaled = res.scaled_frames.get(&self.params.view_key).filter(|f| f.source == self.params.doc && view.frame_data[29] > 1.0);
+        let Some(doc) = scaled.map(|f| &f.textures).or_else(|| res.docs.get(&self.params.doc)) else { return };
+        if scaled.is_none() && doc.size != self.params.doc_size {
             return;
         }
         let (origin, scale) = self.placement(info.pixels_per_point);
@@ -1663,9 +2405,10 @@ impl CallbackTrait for CanvasCallback {
         pass.set_pipeline(&res.tile_pipeline);
         pass.set_bind_group(2, res.luts.get(&(self.params.doc, self.params.output)).unwrap_or(&res.identity_lut), &[]);
         for t in &doc.tiles {
-            let [tx, ty, tw, th] = t.rect.map(|v| v as f32);
-            let (x0, y0) = (origin[0] + tx * scale, origin[1] + ty * scale);
-            let (x1, y1) = (x0 + tw * scale, y0 + th * scale);
+            let raster_scale = view.frame_data[29];
+            let [tx, ty, tw, th] = t.rect.map(|v| v as f32 / raster_scale);
+            let (x0, x1) = self.screen_x(origin[0], scale, tx, tx + tw);
+            let (y0, y1) = (origin[1] + ty * scale, origin[1] + (ty + th) * scale);
             if x1 < cx0 || y1 < cy0 || x0 > cx1 || y0 > cy1 {
                 continue;
             }
@@ -1684,8 +2427,9 @@ struct View {
     e: vec4<f32>, // checker light rgb, gamut warning opacity
     f: vec4<f32>, // checker dark rgb, 32-bit preview gain (2^exposure; 0 = off)
     g: vec4<f32>, // gamut warning rgb, 32-bit preview 1 / gamma
+    h: vec4<f32>, // x direction (1, or -1 for View › Flip Horizontal), raster scale, unused
 };
-struct Tile { r: vec4<f32> }; // x, y, w, h in doc px
+struct Tile { r: vec4<f32>, s: vec4<f32> }; // core and sampling rect: x, y, w, h
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var samp: sampler;
@@ -1705,8 +2449,11 @@ fn px_to_clip(p: vec2<f32>) -> vec4<f32> {
     return vec4(n.x, -n.y, 0.0, 1.0);
 }
 
-fn doc_min() -> vec2<f32> { return view.b.xy; }
-fn doc_max() -> vec2<f32> { return view.b.xy + view.b.zw * view.a.z; }
+// Document pixel coordinates -> device pixels (x mirrored about the origin when flipped).
+fn doc_to_px(d: vec2<f32>) -> vec2<f32> { return view.b.xy + vec2(d.x * view.h.x, d.y) * view.a.z; }
+fn px_to_doc(p: vec2<f32>) -> vec2<f32> { let d = (p - view.b.xy) / view.a.z; return vec2(d.x * view.h.x, d.y); }
+fn doc_min() -> vec2<f32> { return min(view.b.xy, doc_to_px(view.b.zw)); }
+fn doc_max() -> vec2<f32> { return max(view.b.xy, doc_to_px(view.b.zw)); }
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     let lo = c / 12.92;
@@ -1762,7 +2509,7 @@ fn fs_shadow(in: VOut) -> @location(0) vec4<f32> {
 
 @vertex
 fn vs_tile(@builtin(vertex_index) vi: u32) -> VOut {
-    let p = view.b.xy + (tile.r.xy + tile.r.zw * corner(vi)) * view.a.z;
+    let p = doc_to_px((tile.r.xy + tile.r.zw * corner(vi)) / view.h.y);
     return VOut(px_to_clip(p));
 }
 
@@ -1775,20 +2522,35 @@ fn checker(p: vec2<f32>) -> vec3<f32> {
     return select(view.e.xyz, view.f.xyz, odd);
 }
 
-@fragment
-fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
-    let p = in.pos.xy;
-    let scale = view.a.z;
-    let d = (p - view.b.xy) / scale;       // document pixel coordinates
-    let size = tile.r.zw;
-    let t = d - tile.r.xy;                 // texel coordinates within this tile
+fn sample_tile(p: vec2<f32>) -> vec4<f32> {
+    let scale = view.a.z / view.h.y;
+    let d = px_to_doc(p) * view.h.y;                  // document pixel coordinates
+    let size = tile.s.zw;
+    let t = d - tile.s.xy;                 // texel coordinates within this tile
     let mode = view.c.x;
     var col: vec4<f32>;
     if (mode < 0.5) {
         // Zoomed out: trilinear through the mip chain.
         col = textureSampleLevel(tex, samp, t / size, view.c.y);
     } else if (mode < 1.5) {
-        col = textureSampleLevel(tex, samp, t / size, 0.0);
+        if (view.h.y > 1.0) {
+            // Scaled geometry needs float interpolation: the hardware sampler's finite
+            // subtexel weights can add another byte of error along fractional-zoom edges.
+            let q = t - 0.5;
+            let i = vec2<i32>(floor(q));
+            let f = fract(q);
+            let hi = vec2<i32>(textureDimensions(tex, 0)) - vec2<i32>(1);
+            let a = textureLoad(tex, clamp(i, vec2<i32>(0), hi), 0);
+            let b = textureLoad(tex, clamp(i + vec2<i32>(1, 0), vec2<i32>(0), hi), 0);
+            let c = textureLoad(tex, clamp(i + vec2<i32>(0, 1), vec2<i32>(0), hi), 0);
+            let d = textureLoad(tex, clamp(i + vec2<i32>(1, 1), vec2<i32>(0), hi), 0);
+            col = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        } else {
+            col = textureSampleLevel(tex, samp, t / size, 0.0);
+        }
+    } else if (mode > 2.5) {
+        let hi = vec2<i32>(textureDimensions(tex, 0)) - vec2<i32>(1);
+        col = textureLoad(tex, clamp(vec2<i32>(floor(t)), vec2<i32>(0), hi), 0);
     } else {
         // Crisp texels with a one-device-pixel anti-aliased edge ("sharp bilinear").
         let tt = t - 0.5;
@@ -1796,6 +2558,13 @@ fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
         let f = clamp((tt - i - 0.5) * scale + 0.5, vec2(0.0), vec2(1.0));
         col = textureSampleLevel(tex, samp, (i + 0.5 + f) / size, 0.0);
     }
+    return col;
+}
+
+fn display_color(input: vec4<f32>, p: vec2<f32>) -> vec4<f32> {
+    var col = input;
+    let d = px_to_doc(p);
+    let scale = view.a.z;
     if (view.f.w > 0.0 && col.a > 0.0) {
         // View › 32-bit Preview Options: exposure and gamma in linear light on the sRGB-encoded
         // texture value, before the display LUT. A float canvas keeps values above 1.0, so they
@@ -1826,6 +2595,27 @@ fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
         rgb = srgb_to_linear(rgb);
     }
     return vec4(rgb, 1.0);
+}
+
+@fragment
+fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
+    return display_color(sample_tile(in.pos.xy), in.pos.xy);
+}
+
+// Blend the cached planes in document colour space before applying the display transform.
+@fragment
+fn fs_plane(in: VOut) -> @location(0) vec4<f32> {
+    return sample_tile(in.pos.xy);
+}
+
+@vertex
+fn vs_move(@builtin(vertex_index) vi: u32) -> VOut {
+    return VOut(px_to_clip(mix(doc_min(), doc_max(), corner(vi))));
+}
+
+@fragment
+fn fs_move(in: VOut) -> @location(0) vec4<f32> {
+    return display_color(textureLoad(tex, vec2<i32>(in.pos.xy), 0), in.pos.xy);
 }
 "#;
 
@@ -1884,6 +2674,7 @@ mod tests {
 
     #[test]
     fn gpu_budget_follows_memory_usage_and_ram() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         const G: u64 = 1 << 30;
         // What Memory Usage leaves after the document, within a quarter of RAM.
         assert_eq!(memory_budget(8 * G, 3 * G, Some(48 * G)), 5 * G);
@@ -1897,6 +2688,7 @@ mod tests {
 
     #[test]
     fn filter_modes() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         assert_eq!(filter_mode(0.25), (0.0, 2.0));
         assert_eq!(filter_mode(1.0).0, 2.0);
         assert_eq!(filter_mode(1.5).0, 1.0);
@@ -1905,6 +2697,7 @@ mod tests {
 
     #[test]
     fn mips_and_premultiply() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         assert_eq!(mip_count(1, 1), 1);
         assert_eq!(mip_count(4096, 100), 13);
         assert_eq!(mip_count(5, 3), 3);
@@ -1914,6 +2707,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn half_floats() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         // Every finite half survives the round trip; ties round to even; overflow saturates.
         for h in 0..=u16::MAX {
             if h & 0x7c00 != 0x7c00 && h != 0x8000 {
@@ -1936,6 +2730,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn shaders_validate() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         use wgpu::naga;
         for (name, src) in [("canvas", CANVAS_WGSL), ("mip", MIP_WGSL), ("encode", ENCODE_WGSL)] {
             let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));
@@ -1945,3 +2740,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "gpu_canvas_view_tests.rs"]
+mod view_tests;

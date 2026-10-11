@@ -29,6 +29,7 @@ pub mod annotations_map;
 pub mod blocks;
 mod channel_map;
 pub mod comps_map;
+pub mod develop_filter;
 pub mod effects_map;
 mod flat;
 mod gradient_bake;
@@ -50,7 +51,7 @@ use photocraft_doc::Document;
 use photocraft_psd::{PsdError, PsdFile};
 
 pub use adjust_map::ADJUSTMENT_KEYS;
-pub use flat::{document_to_image, import_tiff_page};
+pub use flat::{document_to_image, export_over_original, import_tiff_page};
 pub use psd_export::{PsdExportOptions, document_to_psd, document_to_psd_with};
 pub use psd_import::{psd_to_document, psd_to_document_with};
 
@@ -190,6 +191,16 @@ fn has_extension(name: &str, expected: &str) -> bool {
 /// Exports `doc` to the format named by `name_or_ext` (a file name, path or
 /// bare extension).
 pub fn export(doc: &Document, name_or_ext: &str, opts: &ExportOptions) -> Result<ExportResult, IoError> {
+    export_with_projection(doc, name_or_ext, opts, None)
+}
+
+/// Layered saves can use the application's common display projection for live/crop fallback.
+pub fn export_with_projection(
+    doc: &Document,
+    name_or_ext: &str,
+    opts: &ExportOptions,
+    projection: Option<&dyn vector_map::fallback::Projection>,
+) -> Result<ExportResult, IoError> {
     let ext = extension(name_or_ext);
     if ext == photocraft_format::EXTENSION {
         let previews = photocraft_format::SaveOptions {
@@ -200,7 +211,14 @@ pub fn export(doc: &Document, name_or_ext: &str, opts: &ExportOptions) -> Result
     }
     if ext == "psd" || ext == "psb" {
         let o = PsdExportOptions { force_psb: opts.force_psb || ext == "psb", ..Default::default() };
-        let (file, warnings) = document_to_psd_with(doc, &o);
+        let prepared = vector_map::fallback::prepare(doc, projection)?;
+        let (file, mut warnings) = document_to_psd_with(&prepared, &o);
+        // Collect before projection clears native metadata, and present each loss once.
+        let prepared_notice = vector_map::fallback::LossCollector::document(&prepared).notice();
+        warnings.retain(|warning| Some(warning) != prepared_notice.as_ref());
+        if let Some(notice) = vector_map::fallback::LossCollector::document(doc).notice() {
+            warnings.push(notice);
+        }
         // Never write a header the reader would refuse (e.g. a zero-sized canvas).
         file.header.validate()?;
         let bytes = file.to_bytes()?;
@@ -208,7 +226,7 @@ pub fn export(doc: &Document, name_or_ext: &str, opts: &ExportOptions) -> Result
     }
     let format = photocraft_codecs::from_extension(&ext).ok_or_else(|| IoError::UnknownFormat(name_or_ext.to_string()))?;
     if format == photocraft_codecs::Format::Tiff && opts.tiff_layers && tiff_layers::would_write_layers(doc) {
-        return tiff_layers::export_layered(doc, opts);
+        return tiff_layers::export_layered(doc, opts, projection);
     }
     flat::export_flat(doc, format, opts)
 }

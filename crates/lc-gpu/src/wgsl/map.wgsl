@@ -23,15 +23,7 @@ fn log_lum_k(@builtin(global_invocation_id) g: vec3<u32>, @builtin(num_workgroup
 }
 
 // `dark_of`: the dark channel (dehaze).
-@compute @workgroup_size(256)
-fn dark_k(@builtin(global_invocation_id) g: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
-    let i = lin_index(g, nw);
-    if (i >= pu(0u)) {
-        return;
-    }
-    let c = rgb_a(i);
-    dst[i] = min(min(c.x, c.y), c.z);
-}
+
 
 // Guided filter input pair (p, p²).
 @compute @workgroup_size(256)
@@ -130,19 +122,11 @@ fn wb_k(@builtin(global_invocation_id) g: vec3<u32>, @builtin(num_workgroups) nw
             pf(8u) * c.x + pf(9u) * c.y + pf(10u) * c.z,
         );
     }
-    put_rgb(i, max(c * 1.0, vec3<f32>(0.0)));
+    put_rgb(i, c);
 }
 
 // Luminance NR: scale by 2^((f − l)·k) (a: image, b: log luminance l, c: filtered f). P[1] = k.
-@compute @workgroup_size(256)
-fn nr_lum(@builtin(global_invocation_id) g: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
-    let i = lin_index(g, nw);
-    if (i >= pu(0u)) {
-        return;
-    }
-    let d = (c[i] - b[i]) * pf(1u);
-    put_rgb(i, rgb_a(i) * exp2(d));
-}
+
 
 // Chromaticity rgb / Y.
 @compute @workgroup_size(256)
@@ -158,18 +142,7 @@ fn chroma_k(@builtin(global_invocation_id) g: vec3<u32>, @builtin(num_workgroups
 
 // Colour NR: blend chromaticity towards its blur and re-apply luminance (a: image, b: chroma,
 // c: blurred chroma). P[1] = t.
-@compute @workgroup_size(256)
-fn nr_col(@builtin(global_invocation_id) g: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
-    let i = lin_index(g, nw);
-    if (i >= pu(0u)) {
-        return;
-    }
-    let yl = lum2020(rgb_a(i));
-    let t = pf(1u);
-    let c0 = vec3<f32>(b[3u * i], b[3u * i + 1u], b[3u * i + 2u]);
-    let cb = vec3<f32>(c[3u * i], c[3u * i + 1u], c[3u * i + 2u]);
-    put_rgb(i, max((c0 + (cb - c0) * t) * yl, vec3<f32>(0.0)));
-}
+
 
 // Every P[1]-th value of `a` (airlight sampling). P[0] = output count.
 @compute @workgroup_size(256)
@@ -225,4 +198,26 @@ fn redeye_k(@builtin(global_invocation_id) g: vec3<u32>, @builtin(num_workgroups
         }
     }
     put_rgb(i, c);
+}
+
+@compute @workgroup_size(256)
+fn xguided_refine(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) nw: vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)) {return;}
+    let q=clamp(b[2u*i]*a[i]+b[2u*i+1u],0.0,1.0);dst[i]=c[i]+(q-c[i])*pf(1u);
+}
+
+// Tone equalizer luminance compensation, before the faithful linear EIGF.
+@compute @workgroup_size(256)
+fn toneeq_lum(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)){return;}let v=rgb_a(i);
+    let norm=teq_mul(teq_sqrt(teq_add(teq_add(teq_mul(v.x,v.x),teq_mul(v.y,v.y)),teq_mul(v.z,v.z))),pf(1u));
+    dst[i]=max(teq_add(teq_mul(teq_add(norm,-0.0625),pf(2u)),0.0625),0.0000152587890625);
+}
+@compute @workgroup_size(256)
+fn toneeq_log(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)){return;}dst[i]=log2(max(a[i],0.0000152587890625));
+}
+@compute @workgroup_size(256)
+fn toneeq_preview(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
+    let i=lin_index(g,nw);if(i>=pu(0u)){return;}dst[i]=floor(clamp(a[i],-8.0,0.0)+8.0+0.5)/8.0;
 }

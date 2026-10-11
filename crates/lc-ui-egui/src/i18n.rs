@@ -121,6 +121,14 @@ language_table! {
     ZhHant, "zh-hant", "繁體中文（台灣）", "Hant", include_str!("../locales/zh-hant.json");
     Ja, "ja", "日本語", "Jpan", include_str!("../locales/ja.json");
     PtBr, "pt-br", "Português (Brasil)", "Latn", include_str!("../locales/pt-br.json");
+    Ko, "ko", "한국어", "Kore", include_str!("../locales/ko.json");
+    De, "de", "Deutsch", "Latn", include_str!("../locales/de.json");
+    Fr, "fr", "Français", "Latn", include_str!("../locales/fr.json");
+    Es, "es", "Español", "Latn", include_str!("../locales/es.json");
+    It, "it", "Italiano", "Latn", include_str!("../locales/it.json");
+    Ru, "ru", "Русский", "Cyrl", include_str!("../locales/ru.json");
+    Cs, "cs", "Čeština", "Latn", include_str!("../locales/cs.json");
+    Id, "id", "Bahasa Indonesia", "Latn", include_str!("../locales/id.json");
 }
 
 // The settings file stores the BCP-47 code (`"zh-hans"`), never the Rust variant name, so a
@@ -272,6 +280,41 @@ pub fn display_time(iso: &str) -> String {
     }
 }
 
+/// Owner paused translations, 2026-10-10: new Enhance export strings remain English.
+pub const PENDING_ENHANCE_TRANSLATIONS: &[&str] = &[
+    "Enlarges clean photos while preserving their detail.",
+    "Enlarges photos and cleans noise, JPEG artefacts and mild blur.",
+    "Adds detail with SeedVR2. The result may change textures.",
+    "AI Enhancement:",
+    "Standard resize",
+    "Faithful",
+    "Rescue",
+    "Generative (SeedVR2)",
+    "AI enlargement uses local models. Download them in Settings › Local AI. Up to 4×; model input is sRGB 8-bit.",
+];
+
+/// Owner deferred translations for this task (2026-10-10). Remove as translations land.
+pub const PENDING_AI_DENOISE_TRANSLATIONS: &[&str] = &[
+    "AI Denoise",
+    "AI Denoise model",
+    "Model",
+    "Auto",
+    "Raw",
+    "RGB",
+    "Strength",
+    "Preview",
+    "Apply AI Denoise",
+    "Denoise to new DNG/TIFF…",
+    "Saving a denoised file is unavailable in this host.",
+    "Download AI Denoise Model",
+    "Denoise to new file",
+    "Loading the photo",
+    "Denoising",
+    "Denoised image",
+    "Preview result — run full resolution before exporting.",
+    "Model downloads are available in Settings › Local AI.",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,7 +387,9 @@ mod tests {
         assert_eq!(Locale::parse_tag("pt-BR"), Some(Locale::PtBr));
         assert_eq!(Locale::parse_tag("pt_BR.UTF-8"), Some(Locale::PtBr));
         assert_eq!(Locale::parse_tag("pt"), Some(Locale::PtBr));
-        assert_eq!(Locale::parse_tag("de"), None);
+        assert_eq!(Locale::parse_tag("de_DE.UTF-8"), Some(Locale::De));
+        assert_eq!(Locale::parse_tag("ko-KR"), Some(Locale::Ko));
+        assert_eq!(Locale::parse_tag("nl"), None);
     }
 
     #[test]
@@ -385,7 +430,8 @@ mod tests {
             let text = tr_format!("{count} smart preview{} · {:.1} MB", "s", 12.345, count = 3);
             assert!(text.contains("12.3") && !text.contains("12.34"), "{language:?}: {text}");
             let merging = tr_format!("Merging… {stage} {:.0}%", 42.4, stage = "Aligning");
-            assert!(merging.contains("42%"), "{language:?}: {merging}");
+            // French puts a (narrow) space before the percent sign.
+            assert!(merging.replace([' ', '\u{a0}', '\u{202f}'], "").contains("42%"), "{language:?}: {merging}");
             let delta = tr_format!("{label} {d:+} on every selected photo", label = "Exposure", d = 5);
             assert!(delta.contains("+5"), "{language:?}: {delta}");
             let reading = tr_format!("Reading photos… {} of {}", 3, 10);
@@ -466,6 +512,14 @@ mod tests {
             ("app.language.simplifiedChinese", Locale::ZhHans),
             ("app.language.japanese", Locale::Ja),
             ("app.language.portuguese", Locale::PtBr),
+            ("app.language.korean", Locale::Ko),
+            ("app.language.german", Locale::De),
+            ("app.language.french", Locale::Fr),
+            ("app.language.spanish", Locale::Es),
+            ("app.language.italian", Locale::It),
+            ("app.language.russian", Locale::Ru),
+            ("app.language.czech", Locale::Cs),
+            ("app.language.indonesian", Locale::Id),
         ];
         // One command per language, and every command reachable from the menu table.
         assert_eq!(commands.len(), Locale::ALL.len());

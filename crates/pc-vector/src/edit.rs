@@ -3,6 +3,10 @@
 //! points, and hit-test a path's parts. Pure geometry on [`Path`]; the engine's `path.*` edit
 //! commands and the canvas previews share it, so a preview is exactly what the command commits.
 //!
+//! Node deletion/conversion is adapted from VectorCraft crates/pathops/src/edit.rs at
+//! d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).
+//! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
+//!
 //! Knots are addressed as `[subpath, knot]`. Every edit validates its indices and returns an
 //! error message instead of panicking.
 
@@ -102,7 +106,7 @@ fn keep_smooth(k: &mut Knot, h: Handle) {
 }
 
 /// Moves anchors (with their handles) by `d`. Each knot moves once, however often it is listed.
-pub fn move_anchors(path: &mut Path, anchors: &[[usize; 2]], d: [f64; 2]) -> Result<(), String> {
+fn move_anchors_unchecked(path: &mut Path, anchors: &[[usize; 2]], d: [f64; 2]) -> Result<(), String> {
     let mut list = anchors.to_vec();
     list.sort_unstable();
     list.dedup();
@@ -118,7 +122,7 @@ pub fn move_anchors(path: &mut Path, anchors: &[[usize; 2]], d: [f64; 2]) -> Res
 
 /// Puts handle `h` of a knot at `to`. A smooth knot turns its other handle to stay collinear,
 /// unless `independent` (Convert Point / ⌥), which makes it a corner whose handles move apart.
-pub fn move_handle(path: &mut Path, knot: [usize; 2], h: Handle, to: Point, independent: bool) -> Result<(), String> {
+fn move_handle_unchecked(path: &mut Path, knot: [usize; 2], h: Handle, to: Point, independent: bool) -> Result<(), String> {
     let k = knot_mut(path, knot)?;
     *handle_mut(k, h) = to;
     if independent {
@@ -130,7 +134,7 @@ pub fn move_handle(path: &mut Path, knot: [usize; 2], h: Handle, to: Point, inde
 
 /// Convert Point: without `out`, a corner with retracted handles (a click on an anchor); with
 /// `out`, a smooth knot whose handles are `out` and its mirror (a drag from an anchor).
-pub fn convert_point(path: &mut Path, knot: [usize; 2], out: Option<Point>) -> Result<(), String> {
+fn convert_point_unchecked(path: &mut Path, knot: [usize; 2], out: Option<Point>) -> Result<(), String> {
     let k = knot_mut(path, knot)?;
     let a = k.anchor;
     *k = match out {
@@ -143,13 +147,13 @@ pub fn convert_point(path: &mut Path, knot: [usize; 2], out: Option<Point>) -> R
 /// Drags the segment leaving `knot` at curve parameter `t` by `d`. A straight segment (both
 /// handles retracted) moves with its two anchors; a curve reshapes so the point at `t` follows
 /// the pointer exactly, with the nearer handle moving more. Smooth end knots stay smooth.
-pub fn bend_segment(path: &mut Path, knot: [usize; 2], t: f64, d: [f64; 2]) -> Result<(), String> {
+fn bend_segment_unchecked(path: &mut Path, knot: [usize; 2], t: f64, d: [f64; 2]) -> Result<(), String> {
     let end = segment_end(path, knot)?;
     let retracted = |k: &Knot, h: Handle| dist(handle(k, h), k.anchor) < 1e-9;
     let a = *knot_mut(path, knot)?;
     let b = *knot_mut(path, end)?;
     if retracted(&a, Handle::Out) && retracted(&b, Handle::In) {
-        return move_anchors(path, &[knot, end], d);
+        return move_anchors_unchecked(path, &[knot, end], d);
     }
     // B(t) moves by 3(1−t)²t·Δc1 + 3(1−t)t²·Δc2. With Δc1 = (1−t)·s·d and Δc2 = t·s·d that is
     // 3t(1−t)((1−t)² + t²)·s·d, so s below makes it exactly d. The ends are clamped: a drag right
@@ -199,7 +203,8 @@ pub fn hit(path: &Path, p: Point, tol: f64, handles: &[([usize; 2], Handle)]) ->
     let knot = |r: [usize; 2]| path.subpaths.get(r[0]).and_then(|sp| sp.knots.get(r[1]));
     let on_handle = nearest(&mut handles.iter().filter_map(|&(r, h)| {
         let k = knot(r)?;
-        Some((dist(handle(k, h), p), Hit::Handle(r, h)))
+        let d = dist(handle(k, h), p);
+        (d < dist(k.anchor, p)).then_some((d, Hit::Handle(r, h)))
     }));
     if on_handle.is_some() {
         return on_handle;
@@ -223,6 +228,322 @@ pub fn hit(path: &Path, p: Point, tol: f64, handles: &[([usize; 2], Handle)]) ->
         })
     });
     nearest(&mut segs)
+}
+
+fn checked(path: &mut Path, f: impl FnOnce(&mut Path) -> Result<(), String>) -> Result<(), String> {
+    validate(path)?;
+    let mut edited = path.clone();
+    f(&mut edited)?;
+    validate(&edited)?;
+    *path = edited;
+    Ok(())
+}
+fn check_numbers(numbers: &[f64]) -> Result<(), String> {
+    if numbers.iter().any(|n| !n.is_finite() || n.abs() > MAX_COORDINATE) {
+        return Err("node input must be finite and bounded".into());
+    }
+    Ok(())
+}
+/// Moves anchors and handles once each, rejecting invalid input/result without mutation.
+pub fn move_anchors(path: &mut Path, anchors: &[[usize; 2]], delta: [f64; 2]) -> Result<(), String> {
+    check_numbers(&delta)?;
+    checked(path, |p| move_anchors_unchecked(p, anchors, delta))
+}
+/// Moves one handle, keeping the opposite collinear unless independent.
+pub fn move_handle(path: &mut Path, knot: [usize; 2], handle: Handle, to: Point, independent: bool) -> Result<(), String> {
+    check_numbers(&[to.x, to.y])?;
+    checked(path, |p| move_handle_unchecked(p, knot, handle, to, independent))
+}
+/// Retracts or mirrors a knot's handles; input and resulting coordinates are bounded.
+pub fn convert_point(path: &mut Path, knot: [usize; 2], out: Option<Point>) -> Result<(), String> {
+    if let Some(p) = out {
+        check_numbers(&[p.x, p.y])?;
+    }
+    checked(path, |p| convert_point_unchecked(p, knot, out))
+}
+/// Bends the chosen cubic at t, or translates a straight segment's anchors.
+pub fn bend_segment(path: &mut Path, knot: [usize; 2], t: f64, delta: [f64; 2]) -> Result<(), String> {
+    check_numbers(&delta)?;
+    if !t.is_finite() || !(0.0..=1.0).contains(&t) {
+        return Err("bend t must be in 0..1".into());
+    }
+    checked(path, |p| bend_segment_unchecked(p, knot, t, delta))
+}
+
+/// Coordinate budget shared by node previews and engine commits.
+pub const MAX_COORDINATE: f64 = 1_000_000.0;
+
+/// Validate before publishing a detached edit, including its resulting handles.
+pub fn validate(path: &Path) -> Result<(), String> {
+    if path
+        .subpaths
+        .iter()
+        .flat_map(|sp| &sp.knots)
+        .flat_map(|k| [k.anchor, k.in_ctrl, k.out_ctrl])
+        .any(|p| !p.x.is_finite() || !p.y.is_finite() || p.x.abs() > MAX_COORDINATE || p.y.abs() > MAX_COORDINATE)
+    {
+        return Err("node coordinates must be finite and at most 1000000 in magnitude".into());
+    }
+    Ok(())
+}
+
+/// New-index → old-index provenance, used to remap live corners and node selection atomically.
+/// Inserted nodes have no origin; a broken curve can contain the same origin at both ends.
+pub type Origins = Vec<Vec<Option<[usize; 2]>>>;
+
+pub fn origins(path: &Path) -> Origins {
+    path.subpaths.iter().enumerate().map(|(s, sp)| (0..sp.knots.len()).map(|k| Some([s, k])).collect()).collect()
+}
+
+fn selected(path: &mut Path, anchors: &[[usize; 2]]) -> Result<Vec<[usize; 2]>, String> {
+    let mut list = anchors.to_vec();
+    list.sort_unstable();
+    list.dedup();
+    for &r in &list {
+        knot_mut(path, r)?;
+    }
+    Ok(list)
+}
+
+fn lerp(a: Point, b: Point, t: f64) -> Point {
+    Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+}
+
+fn checked_topology(path: &mut Path, f: impl FnOnce(&mut Path) -> Result<Origins, String>) -> Result<Origins, String> {
+    validate(path)?;
+    let mut edited = path.clone();
+    let map = f(&mut edited)?;
+    validate(&edited)?;
+    *path = edited;
+    Ok(map)
+}
+/// Inserts an exact cubic knot, returning new-to-old provenance without partial mutation.
+pub fn insert(path: &mut Path, knot: [usize; 2], t: f64) -> Result<Origins, String> {
+    checked_topology(path, |p| insert_unchecked(p, knot, t))
+}
+/// Deletes selected knots, refitting the neighboring cubics and returning index provenance.
+pub fn delete(path: &mut Path, anchors: &[[usize; 2]]) -> Result<Origins, String> {
+    checked_topology(path, |p| delete_unchecked(p, anchors))
+}
+/// Converts a set of knots using one common neighbor snapshot.
+pub fn set_kind(path: &mut Path, anchors: &[[usize; 2]], kind: PointKind) -> Result<(), String> {
+    checked(path, |p| set_kind_unchecked(p, anchors, kind))
+}
+/// Reverses the selected subpaths and swaps their incoming/outgoing handles.
+pub fn reverse_nodes(path: &mut Path, anchors: &[[usize; 2]]) -> Result<Origins, String> {
+    checked_topology(path, |p| reverse_nodes_unchecked(p, anchors))
+}
+/// Closes selected curves; all selected subpaths are validated before publication.
+pub fn close_nodes(path: &mut Path, anchors: &[[usize; 2]]) -> Result<(), String> {
+    checked(path, |p| close_nodes_unchecked(p, anchors))
+}
+/// Applies a bounded finite affine to selected knots and their handles.
+pub fn transform_nodes(path: &mut Path, anchors: &[[usize; 2]], matrix: &photocraft_geom::Affine) -> Result<(), String> {
+    check_numbers(&matrix.m)?;
+    checked(path, |p| transform_nodes_unchecked(p, anchors, matrix))
+}
+
+/// Exact de Casteljau insertion; both adjacent cubic pieces retain the original shape.
+fn insert_unchecked(path: &mut Path, [s, k]: [usize; 2], t: f64) -> Result<Origins, String> {
+    if !t.is_finite() || !(0.0 < t && t < 1.0) {
+        return Err("insertion t must be between 0 and 1, exclusive".into());
+    }
+    let end = segment_end(path, [s, k])?;
+    let mut map = origins(path);
+    let a = *knot_mut(path, [s, k])?;
+    let b = *knot_mut(path, end)?;
+    let (ab, bc, cd) = (lerp(a.anchor, a.out_ctrl, t), lerp(a.out_ctrl, b.in_ctrl, t), lerp(b.in_ctrl, b.anchor, t));
+    let (abc, bcd) = (lerp(ab, bc, t), lerp(bc, cd, t));
+    let mid = lerp(abc, bcd, t);
+    let straight = a.out_ctrl == a.anchor && b.in_ctrl == b.anchor;
+    knot_mut(path, [s, k])?.out_ctrl = ab;
+    knot_mut(path, end)?.in_ctrl = cd;
+    path.subpaths[s].knots.insert(k + 1, Knot { anchor: mid, in_ctrl: abc, out_ctrl: bcd, smooth: !straight });
+    map[s].insert(k + 1, None);
+    Ok(map)
+}
+
+/// Adapted from VectorCraft pathops/edit.rs::remove_anchor at d522c1d7 (MIT OR Apache-2.0).
+/// Fit the facing handles along the original end tangents, searching the join parameter.
+/// This preserves an inserted cubic exactly (to floating point precision) and minimizes the
+/// sampled error for general deletion; arbitrary corners cannot be preserved by one cubic.
+fn merged_handles(left: [Point; 4], right: [Point; 4]) -> (Point, Point) {
+    let direction = |a: Point, b: Point, fallback: Point| {
+        let v = Point::new(b.x - a.x, b.y - a.y);
+        let len = v.x.hypot(v.y);
+        if len > 1e-12 {
+            Point::new(v.x / len, v.y / len)
+        } else {
+            let v = Point::new(fallback.x - a.x, fallback.y - a.y);
+            let len = v.x.hypot(v.y).max(1e-12);
+            Point::new(v.x / len, v.y / len)
+        }
+    };
+    let v0 = direction(left[0], left[1], right[3]);
+    let v1 = direction(right[3], right[2], left[0]);
+    let fit = |join: f64| {
+        let (mut aa, mut ab, mut bb, mut ax, mut bx) = (0.0, 0.0, 0.0, 0.0, 0.0);
+        let mut samples = Vec::with_capacity(33);
+        for i in 0..=32 {
+            let (q, t) = if i <= 16 {
+                (eval(&left, i as f64 / 16.0), join * i as f64 / 16.0)
+            } else {
+                (eval(&right, (i - 16) as f64 / 16.0), join + (1.0 - join) * (i - 16) as f64 / 16.0)
+            };
+            let u = 1.0 - t;
+            let (b1, b2) = (3.0 * u * u * t, 3.0 * u * t * t);
+            let base = lerp(left[0], right[3], b2 + t * t * t);
+            let r = Point::new(q.x - base.x, q.y - base.y);
+            aa += b1 * b1;
+            ab += b1 * b2 * (v0.x * v1.x + v0.y * v1.y);
+            bb += b2 * b2;
+            ax += b1 * (r.x * v0.x + r.y * v0.y);
+            bx += b2 * (r.x * v1.x + r.y * v1.y);
+            samples.push((q, t));
+        }
+        let det = aa * bb - ab * ab;
+        let fallback = dist(left[0], right[3]) / 3.0;
+        let (a, b) = if det.abs() > 1e-12 { ((ax * bb - bx * ab) / det, (bx * aa - ax * ab) / det) } else { (fallback, fallback) };
+        let (a, b) = (a.max(0.0), b.max(0.0));
+        let c1 = add(left[0], [v0.x * a, v0.y * a]);
+        let c2 = add(right[3], [v1.x * b, v1.y * b]);
+        let seg = [left[0], c1, c2, right[3]];
+        let error: f64 = samples.iter().map(|(p, t)| dist(*p, eval(&seg, *t)).powi(2)).sum();
+        (error, c1, c2)
+    };
+    // Coarse search avoids choosing the wrong local minimum on cusps, then bounded golden search.
+    let best = (1..100).map(|i| (i as f64 / 100.0, fit(i as f64 / 100.0).0)).min_by(|a, b| a.1.total_cmp(&b.1)).map_or(0.5, |b| b.0);
+    let (mut lo, mut hi) = ((best - 0.01).max(0.000001), (best + 0.01).min(0.999999));
+    for _ in 0..48 {
+        let (a, b) = (hi - (hi - lo) * 0.618_033_988_749_895, lo + (hi - lo) * 0.618_033_988_749_895);
+        if fit(a).0 < fit(b).0 {
+            hi = b;
+        } else {
+            lo = a;
+        }
+    }
+    let (_, a, b) = fit((lo + hi) * 0.5);
+    (a, b)
+}
+
+fn delete_unchecked(path: &mut Path, anchors: &[[usize; 2]]) -> Result<Origins, String> {
+    let list = selected(path, anchors)?;
+    let mut map = origins(path);
+    for [s, k] in list.into_iter().rev() {
+        let sp = &mut path.subpaths[s];
+        let n = sp.knots.len();
+        if n >= 3 && (sp.closed || (k > 0 && k + 1 < n)) {
+            let (prev, next) = ((k + n - 1) % n, (k + 1) % n);
+            let (a, m, b) = (sp.knots[prev], sp.knots[k], sp.knots[next]);
+            if a.out_ctrl != a.anchor || m.in_ctrl != m.anchor || m.out_ctrl != m.anchor || b.in_ctrl != b.anchor {
+                let (out, incoming) = merged_handles([a.anchor, a.out_ctrl, m.in_ctrl, m.anchor], [m.anchor, m.out_ctrl, b.in_ctrl, b.anchor]);
+                sp.knots[prev].out_ctrl = out;
+                sp.knots[next].in_ctrl = incoming;
+            }
+        }
+        sp.knots.remove(k);
+        map[s].remove(k);
+        if sp.knots.len() < 3 {
+            sp.closed = sp.closed && sp.knots.len() == 2 && sp.knots.iter().any(|a| a.in_ctrl != a.anchor || a.out_ctrl != a.anchor);
+        }
+        if !sp.closed {
+            if let Some(a) = sp.knots.first_mut() {
+                a.in_ctrl = a.anchor;
+            }
+            if let Some(a) = sp.knots.last_mut() {
+                a.out_ctrl = a.anchor;
+            }
+        }
+    }
+    let keep: Vec<_> = path.subpaths.iter().enumerate().filter(|(_, sp)| !sp.knots.is_empty()).map(|(s, _)| s).collect();
+    path.subpaths = keep.iter().map(|&s| path.subpaths[s].clone()).collect();
+    Ok(keep.iter().map(|&s| map[s].clone()).collect())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointKind {
+    Sharp,
+    Smooth,
+    Smart,
+}
+
+/// Smooth keeps existing handle lengths; Smart recalculates lengths from adjacent chords.
+/// Neighbours are read from the same snapshot, so multi-node conversion is order-independent.
+fn set_kind_unchecked(path: &mut Path, anchors: &[[usize; 2]], kind: PointKind) -> Result<(), String> {
+    let list = selected(path, anchors)?;
+    let base = path.clone();
+    for [s, i] in list {
+        let sp = &base.subpaths[s];
+        let a = sp.knots[i].anchor;
+        if kind == PointKind::Sharp {
+            *knot_mut(path, [s, i])? = Knot::corner(a.x, a.y);
+            continue;
+        }
+        let n = sp.knots.len();
+        let prev = if i > 0 || sp.closed { sp.knots[(i + n - 1) % n].anchor } else { a };
+        let next = if i + 1 < n || sp.closed { sp.knots[(i + 1) % n].anchor } else { a };
+        let old = sp.knots[i];
+        let dir = if kind == PointKind::Smooth && dist(old.in_ctrl, old.out_ctrl) > 1e-9 {
+            Point::new(old.out_ctrl.x - old.in_ctrl.x, old.out_ctrl.y - old.in_ctrl.y)
+        } else {
+            Point::new(next.x - prev.x, next.y - prev.y)
+        };
+        let len = dir.x.hypot(dir.y);
+        let (x, y) = if len > 1e-9 { (dir.x / len, dir.y / len) } else { (1.0, 0.0) };
+        let lengths = if kind == PointKind::Smooth { (dist(a, old.in_ctrl), dist(a, old.out_ctrl)) } else { (0.0, 0.0) };
+        let (incoming, outgoing) =
+            (if lengths.0 > 1e-9 { lengths.0 } else { dist(a, prev) / 3.0 }, if lengths.1 > 1e-9 { lengths.1 } else { dist(a, next) / 3.0 });
+        *knot_mut(path, [s, i])? = Knot::smooth(a, Point::new(a.x - x * incoming, a.y - y * incoming), Point::new(a.x + x * outgoing, a.y + y * outgoing));
+    }
+    Ok(())
+}
+
+/// Reverse selected subpaths without reordering PSD components or changing winding semantics.
+fn reverse_nodes_unchecked(path: &mut Path, anchors: &[[usize; 2]]) -> Result<Origins, String> {
+    let list = selected(path, anchors)?;
+    let mut subs = Vec::new();
+    for [s, _] in list {
+        let mut root = s;
+        while root > 0 && path.subpaths[root].op == photocraft_doc::PathOp::Join {
+            root -= 1;
+        }
+        subs.push(root);
+        let mut next = root + 1;
+        while next < path.subpaths.len() && path.subpaths[next].op == photocraft_doc::PathOp::Join {
+            subs.push(next);
+            next += 1;
+        }
+    }
+    subs.sort_unstable();
+    subs.dedup();
+    let mut map = origins(path);
+    for s in subs {
+        path.subpaths[s].knots.reverse();
+        for k in &mut path.subpaths[s].knots {
+            std::mem::swap(&mut k.in_ctrl, &mut k.out_ctrl);
+        }
+        map[s].reverse();
+    }
+    Ok(map)
+}
+
+fn close_nodes_unchecked(path: &mut Path, anchors: &[[usize; 2]]) -> Result<(), String> {
+    for [s, _] in selected(path, anchors)? {
+        if path.subpaths[s].knots.len() < 2 {
+            return Err("close requires two nodes".into());
+        }
+        path.subpaths[s].closed = true;
+    }
+    Ok(())
+}
+
+/// Transform anchors and their handles together; unselected knots stay in document space.
+fn transform_nodes_unchecked(path: &mut Path, anchors: &[[usize; 2]], matrix: &photocraft_geom::Affine) -> Result<(), String> {
+    for r in selected(path, anchors)? {
+        let k = knot_mut(path, r)?;
+        *k = k.transform(matrix);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -337,5 +658,83 @@ mod tests {
         assert_eq!(anchors_in(&p, [110.0, -5.0, 40.0, 5.0]), vec![[0, 1]]);
         assert_eq!(subpath_anchors(&p, 0), vec![[0, 0], [0, 1], [0, 2]]);
         assert!(subpath_anchors(&p, 4).is_empty());
+    }
+    #[test]
+    fn node_insert_preserves_every_sample_and_delete_recovers_the_cubic() {
+        let a = Point::new(10.0, 40.0);
+        let b = Point::new(120.0, 50.0);
+        let mut sp = Subpath::polyline(&[(a.x, a.y), (b.x, b.y)]);
+        sp.knots[0].out_ctrl = Point::new(20.0, -40.0);
+        sp.knots[1].in_ctrl = Point::new(100.0, 120.0);
+        let original = Path::new(vec![sp]);
+        let cubic = original.subpaths[0].segments()[0];
+        for t in [0.1, 0.37, 0.5, 0.85] {
+            let mut p = original.clone();
+            insert(&mut p, [0, 0], t).unwrap();
+            let pieces = p.subpaths[0].segments();
+            for i in 0..=100 {
+                let u = i as f64 / 100.0;
+                let sample = if u <= t { eval(&pieces[0], u / t) } else { eval(&pieces[1], (u - t) / (1.0 - t)) };
+                assert!(dist(sample, eval(&cubic, u)) < 1e-10);
+            }
+            delete(&mut p, &[[0, 1]]).unwrap();
+            let merged = p.subpaths[0].segments()[0];
+            for i in 0..=100 {
+                let u = i as f64 / 100.0;
+                assert!(dist(eval(&merged, u), eval(&cubic, u)) < 1e-6, "t {t}");
+            }
+        }
+    }
+    #[test]
+    fn node_closed_insert_delete_and_provenance_reorder() {
+        let mut p = tri();
+        let original = p.clone();
+        let map = insert(&mut p, [0, 2], 0.5).unwrap();
+        assert_eq!(map[0], vec![Some([0, 0]), Some([0, 1]), Some([0, 2]), None]);
+        delete(&mut p, &[[0, 3]]).unwrap();
+        for (a, b) in p.subpaths[0].segments().iter().zip(original.subpaths[0].segments()) {
+            for i in 0..=100 {
+                let t = i as f64 / 100.0;
+                assert!(dist(eval(a, t), eval(&b, t)) < 1e-5);
+            }
+        }
+        let map = reverse_nodes(&mut p, &[[0, 0]]).unwrap();
+        assert_eq!(map[0][0], Some([0, 2]));
+    }
+    #[test]
+    fn node_nonfinite_and_overflow_leave_geometry_unchanged() {
+        let mut p = tri();
+        let before = p.clone();
+        assert!(move_anchors(&mut p, &[[0, 0]], [f64::NAN, 1.0]).is_err());
+        assert!(move_anchors(&mut p, &[[0, 1]], [MAX_COORDINATE, 0.0]).is_err());
+        assert!(convert_point(&mut p, [0, 1], Some(Point::new(-1e6, 0.0))).is_err());
+        assert!(bend_segment(&mut p, [0, 0], f64::NAN, [1.0, 0.0]).is_err());
+        assert_eq!(p, before);
+    }
+    #[test]
+    fn node_smooth_and_smart_are_collinear_and_sharp_retracts() {
+        for kind in [PointKind::Smooth, PointKind::Smart] {
+            let mut p = tri();
+            set_kind(&mut p, &[[0, 0], [0, 1], [0, 2]], kind).unwrap();
+            for k in &p.subpaths[0].knots {
+                let a = Point::new(k.in_ctrl.x - k.anchor.x, k.in_ctrl.y - k.anchor.y);
+                let b = Point::new(k.out_ctrl.x - k.anchor.x, k.out_ctrl.y - k.anchor.y);
+                assert!((a.x * b.y - a.y * b.x).abs() < 1e-9);
+                assert!(k.smooth);
+            }
+            set_kind(&mut p, &[[0, 1]], PointKind::Sharp).unwrap();
+            assert_eq!(p.subpaths[0].knots[1], Knot::corner(100.0, 0.0));
+        }
+    }
+    #[test]
+    fn node_reverse_keeps_psd_component_holes_by_coverage_oracle() {
+        let outer = Subpath::polygon(&[(2.0, 2.0), (30.0, 2.0), (30.0, 30.0), (2.0, 30.0)]);
+        let hole = Subpath::polygon(&[(8.0, 8.0), (8.0, 24.0), (24.0, 24.0), (24.0, 8.0)]).with_op(photocraft_doc::PathOp::Join);
+        let mut path = Path::new(vec![outer, hole]);
+        let rect = photocraft_geom::Rect::new(0, 0, 32, 32);
+        let before = crate::path_coverage(&path, rect);
+        assert_eq!(before[12 * 32 + 12], 0.0);
+        reverse_nodes(&mut path, &[[1, 0]]).unwrap();
+        assert_eq!(crate::path_coverage(&path, rect), before);
     }
 }

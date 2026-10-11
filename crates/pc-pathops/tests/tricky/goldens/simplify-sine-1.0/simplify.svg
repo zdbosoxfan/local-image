@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Original Local Image synthetic input. SPDX-License-Identifier: CC0-1.0 -->
+
+<svg
+   width="96"
+   height="96"
+   version="1.1"
+   id="svg1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <path
+     id="a"
+     d="m 32,48 c 5.28006577741269,4.12533849742411 11.35218898646656,9.17724405590821 18.56,7.748665289 C 55.73820110950405,54.67671014003347 59.92264164619164,51.14275293271976 64,48"
+     fill="black" />
+</svg>

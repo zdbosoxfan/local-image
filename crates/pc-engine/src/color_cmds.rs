@@ -652,6 +652,15 @@ pub fn convert_document(doc: &mut Document, dst: &Profile, intent: Intent, bpc: 
         convert_layer_colors(l, from_mode, to_mode, &t);
         // Preserved PSD blocks describing colours in the old mode no longer apply.
     }
+    for def in &mut doc.symbols {
+        crate::image_cmds::for_each_surface(&mut def.layers, false, &mut |surf, _| {
+            let f = PixelFormat { alpha: surf.format().alpha, ..fmt };
+            *surf = convert_surface(surf, from_mode, f, &t);
+        });
+        for l in &mut def.layers {
+            convert_layer_colors(l, from_mode, to_mode, &t);
+        }
+    }
     doc.mode = to_mode;
     doc.icc_profile = Some(dst.to_bytes());
     // Leaving Indexed / Duotone: the palette and inks no longer apply.

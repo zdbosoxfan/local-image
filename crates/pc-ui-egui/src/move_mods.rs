@@ -5,14 +5,12 @@
 //!   hysteresis keeps it from flickering near the diagonal. Free Transform uses the same rule with
 //!   eight directions ([`constrain`]).
 //! - ⌥ held when the drag starts duplicates the selected layer(s) (groups included) once the
-//!   pointer actually moves, and the drag then moves the copies. Duplicate and move land as one
-//!   history step ("Duplicate + Move"). ⇧⌥ combines both.
+//!   pointer actually moves. Copies remain transient until release, which commits one
+//!   history/journal step ("Duplicate + Move"). ⇧⌥ combines both.
 //! - Arrow keys nudge the selected layers 1 px (⇧: 10 px); ⌥ duplicates first. While Free
 //!   Transform is active they nudge the box instead.
 //!
-//! The hooks are small and local: [`filter_event`] rewrites pointer events before the Move tool
-//! sees them and [`finish`] folds the history after the drag, so the Move drag pipeline itself is
-//! untouched.
+//! [`filter_event`] rewrites pointer events and prepares the transient copy document.
 
 use serde_json::json;
 
@@ -27,9 +25,6 @@ pub const TRANSFORM_DIRECTIONS: u32 = 8;
 /// Extra angle (degrees) the pointer must pass the half-way line by before the locked axis
 /// switches, so it doesn't flicker when dragging near the diagonal.
 const HYSTERESIS_DEG: f64 = 8.0;
-/// ⌥-drag duplicates only once the pointer has moved this far (screen points), so an ⌥-click
-/// without a drag doesn't make a copy (Photoshop).
-const DUPLICATE_THRESHOLD: f64 = 2.0;
 /// History label of an ⌥-drag / ⌥-nudge.
 pub const DUPLICATE_MOVE_LABEL: &str = "Duplicate + Move";
 
@@ -68,42 +63,16 @@ pub struct MoveDrag {
     alt: bool,
     /// The last offset after ⇧ locking (keeps the locked axis stable).
     last: Option<[f64; 2]>,
-    /// History length before the ⌥-drag duplicated (set once it has).
-    dup_from: Option<usize>,
-}
-
-fn past_len(app: &PhotocraftApp) -> Option<usize> {
-    app.session.active().map(|st| st.history.past_len())
+    /// Prepared copies, without a session edit.
+    copies: Option<(std::sync::Arc<photocraft_doc::Document>, Vec<photocraft_doc::LayerId>)>,
 }
 
 fn moving(app: &PhotocraftApp) -> bool {
     app.drag.as_ref().is_some_and(|d| d.tool == Tool::Move)
 }
 
-/// Duplicates the selected layers (the copies become the selection), remembering the history
-/// length before so [`fold_history`] can merge the copy and the move into one step.
-fn duplicate(app: &mut PhotocraftApp) -> Option<usize> {
-    let before = past_len(app)?;
-    match app.run("layer.duplicate", json!({})) {
-        Ok(_) => Some(before),
-        Err(e) => {
-            app.ui.status = e;
-            None
-        }
-    }
-}
-
-/// Merges every history step after `from` into one "Duplicate + Move" step.
-fn fold_history(app: &mut PhotocraftApp, from: usize) {
-    let Some(st) = app.session.active_mut() else { return };
-    while st.history.past_len() > from + 1 {
-        if !st.history.purge_last() {
-            break;
-        }
-    }
-    if st.history.past_len() == from + 1 {
-        st.history.set_current_label(DUPLICATE_MOVE_LABEL);
-    }
+pub(crate) fn copy_source(app: &PhotocraftApp) -> Option<(std::sync::Arc<photocraft_doc::Document>, Vec<photocraft_doc::LayerId>)> {
+    app.move_mods.copies.clone()
 }
 
 /// Rewrites a Move-tool pointer event for the held modifiers: ⇧ locks it to an axis, and the
@@ -115,7 +84,8 @@ pub fn filter_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifier
     }
     match ev {
         ToolEvent::Down { x, y, .. } => {
-            app.move_mods = MoveDrag { start: Some([x, y]), alt: mods.alt, last: None, dup_from: None };
+            let pixels = app.session.active().is_some_and(|s| s.doc.selection.is_some());
+            app.move_mods = MoveDrag { start: Some([x, y]), alt: mods.alt && !pixels, last: None, copies: None };
             ev
         }
         ToolEvent::Move { x, y, pressure } => {
@@ -136,29 +106,35 @@ fn drag_to(app: &mut PhotocraftApp, p: [f64; 2], mods: egui::Modifiers) -> [f64;
         d = constrain(d, app.move_mods.last, MOVE_DIRECTIONS);
     }
     app.move_mods.last = Some(d);
-    let zoom = f64::from(app.current_zoom().max(0.01));
-    if app.move_mods.alt && app.move_mods.dup_from.is_none() && d[0].hypot(d[1]) * zoom >= DUPLICATE_THRESHOLD {
-        app.move_mods.dup_from = duplicate(app);
+    if app.move_mods.alt && d != [0.0, 0.0] {
+        if let Some(st) = app.session.active() {
+            match photocraft_engine::layer_multi_cmds::duplicated_for_move(&st.doc, &st.selected_layers(), st.active_layer) {
+                Ok((doc, ids, _)) => {
+                    app.move_mods.copies = Some((std::sync::Arc::new(doc), ids));
+                    app.move_preview = None;
+                    app.move_fast = None;
+                }
+                Err(e) => app.ui.status = e.to_string(),
+            }
+        }
         // Only once per drag, even if duplicating failed.
         app.move_mods.alt = false;
     }
     [start[0] + d[0], start[1] + d[1]]
 }
 
-/// Call after the Move tool finished its drag: an ⌥-drag's copy and move become one step.
+/// Discard the transient source after the release command has committed.
 pub fn finish(app: &mut PhotocraftApp) {
-    let st = std::mem::take(&mut app.move_mods);
-    if let Some(from) = st.dup_from {
-        fold_history(app, from);
+    if let Some(gpu) = &app.gpu {
+        gpu.clear_move_frames();
     }
+    app.move_mods = MoveDrag::default();
 }
 
 /// Call when a Move drag ends without moving (its layers were dragged to another document): an
 /// ⌥-drag's copy is taken back.
 pub fn abandon(app: &mut PhotocraftApp) {
-    if std::mem::take(&mut app.move_mods).dup_from.is_some() {
-        app.session.undo();
-    }
+    finish(app);
 }
 
 /// Arrow keys with the Move tool (or while Free Transform is active): nudge 1 px, ⇧ 10 px;
@@ -170,7 +146,9 @@ pub fn arrow_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     use egui::{Key, Modifiers};
     let keys = [(Key::ArrowLeft, -1.0, 0.0), (Key::ArrowRight, 1.0, 0.0), (Key::ArrowUp, 0.0, -1.0), (Key::ArrowDown, 0.0, 1.0)];
     for (key, ux, uy) in keys {
-        for mods in [Modifiers::NONE, Modifiers::SHIFT, Modifiers::ALT, Modifiers::SHIFT | Modifiers::ALT] {
+        // egui deliberately lets an unmodified shortcut match extra Shift/Alt. Check the
+        // specific combinations first so Shift+arrow remains a ten-pixel nudge.
+        for mods in [Modifiers::SHIFT | Modifiers::ALT, Modifiers::SHIFT, Modifiers::ALT, Modifiers::NONE] {
             if ctx.input_mut(|i| i.consume_key(mods, key)) {
                 let k = if mods.shift { 10.0 } else { 1.0 };
                 nudge(app, ux * k, uy * k, mods.alt);
@@ -193,12 +171,12 @@ pub fn nudge(app: &mut PhotocraftApp, dx: f64, dy: f64, duplicate_first: bool) {
     if app.drag.is_some() {
         return;
     }
-    let from = if duplicate_first { duplicate(app) } else { None };
-    if let Err(e) = app.run("layer.translate", json!({"dx": dx, "dy": dy})) {
-        app.ui.status = e;
+    if app.session.active().is_some_and(|s| s.doc.selection.is_some()) {
+        let _ = app.run("select.movePixels", json!({"dx": dx, "dy": dy, "copy": duplicate_first}));
+        return;
     }
-    if let Some(from) = from {
-        fold_history(app, from);
+    if let Err(e) = app.run("layer.translate", json!({"dx": dx, "dy": dy, "copy": duplicate_first})) {
+        app.ui.status = e;
     }
 }
 

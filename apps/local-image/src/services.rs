@@ -71,6 +71,22 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     photocraft_format::atomic_write(path, bytes).map_err(|e| e.to_string())
 }
 
+/// Production overwrite path; the injected Trash destination keeps host tests isolated.
+pub(crate) fn overwrite_original(
+    doc: &Document,
+    path: &Path,
+    quality: u8,
+    trash: impl FnOnce(&Path) -> std::io::Result<PathBuf>,
+) -> Result<Vec<String>, String> {
+    let original = photocraft_format::read_file(path).map_err(|e| e.to_string())?;
+    let result = photocraft_io::export_over_original(doc, &original, quality).map_err(|e| e.to_string())?;
+    // Finish encoding before touching Trash. Leave the original present until the replacing
+    // rename; copying it into Trash avoids a missing-file window and preserves restore identity.
+    trash(path).map_err(|e| format!("Couldn't keep the previous version in Trash: {e}"))?;
+    write_atomic(path, &result.bytes)?;
+    Ok(result.warnings)
+}
+
 type SharedRecovery = Rc<RefCell<Option<RecoveryStore>>>;
 
 /// Run `f` on the recovery store (`Err` without a config directory). The service closures never
@@ -161,8 +177,14 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             }
             opts.tiff_layers = settings.tiff_layers;
             opts.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
-            crate::crash_guard::guard("Export", || photocraft_io::export(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string()))
+            crate::crash_guard::guard("Export", || {
+                photocraft_engine::vector_integration::export_document(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string())
+            })
         })),
+        overwrite_original: li_ai::trash::available().then(|| {
+            Box::new(|doc: &Document, path: &str, quality: u8| overwrite_original(doc, Path::new(path), quality, li_ai::trash::copy_to_trash))
+                as photocraft_ui_egui::OverwriteFn
+        }),
         pick_open: Some(Box::new(|| {
             let path = rfd::FileDialog::new().add_filter("All Formats", OPEN_EXTS).add_filter("Local Image", &["pcraft"]).pick_file()?;
             // A read failure goes back to the app, which reports it like any other open failure.
@@ -181,6 +203,10 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             let mut d = rfd::FileDialog::new();
             for (name, exts) in save_filters(suggested) {
                 d = d.add_filter(name, exts);
+            }
+            // A suggestion with a folder (a photo from the Library: beside its original) opens there.
+            if let Some(dir) = p.parent().filter(|d| d.is_absolute() && d.is_dir()) {
+                d = d.set_directory(dir);
             }
             if let Some(name) = p.file_name() {
                 d = d.set_file_name(name.to_string_lossy());
@@ -311,6 +337,23 @@ mod tests {
     use photocraft_format::list_recovery;
     use photocraft_ui_egui::{PhotocraftApp, prefs_ui};
     use serde_json::json;
+
+    #[test]
+    fn hotfix_native_roundtrip_export_supports_placed_vector_crop() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 32, "height": 24})).unwrap();
+        let mut doc = (*s.active().unwrap().doc).clone();
+        let mut group = photocraft_doc::Layer::group("Placed", doc.layers.iter().map(photocraft_doc::Layer::duplicate).collect());
+        group.vector.clip = Some(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&[(0., 0.), (20., 0.), (20., 20.), (0., 20.)])]));
+        doc.layers.push(group);
+        let services = native(None);
+        let export = services.export.unwrap();
+        for path in ["photo-Edit.psd", "photo-Edit.tif"] {
+            let (bytes, warnings) = export(&doc, path, &photocraft_ui_egui::ExportSettings { tiff_layers: true, ..Default::default() }).unwrap();
+            assert!(warnings.iter().any(|w| w.contains("vector crop controls") && w.contains("editability lost")));
+            assert!(photocraft_io::import(path, &bytes).unwrap().document.layers.len() >= 2);
+        }
+    }
 
     /// "Export As" formats must lead with their own filter, or the save panel appends the first one's extension (`photo.webp.psd`).
     #[test]

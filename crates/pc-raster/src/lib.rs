@@ -11,7 +11,13 @@ mod interrupt;
 pub use interrupt::{Cancelled, Interrupt};
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
+
+fn next_revision() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
 
 use photocraft_color::{ColorMode, PixelFormat, SampleType, read_sample, write_sample};
 use photocraft_geom::{Rect, TILE_SIZE, TileCoord};
@@ -41,11 +47,28 @@ impl Tile {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Surface {
     format: PixelFormat,
     default_pixel: Box<[u8]>,
     tiles: BTreeMap<TileCoord, Arc<Tile>>,
+    revision: AtomicU64,
+    /// Lossless translation lineage, valid only while `revision` matches the recorded state.
+    translation: Option<(u64, u64, i64, i64)>,
+    content_bounds: OnceLock<Rect>,
+}
+
+impl Clone for Surface {
+    fn clone(&self) -> Self {
+        Self {
+            format: self.format,
+            default_pixel: self.default_pixel.clone(),
+            tiles: self.tiles.clone(),
+            revision: AtomicU64::new(self.revision()),
+            translation: self.translation,
+            content_bounds: self.content_bounds.clone(),
+        }
+    }
 }
 
 impl PartialEq for Surface {
@@ -57,7 +80,14 @@ impl PartialEq for Surface {
 impl Surface {
     /// Transparent/zero surface.
     pub fn new(format: PixelFormat) -> Self {
-        Self { format, default_pixel: vec![0u8; format.bytes_per_pixel()].into_boxed_slice(), tiles: BTreeMap::new() }
+        Self {
+            format,
+            default_pixel: vec![0u8; format.bytes_per_pixel()].into_boxed_slice(),
+            tiles: BTreeMap::new(),
+            revision: AtomicU64::new(next_revision()),
+            translation: None,
+            content_bounds: OnceLock::new(),
+        }
     }
 
     /// Surface whose untouched pixels read as `pixel` (normalised channel values).
@@ -65,6 +95,78 @@ impl Surface {
         let mut s = Self::new(format);
         encode_pixel(&format, pixel, &mut s.default_pixel);
         s
+    }
+
+    /// Process-local identity of this pixel state. Clones share it until either is mutated.
+    /// It is not persisted and does not participate in pixel equality.
+    pub fn revision(&self) -> u64 {
+        let revision = self.revision.load(Ordering::Relaxed);
+        if revision != 0 {
+            return revision;
+        }
+        // Mutations only mark dirty; mint an ID lazily, so per-pixel writers do not contend
+        // on a process-wide atomic for every sample. Surface remains Send + Sync.
+        match self.revision.compare_exchange(0, next_revision(), Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => self.revision.load(Ordering::Relaxed),
+            Err(current) => current,
+        }
+    }
+
+    /// Identity of the pixels before any lossless integer translations, and their accumulated
+    /// displacement. Cloning preserves this identity; any pixel mutation starts a new lineage.
+    /// Unlike `revision`, it can key rendering caches that move with their source pixels.
+    pub fn translation_identity(&self) -> (u64, i64, i64) {
+        let revision = self.revision();
+        match self.translation {
+            Some((state, source, dx, dy)) if state == revision => (source, dx, dy),
+            _ => (revision, 0, 0),
+        }
+    }
+
+    /// Losslessly translates the infinite surface by whole pixels. Whole-tile moves share tile
+    /// storage; other moves copy encoded row spans without colour conversion or resampling.
+    /// Translation lineage is retained only when the copied content moves without clipping.
+    pub fn translated(&self, dx: i32, dy: i32) -> Surface {
+        if dx == 0 && dy == 0 {
+            return self.clone();
+        }
+        let mut out = Self::new(self.format);
+        out.default_pixel.clone_from(&self.default_pixel);
+        let mut lossless = true;
+        let whole_tiles = dx.rem_euclid(TILE_SIZE) == 0 && dy.rem_euclid(TILE_SIZE) == 0;
+        // Repeated previews translate the same snapshot. Scan it once, then avoid copying the
+        // default padding of edge tiles into extra, entirely blank neighboring tiles.
+        let bounds = (!whole_tiles).then(|| self.content_bounds());
+        for (coord, tile) in self.tiles() {
+            let source = bounds.map_or_else(|| coord.rect(), |b| coord.rect().intersect(&b));
+            if source.is_empty() {
+                continue;
+            }
+            let r = source.translate(dx, dy);
+            if r.width() != source.width() || r.height() != source.height() {
+                lossless = false;
+                if !r.is_empty() {
+                    let source = Rect::new(r.x0.saturating_sub(dx), r.y0.saturating_sub(dy), r.x1.saturating_sub(dx), r.y1.saturating_sub(dy));
+                    out.write_interleaved(r, &self.to_interleaved(source));
+                }
+                continue;
+            }
+            if whole_tiles {
+                out.tiles.insert(TileCoord::containing(r.x0, r.y0), tile.clone());
+            } else if source == coord.rect() {
+                out.write_interleaved(r, tile.bytes());
+            } else {
+                out.write_interleaved(r, &self.to_interleaved(source));
+            }
+        }
+        if lossless {
+            let (source, x, y) = self.translation_identity();
+            out.translation = Some((out.revision(), source, x + i64::from(dx), y + i64::from(dy)));
+            if let Some(bounds) = self.known_content_bounds() {
+                let _ = out.content_bounds.set(if bounds.is_empty() { Rect::EMPTY } else { bounds.translate(dx, dy) });
+            }
+        }
+        out
     }
 
     pub fn format(&self) -> PixelFormat {
@@ -88,6 +190,8 @@ impl Surface {
 
     /// Mutable access to a tile, allocating it (filled with the default pixel) or un-sharing it.
     pub fn tile_mut(&mut self, c: TileCoord) -> &mut Tile {
+        *self.revision.get_mut() = 0;
+        self.content_bounds.take();
         let fmt = self.format;
         let dp = self.default_pixel.clone();
         let arc = self.tiles.entry(c).or_insert_with(|| Arc::new(Tile::filled(&fmt, &dp)));
@@ -101,6 +205,16 @@ impl Surface {
 
     /// Exact bounds of pixels that differ from the default pixel.
     pub fn content_bounds(&self) -> Rect {
+        *self.content_bounds.get_or_init(|| self.scan_content_bounds())
+    }
+
+    /// Previously computed exact bounds, if available. Translation carries them with the pixels;
+    /// any mutation clears them. External per-tile bounds caches can use this without a scan.
+    pub fn known_content_bounds(&self) -> Option<Rect> {
+        self.content_bounds.get().copied()
+    }
+
+    fn scan_content_bounds(&self) -> Rect {
         let bpp = self.format.bytes_per_pixel();
         if self.tiles.is_empty() {
             return Rect::EMPTY;
@@ -140,6 +254,8 @@ impl Surface {
 
     /// Drop tiles that are entirely the default pixel.
     pub fn prune(&mut self) {
+        *self.revision.get_mut() = 0;
+        self.content_bounds.take();
         let dp = self.default_pixel.clone();
         let bpp = dp.len();
         self.tiles.retain(|_, t| t.data.chunks_exact(bpp).any(|px| px != &*dp));
@@ -402,6 +518,8 @@ impl Surface {
     /// pixel), so they can be edited elsewhere, e.g. in parallel: `Arc::unwrap_or_clone` copies a
     /// tile only if an undo snapshot still shares it. Give them back with [`Surface::put_tiles`].
     pub fn take_tiles(&mut self, r: Rect) -> Vec<(TileCoord, Arc<Tile>)> {
+        *self.revision.get_mut() = 0;
+        self.content_bounds.take();
         let fmt = self.format;
         let mut blank: Option<Arc<Tile>> = None;
         r.tiles()
@@ -414,6 +532,8 @@ impl Surface {
 
     /// Put tiles back (see [`Surface::take_tiles`]); each replaces the tile at its coordinate.
     pub fn put_tiles(&mut self, tiles: impl IntoIterator<Item = (TileCoord, Arc<Tile>)>) {
+        *self.revision.get_mut() = 0;
+        self.content_bounds.take();
         for (c, t) in tiles {
             self.tiles.insert(c, t);
         }
@@ -827,5 +947,95 @@ mod tests {
         s.fill_rect(Rect::new(0, 0, 2000, 1500), &[1.0]);
         s.fill_rect(Rect::new(-700, 4000, -699, 4001), &[0.5]);
         assert_eq!(s.content_bounds(), Rect::new(-700, 0, 2000, 4001));
+    }
+}
+
+#[cfg(test)]
+mod revision_tests {
+    use super::*;
+
+    #[test]
+    fn revision_tracks_every_mutation_and_snapshot() {
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        let before = s.clone();
+        assert_eq!(s.revision(), before.revision());
+        s.tile_mut(TileCoord { tx: 0, ty: 0 }).bytes_mut()[0] = 42;
+        assert_ne!(s.revision(), before.revision());
+        let rev = s.revision();
+        let tiles = s.take_tiles(Rect::new(0, 0, 1, 1));
+        assert_ne!(rev, s.revision());
+        let rev = s.revision();
+        s.put_tiles(tiles);
+        assert_ne!(rev, s.revision());
+        let rev = s.revision();
+        s.prune();
+        assert_ne!(rev, s.revision());
+        assert_eq!(before, Surface::new(PixelFormat::RGBA8));
+        assert_ne!(before.revision(), Surface::new(PixelFormat::RGBA8).revision());
+    }
+
+    #[test]
+    fn integer_translation_preserves_bytes_and_lineage() {
+        for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16, PixelFormat::RGBA32F, PixelFormat::GRAY8] {
+            let mut s = Surface::with_default(fmt, &[0.25, 0.5, 0.75, 0.0][..fmt.channels()]);
+            let r = Rect::new(-7, 250, 270, 263);
+            s.fill_rect(r, &[0.75, 0.25, 0.125, 0.5][..fmt.channels()]);
+            let source = s.revision();
+            for (dx, dy) in [(0, 0), (37, -23), (-270, 19), (256, -512)] {
+                let moved = s.translated(dx, dy);
+                assert_eq!(moved.to_interleaved(r.translate(dx, dy)), s.to_interleaved(r));
+                assert_eq!(moved.default_bytes(), s.default_bytes());
+                assert_eq!(moved.content_bounds(), r.translate(dx, dy));
+                assert_eq!(moved.translation_identity(), (source, i64::from(dx), i64::from(dy)));
+                assert_eq!(moved.clone().translation_identity(), moved.translation_identity());
+                assert_eq!(moved.translated(-dx, -dy).to_interleaved(r), s.to_interleaved(r));
+                if dx == 256 {
+                    for (c, t) in s.tiles() {
+                        assert!(Arc::ptr_eq(t, moved.tile(TileCoord { tx: c.tx + 1, ty: c.ty - 2 }).unwrap()));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn translated_lineage_is_invalidated_by_every_mutation() {
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        s.fill_rect(Rect::new(1, 2, 4, 5), &[0.3, 0.5, 0.7, 1.0]);
+        let moved = s.translated(7, -11);
+        assert_eq!(moved.known_content_bounds(), Some(Rect::new(8, -9, 11, -6)));
+        let chained = moved.translated(-2, 3);
+        assert_eq!(chained.translation_identity(), (s.revision(), 5, -8));
+        let mut edited = moved.clone();
+        edited.tile_mut(TileCoord { tx: 0, ty: 0 }).bytes_mut()[0] = 42;
+        assert!(edited.known_content_bounds().is_none());
+        assert!(edited.content_bounds().contains(0, 0));
+        assert_eq!(edited.translation_identity(), (edited.revision(), 0, 0));
+        assert_ne!(edited.translation_identity().0, s.revision());
+        let tiles = edited.take_tiles(Rect::new(0, 0, 1, 1));
+        assert!(edited.known_content_bounds().is_none());
+        assert!(!edited.content_bounds().contains(0, 0));
+        assert_eq!(edited.translation_identity(), (edited.revision(), 0, 0));
+        let mut edited = moved.clone();
+        edited.put_tiles(tiles);
+        assert!(edited.known_content_bounds().is_none());
+        assert!(edited.content_bounds().contains(0, 0));
+        assert_eq!(edited.translation_identity(), (edited.revision(), 0, 0));
+        let mut edited = moved.clone();
+        edited.prune();
+        assert!(edited.known_content_bounds().is_none());
+        assert_eq!(edited.translation_identity(), (edited.revision(), 0, 0));
+        assert_eq!(moved.translation_identity(), (s.revision(), 7, -11), "snapshots keep their lineage");
+    }
+
+    #[test]
+    fn non_tile_translation_does_not_allocate_blank_edge_tiles() {
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        let r = Rect::new(60, 70, 170, 180);
+        s.fill_rect(r, &[0.3, 0.5, 0.7, 1.0]);
+        let moved = s.translated(37, 23);
+        assert_eq!(moved.tile_count(), 1, "only the tile containing the moved pixels is allocated");
+        assert_eq!(moved.to_interleaved(r.translate(37, 23)), s.to_interleaved(r));
+        assert_eq!(moved.known_content_bounds(), Some(r.translate(37, 23)));
     }
 }

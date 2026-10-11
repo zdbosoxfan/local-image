@@ -94,33 +94,40 @@ pub fn mtb_offset(w: usize, h: usize, reference: &[f32], img: &[f32], levels: us
     };
     let (tr, er) = bitmaps(reference);
     let (ti, ei) = bitmaps(img);
-    let mut best = (u64::MAX, 0, 0);
-    for dy in -1..=1 {
-        for dx in -1..=1 {
-            let (ox, oy) = (cur_x + dx, cur_y + dy);
-            let mut err = 0u64;
-            for y in 0..h as i32 {
-                let sy = y - oy;
-                if sy < 0 || sy >= h as i32 {
+    // Candidates are tried centre first, then by distance from the current estimate, and only a
+    // strictly smaller error replaces the best: ties (flat or identical images, where the
+    // exclusion band masks every pixel and all errors are 0) keep the inherited offset instead
+    // of drifting to the first corner searched.
+    const NEIGHBOURS: [(i32, i32); 9] = [(0, 0), (0, -1), (-1, 0), (1, 0), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)];
+    // (error, compared pixels, ox, oy): errors are compared as rates so a smaller overlap at a
+    // larger shift doesn't win merely by having fewer pixels to disagree on.
+    let mut best: Option<(u64, u64, i32, i32)> = None;
+    for (dx, dy) in NEIGHBOURS {
+        let (ox, oy) = (cur_x + dx, cur_y + dy);
+        let (mut err, mut n) = (0u64, 0u64);
+        for y in 0..h as i32 {
+            let sy = y - oy;
+            if sy < 0 || sy >= h as i32 {
+                continue;
+            }
+            for x in 0..w as i32 {
+                let sx = x - ox;
+                if sx < 0 || sx >= w as i32 {
                     continue;
                 }
-                for x in 0..w as i32 {
-                    let sx = x - ox;
-                    if sx < 0 || sx >= w as i32 {
-                        continue;
-                    }
-                    let (a, b) = ((y as usize) * w + x as usize, (sy as usize) * w + sx as usize);
-                    if (tr[a] != ti[b]) && er[a] && ei[b] {
-                        err += 1;
-                    }
+                let (a, b) = ((y as usize) * w + x as usize, (sy as usize) * w + sx as usize);
+                n += 1;
+                if (tr[a] != ti[b]) && er[a] && ei[b] {
+                    err += 1;
                 }
             }
-            if err < best.0 {
-                best = (err, ox, oy);
-            }
+        }
+        // err/n < best_err/best_n, in integers.
+        if best.is_none_or(|(be, bn, ..)| (err as u128) * (bn as u128) < (be as u128) * (n as u128)) {
+            best = Some((err, n, ox, oy));
         }
     }
-    (best.1, best.2)
+    best.map_or((0, 0), |(.., ox, oy)| (ox, oy))
 }
 
 // ---------- response curve ----------
@@ -227,8 +234,21 @@ pub struct Merged {
 
 /// Merges aligned exposures (`w × h` each) into a radiance map, scaled so the base exposure's
 /// well-exposed pixels keep their linear values.
-pub fn merge(w: usize, h: usize, imgs: &[&[[f32; 4]]], opts: &MergeOptions) -> Merged {
+///
+/// # Errors
+/// No images, an `exposures` list that doesn't match the images, or images whose length isn't
+/// `w * h`.
+pub fn merge(w: usize, h: usize, imgs: &[&[[f32; 4]]], opts: &MergeOptions) -> Result<Merged, String> {
     let p = imgs.len();
+    if p == 0 {
+        return Err("HDR merge needs at least one image".into());
+    }
+    if opts.exposures.len() != p {
+        return Err(format!("HDR merge needs one exposure per image ({} exposures for {p} images)", opts.exposures.len()));
+    }
+    if w == 0 || h == 0 || imgs.iter().any(|im| im.len() != w * h) {
+        return Err(format!("HDR merge images must all be {w}x{h} pixels"));
+    }
     let log_dt: Vec<f64> = opts.exposures.iter().map(|e| e.max(1e-12).ln()).collect();
     let well = |im: &[[f32; 4]]| im.iter().step_by(3).filter(|q| (0.1..0.9).contains(&luma(**q))).count();
     let base = opts.ghost_base.filter(|b| *b < p).unwrap_or_else(|| (0..p).max_by_key(|&j| well(imgs[j])).unwrap_or(0));
@@ -336,7 +356,7 @@ pub fn merge(w: usize, h: usize, imgs: &[&[[f32; 4]]], opts: &MergeOptions) -> M
     let mut l: Vec<f32> = px.iter().step_by(13).filter(|q| q[3] > 0.0).map(|q| luma(*q).max(1e-9)).collect();
     l.sort_by(f32::total_cmp);
     let stops = if l.is_empty() { 0.0 } else { (l[(l.len() as f64 * 0.999) as usize % l.len()] as f64 / l[l.len() / 100] as f64).log2() };
-    Merged { px, response, ghost_base: base, ghost_fraction, stops }
+    Ok(Merged { px, response, ghost_base: base, ghost_fraction, stops })
 }
 
 // ---------- tone mapping ----------
@@ -460,7 +480,8 @@ mod tests {
             assert!((2.0..8.0).contains(&r), "ratio {r} ({est:?})");
         }
         let m =
-            merge(w, h, &refs, &MergeOptions { exposures: dts.iter().map(|d| *d as f64).collect(), remove_ghosts: false, ghost_base: None, response: None });
+            merge(w, h, &refs, &MergeOptions { exposures: dts.iter().map(|d| *d as f64).collect(), remove_ghosts: false, ghost_base: None, response: None })
+                .unwrap();
         // Radiance proportional to the scene: check log-ratios across the 12-stop ramp.
         let probe = |x: usize| m.px[(h / 2) * w + x][1] as f64 / sc[(h / 2) * w + x][1] as f64;
         let k0 = probe(w / 2);
@@ -487,8 +508,8 @@ mod tests {
         }
         let refs: Vec<&[[f32; 4]]> = shots.iter().map(Vec::as_slice).collect();
         let opts = |g| MergeOptions { exposures: vec![0.5, 1.0, 2.0], remove_ghosts: g, ghost_base: Some(1), response: None };
-        let plain = merge(w, h, &refs, &opts(false));
-        let clean = merge(w, h, &refs, &opts(true));
+        let plain = merge(w, h, &refs, &opts(false)).unwrap();
+        let clean = merge(w, h, &refs, &opts(true)).unwrap();
         let at = |m: &Merged, x: usize, y: usize| m.px[y * w + x][1];
         let bg = at(&clean, 5, 5);
         assert!((at(&clean, 30, 30) / bg - 1.0).abs() < 0.15, "ghost kept: {} vs {}", at(&clean, 30, 30), bg);

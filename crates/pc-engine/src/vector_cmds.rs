@@ -435,8 +435,9 @@ pub fn refresh_shape(doc: &Document, sh: &mut ShapeLayer) {
 
 /// Moves a layer's vector content by `(dx, dy)`: shape paths (re-rendered) and linked vector
 /// masks, recursing into groups. For the Move tool / `layer.move`.
-pub fn translate_vectors(doc: &Document, l: &mut Layer, dx: f64, dy: f64) {
+pub fn translate_vectors(doc: &Document, l: &mut Layer, dx: f64, dy: f64) -> Result<()> {
     let a = Affine::translate(dx, dy);
+    transform_vector_metadata(&mut l.vector, &a);
     if let Some(vm) = l.vector_mask.as_mut()
         && vm.linked
     {
@@ -444,14 +445,66 @@ pub fn translate_vectors(doc: &Document, l: &mut Layer, dx: f64, dy: f64) {
     }
     match &mut l.content {
         LayerContent::Shape(sh) => {
-            transform_shape(sh, &a);
+            transform_vector_shape(sh, &mut l.vector, &a)?;
             refresh_shape(doc, sh);
+        }
+        LayerContent::Symbol(s) => {
+            s.transform = a.mul(&s.transform);
+            s.cache = s.cache.as_ref().map(|cache| crate::layer_multi_cmds::shift_surface(cache, dx.round() as i32, dy.round() as i32));
         }
         LayerContent::Group(g) => {
             for c in &mut g.children {
-                translate_vectors(doc, c, dx, dy);
+                translate_vectors(doc, c, dx, dy)?;
             }
         }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Move the parameters that the common projection regenerates, alongside the stored path.
+pub(crate) fn transform_vector_shape(sh: &mut ShapeLayer, vector: &mut photocraft_doc::VectorData, a: &Affine) -> Result<()> {
+    use crate::vector_packages::transform_tools::metadata;
+    if vector.live_shape.is_none() && vector.corners.is_empty() {
+        transform_shape(sh, a);
+        return Ok(());
+    }
+    if !metadata::similarity(*a) && !vector.corners.is_empty() {
+        sh.path = crate::vector_packages::corners::project_shape(sh, &vector.corners)?.path;
+        vector.corners.clear();
+    }
+    sh.path = sh.path.transform(a);
+    sh.psd_raw = None;
+    metadata::live(sh, vector, *a, true)
+}
+
+/// Document-space crop paths and live-group anchors travel with their source geometry.
+pub(crate) fn transform_vector_metadata(vector: &mut photocraft_doc::VectorData, a: &Affine) {
+    use photocraft_doc::vector_design::live::{EnvelopeSpec, LiveGroup, RepeatSpec};
+    let point = |p: &mut [f64; 2]| {
+        let q = a.apply(Point::new(p[0], p[1]));
+        *p = [q.x, q.y];
+    };
+    if let Some(clip) = &mut vector.clip {
+        *clip = clip.transform(a);
+    }
+    match &mut vector.live {
+        Some(LiveGroup::Blend(spec)) => {
+            if let Some(spine) = &mut spec.spine {
+                *spine = spine.transform(a);
+            }
+        }
+        Some(LiveGroup::Repeat(RepeatSpec::Radial { center, .. })) => point(center),
+        Some(LiveGroup::Repeat(RepeatSpec::Mirror { origin, angle })) => {
+            point(origin);
+            let (sin, cos) = angle.sin_cos();
+            *angle = (a.m[1] * cos + a.m[3] * sin).atan2(a.m[0] * cos + a.m[2] * sin);
+        }
+        Some(LiveGroup::Repeat(RepeatSpec::Grid { spacing, .. })) => {
+            spacing[0] *= a.m[0].hypot(a.m[1]);
+            spacing[1] *= a.m[2].hypot(a.m[3]);
+        }
+        Some(LiveGroup::Envelope(EnvelopeSpec::TopObject { path })) => *path = path.transform(a),
         _ => {}
     }
 }
@@ -603,6 +656,8 @@ fn shape_edit(s: &mut Session, p: &Value) -> Result<Value> {
     with_shape(s, id, "Edit Shape", |sh, layer| {
         if let Some(v) = p.get("path") {
             sh.path = parse_path(v).map_err(|e| bad(CMD, e))?;
+            layer.vector.live_shape = None;
+            layer.vector.corners.clear();
             sh.live = None;
             sh.psd_raw = None;
         }
@@ -614,14 +669,16 @@ fn shape_edit(s: &mut Session, p: &Value) -> Result<Value> {
             let kind = if kind == "rect" && radii(p).is_some_and(|r| r.iter().any(|v| *v > 0.0)) { "roundedRect".to_string() } else { kind };
             let l = live_from_params(CMD, &kind, p, sh.live.as_ref())?;
             sh.path = vector::shapes::live_path(&l);
+            layer.vector.live_shape = None;
+            layer.vector.corners.clear();
             sh.live = Some(l);
             sh.psd_raw = None;
         }
         if let Some(m) = nums::<6>(p, "transform") {
-            transform_shape(sh, &Affine { m });
+            transform_vector_shape(sh, &mut layer.vector, &Affine { m })?;
         }
         if let Some([dx, dy]) = nums::<2>(p, "move") {
-            transform_shape(sh, &Affine::translate(dx, dy));
+            transform_vector_shape(sh, &mut layer.vector, &Affine::translate(dx, dy))?;
         }
         if let Some(op) = p.get("op").and_then(Value::as_str) {
             // Operation of the selected subpath(s) (`subpath`: index, default all but the first).
@@ -855,8 +912,8 @@ fn path_transform(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(id) = layer_id
         && s.active().and_then(|d| d.doc.layer(id)).is_some_and(|layer| matches!(layer.content, LayerContent::Shape(_)))
     {
-        with_shape(s, id, "Transform Path", |shape, _| {
-            transform_shape(shape, &transform);
+        with_shape(s, id, "Transform Path", |shape, layer| {
+            transform_vector_shape(shape, &mut layer.vector, &transform)?;
             shape.psd_raw = None;
             Ok(())
         })?;
@@ -1140,21 +1197,38 @@ fn vector_mask_delete(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(Value::Null)
 }
 
-/// Layer › Rasterize › Vector Mask: multiplies the vector mask into the pixel mask.
+/// Layer › Rasterize › Vector Mask: multiplies the vector mask into the pixel mask. When a feather
+/// (either mask's) or the pixel mask's density shapes the rendered edge, the pixel mask instead
+/// becomes exactly what the compositor showed, with those settings baked in (#992).
 fn vector_mask_rasterize(s: &mut Session, p: &Value) -> Result<Value> {
+    use photocraft_compose::masks::{combined_mask, feather_sigma};
     let id = layer_id(s, p)?;
     s.edit("Rasterize Vector Mask", |doc, _| {
         let area = doc.bounds();
         let depth = doc.depth;
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+        let soft = l.vector_mask.as_ref().is_some_and(|v| v.enabled)
+            && (l.vector_mask.as_ref().is_some_and(|v| feather_sigma(v.feather) > 0.0)
+                || l.mask.as_ref().is_some_and(|m| m.enabled && (feather_sigma(m.feather) > 0.0 || m.density < 1.0)));
+        let shown = if soft { combined_mask(l, area) } else { None };
         let vm = l.vector_mask.take().ok_or_else(|| EngineError::Other("layer has no vector mask".into()))?;
-        let vals = vector::vector_mask_values(&vm, area);
         let mut mask = l.mask.take().unwrap_or_else(|| {
             let mut m = photocraft_doc::LayerMask::reveal_all();
             m.surface =
                 photocraft_raster::Surface::with_default(photocraft_color::PixelFormat::new(photocraft_color::ColorMode::Grayscale, depth, false), &[1.0]);
             m
         });
+        if let Some(shown) = shown {
+            // Past the canvas the pixel mask keeps its own (density-applied) default, as below.
+            let d = mask.surface.default_pixel().first().copied().unwrap_or(1.0);
+            let mut surface = photocraft_raster::Surface::with_default(mask.surface.format(), &[1.0 - mask.density * (1.0 - d)]);
+            surface.write_region(area, &shown.read_region(area));
+            surface.prune();
+            (mask.surface, mask.feather, mask.density) = (surface, 0.0, 1.0);
+            l.mask = Some(mask);
+            return Ok(());
+        }
+        let vals = vector::vector_mask_values(&vm, area);
         // Outside the canvas the vector mask is 0 unless it is empty/inverted; keep the old default there.
         let old = mask.surface.read_region(area);
         let merged: Vec<f32> = old.iter().zip(&vals).map(|(a, b)| a * b).collect();

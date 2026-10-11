@@ -67,7 +67,7 @@ fn flag(p: &Value, key: &str, default: bool) -> bool {
 /// Restores `comp`'s recorded state (only what its options select; `all` forces everything).
 /// Layers deleted since the capture are skipped. Position-locked layers still move, as in
 /// Photoshop, because the comp is not a user drag.
-pub fn apply_comp(doc: &mut Document, comp: &LayerComp, all: bool) {
+pub fn apply_comp(doc: &mut Document, comp: &LayerComp, all: bool) -> Result<()> {
     let (vis, pos, app) = if all { (true, true, true) } else { (comp.apply_visibility, comp.apply_position, comp.apply_appearance) };
     // Walk order (parents before children): a moved artboard carries its children, which are
     // then placed absolutely, so the result does not depend on how far the parent moved.
@@ -81,8 +81,8 @@ pub fn apply_comp(doc: &mut Document, comp: &LayerComp, all: bool) {
         {
             let snapshot = doc.clone();
             if let Some(l) = doc.layer_mut(id) {
-                crate::commands::translate_layer(&snapshot, l, x - cx, y - cy);
-                crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(x - cx), f64::from(y - cy));
+                crate::commands::translate_layer(&snapshot, l, x - cx, y - cy)?;
+                crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(x - cx), f64::from(y - cy))?;
             }
         }
         let Some(l) = doc.layer_mut(id) else { continue };
@@ -96,6 +96,7 @@ pub fn apply_comp(doc: &mut Document, comp: &LayerComp, all: bool) {
             l.effects = a.effects.clone();
         }
     }
+    Ok(())
 }
 
 fn new_comp(s: &mut Session, p: &Value) -> Result<Value> {
@@ -173,7 +174,7 @@ fn apply(s: &mut Session, id: u32, label: &str) -> Result<Value> {
                 states: capture_states(doc),
             });
         }
-        apply_comp(doc, &comp, false);
+        apply_comp(doc, &comp, false)?;
         doc.last_applied_comp = Some(id);
         Ok(())
     })?;
@@ -291,7 +292,7 @@ fn set_options(s: &mut Session, p: &Value) -> Result<Value> {
 fn restore_last(s: &mut Session) -> Result<Value> {
     s.edit("Restore Last Document State", |doc, _| {
         let last = doc.last_document_state.clone().ok_or_else(|| EngineError::Other("no Last Document State".into()))?;
-        apply_comp(doc, &last, true);
+        apply_comp(doc, &last, true)?;
         doc.last_applied_comp = None;
         Ok(())
     })?;
@@ -358,7 +359,7 @@ fn comps_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let mut files = Vec::new();
     for (i, c) in doc.layer_comps.iter().enumerate().filter(|(_, c)| chosen.contains(&c.id)) {
         let mut one = (*doc).clone();
-        apply_comp(&mut one, c, false);
+        apply_comp(&mut one, c, false)?;
         one.last_applied_comp = Some(c.id);
         let path = join(&dir, &format!("{}_{:04}_{}.{format}", sanitize(&prefix), i, sanitize(&c.name)));
         save_doc(&one, &path, SaveOpts::from_params(p))?;

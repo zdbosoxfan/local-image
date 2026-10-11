@@ -258,7 +258,10 @@ impl Ctx<'_> {
         let principal = |k: &[u8; 4]| blocks.iter().find(|(bk, _)| bk == k).map(|(_, d)| d.clone());
         let mut fill_cache = None;
 
-        let content = if let Some(k) = adj_key {
+        let merged_vector_cache = rec.block(&crate::vector_map::fallback::CACHE_KEY).is_some_and(|b| crate::vector_map::fallback::is_cache_block(&b.data));
+        let content = if merged_vector_cache {
+            LayerContent::Raster(self.record_surface(rec, &name))
+        } else if let Some(k) = adj_key {
             let data = rec.block(k).map(|b| b.data.clone()).unwrap_or_default();
             let cged = rec.block(b"CgEd").map(|b| &b.data[..]);
             LayerContent::Adjustment(adjust_map::parse(
@@ -354,7 +357,9 @@ impl Ctx<'_> {
         if rendered && selected_real_mask(rec).is_none() && rec.layer_mask().is_some_and(|m| m.flags & 8 != 0) {
             l.mask = None;
         }
-        if !matches!(l.content, LayerContent::Shape(_)) {
+        if !rec.block(&crate::vector_map::fallback::CACHE_KEY).is_some_and(|b| crate::vector_map::fallback::cache_has_shape_proxy(&b.data))
+            && !matches!(l.content, LayerContent::Shape(_))
+        {
             self.apply_vector_mask(&mut l, rec);
         }
         l
@@ -638,6 +643,8 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
     } else if layered {
         let tree = file.layer_tree();
         doc.layers = cx.build(&tree, 0);
+        // local-image: smart objects that are Develop layers get their develop link back
+        crate::smart_map::resolve_develop_layers(&mut doc);
         // Layer › Link Layers: resource 1026 holds one group id per layer record (0 = unlinked).
         if let Some(Ok(photocraft_psd::resources::ResourceData::LayerGroupInfo(groups))) =
             file.resources.iter().find(|r| r.id == ids::LAYER_GROUP_INFO).and_then(photocraft_psd::resources::ImageResource::parsed)

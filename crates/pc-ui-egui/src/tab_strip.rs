@@ -91,6 +91,8 @@ pub struct StripOut {
     pub tabs: Vec<(usize, Rect)>,
     /// The » overflow button, when some tabs didn't fit.
     pub chevron: Option<Rect>,
+    /// A tab started being dragged this frame (pull it out of the group).
+    pub drag_started: Option<usize>,
 }
 
 /// Width of the » overflow button.
@@ -118,11 +120,12 @@ fn tabs_in(
     let natural: Vec<f32> = tabs.iter().map(|n| ui.painter().layout_no_wrap((*n).to_owned(), font.clone(), t.text).size().x + pad).collect();
     let f = fit(&natural, *selected, area.width(), min_w, CHEVRON_W);
     let mut x = area.left();
-    let mut out = StripOut { double_clicked: false, tabs: Vec::with_capacity(f.shown.len()), chevron: None };
+    let mut out = StripOut { double_clicked: false, tabs: Vec::with_capacity(f.shown.len()), chevron: None, drag_started: None };
     for &(i, w) in &f.shown {
         let Some(name) = tabs.get(i) else { continue };
         let r = Rect::from_min_size(pos2(x, area.top()), vec2(w, area.height()));
-        let resp = ui.interact(r, id.with(("tab", i)), Sense::click());
+        // Tabs drag too: out of the dock they float, onto another strip they join it.
+        let resp = ui.interact(r, id.with(("tab", i)), Sense::click_and_drag());
         // The padding gives way (down to a third) before the label is cut.
         let galley = elided(ui, name, font.clone(), t.text, (w - pad / 3.0).max(1.0));
         let cut = galley.size().x + pad + 0.5 < natural.get(i).copied().unwrap_or(0.0) && galley.size().x + pad / 3.0 >= w - 0.5;
@@ -131,6 +134,9 @@ fn tabs_in(
         out.double_clicked |= resp.double_clicked();
         if resp.clicked() {
             *selected = i;
+        }
+        if resp.drag_started() {
+            out.drag_started = Some(i);
         }
         out.tabs.push((i, r));
         x = r.right();

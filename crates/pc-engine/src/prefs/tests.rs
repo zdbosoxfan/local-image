@@ -192,7 +192,10 @@ fn menus_and_toolbar_customisation_persist() {
     assert!(s.prefs().menus.hidden.is_empty() && s.prefs().menus.colors.is_empty());
     s.execute("edit.toolbar", json!({"hidden": ["Sponge"]})).unwrap();
     let back: Preferences = serde_json::from_str(&s.prefs_to_json()).unwrap();
-    assert_eq!(back.toolbar.hidden, vec!["Sponge".to_string()]);
+    // Hiding a tool edits a custom copy of the active (built-in) set.
+    let set = back.toolbar.active();
+    assert_eq!(set.name, "My Tools");
+    assert!(!set.tools.iter().any(|t| t == "Sponge") && set.tools.iter().any(|t| t == "Dodge"));
 }
 
 #[test]
@@ -271,4 +274,82 @@ fn gpu_backend_round_trips_and_validates() {
     for n in GpuBackend::NAMES {
         assert_eq!(GpuBackend::parse(n).map(GpuBackend::name), Some(*n));
     }
+}
+
+#[test]
+fn pen_pressure_curve_pref() {
+    let mut s = session();
+    assert_eq!(s.prefs().tools.pen_pressure_curve, vec![[0.0, 0.0], [1.0, 1.0]], "linear: pressure unchanged");
+    s.execute("prefs.set", json!({"path": "tools.penPressureCurve", "value": [[0.0, 0.0], [0.3, 0.55], [1.0, 1.0]]})).unwrap();
+    assert_eq!(photocraft_paint::pressure::preset_of(&s.prefs().tools.pen_pressure_curve), Some("soft"));
+    assert!(s.execute("prefs.set", json!({"path": "tools.penPressureCurve", "value": "firm"})).is_err());
+    // Preferences saved before the option existed load with the linear curve.
+    let old: Tools = serde_json::from_value(json!({"showTooltips": false})).unwrap();
+    assert_eq!(old.pen_pressure_curve, photocraft_paint::pressure::LINEAR.to_vec());
+}
+
+#[test]
+fn tool_icon_preferences_default_validate_and_round_trip() {
+    let old: Preferences = serde_json::from_value(json!({"interface": {"theme": "studio"}})).unwrap();
+    assert_eq!(old.interface.tool_icons, "colour");
+    let mut s = session();
+    s.execute("prefs.set", json!({"path": "interface.toolIcons", "value": "monochrome"})).unwrap();
+    assert!(s.execute("prefs.set", json!({"path": "interface.toolIcons", "value": "invalid"})).is_err());
+    let mut restored = Session::new();
+    restored.load_prefs_json(&s.prefs_to_json()).unwrap();
+    assert_eq!(restored.prefs().interface.tool_icons, "monochrome");
+    restored.execute("prefs.reset", json!({"path": "interface.toolIcons"})).unwrap();
+    assert_eq!(restored.prefs().interface.tool_icons, "colour");
+}
+
+#[test]
+fn ds_finding_legacy_toolbar_batch_keeps_hidden_and_order() {
+    let mut s = Session::new();
+    s.execute("prefs.set", json!({"values":{"toolbar.hidden":["Move"],"toolbar.order":["Brush","Eraser"]}})).unwrap();
+    let tools = s.prefs().toolbar.active().tools;
+    assert_eq!(&tools[..2], &["Brush", "Eraser"]);
+    assert!(!tools.iter().any(|t| t == "Move"));
+}
+
+#[test]
+fn ds_finding_toolbar_edits_after_migration_and_unique_bindings() {
+    let mut s = Session::new();
+    s.execute("prefs.set", json!({"values":{"toolbar.order":["Brush","Eraser"],"toolbar.hidden":["Move"]}})).unwrap();
+    s.execute("prefs.set", json!({"path":"toolbar.hidden","value":["Brush"]})).unwrap();
+    assert!(!s.prefs().toolbar.active().tools.iter().any(|t| t == "Brush"));
+    assert_eq!(s.prefs().toolbar.active().tools[0], "Eraser");
+    let bindings: Vec<_> = super::bindable().collect();
+    assert_eq!(bindings.len(), bindings.iter().map(|b| b.0).collect::<std::collections::BTreeSet<_>>().len());
+    assert_eq!(bindings.iter().find(|b| b.0 == "tools.select.Move").unwrap().1, Some("V"));
+    assert!(super::conflicts([("same", "V"), ("same", "V")]).is_empty());
+}
+
+#[test]
+fn review_regression_vector_toolbar_defaults_are_addressable_by_preferences_api() {
+    let mut s = session();
+    for (key, value) in [
+        ("toolbar.persona", json!("vector")),
+        ("toolbar.vectorSet", json!("vector.illustration")),
+        ("toolbar.pixelTool", json!("Pen")),
+        ("toolbar.vectorTool", json!("Rectangle")),
+    ] {
+        assert!(!s.execute("prefs.get", json!({"path":key})).unwrap().is_null(), "{key}");
+        s.execute("prefs.set", json!({"path":key,"value":value})).unwrap();
+        assert_eq!(s.execute("prefs.get", json!({"path":key})).unwrap(), value);
+    }
+}
+#[test]
+fn review_regression_edit_toolbar_uses_and_resets_current_persona_set() {
+    let mut s = session();
+    let pixel = s.prefs().toolbar.active_set.clone();
+    s.edit_prefs(|p| p.toolbar.persona = crate::toolsets::Persona::Vector);
+    s.execute("edit.toolbar", json!({"hidden":["Rectangle"],"order":["Pen","EllipseShape"]})).unwrap();
+    assert_eq!(s.prefs().toolbar.active_set, pixel);
+    assert_eq!(s.prefs().toolbar.active().persona, crate::toolsets::Persona::Vector);
+    assert_eq!(s.prefs().toolbar.active().tools[0], "Pen");
+    assert!(!s.prefs().toolbar.active().tools.iter().any(|id| id == "Rectangle"));
+    assert!(s.prefs().toolbar.active().tools.iter().all(|id| crate::toolsets::supports(id, crate::toolsets::Persona::Vector)));
+    s.execute("edit.toolbar", json!({"reset":true})).unwrap();
+    assert_eq!(s.prefs().toolbar.vector_set, crate::toolsets::Persona::Vector.default_set());
+    assert_eq!(s.prefs().toolbar.active_set, pixel);
 }

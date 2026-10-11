@@ -78,7 +78,23 @@ fn matches(i: &egui::InputState, m: Modifiers, k: Key) -> bool {
     })
 }
 
+/// Labels use the same command lookup as dispatch, including UI wrappers of engine keys.
+pub fn shortcut_label(command: &str) -> Option<String> {
+    crate::menus::ui_commands()
+        .find(|c| c.0 == command)
+        .and_then(|c| c.2)
+        .or_else(|| lightcraft_engine::command_specs().iter().find(|c| c.id == command).and_then(|c| c.shortcut))
+        .map(|sc| crate::menubar::shortcut_text(sc, cfg!(target_os = "macos")))
+}
+
 pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
+    if matches!(app.ui.dialog, Some(crate::state::Dialog::SmartSort { .. }))
+        || app.ui.people.queue.is_some()
+        || app.ui.people.finder.is_some()
+        || app.ui.people.merge.is_some()
+    {
+        return;
+    }
     // don't steal keys from text fields
     if ctx.egui_wants_keyboard_input() {
         return;
@@ -129,6 +145,11 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
             }
         }
     });
+    // local-image: a Camera Raw Filter session keeps to Develop
+    if let Some(h) = &app.host_session {
+        fire.retain(|id| h.allows(id));
+        aliased.retain(|(id, _)| h.allows(id));
+    }
     use crate::panels::compare;
     // rating/flag/label keys: in Compare/Survey they act on the active photo only; Shift+key or
     // Auto Advance then moves on (next candidate in Compare, next photo elsewhere)

@@ -42,6 +42,11 @@ pub(crate) fn for_each_surface(layers: &mut [Layer], masks: bool, f: &mut dyn Fn
                     f(c, false)
                 }
             }
+            LayerContent::Symbol(s) => {
+                if let Some(cache) = &mut s.cache {
+                    f(cache, false);
+                }
+            }
             LayerContent::Group(g) => for_each_surface(&mut g.children, masks, f),
             _ => {}
         }
@@ -158,18 +163,18 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
             doc.selection = Some(resize_surface_in_canvas(sel, sx, sy, Resample::Bilinear, canvas));
         }
         // Vector geometry, guides and marks scale with the pixels; vectors re-render sharp.
-        crate::canvas_geom::transform_geometry(doc, &photocraft_geom::Affine { m: [sx, 0.0, 0.0, sy, 0.0, 0.0] });
+        crate::canvas_geom::transform_geometry(doc, &photocraft_geom::Affine { m: [sx, 0.0, 0.0, sy, 0.0, 0.0] })?;
         doc.size = Size::new(nw, nh);
-        crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::All);
+        crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::All)?;
         Ok(())
     })?;
     Ok(json!({ "width": nw, "height": nh }))
 }
 
 /// Moves every surface, channel, selection and guide by `(dx, dy)`.
-fn translate_doc(doc: &mut Document, dx: i32, dy: i32) {
+fn translate_doc(doc: &mut Document, dx: i32, dy: i32) -> Result<()> {
     if dx == 0 && dy == 0 {
-        return;
+        return Ok(());
     }
     for_each_surface(&mut doc.layers, true, &mut |surf, _| *surf = translate_surface(surf, dx, dy));
     for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {
@@ -180,22 +185,22 @@ fn translate_doc(doc: &mut Document, dx: i32, dy: i32) {
     }
     // Type, shapes, smart objects, vector masks, paths, guides, slices, notes… (caches above
     // are already translated exactly, so nothing needs re-rendering for the move itself).
-    crate::canvas_geom::transform_geometry(doc, &photocraft_geom::Affine::translate(f64::from(dx), f64::from(dy)));
+    crate::canvas_geom::transform_geometry(doc, &photocraft_geom::Affine::translate(f64::from(dx), f64::from(dy)))
 }
 
 /// Crops the document to `r` (in current document coordinates).
 /// Crops `doc` to `r`, deleting the pixels outside (Perspective Crop's last step).
-pub(crate) fn crop_to(doc: &mut Document, r: Rect) {
-    crop_doc(doc, r, true);
+pub(crate) fn crop_to(doc: &mut Document, r: Rect) -> Result<()> {
+    crop_doc(doc, r, true)
 }
 
-fn crop_doc(doc: &mut Document, r: Rect, delete_pixels: bool) {
+fn crop_doc(doc: &mut Document, r: Rect, delete_pixels: bool) -> Result<()> {
     if delete_pixels {
         for_each_surface(&mut doc.layers, false, &mut |surf, _| *surf = crop_surface(surf, r));
     }
-    translate_doc(doc, -r.x0, -r.y0);
+    translate_doc(doc, -r.x0, -r.y0)?;
     doc.size = Size::new(r.width(), r.height());
-    crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::Shapes);
+    crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::Shapes)
 }
 
 fn anchor_factors(a: &str) -> (f64, f64) {
@@ -245,9 +250,9 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
     let dy = ((nh as f64 - oh) * ay).round() as i32;
     let ext = extension_color(s, p);
     s.edit("Canvas Size", |doc, _| {
-        translate_doc(doc, dx, dy);
+        translate_doc(doc, dx, dy)?;
         doc.size = Size::new(nw, nh);
-        crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::Shapes);
+        crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::Shapes)?;
         let canvas = doc.bounds();
         let old = Rect::from_xywh(dx, dy, ow as u32, oh as u32);
         // The locked Background layer is extended with the extension colour.
@@ -310,14 +315,14 @@ fn crop(s: &mut Session, p: &Value) -> Result<Value> {
             let x0 = (nx - f64::from(w) / 2.0).round() as i32;
             let y0 = (ny - f64::from(h) / 2.0).round() as i32;
             out = Rect::new(x0, y0, x0 + w as i32, y0 + h as i32);
-            crop_doc(doc, out, delete);
+            crop_doc(doc, out, delete)?;
             doc.selection = None;
             Ok(())
         })?;
         return Ok(json!({ "x": out.x0, "y": out.y0, "width": out.width(), "height": out.height(), "angle": angle }));
     }
     s.edit("Crop", |doc, _| {
-        crop_doc(doc, r, delete);
+        crop_doc(doc, r, delete)?;
         doc.selection = None;
         Ok(())
     })?;
@@ -358,7 +363,7 @@ fn trim(s: &mut Session, p: &Value) -> Result<Value> {
         if side("bottom") { b.y1 } else { canvas.y1 },
     );
     s.edit("Trim", |doc, _| {
-        crop_doc(doc, r, true);
+        crop_doc(doc, r, true)?;
         Ok(())
     })?;
     Ok(json!({ "x": r.x0, "y": r.y0, "width": r.width(), "height": r.height() }))
@@ -378,6 +383,9 @@ fn convert_depth(s: &mut Session, depth: SampleType) -> Result<Value> {
     }
     s.edit("Bit Depth", |doc, _| {
         convert_layers_depth(&mut doc.layers, depth);
+        for def in &mut doc.symbols {
+            convert_layers_depth(&mut def.layers, depth);
+        }
         for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {
             let f = ch.surface.format().with_sample(depth);
             ch.surface = ch.surface.convert(f);

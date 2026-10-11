@@ -25,6 +25,10 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
         "sky" => MaskShape::Sky { seg: None },
         "subject" => MaskShape::Subject { seg: None },
         "background" => MaskShape::Background { seg: None },
+        // local-image: near (0) … far (1) band of the depth model's distance map (`quick_segment`)
+        "depth" | "depthRange" => {
+            MaskShape::DepthRange { lo: f64_or(p, "lo", 0.0), hi: f64_or(p, "hi", 0.45), feather: f64_or(p, "feather", 0.15), seg: None }
+        }
         "luminanceRange" => MaskShape::LuminanceRange {
             lo: f64_or(p, "lo", 0.6),
             hi: f64_or(p, "hi", 1.0),
@@ -143,6 +147,13 @@ fn masks_edit(s: &mut Session, c: &str, label: &str, f: impl FnOnce(&mut Vec<Mas
     Ok(json!({"activeMask": active}))
 }
 
+/// The white balance in effect on photo `id` (temperature, tint): what a layer's white balance
+/// starts from.
+pub(crate) fn global_wb(s: &Session, id: crate::PhotoId) -> (f64, f64) {
+    let d = s.develop_of(id).unwrap_or_default();
+    lightcraft_pipeline::local::effective_wb(&s.source_info(id), &d)
+}
+
 fn mask_id(p: &Value, active: Option<u32>, c: &str) -> Result<u32> {
     p.get("id").and_then(Value::as_u64).map(|v| v as u32).or(active).ok_or_else(|| bad(c, "no mask selected (give `id`)"))
 }
@@ -158,7 +169,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Create New Mask",
             [],
             None,
-            "{kind: brush|linear|radial|sky|subject|background|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; object/prompt: seg? a stored segmentation, no model needed), name?} — AI kinds need the SAM 3 model; in the app a prompt returns {pending} and the mask appears when found",
+            "{kind: brush|linear|radial|sky|subject|background|depth|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; object/prompt: seg? a stored segmentation, no model needed), name?} — AI kinds need the SAM 3 model; in the app a prompt returns {pending} and the mask appears when found",
             has_active,
             |s, p| {
                 let kind = str_param(p, "kind").unwrap_or("radial").to_string();
@@ -518,6 +529,94 @@ pub fn specs() -> Vec<CommandSpec> {
                 })
             }
         ),
+        cmd!(
+            "mask.setTools",
+            "Set Layer Tools",
+            [],
+            None,
+            "{id?, tools?: partial settings JSON of the layer's tools (keys wb, light, curve, color, mixer, point_colors, treatment, bw_mix, grading, effects, vignette, grain, detail; merged like a preset; a key set to null drops that section), values?: {controlId: number} (as develop.set: light.exposure, mixer.blue.sat, pointColor.0.hueShift…), label?} — any develop tool on a mask (a Capture One-style layer); values are relative to the photo's (white balance: the layer's own white) → {tools}",
+            has_active,
+            |s, p| {
+                let c = "mask.setTools";
+                let mut vals: Vec<(String, f64)> = Vec::new();
+                if let Some(o) = p.get("values").and_then(Value::as_object) {
+                    for (k, v) in o {
+                        vals.push((k.clone(), v.as_f64().ok_or_else(|| bad(c, format!("`{k}` must be a number")))?));
+                    }
+                }
+                let partial = p.get("tools").cloned();
+                if vals.is_empty() && partial.is_none() {
+                    return Err(bad(c, "give `tools` (partial settings) or `values` ({controlId: number})"));
+                }
+                let label = match (str_param(p, "label"), vals.as_slice()) {
+                    (Some(l), _) => l.to_string(),
+                    (None, [(k, _)]) => lightcraft_develop::controls::find(k).map(|x| x.label).unwrap_or("Layer Adjustment").to_string(),
+                    _ => "Layer Adjustment".into(),
+                };
+                let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+                let wb = global_wb(s, id);
+                let mid = mask_id(p, s.active_mask, c)?;
+                let mut tools = Value::Null;
+                masks_edit(s, c, &label, |masks, _| {
+                    let i = find(masks, mid, c)?;
+                    let mut t = masks[i].tools.clone();
+                    if let Some(partial) = &partial {
+                        t = t.merged(wb, partial).map_err(|e| bad(c, e))?;
+                    }
+                    if !vals.is_empty() {
+                        t = t.set_controls(wb, &vals).map_err(|e| bad(c, e))?;
+                    }
+                    tools = serde_json::to_value(&t).unwrap_or_default();
+                    masks[i].tools = t;
+                    Ok(())
+                })?;
+                Ok(json!({"tools": tools}))
+            }
+        ),
+        cmd!("mask.setOpacity", "Set Layer Opacity", [], None, "{id?, value: 0..100} — fades everything the mask does", has_active, |s, p| {
+            let c = "mask.setOpacity";
+            let v = super::f64_req(p, "value", c)?;
+            if !v.is_finite() {
+                return Err(bad(c, "value must be a number"));
+            }
+            let mid = mask_id(p, s.active_mask, c)?;
+            masks_edit(s, c, "Layer Opacity", |masks, _| {
+                let i = find(masks, mid, c)?;
+                masks[i].opacity = v.clamp(0.0, 100.0);
+                Ok(())
+            })
+        }),
+        cmd!(
+            "mask.resetTools",
+            "Reset Layer",
+            [],
+            None,
+            "{id?, section?: a layer tools key (light, curve, …)} — without `section`: drops every layer tool, resets the local sliders (keeping the amount) and the opacity",
+            has_active,
+            |s, p| {
+                let c = "mask.resetTools";
+                let mid = mask_id(p, s.active_mask, c)?;
+                let section = str_param(p, "section").map(str::to_string);
+                let label = if section.is_some() { "Reset Layer Section" } else { "Reset Layer" };
+                masks_edit(s, c, label, |masks, _| {
+                    let i = find(masks, mid, c)?;
+                    let m = &mut masks[i];
+                    match &section {
+                        Some(k) => {
+                            if !m.tools.clear(k) {
+                                return Err(bad(c, format!("`{k}` is not a layer tool")));
+                            }
+                        }
+                        None => {
+                            m.tools = Default::default();
+                            m.adjust = LocalAdjustments { amount: m.adjust.amount, ..Default::default() };
+                            m.opacity = 100.0;
+                        }
+                    }
+                    Ok(())
+                })
+            }
+        ),
         cmd!("mask.select", "Select Mask", [], None, "{id|null}", has_active, |s, p| {
             s.active_mask = p.get("id").and_then(Value::as_u64).map(|v| v as u32);
             ok()
@@ -678,6 +777,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 }
                 let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
                 let base = Spot::default();
+                let hash = s.catalog.photo(id).map(|p| crate::enhance::source_hash(p));
+                let source_settings = settings_for_source(&dd, hash.as_deref());
+                let src = s.source_now(id, crate::media::SourceLevel::Thumb).ok();
+                let info = s.source_info(id);
+                let mut additions = Vec::with_capacity(found.len());
                 for d in &found {
                     let mut spot = Spot {
                         mode: SpotMode::Heal,
@@ -686,10 +790,13 @@ pub fn specs() -> Vec<CommandSpec> {
                         feather: base.feather,
                         opacity: 100.0,
                         source_offset: None,
+                        ..Default::default()
                     };
-                    spot.source_offset = pick_source(s, id, &dd, &spot, None);
-                    dd.spots.push(spot);
+                    spot.source_offset =
+                        src.as_ref().and_then(|src| lightcraft_pipeline::spots::pick_source(src, &info, &source_settings, &spot, None));
+                    additions.push(spot);
                 }
+                dd.spots.extend(additions);
                 s.set_develop(id, dd, "Find Dust Spots")?;
                 Ok(json!({"spots": out, "added": found.len()}))
             }
@@ -699,11 +806,15 @@ pub fn specs() -> Vec<CommandSpec> {
             "Add Remove Spot",
             [],
             None,
-            "{mode?: remove|heal|clone, points: [[x,y],…], size?: fraction of long edge, feather?, opacity?, source?: [dx,dy] (default: the best match nearby)} — selects the new spot; returns {index}",
+            "{mode?: remove|heal|clone|ai, points: [[x,y],…], size?: fraction of long edge, feather?, opacity?, source?: [dx,dy] (default: the best match nearby)} — selects the new spot; returns {index}. mode ai (generative removal, background job; one undo step when ready): points and/or polygon: [[x,y],…] (several lassos: one outline, filled non-zero) or mask: layer id, engine? (\"local\": content-aware heal on this computer, no AI engine needed), seed?, wait? → {job}",
             has_active,
             |s, p| {
                 let mode: SpotMode =
                     serde_json::from_value(p.get("mode").cloned().unwrap_or(json!("remove"))).map_err(|e| bad("spot.add", e.to_string()))?;
+                if mode == SpotMode::Ai {
+                    // local-image: generative removal, a background job (`enhance`)
+                    return crate::enhance::cmds::add_ai(s, p);
+                }
                 let pts: Vec<Point> = p
                     .get("points")
                     .and_then(Value::as_array)
@@ -720,6 +831,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     feather: f64_or(p, "feather", d.feather).clamp(0.0, 100.0),
                     opacity: f64_or(p, "opacity", d.opacity).clamp(0.0, 100.0),
                     source_offset: point(p, "source"),
+                    ..Default::default()
                 };
                 let id = s.active().ok_or_else(|| bad("spot.add", "no active photo"))?;
                 let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
@@ -753,6 +865,7 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, p| {
                 let c = "spot.update";
                 let i = spot_index(s, p, c)?;
+                crate::enhance::cmds::check_ai_update(s, i, p, c)?;
                 let mode: Option<SpotMode> = match p.get("mode") {
                     Some(m) => Some(serde_json::from_value(m.clone()).map_err(|e| bad(c, e.to_string()))?),
                     None => None,
@@ -797,6 +910,7 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, p| {
                 let c = "spot.refreshSource";
                 let i = spot_index(s, p, c)?;
+                crate::enhance::cmds::check_ai_update(s, i, p, c)?;
                 let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
                 let dd = (*s.develop_of(id).unwrap_or_default()).clone();
                 let spot = dd.spots[i].clone();
@@ -911,11 +1025,15 @@ fn spots_edit(s: &mut Session, c: &str, label: &str, f: impl FnOnce(&mut Vec<Spo
     s.set_develop(id, d, label)
 }
 
-/// An automatic source for `spot` on photo `id` (a small proxy of the photo, framed by `d`).
+/// An automatic source for `spot` on photo `id` (a small proxy of the photo, framed by `d`). The
+/// proxy shows the photo's AI removals and heals (`d`'s patches made from this photo), so a source
+/// is never picked from what one of them removed.
 fn pick_source(s: &mut Session, id: crate::PhotoId, d: &lightcraft_develop::DevelopSettings, spot: &Spot, avoid: Option<Point>) -> Option<Point> {
     let src = s.source_now(id, crate::media::SourceLevel::Thumb).ok()?;
     let info = s.source_info(id);
-    lightcraft_pipeline::spots::pick_source(&src, &info, d, spot, avoid)
+    let hash = s.catalog.photo(id).map(|p| crate::enhance::source_hash(p));
+    let own = settings_for_source(d, hash.as_deref());
+    lightcraft_pipeline::spots::pick_source(&src, &info, &own, spot, avoid)
 }
 
 fn clamp_local(mut a: LocalAdjustments) -> LocalAdjustments {
@@ -945,4 +1063,43 @@ fn clamp_local(mut a: LocalAdjustments) -> LocalAdjustments {
     c(&mut a.color_sat, 0.0, 100.0);
     c(&mut a.amount, 0.0, 200.0);
     a
+}
+
+fn settings_for_source<'a>(
+    d: &'a lightcraft_develop::DevelopSettings,
+    hash: Option<&str>,
+) -> std::borrow::Cow<'a, lightcraft_develop::DevelopSettings> {
+    let foreign = |sp: &Spot| sp.patch.as_ref().is_some_and(|p| hash != Some(p.source.as_str()));
+    if !d.spots.iter().any(foreign) {
+        return std::borrow::Cow::Borrowed(d);
+    }
+    let mut own = d.clone();
+    own.spots.retain(|sp| !foreign(sp));
+    std::borrow::Cow::Owned(own)
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_dust_source_settings_filter_foreign_once() {
+    use lightcraft_develop::{AiPatch, DevelopSettings};
+    let patch = |source: &str| AiPatch {
+        key: "k".into(),
+        source: source.into(),
+        rect: [0., 0., 1., 1.],
+        engine: "local".into(),
+        seed: 1,
+        geometry: "".into(),
+    };
+    let d = DevelopSettings {
+        spots: vec![
+            Spot { mode: SpotMode::Ai, patch: Some(patch("foreign")), ..Default::default() },
+            Spot { mode: SpotMode::Ai, patch: Some(patch("own")), ..Default::default() },
+        ],
+        ..Default::default()
+    };
+    let filtered = settings_for_source(&d, Some("own"));
+    assert_eq!(filtered.spots.len(), 1);
+    assert_eq!(filtered.spots[0].patch.as_ref().unwrap().source, "own");
+    assert_eq!(d.spots.len(), 2);
+    assert!(matches!(settings_for_source(&filtered, Some("own")), std::borrow::Cow::Borrowed(_)));
 }

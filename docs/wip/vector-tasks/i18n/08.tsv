@@ -1,0 +1,110 @@
+key	en
+vector.appearance.001	Across
+vector.appearance.002	Add color stop
+vector.appearance.003	Add dash pair
+vector.appearance.004	Add fill
+vector.appearance.005	Add midpoint
+vector.appearance.006	Add opacity stop
+vector.appearance.007	Add stroke
+vector.appearance.008	Align dashes to corners
+vector.appearance.009	Align with layer
+vector.appearance.010	Along
+vector.appearance.011	Angle
+vector.appearance.012	Appearance
+vector.appearance.013	Arrow
+vector.appearance.014	Arrow open
+vector.appearance.015	Bar
+vector.appearance.016	Barbed
+vector.appearance.017	Bevel
+vector.appearance.018	Blend mode
+vector.appearance.019	Butt
+vector.appearance.020	Cap
+vector.appearance.021	Center
+vector.appearance.022	Circle
+vector.appearance.023	Circle open
+vector.appearance.024	Color
+vector.appearance.025	Color Burn
+vector.appearance.026	Color Dodge
+vector.appearance.027	Darken
+vector.appearance.028	Darker Color
+vector.appearance.029	Dash
+vector.appearance.030	Dash offset
+vector.appearance.031	Delete item
+vector.appearance.032	Diamond
+vector.appearance.033	Difference
+vector.appearance.034	Dissolve
+vector.appearance.035	Dither
+vector.appearance.036	Divide
+vector.appearance.037	Duplicate item
+vector.appearance.038	End arrow
+vector.appearance.039	End arrow scale
+vector.appearance.040	Exclusion
+vector.appearance.041	Fill
+vector.appearance.042	Gradient
+vector.appearance.043	Gradient style
+vector.appearance.044	Hard Light
+vector.appearance.045	Hard Mix
+vector.appearance.046	Hue
+vector.appearance.047	Inside
+vector.appearance.048	Item opacity
+vector.appearance.049	Join
+vector.appearance.050	Lighten
+vector.appearance.051	Lighter Color
+vector.appearance.052	Linear
+vector.appearance.053	Linear Burn
+vector.appearance.054	Linear Dodge (Add)
+vector.appearance.055	Linear Light
+vector.appearance.056	Link with layer
+vector.appearance.057	Luminosity
+vector.appearance.058	Midpoint
+vector.appearance.059	Miter
+vector.appearance.060	Miter limit
+vector.appearance.061	Move down
+vector.appearance.062	Move up
+vector.appearance.063	Multiply
+vector.appearance.064	None
+vector.appearance.065	Normal
+vector.appearance.066	Object
+vector.appearance.067	Offset X
+vector.appearance.068	Offset Y
+vector.appearance.069	Opacity
+vector.appearance.070	Opacity stop
+vector.appearance.071	Outside
+vector.appearance.072	Overlay
+vector.appearance.073	Paint
+vector.appearance.074	Pass Through
+vector.appearance.075	Pattern
+vector.appearance.076	Pattern tile
+vector.appearance.077	Phase X
+vector.appearance.078	Phase Y
+vector.appearance.079	Pin Light
+vector.appearance.080	Radial
+vector.appearance.081	Reflected
+vector.appearance.082	Remove color stop
+vector.appearance.083	Reverse
+vector.appearance.084	Round
+vector.appearance.085	Saturation
+vector.appearance.086	Scale
+vector.appearance.087	Scale with object
+vector.appearance.088	Screen
+vector.appearance.089	Select shape layers
+vector.appearance.090	Soft Light
+vector.appearance.091	Solid
+vector.appearance.092	Solid stroke
+vector.appearance.093	Square
+vector.appearance.094	Square open
+vector.appearance.095	Start arrow
+vector.appearance.096	Start arrow scale
+vector.appearance.097	Stop
+vector.appearance.098	Stroke
+vector.appearance.099	Stroke alignment
+vector.appearance.100	Stroke gradient
+vector.appearance.101	Subtract
+vector.appearance.102	Triangle
+vector.appearance.103	Triangle open
+vector.appearance.104	Visible
+vector.appearance.105	Vivid Light
+vector.appearance.106	Width
+vector.appearance.tool.transparency	Transparency
+shape.appearance.set	Edit Appearance
+shape.appearance.preview	Preview Appearance

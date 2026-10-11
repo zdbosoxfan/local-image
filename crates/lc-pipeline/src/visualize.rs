@@ -33,6 +33,12 @@ pub enum Overlay {
     /// The evaluated alpha of mask `id` (a [`lightcraft_develop::Mask`] id), drawn as `view` in
     /// `color` at `opacity` (0..100; the colour views only).
     Mask { id: u16, view: MaskView, color: [u8; 3], opacity: u8 },
+    /// The tone equalizer's mask: each pixel's luminance zone as a grey level (−8 EV black …
+    /// 0 EV white).
+    ToneEqMask,
+    /// Detail sharpening's Masking (the Alt-drag preview): white where sharpening applies,
+    /// black where the mask holds it back.
+    SharpenMask,
 }
 
 /// How [`Overlay::Mask`] draws the mask.
@@ -114,6 +120,8 @@ impl Overlay {
             Overlay::PointColorRange(i) => (1, i as f64),
             Overlay::Spots(t) => (2, t as f64),
             Overlay::Mask { id, view, color, opacity } => (3, pack_mask(id, view, color, opacity) as f64),
+            Overlay::ToneEqMask => (4, 0.0),
+            Overlay::SharpenMask => (5, 0.0),
         }
     }
 
@@ -123,6 +131,8 @@ impl Overlay {
             1 => Overlay::PointColorRange(v as u8),
             2 => Overlay::Spots(v.clamp(0.0, 100.0) as u8),
             3 if v.is_finite() && v >= 0.0 => unpack_mask(v as u64),
+            4 => Overlay::ToneEqMask,
+            5 => Overlay::SharpenMask,
             _ => Overlay::None,
         }
     }
@@ -134,6 +144,8 @@ impl Overlay {
             Overlay::PointColorRange(i) => 0x1000 + i as u64,
             Overlay::Spots(t) => 0x2000 + t as u64,
             Overlay::Mask { id, view, color, opacity } => 3 << 60 | pack_mask(id, view, color, opacity),
+            Overlay::ToneEqMask => 0x4000,
+            Overlay::SharpenMask => 0x5000,
         }
     }
 
@@ -156,6 +168,10 @@ pub fn adjust_settings(o: Overlay, s: &mut Cow<'_, DevelopSettings>) {
         let p = &mut s.to_mut().point_colors[i as usize];
         (p.hue_shift, p.sat_shift, p.lum_shift, p.variance) = (0.0, 0.0, 0.0, 0.0);
     }
+    // the sharpening mask shows even at Amount 0 (its planes are made only while sharpening)
+    if o == Overlay::SharpenMask && s.detail.sharpen_amount == 0.0 {
+        s.to_mut().detail.sharpen_amount = 1.0;
+    }
 }
 
 /// Draw overlay `o` over `img` (rendered with `plan`). `mask` is the evaluated alpha of the mask
@@ -172,6 +188,19 @@ pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, mask: Option<&Plane>)
         Overlay::Mask { view, color, opacity, .. } => {
             if let Some(a) = mask.filter(|a| (a.width, a.height) == (img.width, img.height)) {
                 mask_view(img, a, view, color, opacity);
+            }
+        }
+        // `mask` holds the zones (see `crate::toneeq::preview_grey`) or the sharpening mask as
+        // grey levels
+        Overlay::ToneEqMask | Overlay::SharpenMask => {
+            if let Some(a) = mask.filter(|a| (a.width, a.height) == (img.width, img.height)) {
+                let w = img.width;
+                for_rows(&mut img.data, w, |y, row| {
+                    for (x, px) in row.iter_mut().enumerate() {
+                        let v = (a.data[y * w + x].clamp(0.0, 1.0) * 255.0).round() as u8;
+                        *px = [v, v, v, 255];
+                    }
+                });
             }
         }
     }

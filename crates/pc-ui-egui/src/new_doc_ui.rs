@@ -107,8 +107,23 @@ pub fn apply_preset(f: &mut Map<String, Value>, p: &Preset) {
     f.insert("height".into(), json!(p.2));
     f.insert("resolution".into(), json!(p.3));
     f.insert("__preset".into(), json!(p.0));
-    // Print and photo presets are specified in inches, screen presets in pixels.
-    f.insert("__unit".into(), json!(if p.3 >= 300.0 { "in" } else { "px" }));
+    let category = f.get("__category").and_then(Value::as_str).unwrap_or("Photo");
+    let units = photocraft_engine::vector_packages::layout::preset_units(category);
+    f.insert("designUnits".into(), json!(units));
+    use photocraft_doc::vector_design::structure::DesignUnits;
+    f.insert(
+        "__unit".into(),
+        json!(match units {
+            DesignUnits::Millimeters => "mm",
+            DesignUnits::Points => "pt",
+            _ =>
+                if p.3 >= 300. {
+                    "in"
+                } else {
+                    "px"
+                },
+        }),
+    );
 }
 
 /// Fields `file.new` takes (drops the dialog's `__` UI keys).

@@ -98,6 +98,29 @@
   "hf_tags": [
     "flux2-klein"
   ],
+  "file_overrides": [
+    {
+      "patterns": [
+        "klein*base"
+      ],
+      "sampling": {
+        "steps": {
+          "default": 20,
+          "min": 1,
+          "max": 100
+        },
+        "cfg": {
+          "default": 5,
+          "min": 1,
+          "max": 10
+        },
+        "denoise": 0.6
+      },
+      "pipeline": {
+        "zero_negative": false
+      }
+    }
+  ],
   "models": [
     {
       "key": "flux2-klein-4b",

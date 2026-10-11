@@ -105,6 +105,37 @@ pub enum GridBadges {
     Never,
 }
 
+/// When the Remove tool shows its spots' pins and outlines on the photo (Lightroom's Tool Overlay).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SpotOverlay {
+    /// Pins while the pointer is on the photo; the outline of the selected or hovered spot.
+    #[default]
+    Auto,
+    /// Pins all the time; the outline of the selected or hovered spot.
+    Always,
+    /// Nothing (painting never grabs a spot).
+    Never,
+}
+
+/// Remove tool, AI mode: what was painted and not removed yet (Lightroom's generative Remove
+/// waits for Apply). Normalized transformed coordinates, like spots.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RemoveDraft {
+    /// The photo it was painted on.
+    pub photo: u64,
+    /// Brush dabs, removed at the brush size.
+    pub points: Vec<lightcraft_geom::Point>,
+    /// Lasso outlines (each closed).
+    pub lassos: Vec<Vec<lightcraft_geom::Point>>,
+}
+
+impl RemoveDraft {
+    pub fn is_empty(&self) -> bool {
+        self.points.is_empty() && self.lassos.is_empty()
+    }
+}
+
 /// The loupe's info overlay (Cmd+I cycles; I in the full-screen preview).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -133,11 +164,15 @@ impl InfoOverlay {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct AppSettings {
+    /// Colour tool silhouettes; defaults on when loading older UI settings.
+    pub color_tool_icons: bool,
     /// Library opened at launch when no `--library` is given (empty = the default location).
     pub library_path: String,
     pub startup_view: StartupView,
     /// Ask before moving photos to Recently Deleted (keyboard and menu).
     pub confirm_delete: bool,
+    /// File ▸ Save Over Original asks first (its "Don't ask again" turns this off).
+    pub confirm_save_over: bool,
     /// GPU rendering allowed (`app.gpu`).
     pub gpu: bool,
     /// Largest long edge (pixels) the loupe renders at.
@@ -152,14 +187,18 @@ pub struct AppSettings {
     pub film_badges: bool,
     /// Grid: when to show the rating / flag / edited badges.
     pub grid_badges: GridBadges,
+    /// Hover tips on the tool strip: rich, simple (name and shortcut) or off.
+    pub tool_tips: crate::panels::tool_tips::ToolTipMode,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
+            color_tool_icons: true,
             library_path: String::new(),
             startup_view: StartupView::Last,
             confirm_delete: false,
+            confirm_save_over: true,
             gpu: true,
             preview_edge: 2560,
             external_editor: String::new(),
@@ -167,6 +206,7 @@ impl Default for AppSettings {
             film_names: true,
             film_badges: true,
             grid_badges: GridBadges::Auto,
+            tool_tips: Default::default(),
         }
     }
 }
@@ -202,6 +242,8 @@ pub const MIN_PHOTO_WIDTH: f32 = 360.0;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct UiState {
+    #[serde(skip)]
+    pub people: crate::panels::people_workspace::PeopleUi,
     #[serde(default = "crate::i18n::default_language")]
     pub language: crate::i18n::Locale,
     /// The Build Previews run last announced (its identity, finished?).
@@ -283,6 +325,9 @@ pub struct UiState {
     /// The develop control whose slider is being dragged (geometry sliders show a grid).
     #[serde(skip)]
     pub dragging_control: Option<String>,
+    /// Temporary Alt-drag sharpening mask preview.
+    #[serde(skip)]
+    pub sharpen_mask_preview: bool,
     pub search: String,
     /// Focus the search field on the next frame (Edit → Find…).
     #[serde(skip)]
@@ -328,10 +373,25 @@ pub struct UiState {
     pub remove_size: f32,
     pub remove_feather: f32,
     pub remove_opacity: f32,
+    /// Remove tool, AI mode: the AI engine (`""`: the first ready one) and whether dragging draws
+    /// a lasso instead of a brush stroke.
+    pub remove_engine: String,
+    pub remove_lasso: bool,
+    /// Remove tool, AI mode: strokes waiting for Remove (Enter) or Cancel (Esc).
+    #[serde(skip)]
+    pub remove_draft: Option<RemoveDraft>,
+    /// Remove tool: when spots' pins and outlines show.
+    pub remove_overlay: SpotOverlay,
+    /// The overlay value to restore when toggling back from Never (last non-Never value).
+    pub remove_overlay_remembered: Option<SpotOverlay>,
     /// Selected Point Color sample.
     pub point_color: usize,
     /// Point Color "Visualize range": the selected sample's range in colour, the rest grey.
     pub point_color_visualize: bool,
+    /// The develop layer (mask id) the Point Color eyedropper samples for; `None`: the photo.
+    pub point_color_mask: Option<u32>,
+    /// Masking panel: show only the tool sections the selected layer uses.
+    pub layer_used_only: bool,
     /// Red Eye panel: selected correction, and whether new ones are pet eyes.
     pub eye: usize,
     pub eye_pet: bool,
@@ -403,6 +463,9 @@ impl Dialog {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Dialog {
+    SmartSort {
+        state: Box<crate::panels::smart_sort::SmartSortDialog>,
+    },
     NewAlbum {
         name: String,
         folder: bool,
@@ -502,16 +565,47 @@ pub enum Dialog {
     PasteSettings {
         groups: Vec<String>,
     },
-    /// `resize` is used unless `full_size`; `limit_kb` 0 = no limit; `dir` empty = default export folder.
+    /// The Export dialog (Lightroom Classic's layout: presets on the left, collapsible sections on
+    /// the right). `resize` is used unless `full_size`; `limit_kb` 0 = no limit; `dir` empty =
+    /// default export folder (unused with `opts.same_folder`).
     Export {
-        opts: lightcraft_engine::export::ExportOptions,
+        opts: Box<lightcraft_engine::export::ExportOptions>,
         full_size: bool,
         resize: lightcraft_engine::export::Resize,
-        /// Name typed for "Save as Preset".
+        /// Name typed for a new preset (Add).
         #[serde(default)]
         preset_name: String,
         limit_kb: u32,
         dir: String,
+        /// The preset chosen in the list (empty = none).
+        #[serde(default)]
+        preset: String,
+        /// Export Location ▸ Add to This Catalog / Add to Stack.
+        #[serde(default)]
+        add_to_library: bool,
+        #[serde(default)]
+        add_to_stack: bool,
+        /// Existing Files ▸ Ask what to do (the export asks before it starts).
+        #[serde(default)]
+        ask_existing: bool,
+        /// Files that already exist, found when Export was pressed with `ask_existing`.
+        #[serde(default)]
+        existing: Option<usize>,
+        /// Post-Processing ▸ After Export: `nothing` | `showInFolder` | `openIn`.
+        #[serde(default)]
+        after: String,
+        /// The application for `openIn`.
+        #[serde(default)]
+        after_app: String,
+    },
+    /// File ▸ Save Over Original: what will happen (`photo.saveOverOriginalPlan`) and "Don't ask
+    /// again". `beside`: Save Copy Beside was chosen instead of Overwrite.
+    SaveOverOriginal {
+        plan: serde_json::Value,
+        #[serde(default)]
+        dont_ask: bool,
+        #[serde(default)]
+        beside: bool,
     },
     /// Photo Merge (HDR / Panorama / HDR Panorama) options; the preview lives in the app.
     Merge {
@@ -541,6 +635,7 @@ pub enum Dialog {
 impl Default for UiState {
     fn default() -> Self {
         UiState {
+            people: Default::default(),
             language: crate::i18n::default_language(),
             preview_build_seen: None,
             unsaved_seen: false,
@@ -580,6 +675,7 @@ impl Default for UiState {
             collapsed_sidebar: Vec::new(),
             hidden_locations: Vec::new(),
             dragging_control: None,
+            sharpen_mask_preview: false,
             external_edits: Vec::new(),
             was_focused: true,
             auto_import_at: 0.0,
@@ -604,8 +700,15 @@ impl Default for UiState {
             remove_size: 0.02,
             remove_feather: 50.0,
             remove_opacity: 100.0,
+            remove_engine: String::new(),
+            remove_lasso: false,
+            remove_draft: None,
+            remove_overlay: SpotOverlay::Auto,
+            remove_overlay_remembered: None,
             point_color: 0,
             point_color_visualize: false,
+            point_color_mask: None,
+            layer_used_only: false,
             eye: 0,
             eye_pet: false,
             visualize_spots: false,

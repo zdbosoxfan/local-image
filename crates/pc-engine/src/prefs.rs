@@ -71,6 +71,11 @@ choice!(
     /// CPU disables image acceleration; the native window may still need hardware graphics.
     RenderingMode { Auto = "auto", Gpu = "gpu", Cpu = "cpu" } default Auto
 );
+choice!(
+    /// Toolbar hover tips: `rich` (name, shortcut, what it does and how to use it), `simple` (name and
+    /// shortcut) or `off`.
+    ToolTips { Rich = "rich", Simple = "simple", Off = "off" } default Rich
+);
 choice!(UiFontSize { Tiny = "tiny", Small = "small", Medium = "medium", Large = "large" } default Small);
 choice!(LogDestination { Metadata = "metadata", TextFile = "textFile", Both = "both" } default Metadata);
 choice!(LogDetail { SessionsOnly = "sessionsOnly", Concise = "concise", Detailed = "detailed" } default Concise);
@@ -200,6 +205,8 @@ impl Default for General {
 #[serde(default, rename_all = "camelCase")]
 pub struct Interface {
     pub theme: Theme,
+    /// Original colour tools, or the existing theme-tinted monochrome glyphs.
+    pub tool_icons: String,
     /// Pasteboard colour in standard screen mode (`canvasCustomColor` when "custom").
     pub canvas_color: CanvasColor,
     pub canvas_custom_color: String,
@@ -216,6 +223,8 @@ pub struct Interface {
     /// Draw menu item colours set with Edit › Menus.
     pub show_menu_colors: bool,
     pub show_tooltips: bool,
+    /// local-image: how much a tool button's hover tip shows.
+    pub tool_tips: ToolTips,
     /// Move tool drags show only the layer's outline and an arrow, leaving its pixels in place
     /// until release. Off (the default), the pixels follow the pointer live inside the outline.
     pub show_bounding_box_when_dragging_layer: bool,
@@ -234,6 +243,7 @@ impl Default for Interface {
     fn default() -> Self {
         Self {
             theme: Theme::ProMedium,
+            tool_icons: "colour".into(),
             canvas_color: CanvasColor::Default,
             canvas_custom_color: "#282828".into(),
             canvas_border: CanvasBorder::DropShadow,
@@ -244,6 +254,7 @@ impl Default for Interface {
             dynamic_color_sliders: true,
             show_menu_colors: true,
             show_tooltips: true,
+            tool_tips: ToolTips::Rich,
             show_bounding_box_when_dragging_layer: false,
             contextual_task_bar: true,
             filmstrip_shows_folder: true,
@@ -296,6 +307,10 @@ pub struct Tools {
     pub right_click_with_painting_tools: RightClickPaint,
     /// Pen tablets: pressure, tilt and rotation reach the brush (off: a pen paints like a mouse).
     pub use_tablet_pressure: bool,
+    /// local-image: the global pen pressure curve, `[input, output]` points in `0..=1` (Krita's
+    /// tablet pressure curve), applied to stylus pressure before brush dynamics. The default
+    /// line is the identity.
+    pub pen_pressure_curve: Vec<[f32; 2]>,
 }
 
 impl Default for Tools {
@@ -312,6 +327,7 @@ impl Default for Tools {
             double_click_layer_mask_launches_select_and_mask: true,
             right_click_with_painting_tools: RightClickPaint::BrushPicker,
             use_tablet_pressure: true,
+            pen_pressure_curve: photocraft_paint::pressure::LINEAR.to_vec(),
         }
     }
 }
@@ -731,8 +747,26 @@ pub struct MenuCustomization {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ToolbarCustomization {
+    pub vector_keyboard: crate::vector_toolbar_layout::Settings,
+    /// Before tool sets: hidden tools. Read once and turned into the set "My Tools"
+    /// ([`ToolbarCustomization::migrate`]); cleared after migration.
     pub hidden: Vec<String>,
+    /// Before tool sets: a custom order (see `hidden`).
     pub order: Vec<String>,
+    /// Id of the tool set in use (`""` = All Tools, the default).
+    pub active_set: String,
+    /// The user's own tool sets (the built-ins are in [`crate::toolsets`]).
+    pub sets: Vec<crate::toolsets::ToolSet>,
+    /// Global Compositing persona. Old settings start in Pixel.
+    #[serde(default)]
+    pub persona: crate::toolsets::Persona,
+    /// Vector's last set; `active_set` continues to store Pixel's original set id.
+    #[serde(default)]
+    pub vector_set: String,
+    #[serde(default)]
+    pub pixel_tool: String,
+    #[serde(default)]
+    pub vector_tool: String,
 }
 
 /// All preferences. JSON keys are the `edit.preferences.<section>` ids.
@@ -882,11 +916,13 @@ pub fn choices(path: &str) -> Option<&'static [&'static str]> {
         "general.colorPicker" => ColorPicker::NAMES,
         "general.imageInterpolation" => Interpolation::NAMES,
         "interface.theme" => Theme::NAMES,
+        "interface.toolIcons" => &["colour", "monochrome"],
         "interface.saveAndNextSavesTo" => &["editedFolder", "original", "saveAs"],
         "interface.canvasColor" => CanvasColor::NAMES,
         "interface.canvasBorder" => CanvasBorder::NAMES,
         "interface.uiScale" => UiScale::NAMES,
         "interface.uiFontSize" => UiFontSize::NAMES,
+        "interface.toolTips" => ToolTips::NAMES,
         "historyLog.destination" => LogDestination::NAMES,
         "historyLog.detail" => LogDetail::NAMES,
         "fileHandling.imagePreviews" | "fileHandling.maximizePsdCompatibility" => Ask::NAMES,
@@ -1059,6 +1095,12 @@ impl Preferences {
 
     /// Set a value by dotted path, validating it. Unknown paths and wrong types are errors.
     pub fn set(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
+        self.set_unmigrated(path, value)?;
+        self.toolbar.migrate();
+        Ok(())
+    }
+
+    fn set_unmigrated(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
         let value = match (path.strip_prefix("shortcuts."), &value) {
             // Normalise shortcut spelling so conflicts compare equal.
             (Some(_), Value::String(s)) if !s.is_empty() => Value::String(normalize_shortcut(s).ok_or_else(|| format!("`{s}` is not a valid shortcut"))?),
@@ -1187,9 +1229,47 @@ pub const TEMPORARY_TOOLS: &[(&str, &str, &str)] = &[
     ("tools.temporary.zoomOut", "Zoom Out (hold)", "Cmd+Alt+Space"),
 ];
 
+/// Bindable toolbar groups. A group shares one shortcut, including its flyout tools.
+pub const TOOL_SHORTCUTS: &[(&str, &str, Option<&str>)] = &[
+    ("tools.select.Move", "Move Tool", Some("V")),
+    ("tools.select.RectMarquee", "Marquee Tools", Some("M")),
+    ("tools.select.Lasso", "Lasso Tools", Some("L")),
+    ("tools.select.MagicWand", "Selection Tools", Some("W")),
+    ("tools.select.Crop", "Crop and Slice Tools", Some("C")),
+    ("tools.select.Eyedropper", "Eyedropper and Measurement Tools", Some("I")),
+    ("tools.select.Brush", "Brush Tools", Some("B")),
+    ("tools.select.Eraser", "Eraser Tools", Some("E")),
+    ("tools.select.Gradient", "Fill Tools", Some("G")),
+    ("tools.select.Type", "Type Tools", Some("T")),
+    ("tools.select.Hand", "Hand Tool", Some("H")),
+    ("tools.select.Zoom", "Zoom Tool", Some("Z")),
+    ("tools.select.SpotHealing", "Healing Tools", Some("J")),
+    ("tools.select.CloneStamp", "Clone Stamp Tool", Some("S")),
+    ("tools.select.HistoryBrush", "History Brush Tool", Some("Y")),
+    ("tools.select.Blur", "Blur, Sharpen and Smudge Tools", None),
+    ("tools.select.Dodge", "Dodge, Burn and Sponge Tools", Some("O")),
+    ("tools.select.Pen", "Pen Tool", Some("P")),
+    ("tools.select.PathSelection", "Path Selection Tools", Some("A")),
+    ("tools.select.Rectangle", "Shape Tools", Some("U")),
+    ("tools.select.AiRemove", "AI Remove Tool", Some("R")),
+    ("tools.select.AiCutout", "AI Cutout Tool", Some("K")),
+];
+
 /// Every bindable id with its default: commands, then the temporary tools.
 fn bindable() -> impl Iterator<Item = (&'static str, Option<&'static str>)> {
-    crate::command_specs().iter().map(|c| (c.id, c.shortcut)).chain(TEMPORARY_TOOLS.iter().map(|t| (t.0, Some(t.2))))
+    let mut ids = BTreeMap::new();
+    for (id, shortcut) in crate::command_specs()
+        .iter()
+        .map(|c| (c.id, c.shortcut))
+        .chain(TEMPORARY_TOOLS.iter().map(|t| (t.0, Some(t.2))))
+        .chain(TOOL_SHORTCUTS.iter().map(|t| (t.0, t.2)))
+    {
+        let current = ids.entry(id).or_insert(None);
+        if current.is_none() {
+            *current = shortcut;
+        }
+    }
+    ids.into_iter()
 }
 
 /// Shortcuts bound to more than one command: (shortcut, ids). `bindings` are (id, shortcut).
@@ -1197,7 +1277,10 @@ pub fn conflicts<'a>(bindings: impl IntoIterator<Item = (&'a str, &'a str)>) -> 
     let mut by: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (id, sc) in bindings {
         if let Some(n) = normalize_shortcut(sc) {
-            by.entry(n).or_default().push(id.to_string());
+            let ids = by.entry(n).or_default();
+            if !ids.iter().any(|i| i == id) {
+                ids.push(id.to_string());
+            }
         }
     }
     by.into_iter().filter(|(_, ids)| ids.len() > 1).collect()
@@ -1282,7 +1365,10 @@ impl Session {
             self.color.settings = serde_json::from_value(c).unwrap_or_default();
             photocraft_compose::psblend::set_text_gamma(self.color.settings.blend_text_gamma);
         }
-        self.prefs.edit(|p| *p = prefs);
+        self.prefs.edit(|p| {
+            *p = prefs;
+            p.toolbar.migrate();
+        });
         if let Some(v) = presets {
             self.load_presets_json(v);
         }
@@ -1326,14 +1412,14 @@ impl Session {
                 }
                 if v.is_object() && !p.starts_with("shortcuts") && !p.ends_with(".colors") && next.get(&p).is_some_and(|c| c.is_object()) {
                     for (k2, v2) in v.as_object().into_iter().flatten() {
-                        next.set(&format!("{p}.{k2}"), v2.clone())?;
+                        next.set_unmigrated(&format!("{p}.{k2}"), v2.clone())?;
                     }
                 } else {
-                    next.set(&p, v.clone())?;
+                    next.set_unmigrated(&p, v.clone())?;
                 }
             }
         } else {
-            next.set(path, value)?;
+            next.set_unmigrated(path, value)?;
         }
         self.prefs.edit(|p| *p = next);
         Ok(())
@@ -1377,6 +1463,7 @@ fn prefs_set(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(bad(cmd, e));
         }
     }
+    s.prefs.edit(|p| p.toolbar.migrate());
     s.apply_prefs();
     let view = s.prefs_view();
     let out: Map<String, Value> = changes.iter().map(|(k, _)| (k.clone(), get_path(&view, k).cloned().unwrap_or(Value::Null))).collect();
@@ -1438,7 +1525,7 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
             if !bindable().any(|(b, _)| b == id) && !p.get("allowUnknown").and_then(Value::as_bool).unwrap_or(false) {
                 return Err(bad(cmd, format!("unknown command `{id}`")));
             }
-            next.set(&format!("shortcuts.{id}"), v.clone()).map_err(|e| bad(cmd, e))?;
+            next.set_unmigrated(&format!("shortcuts.{id}"), v.clone()).map_err(|e| bad(cmd, e))?;
         }
         // Like Photoshop, a shortcut moved to a new command is taken away from the old one.
         if p.get("removeConflicts").and_then(Value::as_bool).unwrap_or(true) {
@@ -1467,6 +1554,7 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
         .iter()
         .map(|c| (c.id, c.label, c.menu, c.shortcut, false))
         .chain(temporary)
+        .chain(TOOL_SHORTCUTS.iter().map(|t| (t.0, t.1, &["Tools"][..], t.2, false)))
         .filter(|c| filter.as_ref().is_none_or(|f| c.0.to_ascii_lowercase().contains(f) || c.1.to_ascii_lowercase().contains(f)))
         .filter(|c| p.get("list").and_then(Value::as_bool).unwrap_or(false) || filter.is_some() || prefs.shortcuts.contains_key(c.0))
         .map(|(id, label, menu, def, hold)| {
@@ -1522,21 +1610,62 @@ fn menus(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(serde_json::to_value(&s.prefs().menus).unwrap_or_default())
 }
 
-/// Edit › Toolbar: hide tools and reorder the toolbar.
+/// Edit › Toolbar: hide tools and reorder the toolbar. The change lands in the active custom
+/// tool set; with a built-in set (read-only) active it first becomes a copy, "My Tools".
 fn toolbar(s: &mut Session, p: &Value) -> Result<Value> {
+    use crate::toolsets::{Persona, ToolSet};
     let ids = |k: &str| -> Option<Vec<String>> { p.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()) };
     s.edit_prefs(|pr| {
         if p.get("reset").and_then(Value::as_bool) == Some(true) {
-            pr.toolbar = ToolbarCustomization::default();
+            match pr.toolbar.persona {
+                Persona::Pixel => pr.toolbar.active_set = crate::toolsets::DEFAULT_ID.into(),
+                Persona::Vector => pr.toolbar.vector_set = pr.toolbar.persona.default_set().into(),
+            }
         }
-        if let Some(h) = ids("hidden") {
-            pr.toolbar.hidden = h;
+        let (hidden, order) = (ids("hidden"), ids("order"));
+        if hidden.is_none() && order.is_none() {
+            return;
         }
-        if let Some(o) = ids("order") {
-            pr.toolbar.order = o;
+        let active = pr.toolbar.active();
+        if ToolbarCustomization::is_builtin(&active.id) {
+            let id = (1u32..).map(|n| format!("custom-{n}")).find(|id| !pr.toolbar.sets.iter().any(|x| &x.id == id)).unwrap_or_default();
+            let name = pr.toolbar.unique_name("My Tools");
+            pr.toolbar.sets.push(ToolSet { id: id.clone(), name, persona: pr.toolbar.persona, tools: active.tools.clone() });
+            match pr.toolbar.persona {
+                Persona::Pixel => pr.toolbar.active_set = id,
+                Persona::Vector => pr.toolbar.vector_set = id,
+            }
+        }
+        let available = crate::toolsets::tools_for(pr.toolbar.persona);
+        let canon = |t: &str| crate::toolsets::canonical_tool(t).filter(|id| available.contains(id)).map(str::to_owned);
+        let id = match pr.toolbar.persona {
+            Persona::Pixel => pr.toolbar.active_set.clone(),
+            Persona::Vector => pr.toolbar.vector_set.clone(),
+        };
+        if let Some(set) = pr.toolbar.sets.iter_mut().find(|x| x.id == id) {
+            let mut tools: Vec<String> = Vec::new();
+            for t in order.iter().flatten().filter_map(|t| canon(t)).chain(set.tools.iter().cloned()).chain(available.iter().map(|t| t.to_string())) {
+                if !tools.contains(&t) {
+                    tools.push(t);
+                }
+            }
+            let keep: Vec<String> = match &hidden {
+                Some(h) => {
+                    let h: Vec<String> = h.iter().filter_map(|t| canon(t)).collect();
+                    tools.retain(|t| !h.contains(t));
+                    tools
+                }
+                None => {
+                    tools.retain(|t| set.tools.contains(t));
+                    tools
+                }
+            };
+            set.tools = keep;
         }
     });
-    Ok(serde_json::to_value(&s.prefs().toolbar).unwrap_or_default())
+    let mut out = serde_json::to_value(&s.prefs().toolbar).unwrap_or_default();
+    out["active"] = json!(s.prefs().toolbar.active().id);
+    Ok(out)
 }
 
 macro_rules! spec {

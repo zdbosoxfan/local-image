@@ -97,9 +97,19 @@ fn quick_selection(s: &mut Session, p: &Value) -> Result<Value> {
         _ => SelectionMode::Add,
     };
     let enhance = b(p, "enhanceEdge", false);
-    let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| {
+    let all = b(p, "sampleAllLayers", false);
+    // local-image: the installed subject model as a weak prior (`subjectAssist`, on by default;
+    // nothing happens without a model).
+    let prior = if b(p, "subjectAssist", true) {
+        let d = s.active().ok_or(EngineError::NoDocument)?;
+        crate::seg::quick_prior(&d.doc, d.active_layer, all)
+    } else {
+        None
+    };
+    let region = with_sampler(s, all, |smp, doc| {
         let canvas = doc.bounds();
-        let r = quick::quick_select(smp, canvas, &pts, size, quick::WORK_PX)?;
+        let prior = prior.as_ref().map(|p| quick::Prior { area: p.0, prob: &p.1 });
+        let r = quick::quick_select_with(smp, canvas, &pts, size, quick::WORK_PX, prior)?;
         if enhance { matting::refine_mask(smp, &matting::region_reader(&r), r.bbox, canvas, &ENHANCE) } else { Some(r) }
     })?;
     apply(s, "Quick Selection", region, m)
@@ -266,7 +276,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.quick",
             "Quick Selection",
             [],
-            r##"{"points":[[x,y],…],"size":px=30,"mode":"add|subtract|replace"="add","sampleAllLayers":bool=false,"enhanceEdge":bool=false}"##,
+            r##"{"points":[[x,y],…],"size":px=30,"mode":"add|subtract|replace"="add","sampleAllLayers":bool=false,"enhanceEdge":bool=false,"subjectAssist":bool=true (use the installed selection model as a weak prior)} (specular highlights inside the painted object are included)"##,
             has_doc,
             quick_selection
         ),
@@ -382,6 +392,19 @@ mod tests {
             }
         }
         i as f32 / u.max(1) as f32
+    }
+
+    #[test]
+    fn quick_selection_subject_assist_is_optional() {
+        // Without an installed model the assist changes nothing; turning it off is accepted.
+        let mut on = two_regions(8);
+        on.execute("select.quick", json!({"points": [[20, 50], [35, 50]], "size": 8})).unwrap();
+        let mut off = two_regions(8);
+        off.execute("select.quick", json!({"points": [[20, 50], [35, 50]], "size": 8, "subjectAssist": false})).unwrap();
+        if crate::seg::installed().is_none() {
+            assert_eq!(on.active().unwrap().doc.selection, off.active().unwrap().doc.selection);
+        }
+        assert!(cov(&off, 30, 50) > 0.5 && cov(&off, 100, 50) < 0.5);
     }
 
     #[test]

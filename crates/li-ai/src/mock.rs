@@ -27,6 +27,10 @@ struct State {
     host: String,
     /// A model folder whose files `/object_info` lists too (installs show up after a refresh).
     model_dir: Option<std::path::PathBuf>,
+    /// Prompts still executing (reported as `queue_running`).
+    running: Vec<String>,
+    /// `POST /interrupt` calls.
+    interrupts: u32,
 }
 
 /// A running mock server; stops when dropped.
@@ -36,6 +40,8 @@ pub struct MockComfy {
     stop: Arc<AtomicBool>,
     /// Milliseconds each job takes (so progress and cancel can be observed).
     pub delay_ms: Arc<AtomicU64>,
+    /// Delay for `/free`, allowing UI tests to observe an idle worker completion.
+    pub free_delay_ms: Arc<AtomicU64>,
     fail_next: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -53,14 +59,16 @@ impl MockComfy {
         let stop = Arc::new(AtomicBool::new(false));
         let delay_ms = Arc::new(AtomicU64::new(150));
         let fail_next = Arc::new(AtomicBool::new(false));
+        let free_delay_ms = Arc::new(AtomicU64::new(0));
+        let free_delay = free_delay_ms.clone();
         let (st, sp, dl, fl) = (state.clone(), stop.clone(), delay_ms.clone(), fail_next.clone());
         let thread = std::thread::Builder::new().name("mock-comfy".into()).spawn(move || {
             while !sp.load(Ordering::SeqCst) {
                 let Ok(Some(req)) = server.recv_timeout(Duration::from_millis(100)) else { continue };
-                handle(req, &st, &dl, &fl);
+                handle(req, &st, &dl, &fl, &free_delay);
             }
         })?;
-        Ok(Self { host, state, stop, delay_ms, fail_next, thread: Some(thread) })
+        Ok(Self { host, state, stop, delay_ms, free_delay_ms, fail_next, thread: Some(thread) })
     }
 
     pub fn host(&self) -> &str {
@@ -77,6 +85,11 @@ impl MockComfy {
         if let Ok(mut s) = self.state.lock() {
             s.model_dir = Some(dir.into());
         }
+    }
+
+    /// How many times `/interrupt` was called.
+    pub fn interrupts(&self) -> u32 {
+        self.state.lock().map(|s| s.interrupts).unwrap_or(0)
     }
 
     /// Makes the next job end with an execution error (e.g. out of memory).
@@ -140,7 +153,8 @@ fn files_in(dir: &std::path::Path) -> Vec<String> {
             let p = e.path();
             if p.is_dir() {
                 stack.push(p);
-            } else if p.extension().is_some_and(|x| x == "safetensors" || x == "gguf")
+            } else if (p.extension().is_some_and(|x| x == "safetensors" || x == "gguf" || x == "pth")
+                || p.file_name().and_then(|n| n.to_str()).is_some_and(|n| crate::restoration::pinned_file(n).is_some()))
                 && let Ok(rel) = p.strip_prefix(dir)
             {
                 out.push(rel.to_string_lossy().replace('\\', "/"));
@@ -202,6 +216,7 @@ const NODE_DEFS: &[(&str, &str, &str)] = &[
     ("ModelSamplingSD3", "model:MODEL shift:FLOAT", ""),
     ("PreviewAny", "source:*", ""),
     ("PreviewImage", "images:IMAGE", ""),
+    ("ImageScaleToTotalPixels", "image:IMAGE upscale_method:(nearest-exact|bilinear|area|bicubic|lanczos) megapixels:FLOAT resolution_steps:INT", ""),
     ("PrimitiveBoolean", "value:BOOLEAN", ""),
     ("PrimitiveFloat", "value:FLOAT", ""),
     ("PrimitiveInt", "value:INT*", ""),
@@ -211,6 +226,7 @@ const NODE_DEFS: &[(&str, &str, &str)] = &[
     ("ResolutionSelector", "aspect_ratio:(1:1 (Square)|4:3|3:2|16:9) megapixels:FLOAT multiple_of:INT", ""),
     ("SamplerCustomAdvanced", "noise:NOISE guider:GUIDER sampler:SAMPLER sigmas:SIGMAS latent_image:LATENT", ""),
     ("SaveImage", "images:IMAGE filename_prefix:STRING", ""),
+    ("SplitSigmasDenoise", "sigmas:SIGMAS denoise:FLOAT", ""),
     ("SaveImageAdvanced", "images:IMAGE filename_prefix:STRING format:(png|jpg|webp) bit_depth:(8-bit|16-bit) color_space:(sRGB|linear)", ""),
     ("StringReplace", "string:STRING find:STRING replace:STRING", ""),
     ("T5TokenizerOptions", "clip:CLIP min_padding:INT min_length:INT", ""),
@@ -293,6 +309,7 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
             ("text_encoders", Role::Clip),
             ("clip", Role::Clip),
             ("vae", Role::Vae),
+            ("upscale_models", Role::Upscaler),
         ] {
             for f in files_in(&dir.join(folder)) {
                 add(role, &f);
@@ -331,6 +348,7 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
     for n in nodes {
         info.insert(n, json!({ "input": { "required": {} } }));
     }
+    info.insert("UpscaleModelLoader".into(), json!({"input": {"required": {"model_name": combo(files.remove(&Role::Upscaler).unwrap_or_default())}}}));
     let clips = files.remove(&Role::Clip).unwrap_or_default();
     info.insert("UNETLoader".into(), json!({ "input": { "required": { "unet_name": combo(files.remove(&Role::Unet).unwrap_or_default()) } } }));
     info.insert(
@@ -383,6 +401,14 @@ pub fn object_info_with(model_dir: Option<&std::path::Path>) -> Value {
     for (class, req, opt) in NODE_DEFS {
         info.insert((*class).into(), node_def(req, opt, &lists));
     }
+    // ComfyUI's live defaults, used by architecture-independent img2img discovery.
+    info["KSampler"]["input"]["required"]["steps"] = json!(["INT", {"default":20,"min":1,"max":10000}]);
+    info["KSampler"]["input"]["required"]["cfg"] = json!(["FLOAT", {"default":8.0,"min":0.0,"max":100.0}]);
+    info["KSampler"]["input"]["required"]["denoise"] = json!(["FLOAT", {"default":1.0,"min":0.0,"max":1.0}]);
+    for node in crate::restoration::NODES {
+        let module = if matches!(*node, "LoadImage" | "SaveImage") { "nodes" } else { "comfy_extras.nodes_upscale_model" };
+        info[*node]["python_module"] = json!(module);
+    }
     Value::Object(info)
 }
 
@@ -395,7 +421,7 @@ fn json_resp(req: tiny_http::Request, status: u16, v: Value) {
     respond(req, status, v.to_string().into_bytes(), "application/json");
 }
 
-fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<AtomicU64>, fail: &Arc<AtomicBool>) {
+fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<AtomicU64>, fail: &Arc<AtomicBool>, free_delay: &Arc<AtomicU64>) {
     let url = req.url().to_owned();
     let path = url.split('?').next().unwrap_or("").to_owned();
     let mut body = Vec::new();
@@ -410,8 +436,26 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
             200,
             json!({ "system": { "comfyui_version": "mock" }, "devices": [{ "name": "cuda:0 Mock GPU 32 GB : cudaMallocAsync", "type": "cuda", "vram_total": 34359738368u64, "vram_free": 30064771072u64 }] }),
         ),
-        ("GET", "/queue") => json_resp(req, 200, json!({ "queue_running": [], "queue_pending": [] })),
-        ("POST", "/free") => json_resp(req, 200, json!({})),
+        ("GET", "/queue") => {
+            let running: Vec<Value> = st.lock().map(|s| s.running.iter().enumerate().map(|(i, id)| json!([i, id, {}, {}, []])).collect()).unwrap_or_default();
+            json_resp(req, 200, json!({ "queue_running": running, "queue_pending": [] }))
+        }
+        ("POST", "/interrupt") => {
+            if let Ok(mut s) = st.lock() {
+                s.interrupts += 1;
+                for id in std::mem::take(&mut s.running) {
+                    s.history.insert(
+                        id,
+                        json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_interrupted", {}]] }, "outputs": {} }),
+                    );
+                }
+            }
+            json_resp(req, 200, json!({}))
+        }
+        ("POST", "/free") => {
+            std::thread::sleep(Duration::from_millis(free_delay.load(Ordering::SeqCst)));
+            json_resp(req, 200, json!({}));
+        }
         ("POST", "/upload/image") => {
             let (name, data) = parse_multipart(&body);
             if let Ok(mut s) = st.lock() {
@@ -426,13 +470,18 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
                 let Ok(mut s) = st.lock() else { return };
                 s.next += 1;
                 s.prompts.push(graph.clone());
-                format!("mock-{}", s.next)
+                let id = format!("mock-{}", s.next);
+                s.running.push(id.clone());
+                id
             };
             json_resp(req, 200, json!({ "prompt_id": id, "number": 1 }));
             let (st, ms, fail_now) = (st.clone(), delay.load(Ordering::SeqCst), fail.swap(false, Ordering::SeqCst));
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(ms));
                 let Ok(mut s) = st.lock() else { return };
+                // Interrupted or cancelled meanwhile: that already wrote its history.
+                let Some(i) = s.running.iter().position(|r| *r == id) else { return };
+                s.running.remove(i);
                 if fail_now {
                     s.history.insert(id.clone(), json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_error", { "exception_message": "CUDA out of memory. Tried to allocate 2.00 GiB" }]] }, "outputs": {} }));
                     return;
@@ -457,11 +506,18 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
         }
         ("POST", p) if p.starts_with("/api/jobs/") && p.ends_with("/cancel") => {
             let id = p.trim_start_matches("/api/jobs/").trim_end_matches("/cancel").to_owned();
+            let mut cancelled = false;
             if let Ok(mut s) = st.lock() {
-                s.history
-                    .insert(id, json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_interrupted", {}]] }, "outputs": {} }));
+                cancelled = s.running.iter().any(|r| r == &id);
+                if cancelled {
+                    s.running.retain(|r| *r != id);
+                    s.history.insert(
+                        id,
+                        json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_interrupted", {}]] }, "outputs": {} }),
+                    );
+                }
             }
-            json_resp(req, 200, json!({ "cancelled": true }))
+            json_resp(req, 200, json!({ "cancelled": cancelled }))
         }
         (m @ ("GET" | "HEAD" | "POST"), _) => {
             let host = st.lock().map(|s| s.host.clone()).unwrap_or_default();
@@ -569,8 +625,27 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
         });
         return png(&out);
     }
+    // Enlargement uses the checkpoint's native scale. Original-resolution restoration
+    // continues through the tint fixture below, even though it uses the same core nodes.
+    if input_of(graph, "ImageUpscaleWithModel").is_some()
+        && let Some(src) = uploaded(graph, uploads, 0)
+    {
+        let name = input_of(graph, "UpscaleModelLoader").and_then(|i| i["model_name"].as_str()).unwrap_or("");
+        let scale = if name.contains("2x") || name.contains("x2") {
+            Some(2)
+        } else if name.contains("4x") || name.contains("x4") || name == "BSRGAN.pth" {
+            Some(4)
+        } else {
+            None
+        };
+        if let Some(scale) = scale {
+            return png(&image::imageops::resize(&src, src.width() * scale, src.height() * scale, image::imageops::FilterType::Nearest));
+        }
+    }
     // Instruction edits and upscales: return the (first) input, tinted slightly.
-    if (input_of(graph, "SeedVR2Preprocess").is_some() || input_of(graph, "TextEncodeQwenImage21").is_some_and(|i| i["resolution"] == json!(0)))
+    if (input_of(graph, "ImageUpscaleWithModel").is_some()
+        || input_of(graph, "SeedVR2Preprocess").is_some()
+        || input_of(graph, "TextEncodeQwenImage21").is_some_and(|i| i["resolution"] == json!(0)))
         && let Some(mut src) = uploaded(graph, uploads, 0)
     {
         let tint = hash_color(&prompt);
@@ -584,7 +659,8 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
     // Refine, inpaint and generic edits (a source image, no empty latent): the source, tinted;
     // green-filled areas (instruction inpainting) are painted with the prompt colour.
     let empty_latent = ["EmptyLatentImage", "EmptyFlux2LatentImage", "EmptySD3LatentImage"].iter().any(|c| input_of(graph, c).is_some());
-    let edits = input_of(graph, "SetLatentNoiseMask").is_some()
+    let edits = input_of(graph, "ReferenceLatent").is_some()
+        || input_of(graph, "SetLatentNoiseMask").is_some()
         || input_of(graph, "InpaintModelConditioning").is_some()
         || input_of(graph, "TextEncodeQwenImageEditPlus").is_some()
         || (!empty_latent && input_of(graph, "VAEEncode").is_some());
@@ -620,6 +696,9 @@ fn render(graph: &Value, uploads: &HashMap<String, Vec<u8>>) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    /// Tests that refresh the shared installed-model inventory take turns (it is process-global).
+    use crate::inventory::TEST_LOCK as INVENTORY_LOCK;
+
     use super::*;
     use crate::catalog::ModelId;
     use crate::ops::{Ai, GenerateMode, GenerateRequest, RemoveEngine};
@@ -709,12 +788,105 @@ mod tests {
         assert!(t.elapsed() < Duration::from_secs(5));
     }
 
+    /// Stop generation: `/interrupt` only while one of our prompts is the one executing.
+    #[test]
+    fn interrupt_stops_only_our_running_prompt() {
+        let server = MockComfy::start().unwrap();
+        let client = crate::ComfyClient::new(server.host());
+        // Nothing of ours is running: no global interrupt.
+        assert!(!client.interrupt_ours().unwrap());
+        assert_eq!(server.interrupts(), 0);
+        server.delay_ms.store(5000, Ordering::SeqCst);
+        let host = server.host().to_owned();
+        let job = std::thread::spawn(move || Ai::new(host).generate(&GenerateRequest::new(ModelId::ZImageTurbo, "x"), &JobControl::new()));
+        let t = std::time::Instant::now();
+        while crate::comfy::our_prompts(server.host()).is_empty() && t.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(crate::comfy::our_prompts(server.host()).len(), 1);
+        assert!(client.interrupt_ours().unwrap());
+        assert_eq!(server.interrupts(), 0);
+        let err = job.join().unwrap().unwrap_err();
+        assert!(err.downcast_ref::<crate::comfy::Cancelled>().is_some(), "{err:#}");
+        assert!(t.elapsed() < Duration::from_secs(4), "stopped well before the job would end");
+        // Finished prompts are no longer ours.
+        assert!(crate::comfy::our_prompts(server.host()).is_empty());
+    }
+
     fn classes_of(g: &Value) -> Vec<String> {
         g.as_object().unwrap().values().map(|n| n["class_type"].as_str().unwrap().to_owned()).collect()
     }
 
     #[test]
+    fn refine_step_loras_reach_the_comfy_graph_and_validate_the_refine_family() {
+        let _inventory = INVENTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let server = MockComfy::start().unwrap();
+        server.delay_ms.store(1, Ordering::SeqCst);
+        // Official Qwen uses the model-only loader; the checkpoint pass uses LoraLoader.
+        crate::inventory::refresh(&crate::comfy::ObjectInfo(object_info()), None);
+        let sdxl = ModelId::from_key("ckpt:juggernautXL_v9.safetensors").unwrap();
+        let ai = Ai::new(server.host());
+        let ctl = JobControl::new();
+        let mut req = GenerateRequest::new(ModelId::Klein4B, "a castle");
+        req.width = 512;
+        req.height = 512;
+        let step = crate::ops::RefineStep {
+            model: sdxl,
+            variant: "installed".into(),
+            strength: 0.35,
+            steps: Some(31),
+            guidance: Some(7.5),
+            scale: 1.0,
+            loras: vec![crate::workflows::LoraUse { name: "sdxl_detail_tweaker.safetensors".into(), strength: 0.65 }],
+        };
+        req.refine = Some(step.clone());
+        ai.generate(&req, &ctl).unwrap();
+        let prompts = server.prompts();
+        assert_eq!(prompts.len(), 3);
+        assert!(!classes_of(&prompts[0]).contains(&"LoraLoader".into()), "the draft keeps its own styles");
+        let loader = prompts[2].as_object().unwrap().values().find(|n| n["class_type"] == "LoraLoader").unwrap();
+        assert_eq!(loader["inputs"]["lora_name"], "sdxl_detail_tweaker.safetensors");
+        assert!((loader["inputs"]["strength_model"].as_f64().unwrap() - 0.65).abs() < 1e-6);
+        assert!((loader["inputs"]["strength_clip"].as_f64().unwrap() - 0.65).abs() < 1e-6);
+        let sampler = prompts[2].as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+        assert_eq!(sampler["inputs"]["steps"], 31);
+        assert_eq!(sampler["inputs"]["cfg"], 7.5);
+        let mut invalid = step.clone();
+        invalid.loras[0].name = "flux_realism_lora.safetensors".into();
+        req.refine = Some(invalid);
+        ai.generate(&req, &ctl).unwrap();
+        assert!(!classes_of(server.prompts().last().unwrap()).contains(&"LoraLoader".into()), "wrong-family styles are filtered from refinement");
+        let mut invalid = step.clone();
+        invalid.loras[0].strength = f32::NAN;
+        req.refine = Some(invalid);
+        assert!(ai.generate(&req, &ctl).unwrap_err().to_string().contains("Style strength"));
+        let mut old = serde_json::to_value(step).unwrap();
+        old.as_object_mut().unwrap().remove("loras");
+        let old: crate::ops::RefineStep = serde_json::from_value(old).unwrap();
+        assert!(old.loras.is_empty());
+        // The Qwen special instruction-refine path must receive the second pass's styles too.
+        req.refine = Some(crate::ops::RefineStep {
+            model: ModelId::Qwen,
+            variant: crate::catalog::default_variant(ModelId::Qwen).into(),
+            strength: 0.35,
+            steps: None,
+            guidance: None,
+            scale: 1.0,
+            loras: vec![crate::workflows::LoraUse { name: "local-image/qwen-watercolor.safetensors".into(), strength: 0.45 }],
+        });
+        ai.generate(&req, &ctl).unwrap();
+        let graph = server.prompts().last().unwrap().clone();
+        let loader = graph.as_object().unwrap().values().find(|n| n["class_type"] == "LoraLoaderModelOnly").unwrap();
+        assert_eq!(loader["inputs"]["lora_name"], "local-image/qwen-watercolor.safetensors");
+        assert!((loader["inputs"]["strength_model"].as_f64().unwrap() - 0.45).abs() < 1e-6);
+        let sampler = graph.as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+        assert!((sampler["inputs"]["denoise"].as_f64().unwrap() - 0.35).abs() < 1e-6);
+        crate::catalog::set_installed(Vec::new());
+    }
+
+    #[test]
     fn every_family_runs_against_the_mock() {
+        let _inventory = INVENTORY_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let server = MockComfy::start().unwrap();
         server.delay_ms.store(10, Ordering::SeqCst);
         let ai = Ai::new(server.host());
@@ -797,11 +969,19 @@ mod tests {
         let mut req = GenerateRequest::new(ModelId::Klein4B, "a castle");
         req.width = 512;
         req.height = 512;
-        req.refine = Some(crate::ops::RefineStep { model: sdxl, variant: "installed".into(), strength: 0.35, steps: None, guidance: None, scale: 1.5 });
+        req.refine = Some(crate::ops::RefineStep {
+            model: sdxl,
+            variant: "installed".into(),
+            strength: 0.35,
+            steps: None,
+            guidance: None,
+            loras: Vec::new(),
+            scale: 1.5,
+        });
         let before = server.prompts().len();
         let out = ai.generate(&req, &ctl).unwrap();
         assert_eq!(out.dimensions(), (768, 768));
-        assert_eq!(server.prompts().len(), before + 2);
+        assert_eq!(server.prompts().len(), before + 3);
         // Upscale-refine: tiles cover a 2× enlargement.
         let mut req = GenerateRequest::new(sdxl, "");
         req.variant = "installed".into();

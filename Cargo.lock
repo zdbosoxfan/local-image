@@ -349,6 +349,9 @@ name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "as-raw-xcb-connection"
@@ -787,6 +790,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "brotli"
+version = "8.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cc91aac060a7a1e25823bdccbfb6af1875b88f17c6daac97894eed8207166b3"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+ "brotli-decompressor",
 ]
 
 [[package]]
@@ -1996,7 +2010,7 @@ dependencies = [
  "ecolor",
  "emath",
  "epaint_default_fonts",
- "font-types",
+ "font-types 0.12.5",
  "harfrust",
  "log",
  "nohash-hasher",
@@ -2004,7 +2018,7 @@ dependencies = [
  "profiling",
  "self_cell",
  "serde",
- "skrifa",
+ "skrifa 0.44.0",
  "smallvec",
  "unicode-general-category",
  "unicode-segmentation",
@@ -2210,6 +2224,9 @@ name = "float-cmp"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "float-ord"
@@ -2260,6 +2277,15 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "font-types"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b38ad915f6dadd993ced50848a8291a543bd41ca62bc10740d5e64e2ab4cfd7"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
+name = "font-types"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8eb065f3251655b3c90e22e5e363f310fc5332fb3402e37bbc94752283248f6"
@@ -2278,7 +2304,7 @@ dependencies = [
  "linebender_resource_handle",
  "memmap2",
  "parlance",
- "read-fonts",
+ "read-fonts 0.41.0",
  "smallvec",
 ]
 
@@ -2775,7 +2801,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "log",
  "peniko",
- "skrifa",
+ "skrifa 0.44.0",
  "smallvec",
  "vello_common",
 ]
@@ -2915,7 +2941,7 @@ checksum = "c03d949a14aa089bbb282f7dd76a498a7f684428e4257202efc119ec010376f9"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
- "read-fonts",
+ "read-fonts 0.41.0",
  "smallvec",
 ]
 
@@ -2948,6 +2974,82 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "foldhash 0.2.0",
+]
+
+[[package]]
+name = "hayro-ccitt"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f4d0e94ddd48749f06bbe4e5389fb9799a0c45bcaf00495042076ef05e3241a"
+
+[[package]]
+name = "hayro-cmap"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24d285dc30731c8485de5fa732fbdf2b3affdf01e4da7c2135022ca6fa664bf6"
+dependencies = [
+ "brotli",
+ "hayro-postscript",
+]
+
+[[package]]
+name = "hayro-interpret"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2613d0406898995042d0794c4245b2f2fba1246490c8ac593769bba6551129d"
+dependencies = [
+ "bitflags 2.13.2",
+ "hayro-cmap",
+ "hayro-syntax",
+ "kurbo 0.13.1",
+ "moxcms 0.8.1",
+ "phf",
+ "rustc-hash 2.1.3",
+ "siphasher",
+ "skrifa 0.42.1",
+ "smallvec",
+ "yoke 0.8.3",
+]
+
+[[package]]
+name = "hayro-jbig2"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69374b3668dd45aeb3d3145cda68f2c7b4f223aaa2511e67d076f1c7d741388d"
+dependencies = [
+ "fearless_simd",
+ "hayro-ccitt",
+]
+
+[[package]]
+name = "hayro-jpeg2000"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c75ab947623ef4ccaa7acf0579edf7cbb5a73838e3839a7be73335e522f433a1"
+dependencies = [
+ "fearless_simd",
+]
+
+[[package]]
+name = "hayro-postscript"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "885c5ef0654933139a9b9546fc2c69e18d37f38aa2520f079092b1be18f1fcaa"
+
+[[package]]
+name = "hayro-syntax"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0edeafd70aa2db743de8ede8637d07ec87db05efe69cde371d03f1b185fcef27"
+dependencies = [
+ "flate2",
+ "hayro-ccitt",
+ "hayro-jbig2",
+ "hayro-jpeg2000",
+ "memchr",
+ "rustc-hash 2.1.3",
+ "smallvec",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -3233,6 +3335,12 @@ name = "imagesize"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edcd27d72f2f071c64249075f42e205ff93c9a4c5f6c6da53e79ed9f9832c285"
+
+[[package]]
+name = "imagesize"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09e54e57b4c48b40f7aec75635392b12b3421fa26fe8b4332e63138ed278459c"
 
 [[package]]
 name = "imgref"
@@ -3686,6 +3794,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "krilla"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27da593198b20eeba65caeb73c2bbeec3e53ab08fa549898312ce81c4fce5e33"
+dependencies = [
+ "base64 0.22.1",
+ "bumpalo",
+ "flate2",
+ "float-cmp",
+ "gif",
+ "image-webp",
+ "imagesize 0.14.0",
+ "indexmap",
+ "pdf-writer",
+ "png 0.18.1",
+ "rustc-hash 2.1.3",
+ "siphasher",
+ "skrifa 0.42.1",
+ "smallvec",
+ "subsetter",
+ "tiny-skia-path 0.12.0",
+ "xmp-writer",
+ "yoke 0.8.3",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "kurbo"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3705,6 +3840,7 @@ dependencies = [
  "arrayvec",
  "euclid",
  "polycool",
+ "serde",
  "smallvec",
 ]
 
@@ -3730,6 +3866,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
 
 [[package]]
+name = "lensfun"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe52f943cdba39214e90c8ff14c10cebc0f597dcbbbcdab15a68902fc8392bd8"
+dependencies = [
+ "flate2",
+ "regex",
+ "roxmltree",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "li-ai"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -3738,9 +3886,11 @@ dependencies = [
  "dirs",
  "hex",
  "image",
+ "li-seg",
  "log",
  "rand 0.9.5",
  "rayon",
+ "rustls-rustcrypto",
  "serde",
  "serde_json",
  "sha2",
@@ -3751,11 +3901,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-attributions"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "egui",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "li-seg"
 version = "2.0.0-alpha.1"
 dependencies = [
  "anyhow",
  "image",
+ "log",
+ "miniz_oxide 0.8.9",
+ "rayon",
+ "serde_json",
+ "sha2",
  "tract-onnx",
 ]
 
@@ -3869,6 +4033,7 @@ name = "lightcraft-engine"
 version = "2.0.0-alpha.1"
 dependencies = [
  "ab_glyph",
+ "lensfun",
  "li-seg",
  "libc",
  "lightcraft-catalog",
@@ -3887,6 +4052,8 @@ dependencies = [
  "lightcraft-segment",
  "log",
  "miniz_oxide 0.8.9",
+ "photocraft-algo",
+ "photocraft-raster",
  "rayon",
  "serde",
  "serde_json",
@@ -3918,6 +4085,7 @@ name = "lightcraft-gpu"
 version = "2.0.0-alpha.1"
 dependencies = [
  "bytemuck",
+ "li-seg",
  "lightcraft-color",
  "lightcraft-develop",
  "lightcraft-geom",
@@ -4069,6 +4237,8 @@ name = "lightcraft-ui-egui"
 version = "2.0.0-alpha.1"
 dependencies = [
  "egui",
+ "egui_extras",
+ "li-attributions",
  "lightcraft-catalog",
  "lightcraft-codecs",
  "lightcraft-color",
@@ -4080,6 +4250,7 @@ dependencies = [
  "lightcraft-preview",
  "lightcraft-raster",
  "log",
+ "rayon",
  "serde",
  "serde_json",
  "toml",
@@ -4091,6 +4262,19 @@ name = "linebender_resource_handle"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
+
+[[package]]
+name = "linesweeper"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c19728333c060c6569a53c9a0e56c4be0df52cb4e6e07a8fbe16084cecce769"
+dependencies = [
+ "arrayvec",
+ "kurbo 0.13.1",
+ "polycool",
+ "rustc-hash 2.1.3",
+ "smallvec",
+]
 
 [[package]]
 name = "linux-raw-sys"
@@ -4124,9 +4308,13 @@ dependencies = [
  "eframe",
  "egui",
  "fmv-macos-events",
+ "image",
+ "li-ai",
+ "li-seg",
  "lightcraft-catalog",
  "lightcraft-codecs",
  "lightcraft-engine",
+ "lightcraft-gpu",
  "lightcraft-raster",
  "lightcraft-ui-egui",
  "log",
@@ -5114,7 +5302,7 @@ dependencies = [
  "linebender_resource_handle",
  "parlance",
  "parley_data",
- "skrifa",
+ "skrifa 0.44.0",
 ]
 
 [[package]]
@@ -5143,6 +5331,41 @@ name = "pastey"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
+
+[[package]]
+name = "pc-trace"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "image",
+ "kurbo 0.13.1",
+ "photocraft-color",
+ "photocraft-compose",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-gpu",
+ "photocraft-testkit",
+ "photocraft-vector",
+ "pollster 1.0.1",
+ "proptest",
+ "resvg",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "ttf-parser",
+ "wgpu",
+]
+
+[[package]]
+name = "pdf-writer"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5e456864a7a304047bff84977dc6fb162bd956475d40ba50b2dcecaada7f753"
+dependencies = [
+ "bitflags 2.13.2",
+ "itoa",
+ "memchr",
+ "ryu",
+]
 
 [[package]]
 name = "pem-rfc7468"
@@ -5224,6 +5447,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
 dependencies = [
  "siphasher",
+]
+
+[[package]]
+name = "photocraft-affinity"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "image",
+ "photocraft-color",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-text",
+ "photocraft-vector",
+ "proptest",
+ "ruzstd",
 ]
 
 [[package]]
@@ -5332,6 +5571,8 @@ dependencies = [
  "image",
  "li-ai",
  "li-seg",
+ "pc-trace",
+ "photocraft-affinity",
  "photocraft-algo",
  "photocraft-cms",
  "photocraft-codecs",
@@ -5340,20 +5581,27 @@ dependencies = [
  "photocraft-doc",
  "photocraft-format",
  "photocraft-geom",
+ "photocraft-gpu",
  "photocraft-io",
  "photocraft-ops",
  "photocraft-paint",
+ "photocraft-pathops",
+ "photocraft-pdf",
  "photocraft-plugins",
  "photocraft-psd",
  "photocraft-raster",
  "photocraft-raw",
+ "photocraft-svg",
  "photocraft-text",
+ "photocraft-vecfx",
  "photocraft-vector",
+ "pollster 1.0.1",
  "rayon",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
  "wat",
+ "wgpu",
 ]
 
 [[package]]
@@ -5391,6 +5639,7 @@ dependencies = [
  "photocraft-compose",
  "photocraft-doc",
  "photocraft-geom",
+ "photocraft-pathops",
  "photocraft-raster",
  "photocraft-vector",
  "pollster 1.0.1",
@@ -5413,8 +5662,10 @@ dependencies = [
  "lightcraft-codecs",
  "lightcraft-develop",
  "lightcraft-engine",
+ "lightcraft-geom",
  "lightcraft-meta",
  "lightcraft-pipeline",
+ "lightcraft-raster",
  "lightcraft-raw",
  "photocraft-algo",
  "photocraft-cms",
@@ -5451,6 +5702,46 @@ dependencies = [
  "photocraft-raster",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "photocraft-pathops"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "kurbo 0.13.1",
+ "linesweeper",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-testkit",
+ "photocraft-vector",
+ "polycool",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "photocraft-pdf"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "flate2",
+ "hayro-interpret",
+ "hayro-syntax",
+ "image",
+ "krilla",
+ "kurbo 0.13.1",
+ "photocraft-compose",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-pathops",
+ "photocraft-testkit",
+ "photocraft-text",
+ "photocraft-vector",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -5499,6 +5790,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "photocraft-svg"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "image",
+ "kurbo 0.13.1",
+ "photocraft-compose",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-pathops",
+ "photocraft-testkit",
+ "photocraft-text",
+ "photocraft-vector",
+ "proptest",
+ "resvg",
+ "roxmltree",
+ "serde",
+ "serde_json",
+ "simplecss",
+ "svgtypes",
+ "thiserror 2.0.21",
+ "usvg",
+]
+
+[[package]]
 name = "photocraft-tablet"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -5514,11 +5831,17 @@ dependencies = [
 name = "photocraft-testkit"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "image",
+ "kurbo 0.13.1",
  "memory-stats",
  "photocraft-color",
+ "photocraft-doc",
  "photocraft-geom",
  "photocraft-raster",
+ "photocraft-vector",
+ "resvg",
  "serde_json",
+ "svgtypes",
 ]
 
 [[package]]
@@ -5532,7 +5855,7 @@ dependencies = [
  "photocraft-geom",
  "photocraft-psd",
  "photocraft-raster",
- "skrifa",
+ "skrifa 0.44.0",
 ]
 
 [[package]]
@@ -5547,6 +5870,7 @@ dependencies = [
  "egui_kittest",
  "image",
  "li-ai",
+ "li-attributions",
  "li-seg",
  "lightcraft-codecs",
  "lightcraft-raw",
@@ -5562,9 +5886,12 @@ dependencies = [
  "photocraft-geom",
  "photocraft-gpu",
  "photocraft-io",
+ "photocraft-pathops",
+ "photocraft-pdf",
  "photocraft-plugins",
  "photocraft-psd",
  "photocraft-raster",
+ "photocraft-svg",
  "photocraft-testkit",
  "photocraft-text",
  "photocraft-vector",
@@ -5577,9 +5904,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "photocraft-vecfx"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "kurbo 0.13.1",
+ "photocraft-color",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-pathops",
+ "photocraft-vector",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "photocraft-vector"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "kurbo 0.13.1",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",
@@ -6220,12 +6563,22 @@ dependencies = [
 
 [[package]]
 name = "read-fonts"
+version = "0.39.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4ed38b89c2c77ff968c524145ad65fb010f38af5c7a224b53b81d47ac2daa81"
+dependencies = [
+ "bytemuck",
+ "font-types 0.11.3",
+]
+
+[[package]]
+name = "read-fonts"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "046a7d674daf459825b32f5062056d6882db0d2f5a479fbd76ccfc870ac18709"
 dependencies = [
  "bytemuck",
- "font-types",
+ "font-types 0.12.5",
  "once_cell",
 ]
 
@@ -6557,7 +6910,6 @@ checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "log",
  "once_cell",
- "ring",
  "rustls-pki-types",
  "rustls-webpki 0.103.15",
  "subtle",
@@ -6651,6 +7003,12 @@ checksum = "a252f5e20f038fe7b4ea53e073e65398d652c864cc162fc77c56c2f13717b888"
 dependencies = [
  "twox-hash",
 ]
+
+[[package]]
+name = "ryu"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "safetensors"
@@ -6922,12 +7280,22 @@ checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
 name = "skrifa"
+version = "0.42.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c34617370ae968efb7161bb2beb517d9084659aae19e24b89e3db25b46e4564"
+dependencies = [
+ "bytemuck",
+ "read-fonts 0.39.2",
+]
+
+[[package]]
+name = "skrifa"
 version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "819ab7d62b1d3e72d9d9dea5650bac30424f9111364bb94928dbf5ecad1baa68"
 dependencies = [
  "bytemuck",
- "read-fonts",
+ "read-fonts 0.41.0",
 ]
 
 [[package]]
@@ -7113,6 +7481,18 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "subsetter"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38803281d1c23166c5ebcb455439a5d2afe711cc909cf88af72448c297756ad6"
+dependencies = [
+ "kurbo 0.13.1",
+ "rustc-hash 2.1.3",
+ "skrifa 0.42.1",
+ "write-fonts",
+]
 
 [[package]]
 name = "subtle"
@@ -7326,7 +7706,7 @@ dependencies = [
  "cfg-if",
  "log",
  "png 0.17.16",
- "tiny-skia-path",
+ "tiny-skia-path 0.11.4",
 ]
 
 [[package]]
@@ -7334,6 +7714,17 @@ name = "tiny-skia-path"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c9e7fc0c2e86a30b117d0462aa261b72b7a99b7ebd7deb3a14ceda95c5bdc93"
+dependencies = [
+ "arrayref",
+ "bytemuck",
+ "strict-num",
+]
+
+[[package]]
+name = "tiny-skia-path"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edca365c3faccca67d06593c5980fa6c57687de727a03131735bb85f01fdeeb9"
 dependencies = [
  "arrayref",
  "bytemuck",
@@ -7897,7 +8288,7 @@ dependencies = [
  "base64 0.22.1",
  "data-url",
  "flate2",
- "imagesize",
+ "imagesize 0.13.0",
  "kurbo 0.11.3",
  "log",
  "pico-args",
@@ -7906,7 +8297,7 @@ dependencies = [
  "siphasher",
  "strict-num",
  "svgtypes",
- "tiny-skia-path",
+ "tiny-skia-path 0.11.4",
  "xmlwriter",
 ]
 
@@ -8915,6 +9306,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "write-fonts"
+version = "0.48.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb731d4c4d93eacc69a1ad2f270f905788a98e4a3438267bcafbe08d3431c8d8"
+dependencies = [
+ "font-types 0.11.3",
+ "indexmap",
+ "kurbo 0.13.1",
+ "log",
+ "read-fonts 0.39.2",
+]
+
+[[package]]
 name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9011,17 +9415,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
+name = "xmp-writer"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9440ea3e5aeabb0ac63af70daf835274065238cdd0cec83418f417eae38bacee"
+
+[[package]]
 name = "xtask"
 version = "2.0.0-alpha.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "flate2",
+ "hayro-interpret",
+ "hayro-syntax",
  "hex",
+ "krilla",
+ "kurbo 0.13.1",
+ "linesweeper",
+ "polycool",
  "quick-xml 0.38.4",
+ "rustls-rustcrypto",
+ "serde",
  "serde_json",
  "sha2",
  "tar",
+ "toml",
  "ureq",
  "zip",
 ]

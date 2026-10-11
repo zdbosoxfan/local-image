@@ -178,6 +178,16 @@ fn composite_region(pre: &Document, id: Option<LayerId>, which: SampleLayers, re
     out
 }
 
+/// local-image: what shows under layer `id` at `rect`, in `fmt` (native channels): the layers
+/// below it composited, without it and anything above it.
+pub(crate) fn composite_under(pre: &Document, id: LayerId, rect: Rect, fmt: PixelFormat) -> Region {
+    let mut doc = pre.clone();
+    if let Some(l) = doc.layer_mut(id) {
+        l.visible = false;
+    }
+    composite_region(&doc, Some(id), SampleLayers::CurrentAndBelow, rect, fmt)
+}
+
 /// Pixels to sample at `rect` (document coordinates, already offset to the source position).
 fn sample(pre: &Document, id: Option<LayerId>, surf: &Surface, which: SampleLayers, rect: Rect) -> Region {
     match which {
@@ -246,10 +256,22 @@ fn clone_stamp(s: &mut Session, p: &Value) -> Result<Value> {
     let which = sample_layers(p, CMD)?;
     let mode = blend_param(p, CMD)?;
     let aligned = flag(p, "aligned", true);
+    let seamless = flag(p, "seamless", false);
     let map = clone_mapping(s, p, &stroke, CMD)?;
     let off = map.offset();
     let dmg = run_stroke(s, "Clone Stamp", id, p, |pre, surf, sel, lock| {
         let (bounds, cov) = stroke_coverage(&stroke);
+        if seamless {
+            // local-image: Seamless: the cloned pixels take the colour around the stroke (mean
+            // value coordinates), as GIMP's seamless clone.
+            let (g, cov) = pad_coverage(bounds, &cov, 2);
+            let fmt = surf.format();
+            let src = clone_sample(pre, id, surf, which, g, &map);
+            let dst = if which == SampleLayers::Current { Region::read(surf, g) } else { composite_region(pre, id, which, g, fmt) };
+            let mask: Vec<bool> = cov.iter().map(|c| *c > 0.0).collect();
+            let paint = mvc_region(&fmt, &src, &dst, &mask);
+            return Ok(apply_coverage(surf, g, &cov, stroke.brush.opacity, sel, lock, &paint, mode));
+        }
         // Samples come from the pre-stroke state, so pixels painted earlier in the stroke are never re-cloned.
         let paint = clone_sample(pre, id, surf, which, bounds, &map);
         Ok(apply_coverage(surf, bounds, &cov, stroke.brush.opacity, sel, lock, &paint, mode))
@@ -287,6 +309,35 @@ fn heal_region(fmt: &PixelFormat, src: &Region, dst: &Region, mask: &[bool]) -> 
     let mut data = poisson::seamless_clone(d.width(), d.height(), d.ch, &s.data, &d.data, &m);
     clamp_samples(fmt, &mut data);
     let (n, rw) = (dst.ch, r.width() as usize);
+    for y in r.y0..r.y1 {
+        let o = out.index(r.x0, y) * n;
+        let i = (y - r.y0) as usize * rw * n;
+        out.data[o..o + rw * n].copy_from_slice(&data[i..i + rw * n]);
+    }
+    out
+}
+
+/// local-image: [`heal_region`] with mean value coordinates (Farbman et al. 2009, see
+/// `photocraft_algo::seamless`): `src` plus the interpolated border mismatch, over the mask. The
+/// alpha channel (and anything after it) stays `src`'s.
+pub(crate) fn mvc_region(fmt: &PixelFormat, src: &Region, dst: &Region, mask: &[bool]) -> Region {
+    let w = dst.width();
+    let bbox = mask.iter().enumerate().filter(|(_, m)| **m).fold(Rect::EMPTY, |r, (i, _)| {
+        let (x, y) = (dst.rect.x0 + (i % w) as i32, dst.rect.y0 + (i / w) as i32);
+        r.union(&Rect::new(x, y, x + 1, y + 1))
+    });
+    let mut out = src.clone();
+    if bbox.is_empty() {
+        return out;
+    }
+    let r = bbox.inflate(1).intersect(&dst.rect);
+    let (sr, dr) = (src.crop(r), dst.crop(r));
+    let m: Vec<bool> = (r.y0..r.y1).flat_map(|y| (r.x0..r.x1).map(move |x| (x, y))).map(|(x, y)| mask[dst.index(x, y)]).collect();
+    let n = dst.ch;
+    let colour = alpha_index(fmt).unwrap_or(n);
+    let (rw, rh) = (r.width() as usize, r.height() as usize);
+    let mut data = photocraft_algo::seamless::seamless_blend(rw, rh, n, colour, &sr.data, &dr.data, &m);
+    clamp_samples(fmt, &mut data);
     for y in r.y0..r.y1 {
         let o = out.index(r.x0, y) * n;
         let i = (y - r.y0) as usize * rw * n;
@@ -672,7 +723,7 @@ pub fn specs() -> Vec<CommandSpec> {
             menu: &[],
             shortcut: None,
             params: brush_params!(
-                r#","source":[sx,sy] (sampled under the first point) | "offset":[dx,dy],"aligned":bool=true,"sampleLayer":"current|currentAndBelow|all"="current","mode":"normal|multiply|…"="normal" → {"damage","offset","aligned","nextSource"}"#
+                r#","source":[sx,sy] (sampled under the first point) | "offset":[dx,dy],"aligned":bool=true,"sampleLayer":"current|currentAndBelow|all"="current","mode":"normal|multiply|…"="normal","seamless":bool=false (blend the clone into its surroundings, mean value coordinates) → {"damage","offset","aligned","nextSource"}"#
             ),
             enabled: has_pixel_layer,
             run: clone_stamp,

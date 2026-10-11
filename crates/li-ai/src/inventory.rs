@@ -98,9 +98,9 @@ pub fn detect_file(path: &Path) -> Option<arch::Detected> {
 }
 
 /// Finds `name` (as ComfyUI lists it, maybe with a subfolder) under the model folder.
-fn local_path(model_dir: Option<&Path>, folders: &[&str], name: &str) -> Option<PathBuf> {
+pub fn local_path(model_dir: Option<&Path>, folders: &[&str], name: &str) -> Option<PathBuf> {
     let dir = model_dir?;
-    folders.iter().map(|f| dir.join(f).join(name)).find(|p| p.is_file())
+    [dir.to_path_buf(), dir.join("models")].into_iter().flat_map(|base| folders.iter().map(move |f| base.join(f).join(name))).find(|p| p.is_file())
 }
 
 /// A readable label from a file name (`juggernautXL_v9Rdphoto2Lightning.safetensors` →
@@ -113,23 +113,52 @@ pub fn label_for(name: &str) -> String {
 }
 
 /// Family of a listed file: its header if local, else ComfyUI's metadata (`metadata`), else its
-/// name. `None` when nothing recognises it.
+/// name. `None` when nothing recognises it — or when a file listed as a main model (`kind`
+/// checkpoint or diffusion model) turns out to be a LoRA.
 pub fn family_of(name: &str, kind: FileKind, local: Option<&Path>, metadata: Option<&serde_json::Value>) -> Option<(String, String)> {
+    let wants_model = matches!(kind, FileKind::Checkpoint | FileKind::DiffusionModel);
     if let Some(p) = local
         && let Some(d) = detect_file(p)
-        && let Some(f) = d.family
     {
-        return Some((f, d.evidence));
+        if wants_model && d.kind == FileKind::Lora {
+            return None;
+        }
+        if let Some(f) = d.family {
+            return Some((f, d.evidence));
+        }
     }
     if let Some(m) = metadata.and_then(|m| m.as_object()) {
-        let meta: BTreeMap<String, String> = m.iter().map(|(k, v)| (k.clone(), v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()))).collect();
-        let h = arch::Header { metadata: meta, ..Default::default() };
+        // /view_metadata may expose flat string metadata or an entire safetensors
+        // header. Preserve tensor shapes and nested __metadata__ in the latter.
+        let header = m.contains_key("__metadata__") || m.values().any(|v| v.get("shape").is_some());
+        let mut h = if header {
+            serde_json::to_vec(m).ok().and_then(|bytes| arch::parse_safetensors_json(&bytes).ok()).unwrap_or_default()
+        } else {
+            arch::Header::default()
+        };
+        h.metadata.extend(
+            m.iter()
+                .filter(|(k, v)| k.as_str() != "__metadata__" && !v.is_object())
+                .map(|(k, v)| (k.clone(), v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string()))),
+        );
         let d = arch::classify(&h, name);
+        if wants_model && d.kind == FileKind::Lora {
+            return None;
+        }
         if let Some(f) = d.family {
             return Some((f, d.evidence));
         }
     }
     arch::guess_from_name(name, kind).map(|f| (f, "file name".to_owned()))
+}
+
+/// Whether a file a main-model loader lists is really a LoRA (its header when local, else its
+/// name): such files are left out of the model list.
+pub fn listed_as_model_but_lora(name: &str, local: Option<&Path>) -> bool {
+    match local.and_then(detect_file) {
+        Some(d) => d.kind == FileKind::Lora,
+        None => arch::name_looks_like_lora(name),
+    }
 }
 
 /// One LoRA found installed.
@@ -140,18 +169,21 @@ pub struct InstalledLora {
     pub evidence: String,
 }
 
-/// The installed models (main weights with a recognised family) and LoRAs.
+/// The installed main weights and LoRAs. An empty family leaves recipe discovery to the refine checker.
 pub fn scan(info: &ObjectInfo, model_dir: Option<&Path>, reg: &Registry) -> (Vec<InstalledModel>, Vec<InstalledLora>) {
     let mut models = Vec::new();
     for (class, input, role, folders) in MAIN_LOADERS {
         for name in info.choices(class, input) {
             let kind = if *role == Role::Checkpoint { FileKind::Checkpoint } else { FileKind::DiffusionModel };
             let local = local_path(model_dir, folders, &name);
-            let Some((family, _)) = family_of(&name, kind, local.as_deref(), None) else { continue };
+            // LoRAs saved into a model folder (or listed through extra model paths) aren't models.
+            if listed_as_model_but_lora(&name, local.as_deref()) {
+                continue;
+            }
+            let family = family_of(&name, kind, local.as_deref(), None).map(|f| f.0).unwrap_or_default();
             // A checkpoint-loading family found as a bare diffusion model (or the reverse) is still
             // listed; the loader follows the file.
-            let Some(f) = reg.family(&family) else { continue };
-            if f.kind != crate::family::FamilyKind::Image {
+            if reg.family(&family).is_some_and(|f| f.kind != crate::family::FamilyKind::Image) {
                 continue;
             }
             let prefix = if *role == Role::Checkpoint { "ckpt" } else { "unet" };
@@ -202,6 +234,9 @@ pub fn loras_for(f: &Family) -> Vec<(InstalledLora, bool)> {
 }
 
 #[cfg(test)]
+pub(crate) static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
@@ -218,14 +253,48 @@ mod tests {
     }
 
     #[test]
-    fn scan_finds_models_by_name_and_skips_unknown_files() {
+    fn scan_finds_models_by_name_and_keeps_unknown_files() {
         let (models, loras) = scan(&info(), None, crate::family::registry());
         let fam = |k: &str| models.iter().find(|m| m.key == k).map(|m| m.family.clone());
         assert_eq!(fam("ckpt:juggernautXL_v9.safetensors").as_deref(), Some("sdxl"));
         assert_eq!(fam("unet:flux1-dev-fp8.safetensors").as_deref(), Some("flux1"));
         assert_eq!(fam("unet:qwen_image_edit_2511_bf16.safetensors").as_deref(), Some("qwen-edit"));
-        assert!(fam("ckpt:mystery.safetensors").is_none());
+        assert_eq!(fam("ckpt:mystery.safetensors").as_deref(), Some(""));
         assert_eq!(loras.iter().find(|l| l.name == "pony_style.safetensors").unwrap().family.as_deref(), Some("pony"));
+    }
+
+    /// LoRAs that sit in a model folder (a LoRA collection installed as a "model", or extra model
+    /// paths) are not listed as models: by name when the file is remote, by header when local.
+    #[test]
+    fn loras_in_model_folders_are_not_models() {
+        let dir = std::env::temp_dir().join(format!("li-inv-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(dir.join("diffusion_models")).unwrap();
+        // A neutrally named file whose tensors are a FLUX LoRA's.
+        let header = serde_json::to_vec(&json!({
+            "double_blocks.18.img_attn.qkv.lora_A.weight": {"dtype": "F16", "shape": [16, 3072], "data_offsets": [0, 0]},
+            "double_blocks.18.img_attn.qkv.lora_B.weight": {"dtype": "F16", "shape": [9216, 16], "data_offsets": [0, 0]}
+        }))
+        .unwrap();
+        let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
+        bytes.extend(header);
+        std::fs::write(dir.join("diffusion_models").join("flux_ink.safetensors"), bytes).unwrap();
+        let info = ObjectInfo(json!({
+            "CheckpointLoaderSimple": {"input": {"required": {"ckpt_name": [["juggernautXL_v9.safetensors", "sdxl_detail_LoRA.safetensors"]]}}},
+            "UNETLoader": {"input": {"required": {"unet_name": [["flux1-dev-fp8.safetensors", "flux_realism_lora.safetensors", "loras/qwen_style.safetensors", "flux_ink.safetensors"]]}}},
+            "LoraLoader": {"input": {"required": {"lora_name": [["flux_realism_lora.safetensors"]]}}},
+        }));
+        let (models, loras) = scan(&info, Some(&dir), crate::family::registry());
+        let keys: Vec<&str> = models.iter().map(|m| m.key.as_str()).collect();
+        assert_eq!(keys, vec!["ckpt:juggernautXL_v9.safetensors", "unet:flux1-dev-fp8.safetensors"], "{keys:?}");
+        // the LoRA loader's own list is unchanged
+        assert_eq!(loras.len(), 1);
+        assert_eq!(loras[0].family.as_deref(), Some("flux1"));
+        // and the local header decides for the main loaders too
+        let p = dir.join("diffusion_models").join("flux_ink.safetensors");
+        assert!(listed_as_model_but_lora("flux_ink.safetensors", Some(&p)));
+        assert_eq!(family_of("flux_ink.safetensors", FileKind::DiffusionModel, Some(&p), None), None);
+        assert_eq!(family_of("flux_ink.safetensors", FileKind::Lora, Some(&p), None).map(|f| f.0).as_deref(), Some("flux1"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -258,5 +327,39 @@ mod tests {
         let (models, _) = scan(&info(), Some(&dir), crate::family::registry());
         assert_eq!(models.iter().find(|m| m.key == "ckpt:mystery.safetensors").map(|m| m.family.as_str()), Some("sdxl"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod ds_metadata_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn ds2_metadata_flat_modelspecific_and_kohya_classification() {
+        for (metadata, expected) in [
+            (json!({"modelspec.architecture":"stable-diffusion-xl-v1-base"}), "sdxl"),
+            (json!({"ss_base_model_version":"sdxl_base_v1-0"}), "sdxl"),
+            (json!({"ss_base_model_version":"sd_v1"}), "sd15"),
+        ] {
+            let got = family_of("unknown.safetensors", FileKind::Checkpoint, None, Some(&metadata));
+            assert_eq!(got.map(|x| x.0).as_deref(), Some(expected), "{metadata}");
+        }
+    }
+
+    #[test]
+    fn ds2_metadata_safetensors_header_keeps_tensor_shapes_and_metadata() {
+        for metadata in [
+            json!({"model.diffusion_model.input_blocks.0.0.weight":{"dtype":"F16","shape":[320,4,3,3]},
+                   "model.diffusion_model.label_emb.0.0.weight":{"dtype":"F16","shape":[1280,2816]},
+                   "conditioner.embedders.0.transformer.text_model.final_layer_norm.weight":{"dtype":"F16","shape":[768]}}),
+            json!({"__metadata__":{"modelspec.architecture":"stable-diffusion-xl-v1-base"}}),
+            json!({"__metadata__":{"ss_base_model_version":"sdxl_base_v1-0"}}),
+        ] {
+            assert_eq!(family_of("unknown.safetensors", FileKind::Checkpoint, None, Some(&metadata)).map(|x| x.0).as_deref(), Some("sdxl"), "{metadata}");
+        }
+        let lora = json!({"__metadata__":{"modelspec.architecture":"stable-diffusion-xl-v1-base/lora"}});
+        assert!(family_of("unknown.safetensors", FileKind::Checkpoint, None, Some(&lora)).is_none());
+        assert_eq!(family_of("unknown.safetensors", FileKind::Lora, None, Some(&lora)).unwrap().0, "sdxl");
     }
 }

@@ -212,7 +212,7 @@ fn fill_missing_meta(id: lightcraft_catalog::PhotoId, ph: &lightcraft_catalog::P
 
 /// Re-read photos whose files changed on disk (an external editor saved them): new size,
 /// dimensions and content hash, cached sources dropped. → {reloaded: [ids]}
-fn reload(s: &mut Session, p: &Value) -> Result<Value> {
+pub(crate) fn reload(s: &mut Session, p: &Value) -> Result<Value> {
     let ids = s.targets(p);
     let paths: Vec<(lightcraft_catalog::PhotoId, String)> = ids
         .iter()

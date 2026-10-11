@@ -426,3 +426,22 @@ fn a_shortcut_opening_a_dialog_takes_the_frames_later_keys() {
     assert_eq!(layer_count(&h), 5, "⌘Z didn't undo behind the dialog");
     assert_eq!(logged(&h), ["image.adjustments.levels"]);
 }
+
+#[test]
+fn ds_finding_tool_without_default_accepts_assigned_shortcut() {
+    let mut h = harness();
+    let id = photocraft_engine::prefs::TOOL_SHORTCUTS
+        .iter()
+        .find(|(id, _, sc)| sc.is_none() && id.starts_with("tools.select."))
+        .expect("a tool without a default")
+        .0;
+    let expected = Tool::from_name(id.strip_prefix("tools.select.").unwrap()).unwrap();
+    h.state_mut().session.prefs.edit(|p| {
+        p.shortcuts.insert(id.into(), "Alt+F13".into());
+    });
+    h.state_mut().ui.tool = Tool::Move;
+    h.hover_at(h.state().last_canvas_rect.center());
+    h.run_steps(2);
+    press(&mut h, "Alt+F13");
+    assert_eq!(h.state().ui.tool, expected);
+}

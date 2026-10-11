@@ -155,6 +155,31 @@ fn content_aware_fill_outputs_and_sampling() {
     assert!(!s.is_enabled("edit.contentAwareFill"));
 }
 
+/// On a layer that isn't pixels (a shape here; a Develop Smart Object from the Library behaves
+/// the same), Content-Aware Fill samples what shows and fills a new layer above it.
+#[test]
+fn content_aware_fill_on_a_non_pixel_layer_fills_a_new_layer_from_the_composite() {
+    let mut s = blob_session(8);
+    let shape = s.execute("shape.create", json!({"kind": "rect", "rect": [50, 2, 10, 10], "fill": "#00ff00"})).unwrap()["layer"].as_u64().unwrap();
+    assert!(s.is_enabled("edit.contentAwareFill"));
+    let r = s.execute("edit.contentAwareFill", json!({"colorAdaptation": "none"})).unwrap();
+    let nid = LayerId(r["layer"].as_u64().unwrap());
+    assert_ne!(nid.0, shape);
+    let st = s.active().unwrap();
+    assert_eq!(st.active_layer, Some(nid));
+    let order: Vec<LayerId> = st.doc.walk().into_iter().map(|(_, _, l)| l.id).collect();
+    assert_eq!(order.iter().position(|l| *l == nid), order.iter().position(|l| l.0 == shape).map(|i| i + 1), "right above the shape");
+    let l = st.doc.layer(nid).unwrap();
+    assert!(matches!(l.content, LayerContent::Raster(_)));
+    for (x, y) in [(30, 20), (33, 25)] {
+        let v = l.surface().unwrap().pixel(x, y);
+        assert!(v[3] > 0.9 && !(v[0] > 0.9 && v[1] < 0.1), "({x},{y}) holds the fill, not the blob: {v:?}");
+    }
+    assert_eq!(l.surface().unwrap().pixel(2, 2)[3], 0.0, "only the selection is filled");
+    // The shape is untouched.
+    assert!(matches!(st.doc.layer(LayerId(shape)).unwrap().content, LayerContent::Shape(_)));
+}
+
 #[test]
 fn content_aware_scale_keeps_subject() {
     for depth in [8, 16, 32] {

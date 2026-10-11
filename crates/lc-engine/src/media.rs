@@ -62,7 +62,7 @@ impl SettingsHashes {
 }
 
 /// Bump when the pipeline's output changes, to invalidate cached thumbnails.
-pub const RENDER_CACHE_VERSION: u64 = 11;
+pub const RENDER_CACHE_VERSION: u64 = 15;
 
 /// Thumbnails render at one of these long edges (so window/cell size changes reuse the cache).
 pub const THUMB_SIZES: [usize; 4] = [128, 256, 384, 512];
@@ -107,6 +107,10 @@ impl SourceLevel {
 /// Decodes a file into a linear Rec.2020 image no larger than `max_edge` (set by the app).
 pub type FileLoader = Arc<dyn Fn(&str, usize) -> Result<(Rgb32f, SourceInfo), String> + Send + Sync>;
 
+/// [`FileLoader`] decoding raw files with non-default options (a photo's Raw Processing settings,
+/// [`crate::files::RawOptions`]).
+pub type FileLoaderWith = Arc<dyn Fn(&str, usize, &crate::files::RawOptions) -> Result<(Rgb32f, SourceInfo), String> + Send + Sync>;
+
 /// A raw file's embedded (camera-rendered) preview as display sRGB, oriented, no larger than
 /// `max_edge` (set by the app). `None`: no usable preview.
 pub type PreviewLoader = Arc<dyn Fn(&str, usize) -> Option<Rgba8> + Send + Sync>;
@@ -119,17 +123,22 @@ pub struct DecodedSource {
     /// A smart preview's stored camera tone curve: the one decoder fact its pixels need that the
     /// catalog's header facts lack (used when `info` is `None`).
     pub camera_tone: Option<lightcraft_pipeline::tone::CameraTone>,
+    /// [`crate::files::RawOptions::key`] of the decoding (0 = the default decoding).
+    pub raw_key: u64,
 }
 
 impl DecodedSource {
     pub fn new(image: Arc<Rgb32f>, info: Option<SourceInfo>) -> Self {
-        DecodedSource { image, info, camera_tone: None }
+        DecodedSource { image, info, camera_tone: None, raw_key: 0 }
     }
 
     /// What to render these pixels against: the decoder's facts, else `header` (the catalog's)
-    /// with any stored camera tone curve.
+    /// with any stored camera tone curve. The lens database's correction always comes from
+    /// `header` (it follows the settings, not the file).
     pub fn info_or(&self, header: SourceInfo) -> SourceInfo {
-        self.info.unwrap_or(SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header })
+        let mut i = self.info.clone().unwrap_or(SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header });
+        i.lens_db = header.lens_db;
+        i
     }
 }
 
@@ -152,6 +161,14 @@ pub enum SourceRef {
     Smart {
         path: std::path::PathBuf,
     },
+    /// A raw file decoded with non-default Raw Processing options.
+    RawFile {
+        path: String,
+        max_edge: usize,
+        opts: crate::files::RawOptions,
+        loader: FileLoaderWith,
+        fallback: Option<std::path::PathBuf>,
+    },
 }
 
 impl SourceRef {
@@ -169,6 +186,15 @@ impl SourceRef {
                     None => Err(format!("no decoder available for {path}")),
                 };
                 // An offline original renders from its smart preview (no decoder facts: header ones).
+                return match (r, fallback) {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    (Err(e), Some(sp)) if crate::smart::is_valid(sp) => crate::smart::load(sp).map_err(|e2| format!("{e}; smart preview: {e2}")),
+                    (r, _) => r,
+                };
+            }
+            SourceRef::RawFile { path, max_edge, opts, loader, fallback } => {
+                let r = loader(path, *max_edge, opts)
+                    .map(|(image, info)| DecodedSource { raw_key: opts.key(), ..DecodedSource::new(Arc::new(image), Some(info)) });
                 return match (r, fallback) {
                     #[cfg(not(target_arch = "wasm32"))]
                     (Err(e), Some(sp)) if crate::smart::is_valid(sp) => crate::smart::load(sp).map_err(|e2| format!("{e}; smart preview: {e2}")),
@@ -198,6 +224,8 @@ pub struct MediaCache {
     /// share of [`crate::memory::budget`]); the least recently used entry of any of them goes first.
     budget: usize,
     pub file_loader: Option<FileLoader>,
+    /// Decodes raw files with non-default options (set with `file_loader` by the app).
+    pub file_loader_with: Option<FileLoaderWith>,
     pub file_probe: Option<FileProbe>,
     pub preview_loader: Option<PreviewLoader>,
     /// Reads a photo file's bytes (Photo Merge); `None` = the local file system.
@@ -223,6 +251,7 @@ impl Default for MediaCache {
             preview_capacity: 0,
             budget,
             file_loader: None,
+            file_loader_with: None,
             file_probe: None,
             preview_loader: None,
             file_bytes: None,
@@ -321,7 +350,12 @@ impl MediaCache {
     }
 
     fn get_source(&mut self, id: PhotoId, level: SourceLevel) -> Option<DecodedSource> {
-        match level {
+        self.get_source_keyed(id, level, 0)
+    }
+
+    /// A cached source decoded with raw options `key` ([`crate::files::RawOptions::key`]).
+    fn get_source_keyed(&mut self, id: PhotoId, level: SourceLevel, key: u64) -> Option<DecodedSource> {
+        let s = match level {
             SourceLevel::Thumb => self.thumbs.get(&id).cloned(),
             SourceLevel::Preview => self.previews.iter_mut().find(|e| e.0 == id).map(|e| {
                 e.2 = lightcraft_preview::next_tick();
@@ -331,7 +365,8 @@ impl MediaCache {
                 e.2 = lightcraft_preview::next_tick();
                 e.1.clone()
             }),
-        }
+        };
+        s.filter(|s| s.raw_key == key)
     }
 
     /// The facts of photo `id`'s cached sources: the decoder's when one has them, else `header`
@@ -398,9 +433,22 @@ impl MediaCache {
     }
 
     pub fn source_ref(&mut self, p: &Photo, level: SourceLevel) -> SourceRef {
-        if let Some(a) = self.get_source(p.id, level) {
+        // a raw decoded with the photo's Raw Processing options (the default decoding: key 0)
+        let opts = crate::files::RawOptions::of(&p.develop);
+        let opts = if p.develops_raw() { opts } else { Default::default() };
+        if let Some(a) = self.get_source_keyed(p.id, level, opts.key()) {
             return SourceRef::Loaded(Box::new(a));
         }
+        let r = self.source_ref_default(p, level);
+        match (r, &self.file_loader_with) {
+            (SourceRef::File { path, max_edge, fallback, .. }, Some(l)) if !opts.is_default() => {
+                SourceRef::RawFile { path, max_edge, opts, loader: l.clone(), fallback }
+            }
+            (r, _) => r,
+        }
+    }
+
+    fn source_ref_default(&mut self, p: &Photo, level: SourceLevel) -> SourceRef {
         // Procedural scenes have a nominal size: "full" is that size, not unbounded.
         let max_edge = level.max_edge().min(match (&p.source, level) {
             (Source::Demo { .. }, SourceLevel::Full) => p.width.max(p.height).max(1) as usize,
@@ -550,12 +598,14 @@ impl RenderJob {
         let was_loaded = matches!(self.source, SourceRef::Loaded(_));
         match self.source.load_source() {
             Ok(source) => {
-                let src = &source.image;
-                let info = source.info_or(self.info);
+                let info = source.info_or(self.info.clone());
+                // local-image: exclude AI patches of other
+                // photos left out (see `enhance::for_render`)
+                let (src, settings) = crate::enhance::for_render(&source.image, &self.settings, self.source_key);
                 // Thumbnails (many small jobs side by side) stay on the CPU; views and exports use
                 // the GPU when there is one.
                 let gpu = self.cache.is_none();
-                let rendered = develop(src, &info, &self.settings, &self.request, self.stages.as_deref(), gpu);
+                let rendered = develop(&src, &info, &settings, &self.request, self.stages.as_deref(), gpu);
                 if let Some((cache, key)) = &self.cache {
                     cache.put_at(self.cache_generation, *key, Arc::new(rendered.image.clone()));
                 }
@@ -593,18 +643,46 @@ impl RenderJob {
 /// the CPU, reusing `stages` either way. Both produce the same image within 1–3 LSB (see
 /// `docs/gpu-pipeline.md`); `LIGHTCRAFT_GPU=0` or [`lightcraft_gpu::set_enabled`] forces the CPU.
 pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>, gpu: bool) -> Rendered {
-    // LUT profiles have no GPU stage: they render on the CPU
-    if gpu
-        && !lightcraft_pipeline::lut::is_lut_profile(&s.profile.id)
-        && !s.masks.iter().any(|m| m.visible && m.refine > 0.0)
-        && req.proof.is_none()
-        && let Some(r) = lightcraft_gpu::render(src, info, s, req, stages)
-    {
-        return r;
+    if gpu {
+        let cpu_reason = if lightcraft_pipeline::lut::is_lut_profile(&s.profile.id) {
+            "the selected LUT profile requires CPU processing".to_string()
+        } else if s.masks.iter().any(|m| m.visible && m.refine > 0.0) {
+            "mask refinement requires CPU processing".to_string()
+        } else if req.proof.is_some() {
+            "soft proofing requires CPU processing".to_string()
+        } else if req.depth == lightcraft_pipeline::OutputDepth::F32Linear {
+            "linear float output requires CPU processing".to_string()
+        } else if let Some(r) = lightcraft_gpu::render(src, info, s, req, stages) {
+            log_develop_backend(&format!("GPU: {}", lightcraft_gpu::adapter_name().unwrap_or_default()));
+            return r;
+        } else {
+            lightcraft_gpu::unavailable_reason().or_else(lightcraft_gpu::last_fallback).unwrap_or_else(|| "GPU render unavailable".into())
+        };
+        log_develop_backend(&format!("CPU: {cpu_reason}"));
     }
     match stages {
         Some(st) => lightcraft_pipeline::render_cached(src, info, s, req, st),
         None => lightcraft_pipeline::render(src, info, s, req),
+    }
+}
+
+#[cfg(test)]
+thread_local! { static USED_GPU: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+#[cfg(test)]
+pub(crate) fn develop_used_gpu() -> bool {
+    USED_GPU.with(std::cell::Cell::get)
+}
+
+/// Log the backend actually used, including host-side refusals that never enter the GPU crate.
+/// Emit changes only: a slider must not flood the app log with a line for every preview step.
+fn log_develop_backend(backend: &str) {
+    #[cfg(test)]
+    USED_GPU.with(|c| c.set(backend.starts_with("GPU:")));
+    static LAST: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if *last != backend {
+        log::info!("Develop render backend: {backend}");
+        backend.clone_into(&mut last);
     }
 }
 
@@ -680,6 +758,11 @@ pub fn content_key(p: &Photo) -> String {
     }
 }
 
+/// [`source_info`] with what the settings `s` add to it (the lens database's correction).
+pub fn job_info(p: &Photo, s: &DevelopSettings) -> SourceInfo {
+    SourceInfo { lens_db: crate::lens_db::for_photo(p, s), ..source_info(p) }
+}
+
 pub fn source_info(p: &Photo) -> SourceInfo {
     // Procedural demo scenes are scene-referred HDR (like raw files): use the filmic tone map.
     if matches!(p.source, Source::Demo { .. }) {
@@ -736,7 +819,8 @@ impl crate::Session {
             ^ (apply_crop as u64)
             ^ (level as u64) << 60
             ^ id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15)
-            ^ content.rotate_left(17);
+            ^ content.rotate_left(17)
+            ^ crate::dcp_profiles::cache_key();
         let cache = thumb_bucket.map(|b| {
             let k = Hasher128::new()
                 .str(&content_key)
@@ -755,7 +839,7 @@ impl crate::Session {
             level,
             source,
             origin: p.source.clone(),
-            info: source_info(&p),
+            info: job_info(&p, &settings),
             settings,
             request,
             key,
@@ -805,7 +889,7 @@ impl crate::Session {
             level,
             source,
             origin: p.source.clone(),
-            info: source_info(&p),
+            info: job_info(&p, settings),
             settings: Arc::new(settings.clone()),
             request: RenderRequest { apply_crop: true, ..RenderRequest::fit(edge, edge) },
             key: (ck.0 as u64) ^ ((ck.0 >> 64) as u64),
@@ -850,7 +934,7 @@ impl crate::Session {
             level,
             source,
             origin: p.source.clone(),
-            info: source_info(&p),
+            info: job_info(&p, &settings),
             settings: Arc::new(settings),
             request: RenderRequest { apply_crop: true, ..RenderRequest::fit(edge, edge) },
             key: (ck.0 as u64) ^ ((ck.0 >> 64) as u64),
@@ -961,6 +1045,9 @@ impl crate::Session {
         space: lightcraft_pipeline::OutputSpace,
         depth: lightcraft_pipeline::OutputDepth,
     ) -> Result<RenderJob, String> {
+        if self.develop_of(id).is_some_and(|d| d.enhance.denoise > 0.0 && d.enhance.ai.is_some_and(|a| a.preview)) {
+            return Err("Run Apply AI Denoise at full resolution before exporting the preview result.".into());
+        }
         let mut job = self.render_job(id, max_w, max_h, false, true).ok_or("no such photo")?;
         job.request.space = space;
         job.request.depth = depth;
@@ -970,7 +1057,7 @@ impl crate::Session {
 
     /// Prefer decoder facts to header-only metadata for pixel-statistics commands.
     pub fn source_info(&self, id: PhotoId) -> SourceInfo {
-        let header = self.catalog.photo(id).map(|p| source_info(p)).unwrap_or_default();
+        let header = self.catalog.photo(id).map(|p| job_info(p, &p.develop)).unwrap_or_default();
         self.media.source_facts(id, header)
     }
 
@@ -995,6 +1082,7 @@ pub struct ProbeInfo {
     pub captured: Option<String>,
     pub meta: lightcraft_catalog::Meta,
     pub as_shot_wb: Option<(f64, f64)>,
+    pub measured_wb: bool,
     /// Hash of the file's bytes (hex), for duplicate detection. When it is a 32-digit
     /// [`lightcraft_preview::hash_bytes`] of the whole file (as the native probe computes it),
     /// Import → Copy verifies each copy against it instead of reading the source again.
@@ -1030,8 +1118,13 @@ mod thumbnail_hash_tests {
             // Independent original formula: never asks the new hash cache for expected values.
             let settings = p.develop.hash64();
             let content = Hasher128::new().str(&content_key(&p)).finish().0 as u64;
-            let expected =
-                settings ^ ((b as u64) << 40) ^ ((b as u64) << 20) ^ 1 ^ p.id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ content.rotate_left(17);
+            let expected = settings
+                ^ ((b as u64) << 40)
+                ^ ((b as u64) << 20)
+                ^ 1
+                ^ p.id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                ^ content.rotate_left(17)
+                ^ crate::dcp_profiles::cache_key();
             let disk = Hasher128::new()
                 .str(&content_key(&p))
                 .u64(settings)
@@ -1110,6 +1203,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ds_finding_smart_preview_keeps_distinct_look_curve() {
+        let camera = lightcraft_pipeline::tone::CameraTone::new(std::array::from_fn(|i| {
+            let x = (i + 1) as f32 / 32.0;
+            [x, x * 0.5]
+        }))
+        .unwrap();
+        let look = lightcraft_pipeline::tone::CameraTone::new(std::array::from_fn(|i| {
+            let x = (i + 1) as f32 / 32.0;
+            [x, x * 0.8]
+        }))
+        .unwrap();
+        let source = DecodedSource { camera_tone: Some(camera), ..DecodedSource::new(Arc::new(Rgb32f::new(1, 1)), None) };
+        let info = source.info_or(SourceInfo { look_curve: Some(look), ..Default::default() });
+        assert_eq!(info.camera_tone, Some(camera));
+        assert_eq!(info.look_curve, Some(look));
+    }
+
+    #[test]
     fn decoder_info_survives_render_jobs_cache_and_eviction() {
         let tone = lightcraft_pipeline::tone::CameraTone::new(std::array::from_fn(|i| {
             let x = 0.01 * (i + 1) as f32;
@@ -1120,20 +1231,21 @@ mod tests {
         let mut s = crate::Session::with_demo();
         let id = s.active().unwrap();
         let mut job = s.render_job(id, 64, 64, false, true).unwrap();
+        let loaded_info = info.clone();
         job.source = SourceRef::File {
             path: "synthetic.arw".into(),
             max_edge: 64,
             loader: Some(Arc::new(move |_, _| {
                 let mut image = Rgb32f::new(64, 64);
                 image.data.fill([0.1; 3]);
-                Ok((image, info))
+                Ok((image, loaded_info.clone()))
             })),
             fallback: None,
         };
         job.info = SourceInfo::default(); // Header facts cannot override decoder facts.
         job.settings = Arc::new(DevelopSettings::default());
         let r = job.clone().run();
-        assert_eq!(r.loaded.as_ref().unwrap().info, Some(info));
+        assert_eq!(r.loaded.as_ref().unwrap().info, Some(info.clone()));
         let expected = lightcraft_pipeline::render(&r.loaded.as_ref().unwrap().image, &info, &job.settings, &job.request);
         assert_eq!(r.rendered.as_ref().unwrap().image.data, expected.image.data);
         s.accept(&r);

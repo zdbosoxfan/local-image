@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 pub type Files = BTreeMap<Role, String>;
 
 /// A LoRA chosen for a generation: its ComfyUI `lora_name` and strength (−2..2).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LoraUse {
     pub name: String,
     pub strength: f32,
@@ -64,13 +64,14 @@ pub struct QwenParams<'a> {
     pub seed: u64,
     pub steps: u32,
     pub cfg: f32,
+    pub denoise: f32,
     pub references: usize,
     pub use_cache: bool,
     pub loras: &'a [LoraUse],
 }
 
-/// Qwen Image 2.1: text-to-image (EmptyLatentImage) or editing from references (the encoder's
-/// latent, so the canvas follows reference 1).
+/// Qwen Image 2.1: text-to-image (EmptyLatentImage) or editing from references. The encoder's
+/// third output is an empty latent sized to reference 1, not an encoded starting image.
 pub fn qwen(files: &Files, p: &QwenParams) -> Built {
     let mut g = Graph::default();
     g.node(1, "UNETLoader", json!({ "unet_name": f(files, Role::Unet), "weight_dtype": "default" }));
@@ -86,7 +87,7 @@ pub fn qwen(files: &Files, p: &QwenParams) -> Built {
         6,
         "KSampler",
         json!({ "model": ["1", 0], "seed": p.seed, "steps": p.steps, "cfg": p.cfg, "sampler_name": "euler", "scheduler": "simple",
-                "denoise": 1.0, "positive": ["4", 0], "negative": ["4", 1], "latent_image": if refs { json!(["4", 2]) } else { json!(["5", 0]) } }),
+                "denoise": if refs {p.denoise.clamp(0.0,1.0)} else {1.0}, "positive": ["4", 0], "negative": ["4", 1], "latent_image": if refs { json!(["4", 2]) } else { json!(["5", 0]) } }),
     );
     g.node(7, "VAEDecode", json!({ "samples": ["6", 0], "vae": ["3", 0] }));
     g.node(8, "SaveImage", json!({ "images": ["7", 0], "filename_prefix": "LocalImage_Qwen21" }));
@@ -105,6 +106,12 @@ pub fn qwen(files: &Files, p: &QwenParams) -> Built {
             // LoadImage's MASK is inverted alpha; JoinImageWithAlpha expects that convention.
             g.node(&alpha, "JoinImageWithAlpha", json!({ "image": [load, 0], "alpha": [load, 1] }));
             g.set("4", &format!("images.image_{i}"), json!([alpha, 0]));
+            if i == 1 && p.denoise < 1.0 {
+                // Partial denoise starts from the first RGBA reference, while the encoder
+                // continues supplying all reference conditioning, as in the native graph.
+                g.node(200, "VAEEncode", json!({"pixels":[alpha,0],"vae":["3",0]}));
+                g.set("6", "latent_image", json!(["200", 0]));
+            }
             image_nodes.push(load);
         }
     } else {
@@ -200,7 +207,19 @@ mod tests {
         let loras = [LoraUse { name: "a.safetensors".into(), strength: 0.8 }];
         let t2i = qwen(
             &files(),
-            &QwenParams { prompt: "p", negative: "", width: 1024, height: 768, seed: 7, steps: 40, cfg: 1.0, references: 0, use_cache: true, loras: &loras },
+            &QwenParams {
+                prompt: "p",
+                negative: "",
+                width: 1024,
+                height: 768,
+                seed: 7,
+                steps: 40,
+                cfg: 1.0,
+                denoise: 1.0,
+                references: 0,
+                use_cache: true,
+                loras: &loras,
+            },
         );
         links_resolve(&t2i.graph);
         assert_eq!(t2i.graph["6"]["inputs"]["latent_image"], json!(["5", 0]));
@@ -208,13 +227,58 @@ mod tests {
         assert_eq!(t2i.graph["6"]["inputs"]["model"], json!(["9", 0]));
         let edit = qwen(
             &files(),
-            &QwenParams { prompt: "p", negative: "", width: 0, height: 0, seed: 7, steps: 25, cfg: 1.0, references: 2, use_cache: false, loras: &[] },
+            &QwenParams {
+                prompt: "p",
+                negative: "",
+                width: 0,
+                height: 0,
+                seed: 7,
+                steps: 25,
+                cfg: 1.0,
+                denoise: 1.0,
+                references: 2,
+                use_cache: false,
+                loras: &[],
+            },
         );
         links_resolve(&edit.graph);
         assert_eq!(edit.image_nodes, vec!["22", "24"]);
         assert_eq!(edit.graph["4"]["inputs"]["images.image_2"], json!(["25", 0]));
         assert_eq!(edit.graph["4"]["inputs"]["resolution"], json!(0));
         assert!(edit.graph.get("5").is_none());
+    }
+
+    #[test]
+    fn ds2_qwen_partial_denoise_uses_first_reference_latent() {
+        for refs in [0, 2] {
+            let b = qwen(
+                &files(),
+                &QwenParams {
+                    prompt: "p",
+                    negative: "",
+                    width: 1024,
+                    height: 768,
+                    seed: 1,
+                    steps: 25,
+                    cfg: 1.0,
+                    denoise: 0.35,
+                    references: refs,
+                    use_cache: false,
+                    loras: &[],
+                },
+            );
+            links_resolve(&b.graph);
+            if refs == 0 {
+                assert_eq!(b.graph["6"]["inputs"]["denoise"], json!(1.0));
+                assert_eq!(b.graph["6"]["inputs"]["latent_image"], json!(["5", 0]));
+            } else {
+                assert_eq!(b.graph["6"]["inputs"]["denoise"], json!(0.35_f32));
+                assert_eq!(b.graph["6"]["inputs"]["latent_image"], json!(["200", 0]));
+                assert_eq!(b.graph["200"]["class_type"], json!("VAEEncode"));
+                assert_eq!(b.graph["200"]["inputs"]["pixels"], json!(["23", 0]));
+                assert_eq!(b.graph["4"]["inputs"]["images.image_2"], json!(["25", 0]));
+            }
+        }
     }
 
     #[test]

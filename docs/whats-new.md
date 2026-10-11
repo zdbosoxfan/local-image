@@ -1,5 +1,46 @@
 # What's new in LightCraft
 
+## Local Image V2
+
+### Develop engine
+- A new colour and tone engine for raw processing.
+- Raw quality improvements across supported cameras.
+
+### Speed
+- Lens corrections run natively on the GPU.
+- Capture sharpening runs on the GPU.
+- The compositor has a GPU path and stutters less while you edit.
+- Faster raw processing.
+
+### Library & Develop
+- Save Over Original: export over the original photo.
+- A Lightroom-style Export dialog for export settings.
+- Live round trip between Library and Compositing — no intermediate save needed.
+- Tear-off panels: dock tabs can be torn off and docked back magnetically.
+- Long exports no longer time out.
+
+### Compositing
+- Blend If, noisy effects, CMYK/Lab tones and wide blurs run on the GPU.
+- Contextual menus and pen/shape editing in compositing.
+- Content-aware Heal, and healing over removed areas.
+
+### AI & models
+- One official on-device model per function, including sky, plus custom ONNX models.
+- Model deletion, grouped CPU models, an upscaler picker, LoRAs, and eject/stop.
+- AI Remove asks for confirmation before removing.
+- Custom-model errors are translated.
+
+### Smart Sort
+- Groundwork only: the tagging engine, face clustering, and burst/duplicate stacking are in place for Smart Sort; not shown in the interface yet.
+
+### Settings
+- New Settings → Attributions page for every sampled project.
+- Library and Develop translations filled in.
+
+### Stability
+- GPU crash on exit fixed: render workers finish before teardown.
+- The GPU is quiesced at exit.
+
 ## October 2026
 
 ### RAW decoding

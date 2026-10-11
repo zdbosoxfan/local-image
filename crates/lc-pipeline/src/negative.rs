@@ -507,3 +507,37 @@ mod tests {
         assert!((all.min[0] - 0.2).abs() < 1e-3 && (all.max[0] - 0.8).abs() < 1e-3, "{all:?}");
     }
 }
+
+#[cfg(test)]
+mod refvec_tests {
+    use super::*;
+    #[test]
+    fn upstream_negative_vectors() {
+        let params = NegParams {
+            dmin: [0.7, 0.5, 0.3],
+            wb_high: [1.1 / 2.0, 0.9 / 2.0, 1.2 / 2.0],
+            offset: [1.1 * 0.03 * 0.95, 0.9 * 0.03 * 1.02, 1.2 * 0.03 * 1.1],
+            black: -1.2 * (1.0 - 0.08),
+            exposure: 1.2,
+            gamma: 1.6,
+            soft_clip: 0.8,
+            soft_clip_comp: 1.0 - 0.8,
+        };
+        let actual: Vec<_> = (0..256)
+            .flat_map(|i| {
+                let input = if i < 4 {
+                    [match i {
+                        0 => 0.0,
+                        1 => -1.0,
+                        2 => 1e-12,
+                        _ => 4.0,
+                    }; 3]
+                } else {
+                    std::array::from_fn(|c| crate::test_vectors::noise(i * 3 + c))
+                };
+                params.convert(input)
+            })
+            .collect();
+        crate::test_vectors::compare("negative/pixels.f32", &actual, 1e-6);
+    }
+}

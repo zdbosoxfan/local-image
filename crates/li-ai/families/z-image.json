@@ -103,6 +103,34 @@
   "hf_tags": [
     "z-image"
   ],
+  "file_overrides": [
+    {
+      "patterns": [
+        "z_image_bf16",
+        "z_image_fp8",
+        "z-image-bf16",
+        "z-image-fp8",
+        "z_image.safetensors",
+        "z-image.safetensors"
+      ],
+      "sampling": {
+        "steps": {
+          "default": 25,
+          "min": 1,
+          "max": 100
+        },
+        "cfg": {
+          "default": 4,
+          "min": 1,
+          "max": 10
+        },
+        "denoise": 0.6
+      },
+      "pipeline": {
+        "zero_negative": false
+      }
+    }
+  ],
   "models": [
     {
       "key": "z-image-turbo",

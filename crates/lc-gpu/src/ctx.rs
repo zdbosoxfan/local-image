@@ -15,6 +15,113 @@ struct Module {
 
 const MODULES: &[Module] = &[
     Module {
+        src: include_str!("wgsl/denoise.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("weights", false, "f32"), ("bias", false, "f32"), ("dst", true, "f32")],
+        entries: &["denoise_conv", "denoise_point"],
+    },
+    #[cfg(test)]
+    Module { src: include_str!("wgsl/toneeq_test.wgsl"), bindings: &[("a", false, "f32"), ("dst", true, "f32")], entries: &["teq_round_probe"] },
+    Module {
+        src: include_str!("wgsl/haze_select.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", true, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["haze_quick_select", "haze_select_init", "haze_select_prepare", "haze_select_swap", "haze_select_commit"],
+    },
+    Module {
+        src: include_str!("wgsl/haze_partition.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["haze_partition_count", "haze_scan_blocks", "haze_scan_add", "haze_partition_fill", "haze_partition_split"],
+    },
+    Module {
+        src: include_str!("wgsl/haze_stats.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["haze_count", "haze_bright_fill", "haze_air_sum", "haze_air_reduce", "haze_air_finish"],
+    },
+    Module {
+        src: include_str!("wgsl/linear.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["colour_cal", "patch_apply", "patch_shrink"],
+    },
+    Module {
+        src: include_str!("wgsl/nr_stats.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &["nr_samples", "nr_median", "nr_vst", "nr_reduce", "nr_thresholds"],
+    },
+    Module {
+        src: include_str!("wgsl/primary.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("d", false, "f32"), ("e", false, "f32"), ("out", true, "f32")],
+        entries: &[
+            "p_skin_moments",
+            "p_skin_low",
+            "p_transpose",
+            "p_clip",
+            "p_scale",
+            "p_log",
+            "p_biased",
+            "p_lum",
+            "p_interp",
+            "p_deriche",
+            "p_bounds",
+            "p_bounds_join",
+            "p_quant",
+            "p_moments",
+            "p_variance",
+            "p_eigf_apply",
+            "p_cross_pre",
+            "p_cross_apply",
+            "p_gain_ab",
+            "p_up_gain",
+            "p_gain_apply",
+            "p_band",
+            "p_eigf_gain",
+            "p_ll_reduce",
+            "p_ll_remap",
+            "p_ll_acc",
+            "p_ll_assemble",
+            "p_ll_gain",
+            "p_ll_mix",
+            "p_dt_pad",
+            "p_dt_remap",
+            "p_dt_reduce",
+            "p_dt_acc",
+            "p_dt_assemble",
+            "p_dt_top",
+            "p_dt_crop",
+            "p_detail_apply",
+            "p_mix",
+        ],
+    },
+    Module {
+        src: include_str!("wgsl/primary_colour.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("d", false, "f32"), ("e", false, "f32"), ("out", true, "f32")],
+        entries: &[
+            "p_balance",
+            "p_equal_pre",
+            "p_uv_cov",
+            "p_uv_ab",
+            "p_extract",
+            "p_uv_apply",
+            "p_equal_uv",
+            "p_equal_hsb",
+            "p_equal_corr",
+            "p_equal_finish",
+            "p_skin_pre",
+            "p_skin_finish",
+        ],
+    },
+    Module {
+        src: include_str!("wgsl/capture.wgsl"),
+        bindings: &[
+            ("img", false, "f32"),
+            ("a", false, "f32"),
+            ("b", false, "f32"),
+            ("blend", false, "f32"),
+            ("indices", true, "u32"),
+            ("kernels", false, "f32"),
+            ("dst", true, "f32"),
+        ],
+        entries: &["capture_lum", "capture_mask", "capture_blend", "capture_div", "capture_mul", "capture_apply"],
+    },
+    Module {
         src: include_str!("wgsl/finish.wgsl"),
         bindings: &[
             ("img", false, "f32"),
@@ -27,9 +134,13 @@ const MODULES: &[Module] = &[
             ("aux", false, "f32"),
             ("out", true, "u32"),
         ],
-        entries: &["main"],
+        entries: &["main", "select_colour"],
     },
-    Module { src: include_str!("wgsl/blur.wgsl"), bindings: &[("src", false, "f32"), ("dst", true, "f32")], entries: &["box_h", "box_v"] },
+    Module {
+        src: include_str!("wgsl/blur.wgsl"),
+        bindings: &[("src", false, "f32"), ("dst", true, "f32")],
+        entries: &["box_h", "box_v", "conv_h", "conv_v", "extrema", "mean_box"],
+    },
     Module {
         src: include_str!("wgsl/resize.wgsl"),
         bindings: &[("src", false, "f32"), ("table", false, "u32"), ("dst", true, "f32")],
@@ -39,20 +150,43 @@ const MODULES: &[Module] = &[
         src: include_str!("wgsl/map.wgsl"),
         bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
         entries: &[
+            "toneeq_lum",
+            "toneeq_log",
+            "toneeq_preview",
             "log_lum_k",
-            "dark_k",
             "guided_pre",
             "guided_ab",
             "guided_apply",
             "wb_k",
-            "nr_lum",
             "chroma_k",
-            "nr_col",
             "subsample",
             "redeye_k",
             "xguided_pre",
             "xguided_ab",
             "xguided_apply",
+            "xguided_refine",
+        ],
+    },
+    Module {
+        src: include_str!("wgsl/detail.wgsl"),
+        bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
+        entries: &[
+            "nr_forward",
+            "nr_backward",
+            "nr_eaw",
+            "nr_detail",
+            "nr_sum",
+            "nr_synthesize",
+            "nr_residual",
+            "nr_join",
+            "haze_moments",
+            "haze_solve",
+            "haze_guide_moments",
+            "haze_input_moments",
+            "haze_solve_shared",
+            "haze_apply",
+            "haze_dark",
+            "sharp_preview",
         ],
     },
     Module {
@@ -155,12 +289,14 @@ pub(crate) struct RenderScope<'a>(&'a Gpu);
 impl<'a> RenderScope<'a> {
     pub fn new(g: &'a Gpu) -> RenderScope<'a> {
         IN_RENDER.with(|c| c.set(c.get() + 1));
+        *RUNNING.0.lock().unwrap_or_else(|e| e.into_inner()) += 1;
         RenderScope(g)
     }
 }
 
 impl Drop for RenderScope<'_> {
     fn drop(&mut self) {
+        let _end = RenderEnd; // declared first, so it drops last: after the buffers are pooled
         let outer = IN_RENDER.with(|c| {
             c.set(c.get().saturating_sub(1));
             c.get() == 0
@@ -168,6 +304,54 @@ impl Drop for RenderScope<'_> {
         if outer {
             self.0.pool(take_retired());
         }
+    }
+}
+
+/// Renders and background kernel initialization, and the condvar [`quiesce`] waits on.
+static RUNNING: (std::sync::Mutex<u32>, std::sync::Condvar) = (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+/// Counts a render out when it ends.
+struct RenderEnd;
+
+impl Drop for RenderEnd {
+    fn drop(&mut self) {
+        let mut n = RUNNING.0.lock().unwrap_or_else(|e| e.into_inner());
+        *n = n.saturating_sub(1);
+        RUNNING.1.notify_all();
+    }
+}
+
+/// Wait (at most `timeout`) for initialization and every running render, then for the queue.
+/// Returns false when work exceeds the deadline or the device poll fails.
+pub(crate) fn quiesce(timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    let mut n = RUNNING.0.lock().unwrap_or_else(|e| e.into_inner());
+    while *n > 0 {
+        let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) else { return false };
+        n = RUNNING.1.wait_timeout(n, left).unwrap_or_else(|e| e.into_inner()).0;
+    }
+    drop(n);
+    if let Some(g) = crate::existing_device() {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        return g.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(left) }).is_ok();
+    }
+    true
+}
+
+/// Count background device/kernel initialization before spawning its thread, so even an
+/// immediate exit waits for it. Like renders, compilation must finish before driver teardown.
+pub(crate) struct InitWork;
+
+impl InitWork {
+    pub(crate) fn new() -> Self {
+        *RUNNING.0.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+        Self
+    }
+}
+
+impl Drop for InitWork {
+    fn drop(&mut self) {
+        drop(RenderEnd);
     }
 }
 
@@ -232,7 +416,7 @@ pub struct Gpu {
 
 /// WGSL constants shared by every module (generated from the CPU pipeline's values).
 fn constants() -> String {
-    use lightcraft_pipeline::finish::{GRAIN_HASH, MASK_SUMS, MASK_TERMS, SRGB_LUT_N};
+    use lightcraft_pipeline::finish::{DITHER_HASH, GRAIN_HASH, MASK_SUMS, MASK_TERMS, SRGB_LUT_N};
     use lightcraft_pipeline::tone::{CHROMA_N, LUT_MAX_EV, LUT_MIN_EV, LUT_N};
     let mut s = String::new();
     let [to_lms, from_lms, to_lab, from_lab] = lightcraft_color::perceptual::oklab_matrices();
@@ -244,6 +428,19 @@ fn constants() -> String {
         "const TONE_MIN_EV: f32 = {LUT_MIN_EV:?};\nconst TONE_MAX_EV: f32 = {LUT_MAX_EV:?};\nconst TONE_N: u32 = {LUT_N}u;\nconst CHROMA_N: u32 = {CHROMA_N}u;\n"
     );
     s += &format!("const TONE_MIN_GAIN: f32 = {:?};\n", 2f32.powf(LUT_MIN_EV));
+    use lightcraft_pipeline::ucs;
+    for (name, m) in [
+        ("UCS_RGB_XYZ", ucs::mats().rgb_to_xyz),
+        ("UCS_XYZ_RGB", ucs::mats().xyz_to_rgb),
+        ("UCS_RGB_LMS", ucs::mats().rgb_to_lms),
+        ("UCS_LMS_RGB", ucs::mats().lms_to_rgb),
+        ("UCS_LMS_XYZ", ucs::LMS_TO_XYZ),
+        ("UCS_LMS_GRADING", ucs::LMS_TO_GRADING),
+        ("UCS_GRADING_LMS", ucs::GRADING_TO_LMS),
+    ] {
+        let rows: Vec<String> = m.iter().map(|r| format!("vec3<f32>({:?}, {:?}, {:?})", r[0], r[1], r[2])).collect();
+        s += &format!("const {name} = array<vec3<f32>, 3>({});\n", rows.join(", "));
+    }
     let b = lightcraft_pipeline::geometry::BLANK;
     s += &format!("const BLANK_R: f32 = {:?};\nconst BLANK_G: f32 = {:?};\nconst BLANK_B: f32 = {:?};\n", b[0], b[1], b[2]);
     s += &format!(
@@ -257,6 +454,9 @@ fn constants() -> String {
     s += &format!("const SHADOW_TINT_K: f32 = {:?};\n", lightcraft_pipeline::colorops::SHADOW_TINT);
     for (i, h) in GRAIN_HASH.iter().enumerate() {
         s += &format!("const GRAIN_H{i}: u32 = {h}u;\n");
+    }
+    for (i, h) in DITHER_HASH.iter().enumerate() {
+        s += &format!("const DITHER_H{i}: u32 = {h}u;\n");
     }
     for (name, idx) in crate::params::finish_fields() {
         s += &format!("const F_{name}: u32 = {idx}u;\n");
@@ -272,6 +472,16 @@ fn module_source(m: &Module, consts: &str) -> String {
         s += &format!("@group(0) @binding({}) var<storage, {access}> {name}: array<{ty}>;\n", i + 1);
     }
     s += include_str!("wgsl/common.wgsl");
+    if m.entries.contains(&"p_deriche")
+        || m.entries.contains(&"toneeq_lum")
+        || m.entries.contains(&"teq_round_probe")
+        || m.entries.contains(&"nr_eaw")
+    {
+        s += include_str!("wgsl/toneeq_round.wgsl");
+    }
+    if m.entries.first().is_some_and(|e| e.starts_with("p_")) {
+        s += include_str!("wgsl/ucs.wgsl");
+    }
     s += m.src;
     s
 }
@@ -279,16 +489,35 @@ fn module_source(m: &Module, consts: &str) -> String {
 impl Gpu {
     /// Create a device on the best available adapter (no software fallback), or why there is none.
     pub fn new(backends: wgpu::Backends) -> Result<Gpu, String> {
+        Self::new_inner(backends, false)
+    }
+
+    /// Numerical tests prefer hardware, with CPU Vulkan available on CI. LC_REQUIRE_GPU makes
+    /// the hardware run strict: neither a software adapter nor an adapter skip can count.
+    #[cfg(test)]
+    pub(crate) fn numerical_test_device() -> Result<Gpu, String> {
+        // Share the production test device's initialization lock: the combined
+        // suite also creates that device and mutates crash-marker configuration.
+        let _init = crate::TEST_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let device = Self::new_inner(wgpu::Backends::VULKAN, false)
+            .or_else(|e| if std::env::var_os("LC_REQUIRE_GPU").is_some() { Err(e) } else { Self::new_inner(wgpu::Backends::VULKAN, true) })?;
+        eprintln!("numerical test device: {} ({:?})", device.info.name, device.info.backend);
+        Ok(device)
+    }
+
+    fn new_inner(backends: wgpu::Backends, software_test: bool) -> Result<Gpu, String> {
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
         // only these drivers are loaded (`crate::backend`: never Vulkan on Windows unless asked)
         desc.backends = backends;
         let instance = wgpu::Instance::new(desc);
-        let adapter = pollster::block_on(
-            instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() }),
-        )
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: software_test,
+            ..Default::default()
+        }))
         .map_err(|e| format!("no GPU adapter among {backends:?} ({e})"))?;
         let info = adapter.get_info();
-        if info.device_type == wgpu::DeviceType::Cpu {
+        if info.device_type == wgpu::DeviceType::Cpu && !software_test {
             log::info!("gpu: only a software adapter ({}), using the CPU pipeline", info.name);
             return Err(format!("software adapter ({}) skipped: the CPU pipeline is faster", info.name));
         }
@@ -728,5 +957,45 @@ mod tests {
         // 1-D kernels over a 100 MP image and 2-D ones over 16k × 16k stay under 65535 per axis
         assert!(super::groups1(100_000_000 * 3).iter().all(|g| *g <= 65535));
         assert!(super::groups2(16384, 16384, [16, 16]).iter().all(|g| *g <= 65535));
+    }
+}
+
+#[cfg(test)]
+mod shader_validation {
+    #[test]
+    fn toneeq_wgsl_validates_without_an_adapter() {
+        let constants = super::constants();
+        for module in super::MODULES
+            .iter()
+            .filter(|m| m.entries.contains(&"p_deriche") || m.entries.contains(&"toneeq_lum") || m.entries.contains(&"teq_round_probe"))
+        {
+            let source = super::module_source(module, &constants);
+            let parsed = wgpu::naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+            wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::all())
+                .validate(&parsed)
+                .unwrap_or_else(|e| panic!("entry points {:?}: {e:?}", module.entries));
+        }
+    }
+
+    #[test]
+    fn all_wgsl_validates_without_an_adapter() {
+        let constants = super::constants();
+        for module in super::MODULES {
+            let source = super::module_source(module, &constants);
+            let parsed = wgpu::naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+            wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::all())
+                .validate(&parsed)
+                .unwrap_or_else(|e| panic!("entry points {:?}: {e:?}", module.entries));
+        }
+    }
+}
+
+#[cfg(test)]
+mod exit_barrier_tests {
+    #[test]
+    fn initialization_is_counted_before_the_worker_runs() {
+        let work = super::InitWork::new();
+        assert!(!super::quiesce(std::time::Duration::ZERO), "initialization is still in flight");
+        drop(work);
     }
 }

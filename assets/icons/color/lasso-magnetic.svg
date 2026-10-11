@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<!-- Original Local Image tool artwork; GPL-3.0-or-later. Glossy Duotone, blue family. -->
+<defs>
+<linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#61B5FF"/><stop offset="1" stop-color="#3474B5"/></linearGradient>
+<linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="#CCD3DF"/><stop offset="1" stop-color="#66717F"/></linearGradient>
+<linearGradient id="aw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="#61B5FF"/><stop offset="1" stop-color="#3474B5"/></linearGradient>
+<linearGradient id="nw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="#CCD3DF"/><stop offset="1" stop-color="#66717F"/></linearGradient>
+<linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="#F7F9FC" stop-opacity=".28"/><stop offset="1" stop-color="#F7F9FC" stop-opacity="0"/></linearGradient>
+</defs>
+<g transform="translate(1.5 1.5) scale(.875)" fill="none" stroke="#1b1c20" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round">
+<g transform="translate(0 4) scale(.72)"><g fill="none" stroke="#1b1c20" stroke-width="3.5"><path d="M5 16C-1 12 3 4 12 4C23 4 23 14 14 16C8 18 3 17 4 14C5 11 8 14 7 18L5 22"/></g>
+<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M5 16C-1 12 3 4 12 4C23 4 23 14 14 16C8 18 3 17 4 14C5 11 8 14 7 18L5 22"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M5 16C-1 12 3 4 12 4C23 4 23 14 14 16C8 18 3 17 4 14C5 11 8 14 7 18L5 22"/></g>
+</g>
+<g fill="none" stroke="#1b1c20" stroke-width="3.5"><path d="M16 12V17C16 21 22 21 22 17V12"/></g>
+<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M16 12V17C16 21 22 21 22 17V12"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M16 12V17C16 21 22 21 22 17V12"/></g>
+<g fill="none" stroke="#1b1c20" stroke-width="3.5"><path d="M16 15H18"/></g>
+<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M16 15H18"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M16 15H18"/></g>
+<g fill="none" stroke="#1b1c20" stroke-width="3.5"><path d="M20 15H22"/></g>
+<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M20 15H22"/></g>
+<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M20 15H22"/></g>
+</g>
+</svg>

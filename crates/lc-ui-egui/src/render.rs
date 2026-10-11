@@ -24,6 +24,19 @@ use lightcraft_preview::JobPool;
 use lightcraft_raster::Histogram;
 use std::sync::Arc;
 
+/// Bound interactive work independently of zoom, monitor resolution and the settled preview
+/// preference. In particular, a 100%/200% view must never decode a full RAW for each drag step.
+pub(crate) const DRAFT_EDGE: usize = 1280;
+
+pub(crate) fn view_edge(display_edge: f32, max_edge: f32, interacting: bool) -> usize {
+    let (scale, cap) = if interacting { (0.6, max_edge.min(DRAFT_EDGE as f32)) } else { (1.0, max_edge) };
+    (display_edge * scale).min(cap).max(8.0) as usize
+}
+
+fn interactive_slot(slot: Slot) -> bool {
+    matches!(slot, Slot::Main | Slot::Before | Slot::Hover | Slot::Second)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Slot {
     Thumb(PhotoId),
@@ -88,6 +101,9 @@ pub struct Renderer {
     #[cfg(test)]
     pub(crate) thumb_jobs_built: usize,
     request_ids: HashMap<Slot, u64>,
+    /// Identity of the source the interactive slot wants. Late results may advance an edit,
+    /// but must never put another photo (or pre-reload content) back on screen.
+    view_sources: HashMap<Slot, (PhotoId, Option<lightcraft_preview::Hash128>)>,
     /// Request id of the pixels each interactive view (loupe, before, hover) shows: a draft that
     /// finishes after a newer request was made still replaces older pixels, so a long slider drag
     /// keeps updating the loupe instead of waiting for the drag to pause.
@@ -153,6 +169,7 @@ impl Renderer {
             #[cfg(test)]
             thumb_jobs_built: 0,
             request_ids: HashMap::new(),
+            view_sources: HashMap::new(),
             shown_ids: HashMap::new(),
             epoch: 0,
             preview_generation: None,
@@ -246,9 +263,11 @@ impl Renderer {
         self.pending.insert(slot, (job.key, priority));
         job.request_id = lightcraft_preview::next_tick();
         self.request_ids.insert(slot, job.request_id);
+        if interactive_slot(slot) {
+            self.view_sources.insert(slot, (job.photo, job.source_key));
+        }
         // (an offload keeps its own per-view stage caches; the flag tells it to)
-        let job =
-            if matches!(slot, Slot::Main | Slot::Before | Slot::Hover) { job.with_stages(self.stages.entry(slot).or_default().clone()) } else { job };
+        let job = if interactive_slot(slot) { job.with_stages(self.stages.entry(slot).or_default().clone()) } else { job };
         if self.offload.is_some() {
             self.seq += 1;
             self.queue.retain(|q| q.slot != slot);
@@ -297,6 +316,7 @@ impl Renderer {
     /// Drop every texture and cached stage (another library was opened: photo ids changed meaning).
     pub fn forget_all(&mut self) {
         self.request_ids.clear();
+        self.view_sources.clear();
         self.shown_ids.clear();
         self.epoch = lightcraft_preview::next_tick();
         self.preview_generation = None;
@@ -451,9 +471,11 @@ impl Renderer {
             self.completed += 1;
             // Ignore obsolete pixels, failures and decoded sources, even for the same render key;
             // an interactive view still takes a superseded draft that is newer than what it shows.
-            if self.request_ids.get(&slot) != Some(&r.request_id) {
-                let newer_draft = matches!(slot, Slot::Main | Slot::Before | Slot::Hover)
+            let current = self.request_ids.get(&slot) == Some(&r.request_id);
+            if !current {
+                let newer_draft = interactive_slot(slot)
                     && self.request_ids.contains_key(&slot)
+                    && self.view_sources.get(&slot) == Some(&(r.photo, r.source_key))
                     && r.request_id >= self.epoch
                     && self.shown_ids.get(&slot).is_none_or(|shown| r.request_id > *shown)
                     && r.rendered.is_ok();
@@ -462,12 +484,14 @@ impl Renderer {
                 }
             } else {
                 self.request_ids.remove(&slot);
-                session.accept(&r);
             }
-            if matches!(slot, Slot::Main | Slot::Before | Slot::Hover) {
+            // Even an advancing superseded preview can supply the decoded source. Otherwise a
+            // continuous drag that starts cold keeps decoding until the user finally releases.
+            session.accept(&r);
+            if interactive_slot(slot) {
                 self.shown_ids.insert(slot, r.request_id);
             }
-            if self.pending.get(&slot).is_some_and(|p| p.0 == r.key) {
+            if current && self.pending.get(&slot).is_some_and(|p| p.0 == r.key) {
                 self.pending.remove(&slot);
             }
             let rendered = match r.rendered {
@@ -756,6 +780,27 @@ mod thumbnail_tests {
     }
 
     #[test]
+    fn ds2_missing_thumbnail_renders_committed_settings_once_during_interaction() {
+        let (mut app, work, ctx) = fixture();
+        app.session.execute("library.select", &serde_json::json!({"ids":[1],"active":1})).unwrap();
+        app.session.begin_interaction("Exposure").unwrap();
+        let original = app.session.interaction.as_ref().unwrap().original.clone();
+        let mut edited = (*original).clone();
+        edited.light.exposure = 2.0;
+        app.session.set_develop(PhotoId(1), edited, "Exposure").unwrap();
+        request(&mut app);
+        let (slot, job) = take_job(&work);
+        assert_eq!(*job.settings, *original);
+        assert!(job.cache.is_none());
+        finish(&mut app, &work, &ctx, slot, job.run());
+        assert!(app.renderer.thumb(PhotoId(1)).is_some());
+        for _ in 0..30 {
+            request(&mut app);
+        }
+        assert!(work.borrow().jobs.is_empty());
+    }
+
+    #[test]
     fn unchanged_ready_and_running_frames_build_no_jobs() {
         let (mut app, work, ctx) = fixture();
         request(&mut app);
@@ -893,12 +938,69 @@ mod thumbnail_tests {
         // the first draft lands while the newest is still rendering: the loupe moves on
         finish(&mut app, &work, &ctx, Slot::Main, first.run());
         assert_eq!(app.renderer.textures.get(&Slot::Main).map(|t| t.key), Some(keys[0]));
+        assert!(app.session.media.source_usage().0 > 0, "an advancing draft also caches its decoded source");
         assert!(app.renderer.is_pending(Slot::Main));
         finish(&mut app, &work, &ctx, Slot::Main, last.run());
         assert_eq!(app.renderer.textures.get(&Slot::Main).map(|t| t.key), Some(keys[2]));
         // a draft older than the pixels shown never replaces them
         finish(&mut app, &work, &ctx, Slot::Main, second.run());
         assert_eq!(app.renderer.textures.get(&Slot::Main).map(|t| t.key), Some(keys[2]));
+        assert!(!app.renderer.is_pending(Slot::Main));
+    }
+
+    #[test]
+    fn superseded_loupe_result_cannot_restore_another_photo_or_pre_reload_source() {
+        for reload in [false, true] {
+            let (mut app, work, ctx) = fixture();
+            let old = app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap().draft();
+            app.renderer.request(Slot::Main, old, 100);
+            let (_, old) = take_job(&work);
+            let id = if reload {
+                app.session
+                    .catalog
+                    .apply(Op::SetContent {
+                        id: PhotoId(1),
+                        width: 6000,
+                        height: 4000,
+                        file_size: 100,
+                        content_hash: Some("reloaded".into()),
+                        preview_only: None,
+                    })
+                    .unwrap();
+                PhotoId(1)
+            } else {
+                let mut p = (*photo()).clone();
+                p.id = PhotoId(2);
+                app.session.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+                PhotoId(2)
+            };
+            let new = app.session.loupe_job(id, 8, 8, true).unwrap();
+            app.renderer.request(Slot::Main, new, 100);
+            let (_, new) = take_job(&work);
+            finish(&mut app, &work, &ctx, Slot::Main, old.run());
+            assert!(!app.renderer.textures.contains_key(&Slot::Main));
+            assert_eq!(app.session.media.source_usage().0, 0);
+            assert!(app.renderer.is_pending(Slot::Main));
+            finish(&mut app, &work, &ctx, Slot::Main, new.run());
+            assert_eq!(app.renderer.textures[&Slot::Main].photo, id);
+        }
+    }
+
+    #[test]
+    fn superseded_preview_with_repeated_key_does_not_clear_latest_pending_request() {
+        let (mut app, work, ctx) = fixture();
+        let job = app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap().draft();
+        app.renderer.request(Slot::Main, job.clone(), 100);
+        let (_, old) = take_job(&work);
+        let mut other = job.clone();
+        other.key ^= 1;
+        app.renderer.request(Slot::Main, other, 100);
+        take_job(&work);
+        app.renderer.request(Slot::Main, job, 100);
+        let (_, latest) = take_job(&work);
+        finish(&mut app, &work, &ctx, Slot::Main, old.run());
+        assert!(app.renderer.is_pending(Slot::Main), "the repeated key is still running under a newer request id");
+        finish(&mut app, &work, &ctx, Slot::Main, latest.run());
         assert!(!app.renderer.is_pending(Slot::Main));
     }
 

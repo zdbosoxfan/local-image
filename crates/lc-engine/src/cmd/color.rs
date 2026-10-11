@@ -155,6 +155,14 @@ fn targeted(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(Value::Object(changed))
 }
 
+/// The position in the active photo's masks of the layer `mask` names, if any.
+fn mask_param(s: &Session, p: &Value, c: &str) -> Result<Option<usize>> {
+    let Some(mid) = p.get("mask").and_then(Value::as_u64) else { return Ok(None) };
+    let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+    let d = s.develop_of(id).unwrap_or_default();
+    d.masks.iter().position(|m| m.id as u64 == mid).map(Some).ok_or_else(|| bad(c, format!("no mask {mid}")))
+}
+
 fn index(p: &Value, c: &str) -> Result<usize> {
     Ok(f64_req(p, "index", c)? as usize)
 }
@@ -162,24 +170,70 @@ fn index(p: &Value, c: &str) -> Result<usize> {
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
+            "skinTone.pick",
+            "Pick Skin Tone",
+            [],
+            None,
+            "{x,y} normalized image coords, mask?: layer id — select a scene-linear UCS22 reference",
+            has_active,
+            |s, p| {
+                let c = "skinTone.pick";
+                let x = f64_req(p, "x", c)?;
+                let y = f64_req(p, "y", c)?;
+                if !(0.0..=1.0).contains(&x) || !(0.0..=1.0).contains(&y) {
+                    return Err(bad(c, "coordinates must be in 0..1"));
+                }
+                let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+                let mask = mask_param(s, p, c)?;
+                let src = s.source_now(id, SourceLevel::Thumb).map_err(|e| bad(c, e))?;
+                let info = s.source_info(id);
+                let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
+                let reference = lightcraft_pipeline::skin_reference_sample(
+                    &src,
+                    &info,
+                    &d,
+                    &lightcraft_pipeline::RenderRequest::fit(PROBE_EDGE, PROBE_EDGE),
+                    Point::new(x, y),
+                )
+                .ok_or_else(|| bad(c, "point outside image"))?;
+                let skin = match mask {
+                    Some(i) => d.masks[i].tools.skin_tone.get_or_insert_with(Default::default),
+                    None => &mut d.skin_tone,
+                };
+                skin.reference = Some(reference);
+                s.set_develop(id, d, "Pick Skin Tone")?;
+                Ok(json!({"reference":reference}))
+            }
+        ),
+        cmd!(
             "pointColor.pick",
             "Add Point Color Sample",
             [],
             None,
-            "{x, y} normalized image coords — samples the colour there (max 8); returns {index, lum, chroma, hue}",
+            "{x, y} normalized image coords, mask?: id (a develop layer's Point Color instead of the photo's) — samples the colour there (max 8); returns {index, lum, chroma, hue}",
             has_active,
             |s, p| {
                 let c = "pointColor.pick";
                 let (x, y) = (f64_req(p, "x", c)?, f64_req(p, "y", c)?);
                 let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
-                if s.develop_of(id).is_some_and(|d| d.point_colors.len() >= MAX_POINT_COLORS) {
+                let mask = mask_param(s, p, c)?;
+                let have = |d: &DevelopSettings| match mask {
+                    Some(m) => d.masks[m].tools.point_colors.as_ref().map_or(0, Vec::len),
+                    None => d.point_colors.len(),
+                };
+                if s.develop_of(id).is_some_and(|d| have(&d) >= MAX_POINT_COLORS) {
                     return Err(bad(c, format!("at most {MAX_POINT_COLORS} point colours")));
                 }
+                // (a layer's samples are taken like the photo's: before the photo's colour tools)
                 let [l, ch, h] = encoded_to_oklch(probe(s, c, x, y, after_mixer_neutral)?);
                 let sample = PointColor { lum: l as f64, chroma: ch as f64, hue: (h as f64).to_degrees().rem_euclid(360.0), ..Default::default() };
                 let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
-                d.point_colors.push(sample);
-                let i = d.point_colors.len() - 1;
+                let list = match mask {
+                    Some(m) => d.masks[m].tools.point_colors.get_or_insert_with(Vec::new),
+                    None => &mut d.point_colors,
+                };
+                list.push(sample);
+                let i = list.len() - 1;
                 s.set_develop(id, d, "Point Color")?;
                 Ok(json!({"index": i, "lum": sample.lum, "chroma": sample.chroma, "hue": sample.hue}))
             }
@@ -193,15 +247,20 @@ pub fn specs() -> Vec<CommandSpec> {
             has_active,
             targeted
         ),
-        cmd!("pointColor.delete", "Delete Point Color Sample", [], None, "{index}", has_active, |s, p| {
+        cmd!("pointColor.delete", "Delete Point Color Sample", [], None, "{index, mask?: id (a develop layer's sample)}", has_active, |s, p| {
             let c = "pointColor.delete";
             let i = index(p, c)?;
             let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+            let mask = mask_param(s, p, c)?;
             let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
-            if i >= d.point_colors.len() {
+            let list = match mask {
+                Some(m) => d.masks[m].tools.point_colors.get_or_insert_with(Vec::new),
+                None => &mut d.point_colors,
+            };
+            if i >= list.len() {
                 return Err(bad(c, "no such sample"));
             }
-            d.point_colors.remove(i);
+            list.remove(i);
             s.set_develop(id, d, "Delete Point Color")?;
             Ok(Value::Null)
         }),

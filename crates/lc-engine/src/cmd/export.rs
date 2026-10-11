@@ -75,6 +75,47 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(list(s))
 }
 
+/// Export ▸ Add to This Catalog (and Add to Stack): import exported files and stack each on
+/// top of the photo it was exported from. `files` are `app.export` results (`{path, photo}`).
+fn add_to_library(s: &mut Session, p: &Value) -> Result<Value> {
+    const ID: &str = "export.addToLibrary";
+    let files: Vec<(String, Option<u64>)> = p
+        .get("files")
+        .and_then(Value::as_array)
+        .ok_or_else(|| bad(ID, "missing `files` ([{path, photo}])"))?
+        .iter()
+        .filter_map(|f| Some((f.get("path")?.as_str()?.to_string(), f.get("photo").and_then(Value::as_u64))))
+        .collect();
+    let stack = p.get("stack").and_then(Value::as_bool).unwrap_or(false);
+    if files.is_empty() {
+        return Ok(json!({"imported": []}));
+    }
+    let report = s.execute("library.import", &json!({"paths": files.iter().map(|f| f.0.clone()).collect::<Vec<_>>()}))?;
+    let added: Vec<u64> = serde_json::from_value(report["imported"].clone()).map_err(|e| bad(ID, e.to_string()))?;
+    // Resolve only newly imported paths once. Existing catalog entries were skipped by import.
+    let by_path: std::collections::BTreeMap<_, _> = added
+        .iter()
+        .filter_map(|id| {
+            let ph = s.catalog.photo(lightcraft_catalog::PhotoId(*id))?;
+            if let lightcraft_catalog::Source::File { path } = &ph.source {
+                Some((std::fs::canonicalize(path).unwrap_or_else(|_| path.into()), *id))
+            } else {
+                None
+            }
+        })
+        .collect();
+    if stack {
+        for (path, from) in files {
+            let path = std::fs::canonicalize(&path).unwrap_or_else(|_| path.into());
+            let Some(&new) = by_path.get(&path) else { continue };
+            if let Some(from) = from.filter(|f| *f != new && s.catalog.photo(lightcraft_catalog::PhotoId(*f)).is_some()) {
+                s.execute("stack.group", &json!({"ids": [new, from], "top": new, "collapsed": false}))?;
+            }
+        }
+    }
+    Ok(json!({"imported": added}))
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
@@ -96,6 +137,15 @@ pub fn specs() -> Vec<CommandSpec> {
             save
         ),
         cmd!("export.deletePreset", "Delete Export Preset", [], None, "{name} — removes a user preset → presets", always, delete),
+        cmd!(
+            "export.addToLibrary",
+            "Add Exported Files to Library",
+            [],
+            None,
+            "{files: [{path, photo?}] (app.export results), stack?: false} — import exported files into the library; with `stack`, each goes on top of a stack with the photo it was exported from → {imported: [ids]}",
+            always,
+            add_to_library
+        ),
         cmd!(
             query "export.checkTarget",
             "Check Output Path",

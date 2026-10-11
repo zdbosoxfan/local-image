@@ -1,0 +1,97 @@
+key	en
+Object	Object
+Path	Path
+Join	Join
+Average…	Average…
+Average	Average
+Simplify…	Simplify…
+Simplify	Simplify
+Curve precision	Curve precision
+Corner angle threshold	Corner angle threshold
+Original points	Original points
+New points	New points
+Horizontal	Horizontal
+Vertical	Vertical
+Both	Both
+Add Anchor Points	Add Anchor Points
+Remove Anchor Points	Remove Anchor Points
+Clean Up…	Clean Up…
+Clean Up	Clean Up
+Stray points	Stray points
+Unpainted objects	Unpainted objects
+Empty text	Empty text
+Divide Objects Below	Divide Objects Below
+Split Into Grid…	Split Into Grid…
+Split Into Grid	Split Into Grid
+Rows	Rows
+Columns	Columns
+Row gutter	Row gutter
+Column gutter	Column gutter
+Add guides	Add guides
+Outline Stroke	Outline Stroke
+Offset Path…	Offset Path…
+Offset Path	Offset Path
+Offset	Offset
+Expand…	Expand…
+Expand	Expand
+Expand Appearance	Expand Appearance
+Fill	Fill
+Stroke	Stroke
+Preview	Preview
+OK	OK
+Cancel	Cancel
+Paste in Front	Paste in Front
+Paste in Back	Paste in Back
+Object command is stale; start again	Object command is stale; start again
+select 1–256 objects	select 1–256 objects
+Object command target is locked	Object command target is locked
+duplicate Object command target	duplicate Object command target
+select roots without their descendants	select roots without their descendants
+path exceeds the finite coordinate/point budget	path exceeds the finite coordinate/point budget
+numeric input must be finite and within range	numeric input must be finite and within range
+Path command requires shape layers	Path command requires shape layers
+invalid anchor target	invalid anchor target
+invalid or duplicate selected anchor	invalid or duplicate selected anchor
+select anchors within the point budget	select anchors within the point budget
+shape disappeared	shape disappeared
+Join needs sibling paths with compatible paint and transparency	Join needs sibling paths with compatible paint and transparency
+select open paths to join	select open paths to join
+anchor disappeared	anchor disappeared
+grid must contain 1–4096 cells	grid must contain 1–4096 cells
+grid needs nonempty geometry	grid needs nonempty geometry
+gutters leave no positive grid cells	gutters leave no positive grid cells
+select exactly one cutter	select exactly one cutter
+Divide requires expanding live objects below first	Divide requires expanding live objects below first
+no shapes below the cutter	no shapes below the cutter
+Object command exceeds group depth	Object command exceeds group depth
+requires shape geometry	requires shape geometry
+shape has incompatible live metadata	shape has incompatible live metadata
+vector clip projection requires the integrated clip provider (35)	vector clip projection requires the integrated clip provider (35)
+cache budget overflow	cache budget overflow
+Object command caches exceed 512 MiB	Object command caches exceed 512 MiB
+arrowheads, aligned dashes and stroke gradient expansion require the appearance owner (08)	arrowheads, aligned dashes and stroke gradient expansion require the appearance owner (08)
+stroke gradient/pattern expansion requires paint-coordinate baking (08)	stroke gradient/pattern expansion requires paint-coordinate baking (08)
+requires shape	requires shape
+select Object to expand live shape/corner geometry	select Object to expand live shape/corner geometry
+select Stroke to expand advanced strokes	select Stroke to expand advanced strokes
+expansion exceeds group depth	expansion exceeds group depth
+Blend expansion is unavailable: owner 18 public expander is not integrated	Blend expansion is unavailable: owner 18 public expander is not integrated
+Envelope expansion is unavailable: owner 20 public expander is not integrated	Envelope expansion is unavailable: owner 20 public expander is not integrated
+repeat returned no layers	repeat returned no layers
+symbol returned no layers	symbol returned no layers
+this object's public path expander is unavailable (12/42/45)	this object's public path expander is unavailable (12/42/45)
+choose an Expand option	choose an Expand option
+vector clipboard requires vector layers	vector clipboard requires vector layers
+vector clipboard caches exceed 512 MiB	vector clipboard caches exceed 512 MiB
+select 1–256 vector layers to copy	select 1–256 vector layers to copy
+clipboard selection contains duplicate or descendant targets	clipboard selection contains duplicate or descendant targets
+vector clipboard exceeds 64 MiB	vector clipboard exceeds 64 MiB
+invalid vector clipboard target count	invalid vector clipboard target count
+vector paste across different canvas/color/type contexts requires the shared projection provider	vector paste across different canvas/color/type contexts requires the shared projection provider
+paste targets must share a parent	paste targets must share a parent
+clipboard pattern name collides with different destination paint	clipboard pattern name collides with different destination paint
+clipboard pattern ID collides with different destination paint	clipboard pattern ID collides with different destination paint
+paste parent unavailable	paste parent unavailable
+vector clipboard is empty	vector clipboard is empty
+Use Expand Appearance to outline live or advanced strokes	Use Expand Appearance to outline live or advanced strokes
+group has incompatible shape appearance metadata	group has incompatible shape appearance metadata

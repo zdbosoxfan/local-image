@@ -29,6 +29,12 @@ pub enum Section {
     PointColor,
     RedEye,
     Negative,
+    /// Raw processing (demosaic, highlights, capture sharpening).
+    Raw,
+    LensDb,
+    ToneEq,
+    ColorCal,
+    SkinTone,
 }
 
 impl Section {
@@ -51,6 +57,11 @@ impl Section {
             Section::PointColor => "Point Color",
             Section::RedEye => "Red Eye",
             Section::Negative => "Negative",
+            Section::Raw => "Raw Processing",
+            Section::LensDb => "Lens Profile",
+            Section::ToneEq => "Tone Equalizer",
+            Section::ColorCal => "Color Calibration",
+            Section::SkinTone => "Skin Tone",
         }
     }
 }
@@ -198,6 +209,12 @@ controls! {
     "grading.global.lum" => grading.global.lum, "Global Luminance", Grading, -100, 100, 0, 1, 0, Centered;
     "grading.blending" => grading.blending, "Blending", Grading, 0, 100, 50, 1, 0, Plain;
     "grading.balance" => grading.balance, "Balance", Grading, -100, 100, 0, 1, 0, Centered;
+    "skinTone.uniformity" => skin_tone.uniformity, "Uniformity", SkinTone, 0, 100, 0, 1, 0, Plain;
+    "skinTone.lightness" => skin_tone.lightness, "Lightness Uniformity", SkinTone, 0, 100, 0, 1, 0, Plain;
+    "skinTone.hueRange" => skin_tone.hue_range, "Hue Range", SkinTone, 5, 90, 30, 1, 0, Plain;
+    "skinTone.chromaRange" => skin_tone.chroma_range, "Chroma Range", SkinTone, 1, 100, 50, 1, 0, Plain;
+    "skinTone.lightnessRange" => skin_tone.lightness_range, "Lightness Range", SkinTone, 1, 100, 50, 1, 0, Plain;
+    "effects.structure" => effects.structure, "Structure", Effects, -100, 100, 0, 1, 0, Centered;
     "effects.texture" => effects.texture, "Texture", Effects, -100, 100, 0, 1, 0, Centered;
     "effects.clarity" => effects.clarity, "Clarity", Effects, -100, 100, 0, 1, 0, Centered;
     "effects.dehaze" => effects.dehaze, "Dehaze", Effects, -100, 100, 0, 1, 0, Centered;
@@ -213,6 +230,7 @@ controls! {
     "detail.sharpenRadius" => detail.sharpen_radius, "Radius", Detail, 0.5, 3, 1, 0.1, 1, Plain;
     "detail.sharpenDetail" => detail.sharpen_detail, "Detail", Detail, 0, 100, 25, 1, 0, Plain;
     "detail.sharpenMasking" => detail.sharpen_masking, "Masking", Detail, 0, 100, 0, 1, 0, Plain;
+    "enhance.denoise" => enhance.denoise, "Strength", Detail, 0, 100, 0, 1, 0, Plain;
     "detail.nrLuminance" => detail.nr_luminance, "Noise Reduction", Detail, 0, 100, 0, 1, 0, Plain;
     "detail.nrDetail" => detail.nr_detail, "Detail", Detail, 0, 100, 50, 1, 0, Plain;
     "detail.nrContrast" => detail.nr_contrast, "Contrast", Detail, 0, 100, 0, 1, 0, Plain;
@@ -261,6 +279,31 @@ controls! {
     "negative.wbHighR" => negative.wb_high.r, "Highlights Red", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#30c0c0", to: "#e04040" };
     "negative.wbHighG" => negative.wb_high.g, "Highlights Green", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#c040c0", to: "#40c040" };
     "negative.wbHighB" => negative.wb_high.b, "Highlights Blue", Negative, 0.25, 2, 1, 0.001, 3, Gradient { from: "#d0c030", to: "#4060e0" };
+    "raw.dualThreshold" => raw.dual_threshold, "Dual Threshold", Raw, 0, 100, 20, 1, 0, Plain;
+    "raw.captureRadius" => raw.capture.radius, "Radius", Raw, 0, 1.5, 0, 0.01, 2, Plain;
+    "raw.captureThreshold" => raw.capture.threshold, "Contrast Threshold", Raw, 0, 100, 0, 1, 0, Plain;
+    "raw.captureCornerBoost" => raw.capture.corner_boost, "Corner Boost", Raw, 0, 150, 0, 1, 0, Plain;
+    "raw.captureIterations" => raw.capture.iterations, "Iterations", Raw, 1, 25, 8, 1, 0, Plain;
+    "lensDb.distortion" => lens_db.distortion, "Distortion", LensDb, 0, 200, 100, 1, 0, Plain;
+    "lensDb.tca" => lens_db.tca, "Chromatic Aberration", LensDb, 0, 200, 100, 1, 0, Plain;
+    "lensDb.vignetting" => lens_db.vignetting, "Vignetting", LensDb, 0, 200, 100, 1, 0, Plain;
+    "toneEq.ev8" => tone_eq.ev8, "−8 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev7" => tone_eq.ev7, "−7 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev6" => tone_eq.ev6, "−6 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev5" => tone_eq.ev5, "−5 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev4" => tone_eq.ev4, "−4 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev3" => tone_eq.ev3, "−3 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev2" => tone_eq.ev2, "−2 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev1" => tone_eq.ev1, "−1 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.ev0" => tone_eq.ev0, "0 EV", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.smoothing" => tone_eq.smoothing, "Curve Smoothing", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "toneEq.size" => tone_eq.size, "Mask Size", ToneEq, 0.1, 50, 5, 0.1, 1, Plain;
+    "toneEq.refine" => tone_eq.refine, "Mask Edges", ToneEq, 0, 100, 50, 1, 0, Plain;
+    "toneEq.maskExposure" => tone_eq.mask_exposure, "Mask Exposure", ToneEq, -4, 4, 0, 0.01, 2, Centered;
+    "toneEq.maskContrast" => tone_eq.mask_contrast, "Mask Contrast", ToneEq, -2, 2, 0, 0.01, 2, Centered;
+    "colorCal.x" => color_cal.x, "Illuminant x", ColorCal, 0.2, 0.55, 0.3127, 0.0001, 4, Plain;
+    "colorCal.y" => color_cal.y, "Illuminant y", ColorCal, 0.2, 0.5, 0.329, 0.0001, 4, Plain;
+    "colorCal.gamut" => color_cal.gamut, "Gamut Compression", ColorCal, 0, 5, 1, 0.01, 2, Plain;
     "crop.angle" => crop.geometry.angle, "Straighten", Geometry, -45, 45, 0, 0.01, 2, Centered;
 }
 

@@ -173,6 +173,7 @@ pub fn specs() -> Vec<CommandSpec> {
                             let info = s.source_info(id);
                             DevelopSettings {
                                 wb: lightcraft_develop::WhiteBalance { mode: WbMode::AsShot, temp: info.as_shot_temp, tint: info.as_shot_tint },
+                                look: s.catalog.photo(id).map(|p| p.look).unwrap_or_default(),
                                 ..Default::default()
                             }
                         }
@@ -183,6 +184,41 @@ pub fn specs() -> Vec<CommandSpec> {
             s.commit("Reset", Op::Batch { ops })?;
             ok()
         }),
+        cmd!(
+            "develop.look",
+            "Set Look",
+            [],
+            None,
+            "{look: adobe|sigmoid|camera, ids?} — the base rendition of raw photos (Adobe-like, darktable sigmoid, match the camera JPEG)",
+            has_active,
+            |s, p| {
+                const C: &str = "develop.look";
+                let name = str_param(p, "look").ok_or_else(|| bad(C, "missing look"))?;
+                let look =
+                    lightcraft_develop::Look::from_id(name).ok_or_else(|| bad(C, format!("unknown look `{name}` (adobe, sigmoid, camera)")))?;
+                if p.get("ids").is_some() {
+                    let ids = s.targets(p);
+                    let ops: Vec<Op> = ids
+                        .iter()
+                        .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
+                        .filter(|(_, d)| d.look != look)
+                        .filter_map(|(id, d)| {
+                            let mut d = (*d).clone();
+                            d.look = look;
+                            s.develop_op(id, d, "Look")
+                        })
+                        .collect();
+                    if !ops.is_empty() {
+                        s.commit("Look", Op::Batch { ops })?;
+                    }
+                    return ok();
+                }
+                edit(s, C, "Look", |d| {
+                    d.look = look;
+                    Ok(())
+                })
+            }
+        ),
         cmd!(
             "develop.resetSection",
             "Reset Section",

@@ -6,7 +6,7 @@ use lightcraft_develop::MaskShape;
 use serde_json::json;
 
 use crate::headless::Headless;
-use crate::state::RightPanel;
+use crate::state::{RightPanel, SpotOverlay};
 use crate::{LightcraftApp, Services};
 
 const T: Duration = Duration::from_secs(20);
@@ -181,6 +181,32 @@ fn remove_spots_by_pointer_and_keyboard() {
     assert_eq!(h.app.session.visible_cloned().len(), photos);
     h.request("ui.key", json!({"key": "delete"}), T);
     assert_eq!(spots(&h).len(), 1, "nothing selected: nothing deleted");
+    h.settle(SETTLE);
+}
+
+#[test]
+fn h_toggles_remove_overlay_when_panel_active() {
+    let mut h = detail("panel.remove");
+    assert_eq!(h.app.ui.right, RightPanel::Remove);
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Auto, "first H opens Remove with overlay Auto");
+    // H again: Never
+    exec(&mut h, "panel.remove", json!({}));
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Never);
+    assert_eq!(h.app.ui.right, RightPanel::Remove, "panel stays open");
+    // H again: Auto (restored)
+    exec(&mut h, "panel.remove", json!({}));
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Auto);
+    assert_eq!(h.app.ui.right, RightPanel::Remove);
+    // choose Always via the setting
+    let r = h.request("ui.set", json!({"removeOverlay": "always"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Always);
+    // H -> Never (remembers Always)
+    exec(&mut h, "panel.remove", json!({}));
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Never);
+    // H -> Always
+    exec(&mut h, "panel.remove", json!({}));
+    assert_eq!(h.app.ui.remove_overlay, SpotOverlay::Always);
     h.settle(SETTLE);
 }
 
@@ -676,4 +702,46 @@ fn ai_masks_without_the_model_offer_the_download() {
     assert!(e.starts_with(lightcraft_engine::segment::NOT_INSTALLED), "{e}");
     assert!(develop(&h).masks.is_empty());
     assert!(t.elapsed() < SETTLE, "{:?}", t.elapsed());
+}
+
+/// Develop layers: a selected mask shows its opacity, the "only tools this layer uses" filter and
+/// the full tool sections, which edit the layer (a dot marks sections it sets).
+#[test]
+fn a_selected_mask_shows_its_layer_tools() {
+    let mut h = detail("panel.masking");
+    exec(&mut h, "mask.add", json!({"kind": "radial"}));
+    h.settle(SETTLE);
+    let has = |h: &mut Headless, id: &str| {
+        let w = h.request("ui.widgets", json!({"filter": id}), T);
+        w["result"].as_array().is_some_and(|a| a.iter().any(|x| x["id"] == id))
+    };
+    for w in [
+        "slider:opacity",
+        "slider:amount",
+        "layerUsedOnly",
+        "button:layerReset",
+        "section:layer-light",
+        "section:layer-color",
+        "section:layer-effects",
+        "section:layer-detail",
+    ] {
+        assert!(has(&mut h, w), "{w}");
+    }
+    assert!(!has(&mut h, "layerSectionSet:light"), "nothing set yet");
+    // a layer value marks its section, and the section's sliders show the layer's values
+    exec(&mut h, "mask.setTools", json!({"values": {"light.exposure": 0.6}}));
+    h.app.ui.toggle_section("layer-light");
+    h.settle(Duration::from_secs(5));
+    assert!(has(&mut h, "layerSectionSet:light"));
+    assert!(has(&mut h, "slider:light.exposure"));
+    assert_eq!(develop(&h).light.exposure, 0.0, "the photo's own exposure is untouched");
+    // only the tools this layer uses
+    h.app.ui.layer_used_only = true;
+    h.settle(Duration::from_secs(5));
+    assert!(has(&mut h, "section:layer-light"));
+    assert!(!has(&mut h, "section:layer-effects"));
+    // Reset Layer
+    let r = h.request("ui.clickWidget", json!({"id": "button:layerReset"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(develop(&h).masks[0].tools.is_empty());
 }

@@ -1,5 +1,11 @@
-//! Device health (#243): notices a lost wgpu device or an uncaptured wgpu error so callers stop
+//! Device health (#243): notices a lost wgpu device or uncaptured wgpu errors so callers stop
 //! issuing GPU work and fall back to the CPU compositor instead of panicking.
+//!
+//! A device loss is final. An uncaptured error (a validation or internal error, out of memory)
+//! is not on its own: it is logged and counted, the operation that raised it is redone on the
+//! CPU by its caller (compare [`DeviceHealth::errors`] before and after), and only errors in
+//! [`STRIKE_LIMIT`] separate frames (see [`DeviceHealth::tick`]) without [`DECAY_FRAMES`] clean
+//! frames in between mark the device unusable.
 //!
 //! wgpu's default uncaptured-error handler panics ("Buffer 'pc_compose_uniforms' is invalid"
 //! after the OS killed a huge submission), and `Device::poll` panics on a lost device whatever
@@ -48,11 +54,21 @@ impl fmt::Display for Fault {
     }
 }
 
+/// Frames with uncaptured errors (without [`DECAY_FRAMES`] clean frames in between) after which
+/// the device counts as unusable ([`Fault::Error`]).
+pub const STRIKE_LIMIT: u64 = 3;
+/// Clean frames after which earlier error frames are forgotten.
+pub const DECAY_FRAMES: u64 = 600;
+
 #[derive(Default)]
 struct Inner {
     faulted: AtomicBool,
     fault: Mutex<Option<Fault>>,
     errors: AtomicU64,
+    /// Frame counter advanced by [`DeviceHealth::tick`].
+    /// (current frame, strikes since decay, last error frame + 1).
+    strike_state: Mutex<(u64, u64, u64)>,
+    last_error: Mutex<Option<String>>,
 }
 
 /// Shared health flag of one wgpu device. Cheap to clone; every clone sees the same state.
@@ -91,16 +107,66 @@ impl DeviceHealth {
         health
     }
 
-    /// Record an uncaptured wgpu error.
-    fn uncaptured(&self, e: &wgpu::Error) {
+    /// Record an uncaptured wgpu error. Errors explicitly naming a lost/destroyed device can
+    /// precede its loss callback (it fires on the next poll): those mark the device lost.
+    /// Other errors are strikes for the current frame (see [`STRIKE_LIMIT`]).
+    pub fn uncaptured(&self, e: &wgpu::Error) {
+        self.error_text(&e.to_string());
+    }
+
+    fn error_text(&self, text: &str) {
         self.0.errors.fetch_add(1, Ordering::Relaxed);
-        let text = e.to_string();
         log::error!("uncaptured wgpu error: {text}");
-        // Errors about invalid or lost objects follow a device loss whose callback may not have
-        // run yet (it fires on the next poll).
+        let line = first_line(text);
+        *self.0.last_error.lock().unwrap_or_else(PoisonError::into_inner) = Some(line.clone());
         let lower = text.to_ascii_lowercase();
-        let fault = if lower.contains("lost") || lower.contains("destroyed") { Fault::Lost(first_line(&text)) } else { Fault::Error(first_line(&text)) };
-        self.mark(fault);
+        let device_loss = lower.lines().map(str::trim).any(|line| {
+            // A destroyed texture/buffer is recoverable even when the error context names
+            // Device::create_bind_group. Match the diagnostic's subject, not separate words.
+            let state = line.strip_prefix("parent device ").or_else(|| line.strip_prefix("device "));
+            state.is_some_and(|state| {
+                ["is lost", "was lost", "has been lost", "is destroyed", "was destroyed", "has been destroyed"].iter().any(|p| state.starts_with(p))
+            })
+        });
+        if device_loss {
+            self.mark(Fault::Lost(line));
+            return;
+        }
+        // One strike per frame, however many errors the frame raised (an invalid object makes
+        // every later use of it an error too).
+        let mut state = self.0.strike_state.lock().unwrap_or_else(PoisonError::into_inner);
+        let frame = state.0.saturating_add(1);
+        if state.2 != frame {
+            state.2 = frame;
+            state.1 = state.1.saturating_add(1);
+            let strikes = state.1;
+            drop(state);
+            if strikes >= STRIKE_LIMIT {
+                self.mark(Fault::Error(format!("{line} (errors in {strikes} frames)")));
+            } else {
+                log::warn!("GPU error {strikes} of {STRIKE_LIMIT}; the affected refresh is redone on the CPU");
+            }
+        }
+    }
+
+    /// Advance a UI frame; strike recording and decay share one state transition.
+    pub fn tick(&self) {
+        let mut state = self.0.strike_state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.0 = state.0.saturating_add(1);
+        if state.2 != 0 && state.0.saturating_add(1).saturating_sub(state.2) >= DECAY_FRAMES {
+            state.1 = 0;
+            state.2 = 0;
+        }
+    }
+
+    /// Frames with errors not yet forgotten (see [`STRIKE_LIMIT`]).
+    pub fn strikes(&self) -> u64 {
+        self.0.strike_state.lock().unwrap_or_else(PoisonError::into_inner).1
+    }
+
+    /// The last uncaptured error's first line.
+    pub fn last_error(&self) -> Option<String> {
+        self.0.last_error.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     /// Mark the device unusable. The first fault is kept; a later device loss upgrades an error.
@@ -129,7 +195,8 @@ impl DeviceHealth {
         self.0.fault.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
-    /// Uncaptured wgpu errors seen so far.
+    /// Uncaptured wgpu errors seen so far. A caller compares it before and after a piece of GPU
+    /// work to tell whether that work's output can be trusted.
     pub fn errors(&self) -> u64 {
         self.0.errors.load(Ordering::Relaxed)
     }
@@ -193,10 +260,74 @@ mod tests {
     }
 
     #[test]
+    fn single_errors_are_strikes_not_faults() {
+        let h = DeviceHealth::new();
+        // Many errors in one frame are one strike.
+        for _ in 0..5 {
+            h.error_text("Validation Error: Buffer 'x' is invalid");
+        }
+        assert!(h.is_ok());
+        assert_eq!((h.errors(), h.strikes()), (5, 1));
+        assert_eq!(h.last_error().as_deref(), Some("Validation Error: Buffer 'x' is invalid"));
+        // Clean frames forget it.
+        for _ in 0..DECAY_FRAMES {
+            h.tick();
+        }
+        assert_eq!(h.strikes(), 0);
+        // Errors in STRIKE_LIMIT separate frames are a fault.
+        for i in 0..STRIKE_LIMIT {
+            assert!(h.is_ok(), "fault after {i} strikes");
+            h.error_text("Validation Error: bad bind group");
+            h.tick();
+        }
+        assert!(matches!(h.fault(), Some(Fault::Error(ref m)) if m.contains("bad bind group")), "{:?}", h.fault());
+        // A lost-device error is final at once.
+        let l = DeviceHealth::new();
+        l.error_text("Parent device is lost");
+        assert!(l.fault().is_some_and(|f| f.is_lost()));
+    }
+
+    #[test]
+    fn validation_resource_names_do_not_count_as_device_loss() {
+        let h = DeviceHealth::new();
+        h.error_text("Validation Error: Texture 'lost panorama' is invalid");
+        h.error_text("Validation Error: Buffer 'destroyed' is invalid");
+        h.error_text("Validation Error\nCaused by:\n  In Device::create_bind_group\n    Texture 'panorama' is destroyed");
+        h.error_text("Validation Error\nCaused by:\n  Buffer 'device is lost' is invalid");
+        assert!(h.is_ok());
+        assert_eq!(h.strikes(), 1);
+        h.error_text("Validation Error\nCaused by:\n  Parent device is lost");
+        assert!(h.fault().is_some_and(|f| f.is_lost()));
+    }
+
+    #[test]
     fn fault_text() {
         assert_eq!(Fault::Lost(String::new()).to_string(), "GPU device lost");
         assert_eq!(Fault::Error("x".into()).to_string(), "GPU error: x");
         assert_eq!(first_line("\n  Buffer 'pc' is invalid\nmore"), "Buffer 'pc' is invalid");
         assert_eq!(first_line(&"a".repeat(300)).chars().count(), 201);
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_error_and_decay_are_serialized() {
+    for _ in 0..100 {
+        let h = DeviceHealth::new();
+        h.error_text("validation");
+        for _ in 0..DECAY_FRAMES - 1 {
+            h.tick();
+        }
+        std::thread::scope(|scope| {
+            scope.spawn(|| h.tick());
+            scope.spawn(|| h.error_text("validation"));
+        });
+        assert!((1..=2).contains(&h.strikes()));
+        h.tick();
+        h.error_text("validation");
+        h.tick();
+        h.error_text("validation");
+        assert!(!h.is_ok());
+        assert_eq!(h.errors(), 4);
     }
 }

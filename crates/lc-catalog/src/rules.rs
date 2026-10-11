@@ -60,6 +60,7 @@ pub const FIELDS: &[(&str, &str, Kind)] = &[
     ("kind", "File Type", Kind::Choice(&["image", "raw", "video"])),
     ("edited", "Has Edits", Kind::Bool),
     ("keywords", "Keywords", Kind::Keywords),
+    ("person", "Person", Kind::Text),
     ("text", "Any Searchable Text", Kind::Text),
     ("fileName", "Filename", Kind::Text),
     ("filePath", "File Path", Kind::Text),
@@ -121,6 +122,26 @@ pub fn ops_for(kind: Kind) -> &'static [(&'static str, &'static str)] {
         ],
         Kind::Choice(_) => &[("is", "is"), ("isNot", "isn't")],
         Kind::Bool => &[("is", "is")],
+    }
+}
+
+/// Person identity sets extend the text/name operators with any/all membership.
+pub fn ops_for_field(field: &str) -> &'static [(&'static str, &'static str)] {
+    if field == "person" {
+        &[
+            ("contains", "contains"),
+            ("notContains", "doesn't contain"),
+            ("is", "is"),
+            ("isNot", "isn't"),
+            ("startsWith", "starts with"),
+            ("endsWith", "ends with"),
+            ("isEmpty", "is empty"),
+            ("isNotEmpty", "isn't empty"),
+            ("anyOf", "any of"),
+            ("allOf", "everyone"),
+        ]
+    } else {
+        field_kind(field).map(ops_for).unwrap_or(&[])
     }
 }
 
@@ -288,6 +309,37 @@ impl Rule {
                 "notContains" => !m.keywords.iter().any(|k| text_op("contains", k, &want)),
                 _ => m.keywords.iter().any(|k| text_op(op, k, &want) || (op == "is" && k.to_lowercase().split('|').any(|part| part == want))),
             },
+            "person" => {
+                let ids: Vec<_> = match value {
+                    Value::Array(v) => v.iter().filter_map(Value::as_u64).collect(),
+                    _ => value.as_u64().into_iter().collect(),
+                };
+                if value.is_number() || value.is_array() {
+                    if ids.is_empty() {
+                        return false;
+                    }
+                    return match op {
+                        "is" | "anyOf" => ids.iter().any(|id| m.person_ids.contains(id)),
+                        "allOf" => !ids.is_empty() && ids.iter().all(|id| m.person_ids.contains(id)),
+                        "isNot" => ids.iter().all(|id| !m.person_ids.contains(id)),
+                        _ => false,
+                    };
+                }
+                let names: Vec<_> = m
+                    .regions
+                    .iter()
+                    .filter(|r| r.kind == lightcraft_meta::RegionKind::Face)
+                    .filter_map(|r| r.name.as_deref())
+                    .filter(|n| !n.trim().is_empty())
+                    .collect();
+                match op {
+                    "isEmpty" => names.is_empty() && m.person_ids.is_empty(),
+                    "isNotEmpty" => !names.is_empty() || !m.person_ids.is_empty(),
+                    "isNot" => !names.iter().any(|n| text_op("is", n, &want)),
+                    "notContains" => !names.iter().any(|n| text_op("contains", n, &want)),
+                    _ => names.iter().any(|n| text_op(op, n, &want)),
+                }
+            }
             "text" => {
                 let all = [
                     p.file_name.as_str(),
@@ -376,9 +428,16 @@ impl RuleSet {
         for r in &self.rules {
             match r {
                 Rule::Group { group } => out.extend(group.problems()),
-                Rule::Field { field, op, .. } => match field_kind(field) {
+                Rule::Field { field, op, value } => match field_kind(field) {
                     None => out.push(format!("unknown field `{field}`")),
-                    Some(k) if !ops_for(k).iter().any(|o| o.0 == op) => out.push(format!("`{field}` has no operator `{op}`")),
+                    Some(_) if !ops_for_field(field).iter().any(|o| o.0 == op) => out.push(format!("`{field}` has no operator `{op}`")),
+                    Some(_)
+                        if field == "person"
+                            && matches!(op.as_str(), "anyOf" | "allOf")
+                            && !(value.as_u64().is_some() || value.as_array().is_some_and(|v| v.iter().all(|id| id.as_u64().is_some()))) =>
+                    {
+                        out.push("person anyOf/allOf needs a person ID or an array of person IDs".into())
+                    }
                     _ => {}
                 },
             }
@@ -400,7 +459,7 @@ impl RuleSet {
                 Rule::Group { group } => format!("({})", group.describe()),
                 Rule::Field { field, op, value } => {
                     let label = FIELDS.iter().find(|f| f.0 == field).map_or(field.as_str(), |f| f.1).to_lowercase();
-                    let op = field_kind(field).and_then(|k| ops_for(k).iter().find(|o| o.0 == op)).map_or(op.as_str(), |o| o.1);
+                    let op = ops_for_field(field).iter().find(|o| o.0 == op).map_or(op.as_str(), |o| o.1);
                     let v = match value {
                         Value::String(s) => s.clone(),
                         Value::Null => String::new(),
@@ -442,6 +501,21 @@ mod tests {
 
     fn rs(v: serde_json::Value) -> RuleSet {
         serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn person_identity_set_rules_validate_and_match() {
+        let cat = Catalog::new();
+        let mut p = photo(1);
+        p.meta.person_ids = vec![7, 9];
+        for (op, ids, expected) in
+            [("anyOf", vec![7, 10], true), ("allOf", vec![7, 9], true), ("allOf", vec![7, 10], false), ("anyOf", vec![], false)]
+        {
+            let rules = rs(json!({"rules":[{"field":"person","op":op,"value":ids}]}));
+            assert!(rules.problems().is_empty());
+            assert_eq!(rules.matches(&p, &cat), expected);
+        }
+        assert!(!rs(json!({"rules":[{"field":"keywords","op":"allOf","value":[7]}]})).problems().is_empty());
     }
 
     #[test]
@@ -512,6 +586,21 @@ mod tests {
         // every field has a kind with operators
         for (f, _, k) in FIELDS {
             assert!(!ops_for(*k).is_empty(), "{f}");
+        }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_person_set_operators_validate_value_types() {
+    for op in ["anyOf", "allOf"] {
+        for value in [serde_json::json!("Alice"), serde_json::json!([1, "Alice"]), serde_json::json!(-1), serde_json::json!(1.5)] {
+            let rules = RuleSet { rules: vec![Rule::Field { field: "person".into(), op: op.into(), value }], ..Default::default() };
+            assert_eq!(rules.problems().len(), 1);
+        }
+        for value in [serde_json::json!(1), serde_json::json!([1, 2]), serde_json::json!([])] {
+            let rules = RuleSet { rules: vec![Rule::Field { field: "person".into(), op: op.into(), value }], ..Default::default() };
+            assert!(rules.problems().is_empty());
         }
     }
 }

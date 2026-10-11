@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<!-- Original Local Image vector tool artwork; GPL-3.0-or-later. Glossy Duotone, liquify family. -->
+<defs><linearGradient id="a" x2=".25" y2="1"><stop stop-color="#EF91BD"/><stop offset="1" stop-color="#A24779"/></linearGradient><linearGradient id="w" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="#EF91BD"/><stop offset="1" stop-color="#A24779"/></linearGradient><linearGradient id="h" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="#F7F9FC" stop-opacity=".28"/><stop offset="1" stop-color="#F7F9FC" stop-opacity="0"/></linearGradient></defs>
+<g transform="translate(1.5 1.5) scale(.875)" stroke-linejoin="round" stroke-linecap="round">
+<path d="M12 2Q14 8 19 5Q17 11 23 12Q17 14 19 19Q14 17 12 23Q10 17 5 19Q7 14 1 12Q7 10 5 5Q10 7 12 2Z" fill="url(#a)" fill-rule="evenodd" stroke="#1b1c20" stroke-width="1.43" paint-order="stroke fill"/>
+<path d="M12 2Q14 8 19 5Q17 11 23 12Q17 14 19 19Q14 17 12 23Q10 17 5 19Q7 14 1 12Q7 10 5 5Q10 7 12 2Z" fill="none" stroke="url(#h)" stroke-width=".7"/>
+<path d="" fill="none" stroke="#1b1c20" stroke-width="2.8"/>
+<path d="" fill="none" stroke="url(#w)" stroke-width="1.6"/>
+<path d="" fill="none" stroke="url(#h)" stroke-width=".65"/>
+</g></svg>

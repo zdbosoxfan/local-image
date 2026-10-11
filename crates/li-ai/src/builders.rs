@@ -44,11 +44,13 @@ pub struct Params<'a> {
     pub batch: u32,
     /// Overrides of the family's sampler and scheduler.
     pub sampler: Option<(&'a str, &'a str)>,
+    /// Z-Image Turbo Create: 0 = Off, 100 = the tested maximum conditioning blend.
+    pub variety: f32,
 }
 
 impl<'a> Params<'a> {
     pub fn create(prompt: &'a str, width: u32, height: u32, seed: u64, steps: u32, cfg: f32) -> Self {
-        Self { task: Task::Create, prompt, negative: "", width, height, seed, steps, cfg, references: 0, loras: &[], batch: 1, sampler: None }
+        Self { task: Task::Create, prompt, negative: "", width, height, seed, steps, cfg, references: 0, loras: &[], batch: 1, sampler: None, variety: 0.0 }
     }
 }
 
@@ -93,6 +95,25 @@ fn file(files: &Files, role: Role) -> String {
 
 fn is_gguf(name: &str) -> bool {
     name.to_ascii_lowercase().ends_with(".gguf")
+}
+
+/// SplitMix64 integer steps keep alternate text independent of RNG crate versions and thread
+/// order. This is an alternate conditioning blend, not Gaussian tensor noise: core ComfyUI
+/// cannot create that conditioning. The model's own text encoder encodes the alternate text.
+/// Reference: Sebastiano Vigna, <https://prng.di.unimi.it/splitmix64.c> (public domain;
+/// pinned CC0 snapshot and notice in docs/PORTS.md and licenses/splitmix64-NOTICE.md).
+fn variety_text(seed: u64) -> String {
+    let mut state = seed;
+    (0..96)
+        .map(|_| {
+            state = state.wrapping_add(0x9e3779b97f4a7c15);
+            let mut n = state;
+            n = (n ^ (n >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+            n = (n ^ (n >> 27)).wrapping_mul(0x94d049bb133111eb);
+            format!("{:08x}", (n ^ (n >> 31)) as u32)
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The graph for `p` on family `f` (with the model's overrides applied) and the resolved files.
@@ -171,6 +192,11 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         let n = g.add(&ms.node, json!({ "model": model, "shift": ms.shift }));
         model = link(&n, 0);
     }
+    if matches!(pl.encode, Encode::QwenEditPlus | Encode::QwenEdit) {
+        // Both the 2509 and 2511 edit templates normalize CFG after the sampling shift.
+        let n = g.add("CFGNorm", json!({ "model": model, "strength": 1.0 }));
+        model = link(&n, 0);
+    }
     let masked = matches!(p.task, Task::Inpaint { .. });
     if masked && pl.differential {
         let n = g.add("DifferentialDiffusion", json!({ "model": model }));
@@ -187,14 +213,30 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
     let (mut pos, mut neg);
     let mut encoded_latent = None;
     match pl.encode {
-        Encode::QwenEditPlus => {
+        Encode::QwenEditPlus | Encode::QwenEdit => {
             let mut images: Vec<Value> = Vec::new();
             if let Some(s) = &source {
                 images.push(link(s, 0));
             }
             images.extend(refs.iter().map(|r| link(r, 0)));
+            if pl.encode == Encode::QwenEdit
+                && let Some(image) = images.first_mut()
+            {
+                let scale = g.add("ImageScaleToTotalPixels", json!({ "image": image, "upscale_method": "lanczos", "megapixels": 1.5, "resolution_steps": 1 }));
+                *image = link(&scale, 0);
+                if source.is_some() {
+                    let enc = g.add("VAEEncode", json!({ "pixels": image, "vae": vae }));
+                    encoded_latent = Some(link(&enc, 0));
+                }
+            }
             let mut enc = |text: &str| {
                 let mut inputs = json!({ "clip": clip, "prompt": text, "vae": vae });
+                if pl.encode == Encode::QwenEdit {
+                    if let Some(image) = images.first() {
+                        inputs["image"] = image.clone();
+                    }
+                    return g.add("TextEncodeQwenImageEdit", inputs);
+                }
                 for (i, im) in images.iter().take(3).enumerate() {
                     inputs[format!("image{}", i + 1)] = im.clone();
                 }
@@ -207,7 +249,7 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         _ => {
             let pe = g.add("CLIPTextEncode", json!({ "clip": clip, "text": p.prompt }));
             pos = link(&pe, 0);
-            neg = if pl.zero_negative || p.cfg <= 1.0 && !f.capabilities.negative_prompt {
+            neg = if p.cfg <= 1.0 && (pl.zero_negative || !f.capabilities.negative_prompt) {
                 let z = g.add("ConditioningZeroOut", json!({ "conditioning": pos }));
                 link(&z, 0)
             } else {
@@ -215,6 +257,22 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
                 link(&ne, 0)
             };
         }
+    }
+    // Perturb only early conditioning, then restore the original prompt. The tested maximum
+    // blend is 35%, with a 20% schedule switchover (see CODEX-REPORT-zimage-variety.md). Off,
+    // Base Z-Image and every untested task/family keep their original graphs.
+    if f.id == "z-image" && file(files, Role::Unet).to_ascii_lowercase().contains("turbo") && p.task == Task::Create && p.variety.is_finite() && p.variety > 0.0
+    {
+        let alt = g.add("CLIPTextEncode", json!({"clip": clip, "text": variety_text(p.seed)}));
+        let mix = g.add(
+            "ConditioningAverage",
+            json!({"conditioning_to": pos, "conditioning_from": link(&alt,0),
+            "conditioning_to_strength": 1.0 - 0.35 * p.variety.clamp(0.0,100.0) / 100.0}),
+        );
+        let early = g.add("ConditioningSetTimestepRange", json!({"conditioning": link(&mix,0), "start": 0.0, "end": 0.2}));
+        let late = g.add("ConditioningSetTimestepRange", json!({"conditioning": pos, "start": 0.2, "end": 1.0}));
+        let combined = g.add("ConditioningCombine", json!({"conditioning_1": link(&early,0), "conditioning_2": link(&late,0)}));
+        pos = link(&combined, 0);
     }
     if let Some(gv) = pl.flux_guidance {
         let fg = g.add(
@@ -226,7 +284,9 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
     // Reference latents: the edited image first, then each reference.
     if pl.reference == RefMethod::ReferenceLatent {
         let mut chain: Vec<String> = Vec::new();
-        if matches!(p.task, Task::Edit)
+        // Edit and Refine both give the model the source image as its first reference: FLUX.2 Klein refines by
+        // reference (Comfy-Org's image_flux2_klein_image_edit templates), not by re-noising an encoded latent.
+        if matches!(p.task, Task::Edit | Task::Refine { .. })
             && let Some(s) = &source
         {
             chain.push(s.clone());
@@ -237,14 +297,17 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
                 let s = g.add("FluxKontextImageScale", json!({ "image": link(&img, 0) }));
                 link(&s, 0)
             } else {
-                link(&img, 0)
+                // The templates scale every reference to about one megapixel first.
+                let s =
+                    g.add("ImageScaleToTotalPixels", json!({ "image": link(&img, 0), "upscale_method": "lanczos", "megapixels": 1.0, "resolution_steps": 1 }));
+                link(&s, 0)
             };
             let enc = g.add("VAEEncode", json!({ "pixels": px, "vae": vae }));
             let rp = g.add("ReferenceLatent", json!({ "conditioning": pos, "latent": link(&enc, 0) }));
             pos = link(&rp, 0);
             let rn = g.add("ReferenceLatent", json!({ "conditioning": neg, "latent": link(&enc, 0) }));
             neg = link(&rn, 0);
-            if encoded_latent.is_none() && matches!(p.task, Task::Edit) && f.id.starts_with("flux1") {
+            if encoded_latent.is_none() && matches!(p.task, Task::Edit | Task::Refine { .. }) && f.id.starts_with("flux1") {
                 encoded_latent = Some(link(&enc, 0));
             }
         }
@@ -280,7 +343,8 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         _ => 1.0,
     };
     let empty = |g: &mut G| {
-        let l = g.add(&pl.latent, json!({ "width": p.width, "height": p.height, "batch_size": p.batch.max(1) }));
+        let l =
+            g.add(&pl.latent, json!({ "width": p.width, "height": p.height, "batch_size": if matches!(p.task, Task::Create) { p.batch.max(1) } else { 1 } }));
         link(&l, 0)
     };
     let mut latent = match (p.task, &source) {
@@ -295,23 +359,38 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         }
         (Task::Edit, Some(s)) => match encoded_latent.take() {
             Some(l) => l,
-            None if pl.encode == Encode::QwenEditPlus => {
-                let e = g.add("VAEEncode", json!({ "pixels": link(s, 0), "vae": vae }));
+            None if matches!(pl.encode, Encode::QwenEditPlus | Encode::QwenEdit) => {
+                let scale = g.add("FluxKontextImageScale", json!({ "image": link(s, 0) }));
+                let e = g.add("VAEEncode", json!({ "pixels": link(&scale, 0), "vae": vae }));
                 link(&e, 0)
             }
             None => empty(&mut g),
         },
-        (_, Some(s)) if masked && pl.inpaint == InpaintMethod::ModelConditioning => {
+        // Reference refine (FLUX.2): at full denoise an empty latent like the official template; below it, start from
+        // the encoded source as well (the sampler's sigmas are split to the denoise below) to keep even more of it.
+        (Task::Refine { .. }, Some(_)) if pl.sampler == SamplerStyle::Flux2Custom && denoise == 1.0 => empty(&mut g),
+        (_, Some(s)) if pl.inpaint == InpaintMethod::ModelConditioning && (masked || matches!(p.task, Task::Refine { .. })) => {
+            // Fill models require image+mask concatenation even for whole-image refinement.
+            // A white canvas mask refines everything while partial denoise keeps the source.
+            let noise_mask = mask.clone().unwrap_or_else(|| g.add("SolidMask", json!({ "value": 1.0, "width": p.width, "height": p.height })));
             let ic = g.add(
                 "InpaintModelConditioning",
-                json!({ "positive": pos, "negative": neg, "vae": vae, "pixels": link(s, 0), "mask": link(mask.as_deref().unwrap_or(""), 0), "noise_mask": true }),
+                json!({ "positive": pos, "negative": neg, "vae": vae, "pixels": link(s, 0), "mask": link(&noise_mask, 0), "noise_mask": true }),
             );
             (pos, neg) = (link(&ic, 0), link(&ic, 1));
             link(&ic, 2)
         }
         (_, Some(s)) => {
-            let e = g.add("VAEEncode", json!({ "pixels": link(s, 0), "vae": vae }));
-            let mut l = link(&e, 0);
+            let mut l = encoded_latent.take().unwrap_or_else(|| {
+                let pixels = if matches!(pl.encode, Encode::QwenEditPlus | Encode::QwenEdit) {
+                    let scale = g.add("FluxKontextImageScale", json!({ "image": link(s, 0) }));
+                    link(&scale, 0)
+                } else {
+                    link(s, 0)
+                };
+                let e = g.add("VAEEncode", json!({ "pixels": pixels, "vae": vae }));
+                link(&e, 0)
+            });
             if let Some(m) = &mask {
                 let n = g.add("SetLatentNoiseMask", json!({ "samples": l, "mask": link(m, 0) }));
                 l = link(&n, 0);
@@ -371,8 +450,8 @@ fn finish(g: G) -> Built {
     Built { graph: Value::Object(g.nodes), image_nodes: images.into_iter().map(|(id, _)| id).collect(), slots }
 }
 
-/// Qwen Image 2.1 through 0.7's builder (create, edit, references); refine and inpaint pass the
-/// source as reference 1.
+/// Qwen Image 2.1 through 0.7's builder (create, edit, references). Full refine uses the official
+/// edit path; partial refine also encodes the source, since the text encoder's latent is empty.
 fn qwen21(files: &Files, p: &Params) -> Built {
     let with_source = !matches!(p.task, Task::Create);
     let refs = p.references + usize::from(with_source);
@@ -386,17 +465,49 @@ fn qwen21(files: &Files, p: &Params) -> Built {
             seed: p.seed,
             steps: p.steps,
             cfg: p.cfg,
+            denoise: match p.task {
+                Task::Refine { denoise } | Task::Inpaint { denoise } => denoise,
+                _ => 1.0,
+            },
             references: refs,
             use_cache: false,
             loras: p.loras,
         },
     );
     b.slots = (0..refs).map(|i| if with_source && i == 0 { Slot::Source } else { Slot::Reference(i - usize::from(with_source)) }).collect();
+    if let Task::Refine { denoise } | Task::Inpaint { denoise } = p.task {
+        let denoise = denoise.clamp(0.0, 1.0);
+        b.graph["6"]["inputs"]["denoise"] = json!(denoise);
+        if denoise < 1.0 {
+            // Match TextEncodeQwenImage21's resolution=0 rounding. Both the vision reference
+            // and the starting latent must describe the same canvas, including RGBA channels.
+            let snap = |v: u32| ((f64::from(v) / 32.0).round_ties_even().max(1.0) as u32) * 32;
+            let source = b.graph["4"]["inputs"]["images.image_1"].clone();
+            b.graph["200"] = json!({ "class_type": "ImageScale", "inputs": {
+                "image": source, "width": snap(p.width), "height": snap(p.height), "upscale_method": "lanczos", "crop": "disabled"
+            }});
+            b.graph["4"]["inputs"]["images.image_1"] = json!(["200", 0]);
+            b.graph["201"] = json!({ "class_type": "VAEEncode", "inputs": { "pixels": ["200", 0], "vae": ["3", 0] }});
+            b.graph["6"]["inputs"]["latent_image"] = json!(["201", 0]);
+        }
+    }
+    if let Some((sampler, scheduler)) = p.sampler {
+        b.graph["6"]["inputs"]["sampler_name"] = json!(sampler);
+        b.graph["6"]["inputs"]["scheduler"] = json!(scheduler);
+    }
+    if p.batch > 1 {
+        let latent = b.graph["6"]["inputs"]["latent_image"].clone();
+        b.graph["202"] = json!({ "class_type": "RepeatLatentBatch", "inputs": { "samples": latent, "amount": p.batch }});
+        b.graph["6"]["inputs"]["latent_image"] = json!(["202", 0]);
+    }
     b
 }
 
 /// The node classes a family's plain Create graph uses (what ComfyUI must offer).
 pub fn required_nodes(f: &Family) -> Vec<String> {
+    if f.id == "restoration" {
+        return crate::restoration::NODES.iter().map(|n| (*n).to_owned()).collect();
+    }
     if f.kind != crate::family::FamilyKind::Image {
         return Vec::new();
     }
@@ -407,7 +518,11 @@ pub fn required_nodes(f: &Family) -> Vec<String> {
     if f.pipeline.vae != "file" {
         files.remove(&Role::Vae);
     }
-    let p = Params::create("", 1024, 1024, 0, 1, 1.0);
+    let mut p = Params::create("", 1024, 1024, 0, 1, 1.0);
+    if f.id == "z-image" {
+        files.insert(Role::Unet, "z_image_turbo.safetensors".into());
+        p.variety = 100.0;
+    }
     let b = build(f, &files, &p);
     let mut nodes: Vec<String> =
         b.graph.as_object().map(|o| o.values().filter_map(|n| n["class_type"].as_str().map(str::to_owned)).collect()).unwrap_or_default();
@@ -462,6 +577,360 @@ mod tests {
             .into_iter()
             .map(|r| (r, format!("{r:?}.safetensors")))
             .collect()
+    }
+
+    fn node<'a>(b: &'a Built, class: &str) -> &'a Value {
+        b.graph.as_object().unwrap().values().find(|n| n["class_type"] == class).unwrap_or_else(|| panic!("missing {class}"))
+    }
+
+    fn upstream<'a>(b: &'a Built, n: &Value, input: &str) -> &'a Value {
+        &b.graph[n["inputs"][input][0].as_str().unwrap()]
+    }
+
+    #[test]
+    fn zimage_variety_graph_restores_prompt_and_is_seed_deterministic() {
+        let f = registry().family("z-image").unwrap();
+        let mut files = files();
+        files.insert(Role::Unet, "z_image_turbo_bf16.safetensors".into());
+        let mut p = Params::create("a fox in a forest", 512, 288, 42, 8, 1.0);
+        assert_eq!(p.variety, 0.0);
+        let off = build(f, &files, &p);
+        assert!(!classes(&off).contains(&"ConditioningAverage".into()));
+        p.variety = 100.0;
+        let on = build(f, &files, &p);
+        closed(&on.graph);
+        assert_eq!(build(f, &files, &p).graph, on.graph);
+        let mix = node(&on, "ConditioningAverage");
+        assert!((mix["inputs"]["conditioning_to_strength"].as_f64().unwrap() - 0.65).abs() < 1e-6);
+        let original = mix["inputs"]["conditioning_to"].clone();
+        assert_eq!(upstream(&on, mix, "conditioning_to")["inputs"]["text"], p.prompt);
+        assert_eq!(upstream(&on, mix, "conditioning_from")["inputs"]["text"], variety_text(42));
+        let combined = upstream(&on, node(&on, "KSampler"), "positive");
+        assert_eq!(combined["class_type"], "ConditioningCombine");
+        let (early, late) = (upstream(&on, combined, "conditioning_1"), upstream(&on, combined, "conditioning_2"));
+        assert_eq!(early["inputs"]["end"], 0.2);
+        assert_eq!(late["inputs"]["start"], 0.2);
+        assert_eq!(late["inputs"]["conditioning"], original);
+        assert_eq!(node(&on, "ConditioningZeroOut")["inputs"]["conditioning"], original);
+        assert_eq!(variety_text(42).split_whitespace().next(), Some("2feb6e95"));
+        p.seed = 43;
+        let other = build(f, &files, &p);
+        assert_ne!(upstream(&other, node(&other, "ConditioningAverage"), "conditioning_from")["inputs"]["text"], variety_text(42));
+        p.seed = 42;
+        p.variety = 40.0;
+        assert_ne!(build(f, &files, &p).graph, on.graph);
+        p.variety = 0.0;
+        assert_eq!(build(f, &files, &p).graph, off.graph);
+    }
+
+    #[test]
+    fn zimage_variety_does_not_change_base_other_families_or_non_create_tasks() {
+        for (id, main) in [("z-image", "z_image_bf16.safetensors"), ("flux2-klein", "flux-2-klein-4b.safetensors")] {
+            let mut files = files();
+            files.insert(Role::Unet, main.into());
+            let f = registry().family(id).unwrap().resolved_for_file(main);
+            let mut p = Params::create("a fox", 512, 288, 42, 8, 1.0);
+            let off = build(&f, &files, &p);
+            p.variety = 100.0;
+            assert_eq!(build(&f, &files, &p).graph, off.graph);
+        }
+        let f = registry().family("z-image").unwrap();
+        let mut files = files();
+        files.insert(Role::Unet, "z_image_turbo_bf16.safetensors".into());
+        for task in [Task::Refine { denoise: 0.4 }, Task::Inpaint { denoise: 1.0 }, Task::Edit] {
+            let mut p = Params::create("a fox", 512, 288, 42, 8, 1.0);
+            p.task = task;
+            let off = build(f, &files, &p);
+            p.variety = 100.0;
+            assert_eq!(build(f, &files, &p).graph, off.graph);
+        }
+    }
+
+    #[test]
+    fn zimage_variety_request_defaults_off_and_rejects_invalid_levels() {
+        let mut req = crate::GenerateRequest::new(crate::ModelId::ZImageTurbo, "a fox");
+        assert_eq!(req.variety, 0.0);
+        for level in [0.0, 40.0, 100.0] {
+            req.variety = level;
+            req.validate().unwrap();
+        }
+        for level in [-1.0, 101.0, f32::NAN, f32::INFINITY] {
+            req.variety = level;
+            assert!(req.validate().unwrap_err().to_string().contains("Variety"));
+        }
+    }
+
+    #[test]
+    fn qwen21_refines_like_the_official_edit_and_encodes_for_partial_denoise() {
+        let f = registry().family("qwen-image-21").unwrap();
+        for denoise in [1.0, 0.4] {
+            let mut p = Params::create("keep the composition", 1360, 768, 3, 25, 1.0);
+            p.task = Task::Refine { denoise };
+            p.references = 1;
+            let b = build(f, &files(), &p);
+            closed(&b.graph);
+            let k = node(&b, "KSampler");
+            let enc = node(&b, "TextEncodeQwenImage21");
+            assert_eq!(k["inputs"]["denoise"], json!(denoise));
+            assert_eq!(k["inputs"]["positive"], json!(["4", 0]));
+            assert_eq!(k["inputs"]["negative"], json!(["4", 1]));
+            assert_eq!(enc["inputs"]["resolution"], 0);
+            assert_eq!(b.slots, vec![Slot::Source, Slot::Reference(0)]);
+            if denoise == 1.0 {
+                // Official: encoder output 2 is EMPTY and follows reference 1's canvas.
+                assert_eq!(k["inputs"]["latent_image"], json!(["4", 2]));
+                assert!(!classes(&b).contains(&"VAEEncode".into()));
+            } else {
+                let vae = upstream(&b, k, "latent_image");
+                assert_eq!(vae["class_type"], "VAEEncode");
+                assert_eq!(vae["inputs"]["pixels"], enc["inputs"]["images.image_1"]);
+                let scale = upstream(&b, vae, "pixels");
+                assert_eq!(scale["class_type"], "ImageScale");
+                assert_eq!(scale["inputs"]["width"], 1344); // Comfy's ties-to-even, 32px grid
+                assert_eq!(scale["inputs"]["height"], 768);
+                assert_eq!(upstream(&b, scale, "image")["class_type"], "JoinImageWithAlpha");
+            }
+        }
+        assert_eq!(crate::catalog::refine_default_denoise(crate::ModelId::Qwen), 1.0);
+    }
+
+    #[test]
+    fn qwen_edit_refine_and_edit_follow_the_official_scaled_cfg_norm_path() {
+        let f = registry().family("qwen-edit").unwrap();
+        for task in [Task::Edit, Task::Refine { denoise: 1.0 }, Task::Refine { denoise: 0.4 }] {
+            let mut p = Params::create("keep the composition", 1024, 768, 3, 20, 2.5);
+            p.task = task;
+            p.references = 1;
+            let b = build(f, &files(), &p);
+            closed(&b.graph);
+            let k = node(&b, "KSampler");
+            let norm = upstream(&b, k, "model");
+            assert_eq!(norm["class_type"], "CFGNorm");
+            assert_eq!(norm["inputs"]["strength"], 1.0);
+            assert_eq!(upstream(&b, norm, "model")["class_type"], "ModelSamplingAuraFlow");
+            let latent = upstream(&b, k, "latent_image");
+            assert_eq!(latent["class_type"], "VAEEncode");
+            let scale = upstream(&b, latent, "pixels");
+            assert_eq!(scale["class_type"], "FluxKontextImageScale");
+            assert_eq!(scale["inputs"]["image"], json!([b.image_nodes[0], 0]));
+            for input in ["positive", "negative"] {
+                let enc = upstream(&b, k, input);
+                assert_eq!(enc["class_type"], "TextEncodeQwenImageEditPlus");
+                assert_eq!(enc["inputs"]["image1"], json!([b.image_nodes[0], 0]));
+                assert_eq!(enc["inputs"]["image2"], json!([b.image_nodes[1], 0]));
+                assert_eq!(enc["inputs"]["vae"], latent["inputs"]["vae"]);
+            }
+            assert_eq!(k["inputs"]["denoise"], json!(if let Task::Refine { denoise } = task { denoise } else { 1.0 }));
+        }
+    }
+
+    #[test]
+    fn flux1_kontext_refine_keeps_the_official_scaled_source_latent() {
+        let f = registry().family("flux1-kontext").unwrap();
+        for task in [Task::Edit, Task::Refine { denoise: 1.0 }, Task::Refine { denoise: 0.4 }] {
+            let mut p = Params::create("keep the composition", 1360, 768, 3, 20, 1.0);
+            p.task = task;
+            let b = build(f, &files(), &p);
+            closed(&b.graph);
+            let k = node(&b, "KSampler");
+            let latent = upstream(&b, k, "latent_image");
+            assert_eq!(latent["class_type"], "VAEEncode");
+            assert_eq!(upstream(&b, latent, "pixels")["class_type"], "FluxKontextImageScale");
+            assert_eq!(node(&b, "ReferenceLatent")["inputs"]["latent"], k["inputs"]["latent_image"]);
+            assert!(!classes(&b).contains(&"EmptySD3LatentImage".into()));
+            assert_eq!(classes(&b).iter().filter(|c| *c == "VAEEncode").count(), 1);
+            assert_eq!(node(&b, "FluxGuidance")["inputs"]["guidance"], 2.5);
+        }
+    }
+
+    #[test]
+    fn flux2_dev_refine_follows_the_official_reference_scheduler_path() {
+        let f = registry().family("flux2").unwrap();
+        for denoise in [1.0, 0.4, 0.9995] {
+            let mut p = Params::create("keep the composition", 1360, 768, 3, 28, 1.0);
+            p.task = Task::Refine { denoise };
+            let b = build(f, &files(), &p);
+            closed(&b.graph);
+            assert_eq!(node(&b, "ImageScaleToTotalPixels")["inputs"]["resolution_steps"], 1);
+            assert_eq!(node(&b, "FluxGuidance")["inputs"]["guidance"], 4.0);
+            let s = node(&b, "SamplerCustomAdvanced");
+            if denoise == 1.0 {
+                assert_eq!(upstream(&b, s, "latent_image")["class_type"], "EmptyFlux2LatentImage");
+                assert_eq!(upstream(&b, s, "sigmas")["class_type"], "Flux2Scheduler");
+            } else {
+                assert_eq!(upstream(&b, s, "latent_image")["class_type"], "VAEEncode");
+                assert_eq!(upstream(&b, s, "sigmas")["class_type"], "SplitSigmasDenoise");
+                assert_eq!(s["inputs"]["sigmas"][1], 1);
+            }
+            assert_eq!(node(&b, "CFGGuider")["inputs"]["cfg"], 1.0); // equivalent to official BasicGuider
+        }
+    }
+
+    #[test]
+    fn conventional_refine_families_keep_the_source_and_partial_denoise() {
+        for family in ["sd15", "sdxl", "sd35", "pony", "illustrious", "hidream", "ernie", "z-image", "qwen-image", "flux1"] {
+            let f = registry().family(family).unwrap();
+            let mut p = Params::create("preserve the composition", 1024, 768, 3, 20, 4.0);
+            p.task = Task::Refine { denoise: 0.4 };
+            let b = build(f, &files(), &p);
+            let k = node(&b, "KSampler");
+            let latent = upstream(&b, k, "latent_image");
+            assert_eq!(latent["class_type"], "VAEEncode", "{family}");
+            assert_eq!(latent["inputs"]["pixels"], json!([b.image_nodes[0], 0]), "{family}");
+            assert_eq!(k["inputs"]["denoise"], json!(0.4f32), "{family}");
+            assert_eq!(b.slots, vec![Slot::Source], "{family}");
+            closed(&b.graph);
+        }
+    }
+
+    #[test]
+    fn flux1_fill_refine_keeps_the_official_image_and_mask_conditioning() {
+        let f = registry().family("flux1-fill").unwrap();
+        let mut p = Params::create("preserve the composition", 1024, 768, 3, 20, 1.0);
+        p.task = Task::Refine { denoise: 0.4 };
+        let b = build(f, &files(), &p);
+        let k = node(&b, "KSampler");
+        let cond = upstream(&b, k, "latent_image");
+        assert_eq!(cond["class_type"], "InpaintModelConditioning");
+        assert_eq!(k["inputs"]["latent_image"][1], 2);
+        assert_eq!(k["inputs"]["positive"][0], k["inputs"]["latent_image"][0]);
+        assert_eq!(k["inputs"]["positive"][1], 0);
+        assert_eq!(k["inputs"]["negative"][0], k["inputs"]["latent_image"][0]);
+        assert_eq!(k["inputs"]["negative"][1], 1);
+        assert_eq!(cond["inputs"]["pixels"], json!([b.image_nodes[0], 0]));
+        let mask = upstream(&b, cond, "mask");
+        assert_eq!(mask["class_type"], "SolidMask");
+        assert_eq!(mask["inputs"]["value"], 1.0);
+        assert_eq!(mask["inputs"]["width"], 1024);
+        assert_eq!(mask["inputs"]["height"], 768);
+        assert_eq!(k["inputs"]["denoise"], json!(0.4f32));
+        assert_eq!(node(&b, "FluxGuidance")["inputs"]["guidance"], 30.0);
+        assert_eq!(b.slots, vec![Slot::Source]);
+        closed(&b.graph);
+    }
+
+    #[test]
+    fn original_qwen_edit_refines_with_its_official_single_image_encoder() {
+        let f = registry().family("qwen-edit").unwrap().resolved_for_file("qwen_image_edit_fp8_e4m3fn.safetensors");
+        for task in [Task::Edit, Task::Refine { denoise: 0.4 }] {
+            let mut p = Params::create("keep the composition", 1024, 768, 3, 20, 2.5);
+            p.task = task;
+            let b = build(&f, &files(), &p);
+            let k = node(&b, "KSampler");
+            let latent = upstream(&b, k, "latent_image");
+            assert_eq!(latent["class_type"], "VAEEncode");
+            let scale = upstream(&b, latent, "pixels");
+            assert_eq!(scale["class_type"], "ImageScaleToTotalPixels");
+            assert_eq!(scale["inputs"]["megapixels"], 1.5);
+            for input in ["positive", "negative"] {
+                let enc = upstream(&b, k, input);
+                assert_eq!(enc["class_type"], "TextEncodeQwenImageEdit");
+                assert_eq!(enc["inputs"]["image"], latent["inputs"]["pixels"]);
+            }
+            assert_eq!(upstream(&b, k, "model")["class_type"], "CFGNorm");
+            assert!(!classes(&b).contains(&"TextEncodeQwenImageEditPlus".into()));
+            closed(&b.graph);
+        }
+    }
+
+    #[test]
+    fn hidream_dev_and_fast_refine_use_the_official_distilled_samplers() {
+        for (name, steps, shift) in [("hidream_i1_dev_fp8.safetensors", 28, 6.0), ("hidream_i1_fast_fp8.safetensors", 16, 3.0)] {
+            let f = registry().family("hidream").unwrap().resolved_for_file(name);
+            let mut p = Params::create("keep the composition", 1024, 768, 3, f.sampling.steps.default as u32, f.sampling.cfg.default);
+            p.task = Task::Refine { denoise: 0.4 };
+            let b = build(&f, &files(), &p);
+            let k = node(&b, "KSampler");
+            assert_eq!(k["inputs"]["cfg"], 1.0);
+            assert_eq!(k["inputs"]["steps"], steps);
+            assert_eq!(k["inputs"]["sampler_name"], "lcm");
+            assert_eq!(k["inputs"]["scheduler"], "normal");
+            assert_eq!(node(&b, "ModelSamplingSD3")["inputs"]["shift"], shift);
+            assert_eq!(upstream(&b, k, "latent_image")["class_type"], "VAEEncode");
+            closed(&b.graph);
+        }
+    }
+
+    #[test]
+    fn z_image_base_refine_uses_the_official_cfg_and_negative_text() {
+        let f = registry().family("z-image").unwrap().resolved_for_file("z_image_bf16.safetensors");
+        let mut p = Params::create("keep the composition", 1024, 768, 3, f.sampling.steps.default as u32, f.sampling.cfg.default);
+        p.task = Task::Refine { denoise: 0.4 };
+        let b = build(&f, &files(), &p);
+        let k = node(&b, "KSampler");
+        assert_eq!(k["inputs"]["steps"], 25);
+        assert_eq!(k["inputs"]["cfg"], 4.0);
+        assert_eq!(k["inputs"]["sampler_name"], "res_multistep");
+        assert_eq!(upstream(&b, k, "negative")["class_type"], "CLIPTextEncode");
+        assert_eq!(upstream(&b, k, "latent_image")["class_type"], "VAEEncode");
+        assert_eq!(registry().family("z-image").unwrap().resolved_for_file("z_image_turbo_bf16.safetensors").sampling.cfg.default, 1.0);
+        closed(&b.graph);
+    }
+
+    #[test]
+    fn flux1_schnell_refine_keeps_its_official_four_step_path() {
+        let f = registry().family("flux1").unwrap().resolved_for_file("flux1-schnell.safetensors");
+        let mut p = Params::create("keep the composition", 1024, 768, 3, f.sampling.steps.default as u32, f.sampling.cfg.default);
+        p.task = Task::Refine { denoise: 0.4 };
+        let b = build(&f, &files(), &p);
+        let k = node(&b, "KSampler");
+        assert_eq!(k["inputs"]["steps"], 4);
+        assert_eq!(k["inputs"]["cfg"], 1.0);
+        assert_eq!(k["inputs"]["sampler_name"], "euler");
+        assert_eq!(upstream(&b, k, "latent_image")["class_type"], "VAEEncode");
+        assert!(!classes(&b).contains(&"FluxGuidance".into()));
+        closed(&b.graph);
+    }
+
+    #[test]
+    fn flux2_klein_base_refine_keeps_the_official_cfg_negative_encoding() {
+        for name in ["flux-2-klein-base-4b.safetensors", "flux-2-klein-base-9b.safetensors"] {
+            let f = registry().family("flux2-klein").unwrap().resolved_for_file(name);
+            let mut p = Params::create("keep the composition", 1024, 768, 3, f.sampling.steps.default as u32, f.sampling.cfg.default);
+            p.task = Task::Refine { denoise: 1.0 };
+            let b = build(&f, &files(), &p);
+            assert_eq!(node(&b, "Flux2Scheduler")["inputs"]["steps"], 20);
+            let guider = node(&b, "CFGGuider");
+            assert_eq!(guider["inputs"]["cfg"], 5.0);
+            let neg_ref = upstream(&b, guider, "negative");
+            assert_eq!(neg_ref["class_type"], "ReferenceLatent");
+            let neg = upstream(&b, neg_ref, "conditioning");
+            assert_eq!(neg["class_type"], "CLIPTextEncode");
+            assert_eq!(neg["inputs"]["text"], "");
+            assert_eq!(upstream(&b, node(&b, "SamplerCustomAdvanced"), "latent_image")["class_type"], "EmptyFlux2LatentImage");
+            closed(&b.graph);
+        }
+        // A curated base tool with CFG > 1 must also use blank text rather than zeroed tokens.
+        let (family, model) = registry().model("klein-remove").unwrap();
+        let f = family.resolved_for(model);
+        let mut p = Params::create("keep the composition", 1024, 768, 3, 28, 4.0);
+        p.task = Task::Refine { denoise: 1.0 };
+        assert!(!classes(&build(&f, &files(), &p)).contains(&"ConditioningZeroOut".into()));
+    }
+
+    /// FLUX.2 Klein refines like Comfy-Org's image_flux2_klein_image_edit templates: the source, scaled to ~1 MP, is a
+    /// ReferenceLatent on both conditionings; at full denoise the sampler starts from an empty latent with the full
+    /// Flux2Scheduler schedule; below it, from the encoded source with split sigmas.
+    #[test]
+    fn flux2_klein_refines_by_reference_like_the_official_template() {
+        let f = registry().family("flux2-klein").unwrap();
+        let count = |b: &Built, c: &str| classes(b).iter().filter(|x| *x == c).count();
+        let mut p = Params::create("more realistic textures", 1360, 768, 3, 4, 1.0);
+        p.loras = &[];
+        p.task = Task::Refine { denoise: 1.0 };
+        let b = build(f, &files(), &p);
+        closed(&b.graph);
+        assert_eq!(count(&b, "ReferenceLatent"), 2, "source on positive and negative");
+        assert_eq!(count(&b, "ImageScaleToTotalPixels"), 1);
+        assert_eq!(count(&b, "EmptyFlux2LatentImage"), 1, "official: empty latent at full denoise");
+        assert_eq!(count(&b, "SplitSigmasDenoise"), 0);
+        p.task = Task::Refine { denoise: 0.4 };
+        let b = build(f, &files(), &p);
+        closed(&b.graph);
+        assert_eq!(count(&b, "ReferenceLatent"), 2);
+        assert_eq!(count(&b, "EmptyFlux2LatentImage"), 0);
+        assert_eq!(count(&b, "SplitSigmasDenoise"), 1, "partial: encoded source, split schedule");
+        assert_eq!(crate::catalog::refine_default_denoise(crate::ModelId::Klein9B), 1.0);
     }
 
     #[test]
@@ -558,5 +1027,37 @@ mod tests {
         assert!(req.contains(&"ModelSamplingAuraFlow".into()) && req.contains(&"EmptySD3LatentImage".into()));
         let q = registry().model("qwen").unwrap();
         assert!(required_nodes(&q.0.resolved_for(q.1)).contains(&"TextEncodeQwenImage21".into()));
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_flux_refine_batch_is_not_squared() {
+    let family = crate::family::registry().family("flux2-klein").unwrap();
+    for task in [Task::Create, Task::Refine { denoise: 1.0 }, Task::Refine { denoise: 0.4 }] {
+        let mut p = Params::create("a cat", 128, 128, 3, 4, 1.0);
+        p.batch = 3;
+        p.task = task;
+        let built = build(family, &Files::default(), &p);
+        let nodes: Vec<_> = built.graph.as_object().unwrap().values().collect();
+        let empty = nodes.iter().find(|n| n["class_type"] == "EmptyFlux2LatentImage");
+        if let Some(empty) = empty {
+            assert_eq!(empty["inputs"]["batch_size"], if task == Task::Create { 3 } else { 1 });
+        }
+        let repeat: Vec<_> = nodes.iter().filter(|n| n["class_type"] == "RepeatLatentBatch").collect();
+        assert_eq!(repeat.len(), usize::from(task != Task::Create));
+        if let Some(repeat) = repeat.first() {
+            assert_eq!(repeat["inputs"]["amount"], 3);
+        }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn ds2_variety_nodes_are_in_capability_requirements() {
+    let (family, model) = crate::family::registry().model("z-image-turbo").unwrap();
+    let requirements = required_nodes(&family.resolved_for(model));
+    for node in ["CLIPTextEncode", "ConditioningAverage", "ConditioningZeroOut"] {
+        assert!(requirements.contains(&node.into()), "{node}: {requirements:?}");
     }
 }

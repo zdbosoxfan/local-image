@@ -76,12 +76,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 10 }).show(ui, |ui| {
         ui.label(egui::RichText::new(crate::i18n::tr("Create New Mask")).color(t.text_dim));
         ui.add_space(6.0);
-        let tiles: [(&str, &str, Icon); 10] = [
+        let tiles: [(&str, &str, Icon); 11] = [
             ("object", "Object", Icon::Subject),
             ("prompt", "Describe", Icon::Subject),
             ("subject", "Subject", Icon::Subject),
             ("sky", "Sky", Icon::Sky),
             ("background", "Background", Icon::Subject),
+            ("depth", "Depth", Icon::Sliders),
             ("brush", "Brush", Icon::Brush),
             ("linear", "Linear", Icon::Linear),
             ("radial", "Radial", Icon::Radial),
@@ -94,8 +95,18 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             for (i, (kind, label, icon)) in tiles.iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(tile, 52.0), Sense::click());
                 register(ui.ctx(), format!("maskNew:{kind}"), r);
+                if let Some(tool) = super::tool_tips::StripTool::mask_kind(kind) {
+                    super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, tool);
+                }
                 ui.painter().rect_filled(r, 4.0, if resp.hovered() { t.hover } else { t.inset });
-                paint(ui.painter(), Rect::from_center_size(r.center() - vec2(0.0, 7.0), vec2(20.0, 20.0)), *icon, t.text_label);
+                crate::icons::paint_tool(
+                    ui,
+                    Rect::from_center_size(r.center() - vec2(0.0, 7.0), vec2(20.0, 20.0)),
+                    crate::icons::tool_name(kind).unwrap_or("mask"),
+                    *icon,
+                    t.text_label,
+                    true,
+                );
                 ui.painter().text(pos2(r.center().x, r.bottom() - 9.0), Align2::CENTER_CENTER, *label, t.font(10.5), t.text_dim);
                 if resp.clicked() {
                     match *kind {
@@ -206,7 +217,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 },
             );
             let icon = m.components.first().map(|c| kind_label(&c.shape).1).unwrap_or(Icon::Mask);
-            paint(ui.painter(), Rect::from_min_size(r.min + vec2(8.0, 7.0), vec2(16.0, 16.0)), icon, t.text_label);
+            let name = m.components.first().map(|c| crate::icons::mask_name(&c.shape)).unwrap_or("mask");
+            crate::icons::paint_tool(ui, Rect::from_min_size(r.min + vec2(6.0, 5.0), vec2(20.0, 20.0)), name, icon, t.text_label, m.visible);
             ui.painter().text(
                 pos2(r.left() + 32.0, r.center().y),
                 Align2::LEFT_CENTER,
@@ -266,8 +278,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 _ => kind.to_string(),
             });
             ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-                paint(ui.painter(), r, icon, t.text_label);
+                let (r, _) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::hover());
+                crate::icons::paint_tool(ui, r, crate::icons::mask_name(&c.shape), icon, t.text_label, true);
                 let op = match c.op {
                     lightcraft_develop::MaskOp::Add => "",
                     lightcraft_develop::MaskOp::Subtract => "− ",
@@ -335,11 +347,20 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         brush_settings(app, ui);
     }
     divider(ui);
-    for s in LOCAL {
-        let v = local_get(&m.adjust, s.id);
-        let out = slider(ui, s, v, true, None);
-        apply_slider_out(app, s, out, |app, v| app.run("mask.adjust", json!({"values": {s.id: v}})));
-    }
+    // the layer: opacity, amount, refine edges
+    let opacity = ControlSpec {
+        id: "opacity",
+        label: "Opacity",
+        section: Section::Light,
+        min: 0.0,
+        max: 100.0,
+        default: 100.0,
+        step: 1.0,
+        decimals: 0,
+        track: Track::Plain,
+    };
+    let out = slider(ui, &opacity, m.opacity, true, None);
+    apply_slider_out(app, &opacity, out, |app, v| app.run("mask.setOpacity", json!({"value": v})));
     let amt = ControlSpec {
         id: "amount",
         label: "Amount",
@@ -366,8 +387,61 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     };
     let out = slider(ui, &refine, m.refine, true, None);
     apply_slider_out(app, &refine, out, |app, v| app.run("mask.refine", json!({"value": v})));
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 6 }).show(ui, |ui| {
+        // (two rows: side by side they don't fit the narrowest panel)
+        let mut only = app.ui.layer_used_only;
+        let r = ui.checkbox(&mut only, crate::i18n::tr("Show only tools this layer uses"));
+        register(ui.ctx(), "layerUsedOnly", r.rect);
+        if r.changed() {
+            app.ui.layer_used_only = only;
+        }
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            if text_button(ui, "layerReset", crate::i18n::tr("Reset Layer"), false)
+                .on_hover_text(crate::i18n::tr("Remove every tool from this layer and reset its sliders and opacity"))
+                .clicked()
+            {
+                let _ = app.run("mask.resetTools", json!({"id": m.id}));
+            }
+        });
+    });
+    divider(ui);
+    local_section(app, ui, &m);
+    // the full develop tools, on this layer
+    let photo = app.session.catalog.photo(id);
+    let raw = photo.is_some_and(|p| p.develops_raw() && !p.relative_wb());
+    let info = app.session.source_info(id);
+    let view = m.tools.view(lightcraft_engine::pipeline::local::effective_wb(&info, &d));
+    let used_only = app.ui.layer_used_only;
+    super::edit::tool_sections(app, ui, id, &view, raw, super::edit::Target::Layer(m.id), used_only);
     ui.add_space(30.0);
     let _ = Stroke::NONE;
+}
+
+/// The quick local sliders (Lightroom's mask sliders: added up across masks, with local-only
+/// tools such as Hue, Sharpness, Noise, Moiré, Defringe), collapsible; a dot when any is set.
+fn local_section(app: &mut LightcraftApp, ui: &mut egui::Ui, m: &lightcraft_develop::Mask) {
+    // open unless collapsed (these were the only mask sliders before develop layers)
+    let open = !app.ui.section_open("layer-local-collapsed");
+    let (resp, _) = crate::widgets::section_header(ui, "layer-local", "Local Adjustments", open, None);
+    let set = LocalAdjustments { amount: m.adjust.amount, ..Default::default() } != m.adjust;
+    if set {
+        let t = Tokens::get(ui.ctx());
+        let w = ui.painter().layout_no_wrap(crate::i18n::tr("Local Adjustments").to_string(), t.semibold(14.0), t.text).size().x;
+        ui.painter().circle_filled(pos2(resp.rect.left() + 52.0 + w, resp.rect.center().y), 3.5, t.accent);
+    }
+    if resp.clicked() {
+        app.ui.toggle_section("layer-local-collapsed");
+    }
+    if open {
+        for s in LOCAL {
+            let v = local_get(&m.adjust, s.id);
+            let out = slider(ui, s, v, true, None);
+            apply_slider_out(app, s, out, |app, v| app.run("mask.adjust", json!({"values": {s.id: v}})));
+        }
+        ui.add_space(6.0);
+    }
+    divider(ui);
 }
 
 /// The right-click menu of a mask in the Masks list.
@@ -537,6 +611,70 @@ fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: usize, shape
                 }
             }
         }
+        MaskShape::DepthRange { lo, hi, feather, seg } => {
+            if seg.is_none() {
+                ui.label(
+                    egui::RichText::new(crate::i18n::tr("No depth map: install a depth model (Settings › Selection models) and add the mask again."))
+                        .color(t.text_dim)
+                        .size(11.0),
+                );
+                return;
+            }
+            ui.label(egui::RichText::new(crate::i18n::tr("Select Depth Range (near → far)")).color(t.text_dim).size(11.5));
+            let (lo, hi, feather) = (*lo, *hi, *feather);
+            let w = ui.available_width().min(240.0);
+            let (rect, resp) = ui.allocate_exact_size(vec2(w, 18.0), Sense::click_and_drag());
+            register(ui.ctx(), format!("depthRange:{comp}"), rect);
+            let p = ui.painter();
+            let n = 24;
+            for k in 0..n {
+                let a = k as f32 / n as f32;
+                let r = Rect::from_min_max(
+                    pos2(rect.left() + a * w, rect.top() + 4.0),
+                    pos2(rect.left() + (a + 1.0 / n as f32) * w + 0.5, rect.bottom() - 4.0),
+                );
+                // near warm, far cool
+                p.rect_filled(r, 0.0, egui::Color32::from_rgb((220.0 - a * 160.0) as u8, 120, (60.0 + a * 170.0) as u8));
+            }
+            let x = |v: f64| rect.left() + v.clamp(0.0, 1.0) as f32 * w;
+            p.rect_stroke(
+                Rect::from_min_max(pos2(x(lo), rect.top() + 2.0), pos2(x(hi), rect.bottom() - 2.0)),
+                2.0,
+                Stroke::new(1.5, t.accent),
+                egui::StrokeKind::Middle,
+            );
+            for v in [lo, hi] {
+                p.circle_filled(pos2(x(v), rect.center().y), 5.0, egui::Color32::WHITE);
+                p.circle_stroke(pos2(x(v), rect.center().y), 5.0, Stroke::new(1.0, egui::Color32::from_gray(40)));
+            }
+            let with = |lo: f64, hi: f64, feather: f64| MaskShape::DepthRange { lo, hi, feather, seg: seg.clone() };
+            if resp.drag_started() {
+                let _ = app.run("develop.beginInteraction", json!({"label": "Depth Range"}));
+            }
+            if (resp.dragged() || resp.clicked())
+                && let Some(pos) = resp.interact_pointer_pos()
+            {
+                let v = (((pos.x - rect.left()) / w) as f64).clamp(0.0, 1.0);
+                let (nlo, nhi) = if (v - lo).abs() <= (v - hi).abs() { (v.min(hi - 0.01), hi) } else { (lo, v.max(lo + 0.01)) };
+                update(app, with(nlo, nhi, feather));
+            }
+            if resp.drag_stopped() {
+                let _ = app.run("develop.endInteraction", json!({}));
+            }
+            let smooth = ControlSpec {
+                id: "depthSmoothness",
+                label: "Smoothness",
+                section: Section::Light,
+                min: 0.0,
+                max: 100.0,
+                default: 30.0,
+                step: 1.0,
+                decimals: 0,
+                track: Track::Plain,
+            };
+            let out = slider(ui, &smooth, (feather / 0.5 * 100.0).clamp(0.0, 100.0), true, None);
+            apply_slider_out(app, &smooth, out, |app, v| app.run("mask.update", json!({"component": comp, "shape": with(lo, hi, v / 100.0 * 0.5)})));
+        }
         MaskShape::Object { edge, .. } | MaskShape::Prompt { edge, .. } => {
             // Edge: how crisp the selection's border is (−100 hard … 0 as computed … 100 soft)
             let spec = ControlSpec {
@@ -569,10 +707,9 @@ fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: usize, shape
                         .size(11.5),
                 );
                 let picking = app.ui.tool == "colorRange";
-                if text_button(ui, &format!("colorPick{comp}"), crate::i18n::tr("Pick"), picking)
-                    .on_hover_text(crate::i18n::tr("Click the photo to pick a colour; ⇧-click adds more (up to 5)"))
-                    .clicked()
-                {
+                let resp = text_button(ui, &format!("colorPick{comp}"), crate::i18n::tr("Pick"), picking);
+                super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::MaskColor);
+                if resp.clicked() {
                     app.ui.tool = if picking { String::new() } else { "colorRange".into() };
                 }
             });
@@ -756,6 +893,7 @@ fn component_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, op: &str) {
         ("radial", "Radial Gradient"),
         ("sky", "Sky"),
         ("subject", "Subject"),
+        ("depth", "Depth"),
         ("luminanceRange", "Luminance Range"),
     ] {
         // painting only adds or erases

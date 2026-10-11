@@ -74,7 +74,12 @@ fn has_effects(s: &Session) -> Enabled {
 fn has_content_options(s: &Session) -> Enabled {
     let l = active_layer(s)?;
     match l.content {
-        LayerContent::Adjustment(_) | LayerContent::Fill(_) | LayerContent::Text(_) | LayerContent::Smart(_) | LayerContent::Shape(_) => Ok(()),
+        LayerContent::Adjustment(_)
+        | LayerContent::Fill(_)
+        | LayerContent::Text(_)
+        | LayerContent::Smart(_)
+        | LayerContent::Shape(_)
+        | LayerContent::Symbol(_) => Ok(()),
         _ => Err(format!("{} layers have no content options", l.content.kind_name())),
     }
 }
@@ -632,6 +637,7 @@ fn content_options(s: &mut Session, _: &Value) -> Result<Value> {
         LayerContent::Text(_) => "text".into(),
         LayerContent::Smart(_) => "smartObject".into(),
         LayerContent::Shape(_) => "shape".into(),
+        LayerContent::Symbol(_) => "symbol".into(),
         other => {
             return Err(EngineError::Other(format!("{} layers have no content options", other.kind_name())));
         }

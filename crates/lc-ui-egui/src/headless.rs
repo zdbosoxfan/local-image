@@ -1,5 +1,6 @@
 //! Headless UI rendering: run the app's UI in an offscreen [`egui::Context`] and rasterize it on
-//! the CPU ([`crate::softpaint`]) — no window, no GPU, no compositor.
+//! the CPU ([`crate::softpaint`]) — no window or native compositor. Photo render jobs still use
+//! the configured Develop backend (GPU compute or CPU), including in headless timing tests.
 //!
 //! Two users:
 //! - [`Headless`]: a complete windowless app session (`lightcraft-cli snapshot`, tests). It plays
@@ -86,6 +87,11 @@ impl HeadlessView {
     }
 
     /// Frames run so far.
+    #[cfg(test)]
+    pub(crate) fn shapes(&self) -> &[egui::epaint::ClippedShape] {
+        &self.shapes
+    }
+
     pub fn frames(&self) -> u64 {
         self.frames
     }
@@ -178,6 +184,8 @@ impl Headless {
             || self.app.scan.is_some()
             || self.app.import.is_some()
             || self.app.export.is_some()
+            || self.app.smart_sort.is_some()
+            || self.app.people_task.is_some()
             || !self.app.tasks.is_empty()
             || !self.app.synthetic.is_empty()
             || !self.events.is_empty()
@@ -674,7 +682,246 @@ mod tests {
         }
         let w1 = width(&mut h);
         assert!((w1 - w0).abs() < 0.5, "the export dialog grew from {w0} to {w1}");
-        assert!(w1 < 700.0, "{w1}");
+        assert!((800.0..=1100.0).contains(&w1), "wide preset/sections layout: {w1}");
+        let widgets = h.request("ui.widgets", json!({}), t);
+        let rect = widgets["result"].as_array().unwrap().iter().find(|w| w["id"] == "dialog:window").unwrap()["rect"].as_array().unwrap();
+        let right = rect[0].as_f64().unwrap() + rect[2].as_f64().unwrap() - 2.0;
+        let bottom = rect[1].as_f64().unwrap() + rect[3].as_f64().unwrap() - 2.0;
+        let result = h.request("ui.drag", json!({"x": right, "y": bottom, "toX": right + 100.0, "toY": bottom + 30.0, "steps": 12}), t);
+        assert_eq!(result["ok"], true, "{result}");
+        for _ in 0..10 {
+            h.step();
+        }
+        let resized = width(&mut h);
+        assert!(resized > w1 + 40.0, "dragging the corner resizes the export window: {w1} → {resized}");
+    }
+
+    fn export_click(h: &mut Headless, id: &str) {
+        let result = h.request("ui.clickWidget", json!({"id": id}), Duration::from_secs(10));
+        assert_eq!(result["ok"], true, "{id}: {result}");
+        for _ in 0..4 {
+            h.step();
+        }
+    }
+
+    fn export_type(h: &mut Headless, id: &str, text: &str) {
+        export_click(h, id);
+        let t = Duration::from_secs(10);
+        h.request("ui.key", json!({"key": "A", "cmd": true}), t);
+        h.request("ui.text", json!({"text": text}), t);
+        h.request("ui.key", json!({"key": "Tab"}), t);
+        h.step();
+    }
+
+    #[test]
+    fn enhance_export_size_clicks_restore_methods_and_persists() {
+        let mut h = demo([1300.0, 1100.0]);
+        h.request("engine.execute", json!({"command": "dialog.export"}), Duration::from_secs(10));
+        h.settle(SETTLE);
+        for section in ["location", "naming", "file"] {
+            export_click(&mut h, &format!("exportSection:{section}"));
+        }
+        if matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { full_size: true, .. })) {
+            export_click(&mut h, "check:exportResize");
+        }
+        if matches!(&h.app.ui.dialog, Some(crate::state::Dialog::Export { resize, .. }) if resize.dont_enlarge) {
+            export_click(&mut h, "check:exportDontEnlarge");
+        }
+        export_click(&mut h, "combo:exportResizeMode");
+        export_click(&mut h, "option:exportResizeMode:5");
+        export_type(&mut h, "field:exportSizePercent", "200");
+        for (i, expected) in [(1, "faithful"), (2, "rescue"), (3, "generative")] {
+            export_click(&mut h, "combo:exportEnhanceMethod");
+            export_click(&mut h, &format!("option:exportEnhanceMethod:{i}"));
+            let params = crate::panels::export_dialog::export_dialog_params(h.app.ui.dialog.as_ref().unwrap());
+            assert_eq!(params["enhance"], expected);
+            assert_eq!(params["resize"]["value"].as_f64(), Some(200.0));
+        }
+        export_click(&mut h, "combo:exportEnhanceMethod");
+        export_click(&mut h, "option:exportEnhanceMethod:0");
+        let params = crate::panels::export_dialog::export_dialog_params(h.app.ui.dialog.as_ref().unwrap());
+        assert!(params["enhance"].is_null());
+    }
+
+    #[test]
+    fn export_presets_sections_and_live_filename_are_interactive() {
+        let mut h = demo([1400.0, 1100.0]);
+        let t = Duration::from_secs(10);
+        h.request("engine.execute", json!({"command": "dialog.export"}), t);
+        h.settle(SETTLE);
+        assert!(
+            matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { limit_kb: 0, .. })),
+            "a disabled file-size field must keep the limit off"
+        );
+        export_click(&mut h, "exportPreset:JPEG (Large)");
+        assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { full_size: true, .. })));
+        // Collapse and reopen real headers; this also puts naming and the later sections in view.
+        export_click(&mut h, "exportSection:location");
+        export_type(&mut h, "field:exportNaming", "Edited-{name}-{seq:2}");
+        let photo = h.app.session.catalog.photo(h.app.session.active().unwrap()).unwrap();
+        let stem = std::path::Path::new(&photo.file_name).file_stem().unwrap().to_string_lossy();
+        let want = format!("Edited-{stem}-01.jpg");
+        let dialog = h.app.ui.dialog.clone().unwrap();
+        assert_eq!(crate::panels::export_dialog::example_name(&mut h.app, &dialog), Some(want.clone()));
+        assert_eq!(crate::panels::export_dialog::summary(&mut h.app, &dialog, "naming"), want);
+        export_click(&mut h, "exportSection:naming");
+        let fields = h.request("ui.widgets", json!({}), t);
+        assert!(!fields["result"].to_string().contains("field:exportNaming"), "collapsed fields are hidden");
+        export_click(&mut h, "exportSection:naming");
+        export_type(&mut h, "field:exportPresetName", "Client Proof");
+        export_click(&mut h, "button:exportPresetAdd");
+        assert_eq!(h.app.session.export_presets.len(), 1);
+        assert_eq!(h.app.session.export_presets[0].params["naming"], "Edited-{name}-{seq:2}");
+        export_type(&mut h, "field:exportNaming", "Proof-{seq:2}");
+        export_click(&mut h, "button:exportPresetUpdate");
+        assert_eq!(h.app.session.export_presets[0].params["naming"], "Proof-{seq:2}");
+        export_click(&mut h, "exportPreset:JPEG (Small)");
+        export_click(&mut h, "exportPreset:Client Proof");
+        let dialog = h.app.ui.dialog.clone().unwrap();
+        assert_eq!(crate::panels::export_dialog::example_name(&mut h.app, &dialog).as_deref(), Some("Proof-01.jpg"));
+        // All nine anchors respond to actual clicks.
+        for key in ["naming", "file", "sizing"] {
+            export_click(&mut h, &format!("exportSection:{key}"));
+        }
+        export_click(&mut h, "exportSection:watermark");
+        export_click(&mut h, "check:exportWatermark");
+        export_click(&mut h, "combo:exportWmStyle");
+        export_click(&mut h, "option:exportWmStyle:1");
+        export_click(&mut h, "exportPreset:Client Proof");
+        export_click(&mut h, "check:exportWatermark");
+        let fields = h.request("ui.widgets", json!({}), t);
+        assert!(fields["result"].to_string().contains("field:exportWmText"), "the loaded preset clears an unfinished Graphic selection");
+        for i in 0..9 {
+            export_click(&mut h, &format!("button:exportWmAnchor-{i}"));
+        }
+        let Some(crate::state::Dialog::Export { opts, .. }) = &h.app.ui.dialog else { panic!("export open") };
+        assert_eq!(opts.watermark.as_ref().unwrap().anchor, lightcraft_engine::export::Anchor::BottomRight);
+        export_click(&mut h, "button:exportPresetRemove");
+        assert!(h.app.session.export_presets.is_empty());
+        export_click(&mut h, "button:dialogCancel");
+        assert!(h.app.ui.dialog.is_none());
+    }
+
+    #[test]
+    fn export_same_folder_conflicts_catalog_stack_and_postprocessing() {
+        let base = std::env::temp_dir().join(format!("lc-ui-export-location-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let image = lightcraft_raster::Rgba8::from_fn(16, 12, |_, _| [50, 90, 120, 255]);
+        let original = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
+        let source = base.join("Photo.png");
+        std::fs::write(&source, &original).unwrap();
+        std::fs::write(base.join("Photo.jpg"), b"existing export").unwrap();
+        let shown = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let revealed = shown.clone();
+        let services = crate::Services {
+            write: Some(Box::new(lightcraft_engine::export::write_file)),
+            reveal: Some(Box::new(move |path| {
+                revealed.lock().unwrap().push(path.to_string());
+                Ok(())
+            })),
+            ..Default::default()
+        };
+        let mut session = lightcraft_engine::Session::new().with_fs();
+        session.execute("library.import", &json!({"paths": [source.to_string_lossy()]})).unwrap();
+        let id = session.active().unwrap();
+        let mut h = Headless::new(LightcraftApp::new(session, services), [1400.0, 1100.0], 1.0);
+        let t = Duration::from_secs(10);
+        h.request("engine.execute", json!({"command": "dialog.export"}), t);
+        h.settle(SETTLE);
+        export_click(&mut h, "combo:exportTo");
+        export_click(&mut h, "option:exportTo:1");
+        export_click(&mut h, "check:exportAddToLibrary");
+        export_click(&mut h, "check:exportAddToStack");
+        export_click(&mut h, "combo:exportExisting");
+        export_click(&mut h, "option:exportExisting:0");
+        // Keep the location choices, expose the post-processing section.
+        for key in ["location", "naming", "file", "sizing"] {
+            export_click(&mut h, &format!("exportSection:{key}"));
+        }
+        export_click(&mut h, "exportSection:post");
+        export_click(&mut h, "combo:exportAfter");
+        export_click(&mut h, "option:exportAfter:1");
+        export_click(&mut h, "button:dialogOk");
+        assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { existing: Some(1), .. })), "ask before writing");
+        assert_eq!(std::fs::read(base.join("Photo.jpg")).unwrap(), b"existing export");
+        export_click(&mut h, "button:exportExisting-0");
+        h.settle(SETTLE);
+        assert!(h.app.ui.dialog.is_none(), "export failed: {:?}", h.app.ui.toast);
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(std::fs::read(base.join("Photo.jpg")).unwrap(), b"existing export");
+        let output = base.join("Photo-2.jpg");
+        assert!(output.is_file());
+        assert_eq!(shown.lock().unwrap().as_slice(), &[output.to_string_lossy().to_string()]);
+        let stack = h.app.session.catalog.stack_of(id).expect("export imported and stacked");
+        assert_eq!(stack.photos.len(), 2);
+        assert_ne!(stack.photos[0], id);
+        let last = h.app.session.last_export.as_ref().unwrap();
+        assert_eq!(last["sameFolder"], true);
+        assert_eq!(last["askExisting"], true);
+        assert_eq!(last["afterExport"], "showInFolder");
+        h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [id.0]}}), t);
+        h.request("engine.execute", json!({"command": "app.exportPrevious"}), t);
+        assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { existing: Some(1), .. })), "Export with Previous still asks");
+        export_click(&mut h, "button:dialogCancel");
+        h.request("engine.execute", json!({"command": "export.savePreset", "params": {"name": "Ask Proof", "params": {"sameFolder": true, "askExisting": true, "conflict": "overwrite"}}}), t);
+        h.request("engine.execute", json!({"command": "app.export", "params": {"preset": "Ask Proof"}}), t);
+        assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::Export { existing: Some(1), .. })), "Export with Preset still asks");
+        assert_eq!(std::fs::read(base.join("Photo.jpg")).unwrap(), b"existing export");
+        export_click(&mut h, "button:dialogCancel");
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn save_over_confirmation_cancel_copy_overwrite_and_preference() {
+        let base = std::env::temp_dir().join(format!("lc-ui-save-over-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let image = lightcraft_raster::Rgba8::from_fn(16, 12, |_, _| [30, 60, 90, 255]);
+        let original = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
+        let source = base.join("Photo.png");
+        std::fs::write(&source, &original).unwrap();
+        let mut session = lightcraft_engine::Session::new().with_fs();
+        session.open_library(base.join("lib"), false).unwrap();
+        session.execute("library.import", &json!({"paths": [source.to_string_lossy()]})).unwrap();
+        let id = session.active().unwrap();
+        session.execute("develop.set", &json!({"control": "light.exposure", "value": 1.0})).unwrap();
+        let mut h = Headless::new(LightcraftApp::new(session, Default::default()), [1300.0, 1000.0], 1.0);
+        let t = Duration::from_secs(10);
+        for view in [crate::state::ViewMode::PhotoGrid, crate::state::ViewMode::Detail] {
+            h.app.ui.view = view;
+            let menu = h.request("ui.menu.tree", json!({}), t);
+            assert!(menu.to_string().contains("Save Over Original…"));
+            if view == crate::state::ViewMode::PhotoGrid {
+                h.request("ui.key", json!({"key": "S", "cmd": true, "alt": true}), t);
+            } else {
+                h.request("engine.execute", json!({"command": "dialog.saveOverOriginal"}), t);
+            }
+            h.settle(SETTLE);
+            export_click(&mut h, "button:dialogCancel");
+            assert_eq!(std::fs::read(&source).unwrap(), original);
+        }
+        h.request("engine.execute", json!({"command": "dialog.saveOverOriginal"}), t);
+        h.settle(SETTLE);
+        export_click(&mut h, "button:saveOverBeside");
+        assert!(base.join("Photo-2.png").is_file());
+        assert_eq!(std::fs::read(&source).unwrap(), original);
+        h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [id.0]}}), t);
+        h.request("engine.execute", json!({"command": "dialog.saveOverOriginal"}), t);
+        h.settle(SETTLE);
+        export_click(&mut h, "check:saveOverDontAsk");
+        export_click(&mut h, "button:dialogOk");
+        assert!(h.app.ui.dialog.is_none());
+        assert_ne!(std::fs::read(&source).unwrap(), original);
+        assert_eq!(h.app.session.catalog.photo(id).unwrap().develop.light.exposure, 0.0);
+        assert!(!h.app.ui.settings.confirm_save_over);
+        let prefs: crate::state::AppSettings = serde_json::from_value(serde_json::to_value(&h.app.ui.settings).unwrap()).unwrap();
+        assert!(!prefs.confirm_save_over);
+        assert!(serde_json::from_value::<crate::state::AppSettings>(json!({})).unwrap().confirm_save_over, "old preferences ask by default");
+        h.request("engine.execute", json!({"command": "dialog.saveOverOriginal"}), t);
+        assert!(h.app.ui.dialog.is_none(), "Don't ask again is honoured");
+        drop(h);
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]
@@ -702,13 +949,22 @@ mod tests {
         assert!(h.app.export.is_some(), "running in the background");
         let running = h.request("ui.inspect", json!({}), t);
         assert_eq!(running["result"]["export"]["running"]["total"], 3, "{}", running["result"]["export"]);
-        let t0 = Instant::now();
-        while h.app.export.is_some() && t0.elapsed() < Duration::from_secs(60) {
+        let mut last_done = running["result"]["export"]["running"]["done"].as_u64().unwrap_or(0);
+        let mut last_progress_at = Instant::now();
+        while h.app.export.is_some() {
             h.step();
+            let inspect = h.request("ui.inspect", json!({}), t);
+            let done = inspect["result"]["export"]["running"]["done"].as_u64().unwrap_or(0);
+            if done > last_done {
+                last_done = done;
+                last_progress_at = Instant::now();
+            } else if last_progress_at.elapsed() > Duration::from_secs(120) {
+                break;
+            }
         }
-        assert!(h.app.export.is_none(), "finished");
+        assert!(h.app.export.is_none(), "finished (no progress for 120 s)");
         let w = written.lock().unwrap().clone();
-        assert_eq!(w.len(), 3, "{w:?}");
+        assert_eq!(w.len(), 3, "{w:?}; result: {:?}", h.app.last_export_result);
         assert!(w.iter().all(|p| p.starts_with("/lc-test-out/")));
         let last = h.request("ui.inspect", json!({}), t)["result"]["export"]["last"].clone();
         assert_eq!(last["files"].as_array().map(Vec::len), Some(3), "{last}");
@@ -1655,6 +1911,16 @@ mod tests {
             let r = h.request("ui.clickWidget", json!({"id": format!("button:aboutTab-{tab}")}), t);
             assert_eq!(r["ok"], true, "{tab}: {r}");
             h.step();
+            // a tab with taller content (Attributions' sections animate open) grows the window, which
+            // re-centres: wait for the tab row to stop moving before the next click
+            let row = |h: &mut Headless| h.request("ui.widgets", json!({"filter": "button:aboutTab-about"}), t)["result"].clone();
+            for _ in 0..600 {
+                let before = row(&mut h);
+                h.step();
+                if row(&mut h) == before {
+                    break;
+                }
+            }
             let shown = h.view.ctx.data_mut(|d| d.get_temp::<u8>(egui::Id::new("about_tab")));
             assert_eq!(shown.map(usize::from), Some(i), "{tab}");
         }
@@ -1844,5 +2110,208 @@ mod tests {
         assert_eq!(r["ok"], true);
         let r = h.request("ui.screenshot", json!({"headless": true}), SETTLE);
         assert_eq!(r["result"]["width"], 640, "{r}");
+    }
+
+    /// Tool-strip hover tips: Rich shows the name, shortcut (from the command table), a sentence
+    /// and how-to lines after a short delay and straight away on the next tool; Simple and Off
+    /// show no rich tip; the Settings row switches them and old settings files still load.
+    #[test]
+    fn strip_tool_tips_rich_simple_and_off() {
+        use crate::panels::tool_tips::{StripTool, ToolTipMode, shown};
+        let mut h = demo([1400.0, 900.0]);
+        let t = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail"}), t);
+        h.settle(SETTLE);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Rich, "rich is the default");
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), t);
+        assert!(shown(&h.view.ctx).is_none(), "no tip before the delay");
+        assert!(h.step_until(SETTLE, |h| shown(&h.view.ctx).is_some()), "the tip opens");
+        let tip = shown(&h.view.ctx).unwrap();
+        assert_eq!(tip.tool, "crop");
+        assert!(tip.bounds.width() <= crate::panels::tool_tips::MAX_WIDTH + 2.0, "{:?}", tip.bounds);
+        let key = StripTool::Crop.shortcut().expect("Crop has a shortcut");
+        assert!(tip.text.starts_with(&format!("Crop & Rotate ({key})")), "{}", tip.text);
+        assert!(tip.text.contains("drag along the horizon"), "{}", tip.text);
+        // moving to another tool shows its tip at once (within a couple of frames)
+        h.request("ui.hoverWidget", json!({"id": "icon:masking"}), t);
+        h.step();
+        h.step();
+        assert_eq!(shown(&h.view.ctx).map(|s| s.tool).as_deref(), Some("masking"));
+        // the Settings row
+        h.request("ui.key", json!({"key": ",", "cmd": true}), t);
+        h.request("ui.clickWidget", json!({"id": "button:settingsTab-interface"}), t);
+        h.request("ui.clickWidget", json!({"id": "button:settingsToolTips-1"}), t);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Simple);
+        h.request("ui.clickWidget", json!({"id": "button:settingsToolTips-2"}), t);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Off);
+        h.request("ui.key", json!({"key": "Escape"}), t);
+        for mode in [ToolTipMode::Simple, ToolTipMode::Off] {
+            h.app.ui.settings.tool_tips = mode;
+            h.request("ui.hoverWidget", json!({"id": "icon:activity"}), t);
+            for _ in 0..60 {
+                h.step();
+            }
+            assert!(shown(&h.view.ctx).is_none(), "{mode:?} shows no rich tip");
+            h.request("ui.move", json!({"x": 5, "y": 500}), t);
+        }
+        // an old settings file (no toolTips) loads with the default
+        let old: crate::state::AppSettings = serde_json::from_str(r#"{"confirmDelete": true}"#).unwrap();
+        assert_eq!(old.tool_tips, ToolTipMode::Rich);
+        assert!(old.confirm_delete);
+    }
+    #[test]
+    fn develop_tool_tips_cover_mask_tiles_brush_modifiers_and_wb_picker() {
+        use crate::panels::tool_tips::{StripTool, shown};
+        let mut h = demo([1400.0, 900.0]);
+        let t = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail"}), t);
+        h.request("ui.clickWidget", json!({"id": "icon:masking"}), t);
+        h.request("ui.hoverWidget", json!({"id": "maskNew:brush"}), t);
+        assert!(h.step_until(t, |h| shown(&h.view.ctx).is_some_and(|s| s.tool == "brush")));
+        let tip = shown(&h.view.ctx).unwrap();
+        assert!(tip.text.contains(&format!("Brush ({})", StripTool::MaskBrush.shortcut().unwrap())));
+        assert!(tip.text.contains("switch between adding and erasing"));
+        assert!(tip.text.contains("Also in this group:"));
+        h.request("ui.clickWidget", json!({"id": "maskNew:brush"}), t);
+        let canvas = h.app.canvas_rect.unwrap();
+        h.request(
+            "ui.drag",
+            json!({"x": canvas.center().x, "y": canvas.center().y, "toX": canvas.center().x + 40.0, "toY": canvas.center().y + 30.0}),
+            t,
+        );
+        assert!(!h.app.session.develop_of(h.app.session.active().unwrap()).unwrap().masks.is_empty());
+        assert!(shown(&h.view.ctx).is_none(), "no tip remains after a canvas drag");
+        h.request("ui.clickWidget", json!({"id": "icon:edit"}), t);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:light"}), t)["ok"], true);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:color"}), t)["ok"], true);
+        assert_eq!(h.request("ui.hoverWidget", json!({"id": "icon:wbPicker"}), t)["ok"], true);
+        assert!(h.step_until(t, |h| shown(&h.view.ctx).is_some_and(|s| s.tool == "wbPicker")));
+        assert!(shown(&h.view.ctx).unwrap().text.starts_with("White Balance Selector (W)"));
+    }
+
+    #[test]
+    fn strip_tool_tips_icon_pixels_follow_colour_preference_and_keep_text() {
+        use crate::panels::tool_tips::{ICON, ToolTipMode, shown};
+        let mut h = demo([1400.0, 900.0]);
+        let timeout = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail"}), timeout);
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), timeout);
+        assert!(h.step_until(timeout, |h| shown(&h.view.ctx).is_some()));
+        h.settle(Duration::from_millis(250));
+        let tip = shown(&h.view.ctx).unwrap();
+        let slot = egui::Rect::from_min_size(tip.bounds.min + egui::vec2(10.0, 10.0), egui::vec2(ICON, ICON));
+        let colour = crate::tool_icon_tests::saturation(&h.paint(), slot, 1.0);
+        assert!(colour > 20, "the rich tip has a colour icon: {colour}");
+        h.request("ui.key", json!({"key": ",", "cmd": true}), timeout);
+        h.request("ui.clickWidget", json!({"id": "button:settingsTab-interface"}), timeout);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "button:settingsToolIcons-1"}), timeout)["ok"], true);
+        assert!(!h.app.ui.settings.color_tool_icons);
+        assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Rich);
+        h.request("ui.key", json!({"key": "Escape"}), timeout);
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), timeout);
+        assert!(h.step_until(timeout, |h| shown(&h.view.ctx).is_some()));
+        h.settle(Duration::from_millis(250));
+        let mono_tip = shown(&h.view.ctx).unwrap();
+        assert_eq!(mono_tip.text, tip.text);
+        let slot = egui::Rect::from_min_size(mono_tip.bounds.min + egui::vec2(10.0, 10.0), egui::vec2(ICON, ICON));
+        assert_eq!(crate::tool_icon_tests::saturation(&h.paint(), slot, 1.0), 0, "the rich tip respects Monochrome");
+    }
+
+    #[test]
+    fn strip_tool_tips_simple_renders_name_and_key_and_settings_round_trip() {
+        use crate::panels::tool_tips::{StripTool, ToolTipMode};
+        let mut h = demo([1400.0, 900.0]);
+        let t = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail"}), t);
+        h.app.ui.settings.tool_tips = ToolTipMode::Simple;
+        h.request("ui.hoverWidget", json!({"id": "icon:crop"}), t);
+        let label = format!("Crop & Rotate ({})", StripTool::Crop.shortcut().unwrap());
+        for _ in 0..100 {
+            h.step();
+        }
+        assert!(h.view.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == label)));
+        h.app.ui.settings.tool_tips = ToolTipMode::Off;
+        for _ in 0..4 {
+            h.step();
+        }
+        assert!(!h.view.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == label)));
+        for mode in [ToolTipMode::Rich, ToolTipMode::Simple, ToolTipMode::Off] {
+            let settings = crate::state::AppSettings { tool_tips: mode, ..Default::default() };
+            let back: crate::state::AppSettings = serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+            assert_eq!(back.tool_tips, mode);
+        }
+    }
+    #[test]
+    fn ds_finding_camera_folder_focus_and_picker_do_not_keep_stale_text() {
+        let mut h = demo([1300., 820.]);
+        h.app.services.pick_folder = Some(Box::new(|| Some("target/ds-camera-picked".into())));
+        h.app.ui.dialog = Some(crate::state::Dialog::Settings { tab: "import".into() });
+        for _ in 0..4 {
+            h.step();
+        }
+        let timeout = Duration::from_secs(10);
+        assert_eq!(h.request("ui.clickWidget", json!({"id":"settings:cameraFolder"}), timeout)["ok"], true);
+        h.request("ui.key", json!({"key":"A","cmd":true}), timeout);
+        h.request("ui.text", json!({"text":"target/ds-camera-typed"}), timeout);
+        let before = h.app.session.import_defaults.camera_profiles_folder.clone();
+        let at = h.app.widgets.iter().find(|(id, _)| id == "settings:cameraFolderChoose").unwrap().1.center();
+        h.app.synthetic.push(egui::Event::PointerMoved(at));
+        h.app.synthetic.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+        h.step();
+        assert_eq!(h.app.session.import_defaults.camera_profiles_folder, before, "picker press must not commit the typed intermediate folder");
+        h.app.synthetic.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+        assert_eq!(h.app.session.import_defaults.camera_profiles_folder, "target/ds-camera-picked");
+        // An unchanged focus cycle must release the temporary edit, so external preferences show.
+        h.request("ui.clickWidget", json!({"id":"settings:cameraFolder"}), timeout);
+        h.request("ui.clickWidget", json!({"id":"check:settings.perCamera"}), timeout);
+        h.app.run("library.preferences", json!({"import":{"cameraProfilesFolder":"target/ds-camera-external"}})).unwrap();
+        h.step();
+        h.step();
+        assert!(h.view.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Text(t) if t.galley.job.text=="target/ds-camera-external")));
+    }
+
+    #[test]
+    fn ds_finding_simple_tooltips_release_rich_hover_state() {
+        use crate::panels::tool_tips::{ToolTipMode, shown};
+        let mut h = demo([1400., 900.]);
+        let timeout = Duration::from_secs(10);
+        h.request("ui.set", json!({"view":"detail"}), timeout);
+        h.app.ui.settings.tool_tips = ToolTipMode::Rich;
+        h.request("ui.hoverWidget", json!({"id":"icon:crop"}), timeout);
+        assert!(h.step_until(timeout, |h| shown(&h.view.ctx).is_some()));
+        h.app.ui.settings.tool_tips = ToolTipMode::Simple;
+        h.step();
+        assert!(shown(&h.view.ctx).is_none());
+        h.app.ui.settings.tool_tips = ToolTipMode::Rich;
+        h.step();
+        assert!(shown(&h.view.ctx).is_none(), "rich mode starts a fresh hover delay");
+    }
+
+    #[test]
+    fn ds_finding_never_spot_overlay_hides_the_selected_pin() {
+        let mut h = demo([1300., 820.]);
+        let timeout = Duration::from_secs(10);
+        h.request("ui.set", json!({"view":"detail","right":"remove"}), timeout);
+        h.app.run("spot.add", json!({"mode":"heal","points":[[0.5,0.5]],"source":[0.1,0.]})).unwrap();
+        h.app.ui.remove_overlay = crate::state::SpotOverlay::Never;
+        h.step();
+        h.step();
+        let pin_color = egui::Color32::from_rgb(1, 101, 221);
+        assert!(!h.view.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Circle(c) if c.fill==pin_color && c.radius==6.)));
+        h.app.ui.remove_overlay = crate::state::SpotOverlay::Always;
+        h.step();
+        assert!(h.view.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Circle(c) if c.fill==pin_color && c.radius==6.)));
     }
 }

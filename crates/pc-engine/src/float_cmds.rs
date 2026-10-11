@@ -35,6 +35,11 @@ pub struct CutParts {
 impl CutParts {
     /// Split `layer` of `doc` by its selection. Errors without a selection or pixels.
     pub fn new(doc: &Document, layer: LayerId) -> Result<Self> {
+        Self::with_copy(doc, layer, false)
+    }
+
+    /// Lift selected pixels, optionally leaving the originals in place (Alt/Option + Move).
+    pub fn with_copy(doc: &Document, layer: LayerId, copy: bool) -> Result<Self> {
         let sel = doc.selection.as_ref().ok_or_else(|| EngineError::Other("no selection".into()))?;
         let l = doc.layer(layer).ok_or(EngineError::NoLayer(layer))?;
         let LayerContent::Raster(surf) = &l.content else {
@@ -58,7 +63,9 @@ impl CutParts {
                 } else {
                     p[a] *= k;
                 }
-                r[a] *= 1.0 - k;
+                if !copy {
+                    r[a] *= 1.0 - k;
+                }
             }
             rest.write_region(b, &rp);
             rest.prune();
@@ -81,6 +88,27 @@ impl CutParts {
         *surf = out;
         Ok(d)
     }
+}
+
+/// Move the active layer's selected pixels and the selection together, atomically. Unlike a
+/// floating marquee gesture, a Move-tool drag is complete when its button is released.
+fn move_pixels(s: &mut Session, p: &Value) -> Result<Value> {
+    let (dx, dy) = (int_param(p, "dx"), int_param(p, "dy"));
+    if (dx, dy) == (0, 0) {
+        return Ok(Value::Null);
+    }
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    let layer = st.active_layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
+    let copy = p.get("copy").and_then(Value::as_bool).unwrap_or(false);
+    let parts = CutParts::with_copy(&st.doc, layer, copy)?;
+    let before = st.doc.clone();
+    s.edit(if copy { "Copy Selected Pixels" } else { "Move Selected Pixels" }, |doc, _| {
+        *doc = parts.moved(doc, dx, dy)?;
+        doc.selection = doc.selection.as_ref().map(|sel| crate::layer_multi_cmds::shift_surface(sel, dx, dy));
+        Ok(())
+    })?;
+    crate::layer_multi_cmds::note_damage(s, &before, &[layer]);
+    Ok(json!({"offset": [dx, dy], "copy": copy}))
 }
 
 /// A piece floating `offset` whole pixels from where it was cut, over document `revision`.
@@ -163,8 +191,15 @@ pub fn drop_floating(s: &mut Session) -> Result<Value> {
 }
 
 /// Commands that leave a floating piece floating: its own, and ones that don't touch documents.
+fn can_move_pixels(s: &Session) -> std::result::Result<(), String> {
+    if s.active().is_some_and(|st| floating(st).is_some()) {
+        return Err("drop the floating selection before moving selected pixels".into());
+    }
+    can_float(s)
+}
+
 fn keeps_floating(id: &str) -> bool {
-    matches!(id, "select.float" | "select.drop") || ["view.", "window.", "help.", "prefs."].iter().any(|p| id.starts_with(p))
+    matches!(id, "select.float" | "select.drop" | "select.movePixels") || ["view.", "window.", "help.", "prefs."].iter().any(|p| id.starts_with(p))
 }
 
 /// Before any command (`Session::dispatch`): Undo puts a floating piece back (and is used up:
@@ -187,6 +222,16 @@ pub(crate) fn before_command(s: &mut Session, id: &str) -> Result<Option<Value>>
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        CommandSpec {
+            id: "select.movePixels",
+            label: "Move Selected Pixels",
+            menu: &[],
+            shortcut: None,
+            params: r##"{"dx":px=0,"dy":px=0,"copy":false} (Move tool: move/copy selected pixels and selection, one undo step)"##,
+            enabled: can_move_pixels,
+            journal: true,
+            run: move_pixels,
+        },
         CommandSpec {
             id: "select.float",
             label: "Float Selection",

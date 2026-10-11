@@ -13,6 +13,7 @@ lightcraft-geom = { workspace = true }
 lightcraft-meta = { workspace = true }
 lightcraft-color = { workspace = true }
 lightcraft-raster = { workspace = true }
+lightcraft-codecs = { workspace = true }
 lightcraft-develop = { workspace = true }
 lightcraft-pipeline = { workspace = true }
 lightcraft-catalog = { workspace = true }
@@ -20,12 +21,15 @@ web-time = { workspace = true }
 lightcraft-engine = { workspace = true }
 lightcraft-preview = { workspace = true }
 egui = { workspace = true }
+# Reuse the workspace's existing pure-Rust usvg/resvg renderer (no new packages).
+egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
+# The Attributions page (Settings / Preferences / About).
+li-attributions = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
+rayon = { workspace = true }
 
-[dev-dependencies]
-lightcraft-codecs = { workspace = true }
 
 [build-dependencies]
 serde_json = { workspace = true }

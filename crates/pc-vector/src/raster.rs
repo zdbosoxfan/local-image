@@ -213,10 +213,10 @@ impl Rasterizer {
             }
             st.cuts = cuts;
             let row_out = &mut out[row * w..(row + 1) * w];
-            let mut sum = 0.0f32;
+            let mut sum = 0.0f64;
             for (o, a) in row_out.iter_mut().zip(st.acc.iter()) {
                 sum += *a;
-                *o = sum.clamp(0.0, 1.0);
+                *o = sum.clamp(0.0, 1.0) as f32;
             }
         }
     }
@@ -303,7 +303,7 @@ struct RowState {
     band: Vec<BandEdge>,
     wind: Vec<i32>,
     /// Cell accumulator: `width + 1` cells (the extra one absorbs spill-over).
-    acc: Vec<f32>,
+    acc: Vec<f64>,
 }
 
 impl RowState {
@@ -314,13 +314,13 @@ impl RowState {
 
 /// Coverage `h` over the whole row (a boundary left of the rectangle).
 #[inline]
-fn add_full(acc: &mut [f32], h: f64) {
-    acc[0] += h as f32;
+fn add_full(acc: &mut [f64], h: f64) {
+    acc[0] += h;
 }
 
 /// Adds `w` × the area to the right of the segment `(xa, ya) → (xb, yb)` (`ya < yb`, both inside
 /// one pixel row) to the cell accumulator whose cell 0 is column `x0`.
-fn draw(acc: &mut [f32], x0: i32, xa: f64, ya: f64, xb: f64, yb: f64, w: f64) {
+fn draw(acc: &mut [f64], x0: i32, xa: f64, ya: f64, xb: f64, yb: f64, w: f64) {
     let width = (acc.len() - 1) as f64;
     let left = f64::from(x0);
     // Work in rectangle-relative x.
@@ -338,7 +338,7 @@ fn draw(acc: &mut [f32], x0: i32, xa: f64, ya: f64, xb: f64, yb: f64, w: f64) {
     // Part left of the rectangle: full coverage of every column.
     if ua < 0.0 {
         let cut = ub.min(0.0);
-        acc[0] += (w * h_of(ua, cut)) as f32;
+        acc[0] += w * h_of(ua, cut);
         if ub <= 0.0 {
             return;
         }
@@ -352,8 +352,8 @@ fn draw(acc: &mut [f32], x0: i32, xa: f64, ya: f64, xb: f64, yb: f64, w: f64) {
         let c = ua.floor();
         let f = ua - c;
         let ci = c as usize;
-        acc[ci] += (w * dy * (1.0 - f)) as f32;
-        acc[ci + 1] += (w * dy * f) as f32;
+        acc[ci] += w * dy * (1.0 - f);
+        acc[ci + 1] += w * dy * f;
         return;
     }
     let mut u = ua;
@@ -363,8 +363,8 @@ fn draw(acc: &mut [f32], x0: i32, xa: f64, ya: f64, xb: f64, yb: f64, w: f64) {
         let h = h_of(u, v);
         let m = 0.5 * (u + v) - c;
         let ci = c as usize;
-        acc[ci] += (w * h * (1.0 - m)) as f32;
-        acc[ci + 1] += (w * h * m) as f32;
+        acc[ci] += w * h * (1.0 - m);
+        acc[ci + 1] += w * h * m;
         if v <= u {
             break;
         }

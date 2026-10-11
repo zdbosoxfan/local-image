@@ -92,7 +92,7 @@ fn has_selection(s: &Session) -> std::result::Result<(), String> {
 /// Image › Image Rotation by a right angle or a flip (pixels, vectors, guides, … all move).
 fn turn(s: &mut Session, label: &str, t: crate::canvas_geom::Turn) -> Result<Value> {
     s.edit(label, |doc, _| {
-        crate::canvas_geom::turn_canvas(doc, t);
+        crate::canvas_geom::turn_canvas(doc, t)?;
         Ok(())
     })?;
     Ok(Value::Null)
@@ -290,6 +290,7 @@ fn build() -> Vec<CommandSpec> {
                     }
                 };
                 doc.resolution_dpi = res;
+                doc.design_units = crate::vector_packages::layout::new_document_units(p)?;
                 let i = s.add_document(doc, None);
                 Ok(json!({ "document": i }))
             }
@@ -738,7 +739,7 @@ fn build() -> Vec<CommandSpec> {
             "Move Layer",
             [],
             None,
-            r##"{"layer":id?,"dx":i32,"dy":i32} (no layer: every selected layer; linked layers follow)"##,
+            r##"{"layer":id?,"dx":i32,"dy":i32,"copy":bool=false} (no layer: every selected layer; linked layers follow; copy: duplicate and move atomically)"##,
             has_layer,
             crate::layer_multi_cmds::translate
         ),
@@ -1002,7 +1003,11 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::type_cmds::specs());
     v.extend(crate::transform_cmds::specs());
     v.extend(crate::float_cmds::specs());
+    v.extend(crate::vector_api::specs());
+    v.extend(crate::vector_packages::specs());
     v.extend(crate::vector_cmds::specs());
+    v.extend(crate::pathops_cmds::specs());
+    v.extend(crate::vectorize_cmds::specs());
     v.extend(crate::path_edit_cmds::specs());
     v.extend(crate::smartselect_cmds::specs());
     v.extend(crate::cutout_cmds::specs());
@@ -1014,6 +1019,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::history_cmds::specs());
     v.extend(crate::freqsep_cmds::specs());
     v.extend(crate::develop_layer_cmds::specs());
+    v.extend(crate::develop_filter_cmds::specs());
     v.extend(crate::perspective_crop_cmds::specs());
     v.extend(crate::edit_cmds::specs());
     v.extend(crate::color_cmds::specs());
@@ -1037,6 +1043,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::layer_multi_cmds::specs());
     v.extend(crate::layer_copy_cmds::specs());
     v.extend(crate::prefs::specs());
+    v.extend(crate::toolsets::specs());
     v.extend(crate::edit_menu_cmds::specs());
     v.extend(crate::fill_key_cmds::specs());
     v.extend(crate::brush_key_cmds::specs());
@@ -1055,6 +1062,8 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::comps_cmds::specs());
     v.extend(crate::artboard_cmds::specs());
     v.extend(crate::distort_cmds::specs());
+    v.extend(crate::cage_cmds::specs());
+    v.extend(crate::seamless_cmds::specs());
     v.extend(crate::analysis_cmds::specs());
     v.extend(crate::notes_cmds::specs());
     v.extend(crate::proof_sim::specs());
@@ -1161,7 +1170,7 @@ fn combine(a: &Surface, b: &Surface, area: Rect, f: impl Fn(f32, f32) -> f32) ->
 
 /// Move a layer's pixels, linked mask and type by whole pixels (vectors move via
 /// `vector_cmds::translate_vectors`).
-pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
+pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) -> Result<()> {
     use crate::layer_multi_cmds::shift_surface as translate_surface;
     // Linked patterns in the layer's effects move with it.
     if let Some(r) = &mut l.effects.reference {
@@ -1176,7 +1185,7 @@ pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
         LayerContent::Raster(s) => *s = translate_surface(s, dx, dy),
         LayerContent::Text(t) => {
             t.transform = photocraft_geom::Affine::translate(dx as f64, dy as f64).mul(&t.transform);
-            crate::type_cmds::refresh(doc, t);
+            crate::vector_integration::refresh_text(doc, t, &l.vector)?;
         }
         LayerContent::Group(g) => {
             // Moving an artboard moves the board with its contents.
@@ -1184,15 +1193,33 @@ pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
                 a.rect = a.rect.translate(dx, dy);
             }
             for c in &mut g.children {
-                translate_layer(doc, c, dx, dy);
+                translate_layer(doc, c, dx, dy)?;
             }
         }
         LayerContent::Smart(sm) => crate::smart_cmds::shift_smart(sm, dx, dy),
         _ => {}
     }
+    Ok(())
 }
 
 /// Does `l` (or any descendant) have id `target`?
 fn contains_layer(l: &Layer, target: LayerId) -> bool {
     l.id == target || l.children().is_some_and(|c| c.iter().any(|c| contains_layer(c, target)))
+}
+
+#[cfg(test)]
+mod registration_tests {
+    #[test]
+    fn integrated_command_ids_are_unique_and_findable() {
+        let specs = super::command_specs();
+        let mut ids = std::collections::BTreeSet::new();
+        for spec in specs {
+            assert!(ids.insert(spec.id), "duplicate command ID: {}", spec.id);
+            assert!(std::ptr::eq(super::find(spec.id).expect("registered command"), spec));
+        }
+        // Registration must retain the existing edit, AI and vector transaction routes.
+        for id in ["shape.create", "path.moveAnchors", "shape.applyPaths", "layer.vectorize", "toolset.list", "file.new"] {
+            assert!(ids.contains(id), "missing existing route: {id}");
+        }
+    }
 }

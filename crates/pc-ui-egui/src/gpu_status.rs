@@ -1,5 +1,5 @@
-//! GPU health in the shell (#243, #4): when the wgpu device is lost or reports an error, the
-//! GPU canvas is dropped and every document keeps drawing through the CPU compositor and egui
+//! GPU health in the shell (#243, #4): when the wgpu device is lost or keeps reporting errors,
+//! the GPU canvas is dropped and every document keeps drawing through the CPU compositor and egui
 //! textures for the rest of the session, with a recovery warning. Also runs the desktop app's
 //! "started" hook once the first frames have rendered (the crash-safe startup marker), and
 //! provides the Help › System Info text (including the monitor profile in use).
@@ -20,6 +20,16 @@ pub type StartedHook = Box<dyn FnOnce(&mut PhotocraftApp)>;
 
 /// Per-frame check: switch to the CPU canvas when the GPU faulted, and run the started hook.
 pub fn check(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    // A frame boundary for the error strikes: one uncaptured error is redone on the CPU, errors
+    // in several frames drop the GPU canvas (`photocraft_gpu::health`).
+    if let Some(g) = &app.gpu {
+        g.begin_frame(app.frame);
+    }
+    if app.gpu.as_ref().is_some_and(|g| g.recover_transient_errors()) {
+        app.canvases.clear();
+        app.proxy_uploaded = None;
+        ctx.request_repaint();
+    }
     if let Some(fault) = app.gpu.as_ref().and_then(|g| g.fault()) {
         fall_back(app, &fault);
         ctx.request_repaint();
@@ -85,6 +95,47 @@ pub fn system_info_json(app: &PhotocraftApp) -> serde_json::Value {
 /// Queue the same recovery warning for startup and runtime failures.
 pub fn queue_fallback_notice(app: &mut PhotocraftApp, reason: impl Into<String>) {
     app.ui.gpu_fallback_notice = Some(reason.into());
+}
+
+/// Run the started hook now if it hasn't run (a host showing another module, whose frames don't
+/// go through [`check`]).
+pub fn finish_startup(app: &mut PhotocraftApp) {
+    if let Some(hook) = app.started.take() {
+        hook(app);
+    }
+}
+
+/// The status bar's (and the Library title bar's) CPU-mode indicator: shown while GPU
+/// acceleration is off because of a failure, with the reason and Retry GPU in its popup.
+pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let Some(reason) = app.perf.gpu_info.failure().map(str::to_owned) else { return };
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let text = tl!("CPU mode");
+    let galley = ui.painter().layout_no_wrap(text.to_owned(), egui::FontId::proportional(11.5), t.warning);
+    let size = egui::vec2(galley.size().x + 26.0, 18.0);
+    let (r, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(r, 9.0, t.hover);
+    }
+    ui.painter().circle_filled(egui::pos2(r.left() + 10.0, r.center().y), 3.5, t.warning);
+    ui.painter().galley(egui::pos2(r.left() + 18.0, r.center().y - galley.size().y / 2.0), galley, t.warning);
+    let resp = resp.on_hover_text(tl!("GPU acceleration is off after a graphics failure."));
+    let mut retry = false;
+    egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        ui.set_max_width(360.0);
+        ui.label(egui::RichText::new(tl!("GPU acceleration is off after a graphics failure.")).color(t.warning));
+        ui.collapsing(tl!("Details"), |ui| {
+            ui.label(&reason);
+        });
+        ui.label(tl!("Retry GPU requires a restart. Save your work first."));
+        if crate::widgets::secondary_button(ui, tl!("Retry GPU"), 120.0).clicked() {
+            retry = true;
+            ui.close();
+        }
+    });
+    if retry && let Err(error) = choose_recovery(app, true) {
+        crate::notices::error(app, error);
+    }
 }
 
 /// Store the next-launch choice without restarting or risking unsaved documents.
@@ -167,6 +218,23 @@ mod tests {
         assert!(choose_recovery(&mut app, true).is_err());
         assert_eq!(app.ui.gpu_fallback_notice.as_deref(), Some("GPU fault"));
         assert!(app.ui.notices.is_empty());
+    }
+
+    #[test]
+    fn cpu_mode_after_a_failure_stays_visible() {
+        let mut info = crate::gpu_canvas::GpuInfo { canvas: "cpu".into(), ..Default::default() };
+        assert_eq!(info.failure(), None, "CPU chosen by the user: nothing to report");
+        info.recovery = Some("WGPU error: No suitable graphics adapter found".into());
+        assert_eq!(info.failure(), Some("WGPU error: No suitable graphics adapter found"));
+        assert!(info.lines().iter().any(|l| l.contains("No suitable graphics adapter")));
+        info.canvas = "gpu".into();
+        assert_eq!(info.failure(), None);
+        // The status bar draws the indicator without panicking, in both chrome styles.
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.perf.gpu_info = crate::gpu_canvas::GpuInfo { canvas: "cpu".into(), recovery: Some("driver hang".into()), ..Default::default() };
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| status_pill(&mut app, ui));
+        output.textures_delta.clear();
     }
 
     #[test]
