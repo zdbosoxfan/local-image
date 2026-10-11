@@ -529,3 +529,137 @@ fn path_stroke_rejects_oversized_brush_before_rendering() {
     let result = s.execute("path.stroke", json!({"size": 1e30}));
     assert!(result.is_err(), "path strokes share the bounded paint renderer");
 }
+
+#[test]
+fn bugfix_vector_legacy_paint_edits_update_appearance_and_rasterize_clears_metadata() {
+    use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, FillItem};
+    let mut s = session(100, 100, 8);
+    let id = s.execute("shape.create", json!({"kind":"rect","rect":[10,10,40,40],"fill":"#ff0000"})).unwrap()["layer"].as_u64().unwrap();
+    s.edit("Style", |d, _| {
+        d.layer_mut(LayerId(id)).unwrap().vector.appearance =
+            Some(Appearance { items: vec![AppearanceItem::Fill(FillItem::new(Fill::Solid(Color::rgb(1., 0., 0.))))] });
+        Ok(())
+    })
+    .unwrap();
+    s.execute("shape.edit", json!({"layer":id,"fill":"#0000ff"})).unwrap();
+    let projected = crate::vector_integration::project_document(doc(&s)).unwrap();
+    assert!(photocraft_compose::flatten(&projected).get(30, 30)[2] > 0.99);
+    assert!(shape(&s, id).cache.unwrap().read_region(photocraft_geom::Rect::new(30, 30, 31, 31))[2] > 0.99);
+    s.execute("shape.rasterize", json!({"layer":id})).unwrap();
+    assert_eq!(doc(&s).layer(LayerId(id)).unwrap().vector, Default::default());
+    assert!(crate::vector_integration::project_document(doc(&s)).is_ok());
+    assert!(s.undo());
+    assert!(doc(&s).layer(LayerId(id)).unwrap().vector.appearance.is_some());
+}
+
+#[test]
+fn bugfix_vector_outline_stroke_refuses_unexpanded_appearance() {
+    use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, FillItem};
+    let mut s = session(100, 100, 8);
+    let id = s.execute("shape.create", json!({"kind":"rect","rect":[10,10,40,40],"stroke":{"width":4},"fill":"#ff0000"})).unwrap()["layer"].as_u64().unwrap();
+    s.edit("Style", |d, _| {
+        d.layer_mut(LayerId(id)).unwrap().vector.appearance = Some(Appearance { items: vec![AppearanceItem::Fill(FillItem::new(Fill::Solid(Color::BLACK)))] });
+        Ok(())
+    })
+    .unwrap();
+    let before = doc(&s).clone();
+    assert!(s.execute("path.outlineStroke", json!({"layers":[id]})).is_err());
+    assert_eq!(*doc(&s), before);
+}
+#[test]
+fn bugfix_vector_flatten_and_merge_use_canvas_projection() {
+    use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, FillItem};
+    for command in ["layer.flattenImage", "layer.mergeVisible"] {
+        let mut s = session(100, 100, 8);
+        let id = s.execute("shape.create", json!({"kind":"rect","rect":[10,10,40,40],"fill":"#ff0000"})).unwrap()["layer"].as_u64().unwrap();
+        s.edit("Style", |d, _| {
+            d.layer_mut(LayerId(id)).unwrap().vector.appearance =
+                Some(Appearance { items: vec![AppearanceItem::Fill(FillItem::new(Fill::Solid(Color::rgb(0., 0., 1.))))] });
+            Ok(())
+        })
+        .unwrap();
+        let original = doc(&s).clone();
+        let expected = photocraft_compose::flatten(&crate::vector_integration::project_document(doc(&s)).unwrap());
+        s.execute(command, json!({})).unwrap();
+        assert_eq!(photocraft_compose::flatten(doc(&s)).px, expected.px, "{command}");
+        assert!(s.undo());
+        assert_eq!(*doc(&s), original);
+    }
+}
+#[test]
+fn bugfix_vector_rasterize_path_effect_bakes_pixels_and_clears_effect() {
+    use photocraft_doc::vector_design::effects::{EffectKind, PathEffect};
+    let mut s = session(100, 100, 8);
+    let id = s.execute("shape.create", json!({"kind":"rect","rect":[10,10,40,40],"fill":"#ff0000"})).unwrap()["layer"].as_u64().unwrap();
+    s.edit("Effect", |d, _| {
+        let l = d.layer_mut(LayerId(id)).unwrap();
+        l.vector.effects.push(PathEffect::new(EffectKind::presets().remove(0)));
+        l.opacity = 0.5;
+        l.fill_opacity = 0.5;
+        l.clipped = true;
+        Ok(())
+    })
+    .unwrap();
+    let before = doc(&s).clone();
+    let expected = photocraft_compose::flatten(&crate::vector_integration::project_document(doc(&s)).unwrap());
+    s.execute("shape.rasterize", json!({"layer":id})).unwrap();
+    assert!(doc(&s).layer(LayerId(id)).unwrap().vector.effects.is_empty());
+    let projected = crate::vector_integration::project_document(doc(&s)).unwrap();
+    let actual = photocraft_compose::flatten(&projected);
+    assert_eq!(actual.px.len(), expected.px.len());
+    // A rasterized group's premultiply/unpremultiply round trip can differ by one f32 ULP.
+    assert!(actual.px.iter().zip(&expected.px).all(|(a, b)| a.iter().zip(b).all(|(a, b)| (a - b).abs() <= 1e-6)));
+    assert!(s.undo());
+    assert_eq!(*doc(&s), before);
+}
+#[test]
+fn bugfix_vector_lock_keeps_global_swatch_links() {
+    use photocraft_doc::vector_design::swatches::*;
+    let mut s = session(100, 100, 8);
+    let id = LayerId(s.execute("shape.create", json!({"kind":"rect","rect":[10,10,40,40],"fill":"#ff0000"})).unwrap()["layer"].as_u64().unwrap());
+    s.edit("Link", |d, _| {
+        d.swatches.swatches.push(Swatch {
+            id: SwatchId(1),
+            name: "Brand".into(),
+            paint: Fill::Solid(Color::rgb(1., 0., 0.)),
+            global: true,
+            spot: false,
+            group: None,
+            stops: vec![],
+        });
+        d.swatches.links.push(PaintLink {
+            target: PaintTarget { symbol: None, layer: id, paint: PaintSlot::Fill, stop: None },
+            reference: SwatchRef { swatch: SwatchId(1), tint: 100. },
+        });
+        Ok(())
+    })
+    .unwrap();
+    let links = doc(&s).swatches.links.clone();
+    s.edit("Lock", |d, _| {
+        d.layer_mut(id).unwrap().locks.all = true;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(doc(&s).swatches.links, links);
+    s.edit("Unlock", |d, _| {
+        d.layer_mut(id).unwrap().locks.all = false;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(doc(&s).swatches.links, links);
+}
+#[test]
+fn bugfix_vector_flat_export_matches_projected_paints() {
+    use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, FillItem};
+    let mut s = session(100, 100, 8);
+    let id = LayerId(s.execute("shape.create", json!({"kind":"rect","rect":[10,10,40,40],"fill":"#ff0000"})).unwrap()["layer"].as_u64().unwrap());
+    s.edit("Style", |d, _| {
+        d.layer_mut(id).unwrap().vector.appearance = Some(Appearance { items: vec![AppearanceItem::Fill(FillItem::new(Fill::Solid(Color::rgb(0., 0., 1.))))] });
+        Ok(())
+    })
+    .unwrap();
+    let exported = crate::vector_integration::export_document(doc(&s), "png", &Default::default()).unwrap();
+    let reopened = photocraft_io::import("drawing.png", &exported.bytes).unwrap().document;
+    let pixel = photocraft_compose::flatten(&reopened).get(30, 30);
+    assert!(pixel[2] > 0.99 && pixel[0] < 0.01, "{pixel:?}");
+}

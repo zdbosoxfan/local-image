@@ -279,7 +279,17 @@ fn outline_layers(s: &mut Session, input: &[Layer], label: &str) -> Result<Value
     let doc = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
     let mut plans = Vec::new();
     for original in input {
-        let LayerContent::Shape(shape) = &original.content else { return Err(bad(CMD, "shape missing")) };
+        if original.vector.appearance.is_some()
+            || original.vector.live_shape.is_some()
+            || !original.vector.corners.is_empty()
+            || original.vector.clip.is_some()
+            || !original.vector.effects.is_empty()
+        {
+            return Err(bad(CMD, "Use Expand Appearance to outline live or advanced strokes"));
+        }
+        let LayerContent::Shape(shape) = &original.content else {
+            return Err(bad(CMD, "shape missing"));
+        };
         let stroke = shape.stroke.as_ref().ok_or_else(|| bad(CMD, "outlineStroke requires a stroke on every input"))?;
         let path = ops::outline_stroke(&shape.path, stroke, photocraft_vector::DEFAULT_TOLERANCE).map_err(|e| bad(CMD, e.to_string()))?;
         let mut outlined = photocraft_doc::ShapeLayer { path, fill: Some(stroke.paint.clone()), ..Default::default() };

@@ -1,0 +1,27 @@
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling photocraft-io v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-io)
+   Compiling photocraft-engine v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-engine)
+   Compiling photocraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-ui-egui)
+    Finished `test` profile [optimized + debuginfo] target(s) in 49.16s
+     Running tests/gpu/main.rs (target/debug/deps/gpu-c2e1e11a10db02f9)
+
+running 1 test
+PDF full-app adapter AdapterInfo { name: "NVIDIA GeForce RTX 5090", vendor: 4318, device: 11141, device_type: DiscreteGpu, device_pci_bus_id: "0000:01:00.0", driver: "NVIDIA", driver_info: "615.71.09", backend: Vulkan, subgroup_min_size: 32, subgroup_max_size: 32, transient_saves_memory: Some(false), limit_bucket: None }
+PDF pointer update+GPU presentation diagnostic 26.522054ms
+PDF pointer update+GPU presentation diagnostic 21.036422ms
+PDF app GPU premultiplied max 0.000007688999
+PDF pointer update+GPU presentation diagnostic 31.279266ms
+PDF app GPU premultiplied max 0.000007688999
+PDF pointer update+GPU presentation diagnostic 19.051596ms
+PDF pointer update+GPU presentation diagnostic 16.075253ms
+PDF pointer update+GPU presentation diagnostic 20.42317ms
+PDF app GPU premultiplied max 0.000007688999
+PDF app GPU premultiplied max 0.000007688999
+PDF app GPU premultiplied max 0
+PDF pointer update+GPU presentation diagnostic 16.005223ms
+PDF pointer update+GPU presentation diagnostic 20.119543ms
+PDF pointer update+GPU presentation diagnostic 15.879955ms
+test pdf_import_app_acceptance::pdf_import_full_app_rtx_pointer_preview_release_select_edit_undo_cancel ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 1.37s
+

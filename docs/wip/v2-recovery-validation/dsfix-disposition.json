@@ -268,7 +268,7 @@
     "source_verdict": "UNSURE \u2014 prohibited/unregistered GPU gate",
     "source_change": "No speculative pointer edit. The named test requires the RTX app harness and is not registered in this branch's UI crate. Its required run conflicts with the explicit no-GPU rule.",
     "source_test": "Coordinator must register/run `pdf_import_full_app_rtx_pointer_preview_release_select_edit_undo_cancel` once on the RTX machine.",
-    "stage1_disposition": "pending: saved app-GPU fixture exists, but is unregistered; register and run during vector boundary",
+    "stage1_disposition": "registered saved full-app PDF fixture with process-wide GPU guard; original pointer coordinates retained; RTX 5090/Vulkan preview/release/select/edit/undo/cancel and GPU parity pass (1 test, exit 0, 50.663 s total, 1.37 s runtime)",
     "focused_matches": {}
   },
   {
@@ -494,9 +494,9 @@
     "source_verdict": "REAL \u2014 fixed",
     "source_change": "Measure each glyph/decoration once using its actual display transform, warp and faux styling; reject items outside each tile before drawing.",
     "source_test": "dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items \u2014 passed",
-    "stage1_disposition": "preserved newer once-projected text lines with per-tile bound rejection; source regression adaptation pending vector paint-run overlap",
+    "stage1_disposition": "preserved newer once-projected outlines and early clipped-ink rejection; adapted saved overlap/distant-bound regression passes in vector-focused",
     "focused_matches": {
-      "dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items": false
+      "dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items": true
     }
   },
   {
@@ -505,9 +505,9 @@
     "source_verdict": "REAL \u2014 fixed",
     "source_change": "Composite in glyph layout order, followed by decorations; union coverage only across consecutive visible same-color items.",
     "source_test": "dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items \u2014 passed",
-    "stage1_disposition": "pending saved vector paint-run order fix; avoid replacing newer projected-line renderer with older dsfix glyph renderer",
+    "stage1_disposition": "newer saved vector paint_runs preserves consecutive layout order in projected lines/native/path rendering; saved dsfix overlap and vector multi-render regression pass in vector-focused",
     "focused_matches": {
-      "dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items": false
+      "dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items": true
     }
   },
   {

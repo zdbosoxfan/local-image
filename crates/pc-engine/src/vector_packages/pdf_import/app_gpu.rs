@@ -81,6 +81,7 @@ fn present(h: &mut H, gpu: &GpuCanvas, doc: &Document) {
 }
 #[test]
 fn pdf_import_full_app_rtx_pointer_preview_release_select_edit_undo_cancel() {
+    let _gpu = crate::gpu_lock();
     let (mut h, gpu) = harness();
     let before = h.state().session.active().unwrap().doc.clone();
     let revision = h.state().session.active().unwrap().revision;

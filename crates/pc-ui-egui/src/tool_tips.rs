@@ -359,7 +359,7 @@ pub fn entry(tool: Tool) -> Entry {
             ),
             Some(Handler::Pen) => e(
                 tl!("Draws an editable path with anchors and handles."),
-                &[tl!("Click to add an anchor; drag to draw direction handles."), tl!("Press Enter to finish the path or Escape to cancel.")],
+                &[tl!("Click to add an anchor; drag to draw direction handles."), tl!("Press Enter or Escape to finish the path.")],
             ),
             Some(Handler::VectorPencil) => e(
                 tl!("Fits an editable vector path to a freehand stroke."),

@@ -14,6 +14,7 @@ pub(crate) struct Pending {
     dirty: Rect,
     show_bar: bool,
     colourise_after: bool,
+    undo: Vec<(Rect, Vec<u8>)>,
 }
 
 fn sync(app: &mut PhotocraftApp) {
@@ -28,6 +29,7 @@ fn new(app: &PhotocraftApp) -> Option<Pending> {
     let d = app.session.active()?;
     let size = [d.doc.size.width, d.doc.size.height];
     Some(Pending {
+        undo: Vec::new(),
         doc: d.doc.id.0,
         size,
         mask: vec![0; size[0] as usize * size[1] as usize],
@@ -69,6 +71,10 @@ pub(crate) fn paint(app: &mut PhotocraftApp, points: &[[f64; 3]], subtract: bool
     let Some(p) = app.ai_remove.as_mut() else { return };
     let clipped = r.intersect(&Rect::from_xywh(0, 0, p.size[0], p.size[1]));
     let previous = p.bounds;
+    let mut before = Vec::new();
+    for y in clipped.y0..clipped.y1 {
+        before.extend_from_slice(&p.mask[y as usize * p.size[0] as usize + clipped.x0 as usize..y as usize * p.size[0] as usize + clipped.x1 as usize]);
+    }
     let mut dirty = Rect::EMPTY;
     let mut removed_edge = false;
     for y in clipped.y0..clipped.y1 {
@@ -101,7 +107,16 @@ pub(crate) fn paint(app: &mut PhotocraftApp, points: &[[f64; 3]], subtract: bool
     }
     p.dirty = p.dirty.union(&dirty);
     p.show_bar = true;
-    if p.bounds.is_empty() {
+    if !dirty.is_empty() {
+        const UNDO_BYTES: usize = 32 << 20;
+        while !p.undo.is_empty() && (p.undo.len() >= 32 || p.undo.iter().map(|(_, bytes)| bytes.len()).sum::<usize>() + before.len() > UNDO_BYTES) {
+            p.undo.remove(0);
+        }
+        if before.len() <= UNDO_BYTES {
+            p.undo.push((clipped, before));
+        }
+    }
+    if p.bounds.is_empty() && p.undo.is_empty() {
         app.ai_remove = None;
     } else if app.ui.ai.remove_immediately && !subtract {
         remove(app);
@@ -172,7 +187,19 @@ pub(crate) fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if (app.ai_remove.is_none() && !painting) || ctx.memory(|m| m.top_modal_layer().is_some()) {
         return;
     }
-    if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+    if !ctx.text_edit_focused() && ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z)) {
+        if let Some(p) = &mut app.ai_remove
+            && let Some((rect, before)) = p.undo.pop()
+        {
+            for (row, y) in (rect.y0..rect.y1).enumerate() {
+                let start = y as usize * p.size[0] as usize + rect.x0 as usize;
+                p.mask[start..start + rect.width() as usize].copy_from_slice(&before[row * rect.width() as usize..(row + 1) * rect.width() as usize]);
+            }
+            changed(p);
+        }
+        app.drag = None;
+        app.trail = None;
+    } else if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
         app.ai_remove = None;
         app.drag = None;
         app.trail = None;

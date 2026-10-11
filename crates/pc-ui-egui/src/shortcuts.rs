@@ -84,6 +84,18 @@ pub fn tool_shortcut_id(tool: Tool) -> String {
 }
 
 pub fn tool_shortcut(session: &photocraft_engine::Session, tool: Tool) -> Option<String> {
+    if session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+        let id = format!("tools.select.{tool:?}");
+        let preset = session.prefs().toolbar.vector_keyboard.preset;
+        let name = format!("{tool:?}");
+        let default = photocraft_engine::vector_toolbar_layout::tool_bindings(preset).iter().find(|b| b.target == name).map(|b| b.key);
+        if !session.prefs().shortcuts.contains_key(&id)
+            && default.is_some_and(|key| session.prefs().shortcuts.values().any(|binding| !binding.is_empty() && parse(binding) == parse(key)))
+        {
+            return None;
+        }
+        return session.prefs().shortcut(&id, default).map(str::to_string);
+    }
     let id = tool_shortcut_id(tool);
     let default = default_shortcut(&id);
     session.prefs().shortcut(&id, default.as_deref()).map(str::to_string)
@@ -383,6 +395,14 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // Tool keys; pressing the key of the current group cycles within it. With Preferences ›
     // Tools › Use Shift Key for Tool Switch, only ⇧+key cycles and the plain key keeps the
     // group's current tool.
+    for (id, binding) in &app.session.prefs().shortcuts.clone() {
+        if let Some(tool) = id.strip_prefix("tools.select.").and_then(Tool::from_name)
+            && parse(binding).is_some_and(|shortcut| consume(ctx, &shortcut))
+        {
+            crate::toolsets_ui::persona::select_tool(app, ctx, tool);
+            return;
+        }
+    }
     let shift_switch = app.session.prefs().tools.use_shift_key_for_tool_switch;
     for (id, _, _) in photocraft_engine::prefs::TOOL_SHORTCUTS {
         let Some(t) = id.strip_prefix("tools.select.").and_then(Tool::from_name) else { continue };

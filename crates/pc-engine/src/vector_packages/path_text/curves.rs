@@ -7,7 +7,7 @@ use photocraft_text::render::PathEl;
 pub fn paths(paints: &[PaintedOutline]) -> Vec<(Color, Path)> {
     let mut out: Vec<(Color, Path)> = Vec::new();
     for paint in paints {
-        let index = out.iter().position(|(c, _)| *c == paint.color).unwrap_or_else(|| {
+        let index = out.last().filter(|(c, _)| *c == paint.color).map(|_| out.len() - 1).unwrap_or_else(|| {
             out.push((paint.color, Path::default()));
             out.len() - 1
         });

@@ -425,6 +425,9 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
 /// selected the Shape tools, the Pen (in Shape mode) and the path selection tools show *that
 /// layer's* fill, stroke and geometry and edit it; otherwise the Shape tools show their defaults.
 pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bool {
+    if matches!(tool, Tool::DirectSelection | Tool::Rectangle | Tool::EllipseShape | Tool::Polygon | Tool::Triangle | Tool::Line) {
+        return false;
+    }
     if !(is_shape_tool(tool) || matches!(tool, Tool::Pen | Tool::PathSelection | Tool::DirectSelection)) {
         return false;
     }
@@ -466,7 +469,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         lbl(
             ui,
             &crate::i18n::fmt(
-                tl!("Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel"),
+                tl!("Click: corner · Drag: smooth · Click first point: close · {key} or Esc finish"),
                 &[("key", &crate::shortcuts::pretty("Enter"))],
             ),
         );
@@ -777,6 +780,31 @@ pub fn shape_layer_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
         }
     }
     apply_shape_edit(app, id, edit);
+    if let Some(design) = &layer.vector.live_shape {
+        let mut design = design.clone();
+        if let photocraft_doc::vector_design::drawing::ShapeParameters::Rect { radii, .. } = &mut design.parameters {
+            let corners = ui.button(tl!("Corners"));
+            let mut changed = false;
+            egui::Popup::menu(&corners).show(|ui| {
+                for (label, radius) in [tl!("Top left"), tl!("Top right"), tl!("Bottom right"), tl!("Bottom left")].into_iter().zip(radii.iter_mut()) {
+                    ui.horizontal(|ui| {
+                        let label = ui.label(label);
+                        changed |= ui.add(egui::DragValue::new(radius).range(0.0..=1e6)).labelled_by(label.id).changed();
+                    });
+                }
+            });
+            if changed {
+                let Some(st) = app.session.active() else {
+                    return true;
+                };
+                let params = json!({"document":st.doc.id.0,"revision":st.revision,"edits":[{"layer":id.0,"design":design}]});
+                if let Err(e) = app.run("shape.design.set", params) {
+                    app.ui.status = e;
+                    app.ui.status_error = true;
+                }
+            }
+        }
+    }
     true
 }
 

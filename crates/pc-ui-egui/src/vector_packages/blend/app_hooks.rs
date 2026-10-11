@@ -13,17 +13,18 @@ use photocraft_geom::Point;
 use std::sync::Arc;
 pub fn synchronize(state: &mut State, app: &PhotocraftApp, ctx: &egui::Context) {
     let current = app.ui.tool.label();
-    if state.host_tool.is_some_and(|previous| previous != current) || !app.ui.dialogs.is_empty() {
+    if state.host_tool.is_some_and(|previous| previous != current) {
         state.cancel();
         state.edit_spine = false;
     }
     state.host_tool = Some(current);
     let enabled = app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector;
     state.synchronize(&app.session, enabled);
-    if ctx.input(|i| {
-        !i.focused || i.key_pressed(egui::Key::Escape) || i.events.iter().any(|e| matches!(e, egui::Event::PointerGone | egui::Event::WindowFocused(false)))
-    }) {
+    if crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::None && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         state.cancel();
+    }
+    if !ctx.input(|i| i.focused) {
+        state.drag = None;
     }
 }
 pub fn event(state: &mut State, s: &mut Session, event: ToolEvent, mods: egui::Modifiers, zoom: f64) -> Result<bool> {

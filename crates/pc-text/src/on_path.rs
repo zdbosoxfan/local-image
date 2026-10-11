@@ -463,9 +463,10 @@ pub fn rasterize(layout: &PathLayout, transform: &Affine, format: PixelFormat, a
     let stride = n + 1;
     let mut pixels = vec![0.0_f32; w * h * stride];
     let mut budget = 1_048_576;
-    for color in colors {
+    for run in paths.chunk_by(|a, b| a.color == b.color) {
+        let color = run[0].color;
         let mut coverage = raster::Coverage::new(w, h);
-        draw(&paths, Some(color), &mut coverage, Affine::translate(-f64::from(rect.x0), -f64::from(rect.y0)), &mut budget)?;
+        draw(run, Some(color), &mut coverage, Affine::translate(-f64::from(rect.x0), -f64::from(rect.y0)), &mut budget)?;
         let [r, g, b] = color.to_rgb();
         let comps = if color.mode == format.mode {
             color.c[..n].to_vec()

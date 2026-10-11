@@ -286,7 +286,7 @@ pub fn preset_settings(name: &str) -> Option<WebSettings> {
 /// by `"width"`/`"height"`/`"percent"`, flattened. Returns the document and the scale factors.
 pub fn web_document(doc: &Document, p: &Value, st: &WebSettings) -> Result<(Document, f64, f64)> {
     let mut tmp = Session::new();
-    tmp.add_document(doc.clone(), None);
+    tmp.add_document(crate::vector_integration::project_document(doc)?, None);
     let mode = doc.mode;
     if mode != photocraft_color::ColorMode::Rgb {
         tmp.execute("image.mode.rgb", json!({}))?;

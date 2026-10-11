@@ -91,4 +91,30 @@ mod dsfix_tests {
         let out = close(&input, Gap::Small).unwrap();
         assert_eq!(out.len(), 3, "one bridge, rather than two coincident bridges");
     }
+
+    #[test]
+    fn bugfix_vector_gap_endpoint_curve_ties_reserve_both_ends() {
+        for reversed in [false, true] {
+            let mut input = vec![
+                ops::Shape::new(Path::new(vec![Subpath::polyline(&[(-20., 0.), (0., 0.)])]), 1),
+                ops::Shape::new(Path::new(vec![Subpath::polyline(&[(2., 0.), (22., 0.)])]), 2),
+            ];
+            if reversed {
+                input.reverse();
+            }
+            let out = close(&input, Gap::Small).unwrap();
+            assert_eq!(out.len(), 3, "one bridge per gap");
+            let broken = photocraft_doc::Layer::new(
+                "Broken rectangle",
+                photocraft_doc::LayerContent::Shape(photocraft_doc::ShapeLayer {
+                    path: Path::new(vec![Subpath::polyline(&[(0., 0.), (0., 20.), (20., 20.), (20., 0.), (2., 0.)])]),
+                    ..Default::default()
+                }),
+            );
+            let graph = crate::live_paint::Graph::new(&[broken], Gap::Small).unwrap();
+            assert_eq!(graph.inputs.len(), 2);
+            assert_eq!(graph.faces.len(), 1);
+            assert!(graph.face_at(photocraft_geom::Point::new(10., 10.)).unwrap().is_some());
+        }
+    }
 }

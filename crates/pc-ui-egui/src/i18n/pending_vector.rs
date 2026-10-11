@@ -62,6 +62,10 @@
     "The copied files contain no readable image",
     "Import or job failed unexpectedly; the document is unchanged",
 
+    "Convert text and symbols to curves to apply this transform.",
+    "Click: corner · Drag: smooth · Click first point: close · {key} or Esc finish",
+    "Press Enter or Escape to finish the path.",
+    "Top left", "Top right", "Bottom right", "Bottom left",
     "document was closed",
     "Saved a copy to {path}",
     "Export failed: {error}",

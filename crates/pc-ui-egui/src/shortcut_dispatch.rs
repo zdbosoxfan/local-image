@@ -78,7 +78,30 @@ pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
     let secondary = SECONDARY.iter().filter(|(id, _)| !prefs.shortcuts.contains_key(*id)).map(|&(id, sc)| (id, Some(sc)));
     let pixel: Vec<_> =
         ui.chain(engine).chain(catalog).chain(overrides).chain(secondary).filter_map(|(id, sc)| sc.map(|sc| (id.to_owned(), sc.to_owned()))).collect();
-    photocraft_engine::vector_toolbar_layout::command_bindings(prefs.toolbar.persona, &pixel)
+    let mut result = photocraft_engine::vector_toolbar_layout::command_bindings_for(prefs.toolbar.persona, prefs.toolbar.vector_keyboard.preset, &pixel);
+    let custom: Vec<_> = prefs.shortcuts.iter().filter(|(id, _)| !id.starts_with("tools.select.") && !crate::hold_keys::is_temporary(id)).collect();
+    result.retain(|(id, key)| {
+        !prefs.shortcuts.contains_key(id)
+            && !prefs
+                .shortcuts
+                .values()
+                .any(|binding| !binding.is_empty() && crate::fill_stroke_proxy::shortcut(binding) == crate::fill_stroke_proxy::shortcut(key))
+    });
+    let mut explicit: Vec<_> = custom.into_iter().filter(|(_, key)| !key.is_empty()).map(|(id, key)| (id.clone(), key.clone())).collect();
+    explicit.extend(result);
+    let mut seen = Vec::new();
+    explicit.retain(|(_, key)| {
+        let Some(shortcut) = crate::fill_stroke_proxy::shortcut(key) else {
+            return false;
+        };
+        if seen.contains(&shortcut) {
+            false
+        } else {
+            seen.push(shortcut);
+            true
+        }
+    });
+    explicit
 }
 pub fn bindings(app: &PhotocraftApp) -> Vec<(String, KeyboardShortcut)> {
     let mut all = Vec::new();
@@ -101,8 +124,34 @@ pub enum Focus {
     Text,
 }
 
+#[derive(Default)]
+struct InputFocus;
+fn input_focus_id(viewport: egui::ViewportId) -> egui::Id {
+    egui::Id::new(("shortcut-input-focus", viewport))
+}
+impl egui::Plugin for InputFocus {
+    fn debug_name(&self) -> &'static str {
+        "Shortcut input focus"
+    }
+    fn input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+        // egui clears widget focus on Escape before application handlers run.
+        let focus = if input.events.iter().any(|event| matches!(event, egui::Event::Key { key: Key::Escape, pressed: true, .. })) {
+            Focus::current(ctx)
+        } else {
+            Focus::None
+        };
+        ctx.data_mut(|data| data.insert_temp(input_focus_id(input.viewport_id), focus));
+    }
+}
 impl Focus {
     pub fn of(ctx: &egui::Context) -> Focus {
+        if ctx.plugin_opt::<InputFocus>().is_none() {
+            ctx.add_plugin(InputFocus);
+        }
+        let current = Self::current(ctx);
+        if current == Focus::None { ctx.data(|data| data.get_temp(input_focus_id(ctx.viewport_id()))).unwrap_or(current) } else { current }
+    }
+    fn current(ctx: &egui::Context) -> Focus {
         // A layer rename keeps its keys even in the frame egui drops its focus (Esc, Tab).
         if ctx.text_edit_focused() || crate::layer_row_ui::rename_active(ctx) {
             Focus::Text

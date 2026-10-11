@@ -210,24 +210,13 @@ struct ProjectedColor {
     lines: Vec<ProjectedLine>,
 }
 fn project_lines(layout: &TextLayout, transform: &Affine, warp: Option<&Warp>) -> Result<Vec<ProjectedColor>, &'static str> {
-    let key = |c: Color| (c.mode as u8, c.c.map(f32::to_bits), c.alpha.to_bits());
-    let mut colors = Vec::new();
-    let mut slots = std::collections::HashMap::new();
-    for style in &layout.styles {
-        if let std::collections::hash_map::Entry::Vacant(entry) = slots.entry(key(style.color)) {
-            entry.insert(colors.len());
-            colors.push(style.color);
-        }
-    }
-    let mut groups = vec![Vec::new(); colors.len()];
-    for glyph in &layout.glyphs {
-        groups[slots[&key(layout.styles[glyph.style as usize].color)]].push(*glyph);
-    }
+    let groups = super::render::paint_runs(layout);
     let mut part = layout.clone();
     let mut projected = Vec::new();
     let mut total = 0usize;
-    for (color, glyphs) in colors.into_iter().zip(groups) {
+    for (color, glyphs, decorations) in groups {
         part.glyphs = glyphs;
+        part.decorations = decorations;
         let mut cache = LineCache::default();
         draw(&part, &Xform(transform.m), &mut cache, Some(&color), warp);
         total += cache.lines.len();
@@ -299,5 +288,87 @@ mod tests {
         let mut invalid = text.clone();
         invalid.transform = Affine::scale(f64::MAX);
         assert!(render_text_view(&mut engine, &invalid, 72.0, PixelFormat::RGBA8, clip, 4.0).is_err());
+    }
+    #[test]
+    fn bugfix_vector_overlapping_native_text_preserves_run_paint_order() {
+        use photocraft_doc::{
+            Color,
+            text::{AntiAlias, TextRun},
+        };
+        for alpha in [1., 0.5] {
+            let mut engine = super::super::TextEngine::new();
+            let mut layer =
+                TextLayer { text: "HHH".into(), size_pt: 24., transform: Affine::translate(0., 30.), antialias: AntiAlias::None, ..Default::default() };
+            let initial = engine.layout(&layer, 72.);
+            let advance = initial.glyphs[1].x - initial.glyphs[0].x;
+            let mut red = initial.styles[0].clone();
+            red.color = Color::rgba(1., 0., 0., alpha);
+            red.tracking = -advance / red.size_pt * 1000.;
+            let mut blue = red.clone();
+            blue.color = Color::rgba(0., 0., 1., alpha);
+            layer.runs = vec![TextRun { len: 1, style: red.clone() }, TextRun { len: 1, style: blue }, TextRun { len: 1, style: red }];
+            let layout = engine.layout(&layer, 72.);
+            assert!(layout.glyphs.iter().all(|g| (g.x - layout.glyphs[0].x).abs() < 0.05));
+            let clip = Rect::new(0, 0, 64, 64);
+            let view = render_layout_view(&layout, &layer, PixelFormat::RGBA32F, clip, 1.).unwrap();
+            let native = super::super::render::rasterize(&layout, &layer.transform, PixelFormat::RGBA32F, layer.antialias).surface;
+            struct Line;
+            impl super::super::on_path::Curve for Line {
+                fn length(&self) -> f64 {
+                    200.
+                }
+                fn closed(&self) -> bool {
+                    false
+                }
+                fn sample(&self, s: f64) -> (photocraft_geom::Point, photocraft_geom::Point) {
+                    (photocraft_geom::Point::new(s, 30.), photocraft_geom::Point::new(1., 0.))
+                }
+            }
+            let options =
+                photocraft_doc::vector_design::text::PathText { path: Default::default(), start: 0., end: 1., flip: false, align: Default::default() };
+            let on_path = super::super::on_path::place(layout.clone(), &Line, &options, photocraft_doc::text::TextAlign::Left).unwrap();
+            let on_path = super::super::on_path::rasterize(&on_path, &Affine::IDENTITY, PixelFormat::RGBA32F, layer.antialias, clip).unwrap().surface;
+            for surface in [view, native, on_path] {
+                let pixels = surface.read_region(clip);
+                let solid: Vec<_> = pixels.as_chunks::<4>().0.iter().filter(|p| p[3] > if alpha == 1. { 0.999 } else { 0.87 }).collect();
+                assert!(!solid.is_empty());
+                for p in solid {
+                    assert!((p[0] - if alpha == 1. { 1. } else { 5. / 7. }).abs() < 0.001, "{p:?}");
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items() {
+        let mut engine = super::super::TextEngine::new();
+        let text = TextLayer { text: "HHH".into(), size_pt: 24., ..Default::default() };
+        let mut layout = engine.layout(&text, 72.);
+        layout.styles[0].color = Color::rgb(1., 0., 0.);
+        let mut blue = layout.styles[0].clone();
+        blue.color = Color::rgb(0., 0., 1.);
+        layout.styles.push(blue);
+        let x = layout.glyphs[0].x;
+        for (i, glyph) in layout.glyphs.iter_mut().enumerate() {
+            glyph.x = x;
+            glyph.style = u32::from(i == 1);
+        }
+        let transform = Affine::translate(0., 30.);
+        let projected = project_lines(&layout, &transform, None).unwrap();
+        let far = Rect::new(256, 0, 512, 256);
+        assert!(projected.iter().flat_map(|group| &group.lines).all(|line| line.a.0.max(line.b.0) < f64::from(far.x0)));
+        let layer = TextLayer { transform, ..text };
+        // The current view rejects the complete clipped ink bounds before it
+        // projects outlines; no font opening/flattening occurs per tile.
+        assert!(render_layout_view(&layout, &layer, PixelFormat::RGBA32F, far, 1.).unwrap().content_bounds().is_empty());
+        let pixels = rasterize_tile(&projected, PixelFormat::RGBA32F, AntiAlias::None, Rect::new(0, 0, 64, 64));
+        let solid: Vec<_> = pixels.as_chunks::<4>().0.iter().filter(|p| p[3] > 0.999).collect();
+        assert!(!solid.is_empty());
+        assert!(solid.iter().all(|p| p[0] > 0.999 && p[2] < 0.001), "the final red glyph must cover the middle blue glyph");
     }
 }

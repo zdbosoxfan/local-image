@@ -283,3 +283,17 @@ fn restoration_detected_mask_fill_once_then_optional_colourise_preview() {
     h.state_mut().run("edit.undo", json!({})).unwrap();
     assert_eq!(h.state().session.active().unwrap().doc, before);
 }
+#[test]
+fn bugfix_vector_remove_undo_keeps_document_and_removes_last_stroke() {
+    let mut h = harness();
+    let before = h.state().session.active().unwrap().doc.clone();
+    let history = h.state().session.active().unwrap().history.past_len();
+    stroke(&mut h, 60., 70., Modifiers::NONE);
+    let mask = h.state().ai_remove.as_ref().unwrap().mask.clone();
+    stroke(&mut h, 190., 160., Modifiers::NONE);
+    h.event(Event::Key { key: Key::Z, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::COMMAND });
+    h.run_steps(3);
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
+    assert_eq!(h.state().session.active().unwrap().doc, before);
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+}

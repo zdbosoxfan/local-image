@@ -179,7 +179,7 @@ pub fn execute(s: &mut Session, state: &mut State, command: Command) -> Result<(
         }
     }
 }
-fn inside_enabled(s: &Session) -> bool {
+pub(crate) fn inside_enabled(s: &Session) -> bool {
     let Some(st) = s.active() else { return false };
     let ids = st.selected_layers();
     let [id] = ids.as_slice() else { return false };

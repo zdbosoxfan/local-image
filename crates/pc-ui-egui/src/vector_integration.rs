@@ -30,6 +30,19 @@ pub struct State {
     projection: Option<(u64, u64, u64, Arc<Document>, Arc<Document>)>,
     damage: Option<(u64, (u64, u64), (u64, u64), photocraft_geom::Rect)>,
 }
+pub(crate) fn retain_documents(app: &mut PhotocraftApp) {
+    let live = app.session.documents().iter().map(|st| st.doc.id).collect();
+    app.vector_runtime.views.retain(&live);
+    if app.vector_runtime.projection.as_ref().is_some_and(|(id, _, _, _, _)| !live.contains(&photocraft_doc::DocId(*id))) {
+        app.vector_runtime.projection = None;
+    }
+    if app.vector_runtime.owned_preview.as_ref().is_some_and(|(id, _, _)| !live.contains(&photocraft_doc::DocId(*id))) {
+        app.vector_runtime.owned_preview = None;
+    }
+    if app.vector_runtime.preview.as_ref().is_some_and(|(id, _, _)| !live.contains(&photocraft_doc::DocId(*id))) {
+        app.vector_runtime.preview = None;
+    }
+}
 fn report(app: &mut PhotocraftApp, result: impl ToString) {
     app.ui.status = result.to_string();
     app.ui.status_error = true;
@@ -53,7 +66,6 @@ pub fn cancel(app: &mut PhotocraftApp) {
     app.vector_runtime.preview = None;
     app.vector_runtime.swatches.cancel();
     app.vector_runtime.recolor.cancel();
-    app.vector_runtime.ase = None;
     app.vector_runtime.owned_preview = None;
 }
 fn constructive(tool: Tool) -> Option<crate::constructive::Tool> {
@@ -154,9 +166,12 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) {
     shared.snapping.enabled = app.ui.extras.snap;
     app.shared_tools = shared;
     let ids = app.session.active().map(|st| st.selected_layers()).unwrap_or_default();
-    let (focused, escape) = ctx.input(|i| (i.focused, i.key_pressed(egui::Key::Escape)));
-    if !focused || escape || !app.ui.dialogs.is_empty() {
-        cancel(app);
+    let focused = ctx.input(|i| i.focused);
+    let escape = crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::None && ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    if !focused {
+        let mut shared = std::mem::take(&mut app.shared_tools);
+        shared.suspend(app);
+        app.shared_tools = shared;
         app.ui.persona_pointer.clear();
     }
     crate::vector_packages::layout_app_hooks::synchronize(app, ctx);
@@ -180,10 +195,13 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) {
     app.blob_eraser.frame(&app.session, ctx, matches!(tool, Tool::BlobBrush | Tool::VectorEraser));
     app.envelope_state.set_target(ids.first().copied());
     app.envelope_state.lifecycle(&app.session, tool == Tool::Envelope, focused, escape);
-    if let Some(kind) = transform(tool) {
+    if !app.vector_transform_tools.active()
+        && let Some(kind) = transform(tool)
+    {
         app.vector_transform_tools.kind = kind;
     }
-    app.vector_transform_tools.lifecycle(&app.session, &ids, transform(tool).is_some(), focused, escape);
+    let transform_enabled = transform(tool).is_some() || app.vector_transform_tools.active();
+    app.vector_transform_tools.lifecycle(&app.session, &ids, transform_enabled, focused, escape);
     app.mesh_state.lifecycle(&app.session, &ids, tool == Tool::Mesh, focused, escape);
     app.clip_compound_state.frame(&app.session, persona == Persona::Vector, focused, escape);
     app.ui.fill_stroke_proxy.synchronize(&app.session, &ids, persona == Persona::Vector);
@@ -222,6 +240,8 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) {
     crate::vector_packages::layout_app_hooks::window(app, ctx);
     windows(app, ctx);
     crate::graphic_styles::frame(app, ctx);
+    crate::object_path::app_hooks::dialogs(app, ctx);
+    crate::direct_select::conversion_dialog(app, ctx);
     app.vector_transform_tools.dialogs(ctx, &mut app.session);
     crate::pdf_import::show(app, ctx);
     crate::vector_packages::pdf_export::frame(app, ctx);
@@ -441,9 +461,30 @@ pub fn pointer(app: &mut PhotocraftApp, event: ToolEvent, mods: egui::Modifiers)
     }
 }
 
+fn canvas_scrollbar_at(app: &PhotocraftApp, idx: usize, xf: &ViewXform, rect: egui::Rect, pos: egui::Pos2) -> bool {
+    let size = app.session.documents()[idx].doc.size;
+    let horizontal = crate::scrollbars::Span::of(size.width as f32, xf.center[0], rect.width(), xf.zoom).is_some_and(|s| s.extent(xf.zoom).is_some());
+    let vertical = crate::scrollbars::Span::of(size.height as f32, xf.center[1], rect.height(), xf.zoom).is_some_and(|s| s.extent(xf.zoom).is_some());
+    let (h, v) = crate::scrollbars::bar_rects(rect, horizontal, vertical);
+    h.is_some_and(|r| r.contains(pos)) || v.is_some_and(|r| r.contains(pos))
+}
+
 /// Raw pointer ownership is decided before normal Move/paint handling, including release.
 pub fn input(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, response: &egui::Response, xf: &ViewXform, rect: egui::Rect) -> bool {
     if app.session.active_index() != Some(idx) {
+        return false;
+    }
+    let drawing =
+        app.shared_tools.drawing.is_active() || crate::crop_ui::active(app) || app.drag.as_ref().is_some_and(|drag| crate::hold_keys::repositions(drag.tool));
+    if crate::hold_keys::for_frame(app, ui.ctx(), drawing).is_some() {
+        return false;
+    }
+    let down = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::PointerButton { pressed: true, .. })));
+    if down
+        && ui
+            .input(|i| i.pointer.interact_pos())
+            .is_some_and(|pos| ui.ctx().layer_id_at(pos) != Some(response.layer_id) || canvas_scrollbar_at(app, idx, xf, rect, pos))
+    {
         return false;
     }
     if isolation_canvas(app, ui, response, xf, rect) {
@@ -938,6 +979,29 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     if crate::vector_packages::path_text_app_hooks::keys(app, ctx) {
         return true;
     }
+    let mut shared = std::mem::take(&mut app.shared_tools);
+    let shared_keys = shared.keys(app, ctx);
+    app.shared_tools = shared;
+    if shared_keys {
+        return true;
+    }
+    if crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::None {
+        let remove = matches!(app.ui.tool, Tool::Width | Tool::VectorPuppetWarp)
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace));
+        if remove {
+            let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
+            if app.ui.tool == Tool::Width {
+                if let Err(e) = app.width_state.delete_selected(&mut app.session, &ids) {
+                    report(app, e);
+                }
+            } else {
+                let mut state = crate::distort_tools::bridge(ctx);
+                state.state.delete_pins();
+                crate::distort_tools::save_bridge(ctx, state);
+            }
+            return true;
+        }
+    }
     // Inline canvas text is not an egui TextEdit. Its letters belong to the type editor.
     if app.ui.text_edit.is_some() {
         return false;
@@ -951,46 +1015,37 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     if crate::anchor_tools::keys(app, ctx) {
         return true;
     }
-    let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
-    match crate::fill_stroke_proxy::keys(ctx, &mut app.ui.fill_stroke_proxy, &mut app.session, &ids, true) {
-        Ok(true) => return true,
-        Err(e) => {
-            report(app, e);
+    if crate::shortcut_dispatch::dispatch_pressed(app, ctx, crate::shortcut_dispatch::Focus::of(ctx), false) {
+        return true;
+    }
+    if crate::shortcut_dispatch::Focus::of(ctx) != crate::shortcut_dispatch::Focus::None {
+        return false;
+    }
+    let preset = app.session.prefs().toolbar.vector_keyboard.preset;
+    for (id, key) in &app.session.prefs().shortcuts.clone() {
+        if let Some(tool) = id.strip_prefix("tools.select.").and_then(Tool::from_name)
+            && crate::fill_stroke_proxy::shortcut(key).is_some_and(|sc| crate::shortcuts::consume(ctx, &sc))
+        {
+            crate::toolsets_ui::persona::select_tool(app, ctx, tool);
             return true;
         }
-        _ => {}
     }
-    if crate::clip_compound::shortcuts(ctx, &mut app.session, &mut app.clip_compound_state, true) {
-        return true;
-    }
-    let registered: Vec<_> = photocraft_engine::toolsets::tools_for(Persona::Vector);
-    let preset = app.session.prefs().toolbar.vector_keyboard.preset;
-    let mut live = crate::live_paint::state(ctx);
-    live.shortcuts(
-        &mut app.session,
-        ctx,
-        match preset {
-            photocraft_engine::vector_toolbar_layout::Preset::Illustrator => crate::live_paint::Keymap::Illustrator,
-            photocraft_engine::vector_toolbar_layout::Preset::Affinity => crate::live_paint::Keymap::Affinity,
-        },
-        true,
-    );
-    let live_tool = live.tool;
-    crate::live_paint::store(ctx, live);
-    if let Some(tool) = live_tool.map(|tool| match tool {
-        crate::live_paint::Tool::Bucket => Tool::LivePaintBucket,
-        crate::live_paint::Tool::Selection => Tool::LivePaintSelection,
-        crate::live_paint::Tool::Flood => Tool::VectorFloodFill,
-    }) && tool != app.ui.tool
-    {
-        crate::toolsets_ui::persona::select_tool(app, ctx, tool);
-        return true;
-    }
-    if let Some(id) = crate::fill_stroke_proxy::tool_key(ctx, preset, &registered, &format!("{:?}", app.ui.tool))
-        && let Some(tool) = Tool::from_name(&id)
-    {
-        crate::toolsets_ui::persona::select_tool(app, ctx, tool);
-        return true;
+    let registered = photocraft_engine::toolsets::tools_for(Persona::Vector);
+    for id in &registered {
+        if let Some(tool) = Tool::from_name(id)
+            && crate::shortcuts::tool_shortcut(&app.session, tool)
+                .as_deref()
+                .and_then(crate::fill_stroke_proxy::shortcut)
+                .is_some_and(|sc| crate::shortcuts::consume(ctx, &sc))
+        {
+            let current = format!("{:?}", app.ui.tool);
+            let key = crate::shortcuts::tool_shortcut(&app.session, tool).unwrap_or_default();
+            let tool = photocraft_engine::vector_toolbar_layout::tool_for_key_after(Persona::Vector, preset, &key, &registered, &current)
+                .and_then(Tool::from_name)
+                .unwrap_or(tool);
+            crate::toolsets_ui::persona::select_tool(app, ctx, tool);
+            return true;
+        }
     }
     false
 }
@@ -1011,6 +1066,50 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, _params: &se
         return Some(Ok(serde_json::json!({"handled":true})));
     }
     let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
+    if app.session.prefs().toolbar.persona == Persona::Vector {
+        if id == "edit.copy" {
+            crate::object_path::app_hooks::copy(app, ctx);
+            return Some(Ok(serde_json::json!({"handled":true})));
+        }
+        if let Some(command) = id.strip_prefix("object.paste") {
+            let command = if command == "Front" {
+                "pasteFront"
+            } else if command == "Back" {
+                "pasteBack"
+            } else {
+                return None;
+            };
+            return Some(
+                crate::object_path::app_hooks::menu_command(app, ctx, command).map(|()| serde_json::json!({"handled":true})).map_err(|e| e.to_string()),
+            );
+        }
+        if let Some(action) = id.strip_prefix("vector.paint.") {
+            use crate::fill_stroke_proxy::{Action, ActivePaint};
+            let action = match action {
+                "swap" => Some(Action::Swap),
+                "default" => Some(Action::Default),
+                "none" => Some(Action::None),
+                "active" => {
+                    app.ui.fill_stroke_proxy.active =
+                        if app.ui.fill_stroke_proxy.active == ActivePaint::Fill { ActivePaint::Stroke } else { ActivePaint::Fill };
+                    None
+                }
+                _ => return None,
+            };
+            let result = if let Some(action) = action { app.ui.fill_stroke_proxy.apply(&mut app.session, &ids, &action) } else { Ok(()) };
+            return Some(result.map(|()| serde_json::json!({"handled":true})).map_err(|e| e.to_string()));
+        }
+        if id == "vector.drawMode.cycle" {
+            use photocraft_engine::vector_packages::clip_compound::DrawMode;
+            app.clip_compound_state.cancel();
+            app.clip_compound_state.settings.mode = match app.clip_compound_state.settings.mode {
+                DrawMode::Normal => DrawMode::Behind,
+                DrawMode::Behind if crate::clip_compound::inside_enabled(&app.session) => DrawMode::Inside,
+                _ => DrawMode::Normal,
+            };
+            return Some(Ok(serde_json::json!({"handled":true})));
+        }
+    }
     if let Some(kind) = id.strip_prefix("ui.vector.transform.") {
         use crate::vector_transform_tools::Kind;
         app.vector_transform_tools.kind = match kind {
@@ -1024,7 +1123,7 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, _params: &se
         };
         return Some(app.vector_transform_tools.open_dialog(&app.session, &ids).map(|()| serde_json::json!({"handled":true})).map_err(|e| e.to_string()));
     }
-    if let Some(command) = id.strip_prefix("ui.vector.path.") {
+    if let Some(command) = id.strip_prefix("ui.vector.path.").or_else(|| (id == "object.path.join").then_some("join")) {
         return Some(crate::object_path::app_hooks::menu_command(app, ctx, command).map(|()| serde_json::json!({"handled":true})).map_err(|e| e.to_string()));
     }
     if let Some(index) = id.strip_prefix("ui.vector.effect.").and_then(|n| n.parse::<usize>().ok()) {
@@ -1039,7 +1138,9 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, _params: &se
         crate::path_effects::app_hooks::store(ctx, bridge);
         return Some(result.map(|()| serde_json::json!({"handled":true})).map_err(|e| e.to_string()));
     }
-    if let Some(query) = id.strip_prefix("ui.vector.select.") {
+    if let Some(query) =
+        id.strip_prefix("ui.vector.select.").or_else(|| (id == "select.deselect" && app.session.prefs().toolbar.persona == Persona::Vector).then_some("none"))
+    {
         use photocraft_engine::vector_packages::selection::Query;
         let mut b = crate::vector_packages::selection::bridge(ctx);
         let chosen = match query {
@@ -1146,6 +1247,13 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, _params: &se
         "object.clippingMask.make" => {
             crate::clip_compound::execute(&mut app.session, &mut app.clip_compound_state, crate::clip_compound::Command::MakeClip).map_err(|e| e.to_string())
         }
+        "object.clippingMask.release" => {
+            crate::clip_compound::execute(&mut app.session, &mut app.clip_compound_state, crate::clip_compound::Command::ReleaseClip).map_err(|e| e.to_string())
+        }
+        "object.compoundPath.release" => {
+            crate::clip_compound::execute(&mut app.session, &mut app.clip_compound_state, crate::clip_compound::Command::ReleaseCompound)
+                .map_err(|e| e.to_string())
+        }
         "object.compoundPath.make" => {
             crate::clip_compound::execute(&mut app.session, &mut app.clip_compound_state, crate::clip_compound::Command::MakeCompound)
                 .map_err(|e| e.to_string())
@@ -1189,17 +1297,22 @@ pub fn menus(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 }
                 ui.close();
             }
-            ui.menu_button(crate::i18n::t("Keyboard Preset"), |ui| {
-                let mut preset = app.session.prefs().toolbar.vector_keyboard.preset;
-                for p in [photocraft_engine::vector_toolbar_layout::Preset::Illustrator, photocraft_engine::vector_toolbar_layout::Preset::Affinity] {
-                    if ui.selectable_value(&mut preset, p, format!("{p:?}")).changed() {
-                        app.session.edit_prefs(|prefs| prefs.toolbar.vector_keyboard.preset = preset);
-                    }
-                }
-            });
         });
     });
 }
+pub(crate) fn keyboard_preset(ui: &mut egui::Ui, preset: &mut photocraft_engine::vector_toolbar_layout::Preset) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(crate::i18n::t("Vector Keyboard Preset"));
+        egui::ComboBox::from_id_salt("vector-keyboard-preset").selected_text(format!("{preset:?}")).show_ui(ui, |ui| {
+            for choice in [photocraft_engine::vector_toolbar_layout::Preset::Illustrator, photocraft_engine::vector_toolbar_layout::Preset::Affinity] {
+                changed |= ui.selectable_value(preset, choice, format!("{choice:?}")).changed();
+            }
+        });
+    });
+    changed
+}
+
 fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let names: Vec<_> = app.vector_runtime.windows.iter().cloned().collect();
     for name in names {
@@ -1298,7 +1411,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
         ("ui.vector.recolor", "Recolor Artwork…", vec!["Edit", "Edit Colors"]),
         ("ui.vector.blend", "Blend Options", vec!["Object", "Blend"]),
         ("ui.vector.repeat", "Repeat Options", vec!["Object", "Repeat"]),
-        ("ui.vector.path.join", "Join", vec!["Object", "Path"]),
+        ("object.path.join", "Join", vec!["Object", "Path"]),
         ("ui.vector.path.addAnchors", "Add Anchor Points", vec!["Object", "Path"]),
         ("ui.vector.path.removeAnchors", "Remove Anchor Points", vec!["Object", "Path"]),
         ("ui.vector.path.divideBelow", "Divide Objects Below", vec!["Object", "Path"]),
@@ -1307,13 +1420,16 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
         ("ui.vector.path.grid", "Split Into Grid…", vec!["Object", "Path"]),
         ("ui.vector.path.cleanup", "Clean Up…", vec!["Object", "Path"]),
         ("ui.vector.path.outline", "Outline Stroke", vec!["Object", "Path"]),
+        ("ui.vector.path.offset", "Offset Path…", vec!["Object", "Path"]),
         ("ui.vector.path.expand", "Expand…", vec!["Object"]),
         ("ui.vector.path.expandAppearance", "Expand Appearance", vec!["Object"]),
         ("vector.transform.again", "Transform Again", vec!["Object", "Transform"]),
         ("vector.object.lock", "Lock Objects", vec!["Object"]),
         ("vector.object.hide", "Hide Objects", vec!["Object"]),
         ("object.clippingMask.make", "Make Clipping Mask", vec!["Object", "Clipping Mask"]),
+        ("object.clippingMask.release", "Release Clipping Mask", vec!["Object", "Clipping Mask"]),
         ("object.compoundPath.make", "Make Compound Path", vec!["Object", "Compound Path"]),
+        ("object.compoundPath.release", "Release Compound Path", vec!["Object", "Compound Path"]),
         ("vector.view.outline", "Outline", vec!["View"]),
         ("vector.snap.smartGuides", "Smart Guides", vec!["View"]),
         ("ui.vector.select.all", "All Vector Objects", vec!["Select"]),
@@ -1381,11 +1497,15 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
     out
 }
 pub fn handles(id: &str) -> bool {
-    id.starts_with("ui.vector.")
+    id.starts_with("vector.paint.")
+        || id == "vector.drawMode.cycle"
+        || matches!(id, "object.pasteFront" | "object.pasteBack")
+        || id.starts_with("ui.vector.")
         || id.starts_with("window.vector.")
         || matches!(
             id,
-            "ui.svg.export"
+            "object.path.join"
+                | "ui.svg.export"
                 | "ui.pdf.export"
                 | "file.export.pdf"
                 | "layer.vectorize"
@@ -1581,3 +1701,7 @@ mod review_tests {
         assert_eq!(crate::dock::active_tab(&app, crate::dock::Place::Docked(crate::dock::Group::Layers)), Some(crate::dock::Tab::Symbols));
     }
 }
+
+#[cfg(test)]
+#[path = "vector_integration/review_tests.rs"]
+mod bugfix_vector_tests;

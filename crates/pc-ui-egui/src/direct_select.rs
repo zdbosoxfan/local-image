@@ -663,8 +663,11 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     let c = app.ui.direct_selection.drag.as_ref().map(|d| match d {
         Drag::Edit { capture, .. } | Drag::Marquee { capture, .. } => capture,
     });
-    if c.is_some_and(|c| !current(app, c)) || app.ui.direct_selection.pending.as_ref().is_some_and(|p| !current(app, &p.capture)) || !ctx.input(|i| i.focused) {
+    if c.is_some_and(|c| !current(app, c)) || app.ui.direct_selection.pending.as_ref().is_some_and(|p| !current(app, &p.capture)) {
         cancel(app);
+    }
+    if !ctx.input(|i| i.focused) {
+        app.ui.direct_selection.drag = None;
     }
     if app.ui.tool != Tool::DirectSelection && app.ui.direct_selection.drag.is_none() {
         return false;
@@ -825,18 +828,8 @@ pub fn context_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             action(app, Operation::Align { axis: "x".into(), value: (b[0] + b[2]) * 0.5 });
         }
     });
-    if let Some(pending) = app.ui.direct_selection.pending.clone() {
-        let frame = ui.ctx().cumulative_frame_nr();
-        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("node-modal-frame"), frame));
-        egui::Modal::new(egui::Id::new("node-live-conversion")).show(ui.ctx(), |ui| {
-            ui.label(tl!("Convert the live shape to curves to edit its nodes?"));
-            if ui.button(tl!("Convert to curves")).clicked() {
-                app.ui.direct_selection.pending = None;
-                if current(app, &pending.capture) { run(app,"path.node.edit",json!({"targets":pending.targets,"operation":pending.operation,"convertLive":true,"document":pending.capture.document,"revision":pending.capture.revision})); }
-            }
-            if ui.button(tl!("Cancel")).clicked() { cancel(app); }
-        });
-    }
+
+    conversion_dialog(app, ui.ctx());
 }
 
 /// Paths with their anchors (selected ones filled), the shown handles, the drag's preview in
@@ -900,4 +893,23 @@ pub fn anchor_tool_handles(app: &PhotocraftApp) -> Vec<crate::anchor_tools::Show
         out.extend(shown_handles(&ds, path).into_iter().map(|(knot, handle)| crate::anchor_tools::ShownHandle { target: index, knot, handle }));
     }
     out
+}
+
+/// Draw independently of options-bar ownership and widget keyboard focus.
+pub fn conversion_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if ctx.data(|d| d.get_temp::<u64>(egui::Id::new("node-modal-frame"))) == Some(ctx.cumulative_frame_nr()) {
+        return;
+    }
+    if let Some(pending) = app.ui.direct_selection.pending.clone() {
+        let frame = ctx.cumulative_frame_nr();
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new("node-modal-frame"), frame));
+        egui::Modal::new(egui::Id::new("node-live-conversion")).show(ctx, |ui| {
+            ui.label(tl!("Convert the live shape to curves to edit its nodes?"));
+            if ui.button(tl!("Convert to curves")).clicked() {
+                app.ui.direct_selection.pending = None;
+                if current(app, &pending.capture) { run(app,"path.node.edit",json!({"targets":pending.targets,"operation":pending.operation,"convertLive":true,"document":pending.capture.document,"revision":pending.capture.revision})); }
+            }
+            if ui.button(tl!("Cancel")).clicked() { cancel(app); }
+        });
+    }
 }

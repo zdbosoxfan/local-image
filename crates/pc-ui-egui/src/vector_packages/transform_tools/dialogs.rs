@@ -182,15 +182,12 @@ impl State {
         if let Some(request) = self.pending.clone() {
             let mut action = 0;
             egui::Window::new(t("Transform text and symbols")).collapsible(false).resizable(false).show(ctx, |ui| {
-                ui.label(t("Convert text and symbols to curves, or keep them editable with an envelope."));
+                ui.label(t("Convert text and symbols to curves to apply this transform."));
                 if let Some(error) = &self.error {
                     ui.colored_label(Color32::RED, t(error));
                 }
                 if ui.button(t("Convert to Curves")).clicked() {
                     action = 1;
-                }
-                if ui.button(t("Non-destructive Envelope")).clicked() {
-                    action = 2;
                 }
                 if ui.button(t("Cancel")).clicked() {
                     action = 3;

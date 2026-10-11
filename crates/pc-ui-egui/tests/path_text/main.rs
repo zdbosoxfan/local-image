@@ -139,11 +139,15 @@ fn path_text_ui_escape_focus_tool_change_and_staleness_cancel() {
     h.step();
     key(&mut h, Key::Escape);
     assert!(h.state().state.preview.is_none());
+    let LayerContent::Text(text) = &h.state().session.active().unwrap().doc.layer(active(&h)).unwrap().content else { panic!("finished text") };
+    assert_eq!(text.text, "ABC");
+    assert!(h.state_mut().session.undo());
     assert_eq!(h.state().session.active().unwrap().doc, before);
     click(&mut h, 228., 128.);
     h.event(Event::WindowFocused(false));
     h.step();
-    assert!(h.state().state.draft.is_none());
+    assert!(h.state().state.draft.is_some());
+    assert_eq!(h.state().session.active().unwrap().doc, before);
     click(&mut h, 228., 128.);
     h.state_mut().enabled = false;
     h.step();

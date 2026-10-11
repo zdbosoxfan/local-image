@@ -428,11 +428,8 @@ pub fn input(
                 state.select_all(s);
                 Ok(())
             }
-            Event::Key { key: Key::Enter, pressed: true, .. } => state.commit(s),
-            Event::Key { key: Key::Escape, pressed: true, .. } | Event::WindowFocused(false) | Event::PointerGone => {
-                state.cancel();
-                Ok(())
-            }
+            Event::Key { key: Key::Enter | Key::Escape, pressed: true, .. } => state.commit(s),
+            Event::WindowFocused(false) | Event::PointerGone => Ok(()),
             _ => Ok(()),
         };
         if let Err(e) = result {

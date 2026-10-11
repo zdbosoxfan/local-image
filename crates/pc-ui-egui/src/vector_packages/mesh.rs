@@ -67,7 +67,7 @@ impl State {
     pub fn lifecycle(&mut self, s: &Session, ids: &[LayerId], enabled: bool, focused: bool, escape: bool) {
         let stale = self.capture.as_ref().is_some_and(|c| !c.gesture.is_fresh(s) || c.ids != ids)
             || self.color_gesture.as_ref().is_some_and(|g| !g.is_fresh(s) || g.request().edits.iter().any(|e| !ids.contains(&e.layer)));
-        if !enabled || !focused || escape || stale {
+        if !enabled || !focused && self.capture.is_some() || escape || stale {
             self.cancel();
         }
         if self.selected.is_some_and(|(id, _)| !ids.contains(&id)) {
@@ -237,7 +237,12 @@ impl State {
         tolerance: f64,
         enabled: bool,
     ) -> Result<()> {
-        let (events, mods, focus, escape) = ctx.input(|i| (i.events.clone(), i.modifiers, i.focused, i.key_pressed(Key::Escape)));
+        let (mut events, mods, focus, escape) = ctx.input(|i| (i.events.clone(), i.modifiers, i.focused, i.key_pressed(Key::Escape)));
+        let canvas_focus = crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::None;
+        let escape = escape && canvas_focus;
+        if !canvas_focus {
+            events.retain(|e| !matches!(e, Event::Key { key: Key::Escape, .. }));
+        }
         self.lifecycle(s, ids, enabled, focus, escape);
         if !enabled || !focus || escape {
             return Ok(());

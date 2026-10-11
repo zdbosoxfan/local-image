@@ -308,7 +308,12 @@ pub fn export_document(
     name: &str,
     options: &photocraft_io::ExportOptions,
 ) -> std::result::Result<photocraft_io::ExportResult, photocraft_io::IoError> {
-    photocraft_io::export_with_projection(source, name, options, Some(&LayeredSaveProjection))
+    let ext = std::path::Path::new(name).extension().and_then(|s| s.to_str()).unwrap_or(name).to_ascii_lowercase();
+    if matches!(ext.as_str(), "pcraft" | "psd" | "psb") || ext == "tif" && options.tiff_layers || ext == "tiff" && options.tiff_layers {
+        return photocraft_io::export_with_projection(source, name, options, Some(&LayeredSaveProjection));
+    }
+    let projected = project_document(source).map_err(|e| photocraft_io::IoError::Unsupported(e.to_string()))?;
+    photocraft_io::export(&projected, name, options)
 }
 
 /// Native editable vector imports share the file worker's cancellation and publication.

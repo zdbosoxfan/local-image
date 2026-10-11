@@ -101,11 +101,8 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &Context) -> bool {
                 app.shared_tools.path_text.select_all(&app.session);
                 Ok(())
             }
-            Event::Key { key: Key::Enter, pressed: true, .. } => app.shared_tools.path_text.commit(&mut app.session),
-            Event::Key { key: Key::Escape, pressed: true, .. } | Event::WindowFocused(false) | Event::PointerGone => {
-                app.shared_tools.path_text.cancel();
-                Ok(())
-            }
+            Event::Key { key: Key::Enter | Key::Escape, pressed: true, .. } => app.shared_tools.path_text.commit(&mut app.session),
+            Event::WindowFocused(false) | Event::PointerGone => Ok(()),
             _ => continue,
         };
         handled.push(index);

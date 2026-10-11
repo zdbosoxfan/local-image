@@ -155,6 +155,10 @@ fn path_text_app_gpu_actual_curve_typing_zoomed_preview_release_undo_cancel() {
         key(&mut h, Key::Escape);
         h.run_steps(2);
         assert!(h.state().shared_tools.path_text.preview.is_none());
+        let state = h.state().session.active().unwrap();
+        let LayerContent::Text(text) = &state.doc.layer(state.active_layer.unwrap()).unwrap().content else { panic!("finished path text") };
+        assert_eq!(text.text, "cancel");
+        assert!(h.state_mut().session.undo());
         assert_eq!(h.state().session.active().unwrap().doc, before);
     }
 }
