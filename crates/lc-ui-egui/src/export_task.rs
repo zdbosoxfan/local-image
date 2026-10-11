@@ -18,6 +18,7 @@ use crate::LightcraftApp;
 use crate::theme::Tokens;
 
 pub struct ExportTask {
+    library_generation: u64,
     pub total: usize,
     /// Photos started so far and the file in progress.
     pub progress: Arc<Mutex<(usize, String)>>,
@@ -78,13 +79,18 @@ pub fn start(
     std::thread::Builder::new().name("export".into()).spawn(work).map_err(|e| e.to_string())?;
     #[cfg(target_arch = "wasm32")]
     work();
-    app.export = Some(ExportTask { total, progress, cancel, enhance_ctl, rx, after });
+    app.export = Some(ExportTask { library_generation: app.session.library_generation, total, progress, cancel, enhance_ctl, rx, after });
     Ok(json!({"background": true, "total": total}))
 }
 
 /// Per frame: draw the progress panel; when the batch finishes, report it.
 pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
     let Some(task) = &app.export else { return };
+    let library_changed = task.library_generation != app.session.library_generation;
+    if library_changed {
+        task.cancel.store(true, Ordering::Relaxed);
+        task.enhance_ctl.cancel();
+    }
     match task.rx.try_recv() {
         Ok(r) => {
             let cancelled = task.cancel.load(Ordering::Relaxed);
@@ -107,10 +113,12 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
                     if cancelled {
                         m += " · cancelled";
                     }
-                    if let Some(note) = after.run(app, &files) {
+                    if library_changed {
+                        m += " · library changed; completion actions were skipped";
+                    } else if let Some(note) = after.run(app, &files) {
                         m += &format!(" · {note}");
                     }
-                    app.last_export_result = Some(json!({"files": files, "cancelled": cancelled}));
+                    app.last_export_result = Some(json!({"files": files, "cancelled": cancelled, "libraryChanged": library_changed}));
                     m
                 }
                 Err(e) => e,
@@ -149,5 +157,53 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
             app.export = None;
             app.toast(ctx, "Export stopped unexpectedly");
         }
+    }
+}
+
+#[cfg(test)]
+mod library_origin_tests {
+    use super::*;
+
+    #[test]
+    fn library_origin_export_never_runs_completion_actions_in_another_library() {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
+        let (tx, rx) = channel();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = calls.clone();
+        app.services.reveal = Some(Box::new(move |_| {
+            seen.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }));
+        let cancel = Arc::new(AtomicBool::new(false));
+        app.export = Some(ExportTask {
+            library_generation: app.session.library_generation,
+            total: 1,
+            progress: Default::default(),
+            cancel: cancel.clone(),
+            enhance_ctl: lightcraft_engine::enhance::JobCtl::new(),
+            rx,
+            after: crate::control::AfterExport { add_to_library: true, add_to_stack: true, after: "showInFolder".into(), app: String::new() },
+        });
+        assert!(crate::panels::settings::open_library(&mut app, &json!({"path":"unused-export-library"})).is_err());
+        app.session
+            .open_library_in(
+                lightcraft_engine::library::LibraryStores {
+                    dir: "other-library".into(),
+                    catalog: Box::new(lightcraft_catalog::MemStore::new()),
+                    files: Box::new(lightcraft_catalog::MemStore::new()),
+                    on_disk: false,
+                },
+                false,
+            )
+            .unwrap();
+        let before = serde_json::to_value(&app.session.catalog).unwrap();
+        tx.send(Ok(vec![json!({"path":"original-export.png","photo":1})])).unwrap();
+        poll(&mut app, &egui::Context::default());
+        assert!(app.export.is_none());
+        assert!(cancel.load(Ordering::Relaxed));
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        assert_eq!(serde_json::to_value(&app.session.catalog).unwrap(), before);
+        assert!(app.session.undo.is_empty());
+        assert_eq!(app.last_export_result.as_ref().unwrap()["libraryChanged"], true);
     }
 }

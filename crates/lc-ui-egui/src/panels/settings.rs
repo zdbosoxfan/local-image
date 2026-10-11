@@ -604,6 +604,9 @@ fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 /// `app.openLibrary {path?}`: close the current library and open (or create) the one at `path`,
 /// or a folder chosen in a dialog. Remembered as the library to open at launch.
 pub fn open_library(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
+    if app.import.is_some() || app.export.is_some() {
+        return Err("Finish or cancel the current import or export before switching libraries".into());
+    }
     let path = match p.get("path").and_then(Value::as_str) {
         Some(x) => x.to_string(),
         None => match app.services.has_folder_picker() {
@@ -617,6 +620,11 @@ pub fn open_library(app: &mut LightcraftApp, p: &Value) -> Result<Value, String>
     app.session.close_library().map_err(|e| e.to_string())?;
     app.session.open_library(&path, false).map_err(|e| e.to_string())?;
     app.renderer.forget_all();
+    // A review from the old catalog contains its duplicate/album identities.
+    app.scan = None;
+    if matches!(app.ui.dialog, Some(crate::state::Dialog::Import { .. })) {
+        app.ui.dialog = None;
+    }
     app.people_task = None;
     app.smart_sort = None;
     app.people_images = Default::default();

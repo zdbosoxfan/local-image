@@ -12,6 +12,7 @@ type Finish = Box<dyn FnOnce(&mut LightcraftApp, &egui::Context) + Send>;
 
 struct Task {
     label: String,
+    library_generation: u64,
     rx: Receiver<Finish>,
 }
 
@@ -60,7 +61,7 @@ pub fn spawn<T: Send + 'static>(
     std::thread::Builder::new().name(format!("lc-task-{label}")).spawn(job).map_err(|e| format!("{label}: could not start: {e}"))?;
     #[cfg(target_arch = "wasm32")]
     job();
-    app.tasks.running.push(Task { label: label.to_string(), rx });
+    app.tasks.running.push(Task { label: label.to_string(), library_generation: app.session.library_generation, rx });
     Ok(())
 }
 
@@ -69,6 +70,15 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
     app.tasks.repaint = Some(ctx.clone());
     let mut i = 0;
     while i < app.tasks.running.len() {
+        if app.tasks.running[i].library_generation != app.session.library_generation {
+            let task = app.tasks.running.remove(i);
+            if task.label == "Assisted Culling"
+                && let Some(control) = app.tasks.culling.take()
+            {
+                control.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            continue;
+        }
         match app.tasks.running[i].rx.try_recv() {
             Ok(finish) => {
                 app.tasks.running.remove(i);
@@ -182,5 +192,54 @@ mod bugfix_develop_tests {
         output.textures_delta.clear();
         assert!(super::wait(&mut app, &ctx, std::time::Duration::from_secs(20)));
         assert_eq!(app.session.catalog.revision, revision);
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod library_origin_tests {
+    #[test]
+    fn library_origin_drops_delayed_catalog_callbacks() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        };
+        let mut app = crate::LightcraftApp::new(lightcraft_engine::Session::new(), Default::default());
+        let (ready, started) = mpsc::channel();
+        let (release, wait) = mpsc::channel();
+        let (ended, finished) = mpsc::channel();
+        let applied = Arc::new(AtomicBool::new(false));
+        let seen = applied.clone();
+        super::spawn(
+            &mut app,
+            "Auto Import",
+            move || {
+                ready.send(()).unwrap();
+                wait.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+                ended.send(()).unwrap();
+            },
+            move |_, _, ()| {
+                seen.store(true, Ordering::Relaxed);
+            },
+        )
+        .unwrap();
+        started.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        app.session
+            .open_library_in(
+                lightcraft_engine::library::LibraryStores {
+                    dir: "new-library".into(),
+                    catalog: Box::new(lightcraft_catalog::MemStore::new()),
+                    files: Box::new(lightcraft_catalog::MemStore::new()),
+                    on_disk: false,
+                },
+                false,
+            )
+            .unwrap();
+        super::poll(&mut app, &egui::Context::default());
+        assert!(app.tasks.is_empty());
+        release.send(()).unwrap();
+        finished.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        super::poll(&mut app, &egui::Context::default());
+        assert!(!applied.load(Ordering::Relaxed));
     }
 }

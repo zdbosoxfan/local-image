@@ -790,8 +790,7 @@ impl LightcraftApp {
                     if let Some(o) = params.as_object_mut() {
                         o.remove("paths");
                     }
-                    let undo0 = app.session.undo.len();
-                    app.import = Some(import::ImportTask::new(paths, params, undo0, false).auto());
+                    app.import = Some(import::ImportTask::new(paths, params, app.session.library_generation, false).auto());
                 };
                 if let Err(e) = tasks::spawn(self, LABEL, work, done) {
                     log::warn!("{e}");
