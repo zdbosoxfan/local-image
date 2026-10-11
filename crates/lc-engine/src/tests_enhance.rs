@@ -219,3 +219,123 @@ fn content_aware_heal_needs_no_ai_engine() {
     // AI Remove proper still needs the engine
     assert!(s.execute("spot.add", &json!({"mode": "ai", "points": [[0.2, 0.2]], "wait": true})).is_err());
 }
+
+#[test]
+fn final_review_remove_rejects_replaced_photo_and_library_jobs_are_discarded() {
+    use crate::enhance::{AiStroke, JobKind, Outcome, RemoveDone};
+    use lightcraft_catalog::{Op, Source};
+    let mut s = session();
+    let id = s.active().unwrap();
+    let source = crate::enhance::source_hash(s.catalog.photo(id).unwrap());
+    let stroke = AiStroke { points: vec![], polygon: vec![], size: 0.1, feather: 0.0, opacity: 100.0, mask: None };
+    let outcome = Outcome::Remove(RemoveDone {
+        stroke: stroke.clone(),
+        key: "aa".repeat(16),
+        source,
+        rect: [0.2, 0.2, 0.4, 0.4],
+        engine: "mock".into(),
+        seed: 1,
+        geometry: "g".into(),
+    });
+    s.enhance.spawn(id, JobKind::Remove { stroke: stroke.clone() }, "AI Remove", true, Box::new(move |_| Ok(outcome)));
+    let mut replacement = (**s.catalog.photo(id).unwrap()).clone();
+    replacement.source = Source::File { path: "/another/photo.jpg".into() };
+    replacement.content_hash = Some("different-photo".into());
+    s.catalog.apply(Op::RemovePhoto { id }).unwrap();
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(replacement) }).unwrap();
+    s.enhance_poll();
+    assert!(s.develop_of(id).unwrap().spots.is_empty(), "same ID with different source must not receive an old result");
+    let dir = std::env::temp_dir().join(format!("review-ai-library-{}", std::process::id()));
+    let job = s.enhance.spawn(id, JobKind::DenoiseExport, "Export", true, Box::new(|_| Ok(Outcome::DenoiseExport("old.tif".into()))));
+    s.open_library(&dir, true).unwrap();
+    assert!(s.enhance.jobs().is_empty(), "opening must discard both pending and completed old jobs");
+    assert!(job.ctl.cancelled());
+    s.enhance.spawn(id, JobKind::DenoiseExport, "Export", true, Box::new(|_| Ok(Outcome::DenoiseExport("old.tif".into()))));
+    s.close_library().unwrap();
+    assert!(s.enhance.jobs().is_empty());
+    drop(s);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn final_review_paste_sync_auto_sync_and_presets_recompute_ai_masks() {
+    use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskShape, SegMask};
+    let mut s = Session::with_demo();
+    let a = s.active().unwrap();
+    let b = *s.visible_cloned().iter().find(|id| **id != a).unwrap();
+    let mask = Mask {
+        id: 1,
+        name: "Subject".into(),
+        components: vec![MaskComponent {
+            name: None,
+            op: Default::default(),
+            invert: false,
+            shape: MaskShape::Subject { seg: Some(SegMask::from_logits(2, &[4.0; 4])) },
+        }],
+        ..Default::default()
+    };
+    let source = DevelopSettings { masks: vec![mask], ..Default::default() };
+    s.set_develop(a, source.clone(), "Source").unwrap();
+    s.execute("develop.copy", &json!({"groups":["masks"]})).unwrap();
+    s.execute("develop.paste", &json!({"ids":[b.0]})).unwrap();
+    let check = |s: &Session| {
+        assert!(
+            matches!(s.develop_of(b).unwrap().masks[0].components[0].shape, MaskShape::Subject { seg: None }),
+            "target must use its own selection"
+        );
+    };
+    check(&s);
+    s.execute("library.select", &json!({"ids":[a.0,b.0], "active":a.0})).unwrap();
+    s.execute("develop.sync", &json!({"groups":["masks"]})).unwrap();
+    check(&s);
+    s.auto_sync = true;
+    let mut modified = source.clone();
+    modified.masks[0].components[0].shape = MaskShape::Sky { seg: Some(SegMask::from_logits(2, &[8.0; 4])) };
+    s.set_develop(a, modified, "AI mask edit").unwrap();
+    assert!(matches!(s.develop_of(b).unwrap().masks[0].components[0].shape, MaskShape::Sky { seg: None }));
+    s.auto_sync = false;
+    // Imported old presets can still contain a source photo's cached selections.
+    s.presets.push(lightcraft_develop::Preset {
+        id: "review-ai".into(),
+        name: "AI".into(),
+        group: "User".into(),
+        settings: json!({"masks": source.masks}),
+        favorite: false,
+        builtin: false,
+    });
+    s.set_develop(b, DevelopSettings::default(), "Reset target").unwrap();
+    s.execute("preset.apply", &json!({"id":"review-ai", "ids":[b.0]})).unwrap();
+    check(&s);
+    assert!(matches!(s.develop_of(a).unwrap().masks[0].components[0].shape, MaskShape::Sky { seg: Some(_) }), "source retains its selection");
+}
+
+#[test]
+fn final_review_changing_selection_keeps_the_original_remove_target() {
+    let mut s = session();
+    let a = s.active().unwrap();
+    let b = *s.visible_cloned().iter().find(|id| **id != a).unwrap();
+    use crate::enhance::{AiStroke, JobKind, Outcome, RemoveDone};
+    let stroke = AiStroke { points: vec![], polygon: vec![], size: 0.1, feather: 0.0, opacity: 100.0, mask: None };
+    let source = crate::enhance::source_hash(s.catalog.photo(a).unwrap());
+    let outcome = Outcome::Remove(RemoveDone {
+        stroke: stroke.clone(),
+        key: "aa".repeat(16),
+        source,
+        rect: [0.2, 0.2, 0.4, 0.4],
+        engine: "mock".into(),
+        seed: 42,
+        geometry: "g".into(),
+    });
+    s.enhance.spawn(a, JobKind::Remove { stroke }, "AI Remove", true, Box::new(move |_| Ok(outcome)));
+    s.execute("library.select", &json!({"ids":[b.0]})).unwrap();
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while s.enhance.busy() && std::time::Instant::now() < until {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(!s.enhance.busy());
+    let result = s.enhance_poll();
+    assert!(result.changed && result.errors.is_empty(), "{result:?}");
+    assert_eq!(s.develop_of(a).unwrap().spots.len(), 1);
+    assert!(s.develop_of(b).unwrap().spots.is_empty());
+    assert_eq!(s.active(), Some(b));
+}

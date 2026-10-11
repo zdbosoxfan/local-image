@@ -304,8 +304,12 @@ fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                 .desired_width(f32::INFINITY)
                                 .char_limit(4000),
                         );
-                        if info.lora {
-                            loras_ui(ui, &mut s.loras, &info.resolved, &t);
+                        if info.lora || refine {
+                            if refine {
+                                refine_loras_ui(ui, &mut s.loras, info.id, &s.variant, &t);
+                            } else {
+                                loras_ui(ui, &mut s.loras, &info.resolved, &t);
+                            }
                         }
                     }
                 });
@@ -461,11 +465,14 @@ fn start_stage(app: &mut PhotocraftApp, ctx: &egui::Context, refine: bool) {
         return;
     }
     let info = req.model.info();
-    let meta = json!({"model": req.model.key(), "variant": req.variant, "mode": if refine { "refine" } else { "create" }, "prompt": req.prompt,
+    let meta = json!({"model": req.model.key(), "variant": req.variant, "mode": if refine { "refine" } else { "create" }, "prompt": req.prompt, "negative_prompt": req.negative,
         "width": req.width, "height": req.height, "steps": req.steps, "guidance": req.guidance, "denoise": req.denoise, "seed": req.seed, "loras": req.loras, "variety": req.variety});
     let name = format!("{}-{}", info.short, req.seed);
     let label = if refine { tl!("Refinement") } else { tl!("Draft") };
-    if launch(app, label, label, name, meta, None, false, move |ctl| li_ai::service().generate(&req, ctl)) {
+    if launch_resolved(app, label, label, name, meta, None, false, move |ctl| {
+        let generated = li_ai::service().generate_detailed(&req, ctl)?;
+        Ok((generated.image, generated.parameters))
+    }) {
         let (job, entry) = rt(|r| match r.results.front() {
             Some(Tile::Pending { job, .. }) => (Some(*job), None),
             Some(Tile::Done(e)) => (None, Some(e.clone())),

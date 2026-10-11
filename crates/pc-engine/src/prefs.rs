@@ -25,6 +25,39 @@ use serde_json::{Map, Value, json};
 use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
 
+/// Load valid preference fields independently. One obsolete enum or malformed nested field
+/// uses its default without throwing away neighbouring values. Runtime commands remain strict.
+pub fn lenient<T: Serialize + serde::de::DeserializeOwned + Default>(input: Value) -> std::result::Result<(T, Vec<String>), serde_json::Error> {
+    fn merge<T: serde::de::DeserializeOwned>(base: &mut Value, input: &Value, path: &mut Vec<String>, rejected: &mut Vec<String>) {
+        fn at<'a>(v: &'a mut Value, path: &[String]) -> &'a mut Value {
+            let mut v = v;
+            for key in path {
+                v = &mut v[key];
+            }
+            v
+        }
+        let old = at(base, path).clone();
+        *at(base, path) = input.clone();
+        if serde_json::from_value::<T>(base.clone()).is_ok() {
+            return;
+        }
+        *at(base, path) = old.clone();
+        if let (Value::Object(_), Value::Object(fields)) = (&old, input) {
+            for (key, value) in fields {
+                path.push(key.clone());
+                merge::<T>(base, value, path, rejected);
+                path.pop();
+            }
+        } else {
+            rejected.push(path.join("."));
+        }
+    }
+    let mut base = serde_json::to_value(T::default())?;
+    let mut rejected = Vec::new();
+    merge::<T>(&mut base, &input, &mut Vec::new(), &mut rejected);
+    Ok((serde_json::from_value(base)?, rejected))
+}
+
 /// A string-valued choice enum with its JSON names (used to validate `prefs.set` and to fill
 /// dropdowns in the Preferences dialog).
 macro_rules! choice {
@@ -1360,9 +1393,11 @@ impl Session {
         let mut v: Value = serde_json::from_str(s).map_err(|e| format!("preferences: {e}"))?;
         let color = v.as_object_mut().and_then(|m| m.remove("colorSettings"));
         let presets = v.as_object_mut().and_then(|m| m.remove("presets"));
-        let prefs: Preferences = serde_json::from_value(v).map_err(|e| format!("preferences: {e}"))?;
+        let (prefs, mut rejected) = lenient::<Preferences>(v).map_err(|e| format!("preferences: {e}"))?;
         if let Some(c) = color {
-            self.color.settings = serde_json::from_value(c).unwrap_or_default();
+            let (settings, bad) = lenient(c).map_err(|e| format!("colour settings: {e}"))?;
+            self.color.settings = settings;
+            rejected.extend(bad.into_iter().map(|p| format!("colorSettings.{p}")));
             photocraft_compose::psblend::set_text_gamma(self.color.settings.blend_text_gamma);
         }
         self.prefs.edit(|p| {
@@ -1373,7 +1408,7 @@ impl Session {
             self.load_presets_json(v);
         }
         self.apply_prefs();
-        Ok(())
+        if rejected.is_empty() { Ok(()) } else { Err(format!("invalid fields used defaults: {}", rejected.join(", "))) }
     }
 
     /// Full JSON view used by `prefs.get`: preferences plus `colorSettings`.

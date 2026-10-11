@@ -21,3 +21,13 @@ weaken tests; if a test expectation is genuinely wrong, change it and add a line
 "TESTS-REMOVED:") in the report with the reason — the merge queue rejects undeclared test removals. Never open GUI windows,
 never stop the running Local Image app or ComfyUI. Leave changes uncommitted; the merge queue lands them.
 Report: docs/wip/CODEX-REPORT-bugfix-files.md — table: item, verdict after re-check, fix, test; exact commands + output.
+
+## Landed upstream task context
+
+The coordinator branch already contains this task and its report; preserve its landed fixes during file-input rework.
+
+# Codex task: final-review bug-fix run — Test and build-gate health
+
+YOUR ITEMS: Astra's report says the workspace had 11 failing tests and failing clippy and attribution gates at f73bc0ca — reproduce on the current head and fix all of them (real cause, not test weakening). Also: register the anchor-tools full-app GPU module in crates/pc-ui-egui/tests/gpu/main.rs (handoff 33) and make the gradient-mesh GPU/native gates runnable instead of #[ignore] where the handoff (43) says they should run (mesh/tests.rs:137, mesh/gpu_tests.rs:103,139, engine mesh/gpu_tests.rs:36). End state: workspace tests, strict clippy all-targets, attributions and deps-pure all green.
+
+Report: docs/wip/CODEX-REPORT-bugfix-gates.md — table: item, verdict after re-check, fix, test; exact commands + output.

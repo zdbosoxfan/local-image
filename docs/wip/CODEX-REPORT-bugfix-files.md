@@ -334,3 +334,175 @@ Full raw output, including compiler warnings and individual tests, is retained l
 
 A comparison of existing `#[test]`/`#[tokio::test]` names in all changed Rust files against HEAD found no removal or rename. Test-generated changes to the tracked PDF reference image were restored, and the temporary PDF review images were removed. The user's task-file edit and all requested source changes remain uncommitted.
 
+## Rework
+
+The coordinator rejected the merge because `PENDING_SAVE_TRANSLATIONS` in `crates/lc-ui-egui/src/i18n.rs` was left without its closing delimiter. The conflict joined two independently added arrays at their shared closing line. This was a merge-resolution error; the file-input declaration compiled on its original branch.
+
+Merged coordinator commit `9247cc397d929a21e9abba721ad963a4410a7d2b` into job-result commit `e1943de80c15c3bc5e3721c0e7bc7f2beca9f4e3` using `git merge --no-commit`. The merge is resolved and remains uncommitted for the coordinator.
+
+Resolved both translation conflicts by retaining both additions: Library file-input keys (11) and save keys (15) have separate complete arrays, and the Compositing pending list contains both sets of keys. Checked that every translation-key literal from both merge parents is present. The task-document conflict retains this branch's file-input instructions and adds the already-landed upstream gate task as context. All automatically merged save, gate and AI fixes are retained.
+
+No test expectation was changed, weakened, removed or renamed during rework. The original `TEST-CHANGED:` declaration above still applies only to the pool panic-containment expectation. Rust remains 1.98.1; validation uses `li-rustc-gate`, offline, without a job cap. No GUI window was opened, and Local Image/ComfyUI were not stopped.
+
+Validation completed successfully on the merged source. The all-targets workspace check, strict all-targets Clippy for all 20 crates affected by the original work and the merge, and formatting each exited 0. The selected test run exited 0: 99 passed, zero failed, 0 ignored among selected matches. All 54 new file-input regression names were checked against individual passing output. Both translation test modules and the previously failing tests were included. The data/model directories were isolated for test execution; no ordinary user profile was modified by this run.
+
+The first Clippy attempt exited 101 with E0514 because `/usr/bin/rustc` is Fedora's build of 1.98.1 while `cargo-clippy`/`clippy-driver` resolve through rustup. Its dependency metadata was incompatible with the rustup driver. An initial pinned workspace check also found Fedora-built `syn`/`quote` metadata in the existing target cache. The successful final pipeline pins compiler and Clippy to rustup 1.98.1 and uses a fresh `CARGO_TARGET_DIR` under this worktree target directory. It retains the compiler gate and offline mode and makes no toolchain/configuration changes. The initial native test build was interrupted before any tests ran after its engine/UI compilers spent nearly an hour waiting heavily on disk I/O. Only task-owned Cargo commands and descendants were interrupted. The final pipeline pins workspace check, Clippy and tests to the same rustup 1.98.1 toolchain as the merge queue. The final test selection includes library tests and the `it`, `import`, `gpu` and `pool_coverage` test binaries; every one of the 54 own regressions and the required existing tests remains selected. Full workspace check and Clippy still use `--all-targets`. No Cargo job cap was added. The final selected test build uses `CARGO_PROFILE_TEST_DEBUG=0` to omit debug symbols and reduce linker disk writes; optimization levels, debug assertions and all test bodies/expectations are unchanged. Exact tool versions:
+
+```text
+system rustc: rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)
+pinned cargo: cargo 1.98.1 (797e8a9bc 2026-08-05)
+pinned rustc: rustc 1.98.1 (48a229cea 2026-09-01)
+pinned Clippy: clippy 0.1.98 (48a229ceae 2026-09-01)
+```
+
+Exact merge/validation commands (the first Clippy command is the recorded failed attempt):
+
+```bash
+git -c user.name=Claude -c user.email=noreply@anthropic.com merge --no-commit claude/sleepy-franklin-egimjb
+git add crates/lc-ui-egui/src/i18n.rs crates/pc-ui-egui/src/i18n/pending_vector.rs docs/wip/CODEX-TASK.md
+PATH=/home/zdavidson/.local/share/local-image-dev/bin:/home/zdavidson/.cargo/bin:$PATH RUSTC_WRAPPER=li-rustc-gate RUSTC=/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc CARGO_TARGET_DIR='/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-files/target/bugfix-files-rework-rustup' /home/zdavidson/.cargo/bin/cargo +1.98.1 check --workspace --all-targets --offline > /tmp/li-files-rework-check-final.log 2>&1
+PATH=/home/zdavidson/.local/share/local-image-dev/bin:$PATH RUSTC_WRAPPER=li-rustc-gate cargo clippy --offline --all-targets -p li-ai -p lightcraft-codecs -p lightcraft-develop -p lightcraft-engine -p lightcraft-preview -p lightcraft-raw -p lightcraft-tiff -p lightcraft-ui-egui -p local-image -p photocraft-codecs -p photocraft-engine -p photocraft-format -p photocraft-io -p photocraft-paint -p photocraft-pdf -p photocraft-plugins -p photocraft-psd -p photocraft-svg -p photocraft-ui-egui -p xtask -- -D warnings > /tmp/li-files-rework-clippy.log 2>&1
+PATH=/home/zdavidson/.local/share/local-image-dev/bin:/home/zdavidson/.cargo/bin:$PATH RUSTC_WRAPPER=li-rustc-gate RUSTC=/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc CARGO_TARGET_DIR='/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-files/target/bugfix-files-rework-rustup' /home/zdavidson/.cargo/bin/cargo +1.98.1 clippy --offline --all-targets -p li-ai -p lightcraft-codecs -p lightcraft-develop -p lightcraft-engine -p lightcraft-preview -p lightcraft-raw -p lightcraft-tiff -p lightcraft-ui-egui -p local-image -p photocraft-codecs -p photocraft-engine -p photocraft-format -p photocraft-io -p photocraft-paint -p photocraft-pdf -p photocraft-plugins -p photocraft-psd -p photocraft-svg -p photocraft-ui-egui -p xtask -- -D warnings > /tmp/li-files-rework-clippy-final.log 2>&1
+PATH=/home/zdavidson/.local/share/local-image-dev/bin:/home/zdavidson/.cargo/bin:$PATH RUSTC_WRAPPER=li-rustc-gate RUSTC=/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc LOCAL_IMAGE_DATA_DIR=/tmp/li-files-rework-test-profile LOCAL_IMAGE_MODELS_DIR=/tmp/li-files-rework-test-profile/models CARGO_PROFILE_TEST_DEBUG=0 CARGO_TARGET_DIR='/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-files/target/bugfix-files-rework-rustup' /home/zdavidson/.cargo/bin/cargo +1.98.1 test --offline --no-fail-fast --lib --test it --test import --test gpu --test pool_coverage -p photocraft-io -p photocraft-psd -p photocraft-svg -p photocraft-pdf -p lightcraft-raw -p lightcraft-codecs -p lightcraft-preview -p lightcraft-engine -p lightcraft-ui-egui -p lightcraft-tiff -p photocraft-format -p photocraft-engine -p photocraft-ui-egui -p photocraft-paint -p photocraft-codecs -p photocraft-plugins -p local-image -- tiny_rle_payload_cannot_claim_large_zero_padded_planes unused_raw_channels_are_consumed_without_decoding inline_panic_reports_completion_and_releases_slot native_worker_survives_panic_and_runs_next_job nikon_preview_offset_cannot_wrap_its_maker_note_base jpeg_dimensions_cannot_exceed_dng_tile damaged_nef_predictor_is_an_error_at_integer_overflow inferred_lengths_handle_unsorted_and_duplicate_offsets many_missing_byte_counts_complete_within_the_work_budget huge_bigtiff_entry_count_does_not_overflow_next_offset ascii_u32_temporary_is_in_the_allocation_budget deep_exr_per_pixel_tables_share_the_sample_budget jpeg_dimensions_must_fit_the_declared_tiff_strip_before_decode svg_place_is_a_job_and_cancel_never_adds_layers synchronous_place_is_one_undo_step duplicate_name_suffixes_advance_without_rescanning_the_group loaded_link_needs_explicit_relink_before_reading prepared_svg_publication_records_one_command_without_redecoding extreme_tile_coordinates_are_rejected_before_fetch devices_and_network_paths_are_rejected_before_open fifo_is_rejected_without_waiting_for_a_writer sparse_oversized_file_is_rejected_before_reservation finite_huge_percentages_stay_finite tip_duplicates_consume_one_running_budget short_unknown_entry_cannot_rewind_cursor psd_identifiers_never_become_paths channel_free_huge_layer_is_empty layers_share_one_conversion_budget oversized_flattened_psd_is_refused_before_decode non_finite_dabs_have_no_pixel_reach pdf_duplicate_object_identity_is_rejected pdf_unresolved_content_references_are_not_zero_cost pdf_xref_hidden_content_cannot_bypass_preflight large_rayon_pool_does_not_multiply_wasm_instances descriptor_sections_share_the_brush_count_limit import_decode_budget_is_checked_before_every_compression_method pattern_count_is_bounded_for_standalone_and_global_blocks pattern_sections_share_a_decoded_plane_budget tiny_plane_cannot_expand_to_huge_blank_pattern raster_metadata_cannot_select_svg_decoder exponential_css_is_rejected_before_either_style_matcher inherited_markers_inside_their_own_art_do_not_recurse large_class_compounds_are_charged_before_style_matching marker_work_is_charged_per_vertex_before_usvg markers_on_use_charge_the_referenced_path_vertices nested_css_marker_chains_are_charged_before_usvg short_documents_admit_bounded_longer_descendant_selectors unused_marker_definitions_do_not_multiply_path_work cancel_reaches_worker_and_never_publishes worker_panic_becomes_a_result copied_file_paste_decodes_on_a_cancellable_job affinity_worker_cancel_never_publishes pdf_worker_cancel_and_stale_destination_do_not_publish worker_decodes_without_editing_and_rejects_stale_destination a_panicking_job_frees_its_slot i18n::tests:: tests_people::ds_finding_large_people_query_keeps_ui_cancellable decoded_len_allows_large_psb_planes svg_import_resvg_subset_ratchet svg_import_app_gpu_live_preview_release_editability_warning_and_undo draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened --test-threads=1 > /tmp/li-files-rework-tests-pinned.log 2>&1
+PATH=/home/zdavidson/.local/share/local-image-dev/bin:$PATH RUSTC_WRAPPER=li-rustc-gate cargo fmt --all --check > /tmp/li-files-rework-fmt.log 2>&1
+```
+
+The per-invocation Git identity is the existing job commit's committer identity. No Git config was written and no commit was created. The merge initially reported content conflicts in the two translation files and `CODEX-TASK.md`; those conflicts are all resolved.
+
+Exact completion output:
+
+```text
+workspace --all-targets: Finished `dev` profile [optimized + debuginfo] target(s) in 3m 33s
+strict Clippy, 20 crates: Finished `dev` profile [optimized + debuginfo] target(s) in 55.42s
+formatting: no output (exit 0)
+translation-key preservation: every key from both merge parents retained
+PENDING_FILE_INPUT_TRANSLATIONS: 11 entries, independent closing delimiter
+PENDING_SAVE_TRANSLATIONS: 15 entries, independent closing delimiter
+unresolved merge conflicts: none
+```
+
+Exact selected passing test output (zero-match target summaries omitted):
+
+```text
+    Finished `test` profile [optimized] target(s) in 4m 16s
+test psd::hostile_psd_tests::tiny_rle_payload_cannot_claim_large_zero_padded_planes ... ok
+test psd::hostile_psd_tests::unused_raw_channels_are_consumed_without_decoding ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.00s
+test pool::panic_regressions::inline_panic_reports_completion_and_releases_slot ... ok
+test pool::panic_regressions::native_worker_survives_panic_and_runs_next_job ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+test a_panicking_job_frees_its_slot ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 20 filtered out; finished in 0.00s
+test preview::tests::nikon_preview_offset_cannot_wrap_its_maker_note_base ... ok
+test tiffraw::hostile_tile_tests::jpeg_dimensions_cannot_exceed_dng_tile ... ok
+test vendor::nefc::tests::damaged_nef_predictor_is_an_error_at_integer_overflow ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 0.00s
+test image::chunk_offset_regressions::inferred_lengths_handle_unsorted_and_duplicate_offsets ... ok
+test image::chunk_offset_regressions::many_missing_byte_counts_complete_within_the_work_budget ... ok
+test reader::overflow_regressions::huge_bigtiff_entry_count_does_not_overflow_next_offset ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+test i18n::tests::catalog_characters_are_paintable ... ok
+test i18n::tests::catalogs_agree_on_placeholders_and_report_gaps ... ok
+test i18n::tests::catalogs_contain_core_workflows ... ok
+test i18n::tests::craft_fonts_render_cjk_in_the_ui ... ok
+test i18n::tests::date_headings_in_every_language ... ok
+test i18n::tests::every_language_has_a_catalog_covering_the_source ... ok
+test i18n::tests::every_language_is_painted_and_menu_ids_stay_the_same ... ok
+test i18n::tests::formats_render_in_every_language ... ok
+test i18n::tests::interface_symbols_are_paintable ... ok
+test i18n::tests::language_commands_cover_every_language ... ok
+test i18n::tests::locale_tags_normalize ... ok
+test i18n::tests::menu_labels_translate_but_user_names_survive ... ok
+test i18n::tests::preferences_round_trip_and_old_settings_remain_readable ... ok
+test i18n::tests::switching_language_translates_and_restores ... ok
+test i18n::tests::the_ui_works_without_craft_fonts ... ok
+test i18n::tests::traditional_chinese_presets_and_panel_headers_are_painted ... ok
+test i18n::tests::traditional_chinese_switches_through_menu_and_control_and_persists ... ok
+test tests_people::ds_finding_large_people_query_keeps_ui_cancellable ... ok
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 250 filtered out; finished in 3.60s
+test codecs::pnm::ascii_budget_tests::ascii_u32_temporary_is_in_the_allocation_budget ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 35 filtered out; finished in 0.00s
+test deep_exr::deep_exr_per_pixel_tables_share_the_sample_budget ... ok
+test tiff_regressions::jpeg_dimensions_must_fit_the_declared_tiff_strip_before_decode ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 509 filtered out; finished in 0.00s
+test file_cmds::file_worker_regressions::svg_place_is_a_job_and_cancel_never_adds_layers ... ok
+test file_cmds::file_worker_regressions::synchronous_place_is_one_undo_step ... ok
+test preset_import_cmds::tests::duplicate_name_suffixes_advance_without_rescanning_the_group ... ok
+test smart_cmds::untrusted_link_regressions::loaded_link_needs_explicit_relink_before_reading ... ok
+test vector_packages::svg_import::prepared_publication_regressions::prepared_svg_publication_records_one_command_without_redecoding ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1323 filtered out; finished in 0.02s
+test convert::hostile_tile_tests::extreme_tile_coordinates_are_rejected_before_fetch ... ok
+test read::bounded_read_regressions::devices_and_network_paths_are_rejected_before_open ... ok
+test read::bounded_read_regressions::fifo_is_rejected_without_waiting_for_a_writer ... ok
+test read::bounded_read_regressions::sparse_oversized_file_is_rejected_before_reservation ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.00s
+test abr_map::hostile_brush_tests::finite_huge_percentages_stay_finite ... ok
+test abr_map::hostile_brush_tests::tip_duplicates_consume_one_running_budget ... ok
+test annotations_map::hostile_anno_tests::short_unknown_entry_cannot_rewind_cursor ... ok
+test blocks::hostile_smart_id_tests::psd_identifiers_never_become_paths ... ok
+test psd_import::file_input_regressions::channel_free_huge_layer_is_empty ... ok
+test psd_import::file_input_regressions::layers_share_one_conversion_budget ... ok
+test psd_import::file_input_regressions::oversized_flattened_psd_is_refused_before_decode ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 111 filtered out; finished in 0.00s
+test continuous::hostile_dab_tests::non_finite_dabs_have_no_pixel_reach ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 75 filtered out; finished in 0.00s
+test pdf_duplicate_object_identity_is_rejected ... ok
+test pdf_unresolved_content_references_are_not_zero_cost ... ok
+test pdf_xref_hidden_content_cannot_bypass_preflight ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.00s
+test apply::worker_memory_regression::large_rayon_pool_does_not_multiply_wasm_instances ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.02s
+test abr::tests::descriptor_sections_share_the_brush_count_limit ... ok
+test compression::tests::decoded_len_allows_large_psb_planes ... ok
+test compression::tests::import_decode_budget_is_checked_before_every_compression_method ... ok
+test patterns::pattern_budget_tests::pattern_count_is_bounded_for_standalone_and_global_blocks ... ok
+test patterns::pattern_budget_tests::pattern_sections_share_a_decoded_plane_budget ... ok
+test patterns::pattern_budget_tests::tiny_plane_cannot_expand_to_huge_blank_pattern ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 154 filtered out; finished in 0.01s
+test import::preflight::benign_complexity_regressions::inherited_markers_inside_their_own_art_do_not_recurse ... ok
+test import::preflight::benign_complexity_regressions::short_documents_admit_bounded_longer_descendant_selectors ... ok
+test import::preflight::class_matching_regression::large_class_compounds_are_charged_before_style_matching ... ok
+test import::preflight::hostile_svg_tests::exponential_css_is_rejected_before_either_style_matcher ... ok
+test import::preflight::hostile_svg_tests::marker_work_is_charged_per_vertex_before_usvg ... ok
+test import::preflight::nested_marker_regression::nested_css_marker_chains_are_charged_before_usvg ... ok
+test import::preflight::referenced_marker_regression::markers_on_use_charge_the_referenced_path_vertices ... ok
+test import::preflight::unused_marker_tests::unused_marker_definitions_do_not_multiply_path_work ... ok
+test import::sniff_regressions::raster_metadata_cannot_select_svg_decoder ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+test svg_import_resvg_subset_ratchet ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 3.98s
+test clipboard_tests::copied_file_paste_decodes_on_a_cancellable_job ... ok
+test generate_ui::draft_refine::tests::draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened ... ok
+test i18n::tests::blend_mode_names_are_translated ... ok
+test i18n::tests::brazilian_portuguese_resolves_and_pluralises ... ok
+test i18n::tests::brush_section_names_are_translated ... ok
+test i18n::tests::bundled_catalogs_are_consistent ... ok
+test i18n::tests::camera_raw_labels_are_translated_in_every_available_language ... ok
+test i18n::tests::candidates_walk_from_specific_to_general ... ok
+test i18n::tests::catalog_kinds_are_parsed_and_looked_up ... ok
+test i18n::tests::complete_languages_translate_every_menu_string ... ok
+test i18n::tests::czech_plural_rule ... ok
+test i18n::tests::every_tl_literal_is_translated ... ok
+test i18n::tests::french_resolves_and_pluralises ... ok
+test i18n::tests::indonesian_tags_resolve ... ok
+test i18n::tests::korean_uses_photoshop_terminology ... ok
+test i18n::tests::lookups_fall_back_to_english ... ok
+test i18n::tests::malformed_lines_are_reported_not_fatal ... ok
+test i18n::tests::mixer_brush_ui_strings_have_translations_in_every_registered_language ... ok
+test i18n::tests::plurals_and_placeholders ... ok
+test i18n::tests::preferences_resolve_with_fallback ... ok
+test i18n::tests::russian_plural_rules ... ok
+test i18n::tests::simplified_chinese_covers_dynamic_shortcuts_and_layer_counts ... ok
+test i18n::tests::spanish_resolves_and_pluralises ... ok
+test i18n::tests::tags_map_to_languages ... ok
+test import_worker::tests::cancel_reaches_worker_and_never_publishes ... ok
+test import_worker::tests::worker_panic_becomes_a_result ... ok
+test pdf_import::tests::pdf_worker_cancel_and_stale_destination_do_not_publish ... ok
+test vector_packages::affinity::worker_regressions::affinity_worker_cancel_never_publishes ... ok
+test vector_packages::svg_import::async_placement_regressions::worker_decodes_without_editing_and_rejects_stale_destination ... ok
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 1317 filtered out; finished in 2.15s
+test svg_import_app_acceptance::svg_import_app_gpu_live_preview_release_editability_warning_and_undo ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 103 filtered out; finished in 1.60s
+```
+
+Raw command output, the exact command manifest and the 54-test inventory are retained locally in [target/bugfix-files-rework-validation](../../target/bugfix-files-rework-validation/). The earlier rejected merge and the failed toolchain-mismatch attempt remain historical failures; the merged source has successful final check/Clippy/test evidence. Existing optional `craft-fonts` build-script warnings remain unchanged.

@@ -7,6 +7,21 @@ fn session() -> Session {
 }
 
 #[test]
+fn bugfix_save_o046_bad_enum_keeps_valid_nested_preferences() {
+    let mut s = session();
+    let r = s.load_prefs_json(r##"{"interface":{"theme":"retired-theme","uiFontSize":"large"},"general":{"beepWhenDone":true},"colorSettings":{"workingRgb":"removed-profile","blendTextGamma":1.25}}"##);
+    assert!(r.is_err(), "report the repaired field");
+    assert!(s.prefs().general.beep_when_done);
+    assert_eq!(s.prefs().interface.theme, Preferences::default().interface.theme);
+    assert_eq!(s.prefs().interface.ui_font_size, UiFontSize::Large);
+    assert_eq!(s.color.settings.blend_text_gamma, 1.25);
+    let value = s.prefs_to_json();
+    let mut reloaded = session();
+    reloaded.load_prefs_json(&value).unwrap();
+    assert!(reloaded.prefs().general.beep_when_done);
+}
+
+#[test]
 fn defaults_match_photoshop() {
     let p = Preferences::default();
     assert_eq!(p.performance.history_states, 50);

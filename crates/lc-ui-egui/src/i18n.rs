@@ -330,6 +330,25 @@ pub const PENDING_FILE_INPUT_TRANSLATIONS: &[&str] = &[
     "NEF predictor overflow",
 ];
 
+/// Final-review saving/data-safety additions awaiting translation.
+pub const PENDING_SAVE_TRANSLATIONS: &[&str] = &[
+    "Add Photos",
+    "Reset after Overwrite",
+    "Remove from Library",
+    "Remove from Library…",
+    "Delete from Disk",
+    "Delete from Disk is unavailable for these photos.",
+    "Remove {what} from the Library or delete from disk?",
+    "Remove from Library keeps the files on disk. Delete from Disk moves them to Trash.",
+    "Deleting photos always asks: Remove from Library, Delete from Disk, or Cancel.",
+    "Empty Recently Deleted…",
+    "Some Library settings used defaults: {fields}. A copy of the damaged settings was kept.",
+    "Library settings couldn't be read: {error}. Choose your existing Library folder. Your stored settings will not be replaced.",
+    "Choose your Library folder.",
+    "the stored Library path could not be recovered",
+    "couldn't preserve damaged Library settings: {error}",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

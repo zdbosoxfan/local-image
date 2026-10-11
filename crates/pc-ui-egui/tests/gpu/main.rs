@@ -2,6 +2,11 @@
 //! (several simulate device loss), and concurrent wgpu instances in one process crash some
 //! drivers (#194), so all tests take this one process-wide lock. Kept apart from `it` so the
 //! CPU-only tests are not serialised behind it.
+use egui::{Event, Key, Modifiers, PointerButton};
+use photocraft_doc::{Document, Fill, LayerContent, ShapeStroke};
+use photocraft_engine::Session;
+use photocraft_ui_egui::{PhotocraftApp, anchor_tools::*, canvas, gpu_canvas, state};
+
 mod adjust_preview_gpu;
 mod camera_raw_scope;
 mod canvas_16f;
@@ -22,6 +27,9 @@ static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn gpu_lock() -> std::sync::MutexGuard<'static, ()> {
     GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
+
+#[path = "../../src/vector_packages/anchor_tools/app_gpu.rs"]
+mod anchor_tools_app;
 
 #[path = "../../src/vector_packages/symbols/app_gpu.rs"]
 mod symbol_instances;

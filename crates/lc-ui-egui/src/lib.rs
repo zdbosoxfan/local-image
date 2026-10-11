@@ -120,6 +120,8 @@ pub struct Services {
     pub pick_curve_preset_files: Option<PickFiles>,
     /// Save dialog for an exported `.lccurve` file.
     pub save_curve_preset_file: Option<SaveFile>,
+    /// Move a source file into the recoverable system Trash.
+    pub trash_file: Option<Box<dyn FnMut(&str) -> Result<(), String>>>,
     pub write: Option<WriteFn>,
     /// Thread-safe writer: with it, UI-started exports run in the background (desktop only).
     pub write_shared: Option<SharedWrite>,

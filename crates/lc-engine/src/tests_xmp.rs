@@ -582,6 +582,26 @@ fn reload_picks_up_changed_files() {
 }
 
 #[test]
+fn bugfix_save_o009_overwritten_pixels_reset_develop_in_one_undo_step() {
+    let dir = temp_dir("bugfix-reset-overwrite");
+    let path = dir.join("x.png");
+    write_png(&path, 10);
+    let mut s = Session::new().with_fs();
+    s.execute("library.import", &json!({"paths": [path.to_string_lossy()]})).unwrap();
+    let id = s.active().unwrap();
+    s.execute("develop.set", &json!({"control": "light.exposure", "value": 1.0})).unwrap();
+    let previous = s.catalog.photo(id).unwrap().develop.clone();
+    write_png(&path, 100);
+    let steps = s.undo.len();
+    s.execute("photo.reload", &json!({"ids": [id.0], "resetDevelop": true})).unwrap();
+    assert_eq!(*s.catalog.photo(id).unwrap().develop, lightcraft_develop::DevelopSettings::default());
+    assert_eq!(s.undo.len(), steps + 1);
+    s.undo_step().unwrap();
+    assert_eq!(s.catalog.photo(id).unwrap().develop, previous);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn duplicate_copies_the_file_and_the_edits() {
     let dir = temp_dir("dup");
     let f = dir.join("pic.png");

@@ -163,6 +163,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             if row(app, ui, "recentlyDeleted", Icon::Trash, "Recently Deleted", Some(deleted), src == LibrarySource::RecentlyDeleted, 0.0).clicked() {
                 let _ = app.run("library.source", json!({"kind": "recentlyDeleted"}));
             }
+            if deleted > 0 && src == LibrarySource::RecentlyDeleted && ui.button(crate::i18n::tr("Empty Recently Deleted…")).clicked() {
+                let ids: Vec<_> = app.session.catalog.photos().filter(|p| p.deleted).map(|p| p.id.0).collect();
+                app.ui.dialog = Some(crate::state::Dialog::ConfirmDelete { count: ids.len(), ids, disk: false });
+            }
         });
     });
     if let Some(w) = resized {
