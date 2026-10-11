@@ -60,5 +60,10 @@
     "RUSTC_WRAPPER": "/home/zdavidson/.local/share/local-image-dev/bin/li-rustc-gate",
     "CARGO": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/cargo",
     "RUSTDOC": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustdoc"
+  },
+  "rustfmt": {
+    "path": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustfmt",
+    "exit": 0,
+    "version": "rustfmt 1.9.0-stable (48a229ceae 2026-09-01)\n"
   }
 }

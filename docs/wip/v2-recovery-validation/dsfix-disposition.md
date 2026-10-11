@@ -1,0 +1,69 @@
+# Per-finding dsfix recovery disposition (stage 1)
+
+Validation remains in progress; final report will distinguish integrated ports, named passes and unresolved source proposals.
+
+| Finding | Source | Current disposition | Saved test / evidence |
+| --- | --- | --- | --- |
+| V059 | dsfix-engine | preserved newer far-edge spacing; source regression ported | `dsfix_v059_spacing_uses_farthest_edge_on_both_axes` |
+| V102 | dsfix-engine | ported missing snapshot/selection/options availability cache and regression | `dsfix_v102_expand_availability_reuses_preparation_and_invalidates` |
+| V027 | dsfix-engine | existing bounded validation preserved; source boundary regression ported | `dsfix_v027_array_artboard_coordinates_already_bounded` |
+| V044 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v044_boolean_op_rejects_present_nonstrings` |
+| V029 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v029_default_persona_preferences_are_addressable` |
+| V030 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v030_v031_toolbar_edit_and_reset_follow_vector_persona` |
+| V031 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | Same V030/V031 regression checks custom persona, ordering, hiding, and Pixel set preservation. |
+| V026 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v026_symbol_linked_mask_moves_whole_with_selection` |
+| V111 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v111_release_rejects_density_and_feather_without_mutating_source` |
+| V060 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | Strengthened/renamed `dsfix_v060_clip35_svg_pdf_psd_exports_keep_native_vector_masks_and_format_roundtrip` |
+| V122 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v122_v123_split_and_erase_preserve_fill_semantics` |
+| V123 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | Same V122/V123 regression verifies both eraser pieces. |
+| V093 | dsfix-engine | ported missing per-snapshot envelope background cache and regression | `dsfix_v093_envelope_background_reused_across_drag_and_invalidated` |
+| V089 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | Compiled only; GPU execution prohibited. |
+| V137 | dsfix-engine | preserved newer indexed/signed-zero provenance, ported source NaN guard and regression | `dsfix_v137_indexed_provenance_keeps_coincident_and_signed_zero_rules`, including 16,384 unique knots. |
+| V132 | dsfix-engine | unresolved: coordinated base64 proposal was never implemented in saved source; retain current compatible numeric-array protocol for stage 1 | Caller and command inspected; no incompatible partial protocol change. |
+| V187 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v187_begin_new_subpath_checks_knot_budget_but_allows_endpoint` |
+| V188 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v188_zero_length_line_release_changes_generation` |
+| V149 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v149_sculpt_equal_endpoints_fail_at_capture_for_open_and_closed_paths` |
+| V170 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v170_raw_effects_budget_precedes_serialization` checks error ordering and the accepted budget boundary. |
+| V172 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v172_symbol_placement_ignores_locked_sibling_descendants` |
+| V178 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | Workspace all-target check and strict clippy include `photocraft-doc`. |
+| V199 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v199_minimal_symbol_render_matches_full_document_compositor` |
+| V165 | dsfix-engine | obsolete source default-ignore proposal under required hardware validation; existing test kept active | Compiled only; no GPU run. |
+| V204 | dsfix-engine | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | `dsfix_v204_curve_nearest_skips_distant_bounds_but_keeps_tolerance_edge` counts adapter calls across 100 curves. |
+| V158 | dsfix-engine | registered saved full-app PDF fixture with process-wide GPU guard; original pointer coordinates retained; RTX 5090/Vulkan preview/release/select/edit/undo/cancel and GPU parity pass (1 test, exit 0, 50.663 s total, 1.37 s runtime) | Coordinator must register/run `pdf_import_full_app_rtx_pointer_preview_release_select_edit_undo_cancel` once on the RTX machine. |
+| V049 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending; synth-gated fixture not executed by default Cargo features, explicit feature-selected test pending | dsfix_stack_channel_decode_preserves_rgba_grey_and_cmyk_pixels — passed |
+| V217 | dsfix-libs | ported shared warped-ink/content bounds for PDF fallback; keep artboard rectangle semantics; regressions ported | dsfix_raster_layer_embeds_only_its_content_bounds; dsfix_raster_text_bounds_include_warped_ink — passed |
+| V251 | dsfix-libs | preserved existing XML name index under duplicate-ID admission; source label/stroke-budget regression ported | dsfix_names_use_labels_and_stroked_paths_are_charged_once — passed |
+| V497 | dsfix-libs | ported shared remaining-sample admission before edge/recursive allocation; retained newer straight-curve distance inversion | dsfix_edge_sampling_consumes_shared_budget_before_allocation — passed |
+| V002 | dsfix-libs | existing version rejection retained; strengthened saved fixture header/version-error assertions | tests::preview::rejects_assets_versions_offsets_lengths_and_bombs — passed |
+| V021 | dsfix-libs | ported missing bounded character-attribute run storage/coalescing and regression; synth-gated fixture not executed by default Cargo features, explicit feature-selected test pending | dsfix_character_attribute_run_budget_preserves_all_characters — passed |
+| V052 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | dsfix_duplicate_maximum_utf16_name_stays_valid — passed |
+| V224 | dsfix-libs | preserved current single-cache production implementation and saved independent-mask raster-fallback marker; source fixture marker adapted to current saved-mask contract, exact bytes/geometry/alpha retained and clipped raster fallback asserted | dsfix_shape_cache_block_and_record_share_masked_pixels — passed |
+| V222 | dsfix-libs | ported 8192-chord finite fallback and first finite input retention, preserving newer fallible contour error propagation | dsfix_fallback_accepts_more_than_1024_chords_and_keeps_a_finite_cap — passed |
+| V205 | dsfix-libs | ported fill-rule-aware hit API/regression | dsfix_marquee_in_evenodd_hole_misses — passed |
+| V210 | dsfix-libs | ported slope-dependent quarter-arc handles with unchanged endpoints and regression | dsfix_arc_slope_changes_handles_but_preserves_endpoints — passed |
+| V239 | dsfix-libs | ported closed-source-only inset contour filtering and regression | dsfix_inset_ignores_open_internal_line — passed |
+| V274 | dsfix-libs | ported bounded region fallback on planar failure while retaining current fallible arrangement API; no saved dedicated failure fixture exists | Code inspection; workspace compilation. No new sweep-failure fixture. |
+| V216 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | dsfix_selected_empty_artboard_exports_its_background — passed |
+| V233 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | dsfix_denormal_width_cannot_produce_infinite_dash_values — passed |
+| V275 | dsfix-libs | ported bounded one-time decoded-stream accounting/regression alongside files xref/resource guards | dsfix_flate_decoded_bytes_are_charged_once_and_bombs_stay_bounded — passed |
+| V276 | dsfix-libs | ported one-time JPEG pixel charge and header validation/regression alongside files guards | dsfix_jpeg_pixel_allocation_charged_once_with_header_validation — passed |
+| V262 | dsfix-libs | ported early warped-decoration fallback failure/regression | dsfix_warped_decorations_fail_before_curve_output — passed |
+| V252 | dsfix-libs | ported missing single-charge local stroke geometry decode and regression | dsfix_names_use_labels_and_stroked_paths_are_charged_once — passed |
+| V285 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | dsfix_consecutive_soft_hyphens_reuse_the_previous_glyph_width — passed |
+| V279 | dsfix-libs | preserved newer once-projected outlines and early clipped-ink rejection; adapted saved overlap/distant-bound regression passes in vector-focused | dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items — passed |
+| V280 | dsfix-libs | newer saved vector paint_runs preserves consecutive layout order in projected lines/native/path rendering; saved dsfix overlap and vector multi-render regression pass in vector-focused | dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items — passed |
+| V296 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | dsfix_pixel_palette_trace_does_not_read_the_unused_continuous_field — passed |
+| V426 | dsfix-libs | ported empty-contour-safe correspondence rotation and regression | dsfix_empty_closed_contour_correspondence_does_not_panic — passed |
+| V420 | dsfix-libs | ported source bounded inverse arc-length tables/tangents and analytic regression | dsfix_spine_inverse_length_matches_curved_metric_and_tangent (analytic length, quarter positions, tangents and endpoints) — passed |
+| V451 | dsfix-libs | ported terminal open-art parameter and regression | dsfix_bent_open_art_includes_its_last_corner — passed |
+| V473 | dsfix-libs | preserved detailed mapping error model; ported post-fit error propagation and budget priority, adapted fixture field only | dsfix_coordinate_failure_is_distinct_from_work_budget — passed |
+| V478 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | dsfix_degenerate_subpath_bounds_are_culled_by_distance — passed |
+| V448 | dsfix-libs | ported coincident endpoint ownership for curve bridges and regression | dsfix_curve_bridge_marks_coincident_endpoint_used — passed |
+| V456 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | dsfix_gesture_crosses_faces_even_with_horizontal_zero_height_bounds — passed |
+| V468 | dsfix-libs | preserved source-specific tokens; ported explicit missing-source guard and allocation-free single-source selection/regression | dsfix_coincident_edges_retain_the_requested_source — passed |
+| V493 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | dsfix_zero_auto_pins_respects_requested_count — passed |
+| V486 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | dsfix_arrowheads_find_open_subpath_between_closed_subpaths — passed |
+| V500 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | dsfix_ellipse_callout_has_no_inert_radius_handle — passed |
+| V502 | dsfix-libs | newer production behavior preserved; source regression intent ported, focused source regression intent passed; final union pending | dsfix_straight_segment_bend_keeps_translation_and_atomic_errors — passed |
+| V484 | dsfix-libs | ported midpoint/stop joint sorting and missing midpoint defaults plus regression | dsfix_unsorted_gradient_midpoints_follow_their_stops — passed |
+| V490 | dsfix-libs | source verdict false; keep implementation/tolerance, run named existing test | tests::analytic_curve_bounds_and_sparse_shape_cache: passed once (1 test). |

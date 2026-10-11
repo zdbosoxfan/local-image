@@ -1,0 +1,44 @@
+{
+  "observed_unix": 1791753713.8951547,
+  "candidate_gate_key": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target",
+  "pending": [
+    {
+      "file": "/tmp/li-build-lanes/pending.cc86abf14f1647498b02f19631ca97ad",
+      "crate": "interactive_bench",
+      "published_unix": 1791753638.9815128,
+      "observed_pending_seconds": 74.91349768638611
+    },
+    {
+      "file": "/tmp/li-build-lanes/pending.2a55a08c7dbf404f91073aea46bd1084",
+      "crate": "it",
+      "published_unix": 1791753629.8456779,
+      "observed_pending_seconds": 84.04935145378113
+    },
+    {
+      "file": "/tmp/li-build-lanes/pending.cad451284bd540a7b5b4361b24399ca4",
+      "crate": "mac_menu_appkit",
+      "published_unix": 1791753628.6238418,
+      "observed_pending_seconds": 85.2711980342865
+    },
+    {
+      "file": "/tmp/li-build-lanes/pending.8952a554e1de4ce4beb384be38e7f0de",
+      "crate": "perf_scenarios",
+      "published_unix": 1791753628.3885593,
+      "observed_pending_seconds": 85.50648856163025
+    },
+    {
+      "file": "/tmp/li-build-lanes/pending.a4a26fb20c8a4b8a84c23f573d8c7d12",
+      "crate": "contracts_tools",
+      "published_unix": 1791753628.1201932,
+      "observed_pending_seconds": 85.77486181259155
+    },
+    {
+      "file": "/tmp/li-build-lanes/pending.7563e523b7194bb18f6d94b227f7b473",
+      "crate": "fx_bench",
+      "published_unix": 1791753627.764717,
+      "observed_pending_seconds": 86.1303448677063
+    }
+  ],
+  "run_markers": [],
+  "note": "Read-only gate snapshot; no locks/caches altered. Pending ages are observed waits, not inferred total resource-wait duration."
+}

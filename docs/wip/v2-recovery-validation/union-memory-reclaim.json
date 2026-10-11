@@ -1,0 +1,24 @@
+{
+  "action": "kernel reclaim request for 4 GiB of this worker service memory only",
+  "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/li.slice/li-jobs.slice/li-codex-codex-v2-recovery-stage1-1791750178.service/memory.reclaim",
+  "before": {
+    "memory.current": "36555956224",
+    "memory.high": "max",
+    "memory.max": "max",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0"
+  },
+  "jobs_limits": {
+    "memory.high": "42949672960",
+    "memory.max": "47244640256"
+  },
+  "files_removed": false,
+  "limits_changed": false,
+  "status": "request accepted",
+  "elapsed_seconds": 0.2903768570004104,
+  "after": {
+    "memory.current": "32301920256",
+    "memory.high": "max",
+    "memory.max": "max",
+    "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0"
+  }
+}

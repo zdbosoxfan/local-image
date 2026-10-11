@@ -1,0 +1,70 @@
+   Compiling serde_core v1.0.229
+   Compiling syn v2.0.119
+   Compiling yoke v0.8.3
+   Compiling bytemuck v1.25.2
+   Compiling smallvec v1.16.2
+   Compiling serde v1.0.229
+   Compiling zerovec v0.11.8
+   Compiling zerotrie v0.2.5
+   Compiling either v1.18.0
+   Compiling rayon v1.12.0
+   Compiling font-types v0.12.5
+   Compiling num-traits v0.2.19
+   Compiling read-fonts v0.41.0
+   Compiling tinystr v0.8.4
+   Compiling icu_locale_core v2.3.0
+   Compiling potential_utf v0.1.6
+   Compiling icu_provider v2.3.1
+   Compiling icu_collections v2.3.0
+   Compiling photocraft-cms v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-cms)
+   Compiling photocraft-geom v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-geom)
+   Compiling getrandom v0.4.3
+   Compiling serde_json v1.0.151
+   Compiling photocraft-color v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-color)
+   Compiling photocraft-raster v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-raster)
+   Compiling hashbrown v0.17.1
+   Compiling icu_properties v2.3.0
+   Compiling icu_locale_fallback v2.3.0
+   Compiling fontique v0.11.1
+   Compiling polycool v0.4.0
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_segmenter v2.3.0
+   Compiling parley_data v0.11.1
+   Compiling skrifa v0.44.0
+   Compiling harfrust v0.12.0
+   Compiling photocraft-doc v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-doc)
+   Compiling tempfile v3.27.0
+   Compiling moxcms v0.8.1
+   Compiling parley v0.11.1
+   Compiling zerocopy-derive v0.8.59
+   Compiling fax_derive v0.2.0
+   Compiling kurbo v0.13.1
+   Compiling photocraft-psd v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-psd)
+   Compiling rusty-fork v0.3.1
+   Compiling fax v0.2.6
+   Compiling photocraft-text v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-text)
+   Compiling photocraft-vector v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-vector)
+   Compiling rand v0.9.5
+   Compiling zerocopy v0.8.59
+   Compiling half v2.7.1
+   Compiling tiff v0.11.3
+   Compiling ppv-lite86 v0.2.21
+   Compiling image v0.25.10
+   Compiling rand_chacha v0.9.0
+   Compiling proptest v1.11.0
+   Compiling photocraft-affinity v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-affinity)
+    Finished `test` profile [optimized + debuginfo] target(s) in 25.22s
+     Running tests/scene.rs (target/debug/deps/scene-3772c09f6465adac)
+
+running 1 test
+test dsfix_stack_channel_decode_preserves_rgba_grey_and_cmyk_pixels ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+     Running tests/text.rs (target/debug/deps/text-37094528d6cabad1)
+
+running 1 test
+test dsfix_character_attribute_run_budget_preserves_all_characters ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 19 filtered out; finished in 0.00s
+

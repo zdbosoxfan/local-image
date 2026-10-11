@@ -2038,7 +2038,12 @@ mod tests {
                     let cmds = gesture(&mut h, p, p + egui::vec2(20.0, 8.0));
                     assert_eq!(cmds, [ViewportCommand::BeginResize(egui::ResizeDirection::North)]);
                     assert!(gesture(&mut h, captions[2].center(), captions[2].center()).contains(&ViewportCommand::Close));
+                    let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
                     drop(h);
+                    // Full-view previews defer JPEG writes outside the renderer pool.
+                    // Retire this fixture cache after pool teardown: wait for in-flight
+                    // writes and reject late writers before removing its directory.
+                    previews.retire();
                     std::fs::remove_dir_all(dir).unwrap();
                 }
             }
