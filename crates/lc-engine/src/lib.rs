@@ -395,14 +395,23 @@ impl Session {
 
     /// Apply an op as one undoable step.
     pub fn commit(&mut self, label: &str, op: Op) -> Result<()> {
+        let filter = self.ephemeral_photo();
+        let scope = filter.map(|photo| ephemeral::op_scope(&op, photo)).unwrap_or((false, true));
+        if scope == (true, true) {
+            return Err(EngineError::Other("Camera Raw and Library edits must be separate operations".into()));
+        }
         let fwd = op.clone();
         let inv = self.catalog.apply(op)?;
         self.pending_log.push(fwd);
         self.undo.push(UndoEntry { group: self.undo_group, label: label.to_string(), op: inv, folder: None, people: None });
-        if self.undo.len() > 1000 {
-            self.undo.remove(0);
+        let same_scope = |e: &UndoEntry| filter.is_none_or(|photo| ephemeral::only_photo(&e.op, photo) == scope.0);
+        if self.undo.len() > 1000
+            && self.undo.iter().filter(|e| same_scope(e)).count() > 1000
+            && let Some(index) = self.undo.iter().position(same_scope)
+        {
+            self.undo.remove(index);
         }
-        self.redo.clear();
+        self.redo.retain(|e| !same_scope(e));
         Ok(())
     }
 
@@ -449,6 +458,13 @@ impl Session {
         if n < 2 || n > self.undo.len() {
             return;
         }
+        if let Some(photo) = self.ephemeral_photo() {
+            let tail = &self.undo[self.undo.len() - n..];
+            let scope = ephemeral::only_photo(&tail[0].op, photo);
+            if tail.iter().any(|e| ephemeral::only_photo(&e.op, photo) != scope) {
+                return;
+            }
+        }
         // a step that moves a folder on disk stays on its own
         if self.undo[self.undo.len() - n..].iter().any(|e| e.folder.is_some() || e.people.is_some()) {
             return;
@@ -465,12 +481,30 @@ impl Session {
         Ok(())
     }
 
+    fn history_index(&self, entries: &[UndoEntry]) -> Option<usize> {
+        match self.ephemeral_photo() {
+            Some(photo) => entries.iter().rposition(|e| ephemeral::only_photo(&e.op, photo)),
+            None => entries.len().checked_sub(1),
+        }
+    }
+
+    /// The Undo/Redo available in the visible editing scope. A Camera Raw session
+    /// cannot consume Library steps, including commits arriving in the background.
+    pub fn undo_entry(&self) -> Option<&UndoEntry> {
+        self.history_index(&self.undo).and_then(|i| self.undo.get(i))
+    }
+
+    pub fn redo_entry(&self) -> Option<&UndoEntry> {
+        self.history_index(&self.redo).and_then(|i| self.redo.get(i))
+    }
+
     pub fn undo_step(&mut self) -> Result<String> {
-        let e = self.undo.pop().ok_or_else(|| EngineError::Other("nothing to undo".into()))?;
+        let index = self.history_index(&self.undo).ok_or_else(|| EngineError::Other("nothing to undo".into()))?;
+        let e = self.undo.remove(index);
         let (redo, people) = match self.apply_people_history(&e.op, e.folder.as_ref(), e.people.as_ref()) {
             Ok(r) => r,
             Err(err) => {
-                self.undo.push(e);
+                self.undo.insert(index, e);
                 return Err(err);
             }
         };
@@ -480,11 +514,12 @@ impl Session {
     }
 
     pub fn redo_step(&mut self) -> Result<String> {
-        let e = self.redo.pop().ok_or_else(|| EngineError::Other("nothing to redo".into()))?;
+        let index = self.history_index(&self.redo).ok_or_else(|| EngineError::Other("nothing to redo".into()))?;
+        let e = self.redo.remove(index);
         let (undo, people) = match self.apply_people_history(&e.op, e.folder.as_ref(), e.people.as_ref()) {
             Ok(r) => r,
             Err(err) => {
-                self.redo.push(e);
+                self.redo.insert(index, e);
                 return Err(err);
             }
         };

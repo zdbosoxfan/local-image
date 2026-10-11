@@ -299,6 +299,7 @@ impl Session {
             log::error!("library: {e}");
         }
         let (mut journal, mut catalog, report) = Journal::open(catalog)?;
+        self.close_ephemeral();
         // A loaded catalog counts revisions from 0, like every other one. Caches (sidebar counts,
         // keyword tree, the grid's list…) are keyed on the revision, so give each library loaded
         // in this process its own range: otherwise an empty library opened after one that was

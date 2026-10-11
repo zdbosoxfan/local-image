@@ -95,10 +95,11 @@ pub fn has_selection(s: &Session) -> std::result::Result<(), String> {
     if s.selection.ids.is_empty() && s.selection.active.is_none() { Err("no photos selected".into()) } else { Ok(()) }
 }
 pub fn can_undo(s: &Session) -> std::result::Result<(), String> {
-    if s.undo.is_empty() { Err("nothing to undo".into()) } else { Ok(()) }
+    let changed_interaction = s.interaction.as_ref().is_some_and(|i| s.develop_of(i.photo).is_some_and(|current| current != i.original));
+    if s.undo_entry().is_some() || changed_interaction { Ok(()) } else { Err("nothing to undo".into()) }
 }
 pub fn can_redo(s: &Session) -> std::result::Result<(), String> {
-    if s.redo.is_empty() { Err("nothing to redo".into()) } else { Ok(()) }
+    if s.redo_entry().is_none() { Err("nothing to redo".into()) } else { Ok(()) }
 }
 pub fn has_clipboard(s: &Session) -> std::result::Result<(), String> {
     has_selection(s)?;

@@ -337,10 +337,10 @@ fn live_label(app: &LightcraftApp, id: &str, label: &str) -> String {
     let n = app.session.selection.ids.len();
     match id {
         "edit.undo" => {
-            app.session.undo.last().map(|e| crate::i18n::tr_format!("Undo {}", crate::i18n::tr(&e.label))).unwrap_or_else(|| "Undo".into())
+            app.session.undo_entry().map(|e| crate::i18n::tr_format!("Undo {}", crate::i18n::tr(&e.label))).unwrap_or_else(|| "Undo".into())
         }
         "edit.redo" => {
-            app.session.redo.last().map(|e| crate::i18n::tr_format!("Redo {}", crate::i18n::tr(&e.label))).unwrap_or_else(|| "Redo".into())
+            app.session.redo_entry().map(|e| crate::i18n::tr_format!("Redo {}", crate::i18n::tr(&e.label))).unwrap_or_else(|| "Redo".into())
         }
         "photo.delete" if n > 1 => crate::i18n::tr_format!("Delete {n} Photos", n = n),
         "photo.virtualCopy" if n > 1 => crate::i18n::tr_format!("Create {n} Virtual Copies", n = n),
@@ -801,6 +801,31 @@ fn nodes_ui(ui: &mut egui::Ui, nodes: &[MenuNode], mac: bool, clicked: &mut Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn camera_raw_history_menu_tracks_only_filter_steps() {
+        let mut app = app();
+        run_item(&mut app, "photo.rate", json!({"rating": 3})).unwrap();
+        let dir = std::env::temp_dir().join(format!("li-filter-menu-{}", std::process::id()));
+        app.session.open_ephemeral(&dir, "Filter", 2, 2, &[[0.2, 0.3, 0.4]; 4], &json!({})).unwrap();
+        let item = |app: &LightcraftApp, id: &str| {
+            let all: Vec<MenuNode> = menu_bar(app).into_iter().flat_map(|(_, nodes)| nodes).collect();
+            match find(&all, id).unwrap() {
+                MenuNode::Item { label, enabled, .. } => (label.clone(), *enabled),
+                _ => panic!("not an item"),
+            }
+        };
+        assert_eq!(item(&app, "edit.undo"), ("Undo".into(), false));
+        run_item(&mut app, "develop.set", json!({"control":"light.exposure","value":0.5})).unwrap();
+        assert!(item(&app, "edit.undo").1);
+        run_item(&mut app, "edit.undo", json!({})).unwrap();
+        assert_eq!(item(&app, "edit.undo"), ("Undo".into(), false));
+        assert!(item(&app, "edit.redo").1);
+        app.session.close_ephemeral().unwrap();
+        assert_eq!(item(&app, "edit.undo"), ("Undo Set Rating".into(), true));
+        assert_eq!(item(&app, "edit.redo"), ("Redo".into(), false));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     fn app() -> LightcraftApp {
         LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default())

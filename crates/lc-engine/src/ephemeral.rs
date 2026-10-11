@@ -50,6 +50,21 @@ fn encode(width: usize, height: usize, rgb: &[[f32; 3]]) -> Result<Vec<u8>> {
         .map_err(|e| EngineError::Other(format!("can't write the Camera Raw image: {e}")))
 }
 
+/// Whether an operation touches the filter and/or the Library. Global catalog
+/// operations count as Library edits even when they name no photos.
+pub(crate) fn op_scope(op: &Op, photo: PhotoId) -> (bool, bool) {
+    if let Op::Batch { ops } = op {
+        return ops.iter().map(|op| op_scope(op, photo)).fold((false, false), |a, b| (a.0 || b.0, a.1 || b.1));
+    }
+    let mut ids = Vec::new();
+    op.photo_ids(&mut |id| ids.push(id));
+    (ids.contains(&photo), ids.is_empty() || ids.iter().any(|id| *id != photo))
+}
+
+pub(crate) fn only_photo(op: &Op, photo: PhotoId) -> bool {
+    op_scope(op, photo) == (true, false)
+}
+
 impl Session {
     /// The open ephemeral photo, if any.
     pub fn ephemeral_photo(&self) -> Option<PhotoId> {
@@ -98,16 +113,13 @@ impl Session {
     /// Closes the ephemeral photo: returns its develop settings (JSON), removes it (nothing is
     /// saved), drops its undo steps, restores the selection and deletes its file.
     pub fn close_ephemeral(&mut self) -> Option<Value> {
-        let e = self.ephemeral.take()?;
+        self.ephemeral.as_ref()?;
+        // Finish under the filter scope so the Library redo remains untouched.
         let _ = self.end_interaction();
+        let e = self.ephemeral.take()?;
         let settings = self.develop_of(e.photo).and_then(|d| serde_json::to_value(&*d).ok());
-        let only_it = |op: &Op| {
-            let mut ids = Vec::new();
-            op.photo_ids(&mut |id| ids.push(id));
-            !ids.is_empty() && ids.iter().all(|i| *i == e.photo)
-        };
-        self.undo.retain(|u| !only_it(&u.op));
-        self.redo.retain(|u| !only_it(&u.op));
+        self.undo.retain(|u| !only_photo(&u.op, e.photo));
+        self.redo.retain(|u| !only_photo(&u.op, e.photo));
         let _ = self.catalog.apply(Op::RemovePhoto { id: e.photo });
         self.strip_ephemeral_ops(e.photo);
         self.before.remove(&e.photo);
@@ -164,6 +176,117 @@ mod tests {
 
     fn pixels() -> Vec<[f32; 3]> {
         (0..24 * 16).map(|i| [(i % 24) as f32 / 24.0, (i / 24) as f32 / 16.0, 0.3]).collect()
+    }
+
+    #[test]
+    fn camera_raw_history_cannot_undo_hidden_library_edits() {
+        let d = dir("history-scope");
+        let mut s = Session::with_demo();
+        let original = s.active().unwrap();
+        s.execute("develop.set", &json!({"control":"light.exposure","value":1.2})).unwrap();
+        let library = s.develop_of(original).unwrap();
+        let library_steps = s.undo.len();
+        let photo = s.open_ephemeral(&d, "Filter", 24, 16, &pixels(), &json!({})).unwrap();
+        assert!(s.undo_entry().is_none());
+        assert!(s.execute("edit.undo", &json!({})).is_err());
+        assert_eq!(s.develop_of(original).unwrap(), library);
+        for (control, value) in [("light.exposure", 0.5), ("light.contrast", 20.0)] {
+            s.execute("develop.set", &json!({"control":control,"value":value})).unwrap();
+        }
+        s.execute("edit.undo", &json!({})).unwrap();
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert!(s.execute("edit.undo", &json!({})).is_err());
+        assert_eq!(s.develop_of(photo).unwrap().light.exposure, 0.0);
+        assert_eq!(s.develop_of(original).unwrap(), library);
+        s.close_ephemeral().unwrap();
+        assert_eq!(s.undo.len(), library_steps);
+        assert!(s.redo.is_empty());
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert_ne!(s.develop_of(original).unwrap(), library);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn camera_raw_history_preserves_library_redo_even_when_closing_a_live_interaction() {
+        for live in [false, true] {
+            let d = dir(if live { "redo-live" } else { "redo" });
+            let mut s = Session::with_demo();
+            let original = s.active().unwrap();
+            s.execute("develop.set", &json!({"control":"light.exposure","value":1.2})).unwrap();
+            s.execute("edit.undo", &json!({})).unwrap();
+            let label = s.redo_entry().unwrap().label.clone();
+            let before = s.develop_of(original).unwrap();
+            s.open_ephemeral(&d, "Filter", 24, 16, &pixels(), &json!({})).unwrap();
+            assert!(s.redo_entry().is_none());
+            assert!(s.execute("edit.redo", &json!({})).is_err());
+            if live {
+                s.begin_interaction("Filter Exposure").unwrap();
+            }
+            s.execute("develop.set", &json!({"control":"light.exposure","value":0.7})).unwrap();
+            let settings = s.close_ephemeral().unwrap();
+            assert_eq!(settings["light"]["exposure"].as_f64().unwrap() as f32, 0.7);
+            assert_eq!(s.develop_of(original).unwrap(), before);
+            assert_eq!(s.redo_entry().unwrap().label, label);
+            s.execute("edit.redo", &json!({})).unwrap();
+            assert_eq!(s.develop_of(original).unwrap().light.exposure, 1.2);
+            std::fs::remove_dir_all(d).unwrap();
+        }
+    }
+
+    #[test]
+    fn camera_raw_history_keeps_background_library_commits_separate() {
+        let d = dir("background-history");
+        let mut s = Session::with_demo();
+        let original = s.active().unwrap();
+        let rating = s.catalog.photo(original).unwrap().rating;
+        let photo = s.open_ephemeral(&d, "Filter", 24, 16, &pixels(), &json!({})).unwrap();
+        s.execute("develop.set", &json!({"control":"light.exposure","value":0.7})).unwrap();
+        s.undo_step().unwrap();
+        // This is the commit boundary used by background catalog tasks while the filter is visible.
+        let new_rating = if rating == 5 { 4 } else { 5 };
+        s.commit("Background Library rating", Op::SetRating { id: original, rating: new_rating }).unwrap();
+        assert!(s.redo_entry().is_some(), "a Library edit erased filter Redo");
+        s.redo_step().unwrap();
+        assert_eq!(s.develop_of(photo).unwrap().light.exposure, 0.7);
+        s.undo_step().unwrap();
+        assert!(s.undo_step().is_err(), "filter Undo reached the background Library commit");
+        assert_eq!(s.catalog.photo(original).unwrap().rating, new_rating);
+        s.close_ephemeral().unwrap();
+        assert_eq!(s.undo_entry().unwrap().label, "Background Library rating");
+        s.undo_step().unwrap();
+        assert_eq!(s.catalog.photo(original).unwrap().rating, rating);
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn camera_raw_history_rejects_mixed_edits_before_any_catalog_change() {
+        let d = dir("mixed-history");
+        let mut s = Session::with_demo();
+        let original = s.active().unwrap();
+        let photo = s.open_ephemeral(&d, "Filter", 24, 16, &pixels(), &json!({})).unwrap();
+        let before = serde_json::to_value(&s.catalog).unwrap();
+        let result = s.commit("Mixed", Op::Batch { ops: vec![Op::SetRating { id: original, rating: 4 }, Op::SetRating { id: photo, rating: 5 }] });
+        assert!(result.is_err());
+        assert_eq!(serde_json::to_value(&s.catalog).unwrap(), before);
+        s.close_ephemeral().unwrap();
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn camera_raw_history_capacity_does_not_evict_library_history() {
+        let d = dir("history-capacity");
+        let mut s = Session::with_demo();
+        let original = s.active().unwrap();
+        s.commit("Keep Library step", Op::SetRating { id: original, rating: 4 }).unwrap();
+        let photo = s.open_ephemeral(&d, "Filter", 24, 16, &pixels(), &json!({})).unwrap();
+        for i in 0..1002 {
+            s.commit("Filter edit", Op::SetRating { id: photo, rating: (i % 5) as u8 }).unwrap();
+        }
+        assert_eq!(s.undo.len(), 1001);
+        s.close_ephemeral().unwrap();
+        assert_eq!(s.undo.len(), 1);
+        assert_eq!(s.undo_entry().unwrap().label, "Keep Library step");
+        std::fs::remove_dir_all(d).unwrap();
     }
 
     #[test]
