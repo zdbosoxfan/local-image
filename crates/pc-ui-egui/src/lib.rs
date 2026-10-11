@@ -1804,5 +1804,7 @@ pub mod object_path;
 // Package 37 compiled hooks; shared menu/canvas wiring stays in the 00 lane.
 #[path = "vector_packages/isolation.rs"]
 pub mod isolation;
+#[path = "vector_packages/live_paint.rs"]
+pub mod live_paint;
 #[path = "vector_packages/view_modes.rs"]
 pub mod view_modes;

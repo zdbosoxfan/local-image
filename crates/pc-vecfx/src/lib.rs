@@ -7,3 +7,4 @@ pub mod repeat;
 pub mod width;
 
 pub mod blend;
+pub mod live_paint;
