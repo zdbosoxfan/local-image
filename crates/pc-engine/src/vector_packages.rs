@@ -7,6 +7,7 @@ pub mod anchor_tools;
 pub mod appearance;
 pub mod blend;
 pub mod brushes;
+pub mod clip_compound;
 pub mod constraints;
 pub mod constructive;
 pub mod corners;
@@ -58,5 +59,6 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
     out.extend(trace_cleanup::specs());
     out.extend(trace_cutout::specs());
     out.extend(trace_output::specs());
+    out.extend(clip_compound::specs());
     out
 }

@@ -67,6 +67,8 @@ pub mod actions;
 pub mod anchor_tools;
 #[path = "vector_packages/blend.rs"]
 pub mod blend;
+#[path = "vector_packages/clip_compound.rs"]
+pub mod clip_compound;
 #[path = "vector_packages/library_vectorize.rs"]
 pub mod library_vectorize;
 #[path = "vector_packages/repeat.rs"]
