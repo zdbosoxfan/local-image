@@ -60,5 +60,12 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
     out.extend(trace_cutout::specs());
     out.extend(trace_output::specs());
     out.extend(clip_compound::specs());
+    out.extend(path_commands::specs());
+    out.extend(path_commands::clipboard::specs());
+    out.extend(expand::specs());
     out
 }
+
+// Package 36 registration; UI menu/router fragments are in integration/36.md.
+pub mod expand;
+pub mod path_commands;

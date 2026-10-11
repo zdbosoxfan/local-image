@@ -1798,3 +1798,6 @@ pub mod vector_brush;
 
 #[path = "vector_packages/envelope.rs"]
 pub mod envelope;
+// Package 36; Object/menu/canvas routing is delivered to 00 in integration/36.md.
+#[path = "vector_packages/path_commands.rs"]
+pub mod object_path;
