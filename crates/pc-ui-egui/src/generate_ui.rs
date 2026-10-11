@@ -2171,13 +2171,21 @@ fn launch_resolved(
             if let (Some(meta), Some(resolved)) = (meta.as_object_mut(), resolved.as_object()) {
                 meta.extend(resolved.clone());
             }
-            ctx.progress(0.98, "Saving to the library");
-            let entry = library
-                .add(&img, &name, Some(meta), None)
-                .map_err(|e| photocraft_engine::EngineError::Other(format!("Could not save to the library: {e:#}")))?;
-            Ok(entry)
+            ctx.check()?;
+            ctx.progress(0.98, "Preparing library image");
+            let prepared = library
+                .prepare(&img, &name, Some(meta), None)
+                .map_err(|e| photocraft_engine::EngineError::Other(format!("Could not prepare the library image: {e:#}")))?;
+            ctx.check()?;
+            ctx.progress(0.99, "Ready to save to the library");
+            Ok(prepared)
         },
-        |_, entry| Ok(serde_json::to_value(entry).unwrap_or(Value::Null)),
+        |_, prepared| {
+            // Session checks cancellation before applying on the UI thread. A queued
+            // result cancelled before this point is dropped with its staging files.
+            let entry = prepared.publish().map_err(|e| photocraft_engine::EngineError::Other(format!("Could not save to the library: {e:#}")))?;
+            Ok(serde_json::to_value(entry).unwrap_or(Value::Null))
+        },
     );
     match started {
         Ok(photocraft_engine::jobs::Started::Job(id)) => {
@@ -2252,14 +2260,24 @@ pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
 
 fn place_into(app: &mut PhotocraftApp, doc_id: u64, entry: &Entry) {
     let Some(index) = app.session.documents().iter().position(|d| d.doc.id.0 == doc_id) else { return };
+    let previous = app.session.active().map(|d| d.doc.id);
     app.session.set_active(index);
-    app.sync_views();
     let path = library().image_path(&entry.id);
     let name = format!("Edit: {}", entry.prompt().chars().take(40).collect::<String>());
-    if let Err(e) = app.run("ai.placeLayer", json!({ "path": path.display().to_string(), "name": name, "fit": "none", "generation": entry.generation })) {
-        app.ui.status = e;
+    // Apply through the engine without syncing UI gestures against the temporary target.
+    // Sync once after restoring the viewed document, so an in-progress lasso survives.
+    if let Err(e) =
+        app.session.execute("ai.placeLayer", json!({ "path": path.display().to_string(), "name": name, "fit": "none", "generation": entry.generation }))
+    {
+        app.ui.status = e.to_string();
         app.ui.status_error = true;
     }
+    if let Some(previous) = previous.filter(|id| id.0 != doc_id)
+        && let Some(index) = app.session.documents().iter().position(|d| d.doc.id == previous)
+    {
+        app.session.set_active(index);
+    }
+    app.sync_views();
 }
 
 fn results_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
@@ -3495,4 +3513,55 @@ fn final_review_second_pass_typing_nominal_values_marks_them_explicit() {
     assert_eq!((state.refine_steps, state.refine_guidance), (Some(steps), Some(guidance)));
     let step = local_request(state, "a house".into(), None, vec![]).unwrap().0.refine.unwrap();
     assert_eq!((step.steps, step.guidance), (Some(steps), Some(guidance)));
+}
+
+#[cfg(test)]
+#[test]
+fn cancelled_prepared_generation_never_enters_library() {
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    let name = format!("cancelled-prepared-{}", std::process::id());
+    assert!(launch_resolved(&mut app, "Generation", "Generation", name.clone(), json!({}), None, false, |_| {
+        Ok((RgbaImage::from_pixel(16, 16, image::Rgba([30, 70, 90, 255])), Value::Null))
+    }));
+    let id = app.session.jobs().into_iter().find(|j| j.command == GENERATE_JOB).unwrap().id;
+    let until = Instant::now() + Duration::from_secs(5);
+    loop {
+        let job = app.session.job(id).unwrap();
+        if job.progress >= 0.99 {
+            break;
+        }
+        assert!(Instant::now() < until, "generation was not prepared");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    assert!(!library().list().iter().any(|e| e.name.starts_with(&name)), "worker published before the apply step");
+    crate::ai_ui::stop_generation(&mut app, &[id]);
+    app.session.join_cancelled_jobs();
+    app.session.poll_jobs();
+    assert!(!library().list().iter().any(|e| e.name.starts_with(&name)), "cancelled result was published");
+}
+
+#[cfg(test)]
+#[test]
+fn generated_edit_returns_to_the_document_the_user_is_viewing() {
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+    let target = app.session.active().unwrap().doc.id.0;
+    let layers = app.session.active().unwrap().doc.layers.len();
+    app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+    let viewing = app.session.active().unwrap().doc.clone();
+    let revision = app.session.active().unwrap().revision;
+    app.ui.tool = crate::state::Tool::Lasso;
+    crate::lasso_ui::pointer(&mut app, crate::canvas::ToolEvent::Down { x: 1.0, y: 1.0, pressure: 1.0 }, egui::Modifiers::NONE);
+    assert!(crate::lasso_ui::active(&app));
+    let entry = library().add(&RgbaImage::from_pixel(8, 8, image::Rgba([30, 70, 90, 255])), "active-tab-regression", None, None).unwrap();
+    place_into(&mut app, target, &entry);
+    assert_eq!(app.session.active().unwrap().doc.id, viewing.id);
+    assert!(std::sync::Arc::ptr_eq(&app.session.active().unwrap().doc, &viewing));
+    assert_eq!(app.session.active().unwrap().revision, revision);
+    assert_eq!(app.session.documents()[0].doc.layers.len(), layers + 1);
+    assert!(crate::lasso_ui::active(&app), "background completion cancelled the viewed document's gesture");
+    assert!(!app.ui.status_error, "{}", app.ui.status);
+    library().delete(&[entry.id]).unwrap();
 }

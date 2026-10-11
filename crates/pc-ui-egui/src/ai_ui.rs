@@ -1189,24 +1189,15 @@ pub(crate) fn status_controls_with(app: &mut PhotocraftApp, ui: &mut egui::Ui, s
     }
 }
 
-/// Stops AI work: cancels `jobs` and, when one of this app's prompts is what ComfyUI is
-/// executing, interrupts it (older ComfyUI versions can't cancel a single running prompt).
+/// Cancel only the requested jobs. Each worker's bridged control owns its ComfyUI
+/// prompt and handles targeted cancellation/retry; a process-wide prompt snapshot
+/// could interrupt another feature's job.
 pub fn stop_generation(app: &mut PhotocraftApp, jobs: &[photocraft_engine::jobs::JobId]) {
-    // Note our prompts before cancelling takes them off the list.
-    let client = li_ai::service().client;
-    let ours = li_ai::comfy::our_prompts(client.host());
     for id in jobs {
         crate::jobs_ui::cancel(app, *id);
     }
-    app.ui.status = tl!("Stopped generation").into();
+    app.ui.status = tl!("Stopping generation…").into();
     app.ui.status_error = false;
-    if !ours.is_empty() {
-        let _ = std::thread::Builder::new().name("ai-interrupt".into()).spawn(move || {
-            if let Err(e) = client.interrupt_if_running(&ours) {
-                log::warn!("interrupt: {e:#}");
-            }
-        });
-    }
 }
 
 fn short_gpu(name: &str) -> String {
@@ -2296,6 +2287,19 @@ mod tests {
         }
     }
 
+    #[test]
+    fn stop_generation_cancels_only_requested_ai_jobs() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let gate = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let generate = endless(&mut app, "ai.generate", &gate);
+        let remove = endless(&mut app, "ai.remove", &gate);
+        stop_generation(&mut app, &[generate]);
+        assert_eq!(ai_jobs(&app), vec![remove], "another AI feature must retain its job");
+        gate.store(true, std::sync::atomic::Ordering::Relaxed);
+        assert!(app.session.wait_job(generate).is_err());
+        assert!(app.session.wait_job(remove).is_ok());
+    }
+
     /// The status bar's AI controls: Eject and a red Stop (shown while AI jobs run) render, and
     /// Stop cancels the AI jobs only.
     #[test]
@@ -2324,7 +2328,7 @@ mod tests {
         assert!(ai_jobs(h.state()).is_empty(), "the AI job was cancelled");
         assert!(h.state().session.job(other).is_some(), "other work keeps running");
         assert!(h.query_by_label("Stop generation").is_none());
-        assert_eq!(h.state().ui.status, "Stopped generation");
+        assert_eq!(h.state().ui.status, "Stopping generation…");
         // Both icons were rasterised from their SVGs.
         for icon in ["eject", "circle-stop"] {
             let poll = h.ctx.try_load_image(&format!("bytes://icons/{icon}.svg"), egui::SizeHint::default());

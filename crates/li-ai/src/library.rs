@@ -49,6 +49,36 @@ pub struct Library {
     root: PathBuf,
 }
 
+/// Encoded generation held outside the visible library until its owning job is accepted.
+/// Dropping a cancelled/failed job's payload removes its unpublished files.
+#[derive(Debug)]
+pub struct PreparedEntry {
+    staging: PathBuf,
+    destination: PathBuf,
+    entry: Entry,
+    published: bool,
+}
+
+impl PreparedEntry {
+    /// A single directory rename publishes the image, thumbnail and metadata together.
+    pub fn publish(mut self) -> Result<Entry> {
+        std::fs::rename(&self.staging, &self.destination)?;
+        self.published = true;
+        Ok(self.entry.clone())
+    }
+}
+
+impl Drop for PreparedEntry {
+    fn drop(&mut self) {
+        if !self.published
+            && let Err(e) = std::fs::remove_dir_all(&self.staging)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            log::warn!("Couldn't remove unpublished generation: {e}");
+        }
+    }
+}
+
 impl Default for Library {
     fn default() -> Self {
         Self::open(state_dir().join("generation-library"))
@@ -77,6 +107,11 @@ impl Library {
 
     /// Adds an image; returns its entry. Writes are staged and renamed into place.
     pub fn add(&self, image: &RgbaImage, name: &str, generation: Option<Value>, upscale: Option<Value>) -> Result<Entry> {
+        self.prepare(image, name, generation, upscale)?.publish()
+    }
+
+    /// Encode on a worker; defer visible publication until the job's apply step.
+    pub fn prepare(&self, image: &RgbaImage, name: &str, generation: Option<Value>, upscale: Option<Value>) -> Result<PreparedEntry> {
         let id = uuid::Uuid::new_v4().hyphenated().to_string();
         let png = crate::imaging::encode_png(image)?;
         let thumb = image::imageops::thumbnail(
@@ -96,18 +131,12 @@ impl Library {
             upscale,
         };
         let staging = self.root.join(format!(".pending-{}", uuid::Uuid::new_v4().simple()));
-        std::fs::create_dir_all(&staging)?;
-        let result = (|| -> Result<()> {
-            std::fs::write(staging.join("image.png"), &png)?;
-            std::fs::write(staging.join("thumbnail.png"), crate::imaging::encode_png(&thumb)?)?;
-            write_atomic(&staging.join("entry.json"), serde_json::to_string_pretty(&entry)?.as_bytes())?;
-            std::fs::rename(&staging, self.root.join(&id))?;
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_dir_all(&staging);
-        }
-        result.map(|_| entry)
+        let prepared = PreparedEntry { staging, destination: self.root.join(&id), entry, published: false };
+        std::fs::create_dir_all(&prepared.staging)?;
+        std::fs::write(prepared.staging.join("image.png"), &png)?;
+        std::fs::write(prepared.staging.join("thumbnail.png"), crate::imaging::encode_png(&thumb)?)?;
+        write_atomic(&prepared.staging.join("entry.json"), serde_json::to_string_pretty(&prepared.entry)?.as_bytes())?;
+        Ok(prepared)
     }
 
     /// All entries, newest first. Damaged entries are skipped.
@@ -170,6 +199,30 @@ fn walk_size(p: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prepared_entries_are_invisible_until_publish_and_drop_cleans_them() {
+        let root = std::env::temp_dir().join(format!("li-prepared-{}", uuid::Uuid::new_v4()));
+        let lib = Library::open(&root);
+        let img = RgbaImage::from_pixel(8, 8, image::Rgba([12, 34, 56, 128]));
+        let pending = lib.prepare(&img, "cancelled", None, None).unwrap();
+        assert!(lib.list().is_empty());
+        assert!(pending.staging.join("image.png").is_file());
+        drop(pending);
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
+        let entry = lib.prepare(&img, "accepted", None, None).unwrap().publish().unwrap();
+        assert_eq!(lib.list().len(), 1);
+        assert_eq!(lib.load(&entry).unwrap(), img);
+        let mut pending = lib.prepare(&img, "failed", None, None).unwrap();
+        let staging = pending.staging.clone();
+        // A failed publication leaves the existing entry and its bytes intact.
+        pending.destination = root.join(&entry.id);
+        assert!(pending.publish().is_err());
+        assert!(!staging.exists());
+        assert_eq!(lib.list().len(), 1);
+        assert_eq!(lib.load(&entry).unwrap(), img);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn add_list_load_delete() {

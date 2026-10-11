@@ -332,7 +332,10 @@ impl ComfyClient {
         let q = self.queue_state()?;
         let pending = q.get("queue_pending").and_then(Value::as_array).is_some_and(|items| items.iter().any(|i| item_has(i, prompt_id)));
         if pending {
-            self.quick.post(&self.url("/queue")).send_json(json!({ "delete": [prompt_id] }))?;
+            let response = self.quick.post(&self.url("/queue")).send_json(json!({ "delete": [prompt_id] }))?;
+            if !response.status().is_success() {
+                bail!("ComfyUI could not cancel the queued job ({})", response.status());
+            }
             return Ok(());
         }
         let running = q.get("queue_running").and_then(Value::as_array).is_some_and(|items| items.iter().any(|i| item_has(i, prompt_id)));
@@ -443,6 +446,7 @@ impl ComfyClient {
         }
         let started = Instant::now();
         let mut cancel_sent = false;
+        let mut last_cancel_attempt = started - Duration::from_secs(1);
         let mut unhealthy_since: Option<Instant> = None;
         let mut last_queue_check = started - Duration::from_secs(1);
         let mut last_poll_error = String::new();
@@ -452,27 +456,47 @@ impl ComfyClient {
                 let _ = self.cancel(&prompt_id);
                 bail!("ComfyUI did not finish within 20 minutes");
             }
-            if ctl.is_cancelled() && !cancel_sent {
-                cancel_sent = true;
-                self.cancel(&prompt_id)?;
+            if ctl.is_cancelled() && !cancel_sent && last_cancel_attempt.elapsed() >= Duration::from_secs(1) {
+                last_cancel_attempt = Instant::now();
+                // Keep ownership and poll to a confirmed terminal state after transient
+                // cancellation failures. Never abandon the live server prompt on `?`.
+                match self.cancel(&prompt_id) {
+                    Ok(()) => {
+                        cancel_sent = true;
+                        ctl.set_message("Cancellation requested; waiting for ComfyUI");
+                    }
+                    Err(e) => ctl.set_message(format!("Cancellation pending; retrying: {e:#}")),
+                }
             }
             match self.history(&prompt_id) {
                 Ok(Some(entry)) => {
                     unhealthy_since = None;
                     if let Some(err) = history_error(&entry) {
-                        if cancel_sent {
+                        if ctl.is_cancelled() {
                             ctl.set_stage(Stage::Cancelled);
                             return Err(anyhow!(Cancelled));
                         }
                         bail!("{err}");
                     }
                     if let Some((file, sub, kind)) = first_output_image(&entry) {
+                        if ctl.is_cancelled() {
+                            ctl.set_stage(Stage::Cancelled);
+                            return Err(anyhow!(Cancelled));
+                        }
                         ctl.set_stage(Stage::Finishing);
                         let bytes = self.view(&file, &sub, &kind)?;
+                        if ctl.is_cancelled() {
+                            ctl.set_stage(Stage::Cancelled);
+                            return Err(anyhow!(Cancelled));
+                        }
                         ctl.set_stage(Stage::Done);
                         return Ok(bytes);
                     }
                     if entry.get("status").and_then(|s| s.get("completed")).and_then(Value::as_bool) == Some(true) {
+                        if ctl.is_cancelled() {
+                            ctl.set_stage(Stage::Cancelled);
+                            return Err(anyhow!(Cancelled));
+                        }
                         bail!("ComfyUI finished without an output image");
                     }
                 }
@@ -486,15 +510,23 @@ impl ComfyClient {
                                     .any(|k| q.get(*k).and_then(Value::as_array).is_some_and(|a| a.iter().any(|i| item_has(i, &prompt_id))));
                                 if listed {
                                     unhealthy_since = None;
-                                } else if self.history(&prompt_id).ok().flatten().is_none() {
-                                    if cancel_sent {
-                                        ctl.set_stage(Stage::Cancelled);
-                                        return Err(anyhow!(Cancelled));
-                                    }
-                                    last_poll_error = "The job is no longer in ComfyUI's queue or history. The server may have restarted; try again.".into();
-                                    unhealthy_since.get_or_insert_with(Instant::now);
                                 } else {
-                                    unhealthy_since = None;
+                                    match self.history(&prompt_id) {
+                                        Ok(None) => {
+                                            if ctl.is_cancelled() {
+                                                ctl.set_stage(Stage::Cancelled);
+                                                return Err(anyhow!(Cancelled));
+                                            }
+                                            last_poll_error =
+                                                "The job is no longer in ComfyUI's queue or history. The server may have restarted; try again.".into();
+                                            unhealthy_since.get_or_insert_with(Instant::now);
+                                        }
+                                        Ok(Some(_)) => unhealthy_since = None,
+                                        Err(e) => {
+                                            last_poll_error = format!("Cannot confirm ComfyUI job completion: {e:#}");
+                                            unhealthy_since.get_or_insert_with(Instant::now);
+                                        }
+                                    }
                                 }
                             }
                             Err(e) => {
@@ -763,6 +795,74 @@ pub fn stage_for_class(class: &str) -> Stage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancellation_retries_keep_prompt_ownership_and_never_fetch_cancelled_output() {
+        for finishes_during_retry in [false, true] {
+            let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+            let host = server.server_addr().to_string();
+            let ctl = JobControl::new();
+            let cancel = ctl.clone();
+            let stop = Arc::new(AtomicBool::new(false));
+            let stopping = stop.clone();
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let seen = requests.clone();
+            let owned = Arc::new(AtomicBool::new(false));
+            let still_owned = owned.clone();
+            let server_host = host.clone();
+            let worker = std::thread::spawn(move || {
+                let (mut attempts, mut queue_failed) = (0, false);
+                let deadline = Instant::now() + Duration::from_secs(8);
+                while !stopping.load(Ordering::SeqCst) && Instant::now() < deadline {
+                    let Some(mut req) = server.recv_timeout(Duration::from_millis(50)).unwrap() else { continue };
+                    let path = req.url().to_string();
+                    let mut body = String::new();
+                    req.as_reader().read_to_string(&mut body).unwrap();
+                    seen.lock().unwrap().push(path.clone());
+                    let (status, value) = match path.as_str() {
+                        "/prompt" => {
+                            cancel.cancel();
+                            (200, json!({"prompt_id":"ours"}))
+                        }
+                        "/api/jobs/ours/cancel" => {
+                            attempts += 1;
+                            if attempts > 1 {
+                                still_owned.store(our_prompts(&server_host).contains(&"ours".to_string()), Ordering::SeqCst);
+                            }
+                            (if attempts == 1 { 503 } else { 200 }, json!({"cancelled": attempts > 1}))
+                        }
+                        "/queue" if !queue_failed => {
+                            queue_failed = true;
+                            (503, json!({}))
+                        }
+                        "/queue" => (200, json!({"queue_running":[[0,"ours"],[1,"unrelated"]],"queue_pending":[]})),
+                        "/history/ours" if finishes_during_retry => {
+                            (200, json!({"ours":{"status":{"completed":true},"outputs":{"1":{"images":[{"filename":"must-not-fetch.png","type":"output"}]}}}}))
+                        }
+                        "/history/ours" if attempts > 1 => {
+                            (200, json!({"ours":{"status":{"status_str":"error","messages":[["execution_interrupted",{}]]},"outputs":{}}}))
+                        }
+                        "/history/ours" => (200, json!({})),
+                        _ => (404, json!({})),
+                    };
+                    let _ = req.respond(tiny_http::Response::from_string(value.to_string()).with_status_code(status));
+                }
+            });
+            let started = Instant::now();
+            let result = ComfyClient::new(&host).run(json!({}), &[], &ctl);
+            stop.store(true, Ordering::SeqCst);
+            worker.join().unwrap();
+            assert!(result.unwrap_err().is::<Cancelled>());
+            assert!(started.elapsed() < Duration::from_secs(5));
+            assert!(our_prompts(&host).is_empty());
+            let calls = requests.lock().unwrap();
+            assert!(!calls.iter().any(|p| p == "/interrupt" || p.starts_with("/view") || p.contains("unrelated")), "{calls:?}");
+            if !finishes_during_retry {
+                assert_eq!(calls.iter().filter(|p| p.as_str() == "/api/jobs/ours/cancel").count(), 2);
+                assert!(owned.load(Ordering::SeqCst), "a failed cancellation lost prompt ownership");
+            }
+        }
+    }
 
     #[test]
     fn bugfix_develop_lost_comfy_prompt_fails_before_deadline() {
