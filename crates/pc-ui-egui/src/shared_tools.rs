@@ -100,6 +100,48 @@ impl State {
         crate::direct_select::cancel(app);
         app.ui.pen = None;
     }
+    /// Interrupt pointer drags while retaining multi-click Pen and inline path-text drafts.
+    pub fn suspend(&mut self, app: &mut PhotocraftApp) {
+        self.drawing.cancel();
+        self.pencil.cancel();
+        self.corners.cancel();
+        self.paint.cancel();
+        self.layout.cancel();
+        if let Some(gesture) = &mut self.pen.gesture {
+            gesture.suspend();
+        }
+        self.last = None;
+        self.mapping = None;
+        if self.pen.gesture.is_none() && self.path_text.draft.is_none() {
+            self.capture = None;
+            self.snap_cache = None;
+            self.snap_result = None;
+        }
+        app.ui.direct_selection.drag = None;
+    }
+    pub fn keys(&mut self, app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
+        if self.pen.gesture.is_none() || crate::shortcut_dispatch::Focus::of(ctx) != crate::shortcut_dispatch::Focus::None {
+            return false;
+        }
+        let finish = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, egui::Key::Enter) || i.consume_key(Modifiers::NONE, egui::Key::Escape));
+        let undo = !finish && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, egui::Key::Backspace) || i.consume_key(Modifiers::COMMAND, egui::Key::Z));
+        if !finish && !undo {
+            return false;
+        }
+        let result = if finish { self.pen.enter(&mut app.session) } else { self.pen.undo_anchor(&app.session) };
+        if let Err(e) = result {
+            app.ui.status = e.to_string();
+            app.ui.status_error = true;
+        }
+        if self.pen.gesture.is_none() {
+            self.capture = None;
+            self.mapping = None;
+            self.snap_cache = None;
+            self.snap_result = None;
+            app.session.vector_insertion = None;
+        }
+        true
+    }
     pub fn activate(&mut self, app: &mut PhotocraftApp, id: &str, persona: Persona) -> bool {
         let id = photocraft_engine::toolsets::canonical_tool(id).filter(|id| registry::resolve(id, persona).is_some());
         if self.id != id || self.persona != Some(persona) {
@@ -232,11 +274,20 @@ impl State {
         }
         let ctx = ui.ctx();
         self.pixels_per_point = Some(f64::from(ctx.pixels_per_point()));
-        if !app.ui.dialogs.is_empty() || !ctx.input(|i| i.focused) {
-            self.deactivate(app);
+        if !ctx.input(|i| i.focused) {
+            self.suspend(app);
             return true;
         }
-        if !ctx.text_edit_focused() && ctx.input_mut(|i| i.consume_key(i.modifiers, egui::Key::Escape)) {
+        if !app.ui.dialogs.is_empty() {
+            return true;
+        }
+        if self.keys(app, ctx) {
+            return true;
+        }
+        if self.path_text.draft.is_none()
+            && crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::None
+            && ctx.input_mut(|i| i.consume_key(i.modifiers, egui::Key::Escape))
+        {
             self.deactivate(app);
             return true;
         }
@@ -275,7 +326,7 @@ impl State {
             let event = ctx.input(|i| i.events.get(index).cloned());
             let event = match event {
                 Some(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers }) => {
-                    if pressed && !rect.contains(pos) || !pressed && self.capture.is_none() {
+                    if pressed && (!rect.contains(pos) || ctx.layer_id_at(pos) != Some(ui.layer_id())) || !pressed && self.capture.is_none() {
                         continue;
                     }
                     if pressed && self.mapping.is_none() {
@@ -289,7 +340,7 @@ impl State {
                     Some((ToolEvent::Move { x: at[0], y: at[1], pressure: 1. }, ctx.input(|i| i.modifiers)))
                 }
                 Some(egui::Event::PointerGone | egui::Event::WindowFocused(false)) => {
-                    self.deactivate(app);
+                    self.suspend(app);
                     None
                 }
                 _ => None,

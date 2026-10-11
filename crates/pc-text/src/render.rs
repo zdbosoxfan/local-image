@@ -177,6 +177,31 @@ pub fn rasterize(layout: &TextLayout, transform: &Affine, format: PixelFormat, a
     rasterize_warped(layout, transform, format, antialias, None)
 }
 
+/// Only adjacent paints may share a coverage mask. Nonadjacent equal colours must
+/// remain above the intervening glyphs, including translucent and negative-tracking runs.
+pub fn paint_runs(layout: &TextLayout) -> Vec<(Color, Vec<PlacedGlyph>, Vec<crate::layout::DecorationRect>)> {
+    let mut runs: Vec<(Color, Vec<PlacedGlyph>, Vec<crate::layout::DecorationRect>)> = Vec::new();
+    for glyph in &layout.glyphs {
+        let color = layout.styles[glyph.style as usize].color;
+        if runs.last().is_none_or(|(previous, _, _)| *previous != color) {
+            runs.push((color, Vec::new(), Vec::new()));
+        }
+        if let Some(run) = runs.last_mut() {
+            run.1.push(*glyph);
+        }
+    }
+    for decoration in &layout.decorations {
+        let color = layout.styles[decoration.style as usize].color;
+        if runs.last().is_none_or(|(previous, _, _)| *previous != color) {
+            runs.push((color, Vec::new(), Vec::new()));
+        }
+        if let Some(run) = runs.last_mut() {
+            run.2.push(*decoration);
+        }
+    }
+    runs
+}
+
 /// [`rasterize`] with the glyph outlines bent by `warp` (Type › Warp Text).
 pub fn rasterize_warped(layout: &TextLayout, transform: &Affine, format: PixelFormat, antialias: AntiAlias, warp: Option<&Warp>) -> Rendered {
     let format = PixelFormat { alpha: true, ..format };
@@ -191,15 +216,13 @@ pub fn rasterize_warped(layout: &TextLayout, transform: &Affine, format: PixelFo
     // Premultiplied accumulation.
     let mut acc = vec![0.0f32; w * h * stride];
     let xf = Xform([1.0, 0.0, 0.0, 1.0, -rect.x0 as f64, -rect.y0 as f64]).mul(&Xform(transform.m));
-    let mut colors: Vec<Color> = Vec::new();
-    for st in &layout.styles {
-        if !colors.contains(&st.color) {
-            colors.push(st.color);
-        }
-    }
-    for c in &colors {
+    let mut part = layout.clone();
+    for (color, glyphs, decorations) in paint_runs(layout) {
+        let c = &color;
+        part.glyphs = glyphs;
+        part.decorations = decorations;
         let mut cov = Coverage::new(w, h);
-        draw(layout, &xf, &mut cov, Some(c), warp);
+        draw(&part, &xf, &mut cov, Some(c), warp);
         let cov = cov.finish();
         let comps = color_in(&format, c);
         let a = c.alpha.clamp(0.0, 1.0);

@@ -237,3 +237,25 @@ fn width_package_ui_click_adds_inherited_width_without_pinching() {
     assert_eq!((p.points[1].left, p.points[1].right), (5.0, 5.0));
     assert_eq!(h.state().session.journal.len(), 1);
 }
+#[test]
+fn bugfix_vector_width_delete_runs_before_generic_clear() {
+    let mut h = harness();
+    add(&mut h);
+    let mut session = std::mem::replace(&mut h.state_mut().session, Session::new());
+    session.select_layer(h.state().ids[0]).unwrap();
+    session.edit_prefs(|p| p.toolbar.persona = photocraft_engine::toolsets::Persona::Vector);
+    let mut app = crate::PhotocraftApp::new(session, Default::default());
+    app.ui.tool = crate::state::Tool::Width;
+    app.width_state = std::mem::take(&mut h.state_mut().width);
+    let ids = app.session.active().unwrap().selected_layers();
+    let before = engine::Gesture::begin(&app.session, &ids, None).unwrap().profile(0).unwrap().points.len();
+    let ctx = egui::Context::default();
+    let raw = egui::RawInput {
+        events: vec![Event::Key { key: Key::Delete, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }],
+        ..Default::default()
+    };
+    ctx.run_ui(raw, |ui| crate::shortcuts::handle(&mut app, ui.ctx())).textures_delta.clear();
+    let after = engine::Gesture::begin(&app.session, &ids, None).unwrap().profile(0).unwrap().points.len();
+    assert_eq!(after + 1, before);
+    assert!(!app.ui.status_error, "{}", app.ui.status);
+}

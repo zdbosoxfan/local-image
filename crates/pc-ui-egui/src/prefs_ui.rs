@@ -680,7 +680,9 @@ pub fn is_preferences(fields: &Map<String, Value>) -> bool {
 
 fn preference_values(p: &prefs::Preferences) -> Map<String, Value> {
     let values = p.to_json();
-    SECTIONS.iter().filter_map(|(id, _)| Some((id.to_string(), values.get(id)?.clone()))).collect()
+    let mut sections: Map<String, Value> = SECTIONS.iter().filter_map(|(id, _)| Some((id.to_string(), values.get(id)?.clone()))).collect();
+    sections.insert("toolbar".into(), json!({"vectorKeyboard": p.toolbar.vector_keyboard}));
+    sections
 }
 
 /// Compare the editable sections, excluding settings managed outside Preferences.
@@ -916,6 +918,12 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             egui::ScrollArea::vertical().max_height(390.0).id_salt("prefs-scroll").show(ui, |ui| {
                 let order: Vec<String> =
                     f.get("__order").and_then(|o| o.get(&section)).and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+                if section == "tools" {
+                    let mut preset = serde_json::from_value(values["toolbar"]["vectorKeyboard"]["preset"].clone()).unwrap_or_default();
+                    if crate::vector_integration::keyboard_preset(ui, &mut preset) {
+                        values["toolbar"]["vectorKeyboard"]["preset"] = json!(preset);
+                    }
+                }
                 if !has_visible_fields(&values, &section) {
                     ui.add_space(4.0);
                     ui.label(RichText::new(tl!("These settings aren't available in Local Image yet.")).color(t.text_faint));

@@ -63,25 +63,32 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
         || app.ui.direct_selection.drag.is_some()
         || app.ui.direct_selection.pending.is_some()
         || app.live_stroke.is_some();
-    if !vector || foreign_owner {
+    if !vector {
         b.state.cancel();
         store(ctx, b);
         return false;
     }
-    let (ids, anchors) =
-        if ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))) { selection(app) } else { (Vec::new(), Vec::new()) };
-    let modal = b.state.is_open();
-    // menu_nav remembers closure for two passes; suppress keys without discarding a
-    // dialog just opened by a menu click.
-    let consumed = !crate::menu_nav::is_open(ctx) && b.state.shortcuts(ctx, &mut app.session, &ids, &anchors);
+    if foreign_owner {
+        store(ctx, b);
+        return false;
+    }
+    if let Some(error) = &b.state.error {
+        app.ui.status = crate::i18n::t(error).to_owned();
+        app.ui.status_error = true;
+    }
+    let handled = b.state.is_open();
+    store(ctx, b);
+    handled
+}
+/// Draw captured dialogs every frame, including while a field owns keyboard input.
+pub fn dialogs(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    let mut b = bridge(ctx);
     b.state.dialog(ctx, &mut app.session, |label| crate::i18n::t(label).to_owned());
     if let Some(error) = &b.state.error {
         app.ui.status = crate::i18n::t(error).to_owned();
         app.ui.status_error = true;
     }
-    let handled = consumed || modal || b.state.is_open();
     store(ctx, b);
-    handled
 }
 /// Object menu fragment. Pass the host's translation closure, e.g. i18n::tr(...).to_string().
 pub fn menu(app: &mut PhotocraftApp, ui: &mut Ui, tr: impl Fn(&str) -> String) {
@@ -118,6 +125,8 @@ pub fn menu_command(app: &mut PhotocraftApp, ctx: &egui::Context, command: &str)
     let mut b = bridge(ctx);
     let (ids, anchors) = selection(app);
     match command {
+        "pasteFront" => b.state.paste(&mut app.session, &ids, true),
+        "pasteBack" => b.state.paste(&mut app.session, &ids, false),
         "join" => b.state.run(&mut app.session, &ids, Action::Join { tolerance: 1e-6 }),
         "addAnchors" => b.state.run(&mut app.session, &ids, Action::AddAnchors),
         "removeAnchors" => b.state.run(&mut app.session, &ids, Action::RemoveAnchors { anchors }),
@@ -138,6 +147,10 @@ pub fn menu_command(app: &mut PhotocraftApp, ctx: &egui::Context, command: &str)
                 .map(|st| st.doc.walk().into_iter().filter(|(_, _, l)| l.children().is_none()).map(|(_, _, l)| l.id).collect::<Vec<_>>())
                 .unwrap_or_default();
             b.state.begin(&app.session, &all, Dialog::CleanUp { stray: true, unpainted: true, text: true });
+        }
+        "offset" => {
+            let gesture = photocraft_engine::vector_packages::constructive::Gesture::begin(&app.session, &ids)?;
+            b.state.begin(&app.session, &ids, Dialog::Offset { gesture, delta: 0. });
         }
         "outline" => {
             app.session.execute("path.outlineStroke", json!({"layers":ids}))?;

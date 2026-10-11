@@ -259,8 +259,8 @@ pub(crate) fn buffer_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat)
 }
 
 /// The flattened image of `doc` as a surface in `fmt`, placed at the origin.
-pub(crate) fn flattened(doc: &Document, fmt: PixelFormat) -> Surface {
-    photocraft_compose::flatten_to_surface(doc, fmt, None)
+pub(crate) fn flattened(doc: &Document, fmt: PixelFormat) -> Result<Surface> {
+    Ok(photocraft_compose::flatten_to_surface(&crate::vector_integration::project_document(doc)?, fmt, None))
 }
 
 // ---------- close / revert / save a copy / open as ----------
@@ -315,7 +315,7 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
     if p.get("layers").and_then(Value::as_bool) == Some(false) {
         // "Layers" unchecked in Save a Copy: write the flattened image.
         let fmt = doc.pixel_format();
-        let px = flattened(&doc, fmt);
+        let px = flattened(&doc, fmt)?;
         doc.layers = vec![Layer::new("Background", LayerContent::Raster(px))];
     }
     let warnings = save_doc(&doc, &path, SaveOpts::from_params(p))?;
@@ -396,7 +396,7 @@ pub fn place_bytes(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Option<S
         _ => (cw / 2.0, ch / 2.0),
     };
     let (dx, dy) = ((center.0 - w * scale / 2.0).round(), (center.1 - h * scale / 2.0).round());
-    let mut px = flattened(&src, fmt);
+    let mut px = flattened(&src, fmt)?;
     if (scale - 1.0).abs() > 1e-9 {
         px = resize_surface(&px, scale, scale, Resample::Bicubic);
     }
@@ -804,7 +804,7 @@ fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
     let fmt = stack.pixel_format();
     // First file at the bottom, like Photoshop's script.
     for (name, d) in &docs {
-        stack.layers.push(Layer::new(name.clone(), LayerContent::Raster(flattened(d, fmt))));
+        stack.layers.push(Layer::new(name.clone(), LayerContent::Raster(flattened(d, fmt)?)));
     }
     let n = stack.layers.len();
     if p.get("createSmartObject").and_then(Value::as_bool).unwrap_or(false) {

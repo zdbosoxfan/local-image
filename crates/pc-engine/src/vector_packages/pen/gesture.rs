@@ -310,6 +310,26 @@ impl Gesture {
         Ok(Outcome::Preview)
     }
 
+    /// Release mouse capture without abandoning the anchors already placed.
+    pub fn suspend(&mut self) {
+        self.drag = None;
+    }
+    /// Remove one newly placed anchor; a continuation never removes the original curve.
+    pub fn undo_anchor(&mut self) -> bool {
+        self.drag = None;
+        let original = self.original.subpaths.get(self.subpath).map_or(0, |s| s.knots.len());
+        let subpath = &mut self.request.path.subpaths[self.subpath];
+        if subpath.knots.len() <= original.max(1) {
+            return false;
+        }
+        let index = if self.at_first { 0 } else { subpath.knots.len() - 1 };
+        subpath.knots.remove(index);
+        self.auto.remove(index);
+        subpath.closed = false;
+        self.smart_handles();
+        self.generation = self.generation.wrapping_add(1);
+        true
+    }
     pub fn finish(&self) -> Result<Commit> {
         validate(&self.request.path)?;
         if self.request.path == self.original || self.request.path.subpaths[self.subpath].knots.len() < 2 {

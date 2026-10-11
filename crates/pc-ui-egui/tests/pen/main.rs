@@ -144,6 +144,7 @@ fn pen_ui_escape_focus_persona_document_revision_and_mode_switch_cancel() {
     for cancel in 0..6 {
         let mut h = harness();
         let before = h.state().s.active().unwrap().doc.clone();
+        let journal = h.state().s.journal.len();
         click(&mut h, 20., 20.);
         click(&mut h, 80., 20.);
         match cancel {
@@ -159,10 +160,27 @@ fn pen_ui_escape_focus_persona_document_revision_and_mode_switch_cancel() {
             }
         }
         h.step();
-        assert!(h.state().state.gesture.is_none());
-        assert!(h.state().state.preview.is_none());
-        if cancel != 5 {
+        if cancel == 0 {
+            assert!(h.state().state.gesture.is_none());
+            assert!(h.state().state.preview.is_none());
+            assert_eq!(path(&h).subpaths[0].knots.len(), 2);
+            assert!(!path(&h).subpaths[0].closed);
+            assert_eq!(h.state().s.journal.len(), journal + 1);
+            assert!(h.state_mut().s.undo());
             assert_eq!(h.state().s.active().unwrap().doc, before);
+        } else if cancel == 1 {
+            let gesture = h.state().state.gesture.as_ref().unwrap();
+            assert_eq!(gesture.path().subpaths[0].knots.len(), 2);
+            assert!(!gesture.captured());
+            assert!(h.state().state.preview.is_some());
+            assert_eq!(h.state().s.active().unwrap().doc, before);
+            assert_eq!(h.state().s.journal.len(), journal);
+        } else {
+            assert!(h.state().state.gesture.is_none());
+            assert!(h.state().state.preview.is_none());
+            if cancel != 5 {
+                assert_eq!(h.state().s.active().unwrap().doc, before);
+            }
         }
     }
 }

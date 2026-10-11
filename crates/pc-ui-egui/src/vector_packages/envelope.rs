@@ -51,8 +51,11 @@ impl State {
         self.drag.is_some()
     }
     pub fn lifecycle(&mut self, s: &Session, active: bool, focused: bool, escape: bool) {
-        if !active || !focused || escape || self.pending.as_ref().is_some_and(|g| !g.is_current(s)) {
+        if !active || escape || self.pending.as_ref().is_some_and(|g| !g.is_current(s)) {
             self.cancel();
+        }
+        if !focused {
+            self.drag = None;
         }
     }
     pub fn display_document(&self, s: &Session) -> Option<(Arc<Document>, u64)> {
@@ -118,7 +121,12 @@ impl State {
         self.update(s, EnvelopeSpec::TopObject { path })
     }
     pub fn context_bar(&mut self, ui: &mut egui::Ui, s: &mut Session) {
-        self.lifecycle(s, true, focused(ui.ctx()), ui.ctx().input(|i| i.key_pressed(Key::Escape)));
+        self.lifecycle(
+            s,
+            true,
+            focused(ui.ctx()),
+            crate::shortcut_dispatch::Focus::of(ui.ctx()) == crate::shortcut_dispatch::Focus::None && ui.ctx().input(|i| i.key_pressed(Key::Escape)),
+        );
         ui.push_id(self.controls_epoch, |ui| self.controls(ui, s));
     }
     fn controls(&mut self, ui: &mut egui::Ui, s: &mut Session) {
@@ -235,7 +243,12 @@ impl State {
     /// Read egui's real pointer stream; captured view transform remains stable through zoom,
     /// canvas motion and horizontal mirroring. Shift is sampled every frame.
     pub fn canvas_input(&mut self, s: &mut Session, response: &egui::Response, xf: &ViewXform) {
-        self.lifecycle(s, true, focused(&response.ctx), response.ctx.input(|i| i.key_pressed(Key::Escape)));
+        self.lifecycle(
+            s,
+            true,
+            focused(&response.ctx),
+            crate::shortcut_dispatch::Focus::of(&response.ctx) == crate::shortcut_dispatch::Focus::None && response.ctx.input(|i| i.key_pressed(Key::Escape)),
+        );
         if !xf.zoom.is_finite() || xf.zoom <= 0.0 {
             self.cancel();
             return;

@@ -137,7 +137,7 @@ fn vanishing_point(s: &mut Session, p: &Value) -> Result<Value> {
             active.ok_or_else(|| EngineError::Other("no active layer".into()))?
         };
         // A new layer clones from the visible image; otherwise from the layer itself.
-        let base: Option<Surface> = new_layer.then(|| crate::file_cmds::flattened(doc, doc.pixel_format()));
+        let base: Option<Surface> = new_layer.then(|| crate::file_cmds::flattened(doc, doc.pixel_format())).transpose()?;
         let locks = doc.effective_locks(id);
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         if locks.all || locks.pixels {

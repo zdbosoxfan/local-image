@@ -24,6 +24,8 @@ pub fn setup() -> egui_wgpu::WgpuSetup {
 fn pen_ui_gpu_real_pointer_preview_release_and_cancel() {
     let mut h = Harness::builder().with_size(egui::vec2(700., 320.)).wgpu_setup(setup()).build_ui_state(draw, host());
     let before = h.render().unwrap();
+    let document = h.state().s.active().unwrap().doc.clone();
+    let journal = h.state().s.journal.len();
     click(&mut h, 20., 20.);
     click(&mut h, 100., 20.);
     button(&mut h, 80., 90., true, Modifiers::NONE);
@@ -37,6 +39,12 @@ fn pen_ui_gpu_real_pointer_preview_release_and_cancel() {
     h.step();
     assert!(h.state().state.preview.is_none());
     h.event(Event::PointerGone);
+    h.step();
+    assert_eq!(raster, photocraft_compose::flatten(&h.state().s.active().unwrap().doc));
+    assert_eq!(h.state().s.journal.len(), journal + 1);
+    assert_ne!(before, h.render().unwrap());
+    assert!(h.state_mut().s.undo());
+    assert_eq!(h.state().s.active().unwrap().doc, document);
     h.step();
     assert_eq!(before, h.render().unwrap());
     click(&mut h, 20., 20.);

@@ -92,8 +92,9 @@ fn copy_shape_stroke(s: &mut Session, _p: &Value) -> Result<Value> {
 fn paste_shape_fill(s: &mut Session, p: &Value) -> Result<Value> {
     let fill = s.path_fill_clipboard.clone().ok_or_else(|| EngineError::Other("no shape fill copied".into()))?;
     let id = layer_id(s, p)?;
-    with_shape(s, id, "Paste Fill", |shape, _| {
+    with_shape(s, id, "Paste Fill", |shape, layer| {
         shape.fill = Some(fill);
+        sync_appearance_fill(shape, layer);
         Ok(())
     })?;
     shape_info(s, id)
@@ -102,8 +103,9 @@ fn paste_shape_fill(s: &mut Session, p: &Value) -> Result<Value> {
 fn paste_shape_stroke(s: &mut Session, p: &Value) -> Result<Value> {
     let stroke = s.path_stroke_clipboard.clone().ok_or_else(|| EngineError::Other("no shape stroke copied".into()))?;
     let id = layer_id(s, p)?;
-    with_shape(s, id, "Paste Complete Stroke", |shape, _| {
+    with_shape(s, id, "Paste Complete Stroke", |shape, layer| {
         shape.stroke = Some(stroke);
+        sync_appearance_stroke(shape, layer);
         Ok(())
     })?;
     shape_info(s, id)
@@ -581,8 +583,17 @@ pub(crate) fn with_shape<R>(s: &mut Session, id: LayerId, label: &str, f: impl F
         let LayerContent::Shape(mut sh) = std::mem::replace(&mut l.content, LayerContent::Fill(Fill::Solid(Color::BLACK))) else {
             return Err(EngineError::Other(format!("layer {} is not a shape layer", id.0)));
         };
+        if let Some(appearance) = &l.vector.appearance {
+            use photocraft_doc::vector_design::appearance::AppearanceItem;
+            sh.fill = appearance.items.iter().rev().find_map(|item| if let AppearanceItem::Fill(item) = item { Some(item.paint.clone()) } else { None });
+            sh.stroke = appearance.items.iter().rev().find_map(|item| if let AppearanceItem::Stroke(item) = item { Some(item.base.clone()) } else { None });
+        }
         let r = f(&mut sh, l);
-        refresh_shape(&snapshot, &mut sh);
+        if l.vector.is_empty() {
+            refresh_shape(&snapshot, &mut sh);
+        } else {
+            sh.cache = Some(crate::vector_integration::render_shape(&snapshot, &sh, &l.vector)?);
+        }
         l.content = LayerContent::Shape(sh);
         r
     })
@@ -647,6 +658,39 @@ fn shape_create(s: &mut Session, p: &Value) -> Result<Value> {
     shape_info(s, id)
 }
 
+fn sync_appearance_fill(shape: &ShapeLayer, layer: &mut Layer) {
+    use photocraft_doc::vector_design::appearance::{AppearanceItem, FillItem};
+    if let Some(appearance) = &mut layer.vector.appearance {
+        if let Some(index) = appearance.items.iter().rposition(|item| matches!(item, AppearanceItem::Fill(_))) {
+            if let Some(fill) = &shape.fill {
+                if let AppearanceItem::Fill(item) = &mut appearance.items[index] {
+                    item.paint = fill.clone();
+                }
+            } else {
+                appearance.items.remove(index);
+            }
+        } else if let Some(fill) = &shape.fill {
+            appearance.items.push(AppearanceItem::Fill(FillItem::new(fill.clone())));
+        }
+    }
+}
+fn sync_appearance_stroke(shape: &ShapeLayer, layer: &mut Layer) {
+    use photocraft_doc::vector_design::appearance::{AppearanceItem, StrokeItem};
+    if let Some(appearance) = &mut layer.vector.appearance {
+        if let Some(index) = appearance.items.iter().rposition(|item| matches!(item, AppearanceItem::Stroke(_))) {
+            if let Some(stroke) = &shape.stroke {
+                if let AppearanceItem::Stroke(item) = &mut appearance.items[index] {
+                    item.base = stroke.clone();
+                }
+            } else {
+                appearance.items.remove(index);
+            }
+        } else if let Some(stroke) = &shape.stroke {
+            appearance.items.push(AppearanceItem::Stroke(StrokeItem { base: stroke.clone(), ..Default::default() }));
+        }
+    }
+}
+
 fn shape_edit(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "shape.edit";
     let id = layer_id(s, p)?;
@@ -694,9 +738,11 @@ fn shape_edit(s: &mut Session, p: &Value) -> Result<Value> {
         }
         if let Some(v) = p.get("fill") {
             sh.fill = parse_fill(v).map_err(|e| bad(CMD, e))?;
+            sync_appearance_fill(sh, layer);
         }
         if let Some(v) = p.get("stroke") {
             sh.stroke = parse_stroke(v, sh.stroke.clone(), fgc).map_err(|e| bad(CMD, e))?;
+            sync_appearance_stroke(sh, layer);
         }
         if let Some(n) = name {
             layer.name = n;
@@ -711,16 +757,25 @@ fn shape_rasterize(s: &mut Session, p: &Value) -> Result<Value> {
     s.edit("Rasterize Shape", |doc, _| {
         let snapshot = doc.clone();
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-        let LayerContent::Shape(sh) = &mut l.content else {
+        let LayerContent::Shape(_) = &l.content else {
             return Err(EngineError::Other(format!("layer {} is not a shape layer", id.0)));
         };
-        if sh.cache.is_none() {
-            refresh_shape(&snapshot, sh);
-        }
-        let fmt = snapshot.pixel_format();
-        let surface = sh.cache.take().unwrap_or_else(|| photocraft_raster::Surface::new(fmt));
-        let surface = if surface.format() == fmt { surface } else { surface.convert(fmt) };
+        let mut one = snapshot.clone();
+        let mut isolated = l.clone();
+        isolated.visible = true;
+        isolated.opacity = 1.;
+        isolated.fill_opacity = 1.;
+        isolated.clipped = false;
+        isolated.blend = photocraft_color::BlendMode::Normal;
+        isolated.mask = None;
+        isolated.vector_mask = None;
+        isolated.effects = Default::default();
+        isolated.blend_if = Default::default();
+        one.layers = vec![isolated];
+        let projected = crate::vector_integration::project_document(&one)?;
+        let surface = photocraft_compose::flatten_to_surface(&projected, snapshot.pixel_format(), None);
         l.content = LayerContent::Raster(surface);
+        l.vector = Default::default();
         l.psd_blocks.retain(|(k, _)| !SHAPE_BLOCKS.contains(&k));
         Ok(())
     })?;

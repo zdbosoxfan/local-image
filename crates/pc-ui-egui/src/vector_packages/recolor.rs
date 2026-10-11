@@ -65,6 +65,7 @@ pub fn dialog(ctx: &egui::Context, s: &Session, access: Access, state: &mut Stat
         state.error = Some(tl!("Document changed; start again").into());
         return Err(EngineError::Other(tl!("Document changed; start again").into()));
     }
+    let escape = crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::None && ctx.input(|i| i.key_pressed(egui::Key::Escape));
     let mut result = None;
     let mut cancel = false;
     let mut move_color = None;
@@ -182,7 +183,7 @@ pub fn dialog(ctx: &egui::Context, s: &Session, access: Access, state: &mut Stat
         }
         plan.save_group = state.save_group.then(|| state.group_name.clone());
     }
-    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+    if escape {
         cancel = true;
         result = None;
     }

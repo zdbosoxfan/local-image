@@ -136,12 +136,18 @@ fn transform34_conversion_styled_and_path_text_preserve_paints_decorations_atomi
         let converted = doc.layer(copied[0]).unwrap();
         assert!(converted.vector.on_path.is_none());
         let LayerContent::Group(g) = &converted.content else { panic!() };
-        assert_eq!(g.children.len(), 2);
-        let black = g.children.iter().find(|l| matches!(&l.content,LayerContent::Shape(sh) if sh.fill == Some(Fill::Solid(Color::BLACK)))).unwrap();
-        let LayerContent::Shape(sh) = &black.content else { panic!() };
-        assert!(sh.path.subpaths.len() >= 3, "A outer/inner contours and underline must survive");
-        let underline =
-            sh.path.subpaths.iter().find(|sp| sp.knots.len() == 4 && sp.knots.iter().all(|k| k.anchor == k.in_ctrl && k.anchor == k.out_ctrl)).unwrap();
+        assert_eq!(g.children.len(), 3);
+        let colors: Vec<_> = g.children.iter().map(|l| match &l.content {
+            LayerContent::Shape(sh) => sh.fill.clone(),
+            _ => panic!("converted shape"),
+        }).collect();
+        assert_eq!(colors, vec![Some(Fill::Solid(Color::BLACK)), Some(Fill::Solid(Color::WHITE)), Some(Fill::Solid(Color::BLACK))]);
+        let black: Vec<_> = g.children.iter().filter_map(|l| match &l.content {
+            LayerContent::Shape(sh) if sh.fill == Some(Fill::Solid(Color::BLACK)) => Some(sh.path.subpaths.iter()),
+            _ => None,
+        }).flatten().collect();
+        assert!(black.len() >= 3, "A outer/inner contours and underline must survive");
+        let underline = black.iter().find(|sp| sp.knots.len() == 4 && sp.knots.iter().all(|k| k.anchor == k.in_ctrl && k.anchor == k.out_ctrl)).unwrap();
         assert!(underline.knots.iter().all(|k| k.anchor.y >= 100.));
         assert_eq!(s.journal.len(), 1);
         assert!(s.undo());

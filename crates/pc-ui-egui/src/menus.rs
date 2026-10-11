@@ -496,6 +496,9 @@ fn open_path(app: &mut PhotocraftApp, path: &str) -> Result<Value, String> {
 }
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
+    if id == "select.deselect" && app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+        return app.session.active().is_some();
+    }
     if matches!(id, "ui.pdf.export" | "file.export.pdf") {
         return app.session.active().is_some() && app.services.pick_save.is_some() && app.services.write.is_some();
     }
@@ -854,11 +857,10 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     }
     // Edit › Keyboard Shortcuts overrides, Edit › Menus hidden items and colours.
     let prefs = app.session.prefs();
-    if !prefs.shortcuts.is_empty() {
-        for it in &mut items {
-            if prefs.shortcuts.contains_key(&it.id) {
-                it.shortcut = prefs.shortcut(&it.id, None).map(str::to_string);
-            }
+    let bindings = crate::shortcut_dispatch::binding_strings(app);
+    for item in &mut items {
+        if is_live(&item.id) {
+            item.shortcut = bindings.iter().find(|(id, _)| id == &item.id).map(|(_, key)| key.clone());
         }
     }
     if !prefs.menus.hidden.is_empty() {

@@ -143,7 +143,7 @@ impl State {
     /// Call even when the canvas is hidden. Escape, document switches and lost focus cancel.
     pub fn dialog(&mut self, ctx: &egui::Context, s: &mut Session, tr: impl Fn(&str) -> String) {
         if self.capture.as_ref().is_some_and(|c| c.check(s).is_err())
-            || ctx.input(|i| i.key_pressed(Key::Escape) || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false))))
+            || crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::None && ctx.input(|i| i.key_pressed(Key::Escape))
         {
             self.cancel();
             return;

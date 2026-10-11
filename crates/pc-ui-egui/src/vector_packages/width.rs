@@ -100,7 +100,7 @@ impl State {
             self.selected = None;
             self.targets = ids.to_vec();
         }
-        if !enabled || !focused || escape || self.gesture.as_ref().is_some_and(|g| !g.is_fresh(s)) {
+        if !enabled || !focused && self.drag.is_some() || escape || self.gesture.as_ref().is_some_and(|g| !g.is_fresh(s)) {
             self.cancel();
         }
     }
@@ -309,9 +309,15 @@ impl State {
         tolerance: f64,
     ) {
         let events = ctx.input(|i| i.events.clone());
-        let cancel = events.iter().any(|e| matches!(e, Event::PointerGone | Event::WindowFocused(false) | Event::Key { key: Key::Escape, pressed: true, .. }));
-        self.lifecycle(s, ids, enabled, ctx.input(|i| i.focused), cancel);
-        if !enabled || cancel || !ctx.input(|i| i.focused) {
+        let escape = crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::None;
+        let cancel = events.iter().any(|e| match e {
+            Event::PointerGone => self.drag.is_some(),
+            Event::Key { key: Key::Escape, pressed: true, .. } => escape,
+            _ => false,
+        });
+        let focused = ctx.input(|i| i.focused) && !events.iter().any(|event| matches!(event, Event::WindowFocused(false)));
+        self.lifecycle(s, ids, enabled, focused, cancel);
+        if !enabled || cancel || !focused {
             return;
         }
         for event in events {
@@ -373,7 +379,7 @@ impl State {
             ui.colored_label(Color32::LIGHT_RED, self.error.as_deref().unwrap_or_default());
             return;
         }
-        let cancel = ui.input(|i| i.key_pressed(Key::Escape) || i.events.iter().any(|e| matches!(e, Event::PointerGone | Event::WindowFocused(false))));
+        let cancel = crate::shortcut_dispatch::Focus::of(ui.ctx()) == crate::shortcut_dispatch::Focus::None && ui.input(|i| i.key_pressed(Key::Escape));
         self.lifecycle(s, ids, true, ui.input(|i| i.focused), cancel);
         if cancel {
             return;

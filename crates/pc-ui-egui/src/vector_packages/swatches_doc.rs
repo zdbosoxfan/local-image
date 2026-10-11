@@ -232,6 +232,7 @@ pub fn panel(ui: &mut egui::Ui, s: &Session, access: Access, paint: &Fill, targe
             }
         }
     });
+    let escape = crate::shortcut_dispatch::Focus::of(ui.ctx()) == crate::shortcut_dispatch::Focus::None && ui.input(|i| i.key_pressed(egui::Key::Escape));
     let mut close = false;
     let mut changed = state.preview.is_none();
     if let Some(request) = &mut state.editor {
@@ -309,7 +310,7 @@ pub fn panel(ui: &mut egui::Ui, s: &Session, access: Access, paint: &Fill, targe
             });
         });
     }
-    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+    if escape {
         close = true;
     }
     if close {

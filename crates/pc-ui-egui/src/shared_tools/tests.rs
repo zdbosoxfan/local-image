@@ -597,3 +597,45 @@ fn shared47_stroke_only_tools_share_foreground_paint_defaults_in_both_personas()
         }
     }
 }
+#[test]
+fn bugfix_vector_pen_keeps_draft_on_focus_loss_and_finishes_escape() {
+    for persona in [Persona::Pixel, Persona::Vector] {
+        let mut h = harness(host("Pen", persona));
+        for p in [[40., 40.], [80., 80.], [120., 40.]] {
+            point_event(&mut h, p, Some(true), Modifiers::NONE);
+            point_event(&mut h, p, Some(false), Modifiers::NONE);
+        }
+        let base = h.state().app.session.journal.len();
+        h.event(egui::Event::WindowFocused(false));
+        h.step();
+        assert_eq!(h.state().tools.pen.gesture.as_ref().unwrap().path().subpaths[0].knots.len(), 3);
+        h.event(egui::Event::WindowFocused(true));
+        h.step();
+        h.key_press(Key::Backspace);
+        h.step();
+        assert_eq!(h.state().tools.pen.gesture.as_ref().unwrap().path().subpaths[0].knots.len(), 2);
+        assert_eq!(h.state().app.session.journal.len(), base);
+        h.key_press(Key::Escape);
+        h.step();
+        assert!(h.state().tools.pen.gesture.is_none());
+        assert_eq!(active_path(&h.state().app).subpaths[0].knots.len(), 2);
+        assert_eq!(h.state().app.session.journal.len(), base + 1);
+    }
+}
+#[test]
+fn bugfix_vector_path_text_survives_pointer_leaving_and_escape_keeps_text() {
+    let mut host = host("TextOnPath", Persona::Vector);
+    add_curve(&mut host.app);
+    let mut h = harness(host);
+    draw(&mut h, [70., 40.], [70., 40.], Modifiers::NONE);
+    h.event(egui::Event::Text("Keep me".into()));
+    h.step();
+    h.event(egui::Event::PointerGone);
+    h.step();
+    assert!(h.state().tools.path_text.draft.is_some());
+    h.key_press(Key::Escape);
+    h.step();
+    let s = h.state().app.session.active().unwrap();
+    let LayerContent::Text(text) = &s.doc.layer(s.active_layer.unwrap()).unwrap().content else { panic!("text required") };
+    assert_eq!(text.text, "Keep me");
+}

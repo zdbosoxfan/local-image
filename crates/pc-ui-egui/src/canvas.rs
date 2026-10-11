@@ -1127,6 +1127,7 @@ fn texture_buffer<'a>(
 pub(crate) fn retain_gpu_documents(app: &mut PhotocraftApp) {
     // Remove a closed adjustment owner's proxy before collecting its live GPU keys.
     crate::adjust_preview::retain_documents(app);
+    crate::vector_integration::retain_documents(app);
     if let Some(gpu) = &app.gpu {
         // Keep each document's texture plus its preview textures (filter preview, adjustment proxy);
         // retaining only document ids freed the previews every frame (blank canvas while previewing).

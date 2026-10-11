@@ -130,6 +130,15 @@ impl State {
         }
         Ok(())
     }
+    pub fn undo_anchor(&mut self, s: &Session) -> Result<()> {
+        self.synchronize(s, true);
+        if self.gesture.as_mut().is_some_and(|g| g.undo_anchor()) {
+            self.update_preview(s)
+        } else {
+            self.cancel();
+            Ok(())
+        }
+    }
     pub fn enter(&mut self, s: &mut Session) -> Result<()> {
         let Some(g) = self.gesture.clone() else { return Ok(()) };
         // A lone node or a continuation with no edit is simply abandoned.
@@ -215,7 +224,9 @@ pub fn input(
     }
     let (events, current_mods, focused) = ctx.input(|i| (i.events.clone(), i.modifiers, i.focused));
     if !focused || events.iter().any(|e| matches!(e, Event::WindowFocused(false))) {
-        state.cancel();
+        if let Some(g) = &mut state.gesture {
+            g.suspend();
+        }
         return Ok(());
     }
     let mut m = current_mods;
@@ -240,10 +251,13 @@ pub fn input(
             }
             Event::PointerMoved(pos) if canvas.contains(pos) || state.gesture.as_ref().is_some_and(Gesture::captured) => state.motion(s, to_doc(pos), m)?,
             Event::PointerGone => {
-                state.cancel();
+                if let Some(g) = &mut state.gesture {
+                    g.suspend();
+                }
             }
-            Event::Key { key: Key::Escape, pressed: true, .. } => state.cancel(),
-            Event::Key { key: Key::Enter, pressed: true, .. } if !ctx.egui_wants_keyboard_input() => state.enter(s)?,
+            Event::Key { key: Key::Backspace, pressed: true, .. } if !ctx.egui_wants_keyboard_input() => state.undo_anchor(s)?,
+            Event::Key { key: Key::Z, pressed: true, modifiers, .. } if modifiers.command && !ctx.egui_wants_keyboard_input() => state.undo_anchor(s)?,
+            Event::Key { key: Key::Escape | Key::Enter, pressed: true, .. } if !ctx.egui_wants_keyboard_input() => state.enter(s)?,
             _ => {}
         }
     }

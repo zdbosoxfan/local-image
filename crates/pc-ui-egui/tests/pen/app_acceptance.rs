@@ -108,8 +108,13 @@ fn pen_app_gpu_live_curved_closed_release_undo_cancel_and_modes() {
         click(&mut h, 80., 20.);
         h.key_press(egui::Key::Escape);
         h.step();
-        assert_eq!(h.state().session.active().unwrap().doc, before);
+        let state = h.state().session.active().unwrap();
+        let photocraft_doc::LayerContent::Shape(shape) = &state.doc.layer(state.active_layer.unwrap()).unwrap().content else { panic!("finished Pen shape") };
+        assert_eq!(shape.path.subpaths[0].knots.len(), 2);
+        assert!(!shape.path.subpaths[0].closed);
         assert!(h.state().shared_tools.pen.preview.is_none());
+        assert!(h.state_mut().session.undo());
+        assert_eq!(h.state().session.active().unwrap().doc, before);
         h.state_mut().ui.tool_options.pen_options.mode = Mode::Line;
         click(&mut h, 20., 20.);
         click(&mut h, 80., 20.);

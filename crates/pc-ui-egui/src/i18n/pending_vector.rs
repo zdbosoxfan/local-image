@@ -1,5 +1,9 @@
 // Translations paused by docs/wip/CODEX-TASK.md; vector package 00–47 English keys.
 &[
+    "Convert text and symbols to curves to apply this transform.",
+    "Click: corner · Drag: smooth · Click first point: close · {key} or Esc finish",
+    "Press Enter or Escape to finish the path.",
+    "Top left", "Top right", "Bottom right", "Bottom left",
     "Application Swatches",
     "Cleanup: {before} → {after} nodes · {holes} holes · {shapes} shapes · {rejected} rejected",
     "1×",

@@ -216,8 +216,14 @@ impl State {
             || self.dialog.as_ref().is_some_and(|d| d.capture.check(s).is_err())
             || self.pending.as_ref().is_some_and(|p| p.capture.check(s).is_err())
             || self.envelope_request.as_ref().is_some_and(|p| p.transform.capture.check(s).is_err());
-        if !enabled || !focused || escape || stale || self.kind != self.last_kind {
+        if !enabled || escape || stale || self.kind != self.last_kind {
             self.cancel();
+        }
+        if !focused && self.drag.is_some() {
+            self.drag = None;
+            self.preview = None;
+            self.drag_snap = None;
+            self.guides.clear();
         }
         self.last_kind = self.kind;
     }
@@ -465,6 +471,9 @@ impl State {
             ["0", "0", "0", "0", "0"]
         }
         .map(str::to_string);
+        self.targets = ids.to_vec();
+        self.document = s.active().map(|st| st.doc.id.0);
+        self.last_kind = self.kind;
         self.drag = None;
         self.preview = None;
         self.dialog = Some(Dialog {
@@ -496,6 +505,7 @@ impl State {
         // This query reads the context too; keep it outside the input read lock.
         let wants = ctx.egui_wants_keyboard_input();
         let (focused, escape, events, mods) = ctx.input(|i| (i.focused, i.key_pressed(Key::Escape), i.events.clone(), i.modifiers));
+        let escape = escape && crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::None;
         self.lifecycle(s, ids, enabled, focused, escape);
         if !enabled || !focused || escape {
             return;

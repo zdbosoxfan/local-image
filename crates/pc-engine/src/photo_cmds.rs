@@ -94,9 +94,9 @@ fn load_sources(s: &Session, p: &Value, cmd: &str) -> Result<Loaded> {
         .into_iter()
         .map(|(name, d)| {
             let info = d.metadata.exif.as_ref().map(|e| exif::read(e)).unwrap_or_default();
-            Source { name, surf: flattened(&d, fmt), w: d.size.width as usize, h: d.size.height as usize, exif: info }
+            Ok(Source { name, surf: flattened(&d, fmt)?, w: d.size.width as usize, h: d.size.height as usize, exif: info })
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
     Ok((out, fmt, icc))
 }
 
@@ -735,7 +735,7 @@ fn crop_and_straighten(s: &mut Session, _p: &Value) -> Result<Value> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
     let doc = st.doc.clone();
     let fmt = doc.pixel_format();
-    let flat = flattened(&doc, fmt);
+    let flat = flattened(&doc, fmt)?;
     let area = doc.bounds();
     let (w, h) = (area.width() as usize, area.height() as usize);
     let mut rgba = vec![[0.0f32; 4]; w * h];

@@ -9,7 +9,13 @@ use std::collections::HashMap;
 #[derive(Default)]
 pub(super) struct State {
     documents: HashMap<DocId, Policy>,
-    overlays: HashMap<(egui::Id, usize), Overlay>,
+    overlays: HashMap<(egui::Id, DocId), Overlay>,
+}
+impl State {
+    pub(super) fn retain(&mut self, live: &std::collections::HashSet<DocId>) {
+        self.documents.retain(|id, _| live.contains(id));
+        self.overlays.retain(|(_, id), _| live.contains(id));
+    }
 }
 struct Policy {
     original: Arc<Document>,
@@ -110,7 +116,7 @@ pub fn overlay(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, xf: &Vi
     let (state, scope) = policy(app, idx);
     let st = &app.session.documents()[idx];
     if matches!(state.mode, view_modes::Mode::Vector | view_modes::Mode::PixelPreview) && state.layer_outlines.is_empty() && scope.target.is_none() {
-        if let Some(entry) = app.vector_runtime.views.overlays.get_mut(&(ctx.viewport_id().0, idx)) {
+        if let Some(entry) = app.vector_runtime.views.overlays.get_mut(&(ctx.viewport_id().0, st.doc.id)) {
             entry.texture = None;
             entry.frame = None;
         }
@@ -128,7 +134,7 @@ pub fn overlay(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, xf: &Vi
         (f64::from(rect.right()) * ppp).round() as i32,
         (f64::from(rect.bottom()) * ppp).round() as i32,
     );
-    let entry = app.vector_runtime.views.overlays.entry((ctx.viewport_id().0, idx)).or_default();
+    let entry = app.vector_runtime.views.overlays.entry((ctx.viewport_id().0, st.doc.id)).or_default();
     let frame = entry.cache.prepare(
         &policy.original,
         st.revision,

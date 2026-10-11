@@ -267,3 +267,21 @@ fn transform34_keyboard_focus_regression_editor_shortcut_does_not_switch_tool() 
     assert!(!h.state().state.active());
     assert!(h.state().state.preview.is_none());
 }
+#[test]
+fn bugfix_vector_conversion_prompt_offers_only_executable_action() {
+    let mut h = harness();
+    let state = h.state_mut();
+    let ids = state.session.active().unwrap().selected_layers();
+    state.state.pending = Some(Commit {
+        capture: Capture::begin(&state.session, &ids).unwrap(),
+        operation: Operation::Affine { matrix: [1., 0., 0., 1., 20., 0.] },
+        options: Default::default(),
+        copy: false,
+        conversion: ConversionChoice::Ask,
+    });
+    h.run();
+    assert!(h.query_by_label("Non-destructive Envelope").is_none());
+    h.get_by_label("Convert to Curves").click();
+    h.run();
+    assert_eq!(h.state().session.journal.len(), 1);
+}

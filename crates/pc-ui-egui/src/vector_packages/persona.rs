@@ -192,7 +192,7 @@ fn sync(app: &mut PhotocraftApp, ctx: &Context) {
     }
     let changed = seen.as_ref().is_some_and(|s| s.persona != persona || (s.tool != app.ui.tool && s.gesture.is_some()));
     let stale = seen.as_ref().and_then(|s| s.gesture.as_ref()).is_some_and(|g| !g.is_current(app));
-    if changed || stale || !ctx.input(|i| i.focused) {
+    if changed || stale {
         cancel(app, ctx);
     }
     if seen.as_ref().is_none_or(|s| s.persona != persona) {
@@ -383,7 +383,7 @@ pub fn geometry_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let enabled = app.session.is_enabled("file.svg.place");
     if ui.add_enabled(enabled, egui::Button::new(tl!("Place SVG…")).small()).on_hover_text(tl!("Place an editable SVG above the selected layer")).clicked() {
         let ctx = ui.ctx().clone();
-        let _ = crate::menus::invoke(app, &ctx, "file.svg.place", json!({}));
+        let _ = crate::menus::invoke(app, &ctx, "file.placeEmbedded", json!({}));
     }
 }
 

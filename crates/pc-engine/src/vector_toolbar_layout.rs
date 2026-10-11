@@ -246,6 +246,8 @@ pub const PROXY_KEYS: &[Binding] = &[
 /// These override *all* owners of their chord, including channel targeting outside the menu.
 pub const ACCELERATORS: &[Binding] = &[
     b("Cmd+D", "vector.transform.again"),
+    b("Cmd+Shift+A", "ui.vector.select.none"),
+    b("Cmd+Alt+J", "ui.vector.path.average"),
     b("Cmd+J", "object.path.join"),
     b("Cmd+Y", "vector.view.outline"),
     b("Cmd+U", "vector.snap.smartGuides"),
@@ -256,7 +258,9 @@ pub const ACCELERATORS: &[Binding] = &[
     b("Cmd+2", "vector.object.lock"),
     b("Cmd+3", "vector.object.hide"),
     b("Cmd+7", "object.clippingMask.make"),
+    b("Cmd+Alt+7", "object.clippingMask.release"),
     b("Cmd+8", "object.compoundPath.make"),
+    b("Cmd+Alt+Shift+8", "object.compoundPath.release"),
 ];
 pub fn tool_bindings(preset: Preset) -> &'static [Binding] {
     match preset {
@@ -287,6 +291,23 @@ pub fn tool_for_key_after<'a>(persona: Persona, preset: Preset, key: &str, regis
 }
 /// Apply after constructing the existing Pixel table and before sorting/dispatch. Pixel returns
 /// byte-identical input, including user overrides. The shell uses the same table for labels.
+pub const AFFINITY_ACCELERATORS: &[Binding] = &[
+    b("Cmd+J", "layer.duplicate"),
+    b("Cmd+D", "select.deselect"),
+    b("Cmd+T", "window.panel.character"),
+    b("Cmd+G", "layer.group"),
+    b("Cmd+Shift+G", "layer.ungroup"),
+];
+pub fn command_bindings_for(persona: Persona, preset: Preset, pixel: &[(String, String)]) -> Vec<(String, String)> {
+    if persona == Persona::Pixel {
+        return pixel.to_vec();
+    }
+    let commands = if preset == Preset::Illustrator { ACCELERATORS } else { AFFINITY_ACCELERATORS };
+    let overrides: Vec<_> = commands.iter().chain(PROXY_KEYS).collect();
+    let mut out: Vec<_> = pixel.iter().filter(|(_, key)| !overrides.iter().any(|b| b.key == key)).cloned().collect();
+    out.extend(overrides.into_iter().map(|b| (b.target.into(), b.key.into())));
+    out
+}
 pub fn command_bindings(persona: Persona, pixel: &[(String, String)]) -> Vec<(String, String)> {
     if persona == Persona::Pixel {
         return pixel.to_vec();
