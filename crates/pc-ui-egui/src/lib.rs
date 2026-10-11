@@ -1806,3 +1806,6 @@ pub mod object_path;
 pub mod isolation;
 #[path = "vector_packages/view_modes.rs"]
 pub mod view_modes;
+
+#[path = "vector_packages/distort_tools.rs"]
+pub mod distort_tools;

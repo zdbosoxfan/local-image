@@ -7,3 +7,6 @@ pub mod repeat;
 pub mod width;
 
 pub mod blend;
+
+pub mod liquify;
+pub mod puppet;

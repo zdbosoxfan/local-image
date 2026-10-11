@@ -71,3 +71,6 @@ pub mod expand;
 pub mod path_commands;
 // Package 37: commands join the aggregate through the 00 handoff.
 pub mod isolation;
+
+// Package 41 command aggregate fragment: integration/41.md.
+pub mod distort_tools;
