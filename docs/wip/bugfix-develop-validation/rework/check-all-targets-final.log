@@ -1,0 +1,98 @@
+    Checking tempfile v3.27.0
+    Checking lightcraft-develop v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-develop)
+    Checking wait-timeout v0.2.1
+    Checking fnv v1.0.7
+    Checking quick-error v1.2.3
+    Checking bit-vec v0.8.0
+    Checking rand_xorshift v0.4.0
+    Checking unarray v0.1.4
+    Checking ttf-parser v0.25.1
+    Checking photocraft-psd v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-psd)
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+    Checking photocraft-raw v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-raw)
+    Checking li-ai v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/li-ai)
+    Checking accesskit_consumer v0.35.0
+    Checking getopts v0.2.24
+    Checking colored v2.2.0
+    Checking leb128fmt v0.1.0
+   Compiling rmcp v3.5.0
+    Checking tokio-stream v0.1.19
+    Checking clap_lex v1.1.1
+    Checking anstyle v1.0.14
+    Checking ciborium-io v0.2.2
+    Checking bit-set v0.8.0
+    Checking rusty-fork v0.3.1
+    Checking wasm-encoder v0.261.0
+    Checking itertools v0.10.5
+    Checking dify v0.8.0
+    Checking ciborium-ll v0.2.2
+    Checking cast v0.3.0
+    Checking tinytemplate v1.2.1
+    Checking clap_builder v4.6.7
+    Checking proptest v1.11.0
+    Checking is-terminal v0.4.17
+    Checking kittest v0.4.0
+    Checking ciborium v0.2.2
+    Checking anes v0.1.6
+    Checking oorandom v11.1.5
+    Checking photocraft-heif v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-heif)
+    Checking egui_kittest v0.36.2
+    Checking photocraft-text v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-text)
+    Checking criterion-plot v0.5.0
+    Checking lightcraft-segment v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-segment)
+    Checking wast v261.0.0
+    Checking photocraft-tablet v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-tablet)
+    Checking xtask v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/xtask)
+    Checking lightcraft-pipeline v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-pipeline)
+    Checking lightcraft-catalog v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-catalog)
+    Checking li-attributions v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/li-attributions)
+    Checking owned_ttf_parser v0.25.1
+    Checking clap v4.6.7
+    Checking photocraft-testkit v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-testkit)
+    Checking criterion v0.5.1
+    Checking photocraft-gpu v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-gpu)
+    Checking ab_glyph v0.2.32
+    Checking lightcraft-color v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-color)
+    Checking photocraft-pathops v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-pathops)
+    Checking photocraft-affinity v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-affinity)
+    Checking photocraft-svg v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-svg)
+    Checking photocraft-pdf v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-pdf)
+    Checking photocraft-compose v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-compose)
+    Checking lightcraft-raw v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-raw)
+    Checking pc-trace v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-trace)
+    Checking lightcraft-meta v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-meta)
+    Checking lightcraft-codecs v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-codecs)
+    Checking lightcraft-gpu v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-gpu)
+    Checking lightcraft-tiff v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-tiff)
+    Checking photocraft-format v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-format)
+    Checking lightcraft-geom v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-geom)
+    Checking lightcraft-raster v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-raster)
+    Checking wat v1.261.0
+    Checking photocraft-codecs v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-codecs)
+    Checking photocraft-plugins v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-plugins)
+    Checking photocraft-raster v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-raster)
+    Checking lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-engine)
+    Checking photocraft-vecfx v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-vecfx)
+    Checking photocraft-paint v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-paint)
+    Checking lightcraft-fetch v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-fetch)
+    Checking lightcraft-preview v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-preview)
+    Checking lightcraft-merge v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-merge)
+    Checking photocraft-algo v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-algo)
+    Checking li-seg v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/li-seg)
+    Checking lightcraft-scenes v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-scenes)
+    Checking photocraft-vector v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-vector)
+    Checking photocraft-ops v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-ops)
+    Checking photocraft-doc v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-doc)
+    Checking photocraft-color v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-color)
+    Checking photocraft-cms v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-cms)
+    Checking photocraft-geom v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-geom)
+    Checking lightcraft-sysmem v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-sysmem)
+    Checking photocraft-io v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-io)
+    Checking lightcraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-ui-egui)
+    Checking lightcraft-mcp v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-mcp)
+    Checking photocraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-engine)
+    Checking photocraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-ui-egui)
+    Checking photocraft-automation v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-automation)
+    Checking local-image-cli v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/apps/local-image-cli)
+    Checking local-image v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/apps/local-image)
+    Finished `dev` profile [optimized + debuginfo] target(s) in 54.36s

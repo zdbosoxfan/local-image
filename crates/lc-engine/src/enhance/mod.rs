@@ -285,10 +285,7 @@ impl Enhance {
 
     /// Discard all work when its Library closes or is replaced.
     pub fn clear(&mut self) {
-        for job in &self.jobs {
-            job.ctl.cancel();
-        }
-        self.jobs.clear();
+        self.discard();
     }
 
     /// Jobs not yet picked up (running or finished), oldest first.
@@ -317,6 +314,13 @@ impl Enhance {
             n += 1;
         }
         n
+    }
+
+    /// A library's jobs cannot cross into a new catalog, even if photo IDs or files match.
+    pub fn discard(&mut self) {
+        for job in self.jobs.drain(..) {
+            job.ctl.cancel();
+        }
     }
 
     /// Remove and return the finished jobs with their results.

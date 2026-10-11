@@ -46,6 +46,14 @@ impl Session {
                 }
             };
             let photo = job.photo;
+            let source_matches = match &outcome {
+                Outcome::Remove(r) => self.catalog.photo(photo).is_some_and(|p| super::source_hash(p) == r.source),
+                Outcome::Denoise(r) => self.catalog.photo(photo).is_some_and(|p| super::denoise::source_hash(p) == r.source),
+                Outcome::DenoiseExport(_) => true,
+            };
+            if !source_matches || job.ctl.cancelled() {
+                continue;
+            }
             let kind = job.kind.clone();
             let label = job.label.clone();
             let r = self.execute_fn("enhance.apply", |s| {

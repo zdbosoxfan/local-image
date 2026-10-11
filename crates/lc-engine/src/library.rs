@@ -305,7 +305,7 @@ impl Session {
         // never edited this session would look unchanged and show the old library's numbers.
         static LOADS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         catalog.revision = LOADS.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_add(1) << 32;
-        self.enhance.clear();
+        self.enhance.discard();
         self.library_generation = self.library_generation.wrapping_add(1);
         self.catalog = catalog;
         self.undo.clear();
@@ -488,7 +488,7 @@ impl Session {
     /// holding everything in memory, so it saves those ops too (the log handle may be the only
     /// thing that's broken). Fails only if nothing could be saved; the ops then stay queued.
     pub fn close_library(&mut self) -> Result<()> {
-        self.enhance.clear();
+        self.enhance.discard();
         self.library_generation = self.library_generation.wrapping_add(1);
         if self.library.is_none() {
             return Ok(());

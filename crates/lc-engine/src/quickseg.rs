@@ -17,6 +17,57 @@ const INPUT_EDGE: usize = 1024;
 const GRID: usize = 256;
 
 impl Session {
+    /// Recompute only incoming AI selections on this photo. Existing target masks stay intact.
+    pub(crate) fn refresh_transferred_masks(&mut self, id: PhotoId, settings: &mut lightcraft_develop::DevelopSettings, first: usize) {
+        let input_settings = settings.clone();
+        for mask in settings.masks.iter_mut().skip(first) {
+            for component in &mut mask.components {
+                let shape = &mut component.shape;
+                self.quick_segment_with_settings(id, shape, Some(&input_settings));
+                match shape {
+                    MaskShape::Object { hint, exclude, seg, detail, .. } => {
+                        *seg = None;
+                        detail.clear();
+                        if !hint.is_empty() {
+                            *seg = self
+                                .segment_clicks(
+                                    id,
+                                    &hint
+                                        .iter()
+                                        .map(|p| crate::segment::Click { at: *p, include: true })
+                                        .chain(exclude.iter().map(|p| crate::segment::Click { at: *p, include: false }))
+                                        .collect::<Vec<_>>(),
+                                )
+                                .ok();
+                        }
+                    }
+                    MaskShape::Prompt { text, seg, detail, .. } => {
+                        *seg = self.segment_text(id, text).ok().flatten();
+                        detail.clear();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub(crate) fn transfer_settings(
+        &mut self,
+        id: PhotoId,
+        current: &lightcraft_develop::DevelopSettings,
+        partial: &serde_json::Value,
+    ) -> lightcraft_develop::DevelopSettings {
+        let mut partial = partial.clone();
+        if let Some(object) = partial.as_object_mut() {
+            lightcraft_develop::presets::strip_photo_bound(object);
+        }
+        let mut settings = lightcraft_develop::apply_partial(current, &partial, 1.0);
+        if partial.get("masks").is_some() {
+            self.refresh_transferred_masks(id, &mut settings, 0);
+        }
+        settings
+    }
+
     /// Fills a Subject / Background / Sky shape's segmentation from the quick models when one is
     /// installed (other shapes, or no model: unchanged). Returns whether it did.
     pub fn quick_segment(&mut self, id: PhotoId, shape: &mut MaskShape) -> bool {

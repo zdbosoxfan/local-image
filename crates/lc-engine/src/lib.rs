@@ -575,12 +575,8 @@ impl Session {
                 o.remove(k);
             }
             lightcraft_develop::presets::strip_photo_bound(o);
-            // Stored patches are bound to their source photo.
-            if let Some(Value::Object(e)) = o.get_mut("enhance") {
-                e.remove("ai");
-                if e.is_empty() {
-                    o.remove("enhance");
-                }
+            if o.get("enhance").is_some_and(|e| e.as_object().is_some_and(|e| e.is_empty())) {
+                o.remove("enhance");
             }
             if o.is_empty() {
                 return Vec::new();
@@ -590,39 +586,10 @@ impl Session {
         targets
             .into_iter()
             .filter_map(|(x, d)| {
-                let synced = lightcraft_develop::apply_partial(&d, &delta, 1.0);
-                (synced != *d).then(|| self.transferred_develop_op(x, synced, label)).flatten()
+                let synced = self.transfer_settings(x, &d, &delta);
+                (synced != *d).then(|| self.develop_op(x, synced, label)).flatten()
             })
             .collect()
-    }
-
-    /// Recompute copied automatic selections from the target's pixels. Object and prompt
-    /// selections retain editable intent without importing another photo's cached selections.
-    pub(crate) fn transferred_develop_op(&mut self, id: PhotoId, mut settings: DevelopSettings, label: &str) -> Option<Op> {
-        let input_settings = settings.clone();
-        for mask in &mut settings.masks {
-            for component in &mut mask.components {
-                self.quick_segment_with_settings(id, &mut component.shape, Some(&input_settings));
-                if self.segmenter.installed() {
-                    use lightcraft_develop::MaskShape;
-                    match &mut component.shape {
-                        MaskShape::Object { hint, exclude, seg, .. } if seg.is_none() => {
-                            let clicks: Vec<_> = hint
-                                .iter()
-                                .map(|at| crate::segment::Click { at: *at, include: true })
-                                .chain(exclude.iter().map(|at| crate::segment::Click { at: *at, include: false }))
-                                .collect();
-                            *seg = self.segment_clicks(id, &clicks).ok();
-                        }
-                        MaskShape::Prompt { text, seg, .. } if seg.is_none() => {
-                            *seg = self.segment_text(id, text).ok().flatten();
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-        self.develop_op(id, settings, label)
     }
 
     /// The op that sets a photo's develop settings and appends a History entry (for batches).

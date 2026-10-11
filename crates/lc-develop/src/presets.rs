@@ -141,7 +141,7 @@ pub fn extract_groups(s: &DevelopSettings, groups: &[SettingsGroup]) -> Value {
 }
 
 /// local-image: drop what belongs to one photo's pixels — AI removals
-/// (generated from that photo) — from settings copied to others (copy/paste, sync, presets).
+/// (generated from that photo) and cached AI mask selections — from settings copied to others (copy/paste, sync, presets).
 pub fn strip_photo_bound(out: &mut Map<String, Value>) {
     if let Some(Value::Object(e)) = out.get_mut("enhance") {
         e.remove("ai");
@@ -264,6 +264,25 @@ pub struct Preset {
     pub builtin: bool,
 }
 
+// Reapplying an adaptive preset compares its selection instructions, not a target's cached logits.
+fn mask_components_without_cache(mask: &crate::Mask) -> Vec<crate::MaskComponent> {
+    let mut components = mask.components.clone();
+    for component in &mut components {
+        match &mut component.shape {
+            crate::MaskShape::Subject { seg }
+            | crate::MaskShape::Sky { seg }
+            | crate::MaskShape::Background { seg }
+            | crate::MaskShape::DepthRange { seg, .. } => *seg = None,
+            crate::MaskShape::Object { seg, detail, .. } | crate::MaskShape::Prompt { seg, detail, .. } => {
+                *seg = None;
+                detail.clear();
+            }
+            _ => {}
+        }
+    }
+    components
+}
+
 impl Preset {
     pub fn from_settings(id: &str, name: &str, group: &str, s: &DevelopSettings, groups: &[SettingsGroup]) -> Preset {
         Preset { id: id.into(), name: name.into(), group: group.into(), settings: extract_groups(s, groups), favorite: false, builtin: false }
@@ -286,7 +305,7 @@ impl Preset {
         let mut next = out.masks.iter().map(|m| m.id).max().unwrap_or(0);
         for m in masks {
             let Ok(mut m) = serde_json::from_value::<crate::Mask>(m.clone()) else { continue };
-            if out.masks.iter().any(|q| q.name == m.name && q.components == m.components) {
+            if out.masks.iter().any(|q| q.name == m.name && mask_components_without_cache(q) == mask_components_without_cache(&m)) {
                 continue;
             }
             next += 1;
