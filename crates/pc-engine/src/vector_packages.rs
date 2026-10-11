@@ -3,6 +3,7 @@
 //! command. See docs/wip/vector-tasks/README.md for ownership and integration.
 use crate::commands::CommandSpec;
 pub mod affinity;
+pub mod anchor_tools;
 pub mod appearance;
 pub mod blend;
 pub mod brushes;
