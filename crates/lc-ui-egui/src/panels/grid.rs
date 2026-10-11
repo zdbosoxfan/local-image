@@ -819,6 +819,10 @@ fn run_context(app: &mut LightcraftApp, id: PhotoId, command: &str, params: serd
     if !app.session.selection.contains(id) {
         app.run("library.select", json!({"ids":[id.0]}))?;
     }
+    if command == "develop.copy" && app.session.active() != Some(id) {
+        let ids: Vec<_> = app.session.selection.ids.iter().map(|p| p.0).collect();
+        app.run("library.select", json!({"ids":ids,"active":id.0}))?;
+    }
     if matches!(command, "photo.delete" | "photo.deletePermanently") && crate::menus::confirm_delete(app) {
         return Ok(serde_json::Value::Null);
     }
@@ -1008,6 +1012,16 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bugfix_develop_context_copy_uses_clicked_selected_photo() {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
+        let ids = app.session.visible_cloned();
+        app.run("library.select", json!({"ids":[ids[1].0]})).unwrap();
+        app.run("develop.set", json!({"control":"light.exposure","value":1.25})).unwrap();
+        app.run("library.select", json!({"ids":[ids[0].0,ids[1].0],"active":ids[0].0})).unwrap();
+        run_context(&mut app, ids[1], "develop.copy", json!({})).unwrap();
+        assert_eq!(app.session.clipboard.as_ref().unwrap()["light"]["exposure"], 1.25);
+    }
 
     #[test]
     fn bugfix_save_u006_context_delete_uses_the_same_confirmation() {

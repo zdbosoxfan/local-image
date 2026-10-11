@@ -8,6 +8,7 @@
 
 pub mod controls;
 pub mod presets;
+mod rotation;
 pub mod segmask;
 pub mod settings;
 pub mod tools;

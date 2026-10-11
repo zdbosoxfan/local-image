@@ -1125,6 +1125,9 @@ fn texture_buffer<'a>(
 }
 
 pub(crate) fn retain_gpu_documents(app: &mut PhotocraftApp) {
+    let open: Vec<_> = app.session.documents().iter().map(|st| st.doc.id).collect();
+    crate::vector_integration::views::retain(app, &open);
+    app.canvases.retain(|(id, _), _| open.contains(id));
     // Remove a closed adjustment owner's proxy before collecting its live GPU keys.
     crate::adjust_preview::retain_documents(app);
     if let Some(gpu) = &app.gpu {

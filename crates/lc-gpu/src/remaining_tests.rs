@@ -305,6 +305,7 @@ fn native_calibration_patch_minification_and_depth_match() {
         mode: SpotMode::Ai,
         opacity: 40.0,
         patch: Some(AiPatch {
+            orientation: Default::default(),
             key: "gpu-remaining-minify".into(),
             rect: [0.1, 0.2, 0.8, 0.9],
             source: String::new(),

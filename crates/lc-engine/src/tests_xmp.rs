@@ -930,3 +930,33 @@ fn files_sharing_a_stem_get_their_own_sidecars() {
     let _ = std::fs::remove_dir_all(&src);
     let _ = std::fs::remove_dir_all(&lib);
 }
+
+#[test]
+fn bugfix_develop_dng_refreshes_content_identity_and_virtual_copies() {
+    use lightcraft_catalog::{MediaKind, Op, Photo, Source};
+    let dir = temp_dir("dng-identity");
+    let path = dir.join("shot.nef");
+    std::fs::write(&path, synthetic_dng("")).unwrap();
+    let mut s = Session::new().with_fs();
+    let id = s.catalog.alloc_photo_id();
+    let mut p = Photo::new(id, Source::File { path: path.to_string_lossy().into() }, "shot.nef", "NEF", 8, 6, "now");
+    p.kind = MediaKind::Raw;
+    p.content_hash = Some("old-raw".into());
+    p.file_size = 1;
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    s.execute("library.select", &json!({"ids":[id.0]})).unwrap();
+    let copy = s.execute("photo.virtualCopy", &json!({})).unwrap()["ids"][0].as_u64().unwrap();
+    s.execute("library.select", &json!({"ids":[id.0]})).unwrap();
+    let r = s.execute("photo.convertToDng", &json!({})).unwrap();
+    assert_eq!(r["converted"].as_array().unwrap().len(), 1, "{r}");
+    let bytes = std::fs::read(dir.join("shot.dng")).unwrap();
+    for target in [id, lightcraft_catalog::PhotoId(copy)] {
+        let photo = s.catalog.photo(target).unwrap();
+        assert_eq!(photo.file_size, bytes.len() as u64);
+        assert_eq!(photo.content_hash.as_deref(), Some(lightcraft_preview::hash_bytes(&bytes).to_string().as_str()));
+        assert_eq!(photo.file_name, "shot.dng");
+    }
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.catalog.photo(id).unwrap().content_hash.as_deref(), Some("old-raw"));
+    let _ = std::fs::remove_dir_all(dir);
+}

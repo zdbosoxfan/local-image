@@ -1,0 +1,48 @@
+   Compiling lightcraft-develop v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-develop)
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling lightcraft-pipeline v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-pipeline)
+   Compiling lightcraft-catalog v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-catalog)
+   Compiling lightcraft-gpu v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-gpu)
+   Compiling lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-engine)
+error[E0631]: type mismatch in function arguments
+  --> crates/lc-engine/src/cmd/convert.rs:92:98
+   |
+92 |                 let info=crate::import::probe_paths(s,std::slice::from_ref(&out)).pop().and_then(Result::ok);
+   |                                                                                         -------- ^^^^^^^^^^
+   |                                                                                         |        |
+   |                                                                                         |        expected due to this
+   |                                                                                         |        found signature defined here
+   |                                                                                         required by a bound introduced by this call
+   |
+   = note: expected function signature `fn(std::result::Result<_, std::string::String>) -> _`
+              found function signature `fn(std::result::Result<_, EngineError>) -> _`
+note: required by a bound in `std::option::Option::<T>::and_then`
+  --> library/core/src/option.rs:1537:4
+help: consider wrapping the function in a closure
+   |
+92 |                 let info=crate::import::probe_paths(s,std::slice::from_ref(&out)).pop().and_then(|arg0: std::result::Result<ProbeInfo, std::string::String>| Result::ok(/* std::result::Result<ProbeInfo, EngineError> */));
+   |                                                                                                  +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++           +++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0631]: type mismatch in function arguments
+  --> crates/lc-engine/src/cmd/missing.rs:79:119
+   |
+79 | ...s(s,std::slice::from_ref(&abs)).pop().and_then(Result::ok)} else {None};
+   |                                          -------- ^^^^^^^^^^
+   |                                          |        |
+   |                                          |        expected due to this
+   |                                          |        found signature defined here
+   |                                          required by a bound introduced by this call
+   |
+   = note: expected function signature `fn(std::result::Result<_, std::string::String>) -> _`
+              found function signature `fn(std::result::Result<_, EngineError>) -> _`
+note: required by a bound in `std::option::Option::<T>::and_then`
+  --> library/core/src/option.rs:1537:4
+help: consider wrapping the function in a closure
+   |
+79 |     let info=if s.media.file_probe.is_some() {crate::import::probe_paths(s,std::slice::from_ref(&abs)).pop().and_then(|arg0: std::result::Result<ProbeInfo, std::string::String>| Result::ok(/* std::result::Result<ProbeInfo, EngineError> */))} else {None};
+   |                                                                                                                       +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++           +++++++++++++++++++++++++++++++++++++++++++++++++++
+
+For more information about this error, try `rustc --explain E0631`.
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+error: could not compile `lightcraft-engine` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...

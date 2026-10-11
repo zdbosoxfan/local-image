@@ -19,23 +19,99 @@ fn secs(iso: &str) -> Option<i64> {
     Some(((d.year as i64 * 372 + d.month as i64 * 31 + d.day as i64) * 24 + d.hour as i64) * 3600 + d.minute as i64 * 60 + d.second as i64)
 }
 
+/// Progress and cancellation shared with the culling worker.
+#[derive(Default)]
+pub struct Control {
+    pub cancel: std::sync::atomic::AtomicBool,
+    pub completed: std::sync::atomic::AtomicUsize,
+    pub total: usize,
+}
+
+type Row = (PhotoId, Option<i64>, f32, f32, [f32; 64]);
+struct Input {
+    id: PhotoId,
+    captured: Option<i64>,
+    key: String,
+    flag: Flag,
+    source: crate::media::SourceRef,
+}
+pub struct Work {
+    generation: u64,
+    inputs: Vec<Input>,
+}
+pub struct Measured {
+    generation: u64,
+    rows: Vec<Row>,
+    failed: Vec<Value>,
+    identities: Vec<(PhotoId, String, Flag)>,
+}
+
+pub fn prepare(s: &mut Session, p: &Value) -> Work {
+    let ids = if p.get("ids").is_some() || s.selection.ids.len() > 1 { s.targets(p) } else { s.visible_cloned() };
+    let inputs = ids
+        .into_iter()
+        .filter_map(|id| {
+            let photo = s.catalog.photo(id)?.clone();
+            Some(Input {
+                id,
+                captured: photo.captured.as_deref().and_then(secs),
+                key: crate::media::content_key(&photo),
+                flag: photo.flag,
+                source: s.media.source_ref(&photo, crate::media::SourceLevel::Thumb),
+            })
+        })
+        .collect();
+    Work { generation: s.library_generation, inputs }
+}
+impl Work {
+    pub fn len(&self) -> usize {
+        self.inputs.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.inputs.is_empty()
+    }
+    pub fn run(self, control: &Control) -> Measured {
+        use std::sync::atomic::Ordering;
+        let mut result = Measured { generation: self.generation, rows: Vec::new(), failed: Vec::new(), identities: Vec::new() };
+        for input in self.inputs {
+            if control.cancel.load(Ordering::Relaxed) {
+                break;
+            }
+            let source = crate::guard::catch("Assisted Culling", || input.source.load_source()).and_then(|r| r);
+            match source {
+                Ok(src) => {
+                    use lightcraft_pipeline::cull;
+                    result.rows.push((input.id, input.captured, cull::sharpness(&src.image), cull::clipped(&src.image), cull::signature(&src.image)));
+                    result.identities.push((input.id, input.key, input.flag));
+                }
+                Err(e) => result.failed.push(json!([input.id.0, e])),
+            }
+            control.completed.fetch_add(1, Ordering::Relaxed);
+        }
+        result
+    }
+}
 fn analyze(s: &mut Session, p: &Value) -> Result<Value> {
-    let ids: Vec<PhotoId> = if p.get("ids").is_some() || s.selection.ids.len() > 1 { s.targets(p) } else { s.visible_cloned() };
+    let work = prepare(s, p);
+    let measured = work.run(&Control::default());
+    apply(s, measured, p)
+}
+/// Apply only to the same library, sources and flags that were measured. A switched library
+/// or an intervening user edit must never receive an obsolete worker's results.
+pub fn apply(s: &mut Session, measured: Measured, p: &Value) -> Result<Value> {
+    if s.library_generation != measured.generation {
+        return Ok(json!({"discarded":true}));
+    }
+    let mut rows = measured.rows;
+    let identities: std::collections::HashMap<_, _> = measured.identities.into_iter().map(|(id, key, flag)| (id, (key, flag))).collect();
+    rows.retain(|row| {
+        identities.get(&row.0).is_some_and(|(key, flag)| {
+            s.catalog.photo(row.0).is_some_and(|photo| crate::media::content_key(photo) == *key && photo.flag == *flag && photo.in_library())
+        })
+    });
+    let failed = measured.failed;
     let reject_below = p.get("rejectBelow").and_then(Value::as_f64).map(|v| v as f32);
     let pick_best = p.get("pickBest").and_then(Value::as_bool).unwrap_or(false);
-    // measure (thumbnail-level sources: fast, and enough for focus at 512 px)
-    let mut rows: Vec<(PhotoId, Option<i64>, f32, f32, [f32; 64])> = Vec::new();
-    let mut failed = Vec::new();
-    for id in ids {
-        match s.source_now(id, crate::media::SourceLevel::Thumb) {
-            Ok(src) => {
-                let t = s.catalog.photo(id).and_then(|p| p.captured.as_deref().and_then(secs));
-                use lightcraft_pipeline::cull;
-                rows.push((id, t, cull::sharpness(&src), cull::clipped(&src), cull::signature(&src)));
-            }
-            Err(e) => failed.push(json!([id.0, e])),
-        }
-    }
     // bursts: consecutive (by capture time) look-alike shots
     rows.sort_by_key(|r| (r.1.unwrap_or(i64::MAX), r.0));
     let mut group_of: Vec<Option<u32>> = vec![None; rows.len()];

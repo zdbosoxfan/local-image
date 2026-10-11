@@ -198,6 +198,7 @@ fn recovery_store_adopt_and_discard_removes_adopted_entry() {
     store.adopt(7, key);
     let res = store.discard(7);
     assert!(res.is_ok());
+    res.unwrap().wait();
     assert!(!dir.join(format!("{key}.pcraft")).exists());
     assert!(!dir.join(format!("{key}.json")).exists());
 }

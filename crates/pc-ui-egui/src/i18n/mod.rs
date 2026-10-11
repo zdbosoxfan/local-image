@@ -595,6 +595,11 @@ mod tests {
     ];
 
     const PENDING_AI_TRANSLATIONS: &[&str] = &[
+        "The job is no longer in ComfyUI's queue or history. The server may have restarted; try again.",
+        "Cannot read the ComfyUI queue: {error}",
+        "Cannot read ComfyUI job history: {error}",
+        "Read document layers failed unexpectedly: {error}",
+        "Read clipboard image failed unexpectedly: {error}",
         "Install the selected SeedVR2 model and VAE, then refresh ComfyUI.",
         "Invalid enhancement choices file",
         "invalid convolution padding",

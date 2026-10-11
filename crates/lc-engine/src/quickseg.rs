@@ -20,6 +20,15 @@ impl Session {
     /// Fills a Subject / Background / Sky shape's segmentation from the quick models when one is
     /// installed (other shapes, or no model: unchanged). Returns whether it did.
     pub fn quick_segment(&mut self, id: PhotoId, shape: &mut MaskShape) -> bool {
+        let settings = self.segment_key(id).map(|(_, settings)| settings);
+        self.quick_segment_with_settings(id, shape, settings.as_ref())
+    }
+    pub(crate) fn quick_segment_with_settings(
+        &mut self,
+        id: PhotoId,
+        shape: &mut MaskShape,
+        settings: Option<&lightcraft_develop::DevelopSettings>,
+    ) -> bool {
         #[derive(PartialEq)]
         enum K {
             Subject,
@@ -40,7 +49,9 @@ impl Session {
             K::Depth => li_seg::shared_depth(&dir),
         };
         let Some(model) = model else { return false };
-        let Some((_, settings)) = self.segment_key(id) else { return false };
+        let Some(settings) = settings else { return false };
+        let mut settings = settings.clone();
+        settings.masks.clear();
         let Some(job) = self.preview_job(id, INPUT_EDGE, INPUT_EDGE, false, &settings) else { return false };
         let Ok(r) = job.run().rendered else { return false };
         let img = r.image;

@@ -579,6 +579,14 @@ impl RenderJob {
     }
 
     pub fn run(self) -> RenderResult {
+        let (request_id, photo, key) = (self.request_id, self.photo, self.key);
+        let (source_key, level) = (self.source_key, self.level);
+        match crate::guard::catch("Preview render", || self.run_inner()) {
+            Ok(result) => result,
+            Err(error) => RenderResult { request_id, photo, key, source_key, level, rendered: Err(error), loaded: None, quick: None },
+        }
+    }
+    fn run_inner(self) -> RenderResult {
         if let Some((cache, key)) = &self.cache
             && let Some(img) = cache.get_at(self.cache_generation, *key)
         {
@@ -715,6 +723,15 @@ pub struct QuickJob {
 
 impl QuickJob {
     pub fn run(self) -> RenderResult {
+        let (request_id, photo, key) = (self.request_id, self.photo, self.key);
+        match crate::guard::catch("Preview render", || self.run_inner()) {
+            Ok(result) => result,
+            Err(error) => {
+                RenderResult { request_id, photo, key, source_key: None, level: SourceLevel::Thumb, rendered: Err(error), loaded: None, quick: None }
+            }
+        }
+    }
+    fn run_inner(self) -> RenderResult {
         let (photo, key) = (self.photo, self.key);
         let request_id = self.request_id;
         let done = |rendered: Result<Rendered, String>, quick| RenderResult {
@@ -1368,5 +1385,34 @@ mod tests {
         let pv = s.preview_job(id, 800, 600, true, &a).unwrap();
         assert_ne!(pv.key, s.render_job(id, 800, 600, false, true).unwrap().key);
         assert_eq!(*pv.settings, a);
+    }
+}
+
+#[cfg(test)]
+mod bugfix_develop_tests {
+    use super::*;
+    #[test]
+    fn bugfix_develop_panicking_preview_returns_failure_and_pool_survives() {
+        let mut pool = lightcraft_preview::JobPool::new(0);
+        let job = QuickJob {
+            request_id: 17,
+            photo: PhotoId(1),
+            key: 23,
+            cached: vec![],
+            embedded: Some(("bad.raw".into(), Arc::new(|_, _| panic!("damaged decoder")), 64)),
+            small: None,
+        };
+        pool.submit(0, 23, 1, Box::new(move || job.run()));
+        pool.submit(
+            1,
+            24,
+            0,
+            Box::new(|| QuickJob { request_id: 18, photo: PhotoId(2), key: 24, cached: vec![], embedded: None, small: None }.run()),
+        );
+        assert_eq!(pool.run_inline(2), 2);
+        let bad = pool.try_recv().unwrap();
+        assert_eq!((bad.result.request_id, bad.result.key), (17, 23));
+        assert!(bad.result.rendered.err().unwrap().contains("damaged decoder"));
+        assert!(pool.try_recv().is_some());
     }
 }

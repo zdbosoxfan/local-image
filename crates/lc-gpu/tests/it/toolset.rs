@@ -867,7 +867,15 @@ fn ai_spot(key: &str, rect: [f64; 4], opacity: f64) -> Spot {
         mode: SpotMode::Ai,
         points: vec![Point::new((rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0)],
         opacity,
-        patch: Some(AiPatch { key: key.into(), source: String::new(), rect, engine: "test".into(), seed: 1, geometry: String::new() }),
+        patch: Some(AiPatch {
+            orientation: Default::default(),
+            key: key.into(),
+            source: String::new(),
+            rect,
+            engine: "test".into(),
+            seed: 1,
+            geometry: String::new(),
+        }),
         ..Default::default()
     }
 }

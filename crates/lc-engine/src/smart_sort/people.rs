@@ -201,6 +201,7 @@ pub struct PeopleEngine {
     pub data: PeopleData,
     dir: Option<PathBuf>,
     loaded: bool,
+    load_error: Option<String>,
 }
 impl PeopleEngine {
     pub fn new(library: Option<&Path>) -> Self {
@@ -208,9 +209,19 @@ impl PeopleEngine {
     }
     /// Detached in-memory view for queries. Persisting results remains a session-thread action.
     pub fn snapshot(&self) -> Self {
-        Self { tagger: self.tagger.clone(), store: self.store.snapshot(), data: self.data.clone(), dir: None, loaded: self.loaded }
+        Self {
+            tagger: self.tagger.clone(),
+            store: self.store.snapshot(),
+            data: self.data.clone(),
+            dir: None,
+            loaded: self.loaded,
+            load_error: self.load_error.clone(),
+        }
     }
     pub fn ensure(&mut self) -> std::result::Result<(), String> {
+        if let Some(error) = &self.load_error {
+            return Err(error.clone());
+        }
         if self.loaded {
             return Ok(());
         }
@@ -218,7 +229,14 @@ impl PeopleEngine {
             match std::fs::read(dir.join("people.json")) {
                 Ok(bytes) => match serde_json::from_slice::<PeopleData>(&bytes).ok().filter(|p| p.validate().is_ok()) {
                     Some(data) => self.data = data,
-                    None => log::warn!("Smart Sort: ignoring damaged people data"),
+                    None => {
+                        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+                        lightcraft_catalog::safe_file::write_atomic(&dir.join(format!("people.json.corrupt-{stamp}")), &bytes)
+                            .map_err(|e| e.to_string())?;
+                        let error = "Could not read people data. A copy of the damaged file was kept.".to_string();
+                        self.load_error = Some(error.clone());
+                        return Err(error);
+                    }
                 },
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(_) => return Err("could not read people data".into()),
@@ -257,6 +275,9 @@ impl PeopleEngine {
         self.tagger.clone().ok_or("face models unavailable".into())
     }
     pub fn save_data(&self, data: &PeopleData) -> std::result::Result<(), String> {
+        if let Some(error) = &self.load_error {
+            return Err(error.clone());
+        }
         data.validate()?;
         if let Some(dir) = &self.dir {
             std::fs::create_dir_all(dir).map_err(|_| "could not create face data directory")?;
@@ -279,6 +300,7 @@ impl PeopleEngine {
             }
         }
         self.data = PeopleData::default();
+        self.load_error = None;
         self.loaded = true;
         self.tagger = None;
         Ok(())
@@ -860,3 +882,21 @@ pub fn face_at<'a>(engine: &'a PeopleEngine, key: &FaceKey) -> Option<&'a Stored
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod bugfix_develop_tests {
+    use super::*;
+    #[test]
+    fn bugfix_develop_damaged_people_data_cannot_be_overwritten() {
+        let dir = std::env::temp_dir().join(format!("li-people-corrupt-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("AI")).unwrap();
+        let path = dir.join("AI/people.json");
+        let bytes = br#"{"version":999,"people":["future data"]}"#;
+        std::fs::write(&path, bytes).unwrap();
+        let mut engine = PeopleEngine::new(Some(&dir));
+        assert!(engine.ensure().is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert!(std::fs::read_dir(dir.join("AI")).unwrap().count() > 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

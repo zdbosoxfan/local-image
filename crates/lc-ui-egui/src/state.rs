@@ -169,6 +169,7 @@ pub struct AppSettings {
     /// Library opened at launch when no `--library` is given (empty = the default location).
     pub library_path: String,
     pub startup_view: StartupView,
+    pub import_defaults: crate::import::ImportPreferences,
     /// Ask before moving photos to Recently Deleted (keyboard and menu).
     pub confirm_delete: bool,
     /// File ▸ Save Over Original asks first (its "Don't ask again" turns this off).
@@ -197,6 +198,7 @@ impl Default for AppSettings {
             color_tool_icons: true,
             library_path: String::new(),
             startup_view: StartupView::Last,
+            import_defaults: Default::default(),
             confirm_delete: false,
             confirm_save_over: true,
             gpu: true,
@@ -284,6 +286,8 @@ pub struct UiState {
     pub single_panel: bool,
     pub show_clipping: bool,
     pub histogram: bool,
+    #[serde(skip)]
+    pub lights_out: u8,
     /// Soft proofing (S in the loupe): render as `proof` would hold the photo.
     pub soft_proof: bool,
     pub proof: lightcraft_engine::pipeline::Proof,
@@ -562,6 +566,9 @@ pub enum Dialog {
         groups: Vec<String>,
     },
     /// Paste Selected Settings: which of the copied groups to paste.
+    SyncSettings {
+        groups: Vec<String>,
+    },
     PasteSettings {
         groups: Vec<String>,
     },
@@ -661,6 +668,7 @@ impl Default for UiState {
             single_panel: false,
             show_clipping: false,
             histogram: true,
+            lights_out: 0,
             soft_proof: false,
             proof: lightcraft_engine::pipeline::Proof { dest_warning: false, ..Default::default() },
             mask_overlay: true,

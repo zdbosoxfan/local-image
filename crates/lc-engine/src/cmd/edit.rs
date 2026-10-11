@@ -8,6 +8,9 @@ pub fn specs() -> Vec<CommandSpec> {
             s.end_interaction()?;
             Ok(json!({"undone": s.undo_step()?}))
         }),
-        cmd!("edit.redo", "Redo", ["Edit"], Some("Cmd+Shift+Z"), "{}", can_redo, |s, _| Ok(json!({"redone": s.redo_step()?}))),
+        cmd!("edit.redo", "Redo", ["Edit"], Some("Cmd+Shift+Z"), "{}", can_redo, |s, _| {
+            s.end_interaction()?;
+            Ok(json!({"redone": s.redo_step()?}))
+        }),
     ]
 }

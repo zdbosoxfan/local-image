@@ -124,7 +124,16 @@ fn ids_param(p: &Value) -> Option<Vec<PhotoId>> {
 /// Apply one op per target as a single undo step.
 fn for_targets(s: &mut Session, p: &Value, label: &str, f: impl Fn(PhotoId) -> Option<Op>) -> Result<Value> {
     let targets = s.targets(p);
-    let ops: Vec<Op> = targets.iter().filter_map(|id| f(*id)).collect();
+    let ops: Vec<Op> = targets
+        .iter()
+        .filter_map(|id| f(*id))
+        .filter(|op| match op {
+            Op::SetRating { id, rating } => s.catalog.photo(*id).is_some_and(|p| p.rating != *rating),
+            Op::SetFlag { id, flag } => s.catalog.photo(*id).is_some_and(|p| p.flag != *flag),
+            Op::SetLabel { id, label } => s.catalog.photo(*id).is_some_and(|p| p.label != *label),
+            _ => true,
+        })
+        .collect();
     let n = ops.len();
     if n > 0 {
         s.commit(label, Op::Batch { ops })?;
@@ -161,7 +170,16 @@ fn rotate(s: &mut Session, p: &Value, cw: bool) -> Result<Value> {
     for id in targets {
         if let Some(d) = s.develop_of(id) {
             let mut d = (*d).clone();
-            d.orientation = d.orientation.rotated(cw);
+            let old_geometry = crate::enhance::remove::geometry_tag(&d);
+            d.rotate_content(cw);
+            let new_geometry = crate::enhance::remove::geometry_tag(&d);
+            for spot in &mut d.spots {
+                if let Some(patch) = &mut spot.patch
+                    && patch.geometry == old_geometry
+                {
+                    patch.geometry.clone_from(&new_geometry);
+                }
+            }
             ops.extend(s.develop_op(id, d, "Rotate"));
         }
     }

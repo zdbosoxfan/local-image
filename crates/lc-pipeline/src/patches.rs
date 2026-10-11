@@ -142,6 +142,30 @@ pub fn lookup(key: &str) -> Option<Arc<PatchPixels>> {
     Some(p)
 }
 
+/// Cached quarter-turn projection of a patch; CPU and GPU consume identical pixels.
+pub fn lookup_oriented(key: &str, orientation: lightcraft_geom::Orientation) -> Option<Arc<PatchPixels>> {
+    use lightcraft_geom::Orientation;
+    if orientation == Orientation::Normal {
+        return lookup(key);
+    }
+    let cache_key = format!("{key}@{}", orientation.to_exif());
+    if let Some(patch) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(key, _)| key == &cache_key).map(|(_, p)| p.clone()) {
+        return Some(patch);
+    }
+    let patch = lookup(key)?;
+    let (w, h) = if orientation.swaps_axes() { (patch.height, patch.width) } else { (patch.width, patch.height) };
+    let mut data = vec![[0.; 4]; patch.data.len()];
+    for y in 0..patch.height {
+        for x in 0..patch.width {
+            let (nx, ny) = orientation.map(x as f64 + 0.5, y as f64 + 0.5, patch.width as f64, patch.height as f64);
+            data[ny.floor() as usize * w + nx.floor() as usize] = patch.data[y * patch.width + x];
+        }
+    }
+    let out = Arc::new(PatchPixels { width: w, height: h, data });
+    insert(&cache_key, out.clone());
+    Some(out)
+}
+
 /// One patch to composite: its key, where it goes (`[x0, y0, x1, y1]`, normalized transformed
 /// coordinates) and how strongly (0..1).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -165,13 +189,10 @@ pub fn apply(img: &mut Rgb32f, placements: &[Placement<'_>], frame: &Frame) {
 
 /// Composite the patches of the AI spots among `spots` (other spots are `spots::apply`'s).
 pub fn apply_spots(img: &mut Rgb32f, spots: &[lightcraft_develop::Spot], frame: &Frame) {
-    let placements: Vec<Placement<'_>> = spots
-        .iter()
-        .filter(|s| s.is_ai())
-        .filter_map(|s| s.patch.as_ref().map(|p| Placement { key: &p.key, rect: p.rect, opacity: (s.opacity / 100.0).clamp(0.0, 1.0) as f32 }))
-        .collect();
-    if !placements.is_empty() {
-        apply(img, &placements, frame);
+    for spot in spots.iter().filter(|s| s.is_ai() && s.opacity > 0.) {
+        let Some(placement) = spot.patch.as_ref() else { continue };
+        let Some(patch) = lookup_oriented(&placement.key, placement.orientation) else { continue };
+        composite(img, &patch, placement.rect, (spot.opacity / 100.).clamp(0., 1.) as f32, frame);
     }
 }
 
@@ -396,6 +417,7 @@ mod tests {
             mode: SpotMode::Ai,
             points: vec![Point::new(0.5, 0.5)],
             patch: Some(AiPatch {
+                orientation: Default::default(),
                 key: key.into(),
                 source: String::new(),
                 rect: [0.25, 0.25, 0.75, 0.75],
@@ -446,5 +468,20 @@ mod tests {
         assert_eq!((img.width, img.height), (60, 40));
         assert_eq!(frame.out_to_norm(60, 40).apply(Point::new(0.0, 0.0)), Point::new(0.0, 0.0));
         assert_eq!(img.get(10, 10), src.get(10, 10));
+    }
+}
+
+#[cfg(test)]
+mod bugfix_develop_tests {
+    use super::*;
+    #[test]
+    fn bugfix_develop_rotated_patch_pixels_follow_quarter_turn() {
+        let original = Arc::new(PatchPixels { width: 3, height: 2, data: (0..6).map(|v| [v as f32, 0., 0., 1.]).collect() });
+        insert("rotation-regression", original.clone());
+        let turned = lookup_oriented("rotation-regression", lightcraft_geom::Orientation::Rotate90).unwrap();
+        assert_eq!((turned.width, turned.height), (2, 3));
+        assert_eq!(turned.data.iter().map(|p| p[0]).collect::<Vec<_>>(), vec![3., 0., 4., 1., 5., 2.]);
+        assert_eq!(lookup_oriented("rotation-regression", lightcraft_geom::Orientation::Normal).unwrap(), original);
+        forget("rotation-regression");
     }
 }

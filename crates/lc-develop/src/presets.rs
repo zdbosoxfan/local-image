@@ -146,6 +146,18 @@ pub fn strip_photo_bound(out: &mut Map<String, Value>) {
     if let Some(Value::Object(e)) = out.get_mut("enhance") {
         e.remove("ai");
     }
+    if let Some(Value::Array(masks)) = out.get_mut("masks") {
+        for mask in masks {
+            if let Some(components) = mask.get_mut("components").and_then(Value::as_array_mut) {
+                for component in components {
+                    if let Some(shape) = component.get_mut("shape").and_then(Value::as_object_mut) {
+                        shape.remove("seg");
+                        shape.remove("detail");
+                    }
+                }
+            }
+        }
+    }
     if let Some(Value::Array(spots)) = out.get_mut("spots") {
         spots.retain(|s| s.get("mode").and_then(Value::as_str) != Some("ai"));
     }
@@ -259,10 +271,14 @@ impl Preset {
     /// Apply at `amount` (1.0 = 100 %). Masks in the preset are added to the photo's own (ones it
     /// already has are skipped), their effect scaled by the amount.
     pub fn apply(&self, s: &DevelopSettings, amount: f64) -> DevelopSettings {
-        let Some(masks) = self.settings.get("masks").and_then(Value::as_array).filter(|m| !m.is_empty()) else {
-            return apply_partial(s, &self.settings, amount);
+        let mut settings = self.settings.clone();
+        if let Some(o) = settings.as_object_mut() {
+            strip_photo_bound(o);
+        }
+        let Some(masks) = settings.get("masks").and_then(Value::as_array).filter(|m| !m.is_empty()) else {
+            return apply_partial(s, &settings, amount);
         };
-        let mut rest = self.settings.clone();
+        let mut rest = settings.clone();
         if let Some(o) = rest.as_object_mut() {
             o.remove("masks");
         }
@@ -286,6 +302,20 @@ impl Preset {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn bugfix_develop_copy_discards_photo_bound_mask_pixels() {
+        let mut patch = json!({"masks":[{"components":[
+            {"shape":{"kind":"subject","seg":{"side":1,"data":"source"}}},
+            {"shape":{"kind":"object","hint":[[0.2,0.3]],"seg":{"side":1,"data":"source"},"detail":[{"side":1,"data":"source"}]}},
+            {"shape":{"kind":"prompt","text":"car","seg":{"side":1,"data":"source"},"detail":[{"side":1,"data":"source"}]}}
+        ]}]});
+        strip_photo_bound(patch.as_object_mut().unwrap());
+        for component in patch["masks"][0]["components"].as_array().unwrap() {
+            assert!(component["shape"].get("seg").is_none());
+            assert!(component["shape"].get("detail").is_none());
+        }
+        assert_eq!(patch["masks"][0]["components"][1]["shape"]["hint"], json!([[0.2, 0.3]]));
+    }
 
     #[test]
     fn extract_and_apply_roundtrip() {

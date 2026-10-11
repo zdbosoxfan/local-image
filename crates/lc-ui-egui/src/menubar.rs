@@ -99,7 +99,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "dialog.copySettings",
             "develop.paste",
             "dialog.pasteSettings",
-            "develop.sync",
+            "dialog.syncSettings",
             "develop.autoSync",
             "---",
             "library.selectAll",
@@ -118,6 +118,8 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "view.squareGrid",
             "@Grid Info",
             "view.detail",
+            "view.develop",
+            "view.lightsOut",
             "view.compare",
             "view.survey",
             "view.people",
@@ -182,6 +184,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "@Stack",
             "@Photo Merge",
             "---",
+            "dialog.syncSettings",
             "develop.auto",
             "develop.treatment",
             "develop.reset",
@@ -757,10 +760,8 @@ pub fn show_in_window(app: &mut LightcraftApp, ui: &mut egui::Ui, max_width: f32
     if let Some((id, params)) = clicked {
         let r = run_item(app, &id, params);
         // an export that can't start (e.g. no folder) says why instead of doing nothing
-        if let Err(e) = r
-            && matches!(id.as_str(), "app.export" | "app.exportPrevious")
-        {
-            app.toast(ui.ctx(), e);
+        if let Err(e) = r {
+            app.toast_error(ui.ctx(), e);
         }
     }
     ui.cursor().left() - start
@@ -850,7 +851,7 @@ mod tests {
     }
 
     /// File opens with the import entry points, worded as importing (not as adding a sidebar
-    /// folder): Import Photos… (⇧⌘I), Import from Folder…, Import from Device ▸.
+    /// folder): Import Photos…, Import from Folder… (⇧⌘I), Import from Device ▸.
     #[test]
     fn file_menu_starts_with_the_import_entry_points() {
         let bar = menu_bar(&app());
@@ -864,8 +865,8 @@ mod tests {
                 MenuNode::Separator => "---".into(),
             })
             .collect();
-        assert_eq!(labels[0], "Import Photos… [Cmd+Shift+I]");
-        assert_eq!(labels[1..], ["Import from Folder…".to_string(), "Import from Device ▸".to_string()]);
+        assert_eq!(labels[0], "Import Photos…");
+        assert_eq!(labels[1..], ["Import from Folder… [Cmd+Shift+I]".to_string(), "Import from Device ▸".to_string()]);
         let all: Vec<MenuNode> = bar.iter().flat_map(|(_, v)| v.clone()).collect();
         let text = serde_json::to_string(&all).unwrap();
         assert!(!text.contains("Add Folder") && !text.contains("\"Add Photos"), "no add-folder wording left in the menus");

@@ -443,6 +443,9 @@ impl ComfyClient {
         }
         let started = Instant::now();
         let mut cancel_sent = false;
+        let mut unhealthy_since: Option<Instant> = None;
+        let mut last_queue_check = started - Duration::from_secs(1);
+        let mut last_poll_error = String::new();
         loop {
             let elapsed = started.elapsed();
             if elapsed > DEADLINE {
@@ -455,6 +458,7 @@ impl ComfyClient {
             }
             match self.history(&prompt_id) {
                 Ok(Some(entry)) => {
+                    unhealthy_since = None;
                     if let Some(err) = history_error(&entry) {
                         if cancel_sent {
                             ctl.set_stage(Stage::Cancelled);
@@ -473,19 +477,41 @@ impl ComfyClient {
                     }
                 }
                 Ok(None) => {
-                    if cancel_sent {
-                        // Gone from the queue without a history entry: it was deleted.
-                        let q = self.queue_state().unwrap_or(Value::Null);
-                        let listed = ["queue_running", "queue_pending"]
-                            .iter()
-                            .any(|k| q.get(*k).and_then(Value::as_array).is_some_and(|a| a.iter().any(|i| item_has(i, &prompt_id))));
-                        if !listed && self.history(&prompt_id).ok().flatten().is_none() {
-                            ctl.set_stage(Stage::Cancelled);
-                            return Err(anyhow!(Cancelled));
+                    if last_queue_check.elapsed() >= Duration::from_secs(1) || cancel_sent {
+                        last_queue_check = Instant::now();
+                        match self.queue_state() {
+                            Ok(q) => {
+                                let listed = ["queue_running", "queue_pending"]
+                                    .iter()
+                                    .any(|k| q.get(*k).and_then(Value::as_array).is_some_and(|a| a.iter().any(|i| item_has(i, &prompt_id))));
+                                if listed {
+                                    unhealthy_since = None;
+                                } else if self.history(&prompt_id).ok().flatten().is_none() {
+                                    if cancel_sent {
+                                        ctl.set_stage(Stage::Cancelled);
+                                        return Err(anyhow!(Cancelled));
+                                    }
+                                    last_poll_error = "The job is no longer in ComfyUI's queue or history. The server may have restarted; try again.".into();
+                                    unhealthy_since.get_or_insert_with(Instant::now);
+                                } else {
+                                    unhealthy_since = None;
+                                }
+                            }
+                            Err(e) => {
+                                last_poll_error = format!("Cannot read the ComfyUI queue: {e:#}");
+                                unhealthy_since.get_or_insert_with(Instant::now);
+                            }
                         }
                     }
                 }
-                Err(e) => log::debug!("history poll: {e:#}"),
+                Err(e) => {
+                    last_poll_error = format!("Cannot read ComfyUI job history: {e:#}");
+                    unhealthy_since.get_or_insert_with(Instant::now);
+                }
+            }
+            if unhealthy_since.is_some_and(|t| t.elapsed() >= Duration::from_secs(30)) {
+                ctl.set_stage(Stage::Failed);
+                bail!("{last_poll_error}");
             }
             let wait = if elapsed < Duration::from_secs(10) {
                 150
@@ -737,6 +763,46 @@ pub fn stage_for_class(class: &str) -> Stage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bugfix_develop_lost_comfy_prompt_fails_before_deadline() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let host = server.server_addr().to_string();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopping = stop.clone();
+        let worker = std::thread::spawn(move || {
+            while !stopping.load(Ordering::SeqCst) {
+                if let Some(req) = server.recv_timeout(Duration::from_millis(100)).unwrap() {
+                    let value = match req.url() {
+                        "/prompt" => json!({"prompt_id":"lost"}),
+                        "/queue" => json!({"queue_running":[],"queue_pending":[]}),
+                        _ => json!({}),
+                    };
+                    let _ = req.respond(tiny_http::Response::from_string(value.to_string()));
+                }
+            }
+        });
+        let ctl = JobControl::new();
+        let abort = ctl.clone();
+        let timer = std::thread::spawn(move || {
+            for _ in 0..350 {
+                if abort.is_cancelled() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            abort.cancel();
+        });
+        let started = Instant::now();
+        let result = ComfyClient::new(host).run(json!({}), &[], &ctl);
+        ctl.cancel();
+        timer.join().unwrap();
+        stop.store(true, Ordering::SeqCst);
+        worker.join().unwrap();
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("no longer in ComfyUI"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(34));
+    }
 
     #[test]
     fn choices_parse_both_shapes() {

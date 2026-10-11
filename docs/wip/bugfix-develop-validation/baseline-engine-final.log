@@ -1,0 +1,55 @@
+    Blocking waiting for file lock on build directory
+   Compiling lightcraft-develop v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-develop)
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling lightcraft-pipeline v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-pipeline)
+   Compiling lightcraft-catalog v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-catalog)
+   Compiling lightcraft-gpu v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-gpu)
+   Compiling lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-engine)
+    Finished `test` profile [optimized + debuginfo] target(s) in 6m 40s
+     Running unittests src/lib.rs (target/debug/deps/lightcraft_engine-5654fd0877422f6b)
+
+running 7 tests
+
+thread 'media::bugfix_develop_tests::bugfix_develop_panicking_preview_returns_failure_and_pool_survives' (2431576) panicked at crates/lc-engine/src/media.rs:1380:139:
+damaged decoder
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'smart_sort::people::bugfix_develop_tests::bugfix_develop_damaged_people_data_cannot_be_overwritten' (2431577) panicked at crates/lc-engine/src/smart_sort/people.rs:875:9:
+assertion failed: engine.ensure().is_err()
+test media::bugfix_develop_tests::bugfix_develop_panicking_preview_returns_failure_and_pool_survives ... FAILED
+test smart_sort::people::bugfix_develop_tests::bugfix_develop_damaged_people_data_cannot_be_overwritten ... FAILED
+
+thread 'tests_import::bugfix_develop_relink_moves_virtual_copies_together' (2431582) panicked at crates/lc-engine/src/tests_import.rs:898:59:
+called `Option::unwrap()` on a `None` value
+
+thread 'tests::bugfix_develop_redo_ends_slider_interaction' (2431578) panicked at crates/lc-engine/src/tests.rs:109:5:
+assertion failed: s.interaction.is_none()
+test tests_import::bugfix_develop_relink_moves_virtual_copies_together ... FAILED
+test tests::bugfix_develop_redo_ends_slider_interaction ... FAILED
+
+thread 'tests_enhance::bugfix_develop_remove_rejects_replaced_source' (2431581) panicked at crates/lc-engine/src/tests_enhance.rs:74:5:
+a result from the previous source must be discarded
+test tests_enhance::bugfix_develop_remove_rejects_replaced_source ... FAILED
+
+thread 'tests::bugfix_develop_rotation_keeps_crop_and_spots_on_content' (2431579) panicked at crates/lc-engine/src/tests.rs:123:5:
+assertion failed: (after.crop.geometry.rect.x0 - 0.2).abs() < 1e-9
+test tests::bugfix_develop_rotation_keeps_crop_and_spots_on_content ... FAILED
+
+thread 'tests_enhance::bugfix_develop_regenerate_follows_patch_after_earlier_spot_deleted' (2431580) panicked at crates/lc-engine/src/tests_enhance.rs:59:5:
+Polled { changed: false, done: [], errors: ["Regenerate: the AI removal was deleted"], job_errors: [(2, "Regenerate: the AI removal was deleted")] }
+test tests_enhance::bugfix_develop_regenerate_follows_patch_after_earlier_spot_deleted ... FAILED
+
+failures:
+
+failures:
+    media::bugfix_develop_tests::bugfix_develop_panicking_preview_returns_failure_and_pool_survives
+    smart_sort::people::bugfix_develop_tests::bugfix_develop_damaged_people_data_cannot_be_overwritten
+    tests::bugfix_develop_redo_ends_slider_interaction
+    tests::bugfix_develop_rotation_keeps_crop_and_spots_on_content
+    tests_enhance::bugfix_develop_regenerate_follows_patch_after_earlier_spot_deleted
+    tests_enhance::bugfix_develop_remove_rejects_replaced_source
+    tests_import::bugfix_develop_relink_moves_virtual_copies_together
+
+test result: FAILED. 0 passed; 7 failed; 0 ignored; 0 measured; 462 filtered out; finished in 5.92s
+
+error: test failed, to rerun pass `-p lightcraft-engine --lib`

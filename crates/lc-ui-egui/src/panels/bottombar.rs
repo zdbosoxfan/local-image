@@ -113,9 +113,13 @@ fn centre(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect, from: f32, to:
         if active.is_some() { t.text_label } else { t.text_disabled },
     );
     if cresp.clicked() && active.is_some() {
-        let _ = if has_clip { app.run("develop.paste", json!({})) } else { app.run("develop.copy", json!({})) };
-        let msg = if has_clip { "Settings pasted" } else { "Edit settings copied" };
-        app.toast(ui.ctx(), msg);
+        match if has_clip { app.run("develop.paste", json!({})) } else { app.run("develop.copy", json!({})) } {
+            Ok(r) if !has_clip || r["changed"].as_u64().unwrap_or(0) > 0 => {
+                app.toast(ui.ctx(), if has_clip { "Settings pasted" } else { "Edit settings copied" })
+            }
+            Err(e) => app.toast_error(ui.ctx(), e),
+            _ => {}
+        }
     }
     let gear_r = Rect::from_min_size(pos2(copy_r.right() + 4.0, pill.top()), vec2(30.0, 30.0));
     let gresp = ui.interact(gear_r, egui::Id::new("copy-gear"), Sense::click());

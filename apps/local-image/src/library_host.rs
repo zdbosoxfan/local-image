@@ -121,7 +121,14 @@ impl Host {
 
     fn library(&mut self) -> &mut LightcraftApp {
         let opens = self.opens.clone();
-        self.library.get_or_insert_with(|| open_library_app(opens, &mut self.prefs))
+        let mode = self.mode;
+        self.library.get_or_insert_with(|| {
+            let mut lib = open_library_app(opens, &mut self.prefs);
+            if mode == Module::Develop {
+                set_library_view(&mut lib, true);
+            }
+            lib
+        })
     }
 
     /// The Library's active photo: its id, file and develop settings (JSON).
@@ -913,12 +920,16 @@ fn config_dir() -> Option<PathBuf> {
     crate::app_dirs::config_dir()
 }
 
-/// Which module was shown last (`<config>/mode`), so the app reopens where the user was. Develop
-/// reopens as Library (there may be no photo to develop yet).
+/// Reopen the last module; a new profile starts in Library.
 fn last_module() -> Module {
-    match config_dir().and_then(|d| std::fs::read_to_string(d.join("mode")).ok()).as_deref().map(str::trim) {
-        Some("library" | "develop") => Module::Library,
-        _ => Module::Compositing,
+    module_preference(config_dir().and_then(|d| std::fs::read_to_string(d.join("mode")).ok()).as_deref())
+}
+
+fn module_preference(value: Option<&str>) -> Module {
+    match value.map(str::trim) {
+        Some("develop") => Module::Develop,
+        Some("editor") => Module::Compositing,
+        _ => Module::Library,
     }
 }
 
@@ -1109,7 +1120,10 @@ fn services(opens: Opens) -> Services {
                 .map(|dl| lightcraft_ui_egui::ModelDownloadStatus { running: !dl.finished, done: dl.done, total: dl.total, error: dl.error.clone() })
                 .unwrap_or_default()
         })),
-        pick_folder: Some(Box::new(|| rfd::FileDialog::new().set_title("Choose a Library Folder").pick_folder().map(|p| p.to_string_lossy().to_string()))),
+        pick_folder: Some(Box::new(|| rfd::FileDialog::new().set_title("Choose Folder").pick_folder().map(|p| p.to_string_lossy().to_string()))),
+        pick_folder_titled: Some(Box::new(|title| {
+            rfd::FileDialog::new().set_title(lightcraft_ui_egui::i18n::tr(title)).pick_folder().map(|p| p.to_string_lossy().to_string())
+        })),
         open_with: Some(Box::new(move |path: &str, app: &str| {
             let app = app.trim();
             // No other editor chosen: Local Image's own editor, in this window.
@@ -1209,6 +1223,13 @@ fn services(opens: Opens) -> Services {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bugfix_develop_startup_defaults_to_library_and_restores_develop() {
+        assert_eq!(super::module_preference(None), super::Module::Library);
+        assert_eq!(super::module_preference(Some("develop")), super::Module::Develop);
+        assert_eq!(super::module_preference(Some("editor")), super::Module::Compositing);
+        assert_eq!(super::module_preference(Some("unknown")), super::Module::Library);
+    }
     use super::*;
 
     #[test]
@@ -1603,7 +1624,7 @@ mod tests {
         let thumb = h.host.library.as_ref().unwrap().widgets.iter().find(|(w, _)| w == &format!("thumb:{}", photo.0)).unwrap().1;
         let pixel = h.pixel_at(thumb.center());
         assert!(pixel.r() > 230 && pixel.g() < 80 && pixel.b() < 80, "new grid: {pixel:?}");
-        h.key(egui::Key::D, egui::Modifiers::NONE);
+        h.key(egui::Key::E, egui::Modifiers::NONE);
         assert_eq!(h.host.library.as_ref().unwrap().ui.view, ViewMode::Detail);
         h.wait_for(|h| h.library.as_ref().unwrap().renderer.textures.get(&lightcraft_ui_egui::render::Slot::Main).is_some_and(|t| t.photo == photo));
         let image = h.host.library.as_ref().unwrap().image_rect.unwrap();
@@ -1916,7 +1937,7 @@ mod tests {
         // A remembered Before view must not hide the composite in Library.
         h.host.library.as_mut().unwrap().ui.before_after = BeforeAfter::Original;
         h.click(&format!("thumb:{}", orig.0));
-        h.key(egui::Key::D, egui::Modifiers::NONE);
+        h.key(egui::Key::E, egui::Modifiers::NONE);
         assert_eq!(h.host.library.as_ref().unwrap().ui.view, ViewMode::Detail);
         let image = h.host.library.as_ref().unwrap().image_rect.unwrap();
         let edited = h.pixel_at(image.center());
@@ -1942,7 +1963,7 @@ mod tests {
         let pixel = h.pixel_at(thumb.center());
         assert!(pixel.r() > 230 && pixel.g() < 120 && pixel.b() < 140, "saved grid: {pixel:?}");
         assert_ne!(pixel, original);
-        h.key(egui::Key::D, egui::Modifiers::NONE);
+        h.key(egui::Key::E, egui::Modifiers::NONE);
         h.wait_for(|h| h.library.as_ref().unwrap().renderer.textures.get(&lightcraft_ui_egui::render::Slot::Main).is_some_and(|t| t.photo == edit));
         let image = h.host.library.as_ref().unwrap().image_rect.unwrap();
         let pixel = h.pixel_at(image.center());

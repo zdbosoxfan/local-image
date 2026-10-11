@@ -655,6 +655,12 @@ fn malformed_people_json_recovers_and_failed_change_is_atomic() {
     let mut s = session();
     s.smart.people = PeopleEngine::new(Some(&dir));
     s.smart.people.tagger = Some(Arc::new(MockFaces));
+    assert!(s.smart.people.ensure().is_err());
+    assert_eq!(std::fs::read(dir.join("AI/people.json")).unwrap(), b"corrupt");
+    assert!(std::fs::read_dir(dir.join("AI")).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with("people.json.corrupt-")));
+    // Recovery is explicit; malformed data may never be silently overwritten.
+    s.smart.people.clear().unwrap();
+    s.smart.people.tagger = Some(Arc::new(MockFaces));
     let a = add(&mut s, &[[255, 0, 0]]);
     assert!(s.smart.people.data.people.is_empty());
     let id = pick(&mut s, a, "Jane");

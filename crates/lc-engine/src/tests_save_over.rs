@@ -54,6 +54,7 @@ fn saving_over_a_jpeg_bakes_the_edits_and_keeps_a_backup() {
     settings.spots.push(lightcraft_develop::Spot {
         mode: lightcraft_develop::SpotMode::Ai,
         patch: Some(lightcraft_develop::AiPatch {
+            orientation: Default::default(),
             key: "missing-test-patch".into(),
             source: "old-pixels".into(),
             rect: [0.0, 0.0, 0.1, 0.1],

@@ -9,7 +9,16 @@ use std::collections::HashMap;
 #[derive(Default)]
 pub(super) struct State {
     documents: HashMap<DocId, Policy>,
-    overlays: HashMap<(egui::Id, usize), Overlay>,
+    overlays: HashMap<(egui::Id, DocId), Overlay>,
+}
+impl State {
+    pub(crate) fn retain(&mut self, open: &[DocId]) {
+        self.documents.retain(|id, _| open.contains(id));
+        self.overlays.retain(|(_, id), _| open.contains(id));
+    }
+}
+pub(crate) fn retain(app: &mut PhotocraftApp, open: &[DocId]) {
+    app.vector_runtime.views.retain(open);
 }
 struct Policy {
     original: Arc<Document>,
@@ -110,7 +119,7 @@ pub fn overlay(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, xf: &Vi
     let (state, scope) = policy(app, idx);
     let st = &app.session.documents()[idx];
     if matches!(state.mode, view_modes::Mode::Vector | view_modes::Mode::PixelPreview) && state.layer_outlines.is_empty() && scope.target.is_none() {
-        if let Some(entry) = app.vector_runtime.views.overlays.get_mut(&(ctx.viewport_id().0, idx)) {
+        if let Some(entry) = app.vector_runtime.views.overlays.get_mut(&(ctx.viewport_id().0, st.doc.id)) {
             entry.texture = None;
             entry.frame = None;
         }
@@ -128,7 +137,7 @@ pub fn overlay(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, xf: &Vi
         (f64::from(rect.right()) * ppp).round() as i32,
         (f64::from(rect.bottom()) * ppp).round() as i32,
     );
-    let entry = app.vector_runtime.views.overlays.entry((ctx.viewport_id().0, idx)).or_default();
+    let entry = app.vector_runtime.views.overlays.entry((ctx.viewport_id().0, st.doc.id)).or_default();
     let frame = entry.cache.prepare(
         &policy.original,
         st.revision,
@@ -162,4 +171,27 @@ pub fn overlay(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, xf: &Vi
         painter.image(texture.id(), rect, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1., 1.)), egui::Color32::WHITE);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn bugfix_develop_closed_document_releases_view_policy() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", serde_json::json!({"width":32,"height":24})).unwrap();
+        let doc = app.session.active().unwrap().doc.clone();
+        let weak = Arc::downgrade(&doc);
+        app.canvases.insert(
+            (doc.id, 0),
+            crate::canvas::CanvasCache { revision: 0, texture: None, scale: 1., preview_key: 0, on_gpu: false, tex_revision: 0, tex_preview_key: 0 },
+        );
+        display(&mut app, 0, doc.clone(), doc.clone(), 0).unwrap();
+        drop(doc);
+        app.run("file.close", serde_json::json!({})).unwrap();
+        crate::canvas::retain_gpu_documents(&mut app);
+        assert!(app.vector_runtime.views.documents.is_empty());
+        assert!(app.canvases.is_empty());
+        assert!(weak.upgrade().is_none());
+    }
 }

@@ -1,0 +1,46 @@
+    Blocking waiting for file lock on build directory
+   Compiling lightcraft-catalog v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-catalog)
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling lightcraft-gpu v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-gpu)
+   Compiling lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-engine)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 06s
+     Running unittests src/lib.rs (target/debug/deps/lightcraft_engine-5654fd0877422f6b)
+
+running 34 tests
+test smart_sort::people::tests::ds_finding_identity_exhaustion_is_an_error_without_mutation ... ok
+test smart_sort::people::tests::ds_finding_people_shared_pass_preserves_margins_and_rejections ... ok
+test smart_sort::people::tests::clear_deletes_all_versions_preserves_tags_and_only_removes_auto_regions ... ok
+test smart_sort::people::tests::advanced_person_rules_resolve_nested_ids_and_report_unknowns ... ok
+test smart_sort::people::tests::finding_a_face_locates_existing_bubble_and_reject_never_returns ... ok
+test smart_sort::people::tests::clear_without_remove_names_keeps_names_and_legacy_people_centroids_load ... ok
+test smart_sort::people::tests::malformed_people_json_recovers_and_failed_change_is_atomic ... ok
+test smart_sort::people::tests::ds_finding_manual_region_keeps_identity_without_detection ... ok
+test smart_sort::people::tests::merge_keeps_saved_folder_ids_working_and_undo_restores_them ... ok
+test smart_sort::people::tests::merged_identity_keeps_library_filters_and_smart_albums_working_and_undoable ... ok
+test smart_sort::people::tests::merge_split_suggestions_and_undo_restore_identity_and_regions ... ok
+test smart_sort::people::tests::mixed_tag_people_layout_resolves_ids_overlap_and_unsorted ... ok
+test smart_sort::people::tests::inactive_people_conditions_allow_tag_planning_after_opt_out ... ok
+test smart_sort::people::tests::real_weight_people_end_to_end ... ignored, coordinator: set LI_SEG_TEST_MODELS to verified YuNet/SFace directory
+test smart_sort::people::tests::naming_is_one_undo_step_and_catalog_people_and_rules_work ... ok
+test smart_sort::people::tests::thumbnail_and_rotated_detections_map_to_full_upright_mwg_frame ... ok
+test smart_sort::people::bugfix_develop_tests::bugfix_develop_damaged_people_data_cannot_be_overwritten ... ok
+test smart_sort::people::tests::uncertain_queue_least_sure_first_confirm_reranks_and_gates_folders ... ok
+test smart_sort::people::tests::people_folders_any_everyone_tag_and_or_toggle_and_unknown_notice ... ok
+test smart_sort::people::tests::find_by_existing_name_refines_identity_from_an_automatic_match ... ok
+test smart_sort::people::tests::offline_cropped_thumbnail_analysis_stores_uncropped_face_rects ... ok
+test smart_sort::people::tests::face_gates_unknown_counts_manual_override_and_zero_faces ... ok
+test smart_sort::people::tests::single_photo_people_are_hidden_by_default_and_can_be_shown_and_picked ... ok
+test smart_sort::people::tests::face_cache_atomic_append_failed_retry_corruption_and_no_faces_records ... ok
+test smart_sort::people::tests::combined_analysis_requires_opt_in_and_caches_both_models ... ok
+test smart_sort::people::tests::unnamed_bubbles_can_go_in_folders_and_preset_layout_roundtrips ... ok
+test smart_sort::people::tests::xmp_regions_seed_names_but_preserve_imported_and_manual_regions ... ok
+test smart_sort::people::tests::analysis_handles_videos_unreadable_unknown_and_retries_pending_save ... ok
+test smart_sort::people::tests::opt_in_default_and_command_registry_privacy ... ok
+test smart_sort::people::tests::mock_headshots_seed_exactly_one_face_name_list_and_gallery_matches ... ok
+test smart_sort::people::tests::deterministic_clusters_counts_covers_hidden_pin_and_ignore ... ok
+test smart_sort::people::tests::real_analysis_jobs_cancel_resume_deduplicate_and_save_after_all_cached ... ok
+test smart_sort::people::tests::people_json_rejections_flags_names_and_opt_in_persist_per_library ... ok
+test smart_sort::people::tests::ds_finding_deleted_face_cache_is_rebuilt_completely ... ok
+
+test result: ok. 33 passed; 0 failed; 1 ignored; 0 measured; 438 filtered out; finished in 0.02s
+
