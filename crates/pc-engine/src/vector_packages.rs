@@ -63,6 +63,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
     out.extend(path_commands::specs());
     out.extend(path_commands::clipboard::specs());
     out.extend(expand::specs());
+    out.extend(transform_tools::specs());
     out
 }
 
@@ -72,8 +73,4 @@ pub mod path_commands;
 // Package 37: commands join the aggregate through the 00 handoff.
 pub mod isolation;
 pub mod styles;
-    out.extend(transform_tools::specs());
-    out
-}
-
 pub mod transform_tools;
