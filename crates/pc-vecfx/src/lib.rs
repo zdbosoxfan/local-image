@@ -5,3 +5,5 @@ pub mod brush;
 pub mod envelope;
 pub mod repeat;
 pub mod width;
+
+pub mod blend;

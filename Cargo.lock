@@ -5903,6 +5903,7 @@ name = "photocraft-vecfx"
 version = "2.0.0-alpha.1"
 dependencies = [
  "kurbo 0.13.1",
+ "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",
  "photocraft-pathops",

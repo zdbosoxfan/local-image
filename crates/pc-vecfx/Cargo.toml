@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 photocraft-doc.workspace = true
+photocraft-color.workspace = true
 photocraft-geom.workspace = true
 photocraft-pathops.workspace = true
 photocraft-vector.workspace = true
@@ -24,3 +25,7 @@ thiserror.workspace = true
 [[test]]
 name = "brush17"
 path = "tests/brush/package17.rs"
+
+[[test]]
+name = "blend18"
+path = "tests/blend/suite.rs"
