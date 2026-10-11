@@ -1,0 +1,2 @@
+{"seq":1,"crc":2534444768,"op":{"op":"addPhoto","photo":{"id":1,"source":{"type":"file","path":"/p/1.jpg"},"file_name":"p.jpg","format":"JPEG","width":4,"height":3,"imported":"2026-01-01","develop":{}}}}
+{"seq":2,"crc":3767061418,"op":{"op":"setRating","id":1,"rating":4}}

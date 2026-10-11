@@ -1,0 +1,87 @@
+[
+  {
+    "path": "crates/lc-catalog/tests/contracts_catalog.rs",
+    "bytes": 8350,
+    "sha256": "72b6af24f1c971c76da8eb053efc8d0e4a07e7d8af8f42f9d51a22ae61f75138"
+  },
+  {
+    "path": "crates/lc-catalog/tests/fixtures/contracts/SOURCES.md",
+    "bytes": 1022,
+    "sha256": "cdfe421ae076cf36cb09000b59b87ed2a2c1de424c64862beb63c35d4911afd1"
+  },
+  {
+    "path": "crates/lc-catalog/tests/fixtures/contracts/catalog-v0.log",
+    "bytes": 273,
+    "sha256": "cc5eef99cca4ea9bdba387845fb0121e4117fc6fd5f36b14d03d643aa2200c69"
+  },
+  {
+    "path": "crates/lc-catalog/tests/fixtures/contracts/catalog-v1.log",
+    "bytes": 69,
+    "sha256": "67548cc062851ac9a28891716b3cb7af8f83a9c3631711118123ea606223e31b"
+  },
+  {
+    "path": "crates/lc-catalog/tests/fixtures/contracts/catalog-v1.snap",
+    "bytes": 743,
+    "sha256": "35631d52910d17b5d12f2be13881ee93f91fcb6fc8cd137527d315b07cb58157"
+  },
+  {
+    "path": "crates/lc-catalog/tests/fixtures/contracts/catalog-v2.snap",
+    "bytes": 1147,
+    "sha256": "382f42374e4ef3db07e27b6a07eec24d415c88f11c7477f1480f705159ff5704"
+  },
+  {
+    "path": "crates/pc-doc/tests/contracts_serde.rs",
+    "bytes": 12998,
+    "sha256": "ab3c4d6b87b865de839689ea8db7b688e1f04a357d910f9ffbe30f7193ffb2c8"
+  },
+  {
+    "path": "crates/pc-engine/tests/contracts_registrations.rs",
+    "bytes": 2898,
+    "sha256": "451c87d9f73c6de2fbbdbd1c7999eee7c9693946a39926ddeff509eab0ba8491"
+  },
+  {
+    "path": "crates/pc-engine/tests/contracts_storage.rs",
+    "bytes": 4981,
+    "sha256": "d8e0f9f2303259ab0776fe91a27976ce41dd853df50a94828389630a8ecf3c81"
+  },
+  {
+    "path": "crates/pc-format/tests/contracts_native.rs",
+    "bytes": 12095,
+    "sha256": "9039ec6c1f1a6adcbec9404c7cbc29637e206353c4c9b43d656c98cdb780d577"
+  },
+  {
+    "path": "crates/pc-format/tests/contracts_support/freeze_references.py",
+    "bytes": 4825,
+    "sha256": "e28e79592471b3a20b730e4010cfdcaa523281885c7df1150a606cf84e209088"
+  },
+  {
+    "path": "crates/pc-format/tests/contracts_support/mod.rs",
+    "bytes": 4421,
+    "sha256": "3eedfdc79d2275283296669edec3d5a73476a8095f31ad62d4bb0ffb3ba1b8b3"
+  },
+  {
+    "path": "crates/pc-format/tests/fixtures/contracts/SOURCES.md",
+    "bytes": 1026,
+    "sha256": "8cbae8de90f7e0bbab7acd70a51b113f3abeeca3254d3bd1113af38f2eafc076"
+  },
+  {
+    "path": "crates/pc-format/tests/fixtures/contracts/document-v2.json",
+    "bytes": 41453,
+    "sha256": "d2b5e11b01dc4600466187a4c69772aa6dcadf12f8d5022cd9c474e2e693b1a7"
+  },
+  {
+    "path": "crates/pc-format/tests/fixtures/contracts/document-v2.pcraft",
+    "bytes": 41577,
+    "sha256": "3875d47d04625bb2a17b3fe5090b494acbc0e3a3c56ff24580d2f81c96300922"
+  },
+  {
+    "path": "crates/pc-io/tests/contracts_psd.rs",
+    "bytes": 9968,
+    "sha256": "6935117340d689242817d83df65b1a28646d9b2eb9acfb66c429188b7c91cdc1"
+  },
+  {
+    "path": "crates/pc-ui-egui/tests/contracts_tools.rs",
+    "bytes": 624,
+    "sha256": "de844c53930398d227ee31c7f350f26e1858fe993a99ff452705af27e631e7c3"
+  }
+]
