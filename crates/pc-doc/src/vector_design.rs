@@ -8,6 +8,7 @@ pub mod drawing;
 pub mod exchange;
 pub mod live;
 pub mod structure;
+pub mod swatches;
 pub mod text;
 
 use crate::Path;
