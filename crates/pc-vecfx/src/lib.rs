@@ -8,3 +8,5 @@ pub mod width;
 
 pub mod blend;
 pub mod sweep;
+
+pub mod path_effects;

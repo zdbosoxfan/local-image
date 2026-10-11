@@ -1820,3 +1820,6 @@ pub mod vector_eyedropper;
 // Package 34 registration; persona/menu/canvas routing stays in the integration handoff.
 #[path = "vector_packages/transform_tools.rs"]
 pub mod vector_transform_tools;
+
+#[path = "vector_packages/path_effects.rs"]
+pub mod path_effects;

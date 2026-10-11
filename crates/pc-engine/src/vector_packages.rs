@@ -78,3 +78,5 @@ pub mod path_commands;
 pub mod isolation;
 pub mod styles;
 pub mod transform_tools;
+
+pub mod path_effects;

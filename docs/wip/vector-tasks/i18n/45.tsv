@@ -1,0 +1,78 @@
+key	en
+Add Path Effect	Add Path Effect
+Amount	Amount
+Angle	Angle
+Appearance item	Appearance item
+Appearance item only	Appearance item only
+Bevel	Bevel
+Bottom left	Bottom left
+Bottom right	Bottom right
+Cancel	Cancel
+Convert to Shape	Convert to Shape
+Copies	Copies
+Corner	Corner
+Corner X	Corner X
+Corner Y	Corner Y
+Detail per inch	Detail per inch
+Distance	Distance
+Drag effect	Drag effect
+Edit Path Effects	Edit Path Effects
+Effect	Effect
+Effect visible	Effect visible
+Ellipse	Ellipse
+Extra height	Extra height
+Extra width	Extra width
+Free Distort	Free Distort
+Horizontal move	Horizontal move
+Horizontal scale	Horizontal scale
+Miter	Miter
+Miter limit	Miter limit
+Move effect down	Move effect down
+Move effect up	Move effect up
+OK	OK
+Offset Path	Offset Path
+Path Effect Options	Path Effect Options
+Path Effects	Path Effects
+Preview	Preview
+Pucker & Bloat	Pucker & Bloat
+Radius	Radius
+Rectangle	Rectangle
+Reflect X	Reflect X
+Reflect Y	Reflect Y
+Relative size	Relative size
+Remove effect	Remove effect
+Ridges per segment	Ridges per segment
+Roughen	Roughen
+Round	Round
+Round Corners	Round Corners
+Rounded rectangle	Rounded rectangle
+Seed	Seed
+Size	Size
+Smooth	Smooth
+Top left	Top left
+Top right	Top right
+Transform	Transform
+Twist	Twist
+Vertical move	Vertical move
+Vertical scale	Vertical scale
+Zig Zag	Zig Zag
+effect index is absent	effect index is absent
+expanded path-effect caches exceed 512 MiB	expanded path-effect caches exceed 512 MiB
+invalid layer id	invalid layer id
+package 00 must register native path-effect storage	package 00 must register native path-effect storage
+path effect geometry: {0}	path effect geometry: {0}
+path effect numbers must be finite and bounded	path effect numbers must be finite and bounded
+path effect references an absent appearance item	path effect references an absent appearance item
+path effect target is locked	path effect target is locked
+path effects exceed the geometry or work budget	path effects exceed the geometry or work budget
+path effects info requires layers	path effects info requires layers
+path effects require 1 to 64 targets	path effects require 1 to 64 targets
+path effects require at most 64 targets	path effects require at most 64 targets
+path effects require shapes	path effects require shapes
+path-effect access already installed	path-effect access already installed
+path-effect cache exceeds 512 MiB	path-effect cache exceeds 512 MiB
+path-effect gesture is stale; start again	path-effect gesture is stale; start again
+path-effect prepared caches exceed 512 MiB	path-effect prepared caches exceed 512 MiB
+projection cache entry disappeared	projection cache entry disappeared
+select a shape	select a shape
+selected shapes have different effect stacks	selected shapes have different effect stacks
