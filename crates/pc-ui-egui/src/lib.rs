@@ -63,6 +63,8 @@ impl Module {
 }
 
 pub mod actions;
+#[path = "vector_packages/clip_compound.rs"]
+pub mod clip_compound;
 #[path = "vector_packages/library_vectorize.rs"]
 pub mod library_vectorize;
 #[path = "vector_packages/repeat.rs"]
