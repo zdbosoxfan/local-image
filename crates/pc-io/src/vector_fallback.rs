@@ -75,6 +75,9 @@ impl LossCollector {
 
     /// Includes hidden items/objects: their appearance settings also lose editability.
     pub fn layer(&mut self, layer: &Layer) {
+        if matches!(layer.content, LayerContent::Shape(_)) && layer.vector_mask.is_some() {
+            self.loss("independent-shape-vector-mask", "independent shape vector masks");
+        }
         let v = &layer.vector;
         if let Some(a) = &v.appearance {
             self.loss("appearance-stack", "appearance stacks");
@@ -265,6 +268,15 @@ pub fn prepare(doc: &Document, projection: Option<&dyn Projection>) -> Result<Do
                 return Err(IoError::Unsupported("PSD fallback vector mask must be finite and bounded".into()));
             }
         }
+        if out.surface().is_none()
+            && out.vector_mask.is_some()
+            && out.vector.appearance.is_none()
+            && out.vector.live_shape.is_none()
+            && out.vector.corners.is_empty()
+            && let LayerContent::Shape(shape) = &mut out.content
+        {
+            shape.cache = Some(photocraft_vector::render_shape(shape, source.pixel_format(), source.bounds()));
+        }
         if needs_cache(&out) && out.surface().is_none() {
             return Err(IoError::Unsupported(format!("layer \"{}\": advanced PSD fallback requires its rendered cache", out.name)));
         }
@@ -299,7 +311,7 @@ pub fn export(doc: &Document, options: &PsdExportOptions, projection: Option<&dy
 pub(crate) fn needs_cache(layer: &Layer) -> bool {
     matches!(layer.content, LayerContent::Symbol(_))
         || matches!(layer.content, LayerContent::Shape(_))
-            && (layer.vector.appearance.is_some() || layer.vector.live_shape.is_some() || !layer.vector.corners.is_empty())
+            && (layer.vector_mask.is_some() || layer.vector.appearance.is_some() || layer.vector.live_shape.is_some() || !layer.vector.corners.is_empty())
         || matches!(layer.content, LayerContent::Text(_)) && (layer.vector.on_path.is_some() || layer.vector.frame_compose.is_some_and(|frame| frame.enabled))
 }
 

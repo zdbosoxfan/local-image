@@ -80,6 +80,8 @@ pub type Result<T> = std::result::Result<T, EngineError>;
 /// One undo step: the inverse op and a label.
 #[derive(Clone, Debug)]
 pub struct UndoEntry {
+    /// Background transaction identity. Only adjacent steps with the same identity coalesce.
+    pub group: Option<u64>,
     pub label: String,
     pub op: Op,
     /// A folder to rename on disk (`from` → `to`) before `op` is applied: Rename / Move Folder
@@ -160,6 +162,7 @@ pub struct Session {
     /// Current time provider (ISO 8601); injectable for tests and wasm.
     pub clock: Box<dyn Fn() -> String + Send>,
     depth: u32,
+    undo_group: Option<u64>,
     /// Selected mask (Masking panel), by mask id.
     pub active_mask: Option<u32>,
     /// AI masks (SAM 3): the model and the last photo prepared for it.
@@ -261,6 +264,7 @@ impl Session {
             media: media::MediaCache::default(),
             clock: Box::new(|| "2026-09-30T12:00:00".to_string()),
             depth: 0,
+            undo_group: None,
             active_mask: None,
             segmenter: segment::Segmenter::default(),
             quick_seg_dir: None,
@@ -314,6 +318,16 @@ impl Session {
     /// `NotSaved`). Not journaled. The app's import task commits its batches this way.
     pub fn execute_fn(&mut self, id: &str, f: impl FnOnce(&mut Session) -> Result<Value>) -> Result<Value> {
         self.run_command(id, None, f)
+    }
+
+    /// Commit a background batch without absorbing edits made between its arrivals.
+    pub fn execute_grouped(&mut self, id: &str, group: u64, label: &str, f: impl FnOnce(&mut Session) -> Result<Value>) -> Result<Value> {
+        let previous = self.undo_group.replace(group);
+        let result = self.execute_fn(id, f);
+        self.undo_group = previous;
+        let n = self.undo.iter().rev().take_while(|e| e.group == Some(group)).count();
+        self.merge_undo(n, label);
+        result
     }
 
     fn run_command(&mut self, id: &str, journal: Option<&Value>, f: impl FnOnce(&mut Session) -> Result<Value>) -> Result<Value> {
@@ -372,7 +386,7 @@ impl Session {
         let fwd = op.clone();
         let inv = self.catalog.apply(op)?;
         self.pending_log.push(fwd);
-        self.undo.push(UndoEntry { label: label.to_string(), op: inv, folder: None, people: None });
+        self.undo.push(UndoEntry { group: self.undo_group, label: label.to_string(), op: inv, folder: None, people: None });
         if self.undo.len() > 1000 {
             self.undo.remove(0);
         }
@@ -427,9 +441,10 @@ impl Session {
         if self.undo[self.undo.len() - n..].iter().any(|e| e.folder.is_some() || e.people.is_some()) {
             return;
         }
+        let group = self.undo.last().and_then(|e| e.group);
         let tail = self.undo.split_off(self.undo.len() - n);
         let ops = tail.into_iter().rev().map(|e| e.op).collect();
-        self.undo.push(UndoEntry { label: label.to_string(), op: Op::Batch { ops }, folder: None, people: None });
+        self.undo.push(UndoEntry { group, label: label.to_string(), op: Op::Batch { ops }, folder: None, people: None });
     }
 
     /// Apply without recording undo (interactive previews).
@@ -448,7 +463,7 @@ impl Session {
             }
         };
         self.pending_log.push(e.op);
-        self.redo.push(UndoEntry { label: e.label.clone(), op: redo, folder: e.folder.as_ref().map(FolderMove::reversed), people });
+        self.redo.push(UndoEntry { group: e.group, label: e.label.clone(), op: redo, folder: e.folder.as_ref().map(FolderMove::reversed), people });
         Ok(e.label)
     }
 
@@ -462,7 +477,7 @@ impl Session {
             }
         };
         self.pending_log.push(e.op);
-        self.undo.push(UndoEntry { label: e.label.clone(), op: undo, folder: e.folder.as_ref().map(FolderMove::reversed), people });
+        self.undo.push(UndoEntry { group: e.group, label: e.label.clone(), op: undo, folder: e.folder.as_ref().map(FolderMove::reversed), people });
         Ok(e.label)
     }
 

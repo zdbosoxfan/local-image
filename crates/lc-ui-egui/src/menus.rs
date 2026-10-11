@@ -1389,18 +1389,74 @@ pub fn menu_entries(app: &LightcraftApp) -> Vec<MenuEntry> {
     v
 }
 
-/// With Settings → General → "Confirm before deleting" on, open the confirmation dialog instead
-/// of deleting; true when it did (the dialog's OK runs `photo.delete`).
+/// Ask for every UI deletion, capturing targets so a later selection cannot retarget it.
 pub fn confirm_delete(app: &mut LightcraftApp) -> bool {
-    if !app.ui.settings.confirm_delete {
+    let ids: Vec<_> = app.session.targets(&json!({})).into_iter().map(|id| id.0).collect();
+    if ids.is_empty() {
         return false;
     }
-    let count = app.session.targets(&json!({})).len();
-    if count == 0 {
-        return false;
-    }
-    app.ui.dialog = Some(Dialog::ConfirmDelete { count });
+    app.ui.dialog = Some(Dialog::ConfirmDelete { count: ids.len(), ids, disk: false });
     true
+}
+
+pub fn can_delete_from_disk(app: &LightcraftApp, ids: &[u64]) -> bool {
+    app.services.trash_file.is_some()
+        && !ids.is_empty()
+        && ids.iter().all(|id| {
+            app.session.catalog.photo(lightcraft_catalog::PhotoId(*id)).is_some_and(|p| {
+                p.copy_of.is_none()
+                    && matches!(p.source, lightcraft_catalog::Source::File { .. })
+                    && !app
+                        .session
+                        .catalog
+                        .photos()
+                        .any(|copy| copy.id != p.id && (copy.source == p.source || (copy.copy_of == Some(p.id) && !ids.contains(&copy.id.0))))
+            })
+        })
+}
+
+/// Remove catalogue records only after the file was successfully moved to Trash. Failed files
+/// stay in the catalogue; virtual copies and files shared with unselected copies are protected.
+pub fn remove_photos(app: &mut LightcraftApp, ids: &[u64], disk: bool) -> Result<Value, String> {
+    if disk && !can_delete_from_disk(app, ids) {
+        return Err(crate::i18n::tr("Delete from Disk is unavailable for these photos.").into());
+    }
+    app.session.end_interaction().map_err(|e| e.to_string())?;
+    let mut removed = Vec::new();
+    let mut failure = None;
+    for id in ids {
+        let id = lightcraft_catalog::PhotoId(*id);
+        let Some(photo) = app.session.catalog.photo(id) else { continue };
+        if disk
+            && let lightcraft_catalog::Source::File { path } = &photo.source
+            && let Err(e) = app.services.trash_file.as_mut().ok_or("no Trash service")?(path)
+        {
+            failure = Some(e);
+            break;
+        }
+        removed.push(id);
+    }
+    if !removed.is_empty() {
+        app.session
+            .execute_fn("photo.deletePermanently", |s| {
+                let undo0 = s.undo.len();
+                for id in &removed {
+                    let op = s.catalog.delete_permanently_ops(*id);
+                    s.commit("Remove from Library", op)?;
+                }
+                s.merge_undo(s.undo.len().saturating_sub(undo0), "Remove from Library");
+                s.selection.ids.retain(|id| !removed.contains(id));
+                if s.selection.active.is_some_and(|id| removed.contains(&id)) {
+                    s.selection.active = s.selection.ids.first().copied();
+                }
+                Ok(json!({}))
+            })
+            .map_err(|e| e.to_string())?;
+    }
+    if let Some(e) = failure {
+        return Err(e);
+    }
+    Ok(json!({"removed": removed.len()}))
 }
 
 /// The active photo is a raw or DNG (Save Over Original writes a JPEG beside it instead).
@@ -1453,4 +1509,98 @@ fn show_in_finder(app: &mut LightcraftApp) -> Result<Value, String> {
     let reveal = app.services.reveal.as_mut().ok_or("not available here")?;
     reveal(&path)?;
     Ok(json!({"path": path}))
+}
+
+#[cfg(test)]
+mod bugfix_save_tests {
+    use super::*;
+    use lightcraft_catalog::{Op, Photo, PhotoId, Source};
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn bugfix_save_u006_delete_always_prompts_captures_targets_and_has_three_choices() {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
+        app.ui.settings.confirm_delete = false;
+        let id = app.session.active().unwrap();
+        assert!(confirm_delete(&mut app));
+        assert_eq!(app.session.catalog.len(), 24);
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(Default::default(), |ui| crate::panels::dialogs::show(&mut app, ui.ctx()));
+            output.textures_delta.clear();
+        }
+        let widgets = crate::widgets::take_registry(&ctx);
+        for id in ["button:dialogCancel", "button:dialogOk", "button:deleteFromDisk"] {
+            assert!(widgets.iter().any(|(key, _)| key == id), "missing deletion choice {id}");
+        }
+        let dialog = app.ui.dialog.clone().unwrap();
+        app.run("library.next", json!({})).unwrap();
+        crate::panels::dialogs::confirm_dialog(&mut app, &dialog).unwrap();
+        assert!(app.session.catalog.photo(id).is_none(), "Remove uses the captured target");
+        assert_eq!(app.session.catalog.len(), 23);
+    }
+
+    #[test]
+    fn bugfix_save_u006_disk_failure_keeps_record_and_success_removes_it() {
+        let calls: Arc<Mutex<Vec<String>>> = Arc::default();
+        let sink = calls.clone();
+        let mut app = LightcraftApp::new(
+            lightcraft_engine::Session::new(),
+            crate::Services {
+                trash_file: Some(Box::new(move |path| {
+                    sink.lock().unwrap().push(path.into());
+                    if path.ends_with("fail.png") { Err("Trash unavailable".into()) } else { Ok(()) }
+                })),
+                ..Default::default()
+            },
+        );
+        for (id, name) in [(1, "ok.png"), (2, "fail.png")] {
+            app.session
+                .catalog
+                .apply(Op::AddPhoto {
+                    photo: Box::new(Photo::new(PhotoId(id), Source::File { path: format!("/fixture/{name}") }, name, "PNG", 8, 6, "")),
+                })
+                .unwrap();
+        }
+        app.run("library.select", json!({"ids": [1, 2]})).unwrap();
+        assert!(confirm_delete(&mut app));
+        assert!(can_delete_from_disk(&app, &[1, 2]));
+        assert!(remove_photos(&mut app, &[1, 2], true).is_err());
+        assert!(app.session.catalog.photo(PhotoId(1)).is_none());
+        assert!(app.session.catalog.photo(PhotoId(2)).is_some());
+        assert_eq!(*calls.lock().unwrap(), ["/fixture/ok.png", "/fixture/fail.png"]);
+        remove_photos(&mut app, &[2], false).unwrap();
+        assert_eq!(app.session.catalog.len(), 0);
+        assert_eq!(calls.lock().unwrap().len(), 2, "Remove never calls Trash");
+    }
+
+    #[test]
+    fn bugfix_save_u006_multiple_removals_keep_album_membership_consistent_and_shared_files_safe() {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
+        let ids: Vec<_> = app.session.catalog.photos().take(2).map(|p| p.id.0).collect();
+        app.run("library.select", json!({"ids": ids})).unwrap();
+        let album = app.run("album.create", json!({"name": "Both", "addSelected": true})).unwrap()["id"].as_u64().unwrap();
+        let steps = app.session.undo.len();
+        remove_photos(&mut app, &ids, false).unwrap();
+        assert!(app.session.catalog.album(lightcraft_catalog::AlbumId(album)).unwrap().photos.is_empty());
+        assert_eq!(app.session.undo.len(), steps + 1);
+        app.session.undo_step().unwrap();
+        assert_eq!(app.session.catalog.album(lightcraft_catalog::AlbumId(album)).unwrap().photos.len(), 2);
+
+        app.services.trash_file = Some(Box::new(|_| Ok(())));
+        for id in [100, 101] {
+            app.session
+                .catalog
+                .apply(Op::AddPhoto {
+                    photo: Box::new(Photo::new(PhotoId(id), Source::File { path: "/fixture/shared.png".into() }, "shared.png", "PNG", 8, 6, "")),
+                })
+                .unwrap();
+        }
+        assert!(!can_delete_from_disk(&app, &[100]));
+        assert!(!can_delete_from_disk(&app, &[100, 101]));
+        assert!(remove_photos(&mut app, &[100], true).is_err());
+        assert!(app.session.catalog.photo(PhotoId(100)).is_some());
+    }
 }

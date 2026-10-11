@@ -819,6 +819,9 @@ fn run_context(app: &mut LightcraftApp, id: PhotoId, command: &str, params: serd
     if !app.session.selection.contains(id) {
         app.run("library.select", json!({"ids":[id.0]}))?;
     }
+    if matches!(command, "photo.delete" | "photo.deletePermanently") && crate::menus::confirm_delete(app) {
+        return Ok(serde_json::Value::Null);
+    }
     app.run(command, params)
 }
 
@@ -994,7 +997,7 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         if ui.button(crate::i18n::tr("Restore")).clicked() {
             let _ = run_context(app, id, "photo.restore", json!({}));
         }
-        if ui.button(crate::i18n::tr("Delete Permanently")).clicked() {
+        if ui.button(crate::i18n::tr("Remove from Library…")).clicked() {
             let _ = run_context(app, id, "photo.deletePermanently", json!({}));
         }
     } else if ui.button(crate::i18n::tr("Delete Photo")).clicked() {
@@ -1005,6 +1008,19 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bugfix_save_u006_context_delete_uses_the_same_confirmation() {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
+        let photo = app.session.active().unwrap();
+        run_context(&mut app, photo, "photo.delete", json!({})).unwrap();
+        assert!(matches!(app.ui.dialog, Some(crate::state::Dialog::ConfirmDelete { .. })));
+        assert!(!app.session.catalog.photo(photo).unwrap().deleted);
+        app.ui.dialog = None;
+        run_context(&mut app, photo, "photo.deletePermanently", json!({})).unwrap();
+        assert!(matches!(app.ui.dialog, Some(crate::state::Dialog::ConfirmDelete { .. })));
+        assert!(app.session.catalog.photo(photo).is_some());
+    }
 
     #[test]
     fn ungrouped_justified_rows_fill_the_width() {
