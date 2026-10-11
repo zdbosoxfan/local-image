@@ -71,3 +71,5 @@ pub mod symbol_validation;
 pub mod symbol_expansion;
 
 pub mod styles;
+
+pub mod effects;

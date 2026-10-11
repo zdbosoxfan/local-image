@@ -12,3 +12,4 @@ pub mod sweep;
 pub mod liquify;
 pub mod puppet;
 pub mod live_paint;
+pub mod path_effects;

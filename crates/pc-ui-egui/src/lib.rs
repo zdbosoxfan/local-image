@@ -1828,3 +1828,6 @@ pub mod distort_tools;
 // Package 44 canvas/menu wiring is supplied in integration/44.md.
 #[path = "vector_packages/measure.rs"]
 pub mod measure;
+
+#[path = "vector_packages/path_effects.rs"]
+pub mod path_effects;
