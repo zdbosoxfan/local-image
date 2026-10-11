@@ -22,6 +22,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod appearance;
+pub mod curvature_fit;
 pub mod edit;
 pub mod flatten;
 pub mod raster;
