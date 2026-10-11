@@ -115,3 +115,16 @@ fn colour39_kittest_add_used_and_document_revision_cancels_editor() {
     assert!(!h.state().state.editing());
     assert!(h.state().state.preview.is_none());
 }
+
+#[test]
+fn review_swatch_picker_preserves_native_color_space_and_alpha() {
+    for mode in [photocraft_doc::ColorMode::Rgb, photocraft_doc::ColorMode::Cmyk, photocraft_doc::ColorMode::Lab, photocraft_doc::ColorMode::Grayscale] {
+        let color = super::edited_color(mode, [80, 80, 80, 128]);
+        assert_eq!(color.mode, mode);
+        assert!((color.alpha - 128. / 255.).abs() < 1e-6);
+        assert!(color.c.iter().all(|c| c.is_finite() && (0. ..=1.).contains(c)));
+        if mode != photocraft_doc::ColorMode::Cmyk {
+            assert!(color.to_rgba8()[0].abs_diff(80) <= 1);
+        }
+    }
+}

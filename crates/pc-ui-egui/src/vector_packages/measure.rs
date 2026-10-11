@@ -105,6 +105,7 @@ impl State {
     pub fn cancel(&mut self) {
         self.drag = None;
         self.line = self.completed.clone();
+        self.distance = None;
     }
     pub fn clear(&mut self) {
         self.cancel();
@@ -433,3 +434,19 @@ pub fn route(app: &mut crate::PhotocraftApp, ui: &mut Ui, idx: usize, xf: &crate
 #[cfg(test)]
 #[path = "measure/tests.rs"]
 mod tests;
+
+pub fn app_context(app: &mut crate::PhotocraftApp, ui: &mut Ui) {
+    let Some(st) = app.session.active() else { return };
+    let mut b = bridge(ui.ctx());
+    let scale = DrawingScale { factor: st.doc.drawing_scale.unwrap_or_default().factor };
+    let request = options(ui, &mut b.state, &st.doc, st.revision, None, scale, |s| crate::i18n::t(s).into());
+    match request.and_then(|request| request.map(|request| app.session.execute("vector.measure.setScale", serde_json::json!(request))).transpose()) {
+        Ok(_) => {}
+        Err(e) => {
+            app.ui.status = e.to_string();
+            app.ui.status_error = true;
+        }
+    }
+    b.scale = app.session.active().map(|st| DrawingScale { factor: st.doc.drawing_scale.unwrap_or_default().factor }).unwrap_or_default();
+    ui.ctx().data_mut(|d| d.insert_temp(key(), b));
+}

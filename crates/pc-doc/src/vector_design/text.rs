@@ -38,3 +38,14 @@ fn is_false(v: &bool) -> bool {
 fn is_baseline(v: &PathTextAlign) -> bool {
     *v == PathTextAlign::Baseline
 }
+
+/// Optional box-text composition; absent metadata retains native layout.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FrameCompose {
+    pub enabled: bool,
+    pub balanced: bool,
+    pub optical_margins: bool,
+    pub grid_spacing: f32,
+    pub grid_origin: f32,
+}

@@ -108,7 +108,10 @@ fn shape_expansion(layer: &Layer, options: Options, appearance: bool) -> Result<
         LayerContent::Shape(sh) => sh,
         _ => return Err(bad("requires shape")),
     };
-    if !options.object && !appearance && (layer.vector.live_shape.is_some() || !layer.vector.corners.is_empty() || source.live.is_some()) {
+    if !options.object
+        && !appearance
+        && (layer.vector.live_shape.is_some() || !layer.vector.corners.is_empty() || source.live.is_some() || layer.vector.on_path.is_some())
+    {
         return Err(bad("select Object to expand live shape/corner geometry"));
     }
     let mut sh = if options.object || appearance { project_shape_base(layer)? } else { source.clone() };
@@ -117,6 +120,12 @@ fn shape_expansion(layer: &Layer, options: Options, appearance: bool) -> Result<
     let mut children = Vec::new();
     for item in &a.items {
         let (path, fill, stroke, opacity, blend, visible) = match item {
+            AppearanceItem::Mesh(mesh) => {
+                let mut child = Layer::new(layer.name.clone(), LayerContent::Shape(ShapeLayer { path: sh.path.clone(), ..Default::default() }));
+                child.vector.appearance = Some(photocraft_doc::vector_design::appearance::Appearance { items: vec![AppearanceItem::Mesh(mesh.clone())] });
+                children.push(child);
+                continue;
+            }
             AppearanceItem::Fill(f) => (sh.path.clone(), Some(f.paint.clone()), None, f.opacity, f.blend, f.visible),
             AppearanceItem::Stroke(st) => {
                 if appearance || options.stroke {
@@ -177,15 +186,20 @@ fn expand_layer(doc: &Document, source: &Layer, options: Options, appearance: bo
     {
         return Err(bad("group has incompatible shape appearance metadata"));
     }
+    if !options.object && !appearance && (source.vector.live.is_some() || source.vector.on_path.is_some()) {
+        return Err(bad("select Object to expand live or path-text geometry"));
+    }
     let mut l = source.clone();
     if options.object || appearance {
+        if !l.vector.effects.is_empty() {
+            let scene = super::path_effects::project(&l, &l.vector.effects, doc.resolution_dpi)?;
+            l = super::path_effects::projected_layer(&l, &scene, doc)?;
+        }
         match &source.vector.live {
-            Some(LiveGroup::Blend(_)) => return Err(bad("Blend expansion is unavailable: owner 18 public expander is not integrated")),
-            Some(LiveGroup::Envelope(_)) => return Err(bad("Envelope expansion is unavailable: owner 20 public expander is not integrated")),
-            Some(LiveGroup::Repeat(_)) => {
+            Some(LiveGroup::Blend(_) | LiveGroup::Envelope(_) | LiveGroup::Repeat(_) | LiveGroup::LivePaint(_)) => {
                 let mut selected = doc.clone();
                 selected.layers = vec![source.clone()];
-                let projected = super::repeat::project_document(&selected)?;
+                let projected = crate::vector_integration::project_document(&selected)?;
                 l = projected.layers.into_iter().next().ok_or_else(|| bad("repeat returned no layers"))?;
                 if let Some(children) = l.children_mut() {
                     for child in children {

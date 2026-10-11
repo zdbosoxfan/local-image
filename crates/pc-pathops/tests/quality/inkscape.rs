@@ -70,7 +70,7 @@ fn geometry31_inkscape_goldens_and_shrinking_ratchet() -> TestResult {
             let svg = std::fs::read_to_string(base.with_extension("svg"))?;
             let golden: Value = serde_json::from_str(&std::fs::read_to_string(base.with_extension("json"))?)?;
             assert_eq!(golden["tool"], "Inkscape 1.4.4", "wrong oracle tool for {key}");
-            assert_eq!(golden["normalizer"], "usvg 0.45.1");
+            assert_eq!(golden["normalizer"], "usvg 0.45.1 + svgtypes 0.15.3 f64 geometry");
             assert_eq!(golden["case"], id);
             assert_eq!(golden["operation"], operation);
             assert_eq!(golden["actions"], format!("select-by-id:a,b;{action}"));
@@ -107,7 +107,13 @@ fn geometry31_inkscape_goldens_and_shrinking_ratchet() -> TestResult {
                     let normalized: Vec<_> = paths.iter().map(|p| p.transform(&normalize)).collect();
                     match compare_regions(&normalized, &reference, Affine::scale(8.), Rect::new(0, 0, 768, 768)) {
                         Ok(scores) if scores.passes(Thresholds { hausdorff: 0.05 / scale, ..Default::default() }) => Outcome::Passed,
-                        scores => Outcome::Failed(format!("{scores:?}")),
+                        scores => {
+                            let dir = root().join("../../../../target/refvec/geometry31");
+                            std::fs::create_dir_all(&dir)?;
+                            std::fs::write(dir.join(format!("{id}-{operation}.json")), serde_json::to_vec_pretty(&normalized)?)?;
+                            eprintln!("{key} crossings: {:?}", normalized.iter().flat_map(photocraft_testkit::vector::self_intersections).collect::<Vec<_>>());
+                            Outcome::Failed(format!("{scores:?}"))
+                        }
                     }
                 }
                 Err(error) => Outcome::Failed(error.to_string()),
@@ -128,7 +134,7 @@ fn geometry31_inkscape_goldens_and_shrinking_ratchet() -> TestResult {
         let svg = std::fs::read_to_string(base.with_extension("svg"))?;
         let golden: Value = serde_json::from_str(&std::fs::read_to_string(base.with_extension("json"))?)?;
         assert_eq!(golden["tool"], "Inkscape 1.4.4");
-        assert_eq!(golden["normalizer"], "usvg 0.45.1");
+        assert_eq!(golden["normalizer"], "usvg 0.45.1 + svgtypes 0.15.3 f64 geometry");
         assert_eq!(golden["case"], id);
         assert_eq!(golden["operation"], operation);
         assert_eq!(golden["parameters"], case["parameters"], "unmatched oracle options for {key}");
@@ -197,9 +203,14 @@ fn geometry31_inkscape_goldens_and_shrinking_ratchet() -> TestResult {
         outcomes.push((
             key,
             match result {
-                Ok(path) => match compare_regions(&[path], &reference, Affine::scale(8.), Rect::new(0, 0, 768, 768)) {
+                Ok(path) => match compare_regions(std::slice::from_ref(&path), &reference, Affine::scale(8.), Rect::new(0, 0, 768, 768)) {
                     Ok(scores) if scores.passes(Thresholds::default()) => Outcome::Passed,
-                    scores => Outcome::Failed(format!("{scores:?}")),
+                    scores => {
+                        let dir = root().join("../../../../target/refvec/geometry31");
+                        std::fs::create_dir_all(&dir)?;
+                        std::fs::write(dir.join(format!("{id}-{operation}.json")), serde_json::to_vec_pretty(&[path])?)?;
+                        Outcome::Failed(format!("{scores:?}"))
+                    }
                 },
                 Err(error) => Outcome::Failed(error.to_string()),
             },
@@ -207,6 +218,11 @@ fn geometry31_inkscape_goldens_and_shrinking_ratchet() -> TestResult {
     }
     let raw: Vec<Value> = serde_json::from_str(include_str!("../tricky/goldens/ratchet.json"))?;
     let ratchet: Result<Vec<_>, String> = raw.iter().map(|v| Ok((text(v, "case")?.to_owned(), text(v, "reason")?.to_owned()))).collect();
+    for (id, outcome) in &outcomes {
+        if !matches!(outcome, Outcome::Passed) {
+            eprintln!("{id}: {outcome:?}");
+        }
+    }
     let summary = check_ratchet(&outcomes, &ratchet?, 0.95)?;
     assert_eq!(summary.total, 345);
     eprintln!("Inkscape external corpus: {summary:?}");
@@ -219,7 +235,13 @@ fn reference_regions(golden: &Value) -> Result<Vec<Path>, Box<dyn std::error::Er
     for path in &paths {
         let area = photocraft_testkit::vector::area(path, path.fill_rule)?;
         if !area.is_finite() || area < 0. || !photocraft_testkit::vector::self_intersections(path).is_empty() {
-            return Err("invalid external reference geometry".into());
+            return Err(format!(
+                "invalid external reference geometry: {}/{} area={area}, crossings={:?}",
+                golden["case"],
+                golden["operation"],
+                photocraft_testkit::vector::self_intersections(path)
+            )
+            .into());
         }
     }
     Ok(paths)

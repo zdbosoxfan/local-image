@@ -55,9 +55,14 @@ fn pieces(seg: &[Point; 4], tol: f64) -> usize {
     let m = d1.max(d2);
     // Small curves get a proportionally finer tolerance so their area stays accurate.
     let size = (c1.x - p0.x).hypot(c1.y - p0.y) + (c2.x - c1.x).hypot(c2.y - c1.y) + (p1.x - c2.x).hypot(p1.y - c2.y);
-    let tol = tol.min(size * 1e-3).max(1e-4);
+    let tol = tol.min(size * 1e-3).max(1e-7);
     let n = (0.75 * m / tol).sqrt().ceil();
     if n.is_finite() { (n as usize).clamp(1, 1 << 16) } else { 1 }
+}
+
+/// Exact allocation bound used by the native uniform flattener.
+pub fn segment_pieces(seg: &[Point; 4], tolerance: f64) -> usize {
+    if is_line(seg) { 1 } else { pieces(seg, tolerance) }
 }
 
 fn eval(seg: &[Point; 4], t: f64) -> (f64, f64) {

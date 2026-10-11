@@ -1,5 +1,5 @@
-//! Full eframe app gate: no injected tool router, no desktop window. Integration 00 must
-//! route I/Alt/Shift through this package and its preview through the live GPU canvas first.
+//! Full eframe app gate for the advanced style sampler through the native Style Picker
+//! flyout. The shared Eyedropper keeps package 47's color-sampling behavior in both personas.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use crate::PhotocraftApp;
 use egui::{Event, Modifiers, PointerButton};
@@ -8,6 +8,7 @@ use photocraft_engine::vector_packages::styles;
 #[test]
 #[ignore = "requires 00 persona/input/display/native hooks; owner forbids GPU acceptance runs in package jobs"]
 fn styles38_gpu_full_app_i_alt_shift_preview_release_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let fixture = super::tests::host();
     let ids = fixture.ids.clone();
     let mut setup = crate::gpu_canvas::wgpu_setup();
@@ -35,6 +36,17 @@ fn styles38_gpu_full_app_i_alt_shift_preview_release_rtx5090() {
     h.run_steps(3);
     h.event(Event::Key { key: egui::Key::I, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE });
     h.run_steps(2);
+    assert_eq!(h.state().ui.tool, crate::state::Tool::Eyedropper);
+    let at = h.get_by_label("Eyedropper Tool").rect().center();
+    for pressed in [true, false] {
+        h.event(Event::PointerMoved(at));
+        h.event(Event::PointerButton { pos: at, button: PointerButton::Secondary, pressed, modifiers: Modifiers::NONE });
+        h.run_steps(2);
+    }
+    h.get_by_label("Style Picker Tool").click();
+    h.run_steps(2);
+    h.get_by_label("Vector Eyedropper").click();
+    h.run_steps(2);
     assert!(h.state().gpu_active());
     assert_eq!(h.state().perf.gpu_info.canvas, "gpu");
     fn screen(h: &Harness<'_, PhotocraftApp>, p: [f32; 2]) -> egui::Pos2 {
@@ -49,11 +61,13 @@ fn styles38_gpu_full_app_i_alt_shift_preview_release_rtx5090() {
         h.run_steps(2);
     }
     fn pixel(h: &mut Harness<'_, PhotocraftApp>, p: [f32; 2], expected: [f32; 3]) {
-        let at = screen(h, p) * h.ctx.pixels_per_point();
-        let image = h.render().expect("live app GPU readback");
-        let actual = image.get_pixel(at.x.floor() as u32, at.y.floor() as u32).0;
+        h.run_steps(3);
+        h.render().expect("live app GPU readback");
+        let id = h.state().session.active().unwrap().doc.id;
+        let (_, size, pixels) = h.state().read_canvas_texels(id.0).expect("actual canvas texture");
+        let actual = pixels[(p[1] as u32 * size[0] + p[0] as u32) as usize];
         for (c, e) in actual[..3].iter().zip(expected) {
-            assert!((f32::from(*c) / 255. - e).abs() <= 1. / 255., "live preview/release {actual:?} versus {expected:?}");
+            assert!((*c - e).abs() <= 1. / 255., "live preview/release {actual:?} versus {expected:?}");
         }
     }
     let before = h.state().session.active().unwrap().doc.clone();

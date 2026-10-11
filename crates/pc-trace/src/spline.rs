@@ -123,10 +123,16 @@ pub fn fit(points: &[Point], tolerance: f64) -> BezPath {
     refine(&path, tolerance)
 }
 pub fn refine(path: &BezPath, tolerance: f64) -> BezPath {
-    refine_with_angle(path, tolerance, 1e-3)
+    // Potrace already optimizes area/tangency; the final geometric refit uses Kurbo's
+    // bounded subdivision mode. Global subdivision-point search can take seconds
+    // on a single smooth contour while enforcing the same geometric tolerance.
+    refine_options(path, tolerance, 1e-3, kurbo::simplify::SimplifyOptLevel::Subdivide)
 }
 pub fn refine_with_angle(path: &BezPath, tolerance: f64, angle_thresh: f64) -> BezPath {
-    let options = kurbo::simplify::SimplifyOptions::default().opt_level(kurbo::simplify::SimplifyOptLevel::Optimize).angle_thresh(angle_thresh);
+    refine_options(path, tolerance, angle_thresh, kurbo::simplify::SimplifyOptLevel::Optimize)
+}
+fn refine_options(path: &BezPath, tolerance: f64, angle_thresh: f64, level: kurbo::simplify::SimplifyOptLevel) -> BezPath {
+    let options = kurbo::simplify::SimplifyOptions::default().opt_level(level).angle_thresh(angle_thresh);
     let result = kurbo::simplify::simplify_bezpath(path, tolerance, &options);
     if result.elements().len() <= path.elements().len()
         && result.elements().iter().all(|e| match e {

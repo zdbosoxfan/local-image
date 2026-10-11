@@ -1,7 +1,7 @@
 //! Independent geometry oracles; no dependency on the constructive geometry engine.
 //! EDT follows Felzenszwalb & Huttenlocher, Distance Transforms of Sampled Functions,
 //! Theory of Computing 8 (2012), Algorithm 1 (https://cs.brown.edu/people/pfelzens/papers/dt-final.pdf).
-use kurbo::{BezPath, Shape};
+use kurbo::{BezPath, ParamCurve, ParamCurveNearest, Shape};
 use photocraft_doc::{FillRule, Path};
 use photocraft_geom::Rect;
 
@@ -37,7 +37,21 @@ pub fn area(path: &Path, rule: FillRule) -> Result<f64, String> {
         if signed == 0.0 {
             continue;
         }
-        let Some(p) = contour.elements().first().and_then(kurbo::PathEl::end_point) else { continue };
+        // A start anchor may lie on another contour at a tangency. Probe a curve
+        // interior away from all other boundaries, preserving nested-hole winding.
+        let p = contour.segments().flat_map(|seg| [0.2113248654, 0.5, 0.7886751346].map(|t| seg.eval(t))).max_by(|a, b| {
+            let distance = |p| {
+                contours
+                    .iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i)
+                    .flat_map(|(_, c)| c.segments())
+                    .map(|seg| seg.nearest(p, 1e-10).distance_sq)
+                    .fold(f64::INFINITY, f64::min)
+            };
+            distance(*a).total_cmp(&distance(*b))
+        });
+        let Some(p) = p else { continue };
         let outside: i32 = contours.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, c)| c.winding(p)).sum();
         let winding = if signed > 0.0 { 1 } else { -1 };
         let coefficient = i32::from(inside(outside + winding)) - i32::from(inside(outside));
@@ -144,6 +158,21 @@ mod tests {
             }
         }
         assert!(euclidean_distance_transform(&[], 0, 1).is_err());
+    }
+    #[test]
+    fn green_area_tangent_contours_are_not_nested() {
+        let mut p = photocraft_vector::shapes::ellipse(16., 16., 48., 48.);
+        let circle = area(&p, FillRule::NonZero).unwrap();
+        p.subpaths.extend(photocraft_vector::shapes::rect(64., 8., 16., 64.).subpaths.into_iter().map(|s| s.with_op(photocraft_doc::PathOp::Join)));
+        assert!((area(&p, FillRule::NonZero).unwrap() - circle - 1024.).abs() < 1e-8);
+        // Reverse all contours; the filled area is unchanged.
+        for s in &mut p.subpaths {
+            s.knots.reverse();
+            for k in &mut s.knots {
+                std::mem::swap(&mut k.in_ctrl, &mut k.out_ctrl);
+            }
+        }
+        assert!((area(&p, FillRule::NonZero).unwrap() - circle - 1024.).abs() < 1e-8);
     }
     #[test]
     fn green_area_respects_winding_holes_and_evenodd() {

@@ -306,6 +306,9 @@ fn make_group(doc: &mut Document, g: &Gesture, spec: &LivePaintSpec) -> Result<L
 fn filled(layer: &Layer) -> Result<Appearance> {
     let LayerContent::Shape(shape) = &layer.content else { return Err(error("flood source must be a shape")) };
     let mut appearance = layer.vector.appearance.clone().unwrap_or_else(|| photocraft_vector::appearance::legacy_appearance(shape));
+    if appearance.items.iter().any(|i| matches!(i, AppearanceItem::Mesh(_))) {
+        return Err(error("Flood Fill requires ordinary fill/stroke paints"));
+    }
     appearance.items.retain(|i| matches!(i, AppearanceItem::Fill(_)));
     Ok(appearance)
 }

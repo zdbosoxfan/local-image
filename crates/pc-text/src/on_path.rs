@@ -206,28 +206,10 @@ pub fn place(shaped: TextLayout, curve: &impl Curve, options: &PathText, align: 
         if !finite(f64::from(g.x)) || !finite(f64::from(g.y)) || shaped.faces.get(g.face as usize).is_none() || shaped.styles.get(g.style as usize).is_none() {
             return Err(Error("invalid shaped glyph"));
         }
-        let (x, y) = shaped.to_line(g.x, g.y);
-        // The layout API exposes positions rather than source indices for glyphs.
-        // Match in line space before applying any curve transform (marks retain offsets).
-        let li = shaped
-            .lines
-            .iter()
-            .enumerate()
-            .min_by(|a, b| (a.1.baseline - y).abs().total_cmp(&(b.1.baseline - y).abs()))
-            .map(|a| a.0)
-            .ok_or(Error("glyph has no line"))?;
-        let indices = &by_line[li];
-        let at = indices.partition_point(|&i| shaped.clusters[i].x <= x);
-        let source_index = indices[at.saturating_sub(1)..(at + 1).min(indices.len())]
-            .iter()
-            .copied()
-            .min_by(|&a, &b| {
-                let a = &shaped.clusters[a];
-                let b = &shaped.clusters[b];
-                let dist = |c: &layout::ClusterInfo| (c.x - x).max(0.0).max(x - c.x - c.advance);
-                dist(a).total_cmp(&dist(b)).then_with(|| (a.x - x).abs().total_cmp(&(b.x - x).abs()))
-            })
-            .ok_or(Error("glyph has no cluster"))?;
+        let source_index = g.source_cluster;
+        if source_index >= shaped.clusters.len() {
+            return Err(Error("glyph has no source cluster"));
+        }
         let index = source_to_projection[source_index];
         glyph_clusters.push(index);
     }

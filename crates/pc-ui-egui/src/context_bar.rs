@@ -222,10 +222,14 @@ pub fn has_layer_options(app: &PhotocraftApp) -> bool {
 /// The options bar for the selected layer's kind, bound to it (shape or type), for tools without
 /// options of their own for it (Move, Path Selection). False when the layer is neither.
 pub fn layer_options(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
+    if app.session.active().is_some() {
+        crate::vector_packages::layout_app_hooks::context(app, ui);
+    }
     match layer_context(app) {
         Some(Context::Shape(_)) => crate::vector_ui::shape_layer_bar(app, ui),
         Some(Context::Text(_)) => {
             crate::type_tool::options_bar(app, ui);
+            crate::vector_packages::path_text_app_hooks::context(app, ui);
             true
         }
         _ => false,

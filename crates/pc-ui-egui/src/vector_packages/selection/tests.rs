@@ -232,7 +232,10 @@ fn selection_kittest_escape_focus_switch_and_staleness_cancel() {
             3 => {
                 h.state_mut().session.active_mut().unwrap().revision += 1;
             }
-            4 => h.state_mut().scope.select_hidden = true,
+            4 => {
+                h.state_mut().scope.select_hidden = true;
+                h.state_mut().session.active_mut().unwrap().vector_selection_scope.select_hidden = true;
+            }
             _ => {
                 h.state_mut().session.active_mut().unwrap().active_layer = None;
                 h.state_mut().session.active_mut().unwrap().selected_layers.clear();

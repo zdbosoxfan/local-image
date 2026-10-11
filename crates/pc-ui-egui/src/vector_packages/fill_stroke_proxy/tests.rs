@@ -50,6 +50,7 @@ fn appearance(h: &Host) -> Appearance {
 }
 #[test]
 fn toolbar46_proxy_clicks_keys_one_undo_and_defaults() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness();
     h.run_steps(3);
     let original = h.state().session.active().unwrap().doc.clone();
@@ -95,6 +96,7 @@ fn toolbar46_proxy_clicks_keys_one_undo_and_defaults() {
 }
 #[test]
 fn toolbar46_narrow_toolbar_controls_popups_and_captured_release() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = Harness::builder().with_size(egui::vec2(800., 500.)).with_step_dt(1. / 60.).build_ui_state(
         |ui, h: &mut Host| {
             ui.set_width(46.);
@@ -159,6 +161,7 @@ fn toolbar46_narrow_toolbar_controls_popups_and_captured_release() {
 }
 #[test]
 fn toolbar46_pointer_hold_detached_preview_and_single_release() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness();
     h.run_steps(3);
     let original = h.state().session.active().unwrap().doc.clone();
@@ -180,6 +183,7 @@ fn toolbar46_pointer_hold_detached_preview_and_single_release() {
 }
 #[test]
 fn toolbar46_detached_proxy_rejects_stale_selection_locked_or_nonfinite_set() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = host();
     let doc = h.session.active().unwrap().doc.clone();
     let history = h.session.active().unwrap().history.past_len();
@@ -206,6 +210,7 @@ fn toolbar46_detached_proxy_rejects_stale_selection_locked_or_nonfinite_set() {
 }
 #[test]
 fn toolbar46_hold_flyout_curvature_and_preset_keyboard_switch() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness();
     h.run_steps(3);
     let p = h.get_by_label("Pen").rect().center();
@@ -232,6 +237,7 @@ fn toolbar46_hold_flyout_curvature_and_preset_keyboard_switch() {
 }
 #[test]
 fn toolbar46_registered_icon_alpha_and_styles_at_16_20_40() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     for tool in photocraft_engine::toolsets::VECTOR_TOOLS {
         assert!(icons::ICONS.iter().any(|(id, _, _, _)| *id == tool.id), "missing {}", tool.id);
     }
@@ -249,6 +255,7 @@ fn toolbar46_registered_icon_alpha_and_styles_at_16_20_40() {
 }
 #[test]
 fn toolbar46_contact_sheet_original_artwork() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     // Actual resvg 16/20/40px output, both backgrounds/styles; no GPU or desktop window.
     let mut sheet = image::RgbaImage::from_pixel(1080, icons::ICONS.len() as u32 * 68, image::Rgba([31, 32, 35, 255]));
     for (row, (tool, _, colour, mono)) in icons::ICONS.iter().enumerate() {
@@ -271,6 +278,7 @@ fn toolbar46_contact_sheet_original_artwork() {
 #[test]
 #[ignore = "00 production toolbar/menu wiring and real RTX 5090 GPU milestone; owner speed rules"]
 fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use eframe::{egui_wgpu, wgpu};
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
     create.instance_descriptor.backends = wgpu::Backends::VULKAN;
@@ -312,10 +320,7 @@ fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
             assert!(crate::color_icons::exists(name) && crate::mono_tool_icons::exists(name), "00 must register {name} in both runtime loaders");
         }
         h.state_mut()
-            .run(
-                "shape.create",
-                serde_json::json!({"kind":"rect","rect":[12,12,40,32],"fill":"#ff0000","stroke":ShapeStroke {paint:Fill::Solid(Color::rgb(0.,0.,1.)),width:3.,..Default::default()}}),
-            )
+            .run("shape.create", serde_json::json!({"kind":"rect","rect":[12,12,40,32],"fill":"#ff0000","stroke":{"color":"#0000ff","width":3.}}))
             .unwrap();
         h.run_steps(3);
         let before = h.state().session.active().unwrap().doc.clone();
@@ -328,6 +333,7 @@ fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
         assert!(Arc::ptr_eq(&before, &h.state().session.active().unwrap().doc));
         assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
         let canvas_preview = h.render().unwrap();
+        let (_, _, preview_texels) = h.state().read_canvas_texels(before.id.0).unwrap();
         let canvas = h.state().last_canvas_rect;
         let pigment_counts = |image: &image::RgbaImage| {
             let mut counts = [0usize; 2];
@@ -353,10 +359,20 @@ fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
         );
         h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
         h.run_steps(3);
-        assert_eq!(h.state().session.active().unwrap().history.past_len(), history + 1);
-        let committed = h.render().unwrap();
-        let committed_pigments = pigment_counts(&committed);
-        assert!(committed_pigments[0].abs_diff(preview_pigments[0]) <= 4 && committed_pigments[1].abs_diff(preview_pigments[1]) <= 4);
+        assert_eq!(
+            h.state().session.active().unwrap().history.past_len(),
+            history + 1,
+            "proxy status={} gesture preview={} scale={scale}",
+            h.state().ui.status,
+            h.state().ui.fill_stroke_proxy.preview.is_some()
+        );
+        h.render().unwrap();
+        let (_, _, committed_texels) = h.state().read_canvas_texels(before.id.0).unwrap();
+        // Release changes selection feedback. Compare every actual canvas texel rather
+        // than counting colours in the screenshot's selection controls.
+        assert_eq!(preview_texels.len(), committed_texels.len());
+        let max = preview_texels.iter().zip(&committed_texels).flat_map(|(a, b)| (0..4).map(move |i| (a[i] - b[i]).abs())).fold(0f32, f32::max);
+        assert!(max <= 1. / 255., "proxy preview/release premultiplied canvas diff {max} at scale {scale}");
         assert!(h.state_mut().session.undo());
         assert!(Arc::ptr_eq(&before, &h.state().session.active().unwrap().doc));
         h.key_press_modifiers(Modifiers::SHIFT, Key::Backtick);
@@ -407,6 +423,7 @@ fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
 
 #[test]
 fn toolbar46_frozen_pixel_menu_keys_and_all_chords_parse() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let expected: serde_json::Value = serde_json::from_str(include_str!("pixel-menu-keys.json")).unwrap();
     let actual: Vec<_> = crate::menu_catalog::CATALOG.iter().filter_map(|(_, _, sc, id)| Some((*id, (*sc)?))).collect();
     assert_eq!(serde_json::json!(actual), expected);
@@ -478,6 +495,7 @@ fn label(sheet: &mut image::RgbaImage, x: u32, y: u32, text: &str, scale: u32) {
 #[test]
 #[ignore = "RTX 5090 icon upload milestone; owner speed rules prohibit GPU runs"]
 fn toolbar46_gpu_upload_every_vector_icon_and_switch_styles() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use eframe::{egui_wgpu, wgpu};
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
     create.instance_descriptor.backends = wgpu::Backends::VULKAN;
@@ -533,6 +551,7 @@ fn toolbar46_gpu_upload_every_vector_icon_and_switch_styles() {
 
 #[test]
 fn toolbar46_multiple_targets_swap_individually_and_locked_tail_is_atomic() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = host();
     h.session.execute("shape.create", serde_json::json!({"kind":"rect","rect":[15,15,10,10],"fill":"#00ff00"})).unwrap();
     let second = h.session.active().unwrap().active_layer.unwrap();
@@ -557,6 +576,7 @@ fn toolbar46_multiple_targets_swap_individually_and_locked_tail_is_atomic() {
 
 #[test]
 fn toolbar46_swap_preserves_hidden_paints_and_stroke_metadata() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut a = Appearance {
         items: vec![
             AppearanceItem::Fill(FillItem::new(Fill::Solid(Color::rgb(1., 0., 0.)))),
@@ -580,4 +600,22 @@ fn toolbar46_swap_preserves_hidden_paints_and_stroke_metadata() {
     let AppearanceItem::Stroke(s) = &a.items[1] else { panic!("stroke retained") };
     assert_eq!(s.base.width, 7.);
     assert_eq!(s.start_arrow, Some(photocraft_doc::vector_design::appearance::Arrowhead::Triangle));
+}
+
+#[test]
+fn review_additional_proxy_edits_only_selected_gradient_stop() {
+    let mut h = host();
+    h.proxy.apply(&mut h.session, &h.ids, &Action::Gradient).unwrap();
+    let before = appearance(&h);
+    h.proxy.selected_stop = Some((0, 1));
+    h.proxy.apply(&mut h.session, &h.ids, &Action::Colour(Color::rgb(0., 1., 0.))).unwrap();
+    let mut expected = before.clone();
+    if let AppearanceItem::Fill(fill) = &mut expected.items[0]
+        && let Fill::Gradient { stops, .. } = &mut fill.paint
+    {
+        stops[1].1 = Color::rgb(0., 1., 0.);
+    }
+    assert_eq!(appearance(&h), expected);
+    assert!(h.session.undo());
+    assert_eq!(appearance(&h), before);
 }

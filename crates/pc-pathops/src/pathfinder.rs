@@ -115,18 +115,24 @@ pub fn try_pathfinder(op: PathfinderOp, shapes: &[Shape]) -> Result<Vec<Shape>, 
     let p = &arr.tidy;
     Ok(match op {
         PathfinderOp::Unite => return unite(),
-        PathfinderOp::MinusFront => one(all_contours_to_path(&arr.contours(|m| m[0] && !m[1..].iter().any(|&b| b)), p), shapes[0].key),
-        PathfinderOp::MinusBack => one(all_contours_to_path(&arr.contours(|m| m[n - 1] && !m[..n - 1].iter().any(|&b| b)), p), front_key),
-        PathfinderOp::Intersect => one(all_contours_to_path(&arr.contours(|m| m.iter().all(|&b| b)), p), front_key),
-        PathfinderOp::Exclude => one(all_contours_to_path(&arr.contours(|m| m.iter().filter(|&&b| b).count() % 2 == 1), p), front_key),
-        PathfinderOp::Divide => regions_of(&arr)
+        PathfinderOp::MinusFront => one(all_contours_to_path(&arr.contours(|m| m[0] && !m[1..].iter().any(|&b| b))?, p), shapes[0].key),
+        PathfinderOp::MinusBack => one(all_contours_to_path(&arr.contours(|m| m[n - 1] && !m[..n - 1].iter().any(|&b| b))?, p), front_key),
+        PathfinderOp::Intersect => one(all_contours_to_path(&arr.contours(|m| m.iter().all(|&b| b))?, p), front_key),
+        PathfinderOp::Exclude => one(all_contours_to_path(&arr.contours(|m| m.iter().filter(|&&b| b).count() % 2 == 1)?, p), front_key),
+        PathfinderOp::Divide => regions_of(&arr)?
             .into_iter()
             .filter_map(|r| {
                 let key = shapes.get(r.top()?)?.key;
                 Some(Shape::new(r.path, FillRule::NonZero, key))
             })
             .collect(),
-        PathfinderOp::Trim => (0..n).flat_map(|i| one(all_contours_to_path(&arr.contours(|m| topmost(m) == Some(i)), p), shapes[i].key)).collect(),
+        PathfinderOp::Trim => {
+            let mut out = Vec::new();
+            for (i, shape) in shapes.iter().enumerate() {
+                out.extend(one(all_contours_to_path(&arr.contours(|m| topmost(m) == Some(i))?, p), shape.key));
+            }
+            out
+        }
         PathfinderOp::Merge => {
             let mut keys: Vec<u64> = Vec::new();
             for s in shapes {
@@ -136,7 +142,7 @@ pub fn try_pathfinder(op: PathfinderOp, shapes: &[Shape]) -> Result<Vec<Shape>, 
             }
             let mut out = Vec::new();
             for k in keys {
-                let c = arr.contours(|m| topmost(m).is_some_and(|t| shapes[t].key == k));
+                let c = arr.contours(|m| topmost(m).is_some_and(|t| shapes[t].key == k))?;
                 for g in c.grouped() {
                     out.extend(one(contours_to_path(&c, g, p), k));
                 }
@@ -147,12 +153,12 @@ pub fn try_pathfinder(op: PathfinderOp, shapes: &[Shape]) -> Result<Vec<Shape>, 
             if n < 2 {
                 return Ok(Vec::new());
             }
-            (0..n - 1)
-                .flat_map(|i| {
-                    let c = arr.contours(|m| m[n - 1] && topmost(&m[..n - 1]) == Some(i));
-                    one(all_contours_to_path(&c, p), shapes[i].key)
-                })
-                .collect()
+            let mut out = Vec::new();
+            for (i, shape) in shapes[..n - 1].iter().enumerate() {
+                let c = arr.contours(|m| m[n - 1] && topmost(&m[..n - 1]) == Some(i))?;
+                out.extend(one(all_contours_to_path(&c, p), shape.key));
+            }
+            out
         }
         PathfinderOp::Outline => outline_edges(&arr, shapes),
     })
@@ -166,7 +172,7 @@ pub fn try_pathfinder(op: PathfinderOp, shapes: &[Shape]) -> Result<Vec<Shape>, 
 /// share no vertex (so no edge either): one pass per batch walks each face's contours exactly as
 /// its own mask's pass would, and the mask a contour bounds is the one of its batch at its first
 /// point.
-fn regions_of(arr: &Arrangement) -> Vec<Region> {
+fn regions_of(arr: &Arrangement) -> Result<Vec<Region>, PathOpsError> {
     let masks = arr.distinct_masks();
     let ids: HashMap<&[bool], usize> = masks.iter().enumerate().map(|(i, m)| (m.as_slice(), i)).collect();
     let id = |w: &Multi| ids.get(arr.mask(w).as_slice()).copied();
@@ -206,7 +212,7 @@ fn regions_of(arr: &Arrangement) -> Vec<Region> {
     }
     let mut faces: Vec<Vec<PathData>> = vec![Vec::new(); masks.len()];
     for b in 0..batches {
-        let c = top.contours(|w| id(w).is_some_and(|m| batch[m] == b));
+        let c = arr.contours_for(|w| id(w).is_some_and(|m| batch[m] == b))?;
         let owner: Option<Vec<usize>> = c
             .contours()
             .map(|ct| {
@@ -218,7 +224,7 @@ fn regions_of(arr: &Arrangement) -> Vec<Region> {
             // Not expected: every contour starts at a vertex of the arrangement. Fall back to a
             // pass per mask for this batch.
             for (m, mask) in masks.iter().enumerate().filter(|(m, _)| batch[*m] == b) {
-                let c = arr.contours(|k| k == mask.as_slice());
+                let c = arr.contours(|k| k == mask.as_slice())?;
                 faces[m].extend(c.grouped().into_iter().map(|g| contours_to_path(&c, g, &arr.tidy)));
             }
             continue;
@@ -252,7 +258,7 @@ fn regions_of(arr: &Arrangement) -> Vec<Region> {
         let sources: Vec<usize> = mask.iter().enumerate().filter(|(_, b)| **b).map(|(i, _)| i).collect();
         out.extend(paths.into_iter().filter(|p| !p.is_empty()).map(|path| Region { path, sources: sources.clone() }));
     }
-    out
+    Ok(out)
 }
 
 /// A point as a map key (the arrangement's vertices are exact).
@@ -268,7 +274,7 @@ pub fn regions(shapes: &[Shape]) -> Vec<Region> {
 
 /// Fallible face construction, preserving sweep errors for callers.
 pub fn try_regions(shapes: &[Shape]) -> Result<Vec<Region>, PathOpsError> {
-    arrangement(shapes).map(|a| regions_of(&a))
+    arrangement(shapes).and_then(|a| regions_of(&a))
 }
 
 /// The face under `point`, if any (Shape Builder hover/click).
@@ -331,7 +337,7 @@ impl FaceMerger {
                 continue;
             }
             done.push(mask);
-            let c = arr.contours(|k| k == mask.as_slice());
+            let c = arr.contours(|k| k == mask.as_slice()).ok()?;
             for group in c.grouped() {
                 let mut face = BezPath::new();
                 for i in group {
@@ -461,7 +467,7 @@ mod tests {
     fn regions_one_mask_at_a_time(arr: &Arrangement) -> Vec<Region> {
         let mut out = Vec::new();
         for mask in arr.distinct_masks() {
-            let c = arr.contours(|m| m == mask.as_slice());
+            let c = arr.contours(|m| m == mask.as_slice()).expect("contours");
             let sources: Vec<usize> = mask.iter().enumerate().filter(|(_, b)| **b).map(|(i, _)| i).collect();
             for g in c.grouped() {
                 let path = contours_to_path(&c, g, &arr.tidy);
@@ -475,7 +481,7 @@ mod tests {
 
     fn same_as_one_mask_at_a_time(shapes: &[Shape]) {
         let arr = arrangement(shapes).expect("arrangement");
-        assert_eq!(regions_of(&arr), regions_one_mask_at_a_time(&arr));
+        assert_eq!(regions_of(&arr).expect("regions"), regions_one_mask_at_a_time(&arr));
     }
 
     fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> PathData {

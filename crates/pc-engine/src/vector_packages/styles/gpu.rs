@@ -4,6 +4,7 @@ use super::*;
 #[test]
 #[ignore = "owner speed rules: run real-GPU gates only at integration"]
 fn styles38_gpu_rtx5090_preview_release_redefine_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,

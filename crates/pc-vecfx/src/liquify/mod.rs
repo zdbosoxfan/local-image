@@ -96,14 +96,10 @@ impl Stroke {
         if self.dabber.samples().len() >= MAX_SAMPLES {
             return Err("distort stroke exceeds sample budget".into());
         }
-        let mut next = self.dabber.clone();
-        next.push((kurbo::Point::new(sample.at[0], sample.at[1]), sample.pressure));
-        // Reject excess work instead of silently truncating the stroke.
-        if next.dabs.len() >= MAX_DABS {
+        if !self.dabber.try_push((kurbo::Point::new(sample.at[0], sample.at[1]), sample.pressure)) {
             return Err("distort stroke exceeds dab budget".into());
         }
-        self.state.advance(&next.dabs, &self.options);
-        self.dabber = next;
+        self.state.advance(&self.dabber.dabs, &self.options);
         Ok(())
     }
     pub fn path(&self) -> Result<Path> {
@@ -125,7 +121,10 @@ impl Stroke {
                 }
                 let original = sp.clone();
                 let single = Path::new(vec![original.clone()]);
-                let fitted = photocraft_pathops::simplify(&single, tolerance).map_err(|e| e.to_string())?;
+                let fitted = photocraft_pathops::simplify_interactive(&single, tolerance).map_err(|e| e.to_string())?;
+                if fitted.subpaths.len() != 1 {
+                    return Err("liquify refit changed contour topology".into());
+                }
                 let fitted = fitted.subpaths.into_iter().next().ok_or_else(|| "liquify refit lost a contour".to_string())?;
                 *sp = photocraft_doc::Subpath { op: original.op, ..fitted };
             }

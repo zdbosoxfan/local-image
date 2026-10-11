@@ -1,6 +1,5 @@
 //! Scaled view execution uses the real compositor's passes and chunk sink.
 //! The caller owns the detached pc-compose projection and display texture encoding.
-use super::wgpu;
 use photocraft_doc::Document;
 use photocraft_geom::Rect;
 

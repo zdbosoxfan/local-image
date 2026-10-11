@@ -213,6 +213,9 @@ fn channel_m(c: &AlphaChannel, sink: &mut dyn Sink) -> ChannelM {
 
 pub(crate) fn doc_m(d: &Document, sink: &mut dyn Sink) -> DocM {
     DocM {
+        graphic_styles: d.graphic_styles.clone(),
+        swatches: d.swatches.clone(),
+        drawing_scale: d.drawing_scale,
         design_units: d.design_units,
         symbols: d.symbols.iter().map(|s| SymbolDefM { id: s.id, name: s.name.clone(), layers: s.layers.iter().map(|l| layer_m(l, sink)).collect() }).collect(),
         id: d.id.0,
@@ -546,7 +549,10 @@ impl Loader<'_> {
         } else {
             DocId::fresh()
         };
-        let doc = Document {
+        let mut doc = Document {
+            graphic_styles: m.graphic_styles.clone(),
+            swatches: m.swatches.clone(),
+            drawing_scale: m.drawing_scale,
             design_units: m.design_units,
             symbols: m
                 .symbols
@@ -592,6 +598,8 @@ impl Loader<'_> {
         if !doc.symbols.is_empty() || doc.walk().iter().any(|(_, _, l)| matches!(l.content, LayerContent::Symbol(_))) {
             photocraft_doc::vector_design::symbol_validation::document(&doc).map_err(|e| FormatError::corrupt(e.to_string()))?;
         }
+        doc.swatches.remap_layers(&self.id_map).map_err(FormatError::corrupt)?;
+        photocraft_doc::vector_design::validation::document(&doc).map_err(FormatError::corrupt)?;
         Ok(doc)
     }
 
@@ -641,14 +649,24 @@ fn validate_symbols_manifest(doc: &DocM) -> Result<()> {
         }
         Ok(())
     }
-    fn has_instances(layers: &[LayerM]) -> bool {
-        layers.iter().any(|l| match &l.content {
-            ContentM::Symbol { .. } => true,
-            ContentM::Group { children, .. } => has_instances(children),
-            _ => false,
-        })
+    fn has_instances(layers: &[LayerM]) -> Result<bool> {
+        let mut pending = vec![(layers, 0usize)];
+        let mut found = false;
+        while let Some((layers, depth)) = pending.pop() {
+            if depth > MAX_GROUP_DEPTH && !layers.is_empty() {
+                return Err(too_deep());
+            }
+            for layer in layers {
+                match &layer.content {
+                    ContentM::Symbol { .. } => found = true,
+                    ContentM::Group { children, .. } => pending.push((children.as_slice(), depth + 1)),
+                    _ => {}
+                }
+            }
+        }
+        Ok(found)
     }
-    if doc.symbols.is_empty() && !has_instances(&doc.layers) {
+    if doc.symbols.is_empty() && !has_instances(&doc.layers)? {
         return Ok(());
     }
     let mut graph = BTreeMap::new();

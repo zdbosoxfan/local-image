@@ -155,3 +155,72 @@ fn distort41_rejects_nonfinite_and_unbounded_settings_samples_and_work() {
     assert_eq!(defaults, Options::default());
     assert!(serde_json::from_str::<Options>(r#"{"extra":1}"#).is_err());
 }
+
+#[test]
+fn review_liquify_exact_dab_budget_and_failed_append_are_atomic() {
+    let mut stroke = Stroke::new(square(), Options { intensity: 0., ..Options::new(Kind::Bloat) }, 0).unwrap();
+    for _ in 0..MAX_DABS {
+        stroke.push(Sample::new(0., 0., 1.)).unwrap();
+    }
+    let before = stroke.path().unwrap();
+    assert!(stroke.push(Sample::new(0., 0., 1.)).is_err());
+    assert_eq!(stroke.dabber.samples().len(), MAX_DABS);
+    assert_eq!(stroke.dabber.dabs.len(), MAX_DABS);
+    assert_eq!(stroke.path().unwrap(), before);
+}
+#[test]
+fn review_liquify_flat_far_contours_are_culled() {
+    let line = photocraft_pathops::to_geometry(&Path::new(vec![Subpath::polyline(&[(0., 200.), (100., 200.)])]));
+    assert!(!kernel::touches(&line.subpaths[0], kurbo::Rect::new(-20., -20., 20., 20.)));
+    assert!(kernel::touches(&line.subpaths[0], kurbo::Rect::new(-20., 190., 20., 210.)));
+}
+
+#[test]
+fn dense_distort_refit_keeps_tolerance_topology_and_replay() {
+    use kurbo::ParamCurveNearest;
+    let points: Vec<_> = (0..2000)
+        .map(|i| {
+            let a = i as f64 * std::f64::consts::TAU / 2000.;
+            let r = 1. + 0.025 * (a * 7.).sin();
+            (120. + 90. * r * a.cos(), 90. + 65. * r * a.sin())
+        })
+        .collect();
+    let base = Path::new(vec![Subpath::polygon(&points)]);
+    let options = Options::default();
+    let samples: Vec<_> = (0..18).map(|i| Sample::new(205. + (i as f64 * 0.11).sin() * 4., 90. + (i as f64 * 0.09).sin() * 3., 1.)).collect();
+    let mut fitted = Stroke::new(base.clone(), options, 0).unwrap();
+    let mut raw = Stroke::new(base.clone(), Options { simplify_on: false, ..options }, 0).unwrap();
+    for sample in &samples {
+        fitted.push(*sample).unwrap();
+        raw.push(*sample).unwrap();
+    }
+    let start = std::time::Instant::now();
+    let output = fitted.path().unwrap();
+    let fitted_ms = start.elapsed().as_secs_f64() * 1000.;
+    assert_ne!(output, base);
+    let start = std::time::Instant::now();
+    let reference = raw.path().unwrap();
+    eprintln!(
+        "dense distort refit={fitted_ms:.3}ms raw={:.3}ms nodes={}/{}",
+        start.elapsed().as_secs_f64() * 1000.,
+        node_count(&output),
+        node_count(&reference)
+    );
+    assert_eq!(output, apply(&base, &samples, options, 0).unwrap());
+    assert_eq!(output.fill_rule, reference.fill_rule);
+    assert_eq!(output.inverted, reference.inverted);
+    assert_eq!(output.subpaths.len(), reference.subpaths.len());
+    assert!(node_count(&output) <= node_count(&reference));
+    for (source, actual) in reference.subpaths.iter().zip(&output.subpaths) {
+        assert_eq!((actual.closed, actual.op), (source.closed, source.op));
+        let curves: Vec<_> = actual.segments().iter().map(|c| CubicBez::new((c[0].x, c[0].y), (c[1].x, c[1].y), (c[2].x, c[2].y), (c[3].x, c[3].y))).collect();
+        for c in source.segments() {
+            let curve = CubicBez::new((c[0].x, c[0].y), (c[1].x, c[1].y), (c[2].x, c[2].y), (c[3].x, c[3].y));
+            for t in [0., 0.25, 0.5, 0.75] {
+                let p = curve.eval(t);
+                let d2 = curves.iter().map(|c| c.nearest(p, 1e-9).distance_sq).fold(f64::INFINITY, f64::min);
+                assert!(d2.sqrt() <= options.simplify_tolerance(), "dense refit error {} > {}", d2.sqrt(), options.simplify_tolerance());
+            }
+        }
+    }
+}

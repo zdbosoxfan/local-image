@@ -84,7 +84,8 @@ fn pixels(h: &mut H, gpu: &GpuCanvas) -> Vec<[f32; 4]> {
 #[test]
 #[ignore = "owner speed rules: full-app RTX acceptance after 00 canvas registration"]
 fn measure44_full_app_rtx_overlay_live_release_hover_and_no_layer_render() {
-    let _lock = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     let (mut h, gpu) = harness();
     let ctx = h.ctx.clone();
     measure::activate(h.state(), &ctx, Mode::Measure);
@@ -122,8 +123,12 @@ fn measure44_full_app_rtx_overlay_live_release_hover_and_no_layer_render() {
 #[test]
 #[ignore = "owner speed rules: release real-app pointer-frame benchmark at integration"]
 fn measure44_full_app_release_warm_pointer_frames_under_16ms() {
-    assert!(!cfg!(debug_assertions), "release required");
-    let _lock = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
+    if cfg!(debug_assertions) {
+        panic!("release required");
+    }
+
     let (mut h, gpu) = harness();
     let ctx = h.ctx.clone();
     measure::activate(h.state(), &ctx, Mode::Measure);

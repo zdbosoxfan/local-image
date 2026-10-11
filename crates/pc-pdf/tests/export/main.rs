@@ -383,7 +383,7 @@ fn pdf_export_strokes_dashes_alignment_and_unsupported_warning() {
         assert_eq!(images(&Pdf::new(output(&d)).unwrap()), 0);
     }
     let fill = Fill::Gradient {
-        stops: vec![(0., Color::BLACK), (1., Color::WHITE)],
+        stops: vec![(0., Color { alpha: 0.5, ..Color::BLACK }), (1., Color { alpha: 0.5, ..Color::WHITE })],
         style: GradientStyle::Diamond,
         angle: 0.,
         scale: 1.,
@@ -399,7 +399,8 @@ fn pdf_export_strokes_dashes_alignment_and_unsupported_warning() {
     assert_eq!(result.warnings.len(), 1);
     let pdf = Pdf::new(result.bytes).unwrap();
     assert!(images(&pdf) > 0);
-    let rgba = photocraft_compose::flatten(&d).to_rgba8();
+    let image_rect = photocraft_compose::composite_bounds(&d.layers[0], d.bounds()).unwrap().intersect(&d.bounds());
+    let rgba = photocraft_compose::render(&d, image_rect).to_rgba8();
     let rgb = rgba.pixels.as_chunks::<4>().0.iter().flat_map(|p| p[..3].iter().copied()).collect::<Vec<_>>();
     assert!(pdf.objects().into_iter().any(|o|matches!(o,Object::Stream(s) if s.dict().get::<Name<'_>>(b"Subtype").is_some_and(|n|n.as_ref()==b"Image") && s.decoded().is_ok_and(|v|v.as_ref()==rgb.as_slice()))),"embedded fallback RGB equals native compositor exactly");
     let alpha = rgba.pixels.as_chunks::<4>().0.iter().map(|p| p[3]).collect::<Vec<_>>();
@@ -468,4 +469,22 @@ fn pdf_export_appearance_stack_and_pattern_use_public_renderer() {
     d.patterns.clear();
     assert!(export::export(&d, &ExportScope::Document, &Default::default()).is_err());
     assert_eq!(before.layers, d.layers);
+}
+
+#[test]
+fn review_additional_pdf_selection_of_empty_artboard_keeps_page_and_background() {
+    let mut doc = scene(rect(), Fill::Solid(Color::BLACK));
+    doc.layers.clear();
+    let mut board = Layer::group("Empty board", vec![]);
+    if let LayerContent::Group(group) = &mut board.content {
+        let mut artboard = photocraft_doc::Artboard::new(photocraft_geom::Rect::new(24, 16, 104, 80));
+        artboard.background = photocraft_doc::ArtboardBackground::Black;
+        group.artboard = Some(artboard);
+    }
+    let id = board.id;
+    doc.layers.push(board);
+    let bytes = export::export(&doc, &ExportScope::Selection(vec![id]), &ExportOptions::default()).unwrap().bytes;
+    let pdf = Pdf::new(bytes.clone()).unwrap();
+    assert_eq!(pdf.pages()[0].base_dimensions(), (60., 48.));
+    assert_eq!(render(&bytes, "review-empty-board", 96.).get_pixel(40, 32).0, [0, 0, 0]);
 }

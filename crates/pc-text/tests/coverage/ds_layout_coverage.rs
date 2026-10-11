@@ -214,7 +214,7 @@ fn vertical_class_classifies_representative_chars() {
 
 #[test]
 fn placed_glyph_and_decoration_fields_are_public() {
-    let glyph = PlacedGlyph { face: 1, id: 2, x: 3.5, y: 4.25, style: 5, orient: GlyphOrient::Upright };
+    let glyph = PlacedGlyph { source_cluster: 0, face: 1, id: 2, x: 3.5, y: 4.25, style: 5, orient: GlyphOrient::Upright };
     assert_eq!(glyph.face, 1);
     assert_eq!(glyph.id, 2);
     assert_eq!(glyph.x, 3.5);

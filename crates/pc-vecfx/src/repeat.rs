@@ -115,7 +115,7 @@ pub fn transforms(spec: &RepeatSpec, bounds: Bounds) -> Result<Vec<Affine>> {
         }
         RepeatSpec::Grid { rows, cols, spacing } => {
             let pitch = [bounds.width() + spacing[0], bounds.height() + spacing[1]];
-            if pitch.iter().any(|p| !p.is_finite() || *p < 1e-3) {
+            if !pitch.iter().all(|p| p.is_finite()) || (*cols > 1 && pitch[0] < 1e-3) || (*rows > 1 && pitch[1] < 1e-3) {
                 return Err(error("repeat grid pitch must be at least 0.001 pixels"));
             }
             (0..*rows).flat_map(|row| (0..*cols).map(move |col| Affine::translate(f64::from(col) * pitch[0], f64::from(row) * pitch[1]))).collect()
@@ -128,7 +128,9 @@ pub fn transforms(spec: &RepeatSpec, bounds: Bounds) -> Result<Vec<Affine>> {
     };
     for a in &out {
         for v in a.m {
-            number(v)?;
+            if !v.is_finite() {
+                return Err(error("repeat transform must be finite"));
+            }
         }
         bounds.transform(*a)?;
     }

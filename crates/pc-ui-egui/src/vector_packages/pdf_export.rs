@@ -22,6 +22,7 @@ impl State {
         self.selection = st.selected_layers();
         self.artboards = st.doc.artboards().into_iter().map(|(id, name, _)| (id, name.to_owned())).collect();
         self.artboard = self.artboards.first().map(|(id, _)| *id);
+        self.options.artboards.retain(|id| self.artboards.iter().any(|(a, _)| a == id));
         self.request = Some(Request { document: st.doc.id.0, revision: st.revision, scope: Scope::Document, options: self.options.clone() });
         self.error = None;
         Ok(())
@@ -39,6 +40,9 @@ impl State {
     pub fn export(&mut self, s: &mut Session) -> Result<(Request, ExportedVector)> {
         let mut r = self.request.clone().ok_or_else(|| EngineError::Other("PDF export dialog is closed".into()))?;
         r.options = self.options.clone();
+        if !matches!(r.scope, Scope::Document) {
+            r.options.artboards.clear();
+        }
         preflight(s, &r)?;
         let params = serde_json::to_value(&r).map_err(|e| EngineError::Other(e.to_string()))?;
         let output = s.execute("file.pdf.export", params)?;
@@ -93,8 +97,6 @@ pub fn controls(ui: &mut Ui, state: &mut State, text: impl Fn(&str) -> String) -
                 }
             }
         }
-    } else {
-        state.options.artboards.clear();
     }
     if let Some(error) = &state.error {
         ui.colored_label(ui.visuals().error_fg_color, error);
@@ -134,13 +136,13 @@ pub fn save(state: &mut State, s: &mut Session, services: &mut crate::Services) 
 /// File menu hook; captured UI state is transient and options use the existing prefs map.
 pub fn open_dialog(app: &mut crate::PhotocraftApp) -> std::result::Result<(), String> {
     if let Some(options) = app.session.prefs().dialogs.get("vector.pdf.exportOptions") {
-        app.ui.vector_pdf_export.options = serde_json::from_value(options.clone()).map_err(|e| e.to_string())?;
+        app.ui.pdf_export.options = serde_json::from_value(options.clone()).map_err(|e| e.to_string())?;
     }
-    app.ui.vector_pdf_export.open(&app.session).map_err(|e| e.to_string())
+    app.ui.pdf_export.open(&app.session).map_err(|e| e.to_string())
 }
 /// Registered in the real modal frame by 00. Uses the existing file services and notice UI.
 pub fn frame(app: &mut crate::PhotocraftApp, ctx: &egui::Context) {
-    let mut state = std::mem::take(&mut app.ui.vector_pdf_export);
+    let mut state = std::mem::take(&mut app.ui.pdf_export);
     state.synchronize(&app.session);
     if state.request.is_some() {
         let modal = egui::Modal::new(egui::Id::new("vector-pdf-export")).show(ctx, |ui| {
@@ -168,5 +170,5 @@ pub fn frame(app: &mut crate::PhotocraftApp, ctx: &egui::Context) {
             None => {}
         }
     }
-    app.ui.vector_pdf_export = state;
+    app.ui.pdf_export = state;
 }

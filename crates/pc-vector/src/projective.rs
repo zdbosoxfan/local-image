@@ -229,6 +229,45 @@ pub struct Mapping {
     /// Original segment and parameter interval for each output cubic, in path order.
     pub intervals: Vec<(usize, usize, f64, f64)>,
 }
+// A cubic denominator can touch zero without an endpoint sign change. Evaluate
+// its extrema before subdivision, so every real horizon is classified consistently.
+fn denominator_crosses_horizon(d: &[f64]) -> bool {
+    if d.len() != 4 {
+        return d[0].abs() < 1e-10;
+    }
+    let eval = |t: f64| {
+        let u = 1. - t;
+        u * u * u * d[0] + 3. * u * u * t * d[1] + 3. * u * t * t * d[2] + t * t * t * d[3]
+    };
+    let v = [d[1] - d[0], d[2] - d[1], d[3] - d[2]];
+    let (a, b, c) = (v[0] - 2. * v[1] + v[2], 2. * (v[1] - v[0]), v[0]);
+    let mut minimum = d[0].min(d[3]);
+    let mut maximum = d[0].max(d[3]);
+    let mut include = |t: f64| {
+        if t > 0. && t < 1. {
+            let value = eval(t);
+            minimum = minimum.min(value);
+            maximum = maximum.max(value);
+        }
+    };
+    if a.abs() <= f64::EPSILON * b.abs().max(c.abs()).max(1.) {
+        if b != 0. {
+            include(-c / b);
+        }
+    } else {
+        let discriminant = b * b - 4. * a * c;
+        if discriminant >= 0. {
+            let q = -0.5 * (b + discriminant.sqrt().copysign(b));
+            if q == 0. {
+                include(-b / (2. * a));
+            } else {
+                include(q / a);
+                include(c / q);
+            }
+        }
+    }
+    minimum <= 1e-10 && maximum >= -1e-10
+}
 fn fit(map: Map, p: [Point; 4], tol: f64, depth: u32, span: (f64, f64), out: &mut Vec<([Point; 4], f64, f64, f64)>) -> Result<()> {
     let (nx, ny, d) = map.coefficients(p);
     if d.iter().all(|v| *v >= 1e-10) || d.iter().all(|v| *v <= -1e-10) {
@@ -282,6 +321,9 @@ pub fn map_path(path: &Path, map: Map, tolerance: f64) -> Result<Mapping> {
             next.knots.push(Knot::corner(p.x, p.y));
         }
         for (seg, p) in s.segments().into_iter().enumerate() {
+            if denominator_crosses_horizon(&map.coefficients(p).2) {
+                return Err(Error::Horizon);
+            }
             let mut pieces = Vec::new();
             fit(map, p, tolerance, 0, (0., 1.), &mut pieces)?;
             for (q, a, b, error) in pieces {

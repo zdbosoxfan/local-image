@@ -64,8 +64,8 @@ fn harness(zoom: f32, ppp: f32) -> H {
     // The actual selection context button opens the production Transform panel.
     h.get_by_label("Transform and Layout").click();
     h.run_steps(3);
-    assert!(h.state().ui.vector_layout.open);
-    h.state_mut().ui.vector_layout.snapping.enabled = false;
+    assert!(h.state().shared_tools.layout.open);
+    h.state_mut().shared_tools.layout.snapping.enabled = false;
     assert!(h.state().gpu_active());
     h
 }
@@ -94,19 +94,20 @@ fn assert_pixels_equal(h: &H, a: &image::RgbaImage, b: &image::RgbaImage, xs: st
 }
 #[test]
 fn layout16_app_rtx_pointer_crop_live_release_cancel_undo_zoom_parity() {
+    let _gpu_gate = crate::gpu_lock();
     for (zoom, ppp) in [(1., 1.), (2., 2.), (4., 1.), (8., 1.)] {
         let mut h = harness(zoom, ppp);
         h.get_by_label("Vector Crop tool").click();
         h.run_steps(3);
         // Keep the zoomed handle clear of the floating panel; this changes only window arrangement.
-        h.state_mut().ui.vector_layout.open = false;
+        h.state_mut().shared_tools.layout.open = false;
         h.run_steps(2);
         let before = h.state().session.active().unwrap().doc.clone();
         let journal = h.state().session.journal.len();
         pointer(&mut h, 100., 80., Some(true));
         pointer(&mut h, 75., 65., None);
         h.run_steps(2);
-        let detached = h.state().ui.vector_layout.preview.clone().expect("production live crop preview");
+        let detached = h.state().shared_tools.layout.preview.clone().expect("production live crop preview");
         assert_eq!(h.state().session.active().unwrap().doc, before);
         assert_eq!(h.state().session.journal.len(), journal);
         let live = h.render().unwrap();
@@ -131,11 +132,12 @@ fn layout16_app_rtx_pointer_crop_live_release_cancel_undo_zoom_parity() {
         h.run_steps(2);
         pointer(&mut h, 75., 65., Some(false));
         assert_eq!(h.state().session.active().unwrap().doc, before);
-        assert!(h.state().ui.vector_layout.preview.is_none());
+        assert!(h.state().shared_tools.layout.preview.is_none());
     }
 }
 #[test]
 fn layout16_app_rtx_pointer_resize_constraints_and_point_transform() {
+    let _gpu_gate = crate::gpu_lock();
     let mut h = harness(1., 1.);
     let id = h.state().session.active().unwrap().active_layer.unwrap();
     h.state_mut()
@@ -156,6 +158,7 @@ fn layout16_app_rtx_pointer_resize_constraints_and_point_transform() {
                     rect: photocraft_geom::Rect::new(10, 10, 130, 100),
                     background: photocraft_doc::ArtboardBackground::Transparent,
                     preset: String::new(),
+                    drawing_scale: None,
                 });
             }
             *active = Some(board.id);
@@ -170,7 +173,7 @@ fn layout16_app_rtx_pointer_resize_constraints_and_point_transform() {
     pointer(&mut h, 130., 100., Some(true));
     pointer(&mut h, 170., 120., None);
     h.run_steps(2);
-    let detached = h.state().ui.vector_layout.preview.clone().expect("production resize preview");
+    let detached = h.state().shared_tools.layout.preview.clone().expect("production resize preview");
     assert_eq!(h.state().session.active().unwrap().doc, before);
     let live = h.render().unwrap();
     pointer(&mut h, 170., 120., Some(false));
@@ -187,14 +190,15 @@ fn layout16_app_rtx_pointer_resize_constraints_and_point_transform() {
     h.run_steps(3);
     pointer(&mut h, 100., 20., Some(true));
     pointer(&mut h, 100., 80., None);
-    assert!(h.state().ui.vector_layout.preview.is_some());
+    assert!(h.state().shared_tools.layout.preview.is_some());
     pointer(&mut h, 100., 80., Some(false));
-    assert!(h.state().ui.vector_layout.preview.is_none());
+    assert!(h.state().shared_tools.layout.preview.is_none());
     assert!(h.state_mut().session.undo());
 }
 #[test]
 #[ignore = "release real-app pointer/frame measurement, run explicitly"]
 fn layout16_app_release_pointer_frames() {
+    let _gpu_gate = crate::gpu_lock();
     if cfg!(debug_assertions) {
         panic!("run with --release");
     }
@@ -209,7 +213,7 @@ fn layout16_app_release_pointer_frames() {
         pointer(&mut h, 90. - i as f32 * 0.25, 70., None);
         h.render().expect("real app GPU readback");
         times.push(start.elapsed().as_secs_f64() * 1000.);
-        assert!(h.state().ui.vector_layout.preview.is_some());
+        assert!(h.state().shared_tools.layout.preview.is_some());
     }
     times.sort_by(f64::total_cmp);
     let start = std::time::Instant::now();
@@ -227,12 +231,13 @@ fn layout16_app_release_pointer_frames() {
 
 #[test]
 fn layout16_app_actual_preset_cards_design_units_and_old_settings() {
+    let _gpu_gate = crate::gpu_lock();
     use photocraft_doc::vector_design::structure::DesignUnits;
     use photocraft_ui_egui::state::{DialogKind, UiState};
     let old = serde_json::to_value(UiState::default()).unwrap();
     assert!(old.get("vector_layout").is_none());
     let loaded: UiState = serde_json::from_value(old).unwrap();
-    assert!(!loaded.vector_layout.captured());
+    assert!(serde_json::to_value(loaded).unwrap().get("shared_tools").is_none());
     for (category, unit, display) in [
         ("Photo", DesignUnits::Pixels, "in"),
         ("Print", DesignUnits::Millimeters, "mm"),
@@ -289,6 +294,7 @@ fn layout16_app_actual_preset_cards_design_units_and_old_settings() {
 
 #[test]
 fn layout16_app_existing_move_keeps_clip_and_path_translation_together() {
+    let _gpu_gate = crate::gpu_lock();
     let mut h = harness(1., 1.);
     h.get_by_label("Vector Crop tool").click();
     h.run_steps(3);

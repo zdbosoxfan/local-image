@@ -169,6 +169,10 @@ pub(super) fn document(doc: &Document, opts: &ExportOptions) -> Result<()> {
                             fill(&f.paint)?;
                         }
                         AppearanceItem::Stroke(s) => stroke(&s.base)?,
+                        AppearanceItem::Mesh(m) => {
+                            unit(m.opacity)?;
+                            photocraft_vector::mesh_paint::Mesh::from(&m.paint).validate().map_err(invalid)?;
+                        }
                     }
                 }
             }

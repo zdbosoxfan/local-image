@@ -96,6 +96,7 @@ impl State {
     /// Abandon shared and existing Node capture together at the host lifecycle boundary.
     pub fn deactivate(&mut self, app: &mut PhotocraftApp) {
         self.cancel();
+        app.session.vector_insertion = None;
         crate::direct_select::cancel(app);
         app.ui.pen = None;
     }
@@ -128,6 +129,9 @@ impl State {
             return Err(EngineError::Other("tool pointer must be finite and bounded".into()));
         }
         if matches!(ev, ToolEvent::Down { .. }) && self.capture.is_none() {
+            if self.persona == Some(Persona::Vector) && matches!(registry::handler(id), Some(Handler::Pen | Handler::Shape | Handler::VectorPencil)) {
+                photocraft_engine::vector_integration::capture_insertion(&mut app.session, app.clip_compound_state.settings.mode)?;
+            }
             self.capture = Capture::new(&app.session);
             if let Some(st) = app.session.active() {
                 use photocraft_engine::vector_packages::snapping::query::{Cache, installed_geometry};
@@ -148,6 +152,7 @@ impl State {
             self.last = Some((at, mods));
             if matches!(ev, ToolEvent::Up { .. }) && self.pen.gesture.is_none() && self.path_text.draft.is_none() {
                 self.capture = None;
+                app.session.vector_insertion = None;
                 self.mapping = None;
                 self.snap_cache = None;
                 self.snap_result = None;
@@ -160,6 +165,70 @@ impl State {
     pub fn input(&mut self, app: &mut PhotocraftApp, ui: &mut egui::Ui, id: &str, persona: Persona, xf: &ViewXform, rect: Rect) -> bool {
         if !self.activate(app, id, persona) {
             return false;
+        }
+        if registry::handler(id) == Some(Handler::Text) && app.ui.tool == crate::state::Tool::Type {
+            let hit = self.path_text.draft.is_some()
+                || ui.input(|i| {
+                    i.events.iter().any(|e| {
+                        if let egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, .. } = e {
+                            let p = xf.to_doc(*pos);
+                            rect.contains(*pos)
+                                && app.session.active().is_some_and(|s| {
+                                    photocraft_engine::vector_packages::path_text::curve_at(&s.doc, Point::new(p[0], p[1]), 6. / f64::from(xf.zoom))
+                                        .is_ok_and(|h| h.is_some())
+                                })
+                        } else {
+                            false
+                        }
+                    })
+                });
+            if hit {
+                let [r, g, b, a] = app.session.tools.foreground;
+                let style = photocraft_doc::text::CharStyle {
+                    font_family: app.ui.tool_options.type_font.clone(),
+                    font_style: app.ui.tool_options.type_style.clone(),
+                    size_pt: app.ui.tool_options.type_size,
+                    color: Color::rgba(r, g, b, a),
+                    ..Default::default()
+                };
+                if let Err(e) = path_text::input(
+                    &mut self.path_text,
+                    &mut app.session,
+                    ui.ctx(),
+                    rect,
+                    |p| {
+                        let p = xf.to_doc(p);
+                        Point::new(p[0], p[1])
+                    },
+                    true,
+                    6. / f64::from(xf.zoom),
+                    &style,
+                ) {
+                    self.deactivate(app);
+                    app.ui.status = e.to_string();
+                    app.ui.status_error = true;
+                }
+                return true;
+            }
+        }
+        match registry::handler(id) {
+            // These established app paths already share an implementation. Keep canvas
+            // pan/zoom, live raster paint, type IME and Move capture in their existing host.
+            Some(Handler::Text) if !matches!(self.id, Some("ArtText" | "FrameText")) => return false,
+            Some(
+                Handler::Move
+                | Handler::PathSelection
+                | Handler::CustomShape
+                | Handler::Crop
+                | Handler::Eyedropper
+                | Handler::Hand
+                | Handler::Zoom
+                | Handler::RasterPencil
+                | Handler::RasterGradient
+                | Handler::Raster
+                | Handler::Feature(_),
+            ) => return false,
+            _ => {}
         }
         let ctx = ui.ctx();
         self.pixels_per_point = Some(f64::from(ctx.pixels_per_point()));
@@ -197,22 +266,6 @@ impl State {
                 }
                 return true;
             }
-            // These established app paths already share an implementation. Keep canvas
-            // pan/zoom, live raster paint, type IME and Move capture in their existing host.
-            Some(Handler::Text) if !matches!(self.id, Some("ArtText" | "FrameText")) => return false,
-            Some(
-                Handler::Move
-                | Handler::PathSelection
-                | Handler::CustomShape
-                | Handler::Crop
-                | Handler::Eyedropper
-                | Handler::Hand
-                | Handler::Zoom
-                | Handler::RasterPencil
-                | Handler::RasterGradient
-                | Handler::Raster
-                | Handler::Feature(_),
-            ) => return false,
             _ => {}
         }
         // Borrow the event slice. Clone neither the egui event list nor gesture/document state.
@@ -287,7 +340,10 @@ impl State {
     }
     pub fn context(&mut self, app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         match registry::handler(self.id.unwrap_or("")) {
-            Some(Handler::Pen) => pen::context(ui, &mut self.pen),
+            Some(Handler::Pen) => {
+                pen::context(ui, &mut self.pen);
+                app.ui.tool_options.pen_options = self.pen.options.clone();
+            }
             Some(Handler::VectorPencil) => pencil::context_bar(ui, &mut self.pencil),
             Some(Handler::Corner) => self.corners.context_bar(ui, &mut app.session),
             Some(Handler::Node) => crate::direct_select::context_ui(app, ui),
@@ -392,6 +448,16 @@ pub fn pen_pointer(
     result
 }
 fn pen_event(state: &mut State, app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> Result<()> {
+    if matches!(ev, ToolEvent::Down { .. }) && (mods.command || mods.ctrl) && state.pen.gesture.is_some() {
+        state.pen.enter(&mut app.session)?;
+        state.capture = Capture::new(&app.session);
+        app.ui.persona_pointer.clear();
+    }
+    if (mods.command || mods.ctrl || state.pen.gesture.is_none() && mods.alt || app.ui.direct_selection.drag.is_some())
+        && crate::direct_select::pointer(app, ev, mods)
+    {
+        return Ok(());
+    }
     let paint = pen_paints(app, state.pen.options.mode);
     let zoom = f64::from(app.current_zoom());
     let origin = state.pen.gesture.as_ref().map(|g| g.constraint_origin());
@@ -535,7 +601,7 @@ fn existing_event(state: &mut State, app: &mut PhotocraftApp, mut ev: ToolEvent,
     // Existing Move/Path/Type/Crop/Hand/Zoom/raster paths are already persona-neutral.
     // Artistic/Frame defaults use the same Type handler and editing session.
     let id = state.id.unwrap_or("");
-    let tool = crate::Tool::from_name(id).or_else(|| matches!(id, "ArtText" | "FrameText").then_some(crate::Tool::Type));
+    let tool = if matches!(id, "ArtText" | "FrameText") { Some(crate::Tool::Type) } else { crate::Tool::from_name(id) };
     let Some(tool) = tool else {
         return Err(EngineError::Other(format!("{id} requires its feature provider")));
     };

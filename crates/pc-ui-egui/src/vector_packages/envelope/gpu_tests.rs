@@ -6,40 +6,7 @@ use crate::{PhotocraftApp, state::Tool};
 use eframe::{egui_wgpu, wgpu};
 use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::Harness;
-struct AppHost {
-    app: PhotocraftApp,
-    state: State,
-}
-impl eframe::App for AppHost {
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        self.state.lifecycle(&self.app.session, true, ui.ctx().input(|i| i.focused), ui.ctx().input(|i| i.key_pressed(Key::Escape)));
-        egui::Panel::top("envelope-gate-options").show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| self.state.context_bar(ui, &mut self.app.session));
-        });
-        if let Some(xf) = ViewXform::active(&self.app) {
-            egui::Area::new(egui::Id::new("envelope-gate-handles")).order(egui::Order::Foreground).fixed_pos(xf.rect.min).show(ui.ctx(), |ui| {
-                let (response, painter) = ui.allocate_painter(xf.rect.size(), egui::Sense::click_and_drag());
-                self.state.canvas_input(&mut self.app.session, &response, &xf);
-                self.state.draw_overlay(&self.app.session, &painter, &xf);
-            });
-        }
-        let shown = self.state.display_for_document(&self.app.session, 0).unwrap();
-        // Test-only injection at the documented display boundary. Restore the source Arc
-        // and revision after the real app frame; no history/journal edit is performed.
-        let original = self.app.session.active().unwrap().doc.clone();
-        let revision = self.app.session.active().unwrap().revision;
-        if let Some((doc, key)) = shown {
-            let st = self.app.session.active_mut().unwrap();
-            st.doc = doc;
-            st.revision = revision ^ key ^ (1 << 55);
-        }
-        eframe::App::ui(&mut self.app, ui, frame);
-        let st = self.app.session.active_mut().unwrap();
-        st.doc = original;
-        st.revision = revision;
-    }
-}
-fn harness() -> Harness<'static, AppHost> {
+fn harness() -> Harness<'static, PhotocraftApp> {
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
     create.instance_descriptor.backends = wgpu::Backends::VULKAN;
     create.native_adapter_selector = Some(Arc::new(|adapters, _| {
@@ -74,81 +41,94 @@ fn harness() -> Harness<'static, AppHost> {
                 Ok(())
             })
             .unwrap();
+        session.edit_prefs(|p| {
+            p.toolbar.persona = photocraft_engine::toolsets::Persona::Vector;
+            p.toolbar.vector_tool = "Envelope".into();
+        });
         let mut app = PhotocraftApp::new(session, Default::default());
-        app.ui.tool = Tool::Eyedropper;
+        app.ui.tool = Tool::Envelope;
+        app.sync_views();
+        app.ui.views[0].zoom = 1.;
+        app.ui.views[0].fit_pending = false;
+        app.ui.extras.rulers = false;
+        app.ui.extras.snap = false;
         app.set_wgpu(cc.wgpu_render_state.as_ref().expect("GPU renderer required").clone());
-        AppHost { app, state: State { target: Some(group), ..Default::default() } }
+        app.envelope_state.target = Some(group);
+        app
     });
     h.run_steps(10);
-    assert!(h.state().app.gpu_active());
-    let info = &h.state().app.perf.gpu_info;
+    assert!(h.state().gpu_active());
+    let info = &h.state().perf.gpu_info;
     assert!(info.adapter.contains("RTX 5090"));
     assert_eq!(info.backend, "vulkan");
     assert_eq!(info.device_type, "discreteGpu");
     h
 }
-fn pointer(h: &mut Harness<'_, AppHost>, pos: egui::Pos2, press: Option<bool>) {
+fn pointer(h: &mut Harness<'_, PhotocraftApp>, pos: egui::Pos2, press: Option<bool>) {
     h.event(Event::PointerMoved(pos));
     if let Some(pressed) = press {
         h.event(Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
     }
     h.run_steps(1);
 }
-fn canvas(h: &mut Harness<'_, AppHost>) -> Vec<[u8; 4]> {
+fn parity(h: &mut Harness<'_, PhotocraftApp>) {
     h.run_steps(3);
-    let xf = ViewXform::active(&h.state().app).unwrap();
-    let image = h.render().expect("RTX readback");
-    // CPU/GPU app comparison uses identical handles, display/CMS/checkerboard
-    // transforms; only the compositor is switched.
-    (0..160)
-        .flat_map(|y| (0..192).map(move |x| (x, y)))
-        .map(|(x, y)| {
-            let p = xf.to_screen(x as f32 + 0.5, y as f32 + 0.5);
-            image.get_pixel(p.x.floor() as u32, p.y.floor() as u32).0
+    h.render().expect("actual RTX app frame");
+    assert!(h.state().perf.gpu);
+    let ctx = h.ctx.clone();
+    let (doc, _) = crate::canvas::display_doc(h.state_mut(), &ctx, 0);
+    let cpu = photocraft_compose::flatten(&doc);
+    let (_, size, pixels) = h.state().read_canvas_texels(doc.id.0).expect("actual GPU texture");
+    assert_eq!(size, [doc.size.width, doc.size.height]);
+    assert_eq!(cpu.px.len(), pixels.len());
+    let max = cpu
+        .px
+        .iter()
+        .zip(pixels)
+        .flat_map(|(a, b)| {
+            (0..4).map(move |c| {
+                assert!(b[c].is_finite());
+                (b[c] - a[c] * if c == 3 { 1. } else { a[3] }).abs()
+            })
         })
-        .collect()
+        .fold(0f32, f32::max);
+    assert!(max <= 1. / 255., "premultiplied GPU app diff={max}");
 }
-fn parity(h: &mut Harness<'_, AppHost>) {
-    let gpu = canvas(h);
-    assert!(gpu.iter().any(|p| p[0] > 150 && p[1] < 80 && p[2] < 80), "actual warped text pixels must be visible");
-    assert!(h.state().app.perf.gpu);
-    let renderer = h.state_mut().app.gpu.take().expect("GPU path required");
-    h.state_mut().app.canvases.clear();
-    let cpu = canvas(h);
-    h.state_mut().app.gpu = Some(renderer);
-    assert_eq!(gpu.len(), cpu.len());
-    let max = gpu.iter().zip(cpu).flat_map(|(a, b)| (0..4).map(move |i| (i16::from(a[i]) - i16::from(b[i])).unsigned_abs())).max().unwrap();
-    assert!(max <= 1, "premultiplied app canvas byte diff={max}");
-}
+
 #[test]
 #[ignore = "integration milestone: full app on real RTX 5090 Vulkan"]
 fn envelope_gpu_app_mesh_drag_warp_text_cancel_release_cpu_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness();
-    let before = h.state().app.session.active().unwrap().doc.clone();
-    let history = h.state().app.session.active().unwrap().history.past_len();
-    let xf = ViewXform::active(&h.state().app).unwrap();
+    let before = h.state().session.active().unwrap().doc.clone();
+    let history = h.state().session.active().unwrap().history.past_len();
+    let journal = h.state().session.journal.len();
+    let xf = ViewXform::active(h.state()).unwrap();
     let center = xf.to_screen(80.0, 80.0);
     pointer(&mut h, center, Some(true));
     pointer(&mut h, center + egui::vec2(16.0, -14.0), None);
-    assert!(h.state().state.is_dragging());
-    assert!(h.state().state.display_document(&h.state().app.session).is_some());
-    assert!(Arc::ptr_eq(&before, &h.state().app.session.active().unwrap().doc));
+    assert!(h.state().envelope_state.is_dragging());
+    assert!(h.state().envelope_state.display_document(&h.state().session).is_some());
+    assert!(Arc::ptr_eq(&before, &h.state().session.active().unwrap().doc));
     parity(&mut h);
     h.key_press(Key::Escape);
     h.run_steps(2);
     pointer(&mut h, center, Some(false));
-    assert_eq!(h.state().app.session.active().unwrap().history.past_len(), history);
-    assert_eq!(h.state().app.session.active().unwrap().doc, before);
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+    assert_eq!(h.state().session.active().unwrap().doc, before);
     pointer(&mut h, center, Some(true));
     pointer(&mut h, center + egui::vec2(16.0, -14.0), None);
     pointer(&mut h, center + egui::vec2(16.0, -14.0), Some(false));
-    assert!(!h.state().state.is_dragging());
-    assert_eq!(h.state().app.session.journal.len(), 1);
+    assert!(!h.state().envelope_state.is_dragging());
+    assert_eq!(h.state().session.journal.len(), journal + 1);
     parity(&mut h);
     let host = h.state_mut();
-    host.state.update(&host.app.session, EnvelopeSpec::Warp { style: "wave".into(), bend: 40.0, horizontal: 0.0, vertical: 0.0 }).unwrap();
+    host.envelope_state.update(&host.session, EnvelopeSpec::Warp { style: "wave".into(), bend: 40.0, horizontal: 0.0, vertical: 0.0 }).unwrap();
     parity(&mut h);
+    let id = h.state().session.active().unwrap().doc.id;
+    let (_, _, pixels) = h.state().read_canvas_texels(id.0).unwrap();
+    assert!(pixels.iter().any(|p| p[0] > 0.5 && p[1] < 0.2 && p[2] < 0.2), "warped editable text remains visible");
     let host = h.state_mut();
-    host.state.apply(&mut host.app.session).unwrap();
+    host.envelope_state.apply(&mut host.session).unwrap();
     parity(&mut h);
 }

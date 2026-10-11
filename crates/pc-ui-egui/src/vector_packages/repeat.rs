@@ -129,6 +129,11 @@ fn current(s: &Session) -> Option<RepeatSpec> {
 fn target_bounds(s: &Session) -> Result<Bounds> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
     let ids = st.selected_layers();
+    if let [id] = ids.as_slice() {
+        let layer = st.doc.layer(*id).ok_or(EngineError::NoLayer(*id))?;
+        let sources = if matches!(layer.vector.live, Some(LiveGroup::Repeat(_))) { layer.children().unwrap_or(&[]) } else { std::slice::from_ref(layer) };
+        return evaluator::source_bounds(sources).map_err(|e| EngineError::Other(e.to_string()));
+    }
     let layers = ids.iter().map(|id| st.doc.layer(*id).cloned().ok_or(EngineError::NoLayer(*id))).collect::<Result<Vec<_>>>()?;
     let sources = if layers.len() == 1 && matches!(layers[0].vector.live, Some(LiveGroup::Repeat(_))) { layers[0].children().unwrap_or(&[]) } else { &layers };
     evaluator::source_bounds(sources).map_err(|e| EngineError::Other(e.to_string()))
@@ -217,8 +222,13 @@ pub fn panel(ui: &mut Ui, s: &mut Session, state: &mut State, tr: impl Fn(&str) 
             state.failed(e);
         }
         let apply = ui.add_enabled(state.dirty, egui::Button::new(tr("Apply Repeat"))).clicked();
-        finished |= ui.input(|i| i.key_pressed(Key::Enter) || (i.pointer.primary_released() && state.dirty));
-        if (apply || finished)
+        let cancelled = ui.button(tr("Cancel Repeat Preview")).clicked();
+        if cancelled {
+            state.cancel();
+        }
+        finished |= ui.input(|i| i.key_pressed(Key::Enter));
+        if !cancelled
+            && (apply || finished)
             && state.dirty
             && let Some(capture) = state.panel.clone()
             && let Err(e) = state.commit(s, capture)
@@ -231,9 +241,6 @@ pub fn panel(ui: &mut Ui, s: &mut Session, state: &mut State, tr: impl Fn(&str) 
             if let Err(e) = result {
                 state.failed(e);
             }
-        }
-        if ui.button(tr("Cancel Repeat Preview")).clicked() {
-            state.cancel();
         }
     }
     if let Some(error) = &state.error {

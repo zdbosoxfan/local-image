@@ -37,7 +37,8 @@ fn button(h: &mut H, x: f32, y: f32, pressed: bool) {
 }
 #[test]
 fn affinity_app_gpu_live_preview_release_editability_warning_and_undo() {
-    let _lock = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     for ppp in [1.0, 2.0] {
         let mut h = Harness::builder().with_size(egui::vec2(1100.0, 800.0)).with_pixels_per_point(ppp).wgpu_setup(setup()).build_eframe(|cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
@@ -55,12 +56,12 @@ fn affinity_app_gpu_live_preview_release_editability_warning_and_undo() {
             app.ui.views[0].zoom = 1.0;
             app.ui.views[0].center = [64.0, 64.0];
             app.ui.views[0].fit_pending = false;
-            app.affinity.source = include_bytes!("../../../../pc-affinity/tests/fixtures/warnings.afphoto").to_vec();
-            app.affinity.stage(&app.session).unwrap();
+            app.affinity_import.source = include_bytes!("../../../../pc-affinity/tests/fixtures/warnings.afphoto").to_vec();
+            app.affinity_import.stage(&app.session).unwrap();
         }
         h.run_steps(3);
         assert!(h.state().gpu_active());
-        assert!(h.state().affinity.pending(), "Affinity staging must survive idle app frames");
+        assert!(h.state().affinity_import.pending(), "Affinity staging must survive idle app frames");
         let before = h.state().session.active().unwrap().doc.clone();
         let revision = h.state().session.active().unwrap().revision;
         let journal = h.state().session.journal.len();
@@ -72,7 +73,7 @@ fn affinity_app_gpu_live_preview_release_editability_warning_and_undo() {
         assert_eq!(h.state().session.active().unwrap().doc, before);
         assert_eq!(h.state().session.active().unwrap().revision, revision);
         assert_eq!(h.state().session.journal.len(), journal);
-        let detached = h.state().affinity.preview.clone().expect("actual app detached Affinity preview");
+        let detached = h.state().affinity_import.preview.clone().expect("actual app detached Affinity preview");
         let expected = photocraft_compose::flatten(&detached);
         let preview = h.render().unwrap();
         assert_ne!(initial, preview, "real app pointer frame must move Affinity pixels");
@@ -115,7 +116,7 @@ fn affinity_app_gpu_live_preview_release_editability_warning_and_undo() {
         assert!(max_cpu <= 1, "actual canvas/CPU premultiplied ink max difference {max_cpu}/255 at {ppp}x: {worst_cpu:?}");
         eprintln!("Affinity app {ppp}x: preview/release {max}/255; CPU/canvas {max_cpu}/255");
         // The real app dialog's warning button selects the imported editable shape.
-        h.state_mut().affinity_dialog = true;
+        photocraft_ui_egui::vector_integration::set_panel_open(h.state_mut(), "Affinity Import", true);
         h.run_steps(2);
         h.get_by_label("unsupported-record: Future").click();
         h.run_steps(2);
@@ -123,7 +124,7 @@ fn affinity_app_gpu_live_preview_release_editability_warning_and_undo() {
         assert_eq!(st.doc.layer(st.active_layer.unwrap()).unwrap().name, "Future");
         let id = st.doc.walk().into_iter().find(|(_, _, l)| l.name == "Visible badge").unwrap().2.id;
         assert!(matches!(st.doc.layer(id).unwrap().content, photocraft_doc::LayerContent::Shape(_)));
-        h.state_mut().affinity_dialog = false;
+        photocraft_ui_egui::vector_integration::set_panel_open(h.state_mut(), "Affinity Import", false);
         let path = if let photocraft_doc::LayerContent::Shape(sh) = &h.state().session.active().unwrap().doc.layer(id).unwrap().content {
             sh.path.transform(&photocraft_doc::Affine::translate(2.0, 0.0))
         } else {
@@ -135,20 +136,20 @@ fn affinity_app_gpu_live_preview_release_editability_warning_and_undo() {
         assert_eq!(h.state().session.active().unwrap().doc, before);
         {
             let app = h.state_mut();
-            app.affinity.stage(&app.session).unwrap();
+            app.affinity_import.stage(&app.session).unwrap();
         }
         h.key_press(egui::Key::Escape);
         h.step();
-        assert!(h.state().affinity.preview.is_none());
+        assert!(h.state().affinity_import.preview.is_none());
         assert_eq!(h.state().session.active().unwrap().doc, before);
         {
             let app = h.state_mut();
-            app.affinity.stage(&app.session).unwrap();
+            app.affinity_import.stage(&app.session).unwrap();
         }
         h.step();
         h.state_mut().ui.tool = Tool::Brush;
         h.step();
-        assert!(!h.state().affinity.pending(), "tool switch cancels detached Affinity placement");
+        assert!(!h.state().affinity_import.pending(), "tool switch cancels detached Affinity placement");
         assert_eq!(h.state().session.active().unwrap().doc, before);
     }
 }

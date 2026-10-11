@@ -309,10 +309,19 @@ fn place(layer: &mut Layer, centers: &[Point], i: usize, t: f64, rail: Option<&s
 /// Shared display/export projection. Generated IDs are deterministic and cannot collide with
 /// source IDs. Bounds-limited caches are prepared in two passes before any document publishes.
 pub fn max_document_id(doc: &Document) -> u64 {
-    fn layers(input: &[Layer]) -> u64 {
-        input.iter().map(|l| l.id.0.max(l.children().map_or(0, layers))).max().unwrap_or(0)
+    let mut max = doc.id.0;
+    let mut stack: Vec<_> = doc.layers.iter().collect();
+    for symbol in &doc.symbols {
+        max = max.max(symbol.id.0);
+        stack.extend(&symbol.layers);
     }
-    doc.symbols.iter().map(|s| s.id.0.max(layers(&s.layers))).max().unwrap_or(0).max(layers(&doc.layers)).max(doc.id.0)
+    while let Some(layer) = stack.pop() {
+        max = max.max(layer.id.0);
+        if let Some(children) = layer.children() {
+            stack.extend(children);
+        }
+    }
+    max
 }
 
 pub fn project_document(source: &Document) -> Result<Document> {
@@ -357,14 +366,23 @@ pub fn project_document(source: &Document) -> Result<Document> {
 /// Rasterize only missing/transformed/generated curve caches, after checking the aggregate
 /// allocation budget. Unchanged raster/type/effect layers remain ordinary compositor inputs.
 pub fn prepare_caches(doc: &mut Document) -> Result<()> {
+    if doc.max_group_depth() > photocraft_doc::MAX_GROUP_DEPTH {
+        return Err(error("blend cache document exceeds depth budget"));
+    }
     let mut bytes = 0u128;
     for (_, _, layer) in doc.walk() {
         if let LayerContent::Shape(shape) = &layer.content
             && shape.cache.is_none()
         {
             validate_path(&shape.path)?;
-            let compiled =
-                photocraft_vector::appearance::CompiledAppearance::new(shape, layer.vector.appearance.as_ref(), &doc.patterns, doc.bounds()).map_err(error)?;
+            let compiled = photocraft_vector::appearance::CompiledAppearance::with_projection(
+                shape,
+                layer.vector.appearance.as_ref(),
+                &doc.patterns,
+                doc.bounds(),
+                &crate::Projection,
+            )
+            .map_err(error)?;
             bytes += compiled.cache_bytes(doc.pixel_format());
             if bytes > MAX_CACHE_BYTES {
                 return Err(error("blend caches exceed 256 MiB budget"));
@@ -372,21 +390,39 @@ pub fn prepare_caches(doc: &mut Document) -> Result<()> {
         }
     }
     let (format, bounds, patterns) = (doc.pixel_format(), doc.bounds(), doc.patterns.clone());
-    fn render(layers: &mut [Layer], format: photocraft_color::PixelFormat, bounds: photocraft_geom::Rect, patterns: &[photocraft_doc::Pattern]) -> Result<()> {
+    fn render(
+        layers: &mut [Layer],
+        format: photocraft_color::PixelFormat,
+        bounds: photocraft_geom::Rect,
+        patterns: &[photocraft_doc::Pattern],
+        depth: usize,
+    ) -> Result<()> {
+        if depth > photocraft_doc::MAX_GROUP_DEPTH {
+            return Err(error("blend cache document exceeds depth budget"));
+        }
         for layer in layers {
             if let LayerContent::Shape(shape) = &mut layer.content
                 && shape.cache.is_none()
             {
-                shape.cache =
-                    Some(photocraft_vector::appearance::render_shape(shape, layer.vector.appearance.as_ref(), patterns, format, bounds).map_err(error)?);
+                shape.cache = Some(
+                    photocraft_vector::appearance::CompiledAppearance::with_projection(
+                        shape,
+                        layer.vector.appearance.as_ref(),
+                        patterns,
+                        bounds,
+                        &crate::Projection,
+                    )
+                    .and_then(|plan| plan.render(format, bounds))
+                    .map_err(error)?,
+                );
             }
             if let Some(children) = layer.children_mut() {
-                render(children, format, bounds, patterns)?;
+                render(children, format, bounds, patterns, depth + 1)?;
             }
         }
         Ok(())
     }
-    render(&mut doc.layers, format, bounds, &patterns)
+    render(&mut doc.layers, format, bounds, &patterns, 0)
 }
 /// No engine/UI dependency: format adapters project the exchange DTO with this same evaluator.
 pub fn project_scene(

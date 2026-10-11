@@ -43,7 +43,7 @@ impl Outline {
                 } else {
                     let size = (c.x - a.x).hypot(c.y - a.y) + (d.x - c.x).hypot(d.y - c.y) + (b.x - d.x).hypot(b.y - d.y);
                     let curvature = (a.x - 2. * c.x + d.x).hypot(a.y - 2. * c.y + d.y).max((c.x - 2. * d.x + b.x).hypot(c.y - 2. * d.y + b.y));
-                    let tol = crate::DEFAULT_TOLERANCE.min(size * 1e-3).max(1e-4);
+                    let tol = crate::DEFAULT_TOLERANCE.min(size * 1e-3).max(1e-7);
                     ((0.75 * curvature / tol).sqrt().ceil() as usize).clamp(1, 1 << 16)
                 };
                 pieces = pieces.saturating_add(count + 1);

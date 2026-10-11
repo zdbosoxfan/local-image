@@ -3,6 +3,7 @@ use super::*;
 #[test]
 #[ignore = "integration milestone: requires real RTX 5090 Vulkan"]
 fn envelope_gpu_warped_path_text_preview_release_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).expect("RTX 5090 required");
     let info = adapter.get_info();

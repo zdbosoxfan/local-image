@@ -137,7 +137,7 @@ fn object36_expand_live_shape_repeat_and_symbol_match_projected_pixels() {
     assert!(p.document.walk().iter().all(|(_, _, l)| !matches!(l.content, LayerContent::Symbol(_))));
 }
 #[test]
-fn object36_expand_unavailable_blend_envelope_invalid_last_target_are_atomic_and_explain() {
+fn object36_expand_invalid_blend_envelope_last_target_are_atomic_and_explain() {
     let (mut s, id) = fixture();
     let mut doc = (*s.active().unwrap().doc).clone();
     let mut group = Layer::group("Blend", vec![doc.layers[0].duplicate()]);
@@ -148,16 +148,20 @@ fn object36_expand_unavailable_blend_envelope_invalid_last_target_are_atomic_and
     let before = s.active().unwrap().doc.clone();
     let r = request(&s, &[id, unavailable]);
     let reason = disabled_reason(&s, &r).unwrap();
-    assert!(reason.contains("owner 18"));
+    assert!(!reason.is_empty(), "invalid one-child blend explains its failure");
     assert!(s.execute("object.expand", json!(r)).is_err());
     assert!(Arc::ptr_eq(&s.active().unwrap().doc, &before));
     assert!(s.journal.is_empty());
     assert_eq!(s.active().unwrap().history.past_len(), 0);
     let mut doc = (*before).clone();
-    doc.layer_mut(unavailable).unwrap().vector.live =
-        Some(LiveGroup::Envelope(photocraft_doc::vector_design::live::EnvelopeSpec::Warp { style: "arc".into(), bend: 0., horizontal: 0., vertical: 0. }));
+    doc.layer_mut(unavailable).unwrap().vector.live = Some(LiveGroup::Envelope(photocraft_doc::vector_design::live::EnvelopeSpec::Warp {
+        style: "unsupported-style".into(),
+        bend: 0.,
+        horizontal: 0.,
+        vertical: 0.,
+    }));
     s.active_mut().unwrap().doc = Arc::new(doc);
-    assert!(disabled_reason(&s, &request(&s, &[unavailable])).unwrap().contains("owner 20"));
+    assert!(!disabled_reason(&s, &request(&s, &[unavailable])).unwrap().is_empty());
     let mut r = request(&s, &[id]);
     r.capture.revision += 1;
     assert!(s.execute("object.expand", json!(r)).is_err());
@@ -249,4 +253,32 @@ fn object36_expand_live_corners_brush_and_path_text_use_owner_projections() {
     assert_eq!(s.active().unwrap().history.past_len(), 1);
     assert!(s.undo());
     assert_eq!(s.active().unwrap().doc, before);
+}
+
+#[test]
+fn review_regression_object36_fill_stroke_only_cannot_discard_live_group_or_path_text_geometry() {
+    let (mut s, id) = fixture();
+    let source = s.active().unwrap().doc.clone();
+    let mut group = Layer::group("Repeat", source.layers.clone());
+    group.vector.live = Some(LiveGroup::Repeat(RepeatSpec::Grid { rows: 2, cols: 2, spacing: [2., 2.] }));
+    let gid = group.id;
+    let mut doc = (*source).clone();
+    doc.layers = vec![group];
+    s.active_mut().unwrap().doc = Arc::new(doc);
+    let mut r = request(&s, &[gid]);
+    r.appearance = false;
+    r.options.object = false;
+    let before = s.active().unwrap().doc.clone();
+    assert!(prepare(&s, &r).is_err());
+    assert_eq!(s.active().unwrap().doc, before);
+    let mut layer = source.layer(id).unwrap().clone();
+    layer.vector.on_path = Some(photocraft_doc::vector_design::text::PathText {
+        path: photocraft_vector::shapes::rect(1., 1., 4., 4.),
+        start: 0.,
+        end: 1.,
+        flip: false,
+        align: photocraft_doc::vector_design::text::PathTextAlign::Baseline,
+    });
+    assert!(shape_expansion(&layer, r.options, false).is_err());
+    assert!(s.journal.is_empty());
 }

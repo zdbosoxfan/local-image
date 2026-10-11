@@ -86,6 +86,7 @@ fn drag(h: &mut Harness<'_, PhotocraftApp>, from: egui::Pos2, delta: egui::Vec2)
 
 #[test]
 fn draft_refine_large_previews_and_window_open_at_both_resolutions() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     for size in [vec2(1280.0, 800.0), vec2(1920.0, 1080.0)] {
         let mut h = harness(size);
         // Open using the Generate panel's real button.
@@ -126,6 +127,7 @@ fn draft_refine_large_previews_and_window_open_at_both_resolutions() {
 
 #[test]
 fn draft_refine_sampling_is_editable_and_bounded_only_by_comfyui() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
     // Qwen has variable steps and guidance; Klein's distilled ranges are fixed.
@@ -171,6 +173,7 @@ fn draft_refine_sampling_is_editable_and_bounded_only_by_comfyui() {
 
 #[test]
 fn draft_refine_click_carries_current_composite_selected_layer_and_draft_pixels() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
     TEST_REQUEST.with(|m| *m.borrow_mut() = Some(Vec::new()));
@@ -211,6 +214,7 @@ fn draft_refine_click_carries_current_composite_selected_layer_and_draft_pixels(
 
 #[test]
 fn draft_refine_zoom_pan_comparison_and_saved_defaults() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
     let p = h.get_by_label("Refinement preview").rect().center();
@@ -242,6 +246,7 @@ fn draft_refine_zoom_pan_comparison_and_saved_defaults() {
 
 #[test]
 fn draft_refine_dock_request_keeps_open_image_and_drops_hidden_create_references() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let h = harness(vec2(1280.0, 800.0));
     let s = GenerateState { mode: Mode::Refine, ..Default::default() };
     let d = h.state().session.active().unwrap();
@@ -257,6 +262,7 @@ fn draft_refine_dock_request_keeps_open_image_and_drops_hidden_create_references
 
 #[test]
 fn draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let server = match li_ai::mock::MockComfy::start() {
         Ok(server) => server,
@@ -305,6 +311,7 @@ fn draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened
 
 #[test]
 fn draft_refine_library_use_and_open_actions_are_one_undo_and_a_new_document() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
     let image = RgbaImage::from_pixel(320, 240, image::Rgba([70, 100, 130, 255]));
@@ -332,6 +339,7 @@ fn draft_refine_library_use_and_open_actions_are_one_undo_and_a_new_document() {
 
 #[test]
 fn draft_refine_gpu_design_system_all_themes_and_resolutions() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use egui::accesskit::{Role, Toggled};
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/draft-style");
     std::fs::create_dir_all(&dir).unwrap();
@@ -402,6 +410,7 @@ fn draft_refine_gpu_design_system_all_themes_and_resolutions() {
 
 #[test]
 fn draft_refine_lora_picker_filters_family_and_carries_strength_in_request() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let info = li_ai::comfy::ObjectInfo(
         json!({"LoraLoader": {"input": {"required": {"lora_name": [["qwen_image_2.1_style.safetensors", "flux_realism_lora.safetensors"]]}}}}),
@@ -444,6 +453,7 @@ fn draft_refine_lora_picker_filters_family_and_carries_strength_in_request() {
 
 #[test]
 fn draft_refine_properties_sections_collapse_and_sampling_has_no_offline_ceiling() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
     h.get_all_by_label("Advanced").last().unwrap().click();
@@ -465,6 +475,7 @@ fn draft_refine_properties_sections_collapse_and_sampling_has_no_offline_ceiling
 
 #[test]
 fn draft_refine_fresh_and_changed_refinement_model_use_per_model_denoise() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use egui::accesskit::Role;
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
@@ -504,6 +515,7 @@ fn draft_refine_fresh_and_changed_refinement_model_use_per_model_denoise() {
 
 #[test]
 fn draft_refine_shared_aspect_presets_lock_and_model_grid() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
     h.get_by_role_and_label(egui::accesskit::Role::Button, "16:9").click();
@@ -534,6 +546,7 @@ fn draft_refine_shared_aspect_presets_lock_and_model_grid() {
 
 #[test]
 fn autodetect_refine_picker_disables_failure_and_click_retest_verifies_on_worker_gpu() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use egui::accesskit::Role;
     use li_ai::refine::{Status, Verdict};
     let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());

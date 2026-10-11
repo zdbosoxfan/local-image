@@ -47,6 +47,11 @@ pub(super) fn stroke(p: &StrokeProps, fill: Fill, scale: f64) -> Result<ShapeStr
     {
         return Err(ImportError::Invalid("invalid stroke".into()));
     }
+    let dashes: Vec<f32> = p.dash_array.iter().map(|n| (f64::from(*n) / width) as f32).collect();
+    let dash_offset = (f64::from(p.dash_offset) / width) as f32;
+    if dashes.iter().chain([&dash_offset]).any(|n| !n.is_finite()) {
+        return Err(ImportError::Invalid("normalized stroke dash exceeds bounds".into()));
+    }
     Ok(ShapeStroke {
         width: (width * scale) as f32,
         paint: fill,
@@ -61,8 +66,8 @@ pub(super) fn stroke(p: &StrokeProps, fill: Fill, scale: f64) -> Result<ShapeStr
             kurbo::Join::Bevel => photocraft_doc::LineJoin::Bevel,
         },
         miter_limit: p.miter_limit,
-        dashes: p.dash_array.iter().map(|n| *n / width as f32).collect(),
-        dash_offset: p.dash_offset / width as f32,
+        dashes,
+        dash_offset,
         ..Default::default()
     })
 }
@@ -135,7 +140,7 @@ pub(super) fn evaluate(p: &Paint<'_>, point: Point, triangles: &[hayro_interpret
             if let Some(tf) = &s.transfer_function {
                 c = tf.apply(&c);
             }
-            return Ok(c.components());
+            return finite_rgba(c.components());
         }
     };
     let input = input.into_iter().collect();
@@ -144,7 +149,9 @@ pub(super) fn evaluate(p: &Paint<'_>, point: Point, triangles: &[hayro_interpret
     if let Some(tf) = &s.transfer_function {
         color = tf.apply(&color);
     }
-    let rgba = color.components();
+    finite_rgba(color.components())
+}
+fn finite_rgba(rgba: [f32; 4]) -> Result<[f32; 4]> {
     if rgba.iter().any(|n| !n.is_finite()) {
         return Err(ImportError::Invalid("nonfinite shading output".into()));
     }
@@ -225,4 +232,16 @@ pub(super) fn mesh(p: &Paint<'_>, limit: usize, bytes: u64) -> Result<Vec<hayro_
         _ => {}
     }
     Ok(triangles)
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn review_additional_pdf_rejects_nonfinite_normalized_dash_and_mesh_color() {
+        let props = StrokeProps { line_width: f32::MIN_POSITIVE / 4., dash_array: vec![1.].into(), ..Default::default() };
+        assert!(stroke(&props, Fill::Solid(Color::BLACK), 1.).is_err());
+        assert!(finite_rgba([0., 0., f32::NAN, 1.]).is_err());
+        assert!(finite_rgba([0., 0., 0., 1.]).is_ok());
+    }
 }

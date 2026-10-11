@@ -73,13 +73,14 @@ fn motion(h: &mut H, x: f32, y: f32) {
 }
 #[test]
 fn appearance_app_gpu_fill_transparency_panel_preview_release_undo_cancel() {
+    let _gpu_gate = crate::gpu_lock();
     let mut h = app();
     let before = h.state().session.active().unwrap().doc.clone();
     let journal = h.state().session.journal.len();
     button(&mut h, 28., 60., true);
     motion(&mut h, 96., 60.);
     assert_eq!(h.state().session.active().unwrap().doc, before);
-    let shown = h.state().ui.vector_appearance.preview.clone().expect("actual app detached preview");
+    let shown = h.state().shared_tools.paint.preview.clone().expect("actual app detached preview");
     let preview = h.render().unwrap();
     button(&mut h, 96., 60., false);
     let release = h.render().unwrap();
@@ -102,7 +103,7 @@ fn appearance_app_gpu_fill_transparency_panel_preview_release_undo_cancel() {
     h.step();
     button(&mut h, 96., 60., true);
     motion(&mut h, 100., 80.);
-    assert!(h.state().ui.vector_appearance.preview.is_some());
+    assert!(h.state().shared_tools.paint.preview.is_some());
     button(&mut h, 100., 80., false);
     let before = h.state().session.active().unwrap().doc.clone();
     button(&mut h, 28., 60., true);
@@ -124,7 +125,10 @@ fn appearance_app_gpu_fill_transparency_panel_preview_release_undo_cancel() {
 #[test]
 #[ignore = "coordinator: run release real-app pointer-frame measurement after router registration"]
 fn appearance_app_pointer_frame_release_measurement_rtx5090() {
-    assert!(!cfg!(debug_assertions), "performance measurement requires --release");
+    let _gpu_gate = crate::gpu_lock();
+    if cfg!(debug_assertions) {
+        panic!("performance measurement requires --release");
+    }
     let mut h = app();
     let mut samples = Vec::new();
     button(&mut h, 28., 60., true);

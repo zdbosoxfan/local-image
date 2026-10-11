@@ -423,7 +423,7 @@ fn with_text_layer<R>(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&m
         let before = t.cache.as_ref().map(|c| c.tile_bounds());
         let mut rename = None;
         let r = f(t, &snapshot, &mut rename)?;
-        refresh(&snapshot, t);
+        crate::vector_integration::refresh_text(&snapshot, t, &l.vector)?;
         // Only this layer's pixels changed: the canvas recomposites their old and new area
         // instead of the whole document (#124). Unknown old pixels mean a full refresh.
         let damage = before.zip(t.cache.as_ref().map(|c| c.tile_bounds())).map(|(a, b)| a.union(&b));
@@ -481,7 +481,9 @@ fn info(s: &Session, p: &Value) -> Result<Value> {
             v
         })
         .collect();
-    let layout = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner()).layout(t, d.doc.resolution_dpi);
+    let mut engine = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner());
+    let vector = &d.doc.layer(id).ok_or(EngineError::NoLayer(id))?.vector;
+    let layout = crate::vector_integration::text_layout(&mut engine, &d.doc, t, vector)?;
     let lines: Vec<Value> = layout
         .lines
         .iter()
@@ -734,7 +736,7 @@ pub fn specs() -> Vec<CommandSpec> {
                         return Err(EngineError::Other(format!("layer {} is not a type layer", id.0)));
                     };
                     if t.cache.is_none() {
-                        refresh(&snapshot, t);
+                        crate::vector_integration::refresh_text(&snapshot, t, &l.vector)?;
                     }
                     let surface = t.cache.take().unwrap_or_else(|| photocraft_raster::Surface::new(snapshot.pixel_format()));
                     let surface = if surface.format() == snapshot.pixel_format() { surface } else { surface.convert(snapshot.pixel_format()) };

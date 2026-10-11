@@ -20,7 +20,15 @@ pub(crate) fn read(r: &mut Reader, id: ObjId, world: Affine) -> Option<Text> {
     let story = s.obj(id, b"StSt")?;
     let frame = s.obj(id, b"TxtH")?;
     let artistic = s.is(frame, b"ArFr");
+    if let Err(e) = s.check_finite(frame, b"FrmB").and_then(|()| s.check_finite(frame, b"ArtV")) {
+        r.failure = Some(e);
+        return None;
+    }
     let bounds = s.floats::<4>(frame, b"FrmB").map(rect)?;
+    if bounds.x1 < bounds.x0 || bounds.y1 < bounds.y0 {
+        r.failure = Some(crate::Error::Malformed("text frame bounds"));
+        return None;
+    }
     let mut runs = Vec::new();
     let mut align = None;
     let mut total = 0usize;
@@ -87,11 +95,11 @@ pub(crate) fn read(r: &mut Reader, id: ObjId, world: Affine) -> Option<Text> {
             }
             let text = characters(&chars, start, end);
             start = end;
-            push_run(r, &mut runs, s.obj(run, b"Item"), text, world, &mut attribute_budget);
+            push_run(r, &mut runs, s.obj(run, b"Item"), text, world, &mut attribute_budget)?;
         }
         if start < chars.len() {
             let text = characters(&chars, start, chars.len());
-            push_run(r, &mut runs, None, text, world, &mut attribute_budget);
+            push_run(r, &mut runs, None, text, world, &mut attribute_budget)?;
         }
         for paragraph in s.obj(block, b"PAtt").map(|p| s.objs(p, b"Runs")).unwrap_or_default() {
             if let Some(attrs) = s.obj(paragraph, b"Item") {
@@ -112,6 +120,10 @@ pub(crate) fn read(r: &mut Reader, id: ObjId, world: Affine) -> Option<Text> {
     }
     let align = align.unwrap_or(Align::Left);
     let first_baseline = bounds.y0 + s.f64(frame, b"ArtV").unwrap_or(0.0);
+    if !first_baseline.is_finite() {
+        r.failure = Some(crate::Error::Malformed("text baseline"));
+        return None;
+    }
     let anchor_x = match align {
         Align::Center => (bounds.x0 + bounds.x1) / 2.0,
         Align::Right => bounds.x1,
@@ -132,9 +144,13 @@ fn characters(chars: &[char], start: usize, end: usize) -> String {
     chars.get(start..end).unwrap_or_default().iter().filter(|c| **c != '\0' && **c != '\u{FFFC}').collect()
 }
 
-fn push_run(r: &mut Reader, runs: &mut Vec<TextRun>, attrs: Option<ObjId>, text: String, world: Affine, attribute_budget: &mut Option<usize>) {
+fn push_run(r: &mut Reader, runs: &mut Vec<TextRun>, attrs: Option<ObjId>, text: String, world: Affine, attribute_budget: &mut Option<usize>) -> Option<()> {
     if text.is_empty() {
-        return;
+        return Some(());
+    }
+    // Include Vec capacity growth and owned text, beyond the character buffer.
+    if !r.charge_owned(std::mem::size_of::<TextRun>().saturating_mul(2).saturating_add(text.len())) {
+        return None;
     }
     let run = match attrs {
         Some(attrs) if attribute_budget.is_some() => run_attrs(r, attrs, text, world, attribute_budget),
@@ -159,6 +175,7 @@ fn push_run(r: &mut Reader, runs: &mut Vec<TextRun>, attrs: Option<ObjId>, text:
         }
     };
     runs.push(run);
+    Some(())
 }
 
 fn slot<T: Copy>(v: Option<&Value>, i: usize, f: impl Fn(&Value) -> Option<T>) -> Option<T> {
@@ -209,8 +226,15 @@ fn run_attrs(r: &mut Reader, attrs: ObjId, text: String, world: Affine, attribut
             fill = Paint::Solid(Color::Gray { v: 0.0, a: 1.0 });
         }
     }
-    if attribute_budget.is_some() && objects.get(1).copied().flatten().and_then(|f| paint::descriptor(r, f, world)).is_some_and(|p| p != Paint::None) {
-        r.warn("outlined (stroked) text");
+    if attribute_budget.is_some()
+        && let Some(stroke) = objects.get(1).copied().flatten().and_then(|f| paint::descriptor(r, f, world))
+    {
+        if let Paint::Gradient(gradient) = &stroke {
+            charge_attributes(r, attribute_budget, gradient.stops.len().saturating_mul(std::mem::size_of::<paint::Stop>()));
+        }
+        if stroke != Paint::None {
+            r.warn("outlined (stroked) text");
+        }
     }
     if slot(doubles, 10, float).is_some_and(|h| (h - 1.0).abs() > 1e-3) {
         r.warn("horizontally scaled text");

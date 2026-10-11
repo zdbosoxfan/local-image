@@ -151,3 +151,7 @@ mod tests;
 mod vertical_tests;
 
 pub mod frame_compose;
+
+pub mod on_path;
+
+pub mod view;

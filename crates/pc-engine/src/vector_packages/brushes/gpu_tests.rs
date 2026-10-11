@@ -5,6 +5,7 @@ use photocraft_doc::{ColorMode, SampleType, Size};
 #[test]
 #[ignore = "package 17 speed rules: coordinator RTX integration gate"]
 fn brush17_rtx5090_vulkan_preview_release_expanded_geometry_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,

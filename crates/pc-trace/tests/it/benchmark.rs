@@ -58,7 +58,13 @@ fn fast_six_image_benchmark() -> TestResult {
             assert!(out.layers.len() <= params.max_colors);
             for l in &out.layers {
                 assert!(photocraft_testkit::vector::is_finite(&l.path));
-                assert!(photocraft_testkit::vector::self_intersections(&l.path).is_empty(), "{} crosses itself", c.id);
+                assert!(
+                    photocraft_testkit::vector::self_intersections(&l.path).is_empty(),
+                    "{} {:?} crosses itself: {:?}",
+                    c.id,
+                    l.color,
+                    photocraft_testkit::vector::self_intersections(&l.path)
+                );
             }
             scores.push(score);
         }
@@ -180,7 +186,9 @@ fn release_performance_gates() -> TestResult {
         let start = Instant::now();
         let out = trace(Image { width: size, height: size, rgba: c.input.as_raw() }, &Params::for_preset(preset))?;
         std::hint::black_box(out);
-        assert!(start.elapsed().as_secs_f64() < budget, "{preset:?} exceeds {budget}s");
+        let seconds = start.elapsed().as_secs_f64();
+        eprintln!("{preset:?} {size}px trace {seconds:.6}s, budget {budget}s");
+        assert!(seconds < budget, "{preset:?} exceeds {budget}s");
     }
     Ok(())
 }

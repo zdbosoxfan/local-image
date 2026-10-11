@@ -221,8 +221,8 @@ fn styles38_cpu_text_sample_character_paragraph_and_content_preserved() {
     let text = TextLayer {
         text: "aβ\nc".into(),
         transform: photocraft_geom::Affine::translate(10., 40.),
-        runs: vec![TextRun { len: 1, style: CharStyle::default() }, TextRun { len: 5, style: CharStyle { size_pt: 18., tracking: 35., ..Default::default() } }],
-        paragraphs: vec![ParagraphRun { len: 6, style: ParagraphStyle { align: TextAlign::Center, ..Default::default() } }],
+        runs: vec![TextRun { len: 1, style: CharStyle::default() }, TextRun { len: 4, style: CharStyle { size_pt: 18., tracking: 35., ..Default::default() } }],
+        paragraphs: vec![ParagraphRun { len: 5, style: ParagraphStyle { align: TextAlign::Center, ..Default::default() } }],
         ..Default::default()
     };
     let layer = Layer::new("text", LayerContent::Text(text));
@@ -419,4 +419,12 @@ fn styles38_cpu_style_transfer_retains_target_live_corner_geometry() {
     let surface = target.surface().unwrap();
     assert_eq!(surface.rgba(54, 10)[3], 0.);
     assert_eq!(surface.rgba(66, 30)[3], 1.);
+}
+
+#[test]
+fn review_followup_style_rejects_raw_effect_budget_before_serialization() {
+    let (s, ids) = fixture();
+    let mut attributes = sample(&s.active().unwrap().doc, ids[0], None).unwrap();
+    attributes.effects.psd_raw = Some(vec![0; (1 << 20) + 1]);
+    assert_eq!(validate_sample(&attributes).unwrap_err().to_string(), "style raw FX budget");
 }

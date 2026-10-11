@@ -3,4 +3,4 @@
 
 pub mod export;
 pub mod import;
-pub use import::{import, import_with, info, ImportError, PageBox, PageInfo, PdfInfo, PdfOptions};
+pub use import::{ImportError, PageBox, PageInfo, PdfInfo, PdfOptions, import, import_with, info};

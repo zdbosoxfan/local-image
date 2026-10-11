@@ -64,6 +64,7 @@ fn pointer(h: &mut H, p: Point, pressed: Option<bool>) {
     h.step();
 }
 fn parity(h: &mut H) {
+    h.run_steps(3);
     h.render().expect("full app GPU frame/readback");
     assert!(h.state().perf.gpu, "actual app GPU frame required");
     assert!(h.state().perf.gpu_fallback.is_none(), "CPU compositor fallback does not pass repeat GPU acceptance");
@@ -77,7 +78,7 @@ fn parity(h: &mut H) {
     for (a, b) in cpu.px.iter().zip(pixels) {
         for k in 0..4 {
             let ca = if k == 3 { a[k] } else { a[k] * a[3] };
-            let cb = if k == 3 { b[k] } else { b[k] * b[3] };
+            let cb = b[k];
             assert!((ca - cb).abs() <= 1. / 255., "premultiplied app parity {a:?} {b:?}");
         }
     }
@@ -85,6 +86,7 @@ fn parity(h: &mut H) {
 #[test]
 #[ignore = "owner speed rules: integrate 00 canvas hooks then run RTX acceptance"]
 fn repeat19_full_app_gpu_live_preview_cancel_release_expand_undo_source_edit_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness();
     // This click requires frame() to be installed in the production app. No substitute host.

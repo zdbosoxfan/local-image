@@ -3,11 +3,11 @@
 //! Package 00 supplies the app field/routing listed in integration/05.md. Until persona
 //! package 01 integrates, register_ui.py rehearses that wiring under target/ using Pen
 //! only as an activation sentinel. This is not final persona acceptance.
-use crate::PhotocraftApp;
-use crate::canvas::ViewXform;
 use eframe::{egui_wgpu, wgpu};
 use egui::{Modifiers, vec2};
 use egui_kittest::Harness;
+use photocraft_ui_egui::PhotocraftApp;
+use photocraft_ui_egui::canvas::ViewXform;
 use serde_json::json;
 use std::time::Instant;
 
@@ -34,9 +34,9 @@ fn harness() -> Harness<'static, PhotocraftApp> {
         app.sync_views();
         // The existing floating task bar covers canvas pixels only after selection changes.
         app.session.prefs.edit(|p| p.interface.contextual_task_bar = false);
-        app.ui.tool = crate::state::Tool::Pen;
-        app.vector_pencil_enabled = true;
-        app.vector_pencil.options.close_within = 0.0;
+        app.ui.tool = photocraft_ui_egui::state::Tool::VectorPencil;
+        app.session.edit_prefs(|p| p.toolbar.persona = photocraft_engine::toolsets::Persona::Vector);
+        app.shared_tools.pencil.options.close_within = 0.0;
         app
     });
     h.run_steps(8);
@@ -53,37 +53,19 @@ fn event(h: &mut Harness<'_, PhotocraftApp>, p: [f32; 2], button: Option<bool>, 
     }
     h.run_steps(2);
 }
-fn crop(h: &mut Harness<'_, PhotocraftApp>, label: &str) -> Vec<[u8; 4]> {
-    // Kittest paints a synthetic cursor into screenshots; exclude it from pixel parity.
-    h.event(egui::Event::PointerGone);
+fn crop(h: &mut Harness<'_, PhotocraftApp>, _label: &str) -> Vec<[f32; 4]> {
     h.run_steps(2);
-    let xf = ViewXform::active(h.state()).unwrap();
-    let a = xf.to_screen(0., 0.);
-    let b = xf.to_screen(240., 160.);
-    let img = h.render().unwrap();
-    if let Ok(dir) = std::env::var("PENCIL_DIAGNOSTIC_DIR") {
-        std::fs::create_dir_all(&dir).unwrap();
-        img.save(std::path::Path::new(&dir).join(format!("{label}.png"))).unwrap();
-        eprintln!(
-            "{label}: rect={:?} center={:?} zoom={} revision={} enabled={} active={}",
-            xf.rect,
-            xf.center,
-            xf.zoom,
-            h.state().session.active().unwrap().revision,
-            h.state().vector_pencil_enabled,
-            h.state().vector_pencil.active()
-        );
-    }
-    let mut pixels = Vec::new();
-    for y in a.y.ceil() as u32..b.y.floor() as u32 {
-        for x in a.x.ceil() as u32..b.x.floor() as u32 {
-            pixels.push(img.get_pixel(x, y).0);
-        }
-    }
+    h.render().expect("actual app GPU paint callbacks");
+    let id = h.state().session.active().unwrap().doc.id.0;
+    let (_, size, pixels) = h.state().read_canvas_texels(id).expect("actual app float canvas texture");
+    assert_eq!(size, [240, 160]);
+    assert!(pixels.iter().flatten().all(|v| v.is_finite()));
     pixels
 }
+
 #[test]
 fn pencil_full_app_gpu_live_pointer_preview_release_cancel_and_frame_measurements() {
+    let _gpu_gate = crate::gpu_lock();
     let mut h = harness();
     let before = h.state().session.active().unwrap().doc.clone();
     let empty = crop(&mut h, "empty");
@@ -108,9 +90,9 @@ fn pencil_full_app_gpu_live_pointer_preview_release_cancel_and_frame_measurement
         readback.push(start.elapsed().as_secs_f64() * 1000.0);
         end_to_end.push(whole.elapsed().as_secs_f64() * 1000.0);
     }
-    assert!(h.state().vector_pencil.preview().is_some(), "real canvas pointer moves must reach the tool");
+    assert!(h.state().shared_tools.pencil.preview().is_some(), "real canvas pointer moves must reach the tool");
     assert_eq!(h.state().session.active().unwrap().doc, before);
-    let preview = h.state().vector_pencil.preview().unwrap().document.clone();
+    let preview = h.state().shared_tools.pencil.preview().unwrap().document.clone();
     let live = crop(&mut h, "live");
     assert_ne!(live, empty, "GPU canvas must display live geometry");
     assert!(h.state().perf.last_refresh.starts_with("gpu"), "{}", h.state().perf.last_refresh);
@@ -118,10 +100,9 @@ fn pencil_full_app_gpu_live_pointer_preview_release_cancel_and_frame_measurement
     let committed = crop(&mut h, "committed");
     assert_eq!(h.state().session.active().unwrap().doc, preview);
     assert_eq!(live.len(), committed.len());
-    assert!(live.iter().chain(&committed).all(|p| p[3] == 255), "opaque canvas bytes equal premultiplied RGBA");
-    let max = live.iter().zip(&committed).flat_map(|(a, b)| (0..4).map(move |c| a[c].abs_diff(b[c]))).max().unwrap();
-    eprintln!("Pencil full-app preview/release premultiplied max diff: {max}/255");
-    assert!(max <= 1, "full-app preview/release max diff {max}/255");
+    let max = live.iter().zip(&committed).flat_map(|(a, b)| (0..4).map(move |c| (a[c] - b[c]).abs())).fold(0.0f32, f32::max);
+    eprintln!("Pencil full-app preview/release premultiplied max diff: {max}");
+    assert!(max <= 1. / 255., "full-app preview/release premultiplied max diff {max}");
     assert_eq!(h.state().session.journal.iter().filter(|(id, _)| id == "path.pencil.commit").count(), 1);
     assert!(h.state_mut().session.undo());
     h.run_steps(4);
@@ -131,7 +112,7 @@ fn pencil_full_app_gpu_live_pointer_preview_release_cancel_and_frame_measurement
     h.event(egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE });
     h.run_steps(2);
     event(&mut h, [100., 45.], Some(false), Modifiers::NONE);
-    assert!(h.state().vector_pencil.preview().is_none());
+    assert!(h.state().shared_tools.pencil.preview().is_none());
     assert_eq!(h.state().session.active().unwrap().doc, before);
     assert_eq!(crop(&mut h, "cancelled"), empty);
     if !cfg!(debug_assertions) {

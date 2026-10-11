@@ -81,7 +81,7 @@ pub fn compare_regions(actual: &[Path], reference: &[Path], view: Affine, rect: 
             if !vector::is_finite(&p) {
                 return Err("nonfinite reference view".into());
             }
-            let values = photocraft_vector::fill_rasterizer(&p, 0.001).render(rect);
+            let values = photocraft_vector::fill_rasterizer(&p, 1e-6).render(rect);
             for (out, v) in mask.iter_mut().zip(values) {
                 *out = (*out + v).min(1.0);
             }
@@ -91,11 +91,22 @@ pub fn compare_regions(actual: &[Path], reference: &[Path], view: Affine, rect: 
     Ok(Scores {
         relative_area,
         hausdorff: vector::hausdorff(&ap, &bp, 64)?,
-        iou: vector::iou(&coverage(actual)?, &coverage(reference)?, 0.5)?,
+        iou: coverage_iou(&coverage(actual)?, &coverage(reference)?)?,
         actual_nodes: vector::node_count(&ap),
         reference_nodes: vector::node_count(&bp),
         crossings: actual.iter().map(|p| vector::self_intersections(p).len()).sum(),
     })
+}
+
+/// Intersection/union of supersampled coverage areas, retaining fractional boundary
+/// coverage. Thresholding at exactly half a pixel turns sub-ulp geometry differences
+/// along diagonal boundaries into whole-pixel disagreements.
+fn coverage_iou(a: &[f32], b: &[f32]) -> Result<f64, String> {
+    if a.len() != b.len() || a.is_empty() || a.iter().chain(b).any(|n| !n.is_finite() || !(0.0..=1.0).contains(n)) {
+        return Err("invalid coverage IoU inputs".into());
+    }
+    let (intersection, union) = a.iter().zip(b).fold((0., 0.), |(i, u), (a, b)| (i + f64::from(a.min(*b)), u + f64::from(a.max(*b))));
+    Ok(if union == 0. { 1. } else { intersection / union })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -160,3 +171,16 @@ pub fn check_ratchet(cases: &[(String, Outcome)], ratchet: &[(String, String)], 
 #[cfg(test)]
 #[path = "../tests/vector_geometry/gates.rs"]
 mod tests;
+
+#[cfg(test)]
+mod coverage_regression {
+    use super::*;
+    #[test]
+    fn geometry31_coverage_iou_preserves_half_pixel_boundaries_and_detects_loss() -> Result<(), String> {
+        assert!(coverage_iou(&[0.5, 0.5], &[0.5 - 1e-7, 0.5 + 1e-7])? > 0.999);
+        assert!(coverage_iou(&[0.5, 0.5], &[0.4, 0.6])? < 0.999);
+        assert_eq!(coverage_iou(&[0., 0.], &[0., 0.])?, 1.);
+        assert!(coverage_iou(&[f32::NAN], &[0.]).is_err());
+        Ok(())
+    }
+}

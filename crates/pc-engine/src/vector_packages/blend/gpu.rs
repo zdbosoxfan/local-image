@@ -3,6 +3,7 @@ use super::*;
 #[test]
 #[ignore = "RTX integration gate; package speed rules forbid GPU execution"]
 fn blend18_live_blend_groups_rtx_5090_vulkan_clipped_effect_layers() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,

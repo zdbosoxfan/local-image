@@ -13,8 +13,7 @@ use std::sync::{Arc, OnceLock};
 
 // Package 00 owns pc-vector's registry. Compile the package-owned pure source here until that
 // registration lands; this has no pc-vector -> pc-pathops dependency or duplicate evaluator.
-#[path = "../../../pc-vector/src/live_corners.rs"]
-pub mod geometry;
+pub use photocraft_vector::live_corners as geometry;
 
 const MAX_CACHE_PIXELS: u64 = 64 * 1024 * 1024;
 fn geometry_error(error: geometry::CornerError) -> EngineError {
@@ -24,7 +23,14 @@ fn geometry_error(error: geometry::CornerError) -> EngineError {
 /// Engine/display projection. Lower-level file adapters call the pure evaluator; metadata is untouched.
 pub fn project_shape(shape: &ShapeLayer, corners: &[KnotCorner]) -> Result<ShapeLayer> {
     let mut projected = shape.clone();
-    projected.path = geometry::evaluate(&shape.path, corners).map_err(geometry_error)?.path;
+    // A node break duplicates the cut knot as two open endpoints. Retain that
+    // native metadata for a later join/close, without rounding an open endpoint.
+    let active: Vec<_> = corners
+        .iter()
+        .copied()
+        .filter(|c| !shape.path.subpaths.get(c.subpath).is_some_and(|sp| !sp.closed && (c.knot == 0 || c.knot + 1 == sp.knots.len())))
+        .collect();
+    projected.path = geometry::evaluate(&shape.path, &active).map_err(geometry_error)?.path;
     // The path is the projection, not the parametric generator's base.
     projected.live = None;
     projected.psd_raw = None;
@@ -49,6 +55,7 @@ fn project_layers(doc: &Document, layers: &mut [Layer]) -> Result<()> {
                 let projected = project_shape(shape, &l.vector.corners)?;
                 *shape = projected;
                 shape.cache = Some(cache(doc, shape, &[])?);
+                l.vector.corners.clear();
             }
             LayerContent::Group(group) => project_layers(doc, &mut group.children)?,
             _ => {}
@@ -107,6 +114,7 @@ impl CornerGesture {
             // Only captured targets change on a pointer frame. Their cache was prepared by set.
             l.content = LayerContent::Shape(project_shape(&e.shape, &e.vector.corners)?);
             l.vector = e.vector.clone();
+            l.vector.corners.clear();
         }
         Ok(doc)
     }

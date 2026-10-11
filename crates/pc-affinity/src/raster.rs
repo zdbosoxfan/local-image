@@ -168,7 +168,10 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
         }
     };
     for (i, px) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
-        let v: Vec<f64> = planes.iter().map(|p| sample(p, i)).collect();
+        let mut v = [0.; 5];
+        for (value, plane) in v.iter_mut().zip(&planes) {
+            *value = sample(plane, i);
+        }
         let (r2, g, b, a) = if channels == 1 {
             (v[0], v[0], v[0], 1.0)
         } else if channels == 5 {

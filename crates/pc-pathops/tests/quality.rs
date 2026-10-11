@@ -184,3 +184,99 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn reduced_degenerate_contour_extraction_returns_checked_errors() {
+    let path = Path::new(vec![Subpath {
+        closed: true,
+        op: PathOp::Combine,
+        knots: vec![
+            Knot::smooth(Point::new(0., -8.074030517693085), Point::new(0., -8.144552439366418), Point::new(0., -8.144552439366418)),
+            Knot::smooth(
+                Point::new(0., -5.618997047213918),
+                Point::new(-2.6579120785643333, -4.077406646208811),
+                Point::new(-2.6579120785643333, -4.077406646208811),
+            ),
+        ],
+    }]);
+    assert_eq!(ops::boolean(&path, &path, ops::BoolOp::Union), Err(ops::PathOpsError::Degenerate));
+    for scale in [1e-4, 1., 1e6] {
+        let p = path.transform(&Affine::scale(scale));
+        let shapes = [ops::Shape::new(p.clone(), 0), ops::Shape::new(p.clone(), 1)];
+        for op in [
+            ops::PathfinderOp::Unite,
+            ops::PathfinderOp::Divide,
+            ops::PathfinderOp::Trim,
+            ops::PathfinderOp::Crop,
+            ops::PathfinderOp::Merge,
+            ops::PathfinderOp::MinusFront,
+            ops::PathfinderOp::MinusBack,
+            ops::PathfinderOp::Intersect,
+            ops::PathfinderOp::Exclude,
+        ] {
+            match ops::pathfinder(op, &shapes) {
+                Ok(out) => assert!(out.iter().all(|s| metrics::is_finite(&s.path))),
+                Err(e) => assert_eq!(e, ops::PathOpsError::Degenerate),
+            }
+        }
+    }
+}
+
+#[test]
+fn simplify_excursion_before_a_flat_tail_keeps_tolerance_and_endpoints() {
+    let ys = [83.53770334567852, 89.82001844736132, 96.94535701753479, 110.49214914185464, 100., 100., 100.];
+    let knots = ys
+        .iter()
+        .enumerate()
+        .map(|(i, &y)| {
+            let x = i as f64 * 10.;
+            let (hx, dy) = if i == 0 {
+                (10. / 6., (ys[1] - y) / 6.)
+            } else if i + 1 == ys.len() {
+                (10. / 6., (y - ys[i - 1]) / 6.)
+            } else {
+                (10. / 3., (ys[i + 1] - ys[i - 1]) / 6.)
+            };
+            Knot::smooth(Point::new(x, y), Point::new(x - hx, y - dy), Point::new(x + hx, y + dy))
+        })
+        .collect();
+    let source = Path::new(vec![Subpath { knots, closed: false, op: PathOp::Combine }]);
+    let tolerance = 2.968424593080055;
+    for (index, simplify) in [ops::simplify, ops::simplify_interactive].into_iter().enumerate() {
+        let actual = simplify(&source, tolerance).unwrap();
+        let error = metrics::hausdorff(&source, &actual, 64).unwrap();
+        assert!(error <= tolerance, "refitter {index} error {error} > {tolerance}");
+        assert!(metrics::node_count(&actual) <= metrics::node_count(&source));
+        assert_eq!(actual.subpaths[0].knots[0].anchor, source.subpaths[0].knots[0].anchor);
+        assert_eq!(actual.subpaths[0].knots.last().unwrap().anchor, source.subpaths[0].knots.last().unwrap().anchor);
+    }
+}
+
+#[test]
+fn sampled_single_cubic_fit_keeps_error_and_endpoint_tangents() {
+    use kurbo::{CubicBez, ParamCurve};
+    for c in [CubicBez::new((0., 0.), (10., 0.), (20., 0.), (30., 0.)), CubicBez::new((0., 0.), (10., 4.), (20., 4.), (30., 0.))] {
+        let points: Vec<_> = (0..=64)
+            .map(|i| {
+                let p = c.eval(i as f64 / 64.);
+                Point::new(p.x, p.y)
+            })
+            .collect();
+        let path = ops::fit_path(&points, 0.05).unwrap();
+        let sp = &path.subpaths[0];
+        assert_eq!(sp.knots.len(), 2);
+        assert_eq!(sp.knots[0].anchor, points[0]);
+        assert_eq!(sp.knots[1].anchor, points[64]);
+        let delta = |a: Point, b: Point| kurbo::Vec2::new(a.x - b.x, a.y - b.y);
+        for (tangent, handle) in [
+            (delta(points[1], points[0]), delta(sp.knots[0].out_ctrl, sp.knots[0].anchor)),
+            (delta(points[64], points[63]), delta(sp.knots[1].anchor, sp.knots[1].in_ctrl)),
+        ] {
+            assert!(tangent.cross(handle).abs() <= 1e-9);
+            assert!(tangent.dot(handle) > 0.);
+        }
+        for p in points {
+            assert!(ops::nearest(&path, p).unwrap().unwrap().4 <= 0.05);
+        }
+    }
+}

@@ -29,10 +29,15 @@ fn button(h: &mut H, p: Pos2, pressed: bool, mods: Modifiers) {
     h.step();
 }
 fn canvas_pixels(h: &mut H) -> Vec<[u8; 4]> {
-    h.event(Event::PointerGone);
-    h.step();
+    // Move uses cached GPU planes with a shader translation while held. Read the
+    // presented canvas, retaining pointer capture; its source texture is untranslated.
     let image = h.render().expect("real app canvas readback");
-    assert!(h.state().gpu_active(), "GPU canvas must remain active through preview/release");
+    if let Ok(dir) = std::env::var("SNAPPING_DIAGNOSTIC_DIR") {
+        std::fs::create_dir_all(&dir).unwrap();
+        let st = h.state().session.active().unwrap();
+        image.save(std::path::Path::new(&dir).join(format!("ppp{}-revision{}.png", h.ctx.pixels_per_point(), st.revision))).unwrap();
+    }
+    assert!(h.state().gpu_active() && h.state().perf.gpu);
     let ppp = h.ctx.pixels_per_point();
     (20..140)
         .flat_map(|y| (20..300).map(move |x| (x, y)))
@@ -48,6 +53,7 @@ fn shape_path(h: &H, id: LayerId) -> photocraft_doc::Path {
 }
 #[test]
 fn snapping_full_app_gpu_guide_preview_release_no_jump_and_override() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     // No adapter skip: the required owner hardware/format are asserted in the app creator.
     for ppp in [1.0, 2.0] {
         let mut h = Harness::builder()
@@ -116,18 +122,21 @@ fn snapping_full_app_gpu_guide_preview_release_no_jump_and_override() {
         h.run_steps(3);
         let release = canvas_pixels(&mut h);
         let max = preview.iter().zip(&release).flat_map(|(a, b)| (0..4).map(move |i| (i16::from(a[i]) - i16::from(b[i])).abs())).max().unwrap();
-        assert!(max <= 1, "preview/release max diff={max}/255");
+        let worst = preview.iter().zip(&release).enumerate().max_by_key(|(_, (a, b))| (0..4).map(|i| a[i].abs_diff(b[i])).max().unwrap()).unwrap();
+        assert!(max <= 1, "PPP={ppp} preview/release max diff={max}/255; worst={worst:?}; bounds={:?}", shape_path(&h, id).control_bounds());
         let expected = [120.0, 65.0, 140.0, 85.0];
         let bounds = shape_path(&h, id).control_bounds().unwrap();
         assert_eq!([bounds.0, bounds.1, bounds.2, bounds.3], expected);
         assert_eq!(h.state().session.active().unwrap().history.past_len(), history + 1);
-        // Independent pixel oracle for the opaque blue shape and white document. Include
-        // every pixel in the swept test region; no edge/tolerance exclusions.
-        for (index, pixel) in release.iter().enumerate() {
-            let (x, y) = (20 + index % 280, 20 + index / 280);
+        // The presented frames above include the unchanged pointer decoration. Check
+        // every document texel independently after commit, without that UI overlay.
+        let doc = &h.state().session.active().unwrap().doc;
+        let (_, size, pixels) = h.state().read_canvas_texels(doc.id.0).expect("committed GPU canvas texture");
+        for (x, y) in (20..140).flat_map(|y| (20..300).map(move |x| (x, y))) {
+            let pixel = pixels[(y * size[0] + x) as usize];
             let want: [u8; 4] = if (120..140).contains(&x) && (65..85).contains(&y) { [0, 0, 255, 255] } else { [255; 4] };
             for i in 0..4 {
-                assert!((i16::from(pixel[i]) - i16::from(want[i])).abs() <= 1, "canvas ({x},{y}): {pixel:?} != {want:?}");
+                assert!((pixel[i] - f32::from(want[i]) / 255.).abs() <= 1. / 255., "canvas ({x},{y}): {pixel:?} != {want:?}");
             }
         }
         assert!(h.state_mut().session.undo());

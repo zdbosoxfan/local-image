@@ -10,7 +10,7 @@ impl Signature {
         if self.boundary.is_empty()
             || self.boundary.len() > MAX_SEGMENTS
             || self.members.len() > super::MAX_SOURCES
-            || self.boundary.iter().any(|b| b.source == 0 || b.segment > MAX_SEGMENTS || b.subpath > MAX_SEGMENTS)
+            || self.boundary.iter().any(|b| b.source == 0 || b.segment >= MAX_SEGMENTS || b.subpath >= MAX_SEGMENTS)
             || self.members.windows(2).any(|w| w[0] >= w[1])
             || self.boundary.windows(2).any(|w| w[0] >= w[1])
         {
@@ -53,7 +53,8 @@ pub fn face(region: &ops::Region, inputs: &[ops::Shape]) -> Result<Signature> {
     Ok(out)
 }
 pub fn edge(path: &Path, source: u64, inputs: &[ops::Shape]) -> Result<Signature> {
-    let out = Signature { members: vec![source], boundary: boundary(path, inputs, false)?, branch: 0 };
+    let source_inputs: Vec<_> = inputs.iter().filter(|s| s.key == source).cloned().collect();
+    let out = Signature { members: vec![source], boundary: boundary(path, &source_inputs, false)?, branch: 0 };
     out.validate()?;
     Ok(out)
 }

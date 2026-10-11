@@ -100,3 +100,19 @@ fn vector_transaction_metadata_is_in_the_same_undo_state() {
     assert!(s.undo());
     assert_eq!(s.active().unwrap().doc, before);
 }
+
+#[test]
+fn vector_transaction_publish_revalidates_every_target_before_edits() {
+    let (mut s, ids) = setup();
+    let source = s.active().unwrap().doc.clone();
+    let mut edits = snapshot_shapes(&source, &ids).unwrap();
+    for e in &mut edits {
+        crate::vector_cmds::refresh_shape(&source, &mut e.shape);
+    }
+    std::sync::Arc::make_mut(&mut s.active_mut().unwrap().doc).layer_mut(ids[1]).unwrap().locks.all = true;
+    let before = s.active().unwrap().doc.clone();
+    assert!(apply_shape_edits(&mut s, "Stale locked edit", edits).is_err());
+    assert_eq!(s.active().unwrap().doc, before);
+    assert!(!s.undo());
+    assert!(s.journal.is_empty());
+}

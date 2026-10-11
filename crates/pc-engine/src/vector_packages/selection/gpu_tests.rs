@@ -3,6 +3,7 @@ use super::*;
 use photocraft_doc::{ColorMode, SampleType, ShapeLayer, Size, Subpath};
 #[test]
 fn selection_real_gpu_500_shapes_pixels_unchanged_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,

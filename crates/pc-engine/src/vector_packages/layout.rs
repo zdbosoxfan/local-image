@@ -271,11 +271,7 @@ fn refresh(doc: &Document, l: &mut Layer) -> Result<()> {
             }
         }
         LayerContent::Text(t) => {
-            if let Some(path) = &l.vector.on_path {
-                super::path_text::refresh(doc, t, path)?;
-            } else {
-                crate::type_cmds::refresh(doc, t);
-            }
+            crate::vector_integration::refresh_text(doc, t, &l.vector)?;
             if let Some(s) = &t.cache {
                 pixel_budget(s.content_bounds())?;
             }
@@ -393,7 +389,7 @@ pub fn preview(s: &Session, request: &Commit) -> Result<Document> {
         let r = integer_rect(rect)?;
         let mut board = Layer::group("Artboard", vec![]);
         if let LayerContent::Group(g) = &mut board.content {
-            g.artboard = Some(Artboard { rect: r, background: ArtboardBackground::Transparent, preset: String::new() });
+            g.artboard = Some(Artboard { rect: r, background: ArtboardBackground::Transparent, preset: String::new(), drawing_scale: None });
         }
         doc.layers.push(board);
         grow(&mut doc, r);

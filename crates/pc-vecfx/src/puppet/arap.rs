@@ -573,6 +573,9 @@ fn fit_angle(rest: &[Point; 3], cur: &[Point; 3]) -> f64 {
 /// Pick `count` well-spread pin positions inside the mesh (farthest-point sampling over the
 /// kept cell centres, starting from the one nearest the centroid).
 pub fn auto_pins(mesh: &Mesh, count: usize) -> Vec<Point> {
+    if count == 0 {
+        return Vec::new();
+    }
     let mut out: Vec<Point> = centre_of(mesh).map(|c| c.1).into_iter().collect();
     spread_pins(mesh, &mut out, count);
     out

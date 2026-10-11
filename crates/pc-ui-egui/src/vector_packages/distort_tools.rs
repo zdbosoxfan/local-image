@@ -352,6 +352,7 @@ impl State {
         let old_pins = self.drag.as_ref().map(|d| d.pins.clone());
         let r = self.up_inner(s, run);
         if r.is_err()
+            && self.rig.as_ref().is_some_and(|g| g.capture.validate(s).is_ok())
             && let Some(pins) = old_pins
         {
             self.pins = pins;
@@ -384,6 +385,8 @@ impl State {
                     q.angle = None;
                 }
                 let ids = g.capture.layers.clone();
+                self.rig = None;
+                self.preview = None;
                 self.rig = Some(engine::PuppetGesture::begin(s, ids, self.options.puppet)?);
             }
             self.preview = None;
@@ -445,6 +448,9 @@ pub fn input_with(
     if !focused || events.iter().any(|e| matches!(e, Event::WindowFocused(false))) {
         state.deactivate();
         return Ok(());
+    }
+    if let Some(pos) = ctx.input(|i| i.pointer.interact_pos()).filter(|p| canvas.contains(*p)) {
+        state.hover = Some(to_doc(pos));
     }
     if state.options.tool == Tool::PuppetWarp {
         let r = state.ensure_rig(s);
@@ -708,3 +714,9 @@ mod app_gpu;
 #[cfg(test)]
 #[path = "distort_tools/tests.rs"]
 mod tests;
+
+pub fn app_context(_: &mut crate::PhotocraftApp, ui: &mut egui::Ui) {
+    let mut b = bridge(ui.ctx());
+    context(ui, &mut b.state);
+    ui.ctx().data_mut(|d| d.insert_temp(bridge_key(), b));
+}

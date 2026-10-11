@@ -258,7 +258,10 @@ impl Ctx<'_> {
         let principal = |k: &[u8; 4]| blocks.iter().find(|(bk, _)| bk == k).map(|(_, d)| d.clone());
         let mut fill_cache = None;
 
-        let content = if let Some(k) = adj_key {
+        let merged_vector_cache = rec.block(&crate::vector_map::fallback::CACHE_KEY).is_some_and(|b| crate::vector_map::fallback::is_cache_block(&b.data));
+        let content = if merged_vector_cache {
+            LayerContent::Raster(self.record_surface(rec, &name))
+        } else if let Some(k) = adj_key {
             let data = rec.block(k).map(|b| b.data.clone()).unwrap_or_default();
             let cged = rec.block(b"CgEd").map(|b| &b.data[..]);
             LayerContent::Adjustment(adjust_map::parse(
@@ -354,7 +357,9 @@ impl Ctx<'_> {
         if rendered && selected_real_mask(rec).is_none() && rec.layer_mask().is_some_and(|m| m.flags & 8 != 0) {
             l.mask = None;
         }
-        if !matches!(l.content, LayerContent::Shape(_)) {
+        if !rec.block(&crate::vector_map::fallback::CACHE_KEY).is_some_and(|b| crate::vector_map::fallback::cache_has_shape_proxy(&b.data))
+            && !matches!(l.content, LayerContent::Shape(_))
+        {
             self.apply_vector_mask(&mut l, rec);
         }
         l

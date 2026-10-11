@@ -318,3 +318,35 @@ fn blend18_scene_projection_is_deterministic_and_preserves_exchange_metadata() {
     assert_eq!(a.warnings, scene.warnings);
     assert!(scene.layers[0].vector.live.is_some());
 }
+
+#[test]
+fn review_blend_gradient_endpoints_and_additional_colors() {
+    use photocraft_doc::GradientStyle;
+    let a = Fill::gradient(vec![(0., Color::BLACK), (1., Color::WHITE)], 0., 100., GradientStyle::Linear, false);
+    let mut b = Fill::gradient(vec![(0., Color::BLACK), (0.5, Color::WHITE), (1., Color::rgb(1., 0., 0.))], 0., 100., GradientStyle::Linear, false);
+    if let Fill::Gradient { midpoints, .. } = &mut b {
+        *midpoints = vec![0.2, 0.8];
+    }
+    assert_eq!(blend::paint::fill(&a, &b, 0.), a);
+    assert_eq!(blend::paint::fill(&a, &b, 1.), b);
+    let mut ka = circle(20., 5., Color::BLACK);
+    let mut kb = ka.clone();
+    if let LayerContent::Shape(s) = &mut ka.content {
+        s.fill = Some(a);
+    }
+    if let LayerContent::Shape(s) = &mut kb.content {
+        s.fill = Some(b);
+    }
+    assert!(blend::paint::distance(&ka, &kb) > 0.1);
+}
+
+#[test]
+fn review_blend_cache_rejects_excessive_document_depth() {
+    let mut layer = circle(20., 5., Color::BLACK);
+    for _ in 0..=photocraft_doc::MAX_GROUP_DEPTH {
+        layer = Layer::group("deep", vec![layer]);
+    }
+    let mut doc = Document::new("Deep", Size::new(64, 64), ColorMode::Rgb, SampleType::U8);
+    doc.layers.push(layer);
+    assert!(blend::prepare_caches(&mut doc).is_err());
+}

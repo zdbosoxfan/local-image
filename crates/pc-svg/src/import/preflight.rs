@@ -16,7 +16,7 @@ pub(super) fn source(bytes: &[u8], options: &ImportOptions) -> Result<String> {
         return Err(ImportError::Limit("input byte"));
     }
     let data = if bytes.starts_with(&[0x1f, 0x8b]) {
-        let limit = options.limits.decompressed_bytes.min(options.limits.bytes as u64);
+        let limit = options.limits.decompressed_bytes;
         let mut data = Vec::new();
         flate2::read::GzDecoder::new(bytes).take(limit.saturating_add(1)).read_to_end(&mut data).map_err(|e| ImportError::Invalid(e.to_string()))?;
         if data.len() as u64 > limit {
@@ -116,8 +116,10 @@ pub(super) fn xml<'a>(source: &'a str, options: &ImportOptions, cancel: &AtomicB
                             return Err(ImportError::Limit("segment"));
                         }
                     }
-                    // Closed polygons add one segment during normalization.
-                    *segment_weights.entry(n.id()).or_insert(0usize) += 1;
+                    // Point lists include MoveTo; only polygons add ClosePath.
+                    if n.tag_name().name() == "polygon" {
+                        *segment_weights.entry(n.id()).or_insert(0usize) += 1;
+                    }
                 }
                 "width" | "height" | "x" | "y" | "cx" | "cy" | "r" | "rx" | "ry" | "stroke-width" | "font-size" => {
                     if let Ok(l) = svgtypes::Length::from_str(a.value())
@@ -133,7 +135,8 @@ pub(super) fn xml<'a>(source: &'a str, options: &ImportOptions, cancel: &AtomicB
                     if !mime.ends_with(";base64") {
                         return Err(ImportError::Invalid("only base64 image data URLs are supported".into()));
                     }
-                    let decoded = (payload.len() as u64).saturating_add(3) / 4 * 3;
+                    let padding = payload.bytes().rev().take_while(|b| *b == b'=').count().min(2) as u64;
+                    let decoded = ((payload.len() as u64).saturating_add(3) / 4 * 3).saturating_sub(padding);
                     embedded = embedded.saturating_add(decoded);
                     if embedded > limits.decompressed_bytes {
                         return Err(ImportError::Limit("embedded data byte"));

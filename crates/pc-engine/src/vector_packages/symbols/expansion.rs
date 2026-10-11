@@ -34,7 +34,11 @@ fn project(
                     validation::affine(a)?;
                     LayerContent::Group(Group { children: project(&def.layers, symbols, a, true, transforms)?, expanded: true, artboard: None })
                 }
-                LayerContent::Group(g) => LayerContent::Group(Group { children: project(&g.children, symbols, inherited, template, transforms)?, ..g.clone() }),
+                LayerContent::Group(g) => LayerContent::Group(Group {
+                    children: project(&g.children, symbols, inherited, template, transforms)?,
+                    expanded: g.expanded,
+                    artboard: g.artboard.clone(),
+                }),
                 content => content.clone(),
             };
             Ok(layer)

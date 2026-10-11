@@ -4,8 +4,7 @@ use crate::{ColorPath, Error, Image, Params, Preset, Trace};
 use photocraft_doc::{Path, Subpath};
 use photocraft_testkit::vector as metrics;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
-#[path = "../it/common/mod.rs"]
-mod common;
+use crate::test_common as common;
 mod gpu;
 mod quality;
 

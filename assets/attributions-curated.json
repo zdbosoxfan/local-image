@@ -216,6 +216,16 @@
           "used_for": "Japanese UI and Type fallback fonts, embedded only in builds made with craft-fonts (all official releases).",
           "licence": "OFL-1.1",
           "url": "https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md"
+        },
+        {
+          "name": "Original Local Image vector toolbar artwork",
+          "author": "Local Image contributors",
+          "used_for": "70 original vector glyphs in colour and monochrome, hand-authored in xtask/src/tool_art_vector.rs on the 24px grid. Glossy Duotone family materials and matching theme-tinted silhouettes. Recognition inventory and labelled 16/20/40px sheet in docs/design/vector-tool-icons-recognition.tsv and vector-tool-icons.png. No copied or traced vendor artwork.",
+          "ours": "assets/icons/{color,tools}/vector-*.svg, docs/design/vector-tool-icons.png, xtask/src/tool_art_vector.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "LICENSE"
+          ]
         }
       ]
     },

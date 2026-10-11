@@ -105,7 +105,7 @@ fn live_paint42_stale_wrong_document_locked_and_invalid_targets_are_atomic() {
     assert!(Capture::begin(&s, &ids).is_err());
 }
 #[test]
-fn live_paint42_queries_are_unjournaled_and_missing_data_fails_closed() {
+fn review_regression_live_paint42_queries_are_unjournaled_and_missing_data_fails_closed() {
     let (mut s, ids) = fixture();
     let c = Capture::begin(&s, &ids).unwrap();
     let before = s.active().unwrap().doc.clone();
@@ -121,14 +121,19 @@ fn live_paint42_queries_are_unjournaled_and_missing_data_fails_closed() {
     assert!(s.journal.is_empty());
     assert!(!s.undo());
     let mut group = Layer::group("Sources", Vec::new());
-    if evaluator::write_spec(&mut group, &LivePaintSpec::default()).is_err() {
-        let g = Gesture::begin(&s, &ids).unwrap();
-        let err = g.commit(&mut s, Action::Make { gap: Gap::None }).unwrap_err();
-        assert!(err.to_string().contains("00 LiveGroup::LivePaint"));
-        assert_eq!(s.active().unwrap().doc, before);
-        assert!(s.journal.is_empty());
-        assert!(!s.undo());
-    }
+    evaluator::write_spec(&mut group, &LivePaintSpec::default()).unwrap();
+    let empty_id = group.id;
+    let mut detached = (*s.active().unwrap().doc).clone();
+    detached.layers = vec![group];
+    let mut empty = Session::new();
+    empty.add_document(detached, None);
+    assert!(Gesture::begin(&empty, &[empty_id]).is_err());
+    let g = Gesture::begin(&s, &ids).unwrap();
+    g.commit(&mut s, Action::Make { gap: Gap::None }).unwrap();
+    assert_eq!(s.journal.len(), 1);
+    assert!(s.active().unwrap().doc.walk().iter().any(|(_, _, l)| evaluator::read_spec(l).unwrap().is_some()));
+    assert!(s.undo());
+    assert_eq!(s.active().unwrap().doc, before);
 }
 #[test]
 fn live_paint42_visible_boundary_fill_merges_same_color_regions() {
@@ -217,4 +222,23 @@ fn live_paint42_native_group_edit_merge_expand_release_save_load() {
     g.commit(&mut s, Action::Release).unwrap();
     assert_eq!(s.active().unwrap().doc.layers.len(), before.layers.len() + 1);
     assert!(s.active().unwrap().doc.walk().into_iter().all(|(_, _, l)| l.vector.live.is_none()));
+}
+
+#[test]
+fn review_regression_live_paint42_flood_mesh_rejects_without_discarding_native_paint() {
+    let (mut s, ids) = fixture();
+    let source = s.active().unwrap().doc.clone();
+    let mut edit = crate::vector_api::snapshot_shapes(&source, &[ids[0]]).unwrap().remove(0);
+    let mesh =
+        photocraft_vector::mesh_paint::Mesh::regular([16., 24., 96., 104.], 1, 1, photocraft_vector::mesh_paint::Appearance::Flat, 0., |_| [1., 0., 0., 1.])
+            .unwrap();
+    (super::super::mesh::NATIVE.write)(&mut edit, &mesh.into()).unwrap();
+    Arc::make_mut(&mut s.active_mut().unwrap().doc).layer_mut(ids[0]).unwrap().vector = edit.vector;
+    let before = s.active().unwrap().doc.clone();
+    let g = Gesture::begin(&s, &ids).unwrap();
+    let err = g.commit(&mut s, flood_action(Default::default())).unwrap_err();
+    assert!(err.to_string().contains("Flood Fill requires ordinary fill/stroke paints"), "{err}");
+    assert_eq!(s.active().unwrap().doc, before);
+    assert!(s.journal.is_empty());
+    assert!(!s.undo());
 }

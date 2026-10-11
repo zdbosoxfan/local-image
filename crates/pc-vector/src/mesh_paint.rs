@@ -598,3 +598,30 @@ pub fn raster_fallback_warning(warnings: &mut Vec<VectorWarning>, format: Export
 #[cfg(test)]
 #[path = "../tests/mesh_paint/tests.rs"]
 mod tests;
+
+impl From<&photocraft_doc::vector_design::appearance::GradientMesh> for Mesh {
+    fn from(mesh: &photocraft_doc::vector_design::appearance::GradientMesh) -> Self {
+        Self {
+            rows: mesh.rows,
+            cols: mesh.cols,
+            dither: mesh.dither,
+            seed: mesh.seed,
+            points: mesh.points.iter().map(|p| MeshPoint { position: p.position, handles: p.handles, rgba: p.rgba, opacity: p.opacity }).collect(),
+        }
+    }
+}
+impl From<&Mesh> for photocraft_doc::vector_design::appearance::GradientMesh {
+    fn from(mesh: &Mesh) -> Self {
+        Self {
+            rows: mesh.rows,
+            cols: mesh.cols,
+            dither: mesh.dither,
+            seed: mesh.seed,
+            points: mesh
+                .points
+                .iter()
+                .map(|p| photocraft_doc::vector_design::appearance::MeshPoint { position: p.position, handles: p.handles, rgba: p.rgba, opacity: p.opacity })
+                .collect(),
+        }
+    }
+}

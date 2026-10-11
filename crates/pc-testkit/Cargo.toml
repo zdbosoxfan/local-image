@@ -23,3 +23,6 @@ memory-stats = "1.2"
 
 [dev-dependencies]
 resvg = { version = "=0.45.1", default-features = false }
+
+# Already locked, pure Rust; exact external-oracle path numbers before usvg f32 storage.
+svgtypes = "=0.15.3"

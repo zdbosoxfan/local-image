@@ -131,6 +131,9 @@ fn outline_inner(r: &mut Reader, id: ObjId, class: Tag, world: Affine, budget: &
                 } else if budget.failed {
                     // Never present a partial compound as complete after a cycle or budget limit.
                     return None;
+                } else {
+                    r.warn("a compound operand whose outline could not be read (the entire compound is omitted)");
+                    return None;
                 }
             }
             Some((path, true))

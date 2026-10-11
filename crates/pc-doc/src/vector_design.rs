@@ -39,6 +39,14 @@ pub struct VectorData {
     /// Non-destructive Vector Crop, in document space; combined with the existing masks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clip: Option<Path>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_compose: Option<text::FrameCompose>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graphic_style: Option<styles::StyleLink>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<effects::PathEffect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mosaic: Option<mosaic::Mosaic>,
 }
 
 impl VectorData {
@@ -50,6 +58,10 @@ impl VectorData {
             && self.live.is_none()
             && self.constraints.is_none()
             && self.clip.is_none()
+            && self.frame_compose.is_none()
+            && self.graphic_style.is_none()
+            && self.effects.is_empty()
+            && self.mosaic.is_none()
     }
 }
 
@@ -65,11 +77,14 @@ mod tests {
 }
 
 // Package 15 owned provider source; relocate to pc-doc after the serial merge if desired.
-#[path = "../../pc-engine/src/vector_packages/symbols/validation.rs"]
-pub mod symbol_validation;
 #[path = "../../pc-engine/src/vector_packages/symbols/expansion.rs"]
 pub mod symbol_expansion;
+#[path = "../../pc-engine/src/vector_packages/symbols/validation.rs"]
+pub mod symbol_validation;
 
 pub mod styles;
 
 pub mod effects;
+
+pub mod mosaic;
+pub mod validation;

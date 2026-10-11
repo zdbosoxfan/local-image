@@ -127,19 +127,39 @@ pub fn geometry() -> Geometry {
 pub struct Gesture {
     pub capture: Capture,
     pub start: [f64; 2],
-    cache: Cache,
+    document: std::sync::Arc<Document>,
+    cache: std::sync::OnceLock<std::result::Result<Cache, String>>,
 }
 impl Gesture {
     pub fn begin(doc: &Document, revision: u64, raw: [f64; 2], settings: &Settings, view: View, bypass: bool) -> Result<Self> {
-        let cache = Cache::build(doc, revision, Exclusions::default(), Some(geometry()))?;
-        let snap = cache.point(raw, settings, view, None, bypass)?;
-        // Capture every shape/path owner read by the detached snap query, including guides
-        // through document/revision. No locks are required for a read-only gesture.
-        let ids = doc.walk().iter().map(|(_, _, l)| l.id).collect();
-        Ok(Self { capture: Capture::new(doc, revision, ids)?, start: snap.point, cache })
+        let mut gesture = Self {
+            capture: Capture::new(
+                doc,
+                revision,
+                doc.walk().into_iter().filter_map(|(_, _, layer)| matches!(layer.content, LayerContent::Shape(_)).then_some(layer.id)).collect(),
+            )?,
+            start: raw,
+            document: std::sync::Arc::new(doc.clone()),
+            cache: std::sync::OnceLock::new(),
+        };
+        gesture.start = gesture.snap(raw, settings, view, bypass)?.point;
+        Ok(gesture)
+    }
+    fn snap(&self, raw: [f64; 2], settings: &Settings, view: View, bypass: bool) -> Result<SnapResult> {
+        point(raw)?;
+        settings.validate()?;
+        view.tolerance(settings.tolerance_px)?;
+        if bypass || !settings.enabled {
+            return Ok(SnapResult { point: raw, delta: [0., 0.], guides: Vec::new() });
+        }
+        // Build geometry only when a query actually needs snapping. Holding the
+        // detached source also lets Ctrl be released during the same gesture.
+        let cache =
+            self.cache.get_or_init(|| Cache::build(&self.document, self.capture.revision, Exclusions::default(), Some(geometry())).map_err(|e| e.to_string()));
+        cache.as_ref().map_err(|message| error(message.clone()))?.point(raw, settings, view, None, false)
     }
     pub fn endpoint(&self, raw: [f64; 2], settings: &Settings, view: View, shift: bool, bypass: bool) -> Result<SnapResult> {
-        let snap = self.cache.point(raw, settings, view, None, bypass)?;
+        let snap = self.snap(raw, settings, view, bypass)?;
         if !shift {
             return Ok(snap);
         }
@@ -386,7 +406,8 @@ impl AreaCache {
 }
 /// Prepared metadata-only edit for 00's document/artboard persistence hook. No caches
 /// change. The setter must only update the requested scale field; Session::edit is atomic.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ScaleEdit {
     pub capture: Capture,
     pub artboard: Option<LayerId>,
@@ -441,10 +462,24 @@ fn run_area(s: &mut Session, p: &Value) -> Result<Value> {
     units.unit = q.units.unwrap_or(units.unit);
     Ok(json!(AreaCache::build(&st.doc, st.revision)?.read(&st.doc, st.revision, &q.capture.layers, q.hovered, q.perimeter_mode, units)?))
 }
+fn run_scale(s: &mut Session, value: &Value) -> Result<Value> {
+    let request: ScaleEdit = serde_json::from_value(value.clone()).map_err(|e| error(e.to_string()))?;
+    request.commit(s, |doc, artboard, scale| {
+        let native = photocraft_doc::vector_design::structure::DrawingScale { factor: scale.factor };
+        if let Some(id) = artboard {
+            doc.layer_mut(id).and_then(|layer| layer.artboard_mut()).ok_or(EngineError::NoLayer(id))?.drawing_scale = Some(native);
+        } else {
+            doc.drawing_scale = Some(native);
+        }
+        Ok(())
+    })?;
+    Ok(json!({"factor":request.scale.factor}))
+}
 pub fn specs() -> Vec<CommandSpec> {
     [
         ("vector.measure.distance", "Measure Distance", run_distance as fn(&mut Session, &Value) -> Result<Value>),
         ("vector.measure.area", "Measure Area", run_area),
+        ("vector.measure.setScale", "Drawing Scale", run_scale),
     ]
     .into_iter()
     .map(|(id, label, run)| CommandSpec {
@@ -454,7 +489,7 @@ pub fn specs() -> Vec<CommandSpec> {
         shortcut: None,
         params: "{capture:{document,revision,layers},a?,b?,units?,scale?:{factor},hovered?:[layer,[x,y]],perimeterMode?:FullEdges|CuspedSegments}",
         enabled: crate::vector_cmds::has_doc,
-        journal: false,
+        journal: id == "vector.measure.setScale",
         run,
     })
     .collect()

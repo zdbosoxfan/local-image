@@ -116,3 +116,22 @@ fn blend18_engine_create_rejects_nonadjacent_keys_and_preserves_paint_order() {
     assert!(s.execute("vector.blend.create", json!({"capture":capture,"spec":BlendSpec::default()})).is_err());
     assert_eq!(s.active().unwrap().doc, before);
 }
+
+#[test]
+fn blend18_creation_rejects_live_ancestor_through_ordinary_container() {
+    let mut s = fixture();
+    let keys = s.active().unwrap().doc.layers.clone();
+    let ids = keys.iter().map(|l| l.id).collect();
+    s.edit("Nest", |doc, _| {
+        let inner = Layer::group("Inner", keys);
+        let mut outer = Layer::group("Live ancestor", vec![inner]);
+        outer.vector.live = Some(LiveGroup::Blend(BlendSpec::default()));
+        doc.layers = vec![outer];
+        Ok(())
+    })
+    .unwrap();
+    let before = s.active().unwrap().doc.clone();
+    let capture = Capture::begin(&s, ids).unwrap();
+    assert!(s.execute("vector.blend.create", json!({"capture":capture,"spec":BlendSpec::default()})).is_err());
+    assert_eq!(s.active().unwrap().doc, before);
+}

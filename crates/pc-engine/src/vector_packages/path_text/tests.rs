@@ -263,3 +263,22 @@ fn path_text_styled_typing_preserves_runs_and_native_roundtrip() {
     let old: PathText = serde_json::from_value(json!({"path":raw})).unwrap();
     assert_eq!((old.start, old.end, old.flip, old.align), (0., 1., false, PathTextAlign::Baseline));
 }
+
+#[test]
+fn review_regression_path_text_hit_skips_ineligible_foreground_curves() {
+    let (s, id) = session();
+    let mut doc = (*s.active().unwrap().doc).clone();
+    for inverted in [false, true] {
+        let mut path = match &doc.layer(id).unwrap().content {
+            LayerContent::Shape(s) => s.path.clone(),
+            _ => panic!(),
+        };
+        if inverted {
+            path.inverted = true;
+        } else {
+            path.subpaths.push(path.subpaths[0].clone());
+        }
+        doc.layers.push(Layer::new("Ineligible foreground", LayerContent::Shape(ShapeLayer { path, ..Default::default() })));
+    }
+    assert_eq!(curve_at(&doc, Point::new(90., 100.), 6.).unwrap().unwrap().0, id);
+}

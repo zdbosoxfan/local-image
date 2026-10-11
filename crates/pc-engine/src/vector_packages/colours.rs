@@ -6,7 +6,7 @@ use crate::{EngineError, Result, Session, commands::CommandSpec};
 use photocraft_doc::vector_design::appearance::AppearanceItem;
 pub use photocraft_doc::vector_design::swatches::*;
 use photocraft_doc::{Document, Fill, Layer, LayerContent, LayerId, SymbolId};
-use photocraft_vector::appearance::{CompiledAppearance, NoProjection, StrokeProjection};
+use photocraft_vector::appearance::{CompiledAppearance, StrokeProjection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -137,9 +137,10 @@ fn paint<'a>(l: &'a Layer, slot: &PaintSlot) -> Result<&'a Fill> {
             LayerContent::Shape(sh) => sh.stroke.as_ref().map(|s| &s.paint),
             _ => None,
         },
-        PaintSlot::Appearance(i) => l.vector.appearance.as_ref().and_then(|a| a.items.get(*i)).map(|it| match it {
-            AppearanceItem::Fill(f) => &f.paint,
-            AppearanceItem::Stroke(s) => &s.base.paint,
+        PaintSlot::Appearance(i) => l.vector.appearance.as_ref().and_then(|a| a.items.get(*i)).and_then(|it| match it {
+            AppearanceItem::Fill(f) => Some(&f.paint),
+            AppearanceItem::Stroke(s) => Some(&s.base.paint),
+            AppearanceItem::Mesh(_) => None,
         }),
     }
     .ok_or_else(|| bad("missing paint slot"))
@@ -155,9 +156,10 @@ fn paint_mut<'a>(l: &'a mut Layer, slot: &PaintSlot) -> Result<&'a mut Fill> {
             LayerContent::Shape(sh) => sh.stroke.as_mut().map(|s| &mut s.paint),
             _ => None,
         },
-        PaintSlot::Appearance(i) => l.vector.appearance.as_mut().and_then(|a| a.items.get_mut(*i)).map(|it| match it {
-            AppearanceItem::Fill(f) => &mut f.paint,
-            AppearanceItem::Stroke(s) => &mut s.base.paint,
+        PaintSlot::Appearance(i) => l.vector.appearance.as_mut().and_then(|a| a.items.get_mut(*i)).and_then(|it| match it {
+            AppearanceItem::Fill(f) => Some(&mut f.paint),
+            AppearanceItem::Stroke(s) => Some(&mut s.base.paint),
+            AppearanceItem::Mesh(_) => None,
         }),
     }
     .ok_or_else(|| bad("missing paint slot"))
@@ -399,7 +401,7 @@ fn unlink(book: &mut SwatchBook, ids: &[SwatchId]) {
     }
 }
 pub fn prepare(s: &Session, access: Access, r: &Request) -> Result<Preview> {
-    prepare_with_projection(s, access, r, &NoProjection)
+    prepare_with_projection(s, access, r, &super::styles::Projection)
 }
 pub fn prepare_with_projection(s: &Session, access: Access, r: &Request, projection: &dyn StrokeProjection) -> Result<Preview> {
     r.capture.check(s)?;

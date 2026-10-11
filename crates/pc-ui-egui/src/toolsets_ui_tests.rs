@@ -31,7 +31,9 @@ fn shown_tools(app: &PhotocraftApp) -> Vec<Tool> {
 #[test]
 fn the_tool_list_matches_the_tool_enum_and_every_set_parses() {
     let names: Vec<String> = Tool::ALL.iter().map(|t| format!("{t:?}")).collect();
-    let mut listed: Vec<&str> = ALL_TOOLS.to_vec();
+    let mut listed: Vec<&str> = ALL_TOOLS.iter().copied().chain(photocraft_engine::toolsets::VECTOR_TOOLS.iter().map(|t| t.id)).collect();
+    listed.sort_unstable();
+    listed.dedup();
     listed.sort_unstable();
     let mut known: Vec<&str> = names.iter().map(String::as_str).collect();
     known.sort_unstable();
@@ -48,7 +50,7 @@ fn all_tools_is_the_default_and_the_switcher_changes_the_toolbar() {
     let mut h = harness();
     h.run_steps(2);
     assert_eq!(active(&h).id, "allTools");
-    assert_eq!(shown_tools(h.state()).len(), Tool::ALL.len());
+    assert_eq!(shown_tools(h.state()).len(), photocraft_engine::toolsets::tools_for(photocraft_engine::toolsets::Persona::Pixel).len());
     h.get_by_label("Tool Set: All Tools").click();
     h.run_steps(3);
     h.get_by_label("Retouching").click();
@@ -72,7 +74,7 @@ fn create_rename_and_delete_a_custom_set_in_the_dialog() {
     h.run_steps(3);
     let made = active(&h);
     assert_eq!(made.name, "My Tools");
-    assert_eq!(made.tools.len(), Tool::ALL.len(), "a new set starts as a copy of the one in use");
+    assert_eq!(made.tools.len(), ALL_TOOLS.len(), "a new set starts as a copy of the one in use");
     // untick a tool: it leaves the set
     h.get_all_by_label("Rectangular Marquee Tool").last().unwrap().click();
     h.run_steps(3);

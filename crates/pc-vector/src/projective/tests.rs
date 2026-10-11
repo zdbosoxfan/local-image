@@ -95,3 +95,12 @@ fn transform34_projective_rejects_horizon_folds_singular_nonfinite() {
     assert!(Map::bilinear([0., 0., 1., 1.], [Point::new(0., 0.), Point::new(1., 1.), Point::new(0., 1.), Point::new(1., 0.)]).is_err());
     assert!(map_path(&p, Map::Projective([f64::NAN; 9]), 0.25).is_err());
 }
+
+#[test]
+fn review_projective_tangent_horizon_is_classified_before_refitting() {
+    let mut sub = Subpath::polyline(&[(0.25, 0.), (0.25, 1.)]);
+    sub.knots[0].out_ctrl = Point::new(-1. / 12., 1. / 3.);
+    sub.knots[1].in_ctrl = Point::new(-1. / 12., 2. / 3.);
+    let map = Map::Projective([0., 0., 1., 0., 1., 0., 1., 0., 0.]);
+    assert_eq!(map_path(&Path::new(vec![sub]), map, 0.25).unwrap_err(), Error::Horizon);
+}

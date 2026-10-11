@@ -185,7 +185,7 @@ fn new_artboard(s: &mut Session, p: &Value) -> Result<Value> {
     let name = p.get("name").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_string);
     let id = s.edit("New Artboard", |doc, active| {
         let mut g = Layer::group(name.unwrap_or_else(|| next_artboard_name(doc)), vec![]);
-        set_artboard(&mut g, Artboard { rect, background, preset });
+        set_artboard(&mut g, Artboard { rect, background, preset, drawing_scale: None });
         let id = doc.insert_above(None, g);
         fit_canvas(doc);
         *active = Some(id);
@@ -206,7 +206,7 @@ fn artboard_from_group(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         let rect = crate::layer_multi_cmds::layer_bounds(l).unwrap_or(canvas);
-        set_artboard(l, Artboard { rect, background, preset: String::new() });
+        set_artboard(l, Artboard { rect, background, preset: String::new(), drawing_scale: None });
         fit_canvas(doc);
         *active = Some(id);
         Ok(rect)
@@ -231,7 +231,7 @@ fn artboard_from_layers(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let rect = children.iter().filter_map(crate::layer_multi_cmds::layer_bounds).reduce(|a, b| a.union(&b)).unwrap_or(canvas);
         let mut g = Layer::group(name.unwrap_or_else(|| next_artboard_name(doc)), children);
-        set_artboard(&mut g, Artboard { rect, background, preset: String::new() });
+        set_artboard(&mut g, Artboard { rect, background, preset: String::new(), drawing_scale: None });
         let gid = doc.insert_above(None, g);
         crate::layer_multi_cmds::check_group_depth(doc, "Artboard from Layers")?;
         fit_canvas(doc);
@@ -291,7 +291,7 @@ fn set_props(s: &mut Session, p: &Value) -> Result<Value> {
         } else if move_contents && (dx, dy) != (0, 0) {
             let snapshot = doc.clone();
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-            crate::commands::translate_layer(&snapshot, l, dx, dy);
+            crate::commands::translate_layer(&snapshot, l, dx, dy)?;
             crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(dx), f64::from(dy));
         }
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
@@ -339,7 +339,7 @@ pub fn artboard_document(doc: &Document, id: LayerId) -> Option<Document> {
     let r = l.artboard()?.rect;
     let mut group = l.clone();
     group.visible = true;
-    crate::commands::translate_layer(doc, &mut group, -r.x0, -r.y0);
+    crate::commands::translate_layer(doc, &mut group, -r.x0, -r.y0).ok()?;
     crate::vector_cmds::translate_vectors(doc, &mut group, f64::from(-r.x0), f64::from(-r.y0));
     let mut one = doc.clone();
     one.name = l.name.clone();

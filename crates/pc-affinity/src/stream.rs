@@ -407,6 +407,9 @@ impl Parser<'_> {
                 return Err(Error::Limit("object class chain too long"));
             }
         }
+        if chain.len() > 64 {
+            return Err(Error::Limit("object class chain too long"));
+        }
         let class = chain.first().copied().unwrap_or(Tag(0));
         fields.extend(self.fields(true, class)?);
         if let Some(o) = self.objects.get_mut(id) {

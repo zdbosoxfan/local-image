@@ -7,7 +7,7 @@ use crate::{
 };
 use photocraft_doc::vector_design::appearance::Appearance;
 use photocraft_doc::{Document, LayerContent, LayerId};
-use photocraft_vector::appearance::{self as renderer, CompiledAppearance, NoProjection, StrokeProjection};
+use photocraft_vector::appearance::{self as renderer, CompiledAppearance, StrokeProjection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -69,7 +69,7 @@ pub fn prepare(s: &Session, c: &Commit, projection: &dyn StrokeProjection) -> Re
     Ok(edits)
 }
 pub fn preview_document(s: &Session, c: &Commit) -> Result<Document> {
-    preview_with_projection(s, c, &NoProjection)
+    preview_with_projection(s, c, &super::styles::Projection)
 }
 pub fn preview_with_projection(s: &Session, c: &Commit, p: &dyn StrokeProjection) -> Result<Document> {
     let edits = prepare(s, c, p)?;
@@ -132,13 +132,13 @@ fn request(v: &Value) -> Result<Commit> {
 }
 fn set(s: &mut Session, v: &Value) -> Result<Value> {
     let c = request(v)?;
-    let edits = prepare(s, &c, &NoProjection)?;
+    let edits = prepare(s, &c, &super::styles::Projection)?;
     vector_api::apply_shape_edits(s, "Edit Appearance", edits)?;
     Ok(json!({"layers":c.edits.iter().map(|e| e.layer.0).collect::<Vec<_>>() }))
 }
 fn preview(s: &mut Session, v: &Value) -> Result<Value> {
     let c = request(v)?;
-    let edits = prepare(s, &c, &NoProjection)?;
+    let edits = prepare(s, &c, &super::styles::Projection)?;
     Ok(json!({"layers":edits.iter().map(|e|e.layer.0).collect::<Vec<_>>(),"detached":true}))
 }
 fn info(s: &mut Session, v: &Value) -> Result<Value> {

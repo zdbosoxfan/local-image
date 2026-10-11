@@ -344,6 +344,7 @@ impl<'a, 'b> State<'a, 'b> {
                             let r = rect_of(&[m.apply(Point::new(rect.x0, rect.y0)), m.apply(Point::new(rect.x1, rect.y1))])?;
                             if let LayerContent::Group(g) = &mut group.content {
                                 g.artboard = Some(photocraft_doc::Artboard {
+                                    drawing_scale: None,
                                     rect: r,
                                     background: photocraft_doc::ArtboardBackground::Transparent,
                                     preset: String::new(),

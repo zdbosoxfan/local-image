@@ -354,7 +354,13 @@ fn dash_spans(total: f64, pattern: &[f64], offset: f64) -> Vec<(f64, f64)> {
     while d < total {
         let end = (d + remaining).min(total);
         if i % 2 == 0 && end > d {
-            out.push((d, end));
+            if let Some((_, previous_end)) = out.last_mut()
+                && *previous_end == d
+            {
+                *previous_end = end;
+            } else {
+                out.push((d, end));
+            }
         }
         d = end;
         i = (i + 1) % pattern.len();

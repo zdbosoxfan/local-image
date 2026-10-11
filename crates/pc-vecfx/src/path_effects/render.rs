@@ -17,6 +17,13 @@ impl<'a> Compiled<'a> {
         for p in scene {
             let mut item = p.item.clone();
             let blend = match &mut item {
+                AppearanceItem::Mesh(mesh) => {
+                    let blend = mesh.blend;
+                    if blend != BlendMode::Dissolve {
+                        mesh.blend = BlendMode::Normal;
+                    }
+                    blend
+                }
                 AppearanceItem::Fill(f) => {
                     let b = f.blend;
                     if b != BlendMode::Dissolve {

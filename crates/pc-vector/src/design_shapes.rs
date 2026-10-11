@@ -641,9 +641,11 @@ pub fn handles(s: &DesignShape) -> Result<Vec<Handle>> {
             add(H::HeadWidth, pos(len - head_length, head_width / 2.0));
             add(H::Shaft, pos(len / 2.0, shaft / 2.0));
         }
-        Callout { tail, radius, .. } => {
+        Callout { tail, radius, ellipse } => {
             add(H::Tail, p(tail[0], tail[1]));
-            add(H::Corner(0), p(x + radius, y + radius));
+            if !ellipse {
+                add(H::Corner(0), p(x + radius, y + radius));
+            }
         }
         Cog { inner, hole, curve, .. } => {
             add(H::Inner, at(0.5, 0.5 - inner / 2.0));

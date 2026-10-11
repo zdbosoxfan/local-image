@@ -9,3 +9,6 @@ mod regenerate;
 mod centerline_benchmark;
 #[path = "../centerline/routing.rs"]
 mod centerline_routing;
+
+#[path = "../cutout/benchmark.rs"]
+mod cutout_benchmark;

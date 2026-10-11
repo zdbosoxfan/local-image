@@ -123,7 +123,7 @@ pub(crate) fn rotate_doc(doc: &mut Document, deg: f64, interp: Interp, bg: [f32;
         doc.selection = Some(crate::transform_cmds::warp_gray(sel, &h, Interp::Bilinear)).filter(|s| !s.content_bounds().is_empty());
     }
     // Type, shapes and smart objects re-render from their new geometry.
-    crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::All);
+    crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::All)?;
     doc.guides = Default::default();
     Ok((new, a))
 }

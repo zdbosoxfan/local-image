@@ -335,6 +335,7 @@ fn app_harness(tool: crate::Tool, persona: Persona) -> Harness<'static, Photocra
                 return;
             }
             let ctx = ui.ctx().clone();
+            crate::vector_integration::frame(app, &ctx);
             crate::shortcuts::handle(app, &ctx);
             egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
         },

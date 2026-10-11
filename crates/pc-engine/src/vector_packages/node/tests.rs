@@ -215,8 +215,8 @@ fn node_topology_failure_is_an_error_without_edit() {
 #[test]
 #[ignore = "requires package 00 installation of actual V1 join/split/nearest adapters"]
 fn node_v1_break_join_close_corner_replay_coverage_and_native_undo() {
-    assert!(GEOMETRY.get().is_some(), "required V1 provider must be installed");
     let (mut s, mut t) = setup();
+    assert!(GEOMETRY.get().is_some(), "required V1 provider must be installed");
     t.truncate(1);
     t[0].anchors = vec![[0, 0], [0, 2]];
     let before = native(&s);
@@ -247,12 +247,21 @@ fn node_v1_break_join_close_corner_replay_coverage_and_native_undo() {
 #[test]
 #[ignore = "requires package 00 installation of actual V1 join/split/nearest adapters"]
 fn node_v1_join_consumes_shape_layers_remaps_corners_and_native_undo() {
-    assert!(GEOMETRY.get().is_some(), "required V1 provider must be installed");
     let (mut s, t) = setup();
+    assert!(GEOMETRY.get().is_some(), "required V1 provider must be installed");
     s.edit("open fixtures", |doc, _| {
-        for target in &t {
-            let LayerContent::Shape(sh) = &mut doc.layer_mut(LayerId(target.layer.unwrap())).unwrap().content else { panic!("shape") };
+        for (index, target) in t.iter().enumerate() {
+            let layer = doc.layer_mut(LayerId(target.layer.unwrap())).unwrap();
+            let LayerContent::Shape(sh) = &mut layer.content else { panic!("shape") };
             sh.path.subpaths[0].closed = false;
+            // Join the facing endpoints without a connector crossing either square.
+            if index == 0 {
+                sh.path.subpaths[0].knots.rotate_left(3);
+                layer.vector.corners[0].knot = 3;
+            } else {
+                sh.path.subpaths[0].knots.reverse();
+                layer.vector.corners[0].knot = 1;
+            }
         }
         Ok(())
     })
@@ -270,4 +279,13 @@ fn node_v1_join_consumes_shape_layers_remaps_corners_and_native_undo() {
     assert_eq!(s.journal.len(), journal + 1);
     assert!(s.undo());
     assert_eq!(native(&s), before);
+}
+
+#[test]
+fn review_regression_node_provenance_matches_signed_zero_and_prefers_unchanged_coincident_knots() {
+    let first = photocraft_doc::Knot::corner(-0., 5.);
+    let second = photocraft_doc::Knot::smooth(Point::new(0., 5.), Point::new(1., 4.), Point::new(1., 6.));
+    let base = Path::new(vec![photocraft_doc::Subpath { knots: vec![first, second], ..Default::default() }]);
+    let output = Path::new(vec![photocraft_doc::Subpath { knots: vec![second, first, photocraft_doc::Knot::corner(9., 9.)], ..Default::default() }]);
+    assert_eq!(provenance(&base, &output).unwrap(), vec![vec![Some([0, 1]), Some([0, 0]), None]]);
 }

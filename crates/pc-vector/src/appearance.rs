@@ -86,6 +86,12 @@ pub fn validate(appearance: &Appearance) -> Result<(), String> {
                     return Err("fill opacity / blend is invalid".into());
                 }
             }
+            AppearanceItem::Mesh(m) => {
+                crate::mesh_paint::Mesh::from(&m.paint).validate()?;
+                if !number(f64::from(m.opacity), 0., 1.) || m.blend == BlendMode::PassThrough {
+                    return Err("mesh opacity / blend is invalid".into());
+                }
+            }
             AppearanceItem::Stroke(s) => {
                 validate_paint(&s.base.paint)?;
                 if !number(f64::from(s.base.width), 0., 5000.)
@@ -147,6 +153,10 @@ pub fn scale_with_object(a: &mut Appearance, transform: Affine) -> Result<(), St
     }
     let mut next = a.clone();
     for i in &mut next.items {
+        if let AppearanceItem::Mesh(mesh) = i {
+            let projected = crate::mesh_paint::Mesh::from(&mesh.paint).transform(transform)?;
+            mesh.paint = (&projected).into();
+        }
         if let AppearanceItem::Stroke(s) = i
             && s.scale_with_object
         {
@@ -212,6 +222,11 @@ impl<'a> CompiledAppearance<'a> {
                     geometry_points += source_points;
                     (area.clone(), None, paint::Sampler::new(&f.paint, frame, canvas, patterns, None)?, f.opacity, f.blend)
                 }
+                AppearanceItem::Mesh(m) if m.visible && m.opacity > 0. => {
+                    geometry_points += source_points;
+                    let mesh = crate::mesh_paint::CompiledMesh::new(&crate::mesh_paint::Mesh::from(&m.paint), &shape.path, canvas)?;
+                    (area.clone(), None, paint::Sampler::Mesh(Box::new(mesh)), m.opacity, m.blend)
+                }
                 AppearanceItem::Stroke(s)
                     if s.visible
                         && s.base.opacity > 0.
@@ -235,7 +250,7 @@ impl<'a> CompiledAppearance<'a> {
             if geometry_points > 1_048_576 {
                 return Err("appearance compiled geometry exceeds the point budget".into());
             }
-            let b = if shape.path.inverted && matches!(i, AppearanceItem::Fill(_)) {
+            let b = if shape.path.inverted && matches!(i, AppearanceItem::Fill(_) | AppearanceItem::Mesh(_)) {
                 canvas
             } else {
                 coverage.pixel_bounds().unwrap_or(Rect::EMPTY).intersect(&canvas)

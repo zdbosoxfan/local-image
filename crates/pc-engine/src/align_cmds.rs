@@ -299,8 +299,8 @@ pub(crate) fn vector_spacing(s: &mut Session, p: &Value) -> Result<Value> {
         capture.layers.iter().map(|id| Ok((*id, layout::bounds(st.doc.layer(*id).ok_or(EngineError::NoLayer(*id))?)?))).collect::<Result<Vec<_>>>()?;
     items.sort_by(|a, b| a.1[axis].total_cmp(&b.1[axis]).then_with(|| a.0.0.cmp(&b.0.0)));
     let first = items.first().ok_or_else(|| error("empty selection"))?;
-    let last = items.last().ok_or_else(|| error("empty selection"))?;
-    let span = last.1[axis] + last.1[axis + 2] - first.1[axis];
+    let end = items.iter().map(|(_, b)| b[axis] + b[axis + 2]).fold(f64::NEG_INFINITY, f64::max);
+    let span = end - first.1[axis];
     let total: f64 = items.iter().map(|(_, b)| b[axis + 2]).sum();
     let gap = match p.get("spacing") {
         Some(v) => finite(v.as_f64().ok_or_else(|| error("spacing must be numeric"))?)?,

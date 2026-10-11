@@ -8,7 +8,7 @@ use photocraft_doc::{
 };
 use photocraft_geom::Point;
 use photocraft_pathops::{geom::arc::ArcPath, to_geometry};
-use photocraft_text::{TextEngine, layout, raster, render};
+use photocraft_text::TextEngine;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -16,9 +16,8 @@ use std::collections::HashSet;
 // Compile the SINGLE owned pc-text source until 00 adds `pub mod on_path` to
 // pc-text/lib.rs. Afterwards replace this path module/imports with
 // `pub use photocraft_text::on_path;`. No second implementation or shaper.
-mod curves;
-#[path = "../../../pc-text/src/on_path.rs"]
-pub mod on_path;
+pub mod curves;
+pub use photocraft_text::on_path;
 
 pub struct Sampler(ArcPath);
 impl Sampler {
@@ -237,7 +236,7 @@ struct Convert {
     revision: u64,
     layers: Vec<LayerId>,
 }
-fn convert(s: &mut Session, p: &Value) -> Result<Value> {
+pub(crate) fn convert(s: &mut Session, p: &Value) -> Result<Value> {
     let request: Convert = serde_json::from_value(p.clone()).map_err(|e| error(&e.to_string()))?;
     check_fresh(s, request.document, request.revision)?;
     let source = &s.active().ok_or(EngineError::NoDocument)?.doc;
@@ -304,10 +303,10 @@ pub fn curve_at(doc: &Document, point: Point, tolerance: f64) -> Result<Option<(
             continue;
         }
         let LayerContent::Shape(shape) = &layer.content else { continue };
+        let Ok(sampler) = Sampler::new(&shape.path) else { continue };
         if let Some((_, _, _, _, distance)) = photocraft_pathops::nearest(&shape.path, point).map_err(|e| error(&e.to_string()))?
             && distance <= tolerance
         {
-            let sampler = Sampler::new(&shape.path)?;
             return Ok(Some((
                 layer.id,
                 PathText { path: shape.path.clone(), start: sampler.fraction(point)?, end: 1., flip: false, align: PathTextAlign::Baseline },

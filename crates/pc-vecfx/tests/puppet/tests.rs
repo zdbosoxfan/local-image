@@ -94,3 +94,23 @@ fn distort41_puppet_bad_mesh_options_pins_and_deformed_vertices_are_errors() {
     assert!(rig.warp(&p, &[Pin { angle: Some(0.1), ..Pin::new([20., 30.]) }], &[]).is_err());
     assert_eq!(serde_json::from_str::<Options>("{}").unwrap(), Options::default());
 }
+
+#[test]
+fn review_puppet_refit_preserves_original_corner_flags_and_zero_auto_pins() {
+    let p = bar();
+    let rig = Rig::new(std::slice::from_ref(&p), Default::default()).unwrap();
+    assert!(arap::auto_pins(&rig.mesh, 0).is_empty());
+    let pins = [Pin { angle: Some(0.04), ..Pin::new([20., 50.]) }, Pin::new([180., 30.]), Pin::new([180., 70.])];
+    let deformed = rig.deform(&pins).unwrap();
+    let out = rig.warp(&p, &pins, &deformed).unwrap();
+    for source in &p.subpaths[0].knots {
+        let mapped = rig.mesh.map(&deformed, Point::new(source.anchor.x, source.anchor.y));
+        let knot = out.subpaths[0]
+            .knots
+            .iter()
+            .min_by(|a, b| (a.anchor.x - mapped.x).hypot(a.anchor.y - mapped.y).total_cmp(&(b.anchor.x - mapped.x).hypot(b.anchor.y - mapped.y)))
+            .unwrap();
+        assert!((knot.anchor.x - mapped.x).hypot(knot.anchor.y - mapped.y) < 1e-6);
+        assert_eq!(knot.smooth, source.smooth);
+    }
+}

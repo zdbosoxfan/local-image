@@ -11,6 +11,7 @@ enum WireRef<'a> {
     Blend(&'a BlendSpec),
     Repeat(&'a RepeatSpec),
     Envelope(&'a EnvelopeSpec),
+    LivePaint(&'a photocraft_doc::vector_design::live::LivePaintSpec),
 }
 #[derive(Deserialize)]
 #[serde(tag = "kind", content = "spec", rename_all = "snake_case")]
@@ -18,6 +19,7 @@ enum Wire {
     Blend(BlendSpec),
     Repeat(RepeatSpec),
     Envelope(EnvelopeSpec),
+    LivePaint(photocraft_doc::vector_design::live::LivePaintSpec),
 }
 impl From<Wire> for LiveGroup {
     fn from(value: Wire) -> Self {
@@ -25,6 +27,7 @@ impl From<Wire> for LiveGroup {
             Wire::Blend(s) => Self::Blend(s),
             Wire::Repeat(s) => Self::Repeat(s),
             Wire::Envelope(s) => Self::Envelope(s),
+            Wire::LivePaint(s) => Self::LivePaint(s),
         }
     }
 }
@@ -33,6 +36,7 @@ pub fn serialize<S: Serializer>(value: &Option<LiveGroup>, serializer: S) -> Res
         LiveGroup::Blend(s) => WireRef::Blend(s),
         LiveGroup::Repeat(s) => WireRef::Repeat(s),
         LiveGroup::Envelope(s) => WireRef::Envelope(s),
+        LiveGroup::LivePaint(s) => WireRef::LivePaint(s),
     });
     wire.serialize(serializer)
 }
@@ -50,6 +54,7 @@ pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<
     // Recover those saved WIP repeat/envelope records without dropping their parameters.
     let outer = match kind {
         "blend" => "blend",
+        "live_paint" => "live_paint",
         "radial" | "grid" | "mirror" => "repeat",
         "warp" | "mesh" | "top_object" => "envelope",
         _ => return Err(serde::de::Error::custom("unsupported flattened live group kind")),

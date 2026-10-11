@@ -224,7 +224,7 @@ fn apply(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
         warp_layer(if is_group { None } else { sel.as_ref() }, group, l, &w, rect, interp)?;
         let snapshot = doc.clone();
         if let Some(l) = doc.layer_mut(id) {
-            crate::transform_cmds::refresh_text(&snapshot, l);
+            crate::transform_cmds::refresh_text(&snapshot, l)?;
         }
         if let Some(sel) = &doc.selection {
             doc.selection = Some(warp_mesh_gray(sel, &|x, y| w.map(x, y), Interp::Bilinear)).filter(|s| !s.content_bounds().is_empty());

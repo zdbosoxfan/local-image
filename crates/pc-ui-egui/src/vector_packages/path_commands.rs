@@ -32,6 +32,7 @@ pub struct State {
     preview_key: u64,
     preview_enabled: bool,
     counts: Option<(usize, usize)>,
+    expand_availability: Option<(Arc<Document>, u64, Vec<LayerId>, [Option<String>; 2])>,
 }
 impl State {
     pub fn cancel(&mut self) {
@@ -350,23 +351,35 @@ impl State {
             }
         });
         let request = Capture::begin(s, ids).map(|capture| expand::Request { capture, options: Default::default(), appearance: true });
-        let reason = match &request {
-            Ok(r) => expand::disabled_reason(s, r),
-            Err(e) => Some(e.to_string()),
+        let reason = if let Some(st) = s.active() {
+            if self.expand_availability.as_ref().is_none_or(|(doc, rev, layers, _)| !Arc::ptr_eq(doc, &st.doc) || *rev != st.revision || layers != ids) {
+                let reasons = [false, true].map(|appearance| match &request {
+                    Ok(r) => {
+                        let mut r = r.clone();
+                        r.appearance = appearance;
+                        expand::disabled_reason(s, &r)
+                    }
+                    Err(e) => Some(e.to_string()),
+                });
+                self.expand_availability = Some((st.doc.clone(), st.revision, ids.to_vec(), reasons));
+            }
+            self.expand_availability.as_ref().map(|(_, _, _, reasons)| reasons.clone()).unwrap_or_default()
+        } else {
+            [Some("no document".into()), Some("no document".into())]
         };
-        let options_button = ui.add_enabled(reason.is_none(), egui::Button::new(tr("Expand…")));
+        let options_button = ui.add_enabled(reason[0].is_none(), egui::Button::new(tr("Expand…")));
         let options_clicked = options_button.clicked();
-        if let Some(reason) = &reason {
+        if let Some(reason) = &reason[0] {
             options_button.on_disabled_hover_text(tr(reason));
         }
         if options_clicked {
             self.open_expand(s, ids);
             ui.close();
         }
-        let button = ui.add_enabled(reason.is_none(), egui::Button::new(tr("Expand Appearance")));
+        let button = ui.add_enabled(reason[1].is_none(), egui::Button::new(tr("Expand Appearance")));
         let clicked = button.clicked();
-        if let Some(reason) = reason {
-            button.on_disabled_hover_text(tr(&reason));
+        if let Some(reason) = &reason[1] {
+            button.on_disabled_hover_text(tr(reason));
         }
         if clicked && let Ok(r) = request {
             if let Err(e) = s.execute("object.expand", json!(r)) {

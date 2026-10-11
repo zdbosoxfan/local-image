@@ -138,12 +138,18 @@ pub fn panel(ui: &mut Ui, session: &mut Session, state: &mut State, targets: &[L
                 Err(e) => state.error = Some(e.to_string()),
             }
         }
-        if ui.add_enabled(state.selected.is_some(), egui::Button::new(tr("Edit Master"))).clicked()
-            && let (Ok(c), Some(id), Some(st)) = (Capture::new(session), state.selected, session.active())
-            && let Some(def) = st.doc.symbols.iter().find(|d| d.id == id)
-        {
-            state.cancel();
-            state.draft = Some(Draft { capture: c, symbol: id, layers: def.layers.clone() });
+        if ui.add_enabled(state.selected.is_some(), egui::Button::new(tr("Edit Master"))).clicked() {
+            match Capture::new(session) {
+                Ok(c) => {
+                    if let (Some(id), Some(st)) = (state.selected, session.active())
+                        && let Some(def) = st.doc.symbols.iter().find(|d| d.id == id)
+                    {
+                        state.cancel();
+                        state.draft = Some(Draft { capture: c, symbol: id, layers: def.layers.clone() });
+                    }
+                }
+                Err(e) => state.error = Some(e.to_string()),
+            }
         }
         let can_detach = session
             .active()
@@ -372,10 +378,13 @@ pub fn canvas_input(app: &mut crate::PhotocraftApp, response: &egui::Response, x
         })
         .unwrap_or(c.start);
     let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
-    let event = if pressed {
-        Event::Down(at[0], at[1])
-    } else if released {
+    if pressed && released {
+        pointer(&mut app.session, &mut app.ui.symbols, Event::Down(at[0], at[1]), &ids);
+    }
+    let event = if released {
         Event::Up(at[0], at[1])
+    } else if pressed {
+        Event::Down(at[0], at[1])
     } else if down {
         Event::Move(at[0], at[1])
     } else {

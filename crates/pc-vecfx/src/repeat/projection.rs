@@ -128,6 +128,7 @@ impl Projector {
             let mut l = source.clone();
             if generated {
                 l.id = self.id()?;
+                l.fill_cache = None;
                 l.psd_id = None;
                 l.psd_blocks.clear();
                 l.link_group = None;

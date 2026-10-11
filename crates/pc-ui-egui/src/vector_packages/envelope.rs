@@ -62,6 +62,7 @@ impl State {
     /// including ordinary path/type source edits, native load and undo/redo.
     /// Called when font/paint provider generation changes without a document edit.
     pub fn invalidate_projection(&mut self) {
+        self.cancel();
         self.committed = None;
     }
     pub fn display_for_document(&mut self, s: &Session, index: usize) -> Result<Option<(Arc<Document>, u64)>, String> {
@@ -105,7 +106,7 @@ impl State {
         Ok(())
     }
     fn apply(&mut self, s: &mut Session) -> Result<(), String> {
-        let pending = self.pending.take().ok_or("Envelope capture missing")?;
+        let pending = self.pending.as_ref().cloned().ok_or("Envelope capture missing")?;
         pending.commit(s).map_err(|e| e.to_string())?;
         self.cancel();
         self.committed = None;

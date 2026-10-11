@@ -268,6 +268,12 @@ fn commit(s: &mut Session, p: &Value) -> Result<Value> {
     let (prepared, id) = prepare(s, &c)?;
     check_fresh(s, c.document, c.revision)?;
     check_target(&s.active().ok_or(EngineError::NoDocument)?.doc, &c.target)?;
+    if let Target::NewShape { above } = c.target {
+        let id = id.ok_or_else(|| error("missing prepared Pen layer"))?;
+        let layer = prepared.layer(id).ok_or(EngineError::NoLayer(id))?.clone();
+        crate::vector_integration::insert_layer(s, above, layer, "Pen")?;
+        return Ok(json!({"layer":id.0}));
+    }
     s.edit("Pen", move |doc, active| {
         *doc = prepared;
         if let Some(id) = id {

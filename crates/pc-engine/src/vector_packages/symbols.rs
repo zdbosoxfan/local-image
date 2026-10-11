@@ -202,7 +202,11 @@ pub fn place_preview(s: &Session, c: Capture, id: SymbolId, a: Affine, above: Op
     validation::affine(a).map_err(|e| bad(e.to_string()))?;
     let name = doc.symbols.iter().find(|d| d.id == id).ok_or_else(|| bad("missing symbol"))?.name.clone();
     if let Some(above) = above {
-        targets(&doc, &[above], false)?;
+        let layer = doc.layer(above).ok_or(EngineError::NoLayer(above))?;
+        let locks = doc.effective_locks(above);
+        if locks.all || locks.pixels {
+            return Err(bad(format!("layer {} is locked", layer.name)));
+        }
     }
     let mut instance = SymbolInstance { symbol: id, transform: a, cache: None };
     instance.cache = Some(render_instance(&doc, &instance)?);

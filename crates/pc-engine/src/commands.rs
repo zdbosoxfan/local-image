@@ -290,6 +290,7 @@ fn build() -> Vec<CommandSpec> {
                     }
                 };
                 doc.resolution_dpi = res;
+                doc.design_units = crate::vector_packages::layout::new_document_units(p)?;
                 let i = s.add_document(doc, None);
                 Ok(json!({ "document": i }))
             }
@@ -1169,7 +1170,7 @@ fn combine(a: &Surface, b: &Surface, area: Rect, f: impl Fn(f32, f32) -> f32) ->
 
 /// Move a layer's pixels, linked mask and type by whole pixels (vectors move via
 /// `vector_cmds::translate_vectors`).
-pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
+pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) -> Result<()> {
     use crate::layer_multi_cmds::shift_surface as translate_surface;
     // Linked patterns in the layer's effects move with it.
     if let Some(r) = &mut l.effects.reference {
@@ -1184,7 +1185,7 @@ pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
         LayerContent::Raster(s) => *s = translate_surface(s, dx, dy),
         LayerContent::Text(t) => {
             t.transform = photocraft_geom::Affine::translate(dx as f64, dy as f64).mul(&t.transform);
-            crate::type_cmds::refresh(doc, t);
+            crate::vector_integration::refresh_text(doc, t, &l.vector)?;
         }
         LayerContent::Group(g) => {
             // Moving an artboard moves the board with its contents.
@@ -1192,12 +1193,13 @@ pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
                 a.rect = a.rect.translate(dx, dy);
             }
             for c in &mut g.children {
-                translate_layer(doc, c, dx, dy);
+                translate_layer(doc, c, dx, dy)?;
             }
         }
         LayerContent::Smart(sm) => crate::smart_cmds::shift_smart(sm, dx, dy),
         _ => {}
     }
+    Ok(())
 }
 
 /// Does `l` (or any descendant) have id `target`?

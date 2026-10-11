@@ -5,6 +5,7 @@ use photocraft_doc::{Color, ColorMode, Fill, Layer, SampleType, ShapeLayer, Size
 
 #[test]
 fn node_gpu_preview_release_cancel_native_undo_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,

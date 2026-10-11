@@ -89,7 +89,7 @@ fn native_xray(doc: &Document, layer: &Layer) -> Result<Layer> {
             path_text::refresh(doc, text, path)?;
         } else {
             let mut engine = photocraft_text::shared().lock().map_err(|_| error("text engine unavailable"))?;
-            let layout = engine.layout(text, doc.resolution_dpi);
+            let layout = photocraft_engine::vector_integration::text_layout(&mut engine, doc, text, &layer.vector)?;
             let warp = photocraft_text::render::layout_warp(&layout, text.warp.as_ref());
             let bounds = photocraft_text::render::ink_rect_warped(&layout, &text.transform, warp.as_ref());
             if u64::from(bounds.width()) * u64::from(bounds.height()) > 16_777_216 {
@@ -140,7 +140,7 @@ impl Geometry for NativeGeometry {
                         .map(|p| p.elements)
                         .collect()
                 } else {
-                    let layout = engine.layout(text, doc.resolution_dpi);
+                    let layout = photocraft_engine::vector_integration::text_layout(&mut engine, doc, text, &layer.vector)?;
                     let warp = photocraft_text::render::layout_warp(&layout, text.warp.as_ref());
                     photocraft_text::render::outlines(&layout, &text.transform, warp.as_ref())
                 };
@@ -260,7 +260,9 @@ pub fn prepare(doc: &Document, state: &State, scope: Scope, document_to_device: 
     let mut outlines = Vec::new();
     let mut knots = 0usize;
     for (path, _, layer) in doc.walk() {
-        if (1..=path.len()).any(|n| doc.layer_at(&path[..n]).is_none_or(|l| !l.visible)) {
+        if (1..=path.len()).any(|n| doc.layer_at(&path[..n]).is_none_or(|l| !l.visible))
+            || (1..path.len()).any(|n| doc.layer_at(&path[..n]).is_some_and(|l| l.vector.live.is_some() || matches!(l.content, LayerContent::Symbol(_))))
+        {
             continue;
         }
         if state.outlined(doc, layer.id) {

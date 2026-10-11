@@ -93,7 +93,7 @@ fn parity(h: &mut H, expected: &Document) -> Vec<[f32; 4]> {
         for c in 0..4 {
             assert!(a[c].is_finite() && b[c].is_finite());
             let a = if c == 3 { a[c] } else { a[c] * a[3] };
-            let b = if c == 3 { b[c] } else { b[c] * b[3] };
+            let b = b[c];
             assert!((a - b).abs() <= 1. / 255., "premultiplied app pixel diff {}", (a - b).abs());
         }
     }
@@ -109,7 +109,7 @@ fn pointer(h: &mut H, pos: Pos2, down: Option<bool>) {
 fn open(h: &mut H, label: &str) {
     h.get_by_label("Object").click();
     h.run();
-    h.get_by_label("Path").click();
+    h.get_by_label("Path ⏵").click();
     h.run();
     h.get_by_label(label).click();
     h.run();
@@ -117,6 +117,7 @@ fn open(h: &mut H, label: &str) {
 #[test]
 #[ignore = "integration gate: install 00 production hooks; speed rules prohibit real GPU execution"]
 fn object36_full_app_gpu_simplify_slider_live_cancel_release_one_undo() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness(false);
     let before = h.state().session.active().unwrap().doc.clone();
@@ -150,6 +151,7 @@ fn object36_full_app_gpu_simplify_slider_live_cancel_release_one_undo() {
 #[test]
 #[ignore = "integration gate: install 00 production hooks; speed rules prohibit real GPU execution"]
 fn object36_full_app_gpu_expand_appearance_pixel_parity_menu_undo() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness(true);
     let before = h.state().session.active().unwrap().doc.clone();
@@ -161,10 +163,11 @@ fn object36_full_app_gpu_expand_appearance_pixel_parity_menu_undo() {
     let after = h.state().session.active().unwrap().doc.clone();
     assert_eq!(after.layers[0].children().unwrap().len(), 4);
     let b = parity(&mut h, &after);
+    assert_eq!(a.len(), b.len());
     for (a, b) in a.iter().zip(b) {
         for c in 0..4 {
-            let a = if c == 3 { a[c] } else { a[c] * a[3] };
-            let b = if c == 3 { b[c] } else { b[c] * b[3] };
+            let a = a[c];
+            let b = b[c];
             assert!((a - b).abs() <= 1. / 255.);
         }
     }

@@ -70,7 +70,8 @@ fn pointer_frames(h: &mut H, ppp: f32) {
 }
 #[test]
 fn svg_import_app_gpu_live_preview_release_editability_warning_and_undo() {
-    let _lock = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     for ppp in [1.0, 2.0] {
         let mut h = Harness::builder().with_size(egui::vec2(1100.0, 800.0)).with_pixels_per_point(ppp).wgpu_setup(setup()).build_eframe(|cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
@@ -148,7 +149,7 @@ fn svg_import_app_gpu_live_preview_release_editability_warning_and_undo() {
         assert!(max_cpu <= 1, "actual canvas/CPU premultiplied ink max difference {max_cpu}/255 at {ppp}x: {worst_cpu:?}");
         eprintln!("SVG app {ppp}x: preview/release {max}/255; CPU/canvas {max_cpu}/255");
         // The real app dialog's warning button selects the imported editable shape.
-        h.state_mut().svg_import_dialog = true;
+        photocraft_ui_egui::vector_integration::set_panel_open(h.state_mut(), "SVG Import", true);
         h.run_steps(2);
         h.get_by_label("gradient-projection: badge").click();
         h.run_steps(2);
@@ -157,7 +158,7 @@ fn svg_import_app_gpu_live_preview_release_editability_warning_and_undo() {
         let layer = st.doc.layer(id).unwrap();
         assert_eq!(layer.name, "badge");
         assert!(matches!(layer.content, photocraft_doc::LayerContent::Shape(_)));
-        h.state_mut().svg_import_dialog = false;
+        photocraft_ui_egui::vector_integration::set_panel_open(h.state_mut(), "SVG Import", false);
         let path = if let photocraft_doc::LayerContent::Shape(sh) = &h.state().session.active().unwrap().doc.layer(id).unwrap().content {
             sh.path.transform(&photocraft_doc::Affine::translate(2.0, 0.0))
         } else {

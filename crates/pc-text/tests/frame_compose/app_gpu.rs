@@ -80,12 +80,18 @@ fn present(h: &mut H, gpu: &GpuCanvas, doc: &Document) {
 fn frame_compose_full_app_rtx_option_width_live_preview_release_undo_cancel() {
     let _lock = super::gpu_lock();
     let (mut h, gpu) = harness();
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "Frame text").click();
+    h.run_steps(2);
     h.get_by_label("Paragraph composer").click();
+    h.run_steps(2);
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "Frame text").click();
     h.run_steps(2);
     h.get_by_label("Optical margins").click();
     h.run_steps(2);
     let preview = h.state().ui.frame_compose.preview.clone().expect("live option preview");
     present(&mut h, &gpu, &preview);
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "Frame text").click();
+    h.run_steps(2);
     h.get_by_label("Apply frame text").click();
     h.run_steps(3);
     let before = h.state().session.active().unwrap().doc.clone();

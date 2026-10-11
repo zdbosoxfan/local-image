@@ -202,7 +202,7 @@ pub fn scoped_document(doc: &Document, scope: &ExportScope) -> Result<Document> 
 fn needs_paint_projection(layer: &Layer) -> bool {
     if let Some(a) = &layer.vector.appearance {
         return a.items.iter().any(|i| match i {
-            AppearanceItem::Fill(_) => false,
+            AppearanceItem::Fill(_) | AppearanceItem::Mesh(_) => false,
             AppearanceItem::Stroke(s) => {
                 s.visible
                     && (s.profile.is_some()
@@ -269,7 +269,7 @@ fn scope_rect(doc: &Document, scope: &ExportScope, cx: &mut ExportContext<'_>) -
                     let b = match &l.content {
                         LayerContent::Group(g) => {
                             let b = bounds(&g.children, doc, cx)?;
-                            g.artboard.as_ref().map_or(b, |a| b.intersect(&a.rect))
+                            g.artboard.as_ref().map_or(b, |a| a.rect)
                         }
                         LayerContent::Shape(s) => {
                             // Bounds of ALL visible appearance items, not the PSD paint mirror.
@@ -475,6 +475,12 @@ impl Writer<'_, '_, '_> {
                 if let Some(a) = &l.vector.appearance {
                     for i in &a.items {
                         fallback |= match i {
+                            AppearanceItem::Mesh(m) => {
+                                if m.visible {
+                                    self.warn("gradient_mesh", "Gradient meshes were embedded as an image using the shared renderer.");
+                                }
+                                m.visible
+                            }
                             AppearanceItem::Fill(f) => f.visible && (f.blend != BlendMode::Normal || !paint::supported(&f.paint)),
                             AppearanceItem::Stroke(s) => s.visible && (s.blend != BlendMode::Normal || !paint::supported(&s.base.paint)),
                         };
@@ -506,7 +512,10 @@ impl Writer<'_, '_, '_> {
         for l in layers.iter().filter(|l| l.visible && l.opacity > 0.0) {
             check_cancel(self.cx)?;
             if self.fallback(l) {
-                self.raster(s, std::slice::from_ref(l), self.rect)?;
+                let rect = photocraft_compose::composite_bounds(l, self.doc.bounds()).unwrap_or(self.rect).intersect(&self.rect);
+                if !rect.is_empty() {
+                    self.raster(s, std::slice::from_ref(l), rect)?;
+                }
                 continue;
             }
             // Balance every krilla push even on cancellation/error; its Drop checks this.

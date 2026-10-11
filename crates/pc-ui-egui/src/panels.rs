@@ -59,8 +59,15 @@ fn slot_tool(ui: &egui::Ui, current: Tool, slot: &[Tool], key: egui::Id) -> Tool
 /// for a tool the set leaves out, and the toolbar then shows it in its usual place.
 pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
     let set = app.session.prefs().toolbar.active();
-    let ranks: std::collections::HashMap<Tool, usize> =
+    let mut ranks: std::collections::HashMap<Tool, usize> =
         set.tools.iter().enumerate().filter_map(|(i, name)| Tool::from_name(name).map(|tool| (tool, i))).collect();
+    if set.persona == photocraft_engine::toolsets::Persona::Pixel && !set.id.starts_with("custom-") {
+        for (i, id) in photocraft_engine::shared_tools::SHARED_ADDITIONS.iter().enumerate() {
+            if let Some(tool) = Tool::from_name(id) {
+                ranks.entry(tool).or_insert(set.tools.len() + i);
+            }
+        }
+    }
     let rank = |tool: &Tool| ranks.get(tool).copied().unwrap_or(usize::MAX);
     let current = app.ui.tool;
     if set.persona == photocraft_engine::toolsets::Persona::Vector {
@@ -84,6 +91,14 @@ pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
                 ordered.push((first, section_index, index, kept));
             }
             index += 1;
+        }
+    }
+    // Geometric additions use the same feature flyouts in Pixel, preserving the frozen defaults.
+    let shared: std::collections::HashSet<_> = photocraft_engine::shared_tools::SHARED_ADDITIONS.iter().filter_map(|id| Tool::from_name(id)).collect();
+    for (slot, tools) in crate::toolsets_ui::persona::vector_slots() {
+        let kept: Vec<_> = tools.into_iter().filter(|t| shared.contains(t) && (rank(t) != usize::MAX || *t == current)).collect();
+        if !kept.is_empty() {
+            ordered.push((kept.iter().map(rank).min().unwrap_or(usize::MAX), TOOL_SECTIONS.len(), 1000 + slot, kept));
         }
     }
     // Order applies to slots and to the tools in each flyout. Stable canonical ids keep the
@@ -170,7 +185,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             let slot: &[Tool] = slot;
                             let tool = slot_tool(ui, app.ui.tool, slot, key);
                             let sel = slot.contains(&app.ui.tool);
-                            let resp = icons::tool_button(ui, icons::tool_icon_name(tool), bx, sel, "");
+                            let resp = icons::tool_button(ui, icons::tool_icon_name_for(tool, app.session.prefs().toolbar.persona), bx, sel, "");
                             let flyout_open = ui.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id)).is_some();
                             crate::tool_tips::attach(&app.session, ui, &resp, tool, slot, flyout_open);
                             if slot.len() > 1 {
@@ -231,7 +246,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                                 icons::paint_tool(
                                                     ui,
                                                     Rect::from_center_size(pos2(r.left() + 26.0, r.center().y), vec2(18.0, 18.0)),
-                                                    icons::tool_icon_name(item),
+                                                    icons::tool_icon_name_for(item, app.session.prefs().toolbar.persona),
                                                     20.0,
                                                     t.icon,
                                                 );
@@ -274,7 +289,15 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let _ = crate::menus::invoke(app, &ctx, "edit.toolbar", json!({}));
             }
             ui.add_space(if t.pro { 8.0 } else { 14.0 });
-            color_chips(app, ui);
+            if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+                let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
+                if let Err(e) = crate::fill_stroke_proxy::widget(ui, &mut app.ui.fill_stroke_proxy, &mut app.session, &ids, &mut app.clip_compound_state) {
+                    app.ui.status = e.to_string();
+                    app.ui.status_error = true;
+                }
+            } else {
+                color_chips(app, ui);
+            }
             if t.pro {
                 ui.add_space(8.0);
                 let quick_mask = app.session.active().is_some_and(|s| s.doc.quick_mask.is_some());
@@ -624,7 +647,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     widgets::vline(ui, 22.0);
                 }
                 // The tool's icon opens the Tool Presets panel (Photoshop's tool preset picker).
-                if icons::tool_button(ui, icons::tool_icon_name(app.ui.tool), if t.pro { 26.0 } else { 28.0 }, !t.pro, tl!("Tool presets")).clicked() {
+                if icons::tool_button(ui, icons::tool_icon_name_for(app.ui.tool, app.session.prefs().toolbar.persona), if t.pro { 26.0 } else { 28.0 }, !t.pro, tl!("Tool presets")).clicked() {
                     let ctx = ui.ctx().clone();
                     let _ = crate::menus::invoke(app, &ctx, "window.panel.toolPresets", json!({}));
                 }
@@ -667,6 +690,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let brush_before = app.session.tools.brush.clone();
                 let mut brush = brush_before.clone();
                 let b = &mut brush;
+                let vector_options = egui::ScrollArea::horizontal().id_salt("vector-tool-options").auto_shrink([false, true])
+                    .show(ui, |ui| crate::vector_integration::context(app, ui)).inner;
+                if vector_options { return; }
                 let mut picked = None;
                 match app.ui.tool {
                     Tool::Brush | Tool::Eraser if t.pro => {
@@ -1495,6 +1521,16 @@ const SWATCHES: [[u8; 3]; 40] = [
 ];
 
 fn swatches(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut app.vector_runtime.document_palette, false, tl!("Application Swatches"));
+            ui.selectable_value(&mut app.vector_runtime.document_palette, true, tl!("Document Palette"));
+        });
+        if app.vector_runtime.document_palette {
+            crate::vector_integration::palette(app, ui);
+            return;
+        }
+    }
     let t = Tokens::get(ui.ctx());
     let cols = 10;
     let gap = 4.0;
@@ -1699,6 +1735,9 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let footer = 38.0;
     let fill = ui.available_height() > footer + 60.0;
     let rows_h = if fill { ui.available_height() - footer } else { f32::INFINITY };
+    if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+        crate::clip_compound::layers_begin(&mut app.clip_compound_state);
+    }
     egui::ScrollArea::vertical()
         .id_salt("layer-rows")
         .max_height(rows_h)
@@ -1747,6 +1786,9 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 actions.push(done);
             }
         });
+    if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+        crate::clip_compound::layers_end(ui, &mut app.session, &mut app.clip_compound_state);
+    }
     // A layer being dragged can also be dropped on the footer's Delete, New Layer and Group
     // buttons (#736); read the drag before it ends.
     let footer_drag = ctx.data(|d| d.get_temp::<u64>(egui::Id::new("layer-drag"))).map(|id| {
@@ -1973,8 +2015,8 @@ fn layer_row(
     let t = Tokens::get(ctx);
     // Photoshop's default (medium) thumbnails: 32 pt rows.
     let row_h = if t.pro { 32.0 } else { 46.0 };
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click_and_drag());
-    layer_drag_and_drop(ctx, ui, l, rect, &resp, actions);
+    let (rect, mut resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click_and_drag());
+    layer_drag_and_drop(app, ctx, ui, l, rect, &resp, actions);
     if resp.drag_started() {
         crate::layer_transfer::begin_from_panel(app, ctx, l.id);
     }
@@ -2011,8 +2053,26 @@ fn layer_row(
     if l.visible {
         icons::paint(ui, eye, "eye", 15.0, t.icon);
     }
-    eye_sweep(ctx, l, rect, &eye_resp, actions);
-    if eye_resp.clicked() {
+    let vector = app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector;
+    let eye_consumed = if vector {
+        let mut bridge = crate::isolation::bridge(ctx);
+        let result = crate::view_modes::layer_eye(ui, &eye_resp, &mut bridge.views, doc, l.id);
+        crate::isolation::store_session(&mut app.session, ctx, bridge);
+        match result {
+            Ok(consumed) => consumed,
+            Err(e) => {
+                app.ui.status = e.to_string();
+                app.ui.status_error = true;
+                true
+            }
+        }
+    } else {
+        false
+    };
+    if !eye_consumed && !(vector && ui.input(|i| i.modifiers.command || i.modifiers.ctrl)) {
+        eye_sweep(ctx, l, rect, &eye_resp, actions);
+    }
+    if !eye_consumed && eye_resp.clicked() {
         // ⌥-click shows only this layer; ⌥-click it again to restore the others.
         if ui.input(|i| i.modifiers.alt) {
             actions.push(("layer.showOnly".into(), json!({"layer": l.id.0})));
@@ -2036,6 +2096,25 @@ fn layer_row(
         x += 12.0;
     }
     let thumb = Rect::from_min_size(pos2(x, rect.center().y - ts / 2.0), vec2(ts, ts));
+    let mut isolation_consumed = false;
+    if vector {
+        let thumb_response = ui.interact(thumb, ui.id().with(("vector-isolation-thumb", l.id.0)), Sense::click());
+        let mut bridge = crate::isolation::bridge(ctx);
+        let result = crate::isolation::thumbnail(ui, &thumb_response, &mut app.session, &mut bridge.isolation, l.id);
+        crate::isolation::store_session(&mut app.session, ctx, bridge);
+        match result {
+            Ok(consumed) => isolation_consumed = consumed,
+            Err(e) => {
+                app.ui.status = e.to_string();
+                app.ui.status_error = true;
+                isolation_consumed = true;
+            }
+        }
+        resp = resp.union(thumb_response);
+        if isolation_consumed {
+            crate::vector_integration::cancel(app);
+        }
+    }
     draw_layer_thumb(app, ctx, ui, doc, l, thumb, row.primary);
     x += ts + 6.0;
     // Link chains and pixel / vector mask thumbnails (#153).
@@ -2094,7 +2173,8 @@ fn layer_row(
         let kind = masks.hit(pos?)?;
         crate::mask_thumbs_ui::click_command(l, kind, m)
     });
-    if let Some(p) = thumb_load {
+    if isolation_consumed || eye_consumed {
+    } else if let Some(p) = thumb_load {
         actions.push(("select.loadSelection".into(), p));
     } else if let Some(cmd) = mask_toggle {
         actions.push(cmd);
@@ -2128,7 +2208,7 @@ fn layer_row(
     // adjustment or fill thumbnail opens its settings and a Smart Object thumbnail its contents,
     // and a type thumbnail edits its text; anywhere else on the row opens Layer Style (#350, #537).
     // The first click already made this the active layer.
-    if resp.double_clicked() {
+    if !isolation_consumed && resp.double_clicked() {
         let pos = resp.interact_pointer_pos();
         let on = |r: Rect| pos.is_some_and(|p| r.expand(2.0).contains(p));
         if crate::doc_props_ui::is_background(doc, l) {
@@ -2806,7 +2886,19 @@ fn brush_preset_chip(
 
 /// Drag a layer row to reorder: drop on the upper/lower half to place above/below, or on the middle
 /// of a group to move into it. One `layer.moveTo` command (one undo step).
-fn layer_drag_and_drop(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: Rect, resp: &egui::Response, actions: &mut Vec<(String, Value)>) {
+fn layer_drag_and_drop(
+    app: &mut PhotocraftApp,
+    ctx: &egui::Context,
+    ui: &egui::Ui,
+    l: &Layer,
+    rect: Rect,
+    resp: &egui::Response,
+    actions: &mut Vec<(String, Value)>,
+) {
+    let vector = app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector;
+    if vector && resp.drag_started() {
+        crate::clip_compound::layer_row(ui, resp, l.id, &app.session, &mut app.clip_compound_state);
+    }
     let t = Tokens::get(ctx);
     let key = egui::Id::new("layer-drag");
     if resp.drag_started() {
@@ -2827,7 +2919,13 @@ fn layer_drag_and_drop(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: Rect
         return;
     }
     let f = (p.y - rect.top()) / rect.height();
-    let position = if l.is_group() && (0.3..0.7).contains(&f) {
+    let native_inside = vector
+        && (0.3..0.7).contains(&f)
+        && matches!(l.content, LayerContent::Shape(_) | LayerContent::Text(_) | LayerContent::Group(_) | LayerContent::Symbol(_));
+    if native_inside {
+        crate::clip_compound::layer_row(ui, resp, l.id, &app.session, &mut app.clip_compound_state);
+    }
+    let position = if (l.is_group() || native_inside) && (0.3..0.7).contains(&f) {
         "into"
     } else if f < 0.5 {
         "above"
@@ -2846,7 +2944,7 @@ fn layer_drag_and_drop(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: Rect
             painter.line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(2.0, t.accent));
         }
     }
-    if released {
+    if released && !native_inside {
         actions.push(("layer.moveTo".into(), json!({"layer": dragged, "target": l.id.0, "position": position})));
     }
 }

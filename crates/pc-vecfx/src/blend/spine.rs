@@ -3,6 +3,7 @@
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 //! Uses V1's curve-length metric and native exact curve tangents; lookup is bounded.
 use super::{Result, correspondence::section, error, validate_path};
+use kurbo::ParamCurveArclen as _;
 use photocraft_doc::Path;
 use photocraft_geom::Point;
 use photocraft_pathops::geom::{self, ParamCurve as _};
@@ -65,7 +66,7 @@ impl Spine {
             let (mut lo, mut hi) = (0., 1.);
             for _ in 0..32 {
                 let mid = (lo + hi) * 0.5;
-                if geom::PathData::single(section(part, 0, 0., mid)).length() < along {
+                if part.segment(0).subsegment(0. ..mid).arclen(1e-6) < along {
                     lo = mid;
                 } else {
                     hi = mid;
@@ -74,10 +75,7 @@ impl Spine {
             (lo + hi) * 0.5
         };
         let p = part.segment(0).eval(t);
-        let bez = geom::PathData::single(part.clone()).to_bezpath();
-        let segments = geom::bez::segments(bez.elements());
-        let segment = segments.first().ok_or_else(|| error("spine segment is empty"))?;
-        let tangent = geom::bez::tangent(segment, t);
+        let tangent = geom::bez::tangent(&kurbo::PathSeg::Cubic(part.segment(0)), t);
         Ok((Point::new(p.x, p.y), tangent.y.atan2(tangent.x)))
     }
 }

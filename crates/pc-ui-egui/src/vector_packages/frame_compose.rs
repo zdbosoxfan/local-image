@@ -147,14 +147,17 @@ impl State {
         self.generation = self.generation.wrapping_add(1);
     }
     pub fn synchronize(&mut self, s: &Session, enabled: bool) {
-        if !enabled || self.draft.as_ref().is_some_and(|d| fresh(s, d).is_err()) {
+        if !enabled
+            || self.draft.as_ref().is_some_and(|d| fresh(s, d).is_err() || s.active().is_none_or(|st| st.active_layer != d.edits.first().map(|e| e.layer)))
+        {
             self.cancel();
         }
     }
     pub fn begin(&mut self, s: &Session, ids: &[LayerId], metadata: &impl Metadata) -> Result<()> {
-        if self.draft.is_some() {
+        if self.draft.as_ref().is_some_and(|d| d.edits.iter().map(|e| e.layer).eq(ids.iter().copied()) && fresh(s, d).is_ok()) {
             return Ok(());
         }
+        self.cancel();
         let st = s.active().ok_or(EngineError::NoDocument)?;
         let mut edits = Vec::new();
         for &id in ids {
@@ -186,6 +189,7 @@ impl State {
         Ok(())
     }
     pub fn apply(&mut self, s: &mut Session, metadata: &impl Metadata) -> Result<()> {
+        self.dragging = false;
         if let Some(d) = &self.draft {
             commit(s, d, metadata)?;
         }
@@ -316,6 +320,30 @@ pub fn overlay(ui: &mut egui::Ui, state: &State, s: &Session, to_screen: impl Fn
     ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, Color32::LIGHT_BLUE), egui::StrokeKind::Outside);
     ui.interact(Rect::from_center_size(to_screen(x + width, y + height * 0.5), egui::vec2(10.0, 10.0)), ui.id().with("frame width"), Sense::hover())
         .on_hover_text(crate::i18n::t("Resize frame width"));
+}
+
+/// Native document-backed metadata adapter.
+pub struct NativeMetadata;
+impl Metadata for NativeMetadata {
+    fn load(&self, doc: &Document, id: LayerId) -> Result<Options> {
+        let m = doc.layer(id).ok_or(EngineError::NoLayer(id))?.vector.frame_compose.unwrap_or_default();
+        let options =
+            Options { enabled: m.enabled, balanced: m.balanced, optical_margins: m.optical_margins, grid_spacing: m.grid_spacing, grid_origin: m.grid_origin };
+        options.validate().map_err(error)?;
+        Ok(options)
+    }
+    fn store(&self, doc: &mut Document, id: LayerId, options: Options) -> Result<()> {
+        options.validate().map_err(error)?;
+        doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.vector.frame_compose =
+            (options != Options::default()).then_some(photocraft_doc::vector_design::text::FrameCompose {
+                enabled: options.enabled,
+                balanced: options.balanced,
+                optical_margins: options.optical_margins,
+                grid_spacing: options.grid_spacing,
+                grid_origin: options.grid_origin,
+            });
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -452,6 +480,22 @@ mod tests {
         assert_eq!(st.history.past_len(), history + 1);
         h.state_mut().session.undo();
         assert_eq!(h.state().session.active().unwrap().doc, before);
+    }
+    #[test]
+    fn review_additional_frame_target_switch_and_failed_release_stop_drag() {
+        let mut h = host();
+        let first = h.session.active().unwrap().doc.layers[0].id;
+        h.state.begin(&h.session, &[first], &NativeOnly).unwrap();
+        h.state.dragging = true;
+        h.state.draft.as_mut().unwrap().edits[0].options.enabled = true;
+        let before = h.session.active().unwrap().doc.clone();
+        assert!(h.state.apply(&mut h.session, &NativeOnly).is_err());
+        assert!(!h.state.dragging);
+        assert!(h.state.draft.is_some());
+        assert_eq!(h.session.active().unwrap().doc, before);
+        h.session.active_mut().unwrap().active_layer = None;
+        h.state.synchronize(&h.session, true);
+        assert!(h.state.draft.is_none());
     }
     #[test]
     fn frame_compose_transaction_entire_set_stale_locks_duplicates_nonfinite() {

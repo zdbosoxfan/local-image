@@ -68,7 +68,8 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
         store(ctx, b);
         return false;
     }
-    let (ids, anchors) = selection(app);
+    let (ids, anchors) =
+        if ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))) { selection(app) } else { (Vec::new(), Vec::new()) };
     let modal = b.state.is_open();
     // menu_nav remembers closure for two passes; suppress keys without discarding a
     // dialog just opened by a menu click.
@@ -110,4 +111,40 @@ pub fn display(app: &PhotocraftApp, ctx: &egui::Context, idx: usize) -> Option<(
         return None;
     }
     bridge(ctx).state.display_document(&app.session)
+}
+
+/// Menu/catalog adapter uses the same feature transactions as the owned menu fragment.
+pub fn menu_command(app: &mut PhotocraftApp, ctx: &egui::Context, command: &str) -> photocraft_engine::Result<()> {
+    let mut b = bridge(ctx);
+    let (ids, anchors) = selection(app);
+    match command {
+        "join" => b.state.run(&mut app.session, &ids, Action::Join { tolerance: 1e-6 }),
+        "addAnchors" => b.state.run(&mut app.session, &ids, Action::AddAnchors),
+        "removeAnchors" => b.state.run(&mut app.session, &ids, Action::RemoveAnchors { anchors }),
+        "divideBelow" => b.state.run(&mut app.session, &ids, Action::DivideBelow),
+        "average" => b.state.average(&app.session, &ids, &anchors),
+        "simplify" => b.state.open_simplify(&app.session, &ids),
+        "grid" => b.state.open_grid(&app.session, &ids),
+        "expand" => b.state.open_expand(&app.session, &ids),
+        "expandAppearance" => {
+            let capture = Capture::begin(&app.session, &ids)?;
+            let r = photocraft_engine::vector_packages::expand::Request { capture, options: Default::default(), appearance: true };
+            app.session.execute("object.expand", serde_json::to_value(r).map_err(|e| photocraft_engine::EngineError::Other(e.to_string()))?)?;
+        }
+        "cleanup" => {
+            let all = app
+                .session
+                .active()
+                .map(|st| st.doc.walk().into_iter().filter(|(_, _, l)| l.children().is_none()).map(|(_, _, l)| l.id).collect::<Vec<_>>())
+                .unwrap_or_default();
+            b.state.begin(&app.session, &all, Dialog::CleanUp { stray: true, unpainted: true, text: true });
+        }
+        "outline" => {
+            app.session.execute("path.outlineStroke", json!({"layers":ids}))?;
+        }
+        _ => return Err(photocraft_engine::EngineError::Other("unknown path menu command".into())),
+    }
+    let result = b.state.error.clone().map_or(Ok(()), |e| Err(photocraft_engine::EngineError::Other(e)));
+    store(ctx, b);
+    result
 }

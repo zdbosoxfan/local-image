@@ -28,3 +28,25 @@ hooks provided to 00 in `docs/wip/vector-tasks/integration/12.md`. Production
 shared files are not edited by this package. Release pointer-frame measurements
 must be taken with the ignored real-app benchmark, never inferred from these
 isolated tests or CPU/GPU image parity.
+
+## Integration reference generation
+
+Generated with `/usr/bin/inkscape` 1.4.4 (dcaf3e7d9e, 2026-05-05), batch only,
+`--export-type=svg --export-area-page --export-plain-svg --export-text-to-path
+--actions=select-by-element:text;object-to-path;export-do` and
+`--export-filename=goldens/abc-circle-outlines.svg`. `DISPLAY` and
+`DBUS_SESSION_BUS_ADDRESS` were empty. `INKSCAPE_PROFILE_DIR` pointed to an
+isolated default profile. `FONTCONFIG_FILE` selected only the repository's
+`assets/fonts` directory; `fc-match Inter` returned `Inter-Regular.ttf` / Inter Regular.
+The original bundled OFL font and input above were used. The output contains
+paths and no text. Output SHA-256: `d5cb6261d7f32672b9a08dcdf671bf66211d94e17603218ca999bfd5bb04af9f`.
+Set `LOCAL_IMAGE_PATH_TEXT_GOLDENS` to this `goldens` directory for acceptance.
+
+The integration IoU comparison renders both the independent Inkscape paths and
+the native placement at 8x resolution, retaining the package's IoU > 0.97 gate.
+The locked resvg/tiny-skia oracle uses 4x4 coverage sampling at each output
+pixel; the native renderer integrates coverage. At 256px the few glyph-edge
+samples dominate the thresholded mask (observed IoU 0.949748). At 2048px the
+same outlines and unchanged font/advance/placement produce IoU 0.991751.
+No reference geometry or tolerance was changed. This compares geometry with
+less dependence on the two rasterizers' antialias quantization.

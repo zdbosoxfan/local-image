@@ -19,7 +19,7 @@ pub struct ShapeEdit {
 
 /// Snapshot selected shapes for a tool's transient Begin/Preview state. Duplicates, missing
 /// layers, non-shapes and inherited pixel/all locks are errors, before any expensive rendering.
-pub fn snapshot_shapes(doc: &Document, ids: &[LayerId]) -> Result<Vec<ShapeEdit>> {
+fn shape_targets<'a>(doc: &'a Document, ids: &[LayerId]) -> Result<Vec<&'a photocraft_doc::Layer>> {
     if ids.is_empty() {
         return Err(EngineError::Other("select at least one shape".into()));
     }
@@ -33,11 +33,22 @@ pub fn snapshot_shapes(doc: &Document, ids: &[LayerId]) -> Result<Vec<ShapeEdit>
             if locks.all || locks.pixels {
                 return Err(EngineError::Other("shape target is locked".into()));
             }
-            let l = doc.layer(*id).ok_or(EngineError::NoLayer(*id))?;
-            match &l.content {
-                LayerContent::Shape(sh) => Ok(ShapeEdit { layer: *id, shape: sh.clone(), vector: l.vector.clone() }),
-                _ => Err(EngineError::Other("vector edit requires shape layers".into())),
+            let layer = doc.layer(*id).ok_or(EngineError::NoLayer(*id))?;
+            if !matches!(layer.content, LayerContent::Shape(_)) {
+                return Err(EngineError::Other("vector edit requires shape layers".into()));
             }
+            Ok(layer)
+        })
+        .collect()
+}
+pub fn snapshot_shapes(doc: &Document, ids: &[LayerId]) -> Result<Vec<ShapeEdit>> {
+    shape_targets(doc, ids)?
+        .into_iter()
+        .map(|l| {
+            let LayerContent::Shape(shape) = &l.content else {
+                return Err(EngineError::Other("vector edit requires shape layers".into()));
+            };
+            Ok(ShapeEdit { layer: l.id, shape: shape.clone(), vector: l.vector.clone() })
         })
         .collect()
 }
@@ -47,7 +58,7 @@ pub fn snapshot_shapes(doc: &Document, ids: &[LayerId]) -> Result<Vec<ShapeEdit>
 /// Tool code must also compare its captured document revision before publishing stale previews.
 pub fn apply_shape_edits(s: &mut Session, label: &str, edits: Vec<ShapeEdit>) -> Result<()> {
     let ids: Vec<_> = edits.iter().map(|e| e.layer).collect();
-    snapshot_shapes(&s.active().ok_or(EngineError::NoDocument)?.doc, &ids)?;
+    shape_targets(&s.active().ok_or(EngineError::NoDocument)?.doc, &ids)?;
     for edit in &edits {
         validate_path(&edit.shape.path)?;
         if edit.shape.cache.is_none() {

@@ -1,14 +1,13 @@
 //! Vector Brush command and gesture boundary. Geometry is adapted from pinned VectorCraft;
 //! the bridge below compiles the owned source until package 00 adds the crate dependency.
 //! See docs/wip/vector-tasks/integration/17.md. No shared registries are replaced.
-#[path = "../../../pc-vecfx/src/brush/mod.rs"]
-pub mod geometry;
 use crate::vector_packages::pencil::fitting::{self, FitOptions, Sample};
 use crate::{EngineError, Result, Session, commands::CommandSpec, vector_api};
 use geometry::{Brush, Resource};
 use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, FillItem, StrokeItem};
 use photocraft_doc::{DocId, Document, Fill, Layer, LayerContent, LayerId, ShapeLayer, ShapeStroke};
 use photocraft_geom::Rect;
+pub use photocraft_vecfx::brush as geometry;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -303,11 +302,7 @@ fn commit_command(session: &mut Session, params: &Value) -> Result<Value> {
     let prepared = prepare(session, &capture, &samples)?;
     let id = capture.layer;
     photocraft_doc::ensure_ids_above(id.0);
-    session.edit("Vector Brush", move |doc, active| {
-        doc.insert_above(capture.above, prepared.layer);
-        *active = Some(id);
-        Ok(())
-    })?;
+    crate::vector_integration::insert_layer(session, capture.above, prepared.layer, "Vector Brush")?;
     Ok(json!({"layer":id.0}))
 }
 fn parse<T: serde::de::DeserializeOwned>(params: &Value, key: &str) -> Result<T> {

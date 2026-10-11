@@ -97,10 +97,10 @@ pub(super) fn runs(g: &Grid, field: &super::distance::Field, width: usize, c: &m
         if k.is_multiple_of(1024) {
             c.work(1024)?;
         }
-        if runs.len() >= super::STROKE_BUDGET {
-            return Err(Error::BoundaryBudget);
-        }
         if g.degree(p) == 0 {
+            if runs.len() >= super::STROKE_BUDGET {
+                return Err(Error::BoundaryBudget);
+            }
             runs.push(Run { points: vec![sample(g, p, distances, width); 2] });
         }
         if node[p] == usize::MAX {

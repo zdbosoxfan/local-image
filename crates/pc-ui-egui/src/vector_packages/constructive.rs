@@ -275,7 +275,11 @@ impl State {
         self.removing = modifiers.alt;
         let result = match event {
             crate::canvas::ToolEvent::Move { .. } if self.drag.is_none() => {
-                if tool == Tool::Builder {
+                if self.targets.is_empty() {
+                    self.hover = None;
+                    self.map = None;
+                    Ok(())
+                } else if tool == Tool::Builder {
                     self.gesture(session).and_then(|g| {
                         self.hover = g.face_at(p).map_err(|e| e.to_string())?;
                         Ok(())

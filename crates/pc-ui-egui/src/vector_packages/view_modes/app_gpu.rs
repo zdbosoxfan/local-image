@@ -100,6 +100,7 @@ fn canvas_pixels(h: &mut H) -> image::RgbaImage {
 #[test]
 #[ignore = "owner speed rules; requires 00 view/overlay routes and real RTX 5090"]
 fn view37_full_app_gpu_outline_deterministic_pixels_and_pixel_preview_cpu_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness(2);
     let source = h.state().session.active().unwrap().doc.clone();
@@ -129,7 +130,12 @@ fn view37_full_app_gpu_outline_deterministic_pixels_and_pixel_preview_cpu_parity
             assert_eq!(first.get_pixel(sx, sy), second.get_pixel(sx, sy));
             let expected = ((1. - cpu.get(sx as i32, sy as i32)[3]) * 255.).round() as i16;
             for c in 0..3 {
-                assert!((i16::from(first.get_pixel(sx, sy)[c]) - expected).abs() <= 1, "device outline parity");
+                assert!(
+                    (i16::from(first.get_pixel(sx, sy)[c]) - expected).abs() <= 1,
+                    "device outline parity at doc ({x},{y}), screen ({sx},{sy}), channel {c}: actual {:?}, expected {expected}, ppp {}",
+                    first.get_pixel(sx, sy),
+                    h.ctx.pixels_per_point()
+                );
             }
         }
     }
@@ -161,6 +167,7 @@ fn view37_full_app_gpu_outline_deterministic_pixels_and_pixel_preview_cpu_parity
 #[test]
 #[ignore = "owner speed rules; requires 00 isolation/drawing routes and real RTX 5090"]
 fn view37_full_app_gpu_isolate_live_rectangle_cancel_release_escape_and_persona_switch() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness(2);
     h.state_mut().ui.tool = Tool::PathSelection;
@@ -213,6 +220,7 @@ fn view37_full_app_gpu_isolate_live_rectangle_cancel_release_escape_and_persona_
 // A runtime assertion lets debug builds compile the ignored acceptance gate.
 #[allow(clippy::assertions_on_constants)]
 fn view37_full_app_gpu_5000_paths_warm_pointer_frames_under_16ms_release() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     assert!(!cfg!(debug_assertions), "performance gate requires release profile");
     let _lock = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness(5000);

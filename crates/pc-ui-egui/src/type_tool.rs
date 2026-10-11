@@ -40,7 +40,9 @@ pub fn layout(app: &mut PhotocraftApp, id: LayerId) -> Option<(Arc<TextLayout>, 
     {
         return Some((l.clone(), t.transform, t.text.clone()));
     }
-    let l = Arc::new(photocraft_text::shared().lock().ok()?.layout(t, doc.resolution_dpi));
+    let vector = &doc.layer(id)?.vector;
+    let mut engine = photocraft_text::shared().lock().ok()?;
+    let l = Arc::new(photocraft_engine::vector_integration::text_layout(&mut engine, &doc, t, vector).ok()?);
     app.type_layout = Some((key, l.clone()));
     Some((l, t.transform, t.text.clone()))
 }
@@ -64,6 +66,9 @@ fn hit_layer(app: &mut PhotocraftApp, x: f64, y: f64) -> Option<LayerId> {
             let s = f64::from(slop);
             !r.is_empty() && x >= f64::from(r.x0) - s && x <= f64::from(r.x1) + s && y >= f64::from(r.y0) - s && y <= f64::from(r.y1) + s
         });
+        if let Some((layout, aff, _)) = path_layout(app, *id) {
+            return shown || aff.inverse().is_some_and(|inverse| layout.hit_test_distance(inverse.apply(Point::new(x, y))).1 <= f64::from(slop));
+        }
         let Some((l, aff, _)) = layout(app, *id) else { return shown };
         let (tx, ty) = to_text(&aff, x, y);
         shown || photocraft_text::text_point_inside(&l, tx, ty, slop)
@@ -118,6 +123,10 @@ pub fn edit_active(app: &mut PhotocraftApp) -> Result<(), String> {
 }
 
 fn hit_offset(app: &mut PhotocraftApp, id: LayerId, x: f64, y: f64) -> usize {
+    if let Some((layout, aff, text)) = path_layout(app, id) {
+        let p = aff.inverse().unwrap_or(Affine::IDENTITY).apply(Point::new(x, y));
+        return text[..layout.hit_test(p).min(text.len())].chars().count();
+    }
     let Some((l, aff, text)) = layout(app, id) else { return 0 };
     let (tx, ty) = to_text(&aff, x, y);
     photocraft_text::hit_char(&l, &text, tx, ty).0
@@ -561,6 +570,10 @@ pub fn commit(app: &mut PhotocraftApp) {
 pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
     let Some(ed) = app.ui.text_edit.clone() else { return };
     let id = LayerId(ed.layer);
+    if let Some((layout, aff, text)) = path_layout(app, id) {
+        draw_path_edit(painter, xf, &ed, &layout, aff, &text);
+        return;
+    }
     let Some((l, aff, text)) = layout(app, id) else { return };
     let t = crate::theme::Tokens::get(painter.ctx());
     // Text space → screen.
@@ -1383,6 +1396,58 @@ pub fn cancel(app: &mut PhotocraftApp) {
     let coalesced = app.session.active().is_some_and(|s| s.coalesce.as_deref() == Some(ed.session.as_str()));
     if coalesced {
         let _ = app.run("edit.undo", json!({}));
+    }
+}
+
+fn path_layout(app: &PhotocraftApp, id: LayerId) -> Option<(photocraft_text::on_path::PathLayout, Affine, String)> {
+    let st = app.session.active()?;
+    let layer = st.doc.layer(id)?;
+    let path = layer.vector.on_path.as_ref()?;
+    let LayerContent::Text(text) = &layer.content else { return None };
+    let mut engine = photocraft_text::shared().lock().ok()?;
+    let layout = photocraft_engine::vector_packages::path_text::project(&mut engine, &st.doc, text, path).ok()?;
+    Some((layout, text.transform, text.text.clone()))
+}
+fn draw_path_edit(
+    painter: &egui::Painter,
+    xf: &ViewXform,
+    ed: &crate::state::TextEdit,
+    layout: &photocraft_text::on_path::PathLayout,
+    aff: Affine,
+    text: &str,
+) {
+    let tokens = crate::theme::Tokens::get(painter.ctx());
+    let screen = |p: Point| {
+        let p = aff.apply(p);
+        xf.to_screen(p.x as f32, p.y as f32)
+    };
+    let a = byte_of(text, ed.caret.min(ed.anchor));
+    let b = byte_of(text, ed.caret.max(ed.anchor));
+    for cluster in layout.clusters.iter().filter(|c| c.visible && c.source.start < b && c.source.end > a) {
+        let source = &layout.shaped.clusters[cluster.source_index];
+        let line = &layout.shaped.lines[source.line];
+        let corners = [
+            (source.x, line.baseline - line.ascent),
+            (source.x + source.advance, line.baseline - line.ascent),
+            (source.x + source.advance, line.baseline + line.descent),
+            (source.x, line.baseline + line.descent),
+        ];
+        let points = corners
+            .into_iter()
+            .map(|(x, y)| {
+                let (x, y) = layout.shaped.to_text(x, y);
+                screen(cluster.transform.apply(Point::new(f64::from(x), f64::from(y))))
+            })
+            .collect();
+        painter.add(egui::Shape::convex_polygon(points, tokens.accent.gamma_multiply(0.4), egui::Stroke::NONE));
+    }
+    if let Some(caret) = layout.caret_segment(byte_of(text, ed.caret)) {
+        let caret = caret.map(screen);
+        painter.line_segment(caret, egui::Stroke::new(1., tokens.text));
+        let rect = egui::Rect::from_two_pos(caret[0], caret[1]).expand(1.);
+        painter.ctx().output_mut(|o| {
+            o.ime = Some(egui::output::IMEOutput { purpose: egui::IMEPurpose::Normal, rect, cursor_rect: rect, should_interrupt_composition: false })
+        });
     }
 }
 

@@ -87,6 +87,10 @@ impl LossCollector {
             }
             for i in &a.items {
                 let (visible, blend) = match i {
+                    AppearanceItem::Mesh(m) => {
+                        self.loss("gradient-mesh", "gradient meshes");
+                        (m.visible, m.blend)
+                    }
                     AppearanceItem::Fill(f) => {
                         if f.opacity != 1.0 {
                             self.loss("paint-opacity", "per-paint opacity");
@@ -126,6 +130,12 @@ impl LossCollector {
                 }
             }
         }
+        if v.mosaic.is_some() {
+            self.loss("cutout-coverage", "seamless cutout coverage");
+        }
+        if v.frame_compose.is_some_and(|frame| frame.enabled) {
+            self.loss("frame-composition", "frame composition");
+        }
         if v.on_path.is_some() {
             self.loss("path-text", "text on a path");
         }
@@ -148,6 +158,7 @@ impl LossCollector {
             Some(LiveGroup::Blend(_)) => self.loss("live-blend", "live blends"),
             Some(LiveGroup::Repeat(_)) => self.loss("live-repeat", "live repeats"),
             Some(LiveGroup::Envelope(_)) => self.loss("live-envelope", "live envelopes"),
+            Some(LiveGroup::LivePaint(_)) => self.loss("live-paint", "live paint groups"),
             None => {}
         }
         if matches!(layer.content, LayerContent::Symbol(_)) {
@@ -195,6 +206,13 @@ pub fn prepare(doc: &Document, projection: Option<&dyn Projection>) -> Result<Do
             return Err(IoError::Unsupported("PSD projection exceeds the layer depth limit".into()));
         }
         let mut out = layer.clone();
+        if photocraft_doc::vector_design::mosaic::active(layer) {
+            let bounds = photocraft_compose::composite_bounds(layer, source.bounds()).unwrap_or(source.bounds()).intersect(&source.bounds());
+            let surface = photocraft_compose::mosaic::surface(layer, bounds, 1.0, source.pixel_format())
+                .ok_or_else(|| IoError::Unsupported("cutout coverage exceeds PSD raster budget".into()))?;
+            out.content = LayerContent::Raster(surface);
+            out.vector.mosaic = None;
+        }
         if layer.vector.live.is_some() || layer.vector.clip.is_some() {
             out = projection
                 .ok_or_else(|| IoError::Unsupported("PSD live/crop export requires the common feature projection (18–20 / vector crop)".into()))?
@@ -209,6 +227,7 @@ pub fn prepare(doc: &Document, projection: Option<&dyn Projection>) -> Result<Do
                 || out.fill_opacity != layer.fill_opacity
                 || out.blend != layer.blend
                 || out.clipped != layer.clipped
+                || out.vector_mask != layer.vector_mask
                 || out.mask != layer.mask
                 || out.effects != layer.effects
             {
@@ -281,7 +300,7 @@ pub(crate) fn needs_cache(layer: &Layer) -> bool {
     matches!(layer.content, LayerContent::Symbol(_))
         || matches!(layer.content, LayerContent::Shape(_))
             && (layer.vector.appearance.is_some() || layer.vector.live_shape.is_some() || !layer.vector.corners.is_empty())
-        || matches!(layer.content, LayerContent::Text(_)) && layer.vector.on_path.is_some()
+        || matches!(layer.content, LayerContent::Text(_)) && (layer.vector.on_path.is_some() || layer.vector.frame_compose.is_some_and(|frame| frame.enabled))
 }
 
 /// Deterministic topmost visible supported fill/stroke using package 08's single mirror rule.

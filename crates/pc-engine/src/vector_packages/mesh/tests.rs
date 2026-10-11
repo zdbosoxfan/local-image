@@ -109,7 +109,7 @@ fn mesh43_engine_empty_target_and_create_options_reject_without_history() {
     assert!(s.journal.is_empty());
 }
 #[test]
-fn mesh43_engine_command_specs_journal_edits_only_and_missing_schema_is_explicit() {
+fn review_regression_mesh43_engine_command_specs_journal_edits_only_and_native_schema_is_used() {
     let commands = specs();
     assert_eq!(commands.len(), 4);
     for c in &commands {
@@ -119,11 +119,12 @@ fn mesh43_engine_command_specs_journal_edits_only_and_missing_schema_is_explicit
     let before = s.active().unwrap().doc.clone();
     let g = Gesture::begin(&s, &ids, Some(&Options::default())).unwrap();
     let result = (commands.iter().find(|c| c.id == "object.mesh.set").unwrap().run)(&mut s, &json!(g.request()));
-    if let Err(e) = result {
-        assert!(e.to_string().contains("native appearance schema"));
-        assert_eq!(s.active().unwrap().doc, before);
-        assert!(s.journal.is_empty());
-    }
+    result.unwrap();
+    assert_ne!(s.active().unwrap().doc, before);
+    assert!((NATIVE.read)(s.active().unwrap().doc.layer(ids[0]).unwrap()).unwrap().is_some());
+    assert!(s.journal.is_empty()); // Calling the handler bypasses Session::execute journaling.
+    assert!(s.undo());
+    assert_eq!(s.active().unwrap().doc, before);
 }
 #[test]
 fn mesh43_engine_old_v1_native_document_loads() {

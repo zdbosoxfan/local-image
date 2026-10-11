@@ -378,3 +378,27 @@ fn pen_line_drag_self_terminates_with_shift_and_no_handles() {
     assert_eq!(sp.knots[1].anchor.y, 20.);
     assert!(sp.knots.iter().all(|k| !k.smooth && k.in_ctrl == k.anchor && k.out_ctrl == k.anchor));
 }
+
+#[test]
+fn review_followup_pen_new_subpath_cannot_exceed_captured_knot_budget() {
+    let mut s = session();
+    let path = Path::new(vec![Subpath::polyline(&vec![(1., 1.); MAX_KNOTS])]);
+    let layer = Layer::new("Full path", LayerContent::Shape(ShapeLayer { path, ..Default::default() }));
+    let id = layer.id;
+    std::sync::Arc::make_mut(&mut s.active_mut().unwrap().doc).layers.push(layer);
+    let before = s.active().unwrap().doc.clone();
+    assert!(Gesture::begin(&s, Target::Shape { layer: id }, Mode::Pen, p(80., 80.), 1., None, None).is_err());
+    assert_eq!(s.active().unwrap().doc, before);
+}
+#[test]
+fn review_followup_pen_zero_length_line_release_invalidates_preview_generation() {
+    let s = session();
+    let mut g = begin(&s, Mode::Line);
+    g.release().unwrap();
+    g.press(p(30., 30.), Modifiers::default(), 0.).unwrap();
+    g.motion(p(20., 20.), Modifiers::default()).unwrap();
+    let generation = g.generation();
+    assert!(matches!(g.release().unwrap(), Outcome::Preview));
+    assert_eq!(g.path().subpaths[0].knots.len(), 1);
+    assert!(g.generation() > generation);
+}

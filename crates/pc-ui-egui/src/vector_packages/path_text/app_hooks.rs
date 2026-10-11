@@ -12,14 +12,14 @@ use std::sync::Arc;
 
 fn report(app: &mut PhotocraftApp, result: photocraft_engine::Result<()>) {
     if let Err(e) = result {
-        app.ui.vector_path_text.cancel();
+        app.shared_tools.path_text.cancel();
         app.ui.status = e.to_string();
         app.ui.status_error = true;
     }
 }
 pub fn synchronize(app: &mut PhotocraftApp) {
     let enabled = app.ui.tool.is_type();
-    let result = app.ui.vector_path_text.synchronize(&app.session, enabled);
+    let result = app.shared_tools.path_text.synchronize(&app.session, enabled);
     report(app, result);
 }
 pub fn event(app: &mut PhotocraftApp, ev: ToolEvent) -> bool {
@@ -27,7 +27,7 @@ pub fn event(app: &mut PhotocraftApp, ev: ToolEvent) -> bool {
         return false;
     }
     synchronize(app);
-    app.ui.vector_path_text.orientation = if app.ui.tool == crate::state::Tool::VerticalType {
+    app.shared_tools.path_text.orientation = if app.ui.tool == crate::state::Tool::VerticalType {
         photocraft_doc::text::Orientation::Vertical
     } else {
         photocraft_doc::text::Orientation::Horizontal
@@ -55,8 +55,8 @@ pub fn event(app: &mut PhotocraftApp, ev: ToolEvent) -> bool {
             photocraft_engine::type_cmds::apply_char_props(&mut style, &serde_json::json!({"fontStyle":options.type_style}));
             let mut paragraph = Default::default();
             photocraft_engine::type_cmds::apply_para_props(&mut paragraph, &serde_json::json!({"align":options.type_align}));
-            app.ui.vector_path_text.paragraph = paragraph;
-            match app.ui.vector_path_text.down(&app.session, Point::new(x, y), tolerance, style) {
+            app.shared_tools.path_text.paragraph = paragraph;
+            match app.shared_tools.path_text.down(&app.session, Point::new(x, y), tolerance, style) {
                 Ok(consumed) => consumed,
                 Err(e) => {
                     report(app, Err(e));
@@ -64,13 +64,13 @@ pub fn event(app: &mut PhotocraftApp, ev: ToolEvent) -> bool {
                 }
             }
         }
-        ToolEvent::Move { x, y, .. } if app.ui.vector_path_text.draft.is_some() => {
-            let result = app.ui.vector_path_text.motion(&app.session, Point::new(x, y));
+        ToolEvent::Move { x, y, .. } if app.shared_tools.path_text.draft.is_some() => {
+            let result = app.shared_tools.path_text.motion(&app.session, Point::new(x, y));
             report(app, result);
             true
         }
-        ToolEvent::Up { x, y } if app.ui.vector_path_text.draft.is_some() => {
-            let result = app.ui.vector_path_text.motion(&app.session, Point::new(x, y)).and_then(|_| app.ui.vector_path_text.up(&mut app.session));
+        ToolEvent::Up { x, y } if app.shared_tools.path_text.draft.is_some() => {
+            let result = app.shared_tools.path_text.motion(&app.session, Point::new(x, y)).and_then(|_| app.shared_tools.path_text.up(&mut app.session));
             report(app, result);
             true
         }
@@ -79,31 +79,31 @@ pub fn event(app: &mut PhotocraftApp, ev: ToolEvent) -> bool {
 }
 pub fn keys(app: &mut PhotocraftApp, ctx: &Context) -> bool {
     synchronize(app);
-    if app.ui.vector_path_text.draft.is_none() {
+    if app.shared_tools.path_text.draft.is_none() {
         return false;
     }
     let events = ctx.input(|i| i.events.clone());
     let mut handled = Vec::new();
     for (index, event) in events.into_iter().enumerate() {
         let result = match event {
-            Event::Text(text) | Event::Paste(text) | Event::Ime(egui::ImeEvent::Commit(text)) => app.ui.vector_path_text.type_text(&app.session, &text),
-            Event::Key { key: Key::Backspace, pressed: true, .. } => app.ui.vector_path_text.backspace(&app.session),
-            Event::Key { key: Key::Delete, pressed: true, .. } => app.ui.vector_path_text.delete(&app.session),
+            Event::Text(text) | Event::Paste(text) | Event::Ime(egui::ImeEvent::Commit(text)) => app.shared_tools.path_text.type_text(&app.session, &text),
+            Event::Key { key: Key::Backspace, pressed: true, .. } => app.shared_tools.path_text.backspace(&app.session),
+            Event::Key { key: Key::Delete, pressed: true, .. } => app.shared_tools.path_text.delete(&app.session),
             Event::Key { key: Key::ArrowLeft, pressed: true, modifiers, .. } => {
-                app.ui.vector_path_text.navigate(&app.session, false, modifiers.shift);
+                app.shared_tools.path_text.navigate(&app.session, false, modifiers.shift);
                 Ok(())
             }
             Event::Key { key: Key::ArrowRight, pressed: true, modifiers, .. } => {
-                app.ui.vector_path_text.navigate(&app.session, true, modifiers.shift);
+                app.shared_tools.path_text.navigate(&app.session, true, modifiers.shift);
                 Ok(())
             }
             Event::Key { key: Key::A, pressed: true, modifiers, .. } if modifiers.command || modifiers.ctrl => {
-                app.ui.vector_path_text.select_all(&app.session);
+                app.shared_tools.path_text.select_all(&app.session);
                 Ok(())
             }
-            Event::Key { key: Key::Enter, pressed: true, .. } => app.ui.vector_path_text.commit(&mut app.session),
+            Event::Key { key: Key::Enter, pressed: true, .. } => app.shared_tools.path_text.commit(&mut app.session),
             Event::Key { key: Key::Escape, pressed: true, .. } | Event::WindowFocused(false) | Event::PointerGone => {
-                app.ui.vector_path_text.cancel();
+                app.shared_tools.path_text.cancel();
                 Ok(())
             }
             _ => continue,
@@ -119,10 +119,10 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &Context) -> bool {
             keep
         });
     });
-    true
+    !handled.is_empty()
 }
 pub fn display_doc(app: &PhotocraftApp, index: usize) -> Option<(Arc<photocraft_doc::Document>, u64)> {
-    let state = &app.ui.vector_path_text;
+    let state = &app.shared_tools.path_text;
     let draft = state.draft.as_ref()?;
     if app.session.active_index() != Some(index)
         || photocraft_engine::vector_packages::path_text::check_fresh(&app.session, draft.document, draft.revision).is_err()
@@ -133,13 +133,13 @@ pub fn display_doc(app: &PhotocraftApp, index: usize) -> Option<(Arc<photocraft_
 }
 pub fn context(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     synchronize(app);
-    if app.ui.vector_path_text.overlay.is_some() || app.ui.vector_path_text.draft.is_some() {
-        let result = crate::vector_packages::path_text::context(ui, &mut app.ui.vector_path_text, &mut app.session);
+    if app.shared_tools.path_text.overlay.is_some() || app.shared_tools.path_text.draft.is_some() {
+        let result = crate::vector_packages::path_text::context(ui, &mut app.shared_tools.path_text, &mut app.session);
         report(app, result);
     }
 }
 pub fn overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
-    let state = &app.ui.vector_path_text;
+    let state = &app.shared_tools.path_text;
     crate::vector_packages::path_text::paint_overlay(state, painter, |p| xf.to_screen(p.x as f32, p.y as f32));
     if state.draft.is_some()
         && let Some(caret) = state.caret_segment()

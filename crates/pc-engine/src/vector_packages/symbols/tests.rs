@@ -402,3 +402,34 @@ fn symbols_text_master_edit_matches_independent_type_layers() {
     let LayerContent::Text(t) = &s.active().unwrap().doc.symbols[0].layers[0].content else { panic!() };
     assert_eq!(t.runs.iter().map(|r| r.len).sum::<usize>(), t.text.len());
 }
+
+#[test]
+fn review_followup_symbol_placement_does_not_edit_locked_children_of_insertion_neighbor() {
+    let mut s = fixture();
+    let (master, _) = make_symbol(&mut s);
+    let mut locked = shape(70., 70.);
+    locked.locks.all = true;
+    let group = Layer::group("Neighbor", vec![locked]);
+    let id = group.id;
+    std::sync::Arc::make_mut(&mut s.active_mut().unwrap().doc).layers.push(group.clone());
+    let capture = Capture::new(&s).unwrap();
+    let (prepared, _) = place_preview(&s, capture, master, Affine::IDENTITY, Some(id)).unwrap();
+    assert_eq!(prepared.layer(id).unwrap(), &group);
+    assert_eq!(s.active().unwrap().doc.layer(id).unwrap(), &group);
+}
+
+#[test]
+fn review_additional_symbol_text_variations_have_an_aggregate_budget() {
+    let mut s = fixture();
+    let (master, _) = make_symbol(&mut s);
+    let mut text = photocraft_doc::TextLayer { text: "a".into(), ..Default::default() };
+    let style = photocraft_doc::text::CharStyle {
+        variations: vec![photocraft_doc::text::FontVariation { axis: "wght".into(), value: 400. }; validation::MAX_OBJECTS + 1],
+        ..Default::default()
+    };
+    text.runs = vec![photocraft_doc::text::TextRun { len: 1, style }];
+    let candidate = vec![Layer::new("Text", LayerContent::Text(text))];
+    let before = s.active().unwrap().doc.clone();
+    assert!(master_preview(&s, Capture::new(&s).unwrap(), master, candidate).unwrap_err().to_string().contains("variation budget"));
+    assert_eq!(s.active().unwrap().doc, before);
+}

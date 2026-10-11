@@ -49,3 +49,20 @@ impl DesignUnits {
 fn is_false(v: &bool) -> bool {
     !*v
 }
+
+/// Optional drawing scale, where factor=100 represents 1:100.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DrawingScale {
+    pub factor: f64,
+}
+impl Default for DrawingScale {
+    fn default() -> Self {
+        Self { factor: 1.0 }
+    }
+}
+impl DrawingScale {
+    pub fn validate(self) -> Result<(), String> {
+        if self.factor.is_finite() && (1e-6..=1e6).contains(&self.factor) { Ok(()) } else { Err("drawing scale must be between 0.000001 and 1000000".into()) }
+    }
+}

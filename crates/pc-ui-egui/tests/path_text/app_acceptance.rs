@@ -81,7 +81,8 @@ fn harness(zoom: f32, ppp: f32) -> H {
 }
 #[test]
 fn path_text_app_gpu_actual_curve_typing_zoomed_preview_release_undo_cancel() {
-    let _lock = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     for (zoom, ppp) in [(1., 1.), (2., 2.), (4., 1.), (8., 1.)] {
         let mut h = harness(zoom, ppp);
         let before = h.state().session.active().unwrap().doc.clone();
@@ -91,10 +92,10 @@ fn path_text_app_gpu_actual_curve_typing_zoomed_preview_release_undo_cancel() {
         h.event(Event::Text("ABC".into()));
         h.step();
         h.run_steps(2);
-        let detached = h.state().ui.vector_path_text.preview.clone().expect("actual app path preview");
+        let detached = h.state().shared_tools.path_text.preview.clone().expect("actual app path preview");
         assert_eq!(h.state().session.active().unwrap().doc, before);
         assert_eq!(h.state().session.journal.len(), journal);
-        let caret = h.state().ui.vector_path_text.caret_segment().map(|c| c.map(|p| h.state().ui.vector_path_text.transform.apply(p)));
+        let caret = h.state().shared_tools.path_text.caret_segment().map(|c| c.map(|p| h.state().shared_tools.path_text.transform.apply(p)));
         let expected = photocraft_compose::flatten(&detached);
         let preview = h.render().unwrap();
         key(&mut h, Key::Enter);
@@ -153,7 +154,7 @@ fn path_text_app_gpu_actual_curve_typing_zoomed_preview_release_undo_cancel() {
         h.step();
         key(&mut h, Key::Escape);
         h.run_steps(2);
-        assert!(h.state().ui.vector_path_text.preview.is_none());
+        assert!(h.state().shared_tools.path_text.preview.is_none());
         assert_eq!(h.state().session.active().unwrap().doc, before);
     }
 }
@@ -163,8 +164,9 @@ fn path_text_app_gpu_actual_curve_typing_zoomed_preview_release_undo_cancel() {
 // Runtime guard: the ignored benchmark must compile in debug.
 #[allow(clippy::assertions_on_constants)]
 fn path_text_app_gpu_release_pointer_frame_measurement() {
+    let _gpu_gate = crate::gpu_lock();
     assert!(!cfg!(debug_assertions), "run this gate with --release");
-    let _lock = crate::gpu_lock();
+
     let mut h = harness(4., 1.);
     button(&mut h, 228., 128., true);
     button(&mut h, 228., 128., false);
@@ -184,7 +186,7 @@ fn path_text_app_gpu_release_pointer_frame_measurement() {
         let pixels = h.render().unwrap();
         std::hint::black_box(pixels);
         times.push(start.elapsed().as_secs_f64() * 1000.);
-        assert!(h.state().ui.vector_path_text.preview.is_some(), "frame={frame}: {}", h.state().ui.status);
+        assert!(h.state().shared_tools.path_text.preview.is_some(), "frame={frame}: {}", h.state().ui.status);
     }
     let start = std::time::Instant::now();
     let theta = 0.02 + 79. * 0.002;

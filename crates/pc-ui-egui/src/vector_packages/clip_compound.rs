@@ -19,6 +19,8 @@ pub struct Settings {
 pub struct State {
     pub settings: Settings,
     pub preview: Option<Document>,
+    pub generation: u64,
+    preview_target: Option<LayerId>,
     pub error: Option<String>,
     /// Edit Mask supplies this to existing Direct Selection as PathRef::Layer(id.0).
     pub mask_target: Option<LayerId>,
@@ -28,7 +30,10 @@ pub struct State {
 }
 impl State {
     pub fn cancel(&mut self) {
-        self.preview = None;
+        if self.preview.take().is_some() {
+            self.generation = self.generation.wrapping_add(1);
+        }
+        self.preview_target = None;
         self.drag = None;
         self.drawing = None;
         self.hovered = None;
@@ -52,7 +57,7 @@ impl State {
             if selected.len() != 1 {
                 return Err(EngineError::Other("Draw Inside needs one selected object".into()));
             }
-            insertion_target.or(st.active_layer)
+            insertion_target.or_else(|| selected.first().copied())
         } else {
             insertion_target.or(st.active_layer)
         };
@@ -62,9 +67,9 @@ impl State {
     }
     /// The shape/Pen/Pencil provider supplies its ordinary document-space Path each frame.
     pub fn preview_draw(&mut self, s: &Session, path: Path) -> Result<()> {
-        let mut request = self.drawing.clone().ok_or_else(|| EngineError::Other("draw gesture has not begun".into()))?;
+        let request = self.drawing.as_mut().ok_or_else(|| EngineError::Other("draw gesture has not begun".into()))?;
         request.path = path;
-        let preview = match engine::preview_draw(s, &request) {
+        let preview = match engine::preview_draw(s, request) {
             Ok(preview) => preview,
             Err(e) => {
                 self.cancel();
@@ -74,7 +79,7 @@ impl State {
         };
         self.error = None;
         self.preview = Some(preview.document);
-        self.drawing = Some(request);
+        self.generation = self.generation.wrapping_add(1);
         Ok(())
     }
     pub fn commit_draw(&mut self, s: &mut Session) -> Result<()> {
@@ -292,25 +297,35 @@ pub fn layer_row(ui: &Ui, response: &Response, id: LayerId, s: &Session, state: 
     }
     if state.drag.is_some() && ui.input(|i| i.pointer.hover_pos().is_some_and(|p| response.rect.contains(p))) {
         state.hovered = Some(id);
-        if let Some(c) = &state.drag {
+        if let Some(c) = &state.drag
+            && (state.preview_target != Some(id) || state.preview.is_none())
+        {
             match engine::prepare(s, c, &Action::MoveInside(id)) {
                 Ok(p) => {
                     state.preview = Some(p.document);
-                    ui.painter().rect_stroke(response.rect, 0., Stroke::new(2., Color32::LIGHT_BLUE), egui::StrokeKind::Inside);
+                    state.preview_target = Some(id);
+                    state.generation = state.generation.wrapping_add(1);
                 }
-                Err(_) => state.preview = None,
+                Err(_) => {
+                    state.preview = None;
+                    state.preview_target = None;
+                }
             }
+        }
+        if state.preview.is_some() {
+            ui.painter().rect_stroke(response.rect, 0., Stroke::new(2., Color32::LIGHT_BLUE), egui::StrokeKind::Inside);
         }
     }
 }
 pub fn layers_begin(state: &mut State) {
     state.hovered = None;
-    if state.drag.is_some() {
-        state.preview = None;
-    }
 }
 pub fn layers_end(ui: &Ui, s: &mut Session, state: &mut State) {
     state.frame(s, true, ui.input(|i| i.focused), ui.input(|i| i.key_pressed(Key::Escape)));
+    if state.hovered.is_none() {
+        state.preview = None;
+        state.preview_target = None;
+    }
     if ui.input(|i| i.pointer.any_released())
         && let Some(capture) = state.drag.take()
     {

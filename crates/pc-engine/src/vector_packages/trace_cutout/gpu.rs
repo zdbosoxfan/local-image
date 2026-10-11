@@ -12,6 +12,7 @@ mod cpu;
 use photocraft_doc::{Color, ColorMode, Document, Fill, Layer, LayerContent, SampleType, ShapeLayer, Size};
 #[test]
 fn cutout_rtx5090_vulkan_scaled_mosaic_cpu_parity() -> TestResult {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { force_fallback_adapter: false, ..Default::default() }))?;
     let info = adapter.get_info();
@@ -37,7 +38,9 @@ fn cutout_rtx5090_vulkan_scaled_mosaic_cpu_parity() -> TestResult {
         sh.cache = Some(photocraft_vector::render_shape(&sh, doc.pixel_format(), doc.bounds()));
         children.push(Layer::new("colour", LayerContent::Shape(sh)));
     }
-    doc.layers.push(Layer::group("Vectorized", children));
+    let mut group = Layer::group("Vectorized", children);
+    photocraft_doc::vector_design::mosaic::mark(&mut group)?;
+    doc.layers.push(group);
     let before = doc.clone();
     let mut cache = cpu::ProjectionCache::default();
     for scale in [1., 2., 4., 8.] {
@@ -64,6 +67,7 @@ fn cutout_rtx5090_vulkan_scaled_mosaic_cpu_parity() -> TestResult {
 #[test]
 #[ignore = "requires shared-coverage mosaic rendering from 00/09; run to expose the current compositor deficit"]
 fn cutout_composited_mosaic_has_no_antialias_seam() -> TestResult {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let labels: Vec<_> = (0..32).flat_map(|y| (0..32).map(move |x| u32::from((x - 16i32).pow(2) + (y - 16i32).pow(2) < 100))).collect();
     let data: Vec<_> = labels.iter().flat_map(|&l| if l == 0 { [0, 20, 160, 255] } else { [200, 20, 40, 255] }).collect();
     let t = trace(Image { width: 32, height: 32, rgba: &data }, &Params::default())?;
@@ -79,6 +83,9 @@ fn cutout_composited_mosaic_has_no_antialias_seam() -> TestResult {
             }),
         ));
     }
+    let mut group = Layer::group("Vectorized", std::mem::take(&mut doc.layers));
+    photocraft_doc::vector_design::mosaic::mark(&mut group)?;
+    doc.layers.push(group);
     let mut failures = Vec::new();
     for scale in [1., 2., 4., 8.] {
         let b = cpu::flatten_scaled(&doc, doc.bounds(), scale)?.buffer();

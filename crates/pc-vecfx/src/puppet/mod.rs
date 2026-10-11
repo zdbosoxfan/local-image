@@ -154,7 +154,7 @@ impl Rig {
         for sp in &path.subpaths {
             let mut knots: Vec<Knot> = Vec::new();
             // Fit each original segment separately to keep cusps and subpath seams.
-            for segment in sp.segments() {
+            for (segment_index, segment) in sp.segments().into_iter().enumerate() {
                 let c = CubicBez::new((segment[0].x, segment[0].y), (segment[1].x, segment[1].y), (segment[2].x, segment[2].y), (segment[3].x, segment[3].y));
                 let length = c.p0.distance(c.p1) + c.p1.distance(c.p2) + c.p2.distance(c.p3);
                 let spacing = (length / 64.0).max(self.options.tolerance).max(0.001);
@@ -174,6 +174,12 @@ impl Rig {
                     knots.extend(part.knots.iter().skip(1).copied());
                 } else {
                     knots.extend(part.knots.iter().copied());
+                }
+                if let Some(last) = knots.last_mut() {
+                    last.smooth = sp.knots[(segment_index + 1) % sp.knots.len()].smooth;
+                }
+                if let (Some(first), Some(source)) = (knots.first_mut(), sp.knots.first()) {
+                    first.smooth = source.smooth;
                 }
                 if count + knots.len() > self.options.node_budget + 1 {
                     return Err("Puppet Warp refit exceeds node budget".into());

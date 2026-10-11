@@ -64,7 +64,7 @@ pub(crate) fn fixture() -> (Session, SwatchBook) {
     // Set the sole tint use to its independent arithmetic value before building initial pixels.
     let t = &book.links[0].target;
     set_color(&mut d, t, Color::rgb(0.6, 0.7, 0.8)).unwrap();
-    let prepared = finish(d, book.clone(), std::slice::from_ref(t), &NoProjection).unwrap();
+    let prepared = finish(d, book.clone(), std::slice::from_ref(t), &super::super::styles::Projection).unwrap();
     let mut d = prepared.document;
     (test_access().write)(&mut d, book.clone()).unwrap();
     let mut s = Session::new();

@@ -24,7 +24,7 @@ fn stroke_bez(bp: &BezPath, width: f64, cap: Cap, join: Join, miter_limit: f64) 
 }
 
 /// kurbo's stroker may leave the outline of an open path without a final `ClosePath`.
-fn close_all(bp: &BezPath) -> BezPath {
+pub(crate) fn close_all(bp: &BezPath) -> BezPath {
     let mut out = BezPath::new();
     let mut open = false;
     for el in bp.iter() {
@@ -97,13 +97,20 @@ pub fn try_offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64
     let closed = PathData::new(path.subpaths.iter().filter(|s| s.closed && s.anchors.len() > 1).cloned().collect());
     let open: Vec<SubPath> = path.subpaths.iter().filter(|s| !s.closed && s.anchors.len() > 1).cloned().collect();
     let d = delta.abs();
+    if delta < 0. && !open.is_empty() {
+        // Inset applies to the closed fill; open paths remain bands for either sign.
+        // Resolve closed inset islands independently so open lines cannot erase them.
+        let inset = try_offset_path(&closed, delta, join, miter_limit)?;
+        let outline = PathData::from_bezpath(&stroke_bez(&PathData::new(open).to_bezpath(), 2. * d, Cap::Butt, join, miter_limit));
+        return crate::kernel::try_boolean(&inset, FillRule::NonZero, &outline, FillRule::NonZero, crate::kernel::BoolOp::Union, DEFAULT_PRECISION);
+    }
     let fill = fill_bezpath(&closed);
     let ring = if d > 0.0 { stroke_bez(&closed.to_bezpath(), 2.0 * d, Cap::Butt, join, miter_limit) } else { BezPath::new() };
     let open_bp =
         if d > 0.0 && !open.is_empty() { stroke_bez(&PathData::new(open).to_bezpath(), 2.0 * d, Cap::Butt, join, miter_limit) } else { BezPath::new() };
     let tidy = Tidy::free_for(DEFAULT_PRECISION, [&fill, &ring, &open_bp]);
     let arr = Arrangement::new(vec![(fill, FillRule::NonZero), (ring, FillRule::NonZero), (open_bp, FillRule::NonZero)])?;
-    let c = if delta >= 0.0 { arr.contours(|m| m[0] || m[1] || m[2]) } else { arr.contours(|m| m[0] && !m[1]) };
+    let c = if delta >= 0.0 { arr.contours(|m| m[0] || m[1] || m[2]) } else { arr.contours(|m| m[0] && !m[1]) }?;
     // When `d` exceeds a curvature radius the stroker's inner offset inverts and its loops cancel
     // winding, leaving faces uncovered that are really within `d` of the path. Every face of the
     // true offset is bounded by arrangement edges, so a contour is spurious iff a point deep inside
@@ -201,5 +208,16 @@ mod tests {
         let area = crate::kernel::area(&region, FillRule::NonZero);
         // Ring 16·20 − 8·12 = 224, plus the bar outside it (10·4) and inside its hole (6·4).
         assert!((area - (224.0 + 40.0 + 24.0)).abs() < 1e-6, "{area}");
+    }
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn review_additional_negative_offset_retains_open_bands_and_closed_insets() {
+        let mut path = crate::geom::shapes::rectangle(kurbo::Rect::new(0., 0., 20., 20.));
+        path.subpaths.extend(crate::geom::shapes::line((5., 10.).into(), (15., 10.).into()).subpaths);
+        let output = try_offset_path(&path, -1., Join::Miter, 4.).unwrap();
+        assert!((crate::kernel::area(&output, FillRule::NonZero) - 324.).abs() < 1e-6);
+        let line = crate::geom::shapes::line((0., 0.).into(), (10., 0.).into());
+        let output = try_offset_path(&line, -2., Join::Miter, 4.).unwrap();
+        assert!((crate::kernel::area(&output, FillRule::NonZero) - 40.).abs() < 1e-6);
     }
 }

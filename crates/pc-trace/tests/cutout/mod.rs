@@ -16,8 +16,9 @@ fn render_map(map: &LabelMap, fitter: Fitter) -> Result<Trace, Error> {
     let mut params = Params::for_preset(Preset::PixelArt);
     params.fitter = fitter;
     params.detail = 0.7;
-    let fitted = fit::fit_all(&graph, &params, &|| false)?;
-    let fitted = if topology::valid(&graph, &fitted, EDGE_BUDGET, &|| false)? { fitted } else { fit::pixel_all(&graph, &|| false)? };
+    let mut fitted = fit::fit_all(&graph, &params, &|| false)?;
+    topology::repair(&graph, &mut fitted, EDGE_BUDGET, params.detail, &|| false)?;
+    assert!(topology::valid(&graph, &fitted, EDGE_BUDGET, &|| false)?);
     compose::trace(map, &faces, &fitted, &|| false)
 }
 fn rgba(map: &LabelMap) -> Vec<u8> {
@@ -190,10 +191,6 @@ fn cutout_jpeg60_is_finite_closed_and_topology_valid() -> TestResult {
     Ok(())
 }
 
-mod benchmark;
-#[path = "../it/common/mod.rs"]
-mod common;
-
 #[test]
 fn cutout_open_shared_chain_partition_and_controls() -> TestResult {
     let labels: Vec<_> = (0..32).flat_map(|y| (0..32).map(move |x| u32::from(x >= 16 + ((f64::from(y) / 5.).sin() * 5.).round() as i32))).collect();
@@ -219,7 +216,7 @@ fn cutout_topology_guard_rejects_crossing_shared_chains_and_ring_inversion() -> 
     use kurbo::{Line, PathSeg, Point as KPoint};
     let map = grid(4, &[0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1], 2);
     let g = graph::BoundaryGraph::extract(&map, EDGE_BUDGET, &|| false)?;
-    let mut f = fit::pixel_all(&g, &|| false)?;
+    let mut f = fit::fit_all(&g, &Params::for_preset(Preset::PixelArt), &|| false)?;
     let id = g.segments.iter().position(|s| s.left != OUTSIDE && s.right != OUTSIDE).ok_or("shared chain missing")?;
     let s = &g.segments[id];
     let a = s.points[0];
@@ -230,7 +227,7 @@ fn cutout_topology_guard_rejects_crossing_shared_chains_and_ring_inversion() -> 
     assert!(!topology::valid(&g, &f, EDGE_BUDGET, &|| false)?);
     let ring = grid(3, &[0; 9], 1);
     let g = graph::BoundaryGraph::extract(&ring, EDGE_BUDGET, &|| false)?;
-    let mut f = fit::pixel_all(&g, &|| false)?;
+    let mut f = fit::fit_all(&g, &Params::for_preset(Preset::PixelArt), &|| false)?;
     f[0] = f[0].iter().rev().map(|s| s.reverse()).collect();
     assert!(!topology::valid(&g, &f, EDGE_BUDGET, &|| false)?);
     Ok(())
@@ -308,5 +305,56 @@ fn cutout_gradient_merging_uses_running_means_and_keeps_outside_and_order() -> T
     exact.colors = vec![[100, 100, 100, 255], [101, 101, 101, 255]];
     merge::similar(&mut exact, 0, &|| false)?;
     assert_eq!(exact.labels, vec![0, 1]);
+    Ok(())
+}
+
+#[test]
+fn cutout_logo_antialias_bands_keep_distinct_inks_and_explicit_palettes() -> TestResult {
+    let mut map = grid(
+        32,
+        &(0..32)
+            .flat_map(|_| {
+                (0..32).map(|x| {
+                    if x < 15 {
+                        0
+                    } else if x == 15 {
+                        2
+                    } else {
+                        1
+                    }
+                })
+            })
+            .collect::<Vec<_>>(),
+        4,
+    );
+    map.colors = vec![[255, 255, 255, 255], [0, 0, 0, 255], [128, 128, 128, 255], [255, 0, 0, 255]];
+    map.labels[0] = 3;
+    merge::antialias(&mut map, 16, &|| false)?;
+    assert!(!map.labels.contains(&2));
+    assert_eq!(map.labels[0], 3, "a distinct thin ink is not an antialias mixture");
+    let mut map = grid(
+        32,
+        &(0..32)
+            .flat_map(|_| {
+                (0..32).map(|x| {
+                    if x < 15 {
+                        0
+                    } else if x == 15 {
+                        2
+                    } else {
+                        1
+                    }
+                })
+            })
+            .collect::<Vec<_>>(),
+        3,
+    );
+    map.colors = vec![[255, 255, 255, 255], [0, 0, 0, 255], [128, 128, 128, 255]];
+    let pixels = rgba(&map);
+    let mut params = Params::for_preset(Preset::Logo);
+    params.palette = map.colors.iter().map(|c| [c[0], c[1], c[2]]).collect();
+    params.speckle = 0;
+    let output = trace(Image { width: 32, height: 32, rgba: &pixels }, &params)?;
+    assert!(output.layers.iter().any(|layer| layer.color[..3] == [128, 128, 128]));
     Ok(())
 }

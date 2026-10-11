@@ -118,8 +118,11 @@ fn check_path(path: &photocraft_doc::Path) -> Result<()> {
 fn place(session: &mut Session, params: &Value) -> Result<Value> {
     let request: Place = serde_json::from_value(params.clone()).map_err(error)?;
     let scene = decode(session, &request)?;
-    let (prepared, id) = preview(session, &request, &scene)?;
-    check(session, &request)?;
+    commit_prepared(session, &request, &scene)
+}
+pub fn commit_prepared(session: &mut Session, request: &Place, scene: &ImportedScene) -> Result<Value> {
+    let (prepared, id) = preview(session, request, scene)?;
+    check(session, request)?;
     session.edit("Place SVG", move |doc, active| {
         *doc = prepared;
         *active = Some(id);

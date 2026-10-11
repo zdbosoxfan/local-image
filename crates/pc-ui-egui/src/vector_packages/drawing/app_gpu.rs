@@ -35,7 +35,9 @@ fn harness() -> H {
         app.run("file.new", json!({"width":240,"height":240,"background":"transparent"})).unwrap();
         app.sync_views();
         app.ui.tool = Tool::Rectangle;
+        app.session.tools.foreground = [0., 0., 0., 1.];
         app.ui.extras.rulers = false;
+        app.ui.extras.snap = false;
         app
     })
 }
@@ -60,6 +62,8 @@ fn pointer(h: &mut H, x: f32, y: f32, button: Option<bool>) {
 }
 #[test]
 fn live_shapes_full_app_real_gpu_handle_preview_release_and_cancel() {
+    let _gpu_gate = crate::gpu_lock();
+
     let mut h = harness();
     h.run_steps(3);
     let app = h.state_mut();
@@ -79,12 +83,14 @@ fn live_shapes_full_app_real_gpu_handle_preview_release_and_cancel() {
     }
     assert_eq!(h.state().session.active().unwrap().doc, before);
     assert_eq!(h.state().session.journal.len(), journal);
-    assert!(h.state().ui.vector_drawing.preview_layer.is_some());
+    assert!(h.state().shared_tools.drawing.preview_layer.is_some());
     let preview = h.render().expect("GPU preview");
     assert_ne!(initial.as_raw(), preview.as_raw(), "mid-drag pixels must change");
-    let pointer_probe = screen(&h, (100. + (handle.position.x - 100.) * 1.25) as f32, (100. + (handle.position.y - 100.) * 1.25) as f32);
-    let pixel = preview.get_pixel(pointer_probe.x.round() as u32, pointer_probe.y.round() as u32);
-    assert!(pixel[0] < 100 && pixel[1] < 100 && pixel[2] < 100, "filled live preview must cover newly included star area, not only an overlay: {pixel:?}");
+    let x = (100. + (handle.position.x - 100.) * 1.25).round() as u32;
+    let y = (100. + (handle.position.y - 100.) * 1.25).round() as u32;
+    let (_, size, pixels) = h.state().read_canvas_texels(before.id.0).expect("actual app float canvas texture");
+    let pixel = pixels[(y * size[0] + x) as usize];
+    assert!(pixel[..3].iter().all(|c| *c < 0.1) && pixel[3] > 0.5, "filled live GPU preview must cover newly included star area: {pixel:?}");
     h.key_press(egui::Key::Escape);
     h.step();
     pointer(&mut h, to[0] as f32, to[1] as f32, Some(false));
@@ -96,7 +102,7 @@ fn live_shapes_full_app_real_gpu_handle_preview_release_and_cancel() {
     h.render().expect("release GPU frame");
     assert_eq!(h.state().session.journal.len(), journal + 1);
     let l = h.state().session.active().unwrap().doc.layers.last().unwrap();
-    assert!(matches!(l.vector.live_shape.as_ref().unwrap().parameters,ShapeParameters::Star{inner,..}if(inner-0.75).abs()<1e-5));
+    assert!(matches!(l.vector.live_shape.as_ref().unwrap().parameters,ShapeParameters::Star{inner,..}if(inner-0.75).abs()<1e-5), "{:?}", l.vector.live_shape);
     assert!(h.state_mut().session.undo());
     assert_eq!(h.state().session.active().unwrap().doc, before);
 }

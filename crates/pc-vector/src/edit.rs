@@ -153,7 +153,7 @@ fn bend_segment_unchecked(path: &mut Path, knot: [usize; 2], t: f64, d: [f64; 2]
     let a = *knot_mut(path, knot)?;
     let b = *knot_mut(path, end)?;
     if retracted(&a, Handle::Out) && retracted(&b, Handle::In) {
-        return move_anchors(path, &[knot, end], d);
+        return move_anchors_unchecked(path, &[knot, end], d);
     }
     // B(t) moves by 3(1−t)²t·Δc1 + 3(1−t)t²·Δc2. With Δc1 = (1−t)·s·d and Δc2 = t·s·d that is
     // 3t(1−t)((1−t)² + t²)·s·d, so s below makes it exactly d. The ends are clamped: a drag right

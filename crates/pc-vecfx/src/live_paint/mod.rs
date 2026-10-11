@@ -70,20 +70,26 @@ impl LivePaintSpec {
         if let Some(p) = &paint {
             validate_fill(p)?;
         }
-        if let Some(record) = self.faces.iter_mut().find(|f| f.signature == signature) {
+        let mut candidate = self.clone();
+        if let Some(record) = candidate.faces.iter_mut().find(|f| f.signature == signature) {
             record.paint = paint;
         } else {
-            self.faces.push(FacePaint { signature, paint });
+            candidate.faces.push(FacePaint { signature, paint });
         }
-        self.validate()
+        candidate.validate()?;
+        *self = candidate;
+        Ok(())
     }
     pub fn set_edge(&mut self, signature: Signature, stroke: Option<ShapeStroke>) -> Result<()> {
-        if let Some(record) = self.edges.iter_mut().find(|e| e.signature == signature) {
+        let mut candidate = self.clone();
+        if let Some(record) = candidate.edges.iter_mut().find(|e| e.signature == signature) {
             record.stroke = stroke;
         } else {
-            self.edges.push(EdgePaint { signature, stroke });
+            candidate.edges.push(EdgePaint { signature, stroke });
         }
-        self.validate()
+        candidate.validate()?;
+        *self = candidate;
+        Ok(())
     }
 }
 pub fn validate_fill(paint: &Fill) -> Result<()> {
@@ -283,6 +289,14 @@ impl Graph {
             }
             let line = kurbo::Line::new((pair[0].x, pair[0].y), (pair[1].x, pair[1].y));
             for (i, f) in self.faces.iter().enumerate() {
+                if touched.contains(&i)
+                    || pair[0].x.min(pair[1].x) > f.bounds.x1
+                    || pair[0].x.max(pair[1].x) < f.bounds.x0
+                    || pair[0].y.min(pair[1].y) > f.bounds.y1
+                    || pair[0].y.max(pair[1].y) < f.bounds.y0
+                {
+                    continue;
+                }
                 let mut cuts = vec![0., 1.];
                 for seg in f.bez.segments() {
                     cuts.extend(seg.intersect_line(line).iter().map(|hit| hit.line_t.clamp(0., 1.)));

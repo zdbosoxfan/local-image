@@ -52,8 +52,16 @@ fn harness(tool: Tool) -> H {
         app.ui.tool_options.move_auto_select = false;
         app.ui.tool_options.move_show_transform = false;
         app.session.edit_prefs(|p| p.interface.contextual_task_bar = false);
-        app.ui.tool = photocraft_ui_egui::state::Tool::Pen;
-        app.constructive_enabled = true;
+        app.ui.tool = match tool {
+            Tool::Builder => photocraft_ui_egui::state::Tool::ShapeBuilder,
+            Tool::Knife => photocraft_ui_egui::state::Tool::Knife,
+            Tool::Scissors => photocraft_ui_egui::state::Tool::Scissors,
+            Tool::LineCut => photocraft_ui_egui::state::Tool::LineCut,
+            Tool::Contour => photocraft_ui_egui::state::Tool::Contour,
+            Tool::Smooth => photocraft_ui_egui::state::Tool::Smooth,
+            Tool::Eraser => photocraft_ui_egui::state::Tool::PathEraser,
+            Tool::Join => photocraft_ui_egui::state::Tool::Join,
+        };
         app.constructive_state.set_tool(Some(tool));
         app
     });
@@ -76,33 +84,33 @@ fn button(h: &mut H, p: Pos2, pressed: bool, mods: Modifiers) {
     h.step();
 }
 fn assert_canvas(h: &mut H, expected: &Document) {
-    h.state_mut().ui.view.extras = false;
-    h.event(Event::PointerGone);
-    h.run_steps(3);
+    h.render().expect("actual app GPU paint callbacks");
+    let (_, size, pixels) = h.state().read_canvas_texels(expected.id.0).expect("actual float canvas texture");
+    assert_eq!(size, [expected.size.width, expected.size.height]);
     let cpu = photocraft_compose::render(expected, expected.bounds());
-    let image = h.render().expect("actual app GPU canvas");
     let mut max = 0.0f32;
     let mut checked = 0;
     for y in 4..156 {
         for x in 4..156 {
-            let p = xf(h).to_screen(x as f32 + 0.5, y as f32 + 0.5) * h.ctx.pixels_per_point();
-            let actual = image.get_pixel(p.x.floor() as u32, p.y.floor() as u32).0;
-            let expected = cpu.get(x, y);
+            let actual = pixels[(y * size[0] + x) as usize];
+            let want = cpu.get(x as i32, y as i32);
             for c in 0..4 {
-                let a = actual[c] as f32 / 255.;
-                let b = if c == 3 { expected[c] } else { expected[c] * expected[3] };
-                max = max.max((a - b).abs());
+                assert!(actual[c].is_finite());
+                let premultiplied = if c == 3 { want[c] } else { want[c] * want[3] };
+                max = max.max((actual[c] - premultiplied).abs());
             }
             checked += 1;
         }
     }
     assert_eq!(checked, 152 * 152);
-    assert!(max <= 1. / 255. + 1e-7, "premultiplied max diff={max}");
-    assert!(h.state().perf.gpu);
+    assert!(max <= 1. / 255. + 1e-7, "premultiplied app canvas max diff={max}");
+    assert!(h.state().perf.gpu && h.state().perf.gpu_fallback.is_none());
 }
+
 #[test]
 fn constructive_full_app_gpu_live_preview_release_remove_cancel_and_undo() {
-    let _gpu = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     for (tool, remove) in [(Tool::Builder, false), (Tool::Builder, true), (Tool::Knife, false), (Tool::Contour, false)] {
         let mut h = harness(tool);
         let before = h.state().session.active().unwrap().doc.clone();

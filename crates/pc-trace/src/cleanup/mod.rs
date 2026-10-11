@@ -190,20 +190,30 @@ pub fn trace_with_cancel(image: Image<'_>, params: &Params, options: &Options, c
                 sub.knots = crate::boundary::remove_collinear(&points).into_iter().map(|p| photocraft_doc::Knot::corner(p.x, p.y)).collect();
             }
         }
-        out.nodes = out.layers.iter().flat_map(|l| &l.path.subpaths).map(|s| s.knots.len()).sum();
+        out.nodes = out.layers.iter().flat_map(|l| &l.path.subpaths).chain(out.strokes.iter().flat_map(|l| &l.path.subpaths)).map(|s| s.knots.len()).sum();
     }
     let inverse = Affine::scale(1. / f64::from(scale));
     for layer in &mut out.layers {
         layer.path = layer.path.transform(&inverse);
     }
+    for stroke in &mut out.strokes {
+        stroke.path = stroke.path.transform(&inverse);
+        stroke.stroke.width /= scale as f32;
+        if let Some(profile) = &mut stroke.profile {
+            for point in &mut profile.points {
+                point.left /= f64::from(scale);
+                point.right /= f64::from(scale);
+            }
+        }
+    }
     out.width = image.width;
     out.height = image.height;
     stats.nodes_before_geometry = out.nodes;
-    if options.geometry_enabled() {
+    if options.geometry_enabled() && !out.layers.is_empty() {
         geometry::clean(&mut out, options, &prepared.pixels, scale, &mut stats, &cancel)?;
     }
     check(&cancel)?;
-    out.nodes = out.layers.iter().flat_map(|l| &l.path.subpaths).map(|s| s.knots.len()).sum();
+    out.nodes = out.layers.iter().flat_map(|l| &l.path.subpaths).chain(out.strokes.iter().flat_map(|l| &l.path.subpaths)).map(|s| s.knots.len()).sum();
     stats.nodes_after = out.nodes;
     Ok(Output { trace: out, stats })
 }

@@ -3,6 +3,7 @@ use super::*;
 #[test]
 #[ignore = "owner speed rules: RTX 5090 Vulkan acceptance at integration"]
 fn clip35_gpu_raster_child_vector_parent_preview_commit_release_and_undo() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
@@ -31,7 +32,7 @@ fn clip35_gpu_raster_child_vector_parent_preview_commit_release_and_undo() {
         let cpu = photocraft_compose::flatten(doc);
         let gpu = photocraft_gpu::render_to_vec(comp, device, queue, doc, doc.bounds()).unwrap();
         assert_eq!(cpu.px.len(), gpu.len());
-        // GPU accumulation/readback is already premultiplied; CPU flatten is straight.
+        // render_to_vec returns straight RGBA, like CPU flatten. Compare premultiplied values.
         let max = cpu
             .px
             .iter()
@@ -39,7 +40,7 @@ fn clip35_gpu_raster_child_vector_parent_preview_commit_release_and_undo() {
             .flat_map(|(cpu, gpu)| {
                 (0..4).map(move |k| {
                     assert!(gpu[k].is_finite());
-                    (gpu[k] - if k == 3 { cpu[k] } else { cpu[k] * cpu[3] }).abs()
+                    (if k == 3 { gpu[k] - cpu[k] } else { gpu[k] * gpu[3] - cpu[k] * cpu[3] }).abs()
                 })
             })
             .fold(0f32, f32::max);

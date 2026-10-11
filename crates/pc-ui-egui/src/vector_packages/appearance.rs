@@ -21,6 +21,7 @@ pub enum Tool {
 #[serde(default)]
 pub struct Options {
     pub item: usize,
+    pub selected_stop: Option<usize>,
     pub tool: Tool,
 }
 struct Drag {
@@ -101,6 +102,11 @@ impl State {
             return Err(error("invalid paint handle capture"));
         }
         let g = Gesture::begin(s, ids)?;
+        let count = g.request().edits[0].appearance.items.len();
+        if self.options.item >= count {
+            self.options.item = count.saturating_sub(1);
+            self.options.selected_stop = None;
+        }
         let (start, end) = handles(s, g.request().edits[0].layer, self.options.item, self.options.tool)?;
         let near = |p: Point| (at.x - p.x).hypot(at.y - p.y) <= tolerance;
         let (fixed, end, moving_start) = if near(start) {
@@ -198,6 +204,7 @@ impl State {
 fn paint_mut(a: &mut Appearance, item: usize) -> Result<&mut Fill> {
     match a.items.get_mut(item) {
         Some(AppearanceItem::Fill(f)) => Ok(&mut f.paint),
+        Some(AppearanceItem::Mesh(_)) => Err(error("use the Mesh tool to edit mesh paint")),
         Some(AppearanceItem::Stroke(s)) => Ok(&mut s.base.paint),
         None => Err(error("appearance item is absent")),
     }
@@ -308,7 +315,7 @@ fn combo<T: Copy + PartialEq>(ui: &mut Ui, key: &str, value: &mut T, choices: &[
     });
     old != *value
 }
-fn paint_editor(ui: &mut Ui, p: &mut Fill, doc: &Document) -> bool {
+fn paint_editor(ui: &mut Ui, p: &mut Fill, doc: &Document, selected_stop: &mut Option<usize>) -> bool {
     let mut kind = match p {
         Fill::Solid(_) => 0,
         Fill::Gradient { .. } => 1,
@@ -362,8 +369,14 @@ fn paint_editor(ui: &mut Ui, p: &mut Fill, doc: &Document) -> bool {
             changed |= ui.checkbox(align, tl!("Align with layer")).changed();
             changed |= ui.add(egui::DragValue::new(&mut offset.0).range(-10000.0..=10000.0).prefix(tl!("Offset X"))).changed();
             changed |= ui.add(egui::DragValue::new(&mut offset.1).range(-10000.0..=10000.0).prefix(tl!("Offset Y"))).changed();
+            if selected_stop.is_some_and(|i| i >= stops.len()) {
+                *selected_stop = None;
+            }
             for (i, (t, c)) in stops.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
+                    if ui.selectable_label(*selected_stop == Some(i), format!("{} {}", tl!("Stop"), i + 1)).clicked() {
+                        *selected_stop = Some(i);
+                    }
                     changed |= ui.add(egui::DragValue::new(t).range(0.0..=1.0).prefix(format!("{} {} ", tl!("Stop"), i + 1))).changed();
                     let rgb = c.to_rgb();
                     let mut rgba = [rgb[0], rgb[1], rgb[2], c.alpha];
@@ -502,6 +515,7 @@ impl PanelChange {
             }
             Self::Visible(i, visible) => match a.items.get_mut(*i) {
                 Some(AppearanceItem::Fill(f)) => f.visible = *visible,
+                Some(AppearanceItem::Mesh(m)) => m.visible = *visible,
                 Some(AppearanceItem::Stroke(s)) => s.visible = *visible,
                 None => return Err(error("appearance item is absent on a selected shape")),
             },
@@ -554,6 +568,7 @@ pub fn panel(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId]) -
         ui.horizontal(|ui| {
             let (name, visible) = match item {
                 AppearanceItem::Fill(f) => (tl!("Fill"), &mut f.visible),
+                AppearanceItem::Mesh(m) => (tl!("Gradient mesh"), &mut m.visible),
                 AppearanceItem::Stroke(s) => (tl!("Stroke"), &mut s.visible),
             };
             if ui.selectable_label(state.options.item == i, format!("{name} {}", i + 1)).clicked() {
@@ -597,19 +612,25 @@ pub fn panel(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId]) -
         });
         let index = state.options.item;
         if let Some(item) = a.items.get_mut(index) {
-            let (opacity, blend, paint) = match item {
-                AppearanceItem::Fill(f) => (&mut f.opacity, &mut f.blend, &mut f.paint),
-                AppearanceItem::Stroke(s) => (&mut s.base.opacity, &mut s.blend, &mut s.base.paint),
-            };
-            changed |= ui.add(egui::Slider::new(opacity, 0.0..=1.0).text(tl!("Item opacity"))).changed();
-            let modes: Vec<_> = BlendMode::LAYER_MODES.iter().map(|b| (*b, b.label())).collect();
-            changed |= combo(ui, "Blend mode", blend, &modes);
-            if let Some(st) = s.active() {
-                changed |= paint_editor(ui, paint, &st.doc);
-            }
-            if let AppearanceItem::Stroke(stroke) = item {
-                ui.heading(tl!("Stroke"));
-                changed |= stroke_editor(ui, stroke);
+            if let AppearanceItem::Mesh(mesh) = item {
+                changed |= ui.add(egui::Slider::new(&mut mesh.opacity, 0.0..=1.0).text(tl!("Item opacity"))).changed();
+                let modes: Vec<_> = BlendMode::LAYER_MODES.iter().map(|b| (*b, b.label())).collect();
+                changed |= combo(ui, "Blend mode", &mut mesh.blend, &modes);
+            } else if let Some((opacity, blend, paint)) = match item {
+                AppearanceItem::Fill(f) => Some((&mut f.opacity, &mut f.blend, &mut f.paint)),
+                AppearanceItem::Stroke(s) => Some((&mut s.base.opacity, &mut s.blend, &mut s.base.paint)),
+                AppearanceItem::Mesh(_) => None,
+            } {
+                changed |= ui.add(egui::Slider::new(opacity, 0.0..=1.0).text(tl!("Item opacity"))).changed();
+                let modes: Vec<_> = BlendMode::LAYER_MODES.iter().map(|b| (*b, b.label())).collect();
+                changed |= combo(ui, "Blend mode", blend, &modes);
+                if let Some(st) = s.active() {
+                    changed |= paint_editor(ui, paint, &st.doc, &mut state.options.selected_stop);
+                }
+                if let AppearanceItem::Stroke(stroke) = item {
+                    ui.heading(tl!("Stroke"));
+                    changed |= stroke_editor(ui, stroke);
+                }
             }
         }
     }

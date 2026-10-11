@@ -49,19 +49,12 @@ fn harness() -> Harness<'static, PhotocraftApp> {
 /// Sample document pixels through the actual app view transform, not a library composite.
 fn canvas(h: &mut Harness<'_, PhotocraftApp>) -> Vec<[u8; 4]> {
     h.run_steps(6);
+    h.render().expect("real GPU readback");
     assert!(h.state().perf.gpu, "canvas must stay on GPU");
-    let xf = crate::canvas::ViewXform::active(h.state()).unwrap();
-    let image = h.render().expect("real GPU readback");
-    let mut pixels = Vec::new();
-    for y in 0..192 {
-        for x in 0..256 {
-            let pos = xf.to_screen(x as f32 + 0.5, y as f32 + 0.5);
-            assert!(pos.x >= 0.0 && pos.y >= 0.0 && pos.x < image.width() as f32 && pos.y < image.height() as f32);
-            let p = image.get_pixel(pos.x.floor() as u32, pos.y.floor() as u32);
-            pixels.push(p.0);
-        }
-    }
-    pixels
+    let id = h.state().session.active().unwrap().doc.id;
+    let (_, size, pixels) = h.state().read_canvas_texels(id.0).expect("actual canvas texture");
+    assert_eq!(size, [256, 192]);
+    pixels.into_iter().map(|p| p.map(|c| (c.clamp(0., 1.) * 255.).round() as u8)).collect()
 }
 
 fn parity(a: &[[u8; 4]], b: &[[u8; 4]]) {
@@ -80,6 +73,7 @@ fn parity(a: &[[u8; 4]], b: &[[u8; 4]]) {
 #[test]
 #[ignore = "explicit real RTX 5090 full-app gate"]
 fn persona_gpu_switch_pen_preview_cancel_and_release_leave_canvas_unchanged() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness();
     h.state_mut().run("shape.create", json!({"kind":"ellipse","rect":[30,30,90,70],"fill":"#c02030"})).unwrap();
     h.run_steps(6);
@@ -88,6 +82,7 @@ fn persona_gpu_switch_pen_preview_cancel_and_release_leave_canvas_unchanged() {
     crate::control::handle(h.state_mut(), &ctx, &req);
     h.run_steps(3);
     let before = canvas(&mut h);
+    let before_overlay = h.render().unwrap();
     let doc = h.state().session.active().unwrap().doc.clone();
     let history = h.state().session.active().unwrap().history.past_len();
     h.get_by_label("Vector persona").click();
@@ -107,9 +102,9 @@ fn persona_gpu_switch_pen_preview_cancel_and_release_leave_canvas_unchanged() {
     pointer(&mut h, from, Some(true));
     pointer(&mut h, from + egui::vec2(20.0, 12.0), None);
     assert!(
-        h.state().ui.pen.as_ref().is_some_and(|p| p.dragging),
+        h.state().shared_tools.pen.gesture.is_some(),
         "held Pen drag must start: {:?}; from={from:?}; rect={:?}; pointer={:?}; tool={:?}; status={}",
-        h.state().ui.pen,
+        h.state().shared_tools.pen.gesture.as_ref().map(|g| g.path()),
         h.state().last_canvas_rect,
         h.ctx.input(|i| (i.pointer.primary_down(), i.pointer.interact_pos())),
         h.state().ui.tool,
@@ -121,7 +116,7 @@ fn persona_gpu_switch_pen_preview_cancel_and_release_leave_canvas_unchanged() {
         h.event(egui::Event::PointerMoved(from + egui::vec2(20.0 + i as f32 * 0.2, 12.0)));
         h.run_steps(1);
         h.render().expect("pointer frame GPU completion/readback");
-        assert!(h.state().ui.pen.as_ref().is_some_and(|p| p.dragging), "Pen drag must remain held on pointer frame {i}");
+        assert!(h.state().shared_tools.pen.gesture.is_some(), "Pen drag must remain held on pointer frame {i}");
         pointer_frames.push(start.elapsed().as_secs_f64() * 1000.0);
     }
     pointer_frames.sort_by(f64::total_cmp);
@@ -132,9 +127,9 @@ fn persona_gpu_switch_pen_preview_cancel_and_release_leave_canvas_unchanged() {
         pointer_frames[22],
         pointer_frames[23]
     );
-    assert!(h.state().ui.pen.as_ref().is_some_and(|p| p.dragging));
-    let preview = canvas(&mut h);
-    assert_ne!(before, preview, "full-app live Pen overlay is visible");
+    assert!(h.state().shared_tools.pen.gesture.is_some());
+    canvas(&mut h);
+    assert_ne!(before_overlay, h.render().unwrap(), "full-app live Pen overlay is visible");
     assert!(Arc::ptr_eq(&doc, &h.state().session.active().unwrap().doc));
     h.key_press_modifiers(Modifiers { command: true, shift: true, ..Default::default() }, Key::Num1);
     h.run_steps(3);
@@ -148,6 +143,7 @@ fn persona_gpu_switch_pen_preview_cancel_and_release_leave_canvas_unchanged() {
 #[test]
 #[ignore = "requires real RTX 5090 and V1 registration by package 00"]
 fn persona_gpu_geometry_click_preserves_canvas_and_undo_restores_targets() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness();
     two_shapes(h.state_mut());
     // A union changes the floating task bar's position with the selected bounds. Hide it

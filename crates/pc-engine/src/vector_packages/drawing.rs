@@ -1,8 +1,7 @@
 //! Package 02: detached live geometry and atomic, journaled shape commands.
 //! Generator inclusion is the package-owned bootstrap until 00 adds pc-vector::design_shapes.
 //! Replace the path module with `pub use photocraft_vector::design_shapes as geometry` at integration.
-#[path = "../../../pc-vector/src/design_shapes.rs"]
-pub mod geometry;
+pub use photocraft_vector::design_shapes as geometry;
 
 use crate::{EngineError, Result, Session, commands::CommandSpec, vector_api};
 use photocraft_doc::vector_design::drawing::DesignShape;
@@ -92,11 +91,7 @@ fn create(s: &mut Session, p: &Value) -> Result<Value> {
     let mut layer = Layer::new("Live Shape", LayerContent::Shape(shape));
     layer.vector.live_shape = Some(design);
     let id = layer.id;
-    s.edit("Create Live Shape", move |doc, active| {
-        doc.insert_above(above, layer);
-        *active = Some(id);
-        Ok(())
-    })?;
+    crate::vector_integration::insert_layer(s, above, layer, "Create Live Shape")?;
     Ok(json!({"layer":id.0}))
 }
 fn set(s: &mut Session, p: &Value) -> Result<Value> {

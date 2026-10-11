@@ -37,6 +37,7 @@ fn pointer(h: &mut Harness<'_, PhotocraftApp>, x: f32, y: f32, pressed: Option<b
 #[test]
 #[ignore = "requires 00 canvas/menu integration and RTX GPU; speed rules defer execution"]
 fn blend18_full_app_rtx_live_preview_release_expand_cancel_and_undo() {
+    let _gpu_gate = crate::gpu_lock();
     let mut h = Harness::builder().with_size(egui::vec2(1500., 1000.)).wgpu_setup(setup()).build_eframe(|cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
@@ -69,6 +70,10 @@ fn blend18_full_app_rtx_live_preview_release_expand_cancel_and_undo() {
     h.state_mut().ui.views[0].fit_pending = false;
     h.state_mut().ui.extras.rulers = false;
     h.run_steps(5);
+    h.get_by_label("Object").click();
+    h.run_steps(2);
+    h.get_by_label("Blend ⏵").click();
+    h.run_steps(2);
     h.get_by_label("Blend Options").click();
     h.run_steps(3);
     h.get_by_label("Specified steps").click();
@@ -99,29 +104,23 @@ fn blend18_full_app_rtx_live_preview_release_expand_cancel_and_undo() {
     assert!(h.state().ui.vector_blend.preview.is_some());
     assert_eq!(h.state().session.active().unwrap().doc, before);
     assert_eq!(h.state().session.journal.len(), journal);
-    let live = h.render().unwrap();
+    h.render().unwrap();
+    let live_doc = h.state().ui.vector_blend.preview.as_ref().unwrap().clone();
+    let (_, _, live) = h.state().read_canvas_texels(before.id.0).unwrap();
     assert!(h.state().gpu_active());
     pointer(&mut h, 100., 110., Some(false));
     h.run_steps(3);
-    let release = h.render().unwrap();
+    h.render().unwrap();
+    let (_, _, release) = h.state().read_canvas_texels(before.id.0).unwrap();
     assert_eq!(h.state().session.journal.len(), journal + 1);
-    let xf = ViewXform::active(h.state()).unwrap();
-    let ppp = h.ctx.pixels_per_point();
-    for y in 80..135 {
-        for x in 60..140 {
-            let p = xf.to_screen(x as f32 + 0.5, y as f32 + 0.5) * ppp;
-            let a = live.get_pixel(p.x.floor() as u32, p.y.floor() as u32);
-            let b = release.get_pixel(p.x.floor() as u32, p.y.floor() as u32);
-            for i in 0..4 {
-                let (a, b) = if i == 3 {
-                    (u32::from(a[i]) * 255, u32::from(b[i]) * 255)
-                } else {
-                    (u32::from(a[i]) * u32::from(a[3]), u32::from(b[i]) * u32::from(b[3]))
-                };
-                assert!(a.abs_diff(b) <= 255);
-            }
-        }
+    assert_eq!(live.len(), release.len());
+    let max = live.iter().zip(&release).flat_map(|(a, b)| (0..4).map(move |i| (a[i] - b[i]).abs())).fold(0f32, f32::max);
+    let after = photocraft_engine::vector_integration::project_document(&h.state().session.active().unwrap().doc).unwrap();
+    for doc in [&*live_doc, &after] {
+        let ids: std::collections::HashSet<_> = doc.walk().iter().map(|(_, _, l)| l.id).collect();
+        assert_eq!(ids.len(), doc.walk().len(), "projected layers must have globally unique IDs");
     }
+    assert!(max <= 1. / 255., "live/release premultiplied canvas diff {max}");
     h.get_by_label("Expand Blend").click();
     h.run_steps(3);
     assert!(h.state().session.active().unwrap().doc.layer(id).unwrap().vector.live.is_none());

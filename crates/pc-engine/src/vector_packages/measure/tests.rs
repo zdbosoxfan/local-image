@@ -176,7 +176,7 @@ fn measure44_scale_assignment_metadata_transaction_and_query_contract() {
     let before = st.doc.clone();
     let rev = st.revision;
     for spec in specs() {
-        assert!(!spec.journal);
+        assert_eq!(spec.journal, spec.id == "vector.measure.setScale");
         if spec.id.ends_with("distance") {
             let r = (spec.run)(&mut s, &json!({"capture":capture,"a":[0,0],"b":[30,40]})).unwrap();
             assert_eq!(r["distance"], 50.);
@@ -199,4 +199,18 @@ fn measure44_scale_assignment_metadata_transaction_and_query_contract() {
     assert!(s.undo());
     assert_eq!(s.active().unwrap().doc, before);
     assert!(edit.commit(&mut s, |_, _, _| Ok(())).is_err());
+}
+
+#[test]
+fn review_regression_measure44_distance_does_not_use_area_selection_object_budget() {
+    let mut d = doc();
+    for _ in 0..MAX_OBJECTS + 1 {
+        d.layers.push(Layer::group("Unmeasurable empty group", Vec::new()));
+    }
+    let settings = Settings { enabled: false, ..Default::default() };
+    let view = View { zoom: 1., pixels_per_point: 1. };
+    let g = Gesture::begin(&d, 1, [10., 20.], &settings, view, true).unwrap();
+    assert_eq!(g.endpoint([30., 40.], &settings, view, false, true).unwrap().point, [30., 40.]);
+    g.capture.check(&d, 1).unwrap();
+    assert!(g.capture.check(&d, 2).is_err());
 }

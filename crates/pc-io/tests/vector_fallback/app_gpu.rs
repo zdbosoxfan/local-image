@@ -142,14 +142,14 @@ fn parity(gpu: &GpuCanvas, doc: &Document) {
 /// to force the app's composited preview texture (rather than independent Move planes).
 #[allow(dead_code)]
 pub fn verify_projected_fixture(doc: Document, expected_losses: &[&str], projection: Option<Arc<dyn Projection>>) {
-    let _lock = crate::gpu_lock();
     let (mut h, gpu) = harness();
     let id = doc.layers[1].id;
     h.state_mut().session.open_document(doc, None);
     configure(&mut h, id);
     present(&mut h);
     let original = h.state().session.active().unwrap().doc.clone();
-    parity(&gpu, &original);
+    let displayed = photocraft_engine::vector_integration::project_document(&original).unwrap();
+    parity(&gpu, &displayed);
     let written = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
     let record = written.clone();
     h.state_mut().services.pick_save = Some(Box::new(|_| Some("fixture.psd".into())));
@@ -185,7 +185,7 @@ pub fn verify_projected_fixture(doc: Document, expected_losses: &[&str], project
     assert!(h.state().ui.notices.is_empty());
     let bytes = written.lock().unwrap()[0].clone();
     let back = import("fixture.psd", &bytes).unwrap().document;
-    let (a, b) = (photocraft_compose::flatten(&original), photocraft_compose::flatten(&back));
+    let (a, b) = (photocraft_compose::flatten(&displayed), photocraft_compose::flatten(&back));
     let max =
         a.px.iter()
             .zip(&b.px)
@@ -253,6 +253,7 @@ pub fn verify_projected_fixture(doc: Document, expected_losses: &[&str], project
 
 #[test]
 fn vector_fallback_app_real_gpu_native_reopen_preview_release_warning_click() {
+    let _gpu_gate = crate::gpu_lock();
     verify_projected_fixture(
         fixture(),
         &[
@@ -266,4 +267,72 @@ fn vector_fallback_app_real_gpu_native_reopen_preview_release_warning_click() {
         ],
         None,
     );
+}
+
+struct SharedProjection;
+impl Projection for SharedProjection {
+    fn layer(&self, doc: &Document, layer: &Layer) -> Result<Option<Layer>, String> {
+        let mut source = doc.clone();
+        source.layers = vec![layer.clone()];
+        let projected = photocraft_engine::vector_integration::project_document(&source).map_err(|e| e.to_string())?;
+        Ok(projected.layers.into_iter().next())
+    }
+}
+
+fn advanced_fixture(kind: &str) -> Document {
+    use photocraft_doc::vector_design::live::{BlendSpacing, BlendSpec, EnvelopeSpec, LiveGroup, RepeatSpec};
+    let mut doc = Document::new(kind, Size::new(256, 256), ColorMode::Rgb, SampleType::U8);
+    doc.layers.push(Layer::new("Background", LayerContent::Fill(Fill::Solid(Color::WHITE))));
+    let mut shape =
+        ShapeLayer { path: photocraft_vector::shapes::rect(32., 40., 64., 48.), fill: Some(Fill::Solid(Color::rgb(0.2, 0.4, 0.8))), ..Default::default() };
+    photocraft_engine::vector_cmds::refresh_shape(&doc, &mut shape);
+    let mut layer = Layer::new(kind, LayerContent::Shape(shape));
+    if matches!(kind, "width profiles" | "vector brushes") {
+        let mut stroke =
+            StrokeItem { base: ShapeStroke { width: 8., paint: Fill::Solid(Color::rgb(0.8, 0.2, 0.1)), ..Default::default() }, ..Default::default() };
+        if kind == "width profiles" {
+            stroke.profile = Some(WidthProfile {
+                points: vec![WidthPoint { t: 0., left: 2., right: 2. }, WidthPoint { t: 0.5, left: 9., right: 6. }, WidthPoint { t: 1., left: 2., right: 2. }],
+            });
+        } else {
+            use photocraft_engine::vector_packages::brushes::geometry::{Brush, Resource};
+            stroke.brush = Some(Resource { brush: Brush::Calligraphic(Default::default()), seed: 7 }.reference().unwrap());
+        }
+        layer.vector.appearance = Some(Appearance { items: vec![AppearanceItem::Stroke(stroke)] });
+        if let LayerContent::Shape(shape) = &mut layer.content {
+            shape.cache = Some(photocraft_engine::vector_integration::render_shape(&doc, shape, &layer.vector).unwrap());
+        }
+    } else {
+        let mut children = vec![layer];
+        let live = match kind {
+            "live blends" => {
+                let mut other = children[0].clone();
+                other.id = LayerId::fresh();
+                if let LayerContent::Shape(shape) = &mut other.content {
+                    shape.path = photocraft_vector::shapes::rect(144., 100., 80., 64.);
+                    shape.fill = Some(Fill::Solid(Color::rgb(0.8, 0.3, 0.1)));
+                    photocraft_engine::vector_cmds::refresh_shape(&doc, shape);
+                }
+                children.push(other);
+                LiveGroup::Blend(BlendSpec { spacing: BlendSpacing::Steps(4), ..Default::default() })
+            }
+            "live repeats" => LiveGroup::Repeat(RepeatSpec::Grid { rows: 2, cols: 2, spacing: [8., 8.] }),
+            "live envelopes" => LiveGroup::Envelope(EnvelopeSpec::Warp { style: "arch".into(), bend: 30., horizontal: 0., vertical: 0. }),
+            _ => panic!("unknown native feature fixture"),
+        };
+        layer = Layer::group(kind, children);
+        layer.vector.live = Some(live);
+    }
+    layer.effects.items.push(Effect::default_drop_shadow());
+    doc.layers.push(layer);
+    doc
+}
+
+#[test]
+fn vector_fallback_native_width_brush_blend_repeat_envelope_full_app_gpu_shared_projection() {
+    let _gpu_gate = crate::gpu_lock();
+    for feature in ["width profiles", "vector brushes", "live blends", "live repeats", "live envelopes"] {
+        eprintln!("PSD shared native projection: {feature}");
+        verify_projected_fixture(advanced_fixture(feature), &[feature], Some(Arc::new(SharedProjection)));
+    }
 }

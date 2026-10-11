@@ -469,3 +469,20 @@ fn analytic_curve_bounds_and_sparse_shape_cache() {
     let content = surface.content_bounds();
     assert!(content.width() <= 256 && content.height() <= 256, "cache must stay bounds-limited: {content:?}");
 }
+
+#[test]
+fn review_additional_thin_coverage_is_translation_stable_and_inverted_fill_is_exterior() {
+    let area = |x| {
+        let path = shapes::rect(x, 2., 0.0001, 8.);
+        path_coverage(&path, Rect::new(0, 0, 64, 12)).iter().map(|v| f64::from(*v)).sum::<f64>()
+    };
+    assert!((area(0.) - 0.0008).abs() < 1e-9);
+    assert!((area(40.) - 0.0008).abs() < 1e-9);
+    let mut shape = ShapeLayer { path: shapes::rect(2., 2., 4., 4.), fill: Some(Fill::Solid(Color::BLACK)), ..Default::default() };
+    shape.path.inverted = true;
+    let canvas = Rect::new(0, 0, 8, 8);
+    let plan = appearance::CompiledAppearance::new(&shape, None, &[], canvas).unwrap();
+    let pixels = plan.render_rgba(canvas).unwrap();
+    assert_eq!(pixels[0][3], 1.);
+    assert_eq!(pixels[3 * 8 + 3][3], 0.);
+}

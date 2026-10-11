@@ -106,8 +106,8 @@ fn trace28_ui_nonpixel_trace_disabled_tooltip_and_unavailable_modes() {
     );
     h.get_by_role_and_label(egui::accesskit::Role::ComboBox, "Preset").click();
     h.run_steps(3);
-    assert!(h.get_by_label("Line Art").accesskit_node().is_disabled());
-    assert!(h.get_by_label("Sketch").accesskit_node().is_disabled());
+    assert!(!h.get_by_label("Line Art").accesskit_node().is_disabled(), "installed centreline provider is available");
+    assert!(!h.get_by_label("Sketch").accesskit_node().is_disabled(), "installed centreline provider is available");
 }
 #[test]
 fn trace28_ui_slider_drag_supersedes_reduced_preview_release_latest_wins() {

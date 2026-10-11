@@ -288,6 +288,7 @@ fn layout16_ui_artboard_numeric_width_uses_child_constraints_and_one_undo() {
                     rect: Rect::new(0, 0, 300, 240),
                     background: photocraft_doc::ArtboardBackground::Transparent,
                     preset: String::new(),
+                    drawing_scale: None,
                 });
             }
             let id = board.id;

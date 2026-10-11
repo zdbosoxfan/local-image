@@ -6,12 +6,11 @@
 //! The package bridge compiles the same owned helper until 00 registers its pc-vector
 //! module. Final re-export and V1 fitter hook: docs/wip/vector-tasks/integration/05.md.
 
-#[path = "../../../pc-vector/src/pencil_fit.rs"]
-pub mod fitting;
 use crate::{EngineError, Result, Session, commands::CommandSpec, vector_api};
 use fitting::{FitOptions, Sample, Stabilization};
 use photocraft_doc::{DocId, Document, Fill, Layer, LayerContent, LayerId, Path, ShapeLayer, ShapeStroke};
 use photocraft_geom::Point;
+pub use photocraft_vector::pencil_fit as fitting;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -157,7 +156,10 @@ impl Capture {
                             return Err(EngineError::Other("pencil continuation requires an open path".into()));
                         }
                         Operation::Sculpt { subpath, first, last, .. }
-                            if path.subpaths.get(subpath).is_none_or(|s| first >= s.knots.len() || last >= s.knots.len() || (!s.closed && first > last)) =>
+                            if path
+                                .subpaths
+                                .get(subpath)
+                                .is_none_or(|s| first == last || first >= s.knots.len() || last >= s.knots.len() || (!s.closed && first > last)) =>
                         {
                             return Err(EngineError::Other("invalid sculpt interval".into()));
                         }
@@ -222,8 +224,8 @@ pub fn prepare_with(
     let st = session.active().ok_or(EngineError::NoDocument)?;
     let mut samples = samples.to_vec();
     let mut close_extension = false;
-    if let Some(id) = capture.operation.target() {
-        let edits = vector_api::snapshot_shapes(&st.doc, &[id])?;
+    let edits = capture.operation.target().map(|id| vector_api::snapshot_shapes(&st.doc, &[id])).transpose()?;
+    if let Some(edits) = &edits {
         match capture.operation {
             Operation::Continue { subpath, at_start, .. } => {
                 let sp = edits[0]
@@ -268,17 +270,17 @@ pub fn prepare_with(
     let fitted = fitter(&samples, options).map_err(EngineError::Other)?;
     let path = match capture.operation {
         Operation::Create { .. } => fitted,
-        Operation::Continue { layer, subpath, at_start } => {
-            let base = vector_api::snapshot_shapes(&st.doc, &[layer])?.remove(0).shape.path;
-            fitting::continue_path(&base, subpath, at_start, &fitted, closed || close_extension).map_err(EngineError::Other)?
+        Operation::Continue { subpath, at_start, .. } => {
+            let base = &edits.as_ref().ok_or_else(|| EngineError::Other("missing captured pencil shape".into()))?[0].shape.path;
+            fitting::continue_path(base, subpath, at_start, &fitted, closed || close_extension).map_err(EngineError::Other)?
         }
-        Operation::Sculpt { layer, subpath, first, last } => {
-            let base = vector_api::snapshot_shapes(&st.doc, &[layer])?.remove(0).shape.path;
-            fitting::sculpt(&base, subpath, first, last, &fitted).map_err(EngineError::Other)?
+        Operation::Sculpt { subpath, first, last, .. } => {
+            let base = &edits.as_ref().ok_or_else(|| EngineError::Other("missing captured pencil shape".into()))?[0].shape.path;
+            fitting::sculpt(base, subpath, first, last, &fitted).map_err(EngineError::Other)?
         }
-        Operation::SculptRange { layer, subpath, from, to } => {
-            let base = vector_api::snapshot_shapes(&st.doc, &[layer])?.remove(0).shape.path;
-            let (base, first, last) = fitting::sculpt_boundaries(&base, subpath, from.tuple(), to.tuple()).map_err(EngineError::Other)?;
+        Operation::SculptRange { subpath, from, to, .. } => {
+            let base = &edits.as_ref().ok_or_else(|| EngineError::Other("missing captured pencil shape".into()))?[0].shape.path;
+            let (base, first, last) = fitting::sculpt_boundaries(base, subpath, from.tuple(), to.tuple()).map_err(EngineError::Other)?;
             fitting::sculpt(&base, subpath, first, last, &fitted).map_err(EngineError::Other)?
         }
     };
@@ -365,11 +367,7 @@ fn commit_command(session: &mut Session, params: &Value) -> Result<Value> {
     match capture.operation {
         Operation::Create { above } => {
             photocraft_doc::ensure_ids_above(id.0);
-            session.edit(label, move |doc, active| {
-                doc.insert_above(above, prepared.layer);
-                *active = Some(id);
-                Ok(())
-            })?;
+            crate::vector_integration::insert_layer(session, above, prepared.layer, label)?;
         }
         _ => {
             let LayerContent::Shape(shape) = prepared.layer.content else {

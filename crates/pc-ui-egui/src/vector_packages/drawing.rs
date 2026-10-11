@@ -358,8 +358,8 @@ pub fn controls(ui: &mut egui::Ui, s: &mut Session, state: &mut State, selected:
         return;
     }
     if ui.button(translate("Convert to Curves")).clicked() {
-        state.cancel();
         let result = (|| {
+            state.commit(s)?;
             let c = Capture::new(s)?;
             s.execute(
                 "shape.design.convert",

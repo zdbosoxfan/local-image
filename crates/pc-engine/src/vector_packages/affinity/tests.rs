@@ -10,6 +10,7 @@ fn source() -> Vec<u8> {
 }
 #[test]
 fn affinity_place_preview_is_detached_atomic_undo_and_redo() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut s = session();
     let mut request = capture(&s, source()).unwrap();
     request.offset = [12, 14];
@@ -30,6 +31,7 @@ fn affinity_place_preview_is_detached_atomic_undo_and_redo() {
 }
 #[test]
 fn affinity_stale_locked_and_invalid_targets_publish_nothing() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut s = session();
     let r = capture(&s, source()).unwrap();
     s.execute("layer.new.layer", json!({"name":"changed"})).unwrap();
@@ -62,6 +64,7 @@ fn affinity_stale_locked_and_invalid_targets_publish_nothing() {
 }
 #[test]
 fn affinity_open_preview_recovery_is_open_only_and_never_recovers_crc() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut s = session();
     let bytes = include_bytes!("../../../../pc-affinity/tests/fixtures/preview.afphoto").to_vec();
     assert!(matches!(read_open(&bytes, 72., &std::sync::atomic::AtomicBool::new(true)), Err(EngineError::Cancelled)));
@@ -84,6 +87,7 @@ fn affinity_open_preview_recovery_is_open_only_and_never_recovers_crc() {
 }
 #[test]
 fn affinity_imported_shape_remains_editable() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut s = session();
     s.execute("file.affinity.place", serde_json::to_value(capture(&s, source()).unwrap()).unwrap()).unwrap();
     let (id, path) = s
@@ -100,6 +104,7 @@ fn affinity_imported_shape_remains_editable() {
 }
 #[test]
 fn affinity_rtx5090_vulkan_detached_preview_commit_cpu_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use photocraft_gpu::{Compositor, render_to_vec};
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -123,6 +128,7 @@ fn affinity_rtx5090_vulkan_detached_preview_commit_cpu_parity() {
     let (preview, _) = preview(&s, &r, &scene).unwrap();
     let cpu = photocraft_compose::flatten(&preview);
     let gpu = render_to_vec(&mut compositor, &device, &queue, &preview, preview.bounds()).unwrap();
+    assert_eq!(cpu.px.len(), gpu.len());
     let diff = cpu
         .px
         .iter()
@@ -147,6 +153,7 @@ fn affinity_rtx5090_vulkan_detached_preview_commit_cpu_parity() {
     let (fallback, _) = document(fallback, "recovery");
     let cpu = photocraft_compose::flatten(&fallback);
     let gpu = render_to_vec(&mut compositor, &device, &queue, &fallback, fallback.bounds()).unwrap();
+    assert_eq!(cpu.px.len(), gpu.len());
     let diff = cpu
         .px
         .iter()
@@ -158,6 +165,7 @@ fn affinity_rtx5090_vulkan_detached_preview_commit_cpu_parity() {
 }
 #[test]
 fn affinity_prepared_scene_validates_all_layers_before_publication() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut s = session();
     let request = capture(&s, source()).unwrap();
     let mut scene = decode(&s, &request).unwrap();

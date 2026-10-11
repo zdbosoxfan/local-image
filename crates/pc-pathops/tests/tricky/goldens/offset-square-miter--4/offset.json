@@ -1,0 +1,89 @@
+{
+  "actions": "select-by-id:a;object-to-path;export-do",
+  "case": "offset-square-miter--4",
+  "execution_actions": "select-by-id:a;object-to-path;export-do",
+  "input_svg": "<!-- Original Local Image synthetic input. SPDX-License-Identifier: CC0-1.0 -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\"><path id=\"a\" d=\"M32 32 H64 V64 H32 Z\" fill=\"black\"/></svg>\n",
+  "normalizer": "usvg 0.45.1 + svgtypes 0.15.3 f64 geometry",
+  "operation": "offset",
+  "parameters": {
+    "delta": -4,
+    "join": "miter",
+    "miter": 4
+  },
+  "paths": [
+    {
+      "fill_rule": "NonZero",
+      "inverted": false,
+      "subpaths": [
+        {
+          "closed": true,
+          "knots": [
+            {
+              "anchor": {
+                "x": 36.00000238418579,
+                "y": 36.00000238418579
+              },
+              "in_ctrl": {
+                "x": 36.00000238418579,
+                "y": 36.00000238418579
+              },
+              "out_ctrl": {
+                "x": 36.00000238418579,
+                "y": 36.00000238418579
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 36.00000238418579,
+                "y": 59.99999761581421
+              },
+              "in_ctrl": {
+                "x": 36.00000238418579,
+                "y": 59.99999761581421
+              },
+              "out_ctrl": {
+                "x": 36.00000238418579,
+                "y": 59.99999761581421
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 59.99999761581421,
+                "y": 59.99999761581421
+              },
+              "in_ctrl": {
+                "x": 59.99999761581421,
+                "y": 59.99999761581421
+              },
+              "out_ctrl": {
+                "x": 59.99999761581421,
+                "y": 59.99999761581421
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 59.99999761581421,
+                "y": 36.00000238418579
+              },
+              "in_ctrl": {
+                "x": 59.99999761581421,
+                "y": 36.00000238418579
+              },
+              "out_ctrl": {
+                "x": 59.99999761581421,
+                "y": 36.00000238418579
+              },
+              "smooth": false
+            }
+          ],
+          "op": "Combine"
+        }
+      ]
+    }
+  ],
+  "source_svg": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n<!-- Original Local Image synthetic input. SPDX-License-Identifier: CC0-1.0 -->\n\n<svg\n   viewBox=\"0 0 393216 393216\"\n   width=\"96\"\n   height=\"96\"\n   version=\"1.1\"\n   id=\"svg1\"\n   xmlns=\"http://www.w3.org/2000/svg\"\n   xmlns:svg=\"http://www.w3.org/2000/svg\">\n  <defs\n     id=\"defs1\" />\n  <path\n     id=\"a\"\n     d=\"m 147456.009765625,147456.009765625 v 98303.98046875 h 98303.98046875 v -98303.98046875 z\"\n     fill=\"black\" />\n</svg>\n",
+  "tool": "Inkscape 1.4.4"
+}

@@ -34,12 +34,15 @@ fn harness() -> Harness<'static, Host> {
             if h.state.synchronize(&h.session, h.vector) {
                 h.drag = None;
             }
+            engine::publish_view_state(&mut h.session, &h.state.scope);
             if escape(ui.ctx(), &mut h.state) {
                 h.drag = None;
+                engine::publish_view_state(&mut h.session, &h.state.scope);
             }
             if ui.button("Pixel persona").clicked() {
                 h.vector = false;
                 h.state.synchronize(&h.session, false);
+                engine::publish_view_state(&mut h.session, &h.state.scope);
                 h.drag = None;
             }
             ui.checkbox(&mut h.rectangle, "Rectangle Tool");

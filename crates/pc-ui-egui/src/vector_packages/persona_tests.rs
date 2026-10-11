@@ -137,13 +137,14 @@ fn persona_pen_drag_is_detached_and_switch_cancels_it_twenty_times() {
         let from = h.state().last_canvas_rect.center();
         pointer(&mut h, from, Some(true));
         pointer(&mut h, from + egui::vec2(18.0, 12.0), None);
-        assert!(h.state().ui.pen.as_ref().is_some_and(|p| p.dragging && !p.knots.is_empty()));
+        assert!(h.state().shared_tools.pen.gesture.as_ref().is_some_and(|g| g.captured() && !g.path().is_empty()));
         assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc));
         // Interrupt a held press with the actual persona shortcut; its release cannot commit.
         h.key_press_modifiers(Modifiers { command: true, shift: true, ..Default::default() }, Key::Num1);
         h.run_steps(3);
         pointer(&mut h, from, Some(false));
         assert!(h.state().ui.pen.is_none());
+        assert!(h.state().shared_tools.pen.gesture.is_none());
         h.get_by_label("Vector persona").click();
         h.run_steps(3);
         assert_eq!(h.state().ui.tool, Tool::Pen, "Vector remembers its last tool");

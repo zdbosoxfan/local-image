@@ -1,7 +1,8 @@
 //! Package 28: captured trace requests and fully prepared, atomic output.
 //! T1 tracing stays in pc-trace. No preview changes document/history/journal state.
 use crate::{EngineError, Result, Session, commands::CommandSpec, jobs::JobCtx};
-pub use pc_trace::{Params, Preset, Trace};
+pub use pc_trace::cutout::Layering;
+pub use pc_trace::{Mode, Params, Preset, Trace};
 use photocraft_color::Color;
 use photocraft_doc::{Document, Fill, Layer, LayerContent, LayerId, NamedPath, Path, ShapeLayer};
 use photocraft_geom::{Affine, Rect};
@@ -25,15 +26,20 @@ pub struct PaletteEdit {
     pub from: [u8; 3],
     pub to: Option<[u8; 3]>,
 }
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Output {
     pub expand: bool,
     pub work_path: bool,
     pub palette_edits: Vec<PaletteEdit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup: Option<pc_trace::cleanup::Options>,
 }
 impl Output {
     pub fn validate(&self, params: &Params) -> Result<()> {
+        if let Some(cleanup) = &self.cleanup {
+            cleanup.validate().map_err(error)?;
+        }
         if self.work_path && params.preset != Preset::BlackWhite {
             return Err(error("Make Work Path requires Black & White"));
         }
@@ -115,6 +121,10 @@ pub struct Preview {
     pub source_rgba: Vec<u8>,
     pub result_rgba: Vec<u8>,
     pub elapsed_ms: f64,
+    #[serde(default)]
+    pub cutout: bool,
+    #[serde(default)]
+    pub cleanup_stats: Option<pc_trace::cleanup::Stats>,
 }
 // A typed mailbox keeps preview bitmaps out of JobInfo's JSON history. Session::start
 // still owns cancellation, latest keys, worker lifetime and completion events.
@@ -213,7 +223,15 @@ fn trace_impl(doc: &Document, request: &Capture, params: &Params, output: &Outpu
     if doc.selection.is_some() {
         trace_params.use_alpha = true;
     }
-    let mut trace = pc_trace::trace_with_cancel(pc_trace::Image { width: tw, height: th, rgba: &rgba }, &trace_params, || ctx.cancelled()).map_err(error)?;
+    let image = pc_trace::Image { width: tw, height: th, rgba: &rgba };
+    let mut cleanup_stats = None;
+    let mut trace = if let Some(options) = &output.cleanup {
+        let cleaned = pc_trace::cleanup::trace_with_cancel(image, &trace_params, options, || ctx.cancelled()).map_err(error)?;
+        cleanup_stats = Some(cleaned.stats);
+        cleaned.trace
+    } else {
+        pc_trace::trace_with_cancel(image, &trace_params, || ctx.cancelled()).map_err(error)?
+    };
     for edit in &output.palette_edits {
         trace.layers.retain_mut(|l| {
             if l.color[..3] != edit.from {
@@ -227,8 +245,25 @@ fn trace_impl(doc: &Document, request: &Capture, params: &Params, output: &Outpu
             }
         });
     }
+    for edit in &output.palette_edits {
+        trace.strokes.retain_mut(|stroke| {
+            let photocraft_doc::Fill::Solid(color) = &mut stroke.stroke.paint else {
+                return true;
+            };
+            let rgba = color.to_rgba8();
+            if rgba[..3] != edit.from {
+                return true;
+            }
+            if let Some(to) = edit.to {
+                *color = photocraft_doc::Color::rgba(f32::from(to[0]) / 255., f32::from(to[1]) / 255., f32::from(to[2]) / 255., f32::from(rgba[3]) / 255.);
+                true
+            } else {
+                false
+            }
+        });
+    }
     merge_equal_paints(&mut trace, ctx)?;
-    trace.nodes = trace.layers.iter().flat_map(|l| &l.path.subpaths).map(|s| s.knots.len()).sum();
+    trace.nodes = trace.layers.iter().flat_map(|l| &l.path.subpaths).chain(trace.strokes.iter().flat_map(|l| &l.path.subpaths)).map(|s| s.knots.len()).sum();
     let result_rgba = if render_pixels {
         let preview_bounds = Rect::from_xywh(0, 0, tw, th);
         let mut preview_doc =
@@ -240,11 +275,20 @@ fn trace_impl(doc: &Document, request: &Capture, params: &Params, output: &Outpu
             sh.cache = Some(photocraft_vector::render_shape(&sh, photocraft_color::PixelFormat::RGBA32F, preview_bounds));
             preview_doc.layers.push(Layer::new("Trace preview", LayerContent::Shape(sh)));
         }
+        preview_doc.layers.extend(stroke_layers(&preview_doc, &trace, Affine::IDENTITY, ctx)?);
+        if params.layering == Layering::Cutout && trace.strokes.is_empty() {
+            let mut group = Layer::group("Trace partition", std::mem::take(&mut preview_doc.layers));
+            if !matches!(params.mode, Some(Mode::Centerline)) && group.children().is_some_and(|children| !children.is_empty()) {
+                photocraft_doc::vector_design::mosaic::mark(&mut group).map_err(error)?;
+            }
+            preview_doc.layers.push(group);
+        }
         photocraft_compose::render(&preview_doc, preview_bounds).to_rgba8().pixels
     } else {
         Vec::new()
     };
     ctx.check()?;
+    let cutout = params.layering == Layering::Cutout && trace.strokes.is_empty();
     Ok(Preview {
         capture: request.clone(),
         trace,
@@ -254,6 +298,8 @@ fn trace_impl(doc: &Document, request: &Capture, params: &Params, output: &Outpu
         source_rgba: source_rgba.unwrap_or_default(),
         result_rgba,
         elapsed_ms: started.elapsed().as_secs_f64() * 1000.,
+        cutout,
+        cleanup_stats,
     })
 }
 fn resize_rgba(rgba: Vec<u8>, width: u32, height: u32, tw: u32, th: u32) -> Result<Vec<u8>> {
@@ -302,6 +348,7 @@ pub struct Prepared {
     work_path: Option<Path>,
     colors: usize,
     nodes: usize,
+    cutout: bool,
 }
 pub fn prepare(doc: &Document, preview: &Preview, output: &Output, ctx: &JobCtx) -> Result<Prepared> {
     if preview.scale_xy.iter().any(|v| !v.is_finite() || !(0.0..=1.0).contains(v) || *v == 0.)
@@ -346,8 +393,18 @@ pub fn prepare(doc: &Document, preview: &Preview, output: &Output, ctx: &JobCtx)
             children.push(Layer::new(name, LayerContent::Shape(sh)));
         }
     }
+    if output.work_path && !preview.trace.strokes.is_empty() {
+        return Err(error("Centreline strokes cannot be published as a fill Work Path"));
+    }
+    children.extend(stroke_layers(doc, &preview.trace, affine, ctx)?);
     ctx.check()?;
-    Ok(Prepared { children, work_path: output.work_path.then_some(work), colors: preview.trace.layers.len(), nodes: preview.trace.nodes })
+    Ok(Prepared {
+        children,
+        work_path: output.work_path.then_some(work),
+        colors: preview.trace.layers.len(),
+        nodes: preview.trace.nodes,
+        cutout: preview.cutout,
+    })
 }
 pub fn publish(session: &mut Session, request: &Capture, prepared: Prepared) -> Result<Value> {
     check(session, request)?;
@@ -371,7 +428,10 @@ pub fn publish(session: &mut Session, request: &Capture, prepared: Prepared) -> 
             doc.work_path = Some(path);
             return Ok(json!({"path":name,"colors":colors,"nodes":nodes}));
         }
-        let group = Layer::group(format!("Vectorized – {name}"), prepared.children);
+        let mut group = Layer::group(format!("Vectorized – {name}"), prepared.children);
+        if prepared.cutout {
+            photocraft_doc::vector_design::mosaic::mark(&mut group).map_err(error)?;
+        }
         let id = doc.insert_above(Some(source), group);
         if doc.max_group_depth() > photocraft_doc::MAX_GROUP_DEPTH {
             return Err(error("trace exceeds document group depth"));
@@ -387,3 +447,47 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 #[path = "trace_output/tests.rs"]
 mod tests;
+
+/// The shared dialog renders and publishes editable centreline strokes with the width provider.
+fn stroke_layers(doc: &Document, trace: &Trace, affine: Affine, ctx: &JobCtx) -> Result<Vec<Layer>> {
+    use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, StrokeItem};
+    if trace.strokes.len() > 8192 {
+        return Err(error("Centreline stroke budget exceeded"));
+    }
+    let factor = (affine.m[0].hypot(affine.m[1]) + affine.m[2].hypot(affine.m[3])) / 2.;
+    let mut out = Vec::new();
+    let mut bytes = 0u128;
+    for source in &trace.strokes {
+        ctx.check()?;
+        let path = source.path.transform(&affine);
+        crate::vector_api::validate_path(&path)?;
+        let mut base = source.stroke.clone();
+        base.width *= factor as f32;
+        let mut profile = source.profile.clone();
+        if let Some(profile) = &mut profile {
+            for p in &mut profile.points {
+                p.left *= factor;
+                p.right *= factor;
+            }
+        }
+        let appearance = Appearance { items: vec![AppearanceItem::Stroke(StrokeItem { base: base.clone(), profile, ..Default::default() })] };
+        let mut shape = photocraft_doc::ShapeLayer { path, fill: None, stroke: Some(base), ..Default::default() };
+        let plan = photocraft_vector::appearance::CompiledAppearance::with_projection(
+            &shape,
+            Some(&appearance),
+            &doc.patterns,
+            doc.bounds(),
+            &super::styles::Projection,
+        )
+        .map_err(error)?;
+        bytes += plan.cache_bytes(doc.pixel_format());
+        if bytes > 512 << 20 {
+            return Err(error("Centreline cache budget exceeded"));
+        }
+        shape.cache = Some(plan.render(doc.pixel_format(), doc.bounds()).map_err(error)?);
+        let mut layer = Layer::new("Centreline", LayerContent::Shape(shape));
+        layer.vector.appearance = Some(appearance);
+        out.push(layer);
+    }
+    Ok(out)
+}

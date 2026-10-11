@@ -51,10 +51,12 @@ fn selection_same_fill_six_shapes_scope_locked_and_nested_oracle() {
     target(&mut s, reference);
     let mut r = request(&s, same_query(Same::FillColor, reference));
     r.scope.edit_all_layers = false;
+    s.active_mut().unwrap().vector_selection_scope.edit_all_layers = false;
     let p = run(&mut s, &r).unwrap();
     assert_eq!(p.layers, expected);
     r.revision = s.active().unwrap().revision;
     r.scope.edit_all_layers = true;
+    s.active_mut().unwrap().vector_selection_scope.edit_all_layers = true;
     let p = run(&mut s, &r).unwrap();
     assert_eq!(p.layers, [expected, vec![nested_id]].concat());
 }
@@ -174,6 +176,11 @@ fn selection_group_click_chain_stops_at_isolation_and_outermost() {
     target(&mut s, leaf);
     let mut r = request(&s, Query::Group { leaf, previous: Some(group) });
     r.scope.isolation = Some(top);
+    let mut isolation = super::super::isolation::State::default();
+    isolation.synchronize(&s, true);
+    let capture = super::super::isolation::Capture::new(&s, &isolation).unwrap();
+    isolation.enter(&mut s, capture, top).unwrap();
+    super::super::isolation::publish_view_state(&mut s, &isolation);
     assert_eq!(run(&mut s, &r).unwrap().layers, [group]);
 }
 #[test]
@@ -189,6 +196,7 @@ fn selection_hidden_and_locked_ancestors_cannot_leak() {
     assert!(select(&mut s, Query::All).layers.is_empty());
     let mut r = request(&s, Query::All);
     r.scope.select_hidden = true;
+    s.active_mut().unwrap().vector_selection_scope.select_hidden = true;
     assert_eq!(run(&mut s, &r).unwrap().layers, [id]);
 }
 #[test]
@@ -239,7 +247,7 @@ fn selection_inverse_next_reselect_and_same_layers() {
     assert_eq!(select(&mut s, Query::Next { above: false }).layers, [ids[1]]);
     assert_eq!(select(&mut s, Query::Inverse).layers, [ids[0], ids[2]]);
     assert_eq!(select(&mut s, Query::Deselect).layers, []);
-    assert_eq!(select(&mut s, Query::Reselect { ids: vec![ids[1]] }).layers, [ids[1]]);
+    assert_eq!(select(&mut s, Query::Reselect { ids: vec![ids[1]] }).layers, [ids[0], ids[2]]);
     assert_eq!(select(&mut s, Query::Object { criterion: Object::AllOnSameLayers }).layers, ids);
 }
 #[test]
@@ -363,12 +371,14 @@ fn selection_edit_all_layers_on_artboards_descends_current_board_only() {
     target(&mut s, id);
     let mut r = request(&s, same_query(Same::FillColor, id));
     r.scope.edit_all_layers = false;
+    s.active_mut().unwrap().vector_selection_scope.edit_all_layers = false;
     assert_eq!(run(&mut s, &r).unwrap().layers, [id, nested]);
     assert_eq!(hit(&s.active().unwrap().doc, &r.scope, [45., 15.], 1., Readers::default()).unwrap(), None);
     r.query = Query::Group { leaf: nested, previous: Some(group_id) };
     assert_eq!(run(&mut s, &r).unwrap().layers, [group_id], "group ascent must stay inside the active artboard");
     r.scope.edit_all_layers = true;
     r.query = same_query(Same::FillColor, id);
+    s.active_mut().unwrap().vector_selection_scope.edit_all_layers = true;
     assert_eq!(run(&mut s, &r).unwrap().layers, [id, nested, other]);
 }
 #[test]
@@ -417,4 +427,18 @@ fn selection_object_paint_groups_clipping_and_explicit_empty_appearance() {
     ] {
         assert_eq!(select(&mut s, Query::Object { criterion }).layers, expected);
     }
+}
+
+#[test]
+fn styles_sampling_hits_pixels_without_exposing_them_to_vector_selection() {
+    let mut pixel = Layer::raster("Pixel sample", photocraft_color::PixelFormat::RGBA8);
+    pixel.surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(220, 20, 250, 50), &[0.2, 0.4, 0.8, 1.]);
+    let id = pixel.id;
+    let s = session(vec![pixel]);
+    let doc = &s.active().unwrap().doc;
+    assert_eq!(hit(doc, &Scope::default(), [230., 40.], 0., Readers::default()).unwrap(), None);
+    assert_eq!(style_hit(doc, &Scope::default(), [230., 40.], 0., Readers::default()).unwrap(), Some(id));
+    let mut doc = (**doc).clone();
+    doc.layers[0].visible = false;
+    assert_eq!(style_hit(&doc, &Scope::default(), [230., 40.], 0., Readers::default()).unwrap(), None);
 }

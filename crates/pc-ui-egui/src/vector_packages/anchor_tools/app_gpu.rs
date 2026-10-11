@@ -43,7 +43,12 @@ fn harness(tool: Tool) -> H {
         app.ui.extras.rulers = false;
         app.ui.extras.snap = false;
         app.ui.view.extras = false;
-        app.ui.tool = crate::state::Tool::Hand;
+        app.ui.tool = match tool {
+            Tool::AddAnchor => crate::state::Tool::AddAnchor,
+            Tool::DeleteAnchor => crate::state::Tool::DeleteAnchor,
+            Tool::AnchorPoint => crate::state::Tool::AnchorPoint,
+            Tool::Curvature => crate::state::Tool::Curvature,
+        };
         app.session.edit_prefs(|p| p.interface.contextual_task_bar = false);
         activate(&app, &cc.egui_ctx, Some(tool));
         app
@@ -64,19 +69,14 @@ fn event(h: &mut H, at: [f32; 2], pressed: Option<bool>) {
 }
 fn pixels(h: &mut H) -> Vec<[u8; 4]> {
     h.run_steps(3);
-    assert!(h.state().perf.gpu, "actual app canvas must use GPU");
-    let img = h.render().expect("GPU readback");
-    let xf = ViewXform::active(h.state()).unwrap();
-    let ppp = h.ctx.pixels_per_point();
-    let mut pixels = Vec::new();
-    for y in 0..180 {
-        for x in 0..240 {
-            let p = xf.to_screen(x as f32 + 0.5, y as f32 + 0.5) * ppp;
-            pixels.push(img.get_pixel(p.x.floor() as u32, p.y.floor() as u32).0);
-        }
-    }
-    pixels
+    h.render().expect("actual RTX app readback");
+    assert!(h.state().perf.gpu);
+    let id = h.state().session.active().unwrap().doc.id;
+    let (_, size, pixels) = h.state().read_canvas_texels(id.0).expect("actual canvas texture");
+    assert_eq!(size, [240, 180]);
+    pixels.into_iter().map(|p| p.map(|c| (c.clamp(0., 1.) * 255.).round() as u8)).collect()
 }
+
 fn parity(a: &[[u8; 4]], b: &[[u8; 4]]) {
     assert_eq!(a.len(), b.len());
     let max = a.iter().zip(b).flat_map(|(a, b)| (0..4).map(move |i| a[i].abs_diff(b[i]))).max().unwrap_or(0);
@@ -85,6 +85,7 @@ fn parity(a: &[[u8; 4]], b: &[[u8; 4]]) {
 #[test]
 #[ignore = "speed rules prohibit GPU runs; requires 00 app routing/display hooks"]
 fn anchor33_gpu_full_app_add_delete_convert_preview_release_and_cancel() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     for (tool, start, end) in
         [(Tool::AddAnchor, [70., 90.], [70., 90.]), (Tool::DeleteAnchor, [120., 90.], [120., 90.]), (Tool::AnchorPoint, [120., 90.], [140., 120.])]
@@ -96,7 +97,14 @@ fn anchor33_gpu_full_app_add_delete_convert_preview_release_and_cancel() {
         let history = h.state().session.active().unwrap().history.past_len();
         event(&mut h, start, Some(true));
         event(&mut h, end, None);
-        assert!(bridge(&h.ctx).state.preview.is_some());
+        assert!(
+            bridge(&h.ctx).state.preview.is_some(),
+            "tool={tool:?} actual={:?} bridge={:?} status={} pointer={:?}",
+            h.state().ui.tool,
+            bridge(&h.ctx).state.options.tool,
+            h.state().ui.status,
+            h.ctx.input(|i| (i.pointer.primary_down(), i.events.clone()))
+        );
         assert_eq!(h.state().session.active().unwrap().doc, before);
         assert_eq!(h.state().session.journal.len(), journal);
         let live = pixels(&mut h);
@@ -122,6 +130,7 @@ fn anchor33_gpu_full_app_add_delete_convert_preview_release_and_cancel() {
 #[test]
 #[ignore = "speed rules prohibit GPU runs; requires 00 app routing/display hooks"]
 fn anchor33_gpu_full_app_curvature_preview_finish_one_journal_and_undo() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness(Tool::Curvature);
     let before = h.state().session.active().unwrap().doc.clone();
@@ -131,7 +140,13 @@ fn anchor33_gpu_full_app_curvature_preview_finish_one_journal_and_undo() {
         event(&mut h, p, Some(false));
     }
     assert_eq!(h.state().session.active().unwrap().doc, before);
-    assert!(h.state().session.journal.is_empty());
+    assert!(
+        h.state().session.journal.is_empty(),
+        "journal={:?} bridge={:?} status={}",
+        h.state().session.journal,
+        bridge(&h.ctx).state.options.tool,
+        h.state().ui.status
+    );
     assert!(bridge(&h.ctx).state.preview.is_some());
     // Hide controls via the normal Extras route, and disable the optional rubber band so
     // the pixel comparison covers filled app preview rather than feedback strokes.

@@ -57,12 +57,15 @@ pub fn canvas(ui: &Ui, response: &Response, session: &mut Session, state: &mut S
         state.cancel();
         return Ok(false);
     }
-    if ui.input(|i| i.pointer.button_pressed(PointerButton::Primary)) && response.contains_pointer() {
+    if ui.input(|i| i.pointer.button_pressed(PointerButton::Primary) && i.pointer.interact_pos().is_some_and(|p| response.rect.contains(p))) {
         state.capture = Some(PointerCapture { document: Capture::new(session, &state.scope)?, target: hit, response: response.id });
     }
     if response.double_clicked_by(PointerButton::Primary) {
         let Some(capture) = state.capture.filter(|c| c.response == response.id) else { return Ok(true) };
-        capture.document.check(session, &state.scope)?;
+        if let Err(e) = capture.document.check(session, &state.scope) {
+            state.cancel();
+            return Err(e);
+        }
         if capture.target != hit {
             state.cancel();
             return Err(EngineError::Other("isolation gesture target changed".into()));
@@ -79,6 +82,15 @@ pub fn canvas(ui: &Ui, response: &Response, session: &mut Session, state: &mut S
             return Ok(changed);
         }
         if let Some(id) = hit {
+            let eligible = doc.layer(id).is_some_and(|layer| {
+                layer.is_group()
+                    || matches!(layer.content, photocraft_doc::LayerContent::Symbol(_))
+                    || matches!(&layer.content,photocraft_doc::LayerContent::Shape(shape) if shape.path.subpaths.len()>1)
+            });
+            if !eligible {
+                state.cancel();
+                return Ok(false);
+            }
             state.enter(session, id)?;
             return Ok(true);
         }
@@ -90,7 +102,7 @@ pub fn canvas(ui: &Ui, response: &Response, session: &mut Session, state: &mut S
 }
 /// Return true BEFORE the Layers panel selects or expands this row.
 pub fn thumbnail(ui: &Ui, response: &Response, session: &mut Session, state: &mut State, id: LayerId) -> Result<bool> {
-    if ui.input(|i| i.pointer.button_pressed(PointerButton::Primary)) && response.contains_pointer() {
+    if ui.input(|i| i.pointer.button_pressed(PointerButton::Primary) && i.pointer.interact_pos().is_some_and(|p| response.rect.contains(p))) {
         state.capture = Some(PointerCapture { document: Capture::new(session, &state.scope)?, target: Some(id), response: response.id });
     }
     if response.clicked() && ui.input(|i| i.modifiers.alt) {
@@ -196,8 +208,14 @@ pub fn frame(app: &mut crate::PhotocraftApp, ctx: &Context) -> bool {
     if owner_changed {
         b.isolation.exit();
     }
-    let escaped = escape(ctx, &mut b.isolation);
-    let toggled = view_modes::shortcuts(ctx, &mut b.views, vector && app.ui.dialogs.is_empty());
+    let escaped = app.ui.dialogs.is_empty() && escape(ctx, &mut b.isolation);
+    let toggled = view_modes::shortcuts(
+        ctx,
+        &mut b.views,
+        vector
+            && app.ui.dialogs.is_empty()
+            && app.session.prefs().toolbar.vector_keyboard.preset == photocraft_engine::vector_toolbar_layout::Preset::Illustrator,
+    );
     // Menus, row hooks and automation may have changed state after the previous frame.
     // Compare the last dispatched generations, not just the shortcuts consumed here.
     let generation_changed =

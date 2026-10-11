@@ -10,6 +10,7 @@ fn svg() -> String {
 }
 #[test]
 fn svg_import_place_is_one_edit_with_detached_preview_undo_and_redo() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut s = session();
     let mut r = capture(&s, svg()).unwrap();
     r.offset = [10, 12];
@@ -31,6 +32,7 @@ fn svg_import_place_is_one_edit_with_detached_preview_undo_and_redo() {
 }
 #[test]
 fn svg_import_stale_invalid_and_locked_destination_publish_nothing() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut s = session();
     let r = capture(&s, svg()).unwrap();
     s.execute("layer.new.layer", json!({"name":"changed"})).unwrap();
@@ -59,6 +61,7 @@ fn svg_import_stale_invalid_and_locked_destination_publish_nothing() {
 }
 #[test]
 fn svg_import_open_paste_and_shape_remain_editable() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut s = session();
     let r = capture(&s, svg()).unwrap();
     s.execute("file.svg.paste", serde_json::to_value(r).unwrap()).unwrap();
@@ -76,6 +79,7 @@ fn svg_import_open_paste_and_shape_remain_editable() {
 }
 #[test]
 fn svg_import_place_retains_viewport_clipping_after_native_edit() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut s = session();
     let mut request = capture(
         &s,
@@ -105,6 +109,7 @@ fn svg_import_place_retains_viewport_clipping_after_native_edit() {
 }
 #[test]
 fn svg_import_rtx5090_vulkan_detached_preview_commit_cpu_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use photocraft_gpu::{Compositor, render_to_vec};
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

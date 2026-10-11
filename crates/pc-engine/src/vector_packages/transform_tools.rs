@@ -499,6 +499,12 @@ fn transform_layer(doc: &Document, mut l: Layer, c: &Commit, a: Option<Affine>, 
     if let Some(ap) = &mut l.vector.appearance {
         for item in &mut ap.items {
             match item {
+                AppearanceItem::Mesh(mesh) => {
+                    mesh.paint = (&photocraft_vector::mesh_paint::Mesh::from(&mesh.paint)
+                        .transform(a.ok_or_else(|| error("mesh paint requires an affine transform"))?)
+                        .map_err(error)?)
+                        .into();
+                }
                 AppearanceItem::Stroke(s) => {
                     if c.options.scale_strokes_effects && c.options.objects {
                         s.base.width *= k as f32;
@@ -704,7 +710,11 @@ pub fn again_request(s: &Session, ids: &[LayerId]) -> Result<Commit> {
                 .enumerate()
                 .find_map(|(index, root)| doc.path_of(*root).filter(|p| node_path.starts_with(p)).map(|p| (index, p)))
                 .ok_or_else(|| error("repeat Reshape source is missing"))?;
-            let mut new_path = doc.path_of(capture.layers[index]).ok_or(EngineError::NoLayer(capture.layers[index]))?;
+            // Retained objects keep their identity even if selection order changed.
+            // Copies/new targets retain the positional correspondence used by replay.
+            let old_root = previous.capture.layers[index];
+            let new_root = if capture.layers.contains(&old_root) { old_root } else { capture.layers[index] };
+            let mut new_path = doc.path_of(new_root).ok_or(EngineError::NoLayer(new_root))?;
             new_path.extend_from_slice(&node_path[old_path.len()..]);
             node.layer = doc.layer_at(&new_path).ok_or_else(|| error("repeat Reshape target structure changed"))?.id;
         }

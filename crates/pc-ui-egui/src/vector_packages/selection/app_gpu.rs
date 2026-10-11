@@ -86,6 +86,7 @@ fn interior_pixels(h: &mut H) -> Vec<[u8; 4]> {
 }
 #[test]
 fn selection_full_app_gpu_live_lasso_cancel_release_wand_add_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness(5);
     activate_h(&h, Tool::Lasso);
     // Keep the screenshot's cursor fixed so a cursor move cannot satisfy the overlay gate.
@@ -129,6 +130,7 @@ fn selection_full_app_gpu_live_lasso_cancel_release_wand_add_rtx5090() {
 #[test]
 #[ignore = "release real-app 500-object pointer-frame benchmark; run after 00 routing"]
 fn selection_full_app_release_500_pointer_frames_under_16ms_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     if cfg!(debug_assertions) {
         panic!("release build required");
     }
@@ -215,6 +217,7 @@ fn selection_full_app_release_500_pointer_frames_under_16ms_rtx5090() {
 }
 #[test]
 fn selection_full_app_gpu_group_circle_then_node_lasso_delete_03_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness(1);
     let leaf = h.state().session.active().unwrap().doc.layers[0].id;
     let mut layer = h.state().session.active().unwrap().doc.layers[0].clone();

@@ -84,6 +84,12 @@ fn solid_like(c: Color, p: &Fill) -> Fill {
     out
 }
 pub fn fill(a: &Fill, b: &Fill, t: f64) -> Fill {
+    if t == 0. {
+        return a.clone();
+    }
+    if t == 1. {
+        return b.clone();
+    }
     match (a, b) {
         (Fill::Solid(x), Fill::Solid(y)) => Fill::Solid(color(*x, *y, t)),
         (Fill::Solid(c), Fill::Gradient { .. }) => fill(&solid_like(*c, b), b, t),
@@ -192,6 +198,27 @@ pub fn appearance(a: &Layer, b: &Layer, t: f64) -> Result<Appearance> {
     let mut out = Appearance { items: (0..a.items.len().max(b.items.len())).filter_map(|i| near.items.get(i).or_else(|| far.items.get(i)).cloned()).collect() };
     for (i, item) in out.items.iter_mut().enumerate() {
         match (item, a.items.get(i), b.items.get(i)) {
+            (AppearanceItem::Mesh(o), Some(AppearanceItem::Mesh(x)), Some(AppearanceItem::Mesh(y))) => {
+                if x.paint.rows != y.paint.rows || x.paint.cols != y.paint.cols || x.paint.points.len() != y.paint.points.len() {
+                    return Err(error("blending gradient meshes requires matching topology"));
+                }
+                for ((p, x), y) in o.paint.points.iter_mut().zip(&x.paint.points).zip(&y.paint.points) {
+                    p.position = std::array::from_fn(|i| x.position[i] + (y.position[i] - x.position[i]) * t);
+                    p.handles = std::array::from_fn(|h| std::array::from_fn(|i| x.handles[h][i] + (y.handles[h][i] - x.handles[h][i]) * t));
+                    p.rgba = std::array::from_fn(|i| mix(x.rgba[i], y.rgba[i], t));
+                    p.opacity = mix(x.opacity, y.opacity, t);
+                }
+                o.opacity = mix(if x.visible { x.opacity } else { 0. }, if y.visible { y.opacity } else { 0. }, t);
+                o.visible = true;
+            }
+            (AppearanceItem::Mesh(o), x, y) => {
+                let opacity = |item: Option<&AppearanceItem>| match item {
+                    Some(AppearanceItem::Mesh(m)) if m.visible => m.opacity,
+                    _ => 0.,
+                };
+                o.opacity = mix(opacity(x), opacity(y), t);
+                o.visible = true;
+            }
             (AppearanceItem::Fill(o), Some(AppearanceItem::Fill(x)), Some(AppearanceItem::Fill(y))) => {
                 o.paint = fill(&x.paint, &y.paint, t);
                 o.opacity = mix(if x.visible { x.opacity } else { 0. }, if y.visible { y.opacity } else { 0. }, t);
@@ -236,6 +263,10 @@ pub fn distance(a: &Layer, b: &Layer) -> f64 {
         let mut colors = Vec::new();
         for item in stack(layer).items {
             let p = match item {
+                AppearanceItem::Mesh(mesh) => {
+                    colors.extend(mesh.paint.points.iter().map(|p| oklab(photocraft_doc::Color::rgba(p.rgba[0], p.rgba[1], p.rgba[2], p.rgba[3]))));
+                    continue;
+                }
                 AppearanceItem::Fill(f) => f.paint,
                 AppearanceItem::Stroke(s) => s.base.paint,
             };
@@ -249,8 +280,13 @@ pub fn distance(a: &Layer, b: &Layer) -> f64 {
     }
     // Groups compare recursively, in stacking order, using the same perceptual metric.
     let mut delta = 0f64;
-    for (a, b) in colors(a).iter().zip(colors(b)) {
-        delta = delta.max(a.iter().zip(b).map(|(a, b)| (a - b).powi(2)).sum::<f64>().sqrt());
+    let (ca, cb) = (colors(a), colors(b));
+    for i in 0..ca.len().max(cb.len()) {
+        if let (Some(a), Some(b)) = (ca.get(i.min(ca.len().saturating_sub(1))), cb.get(i.min(cb.len().saturating_sub(1)))) {
+            delta = delta.max(a.iter().zip(b).map(|(a, b)| (a - b).powi(2)).sum::<f64>().sqrt());
+        } else {
+            delta = delta.max(1.);
+        }
     }
     if let (LayerContent::Group(a), LayerContent::Group(b)) = (&a.content, &b.content) {
         for (a, b) in a.children.iter().zip(&b.children) {

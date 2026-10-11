@@ -94,7 +94,8 @@ fn assert_canvas(h: &mut H, gpu: &GpuCanvas, doc: &Document) {
 }
 #[test]
 fn clip35_full_app_gpu_draw_inside_live_pointer_preview_release_cancel_and_undo() {
-    let _gpu = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     let (mut h, gpu) = harness();
     let before = h.state().session.active().unwrap().doc.clone();
     let xf = ViewXform::active(h.state()).unwrap();
@@ -102,7 +103,9 @@ fn clip35_full_app_gpu_draw_inside_live_pointer_preview_release_cancel_and_undo(
     let b = xf.to_screen(130., 130.);
     pointer(&mut h, a, Some(true));
     pointer(&mut h, b, None);
-    let preview = h.state().clip_compound_state.preview.clone().unwrap();
+    assert!(h.state().shared_tools.shape_preview().is_some(), "shared Rectangle owns the held preview");
+    let ctx = h.ctx.clone();
+    let preview = photocraft_ui_egui::canvas::display_doc(h.state_mut(), &ctx, 0).0;
     let center = photocraft_compose::flatten(&preview).get(80, 80);
     assert!(center[..3].iter().all(|c| *c <= 1e-6) && center[3] > 0.99, "visible black draw preview");
     assert_eq!(h.state().session.active().unwrap().doc, before);

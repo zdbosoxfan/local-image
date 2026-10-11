@@ -182,7 +182,8 @@ fn layout16_resize_rotated_child_preserves_right_margin_and_exact_vertices() {
     let mut board = Layer::group("Board", vec![child]);
     let gid = board.id;
     if let LayerContent::Group(g) = &mut board.content {
-        g.artboard = Some(Artboard { rect: Rect::new(0, 0, 100, 100), background: ArtboardBackground::Transparent, preset: String::new() });
+        g.artboard =
+            Some(Artboard { rect: Rect::new(0, 0, 100, 100), background: ArtboardBackground::Transparent, preset: String::new(), drawing_scale: None });
     }
     doc.layers.push(board);
     s.active_mut().unwrap().doc = Arc::new(doc);
@@ -206,7 +207,8 @@ fn layout16_existing_artboard_set_applies_constraints_without_changing_legacy_un
     let mut board = Layer::group("Board", vec![constrained, unconstrained]);
     let gid = board.id;
     if let LayerContent::Group(g) = &mut board.content {
-        g.artboard = Some(Artboard { rect: Rect::new(0, 0, 200, 150), background: ArtboardBackground::Transparent, preset: String::new() });
+        g.artboard =
+            Some(Artboard { rect: Rect::new(0, 0, 200, 150), background: ArtboardBackground::Transparent, preset: String::new(), drawing_scale: None });
     }
     doc.layers.push(board);
     s.active_mut().unwrap().doc = Arc::new(doc);
@@ -280,7 +282,8 @@ fn layout16_large_parent_frame_never_allocates_a_parent_sized_cache() {
     let mut parent = Layer::group("Large artboard", vec![child]);
     let gid = parent.id;
     if let LayerContent::Group(g) = &mut parent.content {
-        g.artboard = Some(Artboard { rect: Rect::new(0, 0, 6000, 4000), background: ArtboardBackground::Transparent, preset: String::new() });
+        g.artboard =
+            Some(Artboard { rect: Rect::new(0, 0, 6000, 4000), background: ArtboardBackground::Transparent, preset: String::new(), drawing_scale: None });
     }
     doc.layers.push(parent);
     let mut s = Session::new();
@@ -365,7 +368,8 @@ fn layout16_fractional_artboard_requests_pin_to_the_published_integer_frame_with
             });
             let mut parent = Layer::group("Rounded board", vec![child]);
             if let LayerContent::Group(g) = &mut parent.content {
-                g.artboard = Some(Artboard { rect: Rect::new(0, 0, 200, 160), background: ArtboardBackground::Transparent, preset: String::new() });
+                g.artboard =
+                    Some(Artboard { rect: Rect::new(0, 0, 200, 160), background: ArtboardBackground::Transparent, preset: String::new(), drawing_scale: None });
             }
             let id = parent.id;
             doc.layers.push(parent);
@@ -421,4 +425,20 @@ fn layout16_constraint_set_requires_boolean_object_or_null_and_is_atomic() {
     assert!(s.active().unwrap().doc.layer(ids[0]).unwrap().vector.constraints.unwrap().right);
     assert!(s.undo());
     assert_eq!(s.active().unwrap().doc, before);
+}
+
+#[test]
+fn review_regression_layout16_automatic_spacing_uses_farthest_edge_not_last_origin() {
+    let (mut s, ids) = setup();
+    s.edit("Wide middle", |doc, _| {
+        let layer = shape(doc, "Wide middle", [70., 35., 130., 20.]);
+        doc.layer_mut(ids[1]).unwrap().content = layer.content;
+        Ok(())
+    })
+    .unwrap();
+    let capture = Capture::begin(&s, ids.clone()).unwrap();
+    let result = s.execute("vector.layout.spacing", json!({"capture":capture,"axis":"x"})).unwrap();
+    assert_eq!(result["spacing"], 5.);
+    assert_eq!(b(&s, ids[0])[0], 10.);
+    assert_eq!(b(&s, ids[2])[0] + b(&s, ids[2])[2], 200.);
 }

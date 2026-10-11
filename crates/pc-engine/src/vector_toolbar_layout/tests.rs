@@ -30,7 +30,7 @@ fn toolbar46_registered_tools_appear_once_with_stable_flyout_order() {
     let expected: BTreeSet<_> = registered.iter().copied().collect();
     assert_eq!(actual.len(), expected.len());
     assert_eq!(actual.iter().copied().collect::<BTreeSet<_>>(), expected);
-    assert_eq!(g.iter().find(|g| g.slot == 1004).unwrap().tools, ["Pen", "Curvature"]);
+    assert_eq!(g.iter().find(|g| g.slot == 1004).unwrap().tools, ["Pen", "Curvature", "AddAnchor", "DeleteAnchor", "AnchorPoint"]);
     assert_eq!(groups(&["Curvature"], None)[0].tools, ["Curvature"]);
     for set in builtins(&registered) {
         assert!(set.tools.iter().all(|id| registered.contains(&id.as_str())));
@@ -83,4 +83,10 @@ fn toolbar46_frozen_pixel_tool_keys_and_query_no_journal() {
     let result = (spec.run)(&mut s, &serde_json::json!({"preset":"affinity"})).unwrap();
     assert_eq!(result["tools"].as_array().unwrap().iter().find(|v| v["key"] == "S").unwrap()["tool"], "ShapeBuilder");
     assert_eq!(s.prefs_to_json(), before);
+}
+
+#[test]
+fn review_followup_vector_accelerators_preserve_custom_nonconflicting_chords() {
+    let pixel = vec![("object.pasteBack".into(), "Shift+Cmd+V".into())];
+    assert!(command_bindings(Persona::Vector, &pixel).contains(&pixel[0]));
 }

@@ -100,7 +100,8 @@ impl Capture {
             return Err(EngineError::Other("trace cancelled".into()));
         }
         let source = self.document.layer(self.target).ok_or(EngineError::NoLayer(self.target))?;
-        let group = Layer::group(format!("Vectorized – {}", source.name), children);
+        let mut group = Layer::group(format!("Vectorized – {}", source.name), children);
+        photocraft_doc::vector_design::mosaic::mark(&mut group).map_err(|e| EngineError::Other(e.into()))?;
         Ok(Prepared { capture: self, group })
     }
 }

@@ -5,6 +5,7 @@ use photocraft_doc::vector_design::drawing::CornerKind;
 use photocraft_gpu::{Compositor, render_to_vec};
 #[test]
 fn corners_gpu_rounded_star_and_inverted_preview_release() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).expect("RTX 5090 Vulkan is required");
     let info = adapter.get_info();

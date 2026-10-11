@@ -230,8 +230,7 @@ fn double_clicking_a_tab_collapses_and_dragging_a_strip_reorders() {
     h.state_mut().ui.dock.set_collapsed(Group::Color, false);
     h.run_steps(3);
     // Drag the Layers tab strip (right of its tabs) above Color.
-    let layers = rect_of(&h, Group::Layers);
-    let strip = Pos2::new(layers.right() - 60.0, layers.top() + 13.0);
+    let strip = group_grip(&h, Group::Layers);
     let to = rect_of(&h, Group::Color).left_top() + vec2(120.0, 10.0);
     drag(&mut h, strip, to);
     assert_eq!(h.state().ui.dock.order().first(), Some(&Group::Layers));
@@ -599,6 +598,14 @@ fn tab_rect(h: &Harness<'static, PhotocraftApp>, g: Group, tab: Tab) -> Rect {
     s.tabs.iter().find(|(j, _)| *j == i).map(|(_, r)| *r).unwrap_or_else(|| panic!("{tab:?} in the chevron menu"))
 }
 
+fn group_grip(h: &Harness<'static, PhotocraftApp>, group: Group) -> Pos2 {
+    let strip = strip_of(h, group);
+    let start = strip.tabs.iter().map(|(_, r)| r.right()).fold(strip.strip.left(), f32::max);
+    let end = strip.chevron.map_or(strip.menu.left(), |r| r.left());
+    assert!(end > start, "group drag grip must be outside the tabs");
+    Pos2::new((start + end) / 2., strip.strip.center().y)
+}
+
 fn docked_tabs(h: &Harness<'static, PhotocraftApp>) -> Vec<Tab> {
     last_strips(&h.ctx).into_iter().flat_map(|s| s.tab_ids).collect()
 }
@@ -619,7 +626,7 @@ fn a_tab_dragged_out_floats_and_docks_back_into_a_group() {
         assert_eq!(app.ui.dock.floating.len(), 1, "{theme:?}: {:?}", app.ui.dock);
         assert_eq!(app.ui.dock.floating[0].tabs, vec![Tab::Channels]);
         assert!(!docked_tabs(&h).contains(&Tab::Channels), "{theme:?}: the dock still shows Channels");
-        assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Paths]);
+        assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Paths, Tab::Symbols]);
         let floats = last_floats(&h.ctx);
         assert_eq!(floats.len(), 1);
         assert_eq!(floats[0].tab_ids, vec![Tab::Channels]);
@@ -647,22 +654,22 @@ fn a_tab_dragged_onto_another_strip_moves_there_without_floating() {
     drag(&mut h, from, Pos2::new(color.menu.left() - 4.0, color.strip.center().y));
     assert!(h.state().ui.dock.floating.is_empty());
     assert_eq!(strip_of(&h, Group::Color).tab_ids, vec![Tab::Color, Tab::Swatches, Tab::Gradients, Tab::Patterns, Tab::Paths]);
-    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Channels]);
+    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Channels, Tab::Symbols]);
     // Dragged along its own strip, a tab changes places.
     let from = tab_rect(&h, Group::Layers, Tab::Channels).center();
     let to = tab_rect(&h, Group::Layers, Tab::Layers).left_center() + vec2(2.0, 0.0);
     drag(&mut h, from, to);
-    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Channels, Tab::Layers]);
+    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Channels, Tab::Layers, Tab::Symbols]);
 }
 
 #[test]
 fn a_group_dragged_out_floats_whole_and_docks_back_between_groups() {
     let (app, _, _) = app_with_layers();
     let mut h = float_harness(app, vec2(1200.0, 800.0), ThemeKind::ProMedium);
-    let layers = rect_of(&h, Group::Layers);
-    drag(&mut h, Pos2::new(layers.right() - 60.0, layers.top() + 13.0), Pos2::new(400.0, 400.0));
+    let grip = group_grip(&h, Group::Layers);
+    drag(&mut h, grip, Pos2::new(400.0, 400.0));
     assert_eq!(h.state().ui.dock.floating.len(), 1);
-    assert_eq!(h.state().ui.dock.floating[0].tabs, vec![Tab::Layers, Tab::Channels, Tab::Paths]);
+    assert_eq!(h.state().ui.dock.floating[0].tabs, vec![Tab::Layers, Tab::Channels, Tab::Paths, Tab::Symbols]);
     assert_eq!(groups_drawn(&h), vec![Group::Color, Group::Properties], "Layers left the column");
     // Back between Color and Properties: the Layers group again, at that place.
     let (color, props) = (rect_of(&h, Group::Color), rect_of(&h, Group::Properties));
@@ -672,11 +679,11 @@ fn a_group_dragged_out_floats_whole_and_docks_back_between_groups() {
     drag(&mut h, grip, gap);
     assert!(h.state().ui.dock.floating.is_empty());
     assert_eq!(groups_drawn(&h), vec![Group::Color, Group::Layers, Group::Properties]);
-    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Channels, Tab::Paths]);
+    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Channels, Tab::Paths, Tab::Symbols]);
     // The column still reorders by strip as before.
-    let layers = rect_of(&h, Group::Layers);
+    let grip = group_grip(&h, Group::Layers);
     let to = rect_of(&h, Group::Color).left_top() + vec2(120.0, 10.0);
-    drag(&mut h, Pos2::new(layers.right() - 60.0, layers.top() + 13.0), to);
+    drag(&mut h, grip, to);
     assert_eq!(groups_drawn(&h), vec![Group::Layers, Group::Color, Group::Properties]);
     assert!(h.state().ui.dock.floating.is_empty(), "a reorder inside the column never floats");
 }
@@ -732,7 +739,7 @@ fn a_locked_workspace_keeps_tabs_docked() {
     let layers = rect_of(&h, Group::Layers);
     drag(&mut h, Pos2::new(layers.right() - 60.0, layers.top() + 13.0), Pos2::new(400.0, 300.0));
     assert!(h.state().ui.dock.floating.is_empty());
-    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Channels, Tab::Paths]);
+    assert_eq!(strip_of(&h, Group::Layers).tab_ids, vec![Tab::Layers, Tab::Channels, Tab::Paths, Tab::Symbols]);
 }
 
 #[test]

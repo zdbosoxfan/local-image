@@ -62,6 +62,7 @@ fn click(app: &mut PhotocraftApp, at: [f64; 2], mods: Modifiers) {
 
 #[test]
 fn dragging_an_anchor_moves_it_in_one_undoable_step() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut app = app(Tool::DirectSelection);
     with_path(&mut app);
     let (before, n) = (work(&app), steps(&app));
@@ -76,6 +77,7 @@ fn dragging_an_anchor_moves_it_in_one_undoable_step() {
 
 #[test]
 fn the_preview_is_what_the_drag_commits() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut app = app(Tool::DirectSelection);
     with_path(&mut app);
     tool_event(&mut app, ToolEvent::Down { x: 80.0, y: 120.0, pressure: 1.0 }, Modifiers::NONE);
@@ -90,6 +92,7 @@ fn the_preview_is_what_the_drag_commits() {
 
 #[test]
 fn a_smooth_points_handles_turn_together_and_alt_breaks_them() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut app = app(Tool::DirectSelection);
     with_path(&mut app);
     click(&mut app, [120.0, 40.0], Modifiers::NONE);
@@ -105,6 +108,7 @@ fn a_smooth_points_handles_turn_together_and_alt_breaks_them() {
 
 #[test]
 fn marquee_shift_and_empty_clicks_select_like_photoshop() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut app = app(Tool::DirectSelection);
     with_path(&mut app);
     drag(&mut app, [100.0, 100.0], [180.0, 180.0], Modifiers::NONE);
@@ -124,11 +128,12 @@ fn marquee_shift_and_empty_clicks_select_like_photoshop() {
 
 #[test]
 fn pen_with_command_edits_paths_and_ends_the_one_being_drawn() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut app = app(Tool::Pen);
     for p in [[30.0, 30.0], [90.0, 30.0]] {
         click(&mut app, p, Modifiers::NONE);
     }
-    assert_eq!(app.ui.pen.as_ref().map(|p| p.knots.len()), Some(2));
+    assert_eq!(app.shared_tools.pen.gesture.as_ref().map(|g| g.path().subpaths[0].knots.len()), Some(2));
     // ⌘-drag (Ctrl-drag off the Mac) on the second anchor: the path is finished and edited.
     drag(&mut app, [90.0, 30.0], [90.0, 70.0], Modifiers::COMMAND);
     assert!(app.ui.pen.is_none());
@@ -137,11 +142,16 @@ fn pen_with_command_edits_paths_and_ends_the_one_being_drawn() {
     assert_eq!((wp.subpaths[0].closed, wp.subpaths[0].knots[1].anchor), (false, Point::new(90.0, 70.0)));
     // Without ⌘ the Pen draws again.
     click(&mut app, [150.0, 150.0], Modifiers::NONE);
-    assert_eq!(app.ui.pen.as_ref().map(|p| p.knots.len()), Some(1));
+    let draft = app.shared_tools.pen.gesture.as_ref().unwrap().path();
+    assert_eq!(draft.subpaths[0], wp.subpaths[0], "the committed work path remains intact");
+    assert_eq!(draft.subpaths.len(), 2);
+    assert_eq!(draft.subpaths[1].knots.len(), 1);
+    assert_eq!(draft.subpaths[1].knots[0].anchor, Point::new(150.0, 150.0));
 }
 
 #[test]
 fn pen_with_alt_converts_points() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut app = app(Tool::Pen);
     with_path(&mut app);
     click(&mut app, [120.0, 40.0], Modifiers::ALT);
@@ -152,11 +162,12 @@ fn pen_with_alt_converts_points() {
     assert!(app.ui.pen.is_none(), "no pen path was started");
     // ⌥ off the path is a plain Pen click.
     click(&mut app, [170.0, 170.0], Modifiers::ALT);
-    assert!(app.ui.pen.is_some());
+    assert!(app.shared_tools.pen.gesture.is_some());
 }
 
 #[test]
 fn shape_layer_paths_are_edited_too() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut app = app(Tool::DirectSelection);
     let id = app.run("shape.create", json!({"kind": "rect", "rect": [20, 20, 60, 60], "fill": "#3070c0"})).unwrap()["layer"].as_u64().unwrap();
     drag(&mut app, [80.0, 80.0], [100.0, 90.0], Modifiers::NONE);
@@ -226,6 +237,7 @@ fn ui_drag(h: &mut H, a: [f64; 2], b: [f64; 2], mods: Modifiers) {
 }
 #[test]
 fn node_kittest_marquee_two_of_four_delete_leaves_two_and_undo() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = node_harness();
     let before = work(h.state());
     let n = steps(h.state());
@@ -240,6 +252,7 @@ fn node_kittest_marquee_two_of_four_delete_leaves_two_and_undo() {
 }
 #[test]
 fn node_kittest_double_click_adds_exact_curve_node() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = node_harness();
     let before = work(h.state());
     let n = steps(h.state());
@@ -254,6 +267,7 @@ fn node_kittest_double_click_adds_exact_curve_node() {
 }
 #[test]
 fn node_kittest_vc_bend_shift_actual_drags_and_escape_detached_preview() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = node_harness();
     let before = work(h.state());
     let journal = h.state().session.journal.len();
@@ -277,6 +291,7 @@ fn node_kittest_vc_bend_shift_actual_drags_and_escape_detached_preview() {
 }
 #[test]
 fn node_kittest_multi_curve_selection_moves_both_in_one_command() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = node_harness();
     let mut ids = Vec::new();
     for x in [20.0, 130.0] {
@@ -317,6 +332,7 @@ fn node_kittest_multi_curve_selection_moves_both_in_one_command() {
 }
 #[test]
 fn node_gesture_staleness_and_tool_switch_cancel_safely() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut app = app(Tool::DirectSelection);
     with_path(&mut app);
     let before = work(&app);
@@ -336,6 +352,7 @@ fn node_gesture_staleness_and_tool_switch_cancel_safely() {
 
 #[test]
 fn node_kittest_modifier_only_frame_rebuilds_handle_preview_and_release() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = node_harness();
     ui_button(&mut h, [120.0, 40.0], true, Modifiers::NONE);
     ui_button(&mut h, [120.0, 40.0], false, Modifiers::NONE);
@@ -405,6 +422,7 @@ fn full_app_node_gpu_harness() -> (H, u64) {
 #[test]
 #[ignore = "requires package 00 frame/canvas_input/display_doc hooks in the live app"]
 fn node_full_app_gpu_drag_preview_release_escape_pixels_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let (mut h, id) = full_app_node_gpu_harness();
     let doc = h.state().session.active().unwrap().doc.clone();
     let revision = h.state().session.active().unwrap().revision;
@@ -426,37 +444,24 @@ fn node_full_app_gpu_drag_preview_release_escape_pixels_rtx5090() {
         h.step();
     }
     fn pixels(h: &mut H, expected: &photocraft_doc::Document) {
-        // Remove only the test renderer's decorative cursor, retaining capture.
-        h.event(egui::Event::PointerGone);
-        h.step();
-        let image = h.render().expect("live app GPU readback");
-        let reference = photocraft_compose::flatten(expected);
-        let mut checked = 0;
-        let mut max = 0.0_f32;
-        for y in (10..190).step_by(3) {
-            for x in (10..190).step_by(3) {
-                let p = Point::new(x as f64 + 0.5, y as f64 + 0.5);
-                // Node/outline overlays have their own colors; compare document interiors.
-                let near_outline = expected
-                    .layers
-                    .iter()
-                    .any(|l| matches!(&l.content,photocraft_doc::LayerContent::Shape(sh) if photocraft_vector::edit::hit(&sh.path,p,7.0,&[]).is_some()));
-                if near_outline {
-                    continue;
-                }
-                let q = screen(h, [p.x, p.y]) * h.ctx.pixels_per_point();
-                let pixel = image.get_pixel(q.x.floor() as u32, q.y.floor() as u32).0;
-                let expected = reference.px[y * 200 + x];
-                for c in 0..4 {
-                    let actual = f32::from(pixel[c]) / 255.0;
-                    let diff = if c == 3 { (actual - expected[c]).abs() } else { (actual * f32::from(pixel[3]) / 255.0 - expected[c] * expected[3]).abs() };
-                    max = max.max(diff);
-                }
-                checked += 1;
-            }
-        }
-        assert!(checked > 2000);
-        assert!(max <= 1.0 / 255.0, "live canvas interior max diff {max}");
+        h.render().expect("live app GPU readback, retaining pointer capture");
+        let expected = photocraft_engine::vector_integration::project_document(expected).unwrap();
+        let reference = photocraft_compose::flatten(&expected);
+        let (_, size, pixels) = h.state().read_canvas_texels(expected.id.0).expect("actual GPU canvas texture");
+        assert_eq!(size, [expected.size.width, expected.size.height]);
+        assert_eq!(reference.px.len(), pixels.len());
+        let max = reference
+            .px
+            .iter()
+            .zip(pixels)
+            .flat_map(|(a, b)| {
+                (0..4).map(move |c| {
+                    assert!(b[c].is_finite());
+                    (b[c] - a[c] * if c == 3 { 1. } else { a[3] }).abs()
+                })
+            })
+            .fold(0f32, f32::max);
+        assert!(max <= 1. / 255., "live canvas max diff {max}");
     }
     event(&mut h, [120.0, 120.0], Some(true));
     event(&mut h, [140.0, 140.0], None);
@@ -489,6 +494,7 @@ fn node_full_app_gpu_drag_preview_release_escape_pixels_rtx5090() {
 
 #[test]
 fn node_kittest_context_smooth_transform_and_alignment() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use egui_kittest::kittest::Queryable;
     let mut h = node_harness();
     ui_drag(&mut h, [20.0, 20.0], [160.0, 160.0], Modifiers::NONE);
@@ -515,6 +521,7 @@ fn node_kittest_context_smooth_transform_and_alignment() {
 
 #[test]
 fn node_old_ui_settings_load_with_defaults_and_transient_state_is_not_saved() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let old = json!({"target":"work","anchors":[[0,1]],"segment":null});
     let ds: super::DirectSelection = serde_json::from_value(old).unwrap();
     assert!(ds.additional.is_empty());
@@ -527,6 +534,7 @@ fn node_old_ui_settings_load_with_defaults_and_transient_state_is_not_saved() {
 
 #[test]
 fn node_kittest_live_conversion_prompt_cancel_and_accept() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use egui_kittest::kittest::Queryable;
     let mut h = node_harness();
     let id = h.state_mut().run("shape.create", json!({"kind":"rect","rect":[20,20,60,60],"fill":"#000000"})).unwrap()["layer"].as_u64().unwrap();
@@ -559,6 +567,7 @@ fn node_kittest_live_conversion_prompt_cancel_and_accept() {
 // at runtime. A const assertion would prevent the rest of the debug suite from building.
 #[allow(clippy::assertions_on_constants)]
 fn node_full_app_release_pointer_frame_benchmark_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use std::time::Instant;
     assert!(!cfg!(debug_assertions), "run this gate with --release");
     let (mut h, _) = full_app_node_gpu_harness();

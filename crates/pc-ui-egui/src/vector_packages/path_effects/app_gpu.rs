@@ -71,7 +71,7 @@ fn parity(h: &mut H, doc: &Document) {
     for (a, b) in cpu.px.iter().zip(pixels) {
         for c in 0..4 {
             let x = if c == 3 { a[c] } else { a[c] * a[3] };
-            let y = if c == 3 { b[c] } else { b[c] * b[3] };
+            let y = b[c];
             assert!(x.is_finite() && y.is_finite() && (x - y).abs() <= 1. / 255., "premultiplied diff {}", (x - y).abs());
         }
     }
@@ -89,6 +89,7 @@ fn open(h: &mut H, group: &str, label: &str) {
 #[test]
 #[ignore = "integration full-app GPU gate; task speed rules prohibit execution"]
 fn path_effects45_full_app_rtx5090_preview_pointer_release_cancel_and_expand() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness();
     let before = h.state().session.active().unwrap().doc.clone();

@@ -53,10 +53,12 @@ pub fn preflight(s: &Session, r: &Request) -> Result<()> {
 pub fn export(s: &Session, r: &Request, cancelled: &dyn Fn() -> bool) -> Result<ExportedVector> {
     preflight(s, r)?;
     let state = s.active().ok_or(EngineError::NoDocument)?;
+    let (projected, warnings) = crate::vector_integration::project_for_export(&state.doc)?;
     let mut engine = photocraft_text::shared().lock().map_err(|_| error("text engine lock poisoned"))?;
     let mut cx = ExportContext { cancelled, projection: None, text: &mut engine };
     let run = PROVIDER.get().copied().unwrap_or(photocraft_pdf::export::export_with);
-    let output = run(&state.doc, &r.scope.exchange(), &r.options, &mut cx).map_err(|e| error(e.to_string()))?;
+    let mut output = run(&projected, &r.scope.exchange(), &r.options, &mut cx).map_err(|e| error(e.to_string()))?;
+    output.warnings.extend(warnings);
     preflight(s, r)?;
     Ok(output)
 }

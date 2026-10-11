@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// Add to the ordinary UI preferences with #[serde(default)]. No document migration.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Preferences {
     pub last_preset: Preset,
@@ -51,6 +51,7 @@ pub struct State {
     auto_colors: bool,
     use_swatches: bool,
     dragging_controls: bool,
+    first_frame: bool,
 }
 impl Default for State {
     fn default() -> Self {
@@ -77,6 +78,7 @@ impl Default for State {
             auto_colors: true,
             use_swatches: false,
             dragging_controls: false,
+            first_frame: false,
         }
     }
 }
@@ -84,6 +86,7 @@ impl State {
     pub fn open(&mut self, session: &mut Session, prefs: &Preferences) {
         self.cancel(session);
         self.open = true;
+        self.first_frame = true;
         let preset = if available(prefs.last_preset) { prefs.last_preset } else { Preset::Logo };
         self.set_preset(preset);
         self.zoom = 1.;
@@ -99,6 +102,7 @@ impl State {
     }
     pub fn set_preset(&mut self, preset: Preset) {
         self.params = Params::for_preset(preset);
+        self.output.cleanup = (preset == Preset::Logo).then(photocraft_engine::vector_packages::trace_cleanup::Options::logo);
         self.output.work_path = false;
         self.output.palette_edits.clear();
         self.selected_color = None;
@@ -232,8 +236,8 @@ impl State {
         self.apply_job
     }
 }
-fn available(preset: Preset) -> bool {
-    !matches!(preset, Preset::LineArt | Preset::Sketch)
+fn available(_: Preset) -> bool {
+    true
 }
 fn preset_label(preset: Preset) -> &'static str {
     match preset {
@@ -267,13 +271,15 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session, prefs: &m
     });
     ui.horizontal(|ui| {
         ui.label(tl!("Mode"));
-        let _ = ui.selectable_label(true, tl!("Fill")).on_hover_text(tl!("Trace filled regions"));
-        ui.add_enabled(false, egui::Button::new(tl!("Centreline"))).on_disabled_hover_text(tl!("Centreline tracing is not available yet"));
+        changed |= ui.selectable_value(&mut state.params.mode, Some(photocraft_engine::vector_packages::trace_output::Mode::Fill), tl!("Fill")).changed();
+        changed |=
+            ui.selectable_value(&mut state.params.mode, Some(photocraft_engine::vector_packages::trace_output::Mode::Centerline), tl!("Centreline")).changed();
     });
     ui.horizontal(|ui| {
         ui.label(tl!("Layering"));
-        let _ = ui.selectable_label(true, tl!("Stacked"));
-        ui.add_enabled(false, egui::Button::new(tl!("Cutout"))).on_disabled_hover_text(tl!("Cutout tracing is not available yet"));
+        changed |=
+            ui.selectable_value(&mut state.params.layering, photocraft_engine::vector_packages::trace_output::Layering::Stacked, tl!("Stacked")).changed();
+        changed |= ui.selectable_value(&mut state.params.layering, photocraft_engine::vector_packages::trace_output::Layering::Cutout, tl!("Cutout")).changed();
     });
     let binary = matches!(state.params.preset, Preset::BlackWhite | Preset::Silhouette);
     changed |= ui.add_enabled(!binary, egui::Checkbox::new(&mut state.auto_colors, tl!("Auto colours"))).changed();
@@ -316,23 +322,30 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session, prefs: &m
     if let Some(color) = &mut state.params.ignore_color {
         changed |= ui.color_edit_button_srgb(color).changed();
     }
-    ui.add_enabled_ui(false, |ui| {
-        ui.label(tl!("Smoothing"));
-        ui.checkbox(&mut false, tl!("Snap lines"));
-        ui.checkbox(&mut false, tl!("Snap circles"));
-        ui.checkbox(&mut false, tl!("Symmetry"));
-        egui::ComboBox::from_id_salt("trace-upscale").selected_text(tl!("Upscale: 1×")).show_ui(ui, |ui| {
-            ui.label(tl!("Auto / 2× / 4×"));
+    let mut cleanup = state.output.cleanup.is_some();
+    if ui.checkbox(&mut cleanup, tl!("Logo cleanup")).changed() {
+        state.output.cleanup = cleanup.then(photocraft_engine::vector_packages::trace_cleanup::Options::logo);
+        changed = true;
+    }
+    if let Some(options) = &mut state.output.cleanup {
+        changed |= ui.add(egui::Slider::new(&mut options.tolerance, 0.001..=2.).text(tl!("Smoothing"))).changed();
+        changed |= ui.checkbox(&mut options.axes, tl!("Snap lines")).changed();
+        changed |= ui.checkbox(&mut options.circles, tl!("Snap circles")).changed();
+        changed |= ui.checkbox(&mut options.symmetry, tl!("Symmetry")).changed();
+        use photocraft_engine::vector_packages::trace_cleanup::Upscale;
+        ui.horizontal(|ui| {
+            for (scale, label) in [(Upscale::Off, "1×"), (Upscale::Auto, "Auto"), (Upscale::X2, "2×"), (Upscale::X4, "4×")] {
+                changed |= ui.selectable_value(&mut options.upscale, scale, crate::i18n::t(label)).changed();
+            }
         });
-    })
-    .response
-    .on_disabled_hover_text(tl!("Logo cleanup is not available yet"));
+    }
     ui.separator();
     ui.checkbox(&mut state.output.expand, tl!("Expand to shape layers"));
     ui.add_enabled(state.params.preset == Preset::BlackWhite, egui::Checkbox::new(&mut state.output.work_path, tl!("Make Work Path")))
         .on_disabled_hover_text(tl!("Make Work Path requires Black & White"));
     if let Some(p) = &state.preview {
-        let paths: usize = p.trace.layers.iter().map(|l| l.path.subpaths.len()).sum();
+        let paths: usize =
+            p.trace.layers.iter().map(|l| l.path.subpaths.len()).sum::<usize>() + p.trace.strokes.iter().map(|s| s.path.subpaths.len()).sum::<usize>();
         ui.label(crate::i18n::fmt(
             tl!("{colours} colours · {paths} paths · {nodes} nodes · {time} ms"),
             &[
@@ -342,6 +355,18 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session, prefs: &m
                 ("time", &format!("{:.0}", p.elapsed_ms)),
             ],
         ));
+        if let Some(stats) = &p.cleanup_stats {
+            ui.label(crate::i18n::fmt(
+                tl!("Cleanup: {before} → {after} nodes · {holes} holes · {shapes} shapes · {rejected} rejected"),
+                &[
+                    ("before", &stats.nodes_before_geometry.to_string()),
+                    ("after", &stats.nodes_after.to_string()),
+                    ("holes", &stats.filled_holes.to_string()),
+                    ("shapes", &(stats.circles + stats.ellipses + stats.arcs).to_string()),
+                    ("rejected", &stats.rejected_paths.to_string()),
+                ],
+            ));
+        }
     } else if state.preview_job.is_some() {
         ui.label(tl!("Tracing preview…"));
     }
@@ -371,8 +396,26 @@ fn hex(c: [u8; 3]) -> String {
     format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2])
 }
 fn palette(ui: &mut Ui, state: &mut State) -> bool {
-    let colors: Vec<[u8; 3]> =
-        state.preview.as_ref().map(|p| p.trace.layers.iter().map(|l| [l.color[0], l.color[1], l.color[2]]).collect()).unwrap_or_default();
+    let colors: Vec<[u8; 3]> = state
+        .preview
+        .as_ref()
+        .map(|p| {
+            p.trace
+                .layers
+                .iter()
+                .map(|l| [l.color[0], l.color[1], l.color[2]])
+                .chain(p.trace.strokes.iter().filter_map(|l| match &l.stroke.paint {
+                    photocraft_doc::Fill::Solid(c) => {
+                        let c = c.to_rgba8();
+                        Some([c[0], c[1], c[2]])
+                    }
+                    _ => None,
+                }))
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect()
+        })
+        .unwrap_or_default();
     ui.horizontal_wrapped(|ui| {
         for color in &colors {
             let button = egui::Button::selectable(state.selected_color == Some(*color), hex(*color)).fill(Color32::from_rgb(color[0], color[1], color[2]));
@@ -540,10 +583,11 @@ pub fn show(ctx: &Context, state: &mut State, session: &mut Session, prefs: &mut
                 });
             });
     });
-    if modal.should_close() {
+    let first_frame = std::mem::take(&mut state.first_frame);
+    if modal.should_close() && (!first_frame || ctx.input(|i| i.key_pressed(egui::Key::Escape))) {
         state.cancel(session);
     }
-    if state.preview_job.is_some() || state.apply_job.is_some() {
+    if state.preview_job.is_some() || state.apply_job.is_some() || state.preview_rx.is_some() {
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
     }
 }

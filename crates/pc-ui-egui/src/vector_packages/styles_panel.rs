@@ -11,7 +11,7 @@ use photocraft_engine::{
 pub struct State {
     pub selected: Option<StyleId>,
     pub name: String,
-    pub preview: Option<Document>,
+    pub preview: Option<std::sync::Arc<Document>>,
     pub generation: u64,
     pending: Option<Request>,
     journal: bool,
@@ -42,7 +42,8 @@ fn error(s: &str) -> EngineError {
     EngineError::Other(s.into())
 }
 fn unique(store: &Store, base: &str) -> String {
-    (1..=1025).map(|n| format!("{base} {n}")).find(|n| store.graphic_styles.iter().all(|s| s.name != *n)).unwrap_or_else(|| base.into())
+    let names: std::collections::HashSet<_> = store.graphic_styles.iter().map(|s| s.name.as_str()).collect();
+    (1..=1025).map(|n| format!("{base} {n}")).find(|n| !names.contains(n.as_str())).unwrap_or_else(|| base.into())
 }
 fn action(
     state: &mut State,
@@ -66,7 +67,7 @@ fn action(
         let request = engine::capture(session, st.selected_layers(), operation)?;
         if render_preview {
             let store = hooks.map_or_else(|| Ok(Store::default()), |h| (h.read)(&st.doc))?;
-            state.preview = Some(engine::prepare(&st.doc, st.revision, &store, &request, &engine::Projection)?.document);
+            state.preview = Some(std::sync::Arc::new(engine::prepare(&st.doc, st.revision, &store, &request, &engine::Projection)?.document));
             state.generation = state.generation.wrapping_add(1);
         }
         state.pending = Some(request);
@@ -237,5 +238,5 @@ pub fn display_doc(app: &crate::PhotocraftApp, idx: usize, ctx: &egui::Context) 
     if !engine::fresh(&app.session, pending) || app.session.active().is_none_or(|s| s.selected_layers() != pending.targets) {
         return None;
     }
-    Some((std::sync::Arc::new(state.preview?), state.generation))
+    Some((state.preview?, state.generation))
 }

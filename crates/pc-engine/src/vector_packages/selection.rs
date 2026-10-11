@@ -589,13 +589,20 @@ fn touches(l: &Layer, poly: &[Point], readers: Readers) -> Result<bool> {
 }
 /// Leaf hit query; groups are ascended by Query::Group. Does not change selection.
 pub fn hit(doc: &Document, scope: &Scope, p: [f64; 2], tolerance: f64, readers: Readers) -> Result<Option<LayerId>> {
+    hit_impl(doc, scope, p, tolerance, readers, false)
+}
+/// Style sampling includes visible pixel layers in the same isolation/layer scope.
+pub fn style_hit(doc: &Document, scope: &Scope, p: [f64; 2], tolerance: f64, readers: Readers) -> Result<Option<LayerId>> {
+    hit_impl(doc, scope, p, tolerance, readers, true)
+}
+fn hit_impl(doc: &Document, scope: &Scope, p: [f64; 2], tolerance: f64, readers: Readers, pixels: bool) -> Result<Option<LayerId>> {
     let q = point(p)?;
     bounded(tolerance, LIMIT)?;
     if tolerance < 0. {
         return Err(error("negative hit tolerance"));
     }
     let index = Index::new(doc, scope)?;
-    for e in index.entries.iter().rev().filter(|e| index.allowed(e, true) && paintable(e.layer, readers)) {
+    for e in index.entries.iter().rev().filter(|e| index.allowed(e, true) && (paintable(e.layer, readers) || pixels && e.layer.surface().is_some())) {
         let a = appearance(e.layer, readers)?;
         if let Some(p) = path(e.layer) {
             let inside = fill(&a).is_some() && photocraft_pathops::contains(p, q).map_err(|e| error(e.to_string()))?;

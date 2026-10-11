@@ -376,7 +376,19 @@ impl State {
             engine::Destination::Curve { target, .. } => Some((target.name.clone(), target.layer)),
             _ => None,
         });
-        if let Some((name, layer)) = previous {
+        if let Some(c) = self.curvature.as_ref().filter(|c| c.editing && !c.changed)
+            && let engine::Destination::Curve { target, subpath } = &c.request.destination
+        {
+            let st = s.active().ok_or(EngineError::NoDocument)?;
+            if let Some(hit) = engine::node_under(&st.doc, &targets, point, tolerance)?
+                && (targets[hit.target] != *target || hit.knot[0] != *subpath)
+            {
+                self.cancel();
+            }
+        }
+        if self.curvature.is_some()
+            && let Some((name, layer)) = previous
+        {
             if let Some(target) = targets.iter().find(|t| t.name == name && t.layer == layer).cloned() {
                 let capture = engine::Capture::begin(s, targets.clone(), self.convert_live)?;
                 let c = self.curvature.as_mut().ok_or_else(|| error("missing Curvature selection"))?;
@@ -664,7 +676,7 @@ pub fn selected_targets(s: &Session, selection: &crate::direct_select::DirectSel
             .map(|id| PathRef::Layer(id.0))
             .collect()
     };
-    if selection.target == Some(PathRef::Work) && st.doc.work_path.is_some() {
+    if selection.target == Some(PathRef::Work) && st.doc.work_path.is_some() && !refs.contains(&PathRef::Work) {
         refs.push(PathRef::Work);
     }
     if refs.is_empty() && st.doc.work_path.is_some() {
@@ -810,6 +822,34 @@ pub fn paint_overlay(state: &State, painter: &egui::Painter, to_screen: impl Fn(
     for g in &state.guides {
         painter.line_segment([to_screen(Point::new(g.a[0], g.a[1])), to_screen(Point::new(g.b[0], g.b[1]))], egui::Stroke::new(1., egui::Color32::MAGENTA));
     }
+}
+
+/// Active Curvature owns its point-editing keys before generic Edit menu shortcuts.
+pub fn keys(app: &mut crate::PhotocraftApp, ctx: &egui::Context) -> bool {
+    if ctx.egui_wants_keyboard_input() {
+        return false;
+    }
+    frame(app, ctx);
+    let mut b = bridge(ctx);
+    if b.tool != Some(Tool::Curvature) || !b.state.active() {
+        return false;
+    }
+    let key = [Key::Delete, Key::Backspace, Key::Enter, Key::Escape].into_iter().find(|&key| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, key)));
+    let Some(key) = key else { return false };
+    let result = match key {
+        Key::Delete | Key::Backspace => b.state.delete_point(&mut app.session),
+        _ if b.state.captured() => {
+            b.state.cancel();
+            Ok(())
+        }
+        _ => b.state.finish(&mut app.session),
+    };
+    if let Err(e) = result {
+        app.ui.status = e.to_string();
+        app.ui.status_error = true;
+    }
+    save_bridge(ctx, b);
+    true
 }
 
 /// Transient app bridge. 00 hooks route/display_doc/frame without expanding persisted UI state.

@@ -176,3 +176,10 @@ fn width_package_closed_profile_seam_preserves_incoming_and_outgoing_widths() {
         assert!(!crossing(&out));
     }
 }
+
+#[test]
+fn review_width_zero_gaps_form_continuous_spans() {
+    assert_eq!(super::dash_spans(40., &[10., 0.], 0.), vec![(0., 40.)]);
+    assert_eq!(super::dash_spans(40., &[10., 0.], 3.), vec![(0., 40.)]);
+    assert_eq!(super::dash_spans(25., &[10., 5.], 0.), vec![(0., 10.), (15., 25.)]);
+}

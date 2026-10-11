@@ -50,7 +50,16 @@ fn harness(tool: Tool, nodes: usize) -> H {
         app.ui.extras.rulers = false;
         app.ui.extras.snap = false;
         app.ui.view.extras = false;
-        app.ui.tool = crate::state::Tool::Hand;
+        app.ui.tool = match tool {
+            Tool::Warp => crate::state::Tool::VectorWarp,
+            Tool::Twirl => crate::state::Tool::VectorTwirl,
+            Tool::Pucker => crate::state::Tool::VectorPucker,
+            Tool::Bloat => crate::state::Tool::VectorBloat,
+            Tool::Scallop => crate::state::Tool::Scallop,
+            Tool::Crystallize => crate::state::Tool::Crystallize,
+            Tool::Wrinkle => crate::state::Tool::Wrinkle,
+            Tool::PuppetWarp => crate::state::Tool::VectorPuppetWarp,
+        };
         activate(&app, &cc.egui_ctx, Some(tool));
         app
     });
@@ -70,19 +79,15 @@ fn event(h: &mut H, at: [f32; 2], pressed: Option<bool>) {
     h.step();
 }
 fn pixels(h: &mut H) -> Vec<[u8; 4]> {
-    h.run_steps(2);
-    assert!(h.state().perf.gpu, "actual app canvas must use GPU");
-    let img = h.render().expect("GPU readback");
-    let xf = ViewXform::active(h.state()).unwrap();
-    let ppp = h.ctx.pixels_per_point();
-    (0..180)
-        .flat_map(|y| (0..240).map(move |x| (x, y)))
-        .map(|(x, y)| {
-            let p = xf.to_screen(x as f32 + 0.5, y as f32 + 0.5) * ppp;
-            img.get_pixel(p.x.floor() as u32, p.y.floor() as u32).0
-        })
-        .collect()
+    h.run_steps(3);
+    h.render().expect("actual RTX app readback");
+    assert!(h.state().perf.gpu);
+    let id = h.state().session.active().unwrap().doc.id;
+    let (_, size, pixels) = h.state().read_canvas_texels(id.0).expect("actual canvas texture");
+    assert_eq!(size, [240, 180]);
+    pixels.into_iter().map(|p| p.map(|c| (c.clamp(0., 1.) * 255.).round() as u8)).collect()
 }
+
 fn parity(a: &[[u8; 4]], b: &[[u8; 4]]) {
     assert_eq!(a.len(), b.len());
     let max = a.iter().zip(b).flat_map(|(a, b)| (0..4).map(move |i| a[i].abs_diff(b[i]))).max().unwrap_or(0);
@@ -91,6 +96,7 @@ fn parity(a: &[[u8; 4]], b: &[[u8; 4]]) {
 #[test]
 #[ignore = "speed rules prohibit GPU runs; requires 00 runtime registry/canvas/display hooks"]
 fn distort41_gpu_full_app_every_tool_live_pixels_release_one_journal_undo_cancel() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     for tool in Tool::ALL {
         let mut h = harness(tool, 64);
@@ -132,6 +138,7 @@ fn distort41_gpu_full_app_every_tool_live_pixels_release_one_journal_undo_cancel
 #[ignore = "speed rules prohibit release builds/benchmarks; requires integrated 00 app routes"]
 #[allow(clippy::assertions_on_constants)]
 fn distort41_gpu_release_app_pointer_frames_2000_nodes_at_least_60hz() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     // This ignored gate must compile in debug but fail if invoked there.
     assert!(!cfg!(debug_assertions), "measure a release build");
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -149,6 +156,7 @@ fn distort41_gpu_release_app_pointer_frames_2000_nodes_at_least_60hz() {
         h.render().unwrap();
         let first = first.elapsed();
         let mut frames = Vec::new();
+        let mut phases = Vec::new();
         let mut last = start;
         for i in 0..90 {
             let at = [start[0] + (i as f32 * 0.11).sin() * 4., start[1] + (i as f32 * 0.09).sin() * 3.];
@@ -156,8 +164,11 @@ fn distort41_gpu_release_app_pointer_frames_2000_nodes_at_least_60hz() {
             event(&mut h, at, None);
             assert!(bridge(&h.ctx).state.preview.is_some());
             assert!(h.state().perf.gpu);
+            let ui_ms = t.elapsed().as_secs_f64() * 1000.;
             h.render().unwrap();
-            frames.push(t.elapsed().as_secs_f64() * 1000.);
+            let total = t.elapsed().as_secs_f64() * 1000.;
+            phases.push((ui_ms, total - ui_ms, h.state().perf.spans.get("vector-distort").copied().unwrap_or_default()));
+            frames.push(total);
             last = at;
         }
         frames.sort_by(f64::total_cmp);
@@ -172,6 +183,7 @@ fn distort41_gpu_release_app_pointer_frames_2000_nodes_at_least_60hz() {
             "distort41 {tool:?}: first={first:?}, pointer+app GPU readback ms median={} p95={} p99={}, release={release:?}",
             frames[45], frames[85], frames[89]
         );
+        eprintln!("distort41 {tool:?} UI/GPU-readback/route phases ms: {phases:?}");
         assert!(frames[85] <= 1000. / 60., "2000-node {tool:?} p95 {} ms", frames[85]);
         assert_eq!(h.state().session.journal.len(), journal + 1);
     }

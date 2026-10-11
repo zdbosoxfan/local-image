@@ -268,6 +268,13 @@ fn projected_layer_with_ids(source: &Layer, scene: &[geometry::PaintPath], doc: 
         let sh = ShapeLayer { path: p.path.clone(), ..Default::default() };
         let mut item = p.item.clone();
         let blend = match &mut item {
+            photocraft_doc::vector_design::appearance::AppearanceItem::Mesh(mesh) => {
+                let blend = mesh.blend;
+                if blend != photocraft_doc::BlendMode::Dissolve {
+                    mesh.blend = photocraft_doc::BlendMode::Normal;
+                }
+                if blend == photocraft_doc::BlendMode::Dissolve { photocraft_doc::BlendMode::Normal } else { blend }
+            }
             photocraft_doc::vector_design::appearance::AppearanceItem::Fill(f) => {
                 let b = f.blend;
                 if b == photocraft_doc::BlendMode::Dissolve {
@@ -311,6 +318,7 @@ fn projected_layer_with_ids(source: &Layer, scene: &[geometry::PaintPath], doc: 
     out.vector.corners.clear();
     out.vector.live_shape = None;
     out.vector.appearance = None;
+    out.vector.effects.clear();
     super::expand::clear_geometry_blocks(&mut out);
     Ok(out)
 }
@@ -409,6 +417,10 @@ pub fn scaled_paint(doc: &Document, layer: &Layer, scale: f64, clip: photocraft_
     let mut appearance = layer.vector.appearance.clone().unwrap_or_else(|| photocraft_vector::appearance::legacy_appearance(source));
     for item in &mut appearance.items {
         let paint = match item {
+            photocraft_doc::vector_design::appearance::AppearanceItem::Mesh(mesh) => {
+                mesh.paint = (&photocraft_vector::mesh_paint::Mesh::from(&mesh.paint).transform(photocraft_geom::Affine::scale(scale)).map_err(bad)?).into();
+                continue;
+            }
             photocraft_doc::vector_design::appearance::AppearanceItem::Fill(f) => &mut f.paint,
             photocraft_doc::vector_design::appearance::AppearanceItem::Stroke(st) => {
                 st.base.width *= scale as f32;

@@ -23,9 +23,12 @@ pub enum Action {
 }
 #[derive(Default)]
 pub struct State {
+    pub generation: u64,
     pub active: ActivePaint,
+    pub selected_stop: Option<(usize, usize)>,
     pub preview: Option<photocraft_doc::Document>,
     gesture: Option<Gesture>,
+    held_button: Option<egui::Id>,
     targets: Vec<LayerId>,
     colour_open: bool,
     hex: String,
@@ -36,6 +39,8 @@ fn error(message: &str) -> EngineError {
 impl State {
     pub fn cancel(&mut self) {
         self.gesture = None;
+        self.held_button = None;
+        self.generation = self.generation.wrapping_add(1);
         self.preview = None;
         self.targets.clear();
         self.colour_open = false;
@@ -62,11 +67,26 @@ impl State {
             return Err(error("The document changed; try again"));
         }
         gesture.update(|a| {
-            edit(a, self.active, action);
+            if let (Some((item, stop)), Action::Colour(color)) = (self.selected_stop, action) {
+                let target = a.items.get_mut(item).ok_or_else(|| error("Paint item is absent"))?;
+                let paint = match target {
+                    AppearanceItem::Fill(fill) => &mut fill.paint,
+                    AppearanceItem::Stroke(stroke) => &mut stroke.base.paint,
+                    AppearanceItem::Mesh(_) => return Err(error("Select a gradient color stop")),
+                };
+                if let Fill::Gradient { stops, .. } = paint {
+                    stops.get_mut(stop).ok_or_else(|| error("Gradient stop is absent"))?.1 = *color;
+                } else {
+                    return Err(error("Select a gradient color stop"));
+                }
+            } else {
+                edit(a, self.active, action);
+            }
             Ok(())
         })?;
         let preview = photocraft_engine::vector_packages::appearance::preview_document(s, gesture.request())?;
         self.gesture = Some(gesture);
+        self.generation = self.generation.wrapping_add(1);
         self.preview = Some(preview);
         Ok(())
     }
@@ -76,6 +96,7 @@ impl State {
             return Err(error("The selection changed; try again"));
         }
         let gesture = self.gesture.take().ok_or_else(|| error("Paint gesture has not begun"))?;
+        self.generation = self.generation.wrapping_add(1);
         self.preview = None;
         self.targets.clear();
         gesture.commit(s)
@@ -93,23 +114,26 @@ impl State {
     }
 }
 fn matches_kind(item: &AppearanceItem, active: ActivePaint) -> bool {
-    matches!((item, active), (AppearanceItem::Fill(_), ActivePaint::Fill) | (AppearanceItem::Stroke(_), ActivePaint::Stroke))
+    matches!((item, active), (AppearanceItem::Fill(_) | AppearanceItem::Mesh(_), ActivePaint::Fill) | (AppearanceItem::Stroke(_), ActivePaint::Stroke))
 }
 fn visible(item: &AppearanceItem) -> bool {
     match item {
         AppearanceItem::Fill(f) => f.visible,
+        AppearanceItem::Mesh(m) => m.visible,
         AppearanceItem::Stroke(s) => s.visible,
     }
 }
-fn paint(item: &AppearanceItem) -> &Fill {
+fn paint(item: &AppearanceItem) -> Option<&Fill> {
     match item {
-        AppearanceItem::Fill(f) => &f.paint,
-        AppearanceItem::Stroke(s) => &s.base.paint,
+        AppearanceItem::Fill(f) => Some(&f.paint),
+        AppearanceItem::Mesh(_) => None,
+        AppearanceItem::Stroke(s) => Some(&s.base.paint),
     }
 }
 fn set_visible(item: &mut AppearanceItem, v: bool) {
     match item {
         AppearanceItem::Fill(f) => f.visible = v,
+        AppearanceItem::Mesh(m) => m.visible = v,
         AppearanceItem::Stroke(s) => s.visible = v,
     }
 }
@@ -129,6 +153,7 @@ fn put(a: &mut Appearance, active: ActivePaint, value: Option<Fill>) {
         set_visible(item, true);
         match item {
             AppearanceItem::Fill(f) => f.paint = value,
+            AppearanceItem::Mesh(m) => *item = AppearanceItem::Fill(FillItem { paint: value, opacity: m.opacity, blend: m.blend, visible: true }),
             AppearanceItem::Stroke(s) => {
                 s.base.paint = value;
                 if s.base.width == 0. {
@@ -146,7 +171,7 @@ fn put(a: &mut Appearance, active: ActivePaint, value: Option<Fill>) {
     }
 }
 fn current(a: &Appearance, active: ActivePaint) -> Option<Fill> {
-    a.items.iter().rev().find(|i| matches_kind(i, active) && visible(i)).map(|i| paint(i).clone())
+    a.items.iter().rev().find(|i| matches_kind(i, active) && visible(i)).and_then(paint).cloned()
 }
 fn edit(a: &mut Appearance, active: ActivePaint, action: &Action) {
     match action {
@@ -228,9 +253,11 @@ fn button(ui: &mut Ui, label: &str, glyph: &str, width: f32, state: &mut State, 
     let response = compact_button(ui, label, glyph, width, !ids.is_empty());
     if (response.is_pointer_button_down_on() || response.clicked()) && ui.input(|i| i.pointer.any_pressed()) {
         state.begin(s, ids)?;
+        state.held_button = Some(response.id);
         state.update(s, &action)?;
     }
-    if response.clicked() {
+    let released = state.held_button == Some(response.id) && response.contains_pointer() && ui.input(|i| i.pointer.primary_released());
+    if response.clicked() || released {
         // Keyboard/accessibility activation is a fresh discrete gesture. A pointer release
         // with a cancelled capture must never silently retarget the new selection/document.
         if state.gesture.is_none() && !ui.input(|i| i.pointer.any_released()) {
@@ -274,6 +301,16 @@ pub fn widget(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId], 
             egui::Rect::from_min_max(egui::pos2(area.min.x + 30., rect.min.y), rect.max)
         };
         let r = ui.interact(hit, ui.id().with(label), Sense::click());
+        let mut clicked = r.clicked();
+        if state.active != active {
+            let strip = if active == ActivePaint::Fill {
+                egui::Rect::from_min_max(egui::pos2(area.min.x + 14., rect.min.y), egui::pos2(rect.max.x, area.min.y + 14.))
+            } else {
+                egui::Rect::from_min_max(egui::pos2(rect.min.x, area.min.y + 30.), egui::pos2(area.min.x + 30., rect.max.y))
+            };
+            clicked |= ui.interact(strip, ui.id().with((label, "strip")), Sense::click()).clicked();
+        }
+
         r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!(label)));
         let value = appearance.as_ref().and_then(|a| current(a, active));
         let colour = match &value {
@@ -302,10 +339,11 @@ pub fn widget(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId], 
         if value.is_none() {
             ui.painter().line_segment([rect.left_bottom(), rect.right_top()], egui::Stroke::new(2., Color32::RED));
         }
-        if r.on_hover_text(tl!(label)).clicked() {
+        if clicked {
             state.cancel();
             state.active = active;
         }
+        r.on_hover_text(tl!(label));
     }
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.;
@@ -437,20 +475,26 @@ pub fn flyouts(ui: &mut Ui, state: &mut FlyoutState, registered: &[&str], set: O
 #[path = "fill_stroke_proxy/tests.rs"]
 mod tests;
 
-#[path = "fill_stroke_proxy/icons.rs"]
-pub mod icons;
+pub use crate::vector_tool_icon_data as icons;
 
 /// Shares egui_extras' existing SVG loader and egui's texture upload path. 00 appends the
 /// ICONS bytes to colour_icons/mono_tool_icons as well, so menus and toolbar use one artwork.
 pub fn tool_button(ui: &mut Ui, tool: &str, size: f32) -> egui::Response {
     egui_extras::install_image_loaders(ui.ctx());
-    let Some((_, name, colour, mono)) = icons::ICONS.iter().find(|(id, _, _, _)| *id == tool) else { return ui.button(tool) };
+    let Some(index) = icons::ICONS.iter().position(|(id, _, _, _)| *id == tool) else { return ui.button(tool) };
+    let (_, name, _, _) = icons::ICONS[index];
     let coloured = crate::color_icons::enabled(ui.ctx());
-    let data: std::sync::Arc<[u8]> = if coloured {
-        std::sync::Arc::from(*colour)
-    } else {
-        std::sync::Arc::from(String::from_utf8_lossy(mono).replace("currentColor", "#ffffff").into_bytes())
-    };
+    type IconBytes = (std::sync::Arc<[u8]>, std::sync::Arc<[u8]>);
+    static BYTES: std::sync::OnceLock<Vec<IconBytes>> = std::sync::OnceLock::new();
+    let bytes = BYTES.get_or_init(|| {
+        icons::ICONS
+            .iter()
+            .map(|(_, _, colour, mono)| {
+                (std::sync::Arc::from(*colour), std::sync::Arc::from(String::from_utf8_lossy(mono).replace("currentColor", "#ffffff").into_bytes()))
+            })
+            .collect()
+    });
+    let data = if coloured { bytes[index].0.clone() } else { bytes[index].1.clone() };
     let image = egui::Image::from_bytes(format!("bytes://vector46/{name}/{coloured}.svg"), data).fit_to_exact_size(egui::vec2(size, size)).tint(if coloured {
         Color32::WHITE
     } else {

@@ -85,28 +85,32 @@ fn event(h: &mut H, x: f32, y: f32, pressed: Option<bool>, mods: Modifiers) {
     h.step();
 }
 fn canvas_parity(h: &mut H, doc: &Document) {
-    let cpu = photocraft_compose::render(doc, doc.bounds());
-    let image = h.render().expect("real GPU canvas");
-    let xf = ViewXform::active(h.state()).unwrap();
-    let ppp = h.ctx.pixels_per_point();
-    let mut max = 0f32;
-    for y in 0..128 {
-        for x in 0..160 {
-            let p = xf.to_screen(x as f32 + 0.5, y as f32 + 0.5) * ppp;
-            let a = image.get_pixel(p.x.floor() as u32, p.y.floor() as u32).0;
-            let b = cpu.get(x, y);
-            for c in 0..4 {
-                max = max.max((a[c] as f32 / 255. - if c == 3 { b[c] } else { b[c] * b[3] }).abs());
-            }
-        }
-    }
+    let doc = photocraft_engine::vector_integration::project_document(doc).unwrap();
+    let cpu = photocraft_compose::flatten(&doc);
+    h.render().expect("real GPU canvas");
+    let (_, size, pixels) = h.state().read_canvas_texels(doc.id.0).expect("actual app canvas texture");
+    assert_eq!(size, [doc.size.width, doc.size.height]);
+    assert_eq!(cpu.px.len(), pixels.len());
+    let max = cpu
+        .px
+        .iter()
+        .zip(pixels)
+        .flat_map(|(a, b)| {
+            (0..4).map(move |c| {
+                assert!(b[c].is_finite());
+                (b[c] - a[c] * if c == 3 { 1. } else { a[3] }).abs()
+            })
+        })
+        .fold(0f32, f32::max);
     assert!(max <= 1. / 255. + 1e-7, "premultiplied app diff={max}");
     assert!(h.state().perf.gpu);
 }
+
 #[test]
 #[ignore = "00/01/46 live paint routes + RTX full-app gate; owner prohibits GPU runs"]
 fn live_paint42_full_app_gpu_k_drag_live_preview_release_cancel_and_expand() {
-    let _guard = LOCK.lock().unwrap();
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let _guard = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness();
     let before = h.state().session.active().unwrap().doc.clone();
     h.key_press(Key::K);
@@ -132,9 +136,12 @@ fn live_paint42_full_app_gpu_k_drag_live_preview_release_cancel_and_expand() {
     h.run();
     event(&mut h, 80., 64., Some(false), Modifiers::SHIFT);
     assert_eq!(h.state().session.journal.len(), 1);
+    eprintln!("expand live paint rect={:?}", h.get_by_label("Expand Live Paint").rect());
+    h.get_by_label("Expand Live Paint").scroll_to_me();
+    h.run_steps(3);
     h.get_by_label("Expand Live Paint").click();
     h.run_steps(3);
-    assert_eq!(h.state().session.journal.len(), 2);
+    assert_eq!(h.state().session.journal.len(), 2, "status={} selection={:?}", h.state().ui.status, h.state().session.active().unwrap().selected_layers());
     assert!(h.state().session.active().unwrap().doc.walk().into_iter().all(|(_, _, layer)| layer.vector.live.is_none()));
     canvas_parity(&mut h, &committed);
     assert!(h.state_mut().session.undo());
@@ -146,8 +153,9 @@ fn live_paint42_full_app_gpu_k_drag_live_preview_release_cancel_and_expand() {
 #[ignore = "release real-app pointer-frame measurement + production router; owner prohibits benchmarks"]
 #[allow(clippy::assertions_on_constants)] // Runtime release gate; debug builds must still compile it.
 fn live_paint42_full_app_release_click_to_paint_latency() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     assert!(!cfg!(debug_assertions), "release build required for latency claims");
-    let _guard = LOCK.lock().unwrap();
+    let _guard = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness();
     h.key_press(Key::K);
     h.run();

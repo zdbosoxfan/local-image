@@ -239,6 +239,11 @@ pub fn active_path_name(app: &PhotocraftApp) -> Option<String> {
 /// Selection tool or a path selected in the Paths panel. A path being drawn with the Pen is
 /// finished first and loads; otherwise [`active_path_name`]. `params` may set feather, mode…
 pub fn path_to_selection(app: &mut PhotocraftApp, params: Value) -> Result<Value, String> {
+    if let Some(gesture) = &app.shared_tools.pen.gesture {
+        let target = gesture.request().target.clone();
+        app.shared_tools.pen.enter(&mut app.session).map_err(|e| e.to_string())?;
+        app.ui.selected_path = Some(if matches!(target, photocraft_engine::vector_packages::pen::Target::Work) { "work" } else { "layer" }.into());
+    }
     if app.ui.pen.as_ref().is_some_and(|p| p.knots.len() >= 2) {
         // The finished path becomes the work path, or a shape layer's path or a vector mask.
         let on_layer = app.ui.tool_options.vector_mode == "shape" || targeted_vector_mask(app).is_some();
@@ -661,14 +666,14 @@ pub fn box_controls(ui: &mut egui::Ui, sh: &photocraft_doc::vector::ShapeLayer, 
                 json!({"rect": [x, y, nw.round().max(1.0), nh.round().max(1.0)], "coalesce": key(id, "wh")})
             } else {
                 // A free-form path scales about its top-left corner.
-                let (sx, sy) = (nw.max(1.0) / w.max(1e-6), nh.max(1.0) / h.max(1e-6));
+                let (sx, sy) = (if w > 1e-9 { nw / w } else { 1. }, if h > 1e-9 { nh / h } else { 1. });
                 json!({"transform": [sx, 0.0, 0.0, sy, x - sx * x, y - sy * y], "coalesce": key(id, "wh")})
             }
         };
-        if let Some(v) = field(ui, "W", w.round(), 1.0..=BIG, "px") {
+        if let Some(v) = field(ui, "W", w.round(), if live_box { 1.0 } else { 0.0 }..=BIG, "px") {
             edit = Some(resize(v, h));
         }
-        if let Some(v) = field(ui, "H", h.round(), 1.0..=BIG, "px") {
+        if let Some(v) = field(ui, "H", h.round(), if live_box { 1.0 } else { 0.0 }..=BIG, "px") {
             edit = Some(resize(w, v));
         }
     }
@@ -1334,3 +1339,21 @@ mod tests {
 #[cfg(test)]
 #[path = "path_selection_tests.rs"]
 mod path_selection_tests;
+
+#[cfg(test)]
+mod zero_axis_options_regression {
+    #[test]
+    fn zero_height_curve_options_do_not_publish_idle_edits() {
+        let shape = photocraft_doc::ShapeLayer {
+            path: photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polyline(&[(20., 90.), (220., 90.)])]),
+            ..Default::default()
+        };
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(800., 80.)).build_ui_state(
+            |ui, shape| {
+                ui.horizontal(|ui| assert!(super::box_controls(ui, shape, photocraft_doc::LayerId(1), 62.).is_none()));
+            },
+            shape,
+        );
+        h.run_steps(5);
+    }
+}

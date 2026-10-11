@@ -372,6 +372,28 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
                 self.warn("an unknown kind of page");
                 continue;
             }
+            s.check_finite(doc, b"DfSz")?;
+            s.check_finite(spread, b"SprB")?;
+            if let Some([w, h]) = s.floats::<2>(doc, b"DfSz")
+                && (w <= 0. || h <= 0.)
+            {
+                return Err(Error::Malformed("default page size"));
+            }
+            if let Some(v) = s.floats::<4>(spread, b"SprB")
+                && (v[2] <= v[0] || v[3] <= v[1])
+            {
+                return Err(Error::Malformed("spread bounds"));
+            }
+            if let Some(md) = s.obj(spread, b"SpMd") {
+                for page in s.objs(md, b"PagR") {
+                    s.check_finite(page, b"rctp")?;
+                    if let Some(v) = s.floats::<4>(page, b"rctp")
+                        && (v[2] <= v[0] || v[3] <= v[1])
+                    {
+                        return Err(Error::Malformed("page bounds"));
+                    }
+                }
+            }
             let pages = pages(s, spread);
             let default_size = s.floats::<2>(doc, b"DfSz").filter(|[w, h]| *w > 0.0 && *h > 0.0).map(|[w, h]| Rect { x0: 0.0, y0: 0.0, x1: w, y1: h });
             let bounds = s.floats::<4>(spread, b"SprB").map(rect).or_else(|| pages.iter().copied().reduce(union)).or(default_size).unwrap_or(Rect {
@@ -479,6 +501,9 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         // A compound's children are its operands, already merged into its outline.
         let (children, child_mask) = if class == Tag::of(b"Comp") { (Vec::new(), None) } else { self.children(id, world, depth)? };
         let (mask, attached_mask) = self.attached_masks(id, world)?;
+        if attached_mask.is_some() && child_mask.is_some() {
+            self.warn("attached and child pixel masks on one layer (only the attached mask is used)");
+        }
         let pixel_mask = attached_mask.or(child_mask);
         self.active.remove(&id);
         if s.objs(id, b"FiEf").iter().any(|e| s.bool(*e, b"Enab") != Some(false)) {

@@ -2,6 +2,7 @@
 use super::*;
 #[test]
 fn layout16_rtx_crop_and_resize_mixed_layers_preview_release_undo_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
@@ -53,7 +54,8 @@ fn layout16_rtx_crop_and_resize_mixed_layers_preview_release_undo_parity() {
     let mut group = Layer::group("Parent", std::mem::take(&mut doc.layers));
     let gid = group.id;
     if let LayerContent::Group(g) = &mut group.content {
-        g.artboard = Some(Artboard { rect: Rect::new(0, 0, 200, 160), background: ArtboardBackground::Transparent, preset: String::new() });
+        g.artboard =
+            Some(Artboard { rect: Rect::new(0, 0, 200, 160), background: ArtboardBackground::Transparent, preset: String::new(), drawing_scale: None });
         g.children[0].vector.constraints = Some(photocraft_doc::vector_design::structure::Constraints { right: true, fixed_width: true, ..Default::default() });
     }
     doc.layers.push(group);

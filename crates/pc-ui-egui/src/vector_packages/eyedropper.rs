@@ -55,7 +55,7 @@ struct Capture {
 pub struct State {
     pub options: Options,
     pub loaded: Option<Loaded>,
-    pub preview: Option<Document>,
+    pub preview: Option<std::sync::Arc<Document>>,
     pub generation: u64,
     capture: Option<Capture>,
 }
@@ -89,7 +89,11 @@ impl State {
         }
     }
     fn show(&mut self, s: &Session) -> Result<()> {
-        self.preview = if let Some(r) = self.capture.as_ref().and_then(|c| c.request.as_ref()) { Some(engine::preview(s, r)?.document) } else { None };
+        self.preview = if let Some(r) = self.capture.as_ref().and_then(|c| c.request.as_ref()) {
+            Some(std::sync::Arc::new(engine::preview(s, r)?.document))
+        } else {
+            None
+        };
         self.generation = self.generation.wrapping_add(1);
         Ok(())
     }
@@ -407,5 +411,5 @@ pub fn display_doc(app: &crate::PhotocraftApp, idx: usize, ctx: &egui::Context) 
     if app.session.active().is_none_or(|s| s.doc.id.0 != c.document || s.revision != c.revision || s.selected_layers() != c.base) {
         return None;
     }
-    Some((std::sync::Arc::new(b.state.preview?), b.state.generation))
+    Some((b.state.preview?, b.state.generation))
 }

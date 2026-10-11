@@ -49,7 +49,7 @@ impl Dialog {
                 rotation: number(&self.fields[4])?,
                 reference: self.reference,
                 random: self.random,
-                seed: self.seed.trim().parse().map_err(|_| "Seed must be an unsigned integer".to_string())?,
+                seed: if self.random { self.seed.trim().parse().map_err(|_| "Seed must be an unsigned integer".to_string())? } else { 0 },
                 reflect: [self.vertical, self.proportional],
             }),
             _ => return Err("this tool uses canvas handles".into()),

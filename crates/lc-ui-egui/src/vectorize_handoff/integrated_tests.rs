@@ -8,7 +8,6 @@ use serde_json::json;
 use std::time::Duration;
 
 #[test]
-#[ignore = "package 00 must insert the production context-menu hook and preserve selection"]
 fn library_vectorize_integrated_headless_grid_context_click_preserves_multiselection_and_people_filters() {
     let mut session = lightcraft_engine::Session::new();
     for id in 1..=3 {
@@ -35,6 +34,7 @@ fn library_vectorize_integrated_headless_grid_context_click_preserves_multiselec
     let context = h.app.widgets.iter().find(|(id, _)| id == "thumb:2").expect("context photo visible").1.center();
     assert_eq!(h.request("ui.click", json!({"x":context.x,"y":context.y,"button":"right"}), timeout)["ok"], true);
     assert_eq!(h.app.session.selection, selection, "opening a context menu must not discard selection");
+    assert!(h.settle(timeout), "popup layout must settle before clicking its widget rectangle");
     assert_eq!(h.request("ui.clickWidget", json!({"id":WIDGET}), timeout)["ok"], true);
     let request = take_request(&h.view.ctx).unwrap();
     assert_eq!(request.photo, PhotoId(2));

@@ -93,21 +93,26 @@ pub(super) fn trace(
         if count == 0 {
             continue;
         }
-        let mut field = Vec::with_capacity(sw * sh);
-        for row in prepared.continuous.chunks_exact(sw * 4) {
-            check(cancel)?;
-            for p in row.as_chunks::<4>().0 {
-                field.push(mixture(p, color, palette));
+        let working = if params.fitter == Fitter::Pixel {
+            Vec::new()
+        } else {
+            let mut field = Vec::with_capacity(sw * sh);
+            for row in prepared.continuous.chunks_exact(sw * 4) {
+                check(cancel)?;
+                for p in row.as_chunks::<4>().0 {
+                    field.push(mixture(p, color, palette));
+                }
             }
-        }
-        let mut working = Vec::with_capacity(w * h);
-        for y in 0..h {
-            check(cancel)?;
-            for x in 0..w {
-                let p = Point::new((x as f64 + 0.5) / f64::from(scale), (y as f64 + 0.5) / f64::from(scale));
-                working.push(sample(&field, sw, sh, p));
+            let mut working = Vec::with_capacity(w * h);
+            for y in 0..h {
+                check(cancel)?;
+                for x in 0..w {
+                    let p = Point::new((x as f64 + 0.5) / f64::from(scale), (y as f64 + 0.5) / f64::from(scale));
+                    working.push(sample(&field, sw, sh, p));
+                }
             }
-        }
+            working
+        };
         let loops = if params.fitter == Fitter::Pixel {
             crate::boundary::contours(&mask, &mut budget, cancel)?
         } else {
@@ -164,7 +169,11 @@ pub(super) fn trace(
         }
         if super::topology::crosses(&path, cancel)? {
             path = Path::default();
-            for contour in super::contour::contours(&working, w, h, &mut budget, cancel)? {
+            for contour in if params.fitter == Fitter::Pixel {
+                crate::boundary::contours(&mask, &mut budget, cancel)?
+            } else {
+                super::contour::contours(&working, w, h, &mut budget, cancel)?
+            } {
                 let mut part = crate::adapter::bezpath_to_path(&crate::boundary::polygon(&crate::boundary::remove_collinear(&contour)))?;
                 for sub in &mut part.subpaths {
                     sub.op = if path.subpaths.is_empty() { PathOp::Combine } else { PathOp::Join };

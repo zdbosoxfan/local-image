@@ -23,6 +23,8 @@
 
 pub mod appearance;
 pub mod curvature_fit;
+mod curve_stroke;
+pub use curve_stroke::stroke_outline;
 pub mod edit;
 pub mod flatten;
 pub mod raster;
@@ -35,7 +37,7 @@ use photocraft_doc::{Fill, FillRule, GradientStyle, Path, PathOp, ShapeLayer, Sh
 use photocraft_geom::{Rect, TILE_SIZE};
 use photocraft_raster::Surface;
 
-pub use flatten::{Polyline, flatten_path, flatten_subpath};
+pub use flatten::{Polyline, flatten_path, flatten_subpath, segment_pieces};
 pub use raster::Rasterizer;
 pub use stroke::{StrokeStyle, stroke_polygons};
 
@@ -47,7 +49,7 @@ pub const DEFAULT_TOLERANCE: f64 = 0.01;
 pub fn fill_rasterizer(path: &Path, tol: f64) -> Rasterizer {
     let mut r = Rasterizer::new(path.inverted);
     for c in path.components() {
-        let polys: Vec<Vec<(f64, f64)>> = path.subpaths[c.clone()].iter().map(|s| flatten_subpath(s, tol).pts).collect();
+        let polys: Vec<Vec<(f64, f64)>> = path.subpaths[c.clone()].iter().map(|s| flatten_subpath(s, tol * 0.1).pts).collect();
         r.add_component(&polys, path.effective_op(c.start), path.fill_rule);
     }
     r
@@ -55,9 +57,25 @@ pub fn fill_rasterizer(path: &Path, tol: f64) -> Rasterizer {
 
 /// Compiles the stroke outline of `path` (all subpaths, one non-zero component).
 pub fn stroke_rasterizer(path: &Path, style: &StrokeStyle, tol: f64) -> Rasterizer {
-    // Stroke outlines tolerate a coarser flattening than fills (the offset hides chord error).
-    let lines = flatten_path(path, (tol * 4.0).min(style.width.max(0.01) * 0.1).max(1e-3));
-    let polys = stroke_polygons(&lines, style, tol);
+    let outline = stroke_outline(path, style, tol);
+    let mut polys = Vec::new();
+    let mut current = Vec::new();
+    kurbo::flatten(outline.iter(), tol * 0.1, |el| match el {
+        kurbo::PathEl::MoveTo(p) => {
+            if !current.is_empty() {
+                polys.push(std::mem::take(&mut current));
+            }
+            current.push((p.x, p.y));
+        }
+        kurbo::PathEl::LineTo(p) => current.push((p.x, p.y)),
+        kurbo::PathEl::ClosePath if !current.is_empty() => {
+            polys.push(std::mem::take(&mut current));
+        }
+        _ => {}
+    });
+    if !current.is_empty() {
+        polys.push(current);
+    }
     let mut r = Rasterizer::new(false);
     r.add_component(&polys, PathOp::Combine, FillRule::NonZero);
     r
@@ -568,3 +586,11 @@ pub mod projective;
 
 // Package 43 registration; appearance dispatch belongs to 08/00.
 pub mod mesh_paint;
+
+pub mod design_shapes;
+
+pub mod live_corners;
+
+pub mod pencil_fit;
+
+pub mod view;

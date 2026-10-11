@@ -111,6 +111,8 @@ pub struct GlyphFace {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlacedGlyph {
+    /// Exact index in TextLayout::clusters; retained through vertical placement.
+    pub source_cluster: usize,
     pub face: u32,
     pub id: u32,
     /// Pen position (text space px): x along the baseline, y = baseline (before baseline shift).
@@ -722,6 +724,7 @@ impl Layouter {
                 let mut vinfo: Vec<VGlyph> = Vec::new();
                 let mut extra = 0.0f32; // horizontal-scale growth and kerning along the line
                 let mut seen_runs: Vec<usize> = Vec::new();
+                let mut slot_clusters = vec![None; slots.len()];
                 for item in line.items() {
                     let PositionedLayoutItem::GlyphRun(gr) = item else {
                         continue;
@@ -748,6 +751,7 @@ impl Layouter {
                             let a = c.advance() * hs + kern_px.get(base + ci).copied().unwrap_or(0.0);
                             let r = c.text_range();
                             if r.end > prefix.len() || prefix.is_empty() {
+                                slot_clusters[base + ci] = Some(out.clusters.len());
                                 out.clusters.push(ClusterInfo { range: map(r.start)..map(r.end), x: cx, advance: a, line: line_index, rtl: c.is_rtl() });
                             }
                             cx += a;
@@ -764,6 +768,7 @@ impl Layouter {
                     let mut pen = gr.offset();
                     let mut cursor = cursors.iter_mut().find(|c| c.0 == run.index());
                     for g in gr.glyphs() {
+                        let source_slot = cursor.as_deref().and_then(|c| c.1.get(c.2)).copied();
                         // Kerning of the clusters before this glyph's cluster.
                         if let Some(c) = cursor.as_deref_mut() {
                             if let Some(&slot) = c.1.get(c.2) {
@@ -775,6 +780,7 @@ impl Layouter {
                             c.2 += 1;
                         }
                         out.glyphs.push(PlacedGlyph {
+                            source_cluster: source_slot.and_then(|slot| slot_clusters.get(slot).copied().flatten()).unwrap_or(usize::MAX),
                             face,
                             id: g.id,
                             x: dx + pen + g.x + extra,

@@ -120,6 +120,15 @@ impl State {
                 return;
             }
         };
+        if ids.iter().skip(1).any(|id| {
+            doc.layer(*id).is_none_or(|l| match (a.read)(l) {
+                Ok(other) => other != effects,
+                Err(_) => true,
+            })
+        }) {
+            ui.label(tr("Selected shapes have different effect stacks"));
+            return;
+        }
         let mut action = None;
         for (i, effect) in effects.iter().enumerate() {
             let (_, dropped) = ui.dnd_drop_zone::<usize, _>(egui::Frame::new(), |ui| {

@@ -20,6 +20,7 @@ fn gpu() -> (wgpu::Device, wgpu::Queue) {
 #[test]
 #[ignore = "integration gate: RTX 5090 Vulkan; task speed rules prohibit GPU execution"]
 fn object36_gpu_expand_four_paints_before_preview_release_undo() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let (device, queue) = gpu();
     let mut compositor = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let (mut s, id) = fixture();

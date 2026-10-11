@@ -437,6 +437,9 @@ pub fn refresh_shape(doc: &Document, sh: &mut ShapeLayer) {
 /// masks, recursing into groups. For the Move tool / `layer.move`.
 pub fn translate_vectors(doc: &Document, l: &mut Layer, dx: f64, dy: f64) {
     let a = Affine::translate(dx, dy);
+    if let Some(clip) = &mut l.vector.clip {
+        *clip = clip.transform(&a);
+    }
     if let Some(vm) = l.vector_mask.as_mut()
         && vm.linked
     {

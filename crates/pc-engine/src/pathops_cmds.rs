@@ -71,14 +71,19 @@ fn index(p: &Value, k: &str, cmd: &str) -> Result<usize> {
     }
 }
 fn bool_op(p: &Value, cmd: &str) -> Result<Option<ops::BoolOp>> {
-    Ok(match p.get("op").and_then(Value::as_str).unwrap_or("add") {
-        "add" => Some(ops::BoolOp::Union),
-        "subtract" => Some(ops::BoolOp::Difference),
-        "intersect" => Some(ops::BoolOp::Intersect),
-        "xor" => Some(ops::BoolOp::Xor),
-        "divide" => None,
-        _ => return Err(bad(cmd, "op must be add|subtract|intersect|xor|divide")),
-    })
+    Ok(
+        match match p.get("op") {
+            None => "add",
+            Some(v) => v.as_str().ok_or_else(|| bad(cmd, "op must be add|subtract|intersect|xor|divide"))?,
+        } {
+            "add" => Some(ops::BoolOp::Union),
+            "subtract" => Some(ops::BoolOp::Difference),
+            "intersect" => Some(ops::BoolOp::Intersect),
+            "xor" => Some(ops::BoolOp::Xor),
+            "divide" => None,
+            _ => return Err(bad(cmd, "op must be add|subtract|intersect|xor|divide")),
+        },
+    )
 }
 fn join_option(p: &Value, cmd: &str) -> Result<ops::Join> {
     Ok(match p.get("join").and_then(Value::as_str).unwrap_or("miter") {
@@ -277,6 +282,9 @@ fn outline_layers(s: &mut Session, input: &[Layer], label: &str) -> Result<Value
         let mut outlined = photocraft_doc::ShapeLayer { path, fill: Some(stroke.paint.clone()), ..Default::default() };
         refresh_shape(&doc, &mut outlined);
         let mut layer = original.clone();
+        layer.vector.live_shape = None;
+        layer.vector.corners.clear();
+        layer.vector.appearance = None;
         layer.psd_blocks.retain(|(k, _)| ![b"vmsk", b"vsms", b"vogk", b"vstk", b"vscg", b"SoCo", b"GdFl", b"PtFl"].contains(&k));
         let ids = if shape.fill.is_some() {
             let mut fill = shape.clone();
@@ -349,4 +357,17 @@ pub fn specs() -> Vec<CommandSpec> {
         .into_iter()
         .map(|(id, label, params, run)| CommandSpec { id, label, params, run, menu: &[], shortcut: None, enabled: has_doc, journal: true })
         .collect()
+}
+
+#[cfg(test)]
+mod validation_tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    #[test]
+    fn review_regression_boolean_operation_rejects_non_string_and_unknown_values() {
+        assert_eq!(bool_op(&json!({}), "path.boolean").unwrap(), Some(ops::BoolOp::Union));
+        for value in [json!(null), json!(true), json!(17), json!([]), json!({}), json!("bogus")] {
+            assert!(bool_op(&json!({"op":value}), "path.boolean").is_err());
+        }
+    }
 }

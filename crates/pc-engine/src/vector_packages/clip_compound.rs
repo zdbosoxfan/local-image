@@ -102,7 +102,7 @@ fn targets(doc: &Document, ids: &[LayerId]) -> Result<()> {
     }
     Ok(())
 }
-fn validate_layer(l: &Layer) -> Result<()> {
+fn validate_envelope(l: &Layer) -> Result<()> {
     if !l.opacity.is_finite() || !l.fill_opacity.is_finite() || !(0.0..=1.0).contains(&l.opacity) || !(0.0..=1.0).contains(&l.fill_opacity) {
         return Err(bad("invalid layer opacity"));
     }
@@ -116,6 +116,10 @@ fn validate_layer(l: &Layer) -> Result<()> {
             return Err(bad("invalid vector mask density or feather"));
         }
     }
+    Ok(())
+}
+fn validate_layer(l: &Layer) -> Result<()> {
+    validate_envelope(l)?;
     if let Some(ch) = l.children() {
         for child in ch {
             if child.locks.all || child.locks.pixels || child.locks.position {
@@ -179,7 +183,7 @@ fn shape_path(doc: &Document, id: LayerId) -> Result<Path> {
                 let outlines = super::path_text::on_path::validated_outlines(&layout, &t.transform).map_err(|e| bad(e.to_string()))?;
                 outlines::path(&outlines)
             } else {
-                crate::type_extra_cmds::text_path(doc, t)
+                crate::type_extra_cmds::text_path_with_vector(doc, t, &layer.vector)?
             }
         }
         _ => return Err(bad("clipping object must be a shape or text")),
@@ -266,6 +270,9 @@ fn release_clip(doc: &mut Document, id: LayerId) -> Result<Vec<LayerId>> {
         return Err(bad("release requires an ordinary clip group without additional group appearance"));
     }
     let mask = group.vector_mask.ok_or_else(|| bad("select a group with a vector mask"))?;
+    if mask.density != 1. || mask.feather != 0. {
+        return Err(bad("release requires a vector mask with full density and no feather"));
+    }
     let mut layers = group.content;
     let LayerContent::Group(ref mut g) = layers else { return Err(bad("select a clip group")) };
     let mut mask_layer = Layer::new("Released Clipping Path", LayerContent::Shape(ShapeLayer { path: mask.path, ..Default::default() }));
@@ -441,7 +448,12 @@ pub fn prepare(s: &Session, c: &Capture, action: &Action) -> Result<Prepared> {
             let ids = ordered(&doc, &c.layers)?;
             let first = doc.path_of(ids[0]).ok_or(EngineError::NoLayer(ids[0]))?;
             let parent = doc.layer_at(&first[..first.len() - 1]).ok_or_else(|| bad("object is already outside"))?.id;
-            targets(&doc, &[parent])?;
+            let parent_layer = doc.layer(parent).ok_or(EngineError::NoLayer(parent))?;
+            let locks = doc.effective_locks(parent);
+            if locks.all || locks.pixels || locks.position {
+                return Err(bad("insertion parent is locked"));
+            }
+            validate_envelope(parent_layer)?;
             let mut above = parent;
             for id in &ids {
                 let layer = doc.remove(*id).ok_or(EngineError::NoLayer(*id))?;
@@ -503,7 +515,7 @@ pub fn prepare_insert(s: &Session, c: &Capture, mode: DrawMode, target: Option<L
     validate_tree(&doc)?;
     Ok(Prepared { document: doc, selection, capture: c.clone() })
 }
-fn publish(s: &mut Session, p: Prepared, label: &str) -> Result<Value> {
+pub(crate) fn publish(s: &mut Session, p: Prepared, label: &str) -> Result<Value> {
     p.capture.check(s)?;
     let ids = p.selection.clone();
     s.edit(label, move |doc, active| {

@@ -40,7 +40,7 @@ pub(super) fn validate_path(p: &Path) -> Result<usize, String> {
             } else {
                 let m = (a.x - 2. * b.x + c.x).hypot(a.y - 2. * b.y + c.y).max((b.x - 2. * c.x + d.x).hypot(b.y - 2. * c.y + d.y));
                 let size = (b.x - a.x).hypot(b.y - a.y) + (c.x - b.x).hypot(c.y - b.y) + (d.x - c.x).hypot(d.y - c.y);
-                let tol = DEFAULT_TOLERANCE.min(size * 1e-3).max(1e-4);
+                let tol = DEFAULT_TOLERANCE.min(size * 1e-3).max(1e-7);
                 ((0.75 * m / tol).sqrt().ceil() as usize).clamp(1, 1 << 16)
             };
             count += pieces;
@@ -389,7 +389,9 @@ pub(super) fn stroke(path: &Path, s: &StrokeItem) -> Result<(Rasterizer, usize),
     r.add_component(&polys, PathOp::Combine, FillRule::NonZero);
     // Arrowheads apply to the first/last open subpath. They and the line share one coverage,
     // so overlapping translucent heads take opacity only once.
-    for (line, head, start, k) in [(lines.first(), s.start_arrow, true, s.arrow_scale[0]), (lines.last(), s.end_arrow, false, s.arrow_scale[1])] {
+    for (line, head, start, k) in
+        [(lines.iter().find(|l| !l.closed), s.start_arrow, true, s.arrow_scale[0]), (lines.iter().rfind(|l| !l.closed), s.end_arrow, false, s.arrow_scale[1])]
+    {
         if let (Some(line), Some(kind)) = (line, head)
             && !line.closed
             && line.pts.len() > 1

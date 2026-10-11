@@ -182,27 +182,28 @@ pub(crate) enum Refresh {
     All,
 }
 
-pub(crate) fn refresh(doc: &mut Document, what: Refresh) {
-    fn rec(snapshot: &Document, layers: &mut [Layer], what: Refresh) {
+pub(crate) fn refresh(doc: &mut Document, what: Refresh) -> crate::Result<()> {
+    fn rec(snapshot: &Document, layers: &mut [Layer], what: Refresh) -> crate::Result<()> {
         for l in layers {
             match &mut l.content {
-                LayerContent::Group(g) => rec(snapshot, &mut g.children, what),
+                LayerContent::Group(g) => rec(snapshot, &mut g.children, what)?,
                 LayerContent::Shape(sh) => crate::vector_cmds::refresh_shape(snapshot, sh),
                 LayerContent::Symbol(s) => {
                     if let Ok(cache) = crate::vector_packages::symbols::render_instance(snapshot, s) {
                         s.cache = Some(cache);
                     }
                 }
-                LayerContent::Text(t) if what == Refresh::All => crate::type_cmds::refresh(snapshot, t),
+                LayerContent::Text(t) if what == Refresh::All => crate::vector_integration::refresh_text(snapshot, t, &l.vector)?,
                 LayerContent::Smart(_) if what == Refresh::All => {
                     let _ = crate::smart_cmds::refresh_layer(snapshot, l);
                 }
                 _ => {}
             }
         }
+        Ok(())
     }
     let snapshot = doc.clone();
-    rec(&snapshot, &mut doc.layers, what);
+    rec(&snapshot, &mut doc.layers, what)
 }
 
 /// Image › Image Rotation by a right angle or a flip.

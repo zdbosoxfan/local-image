@@ -622,10 +622,13 @@ fn build(shapes: &[Shape]) -> Result<(Vec<Region>, Vec<Shape>), PathOpsError> {
             continue;
         }
         let bp = cycle_bezpath(&edges, &cycle);
-        let area = bp.area();
-        if area > 0.0 && !is_sliver(&bp, tidy.precision) {
+        // Only remove sweep-scale debris. The refit tolerance is not a minimum
+        // cell width: a legitimate narrow Live Paint region can be smaller.
+        let bounds = bp.bounding_box();
+        let area = (Affine::translate((-bounds.x0, -bounds.y0)) * &bp).area();
+        if area > 0.0 && !is_sliver(&bp, eps.min(tidy.precision)) {
             faces.push((cycle, bp, area));
-        } else if area < -(tidy.precision * tidy.precision) {
+        } else if area < -(eps * eps) {
             holes.push((cycle, bp));
         }
     }
@@ -792,6 +795,20 @@ mod tests {
 
     fn at(faces: &[Region], x: f64, y: f64) -> Vec<&Region> {
         faces.iter().filter(|f| f.contains(Point::new(x, y))).collect()
+    }
+
+    #[test]
+    fn narrow_cells_survive_the_refit_tolerance() {
+        for origin in [0., 1e6] {
+            let s = [
+                rect(origin, origin, origin + 100., origin + 20., 0),
+                line((origin + 50., origin - 10.), (origin + 50., origin + 30.), 1),
+                line((origin + 50.01, origin - 10.), (origin + 50.01, origin + 30.), 2),
+            ];
+            let (faces, _) = live_paint(&s);
+            assert_eq!(faces.len(), 3);
+            assert_eq!(at(&faces, origin + 50.005, origin + 10.).len(), 1);
+        }
     }
 
     #[test]

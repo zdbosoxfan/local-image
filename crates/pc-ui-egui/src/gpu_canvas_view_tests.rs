@@ -123,7 +123,11 @@ fn assert_live_view_texels(h: &H, expected: &Document, scale: f64) {
     let renderer = gpu.rs.renderer.read();
     let res = renderer.callback_resources.get::<Resources>().unwrap();
     let frame = res.scaled_frames.values().find(|f| f.source == expected.id.0).expect("actual scaled app frame");
-    assert_eq!(frame.previous, *expected, "production callback must receive detached preview/released document");
+    assert_eq!(
+        frame.previous,
+        photocraft_engine::vector_integration::project_document(expected).unwrap(),
+        "production callback must receive detached preview/released projection"
+    );
     let (device, queue) = (&gpu.rs.device, &gpu.rs.queue);
     let bpp = texel_bytes(frame.textures.format);
     let mut max = 0.0f32;
@@ -168,6 +172,7 @@ fn assert_live_view_texels(h: &H, expected: &Document, scale: f64) {
 }
 #[test]
 fn scaled_full_app_rtx5090_parity_2_4_8x_hidpi_flip_and_warm_cache() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     for (ppp, zoom, flip) in [(1.0, 2.0, false), (1.0, 4.0, false), (1.0, 8.0, false), (2.0, 2.0, true), (1.0, 1.7, false), (2.0, 1.7, true)] {
         let mut h = harness(ppp);
@@ -209,6 +214,7 @@ fn scaled_full_app_rtx5090_parity_2_4_8x_hidpi_flip_and_warm_cache() {
 }
 #[test]
 fn scaled_full_app_actual_pan_zoom_pointer_events() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness(1.0);
     let doc = fixture();
@@ -238,6 +244,7 @@ fn scaled_full_app_actual_pan_zoom_pointer_events() {
 #[test]
 #[ignore = "requires package 00 detached node frame/canvas_input/display_doc routing"]
 fn scaled_full_app_node_drag_preview_release_and_cancel_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness(1.0);
     let d = fixture();
@@ -292,6 +299,7 @@ fn scaled_full_app_node_drag_preview_release_and_cancel_rtx5090() {
 #[ignore = "release acceptance benchmark; requires package 00 detached node routing"]
 #[allow(clippy::assertions_on_constants)]
 fn scaled_release_6000x4000_500_shapes_node_pointer_frames_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use std::time::Instant;
     assert!(!cfg!(debug_assertions), "run the acceptance benchmark with --release --ignored");
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -372,6 +380,7 @@ fn scaled_release_6000x4000_500_shapes_node_pointer_frames_rtx5090() {
 
 #[test]
 fn scaled_full_app_display_p3_and_float_hdr_texture_rtx5090() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let mut h = harness(2.0);
     let mut doc = fixture();

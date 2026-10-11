@@ -24,5 +24,10 @@ pub fn config(_cases: u32) -> Config {
     if std::env::var_os("PROPTEST_RNG_SEED").is_none() {
         c.rng_seed = RngSeed::Fixed(SEED);
     }
+    if std::env::var_os("PROPTEST_MAX_GLOBAL_REJECTS").is_none() {
+        // A larger accepted-case run needs a proportional budget for unchanged
+        // geometric preconditions; it must still accept every requested case.
+        c.max_global_rejects = c.max_global_rejects.max(c.cases);
+    }
     c
 }

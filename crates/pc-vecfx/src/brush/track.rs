@@ -166,13 +166,8 @@ pub fn tracks(path: &Path, tol: f64) -> Result<Vec<Track>> {
     let mut budget = 0usize;
     for sp in &path.subpaths {
         budget += 1;
-        for [p, c, d, q] in sp.segments() {
-            let n = if c == p && d == q {
-                1
-            } else {
-                let m = ((p.x - 2.0 * c.x + d.x).hypot(p.y - 2.0 * c.y + d.y)).max((c.x - 2.0 * d.x + q.x).hypot(c.y - 2.0 * d.y + q.y));
-                ((0.75 * m / 1e-4).sqrt().ceil() as usize).clamp(1, 1 << 16)
-            };
+        for segment in sp.segments() {
+            let n = photocraft_vector::segment_pieces(&segment, tol);
             budget = budget.checked_add(n).ok_or(Error::Budget)?;
             if budget > MAX_VERTICES {
                 return Err(Error::Budget);

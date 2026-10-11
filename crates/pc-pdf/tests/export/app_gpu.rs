@@ -57,7 +57,8 @@ fn preview_pixels(h: &mut H, id: photocraft_doc::LayerId, dx: i32, dy: i32) {
 }
 #[test]
 fn pdf_export_app_real_gpu_preview_release_and_menu_dialog() {
-    let _lock = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     let observer = Arc::new(Mutex::new(None));
     let capture = observer.clone();
     let mut h: H =
@@ -154,9 +155,9 @@ fn pdf_export_app_real_gpu_preview_release_and_menu_dialog() {
     h.run_steps(2);
     h.get_by_label("Export").click();
     h.run_steps(3);
-    assert!(h.state().ui.vector_pdf_export.error.is_none(), "{:?}", h.state().ui.vector_pdf_export.error);
+    assert!(h.state().ui.pdf_export.error.is_none(), "{:?}", h.state().ui.pdf_export.error);
     assert_eq!(written.lock().unwrap().len(), 1);
-    assert!(h.state().ui.vector_pdf_export.request.is_none());
+    assert!(h.state().ui.pdf_export.request.is_none());
     assert_eq!(h.state().session.active().unwrap().revision, revision + 1);
     // A real raster layer produces the normal, visible app warning notice.
     let format = h.state().session.active().unwrap().doc.pixel_format();

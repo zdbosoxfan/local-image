@@ -83,3 +83,16 @@ pub(super) fn warn(warnings: &mut Vec<VectorWarning>, feature: &str, object: &st
         warnings.push(VectorWarning { feature: feature.into(), object: (!object.is_empty()).then(|| object.into()), message: message.into() });
     }
 }
+
+/// Bounded SVG/SVGZ source decoding shared by Open, Place and clipboard routes.
+pub fn source(bytes: &[u8], options: &ImportOptions) -> Result<String> {
+    preflight::source(bytes, options)
+}
+/// Recognize the XML root within the bounded header; filenames do not select the decoder.
+pub fn recognizes(bytes: &[u8]) -> bool {
+    if bytes.starts_with(&[0x1f, 0x8b]) {
+        return true;
+    }
+    let header = &bytes[..bytes.len().min(4096)];
+    header.windows(4).any(|s| s == b"<svg")
+}

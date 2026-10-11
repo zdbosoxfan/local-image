@@ -62,7 +62,7 @@ mod preview {
     fn rejects_assets_versions_offsets_lengths_and_bombs() {
         let b = fixture();
         for (offset, value) in [
-            (4, 13u64.to_le_bytes().to_vec()),
+            (4, 13u16.to_le_bytes().to_vec()),
             (8, b"urBR".to_vec()),
             (24, u64::MAX.to_le_bytes().to_vec()),
             (24, 1u64.to_le_bytes().to_vec()),
@@ -352,4 +352,15 @@ mod archive {
             let _ = stream::parse(&s);
         }
     }
+}
+
+#[cfg(feature = "synth")]
+#[test]
+fn shared_class_chain_limit_includes_the_final_class() {
+    use crate::synth::{self, F, tag};
+    let fields = vec![(tag(b"test"), F::Def(42, vec![tag(b"Test"); 65], vec![]))];
+    assert!(matches!(
+        crate::stream::parse_with(&synth::stream(&fields), crate::Limits::default(), None),
+        Err(crate::Error::Limit("object class chain too long"))
+    ));
 }

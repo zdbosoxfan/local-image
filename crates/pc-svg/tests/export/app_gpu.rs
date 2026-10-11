@@ -54,7 +54,8 @@ fn preview_pixels(h: &mut H, id: photocraft_doc::LayerId, dx: i32, dy: i32) {
 }
 #[test]
 fn svg_export_app_real_gpu_preview_release_and_roundtrip() {
-    let _lock = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     let observer = Arc::new(Mutex::new(None));
     let capture = observer.clone();
     let mut h: H =

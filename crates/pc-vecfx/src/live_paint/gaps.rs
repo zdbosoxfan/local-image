@@ -22,7 +22,7 @@ pub fn close(input: &[ops::Shape], gap: Gap) -> Result<Vec<ops::Shape>> {
         return Err(error("gap endpoint budget exceeded"));
     }
     let mut candidates = Vec::new();
-    for (a, &(i, _, _, p)) in ends.iter().enumerate() {
+    for (a, &(i, source_subpath, _, p)) in ends.iter().enumerate() {
         for (b, &(_, _, _, q)) in ends.iter().enumerate().skip(a + 1) {
             let d = (p.x - q.x).hypot(p.y - q.y);
             if d > 1e-7 && d <= gap.distance() {
@@ -30,10 +30,17 @@ pub fn close(input: &[ops::Shape], gap: Gap) -> Result<Vec<ops::Shape>> {
             }
         }
         for (j, shape) in input.iter().enumerate() {
-            if i == j {
-                continue;
-            }
-            if let Some((_, _, _, q, d)) = ops::nearest(&shape.path, p).map_err(error)? {
+            let other_subpaths;
+            let candidate = if i == j {
+                other_subpaths = Path {
+                    subpaths: shape.path.subpaths.iter().enumerate().filter(|(index, _)| *index != source_subpath).map(|(_, s)| s.clone()).collect(),
+                    ..shape.path.clone()
+                };
+                &other_subpaths
+            } else {
+                &shape.path
+            };
+            if let Some((_, _, _, q, d)) = ops::nearest(candidate, p).map_err(error)? {
                 if d <= 1e-7 {
                     // This endpoint already meets a curve, and is not dangling.
                     candidates.push((0., a, None, p));

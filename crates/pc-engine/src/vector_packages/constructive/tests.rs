@@ -386,3 +386,31 @@ fn constructive_cpu_scissors_keeps_subtractive_component_and_zero_smooth_is_noop
     assert!(s.journal.is_empty());
     assert!(!s.undo());
 }
+
+#[test]
+fn review_regression_constructive_scissors_all_pieces_retain_fill_rule_inversion_and_component_op() {
+    let mut p = Path::new(vec![Subpath::polyline(&[(20., 40.), (70., 40.), (120., 40.)]).with_op(photocraft_doc::PathOp::Subtract)]);
+    p.fill_rule = photocraft_doc::FillRule::EvenOdd;
+    p.inverted = true;
+    let (s, ids) = fixture(vec![p.clone()]);
+    let g = Gesture::begin(&s, &ids).unwrap();
+    let prepared = g.preview(&Action::Scissors { layer: ids[0], subpath: 0, segment: 0, t: 0.5 }).unwrap();
+    assert_eq!(prepared.output_paths().len(), 2);
+    for piece in prepared.output_paths() {
+        assert_eq!(piece.fill_rule, p.fill_rule);
+        assert_eq!(piece.inverted, p.inverted);
+        assert!(piece.subpaths.iter().all(|sp| sp.op == photocraft_doc::PathOp::Subtract));
+    }
+}
+#[test]
+fn review_regression_constructive_erase_single_path_pieces_retain_fill_rule_and_inversion() {
+    let mut p = Path::new(vec![Subpath::polyline(&[(20., 40.), (70., 40.), (120., 40.)])]);
+    p.fill_rule = photocraft_doc::FillRule::EvenOdd;
+    p.inverted = true;
+    let pieces = erase(&p, &vector::shapes::rect(55., 30., 30., 20.)).unwrap().unwrap();
+    assert_eq!(pieces.len(), 2);
+    for piece in pieces {
+        assert_eq!(piece.fill_rule, p.fill_rule);
+        assert_eq!(piece.inverted, p.inverted);
+    }
+}

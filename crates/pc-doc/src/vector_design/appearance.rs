@@ -16,6 +16,7 @@ pub struct Appearance {
 pub enum AppearanceItem {
     Fill(FillItem),
     Stroke(StrokeItem),
+    Mesh(MeshFillItem),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -154,4 +155,40 @@ mod tests {
         let a = Appearance { items: vec![AppearanceItem::Fill(f), AppearanceItem::Stroke(s)] };
         assert_eq!(a, serde_json::from_str(&serde_json::to_string(&a).unwrap()).unwrap());
     }
+}
+
+/// A native editable bicubic gradient mesh in document coordinates.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MeshPoint {
+    pub position: [f64; 2],
+    #[serde(default)]
+    pub handles: [[f64; 2]; 4],
+    pub rgba: [f32; 4],
+    #[serde(default = "one")]
+    pub opacity: f32,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GradientMesh {
+    pub rows: usize,
+    pub cols: usize,
+    pub points: Vec<MeshPoint>,
+    #[serde(default = "yes")]
+    pub dither: bool,
+    #[serde(default, skip_serializing_if = "mesh_seed_zero")]
+    pub seed: u32,
+}
+fn mesh_seed_zero(seed: &u32) -> bool {
+    *seed == 0
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MeshFillItem {
+    pub paint: GradientMesh,
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub opacity: f32,
+    #[serde(default = "normal", skip_serializing_if = "is_normal")]
+    pub blend: BlendMode,
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub visible: bool,
 }

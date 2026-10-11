@@ -675,6 +675,9 @@ pub struct Metadata {
 pub struct Document {
     /// Vector symbol masters. Instance content is activated with format v2 in V8.
     pub symbols: Vec<SymbolDef>,
+    pub graphic_styles: Vec<vector_design::styles::GraphicStyle>,
+    pub swatches: vector_design::swatches::SwatchBook,
+    pub drawing_scale: Option<vector_design::structure::DrawingScale>,
     /// Display units only; geometry remains pixels and resolution_dpi converts physical units.
     pub design_units: DesignUnits,
     pub id: DocId,
@@ -737,6 +740,9 @@ impl Document {
     pub fn new(name: impl Into<String>, size: Size, mode: ColorMode, depth: SampleType) -> Self {
         Document {
             symbols: Vec::new(),
+            graphic_styles: Vec::new(),
+            swatches: Default::default(),
+            drawing_scale: None,
             design_units: DesignUnits::Pixels,
             id: DocId::fresh(),
             name: name.into(),
@@ -842,7 +848,18 @@ impl Document {
     }
 
     pub fn path_of(&self, id: LayerId) -> Option<LayerPath> {
-        self.walk().into_iter().find(|(_, _, l)| l.id == id).map(|(p, _, _)| p)
+        fn find(layers: &[Layer], id: LayerId, path: &mut LayerPath) -> bool {
+            for (i, layer) in layers.iter().enumerate() {
+                path.push(i);
+                if layer.id == id || layer.children().is_some_and(|children| find(children, id, path)) {
+                    return true;
+                }
+                path.pop();
+            }
+            false
+        }
+        let mut path = Vec::new();
+        find(&self.layers, id, &mut path).then_some(path)
     }
 
     /// The locks in force on the layer at `path`: its own and those of every group around it,
@@ -1112,5 +1129,26 @@ mod id_tests {
         assert!(super::LayerId::fresh().0 > far);
         super::ensure_ids_above(3); // never moves backwards
         assert!(super::DocId::fresh().0 > far);
+    }
+}
+
+#[cfg(test)]
+mod lookup_regression {
+    use super::*;
+    #[test]
+    fn path_lookup_preserves_preorder_nested_matches_mutation_and_missing_ids() {
+        let a = Layer::raster("Nested", PixelFormat::RGBA8);
+        let id = a.id;
+        let b = Layer::raster("Sibling", PixelFormat::RGBA8);
+        let bid = b.id;
+        let outer = Layer::group("Outer", vec![Layer::group("Inner", vec![a.clone()]), b]);
+        let mut doc = Document::new("Lookup", Size::new(32, 32), ColorMode::Rgb, SampleType::U8);
+        doc.layers = vec![outer, a];
+        assert_eq!(doc.path_of(id), Some(vec![0, 0, 0]));
+        assert_eq!(doc.path_of(bid), Some(vec![0, 1]));
+        doc.layer_mut(id).unwrap().name = "Changed".into();
+        assert_eq!(doc.layer(id).unwrap().name, "Changed");
+        assert_eq!(doc.layers[1].name, "Nested");
+        assert_eq!(doc.path_of(LayerId(u64::MAX)), None);
     }
 }

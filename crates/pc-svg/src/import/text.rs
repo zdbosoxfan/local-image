@@ -330,8 +330,9 @@ pub(super) fn prepare(
         slots.markers.push(marker);
     }
     out.push_str(&source[copied..]);
-    if out.len() > options.limits.bytes {
+    let prepared_limit = usize::try_from(options.limits.decompressed_bytes).unwrap_or(usize::MAX);
+    if out.len() > prepared_limit {
         return Err(ImportError::Limit("prepared XML byte"));
     }
-    Ok((protect_markers(out, &slots, options.limits.bytes)?, slots))
+    Ok((protect_markers(out, &slots, prepared_limit)?, slots))
 }

@@ -317,7 +317,13 @@ pub fn self_intersections(path: &Path) -> Vec<(usize, usize, f64, f64)> {
                 // Recover t/u on the original local pieces, retaining separate loop branches.
                 let t = original[ia].subsegment(ta..tb).nearest(p, 1e-9).t;
                 let u = original[ib].subsegment(tc..td).nearest(p, 1e-9).t;
-                out.push((ia, ib, ta + (tb - ta) * t, tc + (td - tc) * u));
+                let (t, u) = (ta + (tb - ta) * t, tc + (td - tc) * u);
+                // The chord intersection may be a rounding artefact at an original
+                // curve endpoint. Apply the same proper-crossing exclusion after
+                // recovering the actual curve parameters.
+                if t > 1e-7 && t < 1. - 1e-7 && u > 1e-7 && u < 1. - 1e-7 {
+                    out.push((ia, ib, t, u));
+                }
             }
         }
     }

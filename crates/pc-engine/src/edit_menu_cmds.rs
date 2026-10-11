@@ -724,7 +724,7 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
                         for (a, b) in matches.iter().rev() {
                             crate::type_cmds::replace_text(t, *a, *b, &replace);
                         }
-                        crate::type_cmds::refresh(&snapshot, t);
+                        crate::vector_integration::refresh_text(&snapshot, t, &snapshot.layer(*id).ok_or(EngineError::NoLayer(*id))?.vector)?;
                     }
                 }
                 Ok(())
@@ -744,7 +744,7 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
                     let snapshot = doc.clone();
                     if let Some(LayerContent::Text(t)) = doc.layer_mut(id).map(|l| &mut l.content) {
                         crate::type_cmds::replace_text(t, a, b, &replace);
-                        crate::type_cmds::refresh(&snapshot, t);
+                        crate::vector_integration::refresh_text(&snapshot, t, &snapshot.layer(id).ok_or(EngineError::NoLayer(id))?.vector)?;
                     }
                     Ok(())
                 })?;

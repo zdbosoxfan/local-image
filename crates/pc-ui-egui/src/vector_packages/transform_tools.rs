@@ -168,15 +168,18 @@ fn corners([x, y, w, h]: [f64; 4]) -> [Point; 4] {
 }
 fn handles(b: [f64; 4]) -> [Point; 8] {
     let q = corners(b);
+    quad_handles(q)
+}
+fn quad_handles(q: [Point; 4]) -> [Point; 8] {
     [
         q[0],
         q[1],
         q[2],
         q[3],
-        Point::new((q[0].x + q[1].x) / 2., q[0].y),
-        Point::new(q[1].x, (q[1].y + q[2].y) / 2.),
-        Point::new((q[2].x + q[3].x) / 2., q[2].y),
-        Point::new(q[3].x, (q[3].y + q[0].y) / 2.),
+        Point::new((q[0].x + q[1].x) / 2., (q[0].y + q[1].y) / 2.),
+        Point::new((q[1].x + q[2].x) / 2., (q[1].y + q[2].y) / 2.),
+        Point::new((q[2].x + q[3].x) / 2., (q[2].y + q[3].y) / 2.),
+        Point::new((q[3].x + q[0].x) / 2., (q[3].y + q[0].y) / 2.),
     ]
 }
 fn opposite(i: usize) -> usize {
@@ -509,7 +512,7 @@ impl State {
                 }
                 return Ok(());
             }
-            if !wants && ctx.input(|i| i.key_pressed(Key::Enter)) {
+            if !wants && self.pending.is_none() && self.envelope_request.is_none() && ctx.input(|i| i.key_pressed(Key::Enter)) {
                 self.open_dialog(s, ids)?;
                 return Ok(());
             }
@@ -585,7 +588,7 @@ impl State {
             for i in 0..4 {
                 painter.line_segment([to_view(q[i]), to_view(q[(i + 1) % 4])], stroke);
             }
-            for p in handles(b) {
+            for p in quad_handles(q) {
                 painter.rect_filled(Rect::from_center_size(to_view(p), egui::vec2(6., 6.)), 0., cyan);
             }
         }
@@ -599,7 +602,11 @@ impl State {
                 if let LayerContent::Shape(sh) = &l.content {
                     for (si, sub) in sh.path.subpaths.iter().enumerate() {
                         for (ki, k) in sub.knots.iter().enumerate() {
-                            if ids.contains(&l.id) {
+                            if st
+                                .doc
+                                .path_of(l.id)
+                                .is_some_and(|path| (1..=path.len()).any(|n| st.doc.layer_at(&path[..n]).is_some_and(|ancestor| ids.contains(&ancestor.id))))
+                            {
                                 let selected = self.selected_nodes.contains(&Node { layer: l.id, subpath: si, knot: ki });
                                 painter.circle_filled(to_view(k.anchor), 3., if selected { cyan } else { Color32::WHITE });
                             }

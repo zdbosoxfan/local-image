@@ -298,3 +298,19 @@ fn snapping_masks_and_cache_budget_are_checked() {
     doc.guides.vertical = vec![1.0; MAX_TARGETS + 1];
     assert!(Cache::build(&doc, 0, Exclusions::default(), None).is_err());
 }
+
+#[test]
+fn review_additional_curve_snap_culls_distant_cached_control_bounds() {
+    thread_local! { static CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    fn nearest(_: &Path, _: photocraft_geom::Point) -> crate::Result<Option<Nearest>> {
+        CALLS.with(|count| count.set(count.get() + 1));
+        Ok(None)
+    }
+    let mut doc = document();
+    for i in 0..100 {
+        shape(&mut doc, [i as f64 * 100., 100., i as f64 * 100. + 10., 110.]);
+    }
+    let cache = Cache::build(&doc, 0, Exclusions::default(), Some(Geometry { nearest, bounds: |_| Ok(None) })).unwrap();
+    cache.point([5., 105.], &only(Kind::Curve), View::default(), None, false).unwrap();
+    assert_eq!(CALLS.with(std::cell::Cell::get), 1);
+}

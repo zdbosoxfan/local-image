@@ -95,7 +95,19 @@ impl SwatchBook {
         if !taken(base) {
             return base.into();
         }
-        (2..=MAX_SWATCHES + 2).map(|i| format!("{base} {i}")).find(|s| !taken(s)).unwrap_or_else(|| format!("{base} copy"))
+        let named = |suffix: &str| {
+            let budget = 1024 - suffix.encode_utf16().count();
+            let mut units = 0;
+            let prefix: String = base
+                .chars()
+                .take_while(|c| {
+                    units += c.len_utf16();
+                    units <= budget
+                })
+                .collect();
+            format!("{prefix}{suffix}")
+        };
+        (2..=MAX_SWATCHES + 2).map(|i| named(&format!(" {i}"))).find(|s| !taken(s)).unwrap_or_else(|| named(" copy"))
     }
     pub fn validate(&self) -> Result<(), String> {
         if self.swatches.len() + self.groups.len() > MAX_SWATCHES || self.links.len() > MAX_LINKS {
@@ -294,6 +306,20 @@ pub fn export_ase(book: &SwatchBook) -> Result<ExportedVector, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn colour39_duplicate_long_unicode_names_fit_ase_native_budget() {
+        let base = "😀".repeat(512);
+        let mut book = SwatchBook::default();
+        book.groups.push(SwatchGroup { id: 1, name: base.clone() });
+        let second = book.free_name(&base);
+        assert!(second.ends_with(" 2"));
+        assert!(second.encode_utf16().count() <= 1024);
+        book.groups.push(SwatchGroup { id: 2, name: second.clone() });
+        assert_ne!(book.free_name(&base), second);
+        book.validate().unwrap();
+        let bytes = export_ase(&book).unwrap().bytes;
+        assert_eq!(import_ase(&bytes, ImportLimits::default()).unwrap().0, book);
+    }
     #[test]
     fn colour39_defaults_tint_and_native_data_roundtrip() {
         assert_eq!(serde_json::from_str::<SwatchBook>("{}").unwrap(), SwatchBook::default());

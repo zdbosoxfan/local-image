@@ -395,3 +395,44 @@ fn clip35_draw_normal_and_behind_insert_exact_sibling_positions_and_settings_def
 #[path = "gpu_tests.rs"]
 #[cfg(not(target_arch = "wasm32"))]
 mod gpu_tests;
+
+#[test]
+fn review_regression_clip35_move_outside_keeps_unselected_locked_sibling_unchanged() {
+    let (mut s, ids) = fixture();
+    let mut doc = (*s.active().unwrap().doc).clone();
+    let mut children = vec![doc.layers.remove(0), doc.layers.remove(0)];
+    children[1].locks.all = true;
+    let sibling = children[1].clone();
+    let group = Layer::group("Parent", children);
+    let gid = group.id;
+    doc.layers = vec![group];
+    s.active_mut().unwrap().doc = Arc::new(doc);
+    let before = s.active().unwrap().doc.clone();
+    command(&mut s, &[ids[0]], "object.moveOutside");
+    assert_eq!(s.active().unwrap().doc.layers.len(), 2);
+    assert_eq!(s.active().unwrap().doc.layer(gid).unwrap().children().unwrap(), &[sibling]);
+    assert!(s.undo());
+    assert_eq!(s.active().unwrap().doc, before);
+}
+#[test]
+fn review_regression_clip35_release_nondefault_mask_density_feather_fails_without_losing_data() {
+    for (density, feather) in [(0.5, 0.), (1., 2.)] {
+        let (mut s, ids) = fixture();
+        let gid = group(&mut s, &ids);
+        s.edit("Mask parameters", |doc, _| {
+            let mask = doc.layer_mut(gid).unwrap().vector_mask.as_mut().unwrap();
+            mask.density = density;
+            mask.feather = feather;
+            Ok(())
+        })
+        .unwrap();
+        let before = s.active().unwrap().doc.clone();
+        let history = s.active().unwrap().history.past_len();
+        let journal = s.journal.len();
+        let capture = Capture::begin(&s, &[gid]).unwrap();
+        assert!(s.execute("object.clippingMask.release", capture.params().unwrap()).is_err());
+        assert_eq!(s.active().unwrap().doc, before);
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+        assert_eq!(s.journal.len(), journal);
+    }
+}

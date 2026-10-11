@@ -68,14 +68,6 @@ pub fn prepare_expansion(doc: &Document, mut ex: expansion::Expansion) -> Result
     }
     fn prepare(doc: &Document, layer: &mut Layer, transforms: &std::collections::BTreeMap<u64, Affine>) -> Result<()> {
         let a = *transforms.get(&layer.id.0).ok_or_else(|| bad("projection transform missing"))?;
-        if layer.vector.appearance.is_some()
-            || !layer.vector.corners.is_empty()
-            || layer.vector.on_path.is_some()
-            || layer.vector.live.is_some()
-            || layer.vector.clip.is_some()
-        {
-            return Err(bad("Rendering this symbol's advanced vector content is not available in this build"));
-        }
         if let LayerContent::Group(g) = &mut layer.content {
             for child in &mut g.children {
                 prepare(doc, child, transforms)?;
@@ -98,6 +90,19 @@ pub fn prepare_expansion(doc: &Document, mut ex: expansion::Expansion) -> Result
             if let LayerContent::Shape(sh) = &layer.content {
                 shape_valid(sh)?;
             }
+            if let LayerContent::Shape(shape) = &mut layer.content {
+                if let Some(live) = &layer.vector.live_shape {
+                    shape.path = super::super::drawing::geometry::generate(live).map_err(|e| bad(e.to_string()))?;
+                }
+                if !layer.vector.corners.is_empty() {
+                    *shape = super::super::corners::project_shape(shape, &layer.vector.corners)?;
+                }
+                layer.vector.corners.clear();
+                layer.vector.live_shape = None;
+                if let Some(appearance) = &mut layer.vector.appearance {
+                    photocraft_vector::appearance::scale_with_object(appearance, a).map_err(bad)?;
+                }
+            }
             if a != Affine::IDENTITY {
                 layer.vector.live_shape = None;
                 if let Some(surface) = layer.surface() {
@@ -118,19 +123,13 @@ pub fn prepare_expansion(doc: &Document, mut ex: expansion::Expansion) -> Result
             match &mut layer.content {
                 LayerContent::Shape(sh) => {
                     shape_valid(sh)?;
-                    let compiled = photocraft_vector::CompiledShape::new(sh, photocraft_vector::DEFAULT_TOLERANCE, doc.bounds());
-                    let bounds = compiled.bounds().unwrap_or(Rect::EMPTY).intersect(&doc.bounds());
-                    budget(bounds)?;
-                    sh.cache = Some(compiled.render(doc.pixel_format(), bounds));
+                    sh.cache = Some(crate::vector_integration::render_shape(doc, sh, &layer.vector)?);
                 }
                 LayerContent::Text(t) => {
-                    let mut eng = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner());
-                    let layout = eng.layout(t, doc.resolution_dpi);
-                    let warp = photocraft_text::render::layout_warp(&layout, t.warp.as_ref());
-                    let bounds = photocraft_text::render::ink_rect_warped(&layout, &t.transform, warp.as_ref());
-                    mapped_bounds(bounds, Affine::IDENTITY)?;
-                    t.cache = Some(photocraft_text::render::rasterize_warped(&layout, &t.transform, doc.pixel_format(), t.antialias, warp.as_ref()).surface);
-                    t.psd_raw = Some(std::sync::Arc::new(photocraft_text::psd::build_tysh(t, doc.resolution_dpi, layout.bounds())));
+                    crate::vector_integration::refresh_text(doc, t, &layer.vector)?;
+                    if let Some(cache) = &t.cache {
+                        mapped_bounds(cache.content_bounds(), Affine::IDENTITY)?;
+                    }
                 }
                 LayerContent::Smart(_) => {
                     crate::smart_cmds::refresh_layer(doc, layer)?;
@@ -172,15 +171,13 @@ pub fn prepare_expansion(doc: &Document, mut ex: expansion::Expansion) -> Result
 pub fn render_instance(doc: &Document, instance: &SymbolInstance) -> Result<Surface> {
     let temporary = Layer::new("Symbol projection", LayerContent::Symbol(instance.clone()));
     let ex = expansion::expand(doc, std::slice::from_ref(&temporary)).map_err(|e| bad(e.to_string()))?;
-    let mut projected = doc.clone();
-    projected.layers = prepare_expansion(doc, ex)?;
-    let bounds = projected
-        .layers
+    let layers = prepare_expansion(doc, ex)?;
+    let bounds = layers
         .iter()
         .map(|l| photocraft_compose::composite_bounds(l, doc.bounds()).unwrap_or(doc.bounds()))
         .fold(Rect::EMPTY, |a, b| a.union(&b))
         .intersect(&doc.bounds());
-    composite_surface(doc, projected.layers, bounds)
+    composite_surface(doc, layers, bounds)
 }
 
 /// Legacy Free Transform's detached cached preview. Bounds/affine validation runs before

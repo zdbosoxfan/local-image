@@ -440,7 +440,7 @@ impl ProjectionCache {
                     m.path = m.path.transform(&Affine::scale(scale));
                     m.feather *= scale as f32;
                 }
-                if l.vector.clip.is_some() || l.vector.live.is_some() || l.vector.on_path.is_some() {
+                if l.vector.clip.is_some() || l.vector.live.is_some() {
                     return Err(ViewError("feature projection provider required".into()));
                 }
                 scale_effects(&mut l, scale as f32)?;
@@ -448,57 +448,62 @@ impl ProjectionCache {
                     c.surface = sample_surface(&c.surface, scale, clip)?;
                     paint(&mut c.fill, scale as f32);
                 }
-                l.content = match &source.content {
-                    LayerContent::Raster(s) => LayerContent::Raster(sample_surface(s, scale, clip)?),
-                    LayerContent::Smart(s) => {
-                        let mut s = s.clone();
-                        s.cache = s.cache.as_ref().map(|s| sample_surface(s, scale, clip)).transpose()?;
-                        LayerContent::Smart(s)
-                    }
-                    LayerContent::Text(t) => {
-                        let mut t = t.clone();
-                        t.cache = Some(projector(doc, source, scale, clip)?);
-                        t.transform = Affine::scale(scale).mul(&t.transform);
-                        LayerContent::Text(t)
-                    }
-                    LayerContent::Shape(sh) => {
-                        let mut sh = sh.clone();
-                        sh.cache = Some(projector(doc, source, scale, clip)?);
-                        sh.path = sh.path.transform(&Affine::scale(scale));
-                        sh.live = None;
-                        if let Some(st) = &mut sh.stroke {
-                            st.width *= scale as f32;
-                            paint(&mut st.paint, scale as f32);
+                l.content = if let Some(surface) = photocraft_compose::mosaic::surface(source, clip, scale, doc.pixel_format()) {
+                    l.vector.mosaic = None;
+                    LayerContent::Raster(surface)
+                } else {
+                    match &source.content {
+                        LayerContent::Raster(s) => LayerContent::Raster(sample_surface(s, scale, clip)?),
+                        LayerContent::Smart(s) => {
+                            let mut s = s.clone();
+                            s.cache = s.cache.as_ref().map(|s| sample_surface(s, scale, clip)).transpose()?;
+                            LayerContent::Smart(s)
                         }
-                        if let Some(f) = &mut sh.fill {
-                            paint(f, scale as f32);
+                        LayerContent::Text(t) => {
+                            let mut t = t.clone();
+                            t.cache = Some(projector(doc, source, scale, clip)?);
+                            l.vector.on_path = None;
+                            t.transform = Affine::scale(scale).mul(&t.transform);
+                            LayerContent::Text(t)
                         }
-                        LayerContent::Shape(sh)
-                    }
-                    LayerContent::Fill(f) => {
-                        let mut f = f.clone();
-                        paint(&mut f, scale as f32);
-                        if l.fill_cache.as_ref().is_none_or(|c| c.fill != f) {
-                            l.fill_cache = Some(FillCache { fill: f.clone(), surface: fill_surface(doc, source, &f, scale, clip)? });
+                        LayerContent::Shape(sh) => {
+                            let mut sh = sh.clone();
+                            sh.cache = Some(projector(doc, source, scale, clip)?);
+                            sh.path = sh.path.transform(&Affine::scale(scale));
+                            sh.live = None;
+                            if let Some(st) = &mut sh.stroke {
+                                st.width *= scale as f32;
+                                paint(&mut st.paint, scale as f32);
+                            }
+                            if let Some(f) = &mut sh.fill {
+                                paint(f, scale as f32);
+                            }
+                            LayerContent::Shape(sh)
                         }
-                        LayerContent::Fill(f)
-                    }
-                    LayerContent::Group(g) => {
-                        let mut g = g.clone();
-                        g.children = self.layers(doc, &g.children, scale, clip, deps, projector)?;
-                        if let Some(a) = &mut g.artboard {
-                            a.rect = scaled_rect(a.rect, scale)?;
+                        LayerContent::Fill(f) => {
+                            let mut f = f.clone();
+                            paint(&mut f, scale as f32);
+                            if l.fill_cache.as_ref().is_none_or(|c| c.fill != f) {
+                                l.fill_cache = Some(FillCache { fill: f.clone(), surface: fill_surface(doc, source, &f, scale, clip)? });
+                            }
+                            LayerContent::Fill(f)
                         }
-                        LayerContent::Group(g)
-                    }
-                    LayerContent::Adjustment(a) => LayerContent::Adjustment(a.clone()),
-                    // Package 15 instances: resample the rendered instance cache like Smart objects.
-                    // Integration may replace this with a vector projection of the expanded master.
-                    LayerContent::Symbol(s) => {
-                        let mut s = s.clone();
-                        s.cache = s.cache.as_ref().map(|c| sample_surface(c, scale, clip)).transpose()?;
-                        s.transform = Affine::scale(scale).mul(&s.transform);
-                        LayerContent::Symbol(s)
+                        LayerContent::Group(g) => {
+                            let mut g = g.clone();
+                            g.children = self.layers(doc, &g.children, scale, clip, deps, projector)?;
+                            if let Some(a) = &mut g.artboard {
+                                a.rect = scaled_rect(a.rect, scale)?;
+                            }
+                            LayerContent::Group(g)
+                        }
+                        LayerContent::Adjustment(a) => LayerContent::Adjustment(a.clone()),
+                        // Render native master geometry through the installed projector.
+                        LayerContent::Symbol(s) => {
+                            let mut s = s.clone();
+                            s.cache = Some(projector(doc, source, scale, clip)?);
+                            s.transform = Affine::scale(scale).mul(&s.transform);
+                            LayerContent::Symbol(s)
+                        }
                     }
                 };
                 // Bake masks over the bounded apron once. Retaining the full vector path here

@@ -191,6 +191,8 @@ pub mod point_curve;
 pub mod prefs_ui;
 pub mod preset_files_ui;
 mod tool_icon_data;
+#[path = "vector_packages/fill_stroke_proxy/icons.rs"]
+pub mod vector_tool_icon_data;
 // local-image: Preferences › Tools › Pen pressure curve.
 pub mod preset_panels;
 pub mod pressure_curve_ui;
@@ -391,6 +393,22 @@ pub struct Services {
 
 pub struct PhotocraftApp {
     pub session: Session,
+    pub vector_runtime: vector_integration::State,
+    pub shared_tools: crate::shared_tools::State,
+    pub constructive_state: crate::constructive::State,
+    pub width_state: crate::width::State,
+    pub vector_brush: crate::vector_brush::State,
+    pub envelope_state: crate::envelope::State,
+    pub vector_transform_tools: crate::vector_transform_tools::State,
+    pub clip_compound_state: crate::clip_compound::State,
+    pub blob_eraser: crate::blob_eraser::State,
+    pub mesh_state: crate::mesh::State,
+    pub svg_import: crate::vector_packages::svg_import::State,
+    pub pdf_import: crate::pdf_import::State,
+    pub affinity_import: crate::vector_packages::affinity::State,
+    pub trace_dialog: crate::trace_dialog::State,
+    pub library_vectorize: crate::library_vectorize::State,
+
     pub ui: UiState,
     pub services: Services,
     /// Canvas caches per (document, display): CPU textures hold monitor values; the GPU
@@ -577,6 +595,22 @@ impl PhotocraftApp {
     pub fn new(session: Session, services: Services) -> Self {
         let mut app = Self {
             session,
+            vector_runtime: Default::default(),
+            shared_tools: Default::default(),
+            constructive_state: Default::default(),
+            width_state: Default::default(),
+            vector_brush: Default::default(),
+            envelope_state: Default::default(),
+            vector_transform_tools: Default::default(),
+            clip_compound_state: Default::default(),
+            blob_eraser: Default::default(),
+            mesh_state: Default::default(),
+            svg_import: Default::default(),
+            pdf_import: Default::default(),
+            affinity_import: Default::default(),
+            trace_dialog: Default::default(),
+            library_vectorize: Default::default(),
+
             ui: UiState::default(),
             services,
             canvases: HashMap::new(),
@@ -668,6 +702,12 @@ impl PhotocraftApp {
         };
         // Saved preferences (and recovered documents) are in place before the first frame.
         prefs_ui::load(&mut app);
+        let persona = app.session.prefs().toolbar.persona;
+        if let Some(tool) =
+            Tool::from_name(app.session.prefs().toolbar.last_tool(persona)).filter(|t| photocraft_engine::toolsets::supports(&format!("{t:?}"), persona))
+        {
+            app.ui.tool = tool;
+        }
         notices::wayland_file_drop_guidance(&mut app);
         // File › Scripts › Script Events Manager: "Start Application".
         photocraft_engine::automate_cmds::fire_event(&mut app.session, "startApplication");
@@ -704,6 +744,11 @@ impl PhotocraftApp {
     /// the device was lost).
     pub fn gpu_active(&self) -> bool {
         self.gpu.is_some()
+    }
+
+    /// Read back the production canvas texture for offscreen acceptance/diagnostics.
+    pub fn read_canvas_texels(&self, key: u64) -> Option<(eframe::wgpu::TextureFormat, [u32; 2], Vec<[f32; 4]>)> {
+        self.gpu.as_ref()?.read_texels(key)
     }
 
     /// The GPU canvas's device health flag (tests inject faults through it).
@@ -872,6 +917,9 @@ impl PhotocraftApp {
         if let Some(r) = preset_files_ui::open(self, name, bytes) {
             return r.map(|()| Vec::new());
         }
+        if crate::pdf_import::offer(self, name, bytes)? {
+            return Ok(Vec::new());
+        }
         let name = &self.open_name(name);
         // Decoded on a worker: a tab with progress appears now, the document when it's ready
         // (warnings are shown then).
@@ -879,8 +927,14 @@ impl PhotocraftApp {
             jobs_ui::start_open(self, name, None, jobs_ui::bytes(bytes))?;
             return Ok(Vec::new());
         }
-        let import = self.services.import.as_ref().ok_or("no importer configured")?;
-        let (doc, warnings) = import(name, bytes)?;
+        let (doc, warnings) =
+            if let Some(vector) = photocraft_engine::vector_integration::read_vector_file(name, bytes, &std::sync::atomic::AtomicBool::new(false)) {
+                let result = vector.map_err(|e| e.to_string())?;
+                (result.document, result.warnings)
+            } else {
+                let import = self.services.import.as_ref().ok_or("no importer configured")?;
+                import(name, bytes)?
+            };
         // Edit › Color Settings policies apply on open; mismatches can ask what to do.
         // No path yet: a bare name isn't a location to save back to (`open_file` sets the path).
         let (_, color) = self.session.open_document(doc, None);
@@ -1152,6 +1206,7 @@ impl eframe::App for PhotocraftApp {
         ai_remove_ui::keys(self, ctx);
         jobs_ui::tick(self, ctx);
         shortcuts::handle(self, ctx);
+        crate::vector_integration::frame(self, ctx);
         let arrived: Vec<(String, Vec<u8>)> =
             self.services.inbox.as_ref().map(|q| std::mem::take(&mut *q.lock().unwrap_or_else(|e| e.into_inner()))).unwrap_or_default();
         for (name, bytes) in arrived {
@@ -1820,10 +1875,10 @@ pub mod graphic_styles;
 #[path = "vector_packages/eyedropper.rs"]
 pub mod vector_eyedropper;
 // Package 34 registration; persona/menu/canvas routing stays in the integration handoff.
-#[path = "vector_packages/transform_tools.rs"]
-pub mod vector_transform_tools;
 #[path = "vector_packages/distort_tools.rs"]
 pub mod distort_tools;
+#[path = "vector_packages/transform_tools.rs"]
+pub mod vector_transform_tools;
 
 // Package 44 canvas/menu wiring is supplied in integration/44.md.
 #[path = "vector_packages/measure.rs"]
@@ -1841,3 +1896,14 @@ pub mod fill_stroke_proxy;
 
 pub mod shared_tools;
 pub mod vector_packages;
+
+#[path = "vector_packages/constructive.rs"]
+pub mod constructive;
+
+#[path = "vector_packages/pdf_import.rs"]
+pub mod pdf_import;
+
+pub mod vector_integration;
+
+#[cfg(test)]
+pub(crate) mod gpu_test_support;

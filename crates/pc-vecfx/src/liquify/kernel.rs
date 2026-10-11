@@ -232,6 +232,35 @@ impl Dabber {
         Dab { c, intensity: self.intensity.unwrap_or(pressure.clamp(0.0, 1.0) * self.pressure_scale) }
     }
 
+    /// Preflight additional dabs without copying the retained prefix or allocating.
+    pub fn try_push(&mut self, sample: Sample) -> bool {
+        let additional = match self.samples.last().copied() {
+            None => 1,
+            Some((a, _)) => {
+                let len = a.distance(sample.0);
+                if len < 1e-12 {
+                    usize::from(self.holds)
+                } else {
+                    let mut count = 0;
+                    let mut s = self.spacing - self.carry;
+                    while s <= len {
+                        count += 1;
+                        if self.dabs.len() + count > MAX_DABS {
+                            return false;
+                        }
+                        s += self.spacing;
+                    }
+                    count
+                }
+            }
+        };
+        if self.dabs.len() + additional > MAX_DABS {
+            return false;
+        }
+        self.push(sample);
+        true
+    }
+
     /// Add a sample, and the dabs up to it.
     pub fn push(&mut self, (b, pb): Sample) {
         let prev = self.samples.last().copied();
@@ -409,8 +438,8 @@ fn apply_dab(sp: &mut SubPath, prm: &LiquifyParams, c: Point, prev: Point, dab: 
 }
 
 /// Does the brush box `bb` reach subpath `sp`?
-fn touches(sp: &SubPath, bb: Rect) -> bool {
-    sp_bounds(sp).is_some_and(|spb| spb.intersect(bb).area() > 0.0 || spb.width() == 0.0 || spb.height() == 0.0)
+pub(super) fn touches(sp: &SubPath, bb: Rect) -> bool {
+    sp_bounds(sp).is_some_and(|spb| spb.x0 <= bb.x1 && spb.x1 >= bb.x0 && spb.y0 <= bb.y1 && spb.y1 >= bb.y0)
 }
 
 /// Apply dab `d` (number `di`, after the dab at `prev`) to every subpath of `path` it reaches.

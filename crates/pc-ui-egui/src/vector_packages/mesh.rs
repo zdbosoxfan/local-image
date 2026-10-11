@@ -165,9 +165,7 @@ impl State {
             }
         }
         let p = [c.anchor[0] + delta[0], c.anchor[1] + delta[1]];
-        let mut next = c.base.clone();
-        next.update(|id, m| if id == c.layer { m.move_point(c.index, c.handle, p) } else { Ok(()) })?;
-        c.gesture = next;
+        c.gesture.update(|id, m| if id == c.layer { m.move_point(c.index, c.handle, p) } else { Ok(()) })?;
         Ok(())
     }
     /// One input consumer. Returns requests so the host can use its normal display/error path.
@@ -185,19 +183,22 @@ impl State {
         hooks: Hooks,
     ) -> Result<Vec<Action>> {
         let mut actions = Vec::new();
+        let mut preview = false;
         for event in events {
             match event {
                 Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers } if canvas.contains(*pos) => {
                     if self.down(s, ids, to_doc(*pos), *modifiers, tolerance, hooks)?
                         && let Some(request) = self.pending()
                     {
-                        actions.push(Action::Preview(request.clone()));
+                        let _ = request;
+                        preview = true;
                     }
                 }
                 Event::PointerMoved(pos) if self.capture.is_some() => {
                     self.motion(to_doc(*pos), mods)?;
                     if let Some(request) = self.pending() {
-                        actions.push(Action::Preview(request.clone()));
+                        let _ = request;
+                        preview = true;
                     }
                 }
                 Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, modifiers } if self.capture.is_some() => {
@@ -207,16 +208,21 @@ impl State {
                     {
                         actions.push(Action::Commit(c.gesture.request().clone()));
                     }
+                    preview = false;
                     self.preview = None;
                     self.generation = self.generation.wrapping_add(1);
                 }
                 Event::Key { key: Key::Escape, pressed: true, .. } | Event::WindowFocused(false) => {
                     self.cancel();
+                    preview = false;
                     actions.clear();
                     actions.push(Action::Cancel);
                 }
                 _ => {}
             }
+        }
+        if preview && let Some(request) = self.pending() {
+            actions.push(Action::Preview(request.clone()));
         }
         Ok(actions)
     }

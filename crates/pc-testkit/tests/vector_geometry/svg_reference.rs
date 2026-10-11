@@ -1,59 +1,65 @@
 //! Test-only usvg normalization of externally generated SVGs. No pathops dependency.
 use photocraft_doc::{FillRule, Knot, Path, PathOp, Subpath};
 use photocraft_geom::Point;
-use resvg::{tiny_skia::PathSegment, usvg};
+use resvg::usvg;
+#[path = "svg_f64.rs"]
+mod svg_f64;
+const NORMALIZER: &str = "usvg 0.45.1 + svgtypes 0.15.3 f64 geometry";
 use serde_json::{Value, json};
 use std::path::PathBuf;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn reference_paths(svg: &str) -> Result<Vec<Path>, Box<dyn std::error::Error>> {
-    fn walk(group: &usvg::Group, out: &mut Vec<Path>) -> Result<(), String> {
+    fn walk(group: &usvg::Group, raw: &std::collections::HashMap<String, String>, out: &mut Vec<Path>) -> Result<(), String> {
         if group.clip_path().is_some() || group.mask().is_some() || !group.filters().is_empty() {
             return Err("geometry golden contains a clip/mask/filter".into());
         }
         for node in group.children() {
             match node {
-                usvg::Node::Group(g) => walk(g, out)?,
+                usvg::Node::Group(g) => walk(g, raw, out)?,
                 usvg::Node::Path(p) => {
                     if p.stroke().is_some() {
                         return Err("geometry golden still contains an unexpanded stroke".into());
                     }
                     let Some(fill) = p.fill() else { continue };
                     let t = p.abs_transform();
-                    let point = |p: resvg::tiny_skia::Point| {
+                    let point = |p: kurbo::Point| {
                         Point::new(
-                            f64::from(t.sx) * f64::from(p.x) + f64::from(t.kx) * f64::from(p.y) + f64::from(t.tx),
-                            f64::from(t.ky) * f64::from(p.x) + f64::from(t.sy) * f64::from(p.y) + f64::from(t.ty),
+                            f64::from(t.sx) * p.x + f64::from(t.kx) * p.y + f64::from(t.tx),
+                            f64::from(t.ky) * p.x + f64::from(t.sy) * p.y + f64::from(t.ty),
                         )
                     };
                     let mut path =
                         Path { fill_rule: if fill.rule() == usvg::FillRule::EvenOdd { FillRule::EvenOdd } else { FillRule::NonZero }, ..Default::default() };
                     let mut sub = Subpath::default();
-                    for segment in p.data().segments() {
+                    let data = raw.get(p.id()).ok_or("external path missing raw geometry")?;
+                    let scale = f64::from(t.sx.abs() + t.ky.abs()).max(f64::from(t.kx.abs() + t.sy.abs())).max(1.);
+                    let bez = svg_f64::parse(data, 1e-6 / scale)?;
+                    for segment in bez.iter() {
                         match segment {
-                            PathSegment::MoveTo(p) => {
+                            kurbo::PathEl::MoveTo(p) => {
                                 if !sub.knots.is_empty() {
                                     path.subpaths.push(std::mem::take(&mut sub));
                                 }
                                 let p = point(p);
                                 sub.knots.push(Knot::corner(p.x, p.y));
                             }
-                            PathSegment::LineTo(p) => {
+                            kurbo::PathEl::LineTo(p) => {
                                 let p = point(p);
                                 sub.knots.push(Knot::corner(p.x, p.y));
                             }
-                            PathSegment::QuadTo(c, p) => {
+                            kurbo::PathEl::QuadTo(c, p) => {
                                 let (c, p) = (point(c), point(p));
                                 let prev = sub.knots.last_mut().ok_or("quadratic without start")?;
                                 prev.out_ctrl = Point::new(prev.anchor.x + (c.x - prev.anchor.x) * 2. / 3., prev.anchor.y + (c.y - prev.anchor.y) * 2. / 3.);
                                 sub.knots.push(Knot::smooth(p, Point::new(p.x + (c.x - p.x) * 2. / 3., p.y + (c.y - p.y) * 2. / 3.), p));
                             }
-                            PathSegment::CubicTo(c1, c2, p) => {
+                            kurbo::PathEl::CurveTo(c1, c2, p) => {
                                 let (c1, c2, p) = (point(c1), point(c2), point(p));
                                 sub.knots.last_mut().ok_or("cubic without start")?.out_ctrl = c1;
                                 sub.knots.push(Knot::smooth(p, c2, p));
                             }
-                            PathSegment::Close => {
+                            kurbo::PathEl::ClosePath => {
                                 sub.closed = true;
                                 if sub.knots.len() > 1 && sub.knots.first().map(|k| k.anchor) == sub.knots.last().map(|k| k.anchor) {
                                     let last = sub.knots.pop().ok_or("missing closing knot")?;
@@ -78,12 +84,30 @@ fn reference_paths(svg: &str) -> Result<Vec<Path>, Box<dyn std::error::Error>> {
     if svg.len() > 50_000 {
         return Err("geometry golden exceeds 50 KB".into());
     }
-    let tree = usvg::Tree::from_str(svg, &usvg::Options::default())?;
+    let xml = usvg::roxmltree::Document::parse(svg)?;
+    let mut raw = std::collections::HashMap::new();
+    let mut insertions = Vec::new();
+    for (i, node) in xml.descendants().filter(|n| n.is_element() && n.tag_name().name() == "path").enumerate() {
+        let id = node.attribute("id").map(str::to_owned).unwrap_or_else(|| format!("__geometry_reference_{i}"));
+        if node.attribute("id").is_none() {
+            let offset = node.range().start;
+            let name_end = svg[offset..].find(|c: char| c.is_whitespace() || c == '>').ok_or("invalid SVG path tag")?;
+            insertions.push((offset + name_end, format!(" id=\"{id}\"")));
+        }
+        if raw.insert(id, node.attribute("d").unwrap_or("").to_owned()).is_some() {
+            return Err("duplicate SVG reference path ID".into());
+        }
+    }
+    let mut exact = svg.to_owned();
+    for (offset, id) in insertions.into_iter().rev() {
+        exact.insert_str(offset, &id);
+    }
+    let tree = usvg::Tree::from_str(&exact, &usvg::Options::default())?;
     if tree.size().width() != 96.0 || tree.size().height() != 96.0 {
         return Err("geometry golden page must retain the 96x96 input viewport".into());
     }
     let mut paths = Vec::new();
-    walk(tree.root(), &mut paths)?;
+    walk(tree.root(), &raw, &mut paths)?;
     Ok(paths)
 }
 
@@ -125,9 +149,10 @@ fn geometry31_prepare_inkscape_sidecars() -> TestResult {
             let base = root.join("goldens").join(id).join(operation);
             let svg = std::fs::read_to_string(base.with_extension("svg"))?;
             let recipe = format!("select-by-id:a,b;{}", action.as_str().ok_or("missing action")?);
-            assert_eq!(record["actions"][format!("{id}/{operation}")], recipe);
+            let executed = record["actions"][format!("{id}/{operation}")].as_str().ok_or("missing executed recipe")?;
+            assert_eq!(executed.strip_suffix(";export-do").unwrap_or(executed), recipe);
             let paths = reference_paths(&svg)?;
-            let golden = json!({"tool":record["tool"],"normalizer":"usvg 0.45.1","case":id,"operation":operation,"actions":recipe,"input_svg":input,"source_svg":svg,"paths":paths});
+            let golden = json!({"tool":record["tool"],"normalizer":NORMALIZER,"case":id,"operation":operation,"actions":recipe,"execution_actions":executed,"input_svg":input,"source_svg":svg,"paths":paths});
             std::fs::write(base.with_extension("json"), serde_json::to_string_pretty(&golden)? + "\n")?;
         }
     }
@@ -139,15 +164,35 @@ fn geometry31_prepare_inkscape_sidecars() -> TestResult {
         let key = format!("{id}/{operation}");
         let recipe = record["actions"][&key].as_str().ok_or("missing executed action recipe")?;
         assert!(!recipe.trim().is_empty());
+        let geometry_recipe = case["actions"].as_str().unwrap_or(recipe);
         if case["actions"].is_string() {
-            assert_eq!(case["actions"], recipe);
+            let expanded = recipe.strip_suffix(";export-do").unwrap_or(recipe);
+            assert!(
+                expanded == geometry_recipe
+                    || (id == "stroke-butt-miter-dashed"
+                        && operation == "stroke"
+                        && expanded == "select-all:all;object-to-path;path-union"
+                        && record["settings"][&key]["analytical_equivalence"] == true
+                        && record["settings"][&key]["effective_input_svg"].is_string()),
+                "unexpected external reference recipe"
+            );
         }
-        assert_eq!(record["parameters"][&key], case["parameters"]);
+        assert_eq!(record["parameters"][&key], *case, "generation parameters must match the complete unary input recipe");
         let base = root.join("goldens").join(id).join(operation);
         let svg = std::fs::read_to_string(base.with_extension("svg"))?;
         let paths = reference_paths(&svg)?;
-        let golden = json!({"tool":record["tool"],"normalizer":"usvg 0.45.1","case":id,"operation":operation,"actions":recipe,"parameters":case["parameters"],"input_svg":input,"source_svg":svg,"paths":paths});
+        let golden = json!({"tool":record["tool"],"normalizer":NORMALIZER,"case":id,"operation":operation,"actions":geometry_recipe,"execution_actions":recipe,"parameters":case["parameters"],"input_svg":input,"source_svg":svg,"paths":paths});
         std::fs::write(base.with_extension("json"), serde_json::to_string_pretty(&golden)? + "\n")?;
     }
+    Ok(())
+}
+
+#[test]
+fn geometry31_svg_normalizer_preserves_thin_regions_and_accurate_arcs() -> TestResult {
+    let p = reference_paths(r#"<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><path d="M40 8 H40.0001 V80 H40 Z"/></svg>"#)?;
+    assert!((crate::vector::area(&p[0], FillRule::NonZero)? - 0.0072).abs() < 1e-10);
+    let p =
+        reference_paths(r#"<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><path d="M68 48 A20 20 0 0 1 28 48 A20 20 0 0 1 68 48 Z"/></svg>"#)?;
+    assert!((crate::vector::area(&p[0], FillRule::NonZero)? - std::f64::consts::PI * 400.).abs() < 0.0001);
     Ok(())
 }

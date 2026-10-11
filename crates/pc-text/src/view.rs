@@ -26,8 +26,18 @@ pub fn render_text_view(
         return Err("type view transform exceeds coordinate budget");
     }
     let layout = engine.layout(layer, dpi);
-    let warp = super::render::layout_warp(&layout, layer.warp.as_ref());
-    let ink = super::render::ink_rect_warped(&layout, &transform, warp.as_ref());
+    render_layout_view(&layout, layer, format, clip, scale)
+}
+
+/// Render an already composed native layout in bounded device-space tiles.
+pub fn render_layout_view(layout: &super::TextLayout, layer: &TextLayer, format: PixelFormat, clip: Rect, scale: f64) -> Result<Surface, &'static str> {
+    let limit = f64::from(i32::MAX / 4);
+    if !scale.is_finite() || !(1.0..=64.0).contains(&scale) {
+        return Err("invalid type view scale");
+    }
+    let transform = Affine::scale(scale).mul(&layer.transform);
+    let warp = super::render::layout_warp(layout, layer.warp.as_ref());
+    let ink = super::render::ink_rect_warped(layout, &transform, warp.as_ref());
     if [ink.x0, ink.y0, ink.x1, ink.y1].iter().any(|v| f64::from(*v).abs() > limit) {
         return Err("type view ink exceeds coordinate budget");
     }
@@ -39,11 +49,12 @@ pub fn render_text_view(
         return Err("type view exceeds visible raster budget");
     }
     let format = PixelFormat { alpha: true, ..format };
+    let projected = project_lines(layout, &transform, warp.as_ref())?;
     let mut out = Surface::new(format);
     for y in (area.y0..area.y1).step_by(256) {
         for x in (area.x0..area.x1).step_by(256) {
             let rect = Rect::new(x, y, (x + 256).min(area.x1), (y + 256).min(area.y1));
-            let pixels = rasterize_tile(&layout, &transform, format, layer.antialias, warp.as_ref(), rect);
+            let pixels = rasterize_tile(&projected, format, layer.antialias, rect);
             out.write_region(rect, &pixels);
         }
     }
@@ -175,21 +186,73 @@ fn color_in(format: &PixelFormat, c: &Color) -> Vec<f32> {
     }
 }
 
-fn rasterize_tile(layout: &TextLayout, transform: &Affine, format: PixelFormat, antialias: AntiAlias, warp: Option<&Warp>, rect: Rect) -> Vec<f32> {
+#[derive(Clone, Copy)]
+struct ProjectedLine {
+    a: (f64, f64),
+    b: (f64, f64),
+}
+#[derive(Default)]
+struct LineCache {
+    lines: Vec<ProjectedLine>,
+    exceeded: bool,
+}
+impl LineSink for LineCache {
+    fn line(&mut self, a: (f64, f64), b: (f64, f64)) {
+        if self.lines.len() >= 1_048_576 {
+            self.exceeded = true;
+            return;
+        }
+        self.lines.push(ProjectedLine { a, b });
+    }
+}
+struct ProjectedColor {
+    color: Color,
+    lines: Vec<ProjectedLine>,
+}
+fn project_lines(layout: &TextLayout, transform: &Affine, warp: Option<&Warp>) -> Result<Vec<ProjectedColor>, &'static str> {
+    let key = |c: Color| (c.mode as u8, c.c.map(f32::to_bits), c.alpha.to_bits());
+    let mut colors = Vec::new();
+    let mut slots = std::collections::HashMap::new();
+    for style in &layout.styles {
+        if let std::collections::hash_map::Entry::Vacant(entry) = slots.entry(key(style.color)) {
+            entry.insert(colors.len());
+            colors.push(style.color);
+        }
+    }
+    let mut groups = vec![Vec::new(); colors.len()];
+    for glyph in &layout.glyphs {
+        groups[slots[&key(layout.styles[glyph.style as usize].color)]].push(*glyph);
+    }
+    let mut part = layout.clone();
+    let mut projected = Vec::new();
+    let mut total = 0usize;
+    for (color, glyphs) in colors.into_iter().zip(groups) {
+        part.glyphs = glyphs;
+        let mut cache = LineCache::default();
+        draw(&part, &Xform(transform.m), &mut cache, Some(&color), warp);
+        total += cache.lines.len();
+        if cache.exceeded || total > 1_048_576 {
+            return Err("type view exceeds projected outline budget");
+        }
+        projected.push(ProjectedColor { color, lines: cache.lines });
+    }
+    Ok(projected)
+}
+fn rasterize_tile(projected: &[ProjectedColor], format: PixelFormat, antialias: AntiAlias, rect: Rect) -> Vec<f32> {
     let (w, h) = (rect.width() as usize, rect.height() as usize);
     let n = format.mode.color_channels();
     let stride = n + 1;
     let mut acc = vec![0.0; w * h * stride];
-    let xf = Xform([1.0, 0.0, 0.0, 1.0, -f64::from(rect.x0), -f64::from(rect.y0)]).mul(&Xform(transform.m));
-    let mut colors = Vec::new();
-    for st in &layout.styles {
-        if !colors.contains(&st.color) {
-            colors.push(st.color);
-        }
-    }
-    for c in colors {
+    for group in projected {
+        let c = group.color;
         let mut cov = Coverage::new(w, h);
-        draw(layout, &xf, &mut cov, Some(&c), warp);
+        for line in &group.lines {
+            if line.a.1.max(line.b.1) < f64::from(rect.y0) || line.a.1.min(line.b.1) > f64::from(rect.y1) {
+                continue;
+            }
+            let local = |p: (f64, f64)| (p.0 - f64::from(rect.x0), p.1 - f64::from(rect.y0));
+            cov.line(local(line.a), local(line.b));
+        }
         let cov = cov.finish();
         let comps = color_in(&format, &c);
         let alpha = c.alpha.clamp(0.0, 1.0);

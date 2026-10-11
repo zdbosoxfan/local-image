@@ -221,3 +221,9 @@ fn affinity_import_unknown_record_uses_available_raster_pixels() {
     assert_eq!(surface.rgba(2, 0), [0.; 4]);
     assert!(scene.warnings.iter().any(|w| w.message.contains("cached pixels")));
 }
+
+#[test]
+fn affinity_import_unsupported_compound_operand_never_publishes_partial_geometry() {
+    let compound = F::Def(100, vec![tag(b"Comp")], vec![(tag(b"Chld"), F::Shared(vec![curve(), F::Obj(tag(b"ZZZZ"), vec![])]))]);
+    assert!(matches!(import(&document(vec![compound]), &ImportOptions::default()), Err(Error::Unsupported("no supported artwork"))));
+}

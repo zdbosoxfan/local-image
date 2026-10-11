@@ -159,11 +159,14 @@ impl State {
                     if !sh.path.subpaths[si].closed && first.segment as f64 + first.t > last.segment as f64 + last.t { (last, first) } else { (first, last) };
                 g.capture.operation = Operation::SculptRange { layer: id, subpath: si, from: a, to: b };
                 // Dragging backwards over an open interval reverses the samples, not the base path.
-                let mut samples = g.samples.clone();
                 if a != first {
-                    samples.reverse();
+                    g.samples.reverse();
+                    let preview = engine::prepare(session, &g.capture, &g.samples, false);
+                    g.samples.reverse();
+                    self.preview = Some(preview?);
+                } else {
+                    self.preview = Some(engine::prepare(session, &g.capture, &g.samples, false)?);
                 }
-                self.preview = Some(engine::prepare(session, &g.capture, &samples, false)?);
             } else {
                 self.preview = None;
                 if release {
@@ -173,7 +176,7 @@ impl State {
         } else {
             let close_within = self.options.close_within / f64::from(zoom);
             let near = g.samples.len() > 2 && fitting::distance(g.samples[0].point, g.last_raw.point) <= close_within;
-            let closed = mods.alt || (matches!(g.capture.operation, Operation::Create { .. }) && near);
+            let closed = matches!(g.capture.operation, Operation::Create { .. }) && (mods.alt || near);
             let mut capture = g.capture.clone();
             capture.options.close_within = close_within;
             self.preview = Some(engine::prepare(session, &capture, &g.samples, closed && g.samples.len() > 2)?);

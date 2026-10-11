@@ -1182,7 +1182,7 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Direct Selection tool (A, #790), and the Pen's ⌘/Ctrl (Direct Selection) and ⌥/Alt (Convert Point) modifiers, as in Photoshop.",
+          "used_for": "V3 gestures adapted from VectorCraft crates/tools/src/direct.rs, pinned at d522c1d7be4035bd4f4a84cd6ebfca44f5155092, MIT OR Apache-2.0.",
           "upstream": "crates/ui-egui/src/direct_select.rs",
           "commit": "75ff41a26beb445413f6ee9248eb40b42152bd77",
           "ours": "crates/pc-ui-egui/src/direct_select.rs",
@@ -1197,7 +1197,7 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "#790: paths can be reshaped after they're drawn, as in Photoshop: the Direct Selection tool (A), and the Pen with ⌘/Ctrl (Direct Selection) or ⌥/Alt (Convert Point).",
+          "used_for": "Gesture replay semantics adapted from VectorCraft crates/tools/src/direct.rs tests, d522c1d7be4035bd4f4a84cd6ebfca44f5155092, MIT OR Apache-2.0.",
           "upstream": "crates/ui-egui/src/direct_select_tests.rs",
           "commit": "75ff41a26beb445413f6ee9248eb40b42152bd77",
           "ours": "crates/pc-ui-egui/src/direct_select_tests.rs",
@@ -1401,6 +1401,1702 @@
             "licenses/photocraft-NOTICE"
           ],
           "url": "https://github.com/storytold/photocraft/blob/5355221f81e325a8682c7e3a7e03dd66cc00b5e6/crates/gpu/tests/parity.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Live shape projection onto the existing document Path; no second object tree.",
+          "upstream": "crates/geom/src/shapes.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vector/src/design_shapes.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/shapes.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Package 02 live-shape input/preview/context hooks; registered by packages 00/01.",
+          "upstream": "crates/tools/src/shape.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/drawing.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/shape.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "V3 gestures adapted from VectorCraft crates/tools/src/direct.rs, pinned at d522c1d7be4035bd4f4a84cd6ebfca44f5155092, MIT OR Apache-2.0.",
+          "upstream": "crates/tools/src/direct.rs (multi-curve node gestures)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/direct_select.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/direct.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Point-level path editing, Photoshop's Direct Selection and Convert Point tools: move anchors, drag direction handles, reshape a segment by dragging it, convert between smooth and corner points, and hit-test a path's parts.",
+          "upstream": "crates/pathops/src/edit.rs, crates/pathops/src/fit.rs (remove_anchor, smooth conversion; fitting adapted to existing Point)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vector/src/edit.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/src/edit.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Node editing transactions on detached snapshots.",
+          "upstream": "crates/tools/src/direct.rs, crates/pathops/src/edit.rs (command replay semantics)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/node.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/direct.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Gesture replay semantics adapted from VectorCraft crates/tools/src/direct.rs tests, d522c1d7be4035bd4f4a84cd6ebfca44f5155092, MIT OR Apache-2.0.",
+          "upstream": "crates/tools/src/direct.rs (gesture replay tests; original independent oracles)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/direct_select_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/direct.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Gesture replay semantics adapted from VectorCraft crates/tools/src/direct.rs tests, d522c1d7be4035bd4f4a84cd6ebfca44f5155092, MIT OR Apache-2.0.",
+          "upstream": "crates/tools/src/direct.rs, crates/pathops/src/edit.rs (command replay semantics; original native-state checks)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/node/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/direct.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Atomic Pen commit and detached preview boundary.",
+          "upstream": "crates/tools/src/pen.rs (transaction/gesture boundary adaptation)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/pen.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/pen.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Detached adaptation of VectorCraft pen placement, close and handle-break replay logic.",
+          "upstream": "crates/tools/src/pen.rs (placement, Alt/Shift, closure and endpoint behavior)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/pen/gesture.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/pen.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Selected replays adapted from VectorCraft crates/tools/src/pen.rs, d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/tools/src/pen.rs (selected replay scenarios, adapted independent assertions)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/pen/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/pen.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Pen context controls, pointer capture and detached canvas preview.",
+          "upstream": "crates/tools/src/pen.rs (input adapter/overlay behavior)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/pen.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/pen.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Freehand fitting and interval replacement for Vector Pencil (never raster Pencil).",
+          "upstream": "crates/pathops/src/fit.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vector/src/pencil_fit.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pathops/src/fit.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Freehand fitting and interval replacement for Vector Pencil (never raster Pencil).",
+          "upstream": "crates/engine/src/cmd/draw2.rs (continuation)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vector/src/pencil_fit.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/cmd/draw2.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Vector Pencil and Sculpt; raster paint.pencil is untouched.",
+          "upstream": "crates/engine/src/cmd/draw2.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/pencil.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/cmd/draw2.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Vector Pencil / Sculpt input and context controls.",
+          "upstream": "crates/tools/src/draw2/gesture.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/pencil.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/draw2/gesture.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Non-destructive corner projection in native Path coordinates.",
+          "upstream": "crates/geom/src/corners.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vector/src/live_corners.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/corners.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Corner controls.",
+          "upstream": "crates/tools/src/corners.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/corners.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/corners.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Document-space snapping shared by vector tools.",
+          "upstream": "crates/geom/src/snap.rs (grid formula; remaining cache/query is original integration)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_snap.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/snap.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Authoritative bottom-to-top shape paints, using the existing exact-area rasterizer.",
+          "upstream": "crates/doc/src/appearance.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vector/src/appearance.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/appearance.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Native polygon projection.",
+          "upstream": "crates/effects/src/stroke/arrow.rs, crates/effects/src/stroke/dash.rs, crates/effects/src/stroke/gradient.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vector/src/appearance/geometry.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/effects/src/stroke/arrow.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Pattern placement adapted from the PhotoCraft fork crates/pc-compose/src/pattern.rs at c18d18cf613422fe08d31001e1f803cf8ef7dd68 (MIT OR Apache-2.0).",
+          "upstream": "crates/pc-compose/src/pattern.rs (Local Image fork)",
+          "commit": "c18d18cf613422fe08d31001e1f803cf8ef7dd68",
+          "ours": "crates/pc-vector/src/appearance/paint.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/c18d18cf613422fe08d31001e1f803cf8ef7dd68/crates/pc-compose/src/pattern.rs"
+        },
+        {
+          "name": "Local Image / PhotoCraft import",
+          "used_for": "Type display projection through the existing shaper and glyph rasterizer.",
+          "upstream": "crates/pc-text/src/render.rs (glyph drawing, warp, faux style and color conversion)",
+          "commit": "c18d18cf613422fe08d31001e1f803cf8ef7dd68",
+          "ours": "crates/pc-text/src/view.rs",
+          "licence": "MIT OR Apache-2.0; imported PhotoCraft source, project GPL-3.0-or-later",
+          "url": "https://github.com/zdbosoxfan/local-image/blob/c18d18cf613422fe08d31001e1f803cf8ef7dd68/crates/pc-text/src/render.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Constructive tool transactions, using V1's fallible planar/edit/offset APIs.",
+          "upstream": "crates/tools/src/builder.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/constructive.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/builder.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Constructive tool capture/hover/preview.",
+          "upstream": "crates/tools/src/builder.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/constructive.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/builder.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Constructive tool capture/hover/preview.",
+          "upstream": "crates/tools/src/cut.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/constructive.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/cut.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Constructive tool capture/hover/preview.",
+          "upstream": "crates/tools/src/draw2.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/constructive.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/draw2.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Constructive tool capture/hover/preview.",
+          "upstream": "crates/tools/src/draw2/gesture.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/constructive.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/draw2/gesture.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Constructive tool capture/hover/preview.",
+          "upstream": "crates/tools/src/draw2/anchor.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/constructive.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/draw2/anchor.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Variable width geometry adapted from VectorCraft crates/effects/src/stroke/width.rs and profile interpolation/presets from crates/doc/src/appearance.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/effects/src/stroke/width.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/width.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/effects/src/stroke/width.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Variable width geometry adapted from VectorCraft crates/effects/src/stroke/width.rs and profile interpolation/presets from crates/doc/src/appearance.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/doc/src/appearance.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/width.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/appearance.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Width-tool interaction adapted from VectorCraft crates/tools/src/distort/width.rs and profile choices from crates/doc/src/appearance.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/tools/src/distort/width.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/width.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/distort/width.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Width-tool interaction adapted from VectorCraft crates/tools/src/distort/width.rs and profile choices from crates/doc/src/appearance.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/doc/src/appearance.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/width.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/appearance.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Cluster placement adapted from VectorCraft crates/text/src/layout.rs (on_path), d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/text/src/layout.rs (on-path subset)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-text/src/on_path.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/text/src/layout.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Bounded, offline SVG import into ordinary editable Local Image layers.",
+          "upstream": "crates/svg/src/import.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-svg/src/import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/svg/src/import.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "usvg absolute segments to the native cubic-knot model.",
+          "upstream": "crates/svg/src/import.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-svg/src/import/geometry.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ]
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "SVG paint mapping.",
+          "upstream": "crates/svg/src/import.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-svg/src/import/paint.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ]
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Normalized tree to ordinary layers, with bounded native geometry/text caches.",
+          "upstream": "crates/svg/src/import.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-svg/src/import/tree.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ]
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "XML text placeholders retain draw order, group effects and <use> instances without fontdb.",
+          "upstream": "crates/svg/src/import/text.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-svg/src/import/text.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ]
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/svg/src/import/css.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/svg/src/import/css.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-svg/src/import/css.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ]
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Stable SVG writer adapted from VectorCraft crates/svg/src/export.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/svg/src/export.rs (path/stack/resource writer adaptation)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-svg/src/export.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/svg/src/export.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Gradient defs / stacked paint adaptation of VectorCraft svg/export.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/svg/src/export.rs (gradient defs/paint adaptation)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-svg/src/export/paint.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/svg/src/export.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Text/outlines use only pc-text's shaped layout and public outlines API.",
+          "upstream": "crates/svg/src/export.rs (text/outlines writer organization)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-svg/src/export/text.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/svg/src/export.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Live blend evaluation adapted from VectorCraft crates/doc/src/blend.rs and live.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/doc/src/blend.rs, crates/doc/src/live.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/blend.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/blend.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Correspondence adapted from VectorCraft doc/blend.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/doc/src/blend.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/blend/correspondence.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/blend.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Paint/appearance interpolation adapted from VectorCraft doc/blend.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/doc/src/blend.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/blend/paint.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/blend.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Spine arc-length placement adapted from VectorCraft doc/blend.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/doc/src/blend.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/blend/spine.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/blend.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Live blend controls and captured spine gestures.",
+          "upstream": "crates/engine/src/tests_blendopts.rs, tests_blendspine.rs (interaction adaptation)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/blend.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/tests_blendopts.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Repeat transforms adapted from VectorCraft crates/doc/src/pattern.rs, at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (file commit 5afc78a1002cc217f743f74cea9dcdf640318b0a).",
+          "upstream": "crates/doc/src/pattern.rs",
+          "commit": "5afc78a1002cc217f743f74cea9dcdf640318b0a",
+          "ours": "crates/pc-vecfx/src/repeat.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/5afc78a1002cc217f743f74cea9dcdf640318b0a/crates/doc/src/pattern.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Original GPL-3.0-or-later layer projection.",
+          "upstream": "crates/doc/src/pattern.rs",
+          "commit": "5afc78a1002cc217f743f74cea9dcdf640318b0a",
+          "ours": "crates/pc-vecfx/src/repeat/projection.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/5afc78a1002cc217f743f74cea9dcdf640318b0a/crates/doc/src/pattern.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Envelope map design adapted from VectorCraft crates/doc/src/live.rs and crates/effects/src/warp.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/doc/src/live.rs, crates/effects/src/warp.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/envelope.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/live.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/doc/src/live.rs and effects/src/warp.rs.",
+          "upstream": "crates/doc/src/live.rs, crates/effects/src/warp.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/envelope/warp.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/live.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/doc/src/live.rs and effects/src/warp.rs.",
+          "upstream": "crates/doc/src/live.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/envelope/mesh.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/live.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Coons transfinite interpolation and outline partition adapted from VectorCraft crates/doc/src/live.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/doc/src/live.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/envelope/coons.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/live.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Document → PDF through krilla 0.8.2.",
+          "upstream": "crates/pdf/src/export.rs (krilla tree/graphics-state organization)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pdf/src/export.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pdf/src/export.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Gradient mapping adapted from VectorCraft pdf/export.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/pdf/src/export.rs (krilla shading organization)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pdf/src/export/paint.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pdf/src/export.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Positioned-font/outline organization adapted from VectorCraft pdf/export.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/pdf/src/export.rs (positioned-font/outline writer organization)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pdf/src/export/text.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pdf/src/export.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Bounded PDF import through hayro 0.7.0 Device callbacks, with native editable layers.",
+          "upstream": "crates/pdf/src/import.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pdf/src/import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pdf/src/import.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Bounded PDF import through hayro 0.7.0 Device callbacks, with native editable layers.",
+          "upstream": "crates/pdf/src/pages.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pdf/src/import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pdf/src/pages.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "hayro Device → editable paths, glyph curves, native clips/groups and raster image layers.",
+          "upstream": "crates/pdf/src/import.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pdf/src/import/device.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pdf/src/import.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "hayro Device → editable paths, glyph curves, native clips/groups and raster image layers.",
+          "upstream": "crates/pdf/src/import_mask.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pdf/src/import/device.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pdf/src/import_mask.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Page boxes/rotation mapped as in VectorCraft pdf/pages.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pdf/src/pages.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pdf/src/import/pages.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pdf/src/pages.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Colour, blend and axial/radial shading mapping inspired by VectorCraft pdf/import.rs and import_shading.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pdf/src/import.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pdf/src/import/paint.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pdf/src/import.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Colour, blend and axial/radial shading mapping inspired by VectorCraft pdf/import.rs and import_shading.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/pdf/src/import_shading.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pdf/src/import/paint.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/pdf/src/import_shading.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "PDF cubics/quadratics to native knots.",
+          "upstream": "crates/geom/src/path.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pdf/src/import/geometry.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/path.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Typed reads of [Stream] objects.",
+          "upstream": "crates/affinity/src/access.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/access.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/access.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "The Affinity archive: header, the chain of file allocation tables (one per save) and bounded, CRC-checked extraction of named entries such as doc.dat and raster tiles.",
+          "upstream": "crates/affinity/src/container.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/container.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/container.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Outlines of curves (PCvD node lists), parametric shapes (Shpe objects) and compounds, in node space.",
+          "upstream": "crates/affinity/src/geometry.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/geometry.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/geometry.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Reader for native Affinity documents (.af, and .afdesign/.afphoto/.afpub from Affinity 1 and 2): the archive container, the tagged object stream in doc.dat, and the subset of the document model VectorCraft imports.",
+          "upstream": "crates/affinity/src/lib.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/lib.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "The document model VectorCraft imports: spreads, artboards, layers, groups, curves, shapes, text and images, with transforms composed into document space.",
+          "upstream": "crates/affinity/src/model.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/model.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/model.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Fills, strokes and colours.",
+          "upstream": "crates/affinity/src/paint.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/paint.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/paint.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "The indexed PNG thumbnail Affinity stores next to the archive: Affinity's own render of the document, at most 512 pixels on the long side in real files, never the document itself.",
+          "upstream": "crates/affinity/src/preview.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/preview.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/preview.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Pixel layers (Rstr) and placed images (ImgN).",
+          "upstream": "crates/affinity/src/raster.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/raster.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/raster.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Parametric shapes: Affinity stores the shape's parameters and its box, never the outline.",
+          "upstream": "crates/affinity/src/shapes.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/shapes.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/shapes.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "The tagged object stream inside doc.dat: a self-describing tree of objects whose fields carry a type code and a four-character tag.",
+          "upstream": "crates/affinity/src/stream.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/stream.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/stream.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Synthetic containers for tests and fuzz seeds (cargo feature synth).",
+          "upstream": "crates/affinity/src/synth.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/synth.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/synth.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Unit tests on synthetic inputs; tests/real_files.rs covers public Affinity documents.",
+          "upstream": "crates/affinity/src/tests.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/tests.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Artistic and frame text: the story's characters with their font, size, colour, tracking and leading, the paragraph alignment and the first baseline.",
+          "upstream": "crates/affinity/src/text.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/src/text.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/text.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Synthetic .af version-12 text regression oracles; see support/text_fixture.rs for provenance.",
+          "upstream": "crates/affinity/tests/text.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/tests/text.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ]
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Original synthetic reader fixtures, shared by native and engine regression tests.",
+          "upstream": "crates/affinity/tests/support/text_fixture.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-affinity/tests/support/text_fixture.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ]
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Open stroked centre lines, adapted from VectorCraft crates/trace/src/centerline.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/trace/src/centerline.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-trace/src/centerline.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/trace/src/centerline.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "VectorCraft centreline Grid and topology-preserving Zhang–Suen / Yokoi thinning.",
+          "upstream": "crates/trace/src/centerline.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-trace/src/centerline/skeleton.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/trace/src/centerline.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Deterministic skeleton graph extraction, adapted from VectorCraft centreline.rs.",
+          "upstream": "crates/trace/src/centerline.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-trace/src/centerline/graph.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/trace/src/centerline.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Cancellable binary admission.",
+          "upstream": "crates/vtracer/src/frontend/binary.rs",
+          "commit": "928ed0a6f654408e28fb741b6133d4c456bd0160",
+          "ours": "crates/pc-trace/src/centerline/mask.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer/src/frontend/binary.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "upstream": "crates/trace/src/tests.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-trace/tests/centerline/algorithm.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/trace/src/tests.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Shape recognition adapted from VectorCraft crates/geom/src/recognize.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092: distance resampling, covariance orientation and bounds in the fitted frame.",
+          "upstream": "crates/geom/src/recognize.rs (resample, covariance/oriented bounds, simplify/closed-ring splitting; adapted with strict residual checks)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-trace/src/cleanup/recognize.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/geom/src/recognize.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Cutout/abutting tracing: one fitted boundary shared by adjacent colours.",
+          "upstream": "crates/vtracer/src/mosaic.rs",
+          "commit": "ef9496f7926a85ae25761cd7d00e6f6d6364e562",
+          "ours": "crates/pc-trace/src/cutout.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/ef9496f7926a85ae25761cd7d00e6f6d6364e562/crates/vtracer/src/mosaic.rs"
+        },
+        {
+          "name": "vtracer",
+          "upstream": "crates/vtracer/src/mosaic/graph.rs",
+          "commit": "ba2b80455e6bbc48b6ddb2004e562e9cb4c141d6",
+          "ours": "crates/pc-trace/src/cutout/graph.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/ba2b80455e6bbc48b6ddb2004e562e9cb4c141d6/crates/vtracer/src/mosaic/graph.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Region contours assembled from oriented shared chains.",
+          "upstream": "crates/vtracer/src/mosaic/face.rs",
+          "commit": "ba2b80455e6bbc48b6ddb2004e562e9cb4c141d6",
+          "ours": "crates/pc-trace/src/cutout/face.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/ba2b80455e6bbc48b6ddb2004e562e9cb4c141d6/crates/vtracer/src/mosaic/face.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Fit each shared chain once, with exact junction endpoints.",
+          "upstream": "crates/vtracer/src/mosaic/fit.rs",
+          "commit": "ef9496f7926a85ae25761cd7d00e6f6d6364e562",
+          "ours": "crates/pc-trace/src/cutout/fit.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/ef9496f7926a85ae25761cd7d00e6f6d6364e562/crates/vtracer/src/mosaic/fit.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Compose colour paths by copying oriented shared controls.",
+          "upstream": "crates/vtracer/src/mosaic/compose.rs",
+          "commit": "ef9496f7926a85ae25761cd7d00e6f6d6364e562",
+          "ours": "crates/pc-trace/src/cutout/compose.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/ef9496f7926a85ae25761cd7d00e6f6d6364e562/crates/vtracer/src/mosaic/compose.rs"
+        },
+        {
+          "name": "vtracer",
+          "used_for": "Rejoin near-colour gradient faces introduced by stacked clustering.",
+          "upstream": "crates/vtracer/src/mosaic.rs",
+          "commit": "ef9496f7926a85ae25761cd7d00e6f6d6364e562",
+          "ours": "crates/pc-trace/src/cutout/merge.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vtracer-LICENSE-APACHE",
+            "licenses/vtracer-LICENSE-MIT"
+          ],
+          "url": "https://github.com/visioncortex/vtracer/blob/ef9496f7926a85ae25761cd7d00e6f6d6364e562/crates/vtracer/src/mosaic.rs"
+        },
+        {
+          "name": "DesignCraft",
+          "upstream": "crates/compose/src/breaker.rs",
+          "commit": "66c7ce7e96ec286a091878cc2541ee8369aa79d6",
+          "ours": "crates/pc-text/src/frame_compose/breaker.rs",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/storytold/designcraft/blob/66c7ce7e96ec286a091878cc2541ee8369aa79d6/crates/compose/src/breaker.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Vector selection, adapted from VectorCraft engine/cmd/{select,wand}.rs and tools/xform/wand.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/engine/src/cmd/select.rs, crates/engine/src/cmd/wand.rs, crates/tools/src/xform/wand.rs (attribute queries, conjunction, polygon enclosure; Oklab is the task's change)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/selection.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/cmd/select.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Group Selection, vector Magic Wand and object/node Lasso.",
+          "upstream": "crates/tools/src/select.rs, crates/tools/src/xform/wand.rs (gesture/modifier behavior)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/selection.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/select.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Interpolating Curvature spline, adapted from VectorCraft tools/src/draw2.rs::catmull_rom at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/tools/src/draw2.rs::catmull_rom",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vector/src/curvature_fit.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/draw2.rs::catmull_rom"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Anchor-tool transactions and selected-curve hover helpers.",
+          "upstream": "crates/tools/src/draw2/{anchor,curvature}.rs (interaction contracts; native transactions are local)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/anchor_tools.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/draw2/{anchor"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Pen flyout input, adapted from VectorCraft tools/src/draw2/{anchor,curvature}.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/tools/src/draw2/{anchor,curvature}.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/anchor_tools.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/draw2/{anchor"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Object clipping/compound command semantics adapted from VectorCraft cmd/object.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/engine/src/cmd/object.rs",
+          "commit": "7e82dbc05b972d8b32b68e7b31444a87ed8e6d48",
+          "ours": "crates/pc-engine/src/vector_packages/clip_compound.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/7e82dbc05b972d8b32b68e7b31444a87ed8e6d48/crates/engine/src/cmd/object.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Attribute transfer and linked Graphic Styles, adapted in behaviour from VectorCraft engine/cmd/style.rs and cmd/stylelib.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/engine/src/cmd/{style,stylelib}.rs (behaviour; native transaction/provider code is local)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/styles.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/cmd/{style"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Vector Eyedropper and Style Picker, informed by VectorCraft tools/xform/eyedropper.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/tools/src/xform/eyedropper.rs (modifiers; egui capture/app bridge is local)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/eyedropper.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/xform/eyedropper.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adobe Swatch Exchange, adapted from VectorCraft color/src/palette_io.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/color/src/palette_io.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-color/src/ase.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/color/src/palette_io.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Document palette and link data informed by VectorCraft color/src/swatch.rs and doc/src/swatches.rs, d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/color/src/swatch.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-doc/src/vector_design/swatches.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/color/src/swatch.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Document palette and link data informed by VectorCraft color/src/swatch.rs and doc/src/swatches.rs, d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/doc/src/swatches.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-doc/src/vector_design/swatches.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/swatches.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Document swatch transactions, informed by VectorCraft engine/src/cmd/swatch.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/engine/src/cmd/swatch.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/colours.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/cmd/swatch.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Recolor Artwork, adapted from VectorCraft color/src/recolor.rs and engine/src/cmd/recolor.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/color/src/recolor.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/recolor.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/color/src/recolor.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Recolor Artwork, adapted from VectorCraft color/src/recolor.rs and engine/src/cmd/recolor.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/engine/src/cmd/recolor.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/recolor.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/cmd/recolor.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Blob Brush / area Eraser transactions adapted from VectorCraft crates/engine/src/cmd/draw2.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/engine/src/cmd/draw2.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/blob_eraser.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/cmd/draw2.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Blob Brush / vector Eraser pointer capture, adapted from VectorCraft crates/tools/src/draw2/gesture.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/tools/src/draw2/gesture.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/blob_eraser.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/draw2/gesture.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/tools/src/distort/liquify.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/tools/src/distort/liquify.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/liquify/kernel.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/distort/liquify.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Checked document-path interface to the VectorCraft liquify kernels.",
+          "upstream": "crates/tools/src/distort/liquify.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/liquify/mod.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/distort/liquify.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Adapted from VectorCraft crates/tools/src/distort/arap.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/tools/src/distort/arap.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/puppet/arap.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/distort/arap.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Vector Puppet Warp using VectorCraft's two-stage ARAP mesh, with checked inputs and V1 refit.",
+          "upstream": "crates/tools/src/distort/puppet.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/puppet/mod.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/distort/puppet.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Destructive vector liquify/Puppet Warp transactions; raster tools remain separate.",
+          "upstream": "crates/engine/src/cmd/distortcmds.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/distort_tools.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/cmd/distortcmds.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Vector distort tool controls and captured egui gestures.",
+          "upstream": "crates/tools/src/distort/liquify.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/distort_tools.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/distort/liquify.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Vector distort tool controls and captured egui gestures.",
+          "upstream": "crates/tools/src/distort/puppet.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/distort_tools.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/distort/puppet.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Gradient mesh geometry/editing adapted from VectorCraft crates/doc/src/live.rs, pin d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/doc/src/live.rs (GradientMesh)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vector/src/mesh_paint.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/doc/src/live.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Gradient mesh captured transactions.",
+          "upstream": "crates/engine/src/cmd/live.rs (object.mesh.)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/mesh.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/cmd/live.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Mesh tool state machine adapted in behaviour from VectorCraft tools/meshblend.rs and tools/meshedit.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/tools/src/meshblend.rs, crates/tools/src/meshedit.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-ui-egui/src/vector_packages/mesh.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/meshblend.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Editable path-effect data informed by VectorCraft effects/{distort,stylize,live}.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/effects/src/distort.rs, crates/effects/src/stylize.rs (parameter model)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-doc/src/vector_design/effects.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/effects/src/distort.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Live path effects adapted from VectorCraft effects/{distort,stylize,util}.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/effects/src/stylize.rs (Convert to Shape)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/path_effects/mod.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/effects/src/stylize.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "VectorCraft effects/distort.rs and util.rs, d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
+          "upstream": "crates/effects/src/distort.rs, crates/effects/src/util.rs",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-vecfx/src/path_effects/distort.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/effects/src/distort.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Captured path-effect transactions, informed by VectorCraft cmd/effectcmd.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/engine/src/cmd/effectcmd.rs (transaction semantics)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_packages/path_effects.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/engine/src/cmd/effectcmd.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "used_for": "Vector layout/keymaps adapted from VectorCraft tools/catalog.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).",
+          "upstream": "crates/tools/src/catalog.rs (order and Illustrator keymap adapted to Local Image IDs)",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-engine/src/vector_toolbar_layout.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/catalog.rs"
         },
         {
           "name": "vkdt",
@@ -1760,6 +3456,16 @@
           "used_for": "Japanese UI and Type fallback fonts, embedded only in builds made with craft-fonts (all official releases).",
           "licence": "OFL-1.1",
           "url": "https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md"
+        },
+        {
+          "name": "Original Local Image vector toolbar artwork",
+          "author": "Local Image contributors",
+          "used_for": "70 original vector glyphs in colour and monochrome, hand-authored in xtask/src/tool_art_vector.rs on the 24px grid. Glossy Duotone family materials and matching theme-tinted silhouettes. Recognition inventory and labelled 16/20/40px sheet in docs/design/vector-tool-icons-recognition.tsv and vector-tool-icons.png. No copied or traced vendor artwork.",
+          "ours": "assets/icons/{color,tools}/vector-*.svg, docs/design/vector-tool-icons.png, xtask/src/tool_art_vector.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "LICENSE"
+          ]
         }
       ]
     },
@@ -2346,6 +4052,13 @@
           "used_for": "Binary Object Representation Serializer for Hashing",
           "licence": "Apache-2.0",
           "url": "https://github.com/near/borsh-rs"
+        },
+        {
+          "name": "brotli",
+          "version": "8.0.4",
+          "used_for": "A brotli compressor and decompressor that with an interface avoiding the rust stdlib. This makes it suitable for embedded devices and kernels. It is designed with a pluggable allocator so that the standard lib's allocator may be employed. The default build also includes a stdlib allocator and stream interface. Disable this with --features=no-stdlib. All included code is safe.",
+          "licence": "BSD-3-Clause AND MIT",
+          "url": "https://github.com/dropbox/rust-brotli"
         },
         {
           "name": "brotli-decompressor",
@@ -3189,6 +4902,13 @@
         },
         {
           "name": "font-types",
+          "version": "0.11.3",
+          "used_for": "Scalar types used in fonts.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/googlefonts/fontations"
+        },
+        {
+          "name": "font-types",
           "version": "0.12.5",
           "used_for": "Scalar types used in fonts.",
           "licence": "MIT OR Apache-2.0",
@@ -3468,6 +5188,55 @@
           "url": "https://github.com/rust-lang/hashbrown"
         },
         {
+          "name": "hayro-ccitt",
+          "version": "0.3.0",
+          "used_for": "A decoder for group 3 and group 4 CCITT images.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/LaurenzV/hayro"
+        },
+        {
+          "name": "hayro-cmap",
+          "version": "0.1.0",
+          "used_for": "A parser for CMap files.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/LaurenzV/hayro"
+        },
+        {
+          "name": "hayro-interpret",
+          "version": "0.7.0",
+          "used_for": "A crate for interpreting PDF files.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/LaurenzV/hayro"
+        },
+        {
+          "name": "hayro-jbig2",
+          "version": "0.3.0",
+          "used_for": "A memory-safe, pure-Rust JBIG2 decoder.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/LaurenzV/hayro"
+        },
+        {
+          "name": "hayro-jpeg2000",
+          "version": "0.3.5",
+          "used_for": "A memory-safe, pure-Rust JPEG 2000 decoder.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/LaurenzV/hayro"
+        },
+        {
+          "name": "hayro-postscript",
+          "version": "0.1.0",
+          "used_for": "A lightweight PostScript scanner.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/LaurenzV/hayro"
+        },
+        {
+          "name": "hayro-syntax",
+          "version": "0.7.2",
+          "used_for": "A low-level crate for reading PDF files.",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/LaurenzV/hayro"
+        },
+        {
           "name": "heic-rs",
           "version": "0.1.1",
           "used_for": "Pure-Rust HEIC/HEIF image decoder: no C, no unsafe, no_std-friendly, wasm-ready",
@@ -3652,6 +5421,13 @@
         {
           "name": "imagesize",
           "version": "0.13.0",
+          "used_for": "Quick probing of image dimensions without loading the entire file.",
+          "licence": "MIT",
+          "url": "https://github.com/Roughsketch/imagesize"
+        },
+        {
+          "name": "imagesize",
+          "version": "0.14.0",
           "used_for": "Quick probing of image dimensions without loading the entire file.",
           "licence": "MIT",
           "url": "https://github.com/Roughsketch/imagesize"
@@ -3935,6 +5711,13 @@
           "used_for": "The Khronos XML API Registry, exposed as byte string constants.",
           "licence": "Apache-2.0",
           "url": "https://github.com/brendanzab/gl-rs/"
+        },
+        {
+          "name": "krilla",
+          "version": "0.8.2",
+          "used_for": "A high-level crate for creating PDF files.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/LaurenzV/krilla"
         },
         {
           "name": "kurbo",
@@ -4658,6 +6441,13 @@
           "url": "https://github.com/as1100k/pastey"
         },
         {
+          "name": "pdf-writer",
+          "version": "0.15.0",
+          "used_for": "A step-by-step PDF writer.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/typst/pdf-writer"
+        },
+        {
           "name": "pem-rfc7468",
           "version": "0.7.0",
           "used_for": "PEM Encoding (RFC 7468) for PKIX, PKCS, and CMS Structures, implementing a strict subset of the original Privacy-Enhanced Mail encoding intended specifically for use with cryptographic keys, certificates, and other messages. Provides a no_std-friendly, constant-time implementation suitable for use with cryptographic private keys.",
@@ -5142,6 +6932,13 @@
         },
         {
           "name": "read-fonts",
+          "version": "0.39.2",
+          "used_for": "Reading OpenType font files.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/googlefonts/fontations"
+        },
+        {
+          "name": "read-fonts",
           "version": "0.41.0",
           "used_for": "Reading OpenType font files.",
           "licence": "MIT OR Apache-2.0",
@@ -5393,6 +7190,13 @@
           "url": "https://github.com/KillingSpark/zstd-rs"
         },
         {
+          "name": "ryu",
+          "version": "1.0.23",
+          "used_for": "Fast floating point to string conversion",
+          "licence": "Apache-2.0 OR BSL-1.0",
+          "url": "https://github.com/dtolnay/ryu"
+        },
+        {
           "name": "same-file",
           "version": "1.0.6",
           "used_for": "A simple crate for determining whether two file paths point to the same file.",
@@ -5576,6 +7380,13 @@
         },
         {
           "name": "skrifa",
+          "version": "0.42.1",
+          "used_for": "Metadata reader and glyph scaler for OpenType fonts.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/googlefonts/fontations"
+        },
+        {
+          "name": "skrifa",
           "version": "0.44.0",
           "used_for": "Metadata reader and glyph scaler for OpenType fonts.",
           "licence": "MIT OR Apache-2.0",
@@ -5706,6 +7517,13 @@
           "used_for": "Implementations of string similarity metrics. Includes Hamming, Levenshtein, OSA, Damerau-Levenshtein, Jaro, Jaro-Winkler, and Sørensen-Dice.",
           "licence": "MIT",
           "url": "https://github.com/rapidfuzz/strsim-rs"
+        },
+        {
+          "name": "subsetter",
+          "version": "0.2.6",
+          "used_for": "Reduces the size and coverage of OpenType fonts.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/typst/subsetter"
         },
         {
           "name": "subtle",
@@ -5839,6 +7657,13 @@
           "used_for": "A tiny-skia Bezier path implementation",
           "licence": "BSD-3-Clause",
           "url": "https://github.com/RazrFalcon/tiny-skia/tree/master/path"
+        },
+        {
+          "name": "tiny-skia-path",
+          "version": "0.12.0",
+          "used_for": "A tiny-skia Bezier path implementation",
+          "licence": "BSD-3-Clause",
+          "url": "https://github.com/linebender/tiny-skia/tree/master/path"
         },
         {
           "name": "tiny_http",
@@ -6737,6 +8562,13 @@
           "url": "https://github.com/YaLTeR/wl-clipboard-rs"
         },
         {
+          "name": "write-fonts",
+          "version": "0.48.1",
+          "used_for": "Writing font files.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/googlefonts/fontations"
+        },
+        {
           "name": "writeable",
           "version": "0.6.4",
           "used_for": "A more efficient alternative to fmt::Display",
@@ -6812,6 +8644,13 @@
           "used_for": "A simple, streaming XML writer.",
           "licence": "MIT",
           "url": "https://github.com/RazrFalcon/xmlwriter"
+        },
+        {
+          "name": "xmp-writer",
+          "version": "0.3.3",
+          "used_for": "Write XMP metadata, step by step.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/typst/xmp-writer"
         },
         {
           "name": "y4m",

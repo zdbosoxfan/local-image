@@ -64,13 +64,13 @@ impl State {
         self.set_named_source("PDF", bytes)
     }
     pub fn set_named_source(&mut self, name: &str, bytes: Vec<u8>) -> Result<()> {
-        self.cancel();
-        self.warnings.clear();
-        self.warning_document = None;
-        self.warning_targets.clear();
-        let result = photocraft_pdf::info(&bytes, &ImportOptions::default(), &self.cancel);
+        let result = photocraft_pdf::info(&bytes, &ImportOptions::default(), &Arc::new(AtomicBool::new(false)));
         match result {
             Ok(info) => {
+                self.cancel();
+                self.warnings.clear();
+                self.warning_document = None;
+                self.warning_targets.clear();
                 self.source = bytes;
                 self.name = name.to_owned();
                 self.info = Some(info);
@@ -79,8 +79,6 @@ impl State {
                 Ok(())
             }
             Err(e) => {
-                self.source.clear();
-                self.info = None;
                 self.error = Some(e.to_string());
                 Err(EngineError::Other(e.to_string()))
             }
@@ -202,6 +200,9 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
     changed |= ui.checkbox(&mut state.apply_rotation, tl!("Apply page rotation")).changed();
     if changed {
         state.cancel();
+        state.warnings.clear();
+        state.warning_document = None;
+        state.warning_targets.clear();
     }
     let mut action = None;
     ui.horizontal(|ui| {
@@ -386,10 +387,17 @@ pub fn offer(app: &mut crate::PhotocraftApp, name: &str, bytes: &[u8]) -> std::r
 /// Native paths are read with the PDF admission byte limit before the existing raster worker.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn offer_path(app: &mut crate::PhotocraftApp, path: &str) -> std::result::Result<bool, String> {
-    if !std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
+    use std::io::Read;
+    let pdf_extension = std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+    let mut probe = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut header = [0u8; 5];
+    let count = probe.read(&mut header).map_err(|e| e.to_string())?;
+    if count != 5 || &header != b"%PDF-" {
+        if pdf_extension {
+            return Err("invalid PDF: missing PDF header".into());
+        }
         return Ok(false);
     }
-    use std::io::Read;
     let limit = ImportOptions::default().limits.bytes;
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     if file.metadata().map_err(|e| e.to_string())?.len() > limit as u64 {
@@ -491,5 +499,14 @@ mod tests {
         h.event(Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
         h.step();
         assert!(!h.state().state.pending());
+    }
+    #[test]
+    fn review_invalid_pdf_replacement_retains_valid_source() {
+        let mut state = State::default();
+        state.set_source(fixture::pages()).unwrap();
+        let before = state.source.clone();
+        assert!(state.set_source(b"invalid PDF".to_vec()).is_err());
+        assert_eq!(state.source, before);
+        assert!(state.info.is_some());
     }
 }

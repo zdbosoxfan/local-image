@@ -318,3 +318,23 @@ fn vector_fallback_projection_is_detached_and_losses_survive_evaluation() {
     assert_eq!(result.warnings.iter().map(|w| w.feature.as_str()).collect::<Vec<_>>(), ["live-blend"]);
     assert!(d.layers[0].vector.live.is_some());
 }
+
+#[test]
+fn review_additional_psd_projection_cannot_discard_the_user_vector_mask() {
+    struct Provider;
+    impl Projection for Provider {
+        fn layer(&self, _: &Document, layer: &Layer) -> Result<Option<Layer>, String> {
+            let mut result = layer.clone();
+            result.vector.live = None;
+            result.vector_mask = None;
+            result.content = LayerContent::Raster(shape().surface().unwrap().clone());
+            Ok(Some(result))
+        }
+    }
+    let mut source = doc();
+    let mut layer = Layer::group("Masked Blend", vec![]);
+    layer.vector.live = Some(LiveGroup::Blend(BlendSpec::default()));
+    layer.vector_mask = Some(photocraft_doc::VectorMask::new(photocraft_vector::shapes::rect(1., 1., 10., 10.)));
+    source.layers.push(layer);
+    assert!(prepare(&source, Some(&Provider)).unwrap_err().to_string().contains("compositing envelope"));
+}

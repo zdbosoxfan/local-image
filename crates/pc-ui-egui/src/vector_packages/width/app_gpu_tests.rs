@@ -58,19 +58,15 @@ fn harness() -> H {
     h
 }
 fn pixels(h: &mut H) -> Vec<[u8; 4]> {
-    h.run_steps(4);
-    assert!(h.state().perf.gpu, "real canvas must use GPU");
-    let xf = ViewXform::active(h.state()).unwrap();
-    let image = h.render().expect("real GPU readback");
-    let mut pixels = Vec::new();
-    for y in 0..120 {
-        for x in 0..160 {
-            let p = xf.to_screen(x as f32 + 0.5, y as f32 + 0.5);
-            pixels.push(image.get_pixel(p.x.floor() as u32, p.y.floor() as u32).0);
-        }
-    }
-    pixels
+    h.run_steps(3);
+    h.render().expect("actual RTX app readback");
+    assert!(h.state().perf.gpu);
+    let id = h.state().session.active().unwrap().doc.id;
+    let (_, size, pixels) = h.state().read_canvas_texels(id.0).expect("actual canvas texture");
+    assert_eq!(size, [160, 120]);
+    pixels.into_iter().map(|p| p.map(|c| (c.clamp(0., 1.) * 255.).round() as u8)).collect()
 }
+
 fn parity(a: &[[u8; 4]], b: &[[u8; 4]]) {
     assert_eq!(a.len(), b.len());
     // kittest render returns premultiplied bytes; do not multiply them a second time.
@@ -99,7 +95,15 @@ fn width_gpu_full_app_live_preview_release_cancel_and_undo_parity() {
     event(&mut h, start, None);
     event(&mut h, start, Some(true));
     event(&mut h, end, None);
-    assert!(h.state().width_state.is_dragging());
+    assert!(
+        h.state().width_state.is_dragging(),
+        "tool={:?} error={:?} status={} events={:?} start={start:?} canvas={:?}",
+        h.state().ui.tool,
+        h.state().width_state.error,
+        h.state().ui.status,
+        h.ctx.input(|i| i.events.clone()),
+        h.state().last_canvas_rect
+    );
     assert!(h.state().width_state.preview.is_some());
     assert_eq!(h.state().session.active().unwrap().doc, before);
     assert_eq!(h.state().session.journal.len(), journal);

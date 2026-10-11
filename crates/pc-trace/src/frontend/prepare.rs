@@ -1,9 +1,9 @@
-//! Compatibility entry to the existing T1 frontend pending package 00 factoring.
+//! Shared tracing preprocessing, segmentation and palette assignment.
 //! No clustering, threshold, palette or fitter algorithm is copied or changed.
 use crate::colorfit::ColorFitter;
 use crate::frontend::{Frontend, Threshold};
 use crate::{Error, Image, Params, Preset};
-pub(super) fn segment(image: Image<'_>, params: &Params, cancel: &dyn Fn() -> bool) -> Result<crate::ir::Segmentation, Error> {
+pub(crate) fn segment(image: Image<'_>, params: &Params, cancel: &dyn Fn() -> bool) -> Result<crate::ir::Segmentation, Error> {
     if cancel() {
         return Err(Error::Cancelled);
     }

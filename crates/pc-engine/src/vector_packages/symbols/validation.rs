@@ -113,6 +113,9 @@ fn layer_data(l: &Layer) -> Result<()> {
                     number(f64::from(v))?;
                 }
             }
+            if t.runs.iter().try_fold(0usize, |count, run| count.checked_add(run.style.variations.len())).is_none_or(|count| count > MAX_OBJECTS) {
+                return Err(error("invalid symbol text variation budget"));
+            }
             for run in &t.runs {
                 let s = &run.style;
                 color(&s.color)?;

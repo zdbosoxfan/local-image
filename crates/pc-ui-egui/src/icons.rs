@@ -64,9 +64,98 @@ pub fn cursor(ctx: &egui::Context, name: &str, p: egui::Pos2, hot: Vec2, size: f
     });
 }
 
+pub fn tool_icon_name_for(t: Tool, persona: photocraft_engine::toolsets::Persona) -> &'static str {
+    if persona == photocraft_engine::toolsets::Persona::Vector || t.key() == '\0' {
+        let id = format!("{t:?}");
+        if let Some((_, name, _, _)) = crate::fill_stroke_proxy::icons::ICONS.iter().find(|(tool, _, _, _)| *tool == id) {
+            return name;
+        }
+    }
+    tool_icon_name(t)
+}
 pub fn tool_icon_name(t: Tool) -> &'static str {
+    if t.key() == '\0' {
+        let id = format!("{t:?}");
+        if let Some((_, name, _, _)) = crate::fill_stroke_proxy::icons::ICONS.iter().find(|(tool, _, _, _)| *tool == id) {
+            return name;
+        }
+    }
     match t {
         Tool::Move => "move",
+        Tool::PointTransform => "move",
+        Tool::VectorPencil => "pencil",
+        Tool::VectorBrush => "brush",
+        Tool::Smooth => "spline",
+        Tool::PathEraser => "eraser",
+        Tool::Join => "spline",
+        Tool::Corner => "rectangle-horizontal",
+        Tool::RoundedRectangle => "square",
+        Tool::Star => "star",
+        Tool::DoubleStar => "star",
+        Tool::SquareStar => "star",
+        Tool::Trapezoid => "square",
+        Tool::Diamond => "diamond",
+        Tool::Donut => "circle",
+        Tool::Pie => "circle",
+        Tool::Segment => "circle",
+        Tool::Arrow => "arrow-left-right",
+        Tool::Callout => "message-square",
+        Tool::Cog => "settings",
+        Tool::Heart => "heart",
+        Tool::Tear => "droplet",
+        Tool::Crescent => "moon",
+        Tool::Cloud => "cloud",
+        Tool::Spiral => "spline",
+        Tool::Arc => "circle",
+        Tool::RectGrid => "grid-2x2",
+        Tool::PolarGrid => "circle",
+        Tool::VectorFill => "blend",
+        Tool::Transparency => "blend",
+        Tool::ShapeBuilder => "layers",
+        Tool::Contour => "circle",
+        Tool::Knife => "scissors",
+        Tool::Scissors => "scissors",
+        Tool::LineCut => "scissors",
+        Tool::Width => "arrow-left-right",
+        Tool::ArtText => "type",
+        Tool::FrameText => "type",
+        Tool::TextOnPath => "type",
+        Tool::Blend => "blend",
+        Tool::Repeat => "copy",
+        Tool::Envelope => "square",
+        Tool::VectorCrop => "crop",
+        Tool::Artboard => "square",
+        Tool::GroupSelection => "mouse-pointer-2",
+        Tool::VectorMagicWand => "wand",
+        Tool::VectorLasso => "lasso",
+        Tool::Curvature => "pen-tool",
+        Tool::AddAnchor => "plus",
+        Tool::DeleteAnchor => "minus",
+        Tool::AnchorPoint => "pen-tool",
+        Tool::Rotate => "rotate-cw",
+        Tool::Reflect => "flip-horizontal",
+        Tool::Scale => "maximize",
+        Tool::Shear => "move",
+        Tool::Reshape => "spline",
+        Tool::FreeTransform => "move",
+        Tool::StylePicker => "pipette",
+        Tool::BlobBrush => "brush",
+        Tool::VectorEraser => "eraser",
+        Tool::VectorWarp => "move",
+        Tool::VectorTwirl => "rotate-cw",
+        Tool::VectorPucker => "minimize",
+        Tool::VectorBloat => "maximize",
+        Tool::Scallop => "circle",
+        Tool::Crystallize => "star",
+        Tool::Wrinkle => "spline",
+        Tool::VectorPuppetWarp => "move",
+        Tool::LivePaintBucket => "paint-bucket",
+        Tool::VectorFloodFill => "paint-bucket",
+        Tool::LivePaintSelection => "mouse-pointer-2",
+        Tool::Mesh => "grid-2x2",
+        Tool::Measure => "ruler",
+        Tool::Area => "square",
+
         Tool::RectMarquee => "square-dashed",
         Tool::EllipseMarquee => "circle-dashed",
         Tool::Brush => "brush",

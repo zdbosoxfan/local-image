@@ -34,6 +34,7 @@ pub fn check_svg_paint_limits(limits: PaintLimitations) -> Vec<&'static str> {
 }
 
 pub(super) enum Sampler<'a> {
+    Mesh(Box<crate::mesh_paint::CompiledMesh>),
     Object(Paint),
     Pattern { tile: &'a Pattern, origin: (f64, f64), cs: (f64, f64), inverse: f64 },
     Stroke { ramp: Paint, metric: Metric, mode: StrokeGradientMode, dither: bool },
@@ -78,6 +79,7 @@ impl<'a> Sampler<'a> {
     pub fn at(&self, x: f64, y: f64) -> [f32; 4] {
         match self {
             Self::Object(p) => p.at(x, y),
+            Self::Mesh(mesh) => mesh.at(x, y),
             Self::Stroke { ramp, metric, mode, dither } => {
                 let (along, across) = metric.sample(x, y);
                 let t = if *mode == StrokeGradientMode::Along { along } else { across };

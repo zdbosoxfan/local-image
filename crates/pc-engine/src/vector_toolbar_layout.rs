@@ -292,7 +292,7 @@ pub fn command_bindings(persona: Persona, pixel: &[(String, String)]) -> Vec<(St
         return pixel.to_vec();
     }
     let overrides: Vec<_> = ACCELERATORS.iter().chain(PROXY_KEYS).collect();
-    let mut out: Vec<_> = pixel.iter().filter(|(id, key)| !overrides.iter().any(|b| b.key == key || b.target == id)).cloned().collect();
+    let mut out: Vec<_> = pixel.iter().filter(|(_, key)| !overrides.iter().any(|b| b.key == key)).cloned().collect();
     out.extend(overrides.into_iter().map(|b| (b.target.into(), b.key.into())));
     out
 }

@@ -431,7 +431,12 @@ impl Gesture {
                     first.subpaths.splice(*subpath..=*subpath, cut);
                     plan.add(i, first);
                 }
-                for piece in pieces {
+                for mut piece in pieces {
+                    piece.fill_rule = path.fill_rule;
+                    piece.inverted = path.inverted;
+                    for sp in &mut piece.subpaths {
+                        sp.op = source.op;
+                    }
                     plan.add(i, piece);
                 }
             }
@@ -702,6 +707,10 @@ fn erase(path: &Path, brush: &Path) -> Result<Option<Vec<Path>>> {
                 result
             }));
         }
+    }
+    for piece in &mut output {
+        piece.fill_rule = path.fill_rule;
+        piece.inverted = path.inverted;
     }
     Ok(changed.then_some(if path.subpaths.len() == 1 {
         output

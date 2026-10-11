@@ -1,6 +1,8 @@
 //! Measured competitor gate; missing references are an error, not success.
-use super::{Image, Params, Preset, TestResult, common, trace};
+use crate::common;
+use common::TestResult;
 use common::{Variant, case, gates, reference_score, score};
+use pc_trace::{Image, Params, Preset, cutout::trace};
 #[test]
 #[ignore = "coordinator B.4 competitor gate, run explicitly and record failures"]
 fn cutout_logo_available_competitor_fidelity_and_node_gates() -> TestResult {

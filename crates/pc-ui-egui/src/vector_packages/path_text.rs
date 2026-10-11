@@ -291,9 +291,10 @@ impl State {
             return Ok(());
         };
         let params = serde_json::to_value(draft).map_err(|e| error(&e.to_string()))?;
-        let result = s.execute("type.path.commit", params).map(|_| ());
+        self.dragging = None;
+        s.execute("type.path.commit", params)?;
         self.cancel();
-        result
+        Ok(())
     }
     pub fn up(&mut self, s: &mut Session) -> Result<()> {
         if self.dragging.is_some() {

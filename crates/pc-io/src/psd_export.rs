@@ -400,7 +400,7 @@ impl Ex {
     /// overrides) plus regenerated adjustment/fill blocks. A preserved
     /// adjustment or fill block is reused verbatim while it still decodes to
     /// the layer's current parameters; otherwise it is regenerated.
-    fn content_blocks(&mut self, l: &Layer) -> Vec<TaggedBlock> {
+    fn content_blocks(&mut self, l: &Layer, cache: Option<&Surface>) -> Vec<TaggedBlock> {
         let mut raw: Vec<([u8; 4], Vec<u8>)> = l.psd_blocks.iter().filter(|(k, _)| !REGENERATED.contains(&k)).map(|(k, d)| (*k, d.to_vec())).collect();
         let cached_proxy = matches!(l.content, LayerContent::Raster(_)) && fallback::cache_matches(l);
         if !matches!(l.content, LayerContent::Raster(_)) && !fallback::needs_cache(l) {
@@ -527,9 +527,7 @@ impl Ex {
         if !matches!(l.content, LayerContent::Shape(_)) && !cached_shape_proxy {
             self.vector_mask_block(l, &mut raw);
         }
-        if fallback::needs_cache(l)
-            && let Some(cache) = fallback::bounded_cache(l, self.canvas)
-        {
+        if let Some(cache) = cache {
             let kind = match l.content {
                 LayerContent::Shape(_) => fallback::CacheKind::Shape,
                 LayerContent::Text(_) => fallback::CacheKind::PathText,
@@ -538,7 +536,7 @@ impl Ex {
             upsert(
                 &mut raw,
                 &fallback::CACHE_KEY,
-                fallback::cache_block(&cache, kind, kind == fallback::CacheKind::Shape, photocraft_compose::paint_bounds(l)),
+                fallback::cache_block(cache, kind, kind == fallback::CacheKind::Shape, photocraft_compose::paint_bounds(l)),
                 None,
             );
         }
@@ -805,7 +803,8 @@ impl Ex {
 
     fn emit(&mut self, layers: &[Layer]) {
         for l in layers {
-            let extra = self.content_blocks(l);
+            let cache = fallback::needs_cache(l).then(|| fallback::bounded_cache(l, self.canvas)).flatten();
+            let extra = self.content_blocks(l, cache.as_ref());
             match &l.content {
                 LayerContent::Group(g) => {
                     let id = self.fresh_id();
@@ -840,12 +839,10 @@ impl Ex {
                     self.records.push(r);
                 }
                 LayerContent::Text(t) => {
-                    let cache = fallback::needs_cache(l).then(|| fallback::bounded_cache(l, self.canvas)).flatten();
                     let r = self.record(l, extra, cache.as_ref().or(t.cache.as_ref()));
                     self.records.push(r);
                 }
                 LayerContent::Shape(sh) => {
-                    let cache = fallback::needs_cache(l).then(|| fallback::bounded_cache(l, self.canvas)).flatten();
                     let r = self.record(l, extra, cache.as_ref().or(sh.cache.as_ref()));
                     self.records.push(r);
                 }
@@ -854,7 +851,6 @@ impl Ex {
                     self.records.push(r);
                 }
                 LayerContent::Symbol(s) => {
-                    let cache = fallback::bounded_cache(l, self.canvas);
                     let r = self.record(l, extra, cache.as_ref().or(s.cache.as_ref()));
                     self.records.push(r);
                 }

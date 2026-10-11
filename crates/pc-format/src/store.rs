@@ -509,6 +509,7 @@ impl PcraftWriter {
 
     fn prepare(&mut self, doc: &Document, opts: &SaveOptions) -> Result<Prepared> {
         self.hash_cache.retain(|_, (w, _)| w.strong_count() > 0);
+        photocraft_doc::vector_design::validation::document(doc).map_err(FormatError::corrupt)?;
         convert::check_nesting(&doc.layers)?;
         for symbol in &doc.symbols {
             convert::check_nesting(&symbol.layers)?;

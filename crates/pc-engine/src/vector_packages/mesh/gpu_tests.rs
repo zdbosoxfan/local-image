@@ -35,6 +35,7 @@ fn parity(c: &mut Compositor, d: &wgpu::Device, q: &wgpu::Queue, doc: &Document)
 #[test]
 #[ignore = "integration milestone: native mesh schema/dispatch + real RTX 5090 Vulkan"]
 fn mesh43_mesh_paint_shapes_rtx5090_at_1x_and_09_scales_preview_release() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let (device, queue) = device();
     let mut compositor = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let (mut s, ids) = fixture();

@@ -132,3 +132,18 @@ fn colour39_recolor_rejects_overlapping_rows_missing_target_and_stale_plan() {
     .unwrap();
     assert!(prepare(&s, test_access(), &p).is_err());
 }
+
+#[test]
+fn review_followup_recolor_farthest_seeding_handles_many_distinct_groups() {
+    let (s, ids) = fixture();
+    let mut plan = begin(&s, test_access(), &ids).unwrap();
+    plan.colors =
+        (0..1024).map(|i| Entry { color: Color::rgb((i % 32) as f32 / 31., (i / 32) as f32 / 31., 0.25), reference: None, targets: vec![] }).collect();
+    plan.rows = plan.colors.iter().enumerate().map(|(i, entry)| Row { from: vec![i], to: entry.color }).collect();
+    let mut repeated = plan.clone();
+    plan.reduce(1024, 17).unwrap();
+    repeated.reduce(1024, 17).unwrap();
+    assert_eq!(plan.rows, repeated.rows);
+    assert_eq!(plan.rows.len(), 1024);
+    assert!(plan.rows.iter().all(|row| row.from.len() == 1));
+}

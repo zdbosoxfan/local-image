@@ -7,6 +7,7 @@ pub mod scaled;
 #[test]
 #[ignore = "integration GPU gate; task speed rules prohibit execution"]
 fn path_effects45_path_effects_on_shapes_rtx5090_preview_release_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).expect("RTX 5090 Vulkan required");
     let info = adapter.get_info();

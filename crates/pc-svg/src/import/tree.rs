@@ -30,7 +30,16 @@ pub(super) fn convert(
         "ni" => DesignUnits::Inches,
         _ => DesignUnits::Pixels,
     };
-    let mut state = State { options, canvas: Rect::from_size(size), fonts, bundled: None, cancel, slots, warnings, objects: 0, segments: 0, bytes: 0, xml };
+    let names = xml
+        .descendants()
+        .filter_map(|n| {
+            Some((
+                n.attribute("id")?.to_owned(),
+                n.attribute(("http://www.inkscape.org/namespaces/inkscape", "label")).or_else(|| n.attribute("data-name"))?.to_owned(),
+            ))
+        })
+        .collect();
+    let mut state = State { options, canvas: Rect::from_size(size), fonts, bundled: None, cancel, slots, warnings, objects: 0, segments: 0, bytes: 0, names };
     let root = tree.root();
     let m = geometry::affine(root.transform());
     let mut layers = state.children(root, m, 0)?;
@@ -63,17 +72,14 @@ pub(super) fn convert(
     }
     for warning in &mut state.warnings {
         if let Some(id) = &warning.object
-            && let Some(label) = xml
-                .descendants()
-                .find(|n| n.attribute("id") == Some(id.as_str()))
-                .and_then(|n| n.attribute(("http://www.inkscape.org/namespaces/inkscape", "label")).or_else(|| n.attribute("data-name")))
+            && let Some(label) = state.names.get(id)
         {
-            warning.object = Some(label.into());
+            warning.object = Some(label.clone());
         }
     }
     Ok(ImportedScene { size, resolution_dpi: options.dpi, units, layers, symbols: vec![], warnings: state.warnings })
 }
-struct State<'a, 'b, 'c> {
+struct State<'a, 'b> {
     options: &'a ImportOptions,
     canvas: Rect,
     fonts: Option<&'b mut photocraft_text::TextEngine>,
@@ -84,9 +90,9 @@ struct State<'a, 'b, 'c> {
     objects: usize,
     segments: usize,
     bytes: u64,
-    xml: &'c roxmltree::Document<'c>,
+    names: std::collections::HashMap<String, String>,
 }
-impl State<'_, '_, '_> {
+impl State<'_, '_> {
     fn charge(&mut self, rect: Rect) -> Result<()> {
         let pixels = rect.size().area();
         if pixels > self.options.limits.pixels {
@@ -116,12 +122,7 @@ impl State<'_, '_, '_> {
         geometry::path(data, transform, rule)
     }
     fn name(&self, id: &str, default: &str) -> String {
-        self.xml
-            .descendants()
-            .find(|n| !id.is_empty() && n.attribute("id") == Some(id))
-            .and_then(|n| n.attribute(("http://www.inkscape.org/namespaces/inkscape", "label")).or_else(|| n.attribute("data-name")))
-            .unwrap_or(if id.is_empty() { default } else { id })
-            .to_string()
+        self.names.get(id).map(String::as_str).unwrap_or(if id.is_empty() { default } else { id }).to_owned()
     }
     fn children(&mut self, group: &usvg::Group, transform: Affine, depth: usize) -> Result<Vec<Layer>> {
         if depth >= self.options.limits.depth.min(photocraft_doc::MAX_GROUP_DEPTH).saturating_sub(1) {

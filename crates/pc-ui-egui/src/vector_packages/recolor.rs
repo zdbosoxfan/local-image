@@ -10,6 +10,7 @@ use photocraft_engine::{EngineError, Result, Session};
 
 #[derive(Default)]
 pub struct State {
+    pub generation: u64,
     pub plan: Option<Plan>,
     pub preview: Option<Preview>,
     pub error: Option<String>,
@@ -26,6 +27,7 @@ impl State {
         self.count = plan.colors.len();
         self.hex = plan.rows.iter().map(|r| hex(r.to)).collect();
         self.plan = Some(plan);
+        self.generation = self.generation.wrapping_add(1);
         self.preview = None;
         self.preview_enabled = true;
         self.save_group = false;
@@ -36,6 +38,7 @@ impl State {
     }
     pub fn cancel(&mut self) {
         self.plan = None;
+        self.generation = self.generation.wrapping_add(1);
         self.preview = None;
         self.dirty = false;
     }
@@ -94,7 +97,7 @@ pub fn dialog(ctx: &egui::Context, s: &Session, access: Access, state: &mut Stat
                     let (inner, dropped) = ui.dnd_drop_zone::<usize, _>(frame, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(format!("{} {}", tl!("Row"), row + 1));
-                            for i in plan.rows[row].from.clone() {
+                            for &i in &plan.rows[row].from {
                                 let [r, g, b, a] = plan.colors[i].color.to_rgba8();
                                 ui.dnd_drag_source(egui::Id::new(("recolor_source", i)), i, |ui| {
                                     ui.add(egui::Button::new(format!("{} {}", tl!("Colour"), i + 1)).fill(egui::Color32::from_rgba_unmultiplied(r, g, b, a)));
@@ -110,6 +113,7 @@ pub fn dialog(ctx: &egui::Context, s: &Session, access: Access, state: &mut Stat
                             state.dirty |= response.changed();
                             if response.changed()
                                 && value.len() == 6
+                                && value.bytes().all(|b| b.is_ascii_hexdigit())
                                 && let Ok(value) = u32::from_str_radix(value, 16)
                             {
                                 let alpha = plan.rows[row].to.alpha;
@@ -151,7 +155,7 @@ pub fn dialog(ctx: &egui::Context, s: &Session, access: Access, state: &mut Stat
             if let Some(e) = &state.error {
                 ui.colored_label(egui::Color32::RED, e);
             }
-            let valid_hex = state.hex.iter().all(|v| v.len() == 6 && u32::from_str_radix(v, 16).is_ok());
+            let valid_hex = state.hex.iter().all(|v| v.len() == 6 && v.bytes().all(|b| b.is_ascii_hexdigit()));
             if !valid_hex {
                 ui.colored_label(egui::Color32::RED, tl!("Enter six hexadecimal digits"));
             }
@@ -184,19 +188,22 @@ pub fn dialog(ctx: &egui::Context, s: &Session, access: Access, state: &mut Stat
     }
     if let Some(e) = error {
         state.error = Some(e);
+        state.generation = state.generation.wrapping_add(1);
         state.preview = None;
     }
     if cancel {
         state.cancel();
     } else if state.dirty {
+        state.generation = state.generation.wrapping_add(1);
         state.preview = None;
         if state.preview_enabled
-            && state.hex.iter().all(|v| v.len() == 6 && u32::from_str_radix(v, 16).is_ok())
+            && state.hex.iter().all(|v| v.len() == 6 && v.bytes().all(|b| b.is_ascii_hexdigit()))
             && (!state.save_group || photocraft_doc::vector_design::swatches::validate_name(&state.group_name).is_ok())
             && let Some(plan) = &state.plan
         {
             match recolor::prepare(s, access, plan) {
                 Ok(p) => {
+                    state.generation = state.generation.wrapping_add(1);
                     state.preview = Some(p);
                     state.error = None
                 }

@@ -186,6 +186,11 @@ pub fn tab(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value
     let builtin = ToolbarCustomization::is_builtin(&active.id);
     let mut renaming = f.get("tsRenaming").and_then(Value::as_bool).unwrap_or(false);
     let mut rename_to = f.get("tsRename").and_then(Value::as_str).unwrap_or("").to_string();
+    if f.get("tsRenameOwner").and_then(Value::as_str) != Some(active.id.as_str()) {
+        renaming = false;
+        rename_to.clear();
+        f.insert("tsRenameOwner".into(), json!(active.id));
+    }
     let mut error = f.get("tsError").and_then(Value::as_str).unwrap_or("").to_string();
     let mut act = |app: &mut PhotocraftApp, cmd: &str, p: Value| {
         error = app.run(cmd, p).err().unwrap_or_default();

@@ -501,6 +501,17 @@ pub fn shortcut_items(app: &PhotocraftApp) -> Vec<(String, String, Vec<String>, 
             out.push((id.to_string(), label.to_string(), vec!["Tools".into(), "Temporary".into()], Some(def.to_string())));
         }
     }
+    // Integrated vector menus may append commands to an earlier section. The
+    // shortcut editor renders one heading per contiguous section, preserving
+    // the menu's first-encounter order and each section's command order.
+    let mut sections = Vec::<Option<String>>::new();
+    for item in &out {
+        let section = item.2.first().cloned();
+        if !sections.contains(&section) {
+            sections.push(section);
+        }
+    }
+    out.sort_by_key(|item| sections.iter().position(|section| section.as_ref() == item.2.first()).unwrap_or(sections.len()));
     out
 }
 

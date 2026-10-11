@@ -60,18 +60,24 @@ impl Writer<'_, '_, '_> {
         result
     }
     fn outlines(&mut self, s: &mut Surface<'_>, t: &photocraft_doc::TextLayer, layout: &TextLayout, warp: Option<&photocraft_text::warp::Warp>) -> Result<()> {
+        let key = |c: photocraft_doc::Color| (c.mode as u8, c.c.map(f32::to_bits), c.alpha.to_bits());
         let mut colors = Vec::new();
+        let mut slots = std::collections::HashMap::new();
         for st in &layout.styles {
-            if !colors.contains(&st.color) {
+            if let std::collections::hash_map::Entry::Vacant(entry) = slots.entry(key(st.color)) {
+                entry.insert(colors.len());
                 colors.push(st.color);
             }
         }
+        let mut groups = vec![Vec::new(); colors.len()];
+        for glyph in &layout.glyphs {
+            groups[slots[&key(layout.styles[glyph.style as usize].color)]].push(*glyph);
+        }
         let mut part = layout.clone();
         let mut segments = 0usize;
-        for color in colors {
+        for (color, glyphs) in colors.into_iter().zip(groups) {
             check_cancel(self.cx)?;
-            part.glyphs.clear();
-            part.glyphs.extend(layout.glyphs.iter().filter(|g| layout.styles[g.style as usize].color == color));
+            part.glyphs = glyphs;
             let mut b = PathBuilder::new();
             for glyph in photocraft_text::render::outlines(&part, &t.transform, warp) {
                 check_cancel(self.cx)?;

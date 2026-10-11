@@ -14,7 +14,24 @@ fn path_effects45_native_old_document_editable_roundtrip_and_one_journal() {
     let mut gesture = Gesture::begin(&s, &ids, a).unwrap();
     gesture
         .update(&s, |e| {
-            e.extend(EffectKind::presets().into_iter().map(PathEffect::new));
+            // Persistence covers all nine variants in one valid editable stack.
+            // Individual nonidentity geometry is covered by the separate GPU gate.
+            e.extend(EffectKind::presets().into_iter().map(|mut kind| {
+                match &mut kind {
+                    EffectKind::Roughen { size, .. } | EffectKind::ZigZag { size, .. } => *size = 0.,
+                    EffectKind::PuckerBloat { amount } => *amount = 0.,
+                    EffectKind::Twist { angle } => *angle = 0.,
+                    EffectKind::OffsetPath { distance, .. } => *distance = 0.,
+                    EffectKind::Transform { scale, move_by, angle, copies, .. } => {
+                        *scale = [100., 100.];
+                        *move_by = [0., 0.];
+                        *angle = 0.;
+                        *copies = 0;
+                    }
+                    _ => {}
+                }
+                PathEffect::new(kind)
+            }));
             Ok(())
         })
         .unwrap();

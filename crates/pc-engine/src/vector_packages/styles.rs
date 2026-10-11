@@ -192,7 +192,7 @@ pub fn break_link(store: &mut Store, ids: &[LayerId]) {
 /// excluded items; full replacement is exactly the source stack, including hidden items.
 fn transfer_stack(target: &Appearance, source: &Appearance, a: Attributes, append: bool) -> Appearance {
     let chosen = |item: &AppearanceItem| match item {
-        AppearanceItem::Fill(_) => a.fill,
+        AppearanceItem::Fill(_) | AppearanceItem::Mesh(_) => a.fill,
         AppearanceItem::Stroke(_) => a.stroke,
     };
     if a.fill && a.stroke && !append {
@@ -305,6 +305,10 @@ fn sample_layer(layer: &Layer) -> Result<Sample> {
 /// A strict serialization round-trip rejects NaN/Inf (serde emits null), then numeric fields
 /// are bounded before layout/effects code sees them. No permissive numeric clamping.
 pub fn validate_sample(s: &Sample) -> Result<()> {
+    if s.effects.psd_raw.as_ref().is_some_and(|p| p.len() > 1 << 20) {
+        return Err(error("style raw FX budget"));
+    }
+
     if let Some(a) = &s.appearance {
         renderer::validate(a).map_err(error)?;
     }
@@ -358,9 +362,6 @@ pub fn validate_sample(s: &Sample) -> Result<()> {
         Ok(())
     }
     numbers(&value, "", 0)?;
-    if s.effects.psd_raw.as_ref().is_some_and(|p| p.len() > 1 << 20) {
-        return Err(error("style raw FX budget"));
-    }
     Ok(())
 }
 

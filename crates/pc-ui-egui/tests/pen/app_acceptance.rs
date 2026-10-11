@@ -45,7 +45,8 @@ fn click(h: &mut H, x: f32, y: f32) {
 
 #[test]
 fn pen_app_gpu_live_curved_closed_release_undo_cancel_and_modes() {
-    let _lock = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     for ppp in [1.0, 2.0] {
         let mut h = Harness::builder().with_size(egui::vec2(1100., 800.)).with_pixels_per_point(ppp).wgpu_setup(setup()).build_eframe(|cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
@@ -79,7 +80,7 @@ fn pen_app_gpu_live_curved_closed_release_undo_cancel_and_modes() {
         let curved = h.render().unwrap();
         button(&mut h, 50., 90., false);
         button(&mut h, 20., 20., true);
-        let detached = h.state().ui.vector_pen.preview.clone().expect("actual app pen preview");
+        let detached = h.state().shared_tools.pen.preview.clone().expect("actual app pen preview");
         let expected = photocraft_compose::flatten(&detached);
         let preview = h.render().unwrap();
         assert_ne!(curved, preview, "closing segment must affect the actual app frame");
@@ -108,10 +109,10 @@ fn pen_app_gpu_live_curved_closed_release_undo_cancel_and_modes() {
         h.key_press(egui::Key::Escape);
         h.step();
         assert_eq!(h.state().session.active().unwrap().doc, before);
-        assert!(h.state().ui.vector_pen.preview.is_none());
-        h.state_mut().ui.vector_pen.options.mode = Mode::Line;
+        assert!(h.state().shared_tools.pen.preview.is_none());
+        h.state_mut().ui.tool_options.pen_options.mode = Mode::Line;
         click(&mut h, 20., 20.);
         click(&mut h, 80., 20.);
-        assert!(h.state().ui.vector_pen.gesture.is_none());
+        assert!(h.state().shared_tools.pen.gesture.is_none());
     }
 }

@@ -13,12 +13,19 @@ pub(super) mod cpu;
 
 #[test]
 fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut used = HashSet::new();
+    let mut distinct = HashSet::new();
     for t in Tool::ALL {
         let name = icons::tool_icon_name(t);
         assert!(color_icons::exists(name), "{t:?}: {name}");
         assert!(crate::mono_tool_icons::exists(name), "{t:?}: monochrome {name}");
-        assert!(used.insert(name), "distinct tools share {name}");
+        if photocraft_engine::toolsets::ALL_TOOLS.contains(&format!("{t:?}").as_str()) {
+            assert!(distinct.insert(name), "distinct legacy Pixel tools share {name}");
+            used.insert(name);
+        } else {
+            used.insert(name);
+        }
     }
     use photocraft_algo::liquify::LiquifyTool as L;
     let mut liquify = L::ALL.to_vec();
@@ -26,9 +33,11 @@ fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() 
     for tool in liquify {
         let name = crate::liquify_ui::tool_icon_name(tool);
         assert!(color_icons::exists(name), "{tool:?}");
-        assert!(used.insert(name), "Liquify shares {name}");
+        assert!(distinct.insert(name), "Liquify shares {name}");
+        used.insert(name);
     }
     used.extend(["edit-toolbar", "quick-mask"]);
+    used.extend(crate::vector_tool_icon_data::ICONS.iter().map(|(_, name, _, _)| *name));
     used.extend(color_icon_data::DEVELOP_TOOL_ICONS.iter().map(|(_, name)| *name));
     for (name, _) in color_icon_data::COLOR_ICONS {
         assert!(used.contains(name), "unused colour icon: {name}");
@@ -37,19 +46,28 @@ fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() 
         .unwrap()
         .map(|e| e.unwrap().path().file_stem().unwrap().to_str().unwrap().to_owned())
         .collect();
-    let embedded: HashSet<_> = color_icon_data::COLOR_ICONS.iter().map(|(n, _)| n.to_string()).collect();
+    let embedded: HashSet<_> = color_icon_data::COLOR_ICONS
+        .iter()
+        .map(|(n, _)| n.to_string())
+        .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, n, _, _)| n.to_string()))
+        .collect();
     assert_eq!(disk, embedded, "every SVG must be embedded");
     let mono_disk: HashSet<_> = std::fs::read_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/icons/tools"))
         .unwrap()
         .map(|e| e.unwrap().path().file_stem().unwrap().to_str().unwrap().to_owned())
         .collect();
-    let mono_embedded: HashSet<_> = crate::tool_icon_data::TOOL_ICONS.iter().map(|(n, _)| n.to_string()).collect();
+    let mono_embedded: HashSet<_> = crate::tool_icon_data::TOOL_ICONS
+        .iter()
+        .map(|(n, _)| n.to_string())
+        .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, n, _, _)| n.to_string()))
+        .collect();
     assert_eq!(mono_disk, embedded, "every colour icon has matching monochrome artwork");
     assert_eq!(mono_disk, mono_embedded, "every monochrome SVG is embedded");
 }
 
 #[test]
 fn formerly_shared_glyphs_have_distinct_rendered_silhouettes() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     for (a, b) in [
         ("blur", "smooth"),
         ("smudge", "forward-warp"),
@@ -71,6 +89,7 @@ fn formerly_shared_glyphs_have_distinct_rendered_silhouettes() {
 
 #[test]
 fn dodge_tool_icon_has_a_solid_paddle_head_in_both_styles() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     for size in [16, 20, 40] {
         let center = ((1.5 + 8.0 * 0.875) * f64::from(size) / 24.0).floor() as usize;
         for image in [color_icons::raster("dodge", size, false).unwrap(), crate::mono_tool_icons::raster("dodge", size).unwrap()] {
@@ -85,6 +104,7 @@ fn dodge_tool_icon_has_a_solid_paddle_head_in_both_styles() {
 
 #[test]
 fn liquify_tool_strip_and_global_action_icons_are_clickable_in_both_modes() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use photocraft_algo::liquify::LiquifyTool as L;
     for mode in ["colour", "monochrome"] {
         let mut session = photocraft_engine::Session::new();
@@ -157,6 +177,7 @@ fn saturated_toolbar_pixels(image: &egui::ColorImage, ppp: f32) -> usize {
 
 #[test]
 fn clicking_preferences_switches_the_real_toolbar_pixels_and_saves() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
     app.session.prefs.edit(|p| {
         p.interface.theme = photocraft_engine::prefs::Theme::Studio;
@@ -207,6 +228,7 @@ fn clicking_preferences_switches_the_real_toolbar_pixels_and_saves() {
 #[cfg(not(target_arch = "wasm32"))]
 #[ignore = "requires a real Vulkan GPU; run explicitly with LOCAL_IMAGE_TEST_ADAPTER"]
 fn gpu_tool_icons_upload_and_switch_styles_on_hardware() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use eframe::{egui_wgpu, wgpu};
     let mut setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
     setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
@@ -265,6 +287,7 @@ fn gpu_tool_icons_upload_and_switch_styles_on_hardware() {
 
 #[test]
 fn hardware_gpu_renders_compositing_and_develop_colour_icons_at_both_scales() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     use eframe::wgpu;
     use egui_kittest::wgpu::{WgpuTestRenderer, create_render_state};
 

@@ -10,9 +10,8 @@ use std::collections::HashSet;
 
 // Exact provider source, without competing edits to 00's engine manifest.
 // 00 may replace this bridge with `pub use photocraft_vecfx::blend as evaluator`.
-#[path = "../../../pc-vecfx/src/blend.rs"]
-pub mod evaluator;
 pub use photocraft_pathops::{from_geometry as evaluator_from_geometry, to_geometry as evaluator_geometry};
+pub use photocraft_vecfx::blend as evaluator;
 pub fn evaluator_nearest(path: &photocraft_doc::Path, point: photocraft_geom::Point) -> Result<Option<(usize, usize, f64, photocraft_geom::Point, f64)>> {
     evaluator::validate_path(path).map_err(|e| bad(e.to_string()))?;
     photocraft_pathops::nearest(path, point).map_err(|e| bad(e.to_string()))
@@ -121,7 +120,7 @@ fn detached(session: &Session, request: &Request) -> Result<(Document, LayerId)>
             if paths.iter().any(|p| &p[..p.len() - 1] != parent) {
                 return Err(bad("blend keys must be siblings"));
             }
-            if !parent.is_empty() && doc.layer_at(parent).is_some_and(|l| l.vector.live.is_some()) {
+            if (1..=parent.len()).any(|n| doc.layer_at(&parent[..n]).is_some_and(|l| l.vector.live.is_some())) {
                 return Err(bad("cannot create a nested blend in a live group"));
             }
             let mut indexes = paths.iter().map(|p| p[p.len() - 1]).collect::<Vec<_>>();

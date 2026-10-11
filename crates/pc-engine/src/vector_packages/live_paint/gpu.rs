@@ -4,6 +4,7 @@ use super::*;
 #[test]
 #[ignore = "RTX 5090/Vulkan integrated live paint GPU gate; owner speed rules"]
 fn live_paint42_rtx_5090_vulkan_float_preview_release_expand_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
@@ -34,6 +35,7 @@ fn live_paint42_rtx_5090_vulkan_float_preview_release_expand_parity() {
     let preview = g.preview(&s, action.clone()).unwrap();
     let cpu = photocraft_compose::flatten(&preview.display);
     let gpu = photocraft_gpu::render_to_vec(&mut compositor, &device, &queue, &preview.display, preview.display.bounds()).unwrap();
+    assert_eq!(cpu.px.len(), gpu.len());
     let max = cpu
         .px
         .iter()

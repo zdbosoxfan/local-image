@@ -122,8 +122,8 @@ impl State {
         if let Some(g) = &mut self.gesture {
             match g.release()? {
                 Outcome::Finished(c) => {
-                    self.cancel();
                     s.execute("path.penCommit", serde_json::to_value(c).map_err(|e| photocraft_engine::EngineError::Other(e.to_string()))?)?;
+                    self.cancel();
                 }
                 Outcome::Preview => {}
             }
@@ -131,12 +131,12 @@ impl State {
         Ok(())
     }
     pub fn enter(&mut self, s: &mut Session) -> Result<()> {
-        let Some(g) = self.gesture.take() else { return Ok(()) };
-        self.cancel();
+        let Some(g) = self.gesture.clone() else { return Ok(()) };
         // A lone node or a continuation with no edit is simply abandoned.
         if let Ok(c) = g.finish() {
             s.execute("path.penCommit", serde_json::to_value(c).map_err(|e| photocraft_engine::EngineError::Other(e.to_string()))?)?;
         }
+        self.cancel();
         Ok(())
     }
 }
@@ -150,7 +150,7 @@ pub fn destination(s: &Session, at: Point, tolerance: f64, shape_mode: bool, vec
     if !shape_mode {
         return Ok(Target::Work);
     }
-    if let Some(layer) = st.active_layer
+    if let Some(layer) = st.selected_layers().first().copied()
         && let Some(l) = st.doc.layer(layer)
         && let LayerContent::Shape(sh) = &l.content
     {

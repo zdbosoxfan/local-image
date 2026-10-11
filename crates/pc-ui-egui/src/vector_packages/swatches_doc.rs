@@ -15,6 +15,7 @@ pub enum Event {
     Recolor,
 }
 pub struct State {
+    pub generation: u64,
     pub selected: BTreeSet<SwatchId>,
     pub preview: Option<Preview>,
     editor: Option<Request>,
@@ -25,12 +26,22 @@ pub struct State {
 }
 impl Default for State {
     fn default() -> Self {
-        Self { selected: BTreeSet::new(), preview: None, editor: None, preview_enabled: true, group_name: String::new(), error: None, tint_percent: 100. }
+        Self {
+            generation: 0,
+            selected: BTreeSet::new(),
+            preview: None,
+            editor: None,
+            preview_enabled: true,
+            group_name: String::new(),
+            error: None,
+            tint_percent: 100.,
+        }
     }
 }
 impl State {
     pub fn cancel(&mut self) {
         self.editor = None;
+        self.generation = self.generation.wrapping_add(1);
         self.preview = None;
     }
     pub fn editing(&self) -> bool {
@@ -56,10 +67,24 @@ fn chip(ui: &mut egui::Ui, paint: &Fill) -> egui::Response {
     }
     r
 }
+fn edited_color(mode: photocraft_doc::ColorMode, bytes: [u8; 4]) -> Color {
+    use photocraft_color::{ColorMode, convert};
+    let rgb = [bytes[0], bytes[1], bytes[2]].map(|v| f32::from(v) / 255.);
+    let c = match mode {
+        ColorMode::Cmyk => convert::rgb_to_cmyk(rgb),
+        ColorMode::Lab => {
+            let lab = convert::srgb_to_lab(rgb);
+            [lab[0] / 100., (lab[1] + 128.) / 255., (lab[2] + 128.) / 255., 0.]
+        }
+        ColorMode::Grayscale => [convert::rgb_to_gray(rgb), 0., 0., 0.],
+        _ => [rgb[0], rgb[1], rgb[2], 0.],
+    };
+    Color { mode, c, alpha: f32::from(bytes[3]) / 255. }
+}
 fn edit_color(ui: &mut egui::Ui, c: &mut Color) -> bool {
     let mut bytes = c.to_rgba8();
     if ui.color_edit_button_srgba_unmultiplied(&mut bytes).changed() {
-        *c = Color::rgba(bytes[0] as f32 / 255., bytes[1] as f32 / 255., bytes[2] as f32 / 255., bytes[3] as f32 / 255.);
+        *c = edited_color(c.mode, bytes);
         true
     } else {
         false
@@ -158,6 +183,10 @@ pub fn panel(ui: &mut egui::Ui, s: &Session, access: Access, paint: &Fill, targe
             }
         }
     });
+    let mut grouped = std::collections::HashMap::<Option<u64>, Vec<&Swatch>>::new();
+    for swatch in &book.swatches {
+        grouped.entry(swatch.group).or_default().push(swatch);
+    }
     egui::ScrollArea::vertical().max_height(340.).show(ui, |ui| {
         for group in std::iter::once(None).chain(book.groups.iter().map(Some)) {
             if let Some(group) = group {
@@ -171,7 +200,7 @@ pub fn panel(ui: &mut egui::Ui, s: &Session, access: Access, paint: &Fill, targe
                     }
                 });
             }
-            for w in book.swatches.iter().filter(|w| w.group == group.map(|g| g.id)) {
+            for w in grouped.get(&group.map(|g| g.id)).into_iter().flatten() {
                 ui.push_id(w.id.0, |ui| {
                     ui.horizontal(|ui| {
                         let r = chip(ui, &w.paint).on_hover_text(&w.name);
@@ -193,8 +222,9 @@ pub fn panel(ui: &mut egui::Ui, s: &Session, access: Access, paint: &Fill, targe
                             ui.label(tl!("Spot"));
                         }
                         if r.double_clicked() || label.double_clicked() {
-                            state.editor = Some(Request { capture, action: Action::Edit { swatch: w.clone() } });
+                            state.editor = Some(Request { capture, action: Action::Edit { swatch: (*w).clone() } });
                             state.preview_enabled = true;
+                            state.generation = state.generation.wrapping_add(1);
                             state.preview = None;
                         }
                     });
@@ -288,15 +318,18 @@ pub fn panel(ui: &mut egui::Ui, s: &Session, access: Access, paint: &Fill, targe
         if state.preview_enabled {
             match colours::prepare(s, access, r) {
                 Ok(p) => {
+                    state.generation = state.generation.wrapping_add(1);
                     state.preview = Some(p);
                     state.error = None;
                 }
                 Err(e) => {
+                    state.generation = state.generation.wrapping_add(1);
                     state.preview = None;
                     state.error = Some(e.to_string());
                 }
             }
         } else {
+            state.generation = state.generation.wrapping_add(1);
             state.preview = None;
         }
     }

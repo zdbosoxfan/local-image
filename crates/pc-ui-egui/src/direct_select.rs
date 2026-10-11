@@ -882,3 +882,22 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, to_scr: &dyn F
 #[cfg(test)]
 #[path = "direct_select_tests.rs"]
 mod tests;
+
+/// Anchor tools hit exactly the direction handles currently shown by Direct Selection.
+pub fn anchor_tool_handles(app: &PhotocraftApp) -> Vec<crate::anchor_tools::ShownHandle> {
+    let Some(st) = app.session.active() else { return Vec::new() };
+    let selection = &app.ui.direct_selection;
+    let targets = crate::anchor_tools::selected_targets(&app.session, selection, false);
+    let mut out = Vec::new();
+    for (index, target) in targets.iter().enumerate() {
+        let path_ref = target.layer.map_or(PathRef::Work, PathRef::Layer);
+        let Some(path) = borrowed_path(&st.doc, path_ref) else { continue };
+        let ds = DirectSelection {
+            anchors: target.anchors.clone(),
+            segment: (selection.target == Some(path_ref)).then_some(selection.segment).flatten(),
+            ..Default::default()
+        };
+        out.extend(shown_handles(&ds, path).into_iter().map(|(knot, handle)| crate::anchor_tools::ShownHandle { target: index, knot, handle }));
+    }
+    out
+}

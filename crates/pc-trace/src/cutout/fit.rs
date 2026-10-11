@@ -22,8 +22,11 @@ fn points(seg: &Segment, cancel: &dyn Fn() -> bool) -> Result<Vec<Point>, Error>
     }
     Ok(points)
 }
-fn pixel(seg: &Segment, cancel: &dyn Fn() -> bool) -> Result<Geometry, Error> {
+pub(super) fn pixel(seg: &Segment, cancel: &dyn Fn() -> bool) -> Result<Geometry, Error> {
     let p = points(seg, cancel)?;
+    pixel_points(&p, cancel)
+}
+fn pixel_points(p: &[Point], cancel: &dyn Fn() -> bool) -> Result<Geometry, Error> {
     // Remove only exact collinear lattice vertices, preserving ring closure.
     let mut b = BezPath::new();
     b.move_to(p[0]);
@@ -36,9 +39,6 @@ fn pixel(seg: &Segment, cancel: &dyn Fn() -> bool) -> Result<Geometry, Error> {
         }
     }
     Ok(b.segments().collect())
-}
-pub(super) fn pixel_all(graph: &BoundaryGraph, cancel: &dyn Fn() -> bool) -> Result<Vec<Geometry>, Error> {
-    graph.segments.iter().map(|s| pixel(s, cancel)).collect()
 }
 fn open(points: &[Point], tolerance: f64, width: u32, height: u32) -> BezPath {
     let mut b = BezPath::new();
@@ -61,8 +61,8 @@ fn open(points: &[Point], tolerance: f64, width: u32, height: u32) -> BezPath {
         }
         b.line_to(p);
     }
-    let options = kurbo::simplify::SimplifyOptions::default().angle_thresh(2.).opt_level(kurbo::simplify::SimplifyOptLevel::Optimize);
-    kurbo::simplify::simplify_bezpath(&b, tolerance.min(0.7), &options)
+    let options = kurbo::simplify::SimplifyOptions::default().angle_thresh(2.).opt_level(kurbo::simplify::SimplifyOptLevel::Subdivide);
+    kurbo::simplify::simplify_bezpath(&b, (tolerance + 0.5).min(0.7), &options)
 }
 pub(super) fn fit_all(graph: &BoundaryGraph, params: &Params, cancel: &dyn Fn() -> bool) -> Result<Vec<Geometry>, Error> {
     let mut fitted = Vec::with_capacity(graph.segments.len());
@@ -70,12 +70,16 @@ pub(super) fn fit_all(graph: &BoundaryGraph, params: &Params, cancel: &dyn Fn() 
         if cancel() {
             return Err(Error::Cancelled);
         }
+        if params.fitter == Fitter::Pixel {
+            fitted.push(pixel(seg, cancel)?);
+            continue;
+        }
         let p = points(seg, cancel)?;
         // Bound a single uninterruptible call into T1's closed fitters.
         // Large rings retain exact lattice geometry instead of fitting an
         // artificial closing chord across individually fitted slices.
         let geom: Geometry = if params.fitter == Fitter::Pixel || (seg.is_ring() && p.len() > RING_FIT_LIMIT) {
-            pixel(seg, cancel)?
+            pixel_points(&p, cancel)?
         } else if seg.is_ring() {
             let ring = &p[..p.len() - 1];
             let b = match params.fitter {
@@ -109,4 +113,66 @@ pub(super) fn fit_all(graph: &BoundaryGraph, params: &Params, cancel: &dyn Fn() 
         );
     }
     Ok(fitted)
+}
+
+/// Bounded polygon approximation used before exact lattice fallback. It retains
+/// junction endpoints, and the arrangement guard still checks every resulting edge.
+pub(super) fn conservative(seg: &Segment, tolerance: f64, cancel: &dyn Fn() -> bool) -> Result<Geometry, Error> {
+    let p = points(seg, cancel)?;
+    if p.len() > RING_FIT_LIMIT {
+        return pixel_points(&p, cancel);
+    }
+    fn rdp(points: &[Point], tolerance: f64, cancel: &dyn Fn() -> bool) -> Result<Vec<Point>, Error> {
+        let mut keep = vec![false; points.len()];
+        keep[0] = true;
+        keep[points.len() - 1] = true;
+        let mut work = vec![(0, points.len() - 1)];
+        while let Some((a, b)) = work.pop() {
+            if cancel() {
+                return Err(Error::Cancelled);
+            }
+            let chord = points[b] - points[a];
+            let length = chord.hypot2();
+            let mut furthest = (0., a);
+            for i in a + 1..b {
+                let t = if length > 0. { ((points[i] - points[a]).dot(chord) / length).clamp(0., 1.) } else { 0. };
+                let distance = points[i].distance(points[a] + chord * t);
+                if distance > furthest.0 {
+                    furthest = (distance, i);
+                }
+            }
+            if furthest.0 > tolerance {
+                keep[furthest.1] = true;
+                work.push((a, furthest.1));
+                work.push((furthest.1, b));
+            }
+        }
+        Ok(points.iter().zip(keep).filter_map(|(p, k)| k.then_some(*p)).collect())
+    }
+    // Centre short alternating stairs before simplifying; real corners remain exact.
+    let mut centered = p.clone();
+    for i in 1..p.len() - 1 {
+        let a = p[i] - p[i - 1];
+        let b = p[i + 1] - p[i];
+        let nearby = i >= 2 && (p[i - 1] - p[i - 2]).cross(a) != 0. || i + 2 < p.len() && b.cross(p[i + 2] - p[i + 1]) != 0.;
+        if nearby && a.hypot2() == 1. && b.hypot2() == 1. && a.cross(b) != 0. {
+            centered[i] = p[i - 1].midpoint(p[i + 1]);
+        }
+    }
+    let p = centered;
+    let tolerance = tolerance.clamp(0., 0.5);
+    let simplified = if seg.is_ring() {
+        let split = (1..p.len() - 1).max_by(|a, b| p[*a].distance(p[0]).total_cmp(&p[*b].distance(p[0]))).ok_or(Error::Topology)?;
+        let mut first = rdp(&p[..=split], tolerance, cancel)?;
+        first.extend(rdp(&p[split..], tolerance, cancel)?.into_iter().skip(1));
+        first
+    } else {
+        rdp(&p, tolerance, cancel)?
+    };
+    let mut path = BezPath::new();
+    path.move_to(simplified[0]);
+    for p in &simplified[1..] {
+        path.line_to(*p);
+    }
+    Ok(path.segments().collect())
 }

@@ -45,6 +45,12 @@ fn harness(paths: Vec<ShapeLayer>, contour: bool) -> H {
     s.add_document(doc, None);
     s.select_layer(ids[0]).unwrap();
     s.active_mut().unwrap().selected_layers = ids;
+    if contour {
+        s.edit_prefs(|p| {
+            p.toolbar.persona = photocraft_engine::toolsets::Persona::Vector;
+            p.toolbar.vector_tool = "Contour".into();
+        });
+    }
     let mut h = Harness::builder().with_size(egui::vec2(1280., 800.)).with_pixels_per_point(1.).with_max_steps(64).wgpu_setup(setup).build_eframe(move |cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
         let mut app = PhotocraftApp::new(s, Default::default());
@@ -78,12 +84,12 @@ fn harness(paths: Vec<ShapeLayer>, contour: bool) -> H {
 fn square(x: f64, y: f64, size: f64) -> ShapeLayer {
     ShapeLayer { path: photocraft_vector::shapes::rect(x, y, size, size), fill: Some(Fill::Solid(Color::BLACK)), ..Default::default() }
 }
-fn parity(h: &mut H, expected: &Document, key: u64) -> Vec<[f32; 4]> {
+fn parity(h: &mut H, expected: &Document, _key: u64) -> Vec<[f32; 4]> {
     h.run_steps(3);
     h.render().expect("render the full offscreen app");
     let app = h.state();
     assert!(app.gpu_active() && app.perf.gpu);
-    let (format, size, pixels) = app.gpu.as_ref().unwrap().read_texels(key).expect("production app canvas texture");
+    let (format, size, pixels) = app.read_canvas_texels(expected.id.0).expect("production app canvas texture");
     assert_eq!(format, eframe::wgpu::TextureFormat::Rgba16Float, "actual float canvas required");
     assert_eq!(size, [160, 160]);
     fn refresh(doc: &Document, layers: &mut [Layer]) {
@@ -125,7 +131,8 @@ fn pointer(h: &mut H, pos: Pos2, button: Option<bool>) {
 
 #[test]
 fn geometry31_app_gpu_boolean_buttons_have_independent_area_and_atomic_undo() {
-    let _gpu = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     for (label, expected_area) in [("Add", 6800.), ("Subtract", 3200.), ("Intersect", 400.), ("Xor", 6400.), ("Divide", 6800.)] {
         let mut h = harness(vec![square(20., 20., 60.), square(60., 60., 60.)], false);
         let before = h.state().session.active().unwrap().doc.clone();
@@ -152,8 +159,9 @@ fn geometry31_app_gpu_boolean_buttons_have_independent_area_and_atomic_undo() {
 
 #[test]
 fn geometry31_app_gpu_contour_live_drag_release_cancel_and_stale_targets() {
-    let _gpu = crate::gpu_lock();
-    for delta in [-10.f32, 10.] {
+    let _gpu_gate = crate::gpu_lock();
+
+    for delta in [-10.0f32, 10.] {
         let mut h = harness(vec![square(20., 20., 100.)], true);
         let before = h.state().session.active().unwrap().doc.clone();
         let history = h.state().session.active().unwrap().history.past_len();
@@ -192,7 +200,7 @@ fn geometry31_app_gpu_contour_live_drag_release_cancel_and_stale_targets() {
         let (preview, key) = h.state().constructive_state.display_document(&h.state().session).unwrap();
         parity(&mut h, &preview, key);
         if stale {
-            h.state_mut().run("file.new", json!({"width":160,"height":160,"background":"white"})).unwrap();
+            h.state_mut().run("file.new", json!({"width":160,"height":160,"depth":32,"background":"white"})).unwrap();
         } else {
             h.key_press(egui::Key::Escape);
         }
@@ -210,7 +218,8 @@ fn geometry31_app_gpu_contour_live_drag_release_cancel_and_stale_targets() {
 
 #[test]
 fn geometry31_app_gpu_outline_stroke_menu_matches_original_dashes_and_undo() {
-    let _gpu = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     let shape = ShapeLayer {
         path: photocraft_doc::Path::new(vec![Subpath::polyline(&[(24., 64.), (80., 36.), (136., 84.)])]),
         stroke: Some(ShapeStroke { width: 8., cap: LineCap::Round, dashes: vec![2., 1.], ..Default::default() }),
@@ -225,14 +234,14 @@ fn geometry31_app_gpu_outline_stroke_menu_matches_original_dashes_and_undo() {
     // directly here to disguise an absent UI entry as integrated acceptance.
     h.get_by_label("Layer").click();
     h.run_steps(2);
-    h.get_by_label("Geometry").click();
+    h.get_by_label("Geometry ⏵").click();
     h.run_steps(2);
     h.get_by_label("Outline Stroke").click();
     h.run_steps(3);
     let after = h.state().session.active().unwrap().doc.clone();
     assert_ne!(before, after);
     let expanded = parity(&mut h, &after, after.id.0);
-    let max = original.iter().zip(&expanded).flat_map(|(a, b)| a.iter().zip(b).map(|(a, b)| (a - b).abs())).fold(0.f32, f32::max);
+    let max = original.iter().zip(&expanded).flat_map(|(a, b)| a.iter().zip(b).map(|(a, b)| (a - b).abs())).fold(0.0f32, f32::max);
     assert!(max <= 1. / 255., "expanded native stroke pixel difference {max}");
     assert_eq!(h.state().session.active().unwrap().history.past_len(), history + 1);
     assert_eq!(h.state().session.journal.len(), journal + 1);

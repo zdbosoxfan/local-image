@@ -259,6 +259,14 @@ pub fn evaluate(base: &Path, anchors: &[[usize; 2]], op: &Operation) -> Result<(
 }
 
 fn provenance(base: &Path, output: &Path) -> Result<Origins> {
+    // Exact anchor equality, including signed zero, with one index built per edit.
+    let key = |p: photocraft_geom::Point| (if p.x == 0. { 0 } else { p.x.to_bits() }, if p.y == 0. { 0 } else { p.y.to_bits() });
+    let mut index = std::collections::HashMap::<_, Vec<_>>::new();
+    for (s, sp) in base.subpaths.iter().enumerate() {
+        for (i, k) in sp.knots.iter().enumerate() {
+            index.entry(key(k.anchor)).or_default().push(([s, i], k));
+        }
+    }
     output
         .subpaths
         .iter()
@@ -266,14 +274,8 @@ fn provenance(base: &Path, output: &Path) -> Result<Origins> {
             sp.knots
                 .iter()
                 .map(|k| {
-                    let candidates: Vec<_> = base
-                        .subpaths
-                        .iter()
-                        .enumerate()
-                        .flat_map(|(s, sp)| sp.knots.iter().enumerate().map(move |(i, old)| ([s, i], old)))
-                        .filter(|(_, old)| old.anchor == k.anchor)
-                        .collect();
-                    match candidates.as_slice() {
+                    let candidates = index.get(&key(k.anchor)).map_or(&[][..], Vec::as_slice);
+                    match candidates {
                         [] => Ok(None),
                         [(r, _)] => Ok(Some(*r)),
                         // A join merges coincident endpoint knots. Prefer an unchanged knot, then
@@ -359,6 +361,7 @@ pub fn prepare(doc: &Document, targets: &[Target], op: &Operation, convert_live:
             combined.subpaths.extend(base.subpaths.clone());
         }
         let joined_map = provenance(&combined, &joined)?;
+        let eligible = photocraft_vector::live_corners::handles(&joined).map_err(|e| error(e.to_string()))?;
         let joined_corners: Vec<_> = joined_map
             .iter()
             .enumerate()
@@ -373,6 +376,10 @@ pub fn prepare(doc: &Document, targets: &[Target], op: &Operation, convert_live:
                         })
                     }
                 })
+            })
+            .filter(|c| {
+                eligible.iter().any(|h| h.key.subpath == c.subpath && h.key.knot == c.knot)
+                    || joined.subpaths.get(c.subpath).is_some_and(|sp| !sp.closed && (c.knot == 0 || c.knot + 1 == sp.knots.len()))
             })
             .collect();
         for (i, target) in targets.iter().enumerate() {
@@ -430,6 +437,7 @@ fn publish(doc: &mut Document, target: &Target, p: Path, map: &Origins) -> Resul
     if target.name == "layer" {
         let id = LayerId(target.layer.ok_or_else(|| error("missing layer"))?);
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+        let eligible = if l.vector.corners.is_empty() { Vec::new() } else { photocraft_vector::live_corners::handles(&p).map_err(|e| error(e.to_string()))? };
         if let LayerContent::Shape(sh) = &mut l.content {
             sh.path = p;
             sh.live = None;
@@ -454,6 +462,14 @@ fn publish(doc: &mut Document, target: &Target, p: Path, map: &Origins) -> Resul
                         })
                     }
                 })
+            })
+            .filter(|c| {
+                eligible.iter().any(|h| h.key.subpath == c.subpath && h.key.knot == c.knot)
+                    || match &l.content {
+                        LayerContent::Shape(sh) => sh.path.subpaths.get(c.subpath),
+                        _ => l.vector_mask.as_ref().and_then(|m| m.path.subpaths.get(c.subpath)),
+                    }
+                    .is_some_and(|sp| !sp.closed && (c.knot == 0 || c.knot + 1 == sp.knots.len()))
             })
             .collect();
         l.vector.live_shape = None;

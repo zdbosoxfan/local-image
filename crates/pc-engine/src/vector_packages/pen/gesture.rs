@@ -106,6 +106,9 @@ impl Gesture {
         let (subpath, at_first, drag) = if let Some((si, first, _)) = endpoint {
             (si, first, None) // Clicking an endpoint preserves both original handles.
         } else {
+            if path.subpaths.iter().map(|sp| sp.knots.len()).sum::<usize>() >= MAX_KNOTS {
+                return Err(error("pen knot budget exceeded"));
+            }
             let si = path.subpaths.len();
             path.subpaths.push(Subpath::polyline(&[(at.x, at.y)]));
             (si, false, Some(Drag { knot: 0, closing: false, outgoing_only: false, incoming: at, pointer: at, moved: false }))
@@ -297,6 +300,7 @@ impl Gesture {
             if sp.knots.len() == 2 && distance(sp.knots[0].anchor, sp.knots[1].anchor) < 1e-9 {
                 sp.knots.truncate(1);
                 self.auto.truncate(1);
+                self.generation = self.generation.wrapping_add(1);
                 return Ok(Outcome::Preview);
             }
         }

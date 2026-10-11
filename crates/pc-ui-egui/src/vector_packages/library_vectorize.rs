@@ -151,3 +151,10 @@ fn capture_document(st: &photocraft_engine::DocState, photo: u64, previous: &[Do
 #[cfg(test)]
 #[path = "library_vectorize/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "library_vectorize/dialog_tests.rs"]
+mod dialog_tests;
+#[cfg(test)]
+#[path = "library_vectorize/gpu_tests.rs"]
+mod gpu_tests;

@@ -289,3 +289,48 @@ fn shared_gradient_attributes_are_bounded_without_losing_characters() {
     assert!(warning(&d, "text attribute budget exceeded"));
     assert!(!warning(&d, "text without character attributes"), "budget recovery must not claim source attributes are absent");
 }
+
+#[test]
+fn nonfinite_text_frame_and_baseline_fail_before_model_publication() {
+    for (bounds, baseline) in [([10., 20., 210., 120.], f64::NAN), ([10., f64::INFINITY, 210., 120.], 18.), ([10., 20., f64::NAN, 120.], 18.)] {
+        let bytes = document_with_frame(vec![block(utf8("keep"), vec![], &[])], true, 96., IDENTITY, bounds, baseline);
+        assert!(matches!(photocraft_affinity::read(&bytes, Limits::default()), Err(photocraft_affinity::Error::Malformed(_))));
+    }
+}
+#[test]
+fn text_run_storage_obeys_expanded_model_budget() {
+    let count = 20_000;
+    let bytes = document(vec![block(utf8(&"x".repeat(count)), (1..=count).map(|n| run(n as i32, None)).collect(), &[])], false, 96., IDENTITY);
+    let limits = Limits { max_total: 8 << 20, ..Limits::default() };
+    assert!(matches!(photocraft_affinity::read(&bytes, limits), Err(photocraft_affinity::Error::Limit("expanded model allocation"))));
+}
+#[test]
+fn shared_discarded_stroke_gradients_exhaust_attribute_budget() {
+    let color = F::Def(43, vec![tag(b"RGBA")], vec![(tag(b"_col"), F::Struct([0.2f32, 0.4, 0.6, 1.].iter().flat_map(|v| v.to_le_bytes()).collect()))]);
+    let mut colors = vec![color];
+    colors.extend((1..1024).map(|_| F::Ref(43)));
+    let positions = (0..1024).map(|i| [(i as f32) / 1023., 0.5].iter().flat_map(|v| v.to_le_bytes()).collect()).collect();
+    let gradient =
+        F::Obj(tag(b"FilG"), vec![(tag(b"Grad"), F::Obj(tag(b"Grad"), vec![(tag(b"Cols"), F::Shared(colors)), (tag(b"Posn"), F::Records(8, positions))]))]);
+    let attrs = F::Def(42, vec![tag(b"GAtt")], vec![(tag(b"Objs"), F::Shared(vec![solid(1.), gradient]))]);
+    let mut runs = vec![run(1, Some(attrs))];
+    runs.extend((2..=1000).map(|end| run(end, Some(F::Ref(42)))));
+    let d = read(vec![block(utf8(&"x".repeat(1000)), runs, &[])]);
+    assert_eq!(content(text(&d)), "x".repeat(1000));
+    assert!(warning(&d, "outlined (stroked) text"));
+    assert!(warning(&d, "text attribute budget exceeded"));
+}
+#[test]
+fn excessive_gradient_positions_are_truncated_and_reported() {
+    let color = F::Def(43, vec![tag(b"RGBA")], vec![(tag(b"_col"), F::Struct([0.2f32, 0.4, 0.6, 1.].iter().flat_map(|v| v.to_le_bytes()).collect()))]);
+    let mut colors = vec![color];
+    colors.extend((1..1300).map(|_| F::Ref(43)));
+    let positions = (0..1300).map(|i| [(i as f32) / 1299., 0.5, 999., 888.].iter().flat_map(|v| v.to_le_bytes()).collect()).collect();
+    let gradient =
+        F::Obj(tag(b"FilG"), vec![(tag(b"Grad"), F::Obj(tag(b"Grad"), vec![(tag(b"Cols"), F::Shared(colors)), (tag(b"Posn"), F::Records(16, positions))]))]);
+    let a = F::Obj(tag(b"GAtt"), vec![(tag(b"Objs"), F::Shared(vec![gradient]))]);
+    let d = read(vec![block(utf8("x"), vec![run(1, Some(a))], &[])]);
+    let Paint::Gradient(g) = &text(&d).runs[0].fill else { panic!("gradient") };
+    assert_eq!(g.stops.len(), 1024);
+    assert!(warning(&d, "more than 1024 gradient stops"));
+}

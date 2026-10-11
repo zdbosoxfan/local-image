@@ -219,7 +219,17 @@ fn validate(path: &Path) -> Result<(), CornerError> {
     Ok(())
 }
 fn edges(sp: &Subpath) -> Result<Vec<Edge>, CornerError> {
-    sp.segments().into_iter().map(Edge::new).collect()
+    let mut edges = Vec::new();
+    let mut samples = 0usize;
+    for segment in sp.segments() {
+        let edge = Edge::new(segment)?;
+        samples += edge.table.len();
+        if samples > MAX_SAMPLES {
+            return Err(CornerError::Limit);
+        }
+        edges.push(edge);
+    }
+    Ok(edges)
 }
 fn handle(sp: &Subpath, es: &[Edge], key: CornerKey) -> Option<CornerHandle> {
     let n = sp.knots.len();
@@ -580,7 +590,8 @@ pub fn evaluate(path: &Path, metadata: &[KnotCorner]) -> Result<Projection, Corn
         if kc.corner.radius.abs() > MAX_RADIUS {
             return Err(CornerError::Limit);
         }
-        let h = hs.iter().find(|h| h.key == key).ok_or(CornerError::NotCorner)?;
+        let index = hs.binary_search_by_key(&key, |h| h.key).map_err(|_| CornerError::NotCorner)?;
+        let h = &hs[index];
         kc.corner.radius = kc.corner.radius.clamp(0.0, h.max_radius);
     }
     corners.sort_by_key(|c| (c.subpath, c.knot));

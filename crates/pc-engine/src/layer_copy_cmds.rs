@@ -140,7 +140,7 @@ fn copy_to_document(s: &mut Session, p: &Value) -> Result<Value> {
     if dx != 0 || dy != 0 {
         let snapshot = copies.clone();
         for l in &mut copies.layers {
-            crate::commands::translate_layer(&snapshot, l, dx, dy);
+            crate::commands::translate_layer(&snapshot, l, dx, dy)?;
             crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(dx), f64::from(dy));
         }
     }

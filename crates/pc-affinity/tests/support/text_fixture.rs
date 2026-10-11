@@ -95,13 +95,16 @@ pub fn utf8(text: &str) -> F {
 }
 
 pub fn document(blocks: Vec<F>, frame: bool, dpi: f64, transform: [f64; 6]) -> Vec<u8> {
+    document_with_frame(blocks, frame, dpi, transform, [10., 20., 210., 120.], 18.)
+}
+pub fn document_with_frame(blocks: Vec<F>, frame: bool, dpi: f64, transform: [f64; 6], bounds: [f64; 4], baseline: f64) -> Vec<u8> {
     let text = F::Obj(
         tag(if frame { b"TxtF" } else { b"TxtA" }),
         vec![
             (tag(b"StSt"), F::Obj(tag(b"Stry"), vec![(tag(b"Blok"), F::Shared(blocks))])),
             (
                 tag(b"TxtH"),
-                F::Obj(tag(if frame { b"FrFr" } else { b"ArFr" }), vec![(tag(b"FrmB"), F::F64s(vec![10.0, 20.0, 210.0, 120.0])), (tag(b"ArtV"), F::F64(18.0))]),
+                F::Obj(tag(if frame { b"FrFr" } else { b"ArFr" }), vec![(tag(b"FrmB"), F::F64s(bounds.to_vec())), (tag(b"ArtV"), F::F64(baseline))]),
             ),
             (tag(b"Xfrm"), F::F64s(transform.to_vec())),
         ],

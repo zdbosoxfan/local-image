@@ -90,9 +90,9 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
             ch.surface = crate::transform_cmds::warp_gray(&ch.surface, &hm, interp);
         }
         doc.selection = None;
-        crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::All);
+        crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::All)?;
         doc.guides = Default::default();
-        crate::image_cmds::crop_to(doc, canvas);
+        crate::image_cmds::crop_to(doc, canvas)?;
         Ok(())
     })?;
     Ok(json!({ "width": w, "height": h }))

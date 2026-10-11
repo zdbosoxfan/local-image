@@ -315,6 +315,7 @@ fn svg_export_stacked_appearance_independent_layer_render() {
         let (fill, stroke, opacity) = match item {
             AppearanceItem::Fill(f) => (Some(f.paint), None, f.opacity),
             AppearanceItem::Stroke(s) => (None, Some(s.base), 1.),
+            AppearanceItem::Mesh(_) => panic!("fixture contains only fills and strokes"),
         };
         let mut shape = ShapeLayer { path: path.clone(), fill, stroke, ..Default::default() };
         shape.cache = Some(photocraft_vector::render_shape(&shape, doc.pixel_format(), doc.bounds()));

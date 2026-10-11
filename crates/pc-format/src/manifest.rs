@@ -37,6 +37,12 @@ pub struct Manifest {
 pub struct DocM {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub symbols: Vec<SymbolDefM>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub graphic_styles: Vec<photocraft_doc::vector_design::styles::GraphicStyle>,
+    #[serde(default, skip_serializing_if = "photocraft_doc::vector_design::swatches::SwatchBook::is_empty")]
+    pub swatches: photocraft_doc::vector_design::swatches::SwatchBook,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drawing_scale: Option<photocraft_doc::vector_design::structure::DrawingScale>,
     #[serde(default, skip_serializing_if = "photocraft_doc::DesignUnits::is_pixels")]
     pub design_units: photocraft_doc::DesignUnits,
     pub id: u64,

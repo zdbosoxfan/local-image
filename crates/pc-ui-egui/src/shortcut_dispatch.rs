@@ -11,7 +11,7 @@ use egui::{Key, KeyboardShortcut};
 use serde_json::json;
 
 use crate::PhotocraftApp;
-use crate::shortcuts::{key_matches, parse};
+use crate::shortcuts::key_matches;
 
 /// What a dispatched shortcut did (kept for tests and `ui.inspect`-style debugging).
 #[derive(Clone, Debug, PartialEq)]
@@ -48,7 +48,7 @@ pub const SECONDARY: &[(&str, &str)] = &[("edit.fill", "Shift+Backspace")];
 /// then Edit › Keyboard Shortcuts assignments to any other menu item. D and X
 /// (`tools.defaultColors` / `tools.swapColors`) and the fill keys are commands like any other, so
 /// their overrides apply. Held temporary tools (Space…) are not here: see [`crate::hold_keys`].
-pub fn bindings(app: &PhotocraftApp) -> Vec<(String, KeyboardShortcut)> {
+pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
     let prefs = app.session.prefs();
     let ui = crate::menus::UI_COMMANDS.iter().map(|(id, _, _, sc)| (*id, prefs.shortcut(id, *sc)));
     let engine = photocraft_engine::command_specs().iter().map(|c| (c.id, prefs.shortcut(c.id, c.shortcut)));
@@ -76,11 +76,16 @@ pub fn bindings(app: &PhotocraftApp) -> Vec<(String, KeyboardShortcut)> {
         .map(|(id, sc)| (id.as_str(), Some(sc.as_str())));
     // Photoshop's second shortcuts, kept while the command's main one is the default.
     let secondary = SECONDARY.iter().filter(|(id, _)| !prefs.shortcuts.contains_key(*id)).map(|&(id, sc)| (id, Some(sc)));
-    let mut all: Vec<(String, KeyboardShortcut)> = Vec::new();
-    for (id, sc) in ui.chain(engine).chain(catalog).chain(overrides).chain(secondary) {
-        let Some(sc) = sc.and_then(parse) else { continue };
+    let pixel: Vec<_> =
+        ui.chain(engine).chain(catalog).chain(overrides).chain(secondary).filter_map(|(id, sc)| sc.map(|sc| (id.to_owned(), sc.to_owned()))).collect();
+    photocraft_engine::vector_toolbar_layout::command_bindings(prefs.toolbar.persona, &pixel)
+}
+pub fn bindings(app: &PhotocraftApp) -> Vec<(String, KeyboardShortcut)> {
+    let mut all = Vec::new();
+    for (id, value) in binding_strings(app) {
+        let Some(sc) = crate::fill_stroke_proxy::shortcut(&value) else { continue };
         if !all.iter().any(|(_, b)| *b == sc) {
-            all.push((id.to_string(), sc));
+            all.push((id, sc));
         }
     }
     all.sort_by_key(|(_, sc)| std::cmp::Reverse(sc.modifiers.shift as u8 + sc.modifiers.alt as u8 + sc.modifiers.command as u8));

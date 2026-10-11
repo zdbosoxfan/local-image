@@ -7,7 +7,7 @@
 //! Join, Split Into Grid.
 
 use crate::geom::{Anchor, PathData, SubPath};
-use kurbo::{CubicBez, ParamCurveArclen, Point, Rect, Vec2};
+use kurbo::{CubicBez, ParamCurve, ParamCurveArclen, ParamCurveExtrema, ParamCurveNearest, Point, Rect, Vec2};
 
 use crate::kernel::boolean::{Seg, segs_to_subpath};
 use crate::kernel::fit::{end_tangent, fit_single, fit_single_from, sample, start_tangent};
@@ -48,8 +48,31 @@ fn turn_deg(a: &Seg, b: &Seg) -> f64 {
     d.acos().to_degrees()
 }
 
+fn fit_within_tolerance(source: &[Seg], fitted: &[Seg], tolerance: f64) -> bool {
+    let within = |a: &[Seg], b: &[Seg], samples: usize| {
+        let bounds: Vec<_> = b.iter().map(|s| s.c.bounding_box().inflate(tolerance, tolerance)).collect();
+        a.iter().all(|s| {
+            (0..=samples).all(|i| {
+                let p = s.c.eval(i as f64 / samples as f64);
+                b.iter().zip(&bounds).any(|(s, r)| r.contains(p) && s.c.nearest(p, 1e-9).distance_sq <= tolerance * tolerance)
+            })
+        })
+    };
+    within(source, fitted, if source.len() < 128 { 24 } else { 4 }) && within(fitted, source, 24)
+}
+
 /// Optimal kurbo refit of each smooth run, keeping VectorCraft corner boundaries.
 pub fn simplify_with(path: &PathData, opts: &SimplifyOptions) -> PathData {
+    simplify_impl(path, opts, true)
+}
+
+/// Same corner, tolerance and node-count policies, using kurbo's recursive subdivision
+/// fitter for pointer-driven edits. Both preview and commit must use this route.
+pub fn simplify_interactive(path: &PathData, tolerance: f64) -> PathData {
+    simplify_impl(path, &SimplifyOptions { tolerance, ..Default::default() }, false)
+}
+
+fn simplify_impl(path: &PathData, opts: &SimplifyOptions, optimize: bool) -> PathData {
     let tol = opts.tolerance.max(1e-6);
     let mut out = Vec::new();
     for sp in &path.subpaths {
@@ -111,8 +134,24 @@ pub fn simplify_with(path: &PathData, opts: &SimplifyOptions) -> PathData {
             // kurbo's experimental optimizer estimates the fitting error. Reserve half
             // the requested tolerance for its approximation (dense wobbly curves can
             // exceed the nominal estimate); the persisted tolerance regression covers it.
-            let fitted = kurbo::fit_to_bezpath_opt(&source, tol * 0.5);
-            result.extend(fitted.segments().map(crate::kernel::boolean::to_seg));
+            let fitted = if optimize { kurbo::fit_to_bezpath_opt(&source, tol * 0.5) } else { kurbo::fit_to_bezpath(&source, tol * 0.5) };
+            let mut fitted: Vec<_> = fitted.segments().map(crate::kernel::boolean::to_seg).collect();
+            // The fitter's approximate error can miss a sharp excursion next
+            // to a flat tail. Preserve the original run when independent two-way
+            // geometry checks reject its estimate, instead of publishing the bad fit.
+            let mut valid = fit_within_tolerance(run, &fitted, tol);
+            for accuracy in [tol * 0.25, tol * 0.125] {
+                if valid {
+                    break;
+                }
+                fitted = kurbo::fit_to_bezpath(&source, accuracy).segments().map(crate::kernel::boolean::to_seg).collect();
+                valid = fit_within_tolerance(run, &fitted, tol);
+            }
+            if valid {
+                result.extend(fitted);
+            } else {
+                result.extend_from_slice(run);
+            }
         }
         if let Some(s) = segs_to_subpath(&result, sp.closed) {
             out.push(if opts.straight_lines { s } else { no_worse(sp, s) });

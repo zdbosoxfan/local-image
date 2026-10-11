@@ -386,3 +386,22 @@ fn svg_import_external_maps_and_illustrations_no_panics() {
     }
     assert_eq!(count, 5);
 }
+
+#[test]
+fn review_additional_svg_gzip_has_separate_input_and_expanded_limits() {
+    use std::io::Write;
+    let mut source = String::from("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\">");
+    // Expanded XML and its single tiled cache share the bounded memory budget.
+    source.push_str(&" ".repeat(1024 * 1024 + 4096));
+    source.push_str("<path id=\"a\" data-name=\"Named path\" d=\"M0 0L8 0L8 8Z\"/></svg>");
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder.write_all(source.as_bytes()).unwrap();
+    let compressed = encoder.finish().unwrap();
+    let mut options = ImportOptions::default();
+    options.limits.bytes = compressed.len();
+    options.limits.decompressed_bytes = source.len() as u64;
+    let scene = photocraft_svg::import(&compressed, &options).unwrap();
+    assert_eq!(flat(&scene.layers)[0].name, "Named path");
+    options.limits.decompressed_bytes -= 1;
+    assert!(photocraft_svg::import(&compressed, &options).is_err());
+}

@@ -181,3 +181,15 @@ fn repeat19_exchange_scene_uses_same_projection_without_engine_dependency() {
     };
     assert_eq!(expand_scene(&scene).unwrap(), expand_layers(&input).unwrap());
 }
+
+#[test]
+fn review_repeat_unused_pitch_and_large_valid_reflection() {
+    let bounds = Bounds::new([999_990., 0.], [1_000_000., 10.]).unwrap();
+    assert_eq!(transforms(&RepeatSpec::Grid { rows: 1, cols: 1, spacing: [-10., -10.] }, bounds).unwrap().len(), 1);
+    let matrix = transforms(&RepeatSpec::Mirror { origin: [999_995., 5.], angle: std::f64::consts::FRAC_PI_2 }, bounds).unwrap();
+    assert_eq!(matrix.len(), 2);
+    for transform in matrix {
+        let p = transform.apply(Point::new(999_990., 0.));
+        assert!(p.x.abs() <= MAX_COORDINATE && p.y.abs() <= MAX_COORDINATE);
+    }
+}

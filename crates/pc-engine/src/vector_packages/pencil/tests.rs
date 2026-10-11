@@ -158,3 +158,13 @@ fn pencil_continue_commit_rejects_extension_at_uncaptured_endpoint() {
     assert!(!s.active().unwrap().history.can_undo());
     assert!(s.journal.is_empty());
 }
+
+#[test]
+fn review_followup_pencil_rejects_zero_length_sculpt_interval_at_capture() {
+    let mut s = session();
+    let path = Path::new(vec![Subpath::polyline(&[(10., 10.), (20., 20.), (30., 10.)])]);
+    let layer = Layer::new("Curve", LayerContent::Shape(ShapeLayer { path, ..Default::default() }));
+    let id = layer.id;
+    Arc::make_mut(&mut s.active_mut().unwrap().doc).layers.push(layer);
+    assert!(Capture::begin(&s, Operation::Sculpt { layer: id, subpath: 0, first: 1, last: 1 }, Default::default()).is_err());
+}

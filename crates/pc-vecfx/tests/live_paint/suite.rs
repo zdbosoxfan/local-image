@@ -131,7 +131,7 @@ fn live_paint42_sparse_pointer_frames_hit_subpixel_regions() {
     let g = Graph::new(&sources, Gap::None).unwrap();
     assert_eq!(g.faces.len(), 3);
     let hits = g.touched(&[Point::new(10., 10.), Point::new(90., 10.)]).unwrap();
-    assert_eq!(hits.len(), 3, "hits={hits:?}, faces={:?}", g.faces.iter().map(|f| (f.area, f.bounds)).collect::<Vec<_>>());
+    assert_eq!(hits.len(), 3, "hits={hits:?}, faces={:?}", g.faces.iter().map(|f| (f.area, f.bounds, &f.region.path)).collect::<Vec<_>>());
 }
 #[test]
 fn live_paint42_expand_and_spec_serde_preserve_geometry_paint_and_defaults() {
@@ -196,4 +196,21 @@ fn live_paint42_closed_ring_includes_unfilled_counter_face() {
     let mut spec = LivePaintSpec::default();
     spec.set_face(graph.faces[i].signature.clone(), Some(Fill::Solid(Color::WHITE))).unwrap();
     assert_eq!(graph.expand(&[l], &spec).unwrap().len(), 2);
+}
+
+#[test]
+fn review_additional_live_paint_records_are_atomic_and_keep_open_source_slots() {
+    let input = sources();
+    let graph = Graph::new(&input, Gap::None).unwrap();
+    assert!(input.iter().all(|l| graph.edges.iter().any(|e| e.source == l.id.0)));
+    let mut spec = LivePaintSpec::default();
+    let signature = graph.faces[0].signature.clone();
+    spec.set_face(signature.clone(), Some(Fill::Solid(Color::BLACK))).unwrap();
+    let before = spec.clone();
+    let mut invalid = signature;
+    invalid.boundary[0].source = 0;
+    assert!(spec.set_face(invalid.clone(), None).is_err());
+    assert_eq!(spec, before);
+    assert!(spec.set_edge(invalid, None).is_err());
+    assert_eq!(spec, before);
 }

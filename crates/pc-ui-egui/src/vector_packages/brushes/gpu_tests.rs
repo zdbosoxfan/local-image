@@ -64,6 +64,7 @@ fn crop(h: &mut Harness<'_, PhotocraftApp>) -> Vec<[u8; 4]> {
 #[test]
 #[ignore = "package 17 speed rules: coordinator full-app GPU acceptance"]
 fn brush17_full_app_rtx_preview_release_cancel_expand_and_undo() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     for (_, brush) in photocraft_engine::vector_packages::brushes::geometry::presets() {
         let mut h = harness();
         h.state_mut().vector_brush.options.brush = brush;

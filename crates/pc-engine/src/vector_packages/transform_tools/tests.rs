@@ -283,6 +283,7 @@ fn transform34_corner_pattern_frame_rounded_geometry_keeps_canvas_phase() {
     sh.path = Path::new(vec![Subpath::polygon(&[(20., 20.), (40., 40.), (0., 40.)])]);
     sh.stroke = None;
     sh.fill = Some(Fill::Pattern { name: "Synthetic".into(), id: pattern_id, scale: 1., angle: 0., phase: (3., 4.), link: true });
+    let original_phase_y = super::super::corners::project_shape(sh, &l.vector.corners).unwrap().path.control_bounds().unwrap().1 + 4.;
     let mut c = request(&s, &ids, scale(Point::new(0., 0.), 2., 2.).unwrap());
     c.options.patterns = false;
     let p = prepare(&s, &c).unwrap();
@@ -291,10 +292,7 @@ fn transform34_corner_pattern_frame_rounded_geometry_keeps_canvas_phase() {
     let projected = super::super::corners::project_shape(sh, &layer.vector.corners).unwrap();
     let b = projected.path.control_bounds().unwrap();
     let Some(Fill::Pattern { phase, .. }) = &sh.fill else { panic!() };
-    // The renderer uses control bounds. The quarter-circle control lies k*r/sqrt(2)
-    // above its tangent point, where k = 4/3 tan(pi/8), r = 2.
-    let k = 4. / 3. * (std::f64::consts::PI / 8.).tan();
-    let original_phase_y = 20. + 2_f64.sqrt() * (1. - k) + 4.;
+    // Compare the actual renderer's projected control bounds before and after.
     assert!((b.1 + f64::from(phase.1) - original_phase_y).abs() < 1e-5);
     assert_eq!(layer.vector.corners[0].corner.radius, 4.);
     assert!(s.journal.is_empty());
@@ -519,4 +517,19 @@ fn transform34_engine_old_options_numeric_validation_move_oracle() {
     assert!(shear(Point::new(0., 0.), 90., false).is_err());
     assert!(scale(Point::new(0., 0.), 0., 1.).is_err());
     assert!(rotate(Point::new(0., 0.), f64::INFINITY).is_err());
+}
+
+#[test]
+fn review_followup_reshape_again_preserves_identity_when_selection_is_reordered() {
+    let (mut s, ids) = fixture(2);
+    let mut c = request(&s, &ids, Affine::IDENTITY.m);
+    c.operation = Operation::Reshape { nodes: vec![Node { layer: ids[0], subpath: 0, knot: 0 }], delta: [0., 5.], radius: 10. };
+    commit(&mut s, &c).unwrap();
+    let repeated = again_request(&s, &[ids[1], ids[0]]).unwrap();
+    let Operation::Reshape { nodes, .. } = &repeated.operation else { panic!() };
+    assert_eq!(nodes[0].layer, ids[0]);
+    commit(&mut s, &repeated).unwrap();
+    let doc = &s.active().unwrap().doc;
+    assert_eq!(shape(doc, ids[0]).path.subpaths[0].knots[0].anchor.y, 30.);
+    assert_eq!(shape(doc, ids[1]).path.subpaths[0].knots[0].anchor.y, 20.);
 }

@@ -69,6 +69,7 @@ fn stack(g: &mut Gesture) {
 }
 #[test]
 fn appearance_stacks_on_shapes_rtx5090_preview_release_clipping() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let (device, queue) = device();
     let mut c = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let (mut s, ids) = setup();
@@ -101,6 +102,7 @@ fn appearance_stacks_on_shapes_rtx5090_preview_release_clipping() {
 }
 #[test]
 fn layer_effects_on_appearance_shapes_rtx5090_merged_alpha() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let (device, queue) = device();
     let mut c = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let (mut s, ids) = setup();

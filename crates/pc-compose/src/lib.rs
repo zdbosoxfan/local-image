@@ -16,6 +16,8 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+extern crate self as photocraft_compose;
+
 pub mod adjust;
 pub mod bounds;
 pub mod effects;
@@ -636,13 +638,53 @@ fn effect_shape(layer: &Layer, rect: Rect, cx: &Ctx) -> Vec<f32> {
     out
 }
 
+/// Versioned PSD cache rendering role. No editable native feature is reconstructed.
+pub fn psd_fallback_kind(layer: &Layer) -> Option<u8> {
+    let (_, data) = layer.psd_blocks.iter().find(|(k, _)| k == b"liVF")?;
+    const PREFIX: &[u8] = b"Local Image vector cache\0\0\0\0\x01\0";
+    if data.len() != PREFIX.len() + 50 || !data.starts_with(PREFIX) || data[PREFIX.len()] > 2 {
+        return None;
+    }
+    let kind = data[PREFIX.len()];
+    let frame: [i32; 4] = std::array::from_fn(|k| {
+        let i = PREFIX.len() + 34 + k * 4;
+        i32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]])
+    });
+    (data[PREFIX.len() + 1] <= u8::from(kind == 1)
+        && frame.iter().all(|v| v.unsigned_abs() <= 2_000_000)
+        && frame[2] >= frame[0]
+        && frame[3] >= frame[1]
+        && (kind == 1 || frame == [0; 4]))
+        .then_some(kind)
+}
+/// Relative frame keeps ordinary gradient/pattern effects stable through Move.
+pub fn psd_fallback_paint_bounds(layer: &Layer) -> Option<Rect> {
+    if psd_fallback_kind(layer) != Some(1) {
+        return None;
+    }
+    let (_, data) = layer.psd_blocks.iter().find(|(k, _)| k == b"liVF")?;
+    let f: [i32; 4] = std::array::from_fn(|k| {
+        let i = 64 + k * 4;
+        i32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]])
+    });
+    if f == [0; 4] {
+        return None;
+    }
+    let b = layer.surface()?.content_bounds();
+    Some(Rect::new(b.x0.checked_add(f[0])?, b.y0.checked_add(f[1])?, b.x0.checked_add(f[2])?, b.y0.checked_add(f[3])?))
+}
+/// Cached shape pixels retain the native shape's ordinary stroke-effect behavior.
+pub fn vector_effects(layer: &Layer) -> bool {
+    matches!(layer.content, LayerContent::Shape(_)) || psd_fallback_kind(layer) == Some(1)
+}
+
 /// The frame layer-effect gradients and linked patterns are laid out in, when it isn't the
 /// layer's pixel bounds: a shape layer's path bounds, truncated to whole pixels. Its rendered
 /// pixels can extend past the path (transparent anti-aliasing margin), which Photoshop ignores:
 /// psd-tools shape-fx2's 45° overlay spans the 0.92–29.61 path as 0–29 (29 px, centred at 14.5),
 /// not the 32 px of pixels.
 pub fn paint_bounds(layer: &Layer) -> Option<Rect> {
-    let LayerContent::Shape(sh) = &layer.content else { return None };
+    let LayerContent::Shape(sh) = &layer.content else { return psd_fallback_paint_bounds(layer) };
     let (x0, y0, x1, y1) = sh.path.control_bounds()?;
     let r = Rect::new(x0.floor() as i32, y0.floor() as i32, x1.floor() as i32, y1.floor() as i32);
     (!r.is_empty()).then_some(r)
@@ -681,9 +723,13 @@ fn mask_k(m: &Option<Vec<f32>>, i: usize) -> f32 {
 fn render_content(layer: &Layer, rect: Rect, cx: &Ctx) -> Option<Buffer> {
     let mut buf = match &layer.content {
         LayerContent::Group(g) => {
-            let mut b = Buffer::transparent(rect);
-            composite_stack(&g.children, &mut b, cx);
-            b
+            if let Some(buffer) = mosaic::render(layer, rect, 1.0) {
+                buffer
+            } else {
+                let mut b = Buffer::transparent(rect);
+                composite_stack(&g.children, &mut b, cx);
+                b
+            }
         }
         LayerContent::Fill(f) => match &layer.fill_cache {
             // Photoshop's own rendering, valid while the fill is unchanged.
@@ -1189,7 +1235,7 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
 /// The coverage-mixing gamma of a layer: the text blending gamma
 /// ([`psblend::set_text_gamma`], Photoshop's default 1.45) for type layers, else 1.
 pub fn text_gamma(layer: &Layer) -> f32 {
-    if matches!(layer.content, LayerContent::Text(_)) { psblend::text_gamma() } else { 1.0 }
+    if matches!(layer.content, LayerContent::Text(_)) || psd_fallback_kind(layer) == Some(2) { psblend::text_gamma() } else { 1.0 }
 }
 
 /// A stroked shape layer with visible clipped layers: Photoshop draws the shape's vector stroke
@@ -1502,3 +1548,7 @@ fn blend_into_g(backdrop: &mut Buffer, src: &Buffer, mode: BlendMode, opacity: f
 mod stroke_tests;
 #[cfg(test)]
 mod tests;
+
+pub mod scaled_view;
+
+pub mod mosaic;

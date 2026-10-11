@@ -21,12 +21,15 @@ fn fit(c: CubicBez, map: &impl Fn(Point) -> Point, tol: f64, depth: usize, work:
     {
         return Err(Error::Invalid);
     }
-    let error = (1..32)
-        .map(|i| {
-            let t = i as f64 / 32.;
-            map(c.eval(t)).distance(fitted.eval(t))
-        })
-        .fold(0., f64::max);
+    let mut error: f64 = 0.;
+    for i in 1..32 {
+        let t = i as f64 / 32.;
+        let distance = map(c.eval(t)).distance(fitted.eval(t));
+        if !distance.is_finite() {
+            return Err(Error::Invalid);
+        }
+        error = error.max(distance);
+    }
     if error <= tol * 0.5 {
         out.push(fitted);
         return Ok(());

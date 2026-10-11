@@ -108,6 +108,13 @@ fn node_base(d: &DirectSelection) -> Vec<Nodes> {
         })
         .collect()
 }
+fn same_node_base(base: &[Nodes], d: &DirectSelection) -> bool {
+    let mut current = d.target.iter().map(|t| (*t, &d.anchors)).chain(d.additional.iter().map(|n| (n.target, &n.anchors))).filter_map(|(t, a)| match t {
+        PathRef::Layer(id) => Some((LayerId(id), a)),
+        PathRef::Work => None,
+    });
+    base.iter().all(|b| current.next().is_some_and(|(id, anchors)| b.layer == id && b.anchors == *anchors)) && current.next().is_none()
+}
 /// Use after object-selection publication in shared menu/shortcut adapters as well.
 pub fn clear_nodes(d: &mut DirectSelection, document: DocId) {
     *d = DirectSelection { document: Some(document.0), pixels_per_point: d.pixels_per_point, transform_mode: d.transform_mode, ..Default::default() };
@@ -119,7 +126,10 @@ fn publish_nodes(d: &mut DirectSelection, hits: Vec<Nodes>, base: &[Nodes], mode
         match mode {
             Mode::Replace => {}
             Mode::Add => hit.anchors.extend(old.iter().copied()),
-            Mode::Subtract => hit.anchors = old.iter().copied().filter(|a| !hit.anchors.contains(a)).collect(),
+            Mode::Subtract => {
+                let removed: std::collections::HashSet<_> = hit.anchors.iter().copied().collect();
+                hit.anchors = old.iter().copied().filter(|a| !removed.contains(a)).collect();
+            }
         }
         hit.anchors.sort_unstable();
         hit.anchors.dedup();
@@ -179,7 +189,7 @@ pub fn canvas(
     let stale = state.capture.as_ref().is_some_and(|c| {
         c.tool != effective
             || c.node_mode != node_mode
-            || (c.node_mode && c.node_base != node_base(direct))
+            || (c.node_mode && !same_node_base(&c.node_base, direct))
             || session.active().is_none_or(|st| st.doc.id != c.request.document || st.revision != c.request.revision || st.selected_layers() != c.base)
             || c.request.scope != scope
     });
@@ -328,7 +338,7 @@ pub fn paint(ui: &Ui, state: &State, view: View, rect: Rect) {
         painter.add(egui::Shape::line(p, Stroke::new(1., color)));
     }
 }
-const SAME: &[(Same, &str)] = &[
+pub const SAME: &[(Same, &str)] = &[
     (Same::FillColor, "Fill Color"),
     (Same::StrokeColor, "Stroke Color"),
     (Same::FillAndStroke, "Fill & Stroke"),
@@ -344,7 +354,7 @@ const SAME: &[(Same, &str)] = &[
     (Same::Rotation, "Rotation"),
     (Same::Name, "Name"),
 ];
-const OBJECT: &[(Object, &str)] = &[
+pub const OBJECT: &[(Object, &str)] = &[
     (Object::AllOnSameLayers, "All on Same Layers"),
     (Object::OpenPaths, "Open Paths"),
     (Object::StrayPoints, "Stray Points"),
@@ -491,16 +501,18 @@ fn bridge_key() -> egui::Id {
 pub fn bridge(ctx: &egui::Context) -> Bridge {
     ctx.data(|d| d.get_temp(bridge_key())).unwrap_or_default()
 }
+pub fn save_bridge(ctx: &egui::Context, state: Bridge) {
+    ctx.data_mut(|d| d.insert_temp(bridge_key(), state));
+}
 pub fn activate(app: &crate::PhotocraftApp, ctx: &egui::Context, tool: Tool, node_mode: bool, scope: Scope) {
     let mut b = bridge(ctx);
     b.state.cancel();
     b.tool = Some(tool);
     b.node_mode = node_mode;
-    b.scope = scope.clone();
+    b.scope = Scope { select_hidden: b.state.settings.select_hidden, ..scope };
     b.owner = Some(app.ui.tool);
     b.persona = Some(app.session.prefs().toolbar.persona);
     b.module = Some(app.current_module);
-    b.state.settings.select_hidden = scope.select_hidden;
     ctx.data_mut(|d| d.insert_temp(bridge_key(), b));
 }
 pub fn frame(app: &crate::PhotocraftApp, ctx: &egui::Context) {
@@ -564,7 +576,7 @@ pub fn route(app: &mut crate::PhotocraftApp, ui: &mut Ui, idx: usize, xf: &crate
         // Menu/MCP selection also has overlays under ordinary vector tools.
         b.state.cancel();
         b.tool = None;
-        if view.valid() {
+        if view.valid() && !matches!(app.ui.tool, crate::state::Tool::Hand | crate::state::Tool::Zoom) && app.ui.view.extras {
             paint(ui, &b.state, view, rect);
         }
         ctx.data_mut(|d| d.insert_temp(bridge_key(), b));
@@ -595,3 +607,13 @@ pub fn route(app: &mut crate::PhotocraftApp, ui: &mut Ui, idx: usize, xf: &crate
 #[cfg(test)]
 #[path = "selection/app_gpu.rs"]
 mod app_gpu;
+
+pub fn app_context(app: &mut crate::PhotocraftApp, ui: &mut Ui) {
+    let mut b = bridge(ui.ctx());
+    wand_options(ui, &mut b.state.settings, |s| crate::i18n::t(s).into());
+    b.scope.select_hidden = b.state.settings.select_hidden;
+    if let Some(st) = app.session.active_mut() {
+        st.vector_selection_scope.select_hidden = b.state.settings.select_hidden;
+    }
+    ui.ctx().data_mut(|d| d.insert_temp(bridge_key(), b));
+}

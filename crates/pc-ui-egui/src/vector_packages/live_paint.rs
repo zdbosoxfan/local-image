@@ -156,7 +156,10 @@ impl State {
         }
     }
     fn update(&mut self, s: &Session, point: Point, mods: Modifiers) -> Result<(), String> {
-        let g = self.drag.as_ref().map(|d| d.gesture.clone()).map(Ok).unwrap_or_else(|| self.gesture(s))?;
+        if self.drag.is_none() && self.map.as_ref().is_none_or(|g| !g.is_current(s)) {
+            self.map = Some(Gesture::begin(s, &self.targets).map_err(|e| e.to_string())?);
+        }
+        let g = self.drag.as_ref().map(|d| &d.gesture).or(self.map.as_ref()).ok_or("paint gesture unavailable")?;
         self.hover_face = g.graph.face_at(point).map_err(|e| e.to_string())?;
         let zoom = self.drag.as_ref().map_or(1., |d| f64::from(d.transform.zoom));
         self.hover_edge = g.graph.edge_at(point, 4. / zoom.max(0.01)).map_err(|e| e.to_string())?;

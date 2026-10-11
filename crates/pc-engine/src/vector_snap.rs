@@ -202,6 +202,7 @@ struct Node {
 }
 #[derive(Clone, Debug)]
 struct Curve {
+    bounds: [f64; 4],
     path: Path,
     source: Source,
 }
@@ -365,8 +366,10 @@ impl Cache {
                 self.nodes.push(Node { point: [k.anchor.x, k.anchor.y], hit: Hit { kind: Kind::Node, source, subpath: s, index: i, t: None } });
             }
         }
-        if n > 0 {
-            self.curves.push(Curve { path: path.clone(), source });
+        if n > 0
+            && let Some((x0, y0, x1, y1)) = path.control_bounds()
+        {
+            self.curves.push(Curve { bounds: [x0, y0, x1, y1], path: path.clone(), source });
         }
         Ok(())
     }
@@ -417,7 +420,10 @@ impl Cache {
         }
         if settings.curves && !self.curves.is_empty() {
             let geometry = self.geometry.ok_or_else(|| error("nearest curve snapping requires the V1 geometry adapter"))?;
-            for curve in &self.curves {
+            for curve in self.curves.iter().filter(|curve| {
+                let [x0, y0, x1, y1] = curve.bounds;
+                point[0] >= x0 - tol && point[0] <= x1 + tol && point[1] >= y0 - tol && point[1] <= y1 + tol
+            }) {
                 if let Some((s, i, t, p, _distance)) = (geometry.nearest)(&curve.path, Point::new(point[0], point[1]))? {
                     valid_point([p.x, p.y])?;
                     bounded(t, 0.0, 1.0)?;

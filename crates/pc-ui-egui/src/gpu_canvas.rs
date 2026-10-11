@@ -158,6 +158,15 @@ impl GpuCanvas {
         }
     }
 
+    pub fn set_pixel_preview(&self, key: u64, enabled: bool) {
+        if let Some(res) = self.rs.renderer.write().callback_resources.get_mut::<Resources>() {
+            if enabled {
+                res.pixel_previews.insert(key);
+            } else {
+                res.pixel_previews.remove(&key);
+            }
+        }
+    }
     /// The device's health flag (shared with the wgpu compositor and the paint callback).
     pub fn health(&self) -> &photocraft_gpu::DeviceHealth {
         &self.health
@@ -255,6 +264,15 @@ impl GpuCanvas {
         let mut r = self.rs.renderer.write();
         if let Some(res) = r.callback_resources.get_mut::<Resources>() {
             res.compositor_budget = Some(bytes);
+            let share = bytes / (res.scaled_frames.len() as u64 + 1);
+            if let Some(comp) = &mut res.compositor {
+                comp.set_memory_budget(share);
+            }
+            for frame in res.scaled_frames.values_mut() {
+                if let Some(comp) = &mut frame.compositor {
+                    comp.set_memory_budget(share);
+                }
+            }
         }
     }
 
@@ -289,8 +307,13 @@ impl GpuCanvas {
     /// GPU bytes the wgpu compositor holds: resident layer pages and cached effect maps.
     pub fn compositor_bytes(&self) -> Option<(u64, usize)> {
         let r = self.rs.renderer.read();
-        let c = r.callback_resources.get::<Resources>()?.compositor.as_ref()?;
-        Some((c.resident_bytes(), c.fx_cache_bytes()))
+        let res = r.callback_resources.get::<Resources>()?;
+        Some(
+            res.compositor
+                .iter()
+                .chain(res.scaled_frames.values().filter_map(|f| f.compositor.as_ref()))
+                .fold((0u64, 0usize), |(bytes, fx), c| (bytes.saturating_add(c.resident_bytes()), fx.saturating_add(c.fx_cache_bytes()))),
+        )
     }
 
     /// Set the checkerboard and gamut warning colours.
@@ -442,7 +465,7 @@ impl GpuCanvas {
         };
         comp.set_health(self.health.clone());
         if let Some(b) = res.compositor_budget {
-            comp.set_memory_budget(b);
+            comp.set_memory_budget(b / (res.scaled_frames.len() as u64 + 1));
         }
         comp.set_focus(res.compositor_focus);
         let key = doc.id.0;
@@ -596,15 +619,6 @@ impl GpuCanvas {
             // Nothing reaches the GPU any more; the app switches to the CPU canvas.
             return Refresh { kind: "lost", fallback: Some(f.to_string()), ..Default::default() };
         }
-        {
-            let mut renderer = self.rs.renderer.write();
-            if let Some(res) = renderer.callback_resources.get_mut::<Resources>() {
-                let generation = res.scaled_sources.get(&key).map_or(1, |s| s.generation.wrapping_add(1));
-                let dependencies = res.scaled_sources.get(&key).map(|s| s.dependencies.clone()).unwrap_or_default();
-                res.scaled_sources
-                    .insert(key, ScaledSource { doc: doc.clone(), encode_srgb: display.is_some_and(|d| d.encode_srgb), generation, dependencies });
-            }
-        }
         let bounds = doc.bounds();
         let size = [doc.size.width, doc.size.height];
         let format = self.format_for(doc.depth, size);
@@ -615,6 +629,15 @@ impl GpuCanvas {
             // Nothing changed on the canvas (selecting a layer, say): don't even plan.
             out.kind = "rect";
             return out;
+        }
+        {
+            let mut renderer = self.rs.renderer.write();
+            if let Some(res) = renderer.callback_resources.get_mut::<Resources>() {
+                let generation = res.scaled_sources.get(&key).map_or(1, |s| s.generation.wrapping_add(1));
+                let dependencies = res.scaled_sources.get(&key).map(|s| s.dependencies.clone()).unwrap_or_default();
+                res.scaled_sources
+                    .insert(key, ScaledSource { doc: doc.clone(), encode_srgb: display.is_some_and(|d| d.encode_srgb), generation, dependencies });
+            }
         }
         let region = damage.unwrap_or(bounds);
         let encode_srgb = display.is_some_and(|d| d.encode_srgb);
@@ -1262,11 +1285,15 @@ struct ScaledFrame {
     rect: photocraft_geom::Rect,
     textures: DocTextures,
     projection: scaled_view::cpu::ProjectionCache,
+    // Base and scaled surfaces share layer IDs but have different pixels. Each
+    // view must retain its own upload cache instead of evicting the 1x pages.
+    compositor: Option<photocraft_gpu::Compositor>,
     uploads: u64,
     rebuilds: u64,
 }
 
 struct Resources {
+    pixel_previews: std::collections::HashSet<u64>,
     scaled_sources: HashMap<u64, ScaledSource>,
     scaled_frames: HashMap<u64, ScaledFrame>,
     encode_pool: EncodePool,
@@ -1553,6 +1580,7 @@ impl Resources {
         let encode_pipeline_high = high.then(|| pipeline(device, "pc_encode_16f", &encode_layout, &encode_module, ("vs", "fs"), FORMAT_HIGH, None));
         let identity_lut = lut_bind_group(device, queue, &lut_bgl, 2, &identity_lut_bytes());
         Self {
+            pixel_previews: Default::default(),
             scaled_sources: HashMap::new(),
             scaled_frames: HashMap::new(),
             encode_pool: Vec::new(),
@@ -1884,11 +1912,13 @@ impl CallbackTrait for MoveCallback {
             pass.set_scissor_rect(x0, y0, x1 - x0, y1 - y0);
             pass.set_bind_group(2, &res.identity_lut, &[]);
             for cb in &callbacks {
-                let (Some(view), Some(doc)) = (res.views.get(&cb.params.view_key), res.docs.get(&cb.params.doc)) else { continue };
+                let Some(view) = res.views.get(&cb.params.view_key) else { continue };
+                let scaled = res.scaled_frames.get(&cb.params.view_key).filter(|f| f.source == cb.params.doc && view.frame_data[29] > 1.0);
+                let Some(doc) = scaled.map(|f| &f.textures).or_else(|| res.docs.get(&cb.params.doc)) else { continue };
                 pass.set_bind_group(0, &view.bind_group, &[]);
                 let (origin, scale) = cb.placement(ppp);
                 for tile in &doc.tiles {
-                    let [tx, ty, tw, th] = tile.rect.map(|v| v as f32);
+                    let [tx, ty, tw, th] = tile.rect.map(|v| v as f32 / view.frame_data[29]);
                     let (left, right) = cb.screen_x(origin[0], scale, tx, tx + tw);
                     let (top, bottom) = (origin[1] + ty * scale, origin[1] + (ty + th) * scale);
                     if right < x0 as f32 || bottom < y0 as f32 || left > x1 as f32 || top > y1 as f32 {
@@ -1942,6 +1972,9 @@ impl CanvasCallback {
     fn prepare_scaled(&self, device: &wgpu::Device, queue: &wgpu::Queue, screen: &ScreenDescriptor, res: &mut Resources) -> f64 {
         use photocraft_geom::Rect;
         use scaled_view::cpu::{ProjectionCache, ViewRequest, scaled_rect};
+        if res.pixel_previews.contains(&self.params.doc) {
+            return 1.0;
+        }
         let physical = f64::from(self.params.zoom) * f64::from(screen.pixels_per_point);
         if !physical.is_finite() || physical <= 1.0 || !self.params.center.iter().all(|v| v.is_finite()) {
             return 1.0;
@@ -1991,6 +2024,18 @@ impl CanvasCallback {
             return 1.0;
         }
         let key = self.params.view_key;
+        let cache_count = res.scaled_frames.len() + usize::from(!res.scaled_frames.contains_key(&key)) + 1;
+        if let Some(b) = res.compositor_budget {
+            let share = b / cache_count as u64;
+            if let Some(comp) = &mut res.compositor {
+                comp.set_memory_budget(share);
+            }
+            for frame in res.scaled_frames.values_mut() {
+                if let Some(comp) = &mut frame.compositor {
+                    comp.set_memory_budget(share);
+                }
+            }
+        }
         let mut frame = res.scaled_frames.remove(&key);
         if let Some(f) = &frame
             && f.source == self.params.doc
@@ -2027,6 +2072,7 @@ impl CanvasCallback {
                 rect,
                 textures,
                 projection: ProjectionCache::default(),
+                compositor: None,
                 uploads: 0,
                 rebuilds: 0,
             });
@@ -2087,12 +2133,12 @@ impl CanvasCallback {
             }
         }
         let pipe = res.encode_pipeline(format).cloned();
-        let mut compositor = res.compositor.take().or_else(|| photocraft_gpu::Compositor::try_new_with_format(device, wgpu::TextureFormat::Rgba32Float).ok());
+        let mut compositor = frame.compositor.take().or_else(|| photocraft_gpu::Compositor::try_new_with_format(device, wgpu::TextureFormat::Rgba32Float).ok());
         let mut ok = false;
         if let (Some(comp), Some(pipe)) = (&mut compositor, pipe) {
             comp.set_health(res.health.clone());
             if let Some(b) = res.compositor_budget {
-                comp.set_memory_budget(b);
+                comp.set_memory_budget(b / cache_count as u64);
             }
             let bgl = &res.encode_bgl;
             let textures = &frame.textures;
@@ -2141,7 +2187,7 @@ impl CanvasCallback {
                 Err(e) => log::warn!("scaled canvas GPU fallback: {e}"),
             }
         }
-        res.compositor = compositor;
+        frame.compositor = compositor;
         if !ok {
             let buffer = photocraft_compose::render(&projected, changed);
             let mut pixels = buffer.px;
@@ -2247,7 +2293,13 @@ impl CallbackTrait for CanvasCallback {
         let (mode, lod) = filter_mode(data[2] / data[29]);
         // Buckets oversample by at most a quarter octave. Sample level zero with its
         // shared gutter instead of mixing independently generated per-tile mip edges.
-        data[8] = if scaled > 1.0 && mode == 0.0 { 1.0 } else { mode };
+        data[8] = if res.pixel_previews.contains(&self.params.doc) {
+            3.0
+        } else if scaled > 1.0 && mode == 0.0 {
+            1.0
+        } else {
+            mode
+        };
         data[9] = if scaled > 1.0 { 0.0 } else { lod };
         let (bgl, sampler) = (&res.view_bgl, &res.sampler);
         let v = res.views.entry(self.params.view_key).or_insert_with(|| {
@@ -2447,6 +2499,9 @@ fn sample_tile(p: vec2<f32>) -> vec4<f32> {
         } else {
             col = textureSampleLevel(tex, samp, t / size, 0.0);
         }
+    } else if (mode > 2.5) {
+        let hi = vec2<i32>(textureDimensions(tex, 0)) - vec2<i32>(1);
+        col = textureLoad(tex, clamp(vec2<i32>(floor(t)), vec2<i32>(0), hi), 0);
     } else {
         // Crisp texels with a one-device-pixel anti-aliased edge ("sharp bilinear").
         let tt = t - 0.5;
@@ -2570,6 +2625,7 @@ mod tests {
 
     #[test]
     fn gpu_budget_follows_memory_usage_and_ram() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         const G: u64 = 1 << 30;
         // What Memory Usage leaves after the document, within a quarter of RAM.
         assert_eq!(memory_budget(8 * G, 3 * G, Some(48 * G)), 5 * G);
@@ -2583,6 +2639,7 @@ mod tests {
 
     #[test]
     fn filter_modes() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         assert_eq!(filter_mode(0.25), (0.0, 2.0));
         assert_eq!(filter_mode(1.0).0, 2.0);
         assert_eq!(filter_mode(1.5).0, 1.0);
@@ -2591,6 +2648,7 @@ mod tests {
 
     #[test]
     fn mips_and_premultiply() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         assert_eq!(mip_count(1, 1), 1);
         assert_eq!(mip_count(4096, 100), 13);
         assert_eq!(mip_count(5, 3), 3);
@@ -2600,6 +2658,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn half_floats() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         // Every finite half survives the round trip; ties round to even; overflow saturates.
         for h in 0..=u16::MAX {
             if h & 0x7c00 != 0x7c00 && h != 0x8000 {
@@ -2622,6 +2681,7 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn shaders_validate() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         use wgpu::naga;
         for (name, src) in [("canvas", CANVAS_WGSL), ("mip", MIP_WGSL), ("encode", ENCODE_WGSL)] {
             let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));

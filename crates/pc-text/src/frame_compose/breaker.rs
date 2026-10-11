@@ -274,7 +274,12 @@ fn items(glyphs: &[Glyph], hyph_after: &[bool], sp: &Spacing) -> (Vec<Item>, Vec
     let n = glyphs.len();
     let mut hy_cache = Vec::new();
     let mut last_space = NONE;
+    let mut previous_visible = None;
     for (i, g) in glyphs.iter().enumerate() {
+        let previous = previous_visible;
+        if g.ch != SOFT_HYPHEN {
+            previous_visible = Some(g);
+        }
         let prev_hang = if i > 0 { right_hang(&glyphs[i - 1], sp) } else { 0.0 };
         if is_forced(g.ch) {
             it.push(Item::glue(0.0, INF, 0.0));
@@ -310,7 +315,7 @@ fn items(glyphs: &[Glyph], hyph_after: &[bool], sp: &Spacing) -> (Vec<Item>, Vec
             continue;
         }
         if g.ch == SOFT_HYPHEN {
-            let hw = glyphs[..i].iter().rev().find(|g| g.ch != SOFT_HYPHEN).map_or(g.size * 0.33, |p| hyphen_width(p, &mut hy_cache));
+            let hw = previous.map_or(g.size * 0.33, |p| hyphen_width(p, &mut hy_cache));
             let mut p = Item::penalty(hw, sp.hyphen_penalty, true);
             p.auto = true;
             p.zone_from = last_space;
@@ -412,6 +417,9 @@ fn kp_pass(items: &[Item], ig: &[usize], glyphs: &[Glyph], sp: &Spacing, width: 
     let mut arena: Vec<Node> =
         vec![Node { pos: 0, line: 0, fitness: 1, tw: first_hang, ty: [0.0; 3], tz: [0.0; 3], demerits: 0.0, prev: None, hyphens: 0, flagged: false }];
     let limit = sp.hyphen_limit as usize;
+    if limit >= MAX_HYPHEN_STATES {
+        return None;
+    }
     let states = if limit == 0 { 2 } else { (limit + 1).min(MAX_HYPHEN_STATES) };
     let mut active: Vec<usize> = vec![0];
     let mut best: Vec<Option<(f64, usize)>> = vec![None; 4 * states];
@@ -591,7 +599,7 @@ fn breaks_from_positions(items: &[Item], ig: &[usize], glyphs: &[Glyph], chain: 
         };
         // Trim trailing spaces from the visible range; skip leading spaces of the next line.
         let mut vis_end = end;
-        while vis_end > start && glyphs[vis_end - 1].is_space() {
+        while vis_end > start && (glyphs[vis_end - 1].is_space() || is_forced(glyphs[vis_end - 1].ch)) {
             vis_end -= 1;
         }
         let mut next = end;
@@ -690,7 +698,7 @@ pub fn greedy(glyphs: &[Glyph], hyph_after: &[bool], sp: &Spacing, width: &dyn F
         let (end, hyphen, forced) = brk.unwrap_or((n, false, true));
         hyphens = if hyphen { hyphens + 1 } else { 0 };
         let mut vis_end = end;
-        while vis_end > start && glyphs[vis_end - 1].is_space() {
+        while vis_end > start && (glyphs[vis_end - 1].is_space() || is_forced(glyphs[vis_end - 1].ch)) {
             vis_end -= 1;
         }
         let mut next = end;

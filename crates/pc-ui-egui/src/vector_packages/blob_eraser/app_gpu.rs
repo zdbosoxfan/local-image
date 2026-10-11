@@ -81,7 +81,8 @@ fn pixels(h: &mut H, gpu: &GpuCanvas, doc: &Document) -> Vec<[f32; 4]> {
 #[test]
 #[ignore = "owner speed rules: coordinator full-app RTX GPU acceptance after router integration"]
 fn blob40_full_app_rtx_live_preview_release_erase_rectangle_cancel_and_undo() {
-    let _gpu = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
     let (mut h, gpu) = harness();
     let before = h.state().session.active().unwrap().doc.clone();
     let xf = ViewXform::active(h.state()).unwrap();
@@ -128,8 +129,12 @@ fn blob40_full_app_rtx_live_preview_release_erase_rectangle_cancel_and_undo() {
 #[test]
 #[ignore = "owner speed rules: coordinator release real-app pointer-frame measurement"]
 fn blob40_full_app_release_pointer_frame_measurement() {
-    assert!(!cfg!(debug_assertions), "performance gate requires a release build");
-    let _gpu = crate::gpu_lock();
+    let _gpu_gate = crate::gpu_lock();
+
+    if cfg!(debug_assertions) {
+        panic!("performance gate requires a release build");
+    }
+
     let (mut h, gpu) = harness();
     let xf = ViewXform::active(h.state()).unwrap();
     h.state_mut().blob_eraser.options.tip.size = 12.;

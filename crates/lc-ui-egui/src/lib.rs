@@ -38,6 +38,8 @@ pub mod theme;
 mod tool_icon_data;
 #[cfg(test)]
 mod tool_icon_tests;
+#[path = "../../pc-ui-egui/src/vector_packages/fill_stroke_proxy/icons.rs"]
+pub mod vector_tool_icon_data;
 pub mod vectorize_handoff;
 pub mod widgets;
 
@@ -166,6 +168,9 @@ pub struct ModelDownloadStatus {
     pub error: Option<String>,
 }
 
+#[cfg(test)]
+mod gpu_test_support;
+
 pub struct LightcraftApp {
     /// Per-catalog-revision caches of library-wide results the panels show every frame
     /// (expensive on big libraries).
@@ -261,6 +266,8 @@ pub struct LightcraftApp {
     // Rust drops fields in declaration order. Keep this last: renderer pools must stop and
     // join their workers before we wait for compilation/queue idle, including in headless tests.
     _gpu_exit: GpuExit,
+    #[cfg(test)]
+    _gpu_test: gpu_test_support::Guard,
 }
 
 struct GpuExit;
@@ -275,6 +282,8 @@ impl Drop for GpuExit {
 
 impl LightcraftApp {
     pub fn new(mut session: Session, services: Services) -> Self {
+        #[cfg(test)]
+        let gpu_test = gpu_test_support::lock();
         // AI mask requests run on the model's worker; frames apply their results (never wait)
         session.segmenter.background = true;
         Self {
@@ -328,6 +337,8 @@ impl LightcraftApp {
             host_composites: Default::default(),
             host_composite_open: None,
             _gpu_exit: GpuExit,
+            #[cfg(test)]
+            _gpu_test: gpu_test,
         }
     }
 

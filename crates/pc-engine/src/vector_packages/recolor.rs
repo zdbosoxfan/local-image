@@ -167,16 +167,19 @@ impl Plan {
         let first = (Rng::new(seed).next() % units.len() as u64) as usize;
         let mut centres = vec![pts[first]];
         let mut seed_indices = HashSet::from([first]);
+        // Retain each point's distance to its nearest seed. Adding a seed updates
+        // this once per point instead of rescanning all earlier centres per comparison.
+        let mut seed_distances: Vec<_> = pts.iter().map(|p| distance(*p, pts[first])).collect();
         while centres.len() < n {
             let i = (0..pts.len())
                 .filter(|i| !seed_indices.contains(i))
-                .max_by(|a, b| {
-                    let d = |i: usize| centres.iter().map(|c| distance(pts[i], *c)).fold(f64::INFINITY, f64::min);
-                    d(*a).total_cmp(&d(*b)).then_with(|| b.cmp(a))
-                })
+                .max_by(|a, b| seed_distances[*a].total_cmp(&seed_distances[*b]).then_with(|| b.cmp(a)))
                 .ok_or_else(|| bad("unable to seed recolour groups"))?;
             centres.push(pts[i]);
             seed_indices.insert(i);
+            for (p, d) in pts.iter().zip(&mut seed_distances) {
+                *d = d.min(distance(*p, pts[i]));
+            }
         }
         let nearest =
             |p: [f64; 3], centers: &[[f64; 3]]| centers.iter().enumerate().min_by(|a, b| distance(p, *a.1).total_cmp(&distance(p, *b.1))).map_or(0, |x| x.0);

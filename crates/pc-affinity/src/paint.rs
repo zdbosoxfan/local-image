@@ -234,9 +234,20 @@ pub(crate) fn descriptor(r: &mut Reader, id: ObjId, local: Affine) -> Option<Pai
             let grad = s.obj(fill, b"Grad")?;
             let cols = s.objs(grad, b"Cols");
             let posn: Vec<Vec<f64>> = match s.field(grad, b"Posn") {
-                Some(Value::Array(a)) => a.iter().filter_map(floats).collect(),
+                Some(Value::Array(a)) => a
+                    .iter()
+                    .take(MAX_STOPS)
+                    .filter_map(|v| match v {
+                        Value::Floats(f) => Some(f.iter().take(2).copied().collect()),
+                        Value::Bytes(b) if b.len() % 4 == 0 => Some(b.as_chunks::<4>().0.iter().take(2).map(|c| f64::from(f32::from_le_bytes(*c))).collect()),
+                        _ => None,
+                    })
+                    .collect(),
                 _ => Vec::new(),
             };
+            if cols.len() > MAX_STOPS || matches!(s.field(grad, b"Posn"), Some(Value::Array(a)) if a.len() > MAX_STOPS) {
+                r.warn("more than 1024 gradient stops (truncated)");
+            }
             let mut stops = Vec::new();
             for (c, p) in cols.iter().zip(&posn).take(MAX_STOPS) {
                 let color = color(r, *c)?;

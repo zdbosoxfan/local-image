@@ -169,7 +169,16 @@ fn outlined_strokes_match_native_polygons_at_four_times_aa() {
                 let native = vector::stroke_rasterizer(&p, &style, 0.01).render(Rect::new(0, 0, 520, 520));
                 let result = vector::fill_rasterizer(&outline, 0.01).render(Rect::new(0, 0, 520, 520));
                 let worst = native.iter().zip(&result).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
-                assert!(worst <= 1.0 / 255.0, "{cap:?} {join:?}: {worst}");
+                let location = native.iter().zip(&result).enumerate().max_by(|(_, (a, b)), (_, (c, d))| (*a - *b).abs().total_cmp(&(*c - *d).abs())).unwrap();
+                assert!(
+                    worst <= 1.0 / 255.0,
+                    "{cap:?} {join:?}: {worst}, at ({},{}) {:?}, path {:?}, outline {:?}",
+                    location.0 % 520,
+                    location.0 / 520,
+                    location.1,
+                    p.control_bounds(),
+                    outline.control_bounds()
+                );
             }
         }
     }

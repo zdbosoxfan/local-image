@@ -207,8 +207,8 @@ pub fn offset_path(path: &Path, delta: f64, join: crate::Join, miter: f64) -> Re
     Ok(from_geometry(&kernel::try_offset_path(&to_geometry(&p), delta, join, miter)?))
 }
 
-/// Native outline geometry uses pc-vector's exact stroke polygons (including PSD dash units).
-/// This keeps existing stroke coverage unchanged when a stroke becomes an editable filled path.
+/// Curve-preserving stroke outlines, including native PSD dash units and alignment.
+/// Exact cap/join curves remain editable instead of accumulating polygon nodes.
 pub fn outline_stroke(path: &Path, stroke: &ShapeStroke, tolerance: f64) -> Result<Path> {
     validate(path)?;
     if !stroke.width.is_finite()
@@ -224,25 +224,15 @@ pub fn outline_stroke(path: &Path, stroke: &ShapeStroke, tolerance: f64) -> Resu
     }
     let align = if path.subpaths.iter().all(|s| s.closed) { stroke.align } else { StrokeAlign::Center };
     let w = f64::from(stroke.width);
-    let style = photocraft_vector::StrokeStyle {
-        width: if align == StrokeAlign::Center { w } else { 2.0 * w },
-        cap: stroke.cap,
-        join: stroke.join,
-        miter_limit: f64::from(stroke.miter_limit),
-        dashes: stroke.dashes.iter().map(|d| f64::from(*d) * w).collect(),
-        dash_offset: f64::from(stroke.dash_offset) * w,
-    };
-    let polygons = photocraft_vector::stroke_polygons(
-        &photocraft_vector::flatten_path(path, (tolerance * 4.0).min(style.width.max(0.01) * 0.1).max(1e-3)),
-        &style,
-        tolerance,
-    );
-    let raw = Path::new(polygons.iter().enumerate().map(|(i, p)| Subpath::polygon(p).with_op(if i == 0 { PathOp::Combine } else { PathOp::Join })).collect());
+    let mut style = photocraft_vector::stroke_style(stroke);
+    style.width = if align == StrokeAlign::Center { w } else { 2. * w };
+    let outline = crate::kernel::close_all(&photocraft_vector::stroke_outline(path, &style, tolerance));
+    let raw = geom::PathData::from_bezpath(&outline);
     // Native tessellation contains small contours at dash/cap intersections. The
     // general Pathfinder precision drops those as slivers, changing stroke coverage.
     // Keep cleanup well below the caller's rasterization tolerance for expansion.
     let precision = (tolerance * 1e-3).clamp(1e-9, 1e-5);
-    let out = kernel::try_boolean(&to_geometry(&raw), NZ, &geom::PathData::default(), NZ, BoolOp::Union, precision)?;
+    let out = kernel::try_boolean(&raw, NZ, &geom::PathData::default(), NZ, BoolOp::Union, precision)?;
     if align == StrokeAlign::Center {
         return Ok(from_geometry(&out));
     }
@@ -271,6 +261,14 @@ pub fn simplify(path: &Path, tolerance: f64) -> Result<Path> {
         return Err(PathOpsError::InvalidOption);
     }
     edit(path, |p| kernel::simplify(p, tolerance))
+}
+/// Interactive refit with the same tolerance, corner retention and no-increased-nodes
+/// policy as `simplify`, without the optimal-subdivision search cost.
+pub fn simplify_interactive(path: &Path, tolerance: f64) -> Result<Path> {
+    if !tolerance.is_finite() || tolerance <= 0.0 {
+        return Err(PathOpsError::InvalidOption);
+    }
+    edit(path, |p| kernel::simplify_interactive(p, tolerance))
 }
 pub fn smooth(path: &Path, amount: f64) -> Result<Path> {
     if !amount.is_finite() || !(0.0..=1.0).contains(&amount) {
@@ -324,7 +322,18 @@ pub fn split_at(path: &Path, subpath: usize, segment: usize, t: f64) -> Result<V
         s.insert_anchor(segment, t)
     };
     let pieces = s.cut_at(&std::collections::BTreeSet::from([index]));
-    let mut out: Vec<Path> = pieces.into_iter().map(|s| from_geometry(&geom::PathData::single(s))).collect();
+    let mut out: Vec<Path> = pieces
+        .into_iter()
+        .map(|s| {
+            let mut piece = from_geometry(&geom::PathData::single(s));
+            piece.fill_rule = path.fill_rule;
+            piece.inverted = path.inverted;
+            for part in &mut piece.subpaths {
+                part.op = path.subpaths[subpath].op;
+            }
+            piece
+        })
+        .collect();
     for (i, s) in path.subpaths.iter().enumerate() {
         if i != subpath {
             out.push(Path { subpaths: vec![s.clone()], ..path.clone() });
@@ -374,7 +383,29 @@ pub fn fit_path(points: &[Point], tolerance: f64) -> Result<Path> {
     // VC's sampled-point fitter provides the initial regular cubics; kurbo optimizes
     // their subdivision with the other half of the requested error budget.
     let candidate = geom::PathData::from_bezpath(&bp);
-    let output = from_geometry(&kernel::simplify(&candidate, tolerance * 0.5));
+    // A single cubic is already the smallest open representation. Refit cannot
+    // remove an anchor, and retaining it preserves the first fitter's error
+    // budget exactly. Puppet Warp fits thousands of these short pieces per frame.
+    let fitted = if candidate.anchor_count() <= 2 { candidate } else { kernel::simplify(&candidate, tolerance * 0.5) };
+    let mut output = from_geometry(&fitted);
+    // Refitting can move an endpoint by floating-point roundoff. The sampled-path
+    // contract retains the exact input anchors and their endpoint tangents.
+    if let Some(sp) = output.subpaths.first_mut() {
+        for (index, anchor) in [(0, points[0]), (sp.knots.len().saturating_sub(1), points[points.len() - 1])] {
+            if let Some(knot) = sp.knots.get_mut(index) {
+                let dx = anchor.x - knot.anchor.x;
+                let dy = anchor.y - knot.anchor.y;
+                if dx.hypot(dy) > tolerance * 0.5 {
+                    return Err(PathOpsError::InvalidOption);
+                }
+                knot.anchor = anchor;
+                knot.in_ctrl.x += dx;
+                knot.in_ctrl.y += dy;
+                knot.out_ctrl.x += dx;
+                knot.out_ctrl.y += dy;
+            }
+        }
+    }
     validate(&output)?;
     Ok(output)
 }

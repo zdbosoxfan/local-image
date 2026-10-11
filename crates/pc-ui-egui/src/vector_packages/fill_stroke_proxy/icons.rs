@@ -1,4 +1,6 @@
 //! Original vector icons generated from tool_art_vector.rs; GPL-3.0-or-later.
+// This shared asset table is included by UI crates with different rustfmt widths.
+#[rustfmt::skip]
 pub const ICONS: &[(&str, &str, &[u8], &[u8])] = &[
     (
         "Move",

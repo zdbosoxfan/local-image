@@ -108,7 +108,8 @@ mod tests;
 /// Cancellation performs no write. Return one aggregated warning list for the app notice.
 pub fn save(state: &mut State, s: &mut Session, services: &mut crate::Services) -> Result<Option<Vec<photocraft_doc::vector_design::exchange::VectorWarning>>> {
     let (request, output) = state.export(s)?;
-    let path = services.pick_save.as_mut().and_then(|pick| pick("drawing.svg"));
+    let picker = services.pick_save.as_mut().ok_or_else(|| EngineError::Other("file save picker service unavailable".into()))?;
+    let path = picker("drawing.svg");
     let Some(path) = path else {
         state.cancel();
         return Ok(None);
@@ -118,4 +119,11 @@ pub fn save(state: &mut State, s: &mut Session, services: &mut crate::Services) 
     write(&path, &output.bytes).map_err(EngineError::Other)?;
     state.cancel();
     Ok(Some(output.warnings))
+}
+
+pub fn open_dialog(app: &mut crate::PhotocraftApp) -> std::result::Result<(), String> {
+    if let Some(options) = app.session.prefs().dialogs.get("vector.svg.exportOptions") {
+        app.ui.svg_export.options = serde_json::from_value(options.clone()).map_err(|e| e.to_string())?;
+    }
+    app.ui.svg_export.open(&app.session).map_err(|e| e.to_string())
 }

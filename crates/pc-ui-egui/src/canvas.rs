@@ -565,7 +565,7 @@ fn cache_key(doc: photocraft_doc::DocId, display: Option<u32>) -> (photocraft_do
 pub(crate) const GPU_OUTPUT: u32 = u32::MAX;
 
 /// The document to render: the committed one, or a clone with the live adjustment preview applied.
-fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Arc<Document>, u64) {
+fn legacy_display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Arc<Document>, u64) {
     if let Some(shown) = crate::symbols::display_doc(&app.session, &app.ui.symbols, idx) {
         return shown;
     }
@@ -642,6 +642,11 @@ fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Arc<Document>
     (st.doc.clone(), 0)
 }
 
+pub fn display_doc(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize) -> (std::sync::Arc<Document>, u64) {
+    let (source, key) = legacy_display_doc(app, idx);
+    crate::vector_integration::display(app, ctx, idx, source, key)
+}
+
 /// Longest side of the Navigator panel's image (about twice the panel's width, for HiDPI).
 pub const NAVIGATOR_SIDE: u32 = 512;
 /// How long adjustment-dialog settings must stay unchanged before the navigator shows them.
@@ -662,7 +667,7 @@ pub fn navigator_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
     {
         return Some(t.id());
     }
-    let (doc, preview_key) = if app.live_stroke.is_some() { (app.session.documents().get(idx)?.doc.clone(), 0) } else { display_doc(app, idx) };
+    let (doc, preview_key) = if app.live_stroke.is_some() { (app.session.documents().get(idx)?.doc.clone(), 0) } else { display_doc(app, ctx, idx) };
     let (display, display_key) = canvas_display(app, &doc, None);
     let preview_key = preview_key ^ display_key;
     let key = egui::Id::new(("navigator", id.0));
@@ -783,7 +788,7 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
         let st = app.session.documents().get(idx)?;
         (st.revision, st.last_damage.map(|r| if r.is_empty() { r } else { r.inflate(effect_reach(&st.doc.layers)) }), st.doc.id)
     };
-    let (mut doc, mut preview_key) = display_doc(app, idx);
+    let (mut doc, mut preview_key) = display_doc(app, ctx, idx);
     // An adjustment dialog's preview of a large document (drawn by the GPU path on a GPU machine)
     // would cost a full-size CPU composite per change here: show the document instead.
     if crate::adjust_preview::shown_key(app) == Some(preview_key)
@@ -796,6 +801,7 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
     let seen = app.canvases.get(&cache_key(id, output)).map(|c| (c.tex_revision, c.tex_preview_key));
     let damage = seen.and_then(|seen| damage_since(app, idx, seen, (revision, preview_key), display_key, last_damage));
     let preview_key = preview_key ^ display_key;
+    let sampling = if crate::vector_integration::views::pixel_preview(app, idx) { TextureOptions::NEAREST } else { TextureOptions::LINEAR };
     let cache = app.canvases.entry(cache_key(id, output)).or_insert(CanvasCache {
         revision: 0,
         texture: None,
@@ -818,7 +824,7 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
             let r = buf.rect;
             if !r.is_empty() {
                 let t1 = crate::gpu_canvas::now_ms();
-                t.set_partial([r.x0 as usize, r.y0 as usize], display_image(display.as_deref(), &buf), TextureOptions::LINEAR);
+                t.set_partial([r.x0 as usize, r.y0 as usize], display_image(display.as_deref(), &buf), sampling);
                 let px = (r.width() as u64 * r.height() as u64).saturating_mul(u64::from(factor).pow(2));
                 app.perf.record("rect", px, t1 - t0, crate::gpu_canvas::now_ms() - t1);
             }
@@ -828,8 +834,8 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
             let t1 = crate::gpu_canvas::now_ms();
             let (img, scale) = (display_image(display.as_deref(), &full), 1.0 / factor as f32);
             match cache.texture.as_mut() {
-                Some(t) if t.size() == img.size => t.set(img, TextureOptions::LINEAR),
-                _ => cache.texture = Some(ctx.load_texture(format!("canvas-{}-{}", id.0, cache_key(id, output).1), img, TextureOptions::LINEAR)),
+                Some(t) if t.size() == img.size => t.set(img, sampling),
+                _ => cache.texture = Some(ctx.load_texture(format!("canvas-{}-{}", id.0, cache_key(id, output).1), img, sampling)),
             }
             cache.scale = scale;
             app.perf.record("full", doc.size.width as u64 * doc.size.height as u64, t1 - t0, crate::gpu_canvas::now_ms() - t1);
@@ -844,6 +850,11 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
 /// rectangle did: the last edit's damage, or the live stroke's dabs since then. Cached keys have
 /// the colour display's key folded in (`^ display_key`); `now`'s is still raw.
 fn damage_since(app: &PhotocraftApp, idx: usize, seen: (u64, u64), now: (u64, u64), display_key: u64, last_damage: Option<DRect>) -> Option<DRect> {
+    if let Some(st) = app.session.documents().get(idx)
+        && let Some(rect) = crate::vector_integration::damage(app, st.doc.id, (seen.0, seen.1 ^ display_key), now)
+    {
+        return Some(rect);
+    }
     if seen.1 == now.1 ^ display_key && seen.0 + 1 == now.0 {
         return last_damage;
     }
@@ -916,7 +927,7 @@ pub(crate) fn effect_reach(layers: &[photocraft_doc::Layer]) -> i32 {
 /// GPU path: make sure document `idx` is current in the GPU canvas. Brush strokes re-composite
 /// and upload only their damage rect; everything else re-composites the whole document.
 /// Returns false if there is no GPU canvas.
-fn ensure_gpu(app: &mut PhotocraftApp, idx: usize, visible: DRect) -> bool {
+fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, visible: DRect) -> bool {
     let Some(gpu) = app.gpu.clone() else { return false };
     let Some((revision, last_damage, id)) = app
         .session
@@ -926,7 +937,7 @@ fn ensure_gpu(app: &mut PhotocraftApp, idx: usize, visible: DRect) -> bool {
     else {
         return false;
     };
-    let (doc, raw_key) = display_doc(app, idx);
+    let (doc, raw_key) = display_doc(app, ctx, idx);
     let (display, _) = canvas_display(app, &doc, None);
     // The texture is shared by every display: only what it stores counts, not the monitor.
     let display_key = texture_key(display.as_deref());
@@ -1766,7 +1777,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let pixel_grid = app.ui.view.shows(app.ui.view.show.pixel_grid);
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
     let painter = ui.painter_at(rect);
-    let symbol_input = primary && crate::symbols::canvas_input(app, &response, &xf);
+    let vector_input = primary && crate::vector_integration::input(app, ui, idx, &response, &xf, rect);
+    let symbol_input = vector_input || (primary && crate::symbols::canvas_input(app, &response, &xf));
     let move_input = symbol_input || (primary && crate::move_input::canvas_input(app, &response, &xf));
     let doc = if move_input { app.session.documents()[idx].doc.clone() } else { doc };
 
@@ -1827,7 +1839,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             flip,
         };
         crate::gpu_canvas::GpuCanvas::paint(&painter, rect, params);
-    } else if ensure_gpu(app, idx, visible_doc_rect(&xf)) {
+    } else if ensure_gpu(app, &ctx, idx, visible_doc_rect(&xf)) {
         on_gpu = true;
         app.perf.gpu = true;
         // Shadow, checkerboard, document and pixel grid in one custom shader (gpu_canvas.rs).
@@ -1866,6 +1878,10 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             let uv = if flip { Rect::from_min_max(pos2(1.0, 0.0), pos2(0.0, 1.0)) } else { Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)) };
             painter.image(tex, img_rect, uv, Color32::WHITE);
         }
+    }
+    if let Err(e) = crate::vector_integration::views::overlay(app, &ctx, idx, &xf, &painter) {
+        app.ui.status = e.to_string();
+        app.ui.status_error = true;
     }
     // Channels panel: alpha / Quick Mask overlays and single-channel views (channel_view.rs).
     if let Some(tex) = crate::channel_view::ensure(app, &ctx, idx) {
@@ -2231,6 +2247,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         crate::transform_tool::draw_overlay(app, &painter, &xf);
         crate::distort_ui::draw_overlay(app, &painter, &xf);
         crate::retouch_ui::draw_source_marker(app, &painter, &xf);
+        crate::vector_integration::after_paint(app, ui, idx, &xf, rect);
         crate::vector_ui::draw_overlay(app, &painter, &xf, &doc);
         crate::analysis_ui::draw_overlay(app, &painter, &xf);
         crate::gradient_ui::draw_overlay(app, &painter, &xf);
@@ -2761,6 +2778,13 @@ fn tool_move(app: &mut PhotocraftApp, x: f64, y: f64, pressure: f32, mods: egui:
 
 /// Tool state machine. Shared by mouse input and automation.
 pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
+    let armed = std::mem::take(&mut app.brush_resize_armed);
+    let mut guard = std::mem::take(&mut app.ui.persona_pointer);
+    let intercepted = guard.intercept(app, ev);
+    app.ui.persona_pointer = guard;
+    if intercepted || crate::vector_integration::pointer(app, ev, mods) {
+        return;
+    }
     let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
     let symbol_event = match ev {
         ToolEvent::Down { x, y, .. } => crate::symbols::Event::Down(x, y),
@@ -2772,7 +2796,6 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
     }
     // An Alt+right-drag armed for this press (`paint_mouse`): taken before anything else can
     // consume the event, so it never outlives the press it was armed for (#297).
-    let armed = std::mem::take(&mut app.brush_resize_armed);
     crate::transform_tool::end_if_left(app);
     // View › Snap / Snap To and smart guides (snap_ui.rs).
     let raw = ev;
@@ -3282,6 +3305,7 @@ fn hex(c: [f32; 4]) -> String {
 mod tests {
     #[test]
     fn windows_draws_its_own_crosshair() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         // #737: Windows' inverting crosshair vanishes over mid-grey; the canvas draws one instead.
         let ctx = egui::Context::default();
         let painter = egui::Painter::new(ctx, egui::LayerId::background(), egui::Rect::EVERYTHING);
@@ -3311,6 +3335,7 @@ mod tests {
 
     #[test]
     fn cpu_canvas_textures_are_per_display() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         // Two windows of one document on different displays: each has its own texture of
         // monitor values, and drawing them in turn re-renders neither.
         let mut app = app_on_two_displays();
@@ -3339,6 +3364,7 @@ mod tests {
 
     #[test]
     fn gpu_display_luts_are_per_display() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         let Ok(rs) = std::panic::catch_unwind(|| egui_kittest::wgpu::create_render_state(crate::gpu_canvas::wgpu_setup(), Default::default())) else {
             eprintln!("skipping: no GPU adapter");
             return;
@@ -3367,6 +3393,7 @@ mod tests {
 
     #[test]
     fn tab_context_uses_clicked_document_and_existing_close_commands() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         let items = tab_context_items(2, 3);
         assert_eq!(items.iter().map(|(_, id, _, _)| *id).collect::<Vec<_>>(), ["file.close", "file.closeOthers", "file.closeAll"]);
         assert_eq!(items[0].2, json!({"document": 2}));
@@ -3379,6 +3406,7 @@ mod tests {
     /// Photoshop's document tab × is after the title on Windows and Linux, before it on macOS (#619).
     #[test]
     fn document_tab_close_button_sits_on_the_platform_side() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         use egui::os::OperatingSystem as Os;
         use egui_kittest::kittest::Queryable;
         for (os, after_title) in [(Os::Windows, true), (Os::Nix, true), (Os::Mac, false)] {
@@ -3410,6 +3438,7 @@ mod tests {
 
     #[test]
     fn tab_close_others_prompts_for_unsaved_nonactive_document() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 8, "height": 8, "name": "Keep"})).unwrap();
         app.run("file.new", json!({"width": 8, "height": 8, "name": "Edited"})).unwrap();
@@ -3423,11 +3452,13 @@ mod tests {
 
     #[test]
     fn wayland_start_screen_hint_does_not_claim_file_drop_works() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         assert_ne!(start_screen_drop_hint(true), start_screen_drop_hint(false));
     }
 
     #[test]
     fn pointer_moves_are_bounded_by_the_press_and_release() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         use egui::{Event, PointerButton, pos2};
         let button = |pos, pressed| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
         let events = [
@@ -3447,6 +3478,7 @@ mod tests {
 
     #[test]
     fn freehand_tools_are_the_ones_that_follow_a_path() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         for t in [
             Tool::Brush,
             Tool::Pencil,
@@ -3468,6 +3500,7 @@ mod tests {
 
     #[test]
     fn clone_stamp_centre_appears_only_with_option() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         assert!(!brush_tip_centre(Tool::CloneStamp, false, false, 20.0));
         assert!(brush_tip_centre(Tool::CloneStamp, true, false, 20.0));
         assert!(brush_tip_centre(Tool::Healing, true, false, 20.0));
@@ -3480,6 +3513,7 @@ mod tests {
 
     #[test]
     fn view_transform_roundtrip() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         for flip in [false, true] {
             let xf = ViewXform { rect: Rect::from_min_size(pos2(100.0, 50.0), vec2(800.0, 600.0)), zoom: 2.5, center: [320.0, 240.0], flip };
             let s = xf.to_screen(10.0, 20.0);
@@ -3495,6 +3529,7 @@ mod tests {
 
     #[test]
     fn eyedropper_drag_updates_the_sampled_colour() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         app.run("file.new", json!({"width": 40, "height": 20, "background": "transparent"})).unwrap();
         app.run("shape.create", json!({"kind": "rect", "rect": [0, 0, 20, 20], "fill": "#ff0000"})).unwrap();
@@ -3510,6 +3545,7 @@ mod tests {
 
     #[test]
     fn alt_with_a_painting_tool_samples_the_foreground_instead_of_painting() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         app.run("file.new", json!({"width": 40, "height": 20, "background": "transparent"})).unwrap();
         app.run("shape.create", json!({"kind": "rect", "rect": [0, 0, 20, 20], "fill": "#ff0000"})).unwrap();
@@ -3552,6 +3588,7 @@ mod tests {
 
     #[test]
     fn brush_drag_shows_the_real_stroke_and_commits_it() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         // The drag used to draw a hard, flat stand-in and only showed the soft brush on release.
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         app.run("file.new", json!({"width": 120, "height": 60, "background": "transparent"})).unwrap();
@@ -3564,7 +3601,7 @@ mod tests {
         for x in [40.0, 70.0, 100.0] {
             tool_event(&mut app, ToolEvent::Move { x, y: 30.0, pressure: 1.0 }, m);
         }
-        let (shown, key) = display_doc(&mut app, 0);
+        let (shown, key) = display_doc(&mut app, &egui::Context::default(), 0);
         assert_ne!(key, 0);
         assert!(alpha(&shown, 40, 30) > 0.5 && (0.01..0.5).contains(&alpha(&shown, 40, 38)), "soft stroke while drawing");
         assert_eq!(alpha(&app.session.documents()[0].doc, 40, 30), 0.0, "not committed yet");
@@ -3574,12 +3611,13 @@ mod tests {
         assert!(d.contains(40, 30) && !d.contains(40, 2) && d.width() < 120, "{d:?}");
         tool_event(&mut app, ToolEvent::Up { x: 100.0, y: 30.0 }, m);
         let doc = app.session.documents()[0].doc.clone();
-        assert!(app.live_stroke.is_none() && display_doc(&mut app, 0).1 == 0);
+        assert!(app.live_stroke.is_none() && display_doc(&mut app, &egui::Context::default(), 0).1 == 0);
         assert_eq!((alpha(&doc, 40, 30), alpha(&doc, 40, 38)), (alpha(&shown, 40, 30), alpha(&shown, 40, 38)), "commit matches the preview");
     }
 
     #[test]
     fn long_brush_drag_bounds_damage_and_reuses_the_commit() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         app.run("file.new", json!({"width": 512, "height": 64, "background": "transparent"})).unwrap();
         app.run("tools.setBrush", json!({"size": 4, "hardness": 1.0, "smoothing": {"amount": 0.0}})).unwrap();
@@ -3606,6 +3644,7 @@ mod tests {
 
     #[test]
     fn live_stroke_uses_pen_tilt_and_updates_a_reduced_texture_partially() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         // Pen tilt drives the size; the preview must use the tilt the commit gets. The document
         // is wider than MAX_TEXTURE, so the CPU texture is reduced (factor 2) and each step
         // must update only the reduced pixels it touched.
@@ -3625,7 +3664,7 @@ mod tests {
             assert_eq!(app.perf.last_refresh, "rect");
             assert!(app.perf.last_refresh_px < 4097 * 90 / 4, "{}", app.perf.last_refresh_px);
         }
-        let shown = display_doc(&mut app, 0).0;
+        let shown = display_doc(&mut app, &egui::Context::default(), 0).0;
         tool_event(&mut app, ToolEvent::Up { x: 900.0, y: 45.0 }, m);
         ensure_texture(&mut app, &ctx, 0, None);
         assert_eq!(app.perf.last_refresh, "rect", "the commit refreshes only the stroke");
@@ -3655,10 +3694,10 @@ mod tests {
             tool_event(&mut app, ToolEvent::Move { x, y: 40.0 + (x / 7.0).sin() * 8.0, pressure: 1.0 }, m);
             ensure_texture(&mut app, &ctx, 0, None);
         }
-        let live = display_doc(&mut app, 0).0;
+        let live = display_doc(&mut app, &egui::Context::default(), 0).0;
         let last = *xs.last().unwrap();
         tool_event(&mut app, ToolEvent::Up { x: last, y: 40.0 + (last / 7.0).sin() * 8.0 }, m);
-        let (next, key) = display_doc(&mut app, 0);
+        let (next, key) = display_doc(&mut app, &egui::Context::default(), 0);
         assert_eq!(key, 0, "the frame after release shows the committed document");
         ensure_texture(&mut app, &ctx, 0, None);
         let partial = app.perf.last_refresh == "rect";
@@ -3672,6 +3711,7 @@ mod tests {
 
     #[test]
     fn release_shows_nothing_new_without_smoothing() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         // #73: at 0 % the stroke follows the pointer; the last frame drawn while dragging is
         // exactly the committed stroke, so release changes nothing on screen.
         let (live, done, partial, app) = drag_frames(0.0, &[40.0, 70.0, 100.0, 130.0, 160.0]);
@@ -3683,6 +3723,7 @@ mod tests {
 
     #[test]
     fn smoothed_stroke_shows_its_catch_up_tail_while_drawing() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         // #73: with smoothing the brush lags behind the pointer and catches up at the end; the
         // preview draws that tail live, so no frame after release is missing the end.
         let xs = [30.0, 50.0, 70.0, 90.0, 110.0, 130.0, 150.0, 170.0];
@@ -3707,6 +3748,7 @@ mod tests {
 
     #[test]
     fn smoothing_preview_redraws_the_tail_each_step() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         // The tail drawn at one step must not linger once the brush moves on: a sharp turn would
         // leave a stale tail behind if it weren't restored.
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
@@ -3718,7 +3760,7 @@ mod tests {
         for (x, y) in [(60.0, 20.0), (110.0, 20.0), (110.0, 70.0), (110.0, 110.0), (60.0, 110.0)] {
             tool_event(&mut app, ToolEvent::Move { x, y, pressure: 1.0 }, m);
         }
-        let live = display_doc(&mut app, 0).0;
+        let live = display_doc(&mut app, &egui::Context::default(), 0).0;
         tool_event(&mut app, ToolEvent::Up { x: 60.0, y: 110.0 }, m);
         let done = app.session.documents()[0].doc.clone();
         let (a, b) = (live.layers[0].surface().unwrap(), done.layers[0].surface().unwrap());
@@ -3741,6 +3783,7 @@ mod tests {
 
     #[test]
     fn brush_drags_paint_no_stand_in_shape_over_the_canvas() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         // #189: v0.1 drew the stroke being dragged as a foreground-coloured egui polyline as wide
         // as the brush; zoomed in, egui tessellated it into hard black wedges fanning out from the
         // start. The canvas shows the real stroke (`LiveStroke`) and nothing is drawn over it.
@@ -3764,6 +3807,7 @@ mod tests {
 
     #[test]
     fn retouch_drags_show_the_footprint_without_wedges() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         // The retouching tools' trail was the same brush-wide polyline (#189): now a mask of the
         // footprint, with nothing outside the brush radius of the path, however small the steps.
         let ctx = egui::Context::default();
@@ -3804,28 +3848,31 @@ mod tests {
 
     #[test]
     fn layer_style_dialog_previews_live_and_cancel_restores() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         app.run("file.new", json!({"width": 16, "height": 16})).unwrap();
         app.run("layer.new.layer", json!({})).unwrap();
+        let baseline_key = display_doc(&mut app, &egui::Context::default(), 0).1;
         let fx = |d: &Document| d.layers.iter().map(|l| l.effects.items.len()).sum::<usize>();
         let id = crate::layer_style::open(&mut app, Some("colorOverlay")).unwrap();
-        let (shown, key) = display_doc(&mut app, 0);
+        let (shown, key) = display_doc(&mut app, &egui::Context::default(), 0);
         assert_eq!((fx(&shown), fx(&app.session.documents()[0].doc)), (1, 0), "previewed, not committed");
         // Adding a stroke through the dialog's instance list re-renders the canvas.
         if let Some(d) = app.ui.dialog_mut(id) {
             d.fields["effects"].as_array_mut().unwrap().push(json!({"id": "fx9", "kind": "stroke", "on": true, "params": {"size": 3}}));
         }
-        let (shown, key2) = display_doc(&mut app, 0);
+        let (shown, key2) = display_doc(&mut app, &egui::Context::default(), 0);
         assert_eq!(fx(&shown), 2);
         assert_ne!(key, key2, "an edit re-renders the canvas");
         app.ui.close_dialog(id);
-        let (shown, key) = display_doc(&mut app, 0);
-        assert_eq!((fx(&shown), key), (0, 0));
+        let (shown, key) = display_doc(&mut app, &egui::Context::default(), 0);
+        assert_eq!((fx(&shown), key), (0, baseline_key));
         assert!(app.style_preview.is_none());
     }
 
     #[test]
     fn zoom_steps_monotone() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         assert_eq!(zoom_step(1.0, 1), 2.0);
         assert_eq!(zoom_step(1.0, -1), 0.6667);
         assert_eq!(zoom_step(0.4, 1), 0.5);
@@ -3834,6 +3881,7 @@ mod tests {
 
     #[test]
     fn damage_grows_by_nested_effect_reach() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         use photocraft_doc::{Effect, Layer};
         let fmt = photocraft_color::PixelFormat::RGBA8;
         assert_eq!(effect_reach(&[Layer::raster("plain", fmt)]), 0);
@@ -3857,6 +3905,7 @@ mod transform_controls_tests {
 
     #[test]
     fn move_transform_controls_start_free_transform_for_vector_shapes() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.session.execute("file.new", json!({"width": 200, "height": 200})).unwrap();
         app.session.execute("shape.create", json!({"kind": "rect", "rect": [20, 30, 80, 40], "fill": "#ff0000"})).unwrap();
@@ -3876,6 +3925,7 @@ mod transform_controls_tests {
 
     #[test]
     fn transform_control_hit_keeps_move_interior_free_and_has_rotation_band() {
+        let _gpu_gate = crate::gpu_test_support::lock();
         let r = Rect::from_min_max(pos2(20.0, 30.0), pos2(100.0, 70.0));
         assert!(transform_controls_hit(r, r.left_top()));
         assert!(transform_controls_hit(r, pos2(60.0, 18.0)));

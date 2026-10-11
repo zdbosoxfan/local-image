@@ -35,6 +35,8 @@ fn synthetic(s: &Session, path: Path) -> Preview {
         source_rgba: vec![],
         result_rgba: vec![],
         elapsed_ms: 0.,
+        cutout: false,
+        cleanup_stats: None,
     }
 }
 #[test]
@@ -282,4 +284,41 @@ fn trace28_selection_clip_survives_ignoring_transparent_source_alpha() {
     assert_eq!(image.get(11, 12)[3], 0.);
     assert!((image.px.iter().map(|p| p[3]).sum::<f32>() - 8.).abs() < 1e-6);
     assert!(p.source_rgba.as_chunks::<4>().0.iter().all(|p| p[3] == 0), "before view retains original transparent pixels");
+}
+
+#[test]
+fn trace28_centreline_preview_and_publication_use_editable_width_profiles() {
+    let mut session = pixels();
+    let capture = capture(&session, None).unwrap();
+    let mut params = Params::for_preset(pc_trace::Preset::BlackWhite);
+    params.mode = Some(pc_trace::Mode::Centerline);
+    params.speckle = 0;
+    let output = Output::default();
+    let ctx = JobCtx::new();
+    let preview = trace(&session.active().unwrap().doc, &capture, &params, &output, 1., &ctx).unwrap();
+    assert!(!preview.trace.strokes.is_empty());
+    assert!(preview.trace.layers.is_empty());
+    assert!(preview.result_rgba.as_chunks::<4>().0.iter().any(|p| p[3] > 0));
+    let prepared = prepare(&session.active().unwrap().doc, &preview, &output, &ctx).unwrap();
+    assert_eq!(prepared.children.len(), preview.trace.strokes.len());
+    for child in &prepared.children {
+        let LayerContent::Shape(shape) = &child.content else { panic!("editable stroke") };
+        assert!(shape.fill.is_none());
+        assert!(shape.stroke.is_some());
+        assert!(child.vector.appearance.is_some());
+    }
+    let before = session.active().unwrap().doc.clone();
+    publish(&mut session, &capture, prepared).unwrap();
+    assert!(session.undo());
+    assert_eq!(session.active().unwrap().doc, before);
+}
+#[test]
+fn trace28_cleanup_statistics_reach_the_shared_preview() {
+    let session = pixels();
+    let capture = capture(&session, None).unwrap();
+    let output = Output { cleanup: Some(pc_trace::cleanup::Options::default()), ..Default::default() };
+    let preview = trace(&session.active().unwrap().doc, &capture, &Params::for_preset(pc_trace::Preset::PixelArt), &output, 1., &JobCtx::new()).unwrap();
+    let stats = preview.cleanup_stats.unwrap();
+    assert_eq!(stats.scale, 1);
+    assert_eq!(stats.nodes_after, preview.trace.nodes);
 }

@@ -151,7 +151,7 @@ impl Group {
             Group::Character => &[Tab::Character, Tab::Paragraph],
             Group::Navigator => &[Tab::Navigator, Tab::Histogram, Tab::Info],
             Group::History => &[Tab::History, Tab::Actions, Tab::LayerComps],
-            Group::Layers => &[Tab::Layers, Tab::Channels, Tab::Paths],
+            Group::Layers => &[Tab::Layers, Tab::Channels, Tab::Paths, Tab::Symbols],
             Group::Generate => &[Tab::Generate, Tab::Library],
             Group::Custom(_) => &[],
         }

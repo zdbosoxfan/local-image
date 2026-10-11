@@ -5839,6 +5839,7 @@ dependencies = [
  "photocraft-vector",
  "resvg",
  "serde_json",
+ "svgtypes",
 ]
 
 [[package]]
@@ -5883,10 +5884,12 @@ dependencies = [
  "photocraft-geom",
  "photocraft-gpu",
  "photocraft-io",
+ "photocraft-pathops",
  "photocraft-pdf",
  "photocraft-plugins",
  "photocraft-psd",
  "photocraft-raster",
+ "photocraft-svg",
  "photocraft-testkit",
  "photocraft-text",
  "photocraft-vector",
@@ -5917,6 +5920,7 @@ dependencies = [
 name = "photocraft-vector"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "kurbo 0.13.1",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",

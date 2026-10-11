@@ -467,6 +467,7 @@ fn main() -> Result<()> {
         Some("upstream-check") => upstream_check(flag("--offline")),
         Some("assets") => assets::run(&root()),
         Some("redraw-tool-icons") => tool_art::run(&root()),
+        Some("redraw-vector-tool-icons") => Ok(tool_art_vector::run(&root())?),
         Some("tool-icons") => run(
             "render tool icon contact sheet",
             Command::new("cargo").current_dir(root()).env("CARGO_BUILD_JOBS", "3").args([

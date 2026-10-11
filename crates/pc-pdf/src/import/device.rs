@@ -423,10 +423,17 @@ impl<'a> Builder<'a> {
                         None => vec![0; (w as usize) * (h as usize)],
                     });
                     let rgba: Vec<[u8; 4]> = match rgb {
-                        ImageData::Rgb(d) => {
-                            d.data.as_chunks::<3>().0.iter().enumerate().map(|(i, c)| [c[0], c[1], c[2], a.as_ref().map_or(255, |a| a[i])]).collect()
+                        ImageData::Rgb(d) => d
+                            .data
+                            .as_chunks::<3>()
+                            .0
+                            .iter()
+                            .enumerate()
+                            .map(|(i, c)| [c[0], c[1], c[2], a.as_ref().and_then(|a| a.get(i)).copied().unwrap_or(255)])
+                            .collect(),
+                        ImageData::Luma(d) => {
+                            d.data.iter().enumerate().map(|(i, c)| [*c, *c, *c, a.as_ref().and_then(|a| a.get(i)).copied().unwrap_or(255)]).collect()
                         }
-                        ImageData::Luma(d) => d.data.iter().enumerate().map(|(i, c)| [*c, *c, *c, a.as_ref().map_or(255, |a| a[i])]).collect(),
                     };
                     decoded = Some((rgba, w, h, sf));
                 },
@@ -458,6 +465,9 @@ impl<'a> Builder<'a> {
         let rect = geometry::rect(&[Point::ZERO, Point::new(w.into(), 0.0), Point::new(w.into(), h.into()), Point::new(0.0, h.into())].map(|p| m * p))?
             .intersect(&self.canvas);
         self.charge(rect)?;
+        if rgba.len() != (w as usize).checked_mul(h as usize).ok_or(ImportError::Limit("image pixel"))? {
+            return Err(ImportError::Invalid("decoded image length does not match dimensions".into()));
+        }
         let inverse = m.inverse();
         let mut surface = Surface::new(PixelFormat::RGBA32F);
         for band in geometry::bands(rect) {

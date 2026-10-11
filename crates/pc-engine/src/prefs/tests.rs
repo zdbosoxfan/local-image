@@ -301,3 +301,33 @@ fn tool_icon_preferences_default_validate_and_round_trip() {
     restored.execute("prefs.reset", json!({"path": "interface.toolIcons"})).unwrap();
     assert_eq!(restored.prefs().interface.tool_icons, "colour");
 }
+
+#[test]
+fn review_regression_vector_toolbar_defaults_are_addressable_by_preferences_api() {
+    let mut s = session();
+    for (key, value) in [
+        ("toolbar.persona", json!("vector")),
+        ("toolbar.vectorSet", json!("vector.illustration")),
+        ("toolbar.pixelTool", json!("Pen")),
+        ("toolbar.vectorTool", json!("Rectangle")),
+    ] {
+        assert!(!s.execute("prefs.get", json!({"path":key})).unwrap().is_null(), "{key}");
+        s.execute("prefs.set", json!({"path":key,"value":value})).unwrap();
+        assert_eq!(s.execute("prefs.get", json!({"path":key})).unwrap(), value);
+    }
+}
+#[test]
+fn review_regression_edit_toolbar_uses_and_resets_current_persona_set() {
+    let mut s = session();
+    let pixel = s.prefs().toolbar.active_set.clone();
+    s.edit_prefs(|p| p.toolbar.persona = crate::toolsets::Persona::Vector);
+    s.execute("edit.toolbar", json!({"hidden":["Rectangle"],"order":["Pen","EllipseShape"]})).unwrap();
+    assert_eq!(s.prefs().toolbar.active_set, pixel);
+    assert_eq!(s.prefs().toolbar.active().persona, crate::toolsets::Persona::Vector);
+    assert_eq!(s.prefs().toolbar.active().tools[0], "Pen");
+    assert!(!s.prefs().toolbar.active().tools.iter().any(|id| id == "Rectangle"));
+    assert!(s.prefs().toolbar.active().tools.iter().all(|id| crate::toolsets::supports(id, crate::toolsets::Persona::Vector)));
+    s.execute("edit.toolbar", json!({"reset":true})).unwrap();
+    assert_eq!(s.prefs().toolbar.vector_set, crate::toolsets::Persona::Vector.default_set());
+    assert_eq!(s.prefs().toolbar.active_set, pixel);
+}

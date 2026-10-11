@@ -9,7 +9,6 @@ mod face;
 mod fit;
 mod graph;
 mod merge;
-mod prepare;
 mod topology;
 
 use crate::{Error, Image, Params, Trace, ir::Segmentation};
@@ -87,7 +86,7 @@ pub fn trace_with_cancel(image: Image<'_>, params: &Params, cancel: impl Fn() ->
     if params.speckle > crate::PIXEL_BUDGET || u64::from(params.watershed_detail) > crate::PIXEL_BUDGET as u64 {
         return Err(Error::InvalidParams("cutout noise/detail exceeds pixel budget"));
     }
-    let seg = prepare::segment(image, params, &cancel)?;
+    let seg = crate::frontend::segment(image, params, &cancel)?;
     evaluate(&seg, params, EDGE_BUDGET, &cancel)
 }
 
@@ -102,15 +101,16 @@ pub(crate) fn evaluate(seg: &Segmentation, params: &Params, edge_budget: usize, 
     // difference likewise leaves its exact partition untouched.
     if params.palette.is_empty() {
         merge::similar(&mut map, params.layer_difference, cancel)?;
+        if params.preset == crate::Preset::Logo && params.fitter != crate::Fitter::Pixel {
+            merge::antialias(&mut map, params.layer_difference, cancel)?;
+        }
     }
     let graph = graph::BoundaryGraph::extract(&map, edge_budget, cancel)?;
     let faces = face::assemble(&graph, &map, cancel)?;
     let mut fitted = fit::fit_all(&graph, params, cancel)?;
-    // A per-face fallback would destroy shared controls. Check the complete
-    // arrangement and fall back all chains together when smoothing crosses it.
-    if !topology::valid(&graph, &fitted, edge_budget, cancel)? {
-        fitted = fit::pixel_all(&graph, cancel)?;
-    }
+    // Repair whole shared chains, never independent faces; recheck the complete
+    // arrangement until the exact fallback and retained fits coexist safely.
+    topology::repair(&graph, &mut fitted, edge_budget, params.detail, cancel)?;
     compose::trace(&map, &faces, &fitted, cancel)
 }
 

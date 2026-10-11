@@ -204,6 +204,7 @@ fn needs_paint_projection(layer: &Layer) -> bool {
     if let Some(a) = &layer.vector.appearance {
         return a.items.iter().any(|i| match i {
             AppearanceItem::Fill(f) => f.visible && pattern(&f.paint),
+            AppearanceItem::Mesh(_) => false,
             AppearanceItem::Stroke(s) => {
                 s.visible
                     && (pattern(&s.base.paint)
@@ -539,6 +540,10 @@ impl Writer<'_, '_, '_> {
                 if let Some(a) = &l.vector.appearance {
                     for item in &a.items {
                         match item {
+                            AppearanceItem::Mesh(m) if m.visible => {
+                                fallback = true;
+                                self.warn("gradient-mesh", "Gradient meshes were embedded as PNG using the shared renderer.");
+                            }
                             AppearanceItem::Fill(f) if f.visible => fallback |= !supported(&f.paint) || f.blend != BlendMode::Normal,
                             AppearanceItem::Stroke(s) if s.visible => {
                                 fallback |= !supported(&s.base.paint)

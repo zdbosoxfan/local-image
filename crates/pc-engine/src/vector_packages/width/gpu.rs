@@ -37,6 +37,7 @@ fn parity(c: &mut Compositor, d: &wgpu::Device, q: &wgpu::Queue, doc: &Document)
 #[test]
 #[ignore = "integration gate: real RTX 5090 Vulkan required; task speed rules prohibit execution"]
 fn width_gpu_profile_strokes_preview_release_and_undo() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let (device, queue) = device();
     let mut compositor = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let (mut s, ids) = setup();

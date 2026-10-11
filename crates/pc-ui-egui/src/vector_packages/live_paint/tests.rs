@@ -156,16 +156,15 @@ fn live_paint42_ui_k_bucket_data_dependency_and_numeric_width_type() {
     h.key_press(Key::Enter);
     h.run();
     assert_eq!(h.state().tools.width, 2.5);
-    let mut test = Layer::group("Data", Vec::new());
-    if engine::evaluator::write_spec(&mut test, &Default::default()).is_err() {
-        let before = h.state().session.active().unwrap().doc.clone();
-        move_to(&mut h, 32., 40.);
-        button(&mut h, 32., 40., true, Modifiers::NONE);
-        button(&mut h, 32., 40., false, Modifiers::NONE);
-        assert!(h.state().tools.error.as_ref().unwrap().contains("00 LiveGroup::LivePaint"));
-        assert_eq!(h.state().session.active().unwrap().doc, before);
-        assert!(h.state().session.journal.is_empty());
-    }
+    let before = h.state().session.active().unwrap().doc.clone();
+    h.state_mut().tools.set_targets(vec![photocraft_doc::LayerId(u64::MAX)]);
+    move_to(&mut h, 32., 40.);
+    button(&mut h, 32., 40., true, Modifiers::NONE);
+    button(&mut h, 32., 40., false, Modifiers::NONE);
+    assert!(h.state().tools.error.is_some());
+    assert!(!h.state().tools.is_dragging());
+    assert_eq!(h.state().session.active().unwrap().doc, before);
+    assert!(h.state().session.journal.is_empty());
 }
 #[test]
 #[ignore = "00 native LivePaint data dependency; integrated bucket click/drag/Shift edge acceptance"]

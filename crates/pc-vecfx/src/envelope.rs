@@ -94,13 +94,13 @@ pub fn source_bounds(paths: &[Path]) -> Result<Rect> {
     // A flat source axis has a stable one-pixel frame. Identity stays exact for lines.
     if r.width() < 1e-9 {
         let x = (r.x0 + r.x1) * 0.5;
-        r.x0 = x - 0.5;
-        r.x1 = x + 0.5;
+        r.x0 = (x - 0.5).clamp(-MAX_COORDINATE, MAX_COORDINATE - 1.);
+        r.x1 = r.x0 + 1.;
     }
     if r.height() < 1e-9 {
         let y = (r.y0 + r.y1) * 0.5;
-        r.y0 = y - 0.5;
-        r.y1 = y + 0.5;
+        r.y0 = (y - 0.5).clamp(-MAX_COORDINATE, MAX_COORDINATE - 1.);
+        r.y1 = r.y0 + 1.;
     }
     Ok(r)
 }

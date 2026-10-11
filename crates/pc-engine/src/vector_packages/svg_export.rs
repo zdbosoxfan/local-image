@@ -53,11 +53,12 @@ pub fn preflight(s: &Session, r: &Request) -> Result<()> {
 pub fn export(s: &Session, r: &Request, cancelled: &dyn Fn() -> bool) -> Result<ExportedVector> {
     preflight(s, r)?;
     let state = s.active().ok_or(EngineError::NoDocument)?;
+    let (projected, warnings) = crate::vector_integration::project_for_export(&state.doc)?;
     let mut engine = photocraft_text::shared().lock().map_err(|_| error("text engine lock poisoned"))?;
     let mut cx = ExportContext { cancelled, projection: None, text: &mut engine };
     let run = PROVIDER.get().copied().unwrap_or(photocraft_svg::export::export_with);
-    let output = run(&state.doc, &r.scope.exchange(), &r.options, &mut cx).map_err(|e| error(e.to_string()))?;
-    preflight(s, r)?;
+    let mut output = run(&projected, &r.scope.exchange(), &r.options, &mut cx).map_err(|e| error(e.to_string()))?;
+    output.warnings.extend(warnings);
     Ok(output)
 }
 fn enabled(s: &Session) -> std::result::Result<(), String> {
@@ -74,7 +75,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         label: "Export SVG",
         menu: &[],
         shortcut: None,
-        params: "{document:u64,revision:u64,scope:{kind:document|selection|artboard,layers?:[id],layer?:id},options?:{textAsCurves?:bool,precision?:0..9,minify?:bool}}",
+        params: "{document:u64,revision:u64,scope:{kind:document}|{kind:selection,layers:[id]}|{kind:artboard,layer:id},options?:{textAsCurves?:bool,precision?:0..9,minify?:bool}}",
         enabled,
         run,
         journal: false,

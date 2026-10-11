@@ -195,8 +195,8 @@ pub fn polar_grid(r: Rect, concentric: u32, radial: u32) -> Vec<PathData> {
         let f = i as f64 / (concentric + 1) as f64;
         out.push(ellipse(Rect::from_center_size(c, (r.width() * f, r.height() * f))));
     }
-    for i in 0..radial.max(1) {
-        let a = -PI / 2.0 + TAU * i as f64 / radial.max(1) as f64;
+    for i in 0..radial {
+        let a = -PI / 2.0 + TAU * i as f64 / radial as f64;
         out.push(line(c, Point::new(c.x + r.width() / 2.0 * a.cos(), c.y + r.height() / 2.0 * a.sin())));
     }
     out
@@ -346,5 +346,13 @@ mod tests {
     fn arc_open_and_closed() {
         assert_eq!(arc(Point::ZERO, Point::new(10.0, 10.0), 0.0, false).anchor_count(), 2);
         assert!(arc(Point::ZERO, Point::new(10.0, 10.0), 0.0, true).subpaths[0].closed);
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    #[test]
+    fn review_additional_zero_radial_dividers_keep_only_concentric_ellipses() {
+        assert_eq!(super::polar_grid(super::Rect::new(0., 0., 64., 32.), 2, 0).len(), 3);
     }
 }

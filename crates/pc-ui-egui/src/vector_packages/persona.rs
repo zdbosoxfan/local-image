@@ -46,13 +46,9 @@ impl GestureTarget {
     }
 
     pub fn is_current(&self, app: &PhotocraftApp) -> bool {
-        app.session.active().is_some_and(|st| {
-            st.doc.id == self.doc
-                && st.revision == self.revision
-                && st.active_layer == self.active
-                && st.selected_layers() == self.layers
-                && self.layers.iter().all(|id| st.doc.layer(*id).is_some())
-        })
+        app.session
+            .active()
+            .is_some_and(|st| st.doc.id == self.doc && st.revision == self.revision && st.active_layer == self.active && st.selected_layers() == self.layers)
     }
 }
 
@@ -90,7 +86,10 @@ impl PointerGuard {
             app.ui.status = tl!("The gesture was cancelled; try again").into();
             return true;
         }
-        if matches!(ev, ToolEvent::Down { .. }) && (self.target.is_none() || (app.ui.tool == Tool::Pen && app.ui.pen.is_none())) {
+        // Pen retains a draft between clicks. The established Move and raster
+        // handlers capture after their own selection/layer setup; do not capture
+        // their pre-press selection here and invalidate that setup on the next move.
+        if matches!(ev, ToolEvent::Down { .. }) && app.ui.tool == Tool::Pen && (self.target.is_none() || app.ui.pen.is_none()) {
             self.target = GestureTarget::capture(app);
             self.tool = Some(app.ui.tool);
         }
@@ -131,6 +130,8 @@ pub fn validate_rasterize_prompt(app: &PhotocraftApp, fields: &serde_json::Map<S
 
 /// Drop detached previews and pointer capture; switching personas never commits a gesture.
 pub fn cancel(app: &mut PhotocraftApp, ctx: &Context) {
+    crate::vector_integration::cancel(app);
+    app.ui.persona_pointer.clear();
     app.ui.pen = None;
     app.ui.direct_selection.drag = None;
     app.live_stroke = None;
@@ -174,6 +175,7 @@ pub fn select_tool(app: &mut PhotocraftApp, ctx: &Context, tool: Tool) {
         return;
     }
     cancel(app, ctx);
+    app.ui.persona_pointer.clear();
     app.ui.tool = tool;
     sync(app, ctx);
 }
@@ -202,7 +204,9 @@ fn sync(app: &mut PhotocraftApp, ctx: &Context) {
         }
         let saved = app.session.prefs().toolbar.last_tool(persona);
         let restored = Tool::from_name(saved).filter(|t| supports(&format!("{t:?}"), persona));
-        app.ui.tool = restored.unwrap_or_else(|| if supports(&format!("{:?}", app.ui.tool), persona) { app.ui.tool } else { Tool::Move });
+        if seen.is_some() {
+            app.ui.tool = restored.unwrap_or_else(|| if supports(&format!("{:?}", app.ui.tool), persona) { app.ui.tool } else { Tool::Move });
+        }
         if persona == Persona::Vector {
             app.ui.tool_options.vector_mode = "shape".into();
         } else {
@@ -234,7 +238,7 @@ fn sync(app: &mut PhotocraftApp, ctx: &Context) {
     }
     if let Some(mut seen) = seen {
         seen.tool = app.ui.tool;
-        if app.ui.pen.is_some() || app.ui.direct_selection.drag.is_some() || app.drag.is_some() {
+        if app.ui.pen.is_some() {
             if seen.gesture.is_none() {
                 seen.gesture = GestureTarget::capture(app);
             }
@@ -264,22 +268,11 @@ pub fn switcher(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 /// Stable vector slots, resolved through the shell registry after 00 adds the reserved Tool
 /// variants. Existing tools work now; no absent tool is silently mapped to a raster tool.
 pub fn vector_slots() -> Vec<(usize, Vec<Tool>)> {
-    static SLOTS: std::sync::OnceLock<Vec<(usize, Vec<Tool>)>> = std::sync::OnceLock::new();
-    SLOTS
-        .get_or_init(|| {
-            let mut slots: Vec<(usize, Vec<Tool>)> = Vec::new();
-            for entry in VECTOR_TOOLS {
-                let Some(tool) = Tool::from_name(entry.id) else { continue };
-                let id = 1000 + usize::from(entry.slot);
-                if let Some((_, tools)) = slots.iter_mut().find(|(slot, _)| *slot == id) {
-                    tools.push(tool);
-                } else {
-                    slots.push((id, vec![tool]));
-                }
-            }
-            slots
-        })
-        .clone()
+    let registered: Vec<_> = VECTOR_TOOLS.iter().map(|entry| entry.id).filter(|id| Tool::from_name(id).is_some()).collect();
+    photocraft_engine::vector_toolbar_layout::groups(&registered, None)
+        .into_iter()
+        .map(|group| (group.slot, group.tools.into_iter().filter_map(Tool::from_name).collect()))
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -335,6 +328,7 @@ impl Geometry {
     }
 }
 
+#[derive(Clone)]
 pub struct GeometryRequest {
     pub target: GestureTarget,
     pub op: Geometry,
@@ -394,13 +388,29 @@ pub fn geometry_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 }
 
 fn geometry_button(app: &mut PhotocraftApp, ui: &mut egui::Ui, op: Geometry, compound: bool) {
-    let request = GeometryRequest::capture(app, op, compound);
-    let reason = match &request {
-        Ok(r) => app
-            .session
-            .disabled_reason_with(op.command(), &r.params())
-            .map(|reason| if photocraft_engine::commands::find(op.command()).is_none() { tl!("Geometry is not available yet").to_string() } else { reason }),
-        Err(reason) => Some(reason.clone()),
+    type Cached = (std::sync::Weak<photocraft_doc::Document>, u64, Option<GestureTarget>, bool, Result<GeometryRequest, String>, Option<String>);
+    let key = ui.id().with(("geometry-button-eligibility", op.label()));
+    let source = app.session.active().map(|st| std::sync::Arc::downgrade(&st.doc)).unwrap_or_default();
+    let target = GestureTarget::capture(app);
+    let prefs = app.session.prefs.rev();
+    let cached: Option<Cached> = ui.data(|d| d.get_temp(key));
+    let (request, reason) = if let Some((previous, revision, captured, alt, request, reason)) = cached
+        && previous.ptr_eq(&source)
+        && revision == prefs
+        && captured == target
+        && alt == compound
+    {
+        (request, reason)
+    } else {
+        let request = GeometryRequest::capture(app, op, compound);
+        let reason = match &request {
+            Ok(r) => app.session.disabled_reason_with(op.command(), &r.params()).map(|reason| {
+                if photocraft_engine::commands::find(op.command()).is_none() { tl!("Geometry is not available yet").to_string() } else { reason }
+            }),
+            Err(reason) => Some(reason.clone()),
+        };
+        ui.data_mut(|d| d.insert_temp(key, (source, prefs, target, compound, request.clone(), reason.clone())));
+        (request, reason)
     };
     let r = ui.add_enabled(reason.is_none(), egui::Button::new(tl!(op.label())).small());
     let clicked = r.on_hover_text(reason.unwrap_or_else(|| format!("{} ({})", tl!("Geometry"), tl!(op.label())))).clicked();

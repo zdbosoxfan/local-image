@@ -69,6 +69,18 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
     out.extend(transform_tools::specs());
     out.extend(blob_eraser::specs());
     out.extend(live_paint::specs());
+    out.extend(anchor_tools::specs());
+    out.extend(styles::specs());
+    out.extend(colours::specs());
+    out.extend(recolor::specs());
+    out.extend(isolation::specs());
+    out.extend(view_modes::specs());
+    out.extend(distort_tools::specs());
+    out.extend(measure::specs());
+    out.extend(path_effects::specs());
+    out.extend(mesh::specs());
+    out.extend(toolbar::specs());
+    out.extend(selection::specs());
     out
 }
 
@@ -91,3 +103,6 @@ pub mod path_effects;
 pub mod mesh;
 // Package 46: 00 appends toolbar::specs() to the aggregate in the serial handoff.
 pub mod toolbar;
+
+pub mod selection;
+pub mod view_modes;
