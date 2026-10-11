@@ -352,3 +352,20 @@ mod tests {
         assert!(export_warnings(&book, true).is_empty());
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_duplicate_maximum_utf16_name_stays_valid() {
+        for name in ["a".repeat(1024), "😀".repeat(512), format!("a{}", "😀".repeat(511))] {
+            let mut book = SwatchBook { groups: vec![SwatchGroup { id: 1, name: name.clone() }], ..Default::default() };
+            let fresh = book.free_name(&name);
+            assert_ne!(fresh, name);
+            assert!(fresh.ends_with(" 2"));
+            book.groups.push(SwatchGroup { id: 2, name: fresh });
+            book.validate().unwrap();
+        }
+    }
+}

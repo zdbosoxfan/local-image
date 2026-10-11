@@ -45,7 +45,8 @@ pub fn close(input: &[ops::Shape], gap: Gap) -> Result<Vec<ops::Shape>> {
                     // This endpoint already meets a curve, and is not dangling.
                     candidates.push((0., a, None, p));
                 } else if d <= gap.distance() {
-                    candidates.push((d, a, None, q));
+                    let endpoint = ends.iter().position(|&(source, _, _, p)| source == j && (p.x - q.x).hypot(p.y - q.y) <= 1e-7);
+                    candidates.push((d, a, endpoint, q));
                 }
             }
         }
@@ -75,4 +76,19 @@ pub fn close(input: &[ops::Shape], gap: Gap) -> Result<Vec<ops::Shape>> {
         return Err(error("gap closing exceeds geometry budget"));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_curve_bridge_marks_coincident_endpoint_used() {
+        let input = [
+            ops::Shape::new(Path::new(vec![Subpath::polyline(&[(0., 0.), (10., 0.)])]), 1),
+            ops::Shape::new(Path::new(vec![Subpath::polyline(&[(11., 0.), (21., 0.)])]), 2),
+        ];
+        let out = close(&input, Gap::Small).unwrap();
+        assert_eq!(out.len(), 3, "one bridge, rather than two coincident bridges");
+    }
 }

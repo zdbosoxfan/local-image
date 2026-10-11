@@ -245,3 +245,20 @@ mod review_tests {
         assert!(finite_rgba([0., 0., 0., 1.]).is_ok());
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_denormal_width_cannot_produce_infinite_dash_values() {
+        let mut props = StrokeProps { line_width: 1e-40, ..Default::default() };
+        props.dash_array.push(1.);
+        assert!(stroke(&props, Fill::Solid(Color::BLACK), 1.).is_err());
+        props.line_width = 2.;
+        let normal = stroke(&props, Fill::Solid(Color::BLACK), 1.).unwrap();
+        assert_eq!(normal.dashes, vec![0.5]);
+        props.line_width = 0.;
+        assert!(stroke(&props, Fill::Solid(Color::BLACK), 1.).unwrap().dashes.iter().all(|n| n.is_finite()));
+    }
+}

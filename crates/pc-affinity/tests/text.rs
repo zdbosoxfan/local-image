@@ -334,3 +334,12 @@ fn excessive_gradient_positions_are_truncated_and_reported() {
     assert_eq!(g.stops.len(), 1024);
     assert!(warning(&d, "more than 1024 gradient stops"));
 }
+
+#[test]
+fn dsfix_character_attribute_run_budget_preserves_all_characters() {
+    let runs = (1..=5000).map(|end| run(end, None)).collect();
+    let d = read(vec![block(utf8(&"x".repeat(5000)), runs, &[])]);
+    assert_eq!(content(text(&d)), "x".repeat(5000));
+    assert_eq!(text(&d).runs.len(), 4096);
+    assert!(warning(&d, "text run budget exceeded"));
+}

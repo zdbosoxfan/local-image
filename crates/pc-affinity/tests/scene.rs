@@ -227,3 +227,19 @@ fn affinity_import_unsupported_compound_operand_never_publishes_partial_geometry
     let compound = F::Def(100, vec![tag(b"Comp")], vec![(tag(b"Chld"), F::Shared(vec![curve(), F::Obj(tag(b"ZZZZ"), vec![])]))]);
     assert!(matches!(import(&document(vec![compound]), &ImportOptions::default()), Err(Error::Unsupported("no supported artwork"))));
 }
+
+#[test]
+fn dsfix_stack_channel_decode_preserves_rgba_grey_and_cmyk_pixels() {
+    for (format, channels, expected) in [(0, 4, [1.; 4]), (1, 4, [1.; 4]), (6, 1, [1.; 4]), (7, 1, [1.; 4]), (4, 5, [0., 0., 0., 1.])] {
+        let mut bitmap = vec![(tag(b"BmpW"), F::I32(2)), (tag(b"BmpH"), F::I32(2)), (tag(b"Frmt"), F::Enum(format, 0))];
+        for channel in 0..channels {
+            bitmap.push((tag(&[b'S', b't', b'a', b'1' + channel]), F::U8s(vec![2])));
+        }
+        let bytes = document(vec![F::Obj(tag(b"Rstr"), vec![(tag(b"Bitm"), F::Obj(tag(b"DyBm"), bitmap))])]);
+        let scene = import(&bytes, &ImportOptions::default()).unwrap();
+        let layers = walk(&scene.layers);
+        let surface = layers.iter().find_map(|l| if let LayerContent::Raster(s) = &l.content { Some(s) } else { None }).unwrap();
+        assert_eq!(surface.rgba(1, 1), expected, "format {format}");
+        assert_eq!(surface.rgba(2, 1), [0.; 4]);
+    }
+}

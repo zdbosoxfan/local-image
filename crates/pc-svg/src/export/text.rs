@@ -9,6 +9,9 @@ impl Writer<'_, '_, '_> {
     pub(super) fn text(&mut self, t: &photocraft_doc::TextLayer) -> Result<()> {
         let layout = self.cx.text.layout(t, self.doc.resolution_dpi);
         let warp = photocraft_text::render::layout_warp(&layout, t.warp.as_ref());
+        if warp.is_some() && !layout.decorations.is_empty() {
+            return Err(invalid("warped decorations require raster fallback"));
+        }
         let curves = self.opts.text_as_curves
             || warp.is_some()
             || layout.vertical
@@ -120,9 +123,6 @@ impl Writer<'_, '_, '_> {
             self.line("</text>")?;
         }
         let matrix = t.transform.m.iter().map(|n| self.n(*n)).collect::<Vec<_>>().join(" ");
-        if warp.is_some() && !layout.decorations.is_empty() {
-            return Err(invalid("warped decorations require raster fallback"));
-        }
         for d in &layout.decorations {
             let style = layout.styles.get(d.style as usize).ok_or_else(|| invalid("decoration style missing"))?;
             self.line(&format!(
@@ -136,5 +136,48 @@ impl Writer<'_, '_, '_> {
             ))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_warped_decorations_fail_before_curve_output() {
+        let mut doc = Document::new("warped text", photocraft_doc::Size::new(128, 128), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        let text = photocraft_doc::TextLayer {
+            text: "H".into(),
+            size_pt: 24.,
+            warp: Some(photocraft_doc::text::TextWarp { style: "warpArc".into(), value: 25., ..Default::default() }),
+            runs: vec![photocraft_doc::text::TextRun {
+                len: 1,
+                style: photocraft_doc::text::CharStyle { size_pt: 24., underline: true, ..Default::default() },
+            }],
+            ..Default::default()
+        };
+        doc.layers.push(Layer::new("type", LayerContent::Text(text.clone())));
+        for text_as_curves in [false, true] {
+            let opts = ExportOptions { text_as_curves, ..Default::default() };
+            let mut engine = photocraft_text::TextEngine::new();
+            let mut cx = ExportContext { cancelled: &|| false, projection: None, text: &mut engine };
+            let mut writer = Writer {
+                doc: &doc,
+                opts: &opts,
+                cx: &mut cx,
+                rect: doc.bounds(),
+                defs: String::new(),
+                body: String::new(),
+                resources: BTreeMap::new(),
+                warnings: BTreeMap::new(),
+                next: 0,
+                label: None,
+            };
+            let error = writer.text(&text).unwrap_err();
+            assert!(error.to_string().contains("warped decorations"), "{error}");
+            assert!(writer.body.is_empty());
+            let output = export(&doc, &ExportScope::Document, &opts).unwrap();
+            assert!(String::from_utf8(output.bytes).unwrap().contains("data:image/png;base64,"));
+        }
     }
 }

@@ -188,3 +188,19 @@ pub(super) fn trace(
     let nodes = layers.iter().flat_map(|l| &l.path.subpaths).map(|s| s.knots.len()).sum();
     Ok(Trace { width: w as u32, height: h as u32, strokes: Vec::new(), layers, nodes })
 }
+
+#[cfg(test)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_pixel_palette_trace_does_not_read_the_unused_continuous_field() {
+        let mut pixels = vec![0; 8 * 8 * 4];
+        pixels[(3 * 8 + 3) * 4..(3 * 8 + 3) * 4 + 4].copy_from_slice(&[255, 0, 0, 255]);
+        let prepared = Prepared { pixels: pixels.clone(), continuous: vec![] };
+        let source = Image { width: 8, height: 8, rgba: &pixels };
+        let params = Params { fitter: Fitter::Pixel, ..Default::default() };
+        let result = trace(source, &prepared, &params, &[[255, 0, 0]], 1, &|| false).unwrap();
+        assert_eq!(result.layers.len(), 1);
+        assert_eq!(result.nodes, 4);
+    }
+}

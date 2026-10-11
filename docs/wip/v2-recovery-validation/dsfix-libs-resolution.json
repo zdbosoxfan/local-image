@@ -1,0 +1,65 @@
+{
+  "choices": {
+    "crates/pc-affinity/src/raster.rs": [
+      "ours"
+    ],
+    "crates/pc-doc/src/vector_design/swatches.rs": [
+      "ours",
+      "ours",
+      "ours"
+    ],
+    "crates/pc-io/src/psd_export.rs": [
+      "ours"
+    ],
+    "crates/pc-pathops/src/boolean.rs": [
+      "custom"
+    ],
+    "crates/pc-pathops/src/geom/shapes.rs": [
+      "ours"
+    ],
+    "crates/pc-pdf/src/export.rs": [
+      "theirs",
+      "theirs"
+    ],
+    "crates/pc-pdf/src/import/paint.rs": [
+      "ours",
+      "ours"
+    ],
+    "crates/pc-svg/src/import/tree.rs": [
+      "ours",
+      "ours",
+      "ours",
+      "ours"
+    ],
+    "crates/pc-text/src/frame_compose/breaker.rs": [
+      "ours",
+      "ours"
+    ],
+    "crates/pc-vecfx/src/liquify/kernel.rs": [
+      "ours"
+    ],
+    "crates/pc-vecfx/src/live_paint/signatures.rs": [
+      "theirs"
+    ],
+    "crates/pc-vector/src/appearance/geometry.rs": [
+      "ours"
+    ],
+    "crates/pc-vector/src/design_shapes.rs": [
+      "ours"
+    ],
+    "crates/pc-vector/src/live_corners.rs": [
+      "theirs"
+    ]
+  },
+  "retained_newer_files": [
+    "crates/pc-text/src/view.rs",
+    "crates/pc-trace/src/cleanup/palette_trace.rs"
+  ],
+  "decisions": [
+    "Retain stack decode, UTF-16 suffixes, separate PSD mask marker, denormal dash checks, XML ID index, previous-visible soft-hyphen glyph, Pixel lattice topology, inclusive brush/gesture bounds and visibility, source ownership signatures, open arrowhead search, ellipse handle behavior.",
+    "Port bounded boolean recovery while preserving fallible contour errors; shared PDF warped bounds/raster scope; source inverse length tables; preallocation shared corner budgets.",
+    "Envelope keeps detailed failure model, ports post-fit propagation and budget precedence; fixture renamed field only.",
+    "V224 fixture cache marker reflects newer saved independent-mask raster-fallback behavior; exact bytes/rect/alpha assertions retained, clipped-raster/no-shape-proxy assertion added.",
+    "V279/V280 old renderer not imported; projected-line architecture and newer saved vector paint-run fix reconcile at next step."
+  ]
+}

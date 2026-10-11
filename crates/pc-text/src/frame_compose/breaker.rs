@@ -776,3 +776,32 @@ mod tests {
         assert!(tiered_ratio(-15.0, [0.0; 3], [10.0, 10.0, 0.0]).1);
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_consecutive_soft_hyphens_reuse_the_previous_glyph_width() {
+        let base = Glyph {
+            ch: 'H',
+            adv: 10.,
+            space: 5.,
+            size: 20.,
+            hyphen_width: 7.,
+            locked_advance: false,
+            ideographic_space_elastic: false,
+            no_break: false,
+            break_after: None,
+            cjk_hang: 0.,
+            korean: false,
+        };
+        let mut glyphs = vec![base.clone()];
+        glyphs.extend((0..4096).map(|_| Glyph { ch: SOFT_HYPHEN, adv: 0., size: 100., ..base.clone() }));
+        let spacing = Spacing::default();
+        let (items, _) = items(&glyphs, &[], &spacing);
+        let hyphens: Vec<_> = items.iter().filter(|item| item.flagged).collect();
+        assert_eq!(hyphens.len(), 4096);
+        assert!(hyphens.iter().all(|item| item.w == 7.));
+    }
+}

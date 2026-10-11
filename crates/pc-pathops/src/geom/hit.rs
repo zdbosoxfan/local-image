@@ -30,7 +30,7 @@ pub fn stroke_contains(path: &BezPath, width: f64, tol: f64, p: Point) -> bool {
 }
 
 /// Does the path intersect (or lie inside) the rect? Used for marquee selection.
-pub fn intersects_rect(path: &PathData, r: Rect) -> bool {
+pub fn intersects_rect(path: &PathData, rule: FillRule, r: Rect) -> bool {
     let Some(b) = path.bounds() else { return false };
     if b.intersect(r).area() <= 0.0 && !(b.width() == 0.0 || b.height() == 0.0) {
         return false;
@@ -55,7 +55,7 @@ pub fn intersects_rect(path: &PathData, r: Rect) -> bool {
         }
     }
     // Rect entirely inside a closed shape counts as touching it.
-    path.is_closed() && fill_contains(&bp, FillRule::NonZero, r.center())
+    path.is_closed() && fill_contains(&bp, rule, r.center())
 }
 
 #[cfg(test)]
@@ -85,15 +85,15 @@ mod tests {
     #[test]
     fn marquee() {
         let p = shapes::ellipse(Rect::new(0.0, 0.0, 10.0, 10.0));
-        assert!(intersects_rect(&p, Rect::new(-1.0, 4.0, 1.0, 6.0)));
-        assert!(!intersects_rect(&p, Rect::new(20.0, 20.0, 30.0, 30.0)));
+        assert!(intersects_rect(&p, FillRule::NonZero, Rect::new(-1.0, 4.0, 1.0, 6.0)));
+        assert!(!intersects_rect(&p, FillRule::NonZero, Rect::new(20.0, 20.0, 30.0, 30.0)));
         // corner region of the bbox that misses the ellipse outline
-        assert!(!intersects_rect(&p, Rect::new(0.0, 0.0, 0.5, 0.5)));
+        assert!(!intersects_rect(&p, FillRule::NonZero, Rect::new(0.0, 0.0, 0.5, 0.5)));
         // fully inside
-        assert!(intersects_rect(&p, Rect::new(4.0, 4.0, 6.0, 6.0)));
+        assert!(intersects_rect(&p, FillRule::NonZero, Rect::new(4.0, 4.0, 6.0, 6.0)));
         // crossing a line
         let l = shapes::line(Point::new(0.0, 0.0), Point::new(10.0, 10.0));
-        assert!(intersects_rect(&l, Rect::new(4.0, 0.0, 6.0, 10.0)));
+        assert!(intersects_rect(&l, FillRule::NonZero, Rect::new(4.0, 0.0, 6.0, 10.0)));
     }
 }
 
@@ -117,5 +117,19 @@ mod regress_tests {
         bp.curve_to(c.p1, c.p2, c.p3);
         let worst = (0..=200).map(|i| distance_to_outline(&bp, c.eval(i as f64 / 200.0))).fold(0.0, f64::max);
         assert!(worst < 1e-6, "{worst}");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_marquee_in_evenodd_hole_misses() {
+        let mut path = crate::geom::shapes::rectangle(Rect::new(0., 0., 10., 10.));
+        path.subpaths.extend(crate::geom::shapes::rectangle(Rect::new(3., 3., 7., 7.)).subpaths);
+        let marquee = Rect::new(4., 4., 6., 6.);
+        assert!(!intersects_rect(&path, FillRule::EvenOdd, marquee));
+        assert!(intersects_rect(&path, FillRule::NonZero, marquee));
     }
 }

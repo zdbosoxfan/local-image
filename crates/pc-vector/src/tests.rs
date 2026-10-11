@@ -486,3 +486,24 @@ fn review_additional_thin_coverage_is_translation_stable_and_inverted_fill_is_ex
     assert_eq!(pixels[0][3], 1.);
     assert_eq!(pixels[3 * 8 + 3][3], 0.);
 }
+
+#[test]
+fn dsfix_unsorted_gradient_midpoints_follow_their_stops() {
+    let fill = Fill::Gradient {
+        stops: vec![(0.5, Color::rgb(0., 1., 0.)), (0., Color::rgb(1., 0., 0.)), (1., Color::rgb(0., 0., 1.))],
+        angle: 0.,
+        scale: 100.,
+        style: photocraft_doc::GradientStyle::Linear,
+        reverse: false,
+        opacity_stops: vec![],
+        midpoints: vec![0.2, 0.8],
+        offset: (0., 0.),
+        dither: false,
+        align: true,
+    };
+    let paint = Paint::from_fill(&fill, (0., 0., 100., 100.), (0., 0., 100., 100.));
+    let Paint::Gradient { stops, midpoints, .. } = paint else { panic!() };
+    assert_eq!(midpoints, vec![0.8, 0.2]);
+    let color = sample_color(&stops, &midpoints, 0.4);
+    assert!((color[0] - 0.5).abs() < 1e-6 && (color[1] - 0.5).abs() < 1e-6);
+}

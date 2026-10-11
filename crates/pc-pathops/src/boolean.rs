@@ -285,6 +285,30 @@ impl Tidy {
     }
 }
 
+/// Keep recovery bounded while allowing ordinary curved artwork beyond 1024 chords.
+fn flatten_fallback(paths: &[(BezPath, FillRule)], extent: f64) -> Result<Vec<(BezPath, FillRule)>, PathOpsError> {
+    let mut segments = 0usize;
+    let flattened: Vec<_> = paths
+        .iter()
+        .map(|(p, r)| {
+            let mut flat = BezPath::new();
+            kurbo::flatten(p.iter(), (DEFAULT_PRECISION * 0.1).max(extent * 1e-6), |el| {
+                if matches!(el, kurbo::PathEl::LineTo(_)) {
+                    segments += 1;
+                }
+                if segments <= 8192 {
+                    flat.push(el);
+                }
+            });
+            (flat, *r)
+        })
+        .collect();
+    if segments > 8192 {
+        return Err(PathOpsError::Degenerate);
+    }
+    Ok(flattened)
+}
+
 impl Arrangement {
     pub(crate) fn new(mut paths: Vec<(BezPath, FillRule)>) -> Result<Self, PathOpsError> {
         let eps = eps_for(paths.iter().map(|p| &p.0))?;
@@ -342,25 +366,7 @@ impl Arrangement {
                     Err(_) => {
                         // Bound the fallback arrangement: pathological self-crossing curves can
                         // otherwise create millions of polygon intersections and exhaust RAM.
-                        let mut segments = 0usize;
-                        let flattened: Vec<_> = paths
-                            .iter()
-                            .map(|(p, r)| {
-                                let mut flat = BezPath::new();
-                                kurbo::flatten(p.iter(), (DEFAULT_PRECISION * 0.1).max(extent * 1e-6), |el| {
-                                    if matches!(el, kurbo::PathEl::LineTo(_)) {
-                                        segments += 1;
-                                    }
-                                    if segments <= 1024 {
-                                        flat.push(el);
-                                    }
-                                });
-                                (flat, *r)
-                            })
-                            .collect();
-                        if segments > 1024 {
-                            return Err(PathOpsError::Degenerate);
-                        }
+                        let flattened = flatten_fallback(&paths, extent)?;
                         let top = sweep(&flattened)?;
                         paths = flattened;
                         flattened_fallback = true;
@@ -674,9 +680,11 @@ pub(crate) fn normalize_bez(bp: &BezPath, rule: FillRule) -> Result<Contours, Pa
     arr.contours(|m| m[0])
 }
 
-/// Boolean operation between two filled paths. Returns an empty path on invalid (non-finite) input.
+/// Boolean operation between two filled paths. Invalid input returns an empty path;
+/// a failed sweep preserves the first input. Use `try_boolean` to handle failures explicitly.
 pub fn boolean(a: &PathData, a_rule: FillRule, b: &PathData, b_rule: FillRule, op: BoolOp) -> PathData {
-    try_boolean(a, a_rule, b, b_rule, op, DEFAULT_PRECISION).unwrap_or_default()
+    try_boolean(a, a_rule, b, b_rule, op, DEFAULT_PRECISION)
+        .unwrap_or_else(|_| if eps_for([&fill_bezpath(a), &fill_bezpath(b)]).is_ok() { a.clone() } else { PathData::default() })
 }
 
 /// Boolean operation with an explicit refit `precision`; errors on non-finite input.
@@ -725,7 +733,12 @@ fn same_boundary(a: &BezPath, b: &BezPath) -> bool {
 /// point is inside `paths[i]` under its fill rule.
 pub fn boolean_n(paths: &[(&PathData, FillRule)], pred: impl Fn(&[bool]) -> bool) -> PathData {
     let bps: Vec<(BezPath, FillRule)> = paths.iter().map(|(p, r)| (fill_bezpath(p), *r)).collect();
-    Arrangement::new(bps).and_then(|arr| Ok(all_contours_to_path(&arr.contours(pred)?, &arr.tidy))).unwrap_or_default()
+    Arrangement::new(bps).and_then(|arr| Ok(all_contours_to_path(&arr.contours(pred)?, &arr.tidy))).unwrap_or_else(|_| {
+        paths
+            .first()
+            .filter(|_| eps_for(paths.iter().map(|(p, _)| fill_bezpath(p)).collect::<Vec<_>>().iter()).is_ok())
+            .map_or_else(PathData::default, |(p, _)| (*p).clone())
+    })
 }
 
 /// Union of many filled paths. Each input is first normalised on its own, then all are swept
@@ -762,5 +775,27 @@ pub fn area(path: &PathData, rule: FillRule) -> f64 {
     match normalize_bez(&bp, rule) {
         Ok(c) => c.contours().map(|ct| ct.path.area()).sum::<f64>().abs(),
         Err(_) => 0.0,
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_fallback_accepts_more_than_1024_chords_and_keeps_a_finite_cap() {
+        let ring = |n| {
+            let points: Vec<_> = (0..n)
+                .map(|i| {
+                    let t = std::f64::consts::TAU * i as f64 / n as f64;
+                    Point::new(100. * t.cos(), 100. * t.sin())
+                })
+                .collect();
+            PathData::single(SubPath::polyline(&points, true)).to_bezpath()
+        };
+        let recovered = flatten_fallback(&[(ring(2048), FillRule::NonZero)], 200.).unwrap();
+        assert!(recovered[0].0.segments().count() > 1024);
+        assert!((recovered[0].0.area().abs() - std::f64::consts::PI * 10000.).abs() < 1.);
+        assert!(flatten_fallback(&[(ring(8194), FillRule::NonZero)], 200.).is_err());
     }
 }

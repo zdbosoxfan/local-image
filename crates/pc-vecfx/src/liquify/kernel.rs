@@ -517,3 +517,17 @@ fn sp_bounds(sp: &SubPath) -> Option<Rect> {
     let f = it.next()?;
     Some(it.fold(Rect::from_points(f, f), |r, p| r.union_pt(p)))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_degenerate_subpath_bounds_are_culled_by_distance() {
+        let bb = Rect::new(-5., -5., 5., 5.);
+        for points in [[Point::new(100., 100.), Point::new(200., 100.)], [Point::new(100., 100.), Point::new(100., 200.)]] {
+            assert!(!touches(&SubPath::polyline(&points, false), bb));
+        }
+        assert!(touches(&SubPath::polyline(&[Point::new(-10., 0.), Point::new(10., 0.)], false), bb));
+    }
+}

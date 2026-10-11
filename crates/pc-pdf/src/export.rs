@@ -261,56 +261,56 @@ fn scope_rect(doc: &Document, scope: &ExportScope, cx: &mut ExportContext<'_>) -
     match scope {
         ExportScope::Document => Ok(doc.bounds()),
         ExportScope::Artboard(id) => doc.layer(*id).and_then(Layer::artboard).map(|a| a.rect).ok_or_else(|| invalid("artboard disappeared")),
-        ExportScope::Selection(_) => {
-            fn bounds(layers: &[Layer], doc: &Document, cx: &mut ExportContext<'_>) -> Result<Rect> {
-                let mut rect = Rect::EMPTY;
-                for l in layers.iter().filter(|l| l.visible) {
-                    check_cancel(cx)?;
-                    let b = match &l.content {
-                        LayerContent::Group(g) => {
-                            let b = bounds(&g.children, doc, cx)?;
-                            g.artboard.as_ref().map_or(b, |a| a.rect)
-                        }
-                        LayerContent::Shape(s) => {
-                            // Bounds of ALL visible appearance items, not the PSD paint mirror.
-                            let mut b = Rect::EMPTY;
-                            for shape in painted_shapes(l, s) {
-                                let r = if shape.stroke.as_ref().is_some_and(|s| s.width > 0.0) {
-                                    photocraft_vector::CompiledShape::new(&shape, 0.01, doc.bounds()).bounds()
-                                } else if shape.fill.is_some() {
-                                    let path = normalized_fill(&shape.path, doc.bounds())?;
-                                    photocraft_pathops::bounds(&path)
-                                        .map_err(|e| invalid(e.to_string()))?
-                                        .map(|r| Rect::new(r.0.floor() as i32, r.1.floor() as i32, r.2.ceil() as i32, r.3.ceil() as i32))
-                                } else {
-                                    None
-                                };
-                                if let Some(r) = r {
-                                    b = b.union(&r);
-                                }
-                            }
-                            b
-                        }
-                        LayerContent::Text(t) => {
-                            let layout = cx.text.layout(t, doc.resolution_dpi);
-                            photocraft_text::render::ink_rect(&layout, &t.transform)
-                        }
-                        LayerContent::Fill(_) | LayerContent::Adjustment(_) => doc.bounds(),
-                        _ => l.surface().map_or(Rect::EMPTY, |s| s.content_bounds()),
-                    };
-                    let margin = effect_margin(l);
-                    let b = if !b.is_empty() && margin > 0 {
-                        Rect::new(b.x0.saturating_sub(margin), b.y0.saturating_sub(margin), b.x1.saturating_add(margin), b.y1.saturating_add(margin))
-                    } else {
-                        b
-                    };
-                    rect = rect.union(&b);
-                }
-                Ok(rect)
-            }
-            bounds(&doc.layers, doc, cx)
-        }
+        ExportScope::Selection(_) => layer_bounds(&doc.layers, doc, cx),
     }
+}
+
+fn layer_bounds(layers: &[Layer], doc: &Document, cx: &mut ExportContext<'_>) -> Result<Rect> {
+    let mut rect = Rect::EMPTY;
+    for l in layers.iter().filter(|l| l.visible) {
+        check_cancel(cx)?;
+        let b = match &l.content {
+            LayerContent::Group(g) => {
+                let b = layer_bounds(&g.children, doc, cx)?;
+                g.artboard.as_ref().map_or(b, |a| a.rect)
+            }
+            LayerContent::Shape(s) => {
+                // Bounds of ALL visible appearance items, not the PSD paint mirror.
+                let mut b = Rect::EMPTY;
+                for shape in painted_shapes(l, s) {
+                    let r = if shape.stroke.as_ref().is_some_and(|s| s.width > 0.0) {
+                        photocraft_vector::CompiledShape::new(&shape, 0.01, doc.bounds()).bounds()
+                    } else if shape.fill.is_some() {
+                        let path = normalized_fill(&shape.path, doc.bounds())?;
+                        photocraft_pathops::bounds(&path)
+                            .map_err(|e| invalid(e.to_string()))?
+                            .map(|r| Rect::new(r.0.floor() as i32, r.1.floor() as i32, r.2.ceil() as i32, r.3.ceil() as i32))
+                    } else {
+                        None
+                    };
+                    if let Some(r) = r {
+                        b = b.union(&r);
+                    }
+                }
+                b
+            }
+            LayerContent::Text(t) => {
+                let layout = cx.text.layout(t, doc.resolution_dpi);
+                let warp = photocraft_text::render::layout_warp(&layout, t.warp.as_ref());
+                photocraft_text::render::ink_rect_warped(&layout, &t.transform, warp.as_ref())
+            }
+            LayerContent::Fill(_) | LayerContent::Adjustment(_) => doc.bounds(),
+            _ => l.surface().map_or(Rect::EMPTY, |s| s.content_bounds()),
+        };
+        let margin = effect_margin(l);
+        let b = if !b.is_empty() && margin > 0 {
+            Rect::new(b.x0.saturating_sub(margin), b.y0.saturating_sub(margin), b.x1.saturating_add(margin), b.y1.saturating_add(margin))
+        } else {
+            b
+        };
+        rect = rect.union(&b);
+    }
+    Ok(rect)
 }
 
 fn painted_shapes(l: &Layer, shape: &ShapeLayer) -> Vec<ShapeLayer> {
@@ -512,7 +512,7 @@ impl Writer<'_, '_, '_> {
         for l in layers.iter().filter(|l| l.visible && l.opacity > 0.0) {
             check_cancel(self.cx)?;
             if self.fallback(l) {
-                let rect = photocraft_compose::composite_bounds(l, self.doc.bounds()).unwrap_or(self.rect).intersect(&self.rect);
+                let rect = layer_bounds(std::slice::from_ref(l), self.doc, self.cx)?.intersect(&self.rect);
                 if !rect.is_empty() {
                     self.raster(s, std::slice::from_ref(l), rect)?;
                 }
@@ -777,4 +777,68 @@ fn draw_image(s: &mut Surface<'_>, pixels: Vec<u8>, rect: Rect) -> Result<()> {
     s.draw_image(krilla::image::Image::from_rgba8(pixels, rect.width(), rect.height()), size);
     s.pop();
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_selected_empty_artboard_exports_its_background() {
+        let mut doc = Document::new("board", photocraft_geom::Size::new(100, 100), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        let mut layer = Layer::group("board", vec![]);
+        if let LayerContent::Group(g) = &mut layer.content {
+            let mut board = photocraft_doc::Artboard::new(Rect::new(10, 20, 50, 60));
+            board.background = photocraft_doc::ArtboardBackground::White;
+            g.artboard = Some(board);
+        }
+        let id = layer.id;
+        doc.layers.push(layer);
+        let bytes = export(&doc, &ExportScope::Selection(vec![id]), &ExportOptions::default()).unwrap().bytes;
+        let pdf = hayro_syntax::Pdf::new(bytes).unwrap();
+        assert_eq!(pdf.pages()[0].base_dimensions(), (40., 40.));
+    }
+    #[test]
+    fn dsfix_raster_text_bounds_include_warped_ink() {
+        let mut doc = Document::new("warped", photocraft_geom::Size::new(256, 256), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        let text = photocraft_doc::TextLayer {
+            text: "HHHH".into(),
+            size_pt: 24.,
+            transform: photocraft_doc::Affine::translate(100., 100.),
+            warp: Some(photocraft_doc::text::TextWarp { style: "warpArc".into(), value: 70., ..Default::default() }),
+            ..Default::default()
+        };
+        let mut engine = photocraft_text::TextEngine::new();
+        let layout = engine.layout(&text, doc.resolution_dpi);
+        let warp = photocraft_text::render::layout_warp(&layout, text.warp.as_ref());
+        let expected = photocraft_text::render::ink_rect_warped(&layout, &text.transform, warp.as_ref());
+        assert_ne!(expected, photocraft_text::render::ink_rect(&layout, &text.transform));
+        doc.layers.push(Layer::new("type", LayerContent::Text(text)));
+        let mut cx = ExportContext { cancelled: &|| false, projection: None, text: &mut engine };
+        assert_eq!(layer_bounds(&doc.layers, &doc, &mut cx).unwrap(), expected);
+    }
+    #[test]
+    fn dsfix_raster_layer_embeds_only_its_content_bounds() {
+        use hayro_syntax::object::{Name, Object};
+        let mut doc = Document::new("bounded image", photocraft_geom::Size::new(1000, 1000), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        let mut pixels = photocraft_doc::Surface::new(doc.pixel_format());
+        pixels.write_region(Rect::new(40, 60, 48, 64), &vec![1.; 8 * 4 * 4]);
+        doc.layers.push(Layer::new("small image", LayerContent::Raster(pixels)));
+        let bytes = export(&doc, &ExportScope::Document, &ExportOptions::default()).unwrap().bytes;
+        let pdf = hayro_syntax::Pdf::new(bytes).unwrap();
+        let sizes: Vec<_> = pdf
+            .objects()
+            .into_iter()
+            .filter_map(|o| {
+                if let Object::Stream(s) = o {
+                    (s.dict().get::<Name<'_>>(b"Subtype").is_some_and(|n| n.as_ref() == b"Image"))
+                        .then(|| (s.dict().get::<u32>(b"Width").unwrap(), s.dict().get::<u32>(b"Height").unwrap()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(!sizes.is_empty());
+        assert!(sizes.iter().all(|s| *s == (8, 4)), "{sizes:?}");
+    }
 }

@@ -324,7 +324,8 @@ pub struct BuilderArrangement {
 /// [`SHAPE_BUILDER_MAX_SEGMENTS`] segments or a map that can't be built, only the filled areas
 /// count and there are no pieces.
 pub fn shape_builder(shapes: &[Shape], edges: bool) -> BuilderArrangement {
-    try_shape_builder(shapes, edges).unwrap_or_default()
+    try_shape_builder(shapes, edges)
+        .unwrap_or_else(|_| BuilderArrangement { regions: crate::kernel::try_regions(shapes).unwrap_or_default(), ..Default::default() })
 }
 
 /// Fallible shape-builder construction; failed sweeps must not become empty edits.

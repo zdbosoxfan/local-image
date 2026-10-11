@@ -132,7 +132,7 @@ pub fn line(a: Point, b: Point) -> PathData {
 /// Quarter-ellipse arc from `a` to `b` (Arc tool default: concave, open, x-axis base).
 pub fn arc(a: Point, b: Point, slope: f64, closed: bool) -> PathData {
     // Corner of the arc's bounding box is at (a.x, b.y): the arc bows away from it.
-    let k = KAPPA * (1.0 + slope.clamp(-1.0, 1.0) * 0.0);
+    let k = KAPPA * (1.0 + slope.clamp(-1.0, 1.0) * 0.5);
     let corner = Point::new(b.x, a.y);
     let h1 = a + (corner - a) * k;
     let h2 = b + (corner - b) * k;
@@ -354,5 +354,21 @@ mod review_tests {
     #[test]
     fn review_additional_zero_radial_dividers_keep_only_concentric_ellipses() {
         assert_eq!(super::polar_grid(super::Rect::new(0., 0., 64., 32.), 2, 0).len(), 3);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_arc_slope_changes_handles_but_preserves_endpoints() {
+        let a = Point::new(0., 0.);
+        let b = Point::new(10., 10.);
+        let lo = arc(a, b, -1., false);
+        let hi = arc(a, b, 1., false);
+        assert_eq!(lo.subpaths[0].anchors[0].p, hi.subpaths[0].anchors[0].p);
+        assert_eq!(lo.subpaths[0].anchors[1].p, hi.subpaths[0].anchors[1].p);
+        assert_ne!(lo.subpaths[0].anchors[0].h_out, hi.subpaths[0].anchors[0].h_out);
     }
 }

@@ -74,7 +74,12 @@ mod preview {
         ] {
             let mut broken = b.clone();
             broken[offset..offset + value.len()].copy_from_slice(&value);
-            assert!(preview(&broken).is_err(), "offset {offset}");
+            if offset == 4 {
+                assert_eq!(&broken[8..12], b"nsrP");
+                assert_eq!(preview(&broken).unwrap_err(), Error::Unsupported("unknown container version"));
+            } else {
+                assert!(preview(&broken).is_err(), "offset {offset}");
+            }
         }
         // Versions 8 to 11 store the same record (checked on public Affinity 1 and 2 files).
         for version in 8..12 {

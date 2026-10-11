@@ -164,7 +164,9 @@ fn prepare(mut a: geom::SubPath, mut b: geom::SubPath, starts: (Option<usize>, O
             best_rotation(&a, &b)
         } else {
             let (qa, qb) = (normal(&a), normal(&b));
-            qb.iter().enumerate().min_by(|(_, x), (_, y)| (**x - qa[0]).hypot2().total_cmp(&(**y - qa[0]).hypot2())).map_or(0, |(i, _)| i)
+            qa.first().map_or(0, |first| {
+                qb.iter().enumerate().min_by(|(_, x), (_, y)| (**x - *first).hypot2().total_cmp(&(**y - *first).hypot2())).map_or(0, |(i, _)| i)
+            })
         };
         b.anchors.rotate_left(r);
     } else if !a.closed && !b.closed && starts == (None, None) && a.anchors.len() > 1 && b.anchors.len() > 1 {
@@ -290,5 +292,22 @@ impl PathPair {
             fill_rule: if t < 0.5 { self.original_a.fill_rule } else { self.original_b.fill_rule },
             inverted: self.original_a.inverted,
         })
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_empty_closed_contour_correspondence_does_not_panic() {
+        for swap in [false, true] {
+            let empty = geom::SubPath::new(vec![], true);
+            let full = geom::SubPath::polyline(&[geom::Point::new(0., 0.), geom::Point::new(10., 0.), geom::Point::new(10., 10.)], true);
+            let (a, b) = if swap { (full, empty) } else { (empty, full) };
+            let (a, b) = prepare(a, b, (None, None)).unwrap();
+            assert_eq!(a.anchors.len(), b.anchors.len());
+            assert_eq!(a.anchors.len(), 3);
+        }
     }
 }

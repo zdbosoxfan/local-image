@@ -223,7 +223,7 @@ impl State<'_, '_> {
         let stroke = p.stroke().map(|s| paint::stroke(s, m, b, &mut self.warnings, p.id()));
         // Stroke in source space before transforming, preserving skew/nonuniform scaling.
         let stroke_path = if let Some(s) = p.stroke() {
-            let local = self.path(p.data(), Affine::IDENTITY, usvg::FillRule::NonZero)?;
+            let local = geometry::path(p.data(), Affine::IDENTITY, usvg::FillRule::NonZero)?;
             let style = photocraft_vector::stroke_style(&paint::stroke(s, Affine::IDENTITY, b, &mut Vec::new(), p.id()));
             // Keep all native stroke polygons in one nonzero component, as pc-vector's
             // stroker does. A boolean cleanup is unnecessary for coverage and can lose
@@ -476,5 +476,37 @@ fn blend(b: usvg::BlendMode) -> BlendMode {
         usvg::BlendMode::Saturation => BlendMode::Saturation,
         usvg::BlendMode::Color => BlendMode::Color,
         usvg::BlendMode::Luminosity => BlendMode::Luminosity,
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_names_use_labels_and_stroked_paths_are_charged_once() {
+        let source = br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path id="named" data-name="Label" d="M1 5L10 5" fill="none" stroke="black"/><path d="M1 10L10 10" fill="none" stroke="black"/></svg>"#;
+        let mut options = ImportOptions::default();
+        let normalized = usvg::Tree::from_data(source, &usvg::Options::default()).unwrap();
+        let path = match &normalized.root().children()[0] {
+            usvg::Node::Path(p) => p,
+            _ => panic!(),
+        };
+        // Budget exactly one source decode plus the native stroker's polygon vertices.
+        let local = geometry::path(path.data(), Affine::IDENTITY, usvg::FillRule::NonZero).unwrap();
+        let bounds = local.control_bounds().unwrap();
+        let style = photocraft_vector::stroke_style(&paint::stroke(path.stroke().unwrap(), Affine::IDENTITY, bounds, &mut Vec::new(), path.id()));
+        let tolerance = photocraft_vector::DEFAULT_TOLERANCE;
+        let lines = photocraft_vector::flatten_path(&local, (tolerance * 4.0).min(style.width.max(0.01) * 0.1).max(1e-3));
+        let expanded = photocraft_vector::stroke_polygons(&lines, &style, tolerance).iter().map(Vec::len).sum::<usize>();
+        let per_path = path.data().segments().count() + expanded;
+        options.limits.segments = per_path * 2;
+        // Exercise conversion directly: XML preflight conservatively reserves four
+        // normalized commands per source command, independently of this exact budget.
+        let xml = roxmltree::Document::parse(std::str::from_utf8(source).unwrap()).unwrap();
+        let slots = Slots { prefix: "unused-slot-".into(), texts: Vec::new(), names: Vec::new(), markers: Vec::new() };
+        let scene = convert(&normalized, &xml, slots, &options, None, &AtomicBool::new(false), Vec::new()).unwrap();
+        assert_eq!(scene.layers[0].name, "Label");
+        assert_eq!(scene.layers[1].name, "Path");
     }
 }

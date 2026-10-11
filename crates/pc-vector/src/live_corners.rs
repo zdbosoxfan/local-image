@@ -147,8 +147,8 @@ fn is_line(c: Cubic) -> bool {
 
 /// Adaptive arclength table, also used for the independent-contour safety check. The second
 /// difference bound controls chord deviation; control-polygon excess controls arclength error.
-fn sample(c: Cubic, t0: f64, t1: f64, depth: usize, out: &mut Vec<(f64, Point)>) -> Result<(), CornerError> {
-    if out.len() >= MAX_SAMPLES {
+fn sample(c: Cubic, t0: f64, t1: f64, depth: usize, out: &mut Vec<(f64, Point)>, limit: usize) -> Result<(), CornerError> {
+    if out.len() >= limit {
         return Err(CornerError::Limit);
     }
     let d = length(sub(add(c[0], c[2]), mul(c[1], 2.0))).max(length(sub(add(c[1], c[3]), mul(c[2], 2.0))));
@@ -163,8 +163,8 @@ fn sample(c: Cubic, t0: f64, t1: f64, depth: usize, out: &mut Vec<(f64, Point)>)
     }
     let (a, b) = split(c, 0.5);
     let mid = (t0 + t1) * 0.5;
-    sample(a, t0, mid, depth + 1, out)?;
-    sample(b, mid, t1, depth + 1, out)
+    sample(a, t0, mid, depth + 1, out, limit)?;
+    sample(b, mid, t1, depth + 1, out, limit)
 }
 struct Edge {
     c: Cubic,
@@ -173,9 +173,12 @@ struct Edge {
     len: f64,
 }
 impl Edge {
-    fn new(c: Cubic) -> Result<Self, CornerError> {
+    fn new(c: Cubic, limit: usize) -> Result<Self, CornerError> {
+        if limit < 2 {
+            return Err(CornerError::Limit);
+        }
         let mut table = vec![(0.0, c[0])];
-        sample(c, 0.0, 1.0, 0, &mut table)?;
+        sample(c, 0.0, 1.0, 0, &mut table, limit)?;
         let mut lengths = vec![0.0];
         let mut len = 0.0;
         for w in table.windows(2) {
@@ -218,18 +221,14 @@ fn validate(path: &Path) -> Result<(), CornerError> {
     }
     Ok(())
 }
-fn edges(sp: &Subpath) -> Result<Vec<Edge>, CornerError> {
-    let mut edges = Vec::new();
-    let mut samples = 0usize;
-    for segment in sp.segments() {
-        let edge = Edge::new(segment)?;
-        samples += edge.table.len();
-        if samples > MAX_SAMPLES {
-            return Err(CornerError::Limit);
-        }
-        edges.push(edge);
+fn edges(sp: &Subpath, remaining: &mut usize) -> Result<Vec<Edge>, CornerError> {
+    let mut out = Vec::new();
+    for c in sp.segments() {
+        let edge = Edge::new(c, *remaining)?;
+        *remaining -= edge.table.len();
+        out.push(edge);
     }
-    Ok(edges)
+    Ok(out)
 }
 fn handle(sp: &Subpath, es: &[Edge], key: CornerKey) -> Option<CornerHandle> {
     let n = sp.knots.len();
@@ -252,13 +251,9 @@ fn handle(sp: &Subpath, es: &[Edge], key: CornerKey) -> Option<CornerHandle> {
 pub fn handles(path: &Path) -> Result<Vec<CornerHandle>, CornerError> {
     validate(path)?;
     let mut out = Vec::new();
-    let mut samples = 0;
+    let mut remaining = MAX_SAMPLES;
     for (s, sp) in path.subpaths.iter().enumerate() {
-        let es = edges(sp)?;
-        samples += es.iter().map(|e| e.table.len()).sum::<usize>();
-        if samples > MAX_SAMPLES {
-            return Err(CornerError::Limit);
-        }
+        let es = edges(sp, &mut remaining)?;
         let mut local: Vec<_> = (0..sp.knots.len()).filter_map(|knot| handle(sp, &es, CornerKey { subpath: s, knot })).collect();
         // A radius cap is a property of the base geometry, independent of the requested radius,
         // selected subset or kind. This keeps effective radii monotone while dragging. Test the
@@ -494,9 +489,15 @@ fn project_subpath(sp: &Subpath, es: &[Edge], corners: &[KnotCorner], s: usize, 
 
 fn simple(sp: &Subpath) -> Result<bool, CornerError> {
     let mut points = Vec::new();
+    let mut remaining = MAX_SAMPLES;
     for c in sp.segments() {
+        let limit = remaining;
+        if limit < 2 {
+            return Err(CornerError::Limit);
+        }
         let mut table = vec![(0.0, c[0])];
-        sample(c, 0.0, 1.0, 0, &mut table)?;
+        sample(c, 0.0, 1.0, 0, &mut table, limit)?;
+        remaining -= table.len();
         for (_, p) in table {
             if points.last().is_none_or(|last| length(sub(p, *last)) > EPS) {
                 points.push(p);
@@ -606,7 +607,8 @@ pub fn evaluate(path: &Path, metadata: &[KnotCorner]) -> Result<Projection, Corn
         if !simple(sp)? {
             return Err(CornerError::SelfIntersection);
         }
-        let es = edges(sp)?;
+        let mut remaining = MAX_SAMPLES;
+        let es = edges(sp, &mut remaining)?;
         let (new, from) = project_subpath(sp, &es, &own, s, 1.0)?;
         // The static cap is conservative; pathological intermediate fillets are rejected,
         // never silently given a nonmonotone radius or an unsafe contour.
@@ -652,4 +654,22 @@ pub fn remap_metadata(corners: &[KnotCorner], old_to_new: &[Vec<Option<CornerKey
     }
     out.sort_by_key(|c| (c.subpath, c.knot));
     Ok(out)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_edge_sampling_consumes_shared_budget_before_allocation() {
+        let sub = Subpath::polyline(&[(0., 0.), (1., 0.), (2., 0.)]);
+        let mut budget = 3;
+        assert!(matches!(edges(&sub, &mut budget), Err(CornerError::Limit)));
+        assert_eq!(budget, 1);
+        let mut budget = 4;
+        assert_eq!(edges(&sub, &mut budget).unwrap().len(), 2);
+        assert_eq!(budget, 0);
+        let c = [Point::new(0., 0.), Point::new(0., 1e6), Point::new(1e6, 0.), Point::new(1e6, 1e6)];
+        assert!(matches!(Edge::new(c, 8), Err(CornerError::Limit)));
+    }
 }

@@ -115,7 +115,7 @@ pub fn try_offset_path(path: &PathData, delta: f64, join: Join, miter_limit: f64
     // winding, leaving faces uncovered that are really within `d` of the path. Every face of the
     // true offset is bounded by arrangement edges, so a contour is spurious iff a point deep inside
     // it lies closer than `d`: holes when growing, islands when insetting.
-    let src = path.to_bezpath();
+    let src = if delta < 0.0 { closed.to_bezpath() } else { path.to_bezpath() };
     let drop_outer = delta < 0.0;
     let spurious: Vec<bool> =
         c.contours().map(|k| k.outer == drop_outer && deep_point(&k.path).is_some_and(|p| dist_to(&src, p) < d * (1.0 - 1e-4) - 1e-6)).collect();
@@ -219,5 +219,24 @@ mod tests {
         let line = crate::geom::shapes::line((0., 0.).into(), (10., 0.).into());
         let output = try_offset_path(&line, -2., Join::Miter, 4.).unwrap();
         assert!((crate::kernel::area(&output, FillRule::NonZero) - 40.).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_inset_ignores_open_internal_line() {
+        let closed = crate::geom::shapes::rectangle(kurbo::Rect::new(0., 0., 100., 100.));
+        let mut mixed = closed.clone();
+        mixed.subpaths.extend(crate::geom::shapes::line(kurbo::Point::new(10., 50.), kurbo::Point::new(90., 50.)).subpaths);
+        let expected = try_offset_path(&closed, -10., Join::Miter, 4.).unwrap();
+        let actual = try_offset_path(&mixed, -10., Join::Miter, 4.).unwrap();
+        assert!(!actual.is_empty());
+        assert!(
+            (actual.subpaths.iter().map(|s| s.signed_area()).sum::<f64>().abs() - expected.subpaths.iter().map(|s| s.signed_area()).sum::<f64>().abs()).abs()
+                < 1e-6
+        );
     }
 }

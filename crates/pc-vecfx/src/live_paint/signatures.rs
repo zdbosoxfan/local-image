@@ -53,8 +53,8 @@ pub fn face(region: &ops::Region, inputs: &[ops::Shape]) -> Result<Signature> {
     Ok(out)
 }
 pub fn edge(path: &Path, source: u64, inputs: &[ops::Shape]) -> Result<Signature> {
-    let source_inputs: Vec<_> = inputs.iter().filter(|s| s.key == source).cloned().collect();
-    let out = Signature { members: vec![source], boundary: boundary(path, &source_inputs, false)?, branch: 0 };
+    let input = inputs.iter().find(|s| s.key == source).ok_or_else(|| error("edge source missing"))?;
+    let out = Signature { members: vec![source], boundary: boundary(path, std::slice::from_ref(input), false)?, branch: 0 };
     out.validate()?;
     Ok(out)
 }
@@ -75,4 +75,19 @@ pub fn disambiguate_edges(edges: &mut [Edge], inputs: &[ops::Shape]) -> Result<(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_coincident_edges_retain_the_requested_source() {
+        let path = Path::new(vec![photocraft_doc::Subpath::polyline(&[(0., 0.), (10., 0.)])]);
+        let inputs = [ops::Shape::new(path.clone(), 1), ops::Shape::new(path.clone(), 2)];
+        let signature = edge(&path, 2, &inputs).unwrap();
+        assert_eq!(signature.members, vec![2]);
+        assert!(signature.boundary.iter().all(|b| b.source == 2));
+        assert!(edge(&path, 3, &inputs).is_err());
+    }
 }

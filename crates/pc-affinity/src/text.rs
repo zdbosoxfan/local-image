@@ -14,6 +14,8 @@ use crate::stream::{ObjId, Value};
 const MAX_CHARS: usize = 1 << 20;
 /// Shared character attributes must not amplify into unbounded font/feature/gradient data.
 const MAX_ATTRIBUTE_BYTES: usize = 16 << 20;
+/// Excess ranges are coalesced into the last run, retaining characters with bounded metadata.
+const MAX_RUNS: usize = 4096;
 
 pub(crate) fn read(r: &mut Reader, id: ObjId, world: Affine) -> Option<Text> {
     let s = r.s;
@@ -148,7 +150,18 @@ fn push_run(r: &mut Reader, runs: &mut Vec<TextRun>, attrs: Option<ObjId>, text:
     if text.is_empty() {
         return Some(());
     }
-    // Include Vec capacity growth and owned text, beyond the character buffer.
+    if runs.len() >= MAX_RUNS {
+        // Coalescing adds owned characters, but no additional TextRun storage.
+        if !r.charge_owned(text.len()) {
+            return None;
+        }
+        r.warn("text run budget exceeded (excess ranges use the last attributes)");
+        if let Some(last) = runs.last_mut() {
+            last.text.push_str(&text);
+        }
+        return Some(());
+    }
+    // Keep the newer capacity-growth accounting without charging each run twice.
     if !r.charge_owned(std::mem::size_of::<TextRun>().saturating_mul(2).saturating_add(text.len())) {
         return None;
     }

@@ -396,3 +396,33 @@ impl Graph {
 #[cfg(test)]
 #[path = "../../tests/live_paint/suite.rs"]
 mod tests;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_gesture_crosses_faces_even_with_horizontal_zero_height_bounds() {
+        let layers: Vec<_> = [0., 30., 1000.]
+            .into_iter()
+            .enumerate()
+            .map(|(i, x)| {
+                let mut layer = Layer::new(
+                    "face",
+                    LayerContent::Shape(ShapeLayer {
+                        path: photocraft_vector::shapes::rect(x, 0., 10., 10.),
+                        fill: Some(Fill::Solid(photocraft_doc::Color::BLACK)),
+                        ..Default::default()
+                    }),
+                );
+                layer.id = LayerId(i as u64 + 1);
+                layer
+            })
+            .collect();
+        let graph = Graph::new(&layers, Gap::None).unwrap();
+        let touched = graph.touched(&[Point::new(-5., 5.), Point::new(45., 5.)]).unwrap();
+        assert_eq!(touched.len(), 2);
+        let vertical = graph.touched(&[Point::new(5., -5.), Point::new(5., 15.)]).unwrap();
+        assert_eq!(vertical.len(), 1);
+    }
+}

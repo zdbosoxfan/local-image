@@ -653,3 +653,21 @@ fn spread_pins(mesh: &Mesh, out: &mut Vec<Point>, count: usize) {
         out.push(next);
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_zero_auto_pins_respects_requested_count() {
+        let mut path = kurbo::BezPath::new();
+        path.move_to((0., 0.));
+        path.line_to((100., 0.));
+        path.line_to((100., 100.));
+        path.line_to((0., 100.));
+        path.close_path();
+        let mesh = Mesh::build(&[path], Rect::new(0., 0., 100., 100.), Default::default());
+        assert!(auto_pins(&mesh, 0).is_empty());
+        assert_eq!(auto_pins(&mesh, 1).len(), 1);
+    }
+}

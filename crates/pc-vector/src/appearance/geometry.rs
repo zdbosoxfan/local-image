@@ -428,3 +428,21 @@ pub(super) fn stroke(path: &Path, s: &StrokeItem) -> Result<(Rasterizer, usize),
     }
     Ok((r, count))
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_arrowheads_find_open_subpath_between_closed_subpaths() {
+        let open = Path::new(vec![Subpath::polyline(&[(30., 10.), (70., 10.)])]);
+        let mut mixed = crate::shapes::rect(0., 50., 10., 10.);
+        mixed.subpaths.extend(open.subpaths.clone());
+        mixed.subpaths.extend(crate::shapes::rect(90., 50., 10., 10.).subpaths);
+        let base = StrokeItem::default();
+        let arrows = StrokeItem { start_arrow: Some(Arrowhead::Triangle), end_arrow: Some(Arrowhead::Triangle), ..base.clone() };
+        let added = stroke(&open, &arrows).unwrap().1 - stroke(&open, &base).unwrap().1;
+        assert!(added > 0);
+        assert_eq!(stroke(&mixed, &arrows).unwrap().1 - stroke(&mixed, &base).unwrap().1, added);
+    }
+}

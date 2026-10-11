@@ -425,6 +425,8 @@ impl Guard<'_> {
             _ => return Err(ImportError::Unsupported("indirect filters")),
         };
         let image = value.get(b"Subtype").and_then(Value::name) == Some(b"Image");
+        let dct = filters.iter().any(|f| matches!(*f, b"DCTDecode" | b"DCT"));
+        let mut declared_pixels = 0;
         if image {
             let w = value.get(b"Width").and_then(Value::number).ok_or_else(|| invalid("image width"))?;
             let h = value.get(b"Height").and_then(Value::number).ok_or_else(|| invalid("image height"))?;
@@ -432,9 +434,13 @@ impl Guard<'_> {
             if w == 0 || h == 0 || w > 1_000_000 || h > 1_000_000 || pixels > self.options.limits.pixels {
                 return Err(ImportError::Limit("image pixel"));
             }
-            self.charge(pixels.saturating_mul(16))?;
+            declared_pixels = pixels;
+            if !dct {
+                self.charge(pixels.saturating_mul(16))?;
+            }
         }
         let mut data = raw.to_vec();
+        let mut decoded_charged = false;
         for f in filters {
             data = match f {
                 b"FlateDecode" | b"Fl" => {
@@ -445,6 +451,7 @@ impl Guard<'_> {
                         .read_to_end(&mut decoded)
                         .map_err(|_| invalid("deflate stream"))?;
                     self.charge(decoded.len() as u64)?;
+                    decoded_charged = true;
                     decoded
                 }
                 b"DCTDecode" | b"DCT" if image => {
@@ -453,13 +460,15 @@ impl Guard<'_> {
                     if u64::from(w) * u64::from(h) > self.options.limits.pixels {
                         return Err(ImportError::Limit("JPEG pixel"));
                     }
-                    self.charge(u64::from(w) * u64::from(h) * 16)?;
+                    self.charge(declared_pixels.max(u64::from(w) * u64::from(h)).saturating_mul(16))?;
                     return Ok(vec![]);
                 }
                 _ => return Err(ImportError::Unsupported("stream codec has no bounded decoder")),
             };
         }
-        self.charge(data.len() as u64)?;
+        if !decoded_charged {
+            self.charge(data.len() as u64)?;
+        }
         if value.get(b"FunctionType").and_then(Value::number) == Some(0) {
             let bits = value.get(b"BitsPerSample").and_then(Value::number).filter(|&n| (1..=32).contains(&n)).ok_or_else(|| invalid("sample bit width"))?;
             let Some(Value::Array(size)) = value.get(b"Size") else {
@@ -853,4 +862,50 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
         }
     }
     Ok(pdf)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    fn guard<'a>(options: &'a ImportOptions, cancel: &'a AtomicBool) -> Guard<'a> {
+        Guard { options, cancel, objects: BTreeMap::new(), bytes: 0, streams: vec![], binary: BTreeSet::new() }
+    }
+    #[test]
+    fn dsfix_flate_decoded_bytes_are_charged_once_and_bombs_stay_bounded() {
+        use std::io::Write;
+        let mut options = ImportOptions::default();
+        options.limits.decompressed_bytes = 32;
+        let cancel = AtomicBool::new(false);
+        let dict = Value::Dict(BTreeMap::from([(b"Filter".to_vec(), Value::Name(b"FlateDecode".to_vec()))]));
+        let compressed = |n| {
+            let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            encoder.write_all(&vec![42; n]).unwrap();
+            encoder.finish().unwrap()
+        };
+        let mut g = guard(&options, &cancel);
+        assert_eq!(g.stream(&dict, &compressed(32)).unwrap().len(), 32);
+        assert_eq!(g.bytes, 32);
+        assert!(guard(&options, &cancel).stream(&dict, &compressed(33)).is_err());
+    }
+    #[test]
+    fn dsfix_jpeg_pixel_allocation_charged_once_with_header_validation() {
+        let mut bytes = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut bytes).encode(&[0; 12], 2, 2, image::ExtendedColorType::Rgb8).unwrap();
+        let dict = |w| {
+            Value::Dict(BTreeMap::from([
+                (b"Filter".to_vec(), Value::Name(b"DCTDecode".to_vec())),
+                (b"Subtype".to_vec(), Value::Name(b"Image".to_vec())),
+                (b"Width".to_vec(), Value::Number(w)),
+                (b"Height".to_vec(), Value::Number(2.)),
+            ]))
+        };
+        let mut options = ImportOptions::default();
+        options.limits.decompressed_bytes = 64;
+        let cancel = AtomicBool::new(false);
+        let mut g = guard(&options, &cancel);
+        assert!(g.stream(&dict(2.), &bytes).unwrap().is_empty());
+        assert_eq!(g.bytes, 64);
+        assert!(guard(&options, &cancel).stream(&dict(3.), &bytes).is_err());
+    }
 }

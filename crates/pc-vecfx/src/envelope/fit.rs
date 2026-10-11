@@ -54,11 +54,11 @@ fn distance_poly(p: Point, points: &[Point]) -> f64 {
         .fold(f64::INFINITY, f64::min)
 }
 fn fit(source: &Mapped<'_>, range: Range<f64>, tol: f64, depth: usize, budget: &mut usize, out: &mut Vec<CubicBez>) -> Result<()> {
-    if let Some(error) = source.failure.get() {
-        return Err(error);
-    }
     if source.work.get() > MAX_WORK || depth > 16 || *budget == 0 {
         return Err(Error::Budget);
+    }
+    if let Some(error) = source.failure.get() {
+        return Err(error);
     }
     if let Some((c, _)) = fit_to_cubic(source, range.clone(), tol * 0.25) {
         let samples: Vec<_> = (0..=64).map(|i| source.eval(range.start + (range.end - range.start) * i as f64 / 64.0)).collect();
@@ -73,6 +73,12 @@ fn fit(source: &Mapped<'_>, range: Range<f64>, tol: f64, depth: usize, budget: &
             out.push(c);
             return Ok(());
         }
+    }
+    if source.work.get() > MAX_WORK {
+        return Err(Error::Budget);
+    }
+    if let Some(error) = source.failure.get() {
+        return Err(error);
     }
     let mid = (range.start + range.end) * 0.5;
     fit(source, range.start..mid, tol, depth + 1, budget, out)?;
@@ -133,4 +139,18 @@ pub(super) fn path(path: &Path, map: &Map, tol: f64, budget: &mut usize, work: &
         sp.knots = knots;
     }
     Ok(out)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_coordinate_failure_is_distinct_from_work_budget() {
+        let map = Map { bounds: Rect::new(0., 0., 1., 1.), surface: super::super::Surface::Affine(kurbo::Affine::scale(1e12)) };
+        let source = Mapped { source: CubicBez::new((0., 0.), (0., 1.), (1., 0.), (1., 1.)), map: &map, failure: Cell::new(None), work: Cell::new(0) };
+        assert_eq!(fit(&source, 0.0..1.0, 0.01, 0, &mut 100, &mut Vec::new()), Err(Error::Coordinate));
+        source.work.set(MAX_WORK + 1);
+        assert_eq!(fit(&source, 0.0..1.0, 0.01, 0, &mut 100, &mut Vec::new()), Err(Error::Budget));
+    }
 }

@@ -760,3 +760,18 @@ fn handle_sweep(start: f64, end: f64, original: f64) -> f64 {
     }
     direction * sweep
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_ellipse_callout_has_no_inert_radius_handle() {
+        use photocraft_doc::vector_design::drawing::{DesignShape, ShapeParameters};
+        for ellipse in [false, true] {
+            let shape = DesignShape { rect: [0., 0., 100., 100.], angle: 0., parameters: ShapeParameters::Callout { ellipse, tail: [50., 130.], radius: 10. } };
+            let handles = handles(&shape).unwrap();
+            assert_eq!(handles.iter().any(|h| h.kind == HandleKind::Corner(0)), !ellipse);
+        }
+    }
+}

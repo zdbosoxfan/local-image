@@ -101,6 +101,9 @@ fn bend(t: &Track, art: &Path, b: Rect, along: AlongMap, cross: f64, stroke: &St
                 return Err(Error::Budget);
             }
             let mut params: Vec<_> = (0..steps).map(|j| j as f64 / steps as f64).collect();
+            if !track.closed && i + 1 == n {
+                params.push(1.0);
+            }
             // Prevent chords from cutting across an art fold or a guide breakpoint.
             if (q.x - a.x).abs() > 1e-12 {
                 let mut split = along.xs.to_vec();
@@ -313,4 +316,19 @@ pub(super) fn pattern(pb: &PatternBrush, ts: &[Track], stroke: &StrokeItem) -> R
         }
     }
     Ok(out.paths)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_bent_open_art_includes_its_last_corner() {
+        let art = Path::new(vec![Subpath::polyline(&[(0., 0.), (0., 20.), (100., 20.)])]);
+        let guide = Path::new(vec![Subpath::polyline(&[(0., 0.), (100., 0.)])]);
+        let tracks = tracks(&guide, 0.01).unwrap();
+        let out = bend(&tracks[0], &art, Rect::new(0., 0., 100., 20.), AlongMap::linear(100., 0., 100.), 1., &StrokeItem::default(), 1000).unwrap();
+        let (_, _, x1, _) = photocraft_pathops::bounds(&out).unwrap().unwrap();
+        assert!((x1 - 100.).abs() < 1e-6, "{x1}");
+    }
 }

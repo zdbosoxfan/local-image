@@ -738,3 +738,20 @@ mod tests {
         assert_eq!(crate::path_coverage(&path, rect), before);
     }
 }
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod dsfix_tests {
+    use super::*;
+    #[test]
+    fn dsfix_straight_segment_bend_keeps_translation_and_atomic_errors() {
+        let path = Path::new(vec![photocraft_doc::Subpath::polyline(&[(0., 0.), (10., 0.)])]);
+        let mut actual = path.clone();
+        bend_segment(&mut actual, [0, 0], 0.5, [2., 3.]).unwrap();
+        assert_eq!(actual.subpaths[0].knots[0].anchor, Point::new(2., 3.));
+        assert_eq!(actual.subpaths[0].knots[1].anchor, Point::new(12., 3.));
+        let before = actual.clone();
+        assert!(bend_segment(&mut actual, [0, 99], 0.5, [2., 3.]).is_err());
+        assert_eq!(actual, before);
+    }
+}
