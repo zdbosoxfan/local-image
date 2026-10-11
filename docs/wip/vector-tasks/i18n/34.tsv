@@ -1,0 +1,51 @@
+key	en
+Rotate	Rotate
+Reflect	Reflect
+Scale	Scale
+Shear	Shear
+Reshape	Reshape
+Free Transform	Free Transform
+Move	Move
+Transform Each	Transform Each
+Transform Again	Transform Again
+Perspective Distort	Perspective Distort
+Free Distort	Free Distort
+Falloff radius	Falloff radius
+Scale Strokes & Effects	Scale Strokes & Effects
+Scale Corners	Scale Corners
+Transform Objects	Transform Objects
+Transform Patterns	Transform Patterns
+Axis angle	Axis angle
+Angle	Angle
+Vertical axis	Vertical axis
+Proportional	Proportional
+Horizontal %	Horizontal %
+Vertical %	Vertical %
+Horizontal / Vertical	Horizontal / Vertical
+Position	Position
+Distance / Angle	Distance / Angle
+Horizontal	Horizontal
+Vertical	Vertical
+X position	X position
+Y position	Y position
+Distance	Distance
+Horizontal move	Horizontal move
+Vertical move	Vertical move
+Reflect X	Reflect X
+Reflect Y	Reflect Y
+Reference point	Reference point
+Random	Random
+Seed	Seed
+Preview	Preview
+Cancel	Cancel
+Copy	Copy
+OK	OK
+Transform text and symbols	Transform text and symbols
+Convert text and symbols to curves, or keep them editable with an envelope.	Convert text and symbols to curves, or keep them editable with an envelope.
+Convert to Curves	Convert to Curves
+Non-destructive Envelope	Non-destructive Envelope
+Enter a number	Enter a number
+Seed must be an unsigned integer	Seed must be an unsigned integer
+Turn Transform Patterns off to keep the pattern fixed while distorting the shape	Turn Transform Patterns off to keep the pattern fixed while distorting the shape
+Pattern transforms currently support movement, rotation and uniform scale	Pattern transforms currently support movement, rotation and uniform scale
+Unlink the pixel mask before transforming this shape or group	Unlink the pixel mask before transforming this shape or group

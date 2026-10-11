@@ -564,3 +564,4 @@ mod tests;
 
 // Package 37 registration; canvas routing is handed to 00.
 pub mod outline_view;
+pub mod projective;
