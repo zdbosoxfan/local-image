@@ -6,6 +6,7 @@ pub mod affinity;
 pub mod anchor_tools;
 pub mod appearance;
 pub mod blend;
+pub mod blob_eraser;
 pub mod brushes;
 pub mod clip_compound;
 pub mod constraints;
@@ -64,6 +65,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
     out.extend(path_commands::clipboard::specs());
     out.extend(expand::specs());
     out.extend(transform_tools::specs());
+    out.extend(blob_eraser::specs());
     out
 }
 
