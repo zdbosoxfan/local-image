@@ -565,3 +565,6 @@ mod tests;
 // Package 37 registration; canvas routing is handed to 00.
 pub mod outline_view;
 pub mod projective;
+
+// Package 43 registration; appearance dispatch belongs to 08/00.
+pub mod mesh_paint;

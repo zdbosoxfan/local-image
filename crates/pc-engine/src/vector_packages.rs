@@ -86,3 +86,6 @@ pub mod live_paint;
 // Package 44: command aggregate wiring is supplied in integration/44.md.
 pub mod measure;
 pub mod path_effects;
+
+// Package 43 compiled slot. Aggregate command routing is handed to 00.
+pub mod mesh;

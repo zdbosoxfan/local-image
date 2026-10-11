@@ -1831,3 +1831,7 @@ pub mod measure;
 
 #[path = "vector_packages/path_effects.rs"]
 pub mod path_effects;
+
+// Package 43 registration; production router/menu state belongs to 00/01.
+#[path = "vector_packages/mesh.rs"]
+pub mod mesh;
