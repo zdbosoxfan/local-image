@@ -1,0 +1,22 @@
+vector.measure.tool	Measure
+vector.area.tool	Area
+vector.measure.units	Measurement units
+vector.measure.pixels	Pixels
+vector.measure.points	Points
+vector.measure.millimeters	Millimeters
+vector.measure.inches	Inches
+vector.measure.distance	Distance
+vector.measure.angle	Angle
+vector.measure.includingHoles	Including holes
+vector.measure.perimeter	Perimeter
+vector.measure.segment	Segment
+vector.measure.fullEdges	Full edges
+vector.measure.cuspedSegments	Cusped segments
+vector.measure.drawingScale	Drawing scale
+vector.measure.scaleFactor	Scale factor
+vector.measure.setScale	Set drawing scale
+vector.measure.realLength	Real length
+vector.measure.assignScale	Assign drawing scale
+vector.measure.queryDistance	Measure Distance
+vector.measure.queryArea	Measure Area
+vector.measure.scaleHistory	Drawing Scale

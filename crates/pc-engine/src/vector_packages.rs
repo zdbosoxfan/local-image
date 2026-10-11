@@ -83,3 +83,5 @@ pub mod transform_tools;
 // Package 41 command aggregate fragment: integration/41.md.
 pub mod distort_tools;
 pub mod live_paint;
+// Package 44: command aggregate wiring is supplied in integration/44.md.
+pub mod measure;

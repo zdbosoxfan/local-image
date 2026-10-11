@@ -1824,3 +1824,7 @@ pub mod vector_eyedropper;
 pub mod vector_transform_tools;
 #[path = "vector_packages/distort_tools.rs"]
 pub mod distort_tools;
+
+// Package 44 canvas/menu wiring is supplied in integration/44.md.
+#[path = "vector_packages/measure.rs"]
+pub mod measure;
