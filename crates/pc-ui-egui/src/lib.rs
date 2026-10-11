@@ -1835,3 +1835,6 @@ pub mod path_effects;
 // Package 43 registration; production router/menu state belongs to 00/01.
 #[path = "vector_packages/mesh.rs"]
 pub mod mesh;
+
+#[path = "vector_packages/fill_stroke_proxy.rs"]
+pub mod fill_stroke_proxy;

@@ -89,3 +89,5 @@ pub mod path_effects;
 
 // Package 43 compiled slot. Aggregate command routing is handed to 00.
 pub mod mesh;
+// Package 46: 00 appends toolbar::specs() to the aggregate in the serial handoff.
+pub mod toolbar;

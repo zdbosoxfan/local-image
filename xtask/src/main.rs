@@ -722,3 +722,7 @@ fn xtask_agent() -> ureq::Agent {
         .build();
     ureq::Agent::config_builder().tls_config(tls).build().into()
 }
+
+// 46: renderer entrypoint awaits the 00 CLI hookup; freshness test is compiled now.
+#[allow(dead_code)]
+mod tool_art_vector;

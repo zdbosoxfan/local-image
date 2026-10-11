@@ -1,0 +1,115 @@
+context	English	note
+toolbar46	Active fill	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Active stroke	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Add Anchor	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Affinity	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Anchor Point	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Apply paint colour	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Arc	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Area	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Arrow	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Artboard	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Blend	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Blob Brush	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Callout Ellipse	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Callout Rectangle	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Cancel paint colour	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Cloud	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Cog	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Colour	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Contour	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Corner	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Crescent	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Crystallize	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Curvature	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Default fill and stroke	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Delete Anchor	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Diamond	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Donut	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Double Star	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Draw Behind	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Draw Inside	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Draw Normal	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Enter six hexadecimal digits	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Envelope	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Fill Stroke Proxy	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Frame Text	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Free Transform	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Gradient	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Gradient Mesh	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Group Selection	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Heart	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Illustrator	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Join Paths	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Knife	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Line Cut	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Live Paint Bucket	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Live Paint Selection	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	None	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Paint colour hex	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Path Eraser	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Path Scissors	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Pie	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Point Transform	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Polar Grid	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Puppet Warp	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Rectangular Grid	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Reflect	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Repeat	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Reshape	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Rotate	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Rounded Rectangle	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Scale	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Scallop	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Segment	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Select shape layers	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Shape Builder	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Shear	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Smooth Path	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Spiral	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Square Star	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Star	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Style Picker	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Swap fill and stroke	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Tear	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Text on Path	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	The document changed; try again	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	The gesture was cancelled; try again	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	The selection changed; try again	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Transparency	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Trapezoid	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Vector Brush	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Vector Crop	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Vector Eraser	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Vector Flood Fill	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Vector Keyboard Preset	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Vector Lasso	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Vector Pencil	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Width	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Wrinkle	Vector toolbar, paint proxy or new icon/tool label
+toolbar46	Artistic Text	Tool tooltip/accessibility label
+toolbar46	Bloat	Tool tooltip/accessibility label
+toolbar46	Crop	Tool tooltip/accessibility label
+toolbar46	Custom Shape	Tool tooltip/accessibility label
+toolbar46	Direct Selection	Tool tooltip/accessibility label
+toolbar46	Ellipse	Tool tooltip/accessibility label
+toolbar46	Eyedropper	Tool tooltip/accessibility label
+toolbar46	Gradient Fill	Tool tooltip/accessibility label
+toolbar46	Hand	Tool tooltip/accessibility label
+toolbar46	Line	Tool tooltip/accessibility label
+toolbar46	Magic Wand	Tool tooltip/accessibility label
+toolbar46	Measure	Tool tooltip/accessibility label
+toolbar46	Move	Tool tooltip/accessibility label
+toolbar46	Path Selection	Tool tooltip/accessibility label
+toolbar46	Pen	Tool tooltip/accessibility label
+toolbar46	Polygon	Tool tooltip/accessibility label
+toolbar46	Pucker	Tool tooltip/accessibility label
+toolbar46	Rectangle	Tool tooltip/accessibility label
+toolbar46	Slice	Tool tooltip/accessibility label
+toolbar46	Slice Select	Tool tooltip/accessibility label
+toolbar46	Triangle	Tool tooltip/accessibility label
+toolbar46	Twirl	Tool tooltip/accessibility label
+toolbar46	Type	Tool tooltip/accessibility label
+toolbar46	Vertical Type	Tool tooltip/accessibility label
+toolbar46	Warp	Tool tooltip/accessibility label
+toolbar46	Zoom	Tool tooltip/accessibility label
