@@ -1811,3 +1811,7 @@ pub mod view_modes;
 pub mod graphic_styles;
 #[path = "vector_packages/eyedropper.rs"]
 pub mod vector_eyedropper;
+
+// Package 43 registration; production router/menu state belongs to 00/01.
+#[path = "vector_packages/mesh.rs"]
+pub mod mesh;

@@ -72,3 +72,6 @@ pub mod path_commands;
 // Package 37: commands join the aggregate through the 00 handoff.
 pub mod isolation;
 pub mod styles;
+
+// Package 43 compiled slot. Aggregate command routing is handed to 00.
+pub mod mesh;
