@@ -68,6 +68,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
     out.extend(expand::specs());
     out.extend(transform_tools::specs());
     out.extend(blob_eraser::specs());
+    out.extend(live_paint::specs());
     out
 }
 
@@ -81,3 +82,4 @@ pub mod transform_tools;
 
 // Package 41 command aggregate fragment: integration/41.md.
 pub mod distort_tools;
+pub mod live_paint;
