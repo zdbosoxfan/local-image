@@ -1806,3 +1806,8 @@ pub mod object_path;
 pub mod isolation;
 #[path = "vector_packages/view_modes.rs"]
 pub mod view_modes;
+
+#[path = "vector_packages/styles_panel.rs"]
+pub mod graphic_styles;
+#[path = "vector_packages/eyedropper.rs"]
+pub mod vector_eyedropper;
