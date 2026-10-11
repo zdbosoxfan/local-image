@@ -169,6 +169,7 @@ fn media_cache_attach_disk_cache() {
 
 #[test]
 fn render_job_run_success_and_error_paths() {
+    let _gpu = crate::gpu_support::lock();
     // success with demo
     let mut s = Session::with_demo();
     let id = s.active().unwrap();
@@ -201,6 +202,7 @@ fn render_job_draft_changes_quality_and_key() {
 
 #[test]
 fn quick_view_job_and_quick_thumb_job_run() {
+    let _gpu = crate::gpu_support::lock();
     let mut s = Session::with_demo();
     let id = s.active().unwrap();
     let quick = s.quick_view_job(id, 128, true).unwrap();
@@ -262,6 +264,7 @@ fn session_thumb_job_buckets_and_cache() {
 
 #[test]
 fn session_variant_job_does_not_change_settings() {
+    let _gpu = crate::gpu_support::lock();
     let mut s = Session::with_demo();
     let id = s.active().unwrap();
     let original = (*s.develop_of(id).unwrap()).clone();
@@ -278,6 +281,7 @@ fn session_variant_job_does_not_change_settings() {
 
 #[test]
 fn session_accept_rejects_stale_source() {
+    let _gpu = crate::gpu_support::lock();
     let mut s = Session::new();
     let p = Photo::new(PhotoId(1), Source::File { path: "f.jpg".into() }, "f.jpg", "JPEG", 800, 600, "2026-01-01");
     s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
@@ -311,6 +315,7 @@ fn session_source_now_roundtrip() {
 
 #[test]
 fn face_job_handles_invalid_face() {
+    let _gpu = crate::gpu_support::lock();
     let mut s = Session::with_demo();
     let id = s.active().unwrap();
 

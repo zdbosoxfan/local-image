@@ -13,6 +13,18 @@ use std::sync::{Arc, Mutex, Weak};
 
 pub const PREVIEW_EDGE: usize = 2560;
 pub const INFERENCE_PREVIEW_EDGE: usize = 1024;
+#[cfg(not(target_arch = "wasm32"))]
+type GpuSlot = Option<(std::path::PathBuf, Variant, (u64, Option<std::time::SystemTime>), lightcraft_gpu::denoise::Denoiser)>;
+#[cfg(not(target_arch = "wasm32"))]
+static GPU_MODEL: Mutex<GpuSlot> = Mutex::new(None);
+
+/// Session-test scopes release model tensors before releasing the compute
+/// context. The cache mutex also waits for any inference using those tensors.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) fn release_gpu_test_cache() {
+    let model = GPU_MODEL.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    drop(model);
+}
 pub type DenoiseFn = Arc<dyn Fn(&[[f32; 3]], usize, usize, &(dyn Fn(usize, usize) -> bool + Sync)) -> Result<Vec<[f32; 3]>, String> + Send + Sync>;
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct DenoiseDone {
@@ -90,9 +102,7 @@ fn infer_selected(
     let stamp = (metadata.len(), metadata.modified().ok());
     #[cfg(not(target_arch = "wasm32"))]
     if gpu && lightcraft_gpu::enabled() {
-        type Slot = Option<(std::path::PathBuf, Variant, (u64, Option<std::time::SystemTime>), lightcraft_gpu::denoise::Denoiser)>;
-        static GPU: Mutex<Slot> = Mutex::new(None);
-        let mut cache = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut cache = GPU_MODEL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if cache.as_ref().is_none_or(|(p, k, st, _)| p != &path || *k != kind || *st != stamp) {
             match lightcraft_gpu::denoise::Denoiser::load_at(&path, kind, tile) {
                 Ok(d) => *cache = Some((path.clone(), kind, stamp, d)),

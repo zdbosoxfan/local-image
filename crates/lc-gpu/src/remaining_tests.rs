@@ -83,7 +83,8 @@ fn mask() -> Mask {
 
 #[test]
 fn native_toneeq_filter_extremes_and_cached_overlay_match() {
-    let Some(g) = device() else { return };
+    let Some(gpu_device) = device() else { return };
+    let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let info = SourceInfo::default();
     let stages = GpuStages::default();
@@ -134,7 +135,8 @@ fn native_toneeq_5090_dump() {
 }
 
 fn toneeq_5090_fixture(dump: bool) {
-    let Some(g) = crate::test_device().or_else(device) else { return };
+    let Some(gpu_device) = crate::test_device().or_else(device) else { return };
+    let g = &*gpu_device;
     eprintln!("toneeq fixture adapter: {:?}", g.info);
     let _scope = crate::ctx::RenderScope::new(g);
     let (w, h) = (641, 427);
@@ -200,7 +202,8 @@ fn reference_select(mut v: Vec<f32>) -> f32 {
 
 #[test]
 fn ds_finding_native_haze_selection_matches_sorted_quantile() {
-    let g = crate::test_device().or_else(device).expect("a real GPU is required");
+    let gpu_device = crate::test_device().or_else(device).expect("a real GPU is required");
+    let g = &*gpu_device;
     eprintln!("haze selection adapter: {:?}", g.info);
     assert_ne!(g.info.device_type, wgpu::DeviceType::Cpu);
     let _scope = crate::ctx::RenderScope::new(g);
@@ -252,7 +255,8 @@ fn ds_finding_native_haze_selection_matches_sorted_quantile() {
 #[test]
 fn native_nr_statistics_match_robust_model_and_reconstruction() {
     use lightcraft_pipeline::detail::nr::*;
-    let Some(g) = device() else { return };
+    let Some(gpu_device) = device() else { return };
+    let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let mut cx = Cx::new(g);
     for (w, h) in [(1, 1), (7, 5), (67, 49), (265, 259)] {
@@ -288,7 +292,8 @@ fn native_nr_statistics_match_robust_model_and_reconstruction() {
 #[test]
 fn native_calibration_patch_minification_and_depth_match() {
     use lightcraft_develop::{AiPatch, SegMask, Spot, SpotMode};
-    let Some(g) = device() else { return };
+    let Some(gpu_device) = device() else { return };
+    let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(47, 33);
     let info = SourceInfo::default();
@@ -340,7 +345,8 @@ fn native_calibration_patch_minification_and_depth_match() {
 #[test]
 fn native_layer_stage_order_opacity_nr_sharpen_curve_and_grain_match() {
     use lightcraft_develop::{ColorAdj, Detail, Effects, Grain, LayerTools, Light, ToneCurve, Vignette};
-    let Some(g) = device() else { return };
+    let Some(gpu_device) = device() else { return };
+    let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(47, 33);
     let info = SourceInfo::default();
@@ -377,7 +383,8 @@ fn native_layer_stage_order_opacity_nr_sharpen_curve_and_grain_match() {
 
 #[test]
 fn native_haze_airlight_matches_reference_with_both_signs() {
-    let Some(g) = device() else { return };
+    let Some(gpu_device) = device() else { return };
+    let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(43, 29);
     let mut cx = Cx::new(g);
@@ -403,7 +410,8 @@ fn native_haze_airlight_matches_reference_with_both_signs() {
 #[test]
 fn native_calibration_negative_hdr_and_zero_luminance_match() {
     use lightcraft_pipeline::colorcal::{Cat, ColorCal, Standard};
-    let Some(g) = device() else { return };
+    let Some(gpu_device) = device() else { return };
+    let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let samples = [[0.0; 3], [-0.2, 0.1, 0.3], [3.0, -1.0, 0.2], [0.2, 0.8, 0.1], [1e-12; 3], [8.0, 2.0, -0.5]];
     let mut cx = Cx::new(g);
@@ -428,7 +436,8 @@ fn native_calibration_negative_hdr_and_zero_luminance_match() {
 
 #[test]
 fn ds_finding_hidden_overlay_uses_primary_image() {
-    let g = crate::test_device().or_else(device).expect("a real GPU is required");
+    let gpu_device = crate::test_device().or_else(device).expect("a real GPU is required");
+    let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(97, 73);
     let mut s = DevelopSettings::default();
@@ -451,7 +460,8 @@ fn ds_finding_hidden_overlay_uses_primary_image() {
 
 #[test]
 fn ds_finding_zero_skin_hue_range_is_finite_on_gpu() {
-    let g = crate::test_device().or_else(device).expect("a real GPU is required");
+    let gpu_device = crate::test_device().or_else(device).expect("a real GPU is required");
+    let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(97, 73);
     let mut s = DevelopSettings::default();

@@ -899,8 +899,7 @@ fn retired_tagging_preference_loads_and_preserves_library_settings() {
 
 #[test]
 fn ds_finding_deleted_embedding_cache_is_rebuilt_completely() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ds-cache-embeddings");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = temp();
     let mut store = Store::new(Some(&dir));
     store.ensure("mock", 2).unwrap();
     store.insert("mock", "a".into(), vec![1.0, 0.0]).unwrap();

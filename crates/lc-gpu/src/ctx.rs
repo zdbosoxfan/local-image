@@ -239,8 +239,14 @@ impl Drop for Buf {
             std::mem::forget(b);
             return;
         };
-        if !in_render && let Some(g) = crate::existing_device() {
-            g.pool([b]);
+        if !in_render {
+            if let Some(g) = crate::existing_device() {
+                g.pool([b]);
+            } else {
+                // Shutdown removed the context. There are no unsubmitted
+                // commands on this thread; release late cache buffers now.
+                drop(b);
+            }
             return;
         }
         // during thread teardown the list may already be gone: then the buffer leaks
@@ -356,12 +362,12 @@ impl Drop for InitWork {
 }
 
 /// A device buffer, counted in [`ALLOCATED`] while it exists.
-pub(crate) struct Tracked(wgpu::Buffer);
+pub(crate) struct Tracked(wgpu::Buffer, u64);
 
 impl Tracked {
-    fn new(b: wgpu::Buffer) -> Tracked {
+    fn new(b: wgpu::Buffer, context: u64) -> Tracked {
         ALLOCATED.fetch_add(b.size(), Ordering::Relaxed);
-        Tracked(b)
+        Tracked(b, context)
     }
 }
 
@@ -403,6 +409,9 @@ pub(crate) fn memory() -> GpuMemory {
 }
 
 pub struct Gpu {
+    // wgpu handle IDs are local to an Instance and can compare equal across
+    // distinct instances. Use our own identity for buffer-pool ownership.
+    id: u64,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub info: wgpu::AdapterInfo,
@@ -412,6 +421,16 @@ pub struct Gpu {
     free: std::sync::Mutex<Vec<Tracked>>,
     /// Largest storage buffer the device accepts (bytes).
     pub max_buffer: u64,
+}
+
+impl Drop for Gpu {
+    fn drop(&mut self) {
+        // The former process-lifetime cache never dropped its free pool. A
+        // released context must remove those bytes from global bookkeeping.
+        let free = self.free.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner);
+        POOLED.fetch_sub(free.iter().map(|buffer| buffer.0.size()).sum(), Ordering::Relaxed);
+        free.clear();
+    }
 }
 
 /// WGSL constants shared by every module (generated from the CPU pipeline's values).
@@ -496,9 +515,8 @@ impl Gpu {
     /// the hardware run strict: neither a software adapter nor an adapter skip can count.
     #[cfg(test)]
     pub(crate) fn numerical_test_device() -> Result<Gpu, String> {
-        // Share the production test device's initialization lock: the combined
-        // suite also creates that device and mutates crash-marker configuration.
-        let _init = crate::TEST_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // The caller holds TEST_INIT_LOCK through rendering and teardown, also
+        // excluding the crash-marker test's process-wide configuration.
         let device = Self::new_inner(wgpu::Backends::VULKAN, false)
             .or_else(|e| if std::env::var_os("LC_REQUIRE_GPU").is_some() { Err(e) } else { Self::new_inner(wgpu::Backends::VULKAN, true) })?;
         eprintln!("numerical test device: {} ({:?})", device.info.name, device.info.backend);
@@ -586,7 +604,8 @@ impl Gpu {
         });
         let max_buffer = limits.max_storage_buffer_binding_size.min(limits.max_buffer_size);
         log::info!("gpu: {} ({:?}), buffers ≤ {} MiB", info.name, info.backend, max_buffer >> 20);
-        Ok(Gpu { device, queue, info, kernels, dummy, free: Default::default(), max_buffer })
+        static NEXT_CONTEXT: AtomicU64 = AtomicU64::new(1);
+        Ok(Gpu { id: NEXT_CONTEXT.fetch_add(1, Ordering::Relaxed), device, queue, info, kernels, dummy, free: Default::default(), max_buffer })
     }
 
     /// A buffer of `len` 32-bit values with undefined contents (a recycled one when possible).
@@ -597,7 +616,7 @@ impl Gpu {
         let size = (len.max(1) * 4) as u64;
         if size > self.limit() {
             self.over_limit(size);
-            return Buf { buf: Some(Tracked::new(self.placeholder())), len };
+            return Buf { buf: Some(Tracked::new(self.placeholder(), self.id)), len };
         }
         let recycled = {
             let mut f = self.free.lock().unwrap_or_else(|e| e.into_inner());
@@ -616,12 +635,15 @@ impl Gpu {
             b
         };
         let buf = recycled.unwrap_or_else(|| {
-            Tracked::new(self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }))
+            Tracked::new(
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                }),
+                self.id,
+            )
         });
         Buf { buf: Some(buf), len }
     }
@@ -639,6 +661,11 @@ impl Gpu {
         {
             let mut f = self.free.lock().unwrap_or_else(|e| e.into_inner());
             for b in bufs {
+                // A cache may outlive shutdown, or a numerical test may use a
+                // separate device. Never recycle its buffers on another one.
+                if b.1 != self.id {
+                    continue;
+                }
                 POOLED.fetch_add(b.0.size(), Ordering::Relaxed);
                 f.push(b);
                 added = true;
@@ -677,14 +704,14 @@ impl Gpu {
         }
         if bytes.len() as u64 > self.limit() {
             self.over_limit(bytes.len() as u64);
-            return Buf { buf: Some(Tracked::new(self.placeholder())), len };
+            return Buf { buf: Some(Tracked::new(self.placeholder(), self.id)), len };
         }
         let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytes,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         });
-        Buf { buf: Some(Tracked::new(buf)), len }
+        Buf { buf: Some(Tracked::new(buf, self.id)), len }
     }
 
     fn over_limit(&self, size: u64) {

@@ -878,7 +878,8 @@ pub(crate) mod tests {
     use lightcraft_raster::{Plane, Rgb32f};
     #[test]
     fn native_toneeq_eigf_matches_cpu_float_words() {
-        let Some(g) = crate::test_device().or_else(device) else { return };
+        let Some(gpu_device) = crate::test_device().or_else(device) else { return };
+        let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let (w, h) = (71, 47);
         let rgb = Rgb32f::from_fn(w, h, |x, y| {
@@ -918,7 +919,8 @@ pub(crate) mod tests {
         let fused = x.mul_add(y, -1.0);
         assert_eq!(separate, 0.03125);
         assert_ne!(separate.log2().floor(), fused.log2().floor());
-        let Some(g) = crate::test_device().or_else(device) else { return };
+        let Some(gpu_device) = crate::test_device().or_else(device) else { return };
+        let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let mut triples = vec![[x, y, -1.0], [0.0, -0.0, 0.0], [-0.0, -0.0, -0.0], [1.0, -1.0, 0.0]];
         for bits in [1, 2, 3, 0x007fffff, 0x00800000, 0x00800001, 0x7f7fffff] {
@@ -963,7 +965,8 @@ pub(crate) mod tests {
 
     #[test]
     fn native_power_bin_boundaries_match_cpu_rounded_log() {
-        let Some(g) = crate::test_device().or_else(device) else { return };
+        let Some(gpu_device) = crate::test_device().or_else(device) else { return };
+        let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let mut cx = Cx::new(g);
         let values: Vec<_> = (-16..=4)
@@ -980,10 +983,10 @@ pub(crate) mod tests {
             assert_eq!(q.to_bits(), expected.to_bits(), "input {v:?} bits {:08x}, CPU log {}", v.to_bits(), v.log2());
         }
     }
-    pub(crate) fn device() -> Option<&'static crate::ctx::Gpu> {
-        static DEVICE: std::sync::OnceLock<Result<crate::ctx::Gpu, String>> = std::sync::OnceLock::new();
-        match DEVICE.get_or_init(crate::ctx::Gpu::numerical_test_device) {
-            Ok(g) => Some(g),
+    pub(crate) fn device() -> Option<crate::TestGpu> {
+        let lock = crate::TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match crate::ctx::Gpu::numerical_test_device() {
+            Ok(g) => Some(crate::TestGpu { gpu: std::sync::Arc::new(g), _lock: lock }),
             Err(e) => {
                 assert!(std::env::var_os("LC_REQUIRE_GPU").is_none(), "hardware GPU required for numerical tests: {e}");
                 eprintln!("skipped: no Vulkan numerical-test adapter ({e})");
@@ -996,7 +999,8 @@ pub(crate) mod tests {
     }
     #[test]
     fn native_filter_and_pyramid_numerics() {
-        let Some(g) = device() else { return };
+        let Some(gpu_device) = device() else { return };
+        let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let mut cx = Cx::new(g);
         let (w, h) = (37, 29);
@@ -1046,7 +1050,8 @@ pub(crate) mod tests {
     }
     #[test]
     fn native_primary_render_matches_unchanged_cpu() {
-        let Some(g) = device() else { return };
+        let Some(gpu_device) = device() else { return };
+        let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let src = Arc::new(Rgb32f::from_fn(53, 37, |x, y| {
             let t = (x as f32 / 52. * 8. - 6.).exp2();
@@ -1106,7 +1111,8 @@ pub(crate) mod tests {
     #[test]
     fn native_capture_lens_and_primary_caches_match_cpu() {
         use lightcraft_pipeline::lensdb::{Distortion, LensCorrection, Tca};
-        let Some(g) = device() else { return };
+        let Some(gpu_device) = device() else { return };
+        let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let errors = crate::ctx::ErrorScopes::push(g);
         let src = Arc::new(lightcraft_scenes::demo_library()[2].render(137, 89));
@@ -1192,7 +1198,8 @@ pub(crate) mod tests {
     fn native_preview_clipping_layers_and_cache_edits() {
         use lightcraft_develop::{Effects, LayerTools, Mask, MaskComponent, MaskOp, MaskShape};
         use lightcraft_geom::Point;
-        let Some(g) = device() else { return };
+        let Some(gpu_device) = device() else { return };
+        let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let src = Arc::new(Rgb32f::from_fn(311, 207, |x, y| {
             let l = (x as f32 / 310. * 10. - 7.).exp2();
@@ -1263,7 +1270,8 @@ pub(crate) mod tests {
     }
     #[test]
     fn native_skin_changes_skin_and_zero_controls_dispatch_nothing() {
-        let Some(g) = device() else { return };
+        let Some(gpu_device) = device() else { return };
+        let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let lw = ucs::y_to_l_star(1.);
         let src = Arc::new(Rgb32f::from_fn(91, 65, |x, y| {
@@ -1316,7 +1324,8 @@ pub(crate) mod tests {
     }
     #[test]
     fn native_colour_and_skin_fit_four_channel_bindings() {
-        let Some(g) = device() else { return };
+        let Some(gpu_device) = device() else { return };
+        let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let _limit = crate::ctx::LimitOverride::new(100_000);
         let src = Arc::new(Rgb32f::from_fn(91, 65, |x, y| [0.12 + x as f32 * 0.001, 0.07 + y as f32 * 0.001, 0.04]));

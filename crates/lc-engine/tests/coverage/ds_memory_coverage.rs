@@ -193,6 +193,7 @@ fn release_hook_called_once_per_call() {
 
 #[test]
 fn gpu_usage_fields_are_consistent() {
+    let _gpu = crate::gpu_support::lock();
     let g = gpu_usage();
     assert!(g.allocated >= g.pooled + g.retired, "allocated must include pooled and retired: {g:?}");
 }

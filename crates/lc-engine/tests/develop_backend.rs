@@ -1,4 +1,7 @@
 //! Verify logs describe the backend actually used, including host-side CPU refusals.
+#[path = "../../lc-gpu/tests/support/mod.rs"]
+mod gpu_support;
+
 use std::sync::{Arc, Mutex};
 
 use lightcraft_develop::DevelopSettings;
@@ -22,6 +25,7 @@ impl log::Log for Capture {
 
 #[test]
 fn develop_backend_logs_actual_adapter_and_cpu_reasons() {
+    let _gpu = gpu_support::lock();
     log::set_logger(&LOG).unwrap();
     log::set_max_level(log::LevelFilter::Info);
     let src = Arc::new(Rgb32f::from_fn(64, 48, |x, y| [0.1 + x as f32 / 128.0, 0.2 + y as f32 / 128.0, 0.3]));
@@ -43,5 +47,4 @@ fn develop_backend_logs_actual_adapter_and_cpu_reasons() {
     lightcraft_engine::media::develop(&src, &info, &settings, &req, None, true);
     lightcraft_gpu::set_enabled(true);
     assert!(LOG.0.lock().unwrap().iter().any(|m| m.starts_with("Develop render backend: CPU: disabled by")));
-    assert!(lightcraft_gpu::quiesce(std::time::Duration::from_secs(10)));
 }

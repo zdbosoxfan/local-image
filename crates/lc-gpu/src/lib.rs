@@ -87,7 +87,7 @@ pub fn unavailable_reason() -> Option<String> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        match GPU.get() {
+        match GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
             Some(Err(e)) => Some(e.clone()),
             _ => None,
         }
@@ -179,38 +179,82 @@ fn env_disabled() -> bool {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-static GPU: std::sync::OnceLock<Result<ctx::Gpu, String>> = std::sync::OnceLock::new();
+static GPU: Mutex<Option<Result<Arc<ctx::Gpu>, String>>> = Mutex::new(None);
+#[cfg(not(target_arch = "wasm32"))]
+static GPU_INIT: Mutex<()> = Mutex::new(());
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 static TEST_INIT_LOCK: Mutex<()> = Mutex::new(());
 
 /// Unit tests serialize creation with the crash-marker test's global configuration.
 #[cfg(all(test, not(target_arch = "wasm32")))]
-fn test_device() -> Option<&'static ctx::Gpu> {
-    let _init = TEST_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    device()
+fn test_device() -> Option<TestGpu> {
+    let lock = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    device().map(|gpu| TestGpu { gpu, _lock: lock })
+}
+
+/// Keep initialization, renders and native device destruction inside one test
+/// lock. Fields drop in order: the final device lease must drop before the lock.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) struct TestGpu {
+    gpu: Arc<ctx::Gpu>,
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+impl std::ops::Deref for TestGpu {
+    type Target = ctx::Gpu;
+    fn deref(&self) -> &Self::Target {
+        &self.gpu
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+impl Drop for TestGpu {
+    fn drop(&mut self) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        let finished = shutdown(std::time::Duration::from_secs(120))
+            && self
+                .gpu
+                .device
+                .poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(deadline.saturating_duration_since(std::time::Instant::now())) })
+                .is_ok();
+        assert!(finished || std::thread::panicking(), "GPU test teardown did not finish");
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn device() -> Option<&'static ctx::Gpu> {
+pub(crate) fn device() -> Option<Arc<ctx::Gpu>> {
     // turned off (preference, environment): don't even load the driver (issue #136)
     if env_disabled() || !ENABLED.load(Ordering::Relaxed) {
         return existing_device();
     }
-    GPU.get_or_init(|| {
+    if let Some(result) = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
+        return result.as_ref().ok().cloned();
+    }
+    // Foreground diagnostic/device callers need the same exit barrier as
+    // warm-up workers, including the time they wait for another initializer.
+    let _work = ctx::InitWork::new();
+    let _init = GPU_INIT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(result) = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
+        return result.as_ref().ok().cloned();
+    }
+    let result = (|| {
         let Some(backends) = backend::compute_backends() else { return Err("disabled by LIGHTCRAFT_GPU_BACKEND=off".into()) };
         backend::with_init_marker(backends, || {
             std::panic::catch_unwind(|| ctx::Gpu::new(backends)).unwrap_or_else(|_| Err("device creation panicked".into()))
         })
-    })
-    .as_ref()
-    .ok()
+    })()
+    .map(Arc::new);
+    let gpu = result.as_ref().ok().cloned();
+    *GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
+    gpu
 }
 
 /// The device if it has been created (never creates it).
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn existing_device() -> Option<&'static ctx::Gpu> {
-    GPU.get().and_then(|g| g.as_ref().ok())
+pub(crate) fn existing_device() -> Option<Arc<ctx::Gpu>> {
+    GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().and_then(|g| g.as_ref().ok()).cloned()
 }
 
 /// Create the device and compile the kernels on a background thread now (once the window is up),
@@ -219,13 +263,13 @@ pub(crate) fn existing_device() -> Option<&'static ctx::Gpu> {
 pub fn warm_up() {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // Several views/tests can request warm-up before OnceLock publishes the device.
+        // Several views/tests can request warm-up before the cache publishes the device.
         // Spawn only one compiler thread, and include it in the exit barrier from the moment
         // it is requested (not only once a render starts or the worker is scheduled).
         static STARTED: AtomicBool = AtomicBool::new(false);
         if !env_disabled()
             && ENABLED.load(Ordering::Relaxed)
-            && GPU.get().is_none()
+            && !ready()
             && STARTED.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok()
         {
             struct Started(&'static AtomicBool);
@@ -261,7 +305,7 @@ fn spawn_init_worker(init: impl FnOnce() + Send + 'static) -> std::io::Result<st
 pub fn ready() -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        env_disabled() || GPU.get().is_some()
+        env_disabled() || GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -284,6 +328,27 @@ pub fn quiesce(timeout: std::time::Duration) -> bool {
         let _ = timeout;
         true
     }
+}
+
+/// Finish work and release the cached compute context before native exit
+/// handlers unload the driver. Stop scheduling work and drop render caches and
+/// denoisers first. Outstanding leases/resources stay valid until their owners
+/// drop them; callers must release those too to complete native teardown.
+/// Unlike [`quiesce`], this discards compiled kernels; a later use initializes
+/// a new context. A timeout leaves the cache intact.
+pub fn shutdown(timeout: std::time::Duration) -> bool {
+    if !quiesce(timeout) {
+        return false;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _init = GPU_INIT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let gpu = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        // Dropping buffers may consult the cache: never destroy the context
+        // while holding the cache mutex.
+        drop(gpu);
+    }
+    true
 }
 
 /// Whether a usable GPU adapter exists and GPU rendering is enabled (creates the device on first
@@ -397,9 +462,9 @@ pub fn render_hs_candidate(
         let fault = take_fault();
         let _ = ctx::take_failure(); // nothing left over from an earlier render on this thread
         let (r, scoped) = {
-            let _scope = ctx::RenderScope::new(gpu);
-            let errors = ctx::ErrorScopes::push(gpu);
-            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render::render(gpu, src, info, s, req, ext.as_deref(), fault, method)));
+            let _scope = ctx::RenderScope::new(&gpu);
+            let errors = ctx::ErrorScopes::push(&gpu);
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render::render(&gpu, src, info, s, req, ext.as_deref(), fault, method)));
             (r, errors.pop())
         };
         // An error the device raised explains the readback failures that follow it; a buffer
@@ -472,6 +537,7 @@ pub fn render_hs_candidate(
 mod warm_up_exit_tests {
     #[test]
     fn quiesce_includes_worker_thread_local_destruction() {
+        let _test = super::TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         use std::cell::RefCell;
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::{Arc, mpsc};
@@ -508,5 +574,53 @@ mod warm_up_exit_tests {
         assert!(super::quiesce(Duration::from_secs(20)));
         assert!(done.load(Ordering::Acquire));
         worker.join().unwrap();
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod context_exit_tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn hardware() -> Option<Arc<ctx::Gpu>> {
+        let gpu = device();
+        assert!(gpu.is_some() || std::env::var_os("LC_REQUIRE_GPU").is_none(), "GPU required: {:?}", unavailable_reason());
+        if let Some(gpu) = &gpu {
+            eprintln!("context teardown: {} ({:?})", gpu.info.name, gpu.info.backend);
+        }
+        gpu
+    }
+
+    #[test]
+    fn shutdown_releases_cached_context_and_pooled_buffers() {
+        let _test = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(gpu) = hardware() else { return };
+        let weak = Arc::downgrade(&gpu);
+        drop(gpu.buffer(16));
+        assert!(ctx::memory().pooled > 0);
+        assert!(shutdown(Duration::from_secs(120)));
+        assert!(!ready());
+        assert!(existing_device().is_none());
+        assert!(weak.upgrade().is_some(), "an active render lease stays valid");
+        drop(gpu);
+        assert!(weak.upgrade().is_none(), "the static cache must not retain the context at native exit");
+        assert_eq!(ctx::memory().allocated, 0);
+        assert_eq!(ctx::memory().pooled, 0, "released pools must leave no counted bytes");
+    }
+
+    #[test]
+    fn old_device_buffers_are_not_recycled_on_a_new_context() {
+        let _test = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(old) = hardware() else { return };
+        let old_buffer = old.buffer(16);
+        assert!(shutdown(Duration::from_secs(120)));
+        let new = hardware().unwrap();
+        assert!(!Arc::ptr_eq(&old, &new), "shutdown must allow a fresh context");
+        drop(old_buffer);
+        assert_eq!(ctx::memory().pooled, 0, "an old-device buffer entered the new-device pool");
+        drop(old);
+        assert!(shutdown(Duration::from_secs(120)));
+        drop(new);
+        assert_eq!(ctx::memory().allocated, 0);
     }
 }

@@ -223,6 +223,11 @@ pub struct Session {
     /// local-image: AI Remove — the host's AI services and the running jobs (see
     /// [`enhance`]).
     pub enhance: enhance::Enhance,
+    // Session tests also reach GPU compute indirectly through export, thumbnails
+    // and render jobs. Keep them inside the same lock as fault-injection tests;
+    // release the context after every session/cache field has dropped.
+    #[cfg(test)]
+    _gpu_test: tests_gpu::Guard,
 }
 
 impl Default for Session {
@@ -233,8 +238,12 @@ impl Default for Session {
 
 impl Session {
     pub fn new() -> Session {
+        #[cfg(test)]
+        let gpu_test = tests_gpu::gpu_state();
         Session {
             auto_sync: false,
+            #[cfg(test)]
+            _gpu_test: gpu_test,
             catalog: Catalog::new(),
             source: LibrarySource::All,
             filter: Filter::default(),

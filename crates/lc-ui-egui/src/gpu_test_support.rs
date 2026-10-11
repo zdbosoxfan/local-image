@@ -27,6 +27,11 @@ impl Drop for Guard {
             if let Some((_, depth)) = held.as_mut() {
                 *depth -= 1;
                 if *depth == 0 {
+                    // App fields and renderer workers have dropped before this
+                    // last field. Release kernels/native device while holding
+                    // the lock, before the next test starts or libtest exits.
+                    let finished = lightcraft_engine::gpu::shutdown(std::time::Duration::from_secs(120));
+                    assert!(finished || std::thread::panicking(), "GPU test teardown did not finish");
                     *held = None;
                 }
             }

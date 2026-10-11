@@ -8,6 +8,9 @@ use crate::{LightcraftApp, color_icon_data, color_icons, headless::Headless, ico
 
 #[test]
 fn library_shutdown_waits_for_kernel_warm_up_even_without_a_photo() {
+    // Keep the diagnostic reads inside the GPU scope. The nested app guard
+    // must let GpuExit finish warm-up before this outer guard releases it.
+    let _gpu = crate::gpu_test_support::lock();
     let mut h = Headless::new(LightcraftApp::new(lightcraft_engine::Session::new(), Default::default()), [900.0, 600.0], 1.0);
     for _ in 0..3 {
         h.step();

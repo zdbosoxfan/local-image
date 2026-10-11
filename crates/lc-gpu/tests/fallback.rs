@@ -3,6 +3,7 @@
 //! CPU) with the reason recorded, never as an image of zeros. One test, sequential: the fatal
 //! faults stop GPU use for the whole process until `reset_failures`.
 //! Skips (passes with a note) when no GPU adapter exists.
+mod support;
 
 use std::sync::Arc;
 
@@ -36,6 +37,7 @@ fn masked(s: &mut DevelopSettings, k: usize) {
 
 #[test]
 fn failed_gpu_renders_fall_back_with_a_reason() {
+    let _gpu = support::lock();
     if !lightcraft_gpu::available() {
         eprintln!("skipped: no GPU adapter ({:?})", lightcraft_gpu::unavailable_reason());
         return;
@@ -113,6 +115,7 @@ fn failed_gpu_renders_fall_back_with_a_reason() {
 /// A curve on a mask runs natively and remains within the CPU image bounds.
 #[test]
 fn develop_layer_tools_render_natively() {
+    let _gpu = support::lock();
     if !lightcraft_gpu::available() {
         eprintln!("skipped: no GPU adapter");
         return;
@@ -134,6 +137,7 @@ fn develop_layer_tools_render_natively() {
 /// refused up front as over the limit, not wrapped into a small size that dispatches forever.
 #[test]
 fn absurd_render_sizes_are_refused() {
+    let _gpu = support::lock();
     if !lightcraft_gpu::available() {
         eprintln!("skipped: no GPU adapter ({:?})", lightcraft_gpu::unavailable_reason());
         return;
