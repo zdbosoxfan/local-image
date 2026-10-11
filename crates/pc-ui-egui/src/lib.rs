@@ -1787,3 +1787,7 @@ pub mod frame_compose;
 // Package 17 module registration; persona/canvas routing stays in the 00 handoff.
 #[path = "vector_packages/brushes.rs"]
 pub mod vector_brush;
+
+// Package 34 registration; persona/menu/canvas routing stays in the integration handoff.
+#[path = "vector_packages/transform_tools.rs"]
+pub mod vector_transform_tools;

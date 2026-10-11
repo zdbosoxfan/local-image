@@ -560,3 +560,5 @@ pub fn render_shape(shape: &ShapeLayer, format: PixelFormat, clip: Rect) -> Surf
 
 #[cfg(test)]
 mod tests;
+
+pub mod projective;

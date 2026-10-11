@@ -57,5 +57,8 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
     out.extend(trace_cleanup::specs());
     out.extend(trace_cutout::specs());
     out.extend(trace_output::specs());
+    out.extend(transform_tools::specs());
     out
 }
+
+pub mod transform_tools;
