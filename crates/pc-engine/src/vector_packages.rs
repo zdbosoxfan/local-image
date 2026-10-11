@@ -69,3 +69,5 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
 // Package 36 registration; UI menu/router fragments are in integration/36.md.
 pub mod expand;
 pub mod path_commands;
+// Package 37: commands join the aggregate through the 00 handoff.
+pub mod isolation;

@@ -561,3 +561,6 @@ pub fn render_shape(shape: &ShapeLayer, format: PixelFormat, clip: Rect) -> Surf
 
 #[cfg(test)]
 mod tests;
+
+// Package 37 registration; canvas routing is handed to 00.
+pub mod outline_view;

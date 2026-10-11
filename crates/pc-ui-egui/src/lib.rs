@@ -1801,3 +1801,8 @@ pub mod envelope;
 // Package 36; Object/menu/canvas routing is delivered to 00 in integration/36.md.
 #[path = "vector_packages/path_commands.rs"]
 pub mod object_path;
+// Package 37 compiled hooks; shared menu/canvas wiring stays in the 00 lane.
+#[path = "vector_packages/isolation.rs"]
+pub mod isolation;
+#[path = "vector_packages/view_modes.rs"]
+pub mod view_modes;
