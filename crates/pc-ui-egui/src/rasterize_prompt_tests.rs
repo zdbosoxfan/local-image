@@ -165,3 +165,32 @@ fn the_control_channel_sees_and_confirms_the_prompt() {
     assert_eq!(r["ok"], json!(true), "{r}");
     assert_eq!(active_content(&app), "Pixel");
 }
+
+#[test]
+fn rasterize_prompt_rejects_changed_document_revision_or_selection_before_any_edit() {
+    for change in ["revision", "document", "selection"] {
+        let mut app = app_with(Kind::Shape);
+        app.ui.tool = Tool::Brush;
+        click(&mut app, 30.0, 20.0);
+        let id = prompt(&app).unwrap().id;
+        match change {
+            "revision" => {
+                app.run("layer.new.layer", json!({})).unwrap();
+            }
+            "document" => {
+                app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+            }
+            _ => {
+                let first = app.session.active().unwrap().doc.layers[0].id;
+                app.run("layer.select", json!({"layer": first.0})).unwrap();
+            }
+        }
+        let snapshots: Vec<_> = app.session.documents().iter().map(|st| (st.doc.clone(), st.revision, st.history.past_len())).collect();
+        assert!(crate::dialogs::confirm(&mut app, id).is_err(), "{change}");
+        for (st, (doc, revision, history)) in app.session.documents().iter().zip(snapshots) {
+            assert!(std::sync::Arc::ptr_eq(&st.doc, &doc), "{change} mutated a document");
+            assert_eq!(st.revision, revision);
+            assert_eq!(st.history.past_len(), history);
+        }
+    }
+}

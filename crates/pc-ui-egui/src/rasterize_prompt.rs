@@ -118,6 +118,8 @@ pub fn open(app: &mut PhotocraftApp, kind: Kind, layer: photocraft_doc::LayerId,
     f.insert("layer".into(), json!(layer.0));
     f.insert("tool".into(), json!(format!("{tool:?}")));
     f.insert("at".into(), json!(at));
+    // A missing document leaves the capture absent and confirmation fails closed.
+    let _ = crate::toolsets_ui::persona::capture_rasterize_prompt(app, &mut f);
     app.ui.open_dialog(DialogKind::Command, f)
 }
 
@@ -142,6 +144,7 @@ pub fn body(ui: &mut egui::Ui, f: &Map<String, Value>) {
 pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
     let kind = f.get(MARK).and_then(Value::as_str).and_then(Kind::from_key).ok_or("not a rasterize prompt")?;
     let layer = f.get("layer").and_then(Value::as_u64).ok_or("the prompt has no layer")?;
+    crate::toolsets_ui::persona::validate_rasterize_prompt(app, f)?;
     let r = app.run(kind.command(), json!({ "layer": layer }))?;
     let tool = f.get("tool").and_then(Value::as_str).and_then(Tool::from_name);
     let at: Vec<f64> = f.get("at").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
