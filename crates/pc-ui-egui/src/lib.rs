@@ -1789,3 +1789,7 @@ pub mod frame_compose;
 // Package 17 module registration; persona/canvas routing stays in the 00 handoff.
 #[path = "vector_packages/brushes.rs"]
 pub mod vector_brush;
+
+// Package 36; Object/menu/canvas routing is delivered to 00 in integration/36.md.
+#[path = "vector_packages/path_commands.rs"]
+pub mod object_path;
