@@ -17,7 +17,7 @@
 //! (`v.extend(crate::ai_cmds::specs())`).
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::Duration;
 
 use image::{GrayImage, Luma, Rgb, RgbImage, RgbaImage};
@@ -75,40 +75,50 @@ fn seed(p: &Value) -> u64 {
 /// Runs `f` with a `li-ai` job control mirrored onto `ctx`: progress out, cancellation in.
 pub fn bridged<T>(ctx: &JobCtx, f: impl FnOnce(&JobControl) -> anyhow::Result<T>) -> Result<T> {
     let ctl = JobControl::new();
-    let done = Arc::new(AtomicBool::new(false));
-    let (c, d, jc) = (ctl.clone(), done.clone(), ctx.clone());
-    let watcher = std::thread::spawn(move || {
-        while !d.load(Ordering::SeqCst) {
-            if jc.cancelled() {
-                c.cancel();
-            }
-            let p = c.progress();
-            let frac = match p.stage {
-                Stage::Preparing => 0.02,
-                Stage::Uploading => 0.05,
-                Stage::Queued => 0.08,
-                Stage::Loading => 0.12,
-                Stage::Conditioning => 0.2,
-                Stage::Sampling => 0.22 + 0.68 * p.fraction().unwrap_or(0.0),
-                Stage::Decoding => 0.92,
-                Stage::Saving | Stage::Running => 0.94,
-                Stage::Finishing | Stage::Done => 0.97,
-                Stage::Failed | Stage::Cancelled => 0.0,
-            };
-            let mut msg = p.stage.label().to_owned();
-            if let Some((v, m)) = p.step {
-                msg = format!("{msg} {v}/{m}");
-            }
-            if !p.message.is_empty() {
-                msg = format!("{} · {msg}", p.message);
-            }
-            jc.progress(frac, &msg);
-            std::thread::sleep(Duration::from_millis(100));
+    // Drop runs before the scope joins, including when the callback unwinds.
+    struct StopWatcher(mpsc::Sender<()>);
+    impl Drop for StopWatcher {
+        fn drop(&mut self) {
+            let _ = self.0.send(());
         }
+    }
+    let r = std::thread::scope(|scope| {
+        let (stop, stopped) = mpsc::channel();
+        let c = &ctl;
+        scope.spawn(move || {
+            loop {
+                if ctx.cancelled() {
+                    c.cancel();
+                }
+                let p = c.progress();
+                let frac = match p.stage {
+                    Stage::Preparing => 0.02,
+                    Stage::Uploading => 0.05,
+                    Stage::Queued => 0.08,
+                    Stage::Loading => 0.12,
+                    Stage::Conditioning => 0.2,
+                    Stage::Sampling => 0.22 + 0.68 * p.fraction().unwrap_or(0.0),
+                    Stage::Decoding => 0.92,
+                    Stage::Saving | Stage::Running => 0.94,
+                    Stage::Finishing | Stage::Done => 0.97,
+                    Stage::Failed | Stage::Cancelled => 0.0,
+                };
+                let mut msg = p.stage.label().to_owned();
+                if let Some((v, m)) = p.step {
+                    msg = format!("{msg} {v}/{m}");
+                }
+                if !p.message.is_empty() {
+                    msg = format!("{} · {msg}", p.message);
+                }
+                ctx.progress(frac, &msg);
+                if stopped.recv_timeout(Duration::from_millis(100)) != Err(mpsc::RecvTimeoutError::Timeout) {
+                    break;
+                }
+            }
+        });
+        let _stop = StopWatcher(stop);
+        f(&ctl)
     });
-    let r = f(&ctl);
-    done.store(true, Ordering::SeqCst);
-    let _ = watcher.join();
     r.map_err(|e| if e.is::<li_ai::Cancelled>() { EngineError::Cancelled } else { EngineError::Other(format!("{e:#}")) })
 }
 
@@ -768,6 +778,35 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn final_review_bridge_stops_on_unwind_and_preserves_results() {
+        let ctx = JobCtx::new();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _: Result<()> = bridged(&ctx, |_| {
+                std::thread::sleep(Duration::from_millis(120));
+                panic!("deliberate callback unwind");
+            });
+        }));
+        assert!(result.is_err());
+        ctx.progress(1.0, "sentinel");
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(ctx.message(), "sentinel", "no watcher may survive callback unwinding");
+        assert_eq!(bridged(&JobCtx::new(), |_| Ok(vec![4, 9, 16])).unwrap(), [4, 9, 16]);
+        let ctx = JobCtx::new();
+        ctx.cancel();
+        assert!(matches!(
+            bridged(&ctx, |ctl| {
+                let until = std::time::Instant::now() + Duration::from_secs(2);
+                while !ctl.is_cancelled() && std::time::Instant::now() < until {
+                    std::thread::yield_now();
+                }
+                ctl.check()
+            }),
+            Err(EngineError::Cancelled)
+        ));
+    }
 
     #[test]
     fn background_output_qwen_request_samples_the_target_and_keeps_hint_and_variant() {

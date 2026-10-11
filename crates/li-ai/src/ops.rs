@@ -47,6 +47,9 @@ pub struct RefineStep {
     pub variant: String,
     /// How much the refine pass may change (0.2–0.6 is typical).
     pub strength: f32,
+    /// Use the verified recipe's strength; otherwise `strength` is explicit.
+    #[serde(default)]
+    pub default_strength: bool,
     pub steps: Option<u32>,
     pub guidance: Option<f32>,
     #[serde(default)]
@@ -72,6 +75,9 @@ pub struct GenerateRequest {
     pub transparent: bool,
     /// Strength for Refine, Inpaint, Upscale-refine and starting images (0.05..1).
     pub denoise: f32,
+    /// Resolve [steps, guidance, denoise] from the verified refine recipe. Numeric values
+    /// otherwise remain explicit, including values equal to nominal model defaults.
+    pub refine_defaults: [bool; 3],
     /// The image being edited, refined, inpainted or enlarged.
     pub source: Option<RgbaImage>,
     /// Inpaint: white = regenerate (the size of `source`).
@@ -102,6 +108,7 @@ impl GenerateRequest {
             variety: 0.0,
             transparent: false,
             denoise: 0.6,
+            refine_defaults: [false; 3],
             source: None,
             mask: None,
             references: Vec::new(),
@@ -186,6 +193,13 @@ impl GenerateRequest {
         }
         Ok(())
     }
+}
+
+/// Effective sampling metadata is returned with the pixels so history describes the submitted job.
+#[derive(Clone, Debug)]
+pub struct Generated {
+    pub image: RgbaImage,
+    pub parameters: serde_json::Value,
 }
 
 /// The AI service: a ComfyUI client plus a cached inventory.
@@ -319,9 +333,11 @@ impl Ai {
         let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
         let edited = self.qwen_edit(&[rgba, mask_rgba], instruction, "", variant, seed, 25, 1.0, 1.0, &[], info, ctl)?;
         let edited = image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8();
+        // Match the surrounding colour while preserving generated gradients, as Klein does.
+        let blended = imaging::poisson_blend(image, &edited, mask);
         Ok(RgbImage::from_fn(image.width(), image.height(), |x, y| {
             let m = mask.get_pixel(x, y)[0] as u32;
-            let (a, b) = (image.get_pixel(x, y), edited.get_pixel(x, y));
+            let (a, b) = (image.get_pixel(x, y), blended.get_pixel(x, y));
             image::Rgb([0, 1, 2].map(|k| ((a[k] as u32 * (255 - m) + b[k] as u32 * m + 127) / 255) as u8))
         }))
     }
@@ -430,41 +446,97 @@ impl Ai {
     /// Generates with any model: Create, Edit, Refine, Inpaint or Upscale-refine, then the
     /// optional Draft → Refine pass. Returns the image at the request's (or the source's) size.
     pub fn generate(&self, req: &GenerateRequest, ctl: &JobControl) -> Result<RgbaImage> {
-        req.validate()?;
+        Ok(self.generate_detailed(req, ctl)?.image)
+    }
+
+    pub fn generate_detailed(&self, requested: &GenerateRequest, ctl: &JobControl) -> Result<Generated> {
+        requested.validate()?;
         ctl.set_stage(Stage::Preparing);
         let info = self.inventory()?;
-        let out = self.generate_once(req, &info, ctl)?;
-        match &req.refine {
-            Some(step) => {
-                ctl.set_message("Refining the draft");
-                self.refine_pass(&out, req, step, &info, ctl)
+        let mut req = requested.clone();
+        let recipe = if req.mode == GenerateMode::Refine {
+            let recipe = crate::refine::ensure(&self.client, req.model, &req.variant, ctl)?;
+            req.loras = Self::check_recipe_loras(&recipe, &req.loras, &info)?;
+            let defaults = recipe.defaults();
+            if req.refine_defaults[0] {
+                req.steps = defaults.steps;
             }
-            None => Ok(out),
+            if req.refine_defaults[1] {
+                req.guidance = defaults.cfg;
+            }
+            if req.refine_defaults[2] {
+                req.denoise = defaults.denoise;
+            }
+            if req.sampler.is_none() {
+                req.sampler = Some((defaults.sampler, defaults.scheduler));
+            }
+            Some(recipe)
+        } else {
+            None
+        };
+        // Validate the second pass before submitting the draft, so a selected style is never lost.
+        let second_recipe = if let Some(step) = &mut req.refine {
+            let recipe = crate::refine::ensure(&self.client, step.model, &step.variant, ctl)?;
+            step.loras = Self::check_recipe_loras(&recipe, &step.loras, &info)?;
+            let defaults = recipe.defaults();
+            if step.default_strength {
+                step.strength = defaults.denoise;
+            }
+            step.steps = Some(step.steps.unwrap_or(defaults.steps));
+            step.guidance = Some(step.guidance.unwrap_or(defaults.cfg));
+            Some(recipe)
+        } else {
+            None
+        };
+        let out = self.generate_once(&req, &info, recipe.as_ref(), ctl)?;
+        let image = match (&req.refine, &second_recipe) {
+            (Some(step), Some(recipe)) => {
+                ctl.set_message("Refining the draft");
+                self.refine_pass(&out, &req, step, recipe, &info, ctl)?
+            }
+            _ => out,
+        };
+        let family = &req.model.info().resolved;
+        let (sampler, scheduler) = req.sampler.clone().unwrap_or_else(|| (family.pipeline.sampler_name.clone(), family.pipeline.scheduler.clone()));
+        let mut parameters = serde_json::json!({"steps":req.steps,"guidance":req.guidance,"denoise":req.denoise,
+            "sampler":sampler,"scheduler":scheduler,"width":req.width,"height":req.height,"output_width":image.width(),"output_height":image.height(),"refine":req.refine});
+        if let Some(recipe) = recipe {
+            parameters["recipe"] = serde_json::json!(recipe.label());
+        }
+        if let Some(recipe) = second_recipe {
+            let defaults = recipe.defaults();
+            parameters["refine"]["default_strength"] = serde_json::json!(false);
+            parameters["refine"]["recipe"] = serde_json::json!(recipe.label());
+            parameters["refine"]["sampler"] = serde_json::json!(defaults.sampler);
+            parameters["refine"]["scheduler"] = serde_json::json!(defaults.scheduler);
+        }
+        Ok(Generated { image, parameters })
+    }
+
+    fn check_recipe_loras(recipe: &crate::refine::Recipe, loras: &[LoraUse], info: &ObjectInfo) -> Result<Vec<LoraUse>> {
+        recipe.validate_loras(loras)?;
+        match recipe.lora_profile() {
+            Some(profile) => Self::validate_loras(info, loras, profile),
+            None => Ok(Vec::new()),
         }
     }
 
-    fn generate_once(&self, req: &GenerateRequest, info: &ObjectInfo, ctl: &JobControl) -> Result<RgbaImage> {
+    fn generate_once(&self, req: &GenerateRequest, info: &ObjectInfo, recipe: Option<&crate::refine::Recipe>, ctl: &JobControl) -> Result<RgbaImage> {
         if req.mode == GenerateMode::Refine {
             let source = req.source_and_refs().0.context("Open an image first.")?;
-            let original = req.model.info();
-            let original_denoise = catalog::refine_default_denoise(req.model);
-            let recipe = crate::refine::ensure(&self.client, req.model, &req.variant, ctl)?;
-            let loras = recipe.filter_loras(&req.loras);
-            if let crate::refine::Recipe::Family { profile, .. } = &recipe {
-                Self::validate_loras(info, &loras, profile)?;
-            }
-            let defaults = recipe.defaults();
-            let denoise = if req.denoise == original_denoise { defaults.denoise } else { req.denoise };
-            let steps = if req.steps == original.steps.default as u32 { defaults.steps } else { req.steps };
-            let cfg = if req.guidance == original.guidance.default { defaults.cfg } else { req.guidance };
-            let (prompt, negative) = match &recipe {
+            let recipe = recipe.context("Refinement recipe was not resolved.")?;
+            let loras = req.loras.as_slice();
+            let denoise = req.denoise;
+            let steps = req.steps;
+            let cfg = req.guidance;
+            let (prompt, negative) = match recipe {
                 crate::refine::Recipe::Family { profile, .. } => prompt_rules(profile, &req.prompt, &req.negative),
                 _ => (req.prompt.clone(), req.negative.clone()),
             };
             let p = Params {
                 task: Task::Refine { denoise },
                 negative: &negative,
-                loras: &loras,
+                loras,
                 sampler: req.sampler.as_ref().map(|(s, c)| (s.as_str(), c.as_str())),
                 ..Params::create(&prompt, source.width(), source.height(), req.seed, steps, cfg)
             };
@@ -676,10 +748,15 @@ impl Ai {
     }
 
     /// Draft → Refine: the refine model resamples the draft (enlarged by `step.scale`).
-    fn refine_pass(&self, draft: &RgbaImage, req: &GenerateRequest, step: &RefineStep, info: &ObjectInfo, ctl: &JobControl) -> Result<RgbaImage> {
-        let original = step.model.info();
-        let original_denoise = catalog::refine_default_denoise(step.model);
-        let recipe = crate::refine::ensure(&self.client, step.model, &step.variant, ctl)?;
+    fn refine_pass(
+        &self,
+        draft: &RgbaImage,
+        req: &GenerateRequest,
+        step: &RefineStep,
+        recipe: &crate::refine::Recipe,
+        info: &ObjectInfo,
+        ctl: &JobControl,
+    ) -> Result<RgbaImage> {
         let defaults = recipe.defaults();
         let src = if step.scale > 1.01 {
             let (w, h) = ((draft.width() as f32 * step.scale) as u32, (draft.height() as f32 * step.scale) as u32);
@@ -687,25 +764,23 @@ impl Ai {
         } else {
             draft.clone()
         };
-        let loras = recipe.filter_loras(&step.loras);
-        if let crate::refine::Recipe::Family { profile, .. } = &recipe {
-            Self::validate_loras(info, &loras, profile)?;
-        }
-        let (prompt, negative) = match &recipe {
+        Self::check_recipe_loras(recipe, &step.loras, info)?;
+        let loras = step.loras.as_slice();
+        let (prompt, negative) = match recipe {
             crate::refine::Recipe::Family { profile, .. } => prompt_rules(profile, &req.prompt, &req.negative),
             _ => (req.prompt.clone(), req.negative.clone()),
         };
         let p = Params {
-            task: Task::Refine { denoise: if step.strength == original_denoise { defaults.denoise } else { step.strength } },
+            task: Task::Refine { denoise: step.strength },
             negative: &negative,
-            loras: &loras,
+            loras,
             ..Params::create(
                 &prompt,
                 src.width(),
                 src.height(),
                 req.seed.wrapping_add(1),
-                step.steps.filter(|n| *n != original.steps.default as u32).unwrap_or(defaults.steps),
-                step.guidance.filter(|n| *n != original.guidance.default).unwrap_or(defaults.cfg),
+                step.steps.unwrap_or(defaults.steps),
+                step.guidance.unwrap_or(defaults.cfg),
             )
         };
         if let crate::refine::Recipe::Family { profile, files, .. } = &recipe
@@ -933,7 +1008,16 @@ fn ds2_refinement_request_rejects_nonfinite_and_out_of_range_parameters() {
         assert!(r.validate().is_err());
     }
     r.denoise = 0.35;
-    r.refine = Some(RefineStep { model: ModelId::Klein4B, variant: String::new(), strength: 0.4, steps: None, guidance: None, loras: vec![], scale: 1.0 });
+    r.refine = Some(RefineStep {
+        model: ModelId::Klein4B,
+        variant: String::new(),
+        strength: 0.4,
+        default_strength: false,
+        steps: None,
+        guidance: None,
+        loras: vec![],
+        scale: 1.0,
+    });
     assert!(r.validate().is_ok());
     for value in [0.0, 1e6, f32::NAN, f32::INFINITY] {
         r.refine.as_mut().unwrap().scale = value;
@@ -946,4 +1030,24 @@ fn ds2_refinement_request_rejects_nonfinite_and_out_of_range_parameters() {
     }
     r.refine.as_mut().unwrap().strength = 1.0;
     assert!(r.validate().is_ok());
+}
+
+#[cfg(test)]
+#[test]
+fn final_review_qwen_remove_blends_the_boundary_and_preserves_unmasked_pixels() {
+    let server = crate::mock::MockComfy::start().unwrap();
+    server.delay_ms.store(1, std::sync::atomic::Ordering::SeqCst);
+    let ai = Ai::new(server.host());
+    let info = ai.inventory().unwrap();
+    let src = RgbImage::from_pixel(64, 48, image::Rgb([105, 166, 205]));
+    let mask = GrayImage::from_fn(64, 48, |x, y| Luma([if (16..48).contains(&x) && (12..36).contains(&y) { 255 } else { 0 }]));
+    let out = ai.remove_qwen(&src, &mask, "int8", 42, &info, &JobControl::new()).unwrap();
+    let boundary_jump = out.get_pixel(16, 20).0.into_iter().zip(src.get_pixel(15, 20).0).map(|(a, b)| a.abs_diff(b)).max().unwrap();
+    assert!(boundary_jump < 12, "Qwen repair must meet the surrounding colour: jump {boundary_jump}");
+    for (x, y, p) in out.enumerate_pixels() {
+        if mask.get_pixel(x, y)[0] == 0 {
+            assert_eq!(p, src.get_pixel(x, y));
+        }
+    }
+    assert_eq!(out.dimensions(), src.dimensions());
 }

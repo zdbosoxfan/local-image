@@ -297,6 +297,13 @@ impl Enhance {
         n
     }
 
+    /// A library's jobs cannot cross into a new catalog, even if photo IDs or files match.
+    pub fn discard(&mut self) {
+        for job in self.jobs.drain(..) {
+            job.ctl.cancel();
+        }
+    }
+
     /// Remove and return the finished jobs with their results.
     pub fn take_finished(&mut self) -> Vec<(Arc<Job>, Result<Outcome, String>)> {
         let (done, running): (Vec<_>, Vec<_>) = std::mem::take(&mut self.jobs).into_iter().partition(|j| j.finished());
