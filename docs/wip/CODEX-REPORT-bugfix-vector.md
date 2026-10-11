@@ -193,3 +193,91 @@ TEST-CHANGED: `pen_ui_escape_focus_persona_document_revision_and_mode_switch_can
 TEST-CHANGED: `path_text_ui_escape_focus_tool_change_and_staleness_cancel` and `path_text_app_gpu_actual_curve_typing_zoomed_preview_release_undo_cancel` now check the exact retained text after Escape and exact document restoration by Undo; focus loss retains the isolated draft without a document edit. Tool/stale-target cancellation and GPU pixel comparisons remain. The previous discard expectations contradicted assigned U-012/O-038.
 
 TEST-CHANGED: `gpu::pen_ui_gpu_real_pointer_preview_release_and_cancel` now checks Escape's committed pixels against the held curve preview, one journal entry, and full document/GPU-frame restoration by Undo. PointerGone leaves the committed path intact. Its second Enter/preview pixel comparison remains. The prior empty-frame expectation contradicted U-012's finish behavior.
+
+## Rework
+
+Coordinator request, 2026-10-11: li-land rejected the attempted integration on `claude/sleepy-franklin-egimjb` at `9247cc397d929a21e9abba721ad963a4410a7d2b`, with `width::tests::width_package_ui_numeric_typing_escape_and_stale_cancel` failing. The original job result is committed as `d2f69d1b`; this rework continues that implementation.
+
+Merged the coordinator branch into the working tree with `--no-commit`. The two conflicts are resolved: `pending_vector.rs` retains both the Vector English keys and the incoming save/Library keys; `CODEX-TASK.md` retains the active Vector assignment and quotes the already-landed upstream build-gate handoff. The incoming AI, save, and build-gate implementations are retained. There are no unmerged index entries. The prepared merge and Width fix remain uncommitted for li-land.
+
+The first merge attempt could not proceed because Git has no configured committer identity. A command-local identity was supplied for the noncommitting merge; no global or repository Git configuration was changed:
+
+```sh
+git merge --no-commit claude/sleepy-franklin-egimjb
+git -c user.name=Codex -c user.email=codex@localhost merge --no-commit claude/sleepy-franklin-egimjb
+git add crates/pc-ui-egui/src/i18n/pending_vector.rs docs/wip/CODEX-TASK.md
+```
+
+**Real cause:** the earlier Escape-focus protection correctly remembers a text field's focus before egui clears it. Width's panel therefore skips its canvas-wide cancellation, but its numeric blur handler still sees no current keyboard focus and commits the pending width. The unchanged test reproduces an unwanted committed `left: 35.0` where the original document has `left: 12.0`, at `width/tests.rs:184`; its journal assertion also requires no edit.
+
+The failure is in the original Vector focus-handling change, rather than an incompatible incoming implementation. The full existing-target sweep preceded the final Escape focus-capture hook; its numeric Width case was not rerun after that hook. Rework closes that verification gap by running the complete Width module again.
+
+**Fix:** detect Escape when one of the Width panel's own numeric `DragValue` responses loses focus and cancel that pending gesture before the automatic blur commit. This uses the response's widget ownership rather than cancelling independent fields or package drafts. Enter still commits; revision changes still discard stale edits. The production change is six added lines and one changed line in `vector_packages/width.rs`. No tests, assertions, or expectations were changed, and no new user-visible strings were added.
+
+The queue's actual compiled test executable reproduces the failure before this fix:
+
+```sh
+RUST_TEST_THREADS=3 /home/zdavidson/.local/share/local-image-dev/bin/li-test-runner /home/zdavidson/.local/share/local-image-dev/land-target/debug/deps/photocraft_ui_egui-a93212bec34d6250 width::tests::width_package_ui_numeric_typing_escape_and_stale_cancel --exact --nocapture > target/bugfix-vector/rework/width-land-before.log 2>&1
+```
+
+Captured output (exit 101):
+
+```text
+panicked at crates/pc-ui-egui/src/vector_packages/width/tests.rs:184:9:
+assertion `left == right` failed
+[left document's middle WidthPoint: t: 0.5, left: 35.0, right: 20.0]
+[right/original document's middle WidthPoint: t: 0.5, left: 12.0, right: 20.0]
+test width::tests::width_package_ui_numeric_typing_escape_and_stale_cancel ... FAILED
+```
+
+Full captures: [queue rejection](bugfix-vector-validation/rework/land-failure.log.gz), [before-fix reproduction](bugfix-vector-validation/rework/width-land-before.log.gz). The bracketed lines above summarize the large document dumps; the capture preserves them in full.
+
+An initial standalone Cargo baseline began rebuilding the cold worktree cache. Once the queue executable provided the actual failure, only that task-owned baseline Cargo process and its compiler descendants were terminated (exit 143), and subsequent builds used the warm queue target. That incomplete build is not counted as validation:
+
+```sh
+PATH=/home/zdavidson/.local/share/local-image-dev/bin:$PATH RUSTC_WRAPPER=li-rustc-gate cargo test --offline -p photocraft-ui-egui --lib width::tests::width_package_ui_numeric_typing_escape_and_stale_cancel -- --exact --nocapture > target/bugfix-vector/rework/width-before.log 2>&1
+```
+
+Full partial output: [abandoned cold-cache build](bugfix-vector-validation/rework/width-before.log.gz). No owner Local Image or ComfyUI process was stopped.
+
+Required rework commands use Rust 1.98.1, the shared rustc gate, `--offline`, and an unset `CARGO_BUILD_JOBS`. These run from the repository root:
+
+```sh
+PATH=/home/zdavidson/.local/share/local-image-dev/bin:$PATH RUSTC_WRAPPER=li-rustc-gate CARGO_TARGET_DIR=/home/zdavidson/.local/share/local-image-dev/land-target /home/zdavidson/.cargo/bin/cargo +1.98.1 test --offline -p photocraft-ui-egui --lib width::tests:: -- --nocapture > target/bugfix-vector/rework/width-after.log 2>&1
+PATH=/home/zdavidson/.local/share/local-image-dev/bin:$PATH RUSTC_WRAPPER=li-rustc-gate CARGO_TARGET_DIR=/home/zdavidson/.local/share/local-image-dev/land-target /home/zdavidson/.cargo/bin/cargo +1.98.1 test --offline -p photocraft-engine -p photocraft-ui-egui -p photocraft-text -p photocraft-vecfx --lib bugfix_vector --no-fail-fast > target/bugfix-vector/rework/own-tests.log 2>&1
+PATH=/home/zdavidson/.local/share/local-image-dev/bin:$PATH RUSTC_WRAPPER=li-rustc-gate CARGO_TARGET_DIR=/home/zdavidson/.local/share/local-image-dev/land-target /home/zdavidson/.cargo/bin/cargo +1.98.1 check --offline --workspace --all-targets > target/bugfix-vector/rework/workspace-check.log 2>&1
+PATH=/home/zdavidson/.local/share/local-image-dev/bin:$PATH RUSTC_WRAPPER=li-rustc-gate CARGO_TARGET_DIR=/home/zdavidson/.local/share/local-image-dev/land-target /home/zdavidson/.cargo/bin/cargo +1.98.1 clippy --offline -p photocraft-engine -p photocraft-ui-egui -p photocraft-text -p photocraft-vecfx --all-targets -- -D warnings > target/bugfix-vector/rework/clippy.log 2>&1
+```
+
+The first strict Clippy attempt exited 101 with incompatible metadata in dependencies: Cargo used the official Rust 1.98.1 toolchain, while `cargo-clippy` was found in `/usr/bin` and used the Fedora build of the compiler. This is a toolchain selection failure, not a source lint failure. The diagnostic identifies artifacts compiled by `rustc 1.98.1 (48a229cea 2026-09-01)` and a reader expecting the Fedora-suffixed compiler version. The retry puts the rustup proxies first in PATH; `cargo-clippy +1.98.1 --version` reports `clippy 0.1.98 (48a229ceae 2026-09-01)`:
+
+```sh
+PATH=/home/zdavidson/.cargo/bin:/home/zdavidson/.local/share/local-image-dev/bin:$PATH RUSTC_WRAPPER=li-rustc-gate CARGO_TARGET_DIR=/home/zdavidson/.local/share/local-image-dev/land-target /home/zdavidson/.cargo/bin/cargo +1.98.1 clippy --offline -p photocraft-engine -p photocraft-ui-egui -p photocraft-text -p photocraft-vecfx --all-targets -- -D warnings > target/bugfix-vector/rework/clippy-aligned.log 2>&1
+```
+
+
+The corrected driver then detected metadata written by the first attempt (`bitflags` was compiled by the Fedora driver). The packages compiled/checked during those two attempts were selectively cleaned; Cargo cleaned their build artifacts only, retaining the shared target's other packages. The clean exited 0 and reported `Removed 19876 files, 14.5GiB total`; its warnings say version qualifiers are ignored for cleaning. Source files were not changed. Exact repair and final retry commands:
+
+```sh
+PATH=/home/zdavidson/.cargo/bin:/home/zdavidson/.local/share/local-image-dev/bin:$PATH RUSTC_WRAPPER=li-rustc-gate CARGO_TARGET_DIR=/home/zdavidson/.local/share/local-image-dev/land-target /home/zdavidson/.cargo/bin/cargo +1.98.1 clean --offline -p bitflags@2.13.2 -p rustix@1.1.5 -p serde_json@1.0.151 -p half@2.7.1 -p stable_deref_trait@1.2.1 -p photocraft-cms@2.0.0-alpha.1 -p hashbrown@0.16.1 -p photocraft-geom@2.0.0-alpha.1 -p memmap2@0.9.11 -p font-types@0.12.5 -p indexmap@2.14.2 -p lightcraft-geom@2.0.0-alpha.1 -p photocraft-text@2.0.0-alpha.1 -p photocraft-psd@2.0.0-alpha.1 -p lightcraft-tiff@2.0.0-alpha.1 -p ttf-parser@0.25.1 -p yoke@0.8.3 -p photocraft-color@2.0.0-alpha.1 -p png@0.18.1 -p spirv@0.4.0+sdk-1.4.341.0 -p lightcraft-color@2.0.0-alpha.1 -p as-slice@0.2.1 -p lightcraft-meta@2.0.0-alpha.1 -p raw-cpuid@11.6.0 -p owned_ttf_parser@0.25.1 > target/bugfix-vector/rework/artifact-clean.log 2>&1
+PATH=/home/zdavidson/.cargo/bin:/home/zdavidson/.local/share/local-image-dev/bin:$PATH RUSTC_WRAPPER=li-rustc-gate CARGO_TARGET_DIR=/home/zdavidson/.local/share/local-image-dev/land-target /home/zdavidson/.cargo/bin/cargo +1.98.1 clippy --offline -p photocraft-engine -p photocraft-ui-egui -p photocraft-text -p photocraft-vecfx --all-targets -- -D warnings > target/bugfix-vector/rework/clippy-cleaned.log 2>&1
+```
+
+
+Final rework results (all four required commands exited 0):
+
+```text
+Width module: test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 1354 filtered out; finished in 0.06s
+Own engine regressions: test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1323 filtered out; finished in 0.01s
+Own text regression: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 0.03s
+Own UI regressions: test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 1340 filtered out; finished in 30.56s
+Own vecfx regression: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 47 filtered out; finished in 0.01s
+Workspace/all-target check: Finished `dev` profile [optimized + debuginfo] target(s) in 58m 55s
+Final strict Clippy: Finished `dev` profile [optimized + debuginfo] target(s) in 2m 15s
+```
+
+The combined regression build reported `58m 00s`, including shared-target and linking waits. The absent optional craft-fonts build-script warning remains in the full captures. The final Clippy run has no source lint failure. Width's existing exact document and journal assertions pass unchanged; the complete Width module also covers numeric Enter, stale revisions, graph/canvas drags, focus loss, presets, deletion and Undo. All 29 original Vector regressions pass on the merged tree.
+
+Full stdout/stderr: [Width module](bugfix-vector-validation/rework/width-after.log.gz), [29 regressions](bugfix-vector-validation/rework/own-tests.log.gz), [workspace/all-target check](bugfix-vector-validation/rework/workspace-check.log.gz), [final strict Clippy](bugfix-vector-validation/rework/clippy-cleaned.log.gz). Intermediate toolchain diagnostics are retained as [first Clippy](bugfix-vector-validation/rework/clippy.log.gz), [aligned driver before repair](bugfix-vector-validation/rework/clippy-aligned.log.gz), and [selective artifact cleanup](bugfix-vector-validation/rework/artifact-clean.log.gz).
+
+Final review: `git diff claude/sleepy-franklin-egimjb --check` passes; `git diff --name-only --diff-filter=U` is empty. No existing test was removed or modified in rework, so no new expectation-change declaration is required. No commit was created; `MERGE_HEAD` records `9247cc397d929a21e9abba721ad963a4410a7d2b` for the prepared merge that li-land will commit with this fix. Earlier validation above remains the record for the original `c8ca0b63` baseline; this section records the current rework gates.

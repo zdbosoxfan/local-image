@@ -635,8 +635,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 let ids: Vec<PhotoId> = s.targets(p).into_iter().filter(|id| *id != prev).collect();
                 let ops = ids
                     .iter()
-                    .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
-                    .filter_map(|(id, d)| s.develop_op(id, lightcraft_develop::apply_partial(&d, &partial, 1.0), "Paste from Previous"))
+                    .filter_map(|id| {
+                        let d = s.develop_of(*id)?;
+                        let settings = s.transfer_settings(*id, &d, &partial);
+                        s.develop_op(*id, settings, "Paste from Previous")
+                    })
                     .collect::<Vec<_>>();
                 let n = ops.len();
                 s.commit("Paste from Previous", Op::Batch { ops })?;
@@ -661,8 +664,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 let ids = s.targets(p);
                 let ops = ids
                     .iter()
-                    .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
-                    .filter_map(|(id, d)| s.develop_op(id, lightcraft_develop::apply_partial(&d, &clip, 1.0), "Paste Settings"))
+                    .filter_map(|id| {
+                        let d = s.develop_of(*id)?;
+                        let settings = s.transfer_settings(*id, &d, &clip);
+                        s.develop_op(*id, settings, "Paste Settings")
+                    })
                     .collect::<Vec<_>>();
                 let n = ops.len();
                 s.commit("Paste Settings", Op::Batch { ops })?;
@@ -687,8 +693,11 @@ pub fn specs() -> Vec<CommandSpec> {
                     .clone()
                     .into_iter()
                     .filter(|x| *x != id)
-                    .filter_map(|x| s.develop_of(x).map(|d| (x, d)))
-                    .filter_map(|(x, dd)| s.develop_op(x, lightcraft_develop::apply_partial(&dd, &partial, 1.0), "Sync Settings"))
+                    .filter_map(|x| {
+                        let d = s.develop_of(x)?;
+                        let settings = s.transfer_settings(x, &d, &partial);
+                        s.develop_op(x, settings, "Sync Settings")
+                    })
                     .collect::<Vec<_>>();
                 let n = ops.len();
                 s.commit("Sync Settings", Op::Batch { ops })?;
@@ -789,13 +798,20 @@ pub fn specs() -> Vec<CommandSpec> {
         // ---- presets
         cmd!("preset.apply", "Apply Preset", [], None, "{id: presetId, amount?: 0..200 (percent), ids?}", has_selection, |s, p| {
             let pid = str_param(p, "id").ok_or_else(|| bad("preset.apply", "missing id"))?;
-            let preset = s.presets.iter().find(|x| x.id == pid).cloned().ok_or_else(|| bad("preset.apply", format!("unknown preset `{pid}`")))?;
+            let mut preset = s.presets.iter().find(|x| x.id == pid).cloned().ok_or_else(|| bad("preset.apply", format!("unknown preset `{pid}`")))?;
+            if let Some(object) = preset.settings.as_object_mut() {
+                lightcraft_develop::presets::strip_photo_bound(object);
+            }
             let amount = f64_or(p, "amount", 100.0).clamp(0.0, 200.0) / 100.0;
             let ids = s.targets(p);
             let ops = ids
                 .iter()
-                .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
-                .filter_map(|(id, d)| s.develop_op(id, preset.apply(&d, amount), &format!("Preset: {}", preset.name)))
+                .filter_map(|id| {
+                    let d = s.develop_of(*id)?;
+                    let mut settings = preset.apply(&d, amount);
+                    s.refresh_transferred_masks(*id, &mut settings, d.masks.len());
+                    s.develop_op(*id, settings, &format!("Preset: {}", preset.name))
+                })
                 .collect::<Vec<_>>();
             s.commit(&format!("Preset: {}", preset.name), Op::Batch { ops })?;
             ok()

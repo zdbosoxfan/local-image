@@ -255,7 +255,12 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
         match outcome {
             Some(true) => {
-                let _ = confirm(app, d.id);
+                if let Err(e) = confirm(app, d.id)
+                    && e != "cancelled"
+                {
+                    app.ui.status = if d.fields.contains_key("__export") { crate::i18n::fmt(tl!("Export failed: {error}"), &[("error", &e)]) } else { e };
+                    app.ui.status_error = true;
+                }
             }
             Some(false) => {
                 cancel(app, d.id);
@@ -311,6 +316,14 @@ pub fn cancel(app: &mut PhotocraftApp, id: u64) -> Option<crate::state::Dialog> 
 
 /// Confirm a dialog: run its action and close it. Used by the OK button and by automation.
 pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
+    if let Some(d) = app.ui.dialogs.iter().find(|d| d.id == id)
+        && d.fields.contains_key("__export")
+    {
+        let fields = d.fields.clone();
+        let result = crate::export_dialog::confirm(app, &fields)?;
+        app.ui.close_dialog(id);
+        return Ok(result);
+    }
     let d = app.ui.close_dialog(id).ok_or_else(|| format!("no dialog {id}"))?;
     match d.kind {
         DialogKind::NewDocument => {

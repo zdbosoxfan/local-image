@@ -158,6 +158,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn repository_assets_have_attribution_coverage() {
+        run(&crate::root()).expect("every tracked asset must have provenance and licence coverage");
+    }
+
+    #[test]
     fn patterns_do_not_hide_unattributed_subdirectories() {
         assert!(matches("assets/icons/*.svg", "assets/icons/brush.svg"));
         assert!(!matches("assets/icons/*.svg", "assets/icons/color/brush.svg"));

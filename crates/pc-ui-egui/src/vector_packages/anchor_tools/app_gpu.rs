@@ -1,4 +1,4 @@
-//! Full-app RTX 5090 acceptance. Compiled here; execution awaits 00's route/display hooks.
+//! Full-app RTX 5090 acceptance, registered in the serialized GPU integration binary.
 //! These tests deliberately fail without those hooks or with a software adapter.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
@@ -6,7 +6,6 @@ use crate::{PhotocraftApp, canvas::ViewXform};
 use egui_kittest::Harness;
 use photocraft_doc::{Color, ColorMode, Layer, Path, SampleType, ShapeLayer, Size, Subpath};
 type H = Harness<'static, PhotocraftApp>;
-static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn harness(tool: Tool) -> H {
     let mut setup = crate::gpu_canvas::wgpu_setup();
     crate::gpu_canvas::use_adapter_limits_with(&mut setup, |a| {
@@ -83,10 +82,8 @@ fn parity(a: &[[u8; 4]], b: &[[u8; 4]]) {
     assert!(max <= 1, "premultiplied max diff {max}/255");
 }
 #[test]
-#[ignore = "speed rules prohibit GPU runs; requires 00 app routing/display hooks"]
 fn anchor33_gpu_full_app_add_delete_convert_preview_release_and_cancel() {
-    let _gpu_gate = crate::gpu_test_support::lock();
-    let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _gpu_gate = super::gpu_lock();
     for (tool, start, end) in
         [(Tool::AddAnchor, [70., 90.], [70., 90.]), (Tool::DeleteAnchor, [120., 90.], [120., 90.]), (Tool::AnchorPoint, [120., 90.], [140., 120.])]
     {
@@ -128,10 +125,8 @@ fn anchor33_gpu_full_app_add_delete_convert_preview_release_and_cancel() {
     }
 }
 #[test]
-#[ignore = "speed rules prohibit GPU runs; requires 00 app routing/display hooks"]
 fn anchor33_gpu_full_app_curvature_preview_finish_one_journal_and_undo() {
-    let _gpu_gate = crate::gpu_test_support::lock();
-    let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _gpu_gate = super::gpu_lock();
     let mut h = harness(Tool::Curvature);
     let before = h.state().session.active().unwrap().doc.clone();
     let baseline = pixels(&mut h);

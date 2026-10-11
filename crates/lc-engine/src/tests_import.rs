@@ -28,6 +28,31 @@ fn ids(v: &Value, key: &str) -> usize {
 }
 
 #[test]
+fn bugfix_save_o021_import_into_album_preserves_selection_and_interaction() {
+    let src = temp_dir("bugfix-album-selection");
+    write_png(&src.join("new.png"), 51);
+    let mut s = Session::with_demo().with_fs();
+    let selected = s.selection.clone();
+    let a = s.execute("album.create", &json!({"name": "Import"})).unwrap()["id"].as_u64().unwrap();
+    s.begin_interaction("Exposure").unwrap();
+    s.execute("develop.set", &json!({"control": "light.exposure", "value": 1.0})).unwrap();
+    let mut job = crate::import::ImportJob::new(&mut s, Default::default()).unwrap();
+    let prepared = job.prepare_files(vec![src.join("new.png").to_string_lossy().into_owned()], &std::sync::atomic::AtomicBool::new(false));
+    let r = s
+        .execute_fn("library.import", |s| {
+            let report = crate::import::commit_prepared(s, &job.opts, job.now(), prepared)?;
+            crate::cmd::library::import_batch_done(s, report, Some(a), None)
+        })
+        .unwrap();
+    assert_eq!(s.selection, selected);
+    assert_eq!(s.interaction.as_ref().unwrap().photo, selected.active.unwrap());
+    assert_eq!(s.catalog.album(lightcraft_catalog::AlbumId(a)).unwrap().photos.len(), 1);
+    assert_eq!(r["imported"].as_array().unwrap().len(), 1);
+    s.end_interaction().unwrap();
+    std::fs::remove_dir_all(src).unwrap();
+}
+
+#[test]
 fn recursive_import_with_duplicates() {
     let src = temp_dir("src");
     write_png(&src.join("a.png"), 1);

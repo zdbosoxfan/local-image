@@ -248,11 +248,16 @@ pub fn open(app: &mut PhotocraftApp, path: &Path) {
 /// Moves to the previous (-1) or next (+1) image. The image left behind is closed once the next
 /// one shows, unless it has unsaved edits (then it stays open in its tab, marked in the strip).
 pub fn step(app: &mut PhotocraftApp, delta: i32) -> bool {
+    let current = active_file(app);
+    step_from(app, current.as_deref(), delta)
+}
+
+fn step_from(app: &mut PhotocraftApp, current: Option<&Path>, delta: i32) -> bool {
     let files = files();
     if files.is_empty() {
         return false;
     }
-    let cur = active_file(app).and_then(|p| files.iter().position(|f| *f == p));
+    let cur = current.and_then(|p| files.iter().position(|f| f == p));
     let next = match cur {
         Some(i) => (i as i64 + delta as i64).clamp(0, files.len() as i64 - 1) as usize,
         None => 0,
@@ -302,7 +307,8 @@ fn save_to(app: &PhotocraftApp) -> String {
 }
 
 /// Save & Next: saves the active image's edits (see [`save_to`]), then steps to the next image.
-/// An image without edits just moves on. Returns false when the save failed or was cancelled.
+/// An image without edits just moves on. Returns false while saving is pending, or if it failed
+/// or was cancelled. A flattened copy keeps its unsaved working tab open.
 pub fn save_and_next(app: &mut PhotocraftApp) -> bool {
     let Some(file) = active_file(app) else {
         app.ui.status = tl!("Open an image from the filmstrip's folder first.").into();
@@ -327,10 +333,19 @@ pub fn save_and_next(app: &mut PhotocraftApp) -> bool {
             }
             return false;
         }
+        if let Some(prompt) = app.tiff_options.as_mut() {
+            prompt.next_file = Some(file);
+            return false;
+        }
         refresh(&file);
     }
-    step(app, 1);
+    step_from(app, Some(&file), 1);
     true
+}
+
+pub(crate) fn saved_and_next(app: &mut PhotocraftApp, file: &Path) {
+    refresh(file);
+    step_from(app, Some(file), 1);
 }
 
 /// Re-reads `file`'s thumbnail (and whether it has an edited copy).
@@ -588,6 +603,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bugfix_save_o007_filmstrip_waits_for_tiff_then_steps_from_original_file() {
+        for discard_layers in [false, true] {
+            let mut app = PhotocraftApp::new(
+                photocraft_engine::Session::new(),
+                crate::Services {
+                    export: Some(Box::new(|_, _, _| Ok((vec![1], vec![])))),
+                    write: Some(Box::new(|_, _| Ok(()))),
+                    pick_save: Some(Box::new(|_| Some("/fixture/copy.tif".into()))),
+                    ..Default::default()
+                },
+            );
+            app.run("file.new", serde_json::json!({"width":8,"height":8})).unwrap();
+            app.run("layer.new.layer", serde_json::json!({})).unwrap();
+            app.session.active_mut().unwrap().path = Some("/fixture/a.png".into());
+            let first = app.session.active().unwrap().doc.id;
+            app.run("file.new", serde_json::json!({"width":8,"height":8})).unwrap();
+            app.session.active_mut().unwrap().path = Some("/fixture/b.png".into());
+            let next = app.session.active().unwrap().doc.id;
+            app.session.set_active(0);
+            app.session.edit_prefs(|p| p.interface.save_and_next_saves_to = "saveAs".into());
+            set_folder(Path::new("/fixture"), vec![PathBuf::from("/fixture/a.png"), PathBuf::from("/fixture/b.png")]);
+            assert!(!save_and_next(&mut app));
+            assert_eq!(app.session.active().unwrap().doc.id, first);
+            assert!(app.tiff_options.is_some());
+            app.tiff_options.as_mut().unwrap().discard_layers = discard_layers;
+            let ctx = egui::Context::default();
+            PhotocraftApp::setup_context(&ctx, Default::default());
+            let mut output = ctx.run_ui(Default::default(), |ui| crate::tiff_options_ui::show(&mut app, ui.ctx()));
+            output.textures_delta.clear();
+            let raw = egui::RawInput {
+                events: vec![egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() }],
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(raw, |ui| crate::tiff_options_ui::show(&mut app, ui.ctx()));
+            output.textures_delta.clear();
+            assert_eq!(app.session.active().unwrap().doc.id, next);
+            assert_eq!(app.session.documents()[0].is_dirty(), discard_layers, "a flattened copy keeps its working tab unsaved");
+            strip(|s| *s = Strip::default());
+        }
+    }
+
+    #[test]
     fn thumbnails_decode_and_orient() {
         let dir = std::env::temp_dir().join(format!("li-film-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -636,12 +693,14 @@ mod tests {
 
         // An edited one is saved to Edited/ first.
         app.run("layer.new.layer", serde_json::json!({})).unwrap();
+        let working = app.session.active().unwrap().doc.clone();
         assert!(save_and_next(&mut app));
         settle(&mut app, &ctx);
         assert_eq!(std::fs::read(dir.join(EDITED_DIR).join("b.png")).unwrap(), b"edited");
         assert_eq!(std::fs::read(dir.join("b.png")).unwrap()[..4], [0x89, b'P', b'N', b'G'], "the original is untouched");
         assert_eq!(active_file(&app), Some(dir.join("c.png")));
-        assert_eq!(app.session.documents().len(), 1);
+        assert_eq!(app.session.documents().len(), 2, "a PNG copy keeps the unsaved working document open");
+        assert!(app.session.documents().iter().find(|d| d.doc.id == working.id).unwrap().is_dirty());
         assert!(strip(|s| s.edited.contains(&dir.join("b.png"))), "the strip marks it edited");
 
         // Unsaved edits keep their tab when stepping away.
@@ -649,8 +708,10 @@ mod tests {
         assert!(step(&mut app, -1));
         settle(&mut app, &ctx);
         assert_eq!(app.session.documents().len(), 2, "c has unsaved edits, so it stays open");
-        // Going back to b opens its edited copy.
-        assert_eq!(app.session.active().and_then(|d| d.path.clone()), Some(dir.join(EDITED_DIR).join("b.png").display().to_string()));
+        // Going back to b resumes the complete working document.
+        assert_eq!(app.session.active().and_then(|d| d.path.clone()), Some(dir.join("b.png").display().to_string()));
+        assert_eq!(app.session.active().unwrap().doc, working);
+        assert!(app.session.active().unwrap().is_dirty());
         assert_eq!(active_file(&app), Some(dir.join("b.png")));
         // The last image says so instead of wrapping.
         assert!(!step(&mut app, -1) || active_file(&app) == Some(a.clone()));

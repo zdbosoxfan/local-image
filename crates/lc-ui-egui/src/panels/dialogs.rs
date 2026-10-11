@@ -484,10 +484,10 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 Dialog::Import { opts } => crate::import::body(app, ui, opts),
                 Dialog::Settings { tab } => crate::panels::settings::body(app, ui, tab),
                 Dialog::SamModel { error, .. } => sam_model_body(app, ui, error.as_deref()),
-                Dialog::ConfirmDelete { count } => {
+                Dialog::ConfirmDelete { count, .. } => {
                     let what = if *count == 1 { crate::i18n::tr("this photo").to_string() } else { crate::i18n::tr_format!("these {count} photos", count = count) };
-                    ui.label(crate::i18n::tr_format!("Move {what} to Recently Deleted?", what = what));
-                    ui.label(egui::RichText::new(crate::i18n::tr("They can be restored from Recently Deleted until it is emptied.")).color(t.text_dim));
+                    ui.label(crate::i18n::tr("Remove {what} from the Library or delete from disk?").replace("{what}", &what));
+                    ui.label(egui::RichText::new(crate::i18n::tr("Remove from Library keeps the files on disk. Delete from Disk moves them to Trash.")).color(t.text_dim));
                 }
                 Dialog::About => {
                     ui.set_min_width(680.0);
@@ -591,6 +591,11 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         confirm = true;
                     }
                 }
+                if let Dialog::ConfirmDelete { ids, disk, .. } = &mut dlg {
+                    let r = ui.add_enabled(crate::menus::can_delete_from_disk(app, ids), egui::Button::new(crate::i18n::tr("Delete from Disk")));
+                    crate::widgets::register(ui.ctx(), "button:deleteFromDisk", r.rect);
+                    if r.clicked() { *disk = true; confirm = true; }
+                }
                 let ok = match &dlg {
                     Dialog::Import { opts } => {
                         let n = opts.selected_paths().len();
@@ -606,7 +611,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     }
                     Dialog::SaveOverOriginal { plan, .. } if plan["mode"] == "beside" => "Save JPEG Beside",
                     Dialog::SaveOverOriginal { .. } => "Overwrite",
-                    Dialog::ConfirmDelete { .. } => "Delete",
+                    Dialog::ConfirmDelete { .. } => "Remove from Library",
                     Dialog::SamModel { then: Some(_), .. } if sam_installed => "Continue",
                     Dialog::SamModel { .. } if sam_installed || sam_running || sam_nowhere => "",
                     Dialog::SamModel { error, .. } if error.is_some() || sam_failed => "Try Again",
@@ -619,6 +624,9 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     crate::widgets::register(ui.ctx(), "button:dialogOk", r.rect);
                 }
                 if r.is_some_and(|r| r.clicked()) {
+                    if let Dialog::ConfirmDelete { disk, .. } = &mut dlg {
+                        *disk = false;
+                    }
                     if informational {
                         close = true;
                     } else {
@@ -643,6 +651,15 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     }
     if confirm {
         match confirm_dialog(app, &dlg) {
+            Err(e) if matches!(dlg, Dialog::ConfirmDelete { .. }) => {
+                if let Dialog::ConfirmDelete { ids, count, disk } = &mut dlg {
+                    ids.retain(|id| app.session.catalog.photo(lightcraft_catalog::PhotoId(*id)).is_some());
+                    *count = ids.len();
+                    *disk = false;
+                    close = ids.is_empty();
+                }
+                app.toast_error(ctx, e);
+            }
             // the import review stays open on an error (e.g. an unusable folder template), and so
             // does Export (e.g. no folder chosen) so the choices aren't lost
             Err(e) if matches!(dlg, Dialog::Import { .. } | Dialog::Export { .. } | Dialog::SaveOverOriginal { .. }) => app.toast_error(ctx, e),
@@ -898,7 +915,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         }
         Dialog::Merge { opts } => crate::merge::start_final(app, opts),
         Dialog::Import { opts } => crate::import::start(app, opts),
-        Dialog::ConfirmDelete { .. } => app.run("photo.delete", json!({})),
+        Dialog::ConfirmDelete { ids, disk, .. } => crate::menus::remove_photos(app, ids, *disk),
         Dialog::About | Dialog::Shortcuts | Dialog::Settings { .. } => Ok(serde_json::Value::Null),
     }
 }

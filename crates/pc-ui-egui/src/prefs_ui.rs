@@ -100,15 +100,17 @@ pub fn load(app: &mut PhotocraftApp) {
         return;
     }
     app.prefs_rt.loaded = true;
+    let mut repaired = false;
     if let Some(text) = app.services.load_prefs.as_mut().and_then(|f| f())
         && let Err(e) = app.session.load_prefs_json(&text)
     {
-        app.ui.status = format!("Preferences were reset: {e}");
+        app.ui.status = crate::i18n::fmt(tl!("Some preferences used defaults: {error}"), &[("error", &e)]);
+        repaired = true;
     }
     crate::dock::restore(app);
     app.sync_recent();
-    app.prefs_rt.saved_rev = app.session.prefs.rev();
-    app.prefs_rt.saved_value = Some(app.session.prefs_value());
+    app.prefs_rt.saved_rev = if repaired { 0 } else { app.session.prefs.rev() };
+    app.prefs_rt.saved_value = if repaired { None } else { Some(app.session.prefs_value()) };
     if app.session.prefs().file_handling.recover_on_launch
         && let Some(recover) = app.services.recover.as_mut()
     {
@@ -2116,5 +2118,35 @@ mod tests {
         assert_eq!(app.ui.dialogs.iter().find(|x| x.id == d).unwrap().fields["width"], 8);
         let d = crate::menus::invoke(&mut app, &ctx, "edit.presets.presetManager", json!({})).unwrap()["dialog"].as_u64().unwrap();
         assert!(crate::dialogs::confirm(&mut app, d).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod bugfix_save_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    #[test]
+    fn bugfix_save_o046_repaired_preferences_are_written_back_once() {
+        let stored = Arc::new(Mutex::new(Some(r#"{"interface":{"theme":"gone"},"general":{"beepWhenDone":true}}"#.to_string())));
+        let read = stored.clone();
+        let write = stored.clone();
+        let mut app = PhotocraftApp::new(
+            photocraft_engine::Session::new(),
+            crate::Services {
+                load_prefs: Some(Box::new(move || read.lock().unwrap().clone())),
+                save_prefs: Some(Box::new(move |text| {
+                    *write.lock().unwrap() = Some(text.into());
+                    Ok(())
+                })),
+                ..Default::default()
+            },
+        );
+        load(&mut app);
+        assert!(app.session.prefs().general.beep_when_done);
+        assert!(persist(&mut app, 0.0).is_none());
+        let text = stored.lock().unwrap().clone().unwrap();
+        let mut session = photocraft_engine::Session::new();
+        session.load_prefs_json(&text).unwrap();
+        assert!(session.prefs().general.beep_when_done);
     }
 }

@@ -487,6 +487,7 @@ impl State {
                 let mut point = *point;
                 let mut changed = false;
                 let mut capture = false;
+                let mut cancel_numeric = false;
                 ui.push_id(self.epoch, |ui| {
                     ui.horizontal(|ui| {
                         for (label, value, range) in [
@@ -498,10 +499,14 @@ impl State {
                             let r = ui.add(egui::DragValue::new(value).range(range).speed(0.1)).labelled_by(label.id);
                             changed |= r.changed();
                             capture |= r.gained_focus() || r.drag_started();
+                            cancel_numeric |= r.lost_focus() && ui.input(|i| i.key_pressed(Key::Escape));
                         }
                     })
                 });
-                if capture || changed {
+                if cancel_numeric {
+                    // Escape belongs to this numeric editor, rather than the canvas or another widget.
+                    self.cancel();
+                } else if capture || changed {
                     let result = self.begin(s, ids).and_then(|_| {
                         if changed && let Some(g) = &mut self.gesture {
                             let i = g.set_point(selected.target, Some(selected.index), point).map_err(|e| e.to_string())?;

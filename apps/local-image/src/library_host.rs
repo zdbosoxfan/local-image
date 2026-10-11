@@ -147,7 +147,7 @@ impl Host {
                 continue;
             }
             let lib = self.library();
-            let (id, msg) = match add_saved_file(&mut lib.session, &save.path, save.photo) {
+            let (id, msg) = match add_saved_file(&mut lib.session, &save.path, save.photo, save.overwritten) {
                 Ok(Some(LibraryUpdate::Added { id, original })) => {
                     let name = lib.session.catalog.photo(original).map(|p| p.file_name.clone()).unwrap_or_default();
                     (Some(id), format!("Saved {}; added to the Library, stacked with {name}", save.path))
@@ -171,6 +171,21 @@ impl Host {
                     continue;
                 }
             };
+            if save.overwritten
+                && let Some(id) = id
+            {
+                let settings: Vec<_> = self
+                    .library()
+                    .session
+                    .catalog
+                    .photos()
+                    .filter(|p| p.id == id || p.copy_of == Some(id))
+                    .map(|p| (p.id.0, serde_json::to_value(&p.develop).unwrap_or_default()))
+                    .collect();
+                for (photo, settings) in settings {
+                    photocraft_ui_egui::develop_layer::sync(&mut self.editor, photo, &settings);
+                }
+            }
             if !msg.is_empty() {
                 self.editor.ui.status = msg.clone();
                 self.editor.ui.status_error = false;
@@ -647,9 +662,9 @@ fn photo_at_path(s: &lightcraft_engine::Session, path: &str) -> Option<lightcraf
 /// The Library's half of saving in Compositing: a file it has is reloaded; a file saved from a
 /// document that came from Library photo `original` is imported, stacked on top of the original
 /// (expanded, as Edit in External Editor does) and selected. Anything else is left alone (`None`).
-fn add_saved_file(s: &mut lightcraft_engine::Session, path: &str, original: Option<u64>) -> Result<Option<LibraryUpdate>, String> {
+fn add_saved_file(s: &mut lightcraft_engine::Session, path: &str, original: Option<u64>, overwritten: bool) -> Result<Option<LibraryUpdate>, String> {
     if let Some(id) = photo_at_path(s, path) {
-        s.execute("photo.reload", &serde_json::json!({ "ids": [id.0] })).map_err(|e| e.to_string())?;
+        s.execute("photo.reload", &serde_json::json!({ "ids": [id.0], "resetDevelop": overwritten })).map_err(|e| e.to_string())?;
         return Ok(Some(LibraryUpdate::Reloaded(id)));
     }
     let Some(original) = original.map(lightcraft_catalog::PhotoId).filter(|id| s.catalog.photo(*id).is_some()) else { return Ok(None) };
@@ -924,12 +939,53 @@ fn remember_module(m: Module) {
 }
 
 /// The Library's UI state and settings (`<config>/library-ui.json`), if saved.
-fn load_prefs() -> Option<UiState> {
+fn read_library_prefs(path: &std::path::Path) -> Result<(UiState, Vec<String>), String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let parsed =
+        serde_json::from_slice(&bytes).map_err(|e| e.to_string()).and_then(|v| photocraft_engine::prefs::lenient::<UiState>(v).map_err(|e| e.to_string()));
+    if parsed.as_ref().map_or(true, |(_, rejected)| !rejected.is_empty()) {
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+        let backup = path.with_file_name(format!("library-ui.json.corrupt-{stamp}"));
+        lightcraft_catalog::safe_file::write_atomic(&backup, &bytes)
+            .map_err(|e| lightcraft_ui_egui::i18n::tr("couldn't preserve damaged Library settings: {error}").replace("{error}", &e.to_string()))?;
+    }
+    parsed.and_then(|(ui, rejected)| {
+        if rejected.iter().any(|key| key.is_empty() || key == "settings" || key == "settings.libraryPath") {
+            return Err(lightcraft_ui_egui::i18n::tr("the stored Library path could not be recovered").into());
+        }
+        Ok((ui.sanitized(), rejected))
+    })
+}
+
+fn load_prefs(writer: &mut PrefsWriter) -> Option<UiState> {
     if std::env::var_os("LOCAL_IMAGE_NO_PREFS").is_some() {
         return None;
     }
-    let bytes = std::fs::read(config_dir()?.join("library-ui.json")).ok()?;
-    serde_json::from_slice::<UiState>(&bytes).ok().map(UiState::sanitized)
+    let path = config_dir()?.join("library-ui.json");
+    if !path.exists() {
+        return None;
+    }
+    match read_library_prefs(&path) {
+        Ok((ui, rejected)) => {
+            if !rejected.is_empty() {
+                writer.notice = Some(
+                    lightcraft_ui_egui::i18n::tr("Some Library settings used defaults: {fields}. A copy of the damaged settings was kept.")
+                        .replace("{fields}", &rejected.join(", ")),
+                );
+            }
+            Some(ui)
+        }
+        Err(e) => {
+            writer.blocked = true;
+            writer.notice = Some(
+                lightcraft_ui_egui::i18n::tr(
+                    "Library settings couldn't be read: {error}. Choose your existing Library folder. Your stored settings will not be replaced.",
+                )
+                .replace("{error}", &e),
+            );
+            None
+        }
+    }
 }
 
 /// Saves `library-ui.json` when it changed (checked every few seconds) and at exit.
@@ -937,10 +993,15 @@ fn load_prefs() -> Option<UiState> {
 struct PrefsWriter {
     written: Vec<u8>,
     checked: f64,
+    blocked: bool,
+    notice: Option<String>,
 }
 
 impl PrefsWriter {
     fn save(&mut self, app: &LightcraftApp) -> Result<(), String> {
+        if self.blocked && (app.library_problem.is_some() || app.ui.settings.library_path.is_empty()) {
+            return Ok(());
+        }
         if cfg!(test) || std::env::var_os("LOCAL_IMAGE_NO_PREFS").is_some() {
             return Ok(());
         }
@@ -950,10 +1011,7 @@ impl PrefsWriter {
             return Ok(());
         }
         std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
-        let tmp = d.join("library-ui.json.tmp");
-        std::fs::write(&tmp, &bytes)
-            .and_then(|()| std::fs::rename(&tmp, d.join("library-ui.json")))
-            .map_err(|e| format!("saving the Library settings failed: {e}"))?;
+        lightcraft_catalog::safe_file::write_atomic(&d.join("library-ui.json"), &bytes).map_err(|e| format!("saving the Library settings failed: {e}"))?;
         self.written = bytes;
         Ok(())
     }
@@ -986,9 +1044,10 @@ fn library_dir(prefs: Option<&UiState>) -> Option<PathBuf> {
 fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter) -> LightcraftApp {
     use lightcraft_engine::Session;
     use lightcraft_ui_egui::panels::library_problem::LibraryProblem;
-    let prefs = load_prefs();
+    let prefs = load_prefs(prefs_writer);
     let unopened = || Session::new().with_fs().with_system_clock();
-    let (mut session, problem) = match library_dir(prefs.as_ref()) {
+    let (mut session, problem) = match if prefs_writer.blocked { None } else { library_dir(prefs.as_ref()) } {
+        None if prefs_writer.blocked => (unopened(), Some(LibraryProblem::new("", prefs_writer.notice.as_deref().unwrap_or("Choose your Library folder.")))),
         None => (unopened(), Some(LibraryProblem::new("", "There is no home folder to keep the library in. Choose a folder for it."))),
         Some(dir) => {
             let mut s = unopened();
@@ -1015,12 +1074,17 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter) -> LightcraftA
     app.host_fonts = true;
     app.integrated_titlebar = false;
     app.library_problem = problem;
+    if let Some(notice) = prefs_writer.notice.take() {
+        app.toast_error(&egui::Context::default(), notice);
+    }
     prefs_writer.written.clear();
     app
 }
 
 fn services(opens: Opens) -> Services {
     Services {
+        trash_file: li_ai::trash::available()
+            .then(|| Box::new(|path: &str| li_ai::trash::move_to_trash(std::path::Path::new(path)).map(|_| ()).map_err(|e| e.to_string())) as _),
         save_denoise_file: Some(Box::new(|name| {
             rfd::FileDialog::new()
                 .set_file_name(name)
@@ -1146,6 +1210,45 @@ fn services(opens: Opens) -> Services {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bugfix_save_o009_overwrite_resets_master_virtual_copy_and_its_develop_link() {
+        use photocraft_ui_egui::develop_layer::LibrarySave;
+        use serde_json::json;
+        let (dir, path, mut library, master) = library_with_photo("bugfix-overwrite-copy");
+        library.run("develop.set", json!({"control": "light.exposure", "value": 1.0})).unwrap();
+        let copy = library.run("photo.virtualCopy", json!({})).unwrap()["ids"][0].as_u64().unwrap();
+        library.run("library.select", json!({"ids": [copy]})).unwrap();
+        library.run("develop.set", json!({"control": "light.exposure", "value": 0.5})).unwrap();
+        let mut host = host_with_round_trip(library, lightcraft_catalog::PhotoId(copy), &path);
+        image::RgbImage::from_pixel(40, 30, image::Rgb([128, 64, 32])).save(&path).unwrap();
+        host.editor.library_saves.push(LibrarySave { path, photo: Some(copy), show: false, overwritten: true });
+        host.take_library_saves(None);
+        let defaults = lightcraft_engine::develop::DevelopSettings::default();
+        for id in [master, lightcraft_catalog::PhotoId(copy)] {
+            assert_eq!(*catalog(&host).catalog.photo(id).unwrap().develop, defaults);
+        }
+        let latest = host
+            .editor
+            .session
+            .active()
+            .unwrap()
+            .doc
+            .walk()
+            .into_iter()
+            .filter_map(|(_, _, layer)| {
+                if let photocraft_doc::LayerContent::Smart(smart) = &layer.content {
+                    smart.develop.as_ref().filter(|link| link.photo == Some(copy))
+                } else {
+                    None
+                }
+            })
+            .next_back()
+            .unwrap();
+        assert_eq!(latest.settings, serde_json::to_value(defaults).unwrap());
+        drop(host);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn opening_a_document_twice_brings_it_forward() {
@@ -2153,6 +2256,34 @@ mod tests {
             assert_eq!(found.len(), 1, "both spellings are the same photo, shown once; the unknown file is skipped");
         }
         eprintln!("unsaved_composites, 3 dirty documents, {n} photos: {:.2} ms/frame", t.elapsed().as_secs_f64() * 1000.0 / reps as f64);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod bugfix_save_tests {
+    use super::*;
+    #[test]
+    fn bugfix_save_o022_bad_library_setting_preserves_path_other_fields_and_original_backup() {
+        let dir = std::env::temp_dir().join(format!("bugfix-save-prefs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("library-ui.json");
+        let bytes = br#"{"language":"retired-language","settings":{"libraryPath":"/my/real/library","previewEdge":3840},"autoAdvance":true}"#;
+        std::fs::write(&path, bytes).unwrap();
+        let (ui, rejected) = read_library_prefs(&path).unwrap();
+        assert_eq!(ui.settings.library_path, "/my/real/library");
+        assert_eq!(ui.settings.preview_edge, 3840);
+        assert!(ui.auto_advance);
+        assert_eq!(rejected, ["language"]);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert!(
+            std::fs::read_dir(&dir).unwrap().filter_map(Result::ok).any(|entry| entry.file_name().to_string_lossy().starts_with("library-ui.json.corrupt-"))
+        );
+        let truncated = br#"{"settings":{"libraryPath":"/my/real/library"},"language":"#;
+        std::fs::write(&path, truncated).unwrap();
+        assert!(read_library_prefs(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), truncated);
+        assert!(read_library_prefs(&path).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
