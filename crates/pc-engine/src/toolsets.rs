@@ -276,14 +276,14 @@ vector_tools![
 /// The legacy Pixel snapshot remains ALL_TOOLS. Vector All Tools is generated from its registry.
 pub fn tools_for(persona: Persona) -> Vec<&'static str> {
     match persona {
-        Persona::Pixel => ALL_TOOLS.to_vec(),
+        Persona::Pixel => ALL_TOOLS.iter().chain(crate::shared_tools::SHARED_ADDITIONS).copied().collect(),
         Persona::Vector => VECTOR_TOOLS.iter().map(|t| t.id).collect(),
     }
 }
 
 pub fn supports(tool: &str, persona: Persona) -> bool {
     match persona {
-        Persona::Pixel => ALL_TOOLS.iter().any(|id| id.eq_ignore_ascii_case(tool)),
+        Persona::Pixel => ALL_TOOLS.iter().any(|id| id.eq_ignore_ascii_case(tool)) || crate::shared_tools::shared_in_pixel(tool),
         Persona::Vector => VECTOR_TOOLS.iter().any(|entry| entry.id.eq_ignore_ascii_case(tool)),
     }
 }
@@ -891,7 +891,7 @@ mod tests {
         assert_eq!(s.prefs().toolbar, original);
         let mut memory = original.clone();
         assert!(!memory.remember_tool(Persona::Vector, "Pencil"));
-        assert!(!memory.remember_tool(Persona::Pixel, "VectorPencil"));
+        assert!(!memory.remember_tool(Persona::Pixel, "VectorBrush"));
         assert_eq!(memory, original);
     }
 

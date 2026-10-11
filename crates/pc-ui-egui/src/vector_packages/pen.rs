@@ -30,7 +30,7 @@ impl Default for Options {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default)]
 pub struct State {
     pub options: Options,
     pub gesture: Option<Gesture>,
@@ -39,6 +39,7 @@ pub struct State {
     pub generation: u64,
     last_pointer: Option<Point>,
     modifiers: egui::Modifiers,
+    preview_layer: Option<photocraft_doc::LayerId>,
 }
 
 fn mods(m: egui::Modifiers) -> Modifiers {
@@ -49,6 +50,7 @@ impl State {
     pub fn cancel(&mut self) {
         self.gesture = None;
         self.preview = None;
+        self.preview_layer = None;
         self.last_pointer = None;
         self.generation = self.generation.wrapping_add(1);
     }
@@ -61,7 +63,7 @@ impl State {
     }
     fn update_preview(&mut self, s: &Session) -> Result<()> {
         if let Some(g) = &self.gesture {
-            self.preview = Some(pen::preview_document(s, g.request())?);
+            pen::update_preview(s, g.request(), &mut self.preview, &mut self.preview_layer)?;
             self.generation = self.generation.wrapping_add(1);
         }
         Ok(())
@@ -101,12 +103,12 @@ impl State {
         self.modifiers = modifiers;
         self.last_pointer = Some(at);
         if let Some(g) = &mut self.gesture {
-            let before = g.path().clone();
+            let before = g.generation();
             if let Err(e) = g.motion(at, mods(modifiers)) {
                 self.cancel();
                 return Err(e);
             }
-            if g.path() != &before
+            if g.generation() != before
                 && let Err(e) = self.update_preview(s)
             {
                 self.cancel();
@@ -173,18 +175,22 @@ pub fn destination(s: &Session, at: Point, tolerance: f64, shape_mode: bool, vec
 
 /// Context-bar controls; changing mode cancels an unfinished gesture.
 pub fn context(ui: &mut egui::Ui, state: &mut State) {
-    let old = state.options.clone();
-    ui.horizontal(|ui| {
-        ui.selectable_value(&mut state.options.mode, Mode::Pen, tl!("Pen"));
-        ui.selectable_value(&mut state.options.mode, Mode::Smart, tl!("Smart"));
-        ui.selectable_value(&mut state.options.mode, Mode::Polygon, tl!("Polygon"));
-        ui.selectable_value(&mut state.options.mode, Mode::Line, tl!("Line"));
-        ui.checkbox(&mut state.options.rubber_band, tl!("Rubber band"));
-        ui.checkbox(&mut state.options.add_to_selected, tl!("Add to selected curve"));
-    });
-    if old.mode != state.options.mode || old.add_to_selected != state.options.add_to_selected {
+    if context_options(ui, &mut state.options) {
         state.cancel();
     }
+}
+
+pub fn context_options(ui: &mut egui::Ui, options: &mut Options) -> bool {
+    let old = options.clone();
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut options.mode, Mode::Pen, tl!("Pen"));
+        ui.selectable_value(&mut options.mode, Mode::Smart, tl!("Smart"));
+        ui.selectable_value(&mut options.mode, Mode::Polygon, tl!("Polygon"));
+        ui.selectable_value(&mut options.mode, Mode::Line, tl!("Line"));
+        ui.checkbox(&mut options.rubber_band, tl!("Rubber band"));
+        ui.checkbox(&mut options.add_to_selected, tl!("Add to selected curve"));
+    });
+    old.mode != options.mode || old.add_to_selected != options.add_to_selected
 }
 
 /// Isolated-host input entrypoint. The app router may instead call down/motion/up directly

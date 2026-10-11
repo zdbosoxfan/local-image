@@ -73,7 +73,22 @@ fn create(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(EngineError::NoLayer(id));
         }
     }
-    let shape = prepare(doc, &design, default_shape(&design))?;
+    let mut base = default_shape(&design);
+    if let Some(fill) = p.get("fill") {
+        base.fill = serde_json::from_value(fill.clone()).map_err(|e| EngineError::Other(e.to_string()))?;
+    }
+    if let Some(stroke) = p.get("stroke") {
+        base.stroke = serde_json::from_value(stroke.clone()).map_err(|e| EngineError::Other(e.to_string()))?;
+    }
+    super::pen::check_paint(&super::pen::Commit {
+        document: doc.id.0,
+        revision: capture(p)?.revision,
+        target: super::pen::Target::Work,
+        path: Default::default(),
+        fill: base.fill.clone(),
+        stroke: base.stroke.clone(),
+    })?;
+    let shape = prepare(doc, &design, base)?;
     let mut layer = Layer::new("Live Shape", LayerContent::Shape(shape));
     layer.vector.live_shape = Some(design);
     let id = layer.id;
@@ -145,7 +160,11 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         label,
         menu: &[],
         shortcut: None,
-        params: "{document:id,revision:n,design:DesignShape | edits:[{layer,design}] | layers:[id]}",
+        params: if id == "shape.design.create" {
+            "{document:id,revision:n,design:DesignShape,above?:id,fill?:Fill|null,stroke?:ShapeStroke|null}"
+        } else {
+            "{document:id,revision:n,design:DesignShape | edits:[{layer,design}] | layers:[id]}"
+        },
         enabled: crate::vector_cmds::has_doc,
         run,
         journal,
