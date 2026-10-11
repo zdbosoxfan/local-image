@@ -979,9 +979,58 @@ fn installed(info: &ObjectInfo, folder: &str, name: &str) -> bool {
     info.find_file(class, input, name).is_some() || (class == "UNETLoader" && info.find_file("UnetLoaderGGUF", "unet_name", name).is_some())
 }
 
+/// Catalogue paths are portable relative names, never paths chosen by a remote publisher.
+fn validate_install_path(folder: &str, name: &str) -> Result<()> {
+    fn component(s: &str) -> bool {
+        let stem = s.split('.').next().unwrap_or("").to_ascii_uppercase();
+        !s.is_empty()
+            && s != "."
+            && s != ".."
+            && !s.ends_with(['.', ' '])
+            && !s.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*'))
+            && !matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            && !(stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+    }
+    if !component(name) || (!folder.is_empty() && !folder.split('/').all(component)) {
+        bail!("Invalid model destination: use a file name and relative model folder without traversal or platform path prefixes");
+    }
+    Ok(())
+}
+
+/// Resolve only within the selected root, including existing directory symlinks. The root
+/// itself may be a user-selected symlink (for example to a model drive).
+fn confined_destination(root: &Path, file: &PlannedFile) -> Result<PathBuf> {
+    validate_install_path(&file.folder, &file.name)?;
+    let mut parent = root.to_path_buf();
+    for part in file.folder.split('/').filter(|p| !p.is_empty()) {
+        parent.push(part);
+        match std::fs::symlink_metadata(&parent) {
+            Ok(_) => {
+                let resolved = parent.canonicalize().context("The model folder link is unavailable")?;
+                if !resolved.starts_with(root) || !resolved.is_dir() {
+                    bail!("The model folder leaves the selected models directory or is not a directory");
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+    }
+    let dest = parent.join(&file.name);
+    match std::fs::symlink_metadata(&dest) {
+        Ok(meta) if meta.file_type().is_symlink() => bail!("The model destination is a symbolic link"),
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    Ok(dest)
+}
+
 /// Resolves exact sizes and hashes and adds the family's missing text encoders and VAE. Fails
 /// (with the reason) for anything Local Image won't install unverified.
 pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &ObjectInfo, cfg: &Config, net: &dyn Net) -> Result<Plan> {
+    for file in files {
+        validate_install_path(&file.folder, &file.name)?;
+    }
     if external_only_item(item) || files.iter().any(|f| crate::restoration::byo::external_only(&format!("{}/{}", f.url, f.name))) {
         bail!("This model is user-installed only; Local Image never downloads it");
     }
@@ -1035,6 +1084,9 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
     }
     let mut out = Plan { license: item.license.clone(), license_url: item.license_url.clone(), gated: item.gated, ..Default::default() };
     let mut trees: BTreeMap<String, BTreeMap<String, (u64, String)>> = BTreeMap::new();
+    for file in &want {
+        validate_install_path(&file.folder, &file.name)?;
+    }
     for f in want {
         if !is_weights(&f.name) {
             bail!("{} is not a .safetensors or .gguf file; Local Image only installs those.", f.name);
@@ -1091,6 +1143,7 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
 /// own hosts.
 pub fn install(plan: &Plan, model_dir: &Path, cfg: &Config, ctl: &crate::comfy::JobControl, on_progress: &dyn Fn(u64, u64, &str)) -> Result<()> {
     for f in &plan.files {
+        validate_install_path(&f.folder, &f.name)?;
         if crate::restoration::byo::external_only(&format!("{}/{}", f.url, f.name)) {
             bail!("This model is user-installed only; Local Image never downloads it");
         }
@@ -1098,10 +1151,21 @@ pub fn install(plan: &Plan, model_dir: &Path, cfg: &Config, ctl: &crate::comfy::
             crate::restoration::validate_download(&f.name, &f.folder, &f.url, f.bytes, &f.sha256)?;
         }
     }
+    if plan.files.is_empty() {
+        return Ok(());
+    }
+    ctl.check()?;
+    std::fs::create_dir_all(model_dir)?;
+    let root = model_dir.canonicalize().context("The models directory is unavailable")?;
+    // Check the whole plan before fetching even its first file.
+    for file in &plan.files {
+        confined_destination(&root, file)?;
+    }
     let total = plan.total();
     let mut done = 0u64;
     for f in &plan.files {
-        let dest = model_dir.join(&f.folder).join(&f.name);
+        ctl.check()?;
+        let dest = confined_destination(&root, f)?;
         if dest.exists() {
             let spec = crate::family::FileSpec { name: f.name.clone(), bytes: f.bytes, sha256: f.sha256.clone(), ..Default::default() };
             crate::download::verify_existing(&dest, &spec)?;
@@ -1377,6 +1441,80 @@ mod tests {
         let _ = std::fs::remove_dir_all(&cache.dir);
     }
 
+    #[test]
+    fn install_rejects_unsafe_catalogue_paths_before_io() {
+        let root = std::env::temp_dir().join(format!("li-model-paths-{}", uuid::Uuid::new_v4()));
+        let cfg = Config::default();
+        for (folder, name) in [
+            ("checkpoints", "../escape.safetensors"),
+            ("checkpoints", "/escape.gguf"),
+            ("../escape", "model.gguf"),
+            ("/tmp", "model.gguf"),
+            ("safe/../escape", "model.gguf"),
+            ("safe", "C:\\escape.gguf"),
+            ("C:escape", "model.gguf"),
+            ("safe\\escape", "model.gguf"),
+            ("safe//nested", "model.gguf"),
+            ("safe", "NUL.safetensors"),
+            ("safe", "model.gguf "),
+            ("safe", "sub/model.gguf"),
+            ("safe", ""),
+            ("safe", "x\0.gguf"),
+        ] {
+            let file = PlannedFile { folder: folder.into(), name: name.into(), url: "https://huggingface.co/unused".into(), bytes: 1, sha256: "0".repeat(64) };
+            let plan = Plan { files: vec![file], ..Default::default() };
+            let error = install(&plan, &root, &cfg, &crate::comfy::JobControl::new(), &|_, _, _| {}).unwrap_err();
+            assert!(error.to_string().contains("Invalid model destination"), "{folder}/{name}: {error}");
+            assert!(!root.exists(), "a rejected catalogue path created files");
+            let file = CatalogFile { folder: folder.into(), name: name.into(), ..Default::default() };
+            assert!(
+                super::plan(&Item::default(), &[file], None, &ObjectInfo(Value::Null), &cfg, &FakeNet(BTreeMap::new(), None))
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Invalid model destination")
+            );
+        }
+        for (folder, name) in [("checkpoints", "my model.safetensors"), ("loras/style", "モデル.gguf"), ("", "root.gguf")] {
+            validate_install_path(folder, name).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_rejects_escaping_and_dangling_symlinks() {
+        use std::os::unix::fs::symlink;
+        let base = std::env::temp_dir().join(format!("li-model-links-{}", uuid::Uuid::new_v4()));
+        let root = base.join("models");
+        let outside = base.join("outside");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, root.join("checkpoints")).unwrap();
+        let file = PlannedFile {
+            folder: "checkpoints".into(),
+            name: "model.gguf".into(),
+            url: "https://huggingface.co/unused".into(),
+            bytes: 1,
+            sha256: "0".repeat(64),
+        };
+        let cfg = Config::default();
+        let ctl = crate::comfy::JobControl::new();
+        let plan = Plan { files: vec![file.clone()], ..Default::default() };
+        assert!(install(&plan, &root, &cfg, &ctl, &|_, _, _| {}).unwrap_err().to_string().contains("leaves the selected"));
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+        std::fs::remove_file(root.join("checkpoints")).unwrap();
+        std::fs::create_dir(root.join("checkpoints")).unwrap();
+        symlink(outside.join("missing.gguf"), root.join("checkpoints/model.gguf")).unwrap();
+        assert!(install(&plan, &root, &cfg, &ctl, &|_, _, _| {}).unwrap_err().to_string().contains("symbolic link"));
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+        std::fs::remove_file(root.join("checkpoints/model.gguf")).unwrap();
+        // Safe nested paths and an explicitly chosen root link remain usable.
+        let root_link = base.join("chosen-root");
+        symlink(&root, &root_link).unwrap();
+        let nested = PlannedFile { folder: "checkpoints/nested".into(), ..file };
+        assert_eq!(confined_destination(&root_link.canonicalize().unwrap(), &nested).unwrap(), root.join("checkpoints/nested/model.gguf"));
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
     /// The whole flow against the mock server: browse every source, install a Hugging Face
     /// model, a Civitai checkpoint (through its CDN redirect) and an official template, refuse the
     /// unverified and gated ones, and see the installs in ComfyUI's refreshed listing.
@@ -1451,8 +1589,13 @@ mod tests {
         // Offline: the cached catalogue still answers.
         let q = Query { view: View::Trending, kind: Kind::Model, search: String::new(), sources: vec![Source::HuggingFace] };
         let (_, u0) = urls(&cfg, reg, &q).remove(0);
+        let cached = cache.get(&u0).unwrap().0;
+        // Close the client's pooled keep-alive connection before stopping the mock.
+        // Reusing that dead connection tests a 60-second HTTP timeout, not cache fallback.
+        drop(net);
         drop(mock);
-        assert!(cache.fetch(&net, &u0, true).unwrap().1, "served from the cache");
+        let offline = HttpNet::new(cfg);
+        assert_eq!(cache.fetch(&offline, &u0, true).unwrap(), (cached, true), "served from the cache after a real connection failure");
         let _ = std::fs::remove_dir_all(&models);
     }
 }
