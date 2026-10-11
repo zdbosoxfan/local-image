@@ -1,22 +1,14 @@
-# Codex task: hotfix the critical regressions found in the test build (f73bc0ca)
+# Codex task: fix the known failing tests on the working branch
 
-The owner is testing build f73bc0ca right now. Claude Opus's final review reproduced these regressions headless on that
-build. Full details (root cause, file:line, repro) are in
-/home/zdavidson/.local/share/local-image-dev/reviews/opus-final-review.md — read findings O-001, O-002, O-003, O-004
-(and O-005/O-006 if they share the root cause with O-002). Repro drivers: /tmp/claude-1000/opus-review-snapshots/ and the
-scratchpad pcsnap/ drivers mentioned there.
-
-Fix ONLY these, minimally, each with a regression test that fails before and passes after:
-- O-001: Pixel options bar empty for most tools (vector tool-options scroll area at crates/pc-ui-egui/src/panels.rs:693
-  takes the whole row). Both personas' option bars must show their controls.
-- O-002: drawn shapes (Rectangle/Ellipse/Polygon/Line) don't visibly move/transform on the canvas in either persona while
-  exports show the new position (stale canvas cache/projection).
-- O-003: in the Vector persona, typing into an active text edit is captured as tool shortcuts. Text editing must own the
-  keyboard (same as Pixel persona / Photoshop / Affinity).
-- O-004: Save as PSD / layered TIFF fails after placing SVG/PDF/Affinity or using Repeat, Blend, Vector Crop; must save
-  (use the PSD advanced-vector fallback from package 23 with its editability-loss report) so the Library round trip's
-  -Edit.psd save works.
-Do not touch anything else. Rules: RUSTC_WRAPPER=li-rustc-gate (already set), Rust 1.98.1, --offline, no CARGO_BUILD_JOBS
-cap. Run your new regression tests plus the existing tests of the files you changed, once; workspace check; strict clippy
-on touched crates. Leave changes uncommitted; the merge queue lands them. Report: docs/wip/CODEX-REPORT-hotfix-critical.md
-with exact commands and outputs.
+These tests fail on the working branch (they appeared when the vector integration was merged with the ds2-fix batch);
+the merge queue currently tolerates them via ~/.local/share/local-image-dev/land-known-failures.txt:
+- photocraft-engine layer_multi_cmds::tests::merge_selected_into_top_most (undo restores two selected layers; test expects one)
+- photocraft-ui-egui fill_stroke_proxy::tests::toolbar46_registered_icon_alpha_and_styles_at_16_20_40 (icon padding blend/16)
+- photocraft-ui-egui layer_reveal::tests::a_new_active_layer_opens_its_groups_and_scrolls_into_view (layer_reveal_tests.rs:111)
+- photocraft-ui-egui vector_ui::tests::ds_finding_borrowed_shape_options_allow_corner_editing (vector_ui.rs:1215)
+For each: decide whether the app behaviour or the test is wrong (check git history of both sides: ds2-fix c0652fae and the
+vector integration 1974facf, and what Photoshop/Affinity do), fix the right side, and explain in the report. Do not
+weaken a test to make it pass; if a test's expectation is wrong, say why and declare it with a line starting
+"TESTS-REMOVED:" or "TEST-CHANGED:" in the report. Rules: RUSTC_WRAPPER=li-rustc-gate (set), Rust 1.98.1, --offline.
+Run those four tests and the modules you changed once; workspace check; strict clippy on touched crates. Leave changes
+uncommitted. Report: docs/wip/CODEX-REPORT-known-failures.md with exact commands and outputs.

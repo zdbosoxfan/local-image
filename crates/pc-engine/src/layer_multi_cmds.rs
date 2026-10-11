@@ -1188,6 +1188,7 @@ mod tests {
             s.execute("layer.renameLayer", json!({"layer": c.0, "name": "Top"})).unwrap();
             select_all(&mut s, &[a, c]);
             let before = doc(&s).layer_count();
+            let original = s.active().unwrap().doc.clone();
             let m = LayerId(s.execute("layer.mergeLayers", json!({})).unwrap()["layer"].as_u64().unwrap());
             let d = doc(&s);
             assert_eq!(d.layer_count(), before - 1);
@@ -1199,12 +1200,25 @@ mod tests {
             assert!(d.layer(b).is_some() && d.layer(a).is_none());
             assert_eq!(d.layers.last().unwrap().id, m, "merged layer sits where the top-most was");
             assert_eq!(sel(&s), vec![m]);
-            s.undo();
-            assert_eq!(doc(&s).layer_count(), before);
-            assert_eq!(sel(&s), vec![c], "undo leaves a valid selection");
-            // One layer selected: Merge Down.
+            let merged = s.active().unwrap().doc.clone();
+            assert!(s.undo());
+            assert_eq!(s.active().unwrap().doc, original, "undo restores the complete document");
+            assert_eq!(sel(&s), vec![a, c], "undo restores the merge's input selection");
+            assert_eq!(s.active().unwrap().active_layer, Some(c));
+            assert!(s.redo());
+            assert_eq!(s.active().unwrap().doc, merged);
+            assert_eq!(sel(&s), vec![m]);
+            assert_eq!(s.active().unwrap().active_layer, Some(m));
+            assert!(s.undo());
+            assert_eq!(s.active().unwrap().doc, original);
+            assert_eq!(sel(&s), vec![a, c]);
+            // Explicitly select one layer for the separate Merge Down case.
+            s.execute("layer.select", json!({"layer": c.0})).unwrap();
             s.execute("layer.mergeLayers", json!({})).unwrap();
             assert_eq!(doc(&s).layer_count(), before - 1);
+            assert!(doc(&s).layer(a).is_some(), "the unselected bottom layer remains");
+            assert!(doc(&s).layer(c).is_none(), "Merge Down consumes the selected upper layer");
+            assert_eq!(layer_bounds(doc(&s).layer(b).unwrap()).unwrap(), Rect::new(20, 0, 50, 10));
         }
     }
 

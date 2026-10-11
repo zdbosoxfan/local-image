@@ -672,6 +672,9 @@ pub fn svg(a: &Art, mono: bool) -> String {
 }
 pub fn run(root: &Path) -> std::io::Result<()> {
     for a in ART {
+        if a.tool.is_empty() || a.label.is_empty() || a.recognition.is_empty() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, format!("missing vector icon description: {}", a.icon)));
+        }
         for (dir, mono) in [("tools", true), ("color", false)] {
             std::fs::write(root.join(format!("assets/icons/{dir}/{}.svg", a.icon)), svg(a, mono))?;
         }
