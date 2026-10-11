@@ -69,8 +69,12 @@ pub mod anchor_tools;
 pub mod blend;
 #[path = "vector_packages/library_vectorize.rs"]
 pub mod library_vectorize;
+#[path = "vector_packages/recolor.rs"]
+pub mod recolor;
 #[path = "vector_packages/repeat.rs"]
 pub mod repeat;
+#[path = "vector_packages/swatches_doc.rs"]
+pub mod swatches_doc;
 #[path = "vector_packages/symbols.rs"]
 pub mod symbols;
 #[path = "vector_packages/trace_dialog.rs"]
