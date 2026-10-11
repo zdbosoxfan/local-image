@@ -256,3 +256,179 @@ runs. `flaky-crashes.log` contains the original double free and the 11:26 status
 in `target/crash-hunt/flaky-*-final.log`. `coredumpctl list --since
 "2026-10-11 11:30:00"` found no subsequent cores. All task-owned stress workers
 and validation processes have finished.
+
+
+## Rework
+
+The coordinator committed the previous result as `5b13272e`. Merged
+`claude/sleepy-franklin-egimjb` at `9247cc397d929a21e9abba721ad963a4410a7d2b`
+into this worktree with `git merge --no-commit`. The merge was automatic, with
+no conflicts. `MERGE_HEAD` records that coordinator revision; the merge and
+subsequent rework remain uncommitted for the queue. The incoming AI and save
+changes are retained, including undo grouping in `Session`; the crash fix's
+last-field GPU guard and context release remain intact. Git initially required
+a committer identity even for `--no-commit`; the retry used the coordinator's
+existing identity through per-command `-c` flags, without changing Git config.
+
+### Actual queue rejection
+
+The supplied log and the full `land-logs/codex-crash-hunt.log` agree:
+**5,258 tests passed, zero failed**, and the scratch merge was
+`269c35b6eb0a55c3354d6a8caa984e06441e9ed9`. Rejection occurred afterward,
+when the final `git merge --ff-only` could not create the shared root's
+`.git/index.lock`. There is no compile error or failing Rust test in that
+rejection. The inherited test-runner RSS diagnostics were nonfatal, as in the
+first report.
+
+Read-only inspection found the root lock still present: zero bytes, inode
+`15089592`, modified at `2026-10-11T12:57:46-04:00`; `ps -C git` listed no Git
+process and `fuser` found no holder. This suggests an orphaned lock, but is not
+permission to alter another worktree. The shared job rules explicitly say
+"Don't touch the owner's files outside this worktree". The root lock and shared
+queue/runner scripts were left unchanged. **The coordinator must resolve that
+shared lock before the next fast-forward can land.** Evidence is saved in
+`target/crash-hunt/rework/queue-lock-read-only.json`.
+
+### Newly logged flaky mock refinement
+
+The re-read of `flaky-tests.log` added the 12:34 draft/refine mock-server test.
+The landed AI report records its failure as
+"Model inventory changed during refinement testing; retry." This is the
+checker correctly rejecting a changed global catalogue, rather than a wrong
+expected image. The UI binary shares the catalogue, checker, service override
+and background inventory poller; `AI_TEST_LOCK` does not stop that poller.
+The former test also depended on the configured model root and persisted checker
+state, potentially picking up the user's profile.
+A retry in isolation did not repair those fixture dependencies.
+
+Followed the existing unload-completion regression's fresh child-process
+pattern. The draft/refine test now runs its complete original scenario in an
+exactly filtered child with a private data/model profile under this worktree.
+Its existing GPU and AI locks span the child execution; the profile is removed
+after the child exits. The child uses its own mock server and actual operation
+worker. Parent success requires the child's native exit to be successful.
+The graph's LoadImage/VAEEncode checks, saved result, Use click, undo history
+increment, and Open-as-new-document count assertions all remain unchanged.
+No production checker validation or stale-inventory rejection was disabled.
+
+TEST-CHANGED: The mock refinement completion wait is now a 120-second hang
+watchdog instead of a 10-second completion budget, with the scheduling and
+fixture-encoding reason documented beside it. Result and UI-action
+expectations are unchanged; no test or functional assertion was removed.
+
+### Rework validation
+
+Workspace `cargo +1.98.1 check --offline --workspace --all-targets` passed.
+Strict all-target Clippy passed for `lightcraft-engine`, `lightcraft-gpu`,
+`lightcraft-ui-egui` and `photocraft-ui-egui`, using `-D warnings` and
+`CARGO_TARGET_DIR=target/clippy`. These runs used Rust 1.98.1 and the inherited
+absolute `li-rustc-gate` wrapper, offline, with one Cargo invocation at a time
+and `CARGO_BUILD_JOBS` unset. Logs are
+`target/crash-hunt/rework/workspace-all-targets-check.log` and
+`target/crash-hunt/rework/strict-clippy.log`.
+
+
+| Rework check | Result | Evidence under `target/crash-hunt/rework/` |
+| --- | --- | --- |
+| Full GPU crate | 97 passed, 6 existing ignores; native exits 0 | `gpu-tests.log` |
+| Nested engine-session ownership regression | 1 passed | `engine-session-regression.log` |
+| People cancellation + empty-Library Cmd+Q/warm-up | 2 passed; shutdown logged RTX 5090/Vulkan | `library-regressions.log` |
+| Full compositor UI crate, all normal test targets | 1,447 passed, 54 existing ignores; native exits 0; repaired mock case passed | `compositor-ui-full.log` |
+| Four-crate formatting check | passed | `format-check.log` |
+| Python harness compilation; own rework patch whitespace | passed | `python3 -m py_compile scripts/stress-native-tests.py`; `git diff --check` |
+
+That is **1,547 active passing tests**, zero failures, plus the existing
+ignores. No ignores or lint suppressions were added. Commands, native/Cargo
+exits and elapsed times are recorded in `validation.json`; static commands
+are in `static-validation.json`. Test runs used a private profile/model root
+and required hardware flags. The default service was pointed at closed local
+port 9; mock tests override it with their own servers, so validation submitted
+no owner ComfyUI work. The GPU suite and compositor GPU cases logged the
+physical RTX 5090/Vulkan adapter.
+
+Repeated the repaired draft/refine test with the pinned-binary stress harness:
+12 parent runs, four in parallel, 16 bounded-memory CPU burners, six test
+threads, and a 180-second process hang watchdog. Each parent exercised the
+full scenario in its private child and checked its native exit. All 12 parents
+and their children exited successfully; no hang/memory watchdog fired.
+Whole-process durations were 2.655–3.400 seconds. Final load averages were
+20.58 / 17.74 / 27.99. These are clean finite load repetitions, not a UI frame
+performance guarantee. SHA-256-pinned executable metadata, load/worker
+metadata, timestamped per-test output and exit records are in
+`draft-refine-stress/{binaries,invocation,summary}.json` and each run directory.
+All task-owned validation and stress processes have finished.
+
+The re-read at **2026-10-11T14:27:28.738981-04:00** caught a third entry,
+added at 14:25: `file_open::tests::drag_and_drop_in_the_running_app`.
+Work continued to repair and validate that test before the final re-read.
+
+
+### Third log entry: worker-backed drag/drop placement
+
+The files job's queue log records the third failure at
+`file_open/tests.rs:482`: expected two layers, observed one. Its unlanded
+placement change starts the decode/apply job on a worker; the old test checked
+for the new layer after only two UI frames, before that worker published.
+Read the job branch's `place_next_dropped`, `place_bytes` and `jobs_ui::tick`
+implementation to verify that transition; the worker must finish and its
+completion must be consumed before Free Transform starts. No functional
+placement or undo expectation needs to change.
+
+The test now dispatches the drop, then drives normal UI frames until opening
+entries, running session jobs and queued drops are empty. A 10 ms sleep lets
+workers run instead of busy-spinning the test thread. A documented 120-second
+hang watchdog catches a stuck job. The original tab order, active document,
+three-document count, exact added-layer count, MadeLayer::Place transform,
+actual Escape keypress and removal of the placed layer all remain asserted.
+The focused corrected test passed before the final check/Clippy/suite rebuild.
+
+TEST-CHANGED: `drag_and_drop_in_the_running_app` awaits actual background
+publication rather than requiring placement within two UI frames. Its old
+30-second open wait and new placement wait share a 120-second hang watchdog;
+this is a scheduling/liveness allowance, with every data and UI expectation
+preserved. No production file-opening code was changed by this rework.
+
+
+### Final validation after the third entry
+
+Rechecked the final Rust source: workspace `check --all-targets`, strict
+all-target Clippy on all four touched crates, and four-crate formatting all
+passed again. The complete compositor UI crate was rerun because its drag/drop
+fixture changed: **1,447 passed, zero failed, 54 existing ignores**, including
+both repaired mock refinement and drag/drop tests. Its native processes all
+exited successfully. The earlier 97 GPU and three engine/Library regression
+passes remain applicable; only the two compositor test fixtures changed during
+rework. The final covered active case count remains **1,547**, without counting
+repeat suite executions twice. The focused drag/drop check also passed.
+
+The superseding commands/results are `final-validation.json`; logs are
+`final-workspace-all-targets-check.log`, `final-strict-clippy.log`,
+`final-compositor-ui-full.log`, `final-format-check.log` and `drop-test.log`.
+Required Rust 1.98.1/offline/gate/hardware/profile conditions are unchanged.
+No GUI window was opened and the owner app and ComfyUI were not stopped.
+
+Ran a final pinned-binary batch selecting both repaired compositor tests:
+12 processes, four in parallel, 16 CPU burners and six test threads. All
+**24 selected test executions** passed, including the exact original UI
+assertions; all parent and mock-child native exits were successful and no
+hang/memory watchdog fired. The earlier standalone mock batch also had 12
+clean runs. Final batch logs and SHA-256 metadata are under
+`final-ui-flaky-stress/`.
+
+Final-batch whole-process durations were 2.509–2.706 seconds; final load
+averages were 37.71 / 23.71 / 27.10. All task-owned
+validation processes and stress workers have finished.
+
+Final re-read at **2026-10-11T14:34:38.166726-04:00** found exactly the three addressed
+flaky tests, with no further entry. The crash log has no new entry, and
+`coredumpctl` found no core since 14:10 (`rework-coredumps.log`). Log copies
+and the read time are `final-flaky-tests.log`, `final-flaky-crashes.log` and
+`final-log-read-time.txt`. The coordinator branch still matches `MERGE_HEAD`
+at `9247cc39`; no merge conflicts remain.
+
+The root Git lock is still present, unchanged (inode 15089592,
+zero bytes, timestamp 12:57:46), with no observed Git process or open holder.
+The last read-only evidence is `queue-lock-final-read-only.json`. The root
+lock and shared queue scripts remain untouched under the explicit
+worktree-only rule; **coordinator lock cleanup is still required to land**.
+The clean merge, fixture fixes and report are left uncommitted.

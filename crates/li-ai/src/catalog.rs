@@ -346,6 +346,12 @@ pub fn invalidate() {
     }
 }
 
+static INVENTORY_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+pub fn inventory_generation() -> u64 {
+    INVENTORY_GENERATION.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Replaces the installed models (after an inventory scan). Returns true when they changed.
 pub fn set_installed(installed: Vec<InstalledModel>) -> bool {
     let Ok(mut s) = STATE.write() else { return false };
@@ -353,6 +359,7 @@ pub fn set_installed(installed: Vec<InstalledModel>) -> bool {
         return false;
     }
     s.installed = installed;
+    INVENTORY_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     s.snapshot = None;
     true
 }
@@ -579,5 +586,28 @@ mod tests {
         let sd15 = crate::family::registry().family("sd15").unwrap();
         assert!(sd15.file_overrides.is_empty());
         assert_eq!(sd15.resolved_for_file("custom.safetensors"), sd15.clone());
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn final_review_realvis_lightning_uses_author_sampling_profile() {
+    for file in ["realvisxlV50_v50LightningBakedvae.safetensors", "RealVisXL_V5.0_Lightning_fp16.safetensors"] {
+        let im = InstalledModel { key: format!("ckpt:{file}"), family: "sdxl".into(), label: file.into(), files: [(Role::Checkpoint, file.into())].into() };
+        let key = im.key.clone();
+        let cat = build(crate::family::registry(), &[im]);
+        let f = &cat.models.iter().find(|m| m.id.key() == key).unwrap().resolved;
+        assert_eq!((f.sampling.steps.default, f.sampling.cfg.default), (5.0, 1.5));
+        assert_eq!((&*f.pipeline.sampler_name, &*f.pipeline.scheduler), ("dpmpp_sde", "karras"));
+        let built = crate::builders::build(f, &[(Role::Checkpoint, file.into())].into(), &crate::builders::Params::create("cup", 512, 352, 42, 5, 1.5));
+        let sampler = built.graph.as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+        assert_eq!(sampler["inputs"]["sampler_name"], "dpmpp_sde");
+        assert_eq!(sampler["inputs"]["scheduler"], "karras");
+        assert_eq!(sampler["inputs"]["steps"], 5);
+        assert_eq!(sampler["inputs"]["cfg"], 1.5);
+    }
+    let generic = crate::family::registry().family("sdxl").unwrap();
+    for file in ["realvisxlV50_v50Bakedvae.safetensors", "OtherXL_Lightning.safetensors"] {
+        assert_eq!(generic.resolved_for_file(file), generic.clone());
     }
 }

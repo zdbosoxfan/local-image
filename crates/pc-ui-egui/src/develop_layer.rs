@@ -137,10 +137,13 @@ pub fn save_and_return(app: &mut PhotocraftApp, params: &Value) -> Result<Value,
         .or_else(|| library_save_path(app));
     let before = app.library_saves.len();
     let (path, warnings) = app.save_as(path)?;
+    if let Some(prompt) = app.tiff_options.as_mut() {
+        prompt.return_to_library = true;
+    }
     match app.library_saves.get_mut(before..).and_then(<[LibrarySave]>::last_mut) {
         Some(s) => s.show = true,
         // A save that waits on a prompt (a layered TIFF's options) stays in Compositing.
-        None if app.session.active().is_some_and(|d| d.saved_revision == d.revision) => app.switch_module = Some(crate::Module::Library),
+        None if app.tiff_options.is_none() && app.session.active().is_some_and(|d| !d.is_dirty()) => app.switch_module = Some(crate::Module::Library),
         None => {}
     }
     Ok(json!({ "path": path, "warnings": warnings }))

@@ -4,7 +4,7 @@
   "id": "sdxl",
   "label": "SDXL",
   "group": "Stable Diffusion",
-  "description": "Stable Diffusion XL at 1024 px and its fine-tunes (Juggernaut, RealVis…). Strong photographic and illustrative checkpoints; wide LoRA support.",
+  "description": "Stable Diffusion XL at 1024 px and its fine-tunes (Juggernaut, RealVis\u2026). Strong photographic and illustrative checkpoints; wide LoRA support.",
   "pipeline": {
     "loader": "checkpoint",
     "clip": {
@@ -72,5 +72,30 @@
     "stable-diffusion-xl",
     "base_model:stabilityai/stable-diffusion-xl-base-1.0"
   ],
-  "models": []
+  "models": [],
+  "file_overrides": [
+    {
+      "patterns": [
+        "realvisxl*v50*lightning",
+        "realvisxl*v5.0*lightning"
+      ],
+      "sampling": {
+        "steps": {
+          "default": 5,
+          "min": 1,
+          "max": 100
+        },
+        "cfg": {
+          "default": 1.5,
+          "min": 1,
+          "max": 2
+        },
+        "denoise": 0.6
+      },
+      "pipeline": {
+        "sampler_name": "dpmpp_sde",
+        "scheduler": "karras"
+      }
+    }
+  ]
 }

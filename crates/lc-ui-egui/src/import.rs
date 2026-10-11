@@ -5,7 +5,7 @@
 //! into one folder or by a custom folder template, optionally renamed), an album
 //! (existing or new), a preset and keywords to apply. Importing runs on a worker thread (files are
 //! probed, copied or moved there) and its batches join the catalog between frames, with a progress
-//! window and Cancel; the whole import is one undo step.
+//! window and Cancel. Adjacent batches form one undo step; edits between batches stay separate.
 
 use egui::{Align2, Color32, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use lightcraft_engine::import::{ImportCandidate, ScanInput, ScanOutput, ScanProgress, scan_with};
@@ -98,6 +98,8 @@ impl ImportDialog {
 /// UI thread between frames, so a slow drive never stalls the window.
 #[derive(Debug, Default)]
 pub struct ImportTask {
+    group: u64,
+    selection0: Option<lightcraft_engine::Selection>,
     /// Files and folders to import (handed to the worker when the task starts).
     queue: Vec<String>,
     pub total: usize,
@@ -111,7 +113,6 @@ pub struct ImportTask {
     /// Move: originals moved, and sources left in place (reported by the engine with a reason).
     pub moved: usize,
     pub kept: usize,
-    undo0: usize,
     first: Option<u64>,
     /// Reading a folder for the Local view: the photos stay out of the library, and nothing is
     /// selected or announced as added.
@@ -120,15 +121,14 @@ pub struct ImportTask {
     pub cancelled: bool,
     /// Auto Import (the watched folder): the selection stays as it is, a short toast when done.
     auto: bool,
-    /// Auto Import: the selection to keep.
-    keep_selection: Option<lightcraft_engine::Selection>,
     run: Option<ImportRun>,
 }
 
 impl ImportTask {
     /// An import of `paths` (files or folders) with `library.import` params (without `paths`).
-    pub fn new(paths: Vec<String>, params: Value, undo0: usize, browse: bool) -> Self {
-        ImportTask { total: paths.len(), queue: paths, params, undo0, browse, ..Default::default() }
+    pub fn new(paths: Vec<String>, params: Value, _undo0: usize, browse: bool) -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        ImportTask { group: NEXT.fetch_add(1, Ordering::Relaxed), total: paths.len(), queue: paths, params, browse, ..Default::default() }
     }
 
     /// An Auto Import (see [`ImportTask::auto`]).
@@ -450,19 +450,17 @@ pub fn start(app: &mut LightcraftApp, d: &ImportDialog) -> Result<Value, String>
         return Err("no photos selected".into());
     }
     let undo0 = app.session.undo.len();
-    let mut album = d.album;
-    if album.is_none() && !d.new_album.trim().is_empty() {
-        let r = app.session.execute("album.create", &json!({"name": d.new_album.trim()})).map_err(|e| e.to_string())?;
-        album = r["id"].as_u64();
-    }
     let mode = match (d.copy, d.move_files) {
         (false, _) => "add",
         (true, false) => "copy",
         (true, true) => "move",
     };
     let mut params = json!({"mode": mode, "keywords": d.keywords()});
-    if let Some(a) = album {
+    if let Some(a) = d.album {
         params["album"] = json!(a);
+    } else if !d.new_album.trim().is_empty() {
+        // Create the album with the first batch so it belongs to the same undo group.
+        params["albumName"] = json!(d.new_album.trim());
     }
     if !d.preset.is_empty() {
         params["preset"] = json!(d.preset);
@@ -507,15 +505,13 @@ pub fn start_paths(app: &mut LightcraftApp, paths: Vec<String>) -> Result<Value,
 pub fn tick(app: &mut LightcraftApp, ctx: &egui::Context) {
     let Some(mut task) = app.import.take() else { return };
     if task.run.is_none() {
+        task.selection0 = Some(app.session.selection.clone());
         let mut p = task.params.clone();
         p["paths"] = json!(task.queue);
         let started = lightcraft_engine::cmd::library::import_params(&app.session, &p)
             .and_then(|req| Ok((lightcraft_engine::import::ImportJob::new(&mut app.session, req.opts)?, req.album, req.album_name)))
             .map_err(|e| e.to_string())
             .and_then(|(job, album, name)| ImportRun::start(job, std::mem::take(&mut task.queue), album, name, ctx));
-        if task.auto {
-            task.keep_selection = Some(app.session.selection.clone());
-        }
         match started {
             Ok(run) => task.run = Some(run),
             Err(e) => {
@@ -531,10 +527,6 @@ pub fn tick(app: &mut LightcraftApp, ctx: &egui::Context) {
     let finished = batches.is_none();
     for prepared in batches.into_iter().flatten() {
         commit_batch(app, &mut task, prepared);
-        // arriving photos don't take over the selection
-        if let Some(sel) = &task.keep_selection {
-            app.session.selection = sel.clone();
-        }
     }
     if let Some(run) = &task.run {
         task.total = run.total.load(Ordering::Relaxed).max(task.total);
@@ -547,12 +539,12 @@ pub fn tick(app: &mut LightcraftApp, ctx: &egui::Context) {
     finish(app, ctx, task);
 }
 
-/// Add one readied batch to the catalog (an undo step merged into the import's at the end).
+/// Add one readied batch to the catalog, coalescing only adjacent batches of this import.
 fn commit_batch(app: &mut LightcraftApp, task: &mut ImportTask, prepared: lightcraft_engine::import::Prepared) {
     let Some(run) = task.run.as_ref() else { return };
     let n = prepared.len();
     let (opts, now, album, album_name) = (&run.opts, run.now.as_str(), run.album, run.album_name.clone());
-    let r = app.session.execute_fn("library.import", |s| {
+    let r = app.session.execute_grouped("library.import", task.group, crate::i18n::tr("Add Photos"), |s| {
         let report = lightcraft_engine::import::commit_prepared(s, opts, now, prepared)?;
         lightcraft_engine::cmd::library::import_batch_done(s, report, album, album_name.as_deref())
     });
@@ -583,11 +575,8 @@ fn commit_batch(app: &mut LightcraftApp, task: &mut ImportTask, prepared: lightc
     }
 }
 
-/// The import is done (or cancelled): one undo step, select the first photo, say what happened.
+/// The import is done (or cancelled): select the first photo if appropriate and say what happened.
 fn finish(app: &mut LightcraftApp, ctx: &egui::Context, task: ImportTask) {
-    let steps = app.session.undo.len().saturating_sub(task.undo0);
-    let label = crate::i18n::tr_format!("Add {} Photo{}", task.imported, if task.imported == 1 { "" } else { "s" });
-    app.session.merge_undo(steps, &label);
     if task.auto {
         if task.imported > 0 {
             app.toast(ctx, format!("Auto Import: added {} photo{}", task.imported, if task.imported == 1 { "" } else { "s" }));
@@ -600,7 +589,10 @@ fn finish(app: &mut LightcraftApp, ctx: &egui::Context, task: ImportTask) {
         }
         return;
     }
-    if let Some(f) = task.first {
+    if let Some(f) = task.first
+        && task.selection0.as_ref().is_none_or(|selection| *selection == app.session.selection)
+        && app.session.interaction.is_none()
+    {
         let _ = app.run("library.select", json!({"ids": [f]}));
     }
     let plural = |n: usize| if n == 1 { "" } else { "s" };
@@ -1178,4 +1170,107 @@ fn field<R>(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui) -> R
         add(ui)
     })
     .inner
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod bugfix_save_tests {
+    use super::*;
+    use lightcraft_engine::{Session, import::ImportJob};
+    use std::sync::{Arc, atomic::AtomicBool};
+
+    #[test]
+    fn bugfix_save_o020_batches_never_absorb_intervening_ratings_or_develop_edits() {
+        let dir = std::env::temp_dir().join(format!("bugfix-save-ui-import-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let paths: Vec<_> = (0..2)
+            .map(|i| {
+                let path = dir.join(format!("new{i}.png"));
+                let image = lightcraft_raster::Rgba8::from_fn(8, 6, |_, _| [i * 60, 128, 10, 255]);
+                let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
+                std::fs::write(&path, bytes).unwrap();
+                path.to_string_lossy().into_owned()
+            })
+            .collect();
+        for interleave in [false, true] {
+            let mut app = LightcraftApp::new(Session::with_demo().with_fs(), Default::default());
+            let original = app.session.active().unwrap();
+            let undo0 = app.session.undo.len();
+            let mut task = ImportTask::new(Vec::new(), json!({}), undo0, false).auto();
+            let mut job = ImportJob::new(&mut app.session, Default::default()).unwrap();
+            let (_, rx) = std::sync::mpsc::channel();
+            task.run = Some(ImportRun {
+                runner: Runner::Thread(rx),
+                cancel: Arc::new(AtomicBool::new(false)),
+                total: job.total.clone(),
+                done: job.done.clone(),
+                opts: job.opts.clone(),
+                now: job.now().into(),
+                album: None,
+                album_name: None,
+            });
+            let prepared = job.prepare_files(vec![paths[0].clone()], &AtomicBool::new(false));
+            commit_batch(&mut app, &mut task, prepared);
+            assert_eq!(app.session.active(), Some(original));
+            if interleave {
+                app.run("photo.rate", json!({"rating": 5})).unwrap();
+                app.run("develop.set", json!({"control": "light.exposure", "value": 1.0})).unwrap();
+            }
+            let prepared = job.prepare_files(vec![paths[1].clone()], &AtomicBool::new(false));
+            commit_batch(&mut app, &mut task, prepared);
+            finish(&mut app, &egui::Context::default(), task);
+            app.session.undo_step().unwrap();
+            if interleave {
+                let photo = app.session.catalog.photo(original).unwrap();
+                assert_eq!(photo.rating, 5);
+                assert_eq!(photo.develop.light.exposure, 1.0);
+                assert_eq!(app.session.catalog.len(), 25, "only the last batch is undone");
+            } else {
+                assert_eq!(app.session.catalog.len(), 24, "adjacent import batches are one undo step");
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn bugfix_save_o021_auto_import_keeps_selection_changed_while_worker_was_reading() {
+        let dir = std::env::temp_dir().join(format!("bugfix-save-auto-import-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("new.png");
+        let image = lightcraft_raster::Rgba8::from_fn(8, 6, |_, _| [60, 128, 10, 255]);
+        let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+        let mut app = LightcraftApp::new(Session::with_demo().with_fs(), Default::default());
+        let probe = app.session.media.file_probe.take().unwrap();
+        let gate = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        let worker_gate = gate.clone();
+        let (started, ready) = std::sync::mpsc::channel();
+        app.session.media.file_probe = Some(Arc::new(move |path| {
+            started.send(()).unwrap();
+            let (lock, wake) = &*worker_gate;
+            let mut released = lock.lock().unwrap();
+            while !*released {
+                released = wake.wait(released).unwrap();
+            }
+            probe(path)
+        }));
+        app.import = Some(ImportTask::new(vec![path.to_string_lossy().into_owned()], json!({}), app.session.undo.len(), false).auto());
+        let ctx = egui::Context::default();
+        tick(&mut app, &ctx);
+        ready.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        app.run("library.next", json!({})).unwrap();
+        app.session.begin_interaction("light.exposure").unwrap();
+        let selection = app.session.selection.clone();
+        *gate.0.lock().unwrap() = true;
+        gate.1.notify_all();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while app.import.is_some() && std::time::Instant::now() < deadline {
+            tick(&mut app, &ctx);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(app.import.is_none());
+        assert_eq!(app.session.catalog.len(), 25);
+        assert_eq!(app.session.selection, selection);
+        assert_eq!(app.session.interaction.as_ref().unwrap().photo, selection.active.unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

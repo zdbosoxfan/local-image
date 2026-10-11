@@ -110,3 +110,55 @@ fn ai_denoise_settings_roundtrip_and_copies_keep_only_controls() {
     assert!(copied["enhance"].get("ai").is_none());
     assert_eq!(copied["enhance"]["denoise"], 67.0);
 }
+
+#[test]
+fn final_review_mask_transfer_strips_segmentation_and_detail_only() {
+    use crate::{Mask, MaskComponent, MaskShape, SegMask};
+    use lightcraft_geom::Point;
+    let seg = SegMask::from_logits(2, &[4.0; 4]);
+    let shapes = vec![
+        MaskShape::Subject { seg: Some(seg.clone()) },
+        MaskShape::Sky { seg: Some(seg.clone()) },
+        MaskShape::Background { seg: Some(seg.clone()) },
+        MaskShape::DepthRange { lo: 0.2, hi: 0.8, feather: 0.1, seg: Some(seg.clone()) },
+        MaskShape::Object { hint: vec![Point::new(0.2, 0.3)], exclude: vec![], seg: Some(seg.clone()), detail: vec![seg.clone()], edge: 4.0 },
+        MaskShape::Prompt { text: "the tree".into(), seg: Some(seg.clone()), detail: vec![seg], edge: 4.0 },
+        MaskShape::Linear { start: Point::new(0.0, 0.0), end: Point::new(1.0, 1.0) },
+    ];
+    let source = DevelopSettings {
+        masks: vec![Mask {
+            id: 1,
+            components: shapes.into_iter().map(|shape| MaskComponent { name: None, op: Default::default(), invert: false, shape }).collect(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let clip = extract_groups(&source, &[SettingsGroup::Masks]);
+    for comp in clip["masks"][0]["components"].as_array().unwrap() {
+        assert!(comp["shape"].get("seg").is_none(), "copied selection must be recomputed on its target");
+        assert!(comp["shape"].get("detail").is_none());
+    }
+    let copied = crate::apply_partial(&DevelopSettings::default(), &clip, 1.0);
+    assert_eq!(copied.masks[0].components.len(), 7);
+    let MaskShape::Object { hint, edge, .. } = &copied.masks[0].components[4].shape else { panic!() };
+    assert_eq!(hint, &[Point::new(0.2, 0.3)]);
+    assert_eq!(*edge, 4.0);
+    assert_eq!(source.masks[0].components[6], copied.masks[0].components[6]);
+    assert_eq!(DevelopSettings::from_json(&source.to_json()).unwrap(), source, "native save retains masks");
+}
+
+#[test]
+fn final_review_reapplying_adaptive_preset_keeps_the_target_mask_once() {
+    use crate::{Mask, MaskComponent, MaskShape, SegMask};
+    let mut mask = Mask {
+        id: 1,
+        name: "Subject".into(),
+        components: vec![MaskComponent { name: None, op: Default::default(), invert: false, shape: MaskShape::Subject { seg: None } }],
+        ..Default::default()
+    };
+    let source = DevelopSettings { masks: vec![mask.clone()], ..Default::default() };
+    let preset = crate::Preset::from_settings("adaptive", "Adaptive", "User", &source, &[SettingsGroup::Masks]);
+    mask.components[0].shape = MaskShape::Subject { seg: Some(SegMask::from_logits(2, &[4.0; 4])) };
+    let target = DevelopSettings { masks: vec![mask], ..Default::default() };
+    assert_eq!(preset.apply(&target, 1.0).masks, target.masks, "recomputed target masks retain their cache and do not duplicate");
+}

@@ -98,9 +98,12 @@ pub fn import_batch_done(s: &mut Session, report: crate::import::ImportReport, m
     if let Some(a) = album
         && !imported.is_empty()
     {
-        // (album.addPhotos wants a selection: the new photos are about to be it)
-        s.selection = Selection::single(PhotoId(imported[0]));
-        s.execute("album.addPhotos", &json!({"id": a, "ids": imported}))?;
+        let id = AlbumId(a);
+        let al = s.catalog.album(id).ok_or_else(|| bad("library.import", "no such album"))?;
+        let mut photos = al.photos.clone();
+        photos.extend(imported.iter().map(|id| PhotoId(*id)).filter(|id| !al.photos.contains(id)));
+        let cover = al.cover.or(photos.first().copied());
+        s.commit("Add to Album", Op::Batch { ops: vec![Op::SetAlbumPhotos { id, photos }, Op::SetAlbumCover { id, cover }] })?;
         report["album"] = json!(a);
     }
     Ok(report)
@@ -560,7 +563,7 @@ pub fn specs() -> Vec<CommandSpec> {
             id,
             deleted: false
         }))),
-        cmd!("photo.deletePermanently", "Delete Permanently", ["Photo"], None, "{ids?}", has_selection, |s, p| {
+        cmd!("photo.deletePermanently", "Remove from Library…", ["Photo"], None, "{ids?}", has_selection, |s, p| {
             let t = s.targets(p);
             let ops = t.iter().map(|id| s.catalog.delete_permanently_ops(*id)).collect::<Vec<_>>();
             s.commit("Delete Permanently", Op::Batch { ops })?;

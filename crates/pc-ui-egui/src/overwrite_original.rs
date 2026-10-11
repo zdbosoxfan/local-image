@@ -52,7 +52,9 @@ pub fn request(app: &mut PhotocraftApp, doc: DocId, show_library: bool) -> Resul
     let (photo, path) = develop_layer::original_of(&state.doc).ok_or("no Library original")?;
     let prompt = Prompt { doc, path, photo, show_library, dont_ask_again: false };
     let skip = app.session.prefs().dialogs.get(PREFERENCE).and_then(|v| v.get("dontAskAgain")).and_then(serde_json::Value::as_bool).unwrap_or(false);
-    if skip {
+    // Photoshop originals lose their layers: always show this warning, even with Don't Ask Again.
+    let layered_source = std::path::Path::new(&prompt.path).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("psd") || ext.eq_ignore_ascii_case("psb"));
+    if skip && !layered_source {
         save(app, prompt)
     } else {
         app.overwrite_prompt = Some(prompt);
@@ -93,6 +95,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         ui.set_max_width(440.0);
         ui.heading(format!("Overwrite {name}?"));
         ui.label(tl!("This replaces the original file. The previous version will be kept in Trash so you can recover it."));
+        if std::path::Path::new(&p.path).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("psd") || ext.eq_ignore_ascii_case("psb")) {
+            ui.label(tl!("This replaces the original Photoshop document with flattened pixels. Its layers will be lost."));
+        }
         ui.label(&p.path);
         let checkbox = ui.checkbox(&mut p.dont_ask_again, tl!("Don't ask again"));
         ctx.data_mut(|d| d.insert_temp(egui::Id::new("overwriteDontAsk"), checkbox.rect));
