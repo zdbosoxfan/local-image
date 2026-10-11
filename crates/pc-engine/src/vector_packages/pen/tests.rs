@@ -402,3 +402,28 @@ fn review_followup_pen_zero_length_line_release_invalidates_preview_generation()
     assert_eq!(g.path().subpaths[0].knots.len(), 1);
     assert!(g.generation() > generation);
 }
+
+#[test]
+fn dsfix_v187_begin_new_subpath_checks_knot_budget_but_allows_endpoint() {
+    let mut s = session();
+    let mut sp = Subpath::polyline(&[(10., 10.), (20., 10.)]);
+    sp.knots.resize(MAX_KNOTS, Knot::corner(20., 10.));
+    let original = Path::new(vec![sp]);
+    std::sync::Arc::make_mut(&mut s.active_mut().unwrap().doc).work_path = Some(original.clone());
+    assert!(Gesture::begin(&s, Target::Work, Mode::Pen, p(90., 90.), 0., None, None).is_err());
+    assert_eq!(s.active().unwrap().doc.work_path.as_ref(), Some(&original));
+    assert!(Gesture::begin(&s, Target::Work, Mode::Pen, p(20., 10.), 0., None, None).is_ok());
+}
+
+#[test]
+fn dsfix_v188_zero_length_line_release_changes_generation() {
+    let s = session();
+    let mut g = begin(&s, Mode::Line);
+    g.motion(p(40., 20.), Modifiers::default()).unwrap();
+    g.motion(p(20., 20.), Modifiers::default()).unwrap();
+    assert_eq!(g.path().subpaths[0].knots.len(), 2);
+    let generation = g.generation();
+    assert_eq!(g.release().unwrap(), Outcome::Preview);
+    assert_eq!(g.path().subpaths[0].knots.len(), 1);
+    assert_eq!(g.generation(), generation.wrapping_add(1));
+}

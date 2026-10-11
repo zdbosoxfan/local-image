@@ -485,4 +485,32 @@ mod tests {
         assert_eq!(doc.layer(flat).unwrap().mask.as_ref().unwrap().value(10, 10), 0.0);
         assert!(s.execute("edit.autoBlendLayers", json!({"method": "sideways"})).is_err());
     }
+
+    #[test]
+    fn dsfix_v059_spacing_uses_farthest_edge_on_both_axes() {
+        use crate::vector_packages::layout::{Capture, bounds};
+        use photocraft_doc::{ColorMode, Document, Layer, LayerContent, SampleType, ShapeLayer, Size};
+        for axis in ["x", "y"] {
+            let mut doc = Document::new("Spacing", Size::new(160, 160), ColorMode::Rgb, SampleType::U8);
+            let mut ids = Vec::new();
+            for (start, size) in [(0., 10.), (20., 100.), (100., 10.)] {
+                let rect = if axis == "x" { [start, 20., size, 10.] } else { [20., start, 10., size] };
+                let l = Layer::new(
+                    "Shape",
+                    LayerContent::Shape(ShapeLayer { path: photocraft_vector::shapes::rect(rect[0], rect[1], rect[2], rect[3]), ..Default::default() }),
+                );
+                ids.push(l.id);
+                doc.layers.push(l);
+            }
+            let mut s = Session::new();
+            s.add_document(doc, None);
+            let capture = Capture::begin(&s, ids.clone()).unwrap();
+            let result = vector_spacing(&mut s, &json!({"capture":capture,"axis":axis})).unwrap();
+            assert_eq!(result["spacing"], 0.);
+            let i = usize::from(axis == "y");
+            let b = bounds(s.active().unwrap().doc.layer(ids[2]).unwrap()).unwrap();
+            assert_eq!(b[i] + b[i + 2], 120.);
+            assert!(s.undo());
+        }
+    }
 }

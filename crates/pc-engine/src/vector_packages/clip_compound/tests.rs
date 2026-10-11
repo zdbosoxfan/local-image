@@ -339,7 +339,7 @@ fn clip35_text_outline_mask_counter_and_release_unpainted_path() {
     assert!(sh.fill.is_none());
 }
 #[test]
-fn clip35_svg_pdf_psd_exports_keep_native_vector_masks_and_format_roundtrip() {
+fn dsfix_v060_clip35_svg_pdf_psd_exports_keep_native_vector_masks_and_format_roundtrip() {
     let (mut s, ids) = fixture();
     let gid = group(&mut s, &ids);
     let doc = &s.active().unwrap().doc;
@@ -360,6 +360,7 @@ fn clip35_svg_pdf_psd_exports_keep_native_vector_masks_and_format_roundtrip() {
     let b = &doc.layer(gid).unwrap().vector_mask.as_ref().unwrap().path;
     assert_eq!(a.fill_rule, b.fill_rule);
     assert_eq!(a.subpaths.len(), b.subpaths.len());
+    assert_eq!(a.subpaths.iter().map(|s| s.knots.len()).collect::<Vec<_>>(), b.subpaths.iter().map(|s| s.knots.len()).collect::<Vec<_>>());
     for (a, b) in a.subpaths.iter().flat_map(|s| &s.knots).zip(b.subpaths.iter().flat_map(|s| &s.knots)) {
         for (a, b) in [a.anchor, a.in_ctrl, a.out_ctrl].into_iter().zip([b.anchor, b.in_ctrl, b.out_ctrl]) {
             assert!((a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4, "PSD 8.24 coordinate quantization");
@@ -434,5 +435,26 @@ fn review_regression_clip35_release_nondefault_mask_density_feather_fails_withou
         assert_eq!(s.active().unwrap().doc, before);
         assert_eq!(s.active().unwrap().history.past_len(), history);
         assert_eq!(s.journal.len(), journal);
+    }
+}
+
+#[test]
+fn dsfix_v111_release_rejects_density_and_feather_without_mutating_source() {
+    for (density, feather) in [(0.5, 0.), (1., 2.)] {
+        let (mut s, ids) = fixture();
+        let gid = group(&mut s, &ids);
+        s.edit("mask settings", |doc, _| {
+            let mask = doc.layer_mut(gid).unwrap().vector_mask.as_mut().unwrap();
+            mask.density = density;
+            mask.feather = feather;
+            Ok(())
+        })
+        .unwrap();
+        let before = s.active().unwrap().doc.clone();
+        let count = s.journal.len();
+        let c = Capture::begin(&s, &[gid]).unwrap();
+        assert!(prepare(&s, &c, &Action::ReleaseClip).is_err());
+        assert!(Arc::ptr_eq(&before, &s.active().unwrap().doc));
+        assert_eq!(s.journal.len(), count);
     }
 }

@@ -373,4 +373,13 @@ mod validation_tests {
             assert!(bool_op(&json!({"op":value}), "path.boolean").is_err());
         }
     }
+
+    #[test]
+    fn dsfix_v044_boolean_op_rejects_present_nonstrings() {
+        for op in [json!(5), Value::Null, json!(false), json!([]), json!({})] {
+            assert!(bool_op(&json!({"op":op}), "path.boolean").is_err());
+        }
+        assert!(matches!(bool_op(&json!({}), "test").unwrap(), Some(ops::BoolOp::Union)));
+        assert!(bool_op(&json!({"op":"divide"}), "test").unwrap().is_none());
+    }
 }

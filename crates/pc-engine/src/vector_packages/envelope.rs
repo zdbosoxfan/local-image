@@ -10,7 +10,11 @@ pub use photocraft_vecfx::envelope as geometry;
 use photocraft_vector::appearance::CompiledAppearance;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    sync::{Arc, Weak},
+};
 #[path = "envelope/outlines.rs"]
 mod outlines;
 const MAX_CACHE_BYTES: u128 = 256 << 20;
@@ -308,18 +312,42 @@ pub fn preview_document(s: &Session, c: &Commit) -> Result<Document> {
     check_fresh(s, c)?;
     let source = &s.active().ok_or(EngineError::NoDocument)?.doc;
     let projected = prepare(source, c, true)?;
-    // Preserve other committed envelopes in the detached preview. The captured groups
-    // are replaced below, so do not evaluate their previous live parameters a second time.
-    let mut background = source.as_ref().clone();
-    for e in &c.edits {
-        background.layer_mut(e.group).ok_or(EngineError::NoLayer(e.group))?.vector.live = None;
-    }
-    let mut doc = project_document(&background)?;
+    let mut doc = (*preview_background(source, c)?).clone();
     for group in projected {
         let id = group.id;
         *doc.layer_mut(id).ok_or(EngineError::NoLayer(id))? = group;
     }
     Ok(doc)
+}
+struct PreviewBackground {
+    source: Weak<Document>,
+    revision: u64,
+    groups: Vec<LayerId>,
+    projected: Arc<Document>,
+}
+thread_local! {
+    static PREVIEW_BACKGROUND: RefCell<Option<PreviewBackground>> = const { RefCell::new(None) };
+}
+fn preview_background(source: &Arc<Document>, c: &Commit) -> Result<Arc<Document>> {
+    let groups = c.edits.iter().map(|e| e.group).collect::<Vec<_>>();
+    PREVIEW_BACKGROUND.with(|cache| {
+        if let Some(entry) = cache.borrow().as_ref()
+            && entry.source.ptr_eq(&Arc::downgrade(source))
+            && entry.revision == c.revision
+            && entry.groups == groups
+        {
+            return Ok(entry.projected.clone());
+        }
+        // Captured groups are replaced by the edited projection. Only other committed
+        // envelopes belong to this revision-keyed background, independent of drag specs.
+        let mut background = source.as_ref().clone();
+        for &id in &groups {
+            background.layer_mut(id).ok_or(EngineError::NoLayer(id))?.vector.live = None;
+        }
+        let projected = Arc::new(project_document(&background)?);
+        *cache.borrow_mut() = Some(PreviewBackground { source: Arc::downgrade(source), revision: c.revision, groups, projected: projected.clone() });
+        Ok(projected)
+    })
 }
 /// Committed display/export projection, revision-keyed by callers. No source mutation.
 pub fn project_document(source: &Document) -> Result<Document> {

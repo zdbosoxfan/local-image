@@ -168,3 +168,16 @@ fn disabled_without_artboards() {
     let _ = s.execute("layer.new.artboard", json!({}));
     assert!(!s.is_enabled("layer.new.artboardFromLayers"));
 }
+
+#[test]
+fn dsfix_v027_array_artboard_coordinates_already_bounded() {
+    let base = Rect::from_xywh(0, 0, 10, 10);
+    for value in [1e20, -1e20, 1_000_001., -1_000_001.] {
+        for axis in 0..2 {
+            let mut r = [0., 0., 10., 10.];
+            r[axis] = value;
+            assert!(rect_param(&json!({"rect":r}), base, "test").is_err());
+        }
+    }
+    assert_eq!(rect_param(&json!({"rect":[-1_000_000.,999_990.,10.,10.]}), base, "test").unwrap(), Rect::from_xywh(-1_000_000, 999_990, 10, 10));
+}

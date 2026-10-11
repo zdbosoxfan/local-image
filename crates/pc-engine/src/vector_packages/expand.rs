@@ -12,6 +12,10 @@ use photocraft_doc::{Document, Fill, Layer, LayerContent, Path, ShapeLayer};
 use photocraft_vector::appearance::{self as renderer, CompiledAppearance, StrokeProjection};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::{
+    cell::RefCell,
+    sync::{Arc, Weak},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -25,7 +29,7 @@ impl Default for Options {
         Self { object: true, fill: true, stroke: true }
     }
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub capture: Capture,
@@ -169,11 +173,42 @@ fn shape_expansion(layer: &Layer, options: Options, appearance: bool) -> Result<
     clear_geometry_blocks(&mut out);
     Ok(out)
 }
-/// No placeholder provider may claim success. Availability prepares on a clone and returns the
-/// exact failure reason, including unavailable owner APIs or invalid composite geometry.
-pub fn disabled_reason(s: &Session, request: &Request) -> Option<String> {
-    prepare(s, request).err().map(|e| e.to_string())
+#[cfg(test)]
+thread_local! {
+    static PREPARE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
+struct Availability {
+    source: Weak<Document>,
+    request: Request,
+    reason: Option<String>,
+}
+thread_local! {
+    // One entry per UI thread; no prepared raster caches or source document are retained.
+    static AVAILABILITY: RefCell<Option<Availability>> = const { RefCell::new(None) };
+}
+/// Preserve the exact preparation failure reason, but compute it once per captured
+/// document snapshot, revision, selection and options. Publication still prepares anew.
+pub fn disabled_reason(s: &Session, request: &Request) -> Option<String> {
+    if let Err(e) = request.capture.check(s) {
+        return Some(e.to_string());
+    }
+    let source = match s.active() {
+        Some(st) => &st.doc,
+        None => return Some(EngineError::NoDocument.to_string()),
+    };
+    AVAILABILITY.with(|cache| {
+        if let Some(entry) = cache.borrow().as_ref()
+            && entry.request == *request
+            && entry.source.ptr_eq(&Arc::downgrade(source))
+        {
+            return entry.reason.clone();
+        }
+        let reason = prepare(s, request).err().map(|e| e.to_string());
+        *cache.borrow_mut() = Some(Availability { source: Arc::downgrade(source), request: request.clone(), reason: reason.clone() });
+        reason
+    })
+}
+
 fn expand_layer(doc: &Document, source: &Layer, options: Options, appearance: bool, depth: usize) -> Result<Layer> {
     if depth > photocraft_doc::MAX_GROUP_DEPTH {
         return Err(bad("expansion exceeds group depth"));
@@ -243,6 +278,8 @@ fn expand_layer(doc: &Document, source: &Layer, options: Options, appearance: bo
     }
 }
 pub fn prepare(s: &Session, request: &Request) -> Result<Prepared> {
+    #[cfg(test)]
+    PREPARE_COUNT.with(|count| count.set(count.get() + 1));
     request.capture.check(s)?;
     if !request.appearance && !request.options.object && !request.options.fill && !request.options.stroke {
         return Err(bad("choose an Expand option"));

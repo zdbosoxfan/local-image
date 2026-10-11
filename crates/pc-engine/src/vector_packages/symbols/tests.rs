@@ -433,3 +433,48 @@ fn review_additional_symbol_text_variations_have_an_aggregate_budget() {
     assert!(master_preview(&s, Capture::new(&s).unwrap(), master, candidate).unwrap_err().to_string().contains("variation budget"));
     assert_eq!(s.active().unwrap().doc, before);
 }
+
+#[test]
+fn dsfix_v172_symbol_placement_ignores_locked_sibling_descendants() {
+    let mut s = fixture();
+    let (symbol, _) = make_symbol(&mut s);
+    let mut child = shape(40., 40.);
+    child.locks.all = true;
+    let group = Layer::group("Sibling", vec![child]);
+    let above = group.id;
+    s.edit("sibling", |doc, _| {
+        doc.layers.push(group);
+        Ok(())
+    })
+    .unwrap();
+    let capture = Capture::new(&s).unwrap();
+    assert!(place_preview(&s, capture, symbol, Affine::IDENTITY, Some(above)).is_ok());
+    s.edit("lock anchor", |doc, _| {
+        doc.layer_mut(above).unwrap().locks.all = true;
+        Ok(())
+    })
+    .unwrap();
+    assert!(place_preview(&s, Capture::new(&s).unwrap(), symbol, Affine::IDENTITY, Some(above)).is_err());
+}
+
+#[test]
+fn dsfix_v199_minimal_symbol_render_matches_full_document_compositor() {
+    let mut s = fixture();
+    let (symbol, _) = make_symbol(&mut s);
+    let doc = &s.active().unwrap().doc;
+    let instance = SymbolInstance { symbol, transform: Affine::translate(25., 15.), cache: None };
+    let cache = render_instance(doc, &instance).unwrap();
+    let temporary = Layer::new("Projection", LayerContent::Symbol(instance));
+    let ex = expansion::expand(doc, &[temporary]).unwrap();
+    let mut full = (**doc).clone();
+    full.layers = prepare_expansion(doc, ex).unwrap();
+    let expected = photocraft_compose::render(&full, cache.content_bounds());
+    for y in expected.rect.y0..expected.rect.y1 {
+        for x in expected.rect.x0..expected.rect.x1 {
+            let actual = cache.pixel(x, y);
+            let wanted = expected.get(x, y);
+            assert!(actual.iter().zip(wanted).all(|(a, b)| (a - b).abs() <= 1. / 255.));
+        }
+    }
+    assert!(full.layers[0].children().is_some());
+}

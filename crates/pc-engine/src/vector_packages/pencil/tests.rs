@@ -168,3 +168,17 @@ fn review_followup_pencil_rejects_zero_length_sculpt_interval_at_capture() {
     Arc::make_mut(&mut s.active_mut().unwrap().doc).layers.push(layer);
     assert!(Capture::begin(&s, Operation::Sculpt { layer: id, subpath: 0, first: 1, last: 1 }, Default::default()).is_err());
 }
+
+#[test]
+fn dsfix_v149_sculpt_equal_endpoints_fail_at_capture_for_open_and_closed_paths() {
+    for closed in [false, true] {
+        let mut s = session();
+        let mut sp = Subpath::polyline(&[(20., 20.), (40., 20.), (60., 40.)]);
+        sp.closed = closed;
+        let layer = Layer::new("Sculpt", LayerContent::Shape(ShapeLayer { path: Path::new(vec![sp]), ..Default::default() }));
+        let id = layer.id;
+        Arc::make_mut(&mut s.active_mut().unwrap().doc).layers.push(layer);
+        assert!(Capture::begin(&s, Operation::Sculpt { layer: id, subpath: 0, first: 1, last: 1 }, Default::default()).is_err());
+        assert!(Capture::begin(&s, Operation::Sculpt { layer: id, subpath: 0, first: 0, last: 1 }, Default::default()).is_ok());
+    }
+}

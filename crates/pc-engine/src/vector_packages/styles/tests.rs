@@ -428,3 +428,14 @@ fn review_followup_style_rejects_raw_effect_budget_before_serialization() {
     attributes.effects.psd_raw = Some(vec![0; (1 << 20) + 1]);
     assert_eq!(validate_sample(&attributes).unwrap_err().to_string(), "style raw FX budget");
 }
+
+#[test]
+fn dsfix_v170_raw_effects_budget_precedes_serialization() {
+    let mut sample = photocraft_doc::vector_design::styles::starter_library().remove(0).attributes;
+    sample.effects.psd_raw = Some(vec![0; (1 << 20) + 1]);
+    sample.opacity = f32::NAN;
+    assert!(validate_sample(&sample).unwrap_err().to_string().contains("raw FX budget"));
+    sample.opacity = 1.;
+    sample.effects.psd_raw = Some(vec![0; 1 << 20]);
+    validate_sample(&sample).unwrap();
+}

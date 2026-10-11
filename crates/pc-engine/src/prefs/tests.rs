@@ -368,3 +368,39 @@ fn review_regression_edit_toolbar_uses_and_resets_current_persona_set() {
     assert_eq!(s.prefs().toolbar.vector_set, crate::toolsets::Persona::Vector.default_set());
     assert_eq!(s.prefs().toolbar.active_set, pixel);
 }
+
+#[test]
+fn dsfix_v029_default_persona_preferences_are_addressable() {
+    let mut s = session();
+    for (path, value) in
+        [("toolbar.persona", json!("pixel")), ("toolbar.vectorSet", json!("")), ("toolbar.pixelTool", json!("")), ("toolbar.vectorTool", json!(""))]
+    {
+        assert_eq!(s.execute("prefs.get", json!({"path":path})).unwrap(), value);
+        s.execute("prefs.set", json!({"path":path,"value":value})).unwrap();
+    }
+    s.execute("prefs.set", json!({"path":"toolbar.persona","value":"vector"})).unwrap();
+    assert_eq!(s.prefs().toolbar.persona, crate::toolsets::Persona::Vector);
+}
+
+#[test]
+fn dsfix_v030_v031_toolbar_edit_and_reset_follow_vector_persona() {
+    use crate::toolsets::Persona;
+    let mut s = session();
+    s.edit_prefs(|pr| {
+        pr.toolbar.active_set = "photographer".into();
+        pr.toolbar.persona = Persona::Vector;
+        pr.toolbar.vector_set = "vector.illustration".into();
+    });
+    s.execute("edit.toolbar", json!({"hidden":["Pen"],"order":["DirectSelection","VectorPencil"]})).unwrap();
+    let toolbar = &s.prefs().toolbar;
+    assert_eq!(toolbar.active_set, "photographer");
+    let custom = toolbar.active();
+    assert_eq!(custom.persona, Persona::Vector);
+    assert_eq!(custom.id, toolbar.vector_set);
+    assert!(!custom.tools.iter().any(|t| t == "Pen"));
+    assert_eq!(&custom.tools[..2], &["DirectSelection", "VectorPencil"]);
+    assert!(custom.tools.iter().all(|t| crate::toolsets::supports(t, Persona::Vector)));
+    s.execute("edit.toolbar", json!({"reset":true})).unwrap();
+    assert_eq!(s.prefs().toolbar.vector_set, "vector.allTools");
+    assert_eq!(s.prefs().toolbar.active_set, "photographer");
+}

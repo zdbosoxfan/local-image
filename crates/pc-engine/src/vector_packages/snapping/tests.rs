@@ -314,3 +314,27 @@ fn review_additional_curve_snap_culls_distant_cached_control_bounds() {
     cache.point([5., 105.], &only(Kind::Curve), View::default(), None, false).unwrap();
     assert_eq!(CALLS.with(std::cell::Cell::get), 1);
 }
+
+#[test]
+fn dsfix_v204_curve_nearest_skips_distant_bounds_but_keeps_tolerance_edge() {
+    thread_local! { static CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    fn nearest(path: &Path, _: Point) -> Result<Option<Nearest>> {
+        CALLS.with(|n| n.set(n.get() + 1));
+        Ok(Some((0, 0, 0., path.subpaths[0].knots[0].anchor, 0.)))
+    }
+    fn bounds(path: &Path) -> Result<Option<Bounds>> {
+        Ok(path.control_bounds())
+    }
+    let mut doc = document();
+    for i in 0..100 {
+        let x = f64::from(i) * 100.;
+        shape(&mut doc, [x, 50., x + 10., 60.]);
+    }
+    let cache = Cache::build(&doc, 0, Exclusions::default(), Some(Geometry { nearest, bounds })).unwrap();
+    let settings = Settings { tolerance_px: 8., ..only(Kind::Curve) };
+    let result = cache.point([-8., 50.], &settings, View::default(), None, false).unwrap();
+    assert_eq!(result.point, [0., 50.]);
+    assert_eq!(CALLS.with(|n| n.get()), 1);
+    cache.point([-8.01, 50.], &settings, View::default(), None, false).unwrap();
+    assert_eq!(CALLS.with(|n| n.get()), 1);
+}

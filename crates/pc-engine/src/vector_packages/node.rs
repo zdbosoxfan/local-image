@@ -274,6 +274,9 @@ fn provenance(base: &Path, output: &Path) -> Result<Origins> {
             sp.knots
                 .iter()
                 .map(|k| {
+                    if k.anchor.x.is_nan() || k.anchor.y.is_nan() {
+                        return Ok(None);
+                    }
                     let candidates = index.get(&key(k.anchor)).map_or(&[][..], Vec::as_slice);
                     match candidates {
                         [] => Ok(None),

@@ -43,7 +43,17 @@ fn shape_valid(sh: &ShapeLayer) -> Result<()> {
 }
 fn composite_surface(doc: &Document, layers: Vec<Layer>, bounds: Rect) -> Result<Surface> {
     budget(bounds)?;
-    let mut projected = doc.clone();
+    // The compositor needs render settings and paint resources, not unrelated document
+    // layers, masters, paths, metadata or history-sized auxiliary trees.
+    let mut projected = Document::new("Symbol projection", doc.size, doc.mode, doc.depth);
+    projected.id = doc.id;
+    projected.resolution_dpi = doc.resolution_dpi;
+    projected.icc_profile = doc.icc_profile.clone();
+    projected.global_light = doc.global_light;
+    projected.patterns = doc.patterns.clone();
+    projected.channels = doc.channels.clone();
+    projected.color_table = doc.color_table.clone();
+    projected.duotone = doc.duotone.clone();
     projected.layers = layers;
     let fmt = doc.pixel_format();
     let n = fmt.channels();

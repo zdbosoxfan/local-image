@@ -289,3 +289,22 @@ fn review_regression_node_provenance_matches_signed_zero_and_prefers_unchanged_c
     let output = Path::new(vec![photocraft_doc::Subpath { knots: vec![second, first, photocraft_doc::Knot::corner(9., 9.)], ..Default::default() }]);
     assert_eq!(provenance(&base, &output).unwrap(), vec![vec![Some([0, 1]), Some([0, 0]), None]]);
 }
+
+#[test]
+fn dsfix_v137_indexed_provenance_keeps_coincident_and_signed_zero_rules() {
+    let mut base = Path::new(vec![Subpath::polyline(&[(-0., 0.), (10., 0.), (0., 0.)])]);
+    base.subpaths[0].knots[2].in_ctrl = Point::new(2., 3.);
+    base.subpaths[0].knots[2].out_ctrl = Point::new(4., 5.);
+    let mut reversed = base.subpaths[0].knots[2];
+    std::mem::swap(&mut reversed.in_ctrl, &mut reversed.out_ctrl);
+    let output = Path::new(vec![Subpath {
+        knots: vec![base.subpaths[0].knots[2], reversed, photocraft_doc::Knot::corner(0., 0.), photocraft_doc::Knot::corner(99., 99.)],
+        closed: false,
+        op: Default::default(),
+    }]);
+    assert_eq!(provenance(&base, &output).unwrap(), vec![vec![Some([0, 2]), Some([0, 2]), Some([0, 0]), None]]);
+    let large = Path::new(vec![Subpath::polyline(&(0..16_384).map(|i| (f64::from(i), 0.)).collect::<Vec<_>>())]);
+    let origins = provenance(&large, &large).unwrap();
+    assert_eq!(origins[0].len(), 16_384);
+    assert_eq!(origins[0][16_383], Some([0, 16_383]));
+}

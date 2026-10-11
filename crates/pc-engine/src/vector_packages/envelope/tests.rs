@@ -215,3 +215,37 @@ fn envelope_engine_preview_preserves_other_live_group_projection() {
     assert_eq!(preview.layer(second), displayed.layer(second));
     assert_eq!(s.active().unwrap().doc, source);
 }
+
+#[test]
+fn dsfix_v093_envelope_background_reused_across_drag_and_invalidated() {
+    let (mut s, id, _) = fixture(false);
+    let mut other = s.active().unwrap().doc.layer(id).unwrap().duplicate();
+    other.vector.live = Some(LiveGroup::Envelope(warp()));
+    let other_id = other.id;
+    s.edit("other envelope", |doc, _| {
+        doc.layers.push(other);
+        Ok(())
+    })
+    .unwrap();
+    let mut g = Gesture::begin(&s, &[id]).unwrap();
+    let source = s.active().unwrap().doc.clone();
+    let first = preview_background(&source, &g.request).unwrap();
+    g.update(warp()).unwrap();
+    let second = preview_background(&source, &g.request).unwrap();
+    assert!(Arc::ptr_eq(&first, &second));
+    let expected = project_document(&source).unwrap();
+    assert_eq!(second.layer(other_id), expected.layer(other_id));
+    let mut changed_targets = g.request.clone();
+    changed_targets.edits.clear();
+    let all = preview_background(&source, &changed_targets).unwrap();
+    assert!(!Arc::ptr_eq(&first, &all));
+    s.edit("new revision", |doc, _| {
+        doc.name = "Changed".into();
+        Ok(())
+    })
+    .unwrap();
+    assert!(preview_document(&s, &g.request).is_err());
+    let g = Gesture::begin(&s, &[id]).unwrap();
+    let third = preview_background(&s.active().unwrap().doc, &g.request).unwrap();
+    assert!(!Arc::ptr_eq(&first, &third));
+}

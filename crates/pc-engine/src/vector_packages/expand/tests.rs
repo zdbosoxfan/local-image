@@ -282,3 +282,24 @@ fn review_regression_object36_fill_stroke_only_cannot_discard_live_group_or_path
     assert!(shape_expansion(&layer, r.options, false).is_err());
     assert!(s.journal.is_empty());
 }
+
+#[test]
+fn dsfix_v102_expand_availability_reuses_preparation_and_invalidates() {
+    let (mut s, id) = fixture();
+    let mut r = request(&s, &[id]);
+    let before = PREPARE_COUNT.with(|n| n.get());
+    assert!(disabled_reason(&s, &r).is_none());
+    assert!(disabled_reason(&s, &r).is_none());
+    assert_eq!(PREPARE_COUNT.with(|n| n.get()), before + 1);
+    r.appearance = false;
+    assert!(disabled_reason(&s, &r).is_none());
+    assert_eq!(PREPARE_COUNT.with(|n| n.get()), before + 2);
+    s.edit("lock", |doc, _| {
+        doc.layer_mut(id).unwrap().locks.all = true;
+        Ok(())
+    })
+    .unwrap();
+    assert!(disabled_reason(&s, &r).unwrap().contains("stale"));
+    r.capture.revision = s.active().unwrap().revision;
+    assert!(disabled_reason(&s, &r).unwrap().contains("locked"));
+}

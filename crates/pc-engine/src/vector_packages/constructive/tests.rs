@@ -414,3 +414,25 @@ fn review_regression_constructive_erase_single_path_pieces_retain_fill_rule_and_
         assert_eq!(piece.inverted, p.inverted);
     }
 }
+
+#[test]
+fn dsfix_v122_v123_split_and_erase_preserve_fill_semantics() {
+    let mut source = Path::new(vec![Subpath::polyline(&[(10., 70.), (140., 70.)])]);
+    source.fill_rule = photocraft_doc::FillRule::EvenOdd;
+    source.inverted = true;
+    let (s, ids) = fixture(vec![source.clone()]);
+    let g = Gesture::begin(&s, &ids).unwrap();
+    let split = g.preview(&Action::Scissors { layer: ids[0], subpath: 0, segment: 0, t: 0.5 }).unwrap();
+    assert_eq!(split.output_paths().len(), 2);
+    for p in split.output_paths() {
+        assert_eq!(p.fill_rule, source.fill_rule);
+        assert_eq!(p.inverted, source.inverted);
+    }
+    let brush = vector::shapes::rect(60., 50., 5., 40.);
+    let erased = erase(&source, &brush).unwrap().unwrap();
+    assert_eq!(erased.len(), 2);
+    for p in erased {
+        assert_eq!(p.fill_rule, source.fill_rule);
+        assert_eq!(p.inverted, source.inverted);
+    }
+}

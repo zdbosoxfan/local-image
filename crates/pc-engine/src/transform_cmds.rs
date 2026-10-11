@@ -195,7 +195,7 @@ pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &m
         return Err(EngineError::Other(format!("layer \"{}\" is locked", l.name)));
     }
     // With a selection only the selected pixels move, and so only the same region of a linked
-    // mask (#205). Groups, type, shapes and smart objects move whole.
+    // mask (#205). Groups, type, shapes, smart objects and symbols move whole.
     let mask_sel = doc_sel.filter(|_| {
         !matches!(l.content, LayerContent::Group(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_) | LayerContent::Symbol(_))
     });
@@ -885,5 +885,23 @@ mod tests {
         let mut sel = Surface::new(PixelFormat::GRAY8);
         sel.fill_rect(Rect::new(0, 0, 4, 4), &[1.0]);
         assert!(split_gray_selected(&s, &sel).is_none());
+    }
+
+    #[test]
+    fn dsfix_v026_symbol_linked_mask_moves_whole_with_selection() {
+        use photocraft_doc::{LayerMask, SymbolId, SymbolInstance};
+        let mut l = Layer::new("Symbol", LayerContent::Symbol(SymbolInstance { symbol: SymbolId(1), transform: Affine::IDENTITY, cache: None }));
+        let mut mask = LayerMask::hide_all();
+        mask.surface.fill_rect(Rect::new(10, 10, 20, 20), &[1.]);
+        l.mask = Some(mask);
+        let mut selection = Surface::new(PixelFormat::GRAY8);
+        selection.fill_rect(Rect::new(10, 10, 15, 20), &[1.]);
+        let a = Affine::translate(30., 0.);
+        let h = Homography([1., 0., 30., 0., 1., 0., 0., 0., 1.]);
+        transform_layer(Some(&selection), Locks::default(), &mut l, &h, Some(a), Interp::Nearest).unwrap();
+        let m = &l.mask.as_ref().unwrap().surface;
+        assert_eq!(m.sample_channel(42, 15, 0), 1.);
+        assert_eq!(m.sample_channel(47, 15, 0), 1.);
+        assert_eq!(m.sample_channel(17, 15, 0), 0.);
     }
 }
