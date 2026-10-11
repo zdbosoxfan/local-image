@@ -659,10 +659,21 @@
     "source_verdict": "REAL \u2014 fixed",
     "source_change": "Sort midpoint values together with their owning color stops, defaulting omitted midpoint entries to 0.5.",
     "source_test": "dsfix_unsorted_gradient_midpoints_follow_their_stops \u2014 passed",
-    "stage1_disposition": "ported midpoint/stop joint sorting and missing midpoint defaults plus regression; union caught missing compositor Ramp mirror, now ported so shape/fill/GPU ramp ordering agree; original equivalence regression passes without tolerance change",
+    "stage1_disposition": "Original finding premise rejected after independent contract review. Fill.midpoints indexes sorted intervals. Restored original compositor implementation and original ramp fixture; vector Paint now sorts stops only and preserves midpoint order. Corrected the newly added V484 test, added permutation/short-midpoint cases, and verified component, export and real GPU paths.",
     "focused_matches": {
+      "dsfix_unsorted_gradient_midpoints_index_sorted_intervals": true,
+      "gradient_midpoint_contract_is_invariant_to_stop_storage_order": true
+    },
+    "historical_focused_matches": {
       "dsfix_unsorted_gradient_midpoints_follow_their_stops": true
-    }
+    },
+    "coordinator_evidence": [
+      "coordinator-gradient-contract",
+      "coordinator-gradient-components",
+      "coordinator-gradient-export",
+      "coordinator-gradient-gpu",
+      "coordinator-gradient-lint"
+    ]
   },
   {
     "source": "dsfix-libs",

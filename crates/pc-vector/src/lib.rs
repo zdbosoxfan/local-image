@@ -268,11 +268,11 @@ impl Paint {
             // shape renderer honours it (the same sentinel the document/compositor pair uses).
             Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
                 let frame = if *align { bounds } else { canvas };
-                // A midpoint belongs to the interval following its stored colour stop.
-                let mut ordered: Vec<_> = stops.iter().enumerate().map(|(i, (p, c))| (*p, rgba(c), midpoints.get(i).copied().unwrap_or(0.5))).collect();
-                ordered.sort_by(|a, b| a.0.total_cmp(&b.0));
-                let stops = ordered.iter().map(|(p, c, _)| (*p, *c)).collect();
-                let midpoints = ordered.iter().take(ordered.len().saturating_sub(1)).map(|(_, _, m)| *m).collect();
+                // Fill midpoints index intervals between sorted stops, regardless
+                // of the stops' storage order. Do not reorder or discard them.
+                let mut stops: Vec<_> = stops.iter().map(|(p, c)| (*p, rgba(c))).collect();
+                stops.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let midpoints = midpoints.clone();
                 let mut opacity = opacity_stops.clone();
                 opacity.sort_by(|a, b| a.0.total_cmp(&b.0));
                 Paint::Gradient {

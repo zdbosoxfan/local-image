@@ -488,7 +488,7 @@ fn review_additional_thin_coverage_is_translation_stable_and_inverted_fill_is_ex
 }
 
 #[test]
-fn dsfix_unsorted_gradient_midpoints_follow_their_stops() {
+fn dsfix_unsorted_gradient_midpoints_index_sorted_intervals() {
     let fill = Fill::Gradient {
         stops: vec![(0.5, Color::rgb(0., 1., 0.)), (0., Color::rgb(1., 0., 0.)), (1., Color::rgb(0., 0., 1.))],
         angle: 0.,
@@ -503,7 +503,38 @@ fn dsfix_unsorted_gradient_midpoints_follow_their_stops() {
     };
     let paint = Paint::from_fill(&fill, (0., 0., 100., 100.), (0., 0., 100., 100.));
     let Paint::Gradient { stops, midpoints, .. } = paint else { panic!() };
-    assert_eq!(midpoints, vec![0.8, 0.2]);
-    let color = sample_color(&stops, &midpoints, 0.4);
-    assert!((color[0] - 0.5).abs() < 1e-6 && (color[1] - 0.5).abs() < 1e-6);
+    assert_eq!(midpoints, vec![0.2, 0.8]);
+    for (t, expected) in [(0.1, [0.5, 0.5, 0.0, 1.0]), (0.9, [0.0, 0.5, 0.5, 1.0])] {
+        let color = sample_color(&stops, &midpoints, t);
+        for (actual, expected) in color.into_iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-6, "t={t}: {color:?}");
+        }
+    }
+}
+
+#[test]
+fn gradient_midpoint_contract_is_invariant_to_stop_storage_order() {
+    let sorted = [(0.0, Color::BLACK), (0.5, Color::rgb(1.0, 0.25, 0.5)), (1.0, Color::WHITE)];
+    for order in [[0, 1, 2], [2, 1, 0], [1, 0, 2], [2, 0, 1]] {
+        let mut fill = Fill::gradient(order.into_iter().map(|i| sorted[i]).collect(), 0.0, 100.0, GradientStyle::Linear, false);
+        if let Fill::Gradient { midpoints, .. } = &mut fill {
+            *midpoints = vec![0.75];
+        }
+        let Paint::Gradient { stops, midpoints, .. } = Paint::from_fill(&fill, (0.0, 0.0, 100.0, 100.0), (0.0, 0.0, 100.0, 100.0)) else { panic!() };
+        assert_eq!(midpoints, vec![0.75], "first sorted interval must retain its midpoint");
+        for (t, expected) in [(0.375, [0.5, 0.125, 0.25, 1.0]), (0.75, [1.0, 0.625, 0.75, 1.0])] {
+            let color = sample_color(&stops, &midpoints, t);
+            for (actual, expected) in color.into_iter().zip(expected) {
+                assert!((actual - expected).abs() < 1e-6, "order={order:?}, t={t}: {color:?}");
+            }
+        }
+    }
+    let mut fill = Fill::gradient(vec![(1.0, Color::WHITE), (0.0, Color::BLACK)], 0.0, 100.0, GradientStyle::Linear, false);
+    if let Fill::Gradient { midpoints, .. } = &mut fill {
+        *midpoints = vec![0.25];
+    }
+    let Paint::Gradient { stops, midpoints, .. } = Paint::from_fill(&fill, (0.0, 0.0, 100.0, 100.0), (0.0, 0.0, 100.0, 100.0)) else { panic!() };
+    assert_eq!(midpoints, vec![0.25]);
+    let color = sample_color(&stops, &midpoints, 0.25);
+    assert!((color[0] - 0.5).abs() < 1e-6 && (color[1] - 0.5).abs() < 1e-6 && (color[2] - 0.5).abs() < 1e-6);
 }

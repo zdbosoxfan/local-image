@@ -29,22 +29,17 @@ impl Ramp {
     /// The ramp of a gradient fill (`None` for other fills).
     pub fn new(f: &Fill) -> Option<Ramp> {
         let Fill::Gradient { stops, opacity_stops, midpoints, .. } = f else { return None };
-        // Midpoints belong to their source colour stops (dsfix V484), so sort
-        // them together just as the shape painter does. Omitted entries use 0.5.
-        let mut ordered: Vec<_> = stops
+        let mut color: Vec<(f32, [f32; 4])> = stops
             .iter()
-            .enumerate()
-            .map(|(i, (p, c))| {
+            .map(|(p, c)| {
                 let rgb = c.to_rgb();
-                (*p, [rgb[0], rgb[1], rgb[2], c.alpha], midpoints.get(i).copied().unwrap_or(0.5))
+                (*p, [rgb[0], rgb[1], rgb[2], c.alpha])
             })
             .collect();
-        ordered.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let color = ordered.iter().map(|(p, c, _)| (*p, *c)).collect();
-        let mids = ordered.iter().take(ordered.len().saturating_sub(1)).map(|(_, _, m)| *m).collect();
+        color.sort_by(|a, b| a.0.total_cmp(&b.0));
         let mut opacity = opacity_stops.clone();
         opacity.sort_by(|a, b| a.0.total_cmp(&b.0));
-        Some(Ramp { color, mids, opacity })
+        Some(Ramp { color, mids: midpoints.clone(), opacity })
     }
 
     /// Colour and alpha at `t` (`0..=1`).
