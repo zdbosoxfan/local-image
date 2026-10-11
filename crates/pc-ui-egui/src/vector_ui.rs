@@ -1200,7 +1200,9 @@ mod tests {
     fn ds_finding_borrowed_shape_options_allow_corner_editing() {
         use egui_kittest::kittest::Queryable;
         let mut app = app();
-        finish_shape(&mut app, Tool::Rectangle, [10., 10.], [110., 90.], egui::Modifiers::NONE);
+        // This popup edits the legacy representation. finish_shape now creates native
+        // DesignShape metadata, whose production context bar is covered separately below.
+        app.run("shape.create", json!({"kind": "rect", "rect": [10., 10., 100., 80.]})).unwrap();
         let doc = app.session.active().unwrap().doc.clone();
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400., 160.)).build_ui_state(
             |ui, app: &mut PhotocraftApp| {
@@ -1240,6 +1242,65 @@ mod tests {
         };
         assert_eq!(radius(&doc), 0.);
         assert!(radius(&h.state().session.active().unwrap().doc) > 0.);
+    }
+
+    #[test]
+    fn native_shape_context_allows_corner_editing_in_both_personas() {
+        use egui_kittest::kittest::Queryable;
+        use photocraft_doc::vector_design::drawing::ShapeParameters;
+        use photocraft_engine::toolsets::Persona;
+        for persona in [Persona::Pixel, Persona::Vector] {
+            let mut app = app();
+            app.ui.tool = Tool::Rectangle;
+            app.session.edit_prefs(|p| p.toolbar.persona = persona);
+            finish_shape(&mut app, Tool::Rectangle, [10., 10.], [110., 90.], egui::Modifiers::NONE);
+            let before = app.session.active().unwrap().doc.clone();
+            let id = app.session.active().unwrap().active_layer.unwrap();
+            let steps = app.session.active().unwrap().history.past_len();
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1400., 700.)).build_ui_state(
+                move |ui, app: &mut PhotocraftApp| {
+                    let mut state = std::mem::take(&mut app.shared_tools);
+                    assert!(state.activate(app, "Rectangle", persona));
+                    app.shared_tools = state;
+                    assert!(crate::vector_integration::context(app, ui));
+                },
+                app,
+            );
+            PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+            h.run_steps(3);
+            let at = h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Top left radius").rect().center();
+            h.hover_at(at);
+            h.run_steps(1);
+            h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+            h.run_steps(1);
+            h.event(egui::Event::PointerMoved(at + egui::vec2(25., 0.)));
+            h.run_steps(1);
+            assert!(std::sync::Arc::ptr_eq(&before, &h.state().session.active().unwrap().doc), "{persona:?}: held drag stays detached");
+            assert!(h.state().shared_tools.drawing.preview_layer.is_some());
+            h.event(egui::Event::PointerButton {
+                pos: at + egui::vec2(25., 0.),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(2);
+            let after = h.state().session.active().unwrap().doc.clone();
+            let layer = after.layer(id).unwrap();
+            let design = layer.vector.live_shape.as_ref().unwrap();
+            let ShapeParameters::Rect { radii, .. } = design.parameters else { panic!("rectangle") };
+            assert!(radii[0] > 0., "{persona:?}: radius changed");
+            assert_eq!(radii[1..], [0.; 3], "other corners remain sharp");
+            let LayerContent::Shape(shape) = &layer.content else { panic!("shape") };
+            assert_eq!(shape.path, photocraft_vector::design_shapes::generate(design).unwrap());
+            let LayerContent::Shape(original) = &before.layer(id).unwrap().content else { panic!("shape") };
+            assert_ne!(shape.path, original.path, "corner editing updates geometry");
+            assert_eq!(h.state().session.active().unwrap().history.past_len(), steps + 1);
+            assert!(h.state().shared_tools.drawing.preview_layer.is_none());
+            assert!(h.state_mut().session.undo());
+            assert_eq!(h.state().session.active().unwrap().doc, before);
+            assert!(h.state_mut().session.redo());
+            assert_eq!(h.state().session.active().unwrap().doc, after);
+        }
     }
 
     #[test]

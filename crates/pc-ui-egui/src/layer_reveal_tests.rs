@@ -96,8 +96,7 @@ fn a_new_active_layer_opens_its_groups_and_scrolls_into_view() {
         h.state_mut().run("layer.setExpanded", json!({"layer": group.0, "expanded": false})).unwrap();
         h.run_steps(4);
         assert!(!expanded(h.state(), group), "{theme:?}: stays closed");
-        // Undo and other commands that change the active layer reveal it too: undoing a new
-        // layer deep in the list makes the top layer active again.
+        // Undo restores the target immediately before the edit, including a nested layer.
         h.state_mut().run("layer.select", json!({"layer": top.0})).unwrap();
         h.run_steps(3);
         h.state_mut().run("layer.select", json!({"layer": inner.0})).unwrap();
@@ -108,8 +107,24 @@ fn a_new_active_layer_opens_its_groups_and_scrolls_into_view() {
         assert!(!in_view(&h, row(&h, "Stack 29").unwrap()));
         h.state_mut().run("edit.undo", json!({})).unwrap();
         h.run_steps(4);
-        assert_eq!(h.state().session.active().unwrap().active_layer, Some(top), "{theme:?}: undo made the top layer active");
+        assert_eq!(h.state().session.active().unwrap().active_layer, Some(inner), "{theme:?}: undo restored the pre-edit target");
+        assert!(in_view(&h, row(&h, "Deep inside").unwrap()), "{theme:?}: undo revealed the nested layer");
+        assert!(row(&h, "Scratch").is_none(), "{theme:?}: undo removed Scratch");
+
+        // Create a layer with the top selected, then scroll away before undoing. Undo must
+        // reveal the restored top target, not keep the later, non-editing selection.
+        h.state_mut().run("layer.select", json!({"layer": top.0})).unwrap();
+        h.run_steps(3);
+        h.state_mut().run("layer.new.layer", json!({"name": "Top scratch"})).unwrap();
+        h.run_steps(4);
+        h.state_mut().run("layer.select", json!({"layer": inner.0})).unwrap();
+        h.run_steps(4);
+        assert!(!in_view(&h, row(&h, "Stack 29").unwrap()));
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        h.run_steps(4);
+        assert_eq!(h.state().session.active().unwrap().active_layer, Some(top), "{theme:?}: undo restored the top target");
         assert!(in_view(&h, row(&h, "Stack 29").unwrap()), "{theme:?}: undo revealed it");
+        assert!(row(&h, "Top scratch").is_none(), "{theme:?}: undo removed Top scratch");
     }
 }
 

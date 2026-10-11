@@ -199,8 +199,11 @@ fn artwork(root: &Path, manifest: &Manifest, tool: &Tool, mono: bool) -> Result<
         ));
     }
     let commit = &manifest.sets.get(&source.set).context("source references an unknown icon set")?.commit;
+    // The gradient glyph fills its nested SVG viewport. Leave room for the image
+    // resampling footprint as well as the silhouette at the smallest (16px) size.
+    let transform = if tool.id == "blend" { "translate(2.25 2.25) scale(.8125)" } else { "translate(1.5 1.5) scale(.875)" };
     Ok(format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\">\n<!-- {} @ {commit} ({}); filled Glossy Duotone adaptation GPL-3.0-or-later, {} family. -->\n<g transform=\"translate(1.5 1.5) scale(.875)\">{images}</g>\n</svg>\n",
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\">\n<!-- {} @ {commit} ({}); filled Glossy Duotone adaptation GPL-3.0-or-later, {} family. -->\n<g transform=\"{transform}\">{images}</g>\n</svg>\n",
         component.source, source.licence, tool.family
     ))
 }
