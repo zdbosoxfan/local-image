@@ -1782,3 +1782,6 @@ mod clipboard_tests {
 
 #[path = "vector_packages/frame_compose.rs"]
 pub mod frame_compose;
+
+#[path = "vector_packages/envelope.rs"]
+pub mod envelope;

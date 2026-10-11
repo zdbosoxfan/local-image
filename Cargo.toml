@@ -14,6 +14,7 @@ rust-version = "1.95"
 repository = "https://github.com/zdbosoxfan/local-image"
 
 [workspace.dependencies]
+photocraft-vecfx = { path = "crates/pc-vecfx" }
 photocraft-affinity = { path = "crates/pc-affinity" }
 photocraft-pdf = { path = "crates/pc-pdf" }
 photocraft-svg = { path = "crates/pc-svg" }
