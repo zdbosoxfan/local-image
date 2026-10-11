@@ -60,3 +60,5 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
     out.extend(trace_output::specs());
     out
 }
+
+pub mod styles;

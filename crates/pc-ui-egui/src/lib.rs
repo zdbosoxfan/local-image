@@ -1794,3 +1794,8 @@ pub mod vector_brush;
 
 #[path = "vector_packages/envelope.rs"]
 pub mod envelope;
+
+#[path = "vector_packages/styles_panel.rs"]
+pub mod graphic_styles;
+#[path = "vector_packages/eyedropper.rs"]
+pub mod vector_eyedropper;
