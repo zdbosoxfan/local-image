@@ -21,6 +21,8 @@ pub struct Prompt {
     /// The document the command was aimed at (`document` param, else the active one), if it has one.
     target: Option<DocId>,
     docs: Vec<DocId>,
+    answered: Vec<(DocId, u64)>,
+    waiting: Option<DocId>,
 }
 
 fn index_of(app: &PhotocraftApp, id: DocId) -> Option<usize> {
@@ -65,7 +67,7 @@ pub fn intercept(app: &mut PhotocraftApp, id: &str, params: &Value) -> bool {
     if docs.is_empty() {
         return false;
     }
-    let prompt = Prompt { id: id.to_string(), params: params.clone(), target, docs };
+    let prompt = Prompt { id: id.to_string(), params: params.clone(), target, docs, answered: Vec::new(), waiting: None };
     match &app.discard {
         None => app.discard = Some(prompt),
         // Quitting overrides whatever is pending: it covers every document, so nothing is lost.
@@ -93,14 +95,30 @@ pub fn guard_window_close(app: &mut PhotocraftApp, ctx: &egui::Context) {
 
 /// Moves on to the next document, or runs the parked action once none are left.
 fn advance(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    let Some(p) = app.discard.as_mut() else { return };
+    let Some(mut p) = app.discard.take() else { return };
     if !p.docs.is_empty() {
-        p.docs.remove(0);
+        let id = p.docs.remove(0);
+        if let Some(i) = index_of(app, id) {
+            p.answered.push((id, app.session.documents()[i].revision));
+        }
     }
     if !p.docs.is_empty() {
+        app.discard = Some(p);
         return;
     }
-    let Some(Prompt { id, mut params, target, .. }) = app.discard.take() else { return };
+    // Saving Edit Contents can dirty its previously clean parent. Check the reach again,
+    // excluding only documents the user already answered.
+    let mut params = p.params.clone();
+    if let Some(i) = p.target.and_then(|id| index_of(app, id)) {
+        params = json!({"document": i});
+    }
+    let dirty = discarded(app, &p.id, &params).1;
+    p.docs = dirty.into_iter().filter(|id| index_of(app, *id).is_some_and(|i| !p.answered.contains(&(*id, app.session.documents()[i].revision)))).collect();
+    if !p.docs.is_empty() {
+        app.discard = Some(p);
+        return;
+    }
+    let Prompt { id, target, .. } = p;
     if id == EXIT {
         app.allow_close = true;
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -122,7 +140,15 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
     let Some(i) = index_of(app, doc) else { return false };
     app.session.set_active(i);
     match crate::menus::invoke_unguarded(app, ctx, "file.save", json!({})) {
-        Ok(_) => true,
+        Ok(_) => {
+            if app.tiff_options.as_ref().is_some_and(|p| p.doc == doc) {
+                if let Some(p) = app.discard.as_mut() {
+                    p.waiting = Some(doc);
+                }
+                return false;
+            }
+            app.session.documents().get(i).is_some_and(|st| !st.is_dirty())
+        }
         // Backing out of the file dialog is the user's choice, not an error.
         Err(e) if e == "cancelled" => false,
         Err(e) => {
@@ -134,6 +160,18 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
 }
 
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if let Some(doc) = app.discard.as_ref().and_then(|p| p.waiting) {
+        if app.tiff_options.is_some() {
+            return;
+        }
+        if let Some(p) = app.discard.as_mut() {
+            p.waiting = None;
+        }
+        if index_of(app, doc).is_none_or(|i| !app.session.documents()[i].is_dirty()) {
+            advance(app, ctx);
+        }
+        return;
+    }
     let Some(p) = &app.discard else { return };
     let Some(&doc) = p.docs.first() else { return };
     let (exits, reverts) = (p.id == EXIT, p.id == "file.revert");

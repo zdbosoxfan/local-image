@@ -1505,12 +1505,12 @@ pub fn run_batch_with_ctl(
                     Ok(path)
                 } else {
                     match o.conflict {
-                        Conflict::Overwrite => Ok(path),
+                        Conflict::Overwrite if !group(&path).iter().any(|p| taken.contains(p)) => Ok(path),
                         Conflict::Skip => {
                             out.push(json!({"skipped": path}));
                             continue;
                         }
-                        Conflict::Unique => {
+                        Conflict::Unique | Conflict::Overwrite => {
                             let (stem, ext) = e.file_name.rsplit_once('.').map_or((e.file_name.as_str(), None), |(a, b)| (a, Some(b)));
                             let name = |n: usize| join(&dir, &ext.map_or(format!("{stem}-{n}"), |x| format!("{stem}-{n}.{x}")));
                             (2..1_000_000).map(name).find(|p| !busy(p)).ok_or_else(|| format!("{path}: no free file name"))
@@ -1553,6 +1553,75 @@ pub fn run_batch_with_ctl(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn bugfix_save_o029_overwrite_never_reuses_a_batch_output_or_sidecar() {
+        use lightcraft_catalog::{Op, PhotoId};
+        let mut session = crate::Session::with_demo();
+        for id in 1..=2 {
+            let mut photo = (**session.catalog.photo(PhotoId(id)).unwrap()).clone();
+            photo.file_name = "same.png".into();
+            photo.format = "PNG".into();
+            photo.width = 8;
+            photo.height = 6;
+            session.catalog.apply(Op::RemovePhoto { id: PhotoId(id) }).unwrap();
+            session.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+        }
+        let options = ExportOptions { conflict: Conflict::Overwrite, format: ExportFormat::Png, ..Default::default() };
+        let items = prepare_batch(&mut session, &[PhotoId(1), PhotoId(2)], &options).unwrap();
+        let mut paths = Vec::new();
+        let result = run_batch(
+            items,
+            &options,
+            &Destination { dir: "/exports".into(), exact: None },
+            &mut |path, _| {
+                paths.push(path.to_string());
+                Ok(())
+            },
+            &|p| p == "/exports/same.png",
+            true,
+            &mut |_, _| true,
+        )
+        .unwrap();
+        assert_eq!(paths, ["/exports/same.png", "/exports/same-2.png"]);
+        assert_eq!(result.len(), 2);
+
+        let guard = std::sync::Arc::new(session.original_guard());
+        let items = ["pair.nef", "pair.jpg"]
+            .into_iter()
+            .enumerate()
+            .map(|(i, name)| PreparedExport {
+                photo: PhotoId(i as u64 + 1),
+                file_name: name.into(),
+                subfolder: None,
+                source_dir: None,
+                guard: guard.clone(),
+                work: Work::File {
+                    path: format!("/input/{name}"),
+                    read: Some(std::sync::Arc::new(|_| Ok(b"original".to_vec()))),
+                    packet: "<xmp/>".into(),
+                    dng: None,
+                    label: name.into(),
+                    size: (8, 6),
+                },
+            })
+            .collect();
+        let mut paths = Vec::new();
+        run_batch(
+            items,
+            &options,
+            &Destination { dir: "/exports".into(), exact: None },
+            &mut |path, _| {
+                paths.push(path.to_string());
+                Ok(())
+            },
+            &|_| false,
+            true,
+            &mut |_, _| true,
+        )
+        .unwrap();
+        assert_eq!(paths, ["/exports/pair.nef", "/exports/pair.xmp", "/exports/pair-2.jpg", "/exports/pair-2.xmp"]);
+    }
 
     fn test_image() -> Rgba8 {
         let mut img = Rgba8::new(96, 64);

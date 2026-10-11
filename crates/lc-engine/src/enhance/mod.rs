@@ -252,7 +252,7 @@ impl Enhance {
             move || {
                 let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&job.ctl)))
                     .unwrap_or_else(|_| Err("the AI job failed unexpectedly".to_string()));
-                let r = if job.ctl.cancelled() && r.is_err() { Err(CANCELLED.to_string()) } else { r };
+                let r = if job.ctl.cancelled() { Err(CANCELLED.to_string()) } else { r };
                 job.finish(r);
             }
         };
@@ -337,6 +337,24 @@ mod tests {
             seed: 1,
             geometry: "g".into(),
         })
+    }
+
+    #[test]
+    fn bugfix_save_o047_cancel_during_saving_discards_successful_outcome() {
+        let mut e = Enhance::default();
+        let job = e.spawn(
+            PhotoId(1),
+            JobKind::DenoiseExport,
+            "Saving",
+            true,
+            Box::new(|ctl| {
+                ctl.set(0.99, "Saving");
+                ctl.cancel();
+                Ok(Outcome::DenoiseExport("already-written.tif".into()))
+            }),
+        );
+        assert!(job.finished());
+        assert_eq!(e.take_finished()[0].1, Err(CANCELLED.into()));
     }
 
     #[test]

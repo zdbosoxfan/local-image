@@ -259,7 +259,7 @@ impl DocState {
         self.active_layer == Some(id) || (self.active_layer.is_some_and(|a| self.selected_layers.contains(&a)) && self.selected_layers.contains(&id))
     }
     pub fn is_dirty(&self) -> bool {
-        self.revision != self.saved_revision
+        self.revision != self.saved_revision || crate::float_cmds::floating(self).is_some_and(|f| f.offset != (0, 0))
     }
     /// The targeted layers, as history stores them with each state.
     fn layer_target(&self) -> LayerTarget {

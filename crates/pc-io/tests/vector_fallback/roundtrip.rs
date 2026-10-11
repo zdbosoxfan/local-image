@@ -11,6 +11,33 @@ fn max_diff(a: &Document, b: &Document) -> f32 {
     a.px.iter().zip(&b.px).flat_map(|(a, b)| (0..4).map(move |k| (if k == 3 { a[k] - b[k] } else { a[k] * a[3] - b[k] * b[3] }).abs())).fold(0_f32, f32::max)
 }
 
+#[test]
+fn bugfix_save_f03_plain_shape_separate_vector_mask_psd_psb_pixels_and_loss_notice() {
+    let mut doc = Document::new("Masked shape", Size::new(32, 24), ColorMode::Rgb, SampleType::U8);
+    let mut shape = ShapeLayer { path: photocraft_vector::shapes::rect(0., 0., 32., 24.), fill: Some(Fill::Solid(Color::BLACK)), ..Default::default() };
+    shape.cache = Some(photocraft_vector::render_shape(&shape, doc.pixel_format(), doc.bounds()));
+    let mut layer = Layer::new("Masked", LayerContent::Shape(shape));
+    layer.vector_mask = Some(photocraft_doc::VectorMask::new(photocraft_vector::shapes::rect(0., 0., 16., 24.)));
+    doc.layers.push(layer);
+    for ext in ["psd", "psb"] {
+        let out = export(&doc, ext, &Default::default()).unwrap();
+        let back = import(&format!("masked.{ext}"), &out.bytes).unwrap().document;
+        assert!(max_diff(&doc, &back) <= 1. / 255., "{ext} lost visible clipping");
+        assert!(out.warnings.iter().any(|w| w.contains("independent shape vector masks")), "editability loss must be declared: {:?}", out.warnings);
+        let psd = PsdFile::from_bytes(&out.bytes).unwrap();
+        assert!(
+            psd.layers()[0].block(b"vmsk").is_none() && psd.layers()[0].block(b"SoCo").is_none(),
+            "the fallback must be compatible raster pixels in other PSD readers too"
+        );
+        assert!(matches!(back.layers[0].content, LayerContent::Raster(_)), "fallback is explicitly pixels");
+        let second = export(&back, ext, &Default::default()).unwrap();
+        let twice = import(&format!("masked.{ext}"), &second.bytes).unwrap().document;
+        assert!(max_diff(&doc, &twice) <= 1. / 255.);
+        assert!(matches!(doc.layers[0].content, LayerContent::Shape(_)));
+        assert!(doc.layers[0].vector_mask.is_some(), "saving must leave the editable source intact");
+    }
+}
+
 fn fixture(depth: SampleType) -> Document {
     let mut doc = Document::new("Advanced PSD", Size::new(96, 64), ColorMode::Rgb, depth);
     let mut appearance = Appearance {
