@@ -251,6 +251,41 @@ pub fn project_document(source: &Document) -> Result<Document> {
     packages::layout::project_clips(&out)
 }
 
+/// PSD/TIFF fallback evaluates the same native features as the canvas. Only the detached
+/// layer's content is baked; the original compositing envelope is serialized once.
+struct LayeredSaveProjection;
+impl photocraft_io::vector_map::fallback::Projection for LayeredSaveProjection {
+    fn layer(&self, document: &Document, layer: &photocraft_doc::Layer) -> std::result::Result<Option<photocraft_doc::Layer>, String> {
+        let mut isolated = document.clone();
+        let mut content = layer.clone();
+        content.visible = true;
+        content.opacity = 1.;
+        content.fill_opacity = 1.;
+        content.blend = photocraft_doc::BlendMode::Normal;
+        content.clipped = false;
+        content.mask = None;
+        content.vector_mask = None;
+        content.effects = Default::default();
+        content.blend_if = Default::default();
+        isolated.layers = vec![content];
+        let projected = project_document(&isolated).map_err(|e| e.to_string())?;
+        let mut out = layer.clone();
+        out.content = LayerContent::Raster(photocraft_compose::flatten_to_surface(&projected, document.pixel_format(), None));
+        out.vector = Default::default();
+        out.psd_blocks.retain(|(key, _)| ![b"vmsk", b"vsms", b"vogk", b"vstk", b"vscg", b"SoCo", b"GdFl", b"PtFl"].contains(&key));
+        Ok(Some(out))
+    }
+}
+
+/// Normal application and headless layered-save bridge, with original editability losses.
+pub fn export_document(
+    source: &Document,
+    name: &str,
+    options: &photocraft_io::ExportOptions,
+) -> std::result::Result<photocraft_io::ExportResult, photocraft_io::IoError> {
+    photocraft_io::export_with_projection(source, name, options, Some(&LayeredSaveProjection))
+}
+
 /// Native editable vector imports share the file worker's cancellation and publication.
 pub fn read_vector_file(name: &str, bytes: &[u8], cancel: &std::sync::atomic::AtomicBool) -> Option<Result<photocraft_io::ImportResult>> {
     let result = if photocraft_affinity::is_affinity(bytes) {

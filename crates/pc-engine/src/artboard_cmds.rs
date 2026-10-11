@@ -292,7 +292,7 @@ fn set_props(s: &mut Session, p: &Value) -> Result<Value> {
             let snapshot = doc.clone();
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
             crate::commands::translate_layer(&snapshot, l, dx, dy)?;
-            crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(dx), f64::from(dy));
+            crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(dx), f64::from(dy))?;
         }
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         if let Some(n) = name {
@@ -340,7 +340,7 @@ pub fn artboard_document(doc: &Document, id: LayerId) -> Option<Document> {
     let mut group = l.clone();
     group.visible = true;
     crate::commands::translate_layer(doc, &mut group, -r.x0, -r.y0).ok()?;
-    crate::vector_cmds::translate_vectors(doc, &mut group, f64::from(-r.x0), f64::from(-r.y0));
+    crate::vector_cmds::translate_vectors(doc, &mut group, f64::from(-r.x0), f64::from(-r.y0)).ok()?;
     let mut one = doc.clone();
     one.name = l.name.clone();
     one.size = Size::new(r.width(), r.height());

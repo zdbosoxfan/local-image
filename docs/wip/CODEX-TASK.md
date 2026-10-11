@@ -1,19 +1,22 @@
-# Task: verify and fix DeepSeek review findings (post-ds batch)
+# Codex task: hotfix the critical regressions found in the test build (f73bc0ca)
 
-DeepSeek reviewed every Rust file changed since commit 438dc96b (Restore, AI Denoise, Enhance/Upscale, icons,
-Overwrite Original, Z-Image Variety, fix4). Findings (83: 25 high, 49 medium, 9 low), one JSON per line with
-file/line/severity/summary/evidence/fix:
+The owner is testing build f73bc0ca right now. Claude Opus's final review reproduced these regressions headless on that
+build. Full details (root cause, file:line, repro) are in
+/home/zdavidson/.local/share/local-image-dev/reviews/opus-final-review.md — read findings O-001, O-002, O-003, O-004
+(and O-005/O-006 if they share the root cause with O-002). Repro drivers: /tmp/claude-1000/opus-review-snapshots/ and the
+scratchpad pcsnap/ drivers mentioned there.
 
-  /home/zdavidson/.local/share/local-image-dev/ds-review-post-ds/findings.jsonl
-
-For EACH finding:
-1. Read the code and decide REAL / NOT REAL (DeepSeek is often wrong; e.g. a claimed compile error that compiles is NOT REAL).
-2. Fix every REAL one minimally, with a regression test where practical (panics from crafted files/ONNX graphs,
-   shared model file deletion, metadata loss in tiff_replace, overwrite-original marking a layered doc as saved,
-   PSD warnings bypassing the damaged-original check, progress thread hang on panic, external_only URL, etc.).
-   For examples/ (dev-only eval tools) just add clean errors instead of panics; keep it small.
-3. Do not change behaviour beyond the fix. New user-visible strings go into the i18n pending/KEEP_AS_IS lists.
-
-Write docs/wip/CODEX-REPORT-ds2-fix.md: a table of every finding with verdict, one-line reason, and fix/test.
-Gates: cargo +1.98.1 fmt; strict clippy (-D warnings, all targets); tests for the touched crates. Leave changes
-uncommitted; the coordinator merges. Never force-push. Do not open GUI windows or kill the running app.
+Fix ONLY these, minimally, each with a regression test that fails before and passes after:
+- O-001: Pixel options bar empty for most tools (vector tool-options scroll area at crates/pc-ui-egui/src/panels.rs:693
+  takes the whole row). Both personas' option bars must show their controls.
+- O-002: drawn shapes (Rectangle/Ellipse/Polygon/Line) don't visibly move/transform on the canvas in either persona while
+  exports show the new position (stale canvas cache/projection).
+- O-003: in the Vector persona, typing into an active text edit is captured as tool shortcuts. Text editing must own the
+  keyboard (same as Pixel persona / Photoshop / Affinity).
+- O-004: Save as PSD / layered TIFF fails after placing SVG/PDF/Affinity or using Repeat, Blend, Vector Crop; must save
+  (use the PSD advanced-vector fallback from package 23 with its editability-loss report) so the Library round trip's
+  -Edit.psd save works.
+Do not touch anything else. Rules: RUSTC_WRAPPER=li-rustc-gate (already set), Rust 1.98.1, --offline, no CARGO_BUILD_JOBS
+cap. Run your new regression tests plus the existing tests of the files you changed, once; workspace check; strict clippy
+on touched crates. Leave changes uncommitted; the merge queue lands them. Report: docs/wip/CODEX-REPORT-hotfix-critical.md
+with exact commands and outputs.

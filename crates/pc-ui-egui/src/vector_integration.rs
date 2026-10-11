@@ -936,6 +936,10 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     if crate::vector_packages::path_text_app_hooks::keys(app, ctx) {
         return true;
     }
+    // Inline canvas text is not an egui TextEdit. Its letters belong to the type editor.
+    if app.ui.text_edit.is_some() {
+        return false;
+    }
     if crate::object_path::app_hooks::frame(app, ctx) {
         return true;
     }

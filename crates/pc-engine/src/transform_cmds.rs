@@ -215,7 +215,7 @@ pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &m
             let Some(a) = affine else {
                 return Err(EngineError::Other("Distort and Perspective need a rasterized shape (Layer › Rasterize › Shape)".into()));
             };
-            crate::vector_cmds::transform_shape(sh, &a);
+            crate::vector_cmds::transform_vector_shape(sh, &mut l.vector, &a)?;
         }
         LayerContent::Symbol(s) => {
             let a = affine.ok_or_else(|| EngineError::Other("Perspective needs detached or rasterized symbols".into()))?;
@@ -268,10 +268,8 @@ pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &m
             None => warp_gray_map(&mask.surface, m, interp),
         };
     }
-    if let Some(clip) = &mut l.vector.clip
-        && let Some(a) = affine
-    {
-        *clip = clip.transform(&a);
+    if let Some(a) = affine {
+        crate::vector_cmds::transform_vector_metadata(&mut l.vector, &a);
     }
     if let Some(vm) = l.vector_mask.as_mut()
         && vm.linked

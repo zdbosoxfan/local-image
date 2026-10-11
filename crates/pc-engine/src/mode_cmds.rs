@@ -113,7 +113,7 @@ pub(crate) fn rotate_doc(doc: &mut Document, deg: f64, interp: Interp, bg: [f32;
             l.locks = locks;
         }
         // What Free Transform leaves alone: unlinked vector masks, gradient angles, artboards…
-        crate::canvas_geom::transform_layer_geometry(l, &a, false, dpi);
+        crate::canvas_geom::transform_layer_geometry(l, &a, false, dpi)?;
     }
     crate::canvas_geom::transform_doc_marks(doc, &a);
     for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {

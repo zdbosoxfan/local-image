@@ -92,7 +92,7 @@ fn has_selection(s: &Session) -> std::result::Result<(), String> {
 /// Image › Image Rotation by a right angle or a flip (pixels, vectors, guides, … all move).
 fn turn(s: &mut Session, label: &str, t: crate::canvas_geom::Turn) -> Result<Value> {
     s.edit(label, |doc, _| {
-        crate::canvas_geom::turn_canvas(doc, t);
+        crate::canvas_geom::turn_canvas(doc, t)?;
         Ok(())
     })?;
     Ok(Value::Null)

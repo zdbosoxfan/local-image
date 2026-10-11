@@ -177,7 +177,9 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             }
             opts.tiff_layers = settings.tiff_layers;
             opts.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
-            crate::crash_guard::guard("Export", || photocraft_io::export(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string()))
+            crate::crash_guard::guard("Export", || {
+                photocraft_engine::vector_integration::export_document(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string())
+            })
         })),
         overwrite_original: li_ai::trash::available().then(|| {
             Box::new(|doc: &Document, path: &str, quality: u8| overwrite_original(doc, Path::new(path), quality, li_ai::trash::copy_to_trash))
@@ -335,6 +337,23 @@ mod tests {
     use photocraft_format::list_recovery;
     use photocraft_ui_egui::{PhotocraftApp, prefs_ui};
     use serde_json::json;
+
+    #[test]
+    fn hotfix_native_roundtrip_export_supports_placed_vector_crop() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 32, "height": 24})).unwrap();
+        let mut doc = (*s.active().unwrap().doc).clone();
+        let mut group = photocraft_doc::Layer::group("Placed", doc.layers.iter().map(photocraft_doc::Layer::duplicate).collect());
+        group.vector.clip = Some(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&[(0., 0.), (20., 0.), (20., 20.), (0., 20.)])]));
+        doc.layers.push(group);
+        let services = native(None);
+        let export = services.export.unwrap();
+        for path in ["photo-Edit.psd", "photo-Edit.tif"] {
+            let (bytes, warnings) = export(&doc, path, &photocraft_ui_egui::ExportSettings { tiff_layers: true, ..Default::default() }).unwrap();
+            assert!(warnings.iter().any(|w| w.contains("vector crop controls") && w.contains("editability lost")));
+            assert!(photocraft_io::import(path, &bytes).unwrap().document.layers.len() >= 2);
+        }
+    }
 
     /// "Export As" formats must lead with their own filter, or the save panel appends the first one's extension (`photo.webp.psd`).
     #[test]

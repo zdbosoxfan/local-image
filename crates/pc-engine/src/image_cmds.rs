@@ -163,7 +163,7 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
             doc.selection = Some(resize_surface_in_canvas(sel, sx, sy, Resample::Bilinear, canvas));
         }
         // Vector geometry, guides and marks scale with the pixels; vectors re-render sharp.
-        crate::canvas_geom::transform_geometry(doc, &photocraft_geom::Affine { m: [sx, 0.0, 0.0, sy, 0.0, 0.0] });
+        crate::canvas_geom::transform_geometry(doc, &photocraft_geom::Affine { m: [sx, 0.0, 0.0, sy, 0.0, 0.0] })?;
         doc.size = Size::new(nw, nh);
         crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::All)?;
         Ok(())
@@ -172,9 +172,9 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// Moves every surface, channel, selection and guide by `(dx, dy)`.
-fn translate_doc(doc: &mut Document, dx: i32, dy: i32) {
+fn translate_doc(doc: &mut Document, dx: i32, dy: i32) -> Result<()> {
     if dx == 0 && dy == 0 {
-        return;
+        return Ok(());
     }
     for_each_surface(&mut doc.layers, true, &mut |surf, _| *surf = translate_surface(surf, dx, dy));
     for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {
@@ -185,7 +185,7 @@ fn translate_doc(doc: &mut Document, dx: i32, dy: i32) {
     }
     // Type, shapes, smart objects, vector masks, paths, guides, slices, notes… (caches above
     // are already translated exactly, so nothing needs re-rendering for the move itself).
-    crate::canvas_geom::transform_geometry(doc, &photocraft_geom::Affine::translate(f64::from(dx), f64::from(dy)));
+    crate::canvas_geom::transform_geometry(doc, &photocraft_geom::Affine::translate(f64::from(dx), f64::from(dy)))
 }
 
 /// Crops the document to `r` (in current document coordinates).
@@ -198,7 +198,7 @@ fn crop_doc(doc: &mut Document, r: Rect, delete_pixels: bool) -> Result<()> {
     if delete_pixels {
         for_each_surface(&mut doc.layers, false, &mut |surf, _| *surf = crop_surface(surf, r));
     }
-    translate_doc(doc, -r.x0, -r.y0);
+    translate_doc(doc, -r.x0, -r.y0)?;
     doc.size = Size::new(r.width(), r.height());
     crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::Shapes)
 }
@@ -250,7 +250,7 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
     let dy = ((nh as f64 - oh) * ay).round() as i32;
     let ext = extension_color(s, p);
     s.edit("Canvas Size", |doc, _| {
-        translate_doc(doc, dx, dy);
+        translate_doc(doc, dx, dy)?;
         doc.size = Size::new(nw, nh);
         crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::Shapes)?;
         let canvas = doc.bounds();
