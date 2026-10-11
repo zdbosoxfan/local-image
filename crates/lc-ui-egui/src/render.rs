@@ -458,6 +458,12 @@ impl Renderer {
         };
         #[cfg(not(target_arch = "wasm32"))]
         let inline_ms = 0.0;
+        while let Some(failure) = self.pool.try_recv_failure() {
+            if self.pending.get(&failure.slot).is_some_and(|(key, _)| *key == failure.key) {
+                self.pending.remove(&failure.slot);
+                self.failed.insert(failure.slot, (failure.key, failure.message, self.catalog_rev));
+            }
+        }
         let mut finished = Vec::new();
         while let Some(done) = self.pool.try_recv() {
             finished.push((done.slot, done.result, if done.ms > 0.0 { done.ms } else { inline_ms }));

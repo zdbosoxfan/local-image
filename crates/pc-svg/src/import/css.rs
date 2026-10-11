@@ -30,6 +30,10 @@ fn parse_decls(s: &str) -> Vec<(String, String, bool)> {
         .collect()
 }
 
+fn marker_property(name: &str) -> bool {
+    matches!(name, "marker" | "marker-start" | "marker-mid" | "marker-end")
+}
+
 /// One compound selector (`text.a.b#c[x=y]`).
 #[derive(Debug, Default)]
 struct Compound {
@@ -145,17 +149,22 @@ impl Selector {
     }
 
     fn matches(&self, n: XNode) -> bool {
-        fn go(parts: &[(Compound, bool)], n: XNode) -> bool {
-            let Some(((c, child), rest)) = parts.split_first() else { return true };
-            if !c.matches(n) {
-                return false;
+        fn go(parts: &[(Compound, bool)], index: usize, n: XNode, memo: &mut HashMap<(usize, roxmltree::NodeId), bool>) -> bool {
+            if let Some(&value) = memo.get(&(index, n.id())) {
+                return value;
             }
-            if rest.is_empty() {
-                return true;
-            }
-            if *child { n.parent_element().is_some_and(|p| go(rest, p)) } else { n.ancestors().skip(1).filter(|a| a.is_element()).any(|a| go(rest, a)) }
+            let (c, child) = &parts[index];
+            let value = c.matches(n)
+                && (index + 1 == parts.len()
+                    || if *child {
+                        n.parent_element().is_some_and(|p| go(parts, index + 1, p, memo))
+                    } else {
+                        n.ancestors().skip(1).filter(|a| a.is_element()).any(|a| go(parts, index + 1, a, memo))
+                    });
+            memo.insert((index, n.id()), value);
+            value
         }
-        go(&self.parts, n)
+        go(&self.parts, 0, n, &mut HashMap::new())
     }
 }
 
@@ -221,6 +230,7 @@ fn parse_sheet(css: &str, out: &mut Vec<Rule>) {
 /// The cascade over one parsed document.
 pub(super) struct Styles {
     rules: Vec<Rule>,
+    marker_only: bool,
     /// Declared properties of each element queried so far.
     cache: RefCell<HashMap<roxmltree::NodeId, Rc<HashMap<String, String>>>>,
 }
@@ -235,7 +245,22 @@ impl Styles {
             let css: String = st.children().filter_map(|c| c.text()).collect();
             parse_sheet(&css, &mut rules);
         }
-        Self { rules, cache: RefCell::default() }
+        Self { rules, marker_only: false, cache: RefCell::default() }
+    }
+
+    pub(super) fn marker_selector_supported(selector: &str) -> bool {
+        Selector::parse(selector).is_some()
+    }
+
+    /// Query only marker properties in admission checks; do not cache unrelated large values.
+    pub(super) fn markers(doc: &roxmltree::Document) -> Self {
+        let mut styles = Self::new(doc);
+        styles.marker_only = true;
+        for rule in &mut styles.rules {
+            rule.decls = Rc::new(rule.decls.iter().filter(|(k, _, _)| marker_property(k)).cloned().collect());
+        }
+        styles.rules.retain(|rule| !rule.decls.is_empty());
+        styles
     }
 
     /// Properties set on `n` by rules and its `style` attribute, after the cascade.
@@ -260,6 +285,9 @@ impl Styles {
         }
         if let Some(st) = n.attribute("style") {
             for (k, v, imp) in parse_decls(st) {
+                if self.marker_only && !marker_property(&k) {
+                    continue;
+                }
                 order += 1;
                 put(&k, &v, (imp, true, (0, 0, 0), order));
             }

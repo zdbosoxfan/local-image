@@ -106,6 +106,7 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
             doc.name = std::path::Path::new(&name).file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or(name.clone());
             let id = doc.layers.first().map(|l| l.id).ok_or(EngineError::Other("the developed photo has no layer".into()))?;
             let cache = doc.layer(id).and_then(|l| l.surface().cloned());
+            crate::smart_cmds::approve_link(&path)?;
             let mut sm = SmartObject::new(SmartSource::Linked { path }, photocraft_geom::Affine::IDENTITY, cache);
             sm.develop = Some(DevelopLink { settings, photo });
             if let Some(l) = doc.layer_mut(id) {

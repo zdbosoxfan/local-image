@@ -129,10 +129,16 @@ fn parse_entries(data: &[u8]) -> Option<Vec<Entry>> {
     let mut r = Reader { d: data, p: 0 };
     let (_major, _minor) = (r.u16()?, r.u16()?);
     let count = r.u32()? as usize;
+    if count > 4096 || count > data.len().saturating_sub(r.p) / 8 {
+        return None;
+    }
     let mut out = Vec::with_capacity(count.min(4096));
     for _ in 0..count {
         let start = r.p;
         let len = r.u32()? as usize;
+        if len < 8 {
+            return None;
+        }
         let end = start.checked_add(len)?;
         let raw = data.get(start..end)?;
         let kind = r.take(4)?;
@@ -153,6 +159,9 @@ fn parse_entries(data: &[u8]) -> Option<Vec<Entry>> {
         let _data_len = r.u32()?;
         let _key = r.take(4)?;
         let n = r.u32()? as usize;
+        if r.p.checked_add(n)? > end {
+            return None;
+        }
         let text = decode_text(r.take(n)?);
         out.push(Entry::Text(Note {
             author,
@@ -407,5 +416,21 @@ mod tests {
         assert!(keep_resource(&d, COUNT_INFO));
         d.measurement.count_groups.push(photocraft_doc::CountGroup { points: vec![[1.0, 1.0]], ..Default::default() });
         assert!(!keep_resource(&d, COUNT_INFO));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod hostile_anno_tests {
+    use super::*;
+    #[test]
+    fn short_unknown_entry_cannot_rewind_cursor() {
+        for len in 0u32..8 {
+            let mut data = vec![0, 2, 0, 1, 0, 0, 0, 1];
+            data.extend_from_slice(&len.to_be_bytes());
+            data.extend_from_slice(b"sndA");
+            assert!(parse_anno(&data).is_none());
+        }
+        assert!(parse_anno(&[0, 2, 0, 1, 255, 255, 255, 255, 0, 0, 0, 0, b's', b'n', b'd', b'A']).is_none());
     }
 }

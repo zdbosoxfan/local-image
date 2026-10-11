@@ -141,6 +141,7 @@ pub mod filmstrip_ui;
 pub mod filter_dialog;
 pub mod gallery_ui;
 pub mod generate_ui;
+mod import_worker;
 pub mod perspective_crop_ui;
 // local-image: the Model Browser.
 mod color_icon_data;
@@ -367,6 +368,8 @@ pub struct Services {
     /// OS clipboard images: copies go out, screenshots and images from other apps come in.
     pub clipboard_set_image: Option<ClipboardSetFn>,
     pub clipboard_get_image: Option<ClipboardGetFn>,
+    /// Copied file paths are decoded on an import worker after explicit Paste.
+    pub clipboard_get_files: Option<Box<dyn FnMut() -> Vec<String>>>,
     /// Preferences persistence: the platform config directory on native, browser storage on
     /// the web (see `prefs_ui`).
     pub load_prefs: Option<LoadTextFn>,
@@ -811,6 +814,13 @@ impl PhotocraftApp {
         }
         if let Some(r) = transform_tool::intercept(self, id) {
             return r;
+        }
+        if !clip_read && matches!(id, "edit.paste" | "edit.pasteSpecial.pasteInPlace" | "edit.pasteSpecial.pasteSeamless" | "file.newFromClipboard") {
+            let files =
+                self.services.clipboard_get_files.as_mut().and_then(|f| std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).ok()).unwrap_or_default();
+            if !files.is_empty() {
+                return self.paste_files(id, params, files);
+            }
         }
         let suppress_events = self.automation_input && self.session.prefs().script_events.enabled;
         if suppress_events {
@@ -1683,10 +1693,56 @@ impl PhotocraftApp {
     /// If the OS clipboard holds an image that isn't the one we put there, make it the session
     /// clipboard (so ⌘V pastes screenshots and images copied in other apps, like Photoshop).
     /// Returns true when a new external image was imported.
+    fn paste_files(&mut self, id: &str, params: serde_json::Value, files: Vec<String>) -> Result<serde_json::Value, String> {
+        let command = id.to_string();
+        let lock = self.session.active().is_some() && id != "file.newFromClipboard";
+        let started = self
+            .session
+            .start_job(
+                "clipboard.import",
+                serde_json::json!({}),
+                "Paste",
+                lock,
+                move |ctx| {
+                    for path in files.into_iter().take(256) {
+                        ctx.check()?;
+                        let Ok(bytes) = photocraft_format::read_file(std::path::Path::new(&path)) else { continue };
+                        if photocraft_codecs::detect(&bytes) == Some(photocraft_codecs::Format::Tga)
+                            && !std::path::Path::new(&path).extension().is_some_and(|e| e.eq_ignore_ascii_case("tga"))
+                        {
+                            continue;
+                        }
+                        let image = match photocraft_codecs::decode(&bytes) {
+                            Ok(image) => image,
+                            Err(_) => continue,
+                        };
+                        let (w, h) = (image.width(), image.height());
+                        ctx.check()?;
+                        let rect = photocraft_geom::Rect::new(0, 0, w as i32, h as i32);
+                        let surface = photocraft_raster::Surface::from_interleaved(photocraft_color::PixelFormat::RGBA8, rect, &image.to_rgba8());
+                        return Ok(photocraft_engine::edit_cmds::Clip { surface, bounds: rect });
+                    }
+                    Err(photocraft_engine::EngineError::Other("The copied files contain no readable image".into()))
+                },
+                move |session, clip| {
+                    session.clipboard = Some(clip);
+                    session.execute(&command, params)
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(match started {
+            photocraft_engine::jobs::Started::Done(v) => v,
+            photocraft_engine::jobs::Started::Job(job) => {
+                self.jobs.last_started = Some(job);
+                serde_json::json!({"job":job.0,"pending":true})
+            }
+        })
+    }
     pub(crate) fn import_os_clipboard(&mut self) -> bool {
         let Some(get) = self.services.clipboard_get_image.as_mut() else { return false };
-        let Some((w, h, bytes)) = get() else { return false };
-        if w == 0 || h == 0 || bytes.len() != w as usize * h as usize * 4 {
+        let Some((w, h, bytes)) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(get)).ok().flatten() else { return false };
+        let length = (w as usize).checked_mul(h as usize).and_then(|n| n.checked_mul(4));
+        if w == 0 || h == 0 || w > i32::MAX as u32 || h > i32::MAX as u32 || length.is_none_or(|n| n > 128 << 20 || n != bytes.len()) {
             return false;
         }
         let sig = clip_signature(w, h, &bytes);
@@ -1735,6 +1791,28 @@ mod clipboard_tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
+    #[test]
+    fn copied_file_paste_decodes_on_a_cancellable_job() {
+        let path = std::env::temp_dir().join(format!("li-clipboard-worker-{}.ppm", std::process::id()));
+        std::fs::write(&path, b"P6\n1 1\n255\n\xff\0\0").unwrap();
+        let text = path.to_string_lossy().to_string();
+        let mut app = PhotocraftApp::new(Session::new(), Services { clipboard_get_files: Some(Box::new(move || vec![text.clone()])), ..Default::default() });
+        app.session.execute("file.new", serde_json::json!({"width":16,"height":16})).unwrap();
+        let before = app.session.active().unwrap().doc.layer_count();
+        let value = app.run("edit.paste", serde_json::json!({})).unwrap();
+        assert_eq!(value["pending"], true);
+        assert_eq!(app.session.active().unwrap().doc.layer_count(), before);
+        let id = photocraft_engine::jobs::JobId(value["job"].as_u64().unwrap());
+        app.session.cancel_job(id);
+        app.session.join_cancelled_jobs();
+        assert_eq!(app.session.active().unwrap().doc.layer_count(), before);
+        let value = app.run("edit.paste", serde_json::json!({})).unwrap();
+        app.session.wait_job(photocraft_engine::jobs::JobId(value["job"].as_u64().unwrap())).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.layer_count(), before + 1);
+        assert!(app.session.undo());
+        assert_eq!(app.session.active().unwrap().doc.layer_count(), before);
+        std::fs::remove_file(path).unwrap();
+    }
     #[test]
     fn os_clipboard_bridge() {
         let os: OsClip = Arc::default();

@@ -368,7 +368,11 @@ fn a_panicking_job_frees_its_slot() {
     let mut pool = JobPool::<usize, i32>::new(0);
     pool.submit(1, 1, 0, Box::new(|| panic!("job failed")));
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| pool.run_inline(1)));
-    assert!(r.is_err());
+    assert_eq!(r.expect("the pool must contain decoder panics"), 1);
+    let failure = pool.try_recv_failure().expect("a failed job must complete for its owner");
+    assert_eq!((failure.slot, failure.key), (1, 1));
+    assert!(!failure.message.is_empty());
+    assert!(pool.try_recv().is_none(), "a panic cannot publish a successful result");
     pool.submit(1, 2, 0, Box::new(|| 2));
     assert_eq!(pool.run_inline(1), 1);
     assert_eq!(pool.try_recv().unwrap().result, 2);

@@ -150,7 +150,11 @@ pub fn import(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
 /// reports progress. A cancelled import fails with [`IoError::Cancelled`].
 pub fn import_with(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt) -> Result<ImportResult, IoError> {
     ctl.check().map_err(|_| IoError::Cancelled)?;
-    let r = import_stages(name, bytes, ctl)?;
+    if bytes.len() > photocraft_format::read::MAX_FILE_BYTES as usize {
+        return Err(IoError::Unsupported("Input exceeds the file memory limit".into()));
+    }
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| import_stages(name, bytes, ctl)))
+        .map_err(|_| IoError::Unsupported("The image decoder rejected malformed data".into()))??;
     ctl.check().map_err(|_| IoError::Cancelled)?;
     ctl.progress(1.0);
     Ok(r)

@@ -5610,6 +5610,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "blake3",
  "flate2",
+ "libc",
  "photocraft-codecs",
  "photocraft-color",
  "photocraft-doc",
@@ -5875,6 +5876,7 @@ dependencies = [
  "lightcraft-codecs",
  "lightcraft-raw",
  "log",
+ "photocraft-affinity",
  "photocraft-algo",
  "photocraft-cms",
  "photocraft-codecs",

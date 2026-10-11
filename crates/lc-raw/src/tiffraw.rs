@@ -82,6 +82,12 @@ pub fn read_image(data: &[u8], info: &ImageInfo, order: ByteOrder, packing: Pack
     let chunks = info.chunks(data.len() as u64);
     let planar = info.planar == 2 && cpp > 1;
     let ccpp = if planar { 1 } else { cpp };
+    let retained = chunks
+        .iter()
+        .fold(0usize, |sum, c| sum.saturating_add((c.width as usize).saturating_mul(c.height as usize).saturating_mul(ccpp).saturating_mul(4)));
+    if retained.saturating_add(total.saturating_mul(4)) > 1 << 30 {
+        return Err(RawError::Limit("RAW import memory budget"));
+    }
     let decoded: Vec<Result<(Chunk, ChunkPx)>> =
         chunks.par_iter().map(|c| decode_chunk(data, info, c, order, packing, ccpp, bits, float).map(|p| (*c, p))).collect();
     let mut out_u16 = if float { Vec::new() } else { vec![0u16; total] };
@@ -159,7 +165,7 @@ fn decode_chunk(data: &[u8], info: &ImageInfo, c: &Chunk, order: ByteOrder, pack
         }
         comp::LOSSY_JPEG => {
             // lossy DNG: each chunk is a baseline (DCT) JPEG of 8-bit samples
-            let (px, jw, jh, jc) = lossy_jpeg(src, cpp)?;
+            let (px, jw, jh, jc) = lossy_jpeg(src, cpp, cw, ch)?;
             let mut v = vec![0u16; n];
             for y in 0..ch.min(jh) {
                 for x in 0..cw.min(jw) {
@@ -181,13 +187,18 @@ fn decode_chunk(data: &[u8], info: &ImageInfo, c: &Chunk, order: ByteOrder, pack
 }
 
 /// Decode one baseline JPEG chunk to 8-bit samples: (samples, width, height, channels).
-fn lossy_jpeg(src: &[u8], cpp: usize) -> Result<(Vec<u8>, usize, usize, usize)> {
+fn lossy_jpeg(src: &[u8], cpp: usize, tile_width: usize, tile_height: usize) -> Result<(Vec<u8>, usize, usize, usize)> {
     use zune_core::bytestream::ZCursor;
     use zune_core::colorspace::ColorSpace;
     use zune_core::options::DecoderOptions;
     let cs = if cpp == 1 { ColorSpace::Luma } else { ColorSpace::RGB };
-    let opts = DecoderOptions::default().set_max_width(1 << 16).set_max_height(1 << 16).set_strict_mode(false).jpeg_set_out_colorspace(cs);
+    let opts = DecoderOptions::default().set_max_width(tile_width).set_max_height(tile_height).set_strict_mode(false).jpeg_set_out_colorspace(cs);
     let mut d = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(src), opts);
+    d.decode_headers().map_err(|e| RawError::Corrupt(format!("lossy JPEG tile header: {e}")))?;
+    let header = d.info().ok_or_else(|| RawError::Corrupt("missing JPEG tile header".into()))?;
+    if header.width as usize > tile_width || header.height as usize > tile_height {
+        return Err(RawError::Limit("JPEG dimensions exceed tile"));
+    }
     let px = d.decode().map_err(|e| RawError::Corrupt(format!("lossy JPEG tile: {e}")))?;
     let info = d.info().ok_or_else(|| RawError::Corrupt("lossy JPEG tile without a header".into()))?;
     let (w, h) = (info.width as usize, info.height as usize);
@@ -330,5 +341,18 @@ mod lossy_tests {
         assert!((px(2, 3)[0] as i32 - 40).abs() <= 3 && (px(2, 3)[2] as i32 - 200).abs() <= 3, "{:?}", px(2, 3));
         assert!((px(20, 3)[0] as i32 - 220).abs() <= 3, "second tile: {:?}", px(20, 3));
         assert!((px(10, 5)[1] as i32 - 150).abs() <= 6, "green ramp: {:?}", px(10, 5));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod hostile_tile_tests {
+    use super::*;
+    #[test]
+    fn jpeg_dimensions_cannot_exceed_dng_tile() {
+        let mut bytes = Vec::new();
+        jpeg_encoder::Encoder::new(&mut bytes, 90).encode(&[128; 16 * 16 * 3], 16, 16, jpeg_encoder::ColorType::Rgb).unwrap();
+        assert!(lossy_jpeg(&bytes, 3, 1, 1).is_err());
+        assert!(lossy_jpeg(&bytes, 3, 16, 16).is_ok());
     }
 }

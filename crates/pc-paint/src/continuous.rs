@@ -64,9 +64,12 @@ impl Tip {
 
 /// Pixel rectangle a dab can touch.
 pub fn dab_reach(d: &Dab) -> Rect {
-    let rr = d.radius.ceil() as i32 + 1;
+    let rr = (d.radius.ceil() as i32).saturating_add(1);
     let (cx, cy) = (d.center.x.floor() as i32, d.center.y.floor() as i32);
-    Rect::new(cx - rr, cy - rr, cx + rr + 1, cy + rr + 1)
+    if !d.center.x.is_finite() || !d.center.y.is_finite() || !d.radius.is_finite() || d.radius < 0.0 || d.radius > 5000.0 {
+        return Rect::EMPTY;
+    }
+    Rect::new(cx.saturating_sub(rr), cy.saturating_sub(rr), cx.saturating_add(rr).saturating_add(1), cy.saturating_add(rr).saturating_add(1))
 }
 
 /// Spacing step (pixels) at diameter `diameter`: as the dab generator spaces dabs.
@@ -284,5 +287,24 @@ impl LineTable {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod hostile_dab_tests {
+    use super::*;
+    #[test]
+    fn non_finite_dabs_have_no_pixel_reach() {
+        for value in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+            let dab = Dab::round(photocraft_geom::Point::new(value, 0.0), 4.0, 1.0);
+            assert!(dab_reach(&dab).is_empty());
+            let prepared = crate::render::BrushContext::new(&crate::BrushSettings::default());
+            assert!(prepared.dab_rect(&dab, false).is_empty());
+        }
+        let huge = Dab::round(photocraft_geom::Point::new(0.0, 0.0), f32::MAX, 1.0);
+        assert!(dab_reach(&huge).is_empty());
+        let negative = Dab::round(photocraft_geom::Point::new(0.0, 0.0), f32::MIN, 1.0);
+        assert!(dab_reach(&negative).is_empty());
     }
 }

@@ -150,6 +150,7 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
             let (w, h, maxval) = (r.uint()?, r.uint()?, r.uint()?);
             let layout = if matches!(kind, b'2' | b'5') { ChannelLayout::Gray } else { ChannelLayout::Rgb };
             limits.check(w, h, layout, sample_for_maxval(maxval)?)?;
+            limits.check_bytes(w, h, layout.channels() as u64 * 6)?;
             let n = w as usize * h as usize * layout.channels();
             let values = if matches!(kind, b'5' | b'6') {
                 r.single_ws()?;
@@ -235,6 +236,7 @@ fn decode_pam(r: &mut Reader<'_>, limits: &Limits) -> Result<Image, CodecError> 
         }
     };
     limits.check(w, h, layout, sample_for_maxval(maxval)?)?;
+    limits.check_bytes(w, h, layout.channels() as u64 * 6)?;
     let n = w as usize * h as usize * layout.channels();
     let values = read_binary(r.rest(), n, maxval)?;
     from_values(w, h, layout, maxval, values)
@@ -287,4 +289,15 @@ pub(crate) fn encode(src: &Image, plan: Plan, _opts: &EncodeOptions) -> Result<V
         s => return Err(CodecError::encode(F, format!("unsupported sample {s:?}"))),
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod ascii_budget_tests {
+    use super::*;
+    #[test]
+    fn ascii_u32_temporary_is_in_the_allocation_budget() {
+        let data = format!("P2\n8 8\n255\n{}", "1 ".repeat(64));
+        let limits = Limits { max_alloc: 64, ..Limits::default() };
+        assert!(decode(data.as_bytes(), &limits).is_err());
+    }
 }

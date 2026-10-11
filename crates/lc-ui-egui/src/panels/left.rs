@@ -416,9 +416,9 @@ pub(crate) fn fs_cached<T: Clone + Send + 'static>(
         running.fetch_add(1, Ordering::AcqRel);
         let (out, path, repaint, done) = (cell.clone(), path.to_string(), ui.ctx().clone(), running.clone());
         let work = move || {
-            let v = f(&path);
+            let v = lightcraft_engine::guard::catch("file preview", || f(&path)).ok();
             let mut e = out.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            e.value = Some(v);
+            e.value = v;
             e.running = false;
             drop(e);
             // after the answer is stored: a frame that sees the count drop also sees the answer

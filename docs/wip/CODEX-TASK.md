@@ -1,14 +1,23 @@
-# Codex task: fix the known failing tests on the working branch
+# Codex task: final-review bug-fix run — File-input robustness
 
-These tests fail on the working branch (they appeared when the vector integration was merged with the ds2-fix batch);
-the merge queue currently tolerates them via ~/.local/share/local-image-dev/land-known-failures.txt:
-- photocraft-engine layer_multi_cmds::tests::merge_selected_into_top_most (undo restores two selected layers; test expects one)
-- photocraft-ui-egui fill_stroke_proxy::tests::toolbar46_registered_icon_alpha_and_styles_at_16_20_40 (icon padding blend/16)
-- photocraft-ui-egui layer_reveal::tests::a_new_active_layer_opens_its_groups_and_scrolls_into_view (layer_reveal_tests.rs:111)
-- photocraft-ui-egui vector_ui::tests::ds_finding_borrowed_shape_options_allow_corner_editing (vector_ui.rs:1215)
-For each: decide whether the app behaviour or the test is wrong (check git history of both sides: ds2-fix c0652fae and the
-vector integration 1974facf, and what Photoshop/Affinity do), fix the right side, and explain in the report. Do not
-weaken a test to make it pass; if a test's expectation is wrong, say why and declare it with a line starting
-"TESTS-REMOVED:" or "TEST-CHANGED:" in the report. Rules: RUSTC_WRAPPER=li-rustc-gate (set), Rust 1.98.1, --offline.
-Run those four tests and the modules you changed once; workspace check; strict clippy on touched crates. Leave changes
-uncommitted. Report: docs/wip/CODEX-REPORT-known-failures.md with exact commands and outputs.
+Three independent reviews of the test build are in /home/zdavidson/.local/share/local-image-dev/reviews/:
+- opus-final-review.md (Opus: O-### bugs, U-### UX) and opus-subreview-file-input.md (file-input items 1–12 + lower priority)
+- astra-final-review.md (gpt-6-astra: F01–F14, speed proposals, UX, AI matrix; evidence under
+  .claude/worktrees/codex-final-review-astra/docs/wip/final-review/ and target/final-review/)
+- fable-partial-vector-ui.md (Fable: FB-1…FB-5)
+Already fixed and landed (don't redo): O-001/F02, O-002, O-003, O-004, O-005 (hotfix e698208d) and the 4 known failing tests.
+
+YOUR ITEMS: O-011, O-012, O-017, O-018, O-019, O-041, O-042, O-043 and every item in opus-subreview-file-input.md (1–12 and the lower-priority list). Goal: no file can abort, hang or exhaust memory; decoding of Place/Paste/PDF/SVG moves off the UI thread with cancel; all import paths have a panic guard; linked smart-object paths are validated.
+
+For each item: re-check it against the CURRENT code (the build moved since f73bc0ca); if real, fix it minimally with a
+regression test that fails before and passes after; if not real or already fixed, say why. Stay inside your area's files;
+if a fix needs a change in another area's files, keep it minimal and say so in the report. Reference-app behaviour
+(Lightroom Classic / Photoshop / Affinity / Illustrator) is the UX standard; cite official help where you rely on it.
+New user-visible strings go on the i18n pending lists.
+
+Rules: builds via RUSTC_WRAPPER=li-rustc-gate (already set), Rust 1.98.1, --offline, no CARGO_BUILD_JOBS cap. Run your new
+tests and the existing tests of files you changed, once; workspace check; strict clippy on touched crates. Don't remove or
+weaken tests; if a test expectation is genuinely wrong, change it and add a line starting "TEST-CHANGED:" (or
+"TESTS-REMOVED:") in the report with the reason — the merge queue rejects undeclared test removals. Never open GUI windows,
+never stop the running Local Image app or ComfyUI. Leave changes uncommitted; the merge queue lands them.
+Report: docs/wip/CODEX-REPORT-bugfix-files.md — table: item, verdict after re-check, fix, test; exact commands + output.

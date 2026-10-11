@@ -13,7 +13,9 @@ use photocraft_pdf::{PageBox, PdfInfo};
 use std::sync::{Arc, atomic::AtomicBool};
 
 pub struct State {
+    pub background: bool,
     source: Vec<u8>,
+    info_worker: Option<crate::import_worker::Task<PdfInfo>>,
     name: String,
     pub dialog_open: bool,
     pub info: Option<PdfInfo>,
@@ -28,6 +30,8 @@ pub struct State {
     warning_targets: Vec<Option<photocraft_doc::LayerId>>,
     pub error: Option<String>,
     request: Option<Place>,
+    worker: Option<crate::import_worker::Task<(Option<Place>, ImportedScene)>>,
+    worker_action: u8,
     scene: Option<ImportedScene>,
     drag: Option<(Pos2, [i32; 2])>,
     context: Option<(crate::state::Tool, crate::Module)>,
@@ -36,7 +40,9 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
+            background: false,
             source: vec![],
+            info_worker: None,
             name: "PDF".into(),
             dialog_open: false,
             info: None,
@@ -51,6 +57,8 @@ impl Default for State {
             warning_targets: vec![],
             error: None,
             request: None,
+            worker: None,
+            worker_action: 0,
             scene: None,
             drag: None,
             context: None,
@@ -84,7 +92,19 @@ impl State {
             }
         }
     }
+    fn set_named_source_async(&mut self, name: &str, bytes: Vec<u8>) -> Result<()> {
+        self.cancel();
+        self.info = None;
+        self.name = name.to_string();
+        self.source = bytes.clone();
+        self.info_worker = Some(crate::import_worker::Task::start(move |cancel| {
+            photocraft_pdf::info(&bytes, &ImportOptions::default(), cancel).map_err(|e| EngineError::Other(e.to_string()))
+        })?);
+        Ok(())
+    }
     pub fn cancel(&mut self) {
+        self.worker = None;
+        self.info_worker = None;
         self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
         self.cancel = Arc::new(AtomicBool::new(false));
         self.preview = None;
@@ -95,7 +115,7 @@ impl State {
         self.generation = self.generation.wrapping_add(1);
     }
     pub fn pending(&self) -> bool {
-        self.request.is_some()
+        self.request.is_some() || self.worker.is_some() || self.info_worker.is_some()
     }
     pub fn synchronize(&mut self, session: &Session, enabled: bool) {
         if !enabled || self.request.as_ref().is_some_and(|r| pdf_import::check(session, r).is_err()) {
@@ -124,6 +144,52 @@ impl State {
             &self.cancel,
         )
         .map_err(|e| EngineError::Other(e.to_string()))
+    }
+    fn begin_worker(&mut self, session: &Session, action: u8) -> Result<()> {
+        self.cancel();
+        let mut request = if action == 3 { None } else { Some(pdf_import::capture(session, self.source.clone())?) };
+        if let Some(r) = &mut request {
+            r.pages = self.options().pages;
+            r.page_box = self.page_box;
+            r.ignore_rotation = !self.apply_rotation;
+        }
+        let extra = photocraft_pdf::PdfOptions { page_box: self.page_box, ignore_rotation: !self.apply_rotation };
+        let dpi = if action == 3 { self.dpi } else { session.active().ok_or(EngineError::NoDocument)?.doc.resolution_dpi };
+        let options = ImportOptions { dpi, pages: self.options().pages, ..Default::default() };
+        let bytes = self.source.clone();
+        self.worker = Some(crate::import_worker::Task::start(move |cancel| {
+            let scene = photocraft_pdf::import_with(&bytes, &options, &extra, cancel).map_err(|e| EngineError::Other(e.to_string()))?;
+            Ok((request, scene))
+        })?);
+        self.worker_action = action;
+        self.error = None;
+        Ok(())
+    }
+    fn poll_worker(&mut self, session: &mut Session) -> Result<()> {
+        let Some(result) = self.worker.as_ref().and_then(|w| w.poll()) else { return Ok(()) };
+        self.worker = None;
+        let (request, scene) = result?;
+        self.warnings = scene.warnings.clone();
+        self.warning_targets = warning_targets(&scene);
+        if self.worker_action == 3 {
+            let (doc, warnings) = pdf_import::document(scene, &self.name);
+            self.warning_document = Some(doc.id.0);
+            session.add_document(doc, None);
+            self.warnings = warnings;
+            return Ok(());
+        }
+        let request = request.ok_or_else(|| EngineError::Other("Missing import destination".into()))?;
+        pdf_import::check(session, &request)?;
+        self.warning_document = Some(request.document);
+        if self.worker_action != 0 {
+            return pdf_import::publish(session, &request, &scene).map(|_| ());
+        }
+        let (preview, _) = pdf_import::preview(session, &request, &scene)?;
+        self.request = Some(request);
+        self.scene = Some(scene);
+        self.preview = Some(Arc::new(preview));
+        self.generation = self.generation.wrapping_add(1);
+        Ok(())
     }
     pub fn stage(&mut self, session: &Session) -> Result<()> {
         self.cancel();
@@ -179,6 +245,26 @@ impl State {
     }
 }
 pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
+    if let Err(error) = state.poll_worker(session) {
+        state.error = Some(error.to_string());
+    }
+    if state.worker.is_some() {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+    }
+
+    if let Some(result) = state.info_worker.as_ref().and_then(|w| w.poll()) {
+        state.info_worker = None;
+        match result {
+            Ok(info) => {
+                state.info = Some(info);
+                state.error = None;
+            }
+            Err(error) => state.error = Some(error.to_string()),
+        }
+    }
+    if state.info_worker.is_some() {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+    }
     let count = state.info.as_ref().map_or(0, |info| info.pages.len());
     let mut changed = false;
     ui.horizontal(|ui| {
@@ -199,7 +285,9 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
         });
     changed |= ui.checkbox(&mut state.apply_rotation, tl!("Apply page rotation")).changed();
     if changed {
+        let info_worker = state.info_worker.take();
         state.cancel();
+        state.info_worker = info_worker;
         state.warnings.clear();
         state.warning_document = None;
         state.warning_targets.clear();
@@ -220,10 +308,23 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
         }
     });
     if let Some(a) = action {
-        state.error = match a {
-            0 => state.open(session),
-            1 => state.stage(session),
-            _ => state.place(session),
+        state.error = if !state.background {
+            match a {
+                0 => state.open(session),
+                1 => state.stage(session),
+                _ => state.place(session),
+            }
+        } else if a == 2 && state.request.is_some() {
+            state.place(session)
+        } else {
+            state.begin_worker(
+                session,
+                match a {
+                    0 => 3,
+                    1 => 0,
+                    _ => 1,
+                },
+            )
         }
         .err()
         .map(|e| e.to_string());
@@ -285,6 +386,13 @@ pub fn warning_controls(ui: &mut Ui, state: &State, session: &mut Session) {
     }
 }
 pub fn input(state: &mut State, session: &mut Session, ctx: &Context, canvas: Rect, to_doc: impl Fn(Pos2) -> Pos2, enabled: bool) -> Result<()> {
+    if let Err(error) = state.poll_worker(session) {
+        state.error = Some(error.to_string());
+    }
+    if state.worker.is_some() {
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    }
+
     state.synchronize(session, enabled);
     if !state.pending() {
         return Ok(());
@@ -322,6 +430,7 @@ pub fn input(state: &mut State, session: &mut Session, ctx: &Context, canvas: Re
 }
 /// Shared app hooks registered by 00. They share the app's ordinary canvas/GPU caches.
 pub fn show(app: &mut crate::PhotocraftApp, ctx: &Context) {
+    app.pdf_import.background = app.background_jobs;
     app.pdf_import.synchronize_context(&app.session, app.ui.tool, app.current_module, app.current_module == crate::Module::Compositing);
     if !app.pdf_import.dialog_open {
         return;
@@ -379,7 +488,9 @@ pub fn offer(app: &mut crate::PhotocraftApp, name: &str, bytes: &[u8]) -> std::r
     if bytes.len() > ImportOptions::default().limits.bytes {
         return Err("PDF exceeds the input byte limit".into());
     }
-    app.pdf_import.set_named_source(name, bytes.to_vec()).map_err(|e| e.to_string())?;
+    app.pdf_import.background = app.background_jobs;
+    if app.background_jobs { app.pdf_import.set_named_source_async(name, bytes.to_vec()) } else { app.pdf_import.set_named_source(name, bytes.to_vec()) }
+        .map_err(|e| e.to_string())?;
     app.pdf_import.dialog_open = true;
     app.current_module = crate::Module::Compositing;
     Ok(true)
@@ -389,6 +500,7 @@ pub fn offer(app: &mut crate::PhotocraftApp, name: &str, bytes: &[u8]) -> std::r
 pub fn offer_path(app: &mut crate::PhotocraftApp, path: &str) -> std::result::Result<bool, String> {
     use std::io::Read;
     let pdf_extension = std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+    photocraft_format::read::validate_path(std::path::Path::new(path)).map_err(|e| e.to_string())?;
     let mut probe = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut header = [0u8; 5];
     let count = probe.read(&mut header).map_err(|e| e.to_string())?;
@@ -442,6 +554,30 @@ mod tests {
             },
             Host { state, session, canvas: Rect::NOTHING },
         )
+    }
+    #[test]
+    fn pdf_worker_cancel_and_stale_destination_do_not_publish() {
+        let _serial = crate::import_worker::test_serial();
+        let mut session = Session::new();
+        session.execute("file.new", serde_json::json!({"width":128,"height":128})).unwrap();
+        let before = session.active().unwrap().doc.layer_count();
+        let mut state = State { source: fixture::pages(), background: true, ..Default::default() };
+        state.begin_worker(&session, 1).unwrap();
+        assert_eq!(session.active().unwrap().doc.layer_count(), before);
+        state.cancel();
+        state.poll_worker(&mut session).unwrap();
+        assert_eq!(session.active().unwrap().doc.layer_count(), before);
+        state.begin_worker(&session, 1).unwrap();
+        session.execute("layer.new.layer", serde_json::json!({"name":"New"})).unwrap();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if state.poll_worker(&mut session).is_err() {
+                break;
+            }
+            assert!(std::time::Instant::now() < until);
+            std::thread::yield_now();
+        }
+        assert_eq!(session.active().unwrap().doc.layer_count(), before + 1);
     }
     #[test]
     fn pdf_import_ui_page_type_open_place_warning_and_undo() {

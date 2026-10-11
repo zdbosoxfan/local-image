@@ -60,6 +60,7 @@ pub(crate) struct Ctx<'a> {
     /// Layer records decoded so far, out of `total` (progress).
     pub done: usize,
     pub total: usize,
+    pub remaining: usize,
 }
 
 fn doc_mode(m: PsdMode) -> Option<ColorMode> {
@@ -100,6 +101,17 @@ fn soft_shape_fill(rec: &LayerRecord, has_vector: bool, fill_key: Option<&[u8; 4
 }
 
 impl Ctx<'_> {
+    fn charge(&mut self, w: usize, h: usize, channels: usize) -> bool {
+        let cost =
+            w.saturating_add(128).saturating_mul(h.saturating_add(128)).saturating_mul(channels).saturating_mul(self.fmt.sample.bytes()).saturating_mul(3);
+        if cost > self.remaining {
+            self.warn("PSD import exceeds the decoded image memory limit; pixels were omitted");
+            return false;
+        }
+        self.remaining -= cost;
+        true
+    }
+
     fn warn(&mut self, s: impl Into<String>) {
         self.warnings.push(s.into());
     }
@@ -117,10 +129,13 @@ impl Ctx<'_> {
 
     fn record_surface(&mut self, rec: &LayerRecord, name: &str) -> Surface {
         let r = rec.rect;
-        if r.is_empty() || r.size().is_err() {
+        if r.is_empty() || r.size().is_err() || rec.channels.is_empty() {
             return Surface::new(self.fmt);
         }
         let (w, h) = r.size().unwrap_or((0, 0));
+        if !self.charge(w, h, self.cc + 1) {
+            return Surface::new(self.fmt);
+        }
         let s = self.fmt.sample;
         let mut planes = Vec::with_capacity(self.cc + 1);
         for c in 0..self.cc {
@@ -159,6 +174,7 @@ impl Ctx<'_> {
         let mut surface = Surface::with_default(self.mask_fmt, &[f32::from(default) / 255.0]);
         if !rect.is_empty()
             && let Ok((w, h)) = rect.size()
+            && self.charge(w, h, 1)
             && let Some(plane) = self.channel_plane(rec, id, name)
         {
             let s = self.mask_fmt.sample;
@@ -326,7 +342,9 @@ impl Ctx<'_> {
             // shape from its path and fill, as Photoshop does when it opens the file.
             if (rec.rect.is_empty() || rec.rect.size().is_err()) && (!sh.path.subpaths.is_empty() || sh.path.inverted) {
                 let canvas = Rect::new(0, 0, self.file.header.width as i32, self.file.header.height as i32);
-                sh.cache = Some(photocraft_vector::render_shape(&sh, self.fmt, canvas));
+                if self.charge(self.file.header.width as usize, self.file.header.height as usize, self.fmt.channels()) {
+                    sh.cache = Some(photocraft_vector::render_shape(&sh, self.fmt, canvas));
+                }
             }
             LayerContent::Shape(sh)
         } else if let Some(k) = fill_key {
@@ -594,6 +612,7 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
         ctl: *ctl,
         done: 0,
         total: file.layers().len(),
+        remaining: 512 << 20,
     };
     for b in file.global_blocks.iter().filter(|b| matches!(&b.key, b"FEid" | b"FXid")) {
         // Smart-filter caches can be large: a cancelled open stops between blocks.
@@ -618,7 +637,11 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
     // half the file's bytes, decoded and thrown away on every open before this.
     let extra = usize::from(h.channels) > cc + usize::from(file.merged_has_alpha());
     let merged = if !layered || file.layers().is_empty() || extra {
-        let m = file.decode_merged();
+        let m = if cx.charge(w, hh, usize::from(h.channels).max(cc + 1).max(8)) {
+            file.decode_merged()
+        } else {
+            Err(photocraft_psd::PsdError::LimitExceeded("PSD import memory budget"))
+        };
         if ctl.cancelled() {
             return None;
         }
@@ -714,7 +737,12 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
         } else if !file.color_mode_data.is_empty() {
             cx.warn("color mode data is not preserved");
         }
-        let rgba = file.composite_rgba8().or_else(|_| {
+        let rgba = if merged.as_ref().is_some_and(|r| r.is_err()) {
+            Err(photocraft_psd::PsdError::LimitExceeded("PSD import memory budget"))
+        } else {
+            file.composite_rgba8()
+        }
+        .or_else(|_| {
             // Multichannel: show the first channels as RGB.
             let all = merged.clone().ok_or_else(|| photocraft_psd::PsdError::Invalid("no merged image".into()))??;
             let plane = h.row_bytes() * hh;
@@ -787,4 +815,57 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
     }
     ctl.progress(1.0);
     Some((doc, cx.warnings))
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod file_input_regressions {
+    use super::*;
+    fn file() -> PsdFile {
+        let doc = Document::new("test", Size::new(1, 1), ColorMode::Rgb, SampleType::U8);
+        crate::document_to_psd(&doc)
+    }
+    #[test]
+    fn channel_free_huge_layer_is_empty() {
+        let mut file = file();
+        file.layer_info = Some(photocraft_psd::LayerInfo {
+            merged_alpha: false,
+            layers: vec![LayerRecord { rect: photocraft_psd::Rect { top: 0, left: 0, bottom: 300_000, right: 300_000 }, ..Default::default() }],
+            padding: None,
+        });
+        let (doc, _) = psd_to_document(&file);
+        assert!(doc.layers[0].surface().unwrap().tiles().next().is_none());
+    }
+    #[test]
+    fn oversized_flattened_psd_is_refused_before_decode() {
+        let mut file = file();
+        file.header.width = 300_000;
+        file.header.height = 300_000;
+        let (doc, warnings) = psd_to_document(&file);
+        assert!(doc.layers.is_empty());
+        assert!(warnings.iter().any(|w| w.contains("memory limit")));
+    }
+    #[test]
+    fn layers_share_one_conversion_budget() {
+        let file = file();
+        let fmt = PixelFormat::RGBA8;
+        let mut ctx = Ctx {
+            file: &file,
+            fmt,
+            mask_fmt: fmt,
+            cc: 3,
+            cmyk: false,
+            warnings: vec![],
+            dpi: 72.0,
+            txt2: None,
+            filter_effects: vec![],
+            ctl: photocraft_raster::Interrupt::NONE,
+            done: 0,
+            total: 0,
+            remaining: 400_000,
+        };
+        assert!(ctx.charge(1, 1, 4));
+        assert!(ctx.charge(1, 1, 4));
+        assert!(!ctx.charge(1, 1, 4));
+    }
 }

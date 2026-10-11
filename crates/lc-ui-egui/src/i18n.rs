@@ -315,6 +315,21 @@ pub const PENDING_AI_DENOISE_TRANSLATIONS: &[&str] = &[
     "Model downloads are available in Settings › Local AI.",
 ];
 
+/// File-input robustness English messages awaiting translations.
+pub const PENDING_FILE_INPUT_TRANSLATIONS: &[&str] = &[
+    "Preview decoder failed unexpectedly",
+    "file preview failed unexpectedly",
+    "decoded PSD exceeds memory limit",
+    "truncated RLE counts",
+    "PSD allocation failed",
+    "implausible RLE expansion",
+    "RAW import memory budget",
+    "lossy JPEG tile header: {error}",
+    "JPEG dimensions exceed tile",
+    "missing JPEG tile header",
+    "NEF predictor overflow",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;

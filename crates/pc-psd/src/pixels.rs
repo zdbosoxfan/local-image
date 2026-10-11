@@ -88,7 +88,9 @@ pub struct GrayImage {
 }
 
 fn interleave(mode: ColorMode, color: &[Vec<u8>], alpha: Option<&[u8]>, palette: &[u8], n: usize) -> Result<Vec<u8>> {
-    let mut out = vec![0u8; n * 4];
+    let mut out = Vec::new();
+    out.try_reserve_exact(n.checked_mul(4).ok_or(PsdError::LimitExceeded("RGBA byte count"))?).map_err(|_| PsdError::LimitExceeded("RGBA allocation"))?;
+    out.resize(n * 4, 0);
     for i in 0..n {
         let (r, g, b) = match mode {
             ColorMode::Rgb => (color[0][i], color[1][i], color[2][i]),
@@ -154,7 +156,10 @@ impl<'a> Layer<'a> {
     pub fn rgba8(&self) -> Result<RgbaImage> {
         let rect = self.record.rect;
         let (w, h) = rect.size()?;
-        let n = w * h;
+        let n = w.saturating_mul(h);
+        if n.saturating_mul(32) > crate::compression::MAX_IMPORT_DECODED_BYTES as usize {
+            return Err(PsdError::LimitExceeded("RGBA extraction memory budget"));
+        }
         let depth = self.header.depth;
         let mode = self.header.color_mode;
         let cc = color_channel_count(mode)?;
@@ -219,7 +224,12 @@ impl PsdFile {
     pub fn composite_rgba8(&self) -> Result<RgbaImage> {
         let h = &self.header;
         let (w, hh) = (h.width as usize, h.height as usize);
-        let n = w * hh;
+        let n = w.saturating_mul(hh);
+        if n.saturating_mul(32).saturating_add(n.saturating_mul(usize::from(h.channels)).saturating_mul(usize::from(h.depth.div_ceil(8))))
+            > crate::compression::MAX_IMPORT_DECODED_BYTES as usize
+        {
+            return Err(PsdError::LimitExceeded("composite extraction memory budget"));
+        }
         let cc = color_channel_count(h.color_mode)?;
         if usize::from(h.channels) < cc {
             return Err(PsdError::invalid("fewer channels than the color mode requires"));

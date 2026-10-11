@@ -319,6 +319,11 @@ impl Loader<'_> {
         let mut s = Surface::with_default(f, &decode_pixel(&f, &dp));
         let len = tile_len(&f);
         for t in &m.tiles {
+            if t.tx.checked_mul(photocraft_geom::TILE_SIZE).and_then(|x| x.checked_add(photocraft_geom::TILE_SIZE)).is_none()
+                || t.ty.checked_mul(photocraft_geom::TILE_SIZE).and_then(|y| y.checked_add(photocraft_geom::TILE_SIZE)).is_none()
+            {
+                return Err(FormatError::corrupt("tile coordinates exceed document bounds"));
+            }
             let c = TileCoord::new(t.tx, t.ty);
             if s.tile(c).is_some() {
                 return Err(FormatError::corrupt(format!("duplicate tile ({}, {})", t.tx, t.ty)));
@@ -769,5 +774,29 @@ mod symbol_tests {
         assert!(!d.paths.is_empty());
         let m = crate::read_manifest(&save_to_bytes(&d, &Default::default()).unwrap()).unwrap();
         assert_eq!(m.format_version, 2);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod hostile_tile_tests {
+    use super::*;
+    struct NoFetch;
+    impl Fetch for NoFetch {
+        fn tile(&mut self, _: &str, _: usize) -> Result<Vec<u8>> {
+            Err(FormatError::corrupt("tile fetch must not be reached"))
+        }
+        fn blob(&mut self, _: &str) -> Result<Arc<Vec<u8>>> {
+            Err(FormatError::corrupt("unused"))
+        }
+    }
+    #[test]
+    fn extreme_tile_coordinates_are_rejected_before_fetch() {
+        let mut fetch = NoFetch;
+        let mut loader = Loader { fetch: &mut fetch, preserve_ids: true, max_id: 0, id_map: Default::default() };
+        for tx in [i32::MIN, i32::MAX] {
+            let surface = SurfaceM { format: PixelFormat::RGBA8, default: "00000000".into(), tiles: vec![TileRef { tx, ty: 0, hash: "0".repeat(64) }] };
+            assert!(loader.surface(&surface).err().is_some_and(|e| e.to_string().contains("coordinates")));
+        }
     }
 }

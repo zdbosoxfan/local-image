@@ -74,7 +74,7 @@ fn worker() -> &'static Arc<Worker> {
                         q.pop_front()
                     };
                     let Some((path, source)) = path else { continue };
-                    let img = thumbnail(&source);
+                    let img = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| thumbnail(&source))).ok().flatten();
                     w.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((path, img));
                     if let Some(ctx) = w.ctx.lock().ok().and_then(|c| c.clone()) {
                         ctx.request_repaint();
@@ -89,16 +89,13 @@ fn worker() -> &'static Arc<Worker> {
 /// A small upright sRGB thumbnail: the raw file's embedded JPEG, else the JPEG's EXIF thumbnail
 /// or a DCT-scaled decode, else any other format decoded and reduced.
 pub fn thumbnail(path: &Path) -> Option<egui::ColorImage> {
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = photocraft_format::read_file(path).ok()?;
     let jpeg = lightcraft_raw::embedded_preview(&bytes);
     let src: &[u8] = jpeg.as_deref().unwrap_or(&bytes);
     let opts = lightcraft_codecs::ThumbnailOptions { min_embedded_edge: 160, ..lightcraft_codecs::ThumbnailOptions::new(THUMB_EDGE) };
     let (w, h, px, orientation) = match lightcraft_codecs::decode_thumbnail_with(src, &opts) {
         Ok(t) => (t.image.width, t.image.height, t.image.data.iter().flatten().copied().collect::<Vec<u8>>(), t.orientation),
-        Err(_) => {
-            let img = image::load_from_memory(&bytes).ok()?.thumbnail(THUMB_EDGE, THUMB_EDGE).to_rgba8();
-            (img.width() as usize, img.height() as usize, img.into_raw(), 1)
-        }
+        Err(_) => return None,
     };
     let img = image::RgbaImage::from_raw(w as u32, h as u32, px)?;
     let img = orient(img, orientation);

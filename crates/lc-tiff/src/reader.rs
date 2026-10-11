@@ -140,7 +140,7 @@ impl<'a> Ctx<'a> {
         }
         entries.sort_by_key(|e| e.tag);
         entries.dedup_by_key(|e| e.tag);
-        let next_pos = table + (n as usize).saturating_mul(entry_size);
+        let next_pos = table.saturating_add((n as usize).saturating_mul(entry_size));
         let next = if n as usize == n_read {
             match self.read_off(next_pos) {
                 Some(0) | None => 0,
@@ -234,5 +234,16 @@ pub(crate) fn decode(o: ByteOrder, typ: FieldType, b: &[u8]) -> Value {
         FieldType::Long8 => Value::Long8(b.as_chunks::<8>().0.iter().map(|c| o.u64(arr(c))).collect()),
         FieldType::Ifd8 => Value::Ifd8(b.as_chunks::<8>().0.iter().map(|c| o.u64(arr(c))).collect()),
         FieldType::SLong8 => Value::SLong8(b.as_chunks::<8>().0.iter().map(|c| o.u64(arr(c)) as i64).collect()),
+    }
+}
+
+#[cfg(test)]
+mod overflow_regressions {
+    #[test]
+    fn huge_bigtiff_entry_count_does_not_overflow_next_offset() {
+        let mut bytes = u64::MAX.to_le_bytes().to_vec();
+        bytes.extend([0; 20]);
+        let result = super::parse_ifd_at(&bytes, 0, crate::ByteOrder::Little, 0, true, &Default::default());
+        assert!(result.is_ok());
     }
 }

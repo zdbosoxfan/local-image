@@ -95,3 +95,16 @@ fn big_tiff_orientation_6_and_8_are_applied_to_decoded_pixels() {
         assert_eq!(image.data(), &upright, "orientation {orientation}");
     }
 }
+
+#[test]
+fn jpeg_dimensions_must_fit_the_declared_tiff_strip_before_decode() {
+    use super::common::tiffgen::{self, Dir, LONG, V};
+    let mut jpeg = Vec::new();
+    jpeg_encoder::Encoder::new(&mut jpeg, 90).encode(&[80; 16 * 16], 16, 16, jpeg_encoder::ColorType::Luma).unwrap();
+    let mut entries = tiffgen::base(1, 1, 8, 1, 1);
+    entries.iter_mut().find(|e| e.0 == 259).unwrap().2 = vec![V::N(7)];
+    let dir = Dir { entries, chunks: vec![jpeg], tiled: false }.tag(278, LONG, &[1]);
+    let bytes = tiffgen::build(true, false, &[dir], &[0]).bytes;
+    let error = decode(&bytes).unwrap_err().to_string();
+    assert!(error.contains("JPEG chunk header") || error.contains("JPEG dimensions"), "{error}");
+}

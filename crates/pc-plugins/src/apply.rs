@@ -130,25 +130,12 @@ impl Plugin {
             }
             r
         };
-        // A few bands at a time (one per worker), so peak memory stays near one band per thread.
-        #[cfg(not(target_arch = "wasm32"))]
-        let group = rayon::current_num_threads().max(1);
-        #[cfg(target_arch = "wasm32")]
-        let group = 1;
-        for chunk in bands.chunks(group) {
-            #[cfg(not(target_arch = "wasm32"))]
-            let results: Vec<Result<Surface>> = {
-                use rayon::prelude::*;
-                chunk.par_iter().map(run).collect()
-            };
-            #[cfg(target_arch = "wasm32")]
-            let results: Vec<Result<Surface>> = chunk.iter().map(run).collect();
-            for r in results {
-                for (c, t) in r?.tiles() {
-                    out.tile_mut(*c).bytes_mut().copy_from_slice(t.bytes());
-                }
+        run_groups(&bands, run, |result| {
+            for (c, t) in result.tiles() {
+                out.tile_mut(*c).bytes_mut().copy_from_slice(t.bytes());
             }
-        }
+            Ok(())
+        })?;
         out.prune();
         Ok(out)
     }
@@ -232,4 +219,57 @@ struct BandCtx<'a> {
     fmt: PixelFormat,
     ov: i32,
     params: Value,
+}
+
+/// A bounded number of wasm instances, irrespective of the global Rayon pool size.
+fn run_groups<T: Send>(bands: &[Rect], run: impl Fn(&Rect) -> Result<T> + Sync, mut apply: impl FnMut(T) -> Result<()>) -> Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let group = rayon::current_num_threads().clamp(1, 2);
+    #[cfg(target_arch = "wasm32")]
+    let group = 1;
+    for chunk in bands.chunks(group) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let results: Vec<Result<T>> = {
+            use rayon::prelude::*;
+            chunk.par_iter().map(&run).collect()
+        };
+        #[cfg(target_arch = "wasm32")]
+        let results: Vec<Result<T>> = chunk.iter().map(&run).collect();
+        for result in results {
+            apply(result?)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod worker_memory_regression {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    #[test]
+    fn large_rayon_pool_does_not_multiply_wasm_instances() {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(16).build().unwrap();
+        let (active, peak) = (AtomicUsize::new(0), AtomicUsize::new(0));
+        let mut applied = 0;
+        pool.install(|| {
+            run_groups(
+                &[Rect::new(0, 0, 1, 1); 32],
+                |_| {
+                    let running = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(running, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    Ok(())
+                },
+                |()| {
+                    applied += 1;
+                    Ok(())
+                },
+            )
+        })
+        .unwrap();
+        assert_eq!(applied, 32);
+        assert!(peak.load(Ordering::SeqCst) <= 2);
+    }
 }

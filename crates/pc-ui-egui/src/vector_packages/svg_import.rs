@@ -12,18 +12,22 @@ use std::sync::Arc;
 
 #[derive(Default)]
 pub struct State {
+    pub background: bool,
     pub source: String,
     pub preview: Option<Arc<Document>>,
     pub generation: u64,
     pub warnings: Vec<VectorWarning>,
     pub error: Option<String>,
     request: Option<Place>,
+    worker: Option<crate::import_worker::Task<(Option<Place>, ImportedScene)>>,
+    worker_action: u8,
     scene: Option<ImportedScene>,
     drag: Option<(Pos2, [i32; 2])>,
     context: Option<(crate::state::Tool, crate::Module)>,
 }
 impl State {
     pub fn cancel(&mut self) {
+        self.worker = None;
         self.preview = None;
         self.request = None;
         self.scene = None;
@@ -49,6 +53,44 @@ impl State {
             }
         }
     }
+    fn begin_worker(&mut self, session: &Session, action: u8) -> Result<()> {
+        self.cancel();
+        let request = if action == 3 { None } else { Some(svg_import::capture(session, self.source.clone())?) };
+
+        let dpi = if action == 3 { 72.0 } else { session.active().ok_or(EngineError::NoDocument)?.doc.resolution_dpi };
+        let options = photocraft_doc::vector_design::exchange::ImportOptions { dpi, ..Default::default() };
+        let bytes = self.source.as_bytes().to_vec();
+        self.worker = Some(crate::import_worker::Task::start(move |cancel| {
+            let scene = photocraft_svg::import_with(&bytes, &options, None, cancel).map_err(|e| EngineError::Other(e.to_string()))?;
+            Ok((request, scene))
+        })?);
+        self.worker_action = action;
+        self.error = None;
+        Ok(())
+    }
+    fn poll_worker(&mut self, session: &mut Session) -> Result<()> {
+        let Some(result) = self.worker.as_ref().and_then(|w| w.poll()) else { return Ok(()) };
+        self.worker = None;
+        let (request, scene) = result?;
+        self.warnings = scene.warnings.clone();
+        if self.worker_action == 3 {
+            let (doc, warnings) = svg_import::document(scene, "SVG");
+            session.add_document(doc, None);
+            self.warnings = warnings;
+            return Ok(());
+        }
+        let request = request.ok_or_else(|| EngineError::Other("Missing import destination".into()))?;
+        svg_import::check(session, &request)?;
+        if self.worker_action != 0 {
+            return svg_import::publish_prepared(session, &request, &scene, self.worker_action == 4).map(|_| ());
+        }
+        let (preview, _) = svg_import::preview(session, &request, &scene)?;
+        self.request = Some(request);
+        self.scene = Some(scene);
+        self.preview = Some(Arc::new(preview));
+        self.generation = self.generation.wrapping_add(1);
+        Ok(())
+    }
     pub fn stage(&mut self, session: &Session) -> Result<()> {
         self.cancel();
         let request = svg_import::capture(session, self.source.clone())?;
@@ -63,12 +105,14 @@ impl State {
     }
     pub fn place(&mut self, session: &mut Session, paste: bool) -> Result<()> {
         if self.request.is_none() {
+            if self.background {
+                return self.begin_worker(session, if paste { 4 } else { 1 });
+            }
             self.stage(session)?;
         }
         let request = self.request.as_ref().ok_or_else(|| EngineError::Other("missing SVG placement".into()))?;
-        let response = session
-            .execute(if paste { "file.svg.paste" } else { "file.svg.place" }, serde_json::to_value(request).map_err(|e| EngineError::Other(e.to_string()))?)?;
-        self.warnings = serde_json::from_value(response.get("warnings").cloned().unwrap_or_default()).map_err(|e| EngineError::Other(e.to_string()))?;
+        let scene = self.scene.as_ref().ok_or_else(|| EngineError::Other("missing SVG scene".into()))?;
+        svg_import::publish_prepared(session, request, scene, paste)?;
         self.cancel();
         Ok(())
     }
@@ -79,7 +123,7 @@ impl State {
         Ok(())
     }
     pub fn pending(&self) -> bool {
-        self.request.is_some()
+        self.request.is_some() || self.worker.is_some()
     }
     fn motion(&mut self, session: &Session, at: Pos2) -> Result<()> {
         let Some((origin, base)) = self.drag else { return Ok(()) };
@@ -99,6 +143,13 @@ impl State {
 /// Controls can be hosted by the existing File/Open and Place dialog routes. Clipboard
 /// SVG calls the same State::place(...,true) adapter, after filling source with bounded text.
 pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
+    if let Err(error) = state.poll_worker(session) {
+        state.error = Some(error.to_string());
+    }
+    if state.worker.is_some() {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+    }
+
     if ui.add(egui::TextEdit::multiline(&mut state.source).hint_text(tl!("SVG source")).char_limit(64 << 20).desired_rows(4)).changed() {
         state.cancel();
     }
@@ -121,11 +172,25 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
         }
     });
     if let Some(action) = action {
-        let result = match action {
-            0 => state.open(session),
-            1 => state.stage(session),
-            2 => state.place(session, false),
-            _ => state.place(session, true),
+        let result = if !state.background {
+            match action {
+                0 => state.open(session),
+                1 => state.stage(session),
+                2 => state.place(session, false),
+                _ => state.place(session, true),
+            }
+        } else if action >= 2 && state.request.is_some() {
+            state.place(session, action == 3)
+        } else {
+            state.begin_worker(
+                session,
+                match action {
+                    0 => 3,
+                    1 => 0,
+                    2 => 1,
+                    _ => 4,
+                },
+            )
         };
         state.error = result.err().map(|e| e.to_string());
     }
@@ -157,6 +222,13 @@ fn warning_target(session: &Session, warning: &VectorWarning) -> Option<LayerId>
 /// Offscreen/full app input entrypoint. to_doc supplies the established canvas affine.
 /// Every pointer frame remains detached; a captured release commits once.
 pub fn input(state: &mut State, session: &mut Session, ctx: &Context, canvas: Rect, to_doc: impl Fn(Pos2) -> Pos2, enabled: bool) -> Result<()> {
+    if let Err(error) = state.poll_worker(session) {
+        state.error = Some(error.to_string());
+    }
+    if state.worker.is_some() {
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    }
+
     state.synchronize(session, enabled);
     if !state.pending() {
         return Ok(());
@@ -292,5 +364,33 @@ mod tests {
         assert!(matches!(&st.doc.layer(st.active_layer.unwrap()).unwrap().content, photocraft_doc::LayerContent::Text(t) if t.text == "Hi"));
         assert!(h.state_mut().session.undo());
         assert_eq!(h.state().session.active().unwrap().doc.layer_count(), before);
+    }
+}
+
+#[cfg(test)]
+mod async_placement_regressions {
+    use super::*;
+    #[test]
+    fn worker_decodes_without_editing_and_rejects_stale_destination() {
+        let _serial = crate::import_worker::test_serial();
+        let mut session = Session::new();
+        session.execute("file.new", serde_json::json!({"width":16,"height":16})).unwrap();
+        let mut state = State {
+            source: r#"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>"#.into(),
+            background: true,
+            ..Default::default()
+        };
+        state.begin_worker(&session, 1).unwrap();
+        let before = session.active().unwrap().doc.layer_count();
+        session.execute("layer.new.layer", serde_json::json!({"name":"new"})).unwrap();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while state.worker.is_some() {
+            if state.poll_worker(&mut session).is_err() {
+                break;
+            }
+            assert!(std::time::Instant::now() < until);
+            std::thread::yield_now();
+        }
+        assert_eq!(session.active().unwrap().doc.layer_count(), before + 1);
     }
 }

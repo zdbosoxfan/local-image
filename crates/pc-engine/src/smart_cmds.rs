@@ -71,6 +71,14 @@ fn base_name(path: &str) -> String {
     path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
 }
 
+static APPROVED_LINKS: Mutex<std::collections::BTreeSet<String>> = Mutex::new(std::collections::BTreeSet::new());
+/// Explicit Place Linked / Relink grants disk access for this process only.
+pub(crate) fn approve_link(path: &str) -> Result<()> {
+    photocraft_format::read::validate_path(std::path::Path::new(path)).map_err(|e| other(e.to_string()))?;
+    APPROVED_LINKS.lock().unwrap_or_else(|e| e.into_inner()).insert(path.to_string());
+    Ok(())
+}
+
 fn read_file(path: &str) -> Option<Vec<u8>> {
     if path.is_empty() { None } else { photocraft_format::read_file(std::path::Path::new(path)).ok() }
 }
@@ -83,6 +91,9 @@ pub fn source_bytes(meta: &Metadata, src: &SmartSource) -> Option<(String, Arc<V
         SmartSource::Linked { path } => {
             if let Some(f) = photocraft_io::linked::find_linked_file(meta, path) {
                 return Some((f.file_name, Arc::new(f.bytes)));
+            }
+            if !APPROVED_LINKS.lock().unwrap_or_else(|e| e.into_inner()).contains(path) {
+                return None;
             }
             read_file(path).map(|b| (base_name(path), Arc::new(b)))
         }
@@ -950,6 +961,7 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!("layer.smartObjects.exportContents", "Export Contents…", SO, r##"{"layer":id?,"path":str}"##, has_smart, export_contents),
         spec!("layer.smartObjects.relinkToFile", "Relink to File…", SO, r##"{"layer":id?,"path":str}"##, has_smart, |s, p| {
             let path = path_param("layer.smartObjects.relinkToFile", p)?.to_string();
+            approve_link(&path)?;
             set_source(s, p, "Relink to File", false, |_, _| Ok(SmartSource::Linked { path }))
         }),
         spec!("layer.smartObjects.updateModifiedContent", "Update Modified Content", SO, r##"{"layer":id?}"##, has_linked, |s, p| {
@@ -990,6 +1002,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 set_source(s, p, "Convert to Linked", false, |meta, src| {
                     let (_, bytes) = source_bytes(meta, src).ok_or_else(|| other("the smart object's contents are unavailable"))?;
                     crate::file_cmds::write_file(&path, &bytes)?;
+                    approve_link(&path)?;
                     Ok(SmartSource::Linked { path })
                 })
             }
@@ -1069,3 +1082,20 @@ mod unpack;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod untrusted_link_regressions {
+    use super::*;
+    #[test]
+    fn loaded_link_needs_explicit_relink_before_reading() {
+        let path = std::env::temp_dir().join(format!("li-untrusted-link-{}.png", std::process::id()));
+        std::fs::write(&path, [1, 2, 3]).unwrap();
+        let path = path.to_string_lossy().to_string();
+        let source = SmartSource::Linked { path: path.clone() };
+        assert!(source_bytes(&Metadata::default(), &source).is_none());
+        approve_link(&path).unwrap();
+        assert!(source_bytes(&Metadata::default(), &source).is_some());
+        std::fs::remove_file(path).unwrap();
+    }
+}

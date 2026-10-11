@@ -202,6 +202,8 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) {
     crate::repeat::app_hooks::frame(app, ctx);
     crate::path_effects::app_hooks::frame(app, ctx);
 
+    app.svg_import.background = app.background_jobs;
+    app.affinity_import.background = app.background_jobs;
     app.svg_import.synchronize_context(&app.session, tool, app.current_module, focused && !escape);
     app.affinity_import.synchronize_context(&app.session, tool, app.current_module, focused && !escape);
     let mut blend = std::mem::take(&mut app.ui.vector_blend);

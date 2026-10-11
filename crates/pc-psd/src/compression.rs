@@ -10,16 +10,13 @@ use crate::error::{PsdError, Result};
 use crate::header::{Version, row_bytes};
 use crate::io::{Reader, WriteExt};
 
-/// Maximum number of decoded bytes a single decode call may produce: 8 GiB on
-/// 64-bit targets, 2 GiB elsewhere (the same budget as `photocraft-codecs`'
-/// default `Limits::max_alloc`).
-///
-/// The decoders bound their output by their input on their own (RLE expands
-/// at most 64x, Raw needs every byte present), so this is a backstop against
-/// decompression bombs, not the main guard. It has to fit real PSBs: a
-/// 30000² RGB merged image is 2.7 GB, and a 33000² 16-bit layer channel is
-/// 2.2 GB, both of which a 2 GiB cap turned into empty layers (#375).
+/// Legacy layout/encoding allowance. Encoding already requires an owned source buffer;
+/// input decoding has the smaller, independent allowance below.
 pub const MAX_DECODED_BYTES: u64 = if cfg!(target_pointer_width = "64") { 8 << 30 } else { 2 << 30 };
+
+/// Maximum bytes produced by one file-input decode. Importers also share a budget
+/// across layers and account for conversion buffers and tiled surfaces.
+pub const MAX_IMPORT_DECODED_BYTES: u64 = 512 << 20;
 
 /// Compression method stored before channel / image data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -203,6 +200,9 @@ impl PlaneLayout {
 /// Decodes planar data (excluding the 2-byte compression field).
 pub fn decode_planes(compression: Compression, data: &[u8], layout: &PlaneLayout) -> Result<Vec<u8>> {
     let total = layout.decoded_len()?;
+    if total as u64 > MAX_IMPORT_DECODED_BYTES {
+        return Err(PsdError::LimitExceeded("decoded channel data exceeds import memory budget"));
+    }
     match compression {
         Compression::Raw => {
             if data.len() < total {
@@ -711,6 +711,15 @@ mod tests {
         assert_eq!(layout(3, 30_000, 30_000, 8, Version::Psb).decoded_len().unwrap(), 2_700_000_000);
         assert_eq!(layout(1, 33_000, 33_000, 16, Version::Psb).decoded_len().unwrap(), 2_178_000_000);
         assert!(layout(4, 40_000, 40_000, 16, Version::Psb).decoded_len().is_err());
+    }
+
+    #[test]
+    fn import_decode_budget_is_checked_before_every_compression_method() {
+        let l = layout(1, 32_768, 16_385, 8, Version::Psb);
+        assert!(l.decoded_len().is_ok(), "layout arithmetic still supports large PSBs");
+        for compression in [Compression::Raw, Compression::Rle, Compression::Zip, Compression::ZipPrediction] {
+            assert!(matches!(decode_planes(compression, &[], &l), Err(PsdError::LimitExceeded("decoded channel data exceeds import memory budget"))));
+        }
     }
 
     #[test]

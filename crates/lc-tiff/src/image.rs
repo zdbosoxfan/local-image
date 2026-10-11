@@ -126,6 +126,9 @@ impl ImageInfo {
         let planes = if self.planar == 2 { self.samples_per_pixel as usize } else { 1 };
         let (cw, ch) = self.chunk_size();
         let n = self.offsets.len().min(per_plane.saturating_mul(planes));
+        let mut sorted = if self.byte_counts.len() < n || self.byte_counts[..n].contains(&0) { self.offsets.clone() } else { Vec::new() };
+        sorted.sort_unstable();
+        sorted.dedup();
         let mut out = Vec::with_capacity(n);
         for i in 0..n {
             let plane = i / per_plane.max(1);
@@ -142,7 +145,7 @@ impl ImageInfo {
                 Some(&l) if l > 0 => l,
                 _ => {
                     // infer: up to the next larger offset, else end of data
-                    let next = self.offsets.iter().copied().filter(|&o| o > offset).min().unwrap_or(data_len);
+                    let next = sorted.get(sorted.partition_point(|&o| o <= offset)).copied().unwrap_or(data_len);
                     next.saturating_sub(offset)
                 }
             };
@@ -161,4 +164,51 @@ pub fn chunk_bytes<'a>(data: &'a [u8], c: &Chunk) -> Option<&'a [u8]> {
     }
     let end = (c.offset.saturating_add(c.len)).min(data.len() as u64) as usize;
     Some(&data[start..end])
+}
+
+#[cfg(test)]
+mod chunk_offset_regressions {
+    use super::*;
+    #[test]
+    fn many_missing_byte_counts_complete_within_the_work_budget() {
+        let info = ImageInfo {
+            width: 30_000,
+            height: 1,
+            bits_per_sample: vec![8],
+            samples_per_pixel: 1,
+            compression: 1,
+            photometric: 1,
+            planar: 1,
+            predictor: 1,
+            sample_format: 1,
+            new_subfile_type: 0,
+            layout: Layout::Tiles { tile_width: 1, tile_height: 1 },
+            offsets: (0..30_000).rev().map(|n| n * 10).collect(),
+            byte_counts: vec![],
+        };
+        let start = std::time::Instant::now();
+        let chunks = info.chunks(300_000);
+        assert_eq!(chunks.len(), 30_000);
+        assert!(chunks.iter().all(|c| c.len == 10));
+        assert!(start.elapsed() < std::time::Duration::from_secs(2), "quadratic chunk inference");
+    }
+    #[test]
+    fn inferred_lengths_handle_unsorted_and_duplicate_offsets() {
+        let info = ImageInfo {
+            width: 4,
+            height: 1,
+            bits_per_sample: vec![8],
+            samples_per_pixel: 1,
+            compression: 1,
+            photometric: 1,
+            planar: 1,
+            predictor: 1,
+            sample_format: 1,
+            new_subfile_type: 0,
+            layout: Layout::Tiles { tile_width: 1, tile_height: 1 },
+            offsets: vec![30, 10, 10, 20],
+            byte_counts: vec![],
+        };
+        assert_eq!(info.chunks(40).iter().map(|c| c.len).collect::<Vec<_>>(), [10, 10, 10, 10]);
+    }
 }
