@@ -85,6 +85,8 @@ pub enum Vp8Error {
     Dimensions,
     /// The plane buffers do not match the dimensions.
     Planes,
+    /// The compressed header exceeds its 19-bit length field.
+    FirstPartitionTooLarge,
 }
 
 impl std::fmt::Display for Vp8Error {
@@ -92,8 +94,31 @@ impl std::fmt::Display for Vp8Error {
         match self {
             Vp8Error::Dimensions => write!(f, "VP8 frames are 1 to {MAX_DIMENSION} pixels per side"),
             Vp8Error::Planes => write!(f, "plane sizes do not match the dimensions"),
+            Vp8Error::FirstPartitionTooLarge => write!(f, "VP8 frame header exceeds 524287 bytes; use lossless WebP or a smaller image"),
         }
     }
+}
+
+/// Reject before narrowing: a clamped header points the decoder into the middle of
+/// the first partition and must never be returned as a successful encode.
+fn first_partition_tag(size: usize) -> Result<[u8; 3], Vp8Error> {
+    if size >= (1 << 19) {
+        return Err(Vp8Error::FirstPartitionTooLarge);
+    }
+    let tag = ((1u32 << 4) | ((size as u32) << 5)).to_le_bytes();
+    Ok([tag[0], tag[1], tag[2]])
+}
+
+fn assemble_frame(width: u32, height: u32, first: &[u8], tokens: &[u8]) -> Result<Vec<u8>, Vp8Error> {
+    let tag = first_partition_tag(first.len())?;
+    let mut out = Vec::with_capacity(10 + first.len() + tokens.len());
+    out.extend_from_slice(&tag);
+    out.extend_from_slice(&[0x9d, 0x01, 0x2a]);
+    out.extend_from_slice(&(width as u16).to_le_bytes());
+    out.extend_from_slice(&(height as u16).to_le_bytes());
+    out.extend_from_slice(first);
+    out.extend_from_slice(tokens);
+    Ok(out)
 }
 
 /// Quality 0..=100 → quantizer index 0..=127 (0 is finest). A gentle curve: quality 90 ≈ 11,
@@ -621,7 +646,7 @@ impl<'a> Encoder<'a> {
         probs
     }
 
-    fn write_frame(&self, probs: &[[[[u8; 11]; 3]; 8]; 4], loop_filter_level: u8, qi: u8) -> Vec<u8> {
+    fn write_frame(&self, probs: &[[[[u8; 11]; 3]; 8]; 4], loop_filter_level: u8, qi: u8) -> Result<Vec<u8>, Vp8Error> {
         // First partition: frame header, then per-macroblock prediction records.
         let mut h = BoolEncoder::new();
         h.put_flag(false); // color_space: BT.601-like
@@ -684,6 +709,7 @@ impl<'a> Encoder<'a> {
             }
         }
         let first = h.finish();
+        first_partition_tag(first.len())?;
 
         // Token partition.
         let mut t = BoolEncoder::new();
@@ -705,18 +731,7 @@ impl<'a> Encoder<'a> {
         );
         let tokens = t.finish();
 
-        // Frame tag, start code, dimensions, partitions.
-        let mut out = Vec::with_capacity(10 + first.len() + tokens.len());
-        let size = (first.len() as u32).min((1 << 19) - 1);
-        // Bit 0 = 0: key frame; bits 1-3 = 0: version 0; bit 4: show_frame; then the size.
-        let tag: u32 = (1 << 4) | (size << 5);
-        out.extend_from_slice(&tag.to_le_bytes()[..3]);
-        out.extend_from_slice(&[0x9d, 0x01, 0x2a]);
-        out.extend_from_slice(&(self.src.width as u16).to_le_bytes());
-        out.extend_from_slice(&(self.src.height as u16).to_le_bytes());
-        out.extend_from_slice(&first);
-        out.extend_from_slice(&tokens);
-        out
+        assemble_frame(self.src.width, self.src.height, &first, &tokens)
     }
 
     /// The sub-block mode context a neighbouring macroblock provides for sub-block `b` (an
@@ -764,7 +779,7 @@ pub fn encode_frame(yuv: &Yuv, params: Params) -> Result<Vec<u8>, Vp8Error> {
     let probs = enc.choose_probs(&stats);
     // The loop filter smooths block edges in proportion to the quantizer; none at the finest.
     let loop_filter_level = if qi == 0 { 0 } else { (u32::from(qi) / 2 + 4).min(63) as u8 };
-    Ok(enc.write_frame(&probs, loop_filter_level, qi))
+    enc.write_frame(&probs, loop_filter_level, qi)
 }
 
 #[cfg(test)]
@@ -821,6 +836,27 @@ mod tests {
         assert_eq!(encode_frame(&y, Params { quality: 80 }).unwrap_err(), Vp8Error::Dimensions);
         let y = Yuv { width: 4, height: 4, y: vec![0; 15], u: vec![0; 4], v: vec![0; 4] };
         assert_eq!(encode_frame(&y, Params { quality: 80 }).unwrap_err(), Vp8Error::Planes);
+    }
+
+    #[test]
+    fn first_partition_length_boundary_is_checked_before_narrowing() {
+        for size in [0, 1, 524287] {
+            let tag = first_partition_tag(size).unwrap();
+            assert_eq!(u32::from_le_bytes([tag[0], tag[1], tag[2], 0]) >> 5, size as u32);
+        }
+        for size in [524288, u32::MAX as usize, usize::MAX] {
+            assert_eq!(first_partition_tag(size), Err(Vp8Error::FirstPartitionTooLarge));
+        }
+    }
+
+    #[test]
+    fn oversized_header_cannot_produce_a_successful_frame() {
+        // Bounded compressed-partition fixture exercises the actual frame assembly boundary.
+        let first = vec![0; 524288];
+        assert_eq!(assemble_frame(16, 16, &first, &[0]), Err(Vp8Error::FirstPartitionTooLarge));
+        let frame = assemble_frame(16, 16, &first[..524287], &[17, 23]).unwrap();
+        let size = u32::from_le_bytes([frame[0], frame[1], frame[2], 0]) >> 5;
+        assert_eq!(&frame[10 + size as usize..], &[17, 23]);
     }
 
     #[test]
