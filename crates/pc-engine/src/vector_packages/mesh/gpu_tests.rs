@@ -1,4 +1,4 @@
-//! Compiled integration gate; speed rules forbid GPU execution in the package job.
+//! Integrated native mesh GPU parity gate, serialized with the engine's other GPU tests.
 use super::*;
 use photocraft_gpu::{Compositor, render_to_vec};
 fn device() -> (wgpu::Device, wgpu::Queue) {
@@ -33,7 +33,6 @@ fn parity(c: &mut Compositor, d: &wgpu::Device, q: &wgpu::Queue, doc: &Document)
     assert!(max <= 1. / 255., "premultiplied mesh max diff {max}");
 }
 #[test]
-#[ignore = "integration milestone: native mesh schema/dispatch + real RTX 5090 Vulkan"]
 fn mesh43_mesh_paint_shapes_rtx5090_at_1x_and_09_scales_preview_release() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let (device, queue) = device();

@@ -1,5 +1,4 @@
-//! Offscreen full-app live-preview/release gate. The host supplies package-owned input
-//! and the documented display boundary until 00 installs production menu/router wiring.
+//! Offscreen full-app live-preview/release gates using the integrated mesh input/display route.
 use super::*;
 use crate::{PhotocraftApp, canvas::ViewXform, state::Tool};
 use eframe::{egui_wgpu, wgpu};
@@ -100,7 +99,6 @@ fn parity(h: &mut Harness<'_, PhotocraftApp>) {
 }
 
 #[test]
-#[ignore = "integration milestone: 00/08 native mesh schema and actual RTX 5090 Vulkan app renderer"]
 fn mesh43_gpu_app_u_point_drag_cancel_and_release() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness(2);
@@ -136,7 +134,7 @@ fn mesh43_gpu_app_u_point_drag_cancel_and_release() {
 }
 
 #[test]
-#[ignore = "integration milestone: release full-app RTX 5090 Vulkan pointer-frame measurement"]
+#[cfg_attr(debug_assertions, ignore = "performance gate requires a release build")]
 fn mesh43_gpu_app_20_by_20_pointer_frame_budget() {
     let _gpu_gate = crate::gpu_test_support::lock();
     assert!(!std::hint::black_box(cfg!(debug_assertions)), "performance gate requires a release build");
