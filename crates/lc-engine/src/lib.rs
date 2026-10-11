@@ -541,7 +541,7 @@ impl Session {
     /// With Auto Sync on, the ops that carry an edit of the active photo `id` (to `new`) over to the
     /// other selected photos: only the settings that changed; never spot removal or red eye (they
     /// belong to one photo's pixels), nor history / snapshot restores.
-    fn auto_sync_ops(&self, id: PhotoId, new: &DevelopSettings, label: &str) -> Vec<Op> {
+    fn auto_sync_ops(&mut self, id: PhotoId, new: &DevelopSettings, label: &str) -> Vec<Op> {
         if !self.auto_sync
             || self.active() != Some(id)
             || self.selection.ids.len() < 2
@@ -556,24 +556,19 @@ impl Session {
             for k in ["spots", "red_eye", "version"] {
                 o.remove(k);
             }
-            // Stored patches are bound to their source photo.
-            if let Some(Value::Object(e)) = o.get_mut("enhance") {
-                e.remove("ai");
-                if e.is_empty() {
-                    o.remove("enhance");
-                }
+            lightcraft_develop::presets::strip_photo_bound(o);
+            if o.get("enhance").is_some_and(|e| e.as_object().is_some_and(|e| e.is_empty())) {
+                o.remove("enhance");
             }
             if o.is_empty() {
                 return Vec::new();
             }
         }
-        self.selection
-            .ids
-            .iter()
-            .filter(|x| **x != id)
-            .filter_map(|x| self.develop_of(*x).map(|d| (*x, d)))
+        let targets: Vec<_> = self.selection.ids.iter().copied().filter(|x| *x != id).filter_map(|x| self.develop_of(x).map(|d| (x, d))).collect();
+        targets
+            .into_iter()
             .filter_map(|(x, d)| {
-                let synced = lightcraft_develop::apply_partial(&d, &delta, 1.0);
+                let synced = self.transfer_settings(x, &d, &delta);
                 (synced != *d).then(|| self.develop_op(x, synced, label)).flatten()
             })
             .collect()

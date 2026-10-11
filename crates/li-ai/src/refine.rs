@@ -56,6 +56,18 @@ pub fn model_defaults(model: ModelId) -> Option<Defaults> {
     PREFERENCES.lock().ok().and_then(|p| p.get(model.key()).map(|(d, _)| d.clone()))
 }
 
+// Published with the verified recipe, including explicit unsupported capabilities.
+static LORA_PROFILES: Mutex<BTreeMap<(String, String), Option<Family>>> = Mutex::new(BTreeMap::new());
+
+/// Nonblocking picker capability. Before discovery, the family is a provisional recommendation;
+/// the worker validates the actual recipe before submitting either generation pass.
+pub fn lora_profile_for(model: ModelId, variant: &str) -> Option<Family> {
+    if let Some(profile) = LORA_PROFILES.lock().ok().and_then(|p| p.get(&(model.key().into(), variant.into())).cloned()) {
+        return profile;
+    }
+    model.try_info().map(|i| i.resolved.clone()).filter(|f| !f.lora.loader.is_empty())
+}
+
 pub fn model_is_reference(model: ModelId) -> Option<bool> {
     PREFERENCES.lock().ok().and_then(|p| p.get(model.key()).map(|(_, reference)| *reference))
 }
@@ -141,27 +153,34 @@ impl Recipe {
             Self::Template { defaults, .. } | Self::Universal { defaults, .. } => defaults.clone(),
         }
     }
-    /// Only a known compatible refine family can accept a known-family LoRA. Draft styles
-    /// never enter this list. Unidentified styles remain explicitly selectable for known families.
-    pub fn filter_loras(&self, loras: &[LoraUse]) -> Vec<LoraUse> {
-        let Self::Family { profile, .. } = self else { return Vec::new() };
-        if profile.lora.loader.is_empty() {
-            return Vec::new();
+    /// A recipe must explicitly support styles; nominal model families are insufficient.
+    pub fn lora_profile(&self) -> Option<&Family> {
+        match self {
+            Self::Family { profile, .. } if !profile.lora.loader.is_empty() => Some(profile),
+            _ => None,
         }
-        loras
-            .iter()
-            .filter(|l| {
-                let family = crate::inventory::loras()
-                    .into_iter()
-                    .find(|i| i.name == l.name)
-                    .and_then(|i| i.family)
-                    .or_else(|| crate::arch::guess_from_name(&l.name, crate::arch::FileKind::Lora));
-                family.is_none_or(|f| profile.lora_fits(&f))
-            })
-            .cloned()
-            .collect()
+    }
+    pub fn validate_loras(&self, loras: &[LoraUse]) -> Result<()> {
+        if loras.is_empty() {
+            return Ok(());
+        }
+        let profile = self
+            .lora_profile()
+            .context("This refinement recipe does not support styles (LoRAs). Remove the selected styles or choose another refinement model.")?;
+        for lora in loras {
+            let family = crate::inventory::loras()
+                .into_iter()
+                .find(|i| i.name == lora.name)
+                .and_then(|i| i.family)
+                .or_else(|| crate::arch::guess_from_name(&lora.name, crate::arch::FileKind::Lora));
+            if family.is_some_and(|f| !profile.lora_fits(&f)) {
+                bail!("The selected style is incompatible with this refinement model: {}", lora.name);
+            }
+        }
+        Ok(())
     }
     pub fn graph(&self, p: &Params) -> Result<(Value, Vec<String>)> {
+        self.validate_loras(p.loras)?;
         match self {
             Self::Family { profile, files, .. } => {
                 let b = builders::build(profile, files, p);
@@ -185,6 +204,21 @@ impl Recipe {
                         height: Some(p.height),
                     },
                 );
+                if let Some((sampler, scheduler)) = p.sampler
+                    && let Some(nodes) = g.as_object_mut()
+                {
+                    for node in nodes.values_mut() {
+                        match node["class_type"].as_str() {
+                            Some("KSampler" | "KSamplerAdvanced") => {
+                                node["inputs"]["sampler_name"] = json!(sampler);
+                                node["inputs"]["scheduler"] = json!(scheduler);
+                            }
+                            Some("KSamplerSelect") => node["inputs"]["sampler_name"] = json!(sampler),
+                            Some("BasicScheduler") => node["inputs"]["scheduler"] = json!(scheduler),
+                            _ => {}
+                        }
+                    }
+                }
                 // Full-denoise reference templates start from an empty latent. At partial
                 // denoise, ComfyUI img2img starts from the source's encoded latent instead.
                 if denoise.is_some_and(|d| d < 1.0) {
@@ -254,8 +288,8 @@ impl Recipe {
         let (w, h) = crate::imaging::snap_size(w, h, defaults.grid);
         let source = imageops::resize(&crate::imaging::over_white(source), w, h, imageops::FilterType::Lanczos3);
         let png = crate::imaging::encode_png(&source)?;
-        let loras = self.filter_loras(p.loras);
-        let p = Params { width: w, height: h, loras: &loras, references: 0, ..p.clone() };
+        self.validate_loras(p.loras)?;
+        let p = Params { width: w, height: h, references: 0, ..p.clone() };
         let (graph, slots) = self.graph(&p)?;
         let uploads = slots.into_iter().map(|n| (n, png.clone())).collect::<Vec<_>>();
         let bytes = if idle_only { client.run_when_idle(graph, &uploads, ctl)? } else { client.run(graph, &uploads, ctl)? };
@@ -640,14 +674,55 @@ pub enum Status {
     Failed(String),
 }
 
+// Upload selectors change when this check uploads its own source image. Keep model
+// choices and every other schema detail, while excluding those temporary image choices.
+fn inventory_signature(info: &ObjectInfo) -> Value {
+    let mut signature = info.0.clone();
+    if let Some(nodes) = signature.as_object_mut() {
+        for node in nodes.values_mut() {
+            for group in ["required", "optional"] {
+                if let Some(inputs) = node["input"][group].as_object_mut() {
+                    for spec in inputs.values_mut() {
+                        if spec[1]["image_upload"] == true && spec[0].is_array() {
+                            spec[0] = Value::Null;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    signature
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileStamp {
+    len: u64,
+    modified: SystemTime,
+    #[cfg(unix)]
+    change: (u64, u64, i64, i64),
+}
+impl FileStamp {
+    fn read(path: &Path) -> std::io::Result<Self> {
+        let metadata = std::fs::metadata(path)?;
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Ok(Self {
+            len: metadata.len(),
+            modified: metadata.modified()?,
+            #[cfg(unix)]
+            change: (metadata.dev(), metadata.ino(), metadata.ctime(), metadata.ctime_nsec()),
+        })
+    }
+}
+
 struct RuntimeEntry {
     status: Status,
     ctl: JobControl,
     next_attempt: Instant,
-    signature: Option<(PathBuf, u64, SystemTime)>,
+    signature: Option<(PathBuf, FileStamp)>,
 }
 
-type HashCache = BTreeMap<PathBuf, (u64, SystemTime, String)>;
+type HashCache = BTreeMap<PathBuf, (FileStamp, String)>;
 
 pub struct Checker {
     path: PathBuf,
@@ -698,8 +773,8 @@ impl Checker {
     pub fn invalidate_changed_files(&self) {
         if let Ok(mut r) = self.runtime.lock() {
             for e in r.values_mut() {
-                if let Some((p, len, time)) = &e.signature {
-                    let changed = std::fs::metadata(p).map_or(true, |m| m.len() != *len || m.modified().ok() != Some(*time));
+                if let Some((p, stamp)) = &e.signature {
+                    let changed = FileStamp::read(p).map_or(true, |current| current != *stamp);
                     if changed && e.status != Status::Testing {
                         e.status = Status::Unchecked;
                         e.next_attempt = Instant::now();
@@ -710,11 +785,10 @@ impl Checker {
     }
     pub fn hash_file(&self, path: &Path, ctl: &JobControl) -> Result<(String, u64)> {
         ctl.check()?;
-        let m = std::fs::metadata(path)?;
-        let (len, time) = (m.len(), m.modified()?);
-        if let Some((l, t, hash)) = self.hashes.lock().ok().and_then(|c| c.get(path).cloned())
-            && l == len
-            && t == time
+        let stamp = FileStamp::read(path)?;
+        let len = stamp.len;
+        if let Some((cached, hash)) = self.hashes.lock().ok().and_then(|c| c.get(path).cloned())
+            && cached == stamp
         {
             return Ok((hash, len));
         }
@@ -729,13 +803,12 @@ impl Checker {
             }
             sha.update(&bytes[..n]);
         }
-        let after = std::fs::metadata(path)?;
-        if after.len() != len || after.modified()? != time {
+        if FileStamp::read(path)? != stamp {
             bail!("Model file changed while hashing; retry");
         }
         let hash = hex::encode(sha.finalize());
         if let Ok(mut c) = self.hashes.lock() {
-            c.insert(path.into(), (len, time, hash.clone()));
+            c.insert(path.into(), (stamp, hash.clone()));
         }
         Ok((hash, len))
     }
@@ -751,6 +824,16 @@ impl Checker {
         crate::settings::write_atomic(&self.path, &serde_json::to_vec_pretty(state)?)
     }
     fn publish(&self, client: &ComfyClient, model: ModelId, variant: &str, verdict: &Verdict) {
+        if let Ok(mut profiles) = LORA_PROFILES.lock() {
+            match verdict {
+                Verdict::Verified { recipe, .. } => {
+                    profiles.insert((model.key().into(), variant.into()), recipe.lora_profile().cloned());
+                }
+                Verdict::Failed { .. } => {
+                    profiles.remove(&(model.key().into(), variant.into()));
+                }
+            }
+        }
         let mut changed = false;
         if variant == catalog::default_variant(model)
             && let Ok(mut preferences) = PREFERENCES.lock()
@@ -843,11 +926,17 @@ impl Checker {
         ctl.check()?;
         let info = client.object_info()?;
         let settings = crate::AiSettings::load();
+        // Normalize the initial catalogue before capturing its generation. A concurrent UI
+        // refresh of these same loader files must not look like a model replacement.
+        crate::inventory::refresh(&info, model_dir.is_dir().then_some(model_dir));
+        let generation = catalog::inventory_generation();
+        let inventory = inventory_signature(&info);
         let target = target(model, variant, &info)?;
         let (role, name) = main_file(&target)?;
         let folders = if role == Role::Checkpoint { vec!["checkpoints"] } else { vec!["diffusion_models", "unet", "unet_gguf"] };
         let path = crate::inventory::local_path(Some(model_dir), &folders, name)
             .or_else(|| crate::inventory::local_path(Some(&PathBuf::from(&settings.comfy_directory).join("models")), &folders, name));
+        let stamp = path.as_ref().map(|path| FileStamp::read(path)).transpose()?;
         let (hash, bytes) = match &path {
             Some(path) => {
                 let (h, b) = self.hash_file(path, ctl)?;
@@ -860,8 +949,29 @@ impl Checker {
             && let Ok(mut runtime) = self.runtime.lock()
             && let Some(entry) = runtime.get_mut(&Self::key(client, model, variant))
         {
-            entry.signature = Some((path.clone(), bytes, std::fs::metadata(path)?.modified()?));
+            entry.signature = Some((path.clone(), FileStamp::read(path)?));
         }
+        // Recheck publication identity, even after a successful asynchronous prompt. This does
+        // not claim to identify a remote loader's cached weights or close an unobserved ABA swap.
+        let revalidate = |fresh_hash: bool| -> Result<()> {
+            ctl.check()?;
+            if catalog::inventory_generation() != generation || inventory_signature(&client.object_info()?) != inventory {
+                bail!("Model inventory changed during refinement testing; retry.");
+            }
+            if let (Some(path), Some(hash)) = (&path, &hash) {
+                if Some(FileStamp::read(path)?) != stamp {
+                    bail!("Model file changed during refinement testing; retry.");
+                }
+                if fresh_hash && let Ok(mut hashes) = self.hashes.lock() {
+                    hashes.remove(path);
+                }
+                let (current, _) = self.hash_file(path, ctl)?;
+                if current != *hash {
+                    bail!("Model file changed during refinement testing; retry.");
+                }
+            }
+            Ok(())
+        };
         if !retest {
             let saved = match &hash {
                 Some(h) => self.saved(h),
@@ -893,6 +1003,7 @@ impl Checker {
                         }
                     }
                 }
+                revalidate(true)?;
                 self.publish(client, model, variant, &v);
                 return Ok(Some(v));
             }
@@ -908,6 +1019,7 @@ impl Checker {
             e.status = Status::Testing;
         }
         let save = |v: &Verdict| -> Result<()> {
+            revalidate(true)?;
             if let Some(h) = &hash {
                 self.store(h, v)?;
             } else if let Ok(mut verdicts) = self.session_verdicts.lock() {
@@ -925,6 +1037,7 @@ impl Checker {
             if !queue_idle(client)? {
                 return Ok(None);
             }
+            revalidate(false)?;
             match self.test_recipe(client, &recipe, ctl) {
                 Ok(difference) if difference < PASS_LIMIT => Ok(Some(Verdict::Verified { recipe: Box::new(recipe), difference })),
                 Ok(d) => {
