@@ -690,7 +690,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let brush_before = app.session.tools.brush.clone();
                 let mut brush = brush_before.clone();
                 let b = &mut brush;
-                let vector_options = egui::ScrollArea::horizontal().id_salt("vector-tool-options").auto_shrink([false, true])
+                let vector_options = egui::ScrollArea::horizontal().id_salt("vector-tool-options").auto_shrink([true, true])
                     .show(ui, |ui| crate::vector_integration::context(app, ui)).inner;
                 if vector_options { return; }
                 let mut picked = None;

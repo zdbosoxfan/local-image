@@ -82,7 +82,7 @@ pub fn apply_comp(doc: &mut Document, comp: &LayerComp, all: bool) -> Result<()>
             let snapshot = doc.clone();
             if let Some(l) = doc.layer_mut(id) {
                 crate::commands::translate_layer(&snapshot, l, x - cx, y - cy)?;
-                crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(x - cx), f64::from(y - cy));
+                crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(x - cx), f64::from(y - cy))?;
             }
         }
         let Some(l) = doc.layer_mut(id) else { continue };

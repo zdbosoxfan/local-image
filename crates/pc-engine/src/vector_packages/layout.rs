@@ -227,8 +227,8 @@ fn update_metadata(layer: &mut Layer, original: &Layer, a: Affine) -> Result<()>
         if dot.abs() > 1e-8 || (sx - sy).abs() > 1e-8 {
             return Err(error("anisotropic live-corner layout requires conversion to curves"));
         }
-        for corner in &mut layer.vector.corners {
-            corner.corner.radius *= k;
+        for (corner, source) in layer.vector.corners.iter_mut().zip(&original.vector.corners) {
+            corner.corner.radius = source.corner.radius * k;
         }
     }
     // The baked base path remains authoritative when the parametric design cannot express

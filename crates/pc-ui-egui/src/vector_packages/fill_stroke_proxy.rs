@@ -204,7 +204,7 @@ pub fn shortcut(s: &str) -> Option<KeyboardShortcut> {
     }
 }
 pub fn tool_key(ctx: &egui::Context, preset: Preset, registered: &[&str], current: &str) -> Option<String> {
-    if ctx.text_edit_focused() {
+    if crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::Text {
         return None;
     }
     for b in layout::tool_bindings(preset) {
@@ -219,7 +219,7 @@ pub fn tool_key(ctx: &egui::Context, preset: Preset, registered: &[&str], curren
 /// Call before shared D/X shortcuts. Guarded by persona and focus; never consumes text input.
 pub fn keys(ctx: &egui::Context, state: &mut State, s: &mut Session, ids: &[LayerId], vector: bool) -> Result<bool> {
     state.synchronize(s, ids, vector);
-    if !vector || ctx.text_edit_focused() {
+    if !vector || crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::Text {
         return Ok(false);
     }
     for (key, action) in [("Shift+X", Some(Action::Swap)), ("X", None), ("D", Some(Action::Default)), ("/", Some(Action::None))] {

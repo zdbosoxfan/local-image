@@ -435,11 +435,9 @@ pub fn refresh_shape(doc: &Document, sh: &mut ShapeLayer) {
 
 /// Moves a layer's vector content by `(dx, dy)`: shape paths (re-rendered) and linked vector
 /// masks, recursing into groups. For the Move tool / `layer.move`.
-pub fn translate_vectors(doc: &Document, l: &mut Layer, dx: f64, dy: f64) {
+pub fn translate_vectors(doc: &Document, l: &mut Layer, dx: f64, dy: f64) -> Result<()> {
     let a = Affine::translate(dx, dy);
-    if let Some(clip) = &mut l.vector.clip {
-        *clip = clip.transform(&a);
-    }
+    transform_vector_metadata(&mut l.vector, &a);
     if let Some(vm) = l.vector_mask.as_mut()
         && vm.linked
     {
@@ -447,7 +445,7 @@ pub fn translate_vectors(doc: &Document, l: &mut Layer, dx: f64, dy: f64) {
     }
     match &mut l.content {
         LayerContent::Shape(sh) => {
-            transform_shape(sh, &a);
+            transform_vector_shape(sh, &mut l.vector, &a)?;
             refresh_shape(doc, sh);
         }
         LayerContent::Symbol(s) => {
@@ -456,9 +454,57 @@ pub fn translate_vectors(doc: &Document, l: &mut Layer, dx: f64, dy: f64) {
         }
         LayerContent::Group(g) => {
             for c in &mut g.children {
-                translate_vectors(doc, c, dx, dy);
+                translate_vectors(doc, c, dx, dy)?;
             }
         }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Move the parameters that the common projection regenerates, alongside the stored path.
+pub(crate) fn transform_vector_shape(sh: &mut ShapeLayer, vector: &mut photocraft_doc::VectorData, a: &Affine) -> Result<()> {
+    use crate::vector_packages::transform_tools::metadata;
+    if vector.live_shape.is_none() && vector.corners.is_empty() {
+        transform_shape(sh, a);
+        return Ok(());
+    }
+    if !metadata::similarity(*a) && !vector.corners.is_empty() {
+        sh.path = crate::vector_packages::corners::project_shape(sh, &vector.corners)?.path;
+        vector.corners.clear();
+    }
+    sh.path = sh.path.transform(a);
+    sh.psd_raw = None;
+    metadata::live(sh, vector, *a, true)
+}
+
+/// Document-space crop paths and live-group anchors travel with their source geometry.
+pub(crate) fn transform_vector_metadata(vector: &mut photocraft_doc::VectorData, a: &Affine) {
+    use photocraft_doc::vector_design::live::{EnvelopeSpec, LiveGroup, RepeatSpec};
+    let point = |p: &mut [f64; 2]| {
+        let q = a.apply(Point::new(p[0], p[1]));
+        *p = [q.x, q.y];
+    };
+    if let Some(clip) = &mut vector.clip {
+        *clip = clip.transform(a);
+    }
+    match &mut vector.live {
+        Some(LiveGroup::Blend(spec)) => {
+            if let Some(spine) = &mut spec.spine {
+                *spine = spine.transform(a);
+            }
+        }
+        Some(LiveGroup::Repeat(RepeatSpec::Radial { center, .. })) => point(center),
+        Some(LiveGroup::Repeat(RepeatSpec::Mirror { origin, angle })) => {
+            point(origin);
+            let (sin, cos) = angle.sin_cos();
+            *angle = (a.m[1] * cos + a.m[3] * sin).atan2(a.m[0] * cos + a.m[2] * sin);
+        }
+        Some(LiveGroup::Repeat(RepeatSpec::Grid { spacing, .. })) => {
+            spacing[0] *= a.m[0].hypot(a.m[1]);
+            spacing[1] *= a.m[2].hypot(a.m[3]);
+        }
+        Some(LiveGroup::Envelope(EnvelopeSpec::TopObject { path })) => *path = path.transform(a),
         _ => {}
     }
 }
@@ -610,6 +656,8 @@ fn shape_edit(s: &mut Session, p: &Value) -> Result<Value> {
     with_shape(s, id, "Edit Shape", |sh, layer| {
         if let Some(v) = p.get("path") {
             sh.path = parse_path(v).map_err(|e| bad(CMD, e))?;
+            layer.vector.live_shape = None;
+            layer.vector.corners.clear();
             sh.live = None;
             sh.psd_raw = None;
         }
@@ -621,14 +669,16 @@ fn shape_edit(s: &mut Session, p: &Value) -> Result<Value> {
             let kind = if kind == "rect" && radii(p).is_some_and(|r| r.iter().any(|v| *v > 0.0)) { "roundedRect".to_string() } else { kind };
             let l = live_from_params(CMD, &kind, p, sh.live.as_ref())?;
             sh.path = vector::shapes::live_path(&l);
+            layer.vector.live_shape = None;
+            layer.vector.corners.clear();
             sh.live = Some(l);
             sh.psd_raw = None;
         }
         if let Some(m) = nums::<6>(p, "transform") {
-            transform_shape(sh, &Affine { m });
+            transform_vector_shape(sh, &mut layer.vector, &Affine { m })?;
         }
         if let Some([dx, dy]) = nums::<2>(p, "move") {
-            transform_shape(sh, &Affine::translate(dx, dy));
+            transform_vector_shape(sh, &mut layer.vector, &Affine::translate(dx, dy))?;
         }
         if let Some(op) = p.get("op").and_then(Value::as_str) {
             // Operation of the selected subpath(s) (`subpath`: index, default all but the first).
@@ -862,8 +912,8 @@ fn path_transform(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(id) = layer_id
         && s.active().and_then(|d| d.doc.layer(id)).is_some_and(|layer| matches!(layer.content, LayerContent::Shape(_)))
     {
-        with_shape(s, id, "Transform Path", |shape, _| {
-            transform_shape(shape, &transform);
+        with_shape(s, id, "Transform Path", |shape, layer| {
+            transform_vector_shape(shape, &mut layer.vector, &transform)?;
             shape.psd_raw = None;
             Ok(())
         })?;

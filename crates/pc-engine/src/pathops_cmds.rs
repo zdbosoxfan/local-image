@@ -224,6 +224,9 @@ fn run(s: &mut Session, p: &Value, operation: Operation, cmd: &str, label: &str)
         for (source, path) in results {
             let template = &input[source];
             let mut layer = template.clone();
+            // Geometry results are curves: regenerating the source parameters would erase them.
+            layer.vector.live_shape = None;
+            layer.vector.corners.clear();
             let LayerContent::Shape(sh) = &mut layer.content else { return Err(bad(cmd, "shape missing")) };
             sh.path = path;
             sh.live = None;

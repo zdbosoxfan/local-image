@@ -482,7 +482,7 @@ fn translate_vectors_moves_shapes_and_masks() {
     s.edit("Move", |d, _| {
         let snap = d.clone();
         let l = d.layer_mut(LayerId(id)).unwrap();
-        translate_vectors(&snap, l, 5.0, 0.0);
+        translate_vectors(&snap, l, 5.0, 0.0).unwrap();
         Ok(())
     })
     .unwrap();

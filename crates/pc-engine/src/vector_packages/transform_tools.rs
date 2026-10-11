@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 mod conversion;
-mod metadata;
+pub(crate) mod metadata;
 pub use conversion::{ConversionChoice, EnvelopeRequest, EnvelopeRouter, conversion_targets};
 
 pub const MAX_TARGETS: usize = 1024;

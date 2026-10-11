@@ -231,7 +231,7 @@ pub(crate) fn move_layers(doc: &mut Document, moves: &[(LayerId, i32, i32)]) -> 
             return Err(EngineError::Other(format!("layer \"{}\" is position-locked", l.name)));
         }
         crate::commands::translate_layer(&snapshot, l, dx, dy)?;
-        crate::vector_cmds::translate_vectors(&snapshot, l, dx as f64, dy as f64);
+        crate::vector_cmds::translate_vectors(&snapshot, l, dx as f64, dy as f64)?;
         crate::vector_packages::symbols::refresh_layer_symbols(&snapshot, l)?;
     }
     Ok(())
@@ -343,7 +343,7 @@ pub fn moved(doc: &Document, ids: &[LayerId], dx: i32, dy: i32) -> Result<Docume
         if locks.position || locks.all {
             return Err(EngineError::Other(format!("layer \"{}\" is position-locked", l.name)));
         }
-        shift_shown(doc, l, dx, dy);
+        shift_shown(doc, l, dx, dy)?;
     }
     Ok(out)
 }
@@ -354,9 +354,10 @@ pub(crate) fn shift_surface(s: &photocraft_raster::Surface, dx: i32, dy: i32) ->
 }
 
 /// [`crate::commands::translate_layer`] plus the vector side, without re-rendering anything.
-fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
+fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) -> Result<()> {
     use self::shift_surface as translate_surface;
     let a = photocraft_geom::Affine::translate(f64::from(dx), f64::from(dy));
+    crate::vector_cmds::transform_vector_metadata(&mut l.vector, &a);
     if let Some(r) = &mut l.effects.reference {
         *r = (r.0 + f64::from(dx), r.1 + f64::from(dy));
     }
@@ -381,7 +382,7 @@ fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
                 let b = photocraft_compose::bounds::content_bounds(c);
                 b.is_empty() || (b.x0 > canvas.x0 && b.y0 > canvas.y0 && b.x1 < canvas.x1 && b.y1 < canvas.y1)
             });
-            crate::vector_cmds::transform_shape(sh, &a);
+            crate::vector_cmds::transform_vector_shape(sh, &mut l.vector, &a)?;
             match &mut sh.cache {
                 Some(c) if inside => *c = translate_surface(c, dx, dy),
                 _ => crate::vector_cmds::refresh_shape(doc, sh),
@@ -396,10 +397,13 @@ fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
             if let Some(ab) = &mut g.artboard {
                 ab.rect = ab.rect.translate(dx, dy);
             }
-            g.children.iter_mut().for_each(|c| shift_shown(doc, c, dx, dy));
+            for child in &mut g.children {
+                shift_shown(doc, child, dx, dy)?;
+            }
         }
         LayerContent::Adjustment(_) | LayerContent::Fill(_) => {}
     }
+    Ok(())
 }
 
 /// The document pixels an edit of the layers `ids` (moved, shown, hidden or restyled; contents
