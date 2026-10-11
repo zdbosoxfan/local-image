@@ -10,7 +10,7 @@ lock=(ROOT/'target/recovery-cargo.lock');lock.parent.mkdir(exist_ok=True)
 with lock.open('a') as held:
  fcntl.flock(held,fcntl.LOCK_EX|fcntl.LOCK_NB)
  env=os.environ.copy(); profile=ROOT/'target/recovery-profiles'/label
- for name,d in [('LOCAL_IMAGE_DATA_DIR','local-image'),('LOCAL_IMAGE_MODELS_DIR','models'),('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_CACHE_HOME','cache'),('XDG_STATE_HOME','state'),('TMPDIR','tmp')]:
+ for name,d in [('LIGHTCRAFT_LIBRARY','library'),('LOCAL_IMAGE_DATA_DIR','local-image'),('LOCAL_IMAGE_MODELS_DIR','models'),('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_CACHE_HOME','cache'),('XDG_STATE_HOME','state'),('TMPDIR','tmp')]:
   p=profile/d;p.mkdir(parents=True,exist_ok=True);env[name]=str(p)
  env.update(LIGHTCRAFT_GPU='1',LIGHTCRAFT_GPU_BACKEND='vulkan',WGPU_BACKEND='vulkan',WGPU_POWER_PREF='high',LC_REQUIRE_GPU='1',LOCAL_IMAGE_REQUIRE_GPU='1',LOCAL_IMAGE_COMFY='127.0.0.1:9')
  files=subprocess.check_output(['git','ls-files','-co','--exclude-standard','-z']).decode().split('\0'); manifest={}
@@ -18,7 +18,7 @@ with lock.open('a') as held:
   if f and not f.startswith(('docs/','target/','.git/')) and Path(f).is_file():manifest[f]=hashlib.sha256(Path(f).read_bytes()).hexdigest()
  fingerprint=hashlib.sha256(json.dumps(manifest,sort_keys=True).encode()).hexdigest()
  (OUT/(label+'.sources.json')).write_text(json.dumps(manifest,indent=2)+'\n')
- command=[env['CARGO'],*args];record={'label':label,'command':command,'cwd':str(ROOT),'head':subprocess.check_output(['git','rev-parse','HEAD']).decode().strip(),'source_sha256':fingerprint,'cargo_lock_sha256':hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),'environment':{k:v for k,v in env.items() if k.startswith(('CARGO','RUST','LIGHTCRAFT_GPU','WGPU','LC_REQUIRE','LOCAL_IMAGE','XDG_CONFIG','XDG_DATA','XDG_CACHE','XDG_STATE','TMPDIR'))},'started':datetime.datetime.now(datetime.timezone.utc).isoformat(),'log':str(OUT/(label+'.log')),'status':'running'}
+ command=[env['CARGO'],*args];record={'label':label,'command':command,'cwd':str(ROOT),'head':subprocess.check_output(['git','rev-parse','HEAD']).decode().strip(),'source_sha256':fingerprint,'cargo_lock_sha256':hashlib.sha256(Path('Cargo.lock').read_bytes()).hexdigest(),'environment':{k:v for k,v in env.items() if k.startswith(('CARGO','RUST','LIGHTCRAFT_','CRAFT_FONTS','WGPU','LC_REQUIRE','LOCAL_IMAGE','XDG_CONFIG','XDG_DATA','XDG_CACHE','XDG_STATE','TMPDIR'))},'started':datetime.datetime.now(datetime.timezone.utc).isoformat(),'log':str(OUT/(label+'.log')),'status':'running'}
  (OUT/(label+'.json')).write_text(json.dumps(record,indent=2)+'\n')
  start=time.monotonic()
  with (OUT/(label+'.log')).open('w') as log:
