@@ -20,8 +20,52 @@ use crate::media::{RenderJob, SourceRef};
 /// simulated failure never turns the GPU off under another test.
 pub(crate) static GPU_STATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-pub(crate) fn gpu_state() -> std::sync::MutexGuard<'static, ()> {
-    GPU_STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+thread_local! {
+    static HELD: std::cell::RefCell<Option<(std::sync::MutexGuard<'static, ()>, usize)>> = const { std::cell::RefCell::new(None) };
+}
+
+pub(crate) struct Guard(std::marker::PhantomData<std::rc::Rc<()>>);
+
+pub(crate) fn gpu_state() -> Guard {
+    HELD.with(|held| {
+        let mut held = held.borrow_mut();
+        if let Some((_, depth)) = held.as_mut() {
+            *depth += 1;
+        } else {
+            *held = Some((GPU_STATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner), 1));
+        }
+    });
+    Guard(std::marker::PhantomData)
+}
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        HELD.with(|held| {
+            let mut held = held.borrow_mut();
+            if let Some((_, depth)) = held.as_mut() {
+                *depth -= 1;
+                if *depth == 0 {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    crate::enhance::denoise::release_gpu_test_cache();
+                    let finished = lightcraft_gpu::shutdown(std::time::Duration::from_secs(120));
+                    assert!(finished || std::thread::panicking(), "GPU test teardown did not finish");
+                    *held = None;
+                }
+            }
+        });
+    }
+}
+
+#[test]
+fn session_gpu_scopes_nest_and_release_after_session_fields() {
+    let _outer = gpu_state();
+    HELD.with(|held| assert_eq!(held.borrow().as_ref().unwrap().1, 1));
+    {
+        let _first = Session::new();
+        let _second = Session::new();
+        HELD.with(|held| assert_eq!(held.borrow().as_ref().unwrap().1, 3));
+    }
+    HELD.with(|held| assert_eq!(held.borrow().as_ref().unwrap().1, 1));
 }
 
 fn gpu() -> bool {

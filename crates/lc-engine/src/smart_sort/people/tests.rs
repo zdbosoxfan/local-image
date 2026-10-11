@@ -964,8 +964,7 @@ fn ds_finding_identity_exhaustion_is_an_error_without_mutation() {
 
 #[test]
 fn ds_finding_deleted_face_cache_is_rebuilt_completely() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ds-cache-faces");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = temp();
     let mut store = FacesStore::new(Some(&dir));
     store.ensure("mock").unwrap();
     store.insert("mock", "a".into(), Vec::new()).unwrap();

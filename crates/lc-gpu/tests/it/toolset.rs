@@ -141,6 +141,7 @@ fn lens_on(s: &mut DevelopSettings, strength: f64) {
 
 #[test]
 fn lens_profiles_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -176,6 +177,7 @@ fn lens_profiles_match() {
 
 #[test]
 fn lens_profiles_with_crop_rotation_and_perspective_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -216,6 +218,7 @@ fn lens_profiles_with_crop_rotation_and_perspective_match() {
 
 #[test]
 fn lens_profile_strength_changes_reach_cached_renders() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -235,6 +238,7 @@ fn lens_profile_strength_changes_reach_cached_renders() {
 
 #[test]
 fn lens_profiles_at_borders_all_orientations_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -289,6 +293,7 @@ fn lens_profiles_at_borders_all_orientations_match() {
 
 #[test]
 fn lens_profiles_replace_embedded_and_zero_strength_matches_disabled() {
+    let _gpu = crate::support::lock();
     use lightcraft_develop::{EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
     if !gpu() {
         return;
@@ -326,6 +331,7 @@ fn lens_profiles_replace_embedded_and_zero_strength_matches_disabled() {
 
 #[test]
 fn tone_equalizer_matches_and_draws_a_mask() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -375,6 +381,7 @@ fn cal(adaptation: Adaptation, illuminant: Illuminant, gamut: f64, clip: bool) -
 
 #[test]
 fn color_calibration_matches() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -426,6 +433,7 @@ fn color_calibration_matches() {
 
 #[test]
 fn color_calibration_changes_reach_cached_renders() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -461,6 +469,7 @@ fn capture(s: &mut DevelopSettings, radius: f64, threshold: f64, iterations: f64
 
 #[test]
 fn capture_sharpening_matches() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -486,6 +495,7 @@ fn capture_sharpening_matches() {
 
 #[test]
 fn capture_sharpening_changes_re_upload_the_source() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -548,6 +558,7 @@ fn capture_chart(w: usize, h: usize) -> Arc<Rgb32f> {
 
 #[test]
 fn capture_sharpening_parameter_sweeps_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -579,6 +590,7 @@ fn capture_sharpening_parameter_sweeps_match() {
 
 #[test]
 fn capture_sharpening_binned_previews_edges_and_borders_match() {
+    let _gpu = crate::support::lock();
     // Build tiny fixtures even without an adapter so border arithmetic is exercised.
     let fixtures = [(7, 5), (8, 33), (9, 9), (17, 41), (257, 193)].map(|(w, h)| ((w, h), capture_chart(w, h)));
     if !gpu() {
@@ -599,6 +611,7 @@ fn capture_sharpening_binned_previews_edges_and_borders_match() {
 
 #[test]
 fn capture_sharpening_source_info_and_geometry_changes_invalidate_cache() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -637,6 +650,7 @@ fn capture_sharpening_source_info_and_geometry_changes_invalidate_cache() {
 
 #[test]
 fn capture_sharpening_reuses_device_source_for_other_tools_and_sizes() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -662,6 +676,7 @@ fn capture_sharpening_reuses_device_source_for_other_tools_and_sizes() {
 
 #[test]
 fn capture_sharpening_over_limit_source_falls_back_without_device_failure() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -679,6 +694,7 @@ fn capture_sharpening_over_limit_source_falls_back_without_device_failure() {
 
 #[test]
 fn capture_sharpening_before_source_analysis_matches() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -707,6 +723,7 @@ fn capture_sharpening_before_source_analysis_matches() {
 #[test]
 #[ignore = "24 MP benchmark: run with --release --ignored"]
 fn bench_capture_sharpening_24mp() {
+    let _gpu = crate::support::lock();
     let has_gpu = gpu();
     let (w, h) = (6000, 4000);
     let src = scene(3, w, h);
@@ -774,6 +791,7 @@ fn depth_mask(lo: f64, hi: f64, feather: f64, adjust: LocalAdjustments) -> Mask 
 
 #[test]
 fn depth_masks_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -828,6 +846,7 @@ const FILM_LOOKS: [&str; 8] = [
 
 #[test]
 fn film_looks_match_the_cpu_export() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -874,6 +893,7 @@ fn ai_spot(key: &str, rect: [f64; 4], opacity: f64) -> Spot {
 
 #[test]
 fn ai_remove_patches_are_in_the_gpu_render() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -929,6 +949,7 @@ fn ai_remove_patches_are_in_the_gpu_render() {
 #[test]
 #[ignore = "benchmark: run with --release --ignored"]
 fn bench_toolset_24mp() {
+    let _gpu = crate::support::lock();
     let has_gpu = gpu();
     let (w, h) = (6000, 4000);
     let src = scene(3, w, h);
@@ -1119,6 +1140,7 @@ fn bench_toolset_24mp() {
 
 #[test]
 fn dual_illuminant_wb_and_dcp_inside_gpu_render() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -1180,6 +1202,7 @@ fn detail_scene() -> Arc<Rgb32f> {
 }
 #[test]
 fn detail_sharpen_radius_detail_masking_and_alt_preview_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -1202,6 +1225,7 @@ fn detail_sharpen_radius_detail_masking_and_alt_preview_match() {
 }
 #[test]
 fn detail_y0u0v0_wavelets_six_sliders_and_preview_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -1235,6 +1259,7 @@ fn detail_y0u0v0_wavelets_six_sliders_and_preview_match() {
 }
 #[test]
 fn detail_dark_channel_rgb_guidance_positive_negative_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -1252,6 +1277,7 @@ fn detail_dark_channel_rgb_guidance_positive_negative_match() {
 }
 #[test]
 fn detail_slider_and_sensor_scale_changes_invalidate_cached_planes() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -1283,6 +1309,7 @@ fn detail_slider_and_sensor_scale_changes_invalidate_cached_planes() {
 
 #[test]
 fn tone_equalizer_extremes_masks_tiny_odd_and_cached_edits_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -1319,6 +1346,7 @@ fn tone_equalizer_extremes_masks_tiny_odd_and_cached_edits_match() {
 
 #[test]
 fn layer_tools_curves_and_effects_match_across_order_opacity_and_cache() {
+    let _gpu = crate::support::lock();
     use lightcraft_develop::{Detail, Effects, Grain, LayerTools, Light, ToneCurve, Vignette};
     if !gpu() {
         return;
@@ -1369,6 +1397,7 @@ fn layer_tools_curves_and_effects_match_across_order_opacity_and_cache() {
 
 #[test]
 fn tone_equalizer_layer_curve_across_finish_bands_matches() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }

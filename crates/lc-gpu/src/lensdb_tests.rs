@@ -214,10 +214,11 @@ fn lens_database_gpu_uses_f64_coverage_at_rounding_boundary() {
         cases.push((wp, p, covered));
     }
     assert_eq!(xs[0], xs[1]);
-    let Some(gpu) = crate::test_device() else {
+    let Some(gpu_device) = crate::test_device() else {
         eprintln!("skipped: no GPU adapter (host rounding-boundary checks passed)");
         return;
     };
+    let gpu = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(gpu);
     let errors = crate::ctx::ErrorScopes::push(gpu);
     let src = gpu.upload(&[0.12f32; 32 * 24 * 3]);
@@ -235,10 +236,11 @@ fn lens_database_gpu_uses_f64_coverage_at_rounding_boundary() {
 
 #[test]
 fn lens_database_renders_reuse_uploaded_source() {
-    let Some(gpu) = crate::test_device() else {
+    let Some(gpu_device) = crate::test_device() else {
         eprintln!("skipped: no GPU adapter");
         return;
     };
+    let gpu = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(gpu);
     let errors = crate::ctx::ErrorScopes::push(gpu);
     let src = Arc::new(lightcraft_scenes::demo_library()[2].render(321, 211));
@@ -276,10 +278,11 @@ fn lens_database_renders_reuse_uploaded_source() {
 #[test]
 #[ignore = "24 MP before/after benchmark: run with --release --ignored"]
 fn bench_lensdb_geometry_24mp() {
-    let Some(gpu) = crate::test_device() else {
+    let Some(gpu_device) = crate::test_device() else {
         eprintln!("skipped: no GPU adapter");
         return;
     };
+    let gpu = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(gpu);
     let errors = crate::ctx::ErrorScopes::push(gpu);
     let (w, h) = (6000, 4000);

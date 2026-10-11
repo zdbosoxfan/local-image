@@ -1609,10 +1609,11 @@ mod tests {
 
     #[test]
     fn capture_source_cache_reuses_upload_and_invalidates_parameters() {
-        let Some(gpu) = crate::test_device() else {
+        let Some(gpu_device) = crate::test_device() else {
             eprintln!("skipped: no GPU adapter");
             return;
         };
+        let gpu = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(gpu);
         let errors = crate::ctx::ErrorScopes::push(gpu);
         let mut cx = Cx::new(gpu);
@@ -1711,7 +1712,8 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_kernels() {
-        let Some(gpu) = crate::device() else { return };
+        let Some(gpu_device) = crate::test_device() else { return };
+        let gpu = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(gpu);
         let (w, h) = (6000, 4000);
         let src = gpu.upload(&vec![0.5f32; w * h * 3]);

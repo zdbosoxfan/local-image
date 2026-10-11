@@ -1,0 +1,12 @@
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/lightcraft_gpu-0632949ad3953771)
+
+running 2 tests
+context teardown: NVIDIA GeForce RTX 5090 (Vulkan)
+context teardown: NVIDIA GeForce RTX 5090 (Vulkan)
+test context_exit_tests::old_device_buffers_are_not_recycled_on_a_new_context ... ok
+context teardown: NVIDIA GeForce RTX 5090 (Vulkan)
+test context_exit_tests::shutdown_releases_cached_context_and_pooled_buffers ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 45 filtered out; finished in 2.82s
+

@@ -45,7 +45,9 @@ fn session() -> Session {
     s
 }
 fn harness(s: Session) -> Headless {
-    let app = LightcraftApp::new(s, Services::default());
+    headless(LightcraftApp::new(s, Services::default()))
+}
+fn headless(app: LightcraftApp) -> Headless {
     let mut h = Headless::new(app, [1440., 1100.], 1.);
     h.app.ui.left_panel = false;
     h.app.ui.right = crate::state::RightPanel::None;
@@ -110,13 +112,29 @@ fn ds_finding_large_people_query_keeps_ui_cancellable() {
     for _ in 0..5000 {
         add(&mut s, &[[255, 0, 0]], true);
     }
-    let started = std::time::Instant::now();
-    let mut h = harness(s);
-    assert!(started.elapsed() < Duration::from_secs(2), "People frames waited for clustering");
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (resume_tx, resume_rx) = std::sync::mpsc::channel();
+    let (completed_tx, completed_rx) = std::sync::mpsc::channel();
+    let mut app = LightcraftApp::new(s, Services::default());
+    app.ui.people.query_test_gate = Some(Arc::new(crate::panels::people_workspace::QueryTestGate {
+        entered: entered_tx,
+        resume: std::sync::Mutex::new(resume_rx),
+        completed: completed_tx,
+    }));
+    let mut h = headless(app);
+    // These are deadlock watchdogs for channel delivery under saturated CPUs,
+    // not frame budgets. The worker stays blocked until after the actual click.
+    let watchdog = Duration::from_secs(120);
+    assert_ne!(entered_rx.recv_timeout(watchdog).unwrap(), std::thread::current().id(), "clustering ran on the UI thread");
+    assert!(h.app.session.smart.people.data.people.is_empty());
     assert!(h.app.widgets.iter().any(|(id, _)| id == "people:groupCancel"));
     click(&mut h, "people:groupCancel");
     assert!(h.app.session.smart.people.data.people.is_empty());
     assert!(!h.app.widgets.iter().any(|(id, _)| id == "people:groupCancel"));
+    resume_tx.send(()).unwrap();
+    assert!(completed_rx.recv_timeout(watchdog).unwrap(), "worker must observe the UI cancellation");
+    h.step();
+    assert!(h.app.session.smart.people.data.people.is_empty(), "cancelled query must not publish people");
 }
 
 #[test]

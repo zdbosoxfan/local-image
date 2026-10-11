@@ -13,6 +13,9 @@ pub struct Denoiser {
     weights: Vec<Option<(Buf, Buf)>>,
     buffers: Vec<Buf>,
     kind: Variant,
+    // Weights and tensors belong to this context, even if the global cache is
+    // released and a later render creates a new one. Drop buffers before it.
+    gpu: std::sync::Arc<ctx::Gpu>,
 }
 impl Denoiser {
     /// Allocated FP32 tensor/weight bytes, excluding the shared device and driver allocations.
@@ -41,7 +44,7 @@ impl Denoiser {
             return Err("GPU denoise is disabled".into());
         }
         let g = crate::device().ok_or_else(|| crate::unavailable_reason().unwrap_or_else(|| "no GPU".into()))?;
-        let _scope = ctx::RenderScope::new(g);
+        let _scope = ctx::RenderScope::new(&g);
         let _ = ctx::take_failure();
         if std::iter::once(graph.input).chain(graph.nodes.iter().map(|n| n.shape)).any(|s| !g.fits(s.len())) {
             return Err("denoise tensor exceeds GPU limits".into());
@@ -58,7 +61,7 @@ impl Denoiser {
         if let Some(f) = ctx::take_failure() {
             return Err(f.reason);
         }
-        Ok(Self { graph, weights, buffers, kind, serial: std::sync::Mutex::new(()) })
+        Ok(Self { graph, weights, buffers, kind, serial: std::sync::Mutex::new(()), gpu: g.clone() })
     }
     /// Raw graph output, CHW. Exposed for CPU/GPU equivalence tests.
     pub fn run_tile(&self, input: &[f32]) -> Result<Vec<f32>, String> {
@@ -69,7 +72,7 @@ impl Denoiser {
         if !crate::enabled() {
             return Err("GPU denoise is disabled".into());
         }
-        let g = crate::device().ok_or("GPU unavailable")?;
+        let g = &self.gpu;
         let _scope = ctx::RenderScope::new(g);
         let _ = ctx::take_failure();
         let errors = ctx::ErrorScopes::push(g);

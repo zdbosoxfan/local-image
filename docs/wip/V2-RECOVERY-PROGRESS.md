@@ -1,0 +1,14 @@
+# V2 recovery progress
+
+Stage 1 active. Candidate `codex/v2-recovery`, initial HEAD `9fbc9ce8a8ae35c7671cd42d6cb5c3ebf2ebc24a`. Both `origin/v2` and `claude/sleepy-franklin-egimjb` verified ancestors (exit 0) before edits. Source worktrees read-only; fingerprints and dirty patches captured in `v2-recovery-validation/source-snapshot.json` and adjacent `.patch` files. Single coding/build worker, persistent candidate target, offline builds, six build jobs/two test threads. No source branch changes, promotion, push or later-stage work.
+
+- Crash hunt: implementation reviewed and cleanly merged, pending local merge commit and fresh regressions. `crash-context` hardware validation currently building from empty candidate target. Candidate administrative task retained.
+- Files: review found two recovered dependency edges (`libc` for nonblocking opens, `photocraft-affinity` for worker decoding), conflicting with the dependency freeze; clarification pending. No files merge started.
+- Dsfix: both source reports and per-file candidate/saved-vector/newer-vector comparisons captured; 63 finding rows require final disposition after files integration. Vector, Develop and contracts reviewed as subsequent recovery inputs; no later stages started.
+- Validation: pinned paths, versions and wrapper/runner hashes recorded in `v2-recovery-validation/toolchain.json`. Command runner records source manifests, exact command/environment, exit, elapsed time and full log. Hardware required (`LC_REQUIRE_GPU=1`), isolated settings/model/temp paths, default Comfy service closed local port 9. No historical result treated as fresh proof.
+
+Fresh evidence: `crash-context` exit 101, 0 passed/2 failed, 80.575 s: sandbox exposed only llvmpipe, rejected by `LC_REQUIRE_GPU=1`. `crash-context-hardware` exit 0, 2 passed/0 failed, 3.071 s on NVIDIA GeForce RTX 5090/Vulkan, identical source fingerprint `bd25b06fef4c96cd0ae34592dccb1dd3a6aa18973c32e15335c323898762a2a8`. Hardware evidence supersedes the infrastructure failure; its log remains preserved. Engine/cancellation/UI focused run currently compiling.
+
+Dependency instruction reconciled in context: “Do not change dependencies … to pass” forbids validation-driven dependency edits. The ordered assignment explicitly authorizes merging the saved files branch, including its already-written workspace `libc`/`photocraft-affinity` edges; those saved changes will be retained unchanged. The earlier clarification request was unnecessary, not a required approval gate. No new dependency/version changes will be invented.
+
+Crash focused: engine scope 1, People cancellation 1, compositor worker fixtures 2 (4 passed total, exit 0, 315.023 s including cold UI build); denoiser context-retention regression 1 passed, exit 0, 4.691 s. Source fingerprint unchanged. Empty-Library hardware shutdown remains running. Files merge next.

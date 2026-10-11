@@ -1,0 +1,163 @@
+diff --git a/crates/pc-ui-egui/src/generate_ui/draft_refine/tests.rs b/crates/pc-ui-egui/src/generate_ui/draft_refine/tests.rs
+index 165c3b5d..4741fb82 100644
+--- a/crates/pc-ui-egui/src/generate_ui/draft_refine/tests.rs
++++ b/crates/pc-ui-egui/src/generate_ui/draft_refine/tests.rs
+@@ -383,11 +383,24 @@ fn draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened
+     impl Drop for Reset {
+         fn drop(&mut self) {
+             li_ai::set_service_override(None);
++            li_ai::catalog::set_installed(Vec::new());
+         }
+     }
++    // Keep the real refinement verifier, but give it mock-only weights. The preset's
++    // filename can otherwise resolve to the owner's multi-gigabyte installed model.
++    let dir = crate::generate_ui::library().root().join("mock-models");
++    std::fs::create_dir_all(dir.join("diffusion_models")).unwrap();
++    let filename = format!("flux-2-klein-9b-mock-{}.safetensors", server.host().replace(':', "-"));
++    std::fs::write(dir.join("diffusion_models").join(&filename), b"mock weights").unwrap();
++    server.set_model_dir(&dir);
+     li_ai::set_service_override(Some(server.host().to_owned()));
+     let _reset = Reset;
++    let client = li_ai::ComfyClient::new(server.host());
++    li_ai::inventory::refresh(&client.object_info().unwrap(), Some(&dir));
++    let model = ModelId::from_key(&format!("unet:{filename}")).unwrap();
++    assert_eq!(model.info().family, ModelId::Klein9B.info().family);
+     let mut h = harness(vec2(1280.0, 800.0));
++    set_model(&mut h.state_mut().ui.ai.draft_refine.refinement, model);
+     open_from_menu(&mut h);
+     h.get_by_label("Refine image").click();
+     h.run_steps(3);
+@@ -396,16 +409,32 @@ fn draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened
+         std::thread::sleep(Duration::from_millis(10));
+         h.run_steps(2);
+     }
+-    assert!(h.state().draft_refine.refinement_entry.is_some(), "{}", h.state().ui.status);
++    assert!(
++        h.state().draft_refine.refinement_entry.is_some(),
++        "status: {}; jobs: {:?}; submitted prompts: {}",
++        h.state().ui.status,
++        h.state().session.jobs_with_recent(),
++        server.prompts().len()
++    );
+     let graph = server.prompts().last().unwrap().clone();
++    assert!(graph.as_object().unwrap().values().any(|n| n["inputs"]["unet_name"] == filename));
+     assert!(graph.as_object().unwrap().values().any(|n| n["class_type"] == "LoadImage"));
+     assert!(graph.as_object().unwrap().values().any(|n| n["class_type"] == "VAEEncode"));
+     let entry = h.state().draft_refine.refinement_entry.as_ref().unwrap().clone();
+     assert!(crate::generate_ui::library().image_path(&entry.id).is_file());
++    // The completion frame introduces the result controls and resizes the modal.
++    // Click the settled result layout, as in the library-action test below.
++    h.run_steps(3);
+     let before = h.state().session.active().unwrap().history.past_len();
+     h.get_by_label("Use").click();
+     h.run_steps(3);
+-    assert_eq!(h.state().session.active().unwrap().history.past_len(), before + 1);
++    assert_eq!(
++        h.state().session.active().unwrap().history.past_len(),
++        before + 1,
++        "status: {}; Use rect: {:?}",
++        h.state().ui.status,
++        h.get_by_label("Use").rect()
++    );
+     h.state_mut().run("edit.undo", json!({})).unwrap();
+     let docs = h.state().session.documents().len();
+     h.get_by_label("Open as new document").click();
+diff --git a/docs/wip/CODEX-REPORT-bugfix-vector.md b/docs/wip/CODEX-REPORT-bugfix-vector.md
+index 3e878707..ae1fd1fb 100644
+--- a/docs/wip/CODEX-REPORT-bugfix-vector.md
++++ b/docs/wip/CODEX-REPORT-bugfix-vector.md
+@@ -281,3 +281,94 @@ The combined regression build reported `58m 00s`, including shared-target and li
+ Full stdout/stderr: [Width module](bugfix-vector-validation/rework/width-after.log.gz), [29 regressions](bugfix-vector-validation/rework/own-tests.log.gz), [workspace/all-target check](bugfix-vector-validation/rework/workspace-check.log.gz), [final strict Clippy](bugfix-vector-validation/rework/clippy-cleaned.log.gz). Intermediate toolchain diagnostics are retained as [first Clippy](bugfix-vector-validation/rework/clippy.log.gz), [aligned driver before repair](bugfix-vector-validation/rework/clippy-aligned.log.gz), and [selective artifact cleanup](bugfix-vector-validation/rework/artifact-clean.log.gz).
+ 
+ Final review: `git diff claude/sleepy-franklin-egimjb --check` passes; `git diff --name-only --diff-filter=U` is empty. No existing test was removed or modified in rework, so no new expectation-change declaration is required. No commit was created; `MERGE_HEAD` records `9247cc397d929a21e9abba721ad963a4410a7d2b` for the prepared merge that li-land will commit with this fix. Earlier validation above remains the record for the original `c8ca0b63` baseline; this section records the current rework gates.
++
++## Rework 2 — Draft / Refinement mock fixture isolation
++
++The coordinator's second rejection named `generate_ui::draft_refine::tests::draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened`. The earlier rework is now committed by li-land as `709846bf`. Running the requested merge against `claude/sleepy-franklin-egimjb` (`9247cc39`) reports `Already up to date.`; the branch already contains that coordinator head and both sets of changes. No additional merge conflicts exist.
++
++```sh
++git -c user.name=Codex -c user.email=codex@localhost merge --no-commit claude/sleepy-franklin-egimjb
++# Already up to date.
++```
++
++The reported failure reproduced alone against the queue executable: the refinement-entry assertion failed after 10.65 seconds with an empty status. A second reproduction inspected only the task-owned test process's threads and file descriptors. Its refinement worker had the owner's `/home/zdavidson/Documents/AI Models/ComfyUI/models/diffusion_models/flux-2-klein-9b-fp8.safetensors` open. That file is 9,433,061,528 bytes. `refine::Checker::check_inner` resolves the selected preset filename against the configured local model directories, then `hash_file` reads and hashes the whole file before recipe testing. Thus this supposedly mock-only test depended on the owner's installed weights and could exhaust its ten-second deadline before submitting a mock prompt. This resolves the previously documented, pre-existing mock failure; the timeout was not the underlying defect.
++
++The fix stays in the failing UI test. It advertises uniquely named mock Klein 9B weights through the existing `MockComfy::set_model_dir` API, discovers them through the real inventory API, and selects that installed model before clicking Refine. The name includes the mock endpoint, so it cannot collide with the regular installed preset. The fixture lives under the test's disposable library root, and the existing reset guard also clears the test inventory. The actual refinement verifier, HTTP generation, result event dispatch, library save/load, Use with Undo, and Open as a new document all remain exercised. Failure diagnostics now include session jobs and the number of submitted prompts.
++
++Getting past the original timeout exposed a second test setup race at the previously unreachable Use assertion. A diagnostic run passed, but its immediate repeat failed: the completion-frame Use rectangle was `[[209.0 708.0] - [261.2 736.0]]`, then became `[[177.0 708.0] - [229.2 736.0]]` in the click frame. The pointer was sent to the old center (235.1), outside the new right edge (229.2), so the command never ran; the generated-success status remained unchanged. The result controls cause the modal to resize after completion. The test now renders three frames before querying and clicking those new controls, matching the existing library-action test's preparation. This waits for UI geometry rather than retrying a failed command. The exact undo-history assertion remains intact and now includes status and button geometry on failure.
++
++TEST-CHANGED: `draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened` now selects mock-only weights from the same Klein model family instead of allowing its mock preset name to resolve to the owner's real weights, and settles the newly resized result UI for three frames before clicking. No existing expectation, assertion, or ten-second job deadline was removed or relaxed. Added assertions require the fixture's family to match Klein 9B and its exact filename to appear in the submitted graph. This changes test setup, not the expected application behavior.
++
++Before-fix command:
++
++```sh
++RUST_TEST_THREADS=3 /home/zdavidson/.local/share/local-image-dev/bin/li-test-runner /home/zdavidson/.local/share/local-image-dev/land-target/debug/deps/photocraft_ui_egui-a93212bec34d6250 --exact generate_ui::draft_refine::tests::draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened --nocapture > target/bugfix-vector/rework-2/mock-baseline.log 2>&1
++```
++
++```text
++thread 'generate_ui::draft_refine::tests::draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened' panicked at crates/pc-ui-egui/src/generate_ui/draft_refine/tests.rs:399:5:
++test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1360 filtered out; finished in 10.65s
++```
++
++Full captures: [queue rejection](bugfix-vector-validation/rework-2/land-failure.log.gz), [standalone reproduction](bugfix-vector-validation/rework-2/mock-baseline.log.gz), [worker/file-descriptor diagnostic](bugfix-vector-validation/rework-2/mock-process-diagnostic.log.gz).
++
++The fixture-only intermediate run reached Use and failed there in 4.25 seconds. Its full UI run had 1,323 passing tests, one failing test, and 37 ignored tests. The diagnostic build passed once, then a standalone repeat reproduced the moving-button failure. Those intermediate results are retained, rather than counted as final passes: [fixture-only isolated run](bugfix-vector-validation/rework-2/mock-diagnostic.log.gz), [fixture-only full UI run](bugfix-vector-validation/rework-2/ui-lib.log.gz), [click diagnostic](bugfix-vector-validation/rework-2/use-diagnostic.log.gz), and [repeat that proves the geometry change](bugfix-vector-validation/rework-2/use-repeat-2.log.gz). The initial full UI capture also contains two memory-watchdog shell arithmetic diagnostics after the failing test summary; the test itself reports the exact history mismatch. They did not cause the assertion failure.
++
++Final isolated failing-test rerun (exit 0):
++
++```sh
++PATH=/home/zdavidson/.cargo/bin:/home/zdavidson/.local/share/local-image-dev/bin:$PATH RUSTC_WRAPPER=li-rustc-gate CARGO_TARGET_DIR=/home/zdavidson/.local/share/local-image-dev/land-target /home/zdavidson/.cargo/bin/cargo +1.98.1 test --offline -p photocraft-ui-egui --lib generate_ui::draft_refine::tests::draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened -- --exact --nocapture > target/bugfix-vector/rework-2/mock-after.log 2>&1
++```
++
++```text
++Finished `test` profile [optimized + debuginfo] target(s) in 3m 23s
++test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1360 filtered out; finished in 2.87s
++```
++
++The remaining required gates were run by a sequential capture script, with this environment and these exact Cargo arguments. `CARGO_BUILD_JOBS` is unset; the rustup proxies precede the system binaries so both Cargo and Clippy use official Rust 1.98.1. GPU tests render offscreen on hardware; no application windows are opened.
++
++```sh
++export PATH=/home/zdavidson/.cargo/bin:/home/zdavidson/.local/share/local-image-dev/bin:$PATH
++export RUSTC_WRAPPER=li-rustc-gate
++export CARGO_TARGET_DIR=/home/zdavidson/.local/share/local-image-dev/land-target
++unset CARGO_BUILD_JOBS
++export RUST_TEST_THREADS=3 WGPU_BACKEND=vulkan WGPU_POWER_PREF=high WGPU_ADAPTER_NAME='NVIDIA GeForce RTX 5090' __GL_SHADER_DISK_CACHE=0
++/home/zdavidson/.cargo/bin/cargo +1.98.1 test --offline -p photocraft-engine -p photocraft-ui-egui -p photocraft-text -p photocraft-vecfx --lib bugfix_vector --no-fail-fast > target/bugfix-vector/rework-2/own-tests.log 2>&1
++/home/zdavidson/.cargo/bin/cargo +1.98.1 check --offline --workspace --all-targets > target/bugfix-vector/rework-2/workspace-check.log 2>&1
++/home/zdavidson/.cargo/bin/cargo +1.98.1 clippy --offline -p photocraft-engine -p photocraft-ui-egui -p photocraft-text -p photocraft-vecfx --all-targets -- -D warnings > target/bugfix-vector/rework-2/clippy.log 2>&1
++```
++
++All three commands exited 0:
++
++```text
++Own engine regressions: test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1323 filtered out; finished in 0.01s
++Own text regression: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 85 filtered out; finished in 0.00s
++Own UI regressions: test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 1340 filtered out; finished in 0.52s
++Own vecfx regression: test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 47 filtered out; finished in 0.00s
++Workspace/all-target check: Finished `dev` profile [optimized + debuginfo] target(s) in 1m 34s
++Strict Clippy/all-targets on the four touched crates: Finished `dev` profile [optimized + debuginfo] target(s) in 7.83s
++```
++
++The optional missing craft-fonts warning remains a build-script warning; there are no compile or strict-Clippy failures. Full stdout/stderr: [isolated mock test](bugfix-vector-validation/rework-2/mock-after.log.gz), [29 Vector regressions](bugfix-vector-validation/rework-2/own-tests.log.gz), [workspace/all-target check](bugfix-vector-validation/rework-2/workspace-check.log.gz), and [strict Clippy](bugfix-vector-validation/rework-2/clippy.log.gz).
++
++To verify the timing fix across fresh processes and across the complete UI suite, the newly built default-feature UI test executable was copied into this task's ignored target directory. This prevents concurrent shared-cache builds from replacing the executable during these runs. The eight repetitions use the command below with `n` from 1 through 8; each exited 0, with durations 2.88, 2.78, 3.16, 3.14, 3.06, 3.12, 2.74, and 3.07 seconds. The full suite uses three test threads and the same hardware environment as above.
++
++```sh
++cp --reflink=auto /home/zdavidson/.local/share/local-image-dev/land-target/debug/deps/photocraft_ui_egui-dd8d4e133c5905d1 target/bugfix-vector/rework-2/photocraft-ui-egui-tests
++RUST_TEST_THREADS=3 /home/zdavidson/.local/share/local-image-dev/bin/li-test-runner target/bugfix-vector/rework-2/photocraft-ui-egui-tests --exact generate_ui::draft_refine::tests::draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened --nocapture > target/bugfix-vector/rework-2/mock-after-repeat-$n.log 2>&1
++RUST_TEST_THREADS=3 WGPU_BACKEND=vulkan WGPU_POWER_PREF=high WGPU_ADAPTER_NAME='NVIDIA GeForce RTX 5090' __GL_SHADER_DISK_CACHE=0 /home/zdavidson/.local/share/local-image-dev/bin/li-test-runner target/bugfix-vector/rework-2/photocraft-ui-egui-tests > target/bugfix-vector/rework-2/ui-lib-after.log 2>&1
++```
++
++Repetition captures: [1](bugfix-vector-validation/rework-2/mock-after-repeat-1.log.gz), [2](bugfix-vector-validation/rework-2/mock-after-repeat-2.log.gz), [3](bugfix-vector-validation/rework-2/mock-after-repeat-3.log.gz), [4](bugfix-vector-validation/rework-2/mock-after-repeat-4.log.gz), [5](bugfix-vector-validation/rework-2/mock-after-repeat-5.log.gz), [6](bugfix-vector-validation/rework-2/mock-after-repeat-6.log.gz), [7](bugfix-vector-validation/rework-2/mock-after-repeat-7.log.gz), [8](bugfix-vector-validation/rework-2/mock-after-repeat-8.log.gz).
++
++Final full UI suite exited 0:
++
++```text
++test generate_ui::draft_refine::tests::draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened ... ok
++test width::tests::width_package_ui_numeric_typing_escape_and_stale_cancel ... ok
++test result: ok. 1324 passed; 0 failed; 37 ignored; 0 measured; 0 filtered out; finished in 128.23s
++```
++
++Full stdout/stderr: [complete final UI library suite](bugfix-vector-validation/rework-2/ui-lib-after.log.gz). This includes the existing tests of the modified Draft / Refinement file, all seven Width tests from the first rejection, and the 21 UI Vector regression tests, with no new ignored tests.
++
++Final review: the coordinator head is an ancestor of the unchanged branch HEAD `709846bf`; there is no unresolved merge. Rustfmt and `git diff --check` pass. Only the failing test's setup/diagnostics, this appended report section, and its validation captures are changed. This rework creates no commit and opens no GUI window; no owner Local Image or ComfyUI process was stopped.

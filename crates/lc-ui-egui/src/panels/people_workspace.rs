@@ -28,11 +28,23 @@ struct PeopleQuery {
     result: Arc<Mutex<Option<Result<PeopleData, String>>>>,
 }
 
+/// A test can hold the real query worker pending without relying on clustering
+/// taking longer than the UI frames on a particular machine.
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct QueryTestGate {
+    pub entered: std::sync::mpsc::Sender<std::thread::ThreadId>,
+    pub resume: Mutex<std::sync::mpsc::Receiver<()>>,
+    pub completed: std::sync::mpsc::Sender<bool>,
+}
+
 #[derive(Clone, Debug)]
 pub struct PeopleUi {
     pub refresh: bool,
     pub(crate) person_folder_enabled: bool,
     query: Option<PeopleQuery>,
+    #[cfg(test)]
+    pub(crate) query_test_gate: Option<Arc<QueryTestGate>>,
     pub list: Value,
     pub revision: u64,
     pub scope: Vec<PhotoId>,
@@ -59,6 +71,8 @@ impl Default for PeopleUi {
             refresh: true,
             person_folder_enabled: false,
             query: None,
+            #[cfg(test)]
+            query_test_gate: None,
             list: Value::Null,
             revision: u64::MAX,
             scope: Vec::new(),
@@ -235,9 +249,22 @@ fn refresh(app: &mut LightcraftApp, s: &mut PeopleUi, scope: &[PhotoId]) {
         };
         let (cat, engine) = (app.session.catalog.clone(), app.session.smart.people.snapshot());
         let (cancel, result, mut data) = (query.cancel.clone(), query.result.clone(), query.before.clone());
+        #[cfg(test)]
+        let gate = s.query_test_gate.take();
         let work = move || {
+            #[cfg(test)]
+            if let Some(gate) = &gate {
+                let _ = gate.entered.send(std::thread::current().id());
+                // Disconnection releases a worker after a test panic. The
+                // watchdog also bounds a regression that executes work inline.
+                let _ = gate.resume.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv_timeout(std::time::Duration::from_secs(120));
+            }
             let value = people::refresh_cancellable(&cat, &engine, &mut data, true, &|| cancel.load(Ordering::Relaxed)).map(|()| data);
             *result.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value);
+            #[cfg(test)]
+            if let Some(gate) = &gate {
+                let _ = gate.completed.send(cancel.load(Ordering::Relaxed));
+            }
         };
         #[cfg(not(target_arch = "wasm32"))]
         if let Err(e) = std::thread::Builder::new().name("lc-people-query".into()).spawn(work) {

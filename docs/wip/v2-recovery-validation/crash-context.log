@@ -1,0 +1,194 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
+   Compiling autocfg v1.5.1
+   Compiling cfg-if v1.0.5
+   Compiling libm v0.2.16
+   Compiling libc v0.2.189
+   Compiling zerocopy v0.8.59
+   Compiling foldhash v0.2.0
+   Compiling equivalent v1.0.2
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling syn v3.0.6
+   Compiling num-traits v0.2.19
+   Compiling syn v2.0.119
+   Compiling bitflags v2.13.2
+   Compiling either v1.18.0
+   Compiling parking_lot_core v0.9.12
+   Compiling allocator-api2 v0.2.21
+   Compiling log v0.4.34
+   Compiling num-integer v0.1.47
+   Compiling smallvec v1.16.2
+   Compiling hashbrown v0.16.1
+   Compiling scopeguard v1.2.0
+   Compiling lock_api v0.4.14
+   Compiling memchr v2.8.3
+   Compiling simd-adler32 v0.3.10
+   Compiling parking_lot v0.12.5
+   Compiling anyhow v1.0.104
+   Compiling cfg_aliases v0.2.2
+   Compiling matrixmultiply v0.3.11
+   Compiling num-complex v0.4.6
+   Compiling crossbeam-utils v0.8.23
+   Compiling shlex v2.0.1
+   Compiling rawpointer v0.2.1
+   Compiling same-file v1.0.6
+   Compiling memo-map v0.3.4
+   Compiling find-msvc-tools v0.1.14
+   Compiling walkdir v2.5.0
+   Compiling cc v1.5.1
+   Compiling nom v8.0.0
+   Compiling minijinja v2.24.0
+   Compiling thiserror v2.0.21
+   Compiling zmij v1.0.23
+   Compiling typeid v1.0.3
+   Compiling crossbeam-epoch v0.9.21
+   Compiling nom-language v0.1.0
+   Compiling ndarray v0.17.2
+   Compiling itertools v0.15.0
+   Compiling crossbeam-deque v0.8.8
+   Compiling maplit v1.0.2
+   Compiling serde_json v1.0.151
+   Compiling dyn-clone v1.0.20
+   Compiling lazy_static v1.5.0
+   Compiling erased-serde v0.4.10
+   Compiling dyn-hash v1.0.0
+   Compiling inventory v0.3.25
+   Compiling rustix v1.1.5
+   Compiling downcast-rs v2.0.2
+   Compiling strength_reduce v0.2.4
+   Compiling transpose v0.2.3
+   Compiling primal-check v0.3.4
+   Compiling hashbrown v0.17.1
+   Compiling bit-vec v0.10.1
+   Compiling linux-raw-sys v0.12.1
+   Compiling pastey v0.2.3
+   Compiling rayon-core v1.13.0
+   Compiling adler2 v2.0.1
+   Compiling itoa v1.0.18
+   Compiling byteorder v1.5.0
+   Compiling serde_derive v1.0.229
+   Compiling thiserror-impl v2.0.21
+   Compiling bytemuck_derive v1.12.1
+   Compiling indexmap v2.14.2
+   Compiling bit-set v0.11.1
+   Compiling rustfft v6.4.1
+   Compiling anymap3 v1.1.0
+   Compiling rustc-hash v1.1.0
+   Compiling version_check v0.9.5
+   Compiling generic-array v0.14.7
+   Compiling bytemuck v1.25.2
+   Compiling xattr v1.6.1
+   Compiling naga-types v30.0.1
+   Compiling naga v30.0.1
+   Compiling filetime v0.2.29
+   Compiling getrandom v0.4.3
+   Compiling ash v0.38.0+1.3.281
+   Compiling crc32fast v1.5.2
+   Compiling bit-vec v0.9.1
+   Compiling rand_core v0.10.1
+   Compiling unicode-width v0.2.2
+   Compiling bit-set v0.10.0
+   Compiling tar v0.4.46
+   Compiling codespan-reporting v0.13.1
+   Compiling rayon v1.12.0
+   Compiling spirv v0.4.0+sdk-1.4.341.0
+   Compiling zerocopy-derive v0.8.59
+   Compiling derive-new v0.7.0
+   Compiling string-interner v0.20.0
+   Compiling libloading v0.8.9
+   Compiling cpufeatures v0.3.1
+   Compiling static_assertions v1.1.0
+   Compiling raw-window-handle v0.6.2
+   Compiling typenum v1.20.1
+   Compiling arrayvec v0.7.8
+   Compiling once_cell v1.21.4
+   Compiling wgpu-types v30.0.1
+   Compiling chacha20 v0.10.2
+   Compiling lightcraft-geom v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-geom)
+   Compiling miniz_oxide v0.8.9
+   Compiling miniz_oxide v0.9.1
+   Compiling wgpu-hal v30.0.1
+   Compiling presser v0.3.1
+   Compiling flate2 v1.1.10
+   Compiling rand v0.10.3
+   Compiling lightcraft-color v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-color)
+   Compiling fax_derive v0.2.0
+   Compiling itertools v0.14.0
+   Compiling ordered-float v5.5.0
+   Compiling zune-core v0.5.3
+   Compiling quick-error v2.0.1
+   Compiling renderdoc-sys v1.1.0
+   Compiling profiling v1.0.18
+   Compiling zune-jpeg v0.5.15
+   Compiling prost-derive v0.14.4
+   Compiling rand_distr v0.6.0
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling wgpu-core v30.0.1
+   Compiling fdeflate v0.3.7
+   Compiling gpu-allocator v0.28.0
+   Compiling num-bigint v0.4.8
+   Compiling fax v0.2.6
+   Compiling byteorder-lite v0.1.0
+   Compiling bytes v1.12.1
+   Compiling pxfm v0.1.30
+   Compiling weezl v0.1.12
+   Compiling litrs v1.0.0
+   Compiling float-ord v0.3.2
+   Compiling num-rational v0.4.2
+   Compiling document-features v0.2.12
+   Compiling moxcms v0.8.1
+   Compiling image-webp v0.2.4
+   Compiling png v0.18.1
+   Compiling digest v0.10.7
+   Compiling lightcraft-raster v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-raster)
+   Compiling wgpu v30.0.1
+   Compiling half v2.7.1
+   Compiling tract-data v0.23.8
+   Compiling tract-linalg v0.23.8
+   Compiling prost v0.14.4
+   Compiling tiff v0.11.3
+   Compiling memmap2 v0.9.11
+   Compiling cpufeatures v0.2.17
+   Compiling sha2 v0.10.9
+   Compiling image v0.25.10
+   Compiling lightcraft-develop v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-develop)
+   Compiling tract-core v0.23.8
+   Compiling wgpu-naga-bridge v30.0.1
+   Compiling wgpu-core-deps-windows-linux-android v30.0.1
+   Compiling tract-nnef v0.23.8
+   Compiling tract-hir v0.23.8
+   Compiling lightcraft-pipeline v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-pipeline)
+   Compiling tract-extra v0.23.8
+   Compiling tract-onnx-opl v0.23.8
+   Compiling tract-transformers v0.23.8
+   Compiling tract-onnx v0.23.8
+   Compiling lightcraft-scenes v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-scenes)
+   Compiling li-seg v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/li-seg)
+   Compiling pollster v1.0.1
+   Compiling lightcraft-gpu v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-gpu)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 20s
+     Running unittests src/lib.rs (target/debug/deps/lightcraft_gpu-0632949ad3953771)
+
+running 2 tests
+
+thread 'context_exit_tests::old_device_buffers_are_not_recycled_on_a_new_context' (5736) panicked at crates/lc-gpu/src/lib.rs:587:9:
+GPU required: Some("software adapter (llvmpipe (LLVM 22.1.8, 256 bits)) skipped: the CPU pipeline is faster")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'context_exit_tests::shutdown_releases_cached_context_and_pooled_buffers' (5737) panicked at crates/lc-gpu/src/lib.rs:587:9:
+GPU required: Some("software adapter (llvmpipe (LLVM 22.1.8, 256 bits)) skipped: the CPU pipeline is faster")
+test context_exit_tests::old_device_buffers_are_not_recycled_on_a_new_context ... FAILED
+test context_exit_tests::shutdown_releases_cached_context_and_pooled_buffers ... FAILED
+
+failures:
+
+failures:
+    context_exit_tests::old_device_buffers_are_not_recycled_on_a_new_context
+    context_exit_tests::shutdown_releases_cached_context_and_pooled_buffers
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 45 filtered out; finished in 0.11s
+
+error: test failed, to rerun pass `-p lightcraft-gpu --lib`

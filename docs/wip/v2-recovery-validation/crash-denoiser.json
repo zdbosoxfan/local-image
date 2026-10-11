@@ -1,0 +1,80 @@
+{
+  "label": "crash-denoiser",
+  "command": [
+    "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/cargo",
+    "test",
+    "--offline",
+    "-p",
+    "lightcraft-gpu",
+    "--test",
+    "denoise",
+    "denoiser_retains_its_device_across_context_release",
+    "--",
+    "--exact",
+    "--nocapture"
+  ],
+  "cwd": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing",
+  "head": "9fbc9ce8a8ae35c7671cd42d6cb5c3ebf2ebc24a",
+  "source_sha256": "bd25b06fef4c96cd0ae34592dccb1dd3a6aa18973c32e15335c323898762a2a8",
+  "cargo_lock_sha256": "ef4c2ab510760a6313fed721eab4a97ff19b45b42e9507f83c0abe53c7af2983",
+  "environment": {
+    "RUSTC": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc",
+    "XDG_CONFIG_DIRS": "/home/zdavidson/.config/kdedefaults:/etc/xdg:/usr/share/kde-settings/kde-profile/default/xdg",
+    "RUST_TEST_THREADS": "2",
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER": "/home/zdavidson/.local/share/local-image-dev/bin/li-test-runner",
+    "CARGO_TARGET_DIR": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target",
+    "CARGO_PROFILE_DEV_DEBUG": "line-tables-only",
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_BUILD_JOBS": "6",
+    "RUSTC_WRAPPER": "/home/zdavidson/.local/share/local-image-dev/bin/li-rustc-gate",
+    "XDG_DATA_DIRS": "/home/zdavidson/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share",
+    "CARGO": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/cargo",
+    "RUSTDOC": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustdoc",
+    "LOCAL_IMAGE_DATA_DIR": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/crash-denoiser/local-image",
+    "LOCAL_IMAGE_MODELS_DIR": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/crash-denoiser/models",
+    "XDG_CONFIG_HOME": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/crash-denoiser/config",
+    "XDG_DATA_HOME": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/crash-denoiser/data",
+    "XDG_CACHE_HOME": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/crash-denoiser/cache",
+    "XDG_STATE_HOME": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/crash-denoiser/state",
+    "TMPDIR": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/crash-denoiser/tmp",
+    "LIGHTCRAFT_GPU": "1",
+    "LIGHTCRAFT_GPU_BACKEND": "vulkan",
+    "WGPU_BACKEND": "vulkan",
+    "WGPU_POWER_PREF": "high",
+    "LC_REQUIRE_GPU": "1",
+    "LOCAL_IMAGE_REQUIRE_GPU": "1",
+    "LOCAL_IMAGE_COMFY": "127.0.0.1:9"
+  },
+  "started": "2026-10-11T20:31:13.250247+00:00",
+  "log": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/docs/wip/v2-recovery-validation/crash-denoiser.log",
+  "status": "finished",
+  "exit": 0,
+  "elapsed_seconds": 4.691185911000048,
+  "finished": "2026-10-11T20:31:17.941543+00:00",
+  "log_sha256": "2fd57bf6242b0eea7c663cd55625e9ab85a569cd5b6fe47d0c41650f3f7b958c",
+  "test_summaries": [
+    [
+      "ok",
+      "1",
+      "0",
+      "0",
+      "0",
+      "3"
+    ]
+  ],
+  "counts": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "measured": 0,
+    "filtered": 3
+  },
+  "cargo_finish_lines": [
+    "    Finished `test` profile [optimized + debuginfo] target(s) in 1.96s"
+  ],
+  "test_elapsed_seconds": [
+    2.49
+  ],
+  "resource_wait_seconds": null,
+  "resource_wait_note": "Pinned gate has no separate wait-time telemetry; no zero wait inferred."
+}

@@ -1,0 +1,64 @@
+{
+  "CARGO": {
+    "path": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/cargo",
+    "realpath": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/cargo",
+    "sha256": "da77c8b33849312255ccde3179198ada4c8deb370488d050286146b1d1b27e14"
+  },
+  "RUSTC": {
+    "path": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc",
+    "realpath": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc",
+    "sha256": "859254978c0a0402c32f949f6de0d99aee73be8d15f45aac00ae1448aac51e74"
+  },
+  "RUSTDOC": {
+    "path": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustdoc",
+    "realpath": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustdoc",
+    "sha256": "3ff7fed6d1064d8d75d24ae8beff9fe1d68031d3d819966481d22c3c9002b709"
+  },
+  "RUSTC_WRAPPER": {
+    "path": "/home/zdavidson/.local/share/local-image-dev/bin/li-rustc-gate",
+    "realpath": "/home/zdavidson/.local/share/local-image-dev/bin/li-rustc-gate",
+    "sha256": "438a729d2beacc7452e47e260db874151c86f320c695ffd4869ed9197aac51a3"
+  },
+  "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER": {
+    "path": "/home/zdavidson/.local/share/local-image-dev/bin/li-test-runner",
+    "realpath": "/home/zdavidson/.local/share/local-image-dev/bin/li-test-runner",
+    "sha256": "5eba875ed677fa3d8ab70f5e3b002d116607b60c96884615da9d93baee60301d"
+  },
+  "cargo": {
+    "path": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/cargo",
+    "exit": 0,
+    "version": "cargo 1.98.1 (797e8a9bc 2026-08-05)\n"
+  },
+  "rustc": {
+    "path": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc",
+    "exit": 0,
+    "version": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n"
+  },
+  "rustdoc": {
+    "path": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustdoc",
+    "exit": 0,
+    "version": "rustdoc 1.98.1 (48a229cea 2026-09-01)\n"
+  },
+  "clippy-driver": {
+    "path": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/clippy-driver",
+    "exit": 0,
+    "version": "clippy 0.1.98 (48a229ceae 2026-09-01)\n"
+  },
+  "cargo-clippy": {
+    "path": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/cargo-clippy",
+    "exit": 0,
+    "version": "clippy 0.1.98 (48a229ceae 2026-09-01)\n"
+  },
+  "environment": {
+    "RUSTC": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc",
+    "RUST_TEST_THREADS": "2",
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER": "/home/zdavidson/.local/share/local-image-dev/bin/li-test-runner",
+    "CARGO_TARGET_DIR": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target",
+    "CARGO_PROFILE_DEV_DEBUG": "line-tables-only",
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_BUILD_JOBS": "6",
+    "RUSTC_WRAPPER": "/home/zdavidson/.local/share/local-image-dev/bin/li-rustc-gate",
+    "CARGO": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/cargo",
+    "RUSTDOC": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustdoc"
+  }
+}

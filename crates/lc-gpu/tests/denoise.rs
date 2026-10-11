@@ -1,5 +1,6 @@
 //! The tests require the physical GPU; no software-adapter skips count as validation.
 #![cfg(not(target_arch = "wasm32"))]
+mod support;
 use li_seg::{
     denoise::Variant,
     restoration_graph::{Graph, Node, Op, Shape},
@@ -7,7 +8,21 @@ use li_seg::{
 use lightcraft_gpu::denoise::Denoiser;
 
 #[test]
+fn denoiser_retains_its_device_across_context_release() {
+    let _gpu = support::lock();
+    let shape = Shape { c: 3, h: 16, w: 16 };
+    let graph = Graph { input: shape, nodes: vec![Node { inputs: vec![0], shape, op: Op::Activation { alpha: 0.0, sigmoid: false } }], output: 1 };
+    let denoiser = Denoiser::from_graph(graph, Variant::Rgb).expect("physical GPU is required");
+    let input = vec![0.3; shape.len()];
+    assert_eq!(denoiser.run_tile(&input).unwrap(), input);
+    assert!(lightcraft_gpu::shutdown(std::time::Duration::from_secs(120)));
+    assert!(lightcraft_gpu::available(), "a replacement context must initialize");
+    assert_eq!(denoiser.run_tile(&input).unwrap(), input, "weights/tensors must use their original device");
+}
+
+#[test]
 fn ai_denoise_gpu_transpose_and_shuffle() {
+    let _gpu = support::lock();
     let s = Shape { c: 1, h: 16, w: 16 };
     let graph = Graph {
         input: s,
@@ -59,6 +74,7 @@ fn ai_denoise_gpu_transpose_and_shuffle() {
 #[test]
 #[ignore = "approved pinned model copies required; run explicitly on the RTX 5090"]
 fn ai_denoise_real_models_match_tract_on_5090() {
+    let _gpu = support::lock();
     for kind in [Variant::Linear, Variant::Bayer, Variant::Rgb] {
         let dir = std::env::var_os("LOCAL_IMAGE_DENOISE_MODELS").map(std::path::PathBuf::from).expect("set model-test directory");
         let path = li_seg::companion_path(&dir, kind.file());
@@ -94,6 +110,7 @@ fn ai_denoise_real_models_match_tract_on_5090() {
 
 #[test]
 fn ai_denoise_gpu_conv_pool_skip_and_sigmoid() {
+    let _gpu = support::lock();
     let shape = Shape { c: 3, h: 16, w: 16 };
     let conv = Shape { c: 2, ..shape };
     let pooled = Shape { c: 2, h: 8, w: 8 };

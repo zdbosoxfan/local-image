@@ -1,0 +1,1091 @@
+diff --git a/crates/pc-engine/src/align_cmds.rs b/crates/pc-engine/src/align_cmds.rs
+index 164401ae..e3813863 100644
+--- a/crates/pc-engine/src/align_cmds.rs
++++ b/crates/pc-engine/src/align_cmds.rs
+@@ -299,8 +299,8 @@ pub(crate) fn vector_spacing(s: &mut Session, p: &Value) -> Result<Value> {
+         capture.layers.iter().map(|id| Ok((*id, layout::bounds(st.doc.layer(*id).ok_or(EngineError::NoLayer(*id))?)?))).collect::<Result<Vec<_>>>()?;
+     items.sort_by(|a, b| a.1[axis].total_cmp(&b.1[axis]).then_with(|| a.0.0.cmp(&b.0.0)));
+     let first = items.first().ok_or_else(|| error("empty selection"))?;
+-    let last = items.last().ok_or_else(|| error("empty selection"))?;
+-    let span = last.1[axis] + last.1[axis + 2] - first.1[axis];
++    let far_edge = items.iter().map(|(_, b)| b[axis] + b[axis + 2]).fold(f64::NEG_INFINITY, f64::max);
++    let span = far_edge - first.1[axis];
+     let total: f64 = items.iter().map(|(_, b)| b[axis + 2]).sum();
+     let gap = match p.get("spacing") {
+         Some(v) => finite(v.as_f64().ok_or_else(|| error("spacing must be numeric"))?)?,
+@@ -485,4 +485,31 @@ mod tests {
+         assert_eq!(doc.layer(flat).unwrap().mask.as_ref().unwrap().value(10, 10), 0.0);
+         assert!(s.execute("edit.autoBlendLayers", json!({"method": "sideways"})).is_err());
+     }
++    #[test]
++    fn dsfix_v059_spacing_uses_farthest_edge_on_both_axes() {
++        use crate::vector_packages::layout::{Capture, bounds};
++        use photocraft_doc::{ColorMode, Document, Layer, LayerContent, SampleType, ShapeLayer, Size};
++        for axis in ["x", "y"] {
++            let mut doc = Document::new("Spacing", Size::new(160, 160), ColorMode::Rgb, SampleType::U8);
++            let mut ids = Vec::new();
++            for (start, size) in [(0., 10.), (20., 100.), (100., 10.)] {
++                let rect = if axis == "x" { [start, 20., size, 10.] } else { [20., start, 10., size] };
++                let l = Layer::new(
++                    "Shape",
++                    LayerContent::Shape(ShapeLayer { path: photocraft_vector::shapes::rect(rect[0], rect[1], rect[2], rect[3]), ..Default::default() }),
++                );
++                ids.push(l.id);
++                doc.layers.push(l);
++            }
++            let mut s = Session::new();
++            s.add_document(doc, None);
++            let capture = Capture::begin(&s, ids.clone()).unwrap();
++            let result = vector_spacing(&mut s, &json!({"capture":capture,"axis":axis})).unwrap();
++            assert_eq!(result["spacing"], 0.);
++            let i = usize::from(axis == "y");
++            let b = bounds(s.active().unwrap().doc.layer(ids[2]).unwrap()).unwrap();
++            assert_eq!(b[i] + b[i + 2], 120.);
++            assert!(s.undo());
++        }
++    }
+ }
+diff --git a/crates/pc-engine/src/artboard_cmds/tests.rs b/crates/pc-engine/src/artboard_cmds/tests.rs
+index 93ac762b..5f565f65 100644
+--- a/crates/pc-engine/src/artboard_cmds/tests.rs
++++ b/crates/pc-engine/src/artboard_cmds/tests.rs
+@@ -168,3 +168,16 @@ fn disabled_without_artboards() {
+     let _ = s.execute("layer.new.artboard", json!({}));
+     assert!(!s.is_enabled("layer.new.artboardFromLayers"));
+ }
++
++#[test]
++fn dsfix_v027_array_artboard_coordinates_already_bounded() {
++    let base = Rect::from_xywh(0, 0, 10, 10);
++    for value in [1e20, -1e20, 1_000_001., -1_000_001.] {
++        for axis in 0..2 {
++            let mut r = [0., 0., 10., 10.];
++            r[axis] = value;
++            assert!(rect_param(&json!({"rect":r}), base, "test").is_err());
++        }
++    }
++    assert_eq!(rect_param(&json!({"rect":[-1_000_000.,999_990.,10.,10.]}), base, "test").unwrap(), Rect::from_xywh(-1_000_000, 999_990, 10, 10));
++}
+diff --git a/crates/pc-engine/src/pathops_cmds.rs b/crates/pc-engine/src/pathops_cmds.rs
+index 6ff2f228..8e1257f9 100644
+--- a/crates/pc-engine/src/pathops_cmds.rs
++++ b/crates/pc-engine/src/pathops_cmds.rs
+@@ -71,7 +71,11 @@ fn index(p: &Value, k: &str, cmd: &str) -> Result<usize> {
+     }
+ }
+ fn bool_op(p: &Value, cmd: &str) -> Result<Option<ops::BoolOp>> {
+-    Ok(match p.get("op").and_then(Value::as_str).unwrap_or("add") {
++    let op = match p.get("op") {
++        Some(v) => v.as_str().ok_or_else(|| bad(cmd, "op must be a string"))?,
++        None => "add",
++    };
++    Ok(match op {
+         "add" => Some(ops::BoolOp::Union),
+         "subtract" => Some(ops::BoolOp::Difference),
+         "intersect" => Some(ops::BoolOp::Intersect),
+@@ -350,3 +354,16 @@ pub fn specs() -> Vec<CommandSpec> {
+         .map(|(id, label, params, run)| CommandSpec { id, label, params, run, menu: &[], shortcut: None, enabled: has_doc, journal: true })
+         .collect()
+ }
++
++#[cfg(test)]
++mod dsfix_tests {
++    use super::*;
++    #[test]
++    fn dsfix_v044_boolean_op_rejects_present_nonstrings() {
++        for op in [json!(5), Value::Null, json!(false), json!([]), json!({})] {
++            assert!(bool_op(&json!({"op":op}), "path.boolean").is_err());
++        }
++        assert!(matches!(bool_op(&json!({}), "test").unwrap(), Some(ops::BoolOp::Union)));
++        assert!(bool_op(&json!({"op":"divide"}), "test").unwrap().is_none());
++    }
++}
+diff --git a/crates/pc-engine/src/prefs.rs b/crates/pc-engine/src/prefs.rs
+index 312ee090..d2f6bfda 100644
+--- a/crates/pc-engine/src/prefs.rs
++++ b/crates/pc-engine/src/prefs.rs
+@@ -757,14 +757,14 @@ pub struct ToolbarCustomization {
+     /// The user's own tool sets (the built-ins are in [`crate::toolsets`]).
+     pub sets: Vec<crate::toolsets::ToolSet>,
+     /// Global Compositing persona. Old settings start in Pixel.
+-    #[serde(default, skip_serializing_if = "crate::toolsets::Persona::is_pixel")]
++    #[serde(default)]
+     pub persona: crate::toolsets::Persona,
+     /// Vector's last set; `active_set` continues to store Pixel's original set id.
+-    #[serde(default, skip_serializing_if = "String::is_empty")]
++    #[serde(default)]
+     pub vector_set: String,
+-    #[serde(default, skip_serializing_if = "String::is_empty")]
++    #[serde(default)]
+     pub pixel_tool: String,
+-    #[serde(default, skip_serializing_if = "String::is_empty")]
++    #[serde(default)]
+     pub vector_tool: String,
+ }
+ 
+@@ -1595,11 +1595,14 @@ fn menus(s: &mut Session, p: &Value) -> Result<Value> {
+ /// Edit › Toolbar: hide tools and reorder the toolbar. The change lands in the active custom
+ /// tool set; with a built-in set (read-only) active it first becomes a copy, "My Tools".
+ fn toolbar(s: &mut Session, p: &Value) -> Result<Value> {
+-    use crate::toolsets::{ALL_TOOLS, Persona, ToolSet};
++    use crate::toolsets::{Persona, ToolSet, tools_for};
+     let ids = |k: &str| -> Option<Vec<String>> { p.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()) };
+     s.edit_prefs(|pr| {
+         if p.get("reset").and_then(Value::as_bool) == Some(true) {
+-            pr.toolbar.active_set = crate::toolsets::DEFAULT_ID.into();
++            match pr.toolbar.persona {
++                Persona::Pixel => pr.toolbar.active_set = Persona::Pixel.default_set().into(),
++                Persona::Vector => pr.toolbar.vector_set = Persona::Vector.default_set().into(),
++            }
+         }
+         let (hidden, order) = (ids("hidden"), ids("order"));
+         if hidden.is_none() && order.is_none() {
+@@ -1609,14 +1612,16 @@ fn toolbar(s: &mut Session, p: &Value) -> Result<Value> {
+         if ToolbarCustomization::is_builtin(&active.id) {
+             let id = (1u32..).map(|n| format!("custom-{n}")).find(|id| !pr.toolbar.sets.iter().any(|x| &x.id == id)).unwrap_or_default();
+             let name = pr.toolbar.unique_name("My Tools");
+-            pr.toolbar.sets.push(ToolSet { id: id.clone(), name, persona: Persona::Pixel, tools: active.tools.clone() });
+-            pr.toolbar.active_set = id;
++            let set = ToolSet { id, name, persona: pr.toolbar.persona, tools: active.tools.clone() };
++            pr.toolbar.select_set(&set);
++            pr.toolbar.sets.push(set);
+         }
+-        let canon = |t: &str| ALL_TOOLS.iter().find(|a| a.eq_ignore_ascii_case(t)).map(|a| a.to_string());
+-        let id = pr.toolbar.active_set.clone();
++        let all_tools = tools_for(pr.toolbar.persona);
++        let canon = |t: &str| all_tools.iter().find(|a| a.eq_ignore_ascii_case(t)).map(|a| a.to_string());
++        let id = pr.toolbar.active().id;
+         if let Some(set) = pr.toolbar.sets.iter_mut().find(|x| x.id == id) {
+             let mut tools: Vec<String> = Vec::new();
+-            for t in order.iter().flatten().filter_map(|t| canon(t)).chain(set.tools.iter().cloned()).chain(ALL_TOOLS.iter().map(|t| t.to_string())) {
++            for t in order.iter().flatten().filter_map(|t| canon(t)).chain(set.tools.iter().cloned()).chain(all_tools.iter().map(|t| t.to_string())) {
+                 if !tools.contains(&t) {
+                     tools.push(t);
+                 }
+diff --git a/crates/pc-engine/src/prefs/tests.rs b/crates/pc-engine/src/prefs/tests.rs
+index bae8d9f6..b0b45ea5 100644
+--- a/crates/pc-engine/src/prefs/tests.rs
++++ b/crates/pc-engine/src/prefs/tests.rs
+@@ -301,3 +301,38 @@ fn tool_icon_preferences_default_validate_and_round_trip() {
+     restored.execute("prefs.reset", json!({"path": "interface.toolIcons"})).unwrap();
+     assert_eq!(restored.prefs().interface.tool_icons, "colour");
+ }
++
++#[test]
++fn dsfix_v029_default_persona_preferences_are_addressable() {
++    let mut s = session();
++    for (path, value) in
++        [("toolbar.persona", json!("pixel")), ("toolbar.vectorSet", json!("")), ("toolbar.pixelTool", json!("")), ("toolbar.vectorTool", json!(""))]
++    {
++        assert_eq!(s.execute("prefs.get", json!({"path":path})).unwrap(), value);
++        s.execute("prefs.set", json!({"path":path,"value":value})).unwrap();
++    }
++    s.execute("prefs.set", json!({"path":"toolbar.persona","value":"vector"})).unwrap();
++    assert_eq!(s.prefs().toolbar.persona, crate::toolsets::Persona::Vector);
++}
++#[test]
++fn dsfix_v030_v031_toolbar_edit_and_reset_follow_vector_persona() {
++    use crate::toolsets::Persona;
++    let mut s = session();
++    s.edit_prefs(|pr| {
++        pr.toolbar.active_set = "photographer".into();
++        pr.toolbar.persona = Persona::Vector;
++        pr.toolbar.vector_set = "vector.illustration".into();
++    });
++    s.execute("edit.toolbar", json!({"hidden":["Pen"],"order":["DirectSelection","VectorPencil"]})).unwrap();
++    let toolbar = &s.prefs().toolbar;
++    assert_eq!(toolbar.active_set, "photographer");
++    let custom = toolbar.active();
++    assert_eq!(custom.persona, Persona::Vector);
++    assert_eq!(custom.id, toolbar.vector_set);
++    assert!(!custom.tools.iter().any(|t| t == "Pen"));
++    assert_eq!(&custom.tools[..2], &["DirectSelection", "VectorPencil"]);
++    assert!(custom.tools.iter().all(|t| crate::toolsets::supports(t, Persona::Vector)));
++    s.execute("edit.toolbar", json!({"reset":true})).unwrap();
++    assert_eq!(s.prefs().toolbar.vector_set, "vector.allTools");
++    assert_eq!(s.prefs().toolbar.active_set, "photographer");
++}
+diff --git a/crates/pc-engine/src/transform_cmds.rs b/crates/pc-engine/src/transform_cmds.rs
+index 07a79aad..faef7dbd 100644
+--- a/crates/pc-engine/src/transform_cmds.rs
++++ b/crates/pc-engine/src/transform_cmds.rs
+@@ -195,8 +195,10 @@ pub(crate) fn transform_layer_map(doc_sel: Option<&Surface>, group: Locks, l: &m
+         return Err(EngineError::Other(format!("layer \"{}\" is locked", l.name)));
+     }
+     // With a selection only the selected pixels move, and so only the same region of a linked
+-    // mask (#205). Groups, type, shapes and smart objects move whole.
+-    let mask_sel = doc_sel.filter(|_| !matches!(l.content, LayerContent::Group(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_)));
++    // mask (#205). Groups, type, shapes, smart objects and symbols move whole.
++    let mask_sel = doc_sel.filter(|_| {
++        !matches!(l.content, LayerContent::Group(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_) | LayerContent::Symbol(_))
++    });
+     match &mut l.content {
+         LayerContent::Group(g) => {
+             for c in g.children.iter_mut() {
+@@ -837,4 +839,21 @@ mod tests {
+         sel.fill_rect(Rect::new(0, 0, 4, 4), &[1.0]);
+         assert!(split_gray_selected(&s, &sel).is_none());
+     }
++    #[test]
++    fn dsfix_v026_symbol_linked_mask_moves_whole_with_selection() {
++        use photocraft_doc::{LayerMask, SymbolId, SymbolInstance};
++        let mut l = Layer::new("Symbol", LayerContent::Symbol(SymbolInstance { symbol: SymbolId(1), transform: Affine::IDENTITY, cache: None }));
++        let mut mask = LayerMask::hide_all();
++        mask.surface.fill_rect(Rect::new(10, 10, 20, 20), &[1.]);
++        l.mask = Some(mask);
++        let mut selection = Surface::new(PixelFormat::GRAY8);
++        selection.fill_rect(Rect::new(10, 10, 15, 20), &[1.]);
++        let a = Affine::translate(30., 0.);
++        let h = Homography([1., 0., 30., 0., 1., 0., 0., 0., 1.]);
++        transform_layer(Some(&selection), Locks::default(), &mut l, &h, Some(a), Interp::Nearest).unwrap();
++        let m = &l.mask.as_ref().unwrap().surface;
++        assert_eq!(m.sample_channel(42, 15, 0), 1.);
++        assert_eq!(m.sample_channel(47, 15, 0), 1.);
++        assert_eq!(m.sample_channel(17, 15, 0), 0.);
++    }
+ }
+diff --git a/crates/pc-engine/src/vector_packages/clip_compound.rs b/crates/pc-engine/src/vector_packages/clip_compound.rs
+index 35c731f6..b1222de6 100644
+--- a/crates/pc-engine/src/vector_packages/clip_compound.rs
++++ b/crates/pc-engine/src/vector_packages/clip_compound.rs
+@@ -266,6 +266,9 @@ fn release_clip(doc: &mut Document, id: LayerId) -> Result<Vec<LayerId>> {
+         return Err(bad("release requires an ordinary clip group without additional group appearance"));
+     }
+     let mask = group.vector_mask.ok_or_else(|| bad("select a group with a vector mask"))?;
++    if mask.density != 1.0 || mask.feather != 0.0 {
++        return Err(bad("release requires a vector mask with full density and no feather"));
++    }
+     let mut layers = group.content;
+     let LayerContent::Group(ref mut g) = layers else { return Err(bad("select a clip group")) };
+     let mut mask_layer = Layer::new("Released Clipping Path", LayerContent::Shape(ShapeLayer { path: mask.path, ..Default::default() }));
+diff --git a/crates/pc-engine/src/vector_packages/clip_compound/tests.rs b/crates/pc-engine/src/vector_packages/clip_compound/tests.rs
+index cf053383..bb16f84b 100644
+--- a/crates/pc-engine/src/vector_packages/clip_compound/tests.rs
++++ b/crates/pc-engine/src/vector_packages/clip_compound/tests.rs
+@@ -339,7 +339,7 @@ fn clip35_text_outline_mask_counter_and_release_unpainted_path() {
+     assert!(sh.fill.is_none());
+ }
+ #[test]
+-fn clip35_svg_pdf_psd_exports_keep_native_vector_masks_and_format_roundtrip() {
++fn dsfix_v060_clip35_svg_pdf_psd_exports_keep_native_vector_masks_and_format_roundtrip() {
+     let (mut s, ids) = fixture();
+     let gid = group(&mut s, &ids);
+     let doc = &s.active().unwrap().doc;
+@@ -360,6 +360,7 @@ fn clip35_svg_pdf_psd_exports_keep_native_vector_masks_and_format_roundtrip() {
+     let b = &doc.layer(gid).unwrap().vector_mask.as_ref().unwrap().path;
+     assert_eq!(a.fill_rule, b.fill_rule);
+     assert_eq!(a.subpaths.len(), b.subpaths.len());
++    assert_eq!(a.subpaths.iter().map(|s| s.knots.len()).collect::<Vec<_>>(), b.subpaths.iter().map(|s| s.knots.len()).collect::<Vec<_>>());
+     for (a, b) in a.subpaths.iter().flat_map(|s| &s.knots).zip(b.subpaths.iter().flat_map(|s| &s.knots)) {
+         for (a, b) in [a.anchor, a.in_ctrl, a.out_ctrl].into_iter().zip([b.anchor, b.in_ctrl, b.out_ctrl]) {
+             assert!((a.x - b.x).abs() < 1e-4 && (a.y - b.y).abs() < 1e-4, "PSD 8.24 coordinate quantization");
+@@ -395,3 +396,24 @@ fn clip35_draw_normal_and_behind_insert_exact_sibling_positions_and_settings_def
+ #[path = "gpu_tests.rs"]
+ #[cfg(not(target_arch = "wasm32"))]
+ mod gpu_tests;
++
++#[test]
++fn dsfix_v111_release_rejects_density_and_feather_without_mutating_source() {
++    for (density, feather) in [(0.5, 0.), (1., 2.)] {
++        let (mut s, ids) = fixture();
++        let gid = group(&mut s, &ids);
++        s.edit("mask settings", |doc, _| {
++            let mask = doc.layer_mut(gid).unwrap().vector_mask.as_mut().unwrap();
++            mask.density = density;
++            mask.feather = feather;
++            Ok(())
++        })
++        .unwrap();
++        let before = s.active().unwrap().doc.clone();
++        let count = s.journal.len();
++        let c = Capture::begin(&s, &[gid]).unwrap();
++        assert!(prepare(&s, &c, &Action::ReleaseClip).is_err());
++        assert!(Arc::ptr_eq(&before, &s.active().unwrap().doc));
++        assert_eq!(s.journal.len(), count);
++    }
++}
+diff --git a/crates/pc-engine/src/vector_packages/constructive.rs b/crates/pc-engine/src/vector_packages/constructive.rs
+index 4cb7404f..ca2ab5c6 100644
+--- a/crates/pc-engine/src/vector_packages/constructive.rs
++++ b/crates/pc-engine/src/vector_packages/constructive.rs
+@@ -431,7 +431,9 @@ impl Gesture {
+                     first.subpaths.splice(*subpath..=*subpath, cut);
+                     plan.add(i, first);
+                 }
+-                for piece in pieces {
++                for mut piece in pieces {
++                    piece.fill_rule = path.fill_rule;
++                    piece.inverted = path.inverted;
+                     plan.add(i, piece);
+                 }
+             }
+@@ -703,6 +705,10 @@ fn erase(path: &Path, brush: &Path) -> Result<Option<Vec<Path>>> {
+             }));
+         }
+     }
++    for result in &mut output {
++        result.fill_rule = path.fill_rule;
++        result.inverted = path.inverted;
++    }
+     Ok(changed.then_some(if path.subpaths.len() == 1 {
+         output
+     } else {
+diff --git a/crates/pc-engine/src/vector_packages/constructive/tests.rs b/crates/pc-engine/src/vector_packages/constructive/tests.rs
+index b93072f8..23bb5b18 100644
+--- a/crates/pc-engine/src/vector_packages/constructive/tests.rs
++++ b/crates/pc-engine/src/vector_packages/constructive/tests.rs
+@@ -386,3 +386,25 @@ fn constructive_cpu_scissors_keeps_subtractive_component_and_zero_smooth_is_noop
+     assert!(s.journal.is_empty());
+     assert!(!s.undo());
+ }
++
++#[test]
++fn dsfix_v122_v123_split_and_erase_preserve_fill_semantics() {
++    let mut source = Path::new(vec![Subpath::polyline(&[(10., 70.), (140., 70.)])]);
++    source.fill_rule = photocraft_doc::FillRule::EvenOdd;
++    source.inverted = true;
++    let (s, ids) = fixture(vec![source.clone()]);
++    let g = Gesture::begin(&s, &ids).unwrap();
++    let split = g.preview(&Action::Scissors { layer: ids[0], subpath: 0, segment: 0, t: 0.5 }).unwrap();
++    assert_eq!(split.output_paths().len(), 2);
++    for p in split.output_paths() {
++        assert_eq!(p.fill_rule, source.fill_rule);
++        assert_eq!(p.inverted, source.inverted);
++    }
++    let brush = vector::shapes::rect(60., 50., 5., 40.);
++    let erased = erase(&source, &brush).unwrap().unwrap();
++    assert_eq!(erased.len(), 2);
++    for p in erased {
++        assert_eq!(p.fill_rule, source.fill_rule);
++        assert_eq!(p.inverted, source.inverted);
++    }
++}
+diff --git a/crates/pc-engine/src/vector_packages/envelope.rs b/crates/pc-engine/src/vector_packages/envelope.rs
+index 49b32060..3bcd43fd 100644
+--- a/crates/pc-engine/src/vector_packages/envelope.rs
++++ b/crates/pc-engine/src/vector_packages/envelope.rs
+@@ -10,7 +10,11 @@ pub use photocraft_vecfx::envelope as geometry;
+ use photocraft_vector::appearance::CompiledAppearance;
+ use serde::{Deserialize, Serialize};
+ use serde_json::{Value, json};
+-use std::{collections::HashSet, sync::Arc};
++use std::{
++    cell::RefCell,
++    collections::HashSet,
++    sync::{Arc, Weak},
++};
+ #[path = "envelope/outlines.rs"]
+ mod outlines;
+ const MAX_CACHE_BYTES: u128 = 256 << 20;
+@@ -308,19 +312,43 @@ pub fn preview_document(s: &Session, c: &Commit) -> Result<Document> {
+     check_fresh(s, c)?;
+     let source = &s.active().ok_or(EngineError::NoDocument)?.doc;
+     let projected = prepare(source, c, true)?;
+-    // Preserve other committed envelopes in the detached preview. The captured groups
+-    // are replaced below, so do not evaluate their previous live parameters a second time.
+-    let mut background = source.as_ref().clone();
+-    for e in &c.edits {
+-        background.layer_mut(e.group).ok_or(EngineError::NoLayer(e.group))?.vector.live = None;
+-    }
+-    let mut doc = project_document(&background)?;
++    let mut doc = (*preview_background(source, c)?).clone();
+     for group in projected {
+         let id = group.id;
+         *doc.layer_mut(id).ok_or(EngineError::NoLayer(id))? = group;
+     }
+     Ok(doc)
+ }
++struct PreviewBackground {
++    source: Weak<Document>,
++    revision: u64,
++    groups: Vec<LayerId>,
++    projected: Arc<Document>,
++}
++thread_local! {
++    static PREVIEW_BACKGROUND: RefCell<Option<PreviewBackground>> = const { RefCell::new(None) };
++}
++fn preview_background(source: &Arc<Document>, c: &Commit) -> Result<Arc<Document>> {
++    let groups = c.edits.iter().map(|e| e.group).collect::<Vec<_>>();
++    PREVIEW_BACKGROUND.with(|cache| {
++        if let Some(entry) = cache.borrow().as_ref()
++            && entry.source.ptr_eq(&Arc::downgrade(source))
++            && entry.revision == c.revision
++            && entry.groups == groups
++        {
++            return Ok(entry.projected.clone());
++        }
++        // Captured groups are replaced by the edited projection. Only other committed
++        // envelopes belong to this revision-keyed background, independent of drag specs.
++        let mut background = source.as_ref().clone();
++        for &id in &groups {
++            background.layer_mut(id).ok_or(EngineError::NoLayer(id))?.vector.live = None;
++        }
++        let projected = Arc::new(project_document(&background)?);
++        *cache.borrow_mut() = Some(PreviewBackground { source: Arc::downgrade(source), revision: c.revision, groups, projected: projected.clone() });
++        Ok(projected)
++    })
++}
+ /// Committed display/export projection, revision-keyed by callers. No source mutation.
+ pub fn project_document(source: &Document) -> Result<Document> {
+     let edits = source
+diff --git a/crates/pc-engine/src/vector_packages/envelope/tests.rs b/crates/pc-engine/src/vector_packages/envelope/tests.rs
+index 5367e7f5..f12513f0 100644
+--- a/crates/pc-engine/src/vector_packages/envelope/tests.rs
++++ b/crates/pc-engine/src/vector_packages/envelope/tests.rs
+@@ -215,3 +215,37 @@ fn envelope_engine_preview_preserves_other_live_group_projection() {
+     assert_eq!(preview.layer(second), displayed.layer(second));
+     assert_eq!(s.active().unwrap().doc, source);
+ }
++
++#[test]
++fn dsfix_v093_envelope_background_reused_across_drag_and_invalidated() {
++    let (mut s, id, _) = fixture(false);
++    let mut other = s.active().unwrap().doc.layer(id).unwrap().duplicate();
++    other.vector.live = Some(LiveGroup::Envelope(warp()));
++    let other_id = other.id;
++    s.edit("other envelope", |doc, _| {
++        doc.layers.push(other);
++        Ok(())
++    })
++    .unwrap();
++    let mut g = Gesture::begin(&s, &[id]).unwrap();
++    let source = s.active().unwrap().doc.clone();
++    let first = preview_background(&source, &g.request).unwrap();
++    g.update(warp()).unwrap();
++    let second = preview_background(&source, &g.request).unwrap();
++    assert!(Arc::ptr_eq(&first, &second));
++    let expected = project_document(&source).unwrap();
++    assert_eq!(second.layer(other_id), expected.layer(other_id));
++    let mut changed_targets = g.request.clone();
++    changed_targets.edits.clear();
++    let all = preview_background(&source, &changed_targets).unwrap();
++    assert!(!Arc::ptr_eq(&first, &all));
++    s.edit("new revision", |doc, _| {
++        doc.name = "Changed".into();
++        Ok(())
++    })
++    .unwrap();
++    assert!(preview_document(&s, &g.request).is_err());
++    let g = Gesture::begin(&s, &[id]).unwrap();
++    let third = preview_background(&s.active().unwrap().doc, &g.request).unwrap();
++    assert!(!Arc::ptr_eq(&first, &third));
++}
+diff --git a/crates/pc-engine/src/vector_packages/expand.rs b/crates/pc-engine/src/vector_packages/expand.rs
+index f4b1e7f5..ae3d5c28 100644
+--- a/crates/pc-engine/src/vector_packages/expand.rs
++++ b/crates/pc-engine/src/vector_packages/expand.rs
+@@ -12,6 +12,10 @@ use photocraft_doc::{Document, Fill, Layer, LayerContent, Path, ShapeLayer};
+ use photocraft_vector::appearance::{self as renderer, CompiledAppearance, StrokeProjection};
+ use serde::{Deserialize, Serialize};
+ use serde_json::{Value, json};
++use std::{
++    cell::RefCell,
++    sync::{Arc, Weak},
++};
+ 
+ #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+ #[serde(default, deny_unknown_fields)]
+@@ -25,7 +29,7 @@ impl Default for Options {
+         Self { object: true, fill: true, stroke: true }
+     }
+ }
+-#[derive(Clone, Debug, Serialize, Deserialize)]
++#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+ #[serde(deny_unknown_fields)]
+ pub struct Request {
+     pub capture: Capture,
+@@ -160,11 +164,42 @@ fn shape_expansion(layer: &Layer, options: Options, appearance: bool) -> Result<
+     clear_geometry_blocks(&mut out);
+     Ok(out)
+ }
+-/// No placeholder provider may claim success. Availability prepares on a clone and returns the
+-/// exact failure reason, including unavailable owner APIs or invalid composite geometry.
++#[cfg(test)]
++thread_local! {
++    static PREPARE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
++}
++struct Availability {
++    source: Weak<Document>,
++    request: Request,
++    reason: Option<String>,
++}
++thread_local! {
++    // One entry per UI thread; no prepared raster caches or source document are retained.
++    static AVAILABILITY: RefCell<Option<Availability>> = const { RefCell::new(None) };
++}
++/// Preserve the exact preparation failure reason, but compute it once per captured
++/// document snapshot, revision, selection and options. Publication still prepares anew.
+ pub fn disabled_reason(s: &Session, request: &Request) -> Option<String> {
+-    prepare(s, request).err().map(|e| e.to_string())
++    if let Err(e) = request.capture.check(s) {
++        return Some(e.to_string());
++    }
++    let source = match s.active() {
++        Some(st) => &st.doc,
++        None => return Some(EngineError::NoDocument.to_string()),
++    };
++    AVAILABILITY.with(|cache| {
++        if let Some(entry) = cache.borrow().as_ref()
++            && entry.request == *request
++            && entry.source.ptr_eq(&Arc::downgrade(source))
++        {
++            return entry.reason.clone();
++        }
++        let reason = prepare(s, request).err().map(|e| e.to_string());
++        *cache.borrow_mut() = Some(Availability { source: Arc::downgrade(source), request: request.clone(), reason: reason.clone() });
++        reason
++    })
+ }
++
+ fn expand_layer(doc: &Document, source: &Layer, options: Options, appearance: bool, depth: usize) -> Result<Layer> {
+     if depth > photocraft_doc::MAX_GROUP_DEPTH {
+         return Err(bad("expansion exceeds group depth"));
+@@ -229,6 +264,8 @@ fn expand_layer(doc: &Document, source: &Layer, options: Options, appearance: bo
+     }
+ }
+ pub fn prepare(s: &Session, request: &Request) -> Result<Prepared> {
++    #[cfg(test)]
++    PREPARE_COUNT.with(|count| count.set(count.get() + 1));
+     request.capture.check(s)?;
+     if !request.appearance && !request.options.object && !request.options.fill && !request.options.stroke {
+         return Err(bad("choose an Expand option"));
+diff --git a/crates/pc-engine/src/vector_packages/expand/tests.rs b/crates/pc-engine/src/vector_packages/expand/tests.rs
+index 831aecc0..0a5db2d5 100644
+--- a/crates/pc-engine/src/vector_packages/expand/tests.rs
++++ b/crates/pc-engine/src/vector_packages/expand/tests.rs
+@@ -250,3 +250,24 @@ fn object36_expand_live_corners_brush_and_path_text_use_owner_projections() {
+     assert!(s.undo());
+     assert_eq!(s.active().unwrap().doc, before);
+ }
++
++#[test]
++fn dsfix_v102_expand_availability_reuses_preparation_and_invalidates() {
++    let (mut s, id) = fixture();
++    let mut r = request(&s, &[id]);
++    let before = PREPARE_COUNT.with(|n| n.get());
++    assert!(disabled_reason(&s, &r).is_none());
++    assert!(disabled_reason(&s, &r).is_none());
++    assert_eq!(PREPARE_COUNT.with(|n| n.get()), before + 1);
++    r.appearance = false;
++    assert!(disabled_reason(&s, &r).is_none());
++    assert_eq!(PREPARE_COUNT.with(|n| n.get()), before + 2);
++    s.edit("lock", |doc, _| {
++        doc.layer_mut(id).unwrap().locks.all = true;
++        Ok(())
++    })
++    .unwrap();
++    assert!(disabled_reason(&s, &r).unwrap().contains("stale"));
++    r.capture.revision = s.active().unwrap().revision;
++    assert!(disabled_reason(&s, &r).unwrap().contains("locked"));
++}
+diff --git a/crates/pc-engine/src/vector_packages/live_paint/gpu.rs b/crates/pc-engine/src/vector_packages/live_paint/gpu.rs
+index 3611ea30..994bdb68 100644
+--- a/crates/pc-engine/src/vector_packages/live_paint/gpu.rs
++++ b/crates/pc-engine/src/vector_packages/live_paint/gpu.rs
+@@ -34,6 +34,7 @@ fn live_paint42_rtx_5090_vulkan_float_preview_release_expand_parity() {
+     let preview = g.preview(&s, action.clone()).unwrap();
+     let cpu = photocraft_compose::flatten(&preview.display);
+     let gpu = photocraft_gpu::render_to_vec(&mut compositor, &device, &queue, &preview.display, preview.display.bounds()).unwrap();
++    assert_eq!(cpu.px.len(), gpu.len());
+     let max = cpu
+         .px
+         .iter()
+diff --git a/crates/pc-engine/src/vector_packages/node.rs b/crates/pc-engine/src/vector_packages/node.rs
+index 40069138..3a417d18 100644
+--- a/crates/pc-engine/src/vector_packages/node.rs
++++ b/crates/pc-engine/src/vector_packages/node.rs
+@@ -10,7 +10,7 @@ use photocraft_geom::{Affine, Point};
+ use photocraft_vector::edit::{self, Handle, Origins, PointKind};
+ use serde::{Deserialize, Serialize};
+ use serde_json::{Value, json};
+-use std::collections::HashSet;
++use std::collections::{HashMap, HashSet};
+ use std::sync::OnceLock;
+ 
+ #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+@@ -259,37 +259,39 @@ pub fn evaluate(base: &Path, anchors: &[[usize; 2]], op: &Operation) -> Result<(
+ }
+ 
+ fn provenance(base: &Path, output: &Path) -> Result<Origins> {
+-    output
++    // Point equality equates signed zeros. Normalize them so the bit key does too.
++    fn key(p: Point) -> [u64; 2] {
++        [p.x, p.y].map(|v| if v == 0.0 { 0 } else { v.to_bits() })
++    }
++    let mut anchors: HashMap<_, Vec<_>> = HashMap::new();
++    for (s, sp) in base.subpaths.iter().enumerate() {
++        for (i, knot) in sp.knots.iter().enumerate() {
++            anchors.entry(key(knot.anchor)).or_default().push(([s, i], knot));
++        }
++    }
++    Ok(output
+         .subpaths
+         .iter()
+         .map(|sp| {
+             sp.knots
+                 .iter()
+                 .map(|k| {
+-                    let candidates: Vec<_> = base
+-                        .subpaths
+-                        .iter()
+-                        .enumerate()
+-                        .flat_map(|(s, sp)| sp.knots.iter().enumerate().map(move |(i, old)| ([s, i], old)))
+-                        .filter(|(_, old)| old.anchor == k.anchor)
+-                        .collect();
+-                    match candidates.as_slice() {
+-                        [] => Ok(None),
+-                        [(r, _)] => Ok(Some(*r)),
+-                        // A join merges coincident endpoint knots. Prefer an unchanged knot, then
+-                        // its reversed form, then the first source endpoint (receiving paint order).
+-                        // That endpoint's corner wins deterministically; the other endpoint ceases
+-                        // to exist, exactly as its duplicate node index does.
+-                        _ => Ok(candidates
+-                            .iter()
+-                            .find(|(_, old)| **old == *k || (old.in_ctrl == k.out_ctrl && old.out_ctrl == k.in_ctrl))
+-                            .or_else(|| candidates.first())
+-                            .map(|(r, _)| *r)),
++                    // NaN never matched Point equality in the original implementation.
++                    if k.anchor.x.is_nan() || k.anchor.y.is_nan() {
++                        return None;
+                     }
++                    let candidates = anchors.get(&key(k.anchor))?;
++                    // A join merges coincident endpoints: prefer unchanged/reversed handles,
++                    // then the first source endpoint in receiving paint order.
++                    candidates
++                        .iter()
++                        .find(|(_, old)| **old == *k || (old.in_ctrl == k.out_ctrl && old.out_ctrl == k.in_ctrl))
++                        .or_else(|| candidates.first())
++                        .map(|(r, _)| *r)
+                 })
+                 .collect()
+         })
+-        .collect()
++        .collect())
+ }
+ 
+ #[derive(Clone, Debug)]
+diff --git a/crates/pc-engine/src/vector_packages/node/tests.rs b/crates/pc-engine/src/vector_packages/node/tests.rs
+index 24b30aac..837050ee 100644
+--- a/crates/pc-engine/src/vector_packages/node/tests.rs
++++ b/crates/pc-engine/src/vector_packages/node/tests.rs
+@@ -271,3 +271,22 @@ fn node_v1_join_consumes_shape_layers_remaps_corners_and_native_undo() {
+     assert!(s.undo());
+     assert_eq!(native(&s), before);
+ }
++
++#[test]
++fn dsfix_v137_indexed_provenance_keeps_coincident_and_signed_zero_rules() {
++    let mut base = Path::new(vec![Subpath::polyline(&[(-0., 0.), (10., 0.), (0., 0.)])]);
++    base.subpaths[0].knots[2].in_ctrl = Point::new(2., 3.);
++    base.subpaths[0].knots[2].out_ctrl = Point::new(4., 5.);
++    let mut reversed = base.subpaths[0].knots[2];
++    std::mem::swap(&mut reversed.in_ctrl, &mut reversed.out_ctrl);
++    let output = Path::new(vec![Subpath {
++        knots: vec![base.subpaths[0].knots[2], reversed, photocraft_doc::Knot::corner(0., 0.), photocraft_doc::Knot::corner(99., 99.)],
++        closed: false,
++        op: Default::default(),
++    }]);
++    assert_eq!(provenance(&base, &output).unwrap(), vec![vec![Some([0, 2]), Some([0, 2]), Some([0, 0]), None]]);
++    let large = Path::new(vec![Subpath::polyline(&(0..16_384).map(|i| (f64::from(i), 0.)).collect::<Vec<_>>())]);
++    let origins = provenance(&large, &large).unwrap();
++    assert_eq!(origins[0].len(), 16_384);
++    assert_eq!(origins[0][16_383], Some([0, 16_383]));
++}
+diff --git a/crates/pc-engine/src/vector_packages/pen/gesture.rs b/crates/pc-engine/src/vector_packages/pen/gesture.rs
+index 6472de32..1529d31e 100644
+--- a/crates/pc-engine/src/vector_packages/pen/gesture.rs
++++ b/crates/pc-engine/src/vector_packages/pen/gesture.rs
+@@ -106,6 +106,9 @@ impl Gesture {
+         let (subpath, at_first, drag) = if let Some((si, first, _)) = endpoint {
+             (si, first, None) // Clicking an endpoint preserves both original handles.
+         } else {
++            if path.subpaths.iter().map(|sp| sp.knots.len()).sum::<usize>() >= MAX_KNOTS {
++                return Err(error("pen knot budget exceeded"));
++            }
+             let si = path.subpaths.len();
+             path.subpaths.push(Subpath::polyline(&[(at.x, at.y)]));
+             (si, false, Some(Drag { knot: 0, closing: false, outgoing_only: false, incoming: at, pointer: at, moved: false }))
+@@ -297,6 +300,7 @@ impl Gesture {
+             if sp.knots.len() == 2 && distance(sp.knots[0].anchor, sp.knots[1].anchor) < 1e-9 {
+                 sp.knots.truncate(1);
+                 self.auto.truncate(1);
++                self.generation = self.generation.wrapping_add(1);
+                 return Ok(Outcome::Preview);
+             }
+         }
+diff --git a/crates/pc-engine/src/vector_packages/pen/tests.rs b/crates/pc-engine/src/vector_packages/pen/tests.rs
+index c7db4d4d..7aa21f31 100644
+--- a/crates/pc-engine/src/vector_packages/pen/tests.rs
++++ b/crates/pc-engine/src/vector_packages/pen/tests.rs
+@@ -378,3 +378,27 @@ fn pen_line_drag_self_terminates_with_shift_and_no_handles() {
+     assert_eq!(sp.knots[1].anchor.y, 20.);
+     assert!(sp.knots.iter().all(|k| !k.smooth && k.in_ctrl == k.anchor && k.out_ctrl == k.anchor));
+ }
++
++#[test]
++fn dsfix_v187_begin_new_subpath_checks_knot_budget_but_allows_endpoint() {
++    let mut s = session();
++    let mut sp = Subpath::polyline(&[(10., 10.), (20., 10.)]);
++    sp.knots.resize(MAX_KNOTS, Knot::corner(20., 10.));
++    let original = Path::new(vec![sp]);
++    std::sync::Arc::make_mut(&mut s.active_mut().unwrap().doc).work_path = Some(original.clone());
++    assert!(Gesture::begin(&s, Target::Work, Mode::Pen, p(90., 90.), 0., None, None).is_err());
++    assert_eq!(s.active().unwrap().doc.work_path.as_ref(), Some(&original));
++    assert!(Gesture::begin(&s, Target::Work, Mode::Pen, p(20., 10.), 0., None, None).is_ok());
++}
++#[test]
++fn dsfix_v188_zero_length_line_release_changes_generation() {
++    let s = session();
++    let mut g = begin(&s, Mode::Line);
++    g.motion(p(40., 20.), Modifiers::default()).unwrap();
++    g.motion(p(20., 20.), Modifiers::default()).unwrap();
++    assert_eq!(g.path().subpaths[0].knots.len(), 2);
++    let generation = g.generation();
++    assert_eq!(g.release().unwrap(), Outcome::Preview);
++    assert_eq!(g.path().subpaths[0].knots.len(), 1);
++    assert_eq!(g.generation(), generation.wrapping_add(1));
++}
+diff --git a/crates/pc-engine/src/vector_packages/pencil.rs b/crates/pc-engine/src/vector_packages/pencil.rs
+index 122eb090..17d39ff1 100644
+--- a/crates/pc-engine/src/vector_packages/pencil.rs
++++ b/crates/pc-engine/src/vector_packages/pencil.rs
+@@ -157,7 +157,10 @@ impl Capture {
+                             return Err(EngineError::Other("pencil continuation requires an open path".into()));
+                         }
+                         Operation::Sculpt { subpath, first, last, .. }
+-                            if path.subpaths.get(subpath).is_none_or(|s| first >= s.knots.len() || last >= s.knots.len() || (!s.closed && first > last)) =>
++                            if path
++                                .subpaths
++                                .get(subpath)
++                                .is_none_or(|s| first == last || first >= s.knots.len() || last >= s.knots.len() || (!s.closed && first > last)) =>
+                         {
+                             return Err(EngineError::Other("invalid sculpt interval".into()));
+                         }
+diff --git a/crates/pc-engine/src/vector_packages/pencil/tests.rs b/crates/pc-engine/src/vector_packages/pencil/tests.rs
+index 888f84c5..62f8ca24 100644
+--- a/crates/pc-engine/src/vector_packages/pencil/tests.rs
++++ b/crates/pc-engine/src/vector_packages/pencil/tests.rs
+@@ -158,3 +158,17 @@ fn pencil_continue_commit_rejects_extension_at_uncaptured_endpoint() {
+     assert!(!s.active().unwrap().history.can_undo());
+     assert!(s.journal.is_empty());
+ }
++
++#[test]
++fn dsfix_v149_sculpt_equal_endpoints_fail_at_capture_for_open_and_closed_paths() {
++    for closed in [false, true] {
++        let mut s = session();
++        let mut sp = Subpath::polyline(&[(20., 20.), (40., 20.), (60., 40.)]);
++        sp.closed = closed;
++        let layer = Layer::new("Sculpt", LayerContent::Shape(ShapeLayer { path: Path::new(vec![sp]), ..Default::default() }));
++        let id = layer.id;
++        Arc::make_mut(&mut s.active_mut().unwrap().doc).layers.push(layer);
++        assert!(Capture::begin(&s, Operation::Sculpt { layer: id, subpath: 0, first: 1, last: 1 }, Default::default()).is_err());
++        assert!(Capture::begin(&s, Operation::Sculpt { layer: id, subpath: 0, first: 0, last: 1 }, Default::default()).is_ok());
++    }
++}
+diff --git a/crates/pc-engine/src/vector_packages/snapping/tests.rs b/crates/pc-engine/src/vector_packages/snapping/tests.rs
+index e17b8b3f..e87b26b6 100644
+--- a/crates/pc-engine/src/vector_packages/snapping/tests.rs
++++ b/crates/pc-engine/src/vector_packages/snapping/tests.rs
+@@ -298,3 +298,27 @@ fn snapping_masks_and_cache_budget_are_checked() {
+     doc.guides.vertical = vec![1.0; MAX_TARGETS + 1];
+     assert!(Cache::build(&doc, 0, Exclusions::default(), None).is_err());
+ }
++
++#[test]
++fn dsfix_v204_curve_nearest_skips_distant_bounds_but_keeps_tolerance_edge() {
++    thread_local! { static CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
++    fn nearest(path: &Path, _: Point) -> Result<Option<Nearest>> {
++        CALLS.with(|n| n.set(n.get() + 1));
++        Ok(Some((0, 0, 0., path.subpaths[0].knots[0].anchor, 0.)))
++    }
++    fn bounds(path: &Path) -> Result<Option<Bounds>> {
++        Ok(path.control_bounds())
++    }
++    let mut doc = document();
++    for i in 0..100 {
++        let x = f64::from(i) * 100.;
++        shape(&mut doc, [x, 50., x + 10., 60.]);
++    }
++    let cache = Cache::build(&doc, 0, Exclusions::default(), Some(Geometry { nearest, bounds })).unwrap();
++    let settings = Settings { tolerance_px: 8., ..only(Kind::Curve) };
++    let result = cache.point([-8., 50.], &settings, View::default(), None, false).unwrap();
++    assert_eq!(result.point, [0., 50.]);
++    assert_eq!(CALLS.with(|n| n.get()), 1);
++    cache.point([-8.01, 50.], &settings, View::default(), None, false).unwrap();
++    assert_eq!(CALLS.with(|n| n.get()), 1);
++}
+diff --git a/crates/pc-engine/src/vector_packages/styles.rs b/crates/pc-engine/src/vector_packages/styles.rs
+index 4de16cf3..a6b4392c 100644
+--- a/crates/pc-engine/src/vector_packages/styles.rs
++++ b/crates/pc-engine/src/vector_packages/styles.rs
+@@ -305,6 +305,10 @@ fn sample_layer(layer: &Layer) -> Result<Sample> {
+ /// A strict serialization round-trip rejects NaN/Inf (serde emits null), then numeric fields
+ /// are bounded before layout/effects code sees them. No permissive numeric clamping.
+ pub fn validate_sample(s: &Sample) -> Result<()> {
++    if s.effects.psd_raw.as_ref().is_some_and(|p| p.len() > 1 << 20) {
++        return Err(error("style raw FX budget"));
++    }
++
+     if let Some(a) = &s.appearance {
+         renderer::validate(a).map_err(error)?;
+     }
+@@ -358,9 +362,6 @@ pub fn validate_sample(s: &Sample) -> Result<()> {
+         Ok(())
+     }
+     numbers(&value, "", 0)?;
+-    if s.effects.psd_raw.as_ref().is_some_and(|p| p.len() > 1 << 20) {
+-        return Err(error("style raw FX budget"));
+-    }
+     Ok(())
+ }
+ 
+diff --git a/crates/pc-engine/src/vector_packages/styles/tests.rs b/crates/pc-engine/src/vector_packages/styles/tests.rs
+index 56f987e3..f16605c4 100644
+--- a/crates/pc-engine/src/vector_packages/styles/tests.rs
++++ b/crates/pc-engine/src/vector_packages/styles/tests.rs
+@@ -420,3 +420,14 @@ fn styles38_cpu_style_transfer_retains_target_live_corner_geometry() {
+     assert_eq!(surface.rgba(54, 10)[3], 0.);
+     assert_eq!(surface.rgba(66, 30)[3], 1.);
+ }
++
++#[test]
++fn dsfix_v170_raw_effects_budget_precedes_serialization() {
++    let mut sample = photocraft_doc::vector_design::styles::starter_library().remove(0).attributes;
++    sample.effects.psd_raw = Some(vec![0; (1 << 20) + 1]);
++    sample.opacity = f32::NAN;
++    assert!(validate_sample(&sample).unwrap_err().to_string().contains("raw FX budget"));
++    sample.opacity = 1.;
++    sample.effects.psd_raw = Some(vec![0; 1 << 20]);
++    validate_sample(&sample).unwrap();
++}
+diff --git a/crates/pc-engine/src/vector_packages/symbols.rs b/crates/pc-engine/src/vector_packages/symbols.rs
+index 6ac1c049..b01e5cc9 100644
+--- a/crates/pc-engine/src/vector_packages/symbols.rs
++++ b/crates/pc-engine/src/vector_packages/symbols.rs
+@@ -202,7 +202,11 @@ pub fn place_preview(s: &Session, c: Capture, id: SymbolId, a: Affine, above: Op
+     validation::affine(a).map_err(|e| bad(e.to_string()))?;
+     let name = doc.symbols.iter().find(|d| d.id == id).ok_or_else(|| bad("missing symbol"))?.name.clone();
+     if let Some(above) = above {
+-        targets(&doc, &[above], false)?;
++        let layer = doc.layer(above).ok_or(EngineError::NoLayer(above))?;
++        let locks = doc.effective_locks(above);
++        if locks.all || locks.pixels {
++            return Err(bad(format!("layer {} is locked", layer.name)));
++        }
+     }
+     let mut instance = SymbolInstance { symbol: id, transform: a, cache: None };
+     instance.cache = Some(render_instance(&doc, &instance)?);
+diff --git a/crates/pc-engine/src/vector_packages/symbols/expansion.rs b/crates/pc-engine/src/vector_packages/symbols/expansion.rs
+index af733c4d..ad8a9a76 100644
+--- a/crates/pc-engine/src/vector_packages/symbols/expansion.rs
++++ b/crates/pc-engine/src/vector_packages/symbols/expansion.rs
+@@ -34,7 +34,11 @@ fn project(
+                     validation::affine(a)?;
+                     LayerContent::Group(Group { children: project(&def.layers, symbols, a, true, transforms)?, expanded: true, artboard: None })
+                 }
+-                LayerContent::Group(g) => LayerContent::Group(Group { children: project(&g.children, symbols, inherited, template, transforms)?, ..g.clone() }),
++                LayerContent::Group(g) => LayerContent::Group(Group {
++                    children: project(&g.children, symbols, inherited, template, transforms)?,
++                    expanded: g.expanded,
++                    artboard: g.artboard.clone(),
++                }),
+                 content => content.clone(),
+             };
+             Ok(layer)
+diff --git a/crates/pc-engine/src/vector_packages/symbols/render.rs b/crates/pc-engine/src/vector_packages/symbols/render.rs
+index 380f060a..1564b949 100644
+--- a/crates/pc-engine/src/vector_packages/symbols/render.rs
++++ b/crates/pc-engine/src/vector_packages/symbols/render.rs
+@@ -43,7 +43,17 @@ fn shape_valid(sh: &ShapeLayer) -> Result<()> {
+ }
+ fn composite_surface(doc: &Document, layers: Vec<Layer>, bounds: Rect) -> Result<Surface> {
+     budget(bounds)?;
+-    let mut projected = doc.clone();
++    // The compositor needs render settings and paint resources, not unrelated document
++    // layers, masters, paths, metadata or history-sized auxiliary trees.
++    let mut projected = Document::new("Symbol projection", doc.size, doc.mode, doc.depth);
++    projected.id = doc.id;
++    projected.resolution_dpi = doc.resolution_dpi;
++    projected.icc_profile = doc.icc_profile.clone();
++    projected.global_light = doc.global_light;
++    projected.patterns = doc.patterns.clone();
++    projected.channels = doc.channels.clone();
++    projected.color_table = doc.color_table.clone();
++    projected.duotone = doc.duotone.clone();
+     projected.layers = layers;
+     let fmt = doc.pixel_format();
+     let n = fmt.channels();
+@@ -172,15 +182,13 @@ pub fn prepare_expansion(doc: &Document, mut ex: expansion::Expansion) -> Result
+ pub fn render_instance(doc: &Document, instance: &SymbolInstance) -> Result<Surface> {
+     let temporary = Layer::new("Symbol projection", LayerContent::Symbol(instance.clone()));
+     let ex = expansion::expand(doc, std::slice::from_ref(&temporary)).map_err(|e| bad(e.to_string()))?;
+-    let mut projected = doc.clone();
+-    projected.layers = prepare_expansion(doc, ex)?;
+-    let bounds = projected
+-        .layers
++    let layers = prepare_expansion(doc, ex)?;
++    let bounds = layers
+         .iter()
+         .map(|l| photocraft_compose::composite_bounds(l, doc.bounds()).unwrap_or(doc.bounds()))
+         .fold(Rect::EMPTY, |a, b| a.union(&b))
+         .intersect(&doc.bounds());
+-    composite_surface(doc, projected.layers, bounds)
++    composite_surface(doc, layers, bounds)
+ }
+ 
+ /// Legacy Free Transform's detached cached preview. Bounds/affine validation runs before
+diff --git a/crates/pc-engine/src/vector_packages/symbols/tests.rs b/crates/pc-engine/src/vector_packages/symbols/tests.rs
+index 1605fb68..8657fcd4 100644
+--- a/crates/pc-engine/src/vector_packages/symbols/tests.rs
++++ b/crates/pc-engine/src/vector_packages/symbols/tests.rs
+@@ -402,3 +402,47 @@ fn symbols_text_master_edit_matches_independent_type_layers() {
+     let LayerContent::Text(t) = &s.active().unwrap().doc.symbols[0].layers[0].content else { panic!() };
+     assert_eq!(t.runs.iter().map(|r| r.len).sum::<usize>(), t.text.len());
+ }
++
++#[test]
++fn dsfix_v172_symbol_placement_ignores_locked_sibling_descendants() {
++    let mut s = fixture();
++    let (symbol, _) = make_symbol(&mut s);
++    let mut child = shape(40., 40.);
++    child.locks.all = true;
++    let group = Layer::group("Sibling", vec![child]);
++    let above = group.id;
++    s.edit("sibling", |doc, _| {
++        doc.layers.push(group);
++        Ok(())
++    })
++    .unwrap();
++    let capture = Capture::new(&s).unwrap();
++    assert!(place_preview(&s, capture, symbol, Affine::IDENTITY, Some(above)).is_ok());
++    s.edit("lock anchor", |doc, _| {
++        doc.layer_mut(above).unwrap().locks.all = true;
++        Ok(())
++    })
++    .unwrap();
++    assert!(place_preview(&s, Capture::new(&s).unwrap(), symbol, Affine::IDENTITY, Some(above)).is_err());
++}
++#[test]
++fn dsfix_v199_minimal_symbol_render_matches_full_document_compositor() {
++    let mut s = fixture();
++    let (symbol, _) = make_symbol(&mut s);
++    let doc = &s.active().unwrap().doc;
++    let instance = SymbolInstance { symbol, transform: Affine::translate(25., 15.), cache: None };
++    let cache = render_instance(doc, &instance).unwrap();
++    let temporary = Layer::new("Projection", LayerContent::Symbol(instance));
++    let ex = expansion::expand(doc, &[temporary]).unwrap();
++    let mut full = (**doc).clone();
++    full.layers = prepare_expansion(doc, ex).unwrap();
++    let expected = photocraft_compose::render(&full, cache.content_bounds());
++    for y in expected.rect.y0..expected.rect.y1 {
++        for x in expected.rect.x0..expected.rect.x1 {
++            let actual = cache.pixel(x, y);
++            let wanted = expected.get(x, y);
++            assert!(actual.iter().zip(wanted).all(|(a, b)| (a - b).abs() <= 1. / 255.));
++        }
++    }
++    assert!(full.layers[0].children().is_some());
++}
+diff --git a/crates/pc-engine/src/vector_packages/trace_centerline/gpu.rs b/crates/pc-engine/src/vector_packages/trace_centerline/gpu.rs
+index 4cad8a2b..af6bb548 100644
+--- a/crates/pc-engine/src/vector_packages/trace_centerline/gpu.rs
++++ b/crates/pc-engine/src/vector_packages/trace_centerline/gpu.rs
+@@ -6,6 +6,7 @@ use photocraft_gpu::{Compositor, render_to_vec};
+ use photocraft_vector::appearance::NoProjection;
+ 
+ #[test]
++#[ignore = "RTX 5090/Vulkan hardware gate; run explicitly on the target machine"]
+ fn centerline_rtx5090_result_strokes_detached_preview_release_and_undo_parity() {
+     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
+     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+diff --git a/crates/pc-engine/src/vector_snap.rs b/crates/pc-engine/src/vector_snap.rs
+index aec9dc22..ca917677 100644
+--- a/crates/pc-engine/src/vector_snap.rs
++++ b/crates/pc-engine/src/vector_snap.rs
+@@ -202,6 +202,7 @@ struct Node {
+ }
+ #[derive(Clone, Debug)]
+ struct Curve {
++    bounds: [f64; 4],
+     path: Path,
+     source: Source,
+ }
+@@ -365,8 +366,8 @@ impl Cache {
+                 self.nodes.push(Node { point: [k.anchor.x, k.anchor.y], hit: Hit { kind: Kind::Node, source, subpath: s, index: i, t: None } });
+             }
+         }
+-        if n > 0 {
+-            self.curves.push(Curve { path: path.clone(), source });
++        if let Some((x0, y0, x1, y1)) = path.control_bounds() {
++            self.curves.push(Curve { bounds: [x0, y0, x1, y1], path: path.clone(), source });
+         }
+         Ok(())
+     }
+@@ -418,6 +419,10 @@ impl Cache {
+         if settings.curves && !self.curves.is_empty() {
+             let geometry = self.geometry.ok_or_else(|| error("nearest curve snapping requires the V1 geometry adapter"))?;
+             for curve in &self.curves {
++                let [x0, y0, x1, y1] = curve.bounds;
++                if point[0] < x0 - tol || point[0] > x1 + tol || point[1] < y0 - tol || point[1] > y1 + tol {
++                    continue;
++                }
+                 if let Some((s, i, t, p, _distance)) = (geometry.nearest)(&curve.path, Point::new(point[0], point[1]))? {
+                     valid_point([p.x, p.y])?;
+                     bounded(t, 0.0, 1.0)?;
+diff --git a/docs/wip/CODEX-REPORT-dsfix-engine.md b/docs/wip/CODEX-REPORT-dsfix-engine.md
+new file mode 100644
+index 00000000..a5af719a
+--- /dev/null
++++ b/docs/wip/CODEX-REPORT-dsfix-engine.md
+@@ -0,0 +1,50 @@
++# DeepSeek engine finding fixes
++
++Continued the existing `bc8dec3a` vector implementation. Rechecked all 26 assigned findings in `split-engine.jsonl`: 23 fixed, one already prevented by existing validation (V027), one coordinated UI protocol change deferred under the file allowlist (V132), and one unresolved GPU verdict under the no-GPU rule (V158). Changes are uncommitted and limited to the named files, their own regression tests, and this report. No aggregate registrations, UI wiring, menus, manifests, GUI windows, running-app changes, whole-suite tests, or GPU runs.
++
++| id | Verdict after check | Fix | Test |
++| --- | --- | --- | --- |
++| V059 | REAL | Use maximum right/bottom edge across every input when deriving default spacing. | `dsfix_v059_spacing_uses_farthest_edge_on_both_axes` |
++| V102 | REAL | Cache exact Expand availability per document snapshot, capture/revision/selection, and options; publication still prepares afresh. One thread-local entry holds a weak source reference and the reason, never prepared raster caches. | `dsfix_v102_expand_availability_reuses_preparation_and_invalidates` |
++| V027 | NOT REAL in this branch | Existing `validate_rect` already calls `finite` on every value and both far edges, enforcing ±1,000,000 before rounding/casting. No production change; retained a focused regression proving the existing guard. | `dsfix_v027_array_artboard_coordinates_already_bounded` |
++| V044 | REAL | Reject an explicitly supplied non-string boolean operation; only absence defaults to union. | `dsfix_v044_boolean_op_rejects_present_nonstrings` |
++| V029 | REAL | Serialize default persona and saved set/tool fields so generic preference get/set can address them. | `dsfix_v029_default_persona_preferences_are_addressable` |
++| V030 | REAL | Reset the active persona's saved set. | `dsfix_v030_v031_toolbar_edit_and_reset_follow_vector_persona` |
++| V031 | REAL | Copy/edit the current persona's custom set and use that persona's canonical tool registry. | Same V030/V031 regression checks custom persona, ordering, hiding, and Pixel set preservation. |
++| V026 | REAL | Treat Symbol content as a whole-object transform for linked raster masks. | `dsfix_v026_symbol_linked_mask_moves_whole_with_selection` |
++| V111 | REAL | Reject clip release when vector mask density/feather cannot be represented by the released path. | `dsfix_v111_release_rejects_density_and_feather_without_mutating_source` |
++| V060 | REAL | Assert knot counts in every PSD round-trip subpath before comparing zipped knots. | Strengthened/renamed `dsfix_v060_clip35_svg_pdf_psd_exports_keep_native_vector_masks_and_format_roundtrip` |
++| V122 | REAL | Copy fill rule/inversion onto every scissors piece. | `dsfix_v122_v123_split_and_erase_preserve_fill_semantics` |
++| V123 | REAL | Copy fill rule/inversion onto every single-contour eraser output. | Same V122/V123 regression verifies both eraser pieces. |
++| V093 | REAL | Cache other committed envelope projections by source snapshot, revision, and edited group set; drag spec changes reproject only edited groups. Cache is bounded to one background per thread. | `dsfix_v093_envelope_background_reused_across_drag_and_invalidated` |
++| V089 | REAL | Assert CPU/GPU pixel buffer lengths before zip. | Compiled only; GPU execution prohibited. |
++| V137 | REAL | Index source knots once by anchor bits, normalizing signed zero; retain deterministic coincident/reversed endpoint priority. | `dsfix_v137_indexed_provenance_keeps_coincident_and_signed_zero_rules`, including 16,384 unique knots. |
++| V132 | REAL — coordinator change required | Existing UI explicitly deserializes `bytes` into `Vec<u8>`; changing the command alone breaks export. Exact coordinated patch below. | Caller and command inspected; no incompatible partial protocol change. |
++| V187 | REAL | Check the knot budget before beginning a new subpath; continuing an existing endpoint remains allowed. | `dsfix_v187_begin_new_subpath_checks_knot_budget_but_allows_endpoint` |
++| V188 | REAL | Increment generation when release removes a zero-length line endpoint. | `dsfix_v188_zero_length_line_release_changes_generation` |
++| V149 | REAL | Reject equal Sculpt endpoints during capture validation for open and closed contours. | `dsfix_v149_sculpt_equal_endpoints_fail_at_capture_for_open_and_closed_paths` |
++| V170 | REAL | Check raw FX byte length before appearance validation or JSON serialization. | `dsfix_v170_raw_effects_budget_precedes_serialization` checks error ordering and the accepted budget boundary. |
++| V172 | REAL | Placement checks the insertion anchor's effective locks without recursing into untouched descendants. | `dsfix_v172_symbol_placement_ignores_locked_sibling_descendants` |
++| V178 | REAL | Construct Group metadata explicitly instead of cloning children to overwrite them. This shared source is compiled by `photocraft-doc`. | Workspace all-target check and strict clippy include `photocraft-doc`. |
++| V199 | REAL | Eliminate both full-document clones; compose projected layers in a minimal render document retaining required settings, profiles, light, patterns and channel resources. | `dsfix_v199_minimal_symbol_render_matches_full_document_compositor` |
++| V165 | REAL | Ignore the RTX 5090/Vulkan hardware test by default with an explicit reason. | Compiled only; no GPU run. |
++| V204 | REAL | Cache curve control-hull bounds and reject queries outside tolerance-inflated bounds before nearest-point calls. | `dsfix_v204_curve_nearest_skips_distant_bounds_but_keeps_tolerance_edge` counts adapter calls across 100 curves. |
++| V158 | UNSURE — prohibited/unregistered GPU gate | No speculative pointer edit. The named test requires the RTX app harness and is not registered in this branch's UI crate. Its required run conflicts with the explicit no-GPU rule. | Coordinator must register/run `pdf_import_full_app_rtx_pointer_preview_release_select_edit_undo_cancel` once on the RTX machine. |
++
++## Exact coordinator changes
++
++**V132:** Change `crates/pc-engine/src/vector_packages/pdf_export.rs::run` to return `{"bytes": photocraft_paint::tile::b64_encode(&output.bytes), "encoding":"base64", "warnings":output.warnings, "mime":"application/pdf"}`. In `crates/pc-ui-egui/src/vector_packages/pdf_export.rs::State::export`, read the bytes string and decode it with `base64::engine::general_purpose::STANDARD.decode(...)` (import `base64::Engine`), returning an engine error for a missing/invalid string. Update the engine export command regression and UI export tests to assert the encoding and decoded `%PDF-` header. The engine already depends on `photocraft-paint`, and the UI already depends on `base64 = "0.22"`; no manifest change is needed. This must land together because the current UI's `serde_json::from_value(output["bytes"].clone())` requires a numeric array. The UI file is outside this job's named-file allowlist, so neither half was applied here.
++
++**V158:** After the integration job's UI registration, run the named RTX test once as part of its allowed final GPU gate. Preserve the existing pointer coordinates unless that run demonstrates a miss; if it does, derive the press position from the placed group's actual visible bounds and use that point for the drag. This job cannot settle its runtime verdict under the no-GPU rule.
++
++## Validation
++
++Passed:
++
++- `cargo check --workspace --all-targets --offline` (one initial regression-test import error corrected, then passed).
++- `cargo clippy -p photocraft-engine -p photocraft-doc --all-targets --offline -- -D warnings`.
++- Changed-file `rustfmt --check` and `git diff --check`.
++
++Initial focused run: `cargo test -p photocraft-engine --lib dsfix_ --offline` selected exactly 19 added/strengthened CPU regressions; 18 passed. The V027 test used an invalid positive far-edge boundary. Reading the pre-existing rectangle validator settled V027 as NOT REAL; its redundant added guard was removed and the accepted boundary fixture corrected. The corrected V027 regression passed on its isolated rerun (1 passed, 1,280 filtered out). Final strict clippy passed again after that correction. All 19 focused CPU regressions passed across these runs; no already-passing regressions were rerun.
++
++Every build uses Rust 1.98.1, `RUSTC_WRAPPER=/home/zdavidson/.local/share/local-image-dev/bin/li-rustc-gate`, `CARGO_BUILD_JOBS=3`, and `--offline`. Workspace check used Fedora's 1.98.1. Clippy initially encountered incompatible Fedora/rustup artifacts; the successful clippy invocation used `rustup run 1.98.1 cargo`, `RUSTC=/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc`, and `CARGO_TARGET_DIR=target/clippy`. The focused tests use the matching rustup compiler as well. The initial plain-system `cargo +1.98.1` attempt was rejected before compiling; system cargo is not a rustup proxy.

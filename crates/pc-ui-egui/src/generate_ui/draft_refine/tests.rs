@@ -368,6 +368,32 @@ fn draft_refine_dock_request_keeps_open_image_and_drops_hidden_create_references
 fn draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // The catalogue, checker and status poller are process-wide. Other UI tests
+    // replace their inventories, so an asynchronous refinement needs its own
+    // process, like the unload-completion regression. Keep real model files and
+    // persisted verdicts out of this mock-server test too.
+    const CHILD: &str = "PC_DRAFT_REFINE_MOCK_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let profile = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ds/draft-refine-mock").join(std::process::id().to_string());
+        std::fs::create_dir_all(profile.join("models")).unwrap();
+        struct ProfileReset(std::path::PathBuf);
+        impl Drop for ProfileReset {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _profile_reset = ProfileReset(profile.clone());
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "generate_ui::draft_refine::tests::draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened", "--nocapture"])
+            .env(CHILD, "1")
+            .env("LOCAL_IMAGE_DATA_DIR", &profile)
+            .env("LOCAL_IMAGE_MODELS_DIR", profile.join("models"))
+            .output()
+            .unwrap();
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+        assert!(output.status.success(), "Mock refinement child failed: {}", String::from_utf8_lossy(&output.stdout));
+        return;
+    }
     let server = match li_ai::mock::MockComfy::start() {
         Ok(server) => server,
         Err(e)
@@ -392,7 +418,10 @@ fn draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened
     h.get_by_label("Refine image").click();
     h.run_steps(3);
     let start = Instant::now();
-    while !h.state().draft_refine.jobs.is_empty() && start.elapsed() < Duration::from_secs(10) {
+    // A hang watchdog, not a UI speed budget: allow saturated builders time to
+    // schedule the real HTTP worker and encode the fixture before asserting its
+    // result and the Use/Open actions below.
+    while !h.state().draft_refine.jobs.is_empty() && start.elapsed() < Duration::from_secs(120) {
         std::thread::sleep(Duration::from_millis(10));
         h.run_steps(2);
     }

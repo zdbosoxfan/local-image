@@ -1,5 +1,9 @@
 //! DeepSeek-written coverage tests, one module per source module; a single test binary per crate keeps link time down.
 
+// Use the same complete compute-device lifetime guard as GPU integration tests.
+#[path = "../../../lc-gpu/tests/support/mod.rs"]
+mod gpu_support;
+
 mod ds_devices_coverage;
 mod ds_enhance_coverage;
 mod ds_files_coverage;

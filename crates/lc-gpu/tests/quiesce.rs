@@ -2,6 +2,7 @@
 //! `libnvidia-glcore` (and the GPU raises Xid 13 "Illegal Instruction Encoding") when it is torn
 //! down while a detached thread still renders. `quiesce` is the exit-time barrier.
 //! Skips (passes with a note) when no GPU adapter exists.
+mod support;
 
 use std::sync::Arc;
 
@@ -17,6 +18,7 @@ fn render_once(src: &Arc<lightcraft_raster::Rgb32f>, w: usize, h: usize) {
 
 #[test]
 fn quiesce_waits_for_background_renders() {
+    let _gpu = support::lock();
     if !lightcraft_gpu::available() {
         eprintln!("skipped: no GPU adapter ({:?})", lightcraft_gpu::unavailable_reason());
         return;

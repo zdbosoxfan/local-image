@@ -1,6 +1,8 @@
 //! Separate process: no earlier test may finish initialization before this exit-barrier test.
+mod support;
 #[test]
 fn quiesce_waits_for_warm_up_before_any_render() {
+    let _gpu = support::lock();
     if !lightcraft_gpu::enabled() {
         assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "hardware GPU required but disabled");
         eprintln!("skipped: GPU disabled");

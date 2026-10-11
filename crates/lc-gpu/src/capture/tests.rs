@@ -217,10 +217,11 @@ fn wgsl_f32_rl_matches_independent_upstream_estimates() {
 
 #[test]
 fn gpu_capture_intermediate_planes_match_cpu() {
-    let Some(gpu) = crate::test_device() else {
+    let Some(gpu_device) = crate::test_device() else {
         eprintln!("skipped: no GPU adapter");
         return;
     };
+    let gpu = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(gpu);
     let errors = crate::ctx::ErrorScopes::push(gpu);
     let (w, h) = (73, 49); // partial workgroups, both kernel sizes, border and corner taper

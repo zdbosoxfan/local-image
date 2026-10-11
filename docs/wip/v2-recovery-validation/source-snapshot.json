@@ -1,0 +1,329 @@
+[
+  {
+    "name": "codex-crash-hunt",
+    "path": "/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-crash-hunt",
+    "head": "f14b1cc3ed97fea5f68a9cb20a2f6f5828ee9446",
+    "status": "",
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked": []
+  },
+  {
+    "name": "codex-bugfix-files",
+    "path": "/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-files",
+    "head": "9f9f2e75c4cea666d1c2a970f1b57bb891f46313",
+    "status": " M crates/pc-ui-egui/src/file_open/tests.rs\n M crates/pc-ui-egui/src/generate_ui/draft_refine/tests.rs\n M docs/wip/CODEX-REPORT-bugfix-files.md\n",
+    "patch_sha256": "cfbe2c04e8e56a58e7baaa35e81a05d4fab66e8c9b55523b8f7a42d8800e035c",
+    "untracked": []
+  },
+  {
+    "name": "codex-dsfix-engine",
+    "path": "/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-dsfix-engine",
+    "head": "8db78c8028ee9a8a87d1c16da3a9bae488a22465",
+    "status": "",
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked": []
+  },
+  {
+    "name": "codex-dsfix-libs",
+    "path": "/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-dsfix-libs",
+    "head": "993ad4b67a2050a7139ad260ca4ba867e7393911",
+    "status": "",
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked": []
+  },
+  {
+    "name": "vector-int",
+    "path": "/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/vector-int",
+    "head": "dac7df27bd4df7aa3e9a717177f81946f9fa0816",
+    "status": "",
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked": []
+  },
+  {
+    "name": "codex-bugfix-vector",
+    "path": "/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-vector",
+    "head": "709846bfa15146cfa06b6ca5a1aa78bb5febbb8d",
+    "status": " M crates/pc-ui-egui/src/generate_ui/draft_refine/tests.rs\n M docs/wip/CODEX-REPORT-bugfix-vector.md\n?? docs/wip/bugfix-vector-validation/rework-2/\n",
+    "patch_sha256": "0e7d1418fc3c26809a144f04e3c6b9adba4741c2132fa09261a949fe2981d631",
+    "untracked": [
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/clippy.log.gz",
+        "bytes": 332,
+        "sha256": "5b3cb273cc47b22fd6108d6701064ea510984b366974c9d564cfb1e525a4f603"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/land-failure.log.gz",
+        "bytes": 19017,
+        "sha256": "6ee902a8d49ac894357de02d3ba07fe030fc62502f1cdda4576e3aa5099ad47a"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-after-repeat-1.log.gz",
+        "bytes": 178,
+        "sha256": "468f9ea55d653b1bd9e2ba4518f767c8fd2e792fac1500eee84ce4cfdf069f47"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-after-repeat-2.log.gz",
+        "bytes": 178,
+        "sha256": "db96141b5ec907423e272c429e0688b65d04a6474fd6d3130deab90f8d6e4779"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-after-repeat-3.log.gz",
+        "bytes": 177,
+        "sha256": "aa1b9c764a94c8b610b5d706327ee21f0b453f21c29d14458a86280f8f4159e1"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-after-repeat-4.log.gz",
+        "bytes": 177,
+        "sha256": "85ccf014a1993b2ee19710fc077a0651ee39391a55f13c51afafb2ea88cce58e"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-after-repeat-5.log.gz",
+        "bytes": 177,
+        "sha256": "bd86c38db2e6c317ea1373ec0ca1fd9be4229b3ad6f0d65458db5f1bb2f9245c"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-after-repeat-6.log.gz",
+        "bytes": 177,
+        "sha256": "e8d2e337178a22d607871136022db8d51d44bb4f62a691efe772aeec85c66cfa"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-after-repeat-7.log.gz",
+        "bytes": 178,
+        "sha256": "bf048fafa0f949e01f756bd73a749f772e00ee76da4d55d49032d997b40c856c"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-after-repeat-8.log.gz",
+        "bytes": 177,
+        "sha256": "38818ad6e189194e9e8cff485a289e8e2011918f6e4e424200ecb10f582668c0"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-after.log.gz",
+        "bytes": 567,
+        "sha256": "63a2c784416268ac0f7595cc28fad6363832825cbee128829720c38df1773d0b"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-baseline.log.gz",
+        "bytes": 327,
+        "sha256": "9909adc503f2a769d024368fe27089dbbe760cf2ffc701ee3ad4577353ddcef4"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-diagnostic.log.gz",
+        "bytes": 1946,
+        "sha256": "8e70d02083282344953901be301b61d531d494d811e612f547f50c14163a0e39"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/mock-process-diagnostic.log.gz",
+        "bytes": 726,
+        "sha256": "911ca1da8807e17b358a5531a0ef994156067b1cfe0ad682257bde333193ada6"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/own-tests.log.gz",
+        "bytes": 1422,
+        "sha256": "b8ee2b33911de12ffe1f16f7b55bbc851d6df6dfb7f7f4920a71041edad98622"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/ui-lib-after.log.gz",
+        "bytes": 28370,
+        "sha256": "b55ffbbe4e4296e2aebc81a05bb57f721a6c46802793db3891d9a91aab9b5303"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/ui-lib.log.gz",
+        "bytes": 29157,
+        "sha256": "94727f63fce855e6d13e4b36c91195e3b93b0d47e6e216a549444fa71317649e"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/use-diagnostic.log.gz",
+        "bytes": 642,
+        "sha256": "5dad58cfd5ee6afae9c50233e26b6e2a03172e70e0ee91ffef0c698581fd7913"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/use-repeat-1.log.gz",
+        "bytes": 280,
+        "sha256": "8fd3491e685b510defb0bf21531987b273488ac00aa0a8dbccd79e48a3ed717d"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/use-repeat-2.log.gz",
+        "bytes": 487,
+        "sha256": "742644a7c38adda53f559473788a24c41908608be59a64a5e7dd9d7f5534daf4"
+      },
+      {
+        "path": "docs/wip/bugfix-vector-validation/rework-2/workspace-check.log.gz",
+        "bytes": 514,
+        "sha256": "341e493da39cfc90b65c8d4bca3db524e28084ead0f490aeaa7e1011b364ae45"
+      }
+    ]
+  },
+  {
+    "name": "codex-bugfix-develop",
+    "path": "/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop",
+    "head": "ed6b9c1bf83b430dabb74c8acbd5ba94b51f53a6",
+    "status": " M docs/wip/CODEX-REPORT-bugfix-develop.md\n?? docs/wip/bugfix-develop-validation/rework-2/\n",
+    "patch_sha256": "99ba414dc655d193df28d88382bf7ae22a21c620e1c54ec135736c38710ddf81",
+    "untracked": [
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/check-all-targets.log",
+        "bytes": 28862,
+        "sha256": "d2859904466bf075ecac00eb4e59f72e20c5239f909fda9816ad4f0060fa2042"
+      },
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/clippy.log",
+        "bytes": 9963,
+        "sha256": "f327471f2feff6454808c50b5cf54ef56cec5defec6101a0c296292af7a75765"
+      },
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/commands.json",
+        "bytes": 1894,
+        "sha256": "9d4583af513c13cd772d8179f396cd20e4a50b1d1e561519084d632f48423c08"
+      },
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/environment.json",
+        "bytes": 410,
+        "sha256": "2427ba9155ac6317461163e705389a95939769d512dca24ccf8d91d971f8aa45"
+      },
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/index-lock-inspection.json",
+        "bytes": 222,
+        "sha256": "5138471c8e8563e8358cf627c54d123f9a6743308aa66b611b9be19883b68715"
+      },
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/index-lock-recovery.json",
+        "bytes": 394,
+        "sha256": "79b6a04c67deea9ec15aa25032fff5c8a40a00af7de3165cbaec720d36b397f5"
+      },
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/land-failure-excerpt.log",
+        "bytes": 1080,
+        "sha256": "619967058f1854d2536c60a93bc7ff1ea65513ad0f2f8dafacf65784cd168970"
+      },
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/merge.log",
+        "bytes": 20,
+        "sha256": "e5d6c99aec87ec07a2d1b5c1222d8b690d0a61c3548a55c795fff56db9450d0d"
+      },
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/results.json",
+        "bytes": 890,
+        "sha256": "e62c0ead482157fb5a12f22221717d306c87a6826371f0ec1786a0f645a9fae3"
+      },
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/revalidate.py",
+        "bytes": 1055,
+        "sha256": "2bf0bd6625538b585356afd31969c2bdb0084f48c0327c9af122447b62ad42b9"
+      },
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/stale-index-lock.zero-byte",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "docs/wip/bugfix-develop-validation/rework-2/test-queue-flake.log",
+        "bytes": 22127,
+        "sha256": "08df5777b3031caea003ddefcab1f465150c2e74693c5ede64da44a97e061013"
+      }
+    ]
+  },
+  {
+    "name": "codex-contract-tests",
+    "path": "/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-contract-tests",
+    "head": "dac7df27bd4df7aa3e9a717177f81946f9fa0816",
+    "status": "?? crates/lc-catalog/tests/contracts_catalog.rs\n?? crates/lc-catalog/tests/fixtures/\n?? crates/pc-doc/tests/contracts_serde.rs\n?? crates/pc-engine/tests/contracts_registrations.rs\n?? crates/pc-engine/tests/contracts_storage.rs\n?? crates/pc-format/tests/contracts_native.rs\n?? crates/pc-format/tests/contracts_support/\n?? crates/pc-format/tests/fixtures/contracts/\n?? crates/pc-io/tests/contracts_psd.rs\n?? crates/pc-ui-egui/tests/contracts_tools.rs\n?? docs/wip/CODEX-REPORT-contract-tests.md\n?? docs/wip/CODEX-TASK.md\n",
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "untracked": [
+      {
+        "path": "crates/lc-catalog/tests/contracts_catalog.rs",
+        "bytes": 8350,
+        "sha256": "72b6af24f1c971c76da8eb053efc8d0e4a07e7d8af8f42f9d51a22ae61f75138"
+      },
+      {
+        "path": "crates/lc-catalog/tests/fixtures/contracts/SOURCES.md",
+        "bytes": 1022,
+        "sha256": "cdfe421ae076cf36cb09000b59b87ed2a2c1de424c64862beb63c35d4911afd1"
+      },
+      {
+        "path": "crates/lc-catalog/tests/fixtures/contracts/catalog-v0.log",
+        "bytes": 273,
+        "sha256": "cc5eef99cca4ea9bdba387845fb0121e4117fc6fd5f36b14d03d643aa2200c69"
+      },
+      {
+        "path": "crates/lc-catalog/tests/fixtures/contracts/catalog-v1.log",
+        "bytes": 69,
+        "sha256": "67548cc062851ac9a28891716b3cb7af8f83a9c3631711118123ea606223e31b"
+      },
+      {
+        "path": "crates/lc-catalog/tests/fixtures/contracts/catalog-v1.snap",
+        "bytes": 743,
+        "sha256": "35631d52910d17b5d12f2be13881ee93f91fcb6fc8cd137527d315b07cb58157"
+      },
+      {
+        "path": "crates/lc-catalog/tests/fixtures/contracts/catalog-v2.snap",
+        "bytes": 1147,
+        "sha256": "382f42374e4ef3db07e27b6a07eec24d415c88f11c7477f1480f705159ff5704"
+      },
+      {
+        "path": "crates/pc-doc/tests/contracts_serde.rs",
+        "bytes": 12998,
+        "sha256": "ab3c4d6b87b865de839689ea8db7b688e1f04a357d910f9ffbe30f7193ffb2c8"
+      },
+      {
+        "path": "crates/pc-engine/tests/contracts_registrations.rs",
+        "bytes": 2898,
+        "sha256": "451c87d9f73c6de2fbbdbd1c7999eee7c9693946a39926ddeff509eab0ba8491"
+      },
+      {
+        "path": "crates/pc-engine/tests/contracts_storage.rs",
+        "bytes": 4981,
+        "sha256": "d8e0f9f2303259ab0776fe91a27976ce41dd853df50a94828389630a8ecf3c81"
+      },
+      {
+        "path": "crates/pc-format/tests/contracts_native.rs",
+        "bytes": 12095,
+        "sha256": "9039ec6c1f1a6adcbec9404c7cbc29637e206353c4c9b43d656c98cdb780d577"
+      },
+      {
+        "path": "crates/pc-format/tests/contracts_support/freeze_references.py",
+        "bytes": 4825,
+        "sha256": "e28e79592471b3a20b730e4010cfdcaa523281885c7df1150a606cf84e209088"
+      },
+      {
+        "path": "crates/pc-format/tests/contracts_support/mod.rs",
+        "bytes": 4421,
+        "sha256": "3eedfdc79d2275283296669edec3d5a73476a8095f31ad62d4bb0ffb3ba1b8b3"
+      },
+      {
+        "path": "crates/pc-format/tests/fixtures/contracts/SOURCES.md",
+        "bytes": 1026,
+        "sha256": "8cbae8de90f7e0bbab7acd70a51b113f3abeeca3254d3bd1113af38f2eafc076"
+      },
+      {
+        "path": "crates/pc-format/tests/fixtures/contracts/document-v2.json",
+        "bytes": 41453,
+        "sha256": "d2b5e11b01dc4600466187a4c69772aa6dcadf12f8d5022cd9c474e2e693b1a7"
+      },
+      {
+        "path": "crates/pc-format/tests/fixtures/contracts/document-v2.pcraft",
+        "bytes": 41577,
+        "sha256": "3875d47d04625bb2a17b3fe5090b494acbc0e3a3c56ff24580d2f81c96300922"
+      },
+      {
+        "path": "crates/pc-io/tests/contracts_psd.rs",
+        "bytes": 9968,
+        "sha256": "6935117340d689242817d83df65b1a28646d9b2eb9acfb66c429188b7c91cdc1"
+      },
+      {
+        "path": "crates/pc-ui-egui/tests/contracts_tools.rs",
+        "bytes": 624,
+        "sha256": "de844c53930398d227ee31c7f350f26e1858fe993a99ff452705af27e631e7c3"
+      },
+      {
+        "path": "docs/wip/CODEX-REPORT-contract-tests.md",
+        "bytes": 13135,
+        "sha256": "e2995bbc977d92c00fafb4e9a1cd82c15bb3cb5757806077d7d6d784e9100c26"
+      },
+      {
+        "path": "docs/wip/CODEX-TASK.md",
+        "bytes": 2080,
+        "sha256": "ab874769380992b17e60d9f3c4ba8d5d828bd13182cffa0c4b790f5d81db85d7"
+      }
+    ]
+  }
+]

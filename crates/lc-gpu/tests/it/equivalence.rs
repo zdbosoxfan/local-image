@@ -24,6 +24,7 @@ fn gpu() -> bool {
 
 #[test]
 fn camera_tone_and_relative_wb() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -101,6 +102,7 @@ fn typical(s: &mut DevelopSettings) {
 /// in many submissions), with grain (position-dependent) and masks.
 #[test]
 fn banded_full_size_render_matches() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -416,6 +418,7 @@ fn cases() -> Vec<(&'static str, Edit)> {
 
 #[test]
 fn gpu_matches_cpu() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -434,6 +437,7 @@ fn gpu_matches_cpu() {
 
 #[test]
 fn masked_dehaze_unit_transmission_is_identity() {
+    let _gpu = crate::support::lock();
     use lightcraft_develop::{LocalAdjustments, Look};
     // Negative channels from Mitchell resampling in the original 720x480 mask
     // case, plus ordinary scene colours. Small positive alpha must behave like
@@ -490,6 +494,7 @@ fn masked_dehaze_unit_transmission_is_identity() {
 
 #[test]
 fn rendered_sources_and_other_scenes() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -509,6 +514,7 @@ fn rendered_sources_and_other_scenes() {
 
 #[test]
 fn geometry_variants() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -530,6 +536,7 @@ fn geometry_variants() {
 
 #[test]
 fn embedded_lens_perspective_edges_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -559,6 +566,7 @@ fn embedded_lens_perspective_edges_match() {
 
 #[test]
 fn cached_renders_match_uncached() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -581,6 +589,7 @@ fn cached_renders_match_uncached() {
 
 #[test]
 fn overlays_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -648,6 +657,7 @@ fn overlays_match() {
 
 #[test]
 fn red_eye_matches() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -704,6 +714,7 @@ fn saturated(s: &mut DevelopSettings) {
 
 #[test]
 fn output_spaces_match() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -725,6 +736,7 @@ fn output_spaces_match() {
 /// All combinations use the common uploaded tone tables and the per-channel hue kernel.
 #[test]
 fn colour_tone_looks_bases_hue_and_rolloff() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -769,6 +781,7 @@ fn colour_tone_looks_bases_hue_and_rolloff() {
 
 #[test]
 fn working_curves_gamut_and_dither() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -812,6 +825,7 @@ fn working_curves_gamut_and_dither() {
 
 #[test]
 fn primary_scene_stages_clip_clarity_colour_skin_and_layers() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -883,6 +897,7 @@ fn primary_scene_stages_clip_clarity_colour_skin_and_layers() {
 
 #[test]
 fn eigf_tone_equalizer_matches_including_mask_preview() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -907,6 +922,7 @@ fn eigf_tone_equalizer_matches_including_mask_preview() {
 
 #[test]
 fn both_hs_candidates_match_cpu_and_do_not_share_cached_gains() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
@@ -942,6 +958,7 @@ fn both_hs_candidates_match_cpu_and_do_not_share_cached_gains() {
 /// Deep exports use exact transfer curves and 16-bit rounding, not the 8-bit preview LUT.
 #[test]
 fn deep_output_matches_cpu() {
+    let _gpu = crate::support::lock();
     if !gpu() {
         return;
     }
