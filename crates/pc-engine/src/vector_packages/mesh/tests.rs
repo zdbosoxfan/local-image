@@ -134,7 +134,6 @@ fn mesh43_engine_old_v1_native_document_loads() {
     }
 }
 #[test]
-#[ignore = "integration 00/08 native mesh schema, command aggregate and paint dispatch required"]
 fn mesh43_native_save_load_undo_redo_preview_and_release() {
     let (mut s, ids) = fixture();
     let before = s.active().unwrap().doc.clone();

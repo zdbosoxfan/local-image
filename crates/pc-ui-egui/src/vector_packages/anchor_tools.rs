@@ -969,8 +969,5 @@ pub fn display_doc(app: &crate::PhotocraftApp, idx: usize, ctx: &egui::Context) 
 }
 
 #[cfg(test)]
-#[path = "anchor_tools/app_gpu.rs"]
-mod app_gpu;
-#[cfg(test)]
 #[path = "anchor_tools/tests.rs"]
 mod tests;

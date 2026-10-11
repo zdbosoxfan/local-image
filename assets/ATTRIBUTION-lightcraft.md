@@ -2,6 +2,26 @@
 
 Every asset shipped in this repository is listed here (see the asset rules in `AGENTS.md`). No asset may come from
 Adobe products. Add an entry in the same commit as the asset.
+
+## Integrated vector test fixtures (not bundled in the app)
+
+These rows cover the retained inputs and reference outputs, including the PDF reference
+PNGs tracked under the crate's `target/` directory. The linked source records describe
+generation commands, upstream pins and per-file hashes. Patterns stay within each named
+fixture family; they do not attribute unrelated future subdirectories.
+
+| Path | Title | Author | Source | License | Date | Changes |
+|---|---|---|---|---|---|---|
+| `crates/pc-pathops/tests/tricky/inputs/*.svg` | Synthetic geometry corpus (105 inputs) | Local Image contributors | Original fixtures; `crates/pc-pathops/tests/tricky/SOURCES.md` and `manifest.json` | CC0-1.0 | 2026-10-10 | none |
+| `crates/pc-pathops/tests/tricky/goldens/*/*.svg` | Geometry reference outputs (345 files) | Local Image contributors | Inkscape 1.4.4 conversion of the original CC0 inputs; `crates/pc-pathops/tests/tricky/SOURCES.md` and `goldens/generation.json` | CC0-1.0 | 2026-10-10 | generated paths retain the CC0 dedication |
+| `crates/pc-pdf/target/refvec/pdf21/*.png` | Synthetic PDF export CPU and Poppler references (44 files) | Local Image contributors | Original offline fixtures; `crates/pc-pdf/fixtures/export/SOURCES.md`; text uses bundled Inter | GPL-3.0-or-later (`LICENSE`); Inter SIL OFL 1.1 (`assets/fonts/OFL-Inter.txt`) | 2026-10-10 | rendered references |
+| `crates/pc-svg/fixtures/import/*.svg` | Original SVG import fixtures (15 files) | Local Image contributors | Literal geometry and original embedded red pixel; `crates/pc-svg/fixtures/import/SOURCES.md` | CC0-1.0; text uses Inter SIL OFL 1.1 (`assets/fonts/OFL-Inter.txt`) | 2026-10-10 | none |
+| `crates/pc-svg/fixtures/import/resvg/{shapes,painting,structure,paint-servers,masking}/` | resvg SVG/reference PNG corpus (400 pairs) | resvg contributors | linebender/resvg at `1b6c2fddbcbeffa8135df4323b02aaae84890907`; `crates/pc-svg/fixtures/import/SOURCES.md` and `resvg/cases.tsv` | MIT OR Apache-2.0 (`crates/pc-svg/fixtures/import/resvg/LICENSE-MIT`, `crates/pc-svg/fixtures/import/resvg/LICENSE-APACHE`) | 2026-10-10 | unchanged upstream bytes |
+| `crates/pc-svg/fixtures/import/external/*.svg` | Non-brand Lucide import fixtures (40 files) | Lucide contributors; Cole Bemis (Feather) | lucide-icons/lucide at `f12b0de177fbc2a6795e99be065887e72b237123`; `crates/pc-svg/fixtures/import/SOURCES.md` and `external/cases.tsv` | ISC AND MIT (`crates/pc-svg/fixtures/import/external/LICENSE`, `licenses/feather-MIT.txt`) | 2026-10-10 | unchanged upstream bytes |
+| `crates/pc-svg/fixtures/import/external/commons/{simple-world-map,world-map-clip-art,orchid,watermelon}.svg` | Public-domain maps and illustrations | Tom-b; molumen; Keistutis; James Kilfiger | Wikimedia Commons / Openclipart; per-file URLs, authors and hashes in `crates/pc-svg/fixtures/import/external/commons/cases.tsv` and `SOURCES.md` | CC0-1.0 | 2026-10-10 | unchanged upstream bytes |
+| `crates/pc-svg/fixtures/import/external/commons/blank-world-compact.svg` | BlankMap-World-Compact | Canuckguy et al. | Author's public-domain release; per-file URL/hash in `crates/pc-svg/fixtures/import/external/commons/cases.tsv` and `SOURCES.md` | Public domain | 2026-10-10 | unchanged upstream bytes |
+| `crates/pc-ui-egui/tests/path_text/goldens/abc-circle-{input,outlines}.svg` | Synthetic text-on-path input and Inkscape reference | Local Image contributors; The Inter Project Authors (font) | Original fixture and Inkscape 1.4.4 conversion; `crates/pc-ui-egui/tests/path_text/SOURCES.md` | GPL-3.0-or-later (`LICENSE`); Inter SIL OFL 1.1 (`assets/fonts/OFL-Inter.txt`) | 2026-10-10 | converted glyph outlines |
+
 `cargo xtask assets` (part of `cargo xtask ci`) fails if any image, icon, font, sound, video, raw file or colour profile
 in the repository is not matched by a path pattern in the first column (`*` = any characters except `/`; a trailing `/`
 covers a whole directory), or if a licence file referenced in the Licence column is missing.
