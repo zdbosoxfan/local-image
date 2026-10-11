@@ -78,3 +78,5 @@ pub mod path_commands;
 pub mod isolation;
 pub mod styles;
 pub mod transform_tools;
+// Package 46: 00 appends toolbar::specs() to the aggregate in the serial handoff.
+pub mod toolbar;

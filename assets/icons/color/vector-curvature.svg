@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+<!-- Original Local Image vector tool artwork; GPL-3.0-or-later. Glossy Duotone, purple family. -->
+<defs><linearGradient id="a" x2=".25" y2="1"><stop stop-color="#B293FF"/><stop offset="1" stop-color="#7257B8"/></linearGradient><linearGradient id="w" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="#B293FF"/><stop offset="1" stop-color="#7257B8"/></linearGradient><linearGradient id="h" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="#F7F9FC" stop-opacity=".28"/><stop offset="1" stop-color="#F7F9FC" stop-opacity="0"/></linearGradient></defs>
+<g transform="translate(1.5 1.5) scale(.875)" stroke-linejoin="round" stroke-linecap="round">
+<path d="M3 12L6 3L12 6L10 12Z" fill="url(#a)" fill-rule="evenodd" stroke="#1b1c20" stroke-width="1.43" paint-order="stroke fill"/>
+<path d="M3 12L6 3L12 6L10 12Z" fill="none" stroke="url(#h)" stroke-width=".7"/>
+<path d="M6 3L8 8M3 17Q9 9 15 17T22 17M2 16H4V18H2ZM14 16H16V18H14ZM21 16H23V18H21Z" fill="none" stroke="#1b1c20" stroke-width="2.8"/>
+<path d="M6 3L8 8M3 17Q9 9 15 17T22 17M2 16H4V18H2ZM14 16H16V18H14ZM21 16H23V18H21Z" fill="none" stroke="url(#w)" stroke-width="1.6"/>
+<path d="M6 3L8 8M3 17Q9 9 15 17T22 17M2 16H4V18H2ZM14 16H16V18H14ZM21 16H23V18H21Z" fill="none" stroke="url(#h)" stroke-width=".65"/>
+</g></svg>
