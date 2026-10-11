@@ -147,6 +147,9 @@ pub struct GenerateState {
     pub seed: Option<u64>,
     /// Strength for Edit (non-edit models), Fill, Refine and Upscale.
     pub denoise: f32,
+    /// Explicit provenance for [steps, guidance, denoise] in refinement. Older saved values are explicit.
+    #[serde(default)]
+    pub refine_defaults: [bool; 3],
     pub advanced: bool,
     pub library_filter: String,
     /// The selected preset's name.
@@ -158,6 +161,8 @@ pub struct GenerateState {
     pub refine_variant: String,
     pub refine_loras: Vec<LoraPick>,
     pub refine_strength: f32,
+    #[serde(default)]
+    pub refine_strength_default: bool,
     /// The refine pass's steps and guidance (None: the refine model's defaults).
     pub refine_steps: Option<u32>,
     pub refine_guidance: Option<f32>,
@@ -191,6 +196,7 @@ impl Default for GenerateState {
             variety: 0.0,
             seed: None,
             denoise: 0.35,
+            refine_defaults: [true; 3],
             advanced: false,
             library_filter: String::new(),
             preset: "None".into(),
@@ -200,6 +206,7 @@ impl Default for GenerateState {
             refine_variant: String::new(),
             refine_loras: Vec::new(),
             refine_strength: catalog::refine_default_denoise(m),
+            refine_strength_default: true,
             refine_steps: None,
             refine_guidance: None,
             refine_scale: 1.0,
@@ -369,10 +376,17 @@ fn range_hint(min: f32, max: f32, default: f32, decimals: usize) -> String {
     }
 }
 
+// The shared number widget reports numeric changes, while provenance also needs text
+// entry of the same number (including a value equal to the model's recommendation).
+fn number_edited(response: &egui::Response) -> bool {
+    response.changed()
+        || (response.has_focus() && response.ctx.input(|i| i.events.iter().any(|event| matches!(event, egui::Event::Text(_) | egui::Event::Paste(_)))))
+}
+
 /// Number fields use the Properties value field; model recommendations never become slider ranges.
-fn number_row(ui: &mut egui::Ui, label: &str, v: &mut u32, lo: u32, hi: u32, hint: Option<String>) {
+fn number_row(ui: &mut egui::Ui, label: &str, v: &mut u32, lo: u32, hi: u32, hint: Option<String>) -> bool {
     *v = (*v).clamp(lo, hi.max(lo));
-    value_row(ui, label, v, lo..=hi.max(lo), hint, 0);
+    number_edited(&value_row(ui, label, v, lo..=hi.max(lo), hint, 0))
 }
 
 fn value_row<T: egui::emath::Numeric>(
@@ -399,23 +413,25 @@ fn value_row<T: egui::emath::Numeric>(
     response
 }
 
-fn guidance_row(ui: &mut egui::Ui, v: &mut f32, lo: f32, hi: f32, hint: Option<String>) {
-    guidance_row_labeled(ui, tl!("Guidance"), v, lo, hi, hint);
+fn guidance_row(ui: &mut egui::Ui, v: &mut f32, lo: f32, hi: f32, hint: Option<String>) -> bool {
+    guidance_row_labeled(ui, tl!("Guidance"), v, lo, hi, hint)
 }
 
-fn denoise_row(ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32) {
-    value_row(ui, label, v, lo..=hi.max(lo), None, 2).on_hover_text(tl!("ComfyUI denoise: 1 regenerates the image, lower values keep more of it"));
+fn denoise_row(ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32) -> bool {
+    number_edited(
+        &value_row(ui, label, v, lo..=hi.max(lo), None, 2).on_hover_text(tl!("ComfyUI denoise: 1 regenerates the image, lower values keep more of it")),
+    )
 }
 
-fn guidance_row_labeled(ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32, hint: Option<String>) {
-    value_row(ui, label, v, lo..=hi.max(lo), hint, 1);
+fn guidance_row_labeled(ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32, hint: Option<String>) -> bool {
+    number_edited(&value_row(ui, label, v, lo..=hi.max(lo), hint, 1))
 }
 
 fn sampling_ui(ui: &mut egui::Ui, s: &mut GenerateState, limits: Option<li_ai::comfy::SamplerLimits>, denoise: bool) {
     fit_to_backend(s, limits);
     let info = model_of(s).info();
     let (slo, shi) = limits.map_or((1.0, u32::MAX as f32), |l| l.steps);
-    number_row(
+    let steps_changed = number_row(
         ui,
         tl!("Steps"),
         &mut s.steps,
@@ -424,7 +440,13 @@ fn sampling_ui(ui: &mut egui::Ui, s: &mut GenerateState, limits: Option<li_ai::c
         Some(range_hint(info.steps.min, info.steps.max, info.steps.default, 0)),
     );
     let (clo, chi) = limits.map_or((f32::MIN, f32::MAX), |l| l.cfg);
-    guidance_row(ui, &mut s.guidance, clo, chi, Some(range_hint(info.guidance.min, info.guidance.max, info.guidance.default, 1)));
+    let guidance_changed = guidance_row(ui, &mut s.guidance, clo, chi, Some(range_hint(info.guidance.min, info.guidance.max, info.guidance.default, 1)));
+    if steps_changed {
+        s.refine_defaults[0] = false;
+    }
+    if guidance_changed {
+        s.refine_defaults[1] = false;
+    }
     if info.id == ModelId::ZImageTurbo && s.mode == Mode::Create {
         if !s.variety.is_finite() {
             s.variety = 0.0;
@@ -445,7 +467,9 @@ fn sampling_ui(ui: &mut egui::Ui, s: &mut GenerateState, limits: Option<li_ai::c
     }
     if denoise {
         let (lo, hi) = limits.map_or((f32::MIN, f32::MAX), |l| l.denoise);
-        denoise_row(ui, tl!("Denoise"), &mut s.denoise, lo, hi);
+        if denoise_row(ui, tl!("Denoise"), &mut s.denoise, lo, hi) {
+            s.refine_defaults[2] = false;
+        }
     }
 }
 
@@ -535,17 +559,13 @@ fn inherit_refine_defaults(id: &'static str, s: &mut GenerateState) {
     if !changed {
         return;
     }
-    let info = model.info();
-    let original = if info.family == "unknown" { li_ai::refine::unknown_profile() } else { info.resolved.clone() };
-    let denoise =
-        if matches!(original.pipeline.reference, li_ai::family::RefMethod::ReferenceLatent | li_ai::family::RefMethod::TextEncoder) { 1.0 } else { 0.35 };
-    if s.steps == original.sampling.steps.default as u32 {
+    if s.refine_defaults[0] {
         s.steps = defaults.steps;
     }
-    if s.guidance == original.sampling.cfg.default {
+    if s.refine_defaults[1] {
         s.guidance = defaults.cfg;
     }
-    if s.denoise == denoise {
+    if s.refine_defaults[2] {
         s.denoise = defaults.denoise;
     }
 }
@@ -555,6 +575,7 @@ fn set_model(s: &mut GenerateState, m: ModelId) {
     s.model = m.key().into();
     s.variant = catalog::default_variant(m).into();
     s.steps = info.steps.default as u32;
+    s.refine_defaults = [true; 3];
     s.variety = 0.0;
     s.guidance = info.guidance.default;
     if s.mode == Mode::Refine
@@ -1011,6 +1032,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         if let Some(i) = chips_with(ui, &labels, cur, &tips, &disabled) {
             s.mode = Mode::ALL[i];
             s.denoise = s.mode.default_strength(model_of(s));
+            s.refine_defaults[2] = true;
             // A model that can't run the new mode gives way to one that can.
             let m = model_of(s);
             let cloud_ok = cloud_of(s).map(|c| cloud_fits(c, s.mode));
@@ -1091,6 +1113,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 guidance: s.refine_guidance.unwrap_or(model.info().guidance.default),
                 denoise: s.refine_strength,
                 mode: Mode::Refine,
+                refine_defaults: [s.refine_steps.is_none(), s.refine_guidance.is_none(), s.refine_strength_default],
                 ..Default::default()
             };
             inherit_refine_defaults("generate-second-pass", &mut refinement);
@@ -1264,8 +1287,12 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         let s = &mut app.ui.ai.generate;
         // ---- LoRAs.
-        if custom.is_none() && cloud.is_none() && info.lora {
-            loras_ui(ui, &mut s.loras, &info.resolved, &t);
+        if custom.is_none() && cloud.is_none() && (info.lora || s.mode == Mode::Refine) {
+            if s.mode == Mode::Refine {
+                refine_loras_ui(ui, &mut s.loras, info.id, &s.variant, &t);
+            } else {
+                loras_ui(ui, &mut s.loras, &info.resolved, &t);
+            }
         }
         // ---- Draft → Refine.
         if s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
@@ -1284,6 +1311,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         s.refine_model = k;
                         s.refine_variant = catalog::default_variant(m).into();
                         s.refine_strength = catalog::refine_default_denoise(m);
+                        s.refine_strength_default = true;
                         s.refine_steps = None;
                         s.refine_guidance = None;
                         let fits: Vec<_> = li_ai::inventory::loras_for(&m.info().resolved).into_iter().map(|(l, _)| l.name).collect();
@@ -1293,36 +1321,32 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 if let Some(rm) = ModelId::from_key(&s.refine_model).filter(|m| m.try_info().is_some()) {
                     ui.push_id("refine-pass", |ui| {
                         variant_picker(ui, rm, &mut s.refine_variant);
-                        if rm.info().lora {
-                            loras_ui(ui, &mut s.refine_loras, &rm.info().resolved, &t);
-                        }
+                        refine_loras_ui(ui, &mut s.refine_loras, rm, &s.refine_variant, &t);
                     });
                 }
                 // The refine pass's own sampler settings, bounded only by what ComfyUI reports.
                 let limits = crate::ai_ui::status().limits;
                 let (dlo, dhi) = limits.map_or((f32::MIN, f32::MAX), |l| l.denoise);
-                denoise_row(ui, tl!("Refine denoise"), &mut s.refine_strength, dlo, dhi);
+                if denoise_row(ui, tl!("Refine denoise"), &mut s.refine_strength, dlo, dhi) {
+                    s.refine_strength_default = false;
+                }
                 if let Some(ri) = ModelId::from_key(&s.refine_model).and_then(|m| m.try_info()) {
                     let (slo, shi) = limits.map_or((1.0, f32::MAX), |l| l.steps);
                     let mut steps = s.refine_steps.unwrap_or(ri.steps.default as u32);
                     let hint = range_hint(ri.steps.min, ri.steps.max, ri.steps.default, 0);
-                    let before = steps;
-                    number_row(ui, tl!("Refine steps"), &mut steps, slo.max(1.0) as u32, shi.max(1.0) as u32, Some(hint));
-                    if steps != before {
+                    if number_row(ui, tl!("Refine steps"), &mut steps, slo.max(1.0) as u32, shi.max(1.0) as u32, Some(hint)) {
                         s.refine_steps = Some(steps);
                     }
                     let (clo, chi) = limits.map_or((f32::MIN, f32::MAX), |l| l.cfg);
                     let mut cfg = s.refine_guidance.unwrap_or(ri.guidance.default);
-                    let before = cfg;
-                    guidance_row_labeled(
+                    if guidance_row_labeled(
                         ui,
                         tl!("Refine guidance"),
                         &mut cfg,
                         clo,
                         chi,
                         Some(range_hint(ri.guidance.min, ri.guidance.max, ri.guidance.default, 1)),
-                    );
-                    if cfg != before {
+                    ) {
                         s.refine_guidance = Some(cfg);
                     }
                 }
@@ -1459,6 +1483,23 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
 }
 
+fn refine_loras_ui(ui: &mut egui::Ui, picks: &mut Vec<LoraPick>, model: ModelId, variant: &str, t: &Tokens) {
+    let profile = li_ai::refine::lora_profile_for(model, variant);
+    refine_recipe_loras_ui(ui, picks, profile.as_ref(), t);
+}
+
+fn refine_recipe_loras_ui(ui: &mut egui::Ui, picks: &mut Vec<LoraPick>, profile: Option<&li_ai::family::Family>, t: &Tokens) {
+    match profile {
+        Some(profile) => loras_ui(ui, picks, profile, t),
+        None => {
+            ui.label(tl!("This refinement recipe does not support styles (LoRAs)."));
+            if !picks.is_empty() && widgets::secondary_button(ui, tl!("Clear styles"), 0.0).clicked() {
+                picks.clear();
+            }
+        }
+    }
+}
+
 fn loras_ui(ui: &mut egui::Ui, picks: &mut Vec<LoraPick>, fam: &li_ai::family::Family, t: &Tokens) {
     let available = li_ai::inventory::loras_for(fam);
     let max = fam.lora.max.max(1) as usize;
@@ -1542,6 +1583,7 @@ fn loras_ui(ui: &mut egui::Ui, picks: &mut Vec<LoraPick>, fam: &li_ai::family::F
 }
 
 fn apply_preset(s: &mut GenerateState, p: &li_ai::presets::GenPreset) {
+    s.refine_strength_default = p.refine_strength.is_none();
     s.preset = p.name.clone();
     let model = p.model.as_deref().and_then(ModelId::from_key).or_else(|| {
         let fam = p.family.as_deref()?;
@@ -1560,9 +1602,11 @@ fn apply_preset(s: &mut GenerateState, p: &li_ai::presets::GenPreset) {
     }
     if let Some(v) = p.steps {
         s.steps = v;
+        s.refine_defaults[0] = false;
     }
     if let Some(v) = p.cfg {
         s.guidance = v;
+        s.refine_defaults[1] = false;
     }
     s.variety = p.variety.filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, 100.0);
     if let Some((a, b)) = &p.sampler {
@@ -1741,8 +1785,22 @@ pub(crate) fn regenerate_layer(app: &mut PhotocraftApp, ctx: &egui::Context, lay
     s.guidance = g["guidance"].as_f64().map_or(s.guidance, |v| v as f32);
     s.variety = g["variety"].as_f64().filter(|v| v.is_finite()).map_or(0.0, |v| v.clamp(0.0, 100.0) as f32);
     s.denoise = g["denoise"].as_f64().map_or(s.denoise, |v| v as f32);
+    s.refine_defaults = [false; 3];
+    s.sampler = g["sampler"].as_str().unwrap_or("").into();
+    s.scheduler = g["scheduler"].as_str().unwrap_or("").into();
     s.transparent = g["transparent"].as_bool().unwrap_or(false);
     s.loras = serde_json::from_value(g["loras"].clone()).unwrap_or_default();
+    if let Some(refine) = g["refine"].as_object() {
+        s.refine = true;
+        s.refine_model = refine.get("model").and_then(Value::as_str).unwrap_or("").into();
+        s.refine_variant = refine.get("variant").and_then(Value::as_str).unwrap_or("").into();
+        s.refine_strength = refine.get("strength").and_then(Value::as_f64).unwrap_or(0.35) as f32;
+        s.refine_strength_default = false;
+        s.refine_steps = refine.get("steps").and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok());
+        s.refine_guidance = refine.get("guidance").and_then(Value::as_f64).map(|v| v as f32);
+        s.refine_scale = refine.get("scale").and_then(Value::as_f64).unwrap_or(1.0) as f32;
+        s.refine_loras = serde_json::from_value(g["refine"]["loras"].clone()).unwrap_or_default();
+    }
     s.mode = match g["mode"].as_str() {
         Some("fill") => Mode::Fill,
         Some("edit") => Mode::Edit,
@@ -1805,6 +1863,9 @@ fn local_request(
     req.variety = if m == ModelId::ZImageTurbo && s.mode == Mode::Create && s.variety.is_finite() { s.variety.clamp(0.0, 100.0) } else { 0.0 };
     req.negative = s.negative.clone();
     req.denoise = fitted.denoise;
+    if s.mode == Mode::Refine {
+        req.refine_defaults = s.refine_defaults;
+    }
     req.scale = s.upscale;
     req.loras = s.loras.iter().map(|l| li_ai::workflows::LoraUse { name: l.name.clone(), strength: l.strength }).collect();
     if !s.sampler.is_empty() {
@@ -1832,8 +1893,9 @@ fn local_request(
                     model: rm,
                     variant: s.refine_variant.clone(),
                     strength: refine.denoise,
-                    steps: Some(refine.steps),
-                    guidance: Some(refine.guidance),
+                    default_strength: s.refine_strength_default,
+                    steps: s.refine_steps.map(|_| refine.steps),
+                    guidance: s.refine_guidance.map(|_| refine.guidance),
                     loras: s.refine_loras.iter().map(|l| li_ai::workflows::LoraUse { name: l.name.clone(), strength: l.strength }).collect(),
                     scale: s.refine_scale,
                 });
@@ -1960,10 +2022,11 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
             "reference_count": r.references.len(), "mode": format!("{:?}", s.mode).to_lowercase(),
         });
         let mask = r.mask.clone();
-        let ok = launch(app, &label, &shown, name, meta, target_doc.map(|d| d.0), open, move |ctl| {
-            let out = li_ai::service().generate(&r, ctl)?;
+        let ok = launch_resolved(app, &label, &shown, name, meta, target_doc.map(|d| d.0), open, move |ctl| {
+            let generated = li_ai::service().generate_detailed(&r, ctl)?;
+            let out = generated.image;
             // Fill lands as a layer holding only the regenerated area.
-            Ok(match (fill, mask) {
+            let image = match (fill, mask) {
                 (true, Some(m)) => {
                     let grown = li_ai::imaging::dilate(&m, 6);
                     let soft = image::imageops::blur(&grown, 3.0);
@@ -1974,7 +2037,8 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     })
                 }
                 _ => out,
-            })
+            };
+            Ok((image, generated.parameters))
         });
         if !ok {
             break;
@@ -2081,6 +2145,20 @@ fn launch(
     open: bool,
     work: impl FnOnce(&li_ai::JobControl) -> anyhow::Result<RgbaImage> + Send + 'static,
 ) -> bool {
+    launch_resolved(app, label, shown, name, meta, edit, open, move |ctl| Ok((work(ctl)?, Value::Null)))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn launch_resolved(
+    app: &mut PhotocraftApp,
+    label: &str,
+    shown: &str,
+    name: String,
+    mut meta: Value,
+    edit: Option<u64>,
+    open: bool,
+    work: impl FnOnce(&li_ai::JobControl) -> anyhow::Result<(RgbaImage, Value)> + Send + 'static,
+) -> bool {
     let params = json!({ "edit": edit, "name": name.clone(), "open": open });
     let library = library();
     let started = app.session.start_job(
@@ -2089,7 +2167,10 @@ fn launch(
         label,
         false,
         move |ctx| {
-            let img = photocraft_engine::ai_cmds::bridged(ctx, work)?;
+            let (img, resolved) = photocraft_engine::ai_cmds::bridged(ctx, work)?;
+            if let (Some(meta), Some(resolved)) = (meta.as_object_mut(), resolved.as_object()) {
+                meta.extend(resolved.clone());
+            }
             ctx.progress(0.98, "Saving to the library");
             let entry = library
                 .add(&img, &name, Some(meta), None)
@@ -3269,4 +3350,149 @@ fn ds2_restored_upscale_keeps_non_official_model_choice() {
     rt(|r| r.upscale_any = false);
     restore_upscale_choice(&GenerateState { mode: Mode::Upscale, model: ModelId::SeedVr2.key().into(), ..Default::default() });
     assert!(!upscale_any());
+}
+
+#[cfg(test)]
+#[test]
+fn final_review_unsupported_recipe_picker_explains_and_can_clear_styles() {
+    use egui_kittest::kittest::Queryable;
+    let mut initialized = false;
+    let mut h = egui_kittest::Harness::builder().with_size(vec2(500.0, 200.0)).build_ui_state(
+        move |ui, picks: &mut Vec<LoraPick>| {
+            if !initialized {
+                PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                initialized = true;
+                ui.ctx().request_repaint();
+                return;
+            }
+            refine_recipe_loras_ui(ui, picks, None, &Tokens::get(ui.ctx()));
+        },
+        vec![LoraPick { name: "flux-2-klein-style.safetensors".into(), strength: 0.7 }],
+    );
+    h.run_steps(3);
+    h.get_by_label("This refinement recipe does not support styles (LoRAs).");
+    assert_eq!(h.state().len(), 1, "discovery must not silently discard a chosen style");
+    h.get_by_label("Clear styles").click();
+    h.run_steps(3);
+    assert!(h.state().is_empty());
+}
+
+#[cfg(test)]
+#[test]
+fn final_review_history_persists_effective_sampling_and_replays_it_explicitly() {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.session.execute("file.new", json!({"width":32,"height":24})).unwrap();
+    let layer = app.session.active().unwrap().active_layer.unwrap();
+    let image = RgbaImage::from_pixel(32, 24, image::Rgba([35, 86, 119, 255]));
+    let expected = image.clone();
+    let meta =
+        json!({"model":ModelId::Klein4B.key(), "variant":"bf16", "mode":"refine", "prompt":"refine", "seed":42, "steps":4, "guidance":1.0, "denoise":1.0});
+    assert!(launch_resolved(&mut app, "Refinement", "Refinement", "review-effective".into(), meta, None, false, move |_| {
+        Ok((image, json!({"steps":8,"guidance":2.0,"denoise":0.35,"sampler":"euler","scheduler":"simple","recipe":"template:verified","width":32,"height":24})))
+    }));
+    let until = Instant::now() + Duration::from_secs(5);
+    let entry = loop {
+        if let Some(event) = app.session.poll_jobs().into_iter().next() {
+            on_generated(&mut app, &event);
+            let JobOutcome::Done(value) = event.outcome else { panic!("{event:?}") };
+            break serde_json::from_value::<Entry>(value).unwrap();
+        }
+        assert!(Instant::now() < until, "generation did not finish");
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert_eq!(library().load(&entry).unwrap(), expected);
+    let persisted = library().list().into_iter().find(|e| e.id == entry.id).unwrap();
+    let generation = persisted.generation.as_ref().unwrap();
+    assert_eq!(generation["denoise"], 0.35);
+    assert_eq!(generation["steps"], 8);
+    assert_eq!(generation["recipe"], "template:verified");
+    regenerate_layer(&mut app, &egui::Context::default(), layer.0, generation, true).unwrap();
+    let state = &app.ui.ai.generate;
+    assert_eq!((state.steps, state.guidance, state.denoise), (8, 2.0, 0.35));
+    assert_eq!(state.refine_defaults, [false; 3]);
+    assert_eq!((&*state.sampler, &*state.scheduler), ("euler", "simple"));
+    let req = local_request(state, state.prompt.clone(), Some((app.session.active().unwrap().doc.id, expected, None)), vec![]).unwrap().0;
+    assert_eq!(req.refine_defaults, [false; 3]);
+    assert_eq!(req.denoise, 0.35);
+}
+
+#[cfg(test)]
+#[test]
+fn final_review_history_replay_preserves_the_resolved_second_pass() {
+    let defaults = GenerateState {
+        refine: true,
+        refine_model: ModelId::Klein9B.key().into(),
+        refine_variant: catalog::default_variant(ModelId::Klein9B).into(),
+        ..Default::default()
+    };
+    let automatic = local_request(&defaults, "a house".into(), None, vec![]).unwrap().0.refine.unwrap();
+    assert_eq!((automatic.steps, automatic.guidance), (None, None), "recipe defaults must be resolved on the worker");
+    assert!(automatic.default_strength);
+    let legacy: GenerateState = serde_json::from_value(json!({"steps":20,"guidance":8.0,"denoise":0.35,"refine_strength":0.35})).unwrap();
+    assert_eq!(legacy.refine_defaults, [false; 3], "older saved numbers remain explicit");
+    assert!(!legacy.refine_strength_default);
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.session.execute("file.new", json!({"width":32,"height":24})).unwrap();
+    let layer = app.session.active().unwrap().active_layer.unwrap();
+    let meta = json!({"model":ModelId::Klein4B.key(),"mode":"create","prompt":"a house","steps":4,"guidance":1.0,"denoise":0.6,
+        "refine":{"model":ModelId::Klein9B.key(),"variant":"fp8","strength":0.25,"steps":12,"guidance":5.0,"scale":1.5,"loras":[{"name":"style.safetensors","strength":0.7}]}});
+    regenerate_layer(&mut app, &egui::Context::default(), layer.0, &meta, true).unwrap();
+    let state = &app.ui.ai.generate;
+    let req = local_request(state, state.prompt.clone(), None, vec![]).unwrap().0;
+    let step = req.refine.unwrap();
+    assert_eq!(step.model, ModelId::Klein9B);
+    assert_eq!(step.variant, "fp8");
+    assert_eq!((step.steps, step.guidance, step.strength, step.scale), (Some(12), Some(5.0), 0.25, 1.5));
+    assert!(!step.default_strength);
+    assert_eq!(step.loras[0].name, "style.safetensors");
+    assert_eq!(step.loras[0].strength, 0.7);
+}
+
+#[cfg(test)]
+#[test]
+fn final_review_second_pass_typing_nominal_values_marks_them_explicit() {
+    use egui_kittest::kittest::Queryable;
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(crate::ai_ui::EngineStatus { checked: true, ..Default::default() }));
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = None);
+        }
+    }
+    let _reset = Reset;
+    let model = ModelId::Klein9B;
+    let steps = model.info().steps.default as u32;
+    let guidance = model.info().guidance.default;
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.ui.ai.generate.refine = true;
+    app.ui.ai.generate.refine_model = model.key().into();
+    app.ui.ai.generate.refine_variant = catalog::default_variant(model).into();
+    let mut initialized = false;
+    let mut h = egui_kittest::Harness::builder().with_size(vec2(620.0, 1600.0)).build_ui_state(
+        move |ui, app: &mut PhotocraftApp| {
+            if !initialized {
+                PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                initialized = true;
+                ui.ctx().request_repaint();
+                return;
+            }
+            panel(app, ui);
+        },
+        app,
+    );
+    h.run_steps(3);
+    assert_eq!((h.state().ui.ai.generate.refine_steps, h.state().ui.ai.generate.refine_guidance), (None, None));
+    h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Refine steps").click();
+    h.run_steps(2);
+    h.event(egui::Event::Text(steps.to_string()));
+    h.run_steps(2);
+    h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Refine guidance").click();
+    h.run_steps(2);
+    h.event(egui::Event::Text(guidance.to_string()));
+    h.run_steps(2);
+    let state = &h.state().ui.ai.generate;
+    assert_eq!((state.refine_steps, state.refine_guidance), (Some(steps), Some(guidance)));
+    let step = local_request(state, "a house".into(), None, vec![]).unwrap().0.refine.unwrap();
+    assert_eq!((step.steps, step.guidance), (Some(steps), Some(guidance)));
 }

@@ -163,8 +163,33 @@ pub fn render_shape(doc: &Document, source: &ShapeLayer, vector: &VectorData) ->
 pub fn maintain_metadata(doc: &mut Document) -> Result<()> {
     packages::styles::prune_links(doc)?;
     let links = doc.swatches.links.clone();
-    doc.swatches.links = links.into_iter().filter(|link| packages::colours::validate_target(doc, &link.target).is_ok()).collect();
+    doc.swatches.links = links.into_iter().filter(|link| packages::colours::color(doc, &link.target).is_ok()).collect();
     Ok(())
+}
+
+#[cfg(test)]
+#[test]
+#[allow(clippy::unwrap_used)]
+fn bugfix_save_o031_locked_swatch_links_survive_unlock_and_prune_deleted_targets() {
+    initialize();
+    use photocraft_doc::vector_design::swatches::*;
+    let mut doc = Document::new("links", photocraft_doc::Size::new(32, 24), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+    let mut layer = photocraft_doc::Layer::new(
+        "shape",
+        LayerContent::Shape(ShapeLayer { fill: Some(photocraft_doc::Fill::Solid(photocraft_doc::Color::BLACK)), ..Default::default() }),
+    );
+    let target = PaintTarget { symbol: None, layer: layer.id, paint: PaintSlot::Fill, stop: None };
+    let link = PaintLink { target: target.clone(), reference: SwatchRef { swatch: SwatchId(1), tint: 100. } };
+    layer.locks.all = true;
+    doc.layers.push(layer);
+    doc.swatches.links.push(link.clone());
+    maintain_metadata(&mut doc).unwrap();
+    assert_eq!(doc.swatches.links, vec![link]);
+    doc.layers[0].locks.all = false;
+    assert!(packages::colours::validate_target(&doc, &target).is_ok());
+    doc.layers.clear();
+    maintain_metadata(&mut doc).unwrap();
+    assert!(doc.swatches.links.is_empty());
 }
 
 /// One detached projection traversal for canvas, exports and expanded objects.

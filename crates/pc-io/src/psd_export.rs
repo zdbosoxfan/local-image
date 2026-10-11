@@ -471,6 +471,13 @@ impl Ex {
                 }
                 let (w, h) = (self.canvas.width(), self.canvas.height());
                 crate::vector_map::shape_blocks(sh, &mut raw, w, h, self.dpi);
+                if l.vector_mask.is_some() {
+                    // A shape's geometry already occupies PSD's sole vector-mask slot. Write
+                    // the separately clipped pixels as an ordinary raster layer, so other PSD
+                    // readers cannot regenerate the unmasked shape from its fill/proxy blocks.
+                    raw.retain(|(key, _)| !fallback::proxy_key(key));
+                    regenerated.retain(|(key, _)| !fallback::proxy_key(key));
+                }
             }
             LayerContent::Text(t) => {
                 if l.vector.on_path.is_some() {
@@ -536,7 +543,7 @@ impl Ex {
             upsert(
                 &mut raw,
                 &fallback::CACHE_KEY,
-                fallback::cache_block(cache, kind, kind == fallback::CacheKind::Shape, photocraft_compose::paint_bounds(l)),
+                fallback::cache_block(cache, kind, kind == fallback::CacheKind::Shape && l.vector_mask.is_none(), photocraft_compose::paint_bounds(l)),
                 None,
             );
         }

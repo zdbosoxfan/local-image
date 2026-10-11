@@ -1,5 +1,15 @@
 // Translations paused by docs/wip/CODEX-TASK.md; vector package 00–47 English keys.
 &[
+    "document was closed",
+    "Saved a copy to {path}",
+    "Export failed: {error}",
+    "Some preferences used defaults: {error}",
+    "invalid fields used defaults: {fields}",
+    "This replaces the original Photoshop document with flattened pixels. Its layers will be lost.",
+    "independent shape vector masks",
+    "Some Library settings used defaults: {fields}. A copy of the damaged settings was kept.",
+    "Library settings couldn't be read: {error}. Choose your existing Library folder. Your stored settings will not be replaced.",
+    "Choose your Library folder.",
     "Application Swatches",
     "Cleanup: {before} → {after} nodes · {holes} holes · {shapes} shapes · {rejected} rejected",
     "1×",

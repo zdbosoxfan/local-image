@@ -834,6 +834,7 @@ mod tests {
             model: sdxl,
             variant: "installed".into(),
             strength: 0.35,
+            default_strength: false,
             steps: Some(31),
             guidance: Some(7.5),
             scale: 1.0,
@@ -854,8 +855,9 @@ mod tests {
         let mut invalid = step.clone();
         invalid.loras[0].name = "flux_realism_lora.safetensors".into();
         req.refine = Some(invalid);
-        ai.generate(&req, &ctl).unwrap();
-        assert!(!classes_of(server.prompts().last().unwrap()).contains(&"LoraLoader".into()), "wrong-family styles are filtered from refinement");
+        let before = server.prompts().len();
+        assert!(ai.generate(&req, &ctl).unwrap_err().to_string().contains("incompatible"));
+        assert_eq!(server.prompts().len(), before, "wrong-family styles are rejected before submitting either pass");
         let mut invalid = step.clone();
         invalid.loras[0].strength = f32::NAN;
         req.refine = Some(invalid);
@@ -869,6 +871,7 @@ mod tests {
             model: ModelId::Qwen,
             variant: crate::catalog::default_variant(ModelId::Qwen).into(),
             strength: 0.35,
+            default_strength: false,
             steps: None,
             guidance: None,
             scale: 1.0,
@@ -973,6 +976,7 @@ mod tests {
             model: sdxl,
             variant: "installed".into(),
             strength: 0.35,
+            default_strength: false,
             steps: None,
             guidance: None,
             loras: Vec::new(),

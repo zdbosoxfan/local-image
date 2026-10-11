@@ -229,6 +229,13 @@ pub(crate) fn reload(s: &mut Session, p: &Value) -> Result<Value> {
         // camera fields the catalog lacks (e.g. a raw imported before its format was read) are filled in;
         // nothing already set is overwritten
         let meta_ops = fill_missing_meta(id, ph, &info);
+        if super::bool_or(p, "resetDevelop", false) {
+            ops.push(Op::SetDevelop { id, settings: Default::default(), label: "Reset after Overwrite".into(), edited: None });
+            for copy in s.catalog.photos().filter(|c| c.copy_of == Some(id)) {
+                ops.push(Op::SetDevelop { id: copy.id, settings: Default::default(), label: "Reset after Overwrite".into(), edited: None });
+            }
+            reloaded.push(id);
+        }
         let Some(op) = content_op(id, ph, info.clone()) else {
             if !meta_ops.is_empty() {
                 ops.extend(meta_ops);
@@ -245,6 +252,8 @@ pub(crate) fn reload(s: &mut Session, p: &Value) -> Result<Value> {
         }
         reloaded.push(id);
     }
+    reloaded.sort_unstable();
+    reloaded.dedup();
     for id in &reloaded {
         s.media.forget(*id);
     }

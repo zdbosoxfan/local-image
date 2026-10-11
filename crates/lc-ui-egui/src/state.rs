@@ -627,6 +627,8 @@ pub enum Dialog {
     /// Confirm moving photos to Recently Deleted.
     ConfirmDelete {
         count: usize,
+        ids: Vec<u64>,
+        disk: bool,
     },
     About,
     Shortcuts,

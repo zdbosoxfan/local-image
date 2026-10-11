@@ -22,6 +22,23 @@ fn alpha(d: &Document, id: LayerId, x: i32, y: i32) -> f32 {
 }
 
 #[test]
+fn bugfix_save_o045_floating_moves_protect_a_clean_document_until_returned_or_dropped() {
+    let (mut s, _) = session();
+    s.active_mut().unwrap().saved_revision = s.active().unwrap().revision;
+    let before = s.active().unwrap().doc.clone();
+    s.execute("select.float", json!({"dx": 20})).unwrap();
+    assert!(s.active().unwrap().is_dirty());
+    s.execute("select.float", json!({"dx": -20})).unwrap();
+    assert!(!s.active().unwrap().is_dirty());
+    s.execute("select.float", json!({"dx": 20})).unwrap();
+    drop_floating(&mut s).unwrap();
+    assert!(s.active().unwrap().is_dirty());
+    assert!(s.undo());
+    assert_eq!(s.active().unwrap().doc, before);
+    assert!(s.active().unwrap().is_dirty(), "Undo keeps the engine's existing revision-based dirty state");
+}
+
+#[test]
 fn move_pixels_cut_and_copy_commit_pixels_and_selection_in_one_step() {
     for copy in [false, true] {
         let (mut s, id) = session();

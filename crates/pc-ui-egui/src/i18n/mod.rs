@@ -595,6 +595,13 @@ mod tests {
     ];
 
     const PENDING_AI_TRANSLATIONS: &[&str] = &[
+        "This refinement recipe does not support styles (LoRAs).",
+        "This refinement recipe does not support styles (LoRAs). Remove the selected styles or choose another refinement model.",
+        "The selected style is incompatible with this refinement model: {style}",
+        "Clear styles",
+        "Model inventory changed during refinement testing; retry.",
+        "Model file changed during refinement testing; retry.",
+        "Refinement recipe was not resolved.",
         "Install the selected SeedVR2 model and VAE, then refresh ComfyUI.",
         "Invalid enhancement choices file",
         "invalid convolution padding",

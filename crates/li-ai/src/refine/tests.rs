@@ -457,3 +457,367 @@ fn autodetect_cached_template_rebinds_only_its_main_model_after_rename() {
     assert!(server.prompts().is_empty(), "unchanged file hash needs no new synthesis");
     crate::catalog::set_installed(Vec::new());
 }
+
+#[test]
+fn final_review_checker_rejects_model_swap_after_submission() {
+    let _inventory = crate::inventory::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = Temp::new();
+    let file = dir.file("review-swap.safetensors");
+    let server = MockComfy::start().unwrap();
+    server.delay_ms.store(250, Ordering::SeqCst);
+    server.set_model_dir(&dir.0);
+    let client = ComfyClient::new(server.host());
+    crate::inventory::refresh(&client.object_info().unwrap(), Some(&dir.0));
+    let model = ModelId::from_key("ckpt:review-swap.safetensors").unwrap();
+    let checker = Checker::new(dir.0.join("state.json"));
+    let (original_hash, _) = checker.hash_file(&file, &JobControl::new()).unwrap();
+    std::thread::scope(|scope| {
+        let checked = scope.spawn(|| checker.check_in(&client, model, "installed", &dir.0, false, &JobControl::new()));
+        let until = Instant::now() + Duration::from_secs(5);
+        while server.prompts().is_empty() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(server.prompts().len(), 1);
+        let mut bytes = std::fs::read(&file).unwrap();
+        bytes.push(42);
+        std::fs::write(&file, bytes).unwrap();
+        assert!(checked.join().unwrap().is_err(), "changed weights must not publish a verdict");
+    });
+    assert!(checker.saved(&original_hash).is_none());
+    assert_eq!(checker.status(&client, model), Status::Unchecked);
+    assert!(model_defaults(model).is_none());
+}
+
+#[test]
+fn final_review_recipes_never_silently_drop_styles() {
+    let info = mock_info("new-model.safetensors");
+    let template = template_recipe("edit", &fixture(), &info, &target_file("new-model.safetensors")).unwrap();
+    let universal = universal("new-model.safetensors", &info, &BTreeMap::new()).unwrap();
+    for recipe in [template, universal] {
+        for name in ["flux-2-klein-style.safetensors", "sdxl-style.safetensors", "unidentified.safetensors"] {
+            let loras = [LoraUse { name: name.into(), strength: 0.7 }];
+            let p = Params { task: Task::Refine { denoise: 0.35 }, loras: &loras, ..Params::create("refine", 512, 288, 4, 20, 8.0) };
+            assert!(recipe.graph(&p).is_err(), "{} must reject unsupported styles before submission", recipe.label());
+        }
+    }
+}
+
+#[test]
+fn final_review_refine_keeps_explicit_values_equal_to_nominal_defaults() {
+    let _inventory = crate::inventory::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = Temp::new();
+    // Deliberately no local weights: cached recipes for remote servers are session-only.
+    let server = MockComfy::start().unwrap();
+    server.delay_ms.store(1, Ordering::SeqCst);
+    let name = "review-effective-remote.safetensors";
+    dir.file(name);
+    server.set_model_dir(&dir.0);
+    let info = mock_info(name);
+    crate::catalog::set_installed(vec![target_file(name)]);
+    let model = ModelId::from_key(&format!("ckpt:{name}")).unwrap();
+    let mut recipe = universal(name, &info, &BTreeMap::new()).unwrap();
+    if let Recipe::Universal { defaults, .. } = &mut recipe {
+        defaults.steps = 12;
+        defaults.cfg = 5.0;
+        defaults.denoise = 0.25;
+    }
+    let client = ComfyClient::new(server.host());
+    checker()
+        .session_verdicts
+        .lock()
+        .unwrap()
+        .insert(format!("{}:{name}", Checker::key(&client, model, "installed")), Verdict::Verified { recipe: Box::new(recipe), difference: 0.0 });
+    let mut req = crate::GenerateRequest::new(model, "refine");
+    req.mode = crate::GenerateMode::Refine;
+    req.source = Some(image::DynamicImage::ImageRgb8(test_image()).to_rgba8());
+    req.denoise = 0.35;
+    let requested = (req.steps, req.guidance, req.denoise);
+    crate::Ai::new(server.host()).generate(&req, &JobControl::new()).unwrap();
+    let graphs = server.prompts();
+    let sampler = graphs.last().unwrap().as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+    assert_eq!(sampler["inputs"]["steps"], requested.0, "explicit steps must not be guessed from numeric equality");
+    assert_eq!(sampler["inputs"]["cfg"], requested.1);
+    assert!((sampler["inputs"]["denoise"].as_f64().unwrap() - f64::from(requested.2)).abs() < 1e-6);
+    drop(dir);
+}
+
+#[test]
+fn final_review_checker_rejects_model_swap_before_cached_publication() {
+    let _inventory = crate::inventory::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = Temp::new();
+    let file = dir.file("review-before-swap.safetensors");
+    let server = MockComfy::start().unwrap();
+    server.set_model_dir(&dir.0);
+    let client = ComfyClient::new(server.host());
+    crate::inventory::refresh(&client.object_info().unwrap(), Some(&dir.0));
+    let model = ModelId::from_key("ckpt:review-before-swap.safetensors").unwrap();
+    let checker = Checker::new(dir.0.join("state.json"));
+    let (hash, _) = checker.hash_file(&file, &JobControl::new()).unwrap();
+    let recipe = universal("review-before-swap.safetensors", &client.object_info().unwrap(), &BTreeMap::new()).unwrap();
+    checker.store(&hash, &Verdict::Verified { recipe: Box::new(recipe), difference: 0.0 }).unwrap();
+    let publication = checker.state.lock().unwrap();
+    std::thread::scope(|scope| {
+        let checked = scope.spawn(|| checker.check_in(&client, model, "installed", &dir.0, false, &JobControl::new()));
+        let until = Instant::now() + Duration::from_secs(5);
+        while checker.runtime.lock().unwrap().values().all(|e| e.signature.is_none()) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(checker.runtime.lock().unwrap().values().any(|e| e.signature.is_some()));
+        let mut bytes = std::fs::read(&file).unwrap();
+        bytes.push(43);
+        std::fs::write(&file, bytes).unwrap();
+        drop(publication);
+        assert!(checked.join().unwrap().is_err(), "changed weights must invalidate cached publication");
+    });
+    assert!(server.prompts().is_empty());
+    assert_eq!(checker.status(&client, model), Status::Unchecked);
+    assert!(model_defaults(model).is_none());
+}
+
+#[test]
+fn final_review_checker_rejects_inventory_change_after_submission() {
+    let _inventory = crate::inventory::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = Temp::new();
+    dir.file("review-inventory.safetensors");
+    let server = MockComfy::start().unwrap();
+    server.delay_ms.store(250, Ordering::SeqCst);
+    server.set_model_dir(&dir.0);
+    let client = ComfyClient::new(server.host());
+    crate::inventory::refresh(&client.object_info().unwrap(), Some(&dir.0));
+    let model = ModelId::from_key("ckpt:review-inventory.safetensors").unwrap();
+    let checker = Checker::new(dir.0.join("state.json"));
+    std::thread::scope(|scope| {
+        let checked = scope.spawn(|| checker.check_in(&client, model, "installed", &dir.0, false, &JobControl::new()));
+        let until = Instant::now() + Duration::from_secs(5);
+        while server.prompts().is_empty() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(server.prompts().len(), 1);
+        crate::catalog::set_installed(vec![]);
+        assert!(checked.join().unwrap().is_err(), "changed inventory must not publish a verdict");
+    });
+    assert!(!dir.0.join("state.json").exists());
+    assert_eq!(checker.status(&client, model), Status::Unchecked);
+}
+
+#[test]
+fn final_review_family_styles_are_preserved_or_rejected_explicitly() {
+    let profile = crate::family::registry().family("sdxl").unwrap().clone();
+    let recipe = Recipe::Family { profile: Box::new(profile), files: [(Role::Checkpoint, "sdxl.safetensors".into())].into(), denoise: 0.35 };
+    for (name, compatible) in [("sdxl_style.safetensors", true), ("unidentified.safetensors", true), ("flux1_style.safetensors", false)] {
+        let loras = [LoraUse { name: name.into(), strength: 0.7 }];
+        let p = Params { task: Task::Refine { denoise: 0.35 }, loras: &loras, ..Params::create("refine", 512, 288, 42, 20, 6.0) };
+        let graph = recipe.graph(&p);
+        if compatible {
+            let graph = graph.unwrap().0;
+            let lora = graph.as_object().unwrap().values().find(|n| n["class_type"] == "LoraLoader").unwrap();
+            assert_eq!(lora["inputs"]["lora_name"], name);
+            assert!((lora["inputs"]["strength_model"].as_f64().unwrap() - 0.7).abs() < 1e-6);
+        } else {
+            assert!(graph.is_err(), "incompatible styles must be rejected, not filtered");
+        }
+    }
+}
+
+#[test]
+fn final_review_service_rejects_unsupported_styles_for_both_refine_routes() {
+    let _inventory = crate::inventory::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = Temp::new();
+    let name = "review-style-remote.safetensors";
+    dir.file(name);
+    let server = MockComfy::start().unwrap();
+    server.delay_ms.store(1, Ordering::SeqCst);
+    server.set_model_dir(&dir.0);
+    let client = ComfyClient::new(server.host());
+    crate::catalog::set_installed(vec![target_file(name)]);
+    let model = ModelId::from_key(&format!("ckpt:{name}")).unwrap();
+    let info = client.object_info().unwrap();
+    let checkpoint = universal(name, &info, &BTreeMap::new()).unwrap();
+    let (graph, _) = checkpoint.graph(&Params::create("refine", 512, 288, 42, 20, 8.0)).unwrap();
+    let template = template_recipe("edit", &graph, &info, &target_file(name)).unwrap();
+    for recipe in [checkpoint, template] {
+        checker()
+            .session_verdicts
+            .lock()
+            .unwrap()
+            .insert(format!("{}:{name}", Checker::key(&client, model, "installed")), Verdict::Verified { recipe: Box::new(recipe), difference: 0.0 });
+        for style in ["flux-2-klein-style.safetensors", "sdxl-style.safetensors", "unidentified.safetensors"] {
+            let loras = vec![LoraUse { name: style.into(), strength: 0.7 }];
+            let mut req = crate::GenerateRequest::new(model, "refine");
+            req.mode = crate::GenerateMode::Refine;
+            req.source = Some(image::DynamicImage::ImageRgb8(test_image()).to_rgba8());
+            req.loras = loras.clone();
+            assert!(crate::Ai::new(server.host()).generate(&req, &JobControl::new()).is_err());
+            let mut draft = crate::GenerateRequest::new(ModelId::Klein4B, "draft");
+            draft.refine = Some(crate::RefineStep {
+                model,
+                variant: "installed".into(),
+                strength: 0.35,
+                default_strength: false,
+                steps: None,
+                guidance: None,
+                loras,
+                scale: 1.0,
+            });
+            assert!(crate::Ai::new(server.host()).generate(&draft, &JobControl::new()).is_err());
+        }
+    }
+    assert!(server.prompts().is_empty(), "unsupported styles must be rejected before either job is submitted");
+}
+
+#[cfg(unix)]
+#[test]
+fn final_review_hash_detects_same_size_rewrite_with_restored_mtime() {
+    let dir = Temp::new();
+    let file = dir.file("review-rewrite.safetensors");
+    let checker = Checker::new(dir.0.join("state.json"));
+    let old_time = std::fs::metadata(&file).unwrap().modified().unwrap();
+    let original = checker.hash_file(&file, &JobControl::new()).unwrap().0;
+    std::thread::sleep(Duration::from_millis(2));
+    let mut bytes = std::fs::read(&file).unwrap();
+    *bytes.last_mut().unwrap() = 1;
+    std::fs::write(&file, bytes).unwrap();
+    std::fs::File::open(&file).unwrap().set_modified(old_time).unwrap();
+    assert_ne!(checker.hash_file(&file, &JobControl::new()).unwrap().0, original, "filesystem change identity must invalidate the hash cache");
+}
+
+#[test]
+fn final_review_effective_metadata_resolves_saved_defaults_and_honours_explicit_values() {
+    let _inventory = crate::inventory::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = Temp::new();
+    let name = "review-metadata-remote.safetensors";
+    dir.file(name);
+    let server = MockComfy::start().unwrap();
+    server.delay_ms.store(1, Ordering::SeqCst);
+    server.set_model_dir(&dir.0);
+    let client = ComfyClient::new(server.host());
+    crate::catalog::set_installed(vec![target_file(name)]);
+    let model = ModelId::from_key(&format!("ckpt:{name}")).unwrap();
+    let info = client.object_info().unwrap();
+    let checkpoint = universal(name, &info, &BTreeMap::new()).unwrap();
+    let (graph, _) = checkpoint.graph(&Params::create("refine", 512, 288, 42, 20, 8.0)).unwrap();
+    let template = template_recipe("edit", &graph, &info, &target_file(name)).unwrap();
+    for mut recipe in [checkpoint, template] {
+        match &mut recipe {
+            Recipe::Universal { defaults, .. } | Recipe::Template { defaults, .. } => {
+                defaults.steps = 12;
+                defaults.cfg = 5.0;
+                defaults.denoise = 0.25;
+            }
+            _ => unreachable!(),
+        }
+        checker()
+            .session_verdicts
+            .lock()
+            .unwrap()
+            .insert(format!("{}:{name}", Checker::key(&client, model, "installed")), Verdict::Verified { recipe: Box::new(recipe), difference: 0.0 });
+        let mut req = crate::GenerateRequest::new(model, "refine");
+        req.mode = crate::GenerateMode::Refine;
+        req.source = Some(image::DynamicImage::ImageRgb8(test_image()).to_rgba8());
+        for (flags, values) in [([true; 3], (12, 5.0, 0.25)), ([false; 3], (20, 8.0, 0.35)), ([false; 3], (14, 4.0, 0.7))] {
+            req.refine_defaults = flags;
+            if flags == [false; 3] {
+                (req.steps, req.guidance, req.denoise) = values;
+            }
+            let out = crate::Ai::new(server.host()).generate_detailed(&req, &JobControl::new()).unwrap();
+            assert_eq!(out.parameters["steps"], values.0);
+            assert!((out.parameters["guidance"].as_f64().unwrap() - f64::from(values.1)).abs() < 1e-6);
+            assert!((out.parameters["denoise"].as_f64().unwrap() - f64::from(values.2)).abs() < 1e-6);
+            let graph = server.prompts().last().unwrap().clone();
+            let sampler = graph.as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+            for (param, input) in [("steps", "steps"), ("guidance", "cfg"), ("denoise", "denoise")] {
+                assert_eq!(out.parameters[param], sampler["inputs"][input]);
+            }
+            assert_eq!(out.image.dimensions(), (512, 288));
+        }
+    }
+}
+
+#[test]
+fn final_review_second_pass_metadata_uses_resolved_strength_and_explicit_options() {
+    let _inventory = crate::inventory::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = Temp::new();
+    let name = "review-second-pass-remote.safetensors";
+    dir.file(name);
+    let server = MockComfy::start().unwrap();
+    server.delay_ms.store(1, Ordering::SeqCst);
+    server.set_model_dir(&dir.0);
+    let client = ComfyClient::new(server.host());
+    crate::catalog::set_installed(vec![target_file(name)]);
+    let model = ModelId::from_key(&format!("ckpt:{name}")).unwrap();
+    let mut recipe = universal(name, &client.object_info().unwrap(), &BTreeMap::new()).unwrap();
+    if let Recipe::Universal { defaults, .. } = &mut recipe {
+        defaults.steps = 12;
+        defaults.cfg = 5.0;
+        defaults.denoise = 0.25;
+    }
+    checker()
+        .session_verdicts
+        .lock()
+        .unwrap()
+        .insert(format!("{}:{name}", Checker::key(&client, model, "installed")), Verdict::Verified { recipe: Box::new(recipe), difference: 0.0 });
+    for (automatic, values) in [(true, (12, 5.0, 0.25)), (false, (20, 8.0, 0.35))] {
+        let mut req = crate::GenerateRequest::new(ModelId::Klein4B, "a house");
+        (req.width, req.height) = (512, 288);
+        req.refine = Some(crate::RefineStep {
+            model,
+            variant: "installed".into(),
+            strength: 0.35,
+            default_strength: automatic,
+            steps: (!automatic).then_some(values.0),
+            guidance: (!automatic).then_some(values.1),
+            loras: vec![],
+            scale: 1.0,
+        });
+        let generated = crate::Ai::new(server.host()).generate_detailed(&req, &JobControl::new()).unwrap();
+        let effective = &generated.parameters["refine"];
+        assert_eq!(effective["steps"], values.0);
+        assert_eq!(effective["guidance"], values.1);
+        assert!((effective["strength"].as_f64().unwrap() - values.2).abs() < 1e-6);
+        let graph = server.prompts().last().unwrap().clone();
+        let sampler = graph.as_object().unwrap().values().find(|n| n["class_type"] == "KSampler").unwrap();
+        assert_eq!(effective["steps"], sampler["inputs"]["steps"]);
+        assert_eq!(effective["guidance"], sampler["inputs"]["cfg"]);
+        assert_eq!(effective["strength"], sampler["inputs"]["denoise"]);
+    }
+}
+
+#[test]
+fn final_review_checker_accepts_unchanged_inventory_refresh_after_submission() {
+    let _inventory = crate::inventory::TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = Temp::new();
+    dir.file("review-initial-refresh.safetensors");
+    let server = MockComfy::start().unwrap();
+    server.delay_ms.store(250, Ordering::SeqCst);
+    server.set_model_dir(&dir.0);
+    let client = ComfyClient::new(server.host());
+    crate::catalog::set_installed(vec![target_file("review-initial-refresh.safetensors")]);
+    let model = ModelId::from_key("ckpt:review-initial-refresh.safetensors").unwrap();
+    let checker = Checker::new(dir.0.join("state.json"));
+    std::thread::scope(|scope| {
+        let checked = scope.spawn(|| checker.check_in(&client, model, "installed", &dir.0, false, &JobControl::new()));
+        let until = Instant::now() + Duration::from_secs(5);
+        while server.prompts().is_empty() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert_eq!(server.prompts().len(), 1);
+        crate::inventory::refresh(&client.object_info().unwrap(), Some(&dir.0));
+        assert!(matches!(checked.join().unwrap().unwrap(), Some(Verdict::Verified { .. })), "unchanged loader files must allow publication");
+    });
+    assert_eq!(checker.status(&client, model), Status::Verified);
+    assert!(dir.0.join("state.json").is_file());
+}
+
+#[test]
+fn final_review_inventory_identity_ignores_uploaded_images_and_retains_weights() {
+    let mut before = mock_info("review-signature.safetensors");
+    before.0["LoadImage"]["input"]["required"]["image"] = json!([["existing.png"], {"image_upload":true}]);
+    let mut uploaded = before.clone();
+    uploaded.0["LoadImage"]["input"]["required"]["image"][0].as_array_mut().unwrap().push(json!("checker-source.png"));
+    assert_eq!(inventory_signature(&before), inventory_signature(&uploaded), "the check's own upload must not invalidate its verdict");
+    uploaded.0["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0].as_array_mut().unwrap().push(json!("changed-model.safetensors"));
+    assert_ne!(inventory_signature(&before), inventory_signature(&uploaded), "loader-file changes must still invalidate the verdict");
+    let mut schema = before.clone();
+    schema.0.as_object_mut().unwrap().remove("VAEDecode");
+    assert_ne!(inventory_signature(&before), inventory_signature(&schema), "required-node changes must still invalidate the verdict");
+}

@@ -9,6 +9,9 @@ use crate::{ExportSettings, PhotocraftApp};
 
 /// A save waiting on the TIFF Options answer.
 pub struct Prompt {
+    pub doc: photocraft_doc::DocId,
+    pub next_file: Option<std::path::PathBuf>,
+    pub return_to_library: bool,
     /// Where the document goes.
     pub path: String,
     /// "Discard Layers and Save a Copy".
@@ -34,7 +37,37 @@ pub fn wants_prompt(app: &PhotocraftApp, path: &str) -> bool {
 
 /// Parks the save behind the prompt.
 pub fn park(app: &mut PhotocraftApp, path: String) {
-    app.tiff_options = Some(Prompt { path, discard_layers: false, dont_ask_again: false });
+    let Some(st) = app.session.active() else { return };
+    app.tiff_options = Some(Prompt { doc: st.doc.id, next_file: None, return_to_library: false, path, discard_layers: false, dont_ask_again: false });
+}
+
+fn finish(app: &mut PhotocraftApp, p: Prompt) -> Result<(), String> {
+    let active = app.session.active().map(|st| st.doc.id);
+    let i = app.session.documents().iter().position(|st| st.doc.id == p.doc).ok_or("document was closed")?;
+    app.session.set_active(i);
+    let settings = ExportSettings { tiff_layers: !p.discard_layers, ..Default::default() };
+    let saves_before = app.library_saves.len();
+    let result = app.write_document(p.path, &settings).map(|_| ());
+    if result.is_ok() && p.dont_ask_again {
+        app.session.edit_prefs(|prefs| prefs.file_handling.ask_before_saving_layered_tiff = false);
+    }
+    if let Some(i) = active.and_then(|id| app.session.documents().iter().position(|st| st.doc.id == id)) {
+        app.session.set_active(i);
+        app.sync_views();
+    }
+    if result.is_ok()
+        && p.return_to_library
+        && let Some(save) = app.library_saves.get_mut(saves_before)
+    {
+        save.show = true;
+    }
+    if result.is_ok()
+        && active == Some(p.doc)
+        && let Some(file) = p.next_file
+    {
+        crate::filmstrip_ui::saved_and_next(app, &file);
+    }
+    result
 }
 
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
@@ -63,11 +96,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     p.dont_ask_again = dont_ask;
     if ok || ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
         let Some(p) = app.tiff_options.take() else { return };
-        if p.dont_ask_again {
-            app.session.edit_prefs(|prefs| prefs.file_handling.ask_before_saving_layered_tiff = false);
-        }
-        let settings = ExportSettings { tiff_layers: !p.discard_layers, ..Default::default() };
-        if let Err(e) = app.write_document(p.path.clone(), &settings) {
+        if let Err(e) = finish(app, p) {
             app.ui.status = crate::i18n::fmt(tl!("Save failed: {error}"), &[("error", &e)]);
             app.ui.status_error = true;
         }

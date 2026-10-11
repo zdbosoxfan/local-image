@@ -1945,8 +1945,7 @@ mod tests {
             assert_eq!(h.app.ui.dialog, Some(crate::state::Dialog::Settings { tab: tab.into() }));
         }
         // General: confirm before delete, startup view
-        h.request("ui.clickWidget", json!({"id": "check:settings.confirmDelete"}), t);
-        assert!(h.app.ui.settings.confirm_delete);
+        assert!(!h.app.ui.settings.confirm_delete, "the legacy toggle is no longer needed to prompt");
         h.request("ui.clickWidget", json!({"id": "button:settingsStartup-2"}), t);
         assert_eq!(h.app.ui.settings.startup_view, crate::state::StartupView::Detail);
         // Interface: filmstrip names off, grid badges always
@@ -1979,11 +1978,14 @@ mod tests {
         assert_eq!(h.app.ui.dialog, None);
         let active = h.app.session.active().unwrap();
         h.request("ui.key", json!({"key": "delete"}), t);
-        assert_eq!(h.app.ui.dialog, Some(crate::state::Dialog::ConfirmDelete { count: 1 }));
+        assert_eq!(
+            h.app.ui.dialog,
+            Some(crate::state::Dialog::ConfirmDelete { count: 1, ids: vec![h.app.session.active().unwrap().0], disk: false })
+        );
         assert!(!h.app.session.catalog.photo(active).unwrap().deleted);
         let r = h.request("ui.dialog.confirm", json!({}), t);
         assert_eq!(r["ok"], true, "{r}");
-        assert!(h.app.session.catalog.photo(active).unwrap().deleted);
+        assert!(h.app.session.catalog.photo(active).is_none(), "Remove from Library removes the catalogue record");
         // app settings survive a save/load round trip of the UI state (ui.json)
         let saved = serde_json::to_string(&h.app.ui).unwrap();
         let back = serde_json::from_str::<crate::UiState>(&saved).unwrap().sanitized();
