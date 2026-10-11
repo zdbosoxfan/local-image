@@ -385,3 +385,102 @@ fn cancel_takes_effect_within_200_ms_on_24_mp() {
         assert!(worst < 200.0, "{cmd}: cancel took {worst:.1} ms");
     }
 }
+
+fn view_job_session() -> (Session, LayerId, LayerId) {
+    let mut s = session(32, 32);
+    let inner = LayerId(s.execute("layer.groupLayers", json!({"name": "inner"})).unwrap()["layer"].as_u64().unwrap());
+    let outer = LayerId(s.execute("layer.groupLayers", json!({"layer": inner.0, "name": "outer"})).unwrap()["layer"].as_u64().unwrap());
+    let st = s.active_mut().unwrap();
+    st.saved_revision = st.revision;
+    (s, inner, outer)
+}
+
+fn view_group_expanded(doc: &Document, id: LayerId) -> bool {
+    matches!(&doc.layer(id).unwrap().content, photocraft_doc::LayerContent::Group(g) if g.expanded)
+}
+
+fn start_view_job(s: &mut Session, target: LayerId) -> (JobId, std::sync::mpsc::Sender<()>) {
+    let base = s.active().unwrap().doc.clone();
+    let (release, wait) = std::sync::mpsc::channel();
+    let (ready, started) = std::sync::mpsc::channel();
+    let id = job(s
+        .start_job(
+            "test.groupView",
+            json!({}),
+            "Group view job",
+            true,
+            move |ctx| {
+                ready.send(()).map_err(|e| EngineError::Other(e.to_string()))?;
+                wait.recv_timeout(Duration::from_secs(10)).map_err(|e| EngineError::Other(e.to_string()))?;
+                ctx.check()?;
+                let mut doc = (*base).clone();
+                doc.layer_mut(target).unwrap().name = "processed".into();
+                Ok(doc)
+            },
+            |s, doc| {
+                s.edit("Group view job", move |current, _| {
+                    *current = doc;
+                    Ok(())
+                })?;
+                Ok(json!({"processed": true}))
+            },
+        )
+        .unwrap());
+    started.recv_timeout(Duration::from_secs(10)).unwrap();
+    (id, release)
+}
+
+#[test]
+fn group_view_changes_preserve_a_running_job_result() {
+    let (mut s, inner, outer) = view_job_session();
+    let original = s.active().unwrap().doc.id;
+    let steps = s.active().unwrap().history.past_len();
+    let revision = s.active().unwrap().revision;
+    let (id, release) = start_view_job(&mut s, outer);
+    s.execute("layer.setExpanded", json!({"all": true, "expanded": false})).unwrap();
+    s.execute("layer.setExpanded", json!({"layer": outer.0, "expanded": true})).unwrap();
+    assert_eq!(s.active().unwrap().revision, revision, "disclosure remains a view-only change");
+    assert_eq!(s.active().unwrap().history.past_len(), steps);
+    s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+    let viewing = s.active().unwrap().doc.id;
+    release.send(()).unwrap();
+    let event = wait_event(&mut s, id);
+    assert!(matches!(event.outcome, JobOutcome::Done(_)), "{event:?}");
+    assert_eq!(s.active().unwrap().doc.id, viewing, "job must not switch the user's active document");
+    let target = s.documents().iter().find(|st| st.doc.id == original).unwrap();
+    assert_eq!(target.doc.layer(outer).unwrap().name, "processed");
+    assert!(view_group_expanded(&target.doc, outer));
+    assert!(!view_group_expanded(&target.doc, inner), "result must retain current disclosure state");
+    assert_eq!(target.history.past_len(), steps + 1);
+}
+
+#[test]
+fn group_view_changes_do_not_whitelist_a_real_document_change() {
+    let (mut s, inner, outer) = view_job_session();
+    let (id, release) = start_view_job(&mut s, outer);
+    s.execute("layer.setExpanded", json!({"layer": inner.0, "expanded": false})).unwrap();
+    // Simulate an unexpected non-journal content mutation: the job snapshot guard must still catch it.
+    Arc::make_mut(&mut s.active_mut().unwrap().doc).layer_mut(outer).unwrap().name = "real edit".into();
+    s.execute("layer.setExpanded", json!({"layer": outer.0, "expanded": false})).unwrap();
+    release.send(()).unwrap();
+    let event = wait_event(&mut s, id);
+    assert!(matches!(&event.outcome, JobOutcome::Failed(message) if message.contains("document changed")), "{event:?}");
+    assert_eq!(s.active().unwrap().doc.layer(outer).unwrap().name, "real edit");
+}
+
+#[test]
+fn group_view_changes_preserve_cancellation_and_clean_state() {
+    let (mut s, inner, outer) = view_job_session();
+    let revision = s.active().unwrap().revision;
+    let (id, release) = start_view_job(&mut s, outer);
+    s.execute("layer.setExpanded", json!({"layer": inner.0, "expanded": false})).unwrap();
+    assert!(s.cancel_job(id));
+    release.send(()).unwrap();
+    let event = wait_event(&mut s, id);
+    assert_eq!(event.outcome, JobOutcome::Cancelled);
+    s.join_cancelled_jobs();
+    assert!(!view_group_expanded(&s.active().unwrap().doc, inner));
+    assert_eq!(s.active().unwrap().doc.layer(outer).unwrap().name, "outer");
+    assert_eq!(s.active().unwrap().revision, revision);
+    assert_eq!(s.active().unwrap().saved_revision, revision);
+}

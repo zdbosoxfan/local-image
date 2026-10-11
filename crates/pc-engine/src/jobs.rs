@@ -184,6 +184,8 @@ struct Running {
     doc: Option<DocId>,
     /// The document as the job saw it: applying fails if it was edited meanwhile.
     snapshot: Option<Weak<Document>>,
+    /// Explicitly acknowledged disclosure changes must survive a snapshot-based result.
+    preserve_group_view: bool,
     ctx: JobCtx,
     started_ms: f64,
     coalesce: Option<String>,
@@ -230,6 +232,19 @@ pub struct Jobs {
 }
 
 const RECENT: usize = 16;
+
+impl Jobs {
+    /// Advance a job snapshot across an explicitly view-only group disclosure change.
+    /// Never acknowledge an intervening content edit: its pointer will not match `before`.
+    pub(crate) fn rebase_group_view(&mut self, doc: DocId, before: &Weak<Document>, after: Weak<Document>) {
+        for job in self.running.iter_mut().chain(self.pending.iter_mut()) {
+            if job.doc == Some(doc) && job.snapshot.as_ref().is_some_and(|snapshot| Weak::ptr_eq(snapshot, before)) {
+                job.snapshot = Some(after.clone());
+                job.preserve_group_view = true;
+            }
+        }
+    }
+}
 
 impl Drop for Jobs {
     fn drop(&mut self) {
@@ -347,6 +362,7 @@ pub fn run<T: Send + 'static>(
         journal: true,
         doc,
         snapshot,
+        preserve_group_view: false,
         ctx,
         started_ms: now_ms(),
         coalesce: s.coalesce_request.clone(),
@@ -743,6 +759,8 @@ impl Session {
             }
             None => None,
         };
+        let group_view =
+            if job.preserve_group_view { target.and_then(|i| self.docs.get(i)).map(|st| crate::group_view_cmds::capture_expansion(&st.doc)) } else { None };
         self.coalesce_request = coalesce.clone();
         self.color_restrict = *color_restrict;
         let r = match apply {
@@ -757,6 +775,14 @@ impl Session {
             self.active = prev_active.filter(|i| *i < self.docs.len()).or(self.active);
         }
         let v = r?;
+        if let (Some(id), Some(expanded)) = (doc, group_view)
+            && let Some(st) = self.docs.iter_mut().find(|st| st.doc.id == *id)
+        {
+            let before = Arc::downgrade(&st.doc);
+            crate::group_view_cmds::restore_expansion(&mut st.doc, &expanded);
+            let after = Arc::downgrade(&st.doc);
+            self.jobs.rebase_group_view(*id, &before, after);
+        }
         self.after_command(command, params.clone(), *journal);
         Ok(v)
     }

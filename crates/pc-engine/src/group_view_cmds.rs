@@ -4,9 +4,10 @@
 //! section divider's open/closed folder type, saved in `.pcraft` too) but, as in Photoshop,
 //! toggling it is a view change: no history step, and a clean document stays clean.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use photocraft_doc::{Layer, LayerContent, LayerId};
+use photocraft_doc::{Document, Layer, LayerContent, LayerId};
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
@@ -41,6 +42,37 @@ fn set_all(layers: &mut [Layer], expanded: bool) -> usize {
     n
 }
 
+pub(crate) fn capture_expansion(doc: &Document) -> HashMap<LayerId, bool> {
+    doc.walk()
+        .iter()
+        .filter_map(|(_, _, layer)| match &layer.content {
+            LayerContent::Group(group) => Some((layer.id, group.expanded)),
+            _ => None,
+        })
+        .collect()
+}
+
+pub(crate) fn restore_expansion(doc: &mut Arc<Document>, expanded: &HashMap<LayerId, bool>) {
+    let changed = doc
+        .walk()
+        .iter()
+        .any(|(_, _, layer)| matches!(&layer.content, LayerContent::Group(group) if expanded.get(&layer.id).is_some_and(|want| *want != group.expanded)));
+    if !changed {
+        return;
+    }
+    fn restore(layers: &mut [Layer], expanded: &HashMap<LayerId, bool>) {
+        for layer in layers {
+            if let LayerContent::Group(group) = &mut layer.content {
+                if let Some(want) = expanded.get(&layer.id) {
+                    group.expanded = *want;
+                }
+                restore(&mut group.children, expanded);
+            }
+        }
+    }
+    restore(&mut Arc::make_mut(doc).layers, expanded);
+}
+
 /// `{"layer":id?,"expanded":bool?,"all":bool?}`: open or close a group (no `expanded`: toggle).
 /// With `all`, every group in the document takes the new state (Photoshop's ⌥-click on a
 /// disclosure triangle); without a layer, `all` toggles from "any group open".
@@ -61,6 +93,7 @@ fn set_expanded(s: &mut Session, p: &Value) -> Result<Value> {
         None => st.doc.walk().iter().any(|(_, _, l)| matches!(&l.content, LayerContent::Group(g) if g.expanded)),
     };
     let expanded = want.unwrap_or(!current);
+    let before = Arc::downgrade(&st.doc);
     let st = s.active_mut().ok_or(EngineError::NoDocument)?;
     // Copy-on-write: history snapshots keep their own state (layers share tiles, so this is cheap).
     let doc = Arc::make_mut(&mut st.doc);
@@ -76,6 +109,9 @@ fn set_expanded(s: &mut Session, p: &Value) -> Result<Value> {
             _ => return Err(EngineError::NoLayer(id)),
         }
     };
+    let id = st.doc.id;
+    let after = Arc::downgrade(&st.doc);
+    s.jobs.rebase_group_view(id, &before, after);
     Ok(json!({"expanded": expanded, "groups": changed}))
 }
 
