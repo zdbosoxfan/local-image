@@ -1789,3 +1789,9 @@ pub mod frame_compose;
 // Package 17 module registration; persona/canvas routing stays in the 00 handoff.
 #[path = "vector_packages/brushes.rs"]
 pub mod vector_brush;
+
+// Package 37 compiled hooks; shared menu/canvas wiring stays in the 00 lane.
+#[path = "vector_packages/isolation.rs"]
+pub mod isolation;
+#[path = "vector_packages/view_modes.rs"]
+pub mod view_modes;

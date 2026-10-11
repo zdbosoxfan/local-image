@@ -59,3 +59,6 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
     out.extend(trace_output::specs());
     out
 }
+
+// Package 37: commands join the aggregate through the 00 handoff.
+pub mod isolation;
