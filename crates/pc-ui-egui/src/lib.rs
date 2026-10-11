@@ -1816,3 +1816,7 @@ pub mod vector_eyedropper;
 // Package 34 registration; persona/menu/canvas routing stays in the integration handoff.
 #[path = "vector_packages/transform_tools.rs"]
 pub mod vector_transform_tools;
+
+// Package 44 canvas/menu wiring is supplied in integration/44.md.
+#[path = "vector_packages/measure.rs"]
+pub mod measure;

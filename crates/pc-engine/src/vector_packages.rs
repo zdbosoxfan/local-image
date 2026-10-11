@@ -76,3 +76,6 @@ pub mod path_commands;
 pub mod isolation;
 pub mod styles;
 pub mod transform_tools;
+
+// Package 44: command aggregate wiring is supplied in integration/44.md.
+pub mod measure;
