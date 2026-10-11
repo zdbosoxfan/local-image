@@ -379,6 +379,9 @@ pub struct Services {
     /// Crash-recovery autosave (Preferences › File Handling) and recovery at launch.
     pub autosave: Option<AutosaveFn>,
     pub discard_autosave: Option<DiscardAutosaveFn>,
+    /// At native shutdown, finish requested recovery deletion after any in-flight writer.
+    /// Interactive closes remain asynchronous.
+    pub finish_autosave_cleanup: Option<Box<dyn FnMut()>>,
     pub recover: Option<RecoverFn>,
     pub adopt_autosave: Option<AdoptAutosaveFn>,
     /// History Log text file output.
@@ -1190,6 +1193,7 @@ impl PhotocraftApp {
 
 impl eframe::App for PhotocraftApp {
     fn on_exit(&mut self) {
+        prefs_ui::cleanup_on_exit(self);
         // Stop the ComfyUI we started (a user-started one is left running).
         #[cfg(not(target_arch = "wasm32"))]
         if ai_ui::shutdown_engine() {

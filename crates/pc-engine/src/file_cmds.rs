@@ -265,10 +265,17 @@ pub(crate) fn flattened(doc: &Document, fmt: PixelFormat) -> Result<Surface> {
 
 // ---------- close / revert / save a copy / open as ----------
 
-fn close_all(s: &mut Session) -> Result<Value> {
+/// Dispositions use stable document IDs, so closing earlier tabs cannot retarget them.
+pub(crate) fn close_document(s: &mut Session, index: usize, params: &Value) -> Option<crate::DocState> {
+    let id = s.documents().get(index)?.doc.id.0;
+    let discard = params.get("discardDocuments").and_then(Value::as_array).is_some_and(|ids| ids.iter().any(|v| v.as_u64() == Some(id)));
+    s.close_with_discard(index, discard)
+}
+
+fn close_all(s: &mut Session, p: &Value) -> Result<Value> {
     let n = s.documents().len();
     while !s.documents().is_empty() {
-        s.close(s.documents().len() - 1);
+        close_document(s, s.documents().len() - 1, p);
     }
     Ok(json!({"closed": n}))
 }
@@ -281,7 +288,7 @@ fn close_others(s: &mut Session, p: &Value) -> Result<Value> {
     let n = s.documents().len() - 1;
     for i in (0..s.documents().len()).rev() {
         if i != keep {
-            s.close(i);
+            close_document(s, i, p);
         }
     }
     s.set_active(0);
@@ -1217,7 +1224,7 @@ pub fn specs() -> Vec<CommandSpec> {
         };
     }
     vec![
-        spec!("file.closeAll", "Close All", &["File"], Some("Cmd+Alt+W"), "{}", has_doc, |s, _| close_all(s)),
+        spec!("file.closeAll", "Close All", &["File"], Some("Cmd+Alt+W"), "{}", has_doc, |s, p| close_all(s, p)),
         spec!(
             "file.closeOthers",
             "Close Others",

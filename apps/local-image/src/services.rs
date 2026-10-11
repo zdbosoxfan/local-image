@@ -102,12 +102,25 @@ fn with_store<R>(store: &SharedRecovery, f: impl FnOnce(&mut RecoveryStore) -> R
 fn recovery_services(dir: Option<PathBuf>) -> Services {
     let store: SharedRecovery = Rc::new(RefCell::new(dir.map(RecoveryStore::new)));
     let (s1, s2, s3) = (store.clone(), store.clone(), store.clone());
+    let cleanup: Rc<RefCell<Vec<photocraft_format::autosave::Discard>>> = Rc::default();
+    let finish = cleanup.clone();
     Services {
         autosave: Some(Box::new(move |doc: &Arc<Document>, revision: u64, path: Option<&str>| {
             with_store(&s1, |s| s.autosave(doc, revision, path.map(str::to_string)))
         })),
-        discard_autosave: Some(Box::new(move |id: u64| {
-            let _ = with_store(&s2, |s| s.discard(id));
+        discard_autosave: Some(Box::new(move |id: u64| match with_store(&s2, |s| s.discard(id)) {
+            Ok(Ok(receipt)) => {
+                let mut pending = cleanup.borrow_mut();
+                pending.retain(|r| !r.is_finished());
+                pending.push(receipt);
+            }
+            Ok(Err(e)) => log::error!("Couldn't remove recovery data: {e}"),
+            Err(e) => log::error!("Couldn't access recovery data: {e}"),
+        })),
+        finish_autosave_cleanup: Some(Box::new(move || {
+            for receipt in finish.borrow_mut().drain(..) {
+                receipt.wait();
+            }
         })),
         recover: Some(Box::new(move || {
             let found = with_store(&s3, |s| s.recover()).unwrap_or_default();
@@ -372,6 +385,36 @@ mod tests {
             assert!(warnings.iter().any(|w| w.contains("vector crop controls") && w.contains("editability lost")));
             assert!(photocraft_io::import(path, &bytes).unwrap().document.layers.len() >= 2);
         }
+    }
+
+    #[test]
+    fn recovery_shutdown_finishes_pending_discard_and_preserves_other_documents() {
+        let dir = std::env::temp_dir().join(format!("li-quit-discard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut services = recovery_services(Some(dir.clone()));
+        let mut session = Session::new();
+        session.execute("file.new", json!({"width": 64, "height": 64})).unwrap();
+        let discarded = session.active().unwrap().doc.clone();
+        session.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let retained = session.active().unwrap().doc.clone();
+        // Queue writes and immediately request deletion: a late writer must not resurrect it.
+        services.autosave.as_mut().unwrap()(&discarded, 1, None).unwrap();
+        services.autosave.as_mut().unwrap()(&retained, 1, None).unwrap();
+        services.discard_autosave.as_mut().unwrap()(discarded.id.0);
+        services.finish_autosave_cleanup.as_mut().unwrap()();
+        drop(services); // flush the retained writer, as a crash/restart would
+        let entries = list_recovery(&dir);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(photocraft_format::recover(&entries[0]).unwrap().id, retained.id);
+        let mut relaunched = recovery_services(Some(dir.clone()));
+        let recovered = relaunched.recover.as_mut().unwrap()();
+        assert_eq!(recovered.len(), 1);
+        relaunched.adopt_autosave.as_mut().unwrap()(recovered[0].doc.id.0, &recovered[0].key);
+        relaunched.discard_autosave.as_mut().unwrap()(recovered[0].doc.id.0);
+        relaunched.finish_autosave_cleanup.as_mut().unwrap()();
+        assert!(list_recovery(&dir).is_empty(), "adopted entries must also disappear on confirmed quit");
+        drop(relaunched);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// "Export As" formats must lead with their own filter, or the save panel appends the first one's extension (`photo.webp.psd`).

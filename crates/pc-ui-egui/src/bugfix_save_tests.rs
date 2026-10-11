@@ -273,3 +273,107 @@ fn bugfix_save_o048_export_cancel_failure_and_retry_preserve_dialog_fields() {
     assert!(app.ui.dialog_mut(id).is_none());
     assert_eq!(writes.lock().unwrap().len(), 1);
 }
+
+#[test]
+fn discard_child_does_not_publish_to_parent() {
+    for command in ["file.close", "file.closeOthers", "file.closeAll", "file.exit"] {
+        let (mut app, _) = app();
+        app.run("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        app.session.active_mut().unwrap().saved_revision = app.session.active().unwrap().revision;
+        let parent = app.session.active().unwrap().doc.clone();
+        let revision = app.session.active().unwrap().revision;
+        app.run("layer.smartObjects.editContents", json!({})).unwrap();
+        app.run("layer.new.layer", json!({"name": "discard me"})).unwrap();
+        let params = if command == "file.closeOthers" { json!({"document": 0}) } else { json!({}) };
+        assert!(crate::discard_ui::intercept(&mut app, command, &params));
+        press(&mut app, crate::discard_ui::show, egui::Key::N);
+        assert!(app.discard.is_none(), "{command}");
+        let retained = app.session.documents().iter().find(|st| st.doc.id == parent.id);
+        if let Some(st) = retained {
+            assert!(Arc::ptr_eq(&st.doc, &parent), "{command} published discarded child content");
+            assert_eq!(st.revision, revision);
+            assert!(!st.is_dirty());
+        }
+        assert_eq!(
+            app.session.documents().len(),
+            match command {
+                "file.closeAll" => 0,
+                "file.exit" => 2,
+                _ => 1,
+            }
+        );
+    }
+}
+
+#[test]
+fn discard_quit_cleans_recovery_only_after_all_answers_and_stops_autosave() {
+    let (mut app, _) = app();
+    app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+    app.run("layer.new.layer", json!({})).unwrap();
+    let ids: Vec<u64> = app.session.documents().iter().map(|d| d.doc.id.0).collect();
+    let deleted: Arc<Mutex<Vec<u64>>> = Arc::default();
+    let seen = deleted.clone();
+    app.services.discard_autosave = Some(Box::new(move |id| seen.lock().unwrap().push(id)));
+    let saves = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = saves.clone();
+    app.services.autosave = Some(Box::new(move |_, _, _| {
+        count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }));
+    assert!(crate::discard_ui::intercept(&mut app, "file.exit", &json!({})));
+    press(&mut app, crate::discard_ui::show, egui::Key::N);
+    assert!(deleted.lock().unwrap().is_empty());
+    press(&mut app, crate::discard_ui::show, egui::Key::Escape);
+    assert!(!app.allow_close);
+    assert!(deleted.lock().unwrap().is_empty(), "later Cancel must preserve all recovery copies");
+    assert!(crate::discard_ui::intercept(&mut app, "file.exit", &json!({})));
+    press(&mut app, crate::discard_ui::show, egui::Key::N);
+    // An edit after answering invalidates the first Don't Save decision.
+    app.session.set_active(0);
+    app.run("layer.new.layer", json!({})).unwrap();
+    press(&mut app, crate::discard_ui::show, egui::Key::N);
+    assert!(!app.allow_close);
+    assert!(app.discard.is_some());
+    assert!(deleted.lock().unwrap().is_empty());
+    press(&mut app, crate::discard_ui::show, egui::Key::N);
+    assert!(app.allow_close);
+    assert_eq!(*deleted.lock().unwrap(), ids);
+    crate::prefs_ui::autosave_now(&mut app);
+    crate::prefs_ui::tick(&mut app, &egui::Context::default());
+    assert_eq!(saves.load(std::sync::atomic::Ordering::SeqCst), 0, "the final frame must not resurrect recovery");
+}
+
+#[test]
+fn discard_child_then_cancel_close_all_retains_child_edits_and_parent_snapshot() {
+    let (mut app, _) = app();
+    app.run("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+    let parent = app.session.active().unwrap().doc.clone();
+    app.run("layer.smartObjects.editContents", json!({})).unwrap();
+    app.run("layer.new.layer", json!({"name": "keep pending"})).unwrap();
+    // Put the child first so its Don't Save answer precedes the parent's Cancel.
+    app.session.move_document(1, 0);
+    assert!(crate::discard_ui::intercept(&mut app, "file.closeAll", &json!({})));
+    press(&mut app, crate::discard_ui::show, egui::Key::N);
+    press(&mut app, crate::discard_ui::show, egui::Key::Escape);
+    assert_eq!(app.session.documents().len(), 2);
+    assert!(app.session.documents()[0].is_dirty());
+    assert!(Arc::ptr_eq(&app.session.documents()[1].doc, &parent));
+}
+
+#[test]
+fn discard_shutdown_after_save_needs_no_extra_frame_and_keeps_unconfirmed_dirty_recovery() {
+    let (mut app, _) = app();
+    let saved = app.session.active().unwrap().doc.id.0;
+    app.session.active_mut().unwrap().saved_revision = app.session.active().unwrap().revision;
+    app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+    app.run("layer.new.layer", json!({})).unwrap();
+    let deleted: Arc<Mutex<Vec<u64>>> = Arc::default();
+    let sink = deleted.clone();
+    app.services.discard_autosave = Some(Box::new(move |id| sink.lock().unwrap().push(id)));
+    let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let seen = finished.clone();
+    app.services.finish_autosave_cleanup = Some(Box::new(move || seen.store(true, std::sync::atomic::Ordering::SeqCst)));
+    crate::prefs_ui::cleanup_on_exit(&mut app);
+    assert_eq!(*deleted.lock().unwrap(), vec![saved]);
+    assert!(finished.load(std::sync::atomic::Ordering::SeqCst));
+}

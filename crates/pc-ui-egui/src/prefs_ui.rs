@@ -367,8 +367,32 @@ pub(crate) fn save_preferences(app: &mut PhotocraftApp) -> Result<(), String> {
     Ok(())
 }
 
+/// Final shutdown may follow Save/Close without another autosave tick. Remove only
+/// closed/clean documents, or every document after the complete quit prompt was accepted.
+/// If shutdown happens without consent, dirty documents retain their recovery copies.
+pub(crate) fn cleanup_on_exit(app: &mut PhotocraftApp) {
+    let live: HashMap<DocId, bool> = app.session.documents().iter().map(|d| (d.doc.id, d.is_dirty())).collect();
+    let mut ids: Vec<DocId> = app.prefs_rt.autosaved.keys().chain(live.keys()).copied().collect();
+    ids.sort_by_key(|id| id.0);
+    ids.dedup();
+    for id in ids {
+        if app.allow_close || live.get(&id) != Some(&true) {
+            if let Some(discard) = app.services.discard_autosave.as_mut() {
+                discard(id.0);
+            }
+            app.prefs_rt.autosaved.remove(&id);
+        }
+    }
+    if let Some(finish) = app.services.finish_autosave_cleanup.as_mut() {
+        finish();
+    }
+}
+
 /// Background autosave of documents with unsaved changes every N minutes (File Handling).
 fn autosave(app: &mut PhotocraftApp) {
+    if app.allow_close {
+        return;
+    }
     let fh = &app.session.prefs().file_handling;
     let (on, minutes) = (fh.autosave, fh.autosave_minutes.max(1));
     if app.services.autosave.is_none() {

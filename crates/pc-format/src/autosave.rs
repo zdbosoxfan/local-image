@@ -264,6 +264,10 @@ pub struct Discard {
     handle: Option<JoinHandle<()>>,
 }
 impl Discard {
+    pub fn is_finished(&self) -> bool {
+        self.handle.as_ref().is_none_or(JoinHandle::is_finished)
+    }
+
     pub fn wait(self) {
         if let Some(handle) = self.handle {
             let _ = handle.join();

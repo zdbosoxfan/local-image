@@ -752,10 +752,10 @@ pub fn commit_child(s: &mut Session, index: usize) -> Result<bool> {
 }
 
 /// Called before a document closes: an edited Edit Contents document updates its parent.
-pub(crate) fn on_close(s: &mut Session, index: usize) {
+pub(crate) fn on_close(s: &mut Session, index: usize, discard: bool) {
     let Some(st) = s.docs.get(index) else { return };
     let id = st.doc.id;
-    if st.is_dirty() && s.smart_links.iter().any(|l| l.child == id) {
+    if !discard && st.is_dirty() && s.smart_links.iter().any(|l| l.child == id) {
         let _ = commit_child(s, index);
     }
     s.smart_links.retain(|l| l.child != id && l.parent != id);

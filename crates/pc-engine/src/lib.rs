@@ -450,10 +450,15 @@ impl Session {
     }
 
     pub fn close(&mut self, index: usize) -> Option<DocState> {
+        self.close_with_discard(index, false)
+    }
+
+    /// An explicit Don't Save decision must not publish a Smart Object child's edits.
+    pub(crate) fn close_with_discard(&mut self, index: usize, discard: bool) -> Option<DocState> {
         if index >= self.docs.len() {
             return None;
         }
-        smart_cmds::on_close(self, index);
+        smart_cmds::on_close(self, index, discard);
         if let Some(id) = self.docs.get(index).map(|d| d.doc.id) {
             self.cancel_jobs_on(id);
         }

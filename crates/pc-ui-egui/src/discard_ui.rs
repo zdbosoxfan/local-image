@@ -22,6 +22,8 @@ pub struct Prompt {
     target: Option<DocId>,
     docs: Vec<DocId>,
     answered: Vec<(DocId, u64)>,
+    /// Don't Save decisions apply only to the revision the user actually saw.
+    discarded: Vec<(DocId, u64)>,
     waiting: Option<DocId>,
 }
 
@@ -67,7 +69,7 @@ pub fn intercept(app: &mut PhotocraftApp, id: &str, params: &Value) -> bool {
     if docs.is_empty() {
         return false;
     }
-    let prompt = Prompt { id: id.to_string(), params: params.clone(), target, docs, answered: Vec::new(), waiting: None };
+    let prompt = Prompt { id: id.to_string(), params: params.clone(), target, docs, answered: Vec::new(), discarded: Vec::new(), waiting: None };
     match &app.discard {
         None => app.discard = Some(prompt),
         // Quitting overrides whatever is pending: it covers every document, so nothing is lost.
@@ -118,8 +120,18 @@ fn advance(app: &mut PhotocraftApp, ctx: &egui::Context) {
         app.discard = Some(p);
         return;
     }
+    let discarded: Vec<u64> =
+        p.discarded.iter().filter_map(|&(id, revision)| index_of(app, id).filter(|&i| app.session.documents()[i].revision == revision).map(|_| id.0)).collect();
     let Prompt { id, target, .. } = p;
     if id == EXIT {
+        // All answers are final now. Cancel earlier in a multi-document prompt leaves
+        // recovery untouched; no later autosave may recreate these entries while exiting.
+        let ids: Vec<_> = app.session.documents().iter().map(|d| d.doc.id).collect();
+        for id in ids {
+            if let Some(discard) = app.services.discard_autosave.as_mut() {
+                discard(id.0);
+            }
+        }
         app.allow_close = true;
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         return;
@@ -128,6 +140,12 @@ fn advance(app: &mut PhotocraftApp, ctx: &egui::Context) {
         // The tab may have moved since the command was issued; aim it at the same document.
         let Some(i) = index_of(app, target) else { return };
         params = json!({"document": i});
+    }
+    if !discarded.is_empty() {
+        if !params.is_object() {
+            params = json!({});
+        }
+        params["discardDocuments"] = json!(discarded);
     }
     if let Err(e) = crate::menus::invoke_unguarded(app, ctx, &id, params) {
         app.ui.status = e;
@@ -233,7 +251,16 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     match answer {
         Some(Answer::Cancel) => app.discard = None,
-        Some(Answer::Discard) => advance(app, ctx),
+        Some(Answer::Discard) => {
+            if let Some(i) = index_of(app, doc) {
+                let revision = app.session.documents()[i].revision;
+                if let Some(p) = app.discard.as_mut() {
+                    p.discarded.retain(|(id, _)| *id != doc);
+                    p.discarded.push((doc, revision));
+                }
+            }
+            advance(app, ctx);
+        }
         Some(Answer::Save) if save(app, ctx, doc) => advance(app, ctx),
         _ => {}
     }
