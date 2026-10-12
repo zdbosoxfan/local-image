@@ -144,8 +144,12 @@ fn update_source(app: &mut PhotocraftApp) {
         }
         let img = document_input(app, if input == Input::SelectedLayer { RefineInput::SelectedLayer } else { RefineInput::Composite });
         app.draft_refine.source = Preview::default();
-        if let Some(img) = img {
-            app.draft_refine.source.set(img);
+        match img {
+            Ok(img) => app.draft_refine.source.set(img),
+            Err(e) => {
+                app.ui.status = e;
+                app.ui.status_error = true;
+            }
         }
         app.draft_refine.source_key = key;
     }
@@ -418,11 +422,11 @@ fn content(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
-fn stage_request(app: &PhotocraftApp, refine: bool) -> Option<GenerateRequest> {
+fn stage_request(app: &PhotocraftApp, refine: bool) -> Result<GenerateRequest, String> {
     let s = if refine { &app.ui.ai.draft_refine.refinement } else { &app.ui.ai.draft_refine.draft };
     let input = if refine {
         let image = match app.ui.ai.draft_refine.input {
-            Input::Draft => app.draft_refine.draft.image.as_ref()?.as_ref().clone(),
+            Input::Draft => app.draft_refine.draft.image.as_ref().ok_or_else(|| tl!("Generate a draft first.").to_owned())?.as_ref().clone(),
             Input::Composite => document_input(app, RefineInput::Composite)?,
             Input::SelectedLayer => document_input(app, RefineInput::SelectedLayer)?,
         };
@@ -438,14 +442,23 @@ fn stage_request(app: &PhotocraftApp, refine: bool) -> Option<GenerateRequest> {
     } else {
         None
     };
-    local_request(s, s.prompt.trim().into(), input, Vec::new()).map(|(mut req, _, _)| {
-        req.seed = s.seed.unwrap_or_else(li_ai::ops::new_seed);
-        req
-    })
+    local_request(s, s.prompt.trim().into(), input, Vec::new())
+        .map(|(mut req, _, _)| {
+            req.seed = s.seed.unwrap_or_else(li_ai::ops::new_seed);
+            req
+        })
+        .ok_or_else(|| tl!("Choose a valid generation input.").to_owned())
 }
 
 fn start_stage(app: &mut PhotocraftApp, ctx: &egui::Context, refine: bool) {
-    let Some(req) = stage_request(app, refine) else { return };
+    let req = match stage_request(app, refine) {
+        Ok(req) => req,
+        Err(e) => {
+            app.ui.status = e;
+            app.ui.status_error = true;
+            return;
+        }
+    };
     if let Err(e) = req.validate() {
         app.ui.status = e.to_string();
         app.ui.status_error = true;

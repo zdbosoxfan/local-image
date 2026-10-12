@@ -102,7 +102,13 @@ fn sync_source(app: &mut PhotocraftApp) {
     app.restoration.before = None;
     app.restoration.message.clear();
     app.restoration.elapsed = None;
-    app.restoration.source = app.session.active().map(|d| Arc::new(photocraft_engine::ai_cmds::flatten_rgba(&d.doc)));
+    app.restoration.source = match app.session.active().map(|d| photocraft_engine::ai_cmds::flatten_rgba(&d.doc)).transpose() {
+        Ok(source) => source.map(Arc::new),
+        Err(e) => {
+            app.restoration.message = e.to_string();
+            None
+        }
+    };
     app.restoration.key = key;
 }
 
@@ -279,7 +285,7 @@ fn apply(app: &mut PhotocraftApp) -> Result<(), String> {
     let name = format!("{}: {}", tl!("Restoration"), tl!(label));
     app.session
         .edit(&name, |doc, active| {
-            let layer = photocraft_engine::ai_cmds::layer_from_rgba(doc, &name, image, 0, 0);
+            let layer = photocraft_engine::ai_cmds::layer_from_rgba(doc, &name, image, 0, 0)?;
             // The input is the visible composite, so the result belongs at the root top;
             // nesting it inside the selected group would apply that group's effects twice.
             // Hide the original composite to preserve partially transparent pixels exactly.

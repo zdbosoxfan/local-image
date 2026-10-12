@@ -1709,15 +1709,28 @@ fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_im
                 #[cfg(not(target_arch = "wasm32"))]
                 if crate::icons::button(ui, "folder-open", 22.0, false, tl!("Add an image file")).clicked()
                     && let Some(path) = rfd::FileDialog::new().add_filter(tl!("Images"), &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_file()
-                    && let Ok(img) = image::open(&path)
                 {
-                    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                    add_reference(ui.ctx(), name, img.to_rgba8());
+                    match photocraft_engine::ai_cmds::file_rgba_srgb(&path) {
+                        Ok(img) => {
+                            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                            add_reference(ui.ctx(), name, img);
+                        }
+                        Err(e) => {
+                            app.ui.status = e.to_string();
+                            app.ui.status_error = true;
+                        }
+                    }
                 }
                 if app.session.active().is_some() && crate::icons::button(ui, "image", 22.0, false, tl!("Add the current image")).clicked() {
                     let d = app.session.active().map(|d| (d.doc.name.clone(), photocraft_engine::ai_cmds::flatten_rgba(&d.doc)));
                     if let Some((name, img)) = d {
-                        add_reference(ui.ctx(), name, img);
+                        match img {
+                            Ok(img) => add_reference(ui.ctx(), name, img),
+                            Err(e) => {
+                                app.ui.status = e.to_string();
+                                app.ui.status_error = true;
+                            }
+                        }
                     }
                 }
             });
@@ -1826,26 +1839,34 @@ pub(crate) fn regenerate_layer(app: &mut PhotocraftApp, ctx: &egui::Context, lay
 }
 
 /// Snapshot the chosen open-image input; references never replace it in Refine mode.
-fn document_input(app: &PhotocraftApp, input: RefineInput) -> Option<RgbaImage> {
-    let d = app.session.active()?;
-    match input {
-        RefineInput::Composite => Some(photocraft_engine::ai_cmds::flatten_rgba(&d.doc)),
+fn document_input(app: &PhotocraftApp, input: RefineInput) -> Result<RgbaImage, String> {
+    let d = app.session.active().ok_or_else(|| tl!("Open an image first.").to_owned())?;
+    let image = match input {
+        RefineInput::Composite => photocraft_engine::ai_cmds::flatten_rgba(&d.doc),
         RefineInput::SelectedLayer => {
-            let l = d.doc.layer(d.active_layer?)?;
-            let buf = photocraft_compose::render_layer(l, d.doc.bounds());
-            let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-            Some(RgbaImage::from_fn(d.doc.size.width, d.doc.size.height, |x, y| {
-                let p = buf.px[(y * d.doc.size.width + x) as usize];
-                image::Rgba([q(p[0]), q(p[1]), q(p[2]), q(p[3])])
-            }))
+            let l = d.active_layer.and_then(|id| d.doc.layer(id)).ok_or_else(|| tl!("Select a layer first.").to_owned())?;
+            photocraft_engine::ai_cmds::selected_layer_rgba(&d.doc, l, d.doc.bounds())
         }
+    };
+    image.map_err(|e| e.to_string())
+}
+
+type OpenImageInput = (photocraft_doc::DocId, RgbaImage, Option<image::GrayImage>);
+
+/// Only operations that consume the open image should render or colour-convert it.
+fn request_document(app: &PhotocraftApp, s: &GenerateState) -> Result<Option<OpenImageInput>, String> {
+    if s.mode == Mode::Create {
+        return Ok(None);
     }
+    let Some(d) = app.session.active() else { return Ok(None) };
+    let input = if s.mode == Mode::Refine { s.refine_input } else { RefineInput::Composite };
+    Ok(Some((d.doc.id, document_input(app, input)?, photocraft_engine::ai_cmds::selection_gray(&d.doc))))
 }
 
 fn local_request(
     s: &GenerateState,
     prompt: String,
-    doc: Option<(photocraft_doc::DocId, RgbaImage, Option<image::GrayImage>)>,
+    doc: Option<OpenImageInput>,
     refs: Vec<RgbaImage>,
 ) -> Option<(GenerateRequest, Option<photocraft_doc::DocId>, bool)> {
     let m = model_of(s);
@@ -1946,10 +1967,14 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     let preset = presets().into_iter().find(|p| p.name == s.preset);
     let prompt = preset.as_ref().map_or_else(|| s.prompt.trim().to_owned(), |p| p.apply(&s.prompt));
-    let doc = app.session.active().and_then(|d| {
-        let input = if s.mode == Mode::Refine { s.refine_input } else { RefineInput::Composite };
-        Some((d.doc.id, document_input(app, input)?, photocraft_engine::ai_cmds::selection_gray(&d.doc)))
-    });
+    let doc = match request_document(app, &s) {
+        Ok(doc) => doc,
+        Err(e) => {
+            app.ui.status = e;
+            app.ui.status_error = true;
+            return;
+        }
+    };
     let refs: Vec<RgbaImage> = rt(|r| r.references.iter().map(|x| (*x.image).clone()).collect());
     // Custom workflows.
     if let Some(w) = custom_of(&s) {
@@ -1960,7 +1985,8 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
             images.push(img.clone());
         }
         images.extend(refs);
-        let mask = doc.as_ref().and_then(|(_, _, m)| m.clone());
+        let mask =
+            doc.as_ref().and_then(|(_, _, m)| m.clone()).or_else(|| app.session.active().and_then(|d| photocraft_engine::ai_cmds::selection_gray(&d.doc)));
         let seed = s.seed.unwrap_or_else(li_ai::ops::new_seed);
         let inputs = li_ai::custom::Inputs {
             prompt: prompt.clone(),
@@ -2062,7 +2088,7 @@ fn start_cloud(
     s: &GenerateState,
     c: &'static li_ai::cloud::CloudModel,
     prompt: String,
-    doc: Option<(photocraft_doc::DocId, RgbaImage, Option<image::GrayImage>)>,
+    doc: Option<OpenImageInput>,
     refs: Vec<RgbaImage>,
 ) {
     use li_ai::cloud::{CloudMode, CloudRequest};
@@ -2793,7 +2819,7 @@ fn start_batch(b: &BatchState) -> std::sync::Arc<std::sync::Mutex<BatchRun>> {
             };
             set(working.into());
             let res = (|| -> anyhow::Result<PathBuf> {
-                let img = image::open(path)?.to_rgba8();
+                let img = photocraft_engine::ai_cmds::file_rgba_srgb(path)?;
                 let alpha = ai.cutout(&img, &variant, "", li_ai::ops::new_seed(), &ctl)?;
                 let out = image::RgbaImage::from_fn(img.width(), img.height(), |x, y| {
                     let p = img.get_pixel(x, y);

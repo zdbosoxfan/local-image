@@ -72,14 +72,18 @@ enum RoundTripNotice {
     Error(String),
 }
 
+type CompositeRender = (u64, u64, Result<photocraft_raster::Rgba8Image, String>);
+
 /// What a Library photo looks like in Compositing, rendered on worker threads for the Library's
 /// loupe and grid (`lightcraft_ui_egui::panels::host_composite`).
 #[derive(Default)]
 struct Composites {
     /// Photo → key of the render in flight.
     pending: std::collections::HashMap<u64, u64>,
+    /// Failed revisions are reported once; a new edit can retry.
+    failed: std::collections::HashMap<u64, u64>,
     /// Finished renders: (photo, key, image).
-    done: Arc<Mutex<Vec<(u64, u64, photocraft_raster::Rgba8Image)>>>,
+    done: Arc<Mutex<Vec<CompositeRender>>>,
 }
 
 /// Longest side of a composite shown in the Library.
@@ -155,6 +159,7 @@ impl Host {
             self.left_compositing_with = None;
             self.round_trip_notice = None;
             self.composites.pending.clear();
+            self.composites.failed.clear();
             self.composites.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
             if let Some(lib) = self.library.as_mut() {
                 lib.host_composites.clear();
@@ -275,8 +280,20 @@ impl Host {
         let done = std::mem::take(&mut *self.composites.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
         for (photo, key, img) in done {
             if want.iter().any(|(id, k, _)| id.0 == photo && *k == key) {
-                let label = lightcraft_ui_egui::i18n::tr("Edited in Compositing · unsaved").to_string();
-                host_composite::set(lib, ctx, lightcraft_catalog::PhotoId(photo), key, img.width as usize, img.height as usize, &img.pixels, label);
+                match img {
+                    Ok(img) => {
+                        self.composites.failed.remove(&photo);
+                        let label = lightcraft_ui_egui::i18n::tr("Edited in Compositing · unsaved").to_string();
+                        host_composite::set(lib, ctx, lightcraft_catalog::PhotoId(photo), key, img.width as usize, img.height as usize, &img.pixels, label);
+                    }
+                    Err(e) => {
+                        self.composites.failed.insert(photo, key);
+                        lib.host_composites.remove(&lightcraft_catalog::PhotoId(photo));
+                        self.editor.ui.status = format!("Couldn't update the Library preview: {e}");
+                        self.editor.ui.status_error = true;
+                        self.round_trip_notice = Some(RoundTripNotice::Error(self.editor.ui.status.clone()));
+                    }
+                }
             }
             if self.composites.pending.get(&photo) == Some(&key) {
                 self.composites.pending.remove(&photo);
@@ -285,14 +302,18 @@ impl Host {
         let ids: Vec<lightcraft_catalog::PhotoId> = want.iter().map(|w| w.0).collect();
         host_composite::retain(lib, &ids);
         self.composites.pending.retain(|p, _| ids.iter().any(|id| id.0 == *p));
+        self.composites.failed.retain(|p, k| want.iter().any(|(id, key, _)| id.0 == *p && key == k));
         for (id, key, doc) in want {
-            if host_composite::key(lib, id) == Some(key) || self.composites.pending.get(&id.0) == Some(&key) {
+            if host_composite::key(lib, id) == Some(key) || self.composites.pending.get(&id.0) == Some(&key) || self.composites.failed.get(&id.0) == Some(&key)
+            {
                 continue;
             }
             self.composites.pending.insert(id.0, key);
             let (done, ctx) = (self.composites.done.clone(), ctx.clone());
             std::thread::spawn(move || {
-                let img = photocraft_compose::thumbnail(&doc, COMPOSITE_EDGE);
+                let img = photocraft_engine::color_cmds::composite_to_srgb(&doc, photocraft_compose::thumbnail_buffer(&doc, COMPOSITE_EDGE))
+                    .map(|buf| buf.to_rgba8())
+                    .map_err(|e| e.to_string());
                 done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((id.0, key, img));
                 ctx.request_repaint();
             });
@@ -1615,6 +1636,65 @@ mod tests {
         host.update_composites(&ctx);
         assert_eq!(shown(&host), None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ai_colour_library_worker_converts_linear_unsaved_preview_before_publication() {
+        let (dir, path, lib, orig) = library_with_photo("colour-preview");
+        let mut host = host_with_round_trip(lib, orig, &path);
+        host.editor
+            .session
+            .edit("Linear preview", |doc, _| {
+                doc.depth = photocraft_color::SampleType::F32;
+                doc.icc_profile = Some(photocraft_engine::color_cmds::resolve_profile("linear-srgb", None, None)?.to_bytes());
+                for layer in &mut doc.layers {
+                    layer.visible = false;
+                }
+                let mut layer = photocraft_doc::Layer::raster("Linear", photocraft_color::PixelFormat::RGBA32F);
+                if let photocraft_doc::LayerContent::Raster(surface) = &mut layer.content {
+                    let mut data = vec![0.5; doc.size.width as usize * doc.size.height as usize * 4];
+                    for p in data.as_chunks_mut::<4>().0 {
+                        p[3] = 1.0;
+                    }
+                    surface.write_region(doc.bounds(), &data);
+                }
+                doc.layers.push(layer);
+                Ok(())
+            })
+            .unwrap();
+        let ctx = egui::Context::default();
+        host.update_composites(&ctx);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while host.composites.done.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        {
+            let done = host.composites.done.lock().unwrap();
+            let img = done.first().expect("preview worker completed").2.as_ref().unwrap();
+            assert_eq!(&img.pixels[..4], &[188, 188, 188, 255]);
+        }
+        host.update_composites(&ctx);
+        assert!(host.library.as_ref().unwrap().host_composites.contains_key(&orig));
+        assert!(host.composites.failed.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn ai_colour_library_preview_failure_is_reported_once_per_revision() {
+        let (dir, path, lib, orig) = library_with_photo("colour-preview-failure");
+        let mut host = host_with_round_trip(lib, orig, &path);
+        let key = unsaved_composites(&host.editor, catalog(&host))[0].1;
+        host.composites.done.lock().unwrap().push((orig.0, key, Err("unsupported colour transform".into())));
+        let ctx = egui::Context::default();
+        host.update_composites(&ctx);
+        assert!(host.editor.ui.status_error);
+        assert!(host.editor.ui.status.contains("unsupported colour transform"));
+        assert_eq!(host.composites.failed.get(&orig.0), Some(&key));
+        assert!(host.composites.pending.is_empty());
+        host.update_composites(&ctx);
+        assert!(host.composites.pending.is_empty(), "do not retry the failed revision every frame");
+        assert!(!host.library.as_ref().unwrap().host_composites.contains_key(&orig));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Quitting from the Library with unsaved Compositing work: Compositing comes forward with

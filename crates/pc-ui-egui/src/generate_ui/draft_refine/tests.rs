@@ -285,7 +285,7 @@ fn draft_refine_click_carries_current_composite_selected_layer_and_draft_pixels(
     h.run_steps(3);
     let request = TEST_REQUEST.with(|m| m.borrow().as_ref().unwrap().last().unwrap().clone());
     assert_eq!(request.mode, GenerateMode::Refine);
-    assert_eq!(request.source.unwrap(), photocraft_engine::ai_cmds::flatten_rgba(&h.state().session.active().unwrap().doc));
+    assert_eq!(request.source.unwrap(), photocraft_engine::ai_cmds::flatten_rgba(&h.state().session.active().unwrap().doc).unwrap());
     // Edit after opening the window: use fresh document pixels at request time.
     h.state_mut().run("edit.fill", json!({"color":"#ff0000"})).unwrap();
     h.get_by_label("Refine image").click();
@@ -298,7 +298,7 @@ fn draft_refine_click_carries_current_composite_selected_layer_and_draft_pixels(
     Arc::make_mut(&mut d.doc).layer_mut(layer).unwrap().opacity = 0.5;
     d.revision += 1;
     let selected = document_input(h.state(), RefineInput::SelectedLayer).unwrap();
-    assert_ne!(selected, photocraft_engine::ai_cmds::flatten_rgba(&h.state().session.active().unwrap().doc));
+    assert_ne!(selected, photocraft_engine::ai_cmds::flatten_rgba(&h.state().session.active().unwrap().doc).unwrap());
     h.state_mut().ui.ai.draft_refine.input = Input::SelectedLayer;
     h.get_by_label("Refine image").click();
     h.run_steps(2);
@@ -810,4 +810,42 @@ fn ds_finding_mock_request_guard_clears_during_unwind() {
     });
     assert!(result.is_err());
     assert!(TEST_REQUEST.with(|m| m.borrow().is_none()));
+}
+
+#[test]
+fn ai_colour_generate_requests_convert_composite_and_selected_layer_to_srgb() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let mut h = harness(vec2(1280.0, 800.0));
+    let d = h.state_mut().session.active_mut().unwrap();
+    let doc = Arc::make_mut(&mut d.doc);
+    doc.icc_profile = Some(photocraft_cms::Builtin::LinearSrgb.profile().to_bytes());
+    for layer in &mut doc.layers {
+        layer.visible = false;
+    }
+    let mut layer = photocraft_doc::Layer::raster("Linear input", photocraft_color::PixelFormat::RGBA32F);
+    layer.surface_mut().unwrap().write_region(doc.bounds(), &vec![0.5; doc.size.width as usize * doc.size.height as usize * 4]);
+    d.active_layer = Some(layer.id);
+    doc.layers.push(layer);
+    for input in [RefineInput::Composite, RefineInput::SelectedLayer] {
+        assert_eq!(document_input(h.state(), input).unwrap().get_pixel(0, 0).0, [188, 188, 188, 128]);
+    }
+    h.state_mut().ui.ai.draft_refine.input = Input::SelectedLayer;
+    let req = stage_request(h.state(), true).unwrap();
+    assert_eq!(req.source.unwrap().get_pixel(0, 0).0, [188, 188, 188, 128]);
+}
+
+#[test]
+fn ai_colour_create_does_not_transform_an_unrelated_open_document() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let mut h = harness(vec2(1280.0, 800.0));
+    let mut profile = photocraft_cms::Builtin::Srgb.profile().clone();
+    profile.class = photocraft_cms::ProfileClass::DeviceLink;
+    let bytes = profile.with_encoded_bytes().to_bytes();
+    // Valid ICC syntax, but not a document-to-sRGB source transform.
+    assert!(photocraft_cms::Profile::parse(&bytes).is_ok());
+    Arc::make_mut(&mut h.state_mut().session.active_mut().unwrap().doc).icc_profile = Some(bytes);
+    let s = GenerateState { mode: Mode::Create, ..Default::default() };
+    assert!(request_document(h.state(), &s).unwrap().is_none());
+    let s = GenerateState { mode: Mode::Refine, ..Default::default() };
+    assert!(request_document(h.state(), &s).unwrap_err().contains("colour management"));
 }

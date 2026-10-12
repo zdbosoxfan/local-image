@@ -64,7 +64,7 @@ fn restoration_ui_menu_task_preview_split_apply_and_one_undo() {
     assert_eq!(d.history.past_len(), history + 1);
     assert_eq!(d.doc.layers[0].content, before.layers[0].content, "source pixels stay untouched");
     assert!(!d.doc.layers[0].visible, "the original composite must not double partially transparent output");
-    let applied = photocraft_engine::ai_cmds::flatten_rgba(&d.doc);
+    let applied = photocraft_engine::ai_cmds::flatten_rgba(&d.doc).unwrap();
     assert_eq!(applied.get_pixel(10, 10).0, [180, 100, 70, 128]);
     assert_eq!(d.doc.layer(d.active_layer.unwrap()).unwrap().name, "Restoration: Clean up scan");
     assert!(!h.state().restoration.open);
@@ -307,7 +307,7 @@ fn restoration_ui_local_real_5090_colourise_and_repair() {
     session.execute("file.new", json!({"width":257,"height":193})).unwrap();
     session
         .edit("NASA public-domain fixture", |doc, active| {
-            let layer = photocraft_engine::ai_cmds::layer_from_rgba(doc, "NASA astronaut", &input, 0, 0);
+            let layer = photocraft_engine::ai_cmds::layer_from_rgba(doc, "NASA astronaut", &input, 0, 0)?;
             doc.layers.clear();
             let id = doc.insert_above(None, layer);
             *active = Some(id);
@@ -366,7 +366,7 @@ fn restoration_ui_local_real_5090_colourise_and_repair() {
             h.run_steps(3);
             eprintln!("RESTORE_UI colourise_apply_ms={:.2}", start.elapsed().as_secs_f64() * 1000.);
             assert_eq!(h.state().session.active().unwrap().history.past_len(), history + 1);
-            assert_eq!(photocraft_engine::ai_cmds::flatten_rgba(&h.state().session.active().unwrap().doc).get_pixel(0, 0)[3], 128);
+            assert_eq!(photocraft_engine::ai_cmds::flatten_rgba(&h.state().session.active().unwrap().doc).unwrap().get_pixel(0, 0)[3], 128);
             h.state_mut().run("edit.undo", json!({})).unwrap();
             h.run_steps(2);
             assert_eq!(h.state().session.active().unwrap().doc, before);
@@ -427,7 +427,7 @@ fn restoration_ui_local_real_5090_colourise_and_repair() {
             assert!(h.state().restoration.open, "successful repair opens optional Colourise");
             assert_eq!(h.state().restoration.task, Task::Colourise);
             eprintln!("RESTORE_UI confirmed_fill_ms={:.2}", start.elapsed().as_secs_f64() * 1000.);
-            let repaired = photocraft_engine::ai_cmds::flatten_rgba(&h.state().session.active().unwrap().doc);
+            let repaired = photocraft_engine::ai_cmds::flatten_rgba(&h.state().session.active().unwrap().doc).unwrap();
             repaired.save(exports.join("repaired.png")).unwrap();
             let changed = (15..180).flat_map(|y| (80..84).map(move |x| (x, y))).filter(|&(x, y)| repaired.get_pixel(x, y).0[..3] != [245, 245, 245]).count();
             assert!(changed > 330, "reviewed mask must repair most of the injected scratch: {changed}/660");

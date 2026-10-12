@@ -162,7 +162,7 @@ fn remove_confirmation_enter_click_and_immediate_submit_the_painted_mask_once() 
                 .edit("AI Remove", move |doc, active| {
                     let image =
                         image::RgbaImage::from_fn(doc.size.width, doc.size.height, |x, y| image::Rgba([20, 30, 40, mask[(y * doc.size.width + x) as usize]]));
-                    let layer = photocraft_engine::ai_cmds::layer_from_rgba(doc, "AI Remove", &image, 0, 0);
+                    let layer = photocraft_engine::ai_cmds::layer_from_rgba(doc, "AI Remove", &image, 0, 0)?;
                     let id = doc.insert_above(*active, layer);
                     *active = Some(id);
                     Ok(json!({"layer":id.0}))

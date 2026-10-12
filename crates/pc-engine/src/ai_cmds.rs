@@ -26,7 +26,7 @@ use photocraft_color::{ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{Document, Layer, LayerContent, LayerId};
 use photocraft_geom::{Rect, Size};
 use photocraft_paint::{BrushSettings, Stroke, StrokePoint};
-use photocraft_raster::{Surface, from_rgba_into};
+use photocraft_raster::Surface;
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
@@ -123,27 +123,45 @@ pub fn bridged<T>(ctx: &JobCtx, f: impl FnOnce(&JobControl) -> anyhow::Result<T>
 }
 
 /// The visible composite of `rect` as 8-bit RGB (transparency over white) — what the user sees.
-fn composite_rgb(doc: &Document, rect: Rect) -> RgbImage {
-    let buf = photocraft_compose::render(doc, rect);
+fn composite_rgb(doc: &Document, rect: Rect) -> Result<RgbImage> {
+    let buf = crate::color_cmds::composite_to_srgb(doc, photocraft_compose::render(doc, rect))?;
     let (w, h) = (rect.width(), rect.height());
-    RgbImage::from_fn(w, h, |x, y| {
+    Ok(RgbImage::from_fn(w, h, |x, y| {
         let p = buf.px[(y * w + x) as usize];
         let a = p[3].clamp(0.0, 1.0);
         let c = |v: f32| ((v.clamp(0.0, 1.0) * a + (1.0 - a)) * 255.0).round() as u8;
         Rgb([c(p[0]), c(p[1]), c(p[2])])
-    })
+    }))
 }
 
-/// The flattened document as 8-bit RGBA (for AI references and edits).
-pub fn flatten_rgba(doc: &Document) -> RgbaImage {
-    let b = doc.bounds();
-    let buf = photocraft_compose::render(doc, b);
-    let (w, h) = (b.width(), b.height());
+/// Read a file through the bounded, profile-preserving importer, then convert for an AI model.
+pub fn file_rgba_srgb(path: &std::path::Path) -> Result<RgbaImage> {
+    use std::io::Read;
+    let limit = photocraft_format::read::MAX_FILE_BYTES;
+    let file = std::fs::File::open(path).map_err(|e| EngineError::Other(format!("Could not read {}: {e}", path.display())))?;
+    let mut bytes = Vec::new();
+    file.take(limit + 1).read_to_end(&mut bytes).map_err(|e| EngineError::Other(format!("Could not read {}: {e}", path.display())))?;
+    if bytes.len() as u64 > limit {
+        return Err(EngineError::Other("Image exceeds the file memory limit.".into()));
+    }
+    let imported = photocraft_io::import(&path.to_string_lossy(), &bytes).map_err(|e| EngineError::Other(e.to_string()))?;
+    flatten_rgba(&imported.document)
+}
+
+/// The flattened document as sRGB8 RGBA (for AI references and edits).
+pub fn flatten_rgba(doc: &Document) -> Result<RgbaImage> {
+    rendered_rgba(doc, photocraft_compose::render(doc, doc.bounds()))
+}
+
+/// Convert a document-space render before quantizing it for a model or reference.
+pub fn rendered_rgba(doc: &Document, buf: photocraft_compose::Buffer) -> Result<RgbaImage> {
+    let buf = crate::color_cmds::composite_to_srgb(doc, buf)?;
+    let (w, h) = (buf.rect.width(), buf.rect.height());
     let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-    RgbaImage::from_fn(w, h, |x, y| {
+    Ok(RgbaImage::from_fn(w, h, |x, y| {
         let p = buf.px[(y * w + x) as usize];
         image::Rgba([q(p[0]), q(p[1]), q(p[2]), q(p[3])])
-    })
+    }))
 }
 
 /// local-image: the selection as an 8-bit mask the size of the document (white = selected), or
@@ -167,53 +185,60 @@ pub fn selection_gray(doc: &Document) -> Option<GrayImage> {
 }
 
 /// A new raster layer holding `img`, in the document's format, at `(x, y)`.
-pub fn layer_from_rgba(doc: &Document, name: &str, img: &RgbaImage, x: i32, y: i32) -> Layer {
-    let fmt = doc.pixel_format();
+pub fn layer_from_rgba(doc: &Document, name: &str, img: &RgbaImage, x: i32, y: i32) -> Result<Layer> {
     let rect = Rect::from_xywh(x, y, img.width(), img.height());
     let rgb = image::DynamicImage::ImageRgba8(img.clone()).to_rgb8();
-    let surf = surface_from(fmt, rect, &rgb, |px, py| img.get_pixel(px, py)[3] as f32 / 255.0);
+    let surf = surface_from(doc, rect, &rgb, |px, py| img.get_pixel(px, py)[3] as f32 / 255.0)?;
     let mut l = Layer::raster(name, surf.format());
     if let LayerContent::Raster(s) = &mut l.content {
         *s = surf;
     }
-    l
+    Ok(l)
 }
 
 /// One layer rendered alone over `rect` as RGBA8 (with its own transparency).
-fn layer_rgba(layer: &Layer, rect: Rect) -> RgbaImage {
+fn layer_rgba(doc: &Document, layer: &Layer, rect: Rect) -> Result<RgbaImage> {
     let mut l = layer.clone();
     l.mask = None;
     l.visible = true;
     l.opacity = 1.0;
-    let buf = photocraft_compose::render_layer(&l, rect);
-    let (w, h) = (rect.width(), rect.height());
-    let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-    RgbaImage::from_fn(w, h, |x, y| {
-        let p = buf.px[(y * w + x) as usize];
-        image::Rgba([q(p[0]), q(p[1]), q(p[2]), q(p[3])])
-    })
+    selected_layer_rgba(doc, &l, rect)
 }
 
-/// A doc-format surface holding `rgb` at `rect`, with `alpha` (0..1 per pixel) as transparency.
-fn surface_from(fmt: PixelFormat, rect: Rect, rgb: &RgbImage, alpha: impl Fn(u32, u32) -> f32) -> Surface {
-    let fmt = PixelFormat::new(fmt.mode, fmt.sample, true);
-    let n = fmt.channels();
+/// Render one layer while retaining its document's profiles, patterns and lighting.
+/// Visibility, opacity and masks are respected; matte callers normalize them explicitly.
+pub fn selected_layer_rgba(doc: &Document, layer: &Layer, rect: Rect) -> Result<RgbaImage> {
+    let mut isolated = doc.clone();
+    isolated.layers = vec![layer.clone()];
+    rendered_rgba(&isolated, photocraft_compose::render(&isolated, rect))
+}
+
+/// Convert the model's sRGB pixels to document space. Coverage stays unchanged.
+fn surface_from(doc: &Document, rect: Rect, rgb: &RgbImage, alpha: impl Fn(u32, u32) -> f32) -> Result<Surface> {
+    use photocraft_cms::{Builtin, Intent, Transform};
+    let fmt = PixelFormat::new(doc.mode, doc.depth, true);
+    let dst = crate::color_cmds::document_profile(doc);
+    let transform =
+        Transform::new(Builtin::Srgb.profile(), &dst, Intent::RelativeColorimetric, true).map_err(|e| EngineError::Other(format!("colour management: {e}")))?;
+    if transform.inputs() != 3 || transform.outputs() != fmt.mode.color_channels() {
+        return Err(EngineError::Other("AI output cannot be converted to this document's colour mode.".into()));
+    }
     let (w, h) = (rect.width(), rect.height());
-    let mut data = vec![0f32; (w * h) as usize * n];
-    let mut enc = [0f32; 8];
+    let mut data = vec![0f32; w as usize * h as usize * fmt.channels()];
+    // Convert one row at a time to avoid another full float image at AI boundaries.
+    let mut row = vec![0f32; w as usize * 4];
     for y in 0..h {
         for x in 0..w {
             let p = rgb.get_pixel(x, y);
-            let px = [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0, alpha(x, y)];
-            from_rgba_into(&fmt, px, &mut enc);
-            let i = (y * w + x) as usize * n;
-            data[i..i + n].copy_from_slice(&enc[..n]);
+            row[x as usize * 4..x as usize * 4 + 4].copy_from_slice(&[p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0, alpha(x, y)]);
         }
+        let start = y as usize * w as usize * fmt.channels();
+        transform.convert_f32(&row, 4, &mut data[start..start + w as usize * fmt.channels()], fmt.channels(), true);
     }
     let mut s = Surface::new(fmt);
     s.write_region(rect, &data);
     s.prune();
-    s
+    Ok(s)
 }
 
 fn gray_surface(rect: Rect, mask: &GrayImage) -> Surface {
@@ -339,13 +364,12 @@ fn ai_remove(s: &mut Session, p: &Value) -> Result<Value> {
         RemoveEngine::Klein => "AI Remove",
         RemoveEngine::Qwen { .. } => "AI Remove (Qwen)",
     };
-    let fmt = doc.pixel_format();
     crate::jobs::run(
         s,
         label,
         true,
         move |ctx| {
-            let rgb = composite_rgb(&doc, region);
+            let rgb = composite_rgb(&doc, region)?;
             let local = GrayImage::from_fn(region.width(), region.height(), |x, y| {
                 Luma([mask[(region.y0 as usize + y as usize) * size.width as usize + region.x0 as usize + x as usize]])
             });
@@ -353,7 +377,7 @@ fn ai_remove(s: &mut Session, p: &Value) -> Result<Value> {
             // Only the cleaned selection changed; its coverage becomes the new layer's alpha.
             let cleaned = li_ai::imaging::clean_selection_mask(&local);
             ctx.check()?;
-            Ok(surface_from(fmt, region, &out, |x, y| cleaned.get_pixel(x, y)[0] as f32 / 255.0))
+            surface_from(&doc, region, &out, |x, y| cleaned.get_pixel(x, y)[0] as f32 / 255.0)
         },
         move |s, surf| {
             let id = s.edit(label, move |doc, active| {
@@ -397,10 +421,10 @@ fn matte_job(s: &Session, p: &Value) -> Result<(LayerId, Rect, RgbaImage, String
     let hint = p.get("hint").and_then(Value::as_str).unwrap_or("").chars().take(500).collect::<String>();
     // Sample all layers (default) or the layer alone.
     let img = if p.get("sampleAllLayers").and_then(Value::as_bool).unwrap_or(false) {
-        let rgb = composite_rgb(&d.doc, bounds);
+        let rgb = composite_rgb(&d.doc, bounds)?;
         image::DynamicImage::ImageRgb8(rgb).to_rgba8()
     } else {
-        layer_rgba(layer, bounds)
+        layer_rgba(&d.doc, layer, bounds)?
     };
     Ok((id, bounds, img, qwen_variant(p), hint, seed(p)))
 }
@@ -507,7 +531,7 @@ fn generative_fill(s: &mut Session, p: &Value) -> Result<Value> {
         Arc::make_mut(&mut doc).layer_mut(id).ok_or(EngineError::NoLayer(id))?.visible = false;
     }
     let region = context_rect(bbox, doc.bounds());
-    let (variant, seed, fmt) = (qwen_variant(p), seed(p), doc.pixel_format());
+    let (variant, seed) = (qwen_variant(p), seed(p));
     let name: String = if typed.is_empty() { "Generative Fill".to_owned() } else { format!("Fill: {}", typed.chars().take(32).collect::<String>()) };
     // Kept on the layer, so the Contextual Task Bar can regenerate it.
     let generation = json!({
@@ -519,12 +543,12 @@ fn generative_fill(s: &mut Session, p: &Value) -> Result<Value> {
         "Generative Fill",
         true,
         move |ctx| {
-            let rgb = composite_rgb(&doc, region);
+            let rgb = composite_rgb(&doc, region)?;
             let local = GrayImage::from_fn(region.width(), region.height(), |x, y| {
                 Luma([mask[(region.y0 as usize + y as usize) * size.width as usize + region.x0 as usize + x as usize]])
             });
             let out = bridged(ctx, |ctl| li_ai::service().fill(&rgb, &local, &prompt, &variant, seed, ctl))?;
-            Ok(surface_from(fmt, region, &out, |x, y| local.get_pixel(x, y)[0] as f32 / 255.0))
+            surface_from(&doc, region, &out, |x, y| local.get_pixel(x, y)[0] as f32 / 255.0)
         },
         move |s, surf| {
             let id = s.edit("Generative Fill", move |doc, active| {
@@ -553,7 +577,7 @@ fn generate_background(s: &mut Session, p: &Value) -> Result<Value> {
     let replace = replacement_layer(s, p, "ai.generateBackground")?;
     let prompt = p.get("prompt").and_then(Value::as_str).unwrap_or("").trim().chars().take(2000).collect::<String>();
     let doc = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
-    let (variant, seed, fmt, bounds) = (qwen_variant(p), seed(p), doc.pixel_format(), doc.bounds());
+    let (variant, seed, bounds) = (qwen_variant(p), seed(p), doc.bounds());
     let (gw, gh) = generation_size(doc.size);
     let generation = json!({"command": "ai.generateBackground", "prompt": prompt, "seed": seed, "engine": variant});
     crate::jobs::run(
@@ -564,7 +588,7 @@ fn generate_background(s: &mut Session, p: &Value) -> Result<Value> {
             let img = bridged(ctx, |ctl| li_ai::service().generate_background(&prompt, gw, gh, &variant, seed, ctl))?;
             let filled = li_ai::imaging::fit_cover(&img, bounds.width(), bounds.height());
             let rgb = image::DynamicImage::ImageRgba8(filled).to_rgb8();
-            Ok(surface_from(fmt, bounds, &rgb, |_, _| 1.0))
+            surface_from(&doc, bounds, &rgb, |_, _| 1.0)
         },
         move |s, surf| {
             let id = s.edit("Generate Background", move |doc, active| {
@@ -635,13 +659,7 @@ fn enhance(s: &mut Session, p: &Value) -> Result<Value> {
         "AI Enhance",
         false,
         move |ctx| {
-            let bounds = doc.bounds();
-            let buf = photocraft_compose::render(&doc, bounds);
-            let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-            let img = RgbaImage::from_fn(sw, sh, |x, y| {
-                let p = buf.px[(y * sw + x) as usize];
-                image::Rgba([q(p[0]), q(p[1]), q(p[2]), q(p[3])])
-            });
+            let img = flatten_rgba(&doc)?;
             let out = bridged(ctx, |ctl| match &choice {
                 Some(choice) => li_ai::service().enhance_with_choice(&img, w, h, method, backend, &models_dir, seed, ctl, choice),
                 None => li_ai::service().enhance(&img, w, h, method, backend, &models_dir, seed, ctl),
@@ -650,6 +668,7 @@ fn enhance(s: &mut Session, p: &Value) -> Result<Value> {
         },
         move |s, out| {
             let mut d = Document::new(name, Size::new(w, h), ColorMode::Rgb, SampleType::U8);
+            d.icc_profile = Some(photocraft_cms::Builtin::Srgb.profile().to_bytes());
             let fmt = PixelFormat::RGBA8;
             let surf = Surface::from_interleaved(fmt, Rect::from_xywh(0, 0, w, h), out.as_raw());
             let mut l = Layer::raster("Background", fmt);
@@ -672,8 +691,7 @@ fn place_layer(s: &mut Session, p: &Value) -> Result<Value> {
         g["command"] = json!("ai.generate");
         g
     });
-    let bytes = std::fs::read(path).map_err(|e| EngineError::Other(format!("Could not read {path}: {e}")))?;
-    let img = image::load_from_memory(&bytes).map_err(|e| EngineError::Other(format!("Could not decode {path}: {e}")))?.to_rgba8();
+    let img = file_rgba_srgb(std::path::Path::new(path))?;
     s.edit("Place Generated Image", move |doc, active| {
         let (dw, dh) = (doc.size.width, doc.size.height);
         let (iw, ih) = img.dimensions();
@@ -693,7 +711,7 @@ fn place_layer(s: &mut Session, p: &Value) -> Result<Value> {
             img
         };
         let (x, y) = if fit == "none" { (0, 0) } else { ((dw as i32 - img.width() as i32) / 2, (dh as i32 - img.height() as i32) / 2) };
-        let mut l = layer_from_rgba(doc, &name, &img, x, y);
+        let mut l = layer_from_rgba(doc, &name, &img, x, y)?;
         l.generation = generation;
         Ok(add_layer_above(doc, active, l))
     })
@@ -779,6 +797,119 @@ pub fn specs() -> Vec<CommandSpec> {
 mod tests {
     use super::*;
     use std::sync::atomic::Ordering;
+
+    fn colour_document(profile: photocraft_cms::Builtin, pixel: [f32; 4]) -> Result<Document> {
+        let mut doc = Document::new("AI colour", Size::new(1, 1), ColorMode::Rgb, SampleType::F32);
+        doc.icc_profile = Some(profile.profile().to_bytes());
+        let mut layer = Layer::raster("Source", PixelFormat::RGBA32F);
+        crate::pixels_mut(&mut layer)?.write_region(doc.bounds(), &pixel);
+        doc.layers.push(layer);
+        Ok(doc)
+    }
+
+    #[test]
+    fn ai_colour_linear_references_encode_rgb_but_preserve_coverage() {
+        let doc = colour_document(photocraft_cms::Builtin::LinearSrgb, [0.5, 0.25, 0.0, 0.5]).unwrap();
+        // Independent IEC sRGB transfer-function values, not a round-trip oracle.
+        let encoded = flatten_rgba(&doc).unwrap();
+        assert_eq!(encoded.get_pixel(0, 0).0, [188, 137, 0, 128]);
+        assert_eq!(layer_rgba(&doc, &doc.layers[0], doc.bounds()).unwrap(), encoded);
+        let white = composite_rgb(&doc, doc.bounds()).unwrap();
+        assert_eq!(white.get_pixel(0, 0).0, [221, 196, 128]);
+        let preview = crate::color_cmds::composite_to_srgb(&doc, photocraft_compose::thumbnail_buffer(&doc, 1)).unwrap().to_rgba8();
+        assert_eq!(preview.pixels, encoded.into_raw());
+    }
+
+    #[test]
+    fn ai_colour_generated_srgb_decodes_into_linear_document_and_keeps_alpha() {
+        let doc = colour_document(photocraft_cms::Builtin::LinearSrgb, [0.0; 4]).unwrap();
+        let img = RgbaImage::from_pixel(1, 1, image::Rgba([128, 64, 0, 87]));
+        let layer = layer_from_rgba(&doc, "Generated", &img, 3, 4).unwrap();
+        let p = layer.surface().unwrap().read_region(Rect::from_xywh(3, 4, 1, 1));
+        assert!((p[0] - 0.215_860_5).abs() < 0.0001, "{}", p[0]);
+        assert!((p[1] - 0.051_269_46).abs() < 0.0001, "{}", p[1]);
+        assert!(p[2].abs() < 1e-7, "matrix arithmetic preserves black within float precision: {}", p[2]);
+        assert_eq!(p[3], 87.0 / 255.0);
+        assert_eq!(layer_rgba(&doc, &layer, Rect::from_xywh(3, 4, 1, 1)).unwrap(), img);
+    }
+
+    #[test]
+    fn ai_colour_wide_gamut_and_non_rgb_outputs_follow_document_profile() {
+        use photocraft_cms::{Builtin, Intent, Transform};
+        for (mode, profile) in [
+            (ColorMode::Rgb, Builtin::AdobeRgbCompat),
+            (ColorMode::Grayscale, Builtin::SGray),
+            (ColorMode::Cmyk, Builtin::CoatedCmyk),
+            (ColorMode::Lab, Builtin::LabD50),
+        ] {
+            let mut doc = Document::new("AI mode", Size::new(1, 1), mode, SampleType::F32);
+            doc.icc_profile = Some(profile.profile().to_bytes());
+            let img = RgbaImage::from_pixel(1, 1, image::Rgba([140, 90, 60, 73]));
+            let layer = layer_from_rgba(&doc, "Generated", &img, 0, 0).unwrap();
+            let pixels = layer.surface().unwrap().read_region(doc.bounds());
+            let mut expected = [0f32; 4];
+            let transform = Transform::new(Builtin::Srgb.profile(), profile.profile(), Intent::RelativeColorimetric, true).unwrap();
+            transform.eval(&[140.0 / 255.0, 90.0 / 255.0, 60.0 / 255.0], &mut expected);
+            for (actual, expected) in pixels[..mode.color_channels()].iter().zip(expected) {
+                assert!((actual - expected).abs() < 0.002, "{mode:?}: {actual} vs {expected}");
+            }
+            assert_eq!(pixels[mode.color_channels()], 73.0 / 255.0, "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn ai_colour_selected_layer_retains_document_patterns_and_cmyk_context() {
+        use photocraft_cms::synth::{CmykParams, cmyk_profile};
+        use photocraft_doc::{Fill, Pattern};
+        let mut doc = colour_document(photocraft_cms::Builtin::LinearSrgb, [0.5, 0.25, 0.0, 1.0]).unwrap();
+        let pattern = Pattern::new("Linear pattern", doc.layers[0].surface().unwrap().clone(), 1, 1);
+        doc.layers[0].content =
+            LayerContent::Fill(Fill::Pattern { id: pattern.id.clone(), name: pattern.name.clone(), scale: 1.0, phase: (0.0, 0.0), angle: 0.0, link: true });
+        doc.patterns.push(pattern);
+        let expected = flatten_rgba(&doc).unwrap();
+        assert_eq!(expected.get_pixel(0, 0).0, [188, 137, 0, 255]);
+        assert_eq!(selected_layer_rgba(&doc, &doc.layers[0], doc.bounds()).unwrap(), expected);
+
+        let profile = cmyk_profile(&CmykParams { tvi: [0.45; 4], grid_a2b: 3, grid_b2a: 3, ..Default::default() });
+        let mut doc = Document::new("Custom CMYK", Size::new(1, 1), ColorMode::Cmyk, SampleType::F32);
+        doc.icc_profile = Some(profile.to_bytes());
+        let mut layer = Layer::raster("Ink", PixelFormat::new(ColorMode::Cmyk, SampleType::F32, true));
+        layer.surface_mut().unwrap().write_region(doc.bounds(), &[0.3, 0.6, 0.2, 0.1, 0.7]);
+        doc.layers.push(layer);
+        let expected = flatten_rgba(&doc).unwrap();
+        assert_eq!(selected_layer_rgba(&doc, &doc.layers[0], doc.bounds()).unwrap(), expected);
+        let mut untagged = doc.clone();
+        untagged.icc_profile = None;
+        assert_ne!(flatten_rgba(&untagged).unwrap(), expected, "fixture distinguishes the document's CMYK context");
+    }
+
+    #[test]
+    fn ai_colour_tagged_file_references_match_open_document_and_generated_placement() {
+        let doc = colour_document(photocraft_cms::Builtin::LinearSrgb, [0.5, 0.25, 0.0, 0.5]).unwrap();
+        let bytes = photocraft_io::export(&doc, "png", &Default::default()).unwrap().bytes;
+        let dir = std::env::temp_dir().join(format!(
+            "li-ai-colour-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("linear.png");
+        std::fs::write(&path, &bytes).unwrap();
+        let img = file_rgba_srgb(&path).unwrap();
+        let expected = flatten_rgba(&doc).unwrap();
+        for (a, b) in img.as_raw().iter().zip(expected.as_raw()) {
+            assert!(a.abs_diff(*b) <= 1, "{a} vs {b}");
+        }
+        let mut session = Session::new();
+        session.add_document(colour_document(photocraft_cms::Builtin::LinearSrgb, [0.0; 4]).unwrap(), None);
+        let before = session.active().unwrap().doc.clone();
+        session.execute("ai.placeLayer", json!({"path":path, "fit":"none"})).unwrap();
+        let d = session.active().unwrap();
+        assert_eq!(flatten_rgba(&d.doc).unwrap(), img);
+        session.execute("edit.undo", json!({})).unwrap();
+        assert_eq!(session.active().unwrap().doc, before);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn final_review_bridge_stops_on_unwind_and_preserves_results() {

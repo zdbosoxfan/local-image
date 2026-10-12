@@ -7,9 +7,8 @@
 //! profile of the mode is assumed (sRGB, sGray, the built-in coated CMYK, Lab D50).
 //!
 //! Compositing stays in document space for RGB and gray documents. CMYK and Lab documents are
-//! composited in sRGB after a per-layer conversion with the built-in profiles (see
-//! `photocraft_color::convert`), so their [`composite_profile`] is sRGB; documents tagged with
-//! a different CMYK profile therefore display approximately until compositing is mode-native.
+//! composited in sRGB after a per-layer conversion (CMYK uses the document profile; Lab uses
+//! the built-in Lab profile), so their [`composite_profile`] is sRGB.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -467,6 +466,18 @@ pub fn composite_profile(doc: &Document) -> Arc<Profile> {
         }
         _ => Arc::new(Builtin::Srgb.profile().clone()),
     }
+}
+
+/// Convert compositor pixels to the sRGB interchange space used by AI and Library previews.
+/// Alpha is coverage, so it is preserved rather than passed through a colour curve.
+pub fn composite_to_srgb(doc: &Document, mut buf: photocraft_compose::Buffer) -> Result<photocraft_compose::Buffer> {
+    let src = composite_profile(doc);
+    let dst = Builtin::Srgb.profile();
+    if !src.same_colors(dst) {
+        let transform = Transform::new(&src, dst, Intent::RelativeColorimetric, true).map_err(cms_err)?;
+        transform.apply(buf.px.as_flattened_mut(), 4);
+    }
+    Ok(buf)
 }
 
 /// Resolves a profile parameter: a built-in id/alias/description, `"working"` (with `mode`),
