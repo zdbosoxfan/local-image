@@ -2103,3 +2103,100 @@ fn wide_glow_fields_remain_exact_inside_the_reference_region() {
     // Corner pixels inside the reference map can be farther from the shape than MAX_REACH.
     fx_check(&mut g, &d, "wide glow/spread fields beyond 512 pixels");
 }
+
+#[test]
+fn replaced_resident_views_do_not_accumulate_binding_owners() {
+    let Some(mut g) = gpu() else {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
+        return;
+    };
+    let mut d = Document::new("resident replacement", Size::new(512, 512), ColorMode::Rgb, SampleType::U8);
+    d.layers.push(Layer::raster("changing page", PixelFormat::RGBA8));
+    let mut baseline = None;
+    for step in 0..16 {
+        // Same layer/page identity; alternate both upload region and storage kind well below
+        // the budget. Merely checking resident_bytes cannot detect pinned obsolete views.
+        let fmt = if step % 2 == 0 { PixelFormat::RGBA8 } else { PixelFormat::RGBA32F };
+        let edge = if step % 4 < 2 { 64 } else { 320 };
+        let mut surface = photocraft_raster::Surface::new(fmt);
+        surface.fill_rect(Rect::new(0, 0, edge, edge), &[0.2, 0.5, 0.7, 0.8]);
+        *d.layers[0].surface_mut().unwrap() = surface;
+        let cpu = photocraft_compose::flatten(&d);
+        let (out, stats) = photocraft_gpu::render_to_vec_stats(&mut g.comp, &g.device, &g.queue, &d, d.bounds()).unwrap();
+        assert_eq!(stats.evicted, 0, "replacement must be tested without budget eviction");
+        assert!(worst_diff(&cpu.px, &out).0 <= TOL, "replacement parity at {step}");
+        let entries = g.comp.texture_binding_cache_entries();
+        let expected = *baseline.get_or_insert(entries);
+        assert!(expected > 0);
+        assert_eq!(entries, expected, "old texture bindings retained at replacement {step}");
+        let (_, unchanged) = photocraft_gpu::render_to_vec_stats(&mut g.comp, &g.device, &g.queue, &d, d.bounds()).unwrap();
+        assert_eq!(unchanged.tiles_uploaded, 0, "unchanged resident should be reused");
+        assert_eq!(g.comp.texture_binding_cache_entries(), entries);
+    }
+}
+
+#[test]
+fn removed_layers_release_cached_texture_bindings_under_budget() {
+    let Some(mut g) = gpu() else {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
+        return;
+    };
+    let mut d = base_doc(64, 64);
+    for step in 0..8 {
+        check(&mut g, &d, "layer before removal");
+        assert!(g.comp.texture_binding_cache_entries() > 0);
+        d.layers.clear();
+        check(&mut g, &d, "empty after removal");
+        assert_eq!(g.comp.resident_bytes(), 0);
+        assert_eq!(g.comp.texture_binding_cache_entries(), 0, "bindings survived removal {step}");
+        assert_eq!(g.paged.texture_binding_cache_entries(), 0);
+        d.layers.push(noise_layer("new layer", PixelFormat::RGBA8, d.bounds(), step + 1, 0.5));
+    }
+}
+
+#[test]
+fn effect_and_pattern_replacement_do_not_accumulate_binding_owners() {
+    let Some(mut g) = gpu() else {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
+        return;
+    };
+    let mut d = fx_doc(96, 96, SampleType::U8);
+    d.layers.push(blob("effect", d.pixel_format(), 48.0, 48.0, 18.0, [0.8, 0.3, 0.1]));
+    let mut ceiling = 0;
+    for step in 0..12 {
+        d.layers[1].effects.items = vec![
+            Effect::DropShadow(shadow(BlendMode::Multiply, 0.75, 120.0, 3.0, 4.0 + (step % 2) as f32, 0.1 * (step % 3) as f32)),
+            Effect::DropShadow(shadow(BlendMode::Normal, 0.4, 240.0, 2.0, 3.0, 0.0)),
+        ];
+        if step % 3 == 2 {
+            d.layers[1].effects.items.pop();
+        }
+        fx_check(&mut g, &d, "replaced effect maps");
+        let entries = g.comp.texture_binding_cache_entries();
+        if step < 2 {
+            ceiling = ceiling.max(entries);
+        }
+        assert!(entries <= ceiling, "stale effect-map bindings at {step}: {entries} > {ceiling}");
+    }
+    g.comp.forget_doc(d.id);
+    g.paged.forget_doc(d.id);
+    let mut d = base_doc(64, 64);
+    let pat = checker_pattern();
+    d.layers.push(Layer::new(
+        "pattern",
+        LayerContent::Fill(Fill::Pattern { name: pat.name.clone(), id: pat.id.clone(), scale: 1.0, angle: 0.0, link: true, phase: (0.0, 0.0) }),
+    ));
+    d.patterns.push(pat);
+    let mut baseline = None;
+    for step in 0..12 {
+        if step < 6 {
+            d.patterns[0].surface.fill_rect(Rect::new(0, 0, 2, 2), &[step as f32 / 12.0, 0.2, 0.7, 1.0]);
+        } else {
+            // Untiled defaults have no tile pointer to fingerprint, either.
+            d.patterns[0].surface = photocraft_raster::Surface::with_default(PixelFormat::RGBA8, &[step as f32 / 12.0, 0.7, 0.2, 1.0]);
+        }
+        check(&mut g, &d, "replaced pattern texture");
+        let entries = g.comp.texture_binding_cache_entries();
+        assert_eq!(entries, *baseline.get_or_insert(entries), "stale pattern bindings at {step}");
+    }
+}

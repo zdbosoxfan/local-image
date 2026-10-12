@@ -677,6 +677,7 @@ impl Compositor {
         self.fx.clear();
         self.noise.clear();
         self.temps.clear();
+        self.patterns.clear();
     }
 
     /// The page side layer surfaces are stored in.
@@ -740,6 +741,12 @@ impl Compositor {
     /// GPU memory held by resident layer pages (bytes).
     pub fn resident_bytes(&self) -> u64 {
         self.residents.values().map(Resident::bytes).sum()
+    }
+
+    /// Number of cached texture bind groups. Each entry owns its source views, so stale
+    /// entries must be invalidated when the corresponding cached textures are replaced.
+    pub fn texture_binding_cache_entries(&self) -> usize {
+        self.texture_groups.len()
     }
 
     /// Whether `doc` can be composited on the GPU. Documents and layers larger than the texture
@@ -1080,8 +1087,14 @@ impl Compositor {
         let frame = self.frame;
         let live =
             self.plans.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(&doc.id).and_then(plan_cache::PlanCache::layer_ids).unwrap_or_default();
+        let owned_textures = (self.residents.len(), self.fx.len());
         self.residents.retain(|(id, _, _), r| r.doc != doc.id || r.last_used == frame || live.contains(id));
         self.fx.retain(|(id, _), e| e.doc != doc.id || e.last_used == frame || live.contains(id));
+        if owned_textures != (self.residents.len(), self.fx.len()) {
+            // Bind groups own views too; removing the primary cache owner alone does not
+            // release a deleted layer's textures. Submitted commands retain what they need.
+            self.texture_groups.clear();
+        }
         self.noise.retain(|id, e| e.doc != doc.id || (live.contains(id) && frame.saturating_sub(e.last_used) < 240));
         stats.evicted += self.evict().0;
         self.temps.retain(|(_, used)| frame.saturating_sub(*used) < 240);
@@ -1160,6 +1173,7 @@ impl Compositor {
             .map(|p| (p.tex.as_ref().map_or(Rect::EMPTY, |t| area(t.surface.get())), p.mask.as_ref().map_or(Rect::EMPTY, |m| area(m.surface.get()))))
             .collect();
         if self.luts.len() > 256 {
+            self.texture_groups.clear();
             self.luts.clear();
         }
         let luts = plan
@@ -1487,7 +1501,11 @@ impl Compositor {
                 wgpu::Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
             );
             self.staged += (w * h * bpp) as u64;
-            self.residents.insert(key, r);
+            if let Some(previous) = self.residents.insert(key, r) {
+                // Region/format/profile changes replace a page without budget eviction.
+                // Keep unrelated groups warm, but release every binding to the old page.
+                self.texture_groups.retain(|views, _| !views.contains(&previous.view));
+            }
         }
         // Present: inserted above when it was missing or stale.
         let r = self.residents.get_mut(&key)?;
@@ -1530,12 +1548,14 @@ impl Compositor {
 
     /// Premultiplied RGBA32F texture of a pattern (cached by pixel identity).
     fn pattern_view(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, pat: &Pattern) -> wgpu::TextureView {
-        let fp = pat.surface.tiles().fold((pat.width as u64) << 32 | pat.height as u64, |acc, (c, t)| {
-            acc.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ (Arc::as_ptr(t) as usize as u64) ^ ((c.tx as u64) << 20) ^ c.ty as u64
-        });
+        // Surface revisions cover in-place edits, format/default changes and replacement;
+        // tile pointer addresses can stay the same after Arc::make_mut or be reused.
+        let fp = pat.surface.revision();
         let key = format!("{}\u{0}{}", pat.id, pat.name);
         if let Some((f, t)) = self.patterns.get(&key)
             && *f == fp
+            && t.texture.width() == pat.width
+            && t.texture.height() == pat.height
         {
             return t.view.clone();
         }
@@ -1551,7 +1571,9 @@ impl Compositor {
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         let v = t.view.clone();
-        self.patterns.insert(key, (fp, t));
+        if let Some((_, previous)) = self.patterns.insert(key, (fp, t)) {
+            self.texture_groups.retain(|views, _| !views.contains(&previous.view));
+        }
         v
     }
 
@@ -1687,6 +1709,9 @@ impl Compositor {
             }
         }
         if rebuild {
+            if self.fx.contains_key(&key) {
+                self.texture_groups.clear();
+            }
             let shape = Tex::map(device, "pc_fx_shape", region, MAP32);
             let n = rw as usize * rh as usize;
             self.fx.insert(
@@ -1774,6 +1799,9 @@ impl Compositor {
         if let Some(t) = t_trace.filter(|_| !damage.is_empty()) {
             eprintln!("effect maps of `{}`: shape + distance fields over {damage:?} in {:.2} ms (CPU)", layer.name, t.elapsed().as_secs_f64() * 1000.0);
         }
+        if e.progs.len() > progs.len() {
+            self.texture_groups.clear();
+        }
         e.progs.truncate(progs.len());
         while e.progs.len() < progs.len() {
             e.progs.push(ProgState { key: 0, maps: Vec::new() });
@@ -1790,6 +1818,7 @@ impl Compositor {
                 continue;
             }
             if !same {
+                self.texture_groups.clear();
                 e.progs[i] = ProgState {
                     key: prog.key,
                     maps: (0..prog.maps).map(|k| prog.stages.iter().any(|s| s.out == Some(k)).then(|| Tex::map(device, "pc_fx_map", region, MAP16))).collect(),
