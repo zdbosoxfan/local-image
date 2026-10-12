@@ -28,3 +28,7 @@ tiny_http = { workspace = true }
 base64 = "0.22"
 
 
+
+[dev-dependencies]
+# Existing workspace/lock package: local TLS and CONNECT regression fixtures only.
+rustls = { workspace = true }

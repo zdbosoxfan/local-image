@@ -1,6 +1,6 @@
 //! Verified downloads of model and LoRA files: HTTPS from an allow-list of hosts (checked on every
 //! redirect), streamed to a `.part` file with the exact byte count and SHA-256 enforced, then
-//! renamed into place. An existing file is accepted only if its size and hash match; it is never
+//! atomically linked into place without replacing another file. An existing file is accepted only if its size and hash match; it is never
 //! overwritten.
 
 use std::io::{Read, Write};
@@ -12,6 +12,12 @@ use sha2::{Digest, Sha256};
 
 use crate::catalog::{FileSpec, Preset};
 use crate::comfy::{Cancelled, JobControl};
+
+#[cfg(test)]
+mod tests_cancel;
+#[cfg(test)]
+mod tests_tls;
+mod transport;
 
 const ALLOWED_HOSTS: &[&str] = &[
     "github.com",
@@ -67,16 +73,20 @@ fn body_timeout(bytes: u64) -> Duration {
     Duration::from_secs(120 + bytes / (256 << 10))
 }
 
-fn download_agent(timeout_body: Duration) -> ureq::Agent {
-    ureq::Agent::config_builder()
+fn download_agent(timeout_body: Duration, ctl: &JobControl) -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
         .tls_config(crate::tls::config())
+        .timeout_resolve(Some(Duration::from_secs(20)))
         .timeout_connect(Some(Duration::from_secs(20)))
+        .timeout_send_request(Some(Duration::from_secs(20)))
+        .timeout_recv_response(Some(Duration::from_secs(30)))
+        .max_idle_connections(0)
         .timeout_recv_body(Some(timeout_body))
         .max_redirects(0)
         .http_status_as_error(false)
         .user_agent(concat!("LocalImage/", env!("CARGO_PKG_VERSION")))
-        .build()
-        .into()
+        .build();
+    transport::agent(config, ctl)
 }
 
 fn resolve_redirect(url: &str, loc: &str) -> Result<String> {
@@ -92,10 +102,11 @@ fn resolve_redirect(url: &str, loc: &str) -> Result<String> {
 
 /// GETs `url` following redirects (each checked against the allow-list). The token is sent only
 /// to the first URL's own host, never to the CDN a redirect points at.
-fn open(agent: &ureq::Agent, url: &str, token: Option<&str>, head: bool) -> Result<(String, ureq::http::Response<ureq::Body>)> {
+fn open(agent: &ureq::Agent, url: &str, token: Option<&str>, head: bool, ctl: &JobControl) -> Result<(String, ureq::http::Response<ureq::Body>)> {
     let first = host_of(url);
     let mut url = url.to_owned();
     for _ in 0..8 {
+        ctl.check()?;
         if !host_allowed(&url) {
             bail!("Refusing to download from an unexpected host: {url}");
         }
@@ -105,14 +116,16 @@ fn open(agent: &ureq::Agent, url: &str, token: Option<&str>, head: bool) -> Resu
             if let Some(a) = &auth {
                 req = req.header("Authorization", a);
             }
-            req.call()?
+            req.call()
         } else {
             let mut req = agent.get(&url);
             if let Some(a) = &auth {
                 req = req.header("Authorization", a);
             }
-            req.call()?
-        };
+            req.call()
+        }
+        .map_err(|e| if ctl.is_cancelled() { anyhow::anyhow!(Cancelled) } else { anyhow::anyhow!(e) })?;
+        ctl.check()?;
         if r.status().is_redirection() {
             let loc = r.headers().get("location").and_then(|v| v.to_str().ok()).context("redirect without a location")?;
             url = resolve_redirect(&url, loc)?;
@@ -128,7 +141,8 @@ fn open(agent: &ureq::Agent, url: &str, token: Option<&str>, head: bool) -> Resu
 
 /// The size of a download (`Content-Length` of the final response after redirects).
 pub fn remote_size(url: &str, token: Option<&str>) -> Result<Option<u64>> {
-    let (_, r) = open(&download_agent(Duration::from_secs(30)), url, token, true)?;
+    let ctl = JobControl::new();
+    let (_, r) = open(&download_agent(Duration::from_secs(30), &ctl), url, token, true, &ctl)?;
     Ok(r.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|v| v.parse().ok()))
 }
 
@@ -314,6 +328,21 @@ pub fn download_preset(model_dir: &Path, preset: &Preset, ctl: &JobControl, on_p
     Ok(())
 }
 
+struct PartialDownload {
+    path: PathBuf,
+    owned: bool,
+}
+impl Drop for PartialDownload {
+    fn drop(&mut self) {
+        if self.owned
+            && let Err(e) = std::fs::remove_file(&self.path)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            log::warn!("Could not remove download partial {}: {e}", self.path.display());
+        }
+    }
+}
+
 /// Downloads one file with size and SHA-256 enforcement.
 pub fn download_file(url: &str, dest: &Path, bytes: u64, sha256: &str, ctl: &JobControl, on_bytes: &dyn Fn(u64)) -> Result<()> {
     download_file_with(url, dest, bytes, sha256, None, ctl, on_bytes)
@@ -321,26 +350,32 @@ pub fn download_file(url: &str, dest: &Path, bytes: u64, sha256: &str, ctl: &Job
 
 /// [`download_file`] with an access token for the first host (Hugging Face, Civitai).
 pub fn download_file_with(url: &str, dest: &Path, bytes: u64, sha256: &str, token: Option<&str>, ctl: &JobControl, on_bytes: &dyn Fn(u64)) -> Result<()> {
+    ctl.check()?;
     if crate::restoration::byo::external_only(url) || dest.file_name().and_then(|s| s.to_str()).is_some_and(crate::restoration::byo::external_only) {
         anyhow::bail!("This model is user-installed only; Local Image never downloads it");
     }
     if dest.exists() {
         bail!("{} already exists", dest.display());
     }
+    let read_limit = bytes.checked_add(1).context("Download size exceeds the supported range")?;
+    let needed = bytes.checked_add(256 << 20).context("Download size exceeds the supported range")?;
     let dir = dest.parent().context("destination has no folder")?;
     std::fs::create_dir_all(dir)?;
     if let Some(free) = free_space(dir)
-        && free < bytes + (256 << 20)
+        && free < needed
     {
-        bail!("Not enough disk space in {}: {} needed.", dir.display(), human_bytes(bytes + (256 << 20)));
+        bail!("Not enough disk space in {}: {} needed.", dir.display(), human_bytes(needed));
     }
     // ureq's body timeout is one budget for the whole body, not per read: give a slow connection (256 KiB/s) time
     // for the full file instead of cutting every download that takes longer than two minutes.
-    let (_, mut r) = open(&download_agent(body_timeout(bytes)), url, token, false)?;
+    let (_, mut r) = open(&download_agent(body_timeout(bytes), ctl), url, token, false, ctl)?;
     let part = dir.join(format!(".{}.local-image-{}.part", dest.file_name().and_then(|n| n.to_str()).unwrap_or("file"), uuid::Uuid::new_v4().simple()));
-    let result = (|| -> Result<()> {
-        let mut out = std::fs::File::create(&part)?;
-        let mut reader = r.body_mut().with_config().limit(bytes + 1).reader();
+    // Declared before the output handle: unwind closes the writer before cleanup.
+    let mut partial = PartialDownload { path: part.clone(), owned: false };
+    (|| -> Result<()> {
+        let mut out = std::fs::OpenOptions::new().write(true).create_new(true).open(&part)?;
+        partial.owned = true;
+        let mut reader = r.body_mut().with_config().limit(read_limit).reader();
         let mut h = Sha256::new();
         let mut buf = vec![0u8; 1 << 20];
         let mut n = 0u64;
@@ -348,7 +383,8 @@ pub fn download_file_with(url: &str, dest: &Path, bytes: u64, sha256: &str, toke
             if ctl.is_cancelled() {
                 return Err(anyhow::anyhow!(Cancelled));
             }
-            let k = reader.read(&mut buf)?;
+            let k = reader.read(&mut buf).map_err(|e| if ctl.is_cancelled() { anyhow::anyhow!(Cancelled) } else { anyhow::anyhow!(e) })?;
+            ctl.check()?;
             if k == 0 {
                 break;
             }
@@ -360,6 +396,8 @@ pub fn download_file_with(url: &str, dest: &Path, bytes: u64, sha256: &str, toke
             out.write_all(&buf[..k])?;
             on_bytes(n);
         }
+        drop(reader);
+        ctl.check()?;
         if n != bytes {
             bail!("The download ended early ({} of {}). Try again.", human_bytes(n), human_bytes(bytes));
         }
@@ -368,16 +406,13 @@ pub fn download_file_with(url: &str, dest: &Path, bytes: u64, sha256: &str, toke
             bail!("The downloaded file's checksum does not match; it was discarded.");
         }
         out.sync_all()?;
-        if dest.exists() {
-            bail!("{} appeared while downloading", dest.display());
-        }
-        std::fs::rename(&part, dest)?;
+        drop(out);
+        // Commit begins at this final cancellation check. A later cancellation
+        // cannot undo an already accepted verified file; no writer is detached.
+        ctl.check()?;
+        std::fs::hard_link(&part, dest).with_context(|| format!("Could not publish {} without replacing an existing file", dest.display()))?;
         Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&part);
-    }
-    result
+    })()
 }
 
 /// Free bytes on the volume holding `dir`, when the platform can tell.

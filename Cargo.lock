@@ -3890,6 +3890,7 @@ dependencies = [
  "log",
  "rand 0.9.5",
  "rayon",
+ "rustls",
  "rustls-rustcrypto",
  "serde",
  "serde_json",
