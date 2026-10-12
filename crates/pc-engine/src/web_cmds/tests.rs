@@ -311,3 +311,40 @@ fn overlapping_slices_keep_the_later_slice_in_html() {
     assert_eq!(area, 64 * 48);
     assert!(files.iter().any(|f| f.ends_with("images/under_01.png")), "the covered slice is cut into pieces: {files:?}");
 }
+
+#[test]
+fn library_identity_save_scripts_cannot_retarget_generated_assets() {
+    for close_saved in [true, false] {
+        let dir = tmp(if close_saved { "saved-closed" } else { "saved-moved" });
+        let mut s = session(8);
+        let first = (*s.active().unwrap().doc).clone();
+        let mut second = first.clone();
+        second.id = photocraft_doc::DocId::fresh();
+        s.add_document(second, Some(format!("{dir}/b.psd")));
+        s.set_active(0);
+        s.active_mut().unwrap().path = Some(format!("{dir}/a.psd"));
+        for index in [0, 1] {
+            s.set_active(index);
+            let layer = s.active().unwrap().active_layer.unwrap();
+            s.execute("layer.renameLayer", json!({"layer":layer.0,"name":"image.png"})).unwrap();
+            s.execute("file.generate.imageAssets", json!({"enabled":true})).unwrap();
+        }
+        // Enabling may generate once; remove that setup output before the save event.
+        for name in ["a-assets", "b-assets"] {
+            let _ = std::fs::remove_dir_all(format!("{dir}/{name}"));
+        }
+        let saved_index = if close_saved { 0 } else { 1 };
+        s.set_active(saved_index);
+        s.execute("file.scripts.scriptEventsManager", json!({"add":{"event":"saveDocument","steps":[["file.close",{"document":0}]]}})).unwrap();
+        let result = crate::automate_cmds::document_saved(&mut s, saved_index);
+        if close_saved {
+            assert!(result.is_none());
+            assert!(!std::path::Path::new(&format!("{dir}/b-assets")).exists(), "saved A's callback generated B's assets");
+        } else {
+            assert!(result.is_some(), "the surviving saved document was not re-resolved after an earlier tab closed");
+            assert!(std::path::Path::new(&format!("{dir}/b-assets/image.png")).is_file());
+        }
+        assert!(!std::path::Path::new(&format!("{dir}/a-assets")).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

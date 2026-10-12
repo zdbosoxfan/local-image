@@ -274,7 +274,10 @@ pub fn document_opened(s: &mut Session) {
 
 /// After the shell saved document `index`: Save Document scripts and Image Assets.
 pub fn document_saved(s: &mut Session, index: usize) -> Option<Value> {
+    let document = s.documents().get(index)?.doc.id;
     fire_event(s, "saveDocument");
+    // A script can close/reorder tabs. Generate only for the document actually saved.
+    let index = s.documents().iter().position(|d| d.doc.id == document)?;
     crate::web_cmds::on_saved(s, index)
 }
 
