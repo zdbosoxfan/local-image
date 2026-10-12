@@ -96,8 +96,11 @@ pub fn banner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                         .color(t.text_dim),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let ok = ui
-                        .add(egui::Button::new(RichText::new(crate::i18n::tr("OK")).color(t.canvas)).fill(t.accent).min_size(egui::vec2(84.0, 26.0)));
+                    let ok = ui.add(
+                        egui::Button::new(RichText::new(crate::i18n::tr("OK")).color(crate::theme::text_on(t.accent)))
+                            .fill(t.accent)
+                            .min_size(egui::vec2(84.0, 26.0)),
+                    );
                     register(ui.ctx(), "button:hostSessionOk", ok.rect);
                     let cancel = ui.add(egui::Button::new(crate::i18n::tr("Cancel")).min_size(egui::vec2(84.0, 26.0)));
                     register(ui.ctx(), "button:hostSessionCancel", cancel.rect);

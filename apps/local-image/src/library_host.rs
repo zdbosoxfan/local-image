@@ -44,13 +44,53 @@ use photocraft_ui_egui::{Module, PhotocraftApp};
 type Opens = Arc<Mutex<Vec<String>>>;
 type SaveSourcesKey = (String, u64, u64, Vec<photocraft_ui_egui::develop_layer::LibraryOrigin>);
 
+/// One theme authority: reuse editor semantic colours while retaining Library metrics.
+fn library_palette(kind: photocraft_ui_egui::theme::ThemeKind) -> lightcraft_ui_egui::theme::Tokens {
+    use lightcraft_ui_egui::theme::{Tokens, readable_text, text_on};
+    let palette = photocraft_ui_egui::theme::Tokens::for_kind(kind);
+    let text = readable_text(palette.text, palette.pressed);
+    Tokens {
+        dark: palette.dark(),
+        selection: palette.pressed,
+        selection_text: text_on(palette.pressed),
+        chrome: palette.chrome,
+        canvas: palette.canvas,
+        grid_bg: palette.canvas,
+        cell: palette.card,
+        cell_selected: palette.hover,
+        divider: palette.separator,
+        inset: palette.dock,
+        field: palette.field,
+        field_border: palette.field_border,
+        button: palette.card,
+        button_border: palette.card_border,
+        hover: palette.hover,
+        pressed: palette.pressed,
+        tool_active: palette.pressed,
+        text,
+        text_label: text,
+        text_dim: readable_text(palette.text_dim, palette.chrome),
+        text_disabled: palette.text_faint,
+        icon: palette.icon,
+        track: palette.text_dim,
+        thumb: palette.icon,
+        thumb_hover: text,
+        accent: palette.accent,
+        star: text,
+        pick: text,
+        reject: readable_text(palette.danger, palette.chrome),
+        caution: readable_text(palette.warning, palette.chrome),
+        ..Tokens::default()
+    }
+}
+
 pub struct Host {
     pub editor: PhotocraftApp,
     library: Option<LightcraftApp>,
     prefs: PrefsWriter,
     mode: Module,
     /// The module whose visuals are applied to the context (Library and Develop share LightCraft's).
-    styled: Option<bool>,
+    styled: Option<(bool, photocraft_ui_egui::theme::ThemeKind)>,
     opens: Opens,
     preserve_library_vectorize_return: bool,
     frames: u64,
@@ -131,13 +171,16 @@ impl Host {
     fn library(&mut self) -> &mut LightcraftApp {
         let opens = self.opens.clone();
         let mode = self.mode;
-        self.library.get_or_insert_with(|| {
+        let theme = self.editor.ui.theme;
+        let library = self.library.get_or_insert_with(|| {
             let mut lib = open_library_app(opens, &mut self.prefs);
             if mode == Module::Develop {
                 set_library_view(&mut lib, true);
             }
             lib
-        })
+        });
+        library.set_host_theme(library_palette(theme));
+        library
     }
 
     fn refresh_save_sources(&mut self) {
@@ -217,8 +260,15 @@ impl Host {
     fn focus_library_document(&mut self, photo: u64) -> bool {
         let index = self.library.as_ref().and_then(|lib| document_of(&self.editor, &lib.session, lightcraft_catalog::PhotoId(photo)));
         if let Some(index) = index {
-            self.editor.session.set_active(index);
+            let Some(document) = self.editor.session.documents().get(index).map(|state| state.doc.id) else {
+                return false;
+            };
+            if !self.editor.session.set_active(index) {
+                return false;
+            }
             self.editor.sync_views();
+            // Supplied by the separately coordinated editor admission helper.
+            photocraft_ui_egui::toolsets_ui::persona::photo_admitted(&mut self.editor, document);
             true
         } else {
             false
@@ -737,17 +787,26 @@ impl Host {
 
     fn restyle(&mut self, ctx: &egui::Context) {
         let library = self.mode != Module::Compositing;
-        if self.styled == Some(library) {
+        let theme = self.editor.ui.theme;
+        let key = (library, theme);
+        // Do not cache a missing lazy Library: its first logic initializes styles.
+        if library && self.library.is_none() {
+            self.styled = None;
             return;
         }
-        if library {
-            if let Some(l) = &self.library {
-                l.restyle(ctx);
-            }
-        } else {
-            self.editor.restyle(ctx);
+        if self.styled == Some(key) {
+            return;
         }
-        self.styled = Some(library);
+        // Keep editor tokens current for the shared title/caption controls.
+        self.editor.restyle(ctx);
+        if let Some(app) = self.library.as_mut() {
+            // Hidden Library screenshots should also use the current shared palette.
+            app.set_host_theme(library_palette(theme));
+            if library {
+                app.restyle(ctx);
+            }
+        }
+        self.styled = Some(key);
     }
 
     /// ⌘⌥1 / ⌘⌥2 / ⌘⌥3 (Ctrl+Alt elsewhere) pick a module from anywhere.
@@ -3154,6 +3213,433 @@ mod tests {
         drop(lib);
         assert_eq!(std::fs::read(&path).unwrap(), original_bytes);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+    fn workflow_theme(host: &mut Host, kind: photocraft_ui_egui::theme::ThemeKind) {
+        host.editor.ui.theme = kind;
+        host.editor.run("prefs.set", json!({"values":{"interface.theme":kind.id()}})).unwrap();
+    }
+    fn workflow_host(tag: &str) -> (PathBuf, Host) {
+        let (dir, path, library, photo) = library_with_photo(tag);
+        let settings = serde_json::to_value(&*library.session.catalog.photo(photo).unwrap().develop).unwrap();
+        let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(photocraft_engine::prefs::RenderingMode::Cpu));
+        let mut host = Host::new(editor);
+        host.editor.host_modes = true;
+        host.library = Some(library);
+        host.mode = Module::Compositing;
+        host.open_editor_photo(photo.0, &path, &settings, "photo.png").unwrap();
+        assert!(!host.editor.has_unsaved(), "theme fixture has no user edits to bypass");
+        (dir, host)
+    }
+    fn workflow_click(h: &mut RoundTripUi, size: egui::Vec2, id: &str) {
+        let rect = h.host.library.as_ref().unwrap().widgets.iter().find(|(key, _)| key == id).unwrap_or_else(|| panic!("missing {id}")).1;
+        assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(rect), "{id}: {rect:?}");
+        let pos = rect.center();
+        h.step_at(size, vec![egui::Event::PointerMoved(pos)]);
+        for pressed in [true, false] {
+            h.step_at(size, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+        }
+        h.step_at(size, vec![]);
+    }
+    fn workflow_save_image(image: &egui::ColorImage, name: &str) {
+        let out = std::path::Path::new("target/library-workflow-ux");
+        std::fs::create_dir_all(out).unwrap();
+        let bytes: Vec<u8> = image.pixels.iter().flat_map(|color| color.to_array()).collect();
+        image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, bytes).unwrap().save(out.join(format!("{name}.png"))).unwrap();
+    }
+    fn workflow_contrast(a: egui::Color32, b: egui::Color32) -> f64 {
+        let luminance = |color: egui::Color32| {
+            let linear = |v: u8| {
+                let v = f64::from(v) / 255.;
+                if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            };
+            0.2126 * linear(color.r()) + 0.7152 * linear(color.g()) + 0.0722 * linear(color.b())
+        };
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+    fn workflow_ink_contrast(image: &egui::ColorImage, rect: egui::Rect, fill: egui::Color32) -> f64 {
+        let mut maximum = 1.0f64;
+        for y in rect.top().ceil().max(0.0) as usize..(rect.bottom().floor() as usize).min(image.size[1]) {
+            for x in rect.left().ceil().max(0.0) as usize..(rect.right().floor() as usize).min(image.size[0]) {
+                maximum = maximum.max(workflow_contrast(image[(x, y)], fill));
+            }
+        }
+        maximum
+    }
+    #[test]
+    fn library_workflow_host_theme_matrix_and_live_switch_render_actual_bodies() {
+        use lightcraft_ui_egui::theme::Tokens as LibraryTokens;
+        use photocraft_ui_egui::theme::{ThemeKind, Tokens as EditorTokens};
+        for kind in ThemeKind::ALL {
+            let (dir, mut host) = workflow_host("workflow-theme-matrix");
+            workflow_theme(&mut host, kind);
+            let mut h = RoundTripUi::new(host);
+            for size in [egui::vec2(1440., 900.), egui::vec2(760., 480.)] {
+                for mode in [Module::Library, Module::Develop, Module::Compositing, Module::Library] {
+                    let ctx = h.view.ctx.clone();
+                    h.host.switch(&ctx, mode);
+                    for _ in 0..5 {
+                        h.step_at(size, vec![]);
+                    }
+                    assert_eq!(h.host.mode, mode, "theme workflow uses accepted real module switches");
+                    assert_eq!(EditorTokens::get(&h.view.ctx).kind, kind);
+                    if mode == Module::Compositing {
+                        let image = h.view.paint(&std::collections::HashMap::new());
+                        assert_eq!(image[(1, 125)], EditorTokens::for_kind(kind).chrome, "return to Compositing restores its actual toolbar chrome");
+                        workflow_save_image(&image, &format!("{kind:?}-{mode:?}-{}x{}", size.x, size.y));
+                        continue;
+                    }
+                    let editor = EditorTokens::for_kind(kind);
+                    let library = LibraryTokens::get(&h.view.ctx);
+                    assert_eq!(library.chrome, editor.chrome);
+                    assert_eq!(library.canvas, editor.canvas);
+                    assert_eq!(h.view.ctx.global_style().visuals.dark_mode, editor.dark());
+                    assert!(workflow_contrast(library.text_label, library.chrome) >= 4.5);
+                    assert!(workflow_contrast(library.selection_text, library.selection) >= 4.5);
+                    assert!(workflow_contrast(library.caution, library.chrome) >= 4.5);
+                    let lib = h.host.library.as_ref().unwrap();
+                    let image = h.view.paint(&lib.renderer.cpu_textures());
+                    let search = lib.widgets.iter().find(|(key, _)| key == "field:search").unwrap().1;
+                    assert_eq!(image[((search.left() + 5.) as usize, (search.top() + 5.) as usize)], library.field, "{kind:?}/{mode:?}: rendered field");
+                    if mode == Module::Develop {
+                        let panel = lib.widgets.iter().find(|(key, _)| key == "panel:right_panel").unwrap().1;
+                        let histogram = lib.widgets.iter().find(|(key, _)| key == "histogram").unwrap().1;
+                        // The histogram has its own card fill. Probe its top margin and the
+                        // unobstructed Edit-header margin below it as separate semantic roles.
+                        let card = egui::pos2(histogram.left() + 4., histogram.top() + 2.);
+                        let body = egui::pos2(histogram.left() + 4., histogram.bottom() + 8.);
+                        assert!(panel.contains(card) && panel.contains(body));
+                        assert_eq!(image[(card.x as usize, card.y as usize)], editor.card, "{kind:?}: Develop histogram follows host");
+                        assert_eq!(image[(body.x as usize, body.y as usize)], editor.chrome, "{kind:?}: Develop body follows host");
+                    } else {
+                        let canvas = lib.canvas_rect.unwrap();
+                        assert_eq!(
+                            image[((canvas.left() + 3.) as usize, (canvas.bottom() - 4.) as usize)],
+                            editor.canvas,
+                            "{kind:?}: Library body follows host"
+                        );
+                    }
+                    workflow_save_image(&image, &format!("{kind:?}-{mode:?}-{}x{}", size.x, size.y));
+                    let before = h.host.library.as_ref().unwrap().ui.left_panel;
+                    workflow_click(&mut h, size, "icon:sidebar");
+                    assert_ne!(h.host.library.as_ref().unwrap().ui.left_panel, before);
+                    workflow_click(&mut h, size, "icon:sidebar");
+                    assert_eq!(h.host.library.as_ref().unwrap().ui.left_panel, before);
+                }
+            }
+            // Same visible module, new theme: cache must not key only on Library/editor.
+            let next = kind.next();
+            workflow_theme(&mut h.host, next);
+            for _ in 0..4 {
+                h.step_at(egui::vec2(1440., 900.), vec![]);
+            }
+            assert_eq!(LibraryTokens::get(&h.view.ctx).chrome, EditorTokens::for_kind(next).chrome);
+            let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+            drop(h);
+            previews.retire();
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+    #[test]
+    fn library_workflow_lazy_palette_and_accent_warning_controls() {
+        use photocraft_ui_egui::theme::ThemeKind;
+        for kind in ThemeKind::ALL {
+            let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(photocraft_engine::prefs::RenderingMode::Cpu));
+            let mut host = Host::new(editor);
+            host.editor.host_modes = true;
+            host.mode = Module::Develop;
+            workflow_theme(&mut host, kind);
+            let ctx = egui::Context::default();
+            host.restyle(&ctx);
+            assert!(host.styled.is_none(), "missing lazy Library cannot be cached as styled");
+            let (dir, _, mut library, _) = library_with_photo("workflow-lazy-palette");
+            set_library_view(&mut library, true);
+            library.host_session = Some(lightcraft_ui_egui::panels::host_session::HostSession::new("Contrast fixture", vec!["crop".into()]));
+            // A real temporary session has no open persistent library. Otherwise the
+            // production recovery logic correctly clears this warning on the first frame.
+            assert!(library.session.library.take().is_some());
+            library.library_problem = Some(lightcraft_ui_egui::panels::library_problem::LibraryProblem { dismissed: true, ..Default::default() });
+            host.library = Some(library);
+            let mut h = RoundTripUi::new(host);
+            let size = egui::vec2(1440., 900.);
+            for _ in 0..5 {
+                h.step_at(size, vec![]);
+            }
+            let palette = lightcraft_ui_egui::theme::Tokens::get(&h.view.ctx);
+            assert_eq!(palette, library_palette(kind), "first Library logic must use host palette");
+            let lib = h.host.library.as_ref().unwrap();
+            let image = h.view.paint(&lib.renderer.cpu_textures());
+            let ok = lib.widgets.iter().find(|(id, _)| id == "button:hostSessionOk").unwrap().1;
+            let warning = lib.widgets.iter().find(|(id, _)| id == "indicator:temporarySession").unwrap().1;
+            assert!(workflow_ink_contrast(&image, ok.shrink(5.), palette.accent) >= 3.0, "{kind:?}: actual antialiased OK text must be visible");
+            assert!(workflow_ink_contrast(&image, warning, palette.caution) >= 3.0, "{kind:?}: actual warning text must be visible");
+            workflow_save_image(&image, &format!("{kind:?}-filter-warning"));
+            workflow_click(&mut h, size, "button:hostSessionOk");
+            assert_eq!(h.host.library.as_ref().unwrap().host_session.as_ref().unwrap().result, Some(true));
+            h.host.library.as_mut().unwrap().host_session.as_mut().unwrap().result = None;
+            workflow_click(&mut h, size, "button:hostSessionCancel");
+            assert_eq!(h.host.library.as_ref().unwrap().host_session.as_ref().unwrap().result, Some(false));
+            let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+            drop(h);
+            previews.retire();
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+    #[test]
+    fn library_workflow_existing_photo_admission_runs_only_after_successful_focus() {
+        use photocraft_engine::toolsets::Persona;
+        use photocraft_ui_egui::{state::Tool, toolsets_ui::persona};
+        let (dir, mut host) = workflow_host("workflow-photo-admission");
+        let photo = host.library.as_ref().unwrap().session.active().unwrap();
+        let ctx = egui::Context::default();
+        // Finish setup admission before establishing the invalid-focus baseline.
+        persona::frame(&mut host.editor, &ctx);
+        assert!(host.editor.ui.photo_admission.is_none());
+        persona::select(&mut host.editor, &ctx, Persona::Vector);
+        persona::select_tool(&mut host.editor, &ctx, Tool::Pen);
+        let document = host.editor.session.active().unwrap().doc.id;
+        host.editor.ui.crop_rect = Some([1., 2., 20., 20.]);
+        let draft = host.editor.ui.crop_rect;
+        assert!(!host.focus_library_document(u64::MAX));
+        assert!(host.editor.ui.photo_admission.is_none());
+        persona::frame(&mut host.editor, &ctx);
+        assert_eq!(host.editor.session.active().unwrap().doc.id, document);
+        assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Vector);
+        assert_eq!(host.editor.ui.tool, Tool::Pen);
+        assert_eq!(host.editor.ui.crop_rect, draft);
+        assert!(host.focus_library_document(photo.0));
+        assert_eq!(host.editor.ui.photo_admission, Some(document));
+        assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Vector, "admission is intentionally deferred");
+        persona::frame(&mut host.editor, &ctx);
+        assert!(host.editor.ui.photo_admission.is_none());
+        assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Pixel);
+        assert_eq!(host.editor.ui.tool, Tool::Move);
+        // A different document becoming active before the frame owns its own draft.
+        persona::select(&mut host.editor, &ctx, Persona::Vector);
+        persona::select_tool(&mut host.editor, &ctx, Tool::Pen);
+        assert!(host.focus_library_document(photo.0));
+        assert_eq!(host.editor.ui.photo_admission, Some(document));
+        let other = photocraft_doc::Document::new("Other", photocraft_doc::Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        let other_id = other.id;
+        host.editor.session.add_document(other, None);
+        host.editor.sync_views();
+        host.editor.ui.crop_rect = Some([3., 4., 12., 12.]);
+        persona::frame(&mut host.editor, &ctx);
+        assert!(host.editor.ui.photo_admission.is_none());
+        assert_eq!(host.editor.session.active().unwrap().doc.id, other_id);
+        assert_eq!(host.editor.session.prefs().toolbar.persona, Persona::Vector);
+        assert_eq!(host.editor.ui.tool, Tool::Pen);
+        assert_eq!(host.editor.ui.crop_rect, Some([3., 4., 12., 12.]));
+        let previews = host.library.as_ref().unwrap().session.media.rendered.clone();
+        drop(host);
+        previews.retire();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    fn workflow_overlay_wait(h: &mut RoundTripUi, size: egui::Vec2, ready: impl Fn(&Host) -> bool) {
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !ready(&h.host) {
+            assert!(std::time::Instant::now() < until, "overlay fixture render deadline");
+            h.step_at(size, vec![]);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        h.step_at(size, vec![]);
+    }
+    /// Sample only this glyph's known rectangle and a neighboring backing pixel.
+    /// Count correctly coloured foreground coverage; a high-contrast frame/photo
+    /// elsewhere in a broad rectangle cannot satisfy this oracle.
+    fn workflow_overlay_glyph(image: &egui::ColorImage, glyph: egui::Rect, backing: egui::Pos2, foreground: egui::Color32, label: &str) {
+        let background = image[(backing.x.floor() as usize, backing.y.floor() as usize)];
+        assert!(workflow_contrast(foreground, background) >= 4.5, "{label}: foreground/backing {foreground:?}/{background:?}");
+        let delta =
+            [foreground.r() as f64 - background.r() as f64, foreground.g() as f64 - background.g() as f64, foreground.b() as f64 - background.b() as f64];
+        let energy = delta.iter().map(|v| v * v).sum::<f64>();
+        let mut ink = 0;
+        for y in glyph.top().ceil().max(0.) as usize..(glyph.bottom().floor() as usize).min(image.size[1]) {
+            for x in glyph.left().ceil().max(0.) as usize..(glyph.right().floor() as usize).min(image.size[0]) {
+                let actual = image[(x, y)];
+                let d = [actual.r() as f64 - background.r() as f64, actual.g() as f64 - background.g() as f64, actual.b() as f64 - background.b() as f64];
+                let coverage = d.iter().zip(delta).map(|(a, b)| a * b).sum::<f64>() / energy;
+                let residual = d.iter().zip(delta).map(|(a, b)| (a - coverage * b).powi(2)).sum::<f64>();
+                if coverage >= 0.45 && residual <= 3. * 24f64.powi(2) && workflow_contrast(actual, background) >= 3.0 {
+                    ink += 1;
+                }
+            }
+        }
+        assert!(ink >= 2, "{label}: no correctly coloured rendered glyph pixels in {glyph:?} (found {ink})");
+    }
+    #[test]
+    fn library_workflow_photo_overlay_glyphs_on_black_and_white_all_themes() {
+        use lightcraft_catalog::Flag;
+        use lightcraft_ui_egui::state::{GridBadges, RightPanel};
+        use photocraft_ui_egui::theme::ThemeKind;
+        let size = egui::vec2(1440., 900.);
+        for kind in ThemeKind::ALL {
+            let dir = std::env::temp_dir().join(format!("li-workflow-overlay-{}-{}", kind.id(), std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let paths = [dir.join("black.png"), dir.join("white.png")];
+            for (path, value) in paths.iter().zip([0, 255]) {
+                image::RgbImage::from_pixel(80, 60, image::Rgb([value; 3])).save(path).unwrap();
+            }
+            let mut session = lightcraft_engine::Session::new().with_fs();
+            session.execute("library.import", &json!({"paths":paths.iter().map(|p|p.to_string_lossy()).collect::<Vec<_>>()})).unwrap();
+            let photos: Vec<_> = session.catalog.photos().map(|p| (p.id, p.file_name.starts_with("white"))).collect();
+            let ids: Vec<_> = photos.iter().map(|(id, _)| id.0).collect();
+            let black = photos.iter().find(|(_, white)| !white).unwrap().0;
+            session.execute("photo.rate", &json!({"ids":ids,"rating":1})).unwrap();
+            session.execute("photo.flag", &json!({"ids":ids,"flag":"pick"})).unwrap();
+            for (id, _) in &photos {
+                session.execute("library.select", &json!({"ids":[id.0]})).unwrap();
+                session.execute("develop.set", &json!({"control":"light.exposure","value":0.25})).unwrap();
+            }
+            session.execute("library.select", &json!({"ids":[black.0]})).unwrap();
+            let mut library = LightcraftApp::new(session, Default::default());
+            library.host_fonts = true;
+            library.ui.settings.gpu = false;
+            library.ui.settings.grid_badges = GridBadges::Always;
+            set_library_view(&mut library, false);
+            let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(photocraft_engine::prefs::RenderingMode::Cpu));
+            let mut host = Host::new(editor);
+            host.editor.host_modes = true;
+            host.library = Some(library);
+            host.mode = Module::Library;
+            workflow_theme(&mut host, kind);
+            let mut h = RoundTripUi::new(host);
+            for _ in 0..4 {
+                h.step_at(size, vec![]);
+            }
+            workflow_overlay_wait(&mut h, size, |host| photos.iter().all(|(id, _)| host.library.as_ref().unwrap().renderer.thumb(*id).is_some()));
+            let palette = lightcraft_ui_egui::theme::Tokens::get(&h.view.ctx);
+            let image = h.view.paint(&h.host.library.as_ref().unwrap().renderer.cpu_textures());
+            for (id, white) in &photos {
+                let rect = h.host.library.as_ref().unwrap().widgets.iter().find(|(key, _)| key == &format!("thumb:{}", id.0)).unwrap().1;
+                let center = image[(rect.center().x as usize, rect.center().y as usize)];
+                assert!(
+                    if *white { center.r() > 240 && center.g() > 240 && center.b() > 240 } else { center.r() < 8 && center.g() < 8 && center.b() < 8 },
+                    "actual fixture photo: {center:?}"
+                );
+                let y = rect.bottom() - 12.;
+                let background = egui::pos2(rect.left() + 2., y);
+                for (name, glyph) in [
+                    ("rating", egui::Rect::from_min_size(egui::pos2(rect.left() + 6., y - 6.), egui::vec2(12., 12.))),
+                    ("pick", egui::Rect::from_min_size(egui::pos2(rect.left() + 23., y - 7.), egui::vec2(14., 14.))),
+                    ("edited", egui::Rect::from_min_size(egui::pos2(rect.right() - 20., y - 7.), egui::vec2(14., 14.))),
+                ] {
+                    workflow_overlay_glyph(&image, glyph, background, palette.overlay_fg, &format!("{kind:?}/{white}/grid/{name}"));
+                }
+            }
+            workflow_save_image(&image, &format!("{kind:?}-overlay-grid-pick"));
+            h.host.library.as_mut().unwrap().run("photo.flag", json!({"ids":ids,"flag":"reject"})).unwrap();
+            h.step_at(size, vec![]);
+            let image = h.view.paint(&h.host.library.as_ref().unwrap().renderer.cpu_textures());
+            for (id, white) in &photos {
+                let rect = h.host.library.as_ref().unwrap().widgets.iter().find(|(key, _)| key == &format!("thumb:{}", id.0)).unwrap().1;
+                let center = image[(rect.center().x as usize, rect.center().y as usize)];
+                if *white {
+                    assert!(
+                        center.r() > 100 && center.r() < 200 && center.g() == center.r() && center.b() == center.r(),
+                        "rejected photo remains visibly dimmed: {center:?}"
+                    );
+                } else {
+                    assert!(center.r() < 8 && center.g() < 8 && center.b() < 8);
+                }
+                let y = rect.bottom() - 12.;
+                workflow_overlay_glyph(
+                    &image,
+                    egui::Rect::from_min_size(egui::pos2(rect.left() + 23., y - 7.), egui::vec2(14., 14.)),
+                    egui::pos2(rect.left() + 2., y),
+                    palette.overlay_reject,
+                    &format!("{kind:?}/{white}/grid/reject"),
+                );
+            }
+            h.host.library.as_mut().unwrap().run("view.squareGrid", json!({})).unwrap();
+            for _ in 0..3 {
+                h.step_at(size, vec![]);
+            }
+            let image = h.view.paint(&h.host.library.as_ref().unwrap().renderer.cpu_textures());
+            let format_size = h.view.ctx.fonts_mut(|fonts| fonts.layout_no_wrap("PNG".into(), palette.semibold(9.), palette.overlay_fg).size());
+            for (id, white) in &photos {
+                let rect = h.host.library.as_ref().unwrap().widgets.iter().find(|(key, _)| key == &format!("thumb:{}", id.0)).unwrap().1;
+                let pill = egui::Rect::from_min_size(egui::pos2(rect.right() - format_size.x - 14., rect.top() + 5.), format_size + egui::vec2(8., 3.));
+                workflow_overlay_glyph(
+                    &image,
+                    egui::Rect::from_min_size(pill.min + egui::vec2(4., 1.5), format_size),
+                    pill.min + egui::vec2(2., 2.),
+                    palette.overlay_fg,
+                    &format!("{kind:?}/{white}/format"),
+                );
+            }
+            workflow_save_image(&image, &format!("{kind:?}-overlay-format"));
+            h.host.library.as_mut().unwrap().run("view.detail", json!({})).unwrap();
+            h.host.library.as_mut().unwrap().ui.filmstrip = true;
+            for flag in [Flag::Pick, Flag::Reject] {
+                h.host.library.as_mut().unwrap().run("photo.flag", json!({"ids":ids,"flag":if flag==Flag::Pick{"pick"}else{"reject"}})).unwrap();
+                for _ in 0..3 {
+                    h.step_at(size, vec![]);
+                }
+                let lib = h.host.library.as_ref().unwrap();
+                let image = h.view.paint(&lib.renderer.cpu_textures());
+                for (id, white) in &photos {
+                    let cell = lib.widgets.iter().find(|(key, _)| key == &format!("film:{}", id.0)).unwrap().1;
+                    let area = egui::Rect::from_min_max(cell.min + egui::vec2(10., 22.), cell.max - egui::vec2(10., 8.));
+                    let [w, height] = lib.renderer.thumb(*id).unwrap().size;
+                    let scale = (area.width() / w as f32).min(area.height() / height as f32);
+                    let photo = egui::Rect::from_center_size(area.center(), egui::vec2(w as f32 * scale, height as f32 * scale));
+                    let y = photo.bottom() - 7.5;
+                    let background = egui::pos2(photo.right() - 2., y);
+                    for (name, glyph, color) in [
+                        ("rating", egui::Rect::from_min_size(egui::pos2(photo.left() + 3., y - 4.), egui::vec2(8., 8.)), palette.overlay_fg),
+                        (
+                            "flag",
+                            egui::Rect::from_min_size(egui::pos2(photo.left() + 14., y - 5.), egui::vec2(10., 10.)),
+                            if flag == Flag::Pick { palette.overlay_fg } else { palette.overlay_reject },
+                        ),
+                        ("edited", egui::Rect::from_min_size(egui::pos2(photo.right() - 13., y - 5.), egui::vec2(10., 10.)), palette.overlay_fg),
+                    ] {
+                        workflow_overlay_glyph(&image, glyph, background, color, &format!("{kind:?}/{white}/film/{flag:?}/{name}"));
+                    }
+                }
+                workflow_save_image(&image, &format!("{kind:?}-overlay-film-{flag:?}"));
+            }
+            // Collapse unrelated profile groups to bound this favorite-preview fixture.
+            for group in lightcraft_engine::presets::profile_groups() {
+                if group != "Favorites" {
+                    h.view.ctx.data_mut(|data| data.insert_temp(egui::Id::new(("profile-group", group)), false));
+                }
+            }
+            h.view.ctx.data_mut(|data| data.insert_temp(egui::Id::new(("profile-group", "Favorites")), true));
+            for (id, white) in &photos {
+                let lib = h.host.library.as_mut().unwrap();
+                lib.run("library.select", json!({"ids":[id.0]})).unwrap();
+                lib.ui.right = RightPanel::Profiles;
+                lib.session.profile_favorites = vec!["lc.color".into()];
+                let settings = lib.session.develop_of(*id).unwrap();
+                let key = lib.session.variant_job(*id, &settings, 256).unwrap().key;
+                for _ in 0..2 {
+                    h.step_at(size, vec![]);
+                }
+                workflow_overlay_wait(&mut h, size, |host| {
+                    host.library.as_ref().unwrap().renderer.textures.contains_key(&lightcraft_ui_egui::render::Slot::Variant(key))
+                });
+                let lib = h.host.library.as_ref().unwrap();
+                let star = lib.widgets.iter().find(|(key, _)| key == "profileStar:fav:lc.color").unwrap().1;
+                let image = h.view.paint(&lib.renderer.cpu_textures());
+                workflow_overlay_glyph(
+                    &image,
+                    star.shrink(4.),
+                    egui::pos2(star.center().x, star.top() + 2.),
+                    palette.overlay_fg,
+                    &format!("{kind:?}/{white}/favorite"),
+                );
+                workflow_save_image(&image, &format!("{kind:?}-overlay-favorite-{white}"));
+            }
+            let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+            drop(h);
+            previews.retire();
+            std::fs::remove_dir_all(dir).unwrap();
+        }
     }
 }
 

@@ -563,6 +563,10 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
             p.text(ph.center(), Align2::CENTER_CENTER, "!", t.semibold(18.0), t.text_dim);
         }
     }
+    // Dim rejected pixels, then draw readable badges above that wash.
+    if photo.flag == Flag::Reject {
+        p.rect_filled(img_rect, 0.0, Color32::from_black_alpha(110));
+    }
     // labels and badges
     if square && app.ui.show_filenames {
         let m = &photo.meta;
@@ -586,10 +590,10 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         };
         p.text(pos2(r.left() + 8.0, r.top() + 12.0), Align2::LEFT_CENTER, name, t.font(10.5), t.text_dim);
         let fmt = photo.format.clone();
-        let g = p.layout_no_wrap(fmt, t.semibold(9.0), t.text_label);
+        let g = p.layout_no_wrap(fmt, t.semibold(9.0), t.overlay_fg);
         let br = Rect::from_min_size(pos2(r.right() - g.size().x - 14.0, r.top() + 5.0), g.size() + vec2(8.0, 3.0));
-        p.rect_filled(br, 2.0, Color32::from_gray(26));
-        p.galley(br.min + vec2(4.0, 1.5), g, t.text_label);
+        p.rect_filled(br, 2.0, t.overlay_bg);
+        p.galley(br.min + vec2(4.0, 1.5), g, t.overlay_fg);
     }
     let show_badges = match app.ui.settings.grid_badges {
         crate::state::GridBadges::Auto => resp.hovered() || selected || photo.rating > 0 || photo.flag != Flag::None || photo.label.is_some(),
@@ -598,22 +602,22 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
     };
     if show_badges {
         let bar = Rect::from_min_max(pos2(img_rect.left(), img_rect.bottom() - 24.0), img_rect.right_bottom());
-        if resp.hovered() || selected {
-            p.rect_filled(bar, 0.0, Color32::from_black_alpha(120));
+        if resp.hovered() || selected || photo.rating > 0 || photo.flag != Flag::None || photo.is_edited() || photo.label.is_some() {
+            p.rect_filled(bar, 0.0, t.overlay_bg);
         }
         let mut x = bar.left() + 6.0;
         for i in 0..photo.rating {
-            paint(p, Rect::from_min_size(pos2(x + i as f32 * 13.0, bar.center().y - 6.0), vec2(12.0, 12.0)), Icon::StarFilled, t.star);
+            paint(p, Rect::from_min_size(pos2(x + i as f32 * 13.0, bar.center().y - 6.0), vec2(12.0, 12.0)), Icon::StarFilled, t.overlay_fg);
         }
         x += photo.rating as f32 * 13.0 + 4.0;
         match photo.flag {
-            Flag::Pick => paint(p, Rect::from_min_size(pos2(x, bar.center().y - 7.0), vec2(14.0, 14.0)), Icon::FlagPick, t.pick),
-            Flag::Reject => paint(p, Rect::from_min_size(pos2(x, bar.center().y - 7.0), vec2(14.0, 14.0)), Icon::FlagReject, t.reject),
+            Flag::Pick => paint(p, Rect::from_min_size(pos2(x, bar.center().y - 7.0), vec2(14.0, 14.0)), Icon::FlagPick, t.overlay_fg),
+            Flag::Reject => paint(p, Rect::from_min_size(pos2(x, bar.center().y - 7.0), vec2(14.0, 14.0)), Icon::FlagReject, t.overlay_reject),
             Flag::None => {}
         }
         let mut right = bar.right();
         if photo.is_edited() {
-            paint(p, Rect::from_min_size(pos2(right - 20.0, bar.center().y - 7.0), vec2(14.0, 14.0)), Icon::Sliders, t.text_label);
+            paint(p, Rect::from_min_size(pos2(right - 20.0, bar.center().y - 7.0), vec2(14.0, 14.0)), Icon::Sliders, t.overlay_fg);
             right -= 20.0;
         }
         if let Some(l) = photo.label {
@@ -649,9 +653,6 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         register(ui.ctx(), format!("badge:previewOnly:{}", id.0), br);
         ui.interact(br, egui::Id::new(("preview-only-badge", id.0)), Sense::hover())
             .on_hover_text(crate::i18n::tr_format!("Preview only — {}", crate::widgets::preview_only_explanation(why)));
-    }
-    if photo.flag == Flag::Reject {
-        p.rect_filled(img_rect, 0.0, Color32::from_black_alpha(110));
     }
     // interaction
     if let Some(k) = app.ui.keyword_painter.clone() {

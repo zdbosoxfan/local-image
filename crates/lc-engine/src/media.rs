@@ -1066,6 +1066,14 @@ impl crate::Session {
             return Err("Run Apply AI Denoise at full resolution before exporting the preview result.".into());
         }
         let mut job = self.render_job(id, max_w, max_h, false, true).ok_or("no such photo")?;
+        // Final exports use original source geometry and detail even at small output
+        // sizes. Preview dimensions are rounded independently (4096x4 -> 2560x3),
+        // so fitting that proxy can change both aspect ratio and requested size.
+        // Keep the existing source resolver's offline smart-preview fallback.
+        let photo = self.catalog.photo(id).ok_or("no such photo")?;
+        job.source = self.media.source_ref(photo, SourceLevel::Full);
+        job.key ^= ((job.level as u64) ^ (SourceLevel::Full as u64)) << 60;
+        job.level = SourceLevel::Full;
         job.request.space = space;
         job.request.depth = depth;
         job.key ^= (space as u64 + 1).wrapping_mul(0xa076_1d64_78bd_642f) ^ (depth as u64 + 1).wrapping_mul(0xe703_7ed1_a0b4_28db);
@@ -1345,6 +1353,52 @@ mod tests {
         let plain: Vec<_> = s.catalog.photos().filter(|p| !p.is_edited()).map(|p| p.id).take(2).collect();
         let (a, b) = (s.render_job(plain[0], 1600, 1600, false, true).unwrap(), s.render_job(plain[1], 1600, 1600, false, true).unwrap());
         assert_ne!(a.key, b.key);
+    }
+
+    #[test]
+    fn library_workflow_small_exports_keep_original_geometry_and_detail() {
+        use lightcraft_catalog::Op;
+        use lightcraft_geom::{Orientation, Rect};
+        use lightcraft_pipeline::{OutputDepth, OutputSpace};
+        let mut session = crate::Session::with_demo();
+        let id = session.active().unwrap();
+        // Model the independently rounded source levels without decoding a large file.
+        session.media.insert(id, SourceLevel::Preview, Arc::new(Rgb32f::new(2560, 3)));
+        session.media.insert(id, SourceLevel::Full, Arc::new(Rgb32f::new(4096, 4)));
+        for rotated_crop in [false, true] {
+            let mut settings = DevelopSettings::default();
+            let target = if rotated_crop {
+                settings.orientation = Orientation::Rotate90;
+                settings.crop.geometry.rect = Rect::new(0., 0., 1., 0.5);
+                (2, 1024)
+            } else {
+                (2048, 2)
+            };
+            session
+                .catalog
+                .apply(Op::SetDevelop { id, settings: Arc::new(settings.clone()), label: "geometry fixture".into(), edited: None })
+                .unwrap();
+            let preview = session.render_job(id, 2048, 2, false, true).unwrap();
+            assert_eq!(preview.level, SourceLevel::Preview, "display previews stay bounded");
+            let export = session.export_job(id, target.0, target.1, OutputSpace::Rec2020, OutputDepth::F32Linear).unwrap();
+            assert_eq!(export.level, SourceLevel::Full);
+            assert_ne!(preview.key, export.key);
+            assert_eq!(export.settings.hash64(), settings.hash64(), "crop and orientation survive");
+            assert_eq!(export.request.quality, Quality::Full);
+            assert_eq!(export.request.space, OutputSpace::Rec2020);
+            assert_eq!(export.request.depth, OutputDepth::F32Linear);
+            assert!(export.cache.is_none() && export.view_cache.is_none());
+            let original = export.source.load_source().unwrap();
+            assert_eq!((original.image.width, original.image.height), (4096, 4));
+            assert_eq!(lightcraft_pipeline::output_size(4096, 4, &export.settings, &export.request), target);
+            if !rotated_crop {
+                assert_eq!(
+                    lightcraft_pipeline::output_size(2560, 3, &export.settings, &export.request),
+                    (1707, 2),
+                    "control reproduces proxy rounding defect"
+                );
+            }
+        }
     }
 
     #[test]

@@ -168,12 +168,11 @@ pub fn banner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 let r = ui.label(
                     RichText::new(crate::i18n::tr("Temporary session — your library isn't open, and nothing you do here is saved."))
                         .font(t.semibold(12.5))
-                        .color(t.canvas),
+                        .color(crate::theme::text_on(t.caution)),
                 );
                 register(ui.ctx(), "indicator:temporarySession", r.rect);
-                let b = ui.add(
-                    egui::Button::new(RichText::new(crate::i18n::tr("Open Library…")).color(t.canvas)).fill(egui::Color32::from_black_alpha(40)),
-                );
+                let b = ui
+                    .add(egui::Button::new(RichText::new(crate::i18n::tr("Open Library…")).color(crate::theme::text_on(t.caution))).fill(t.caution));
                 register(ui.ctx(), "button:libraryReopen", b.rect);
                 reopen = b.clicked();
             });

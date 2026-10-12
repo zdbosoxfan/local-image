@@ -183,6 +183,8 @@ pub struct LightcraftApp {
     pub caches: Caches,
     pub session: Session,
     pub ui: UiState,
+    /// Runtime host colours; the host remains the sole persisted theme authority.
+    host_theme: Option<theme::Tokens>,
     pub services: Services,
     pub renderer: render::Renderer,
     pub perf: Perf,
@@ -295,6 +297,7 @@ impl LightcraftApp {
         Self {
             session,
             ui: UiState::default(),
+            host_theme: None,
             services,
             renderer: render::Renderer::default(),
             perf: Perf::default(),
@@ -367,9 +370,14 @@ impl LightcraftApp {
         self.session.persist_if_dirty();
     }
 
-    /// local-image: re-apply this UI's visuals (the host switches between two themes).
+    /// Supply runtime colours before first initialization or the next restyle.
+    pub fn set_host_theme(&mut self, tokens: theme::Tokens) {
+        self.host_theme = Some(tokens);
+    }
+
+    /// Re-apply the host palette, or the standalone Library default.
     pub fn restyle(&self, ctx: &egui::Context) {
-        theme::apply(ctx);
+        theme::apply_tokens(ctx, self.host_theme.unwrap_or_default());
     }
 
     /// local-image: whether quitting would lose library changes (asks nothing).
@@ -654,6 +662,7 @@ impl LightcraftApp {
         // same scroll offsets, open sections, style… as the window
         let memory = main.memory(|m| m.clone());
         view.ctx.memory_mut(|m| *m = memory);
+        self.restyle(&view.ctx);
         view.run(headless::HeadlessView::raw_input(size, ppp, time, vec![]), |ui| self.ui(ui));
         let img = capture.then(|| {
             let mut tex = self.renderer.cpu_textures();
@@ -708,7 +717,7 @@ impl LightcraftApp {
             if !self.host_fonts {
                 theme::install_fonts(ctx);
             }
-            theme::apply(ctx);
+            self.restyle(ctx);
             // File → Add from Device lists cards scanned in the background: show hot-plugs
             let repaint = ctx.clone();
             lightcraft_engine::devices::on_change(move || repaint.request_repaint());
@@ -1331,3 +1340,6 @@ impl Services {
         self.pick_folder_titled.is_some() || self.pick_folder.is_some()
     }
 }
+
+#[cfg(test)]
+mod tests_library_export_theme;

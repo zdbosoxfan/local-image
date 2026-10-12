@@ -7,8 +7,12 @@ use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId,
 
 pub const FONT_SEMIBOLD: &str = "semibold";
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
+    /// Visual defaults for the palette; supplied by a host without persisting another theme.
+    pub dark: bool,
+    pub selection: Color32,
+    pub selection_text: Color32,
     /// Top bar, side panels, bottom bar, tool strip.
     pub chrome: Color32,
     /// Photo canvas (detail view) and filmstrip.
@@ -42,6 +46,10 @@ pub struct Tokens {
     /// Cautionary notices (e.g. a raw shown from its embedded preview): a muted amber.
     pub caution: Color32,
     pub mask_overlay: Color32,
+    /// Image badges sit over arbitrary pixels, independently of light/dark chrome.
+    pub overlay_bg: Color32,
+    pub overlay_fg: Color32,
+    pub overlay_reject: Color32,
     // metrics (points)
     pub top_bar_h: f32,
     pub bottom_bar_h: f32,
@@ -55,6 +63,9 @@ pub struct Tokens {
 impl Default for Tokens {
     fn default() -> Self {
         Tokens {
+            dark: true,
+            selection: Color32::from_rgb(0x01, 0x65, 0xdd).gamma_multiply(0.6),
+            selection_text: Color32::from_rgb(0x01, 0x65, 0xdd),
             chrome: Color32::from_rgb(0x2d, 0x2d, 0x2d),
             canvas: Color32::from_rgb(0x1c, 0x1c, 0x1c),
             grid_bg: Color32::from_rgb(0x0f, 0x0f, 0x0f),
@@ -83,6 +94,9 @@ impl Default for Tokens {
             reject: Color32::from_rgb(0xe0, 0x4a, 0x4a),
             caution: Color32::from_rgb(0xe3, 0xa8, 0x3c),
             mask_overlay: Color32::from_rgba_unmultiplied(0xe0, 0x20, 0x30, 110),
+            overlay_bg: Color32::from_gray(26),
+            overlay_fg: Color32::from_gray(235),
+            overlay_reject: Color32::from_rgb(255, 120, 120),
             top_bar_h: 42.0,
             bottom_bar_h: 48.0,
             panel_w: 270.0,
@@ -169,9 +183,13 @@ fn craft_font_name(f: &lightcraft_engine::CraftFont) -> String {
 }
 
 pub fn apply(ctx: &egui::Context) {
-    let t = Tokens::default();
+    apply_tokens(ctx, Tokens::default());
+}
+
+/// Apply a host palette while preserving Library layout metrics and font ownership.
+pub fn apply_tokens(ctx: &egui::Context, t: Tokens) {
     ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, t));
-    let mut v = Visuals::dark();
+    let mut v = if t.dark { Visuals::dark() } else { Visuals::light() };
     v.panel_fill = t.chrome;
     v.window_fill = t.chrome;
     v.extreme_bg_color = t.field;
@@ -179,8 +197,8 @@ pub fn apply(ctx: &egui::Context) {
     v.window_stroke = Stroke::new(1.0, t.button_border);
     v.window_corner_radius = CornerRadius::same(6);
     v.menu_corner_radius = CornerRadius::same(6);
-    v.selection.bg_fill = t.accent.gamma_multiply(0.6);
-    v.selection.stroke = Stroke::new(1.0, t.accent);
+    v.selection.bg_fill = t.selection;
+    v.selection.stroke = Stroke::new(1.0, t.selection_text);
     v.override_text_color = Some(t.text_label);
     v.popup_shadow = egui::epaint::Shadow { offset: [0, 4], blur: 16, spread: 0, color: Color32::from_black_alpha(140) };
     v.window_shadow = egui::epaint::Shadow { offset: [0, 8], blur: 30, spread: 0, color: Color32::from_black_alpha(160) };
@@ -210,4 +228,31 @@ pub fn apply(ctx: &egui::Context) {
         s.text_styles.insert(egui::TextStyle::Heading, FontId::new(16.0, FontFamily::Name(FONT_SEMIBOLD.into())));
         s.animation_time = 0.08;
     });
+}
+
+fn luminance(color: Color32) -> f32 {
+    let linear = |v: u8| {
+        let v = f32::from(v) / 255.0;
+        if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    };
+    0.2126 * linear(color.r()) + 0.7152 * linear(color.g()) + 0.0722 * linear(color.b())
+}
+/// Choose a readable foreground on an opaque UI fill, not a document/image colour.
+pub fn text_on(background: Color32) -> Color32 {
+    if luminance(background) > 0.179 { Color32::BLACK } else { Color32::WHITE }
+}
+/// Retain a semantic text hue when legible, otherwise move it toward the stronger
+/// black/white foreground. Called only when constructing a host palette.
+pub fn readable_text(foreground: Color32, background: Color32) -> Color32 {
+    let back = luminance(background);
+    let target = text_on(background);
+    for step in 0..=16 {
+        let mix = |a: u8, b: u8| ((u16::from(a) * (16 - step) + u16::from(b) * step) / 16) as u8;
+        let candidate = Color32::from_rgb(mix(foreground.r(), target.r()), mix(foreground.g(), target.g()), mix(foreground.b(), target.b()));
+        let front = luminance(candidate);
+        if (front.max(back) + 0.05) / (front.min(back) + 0.05) >= 4.5 {
+            return candidate;
+        }
+    }
+    target
 }

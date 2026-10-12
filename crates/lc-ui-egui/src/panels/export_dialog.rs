@@ -102,7 +102,7 @@ const LABEL_W: f32 = 132.0;
 pub fn new_dialog(dir: String) -> Dialog {
     Dialog::Export {
         opts: Default::default(),
-        full_size: false,
+        full_size: true,
         resize: Default::default(),
         preset_name: String::new(),
         limit_kb: 0,
@@ -119,13 +119,13 @@ pub fn new_dialog(dir: String) -> Dialog {
 
 /// Load `app.export` params `p` (the last export's, or a preset's) into the dialog. The folder is
 /// kept (presets don't carry one). Saved options without a size mean full size, as they do in
-/// the engine; no saved options yet means the 2048 px default.
-pub fn apply_export_params(dlg: &mut Dialog, p: &Value, from_preset: bool) {
+/// the engine. Fresh exports also keep the source size; resizing is an explicit choice.
+pub fn apply_export_params(dlg: &mut Dialog, p: &Value, _from_preset: bool) {
     let Dialog::Export { opts, full_size, resize, limit_kb, add_to_library, add_to_stack, ask_existing, existing, after, after_app, .. } = dlg else {
         return;
     };
     let o = ExportOptions::from_json(p);
-    *full_size = o.resize.is_none() && (from_preset || p.as_object().is_some_and(|p| !p.is_empty()));
+    *full_size = o.resize.is_none();
     *resize = o.resize.unwrap_or_default();
     *limit_kb = o.limit_kb.unwrap_or(0);
     **opts = o;

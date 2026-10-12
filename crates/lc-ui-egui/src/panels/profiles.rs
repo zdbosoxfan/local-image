@@ -136,8 +136,8 @@ fn cell_ui(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: 
     register(ui.ctx(), format!("profileStar:{}{}", if tag.is_empty() { "" } else { "fav:" }, p.id), star);
     let over_star = resp.hover_pos().is_some_and(|q| star.contains(q));
     if fav || resp.hovered() {
-        painter.circle_filled(star.center(), 10.0, Color32::from_black_alpha(110));
-        paint(painter, star.shrink(4.0), if fav { Icon::StarFilled } else { Icon::Star }, if fav || over_star { t.star } else { Color32::WHITE });
+        painter.circle_filled(star.center(), 10.0, t.overlay_bg);
+        paint(painter, star.shrink(4.0), if fav { Icon::StarFilled } else { Icon::Star }, t.overlay_fg);
     }
     if resp.hovered() && !applied && !over_star {
         app.hover_preview = Some(HoverPreview { label: crate::i18n::tr_format!("Profile: {}", crate::i18n::tr(p.name)), settings: s.clone() });
