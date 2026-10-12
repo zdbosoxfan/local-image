@@ -1,0 +1,11 @@
+[Unit]
+Description=Local Image coordinator dashboard (legacy dispatch held)
+[Service]
+Environment=@DEV@
+Environment=@REPO@
+Environment=@LANES@
+ExecStart=@PYTHON@ -I @SCRIPT@
+Restart=on-failure
+RestartSec=3
+[Install]
+WantedBy=default.target

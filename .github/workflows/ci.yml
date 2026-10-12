@@ -80,6 +80,16 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
 
+      - name: Portable development queue tests
+        if: runner.os == 'Linux'
+        run: |
+          queue_test_root="$(mktemp -d)"
+          env PYTHONDONTWRITEBYTECODE=1 \
+            LI_DEV_DIR="$queue_test_root/dev" \
+            LI_BUILD_STATE_DIR="$queue_test_root/lanes" \
+            LI_REPO="$GITHUB_WORKSPACE" \
+            python3 -m unittest discover -s scripts/dev-queue/tests -v
+
       - name: Haze shader numerical conformance (Vulkan, software allowed)
         if: runner.os == 'Linux'
         run: >-

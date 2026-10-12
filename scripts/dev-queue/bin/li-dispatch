@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+"""Reconcile vanished legacy jobs only. Automatic launch and landing remain held."""
+import fcntl
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from li_state import DEV, transaction
+from li_config import validate_state_dir
+
+
+def log(message):
+    with (DEV / 'dispatch.log').open('a') as stream:
+        stream.write(time.strftime('%Y-%m-%d %H:%M ') + message + '\n')
+
+def command(args, **kwargs):
+    return subprocess.run([str(a) for a in args], capture_output=True, text=True, timeout=120, **kwargs)
+
+def active_units():
+    result = command(['systemctl', '--user', 'list-units', 'li-*', '--all', '--no-legend', '--plain', '--no-pager', '--state=running,activating,reloading'])
+    if result.returncode:
+        raise RuntimeError('cannot read systemd state: ' + result.stderr.strip())
+    return {line.split()[0] for line in result.stdout.splitlines() if line.strip()}
+
+def alive(job, units, landing=False):
+    field = 'land_unit' if landing else 'unit'
+    if job.get(field): return job[field] in units
+    prefix = ('li-land-' if landing else 'li-codex-') + job['name'] + '-'
+    return any(unit.startswith(prefix) for unit in units)
+
+def reconcile(state, units):
+    for job in state['jobs']:
+        if job.get('dispatch_mode') == 'coordinator': continue
+        status = job['status']
+        if status not in {'running', 'starting', 'landing'}: continue
+        if alive(job, units, status == 'landing'): continue
+        report = DEV / 'codex-logs' / (job['name'] + '-job.final.md')
+        fresh_report = report.exists() and report.stat().st_size and report.stat().st_mtime >= job.get('attempt_started', 0)
+        if status != 'landing' and fresh_report:
+            job.update(status='finished', reason='Builder exited with a final report')
+        else:
+            job.update(status='interrupted', reason='Worker service disappeared; inspect logs before retrying')
+        log(job['status'].upper() + ' ' + job['name'])
+
+def launch_land(job):
+    raise RuntimeError('Automatic landing is held; use coordinator-reviewed Git integration.')
+
+
+def launch_builder(job):
+    raise RuntimeError('CLI worker launching is held; use the approved parallel coordinator.')
+
+
+def tick():
+    units = active_units()  # A failed query must never mark existing work dead.
+    with transaction() as state:
+        reconcile(state, units)
+        # Deliberately no admission, even if queue-hold disappears or paused=false.
+        # Coordinator-owned jobs are untouched, including their recorded status.
+
+
+def main():
+    validate_state_dir(DEV)
+    if not (DEV / 'jobs.json').exists(): return
+    with (DEV / '.dispatch.lock').open('a') as lock:
+        try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError: return
+        tick()
+
+if __name__ == '__main__': main()

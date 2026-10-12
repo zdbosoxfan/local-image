@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""Bound actual rustc children, not waiters. File locks survive PID namespaces and crashes.
+Defaults: three build trees, ten compiler slots, 10 GiB host memory reserve.
+LI_BUILD_STATE_DIR provides an isolated scheduler for tests. Existing lane layout stays readable.
+"""
+import fcntl
+import hashlib
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+import uuid
+
+ROOT = Path(os.environ.get('LI_BUILD_STATE_DIR', '/tmp/li-build-lanes'))
+SLOTS = ROOT / 'slots'
+
+def locked(path):
+    """Return a locked file handle, or None when already locked."""
+    stream = path.open('a+')
+    try: fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        stream.close(); return None
+    return stream
+
+def live_markers(directory, pattern):
+    live = []
+    for path in directory.glob(pattern):
+        try:
+            stream = locked(path)
+            if stream is None: live.append(path)
+            else:
+                path.unlink(missing_ok=True); stream.close()
+        except FileNotFoundError: pass
+    return live
+
+def read(path):
+    try: return path.read_text().splitlines()
+    except OSError: return []
+
+def cgroup_working_bytes(path):
+    current = int((path / 'memory.current').read_text())
+    try:
+        stats = {k: int(v) for k, v in (line.split() for line in (path / 'memory.stat').read_text().splitlines())}
+        # Build outputs can fill the cgroup with clean, inactive file cache even
+        # after every compiler exits. Charging all of it as working memory
+        # deadlocks admission below memory.high, before kernel reclaim starts.
+        # Credit only inactive file pages, conservatively excluding dirty/writeback.
+        clean_inactive = max(0, stats['inactive_file'] - stats['file_dirty'] - stats['file_writeback'])
+        return current - min(current, clean_inactive)
+    except (OSError, ValueError, KeyError):
+        return current  # Unknown accounting must not create fictitious headroom.
+
+def enough_memory(minimum, *, meminfo=Path('/proc/meminfo'), cgroup=Path('/proc/self/cgroup'), base=Path('/sys/fs/cgroup')):
+    available = int(meminfo.read_text().split('MemAvailable:')[1].split()[0]) * 1024
+    if available < minimum * 2**30: return False
+    # Retain 2 GiB below each cgroup limit using its working set; clean inactive
+    # file cache is reclaimable. Kernel high/max limits remain fully enforced.
+    try:
+        group = next(l[3:] for l in cgroup.read_text().splitlines() if l.startswith('0::'))
+        path = base / group.lstrip('/')
+        while path != base and base in path.parents:
+            current = cgroup_working_bytes(path)
+            limits = [(path / k).read_text().strip() for k in ('memory.high', 'memory.max')]
+            if any(v != 'max' and int(v) - current < 2 * 2**30 for v in limits): return False
+            path = path.parent
+    except (OSError, ValueError, StopIteration): pass
+    return True
+
+def identity(args):
+    out, crate = '', '?'
+    for index, arg in enumerate(args):
+        if arg == '--out-dir' and index + 1 < len(args): out = args[index+1]
+        if arg.startswith('--out-dir='): out = arg.split('=',1)[1]
+        if arg == '--crate-name' and index + 1 < len(args): crate = args[index+1]
+    if not out: return '', crate
+    out = str(Path(out).resolve())
+    if '/.claude/worktrees/' in out:
+        prefix, rest = out.split('/.claude/worktrees/', 1)
+        return prefix + '/.claude/worktrees/' + rest.split('/')[0], crate
+    for component in ('/target/', '/debug/', '/release/'):
+        if component in out:
+            return out.split(component, 1)[0] + ('/target' if component == '/target/' else ''), crate
+    return out, crate
+
+def main(args):
+    key, crate = identity(args)
+    if not key or any(a == '-vV' or a == '--version' or a.startswith('--print') for a in args):
+        os.execvp(args[0], args)
+    lanes = max(1, int(os.environ.get('LI_BUILD_LANES', '3')))
+    slots = max(1, int(os.environ.get('LI_BUILD_SLOTS', '10')))
+    idle = max(0, float(os.environ.get('LI_LANE_IDLE', '2')))
+    reserve = float(os.environ.get('LI_BUILD_MIN_FREE_GB', '10'))
+    ROOT.mkdir(parents=True, exist_ok=True); SLOTS.mkdir(exist_ok=True)
+    token = uuid.uuid4().hex
+    pending = ROOT / ('pending.' + token)
+    slot = marker = lease = None
+    lane = None
+    child = None
+    # Lock before publishing the waiter, under the scheduler lock.
+    with (ROOT / '.lock').open('a') as mutex:
+        fcntl.flock(mutex, fcntl.LOCK_EX)
+        lease = locked(pending)
+        lease.write(key + '\n' + str(time.time()) + '\n' + crate + '\n'); lease.flush()
+    def interrupted(signum, frame):
+        if child is not None:
+            child.send_signal(signum)
+        raise SystemExit(128 + signum)
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP): signal.signal(signum, interrupted)
+    started = None
+    try:
+        while slot is None:
+            with (ROOT / '.lock').open('a') as mutex:
+                fcntl.flock(mutex, fcntl.LOCK_EX)
+                waiters = [read(p) for p in live_markers(ROOT, 'pending.*')]
+                oldest = min((w for w in waiters if len(w) >= 2), key=lambda w: float(w[1]), default=[key])
+                candidate = None
+                free = []
+                for number in range(1, lanes + 1):
+                    directory = ROOT / str(number); directory.mkdir(exist_ok=True)
+                    active = live_markers(directory, 'run.*')
+                    previous = read(directory / 'key')
+                    if previous and previous[0] == key:
+                        candidate = directory; break
+                    if not active and (not previous or time.time() - (directory / 'key').stat().st_mtime >= idle):
+                        free.append(directory)
+                if candidate is None and oldest[0] == key and free: candidate = free[0]
+                if candidate is not None and enough_memory(reserve):
+                    for number in range(1, slots + 1):
+                        slot = locked(SLOTS / ('slot-' + str(number)))
+                        if slot is not None: break
+                    if slot is not None:
+                        lane = candidate
+                        previous = read(lane / 'key')
+                        active = list(lane.glob('run.*'))
+                        if not previous or previous[0] != key or (not active and time.time() - (lane / 'key').stat().st_mtime > idle):
+                            (lane / 'key').write_text(key + '\n' + str(int(time.time())) + '\n')
+                            (lane / 'done').write_text('')
+                        started = time.monotonic()
+                        marker_path = lane / ('run.' + token)
+                        marker = locked(marker_path)
+                        marker.write(crate + ' ' + str(int(time.time())) + '\n'); marker.flush()
+                        (lane / 'key').touch()
+                        pending.unlink(missing_ok=True); lease.close(); lease = None
+            if slot is None: time.sleep(0.5)
+        # Preserve inherited Cargo jobserver FDs, plus our leases until rustc exits even if the wrapper is killed.
+        os.set_inheritable(slot.fileno(), True); os.set_inheritable(marker.fileno(), True)
+        child = subprocess.Popen(args, close_fds=False)
+        code = child.wait()
+        return code if code >= 0 else 128 - code
+    finally:
+        # Reap outside the signal handler: Popen.wait holds an internal lock when a signal arrives.
+        if child is not None and child.poll() is None:
+            child.terminate()
+            try: child.wait(timeout=5)
+            except subprocess.TimeoutExpired: child.kill(); child.wait()
+        pending.unlink(missing_ok=True)
+        if lease: lease.close()
+        if marker:
+            with (ROOT / '.lock').open('a') as mutex:
+                fcntl.flock(mutex, fcntl.LOCK_EX)
+                Path(marker.name).unlink(missing_ok=True)
+                with (lane / 'done').open('a') as output: output.write(crate + ' ' + str(int(time.monotonic()-started)) + '\n')
+                (lane / 'key').touch()
+            marker.close()
+        if slot: slot.close()
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Run one test binary with an RSS budget for its complete process group."""
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+
+
+def group_rss_kb(group, proc=Path('/proc')):
+    total = 0
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            # comm can contain spaces and parentheses; fields after its final ')' start at state.
+            fields = (entry / 'stat').read_text().rsplit(')', 1)[1].split()
+            if int(fields[2]) != group:
+                continue
+            total += max(0, int(fields[21])) * os.sysconf('SC_PAGE_SIZE') // 1024
+        except (OSError, ValueError, IndexError):
+            # A process disappearing between directory enumeration and stat is normal.
+            continue
+    return total
+
+
+def main():
+    if len(sys.argv) < 2:
+        print('Usage: li-test-runner PROGRAM [ARGS...]', file=sys.stderr)
+        return 2
+    try:
+        budget = float(os.environ.get('LI_TEST_MAX_GB', '12'))
+        if not 0 < budget < float('inf'):
+            raise ValueError()
+    except ValueError:
+        print('li-test-runner: LI_TEST_MAX_GB must be a positive finite number', file=sys.stderr)
+        return 2
+    interrupted_by = 0
+    def interrupted(sig, frame):
+        # Python handlers may interrupt Popen while its non-reentrant wait lock
+        # is held. Defer all process operations to ordinary control flow.
+        nonlocal interrupted_by
+        interrupted_by = sig
+
+    previous = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGTERM, signal.SIGINT)}
+    # An ignored SIGCHLD would let the kernel reap the leader before cleanup.
+    previous[signal.SIGCHLD] = signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+    child = None
+    exceeded = False
+    try:
+        child = subprocess.Popen(sys.argv[1:], start_new_session=True)
+        while not interrupted_by:
+            # Observe exit without reaping. The leader's PID stays reserved
+            # until we have killed its group, preventing group-ID reuse.
+            if os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None:
+                break
+            if group_rss_kb(child.pid) > budget * 1024 * 1024:
+                exceeded = True
+                print(f'li-test-runner: KILLED {Path(sys.argv[1]).name}: process group RSS above {budget:g} GB',
+                      file=sys.stderr, flush=True)
+                break
+            time.sleep(0.2)
+    finally:
+        try:
+            if child is not None:
+                # Cleanup must precede the ONLY reap, including normal exit.
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                finally:
+                    rc = child.wait()
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
+    if interrupted_by:
+        return 128 + interrupted_by
+    return 137 if exceeded else (128 - rc if rc < 0 else rc)
+
+
+if __name__ == '__main__':
+    sys.exit(main())
