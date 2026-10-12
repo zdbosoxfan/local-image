@@ -17,7 +17,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             let full = ui.max_rect();
             let mut sw = 640.0f32.min(full.width() - 460.0).max(200.0);
-            if !app.native_menu {
+            if !app.native_menu && !app.hosted_menus {
                 // leave room for the in-window menus left of the (centred) search field
                 let menus_right = full.left() + 140.0 + crate::menubar::bar_width(ui) + 24.0;
                 sw = sw.min(2.0 * (full.center().x - menus_right)).max(200.0);
@@ -29,10 +29,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     let _ = app.run("view.leftPanel", json!({}));
                 }
                 ui.add_space(8.0);
-                if icon_button(ui, "back", Icon::Back, vec2(30.0, 30.0), false, crate::menus::can_go_back(app), "Back (Esc)").clicked() {
+                let back_hint = crate::shortcuts::hint_in(ui.ctx(), "Back", "view.back");
+                if icon_button(ui, "back", Icon::Back, vec2(30.0, 30.0), false, crate::menus::can_go_back(app), &back_hint).clicked() {
                     let _ = app.run("view.back", json!({}));
                 }
-                if !app.native_menu {
+                if !app.native_menu && !app.hosted_menus {
                     // no native menu bar (web, Windows, Linux): menus in the top bar
                     ui.add_space(10.0);
                     let room = search_left - ui.cursor().left() - 16.0;
@@ -42,7 +43,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             // search field (centred on the window)
             let sr = Rect::from_center_size(pos2(full.center().x, full.center().y), vec2(sw, 28.0));
             let id = egui::Id::new("search-field");
-            if std::mem::take(&mut app.ui.focus_search) {
+            if !app.host_modal && std::mem::take(&mut app.ui.focus_search) {
                 ui.memory_mut(|m| m.request_focus(id));
             }
             let focused = ui.memory(|m| m.has_focus(id));
@@ -161,7 +162,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                                 "Temporary session — not saved to a Library"
                             }));
                         }
-                        let settings = ui.button(crate::i18n::tr("Settings…"));
+                        let settings = ui.button(crate::i18n::tr("Preferences…"));
                         register(ui.ctx(), "menu:libraryStatus:settings", settings.rect);
                         if settings.clicked() {
                             let _ = app.run("app.settings", json!({}));

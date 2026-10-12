@@ -349,7 +349,7 @@ pub fn entry(tool: StripTool) -> Entry {
         },
         StripTool::More => Entry {
             blurb: "Opens photo actions and Library settings.",
-            how: &["Copy or paste edit settings, sync photos, or export.", "Open Keyboard Shortcuts or Settings from the same menu."],
+            how: &["Copy or paste edit settings, sync photos, or export.", "Open Keyboard Shortcuts or Preferences from the same menu."],
         },
         StripTool::WbPicker => Entry {
             blurb: "Sets white balance from a neutral area of the photo.",
@@ -469,7 +469,7 @@ pub fn attach(mode: ToolTipMode, ui: &egui::Ui, resp: &Response, tool: StripTool
             d.remove::<Hover>(Id::new("lc-tool-tip-hover"));
             d.remove::<Shown>(Id::new("lc-tool-tip-shown"));
         });
-        let tip = match tool.shortcut() {
+        let tip = match tool.command().and_then(|id| crate::shortcuts::label_in(ui.ctx(), id)) {
             Some(k) => format!("{title} ({k})"),
             None => title.to_string(),
         };
@@ -507,7 +507,7 @@ fn draw(ui: &egui::Ui, resp: &Response, tool: StripTool) {
     let t = Tokens::get(ui.ctx());
     let ent = entry(tool);
     let title = crate::i18n::tr(tool.title());
-    let key = tool.shortcut();
+    let key = tool.command().and_then(|id| crate::shortcuts::label_in(ui.ctx(), id));
     let blurb = crate::i18n::tr(ent.blurb);
     let how: Vec<String> = ent.how.iter().map(|h| mods(crate::i18n::tr(h))).collect();
     let screen = ui.ctx().content_rect();
@@ -612,5 +612,53 @@ mod tests {
         assert_eq!(StripTool::Edit.shortcut().as_deref(), Some("D"));
         assert_eq!(StripTool::RedEye.shortcut(), None);
         assert_eq!(StripTool::Presets.shortcut(), None);
+    }
+    #[test]
+    fn shared_shell_tooltip_paints_rebound_unbound_and_reset_key() {
+        let mut app = crate::LightcraftApp::new(lightcraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        crate::theme::apply(&ctx);
+        fn text(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(t) => out.push(t.galley.text().to_string()),
+                egui::Shape::Vec(v) => {
+                    for s in v {
+                        text(s, out)
+                    }
+                }
+                _ => {}
+            }
+        }
+        for setting in [Some("F6"), Some(""), None] {
+            app.shortcut_overrides.clear();
+            if let Some(value) = setting {
+                app.shortcut_overrides.insert("library::view.develop".into(), value.into());
+            }
+            crate::shortcuts::publish_labels(&app, &ctx);
+            let mut painted = Vec::new();
+            for _ in 0..3 {
+                let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(800., 600.))), ..Default::default() };
+                let mut output = ctx.run_ui(raw, |ui| {
+                    let (_, response) = ui.allocate_exact_size(vec2(400., 40.), Sense::hover());
+                    draw(ui, &response, StripTool::Edit);
+                });
+                painted.clear();
+                for shape in &output.shapes {
+                    text(&shape.shape, &mut painted);
+                }
+                output.textures_delta.clear();
+            }
+            let expected = match setting {
+                Some("F6") => Some("F6"),
+                Some("") => None,
+                _ => Some("D"),
+            };
+            if let Some(key) = expected {
+                assert!(painted.iter().any(|s| s == key), "actual tooltip glyphs: {painted:?}");
+            } else {
+                assert!(!painted.iter().any(|s| s == "D" || s == "F6"));
+            }
+        }
     }
 }

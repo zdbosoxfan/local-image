@@ -168,6 +168,25 @@ impl Host {
         }
     }
 
+    /// One persisted shortcut map and one editor across modules; Library only mirrors it.
+    fn shared_shell(&mut self, ctx: &egui::Context) {
+        photocraft_ui_egui::prefs_ui::set_host_shortcut_catalog(&mut self.editor, ctx, lightcraft_ui_egui::shortcuts::catalog::host_catalog());
+        let request = self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_shortcuts));
+        if request {
+            let id = photocraft_ui_egui::prefs_ui::open_shortcuts(&mut self.editor, 0);
+            if let Some(dialog) = self.editor.ui.dialogs.iter_mut().find(|d| d.id == id) {
+                dialog.fields.insert("shortcutScope".into(), serde_json::json!("library"));
+            }
+        }
+        if let Some(lib) = self.library.as_mut() {
+            lib.hosted_menus = true;
+            lib.shared_shortcuts = true;
+            lib.host_modal = !self.editor.ui.dialogs.is_empty();
+            lib.shortcut_overrides =
+                self.editor.session.prefs().shortcuts.iter().filter(|(id, _)| id.starts_with("library::")).map(|(k, v)| (k.clone(), v.clone())).collect();
+        }
+    }
+
     fn library(&mut self) -> &mut LightcraftApp {
         let opens = self.opens.clone();
         let mode = self.mode;
@@ -180,6 +199,18 @@ impl Host {
             lib
         });
         library.set_host_theme(library_palette(theme));
+        library.hosted_menus = true;
+        library.shared_shortcuts = true;
+        library.host_modal = !self.editor.ui.dialogs.is_empty();
+        library.shortcut_overrides = self
+            .editor
+            .session
+            .prefs()
+            .shortcuts
+            .iter()
+            .filter(|(id, _)| id.starts_with("library::"))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
         library
     }
 
@@ -473,7 +504,7 @@ impl Host {
             unsaved_composites(&self.editor, &lib.session).into_iter().find(|(p, _, _)| *p == id).map(|(_, _, d)| d.id)
         });
         if let Some(doc) = doc
-            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::S))
+            && consume_host_chord(ctx, egui::Modifiers::COMMAND, egui::Key::S)
         {
             self.save_preview(ctx, doc);
         }
@@ -814,7 +845,7 @@ impl Host {
         if !self.editor.host_modes {
             return;
         }
-        let picked = Module::ALL.into_iter().find(|m| ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::ALT, m.key())));
+        let picked = Module::ALL.into_iter().find(|m| consume_host_chord(ctx, egui::Modifiers::COMMAND | egui::Modifiers::ALT, m.key()));
         if let Some(m) = picked {
             self.switch(ctx, m);
         }
@@ -1036,7 +1067,16 @@ fn set_library_view(lib: &mut LightcraftApp, develop: bool) {
     }
 }
 
-/// Which module the Library app's own navigation is in (it can enter its develop tools itself).
+/// Which module the Library app's own navigation is in (it can enter its develop tools itself)./// These are exact host actions, not egui's more permissive subset-modifier match.
+fn consume_host_chord(ctx: &egui::Context, modifiers: egui::Modifiers, key: egui::Key) -> bool {
+    ctx.input_mut(|i| {
+        let before = i.events.len();
+        i.events
+            .retain(|event| !matches!(event,egui::Event::Key{key:pressed,pressed:true,modifiers:mods,..} if *pressed==key && mods.matches_exact(modifiers)));
+        before != i.events.len()
+    })
+}
+
 fn library_module(lib: &LightcraftApp) -> Module {
     if lib.ui.view == lightcraft_ui_egui::state::ViewMode::Detail && lib.ui.right.is_edit_tool() { Module::Develop } else { Module::Library }
 }
@@ -1046,8 +1086,11 @@ impl eframe::App for Host {
         self.observe_library();
         self.frames += 1;
         self.editor.current_module = self.mode;
-        self.module_keys(ctx);
-        self.preview_save_key(ctx);
+        self.shared_shell(ctx);
+        if self.editor.ui.dialogs.is_empty() {
+            self.module_keys(ctx);
+            self.preview_save_key(ctx);
+        }
         // The editor installs the fonts (a superset of the Library's) on its first frame.
         if self.frames == 1 || self.mode == Module::Compositing {
             self.editor.logic(ctx, frame);
@@ -1168,6 +1211,7 @@ impl eframe::App for Host {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.shared_shell(ui.ctx());
         if self.mode == Module::Compositing || self.library.is_none() {
             self.editor.ui(ui, frame);
             return;
@@ -1176,7 +1220,20 @@ impl eframe::App for Host {
             Some(cr) => format!("Camera Raw Filter · {}", cr.name),
             None => self.library.as_ref().map(|l| library_title(l, self.mode)).unwrap_or_default(),
         };
-        if let Some(m) = photocraft_ui_egui::panels::library_title_bar(&mut self.editor, ui, &title, self.mode) {
+        let modal = !self.editor.ui.dialogs.is_empty();
+        let Some(library) = self.library.as_mut() else {
+            self.editor.ui(ui, frame);
+            return;
+        };
+        let picked = photocraft_ui_egui::panels::library_title_bar_with_menus(&mut self.editor, ui, &title, self.mode, |ui, room| {
+            if library.native_menu {
+                return ui.cursor().left();
+            }
+            let start = ui.cursor().left();
+            start + ui.add_enabled_ui(!modal, |ui| lightcraft_ui_egui::menubar::show_in_window(library, ui, room)).inner
+        });
+        self.shared_shell(ui.ctx());
+        if let Some(m) = picked.filter(|_| !modal) {
             let ctx = ui.ctx().clone();
             self.switch(&ctx, m);
             ctx.request_repaint();
@@ -1192,8 +1249,10 @@ impl eframe::App for Host {
             }
         }
         if let Some(lib) = self.library.as_mut() {
-            lib.ui(ui);
+            ui.add_enabled_ui(!lib.host_modal, |ui| lib.ui(ui));
         }
+        self.shared_shell(ui.ctx());
+        photocraft_ui_egui::dialogs::show(&mut self.editor, ui.ctx());
         photocraft_ui_egui::notices::show(&mut self.editor, ui.ctx());
         // The switched-to-CPU warning appears in every module, not only once Compositing is open.
         photocraft_ui_egui::gpu_status::show_fallback(&mut self.editor, ui.ctx());
@@ -3755,6 +3814,444 @@ mod tests {
                 assert!(app.ui.toast.is_none(), "existing lifetime remains unchanged");
             }
         }
+    }
+    fn shared_shell_frame(h: &mut RoundTripUi, size: egui::Vec2, ppp: f32, events: Vec<egui::Event>) -> Vec<egui::ViewportCommand> {
+        use eframe::App;
+        let mut raw = lightcraft_ui_egui::headless::HeadlessView::raw_input(size, ppp, h.frames as f64 / 60., events);
+        h.host.raw_input_hook(&h.view.ctx, &mut raw);
+        let commands = h.view.run(raw, |ui| {
+            h.host.logic(ui.ctx(), &mut h.frame);
+            h.host.ui(ui, &mut h.frame);
+        });
+        h.frames += 1;
+        commands
+    }
+    #[test]
+    fn shared_shell_host_title_menus_visible_once_without_drag_overlap() {
+        for kind in photocraft_ui_egui::theme::ThemeKind::ALL {
+            let (dir, host) = workflow_host("shared-shell-title");
+            let mut h = RoundTripUi::new(host);
+            h.host.editor.custom_titlebar = true;
+            workflow_theme(&mut h.host, kind);
+            for size in [egui::vec2(1440., 900.), egui::vec2(760., 480.)] {
+                for ppp in [1., 2.] {
+                    for mode in [Module::Library, Module::Develop] {
+                        let ctx = h.view.ctx.clone();
+                        h.host.switch(&ctx, mode);
+                        for _ in 0..4 {
+                            shared_shell_frame(&mut h, size, ppp, vec![]);
+                        }
+                        assert_eq!(h.host.mode, mode);
+                        let lib = h.host.library.as_ref().unwrap();
+                        let menus: Vec<_> = lib.widgets.iter().filter(|(id, _)| id.starts_with("menu:")).map(|(id, r)| (id.clone(), *r)).collect();
+                        assert!(!menus.is_empty());
+                        let title_height = if photocraft_ui_egui::theme::Tokens::for_kind(kind).pro { 32. } else { 38. };
+                        let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+                        let mode_rects: Vec<_> = Module::ALL
+                            .map(|module| module.digit())
+                            .into_iter()
+                            .map(|digit| h.view.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("host-mode-rect", digit)))).unwrap())
+                            .collect();
+                        for (id, r) in &menus {
+                            assert_eq!(menus.iter().filter(|(other, _)| other == id).count(), 1, "no duplicate second-row menu");
+                            assert!(viewport.contains_rect(*r) && r.bottom() <= title_height, "{kind:?}/{mode:?}/{size:?}/{ppp}: {id}/{r:?}");
+                            for m in &mode_rects {
+                                assert!(!r.intersects(*m));
+                            }
+                        }
+                        let search = lib.widgets.iter().find(|(id, _)| id == "field:search").unwrap().1;
+                        assert!(search.top() >= title_height && viewport.contains_rect(search));
+                        let menu = menus[0].1;
+                        let pos = menu.center();
+                        let mut commands = shared_shell_frame(
+                            &mut h,
+                            size,
+                            ppp,
+                            vec![
+                                egui::Event::PointerMoved(pos),
+                                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                            ],
+                        );
+                        commands.extend(shared_shell_frame(&mut h, size, ppp, vec![egui::Event::PointerMoved(pos + egui::vec2(12., 0.))]));
+                        commands.extend(shared_shell_frame(
+                            &mut h,
+                            size,
+                            ppp,
+                            vec![egui::Event::PointerButton {
+                                pos: pos + egui::vec2(12., 0.),
+                                button: egui::PointerButton::Primary,
+                                pressed: false,
+                                modifiers: egui::Modifiers::NONE,
+                            }],
+                        ));
+                        assert!(!commands.iter().any(|v| matches!(v, egui::ViewportCommand::StartDrag)), "menu gesture cannot drag native title");
+                        egui::Popup::close_all(&h.view.ctx);
+                        shared_shell_frame(&mut h, size, ppp, vec![]);
+                        let image = h.view.paint(&h.host.library.as_ref().unwrap().renderer.cpu_textures());
+                        workflow_save_image(&image, &format!("shared-{kind:?}-{mode:?}-{}x{}-{ppp}x", size.x, size.y));
+                    }
+                }
+            }
+            let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+            drop(h);
+            previews.retire();
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+    #[test]
+    fn shared_shell_host_shortcut_editor_capture_cancel_and_library_dispatch() {
+        let (dir, host) = workflow_host("shared-shell-shortcuts");
+        let mut h = RoundTripUi::new(host);
+        let ctx = h.view.ctx.clone();
+        h.host.switch(&ctx, Module::Library);
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        h.host.library.as_mut().unwrap().run("app.shortcuts", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step(vec![]);
+        }
+        assert!(h.host.library.as_ref().unwrap().ui.dialog.is_none());
+        let id = h.host.editor.ui.dialogs.last().unwrap().id;
+        let key = "library::view.develop".to_string();
+        let fields = &mut h.host.editor.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!(fields["__prefsui"], "shortcuts");
+        assert_eq!(fields["shortcutScope"], "library");
+        fields.insert("filter".into(), json!(key));
+        for _ in 0..3 {
+            h.step(vec![]);
+        }
+        let hit = h.view.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("shortcut-capture", &key)))).unwrap();
+        let pos = hit.center();
+        assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200., 900.)).contains_rect(hit));
+        for pressed in [true, false] {
+            h.step(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE },
+            ]);
+        }
+        assert_eq!(h.host.editor.ui.dialog_mut(id).unwrap().fields["capture"], true);
+        let photo = h.host.library.as_ref().unwrap().session.active();
+        let revision = h.host.editor.session.active().unwrap().revision;
+        h.key(egui::Key::D, egui::Modifiers::NONE);
+        assert_eq!(h.host.mode, Module::Library, "capturing the default Develop key must not navigate the underlying Library");
+        let rating = h.host.library.as_ref().unwrap().session.catalog.photo(photo.unwrap()).unwrap().rating;
+        h.host.editor.ui.dialog_mut(id).unwrap().fields.insert("capture".into(), json!(true));
+        h.key(egui::Key::Num5, egui::Modifiers::NONE);
+        assert_eq!(
+            h.host.library.as_ref().unwrap().session.catalog.photo(photo.unwrap()).unwrap().rating,
+            rating,
+            "capturing a rating key must not edit photos"
+        );
+        h.host.editor.ui.dialog_mut(id).unwrap().fields.insert("capture".into(), json!(true));
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert_eq!(h.host.mode, Module::Library, "capture owns reserved module keys too");
+        h.host.editor.ui.dialog_mut(id).unwrap().fields.insert("capture".into(), json!(true));
+        h.key(egui::Key::F6, egui::Modifiers::NONE);
+        assert_eq!(h.host.editor.ui.dialog_mut(id).unwrap().fields["overrides"][&key], "F6");
+        assert_eq!(h.host.mode, Module::Library);
+        assert_eq!(h.host.library.as_ref().unwrap().session.active(), photo);
+        assert_eq!(h.host.editor.session.active().unwrap().revision, revision);
+        photocraft_ui_egui::dialogs::confirm(&mut h.host.editor, id).unwrap();
+        for _ in 0..2 {
+            h.step(vec![]);
+        }
+        h.key(egui::Key::F6, egui::Modifiers::NONE);
+        assert_eq!(h.host.mode, Module::Develop);
+        let entries = lightcraft_ui_egui::menus::menu_entries(h.host.library.as_ref().unwrap());
+        assert_eq!(entries.iter().find(|e| e.id == "view.develop").unwrap().shortcut.as_deref(), Some("F6"));
+        h.host.library.as_mut().unwrap().run("app.shortcuts", json!({})).unwrap();
+        h.step(vec![]);
+        let id = h.host.editor.ui.dialogs.last().unwrap().id;
+        h.host.editor.ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!({"library::view.develop":"F7"}));
+        photocraft_ui_egui::dialogs::cancel(&mut h.host.editor, id).unwrap();
+        h.step(vec![]);
+        assert_eq!(h.host.editor.session.prefs().shortcuts[&key], "F6");
+        h.host.library.as_mut().unwrap().run("app.settings", json!({})).unwrap();
+        h.step(vec![]);
+        assert!(
+            matches!(h.host.library.as_ref().unwrap().ui.dialog, Some(lightcraft_ui_egui::state::Dialog::Settings { .. })),
+            "Preferences keeps Library-specific pages"
+        );
+        let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+        drop(h);
+        previews.retire();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn shared_shell_host_exact_save_keeps_sync_settings_and_module_shortcuts() {
+        let (dir, path, library, photo) = library_with_photo("shared-shell-host-keys");
+        let mut host = host_with_round_trip(library, photo, &path);
+        host.editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(photocraft_engine::prefs::RenderingMode::Cpu));
+        host.mode = Module::Library;
+        set_library_view(host.library.as_mut().unwrap(), false);
+        host.library.as_mut().unwrap().run("photo.virtualCopy", json!({"ids":[photo.0]})).unwrap();
+        let ids: Vec<_> = host.library.as_ref().unwrap().session.catalog.photos().map(|p| p.id.0).collect();
+        host.library.as_mut().unwrap().run("library.select", json!({"ids":ids,"active":photo.0})).unwrap();
+        assert!(!unsaved_composites(&host.editor, &host.library.as_ref().unwrap().session).is_empty());
+        let mut h = RoundTripUi::new(host);
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        h.key(egui::Key::S, egui::Modifiers::COMMAND | egui::Modifiers::SHIFT);
+        assert!(
+            matches!(h.host.library.as_ref().unwrap().ui.dialog, Some(lightcraft_ui_egui::state::Dialog::SyncSettings { .. })),
+            "documented more-specific Library shortcut must not be stolen by Save"
+        );
+        assert!(!dir.join("photo-Edit.psd").exists());
+        assert!(h.host.editor.has_unsaved());
+        h.host.library.as_mut().unwrap().ui.dialog = None;
+        h.step(vec![]);
+        h.key(egui::Key::S, egui::Modifiers::COMMAND);
+        h.wait_for(|host| !host.editor.has_unsaved());
+        assert!(dir.join("photo-Edit.psd").exists(), "exact host Save still publishes its layered copy");
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert_eq!(h.host.mode, Module::Compositing);
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert_eq!(h.host.mode, Module::Library);
+        let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+        drop(h);
+        previews.retire();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn shared_shell_capture_retains_existing_library_dialog_and_field_drafts() {
+        let (dir, host) = workflow_host("shared-shell-under-dialog");
+        let mut h = RoundTripUi::new(host);
+        let ctx = h.view.ctx.clone();
+        h.host.switch(&ctx, Module::Library);
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        h.host.library.as_mut().unwrap().run("dialog.export", json!({})).unwrap();
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        let underlying = h.host.library.as_ref().unwrap().ui.dialog.clone();
+        let old_cancel = h.host.library.as_ref().unwrap().widgets.iter().find(|(id, _)| id == "button:dialogCancel").unwrap().1;
+        h.host.library.as_mut().unwrap().run("app.shortcuts", json!({})).unwrap();
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        let id = h.host.editor.ui.dialogs.last().unwrap().id;
+        assert!(
+            !h.host.library.as_ref().unwrap().widgets.iter().any(|(id, _)| id == "dialog:window"),
+            "underlying window is suspended without discarding state"
+        );
+        let top = h.view.ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", id)))).unwrap();
+        let point = old_cancel.center();
+        assert!(!top.contains(point), "fixture old Cancel must lie outside the top modal, not on a legitimate host control");
+        for pressed in [true, false] {
+            h.step(vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton { pos: point, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE },
+            ]);
+        }
+        assert_eq!(h.host.library.as_ref().unwrap().ui.dialog, underlying);
+        for key in [egui::Key::Escape, egui::Key::Enter] {
+            let fields = &mut h.host.editor.ui.dialog_mut(id).unwrap().fields;
+            fields.insert("selected".into(), json!("library::view.develop"));
+            fields.insert("capture".into(), json!(true));
+            h.key(key, egui::Modifiers::NONE);
+            assert!(h.host.editor.ui.dialogs.iter().any(|d| d.id == id));
+            assert_eq!(h.host.library.as_ref().unwrap().ui.dialog, underlying, "shared capture must not close/confirm underlying Export");
+        }
+        photocraft_ui_egui::dialogs::cancel(&mut h.host.editor, id).unwrap();
+        for _ in 0..3 {
+            h.step(vec![]);
+        }
+        assert_eq!(h.host.library.as_ref().unwrap().ui.dialog, underlying);
+        assert!(h.host.library.as_ref().unwrap().widgets.iter().any(|(id, _)| id == "dialog:window"));
+        // The ordinary Masking panel also has raw Escape and autofocus paths.
+        let lib = h.host.library.as_mut().unwrap();
+        lib.ui.dialog = None;
+        lib.run("view.develop", json!({})).unwrap();
+        lib.run("panel.masking", json!({})).unwrap();
+        lib.run("mask.add", json!({"kind":"radial"})).unwrap();
+        let mid = lib.session.active_mask.unwrap();
+        let photo = lib.session.active().unwrap();
+        lib.ui.renaming_mask = Some((mid, "Kept name".into()));
+        lib.ui.renaming_component = Some((mid, 0, "Kept component".into()));
+        lib.ui.describe = Some(("new".into(), "Kept prompt".into()));
+        lib.run("app.shortcuts", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step(vec![]);
+        }
+        let id = h.host.editor.ui.dialogs.last().unwrap().id;
+        let develop = h.host.library.as_ref().unwrap().session.develop_of(photo).unwrap();
+        for key in [egui::Key::Escape, egui::Key::Enter] {
+            let f = &mut h.host.editor.ui.dialog_mut(id).unwrap().fields;
+            f.insert("selected".into(), json!("library::view.develop"));
+            f.insert("capture".into(), json!(true));
+            h.key(key, egui::Modifiers::NONE);
+            let lib = h.host.library.as_ref().unwrap();
+            assert_eq!(lib.ui.renaming_mask, Some((mid, "Kept name".into())));
+            assert_eq!(lib.ui.renaming_component, Some((mid, 0, "Kept component".into())));
+            assert_eq!(lib.ui.describe, Some(("new".into(), "Kept prompt".into())));
+            assert_eq!(lib.session.develop_of(photo).unwrap(), develop);
+        }
+        photocraft_ui_egui::dialogs::cancel(&mut h.host.editor, id).unwrap();
+        let lib = h.host.library.as_mut().unwrap();
+        lib.ui.renaming_mask = None;
+        lib.ui.renaming_component = None;
+        lib.ui.describe = None;
+        lib.run("panel.keywords", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step(vec![]);
+        }
+        h.click("field:keyword");
+        h.step(vec![egui::Event::Text("Retained keyword".into())]);
+        let keyword_focus = h.view.ctx.memory(|m| m.focused()).unwrap();
+        h.host.library.as_mut().unwrap().run("app.shortcuts", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step(vec![]);
+        }
+        let id = h.host.editor.ui.dialogs.last().unwrap().id;
+        let before = h.host.library.as_ref().unwrap().session.catalog.photo(photo).unwrap().meta.keywords.clone();
+        let f = &mut h.host.editor.ui.dialog_mut(id).unwrap().fields;
+        f.insert("selected".into(), json!("library::view.develop"));
+        f.insert("capture".into(), json!(true));
+        // Exercise the stale-focus boundary explicitly: disabled TextEdit loses this
+        // old focus during the same Enter pass; it still must not commit a keyword.
+        h.view.ctx.memory_mut(|m| m.request_focus(keyword_focus));
+        h.key(egui::Key::Enter, egui::Modifiers::NONE);
+        assert_eq!(h.host.library.as_ref().unwrap().session.catalog.photo(photo).unwrap().meta.keywords, before);
+        assert_eq!(h.view.ctx.data(|d| d.get_temp::<String>(egui::Id::new("kw-input"))).as_deref(), Some("Retained keyword"));
+        photocraft_ui_egui::dialogs::cancel(&mut h.host.editor, id).unwrap();
+        // Info's blur-saved metadata and GPS must survive losing focus to the
+        // shared editor, including its dismissal. Only a subsequent genuine blur
+        // of the refocused Library field may publish a single undoable edit.
+        let size = egui::vec2(1200., 2200.);
+        h.host.library.as_mut().unwrap().run("panel.info", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step_at(size, vec![]);
+        }
+        for (key, draft, buffer, next_field) in [
+            ("title", "Retained title", egui::Id::new(("info-field", "title")), "field:caption"),
+            ("gps", "51.5072, -0.1276", egui::Id::new("info-gps"), "field:title"),
+        ] {
+            let before = serde_json::to_value(&h.host.library.as_ref().unwrap().session.catalog.photo(photo).unwrap().meta).unwrap();
+            let undo = h.host.library.as_ref().unwrap().session.undo.len();
+            workflow_click(&mut h, size, &format!("field:{key}"));
+            for pressed in [true, false] {
+                h.step_at(size, vec![egui::Event::Key { key: egui::Key::A, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::COMMAND }]);
+            }
+            h.step_at(size, vec![egui::Event::Text(draft.into())]);
+            let focus = ctx.memory(|m| m.focused()).unwrap();
+            assert_eq!(ctx.data(|d| d.get_temp::<String>(buffer)).as_deref(), Some(draft));
+            h.host.library.as_mut().unwrap().run("app.shortcuts", json!({})).unwrap();
+            for _ in 0..3 {
+                h.step_at(size, vec![]);
+            }
+            let shared = h.host.editor.ui.dialogs.last().unwrap().id;
+            for capture_key in [egui::Key::Escape, egui::Key::Enter] {
+                let fields = &mut h.host.editor.ui.dialog_mut(shared).unwrap().fields;
+                fields.insert("selected".into(), json!("library::view.develop"));
+                fields.insert("capture".into(), json!(true));
+                ctx.memory_mut(|m| m.request_focus(focus));
+                for pressed in [true, false] {
+                    h.step_at(size, vec![egui::Event::Key { key: capture_key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE }]);
+                }
+                assert_eq!(ctx.data(|d| d.get_temp::<String>(buffer)).as_deref(), Some(draft));
+                let lib = h.host.library.as_ref().unwrap();
+                assert_eq!(serde_json::to_value(&lib.session.catalog.photo(photo).unwrap().meta).unwrap(), before);
+                assert_eq!(lib.session.undo.len(), undo, "capture must not publish metadata");
+            }
+            photocraft_ui_egui::dialogs::cancel(&mut h.host.editor, shared).unwrap();
+            for _ in 0..3 {
+                h.step_at(size, vec![]);
+            }
+            assert_eq!(ctx.data(|d| d.get_temp::<String>(buffer)).as_deref(), Some(draft), "dismissal retains suspended {key}");
+            assert_eq!(h.host.library.as_ref().unwrap().session.undo.len(), undo);
+            workflow_click(&mut h, size, &format!("field:{key}"));
+            workflow_click(&mut h, size, next_field);
+            let lib = h.host.library.as_mut().unwrap();
+            let meta = &lib.session.catalog.photo(photo).unwrap().meta;
+            if key == "gps" {
+                assert_eq!(meta.gps, Some((51.5072, -0.1276)));
+            } else {
+                assert_eq!(meta.title, draft);
+            }
+            assert_eq!(lib.session.undo.len(), undo + 1, "ordinary resumed blur commits exactly once");
+            lib.run("edit.undo", json!({})).unwrap();
+            assert_eq!(serde_json::to_value(&lib.session.catalog.photo(photo).unwrap().meta).unwrap(), before);
+            h.step_at(size, vec![]);
+        }
+        let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+        drop(h);
+        previews.retire();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn shared_shell_background_export_completes_while_capture_owns_input() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        struct Release(Arc<AtomicBool>);
+        impl Drop for Release {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let (dir, mut host) = workflow_host("shared-shell-background-export");
+        host.mode = Module::Library;
+        set_library_view(host.library.as_mut().unwrap(), false);
+        let output = dir.join("exported");
+        std::fs::create_dir(&output).unwrap();
+        let started = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let signal = started.clone();
+        let wait = release.clone();
+        host.library.as_mut().unwrap().services.write_shared = Some(Arc::new(move |path, bytes| {
+            signal.store(true, Ordering::SeqCst);
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while !wait.load(Ordering::SeqCst) {
+                if std::time::Instant::now() > until {
+                    return Err("bounded export fixture timeout".into());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            std::fs::write(path, bytes).map_err(|e| e.to_string())
+        }));
+        let mut h = RoundTripUi::new(host);
+        let _release = Release(release.clone());
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        let photo = h.host.library.as_ref().unwrap().session.active().unwrap();
+        h.host.library.as_mut().unwrap().run("app.export", json!({"ids":[photo.0],"dir":output.to_string_lossy(),"format":"png","background":true})).unwrap();
+        h.wait_for(|_| started.load(Ordering::SeqCst));
+        let cancel = h.host.library.as_ref().unwrap().export.as_ref().unwrap().cancel.clone();
+        h.host.library.as_mut().unwrap().run("app.settings", json!({})).unwrap();
+        h.step(vec![]);
+        let underlying = h.host.library.as_ref().unwrap().ui.dialog.clone();
+        h.host.library.as_mut().unwrap().run("app.shortcuts", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step(vec![]);
+        }
+        let id = h.host.editor.ui.dialogs.last().unwrap().id;
+        let f = &mut h.host.editor.ui.dialog_mut(id).unwrap().fields;
+        f.insert("selected".into(), json!("library::view.develop"));
+        f.insert("capture".into(), json!(true));
+        assert!(!h.host.library.as_ref().unwrap().widgets.iter().any(|(id, _)| id == "button:exportCancel"));
+        assert!(!cancel.load(Ordering::SeqCst));
+        release.store(true, Ordering::SeqCst);
+        h.wait_for(|host| host.library.as_ref().unwrap().export.is_none());
+        let lib = h.host.library.as_ref().unwrap();
+        let result = lib.last_export_result.as_ref().unwrap();
+        let file = result["files"][0]["path"].as_str().unwrap();
+        assert!(std::fs::metadata(file).unwrap().len() > 0);
+        assert_eq!(result["cancelled"], false);
+        assert_eq!(lib.ui.dialog, underlying);
+        assert_eq!(h.host.editor.ui.dialog_mut(id).unwrap().fields["capture"], true, "completion must not dismiss or confirm the shared editor");
+        photocraft_ui_egui::dialogs::cancel(&mut h.host.editor, id).unwrap();
+        h.step(vec![]);
+        assert_eq!(h.host.library.as_ref().unwrap().ui.dialog, underlying);
+        let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+        drop(h);
+        previews.retire();
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
 

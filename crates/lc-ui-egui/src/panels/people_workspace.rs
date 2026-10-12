@@ -436,13 +436,45 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
                             let _ = app.run("view.photoGrid", json!({}));
                         }
                     }
-                    let name = s.names.entry(id).or_insert_with(|| row["name"].as_str().unwrap_or("").into());
+                    let base_name = row["name"].as_str().unwrap_or("");
+                    let draft_id = ui.id().with("person-name-draft");
+                    let suspended_id = draft_id.with("suspended");
+                    let owner = egui::Id::new((app.session.library_identity(), app.session.library_generation, id, base_name));
+                    let changed_owner = ui.data_mut(|d| {
+                        let previous = d.get_temp::<egui::Id>(draft_id);
+                        d.insert_temp(draft_id, owner);
+                        if previous.is_some_and(|previous| previous != owner) {
+                            d.remove::<bool>(suspended_id);
+                            true
+                        } else {
+                            false
+                        }
+                    });
+                    if changed_owner {
+                        s.names.remove(&id);
+                    }
+                    let name = s.names.entry(id).or_insert_with(|| base_name.into());
                     let name_r = ui.add(egui::TextEdit::singleline(name).hint_text(tr("Add name")).desired_width(165.));
                     register(ui.ctx(), format!("smartSort:bubbleName:{id}"), name_r.rect);
                     let edited = name.clone();
-                    let save = name_r.lost_focus() || (name_r.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                    // Response focus access reacquires Context memory; snapshot it
+                    // before the temporary-data write lock below.
+                    let (has_focus, lost_focus) = (name_r.has_focus(), name_r.lost_focus());
+                    // egui reports lost_focus again on the frame after a disabled
+                    // field surrendered focus. Even a one-frame host modal must
+                    // suspend publication until this name is deliberately refocused.
+                    let suspended = ui.data_mut(|d| {
+                        if app.host_modal {
+                            d.insert_temp(suspended_id, true);
+                        } else if has_focus {
+                            d.remove::<bool>(suspended_id);
+                        }
+                        d.get_temp::<bool>(suspended_id).unwrap_or(false)
+                    });
+                    let owns_input = !app.host_modal && !suspended;
+                    let save = owns_input && (lost_focus || (has_focus && ui.input(|i| i.key_pressed(egui::Key::Enter))));
                     let mut chose_suggestion = false;
-                    if (name_r.has_focus() || name_r.lost_focus()) && !edited.is_empty() {
+                    if owns_input && (has_focus || lost_focus) && !edited.is_empty() {
                         for suggestion in s.list["nameSuggestions"]
                             .as_array()
                             .cloned()

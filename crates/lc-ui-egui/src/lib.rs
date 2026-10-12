@@ -194,6 +194,13 @@ pub struct LightcraftApp {
     pub integrated_titlebar: bool,
     /// The host installed a native menu bar (no in-window menus then).
     pub native_menu: bool,
+    /// Hosted menus live in the shared title row, independently of native menu handling.
+    pub hosted_menus: bool,
+    pub shared_shortcuts: bool,
+    pub open_shared_shortcuts: bool,
+    pub host_modal: bool,
+    /// Runtime mirror of the host's single persisted shortcut authority.
+    pub shortcut_overrides: std::collections::BTreeMap<String, String>,
     /// Shortcuts the native menu bar currently handles (`Cmd+Z`, `G`…): the egui shortcut handler
     /// leaves them alone so nothing fires twice.
     pub native_shortcuts: std::collections::HashSet<String>,
@@ -306,6 +313,11 @@ impl LightcraftApp {
             caches: Caches::default(),
             integrated_titlebar: false,
             native_menu: false,
+            hosted_menus: false,
+            shared_shortcuts: false,
+            open_shared_shortcuts: false,
+            host_modal: false,
+            shortcut_overrides: Default::default(),
             native_shortcuts: Default::default(),
             headless_host: false,
             notices: vec![],
@@ -704,10 +716,15 @@ impl LightcraftApp {
 
     /// Per-frame logic before layout (control channel, renders, shortcuts, drops).
     pub fn logic(&mut self, ctx: &egui::Context) {
+        if self.host_modal {
+            self.background_tick(ctx);
+            return;
+        }
         if self.ui.view != crate::state::ViewMode::Detail && self.ui.before_after == crate::state::BeforeAfter::Original {
             self.ui.before_after = crate::state::BeforeAfter::Off;
         }
         i18n::set_language(self.ui.language);
+        shortcuts::publish_labels(self, ctx);
         let t0 = now_ms();
         panels::library_problem::logic(self);
         self.logic_inner(ctx);
@@ -934,21 +951,30 @@ impl LightcraftApp {
             return;
         }
         let t0 = now_ms();
-        if std::mem::take(&mut self.ui.quit) {
+        if self.host_modal {
+            ui.disable();
+        }
+        if !self.host_modal && std::mem::take(&mut self.ui.quit) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         // panels set it again this frame while the pointer rests on a preset or profile
         self.hover_preview = None;
-        self.ai_mask_detail(&ctx);
+        if !self.host_modal {
+            self.ai_mask_detail(&ctx);
+        }
         panels::enhance::poll(self, &ctx);
+        // Completion/failure collection continues even while interactive windows are suspended.
+        export_task::poll(self, &ctx);
         if self.ui.fullscreen {
             // full-screen preview: the photo alone on black
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::BLACK)).show(ui, |ui| panels::detail::show(self, ui));
             panels::second::show(self, &ctx);
-            panels::notices::show(self, &ctx);
-            panels::dialogs::show(self, &ctx);
-            panels::people_workspace::overlay(self, &ctx);
-            panels::library_problem::show(self, &ctx);
+            if !self.host_modal {
+                panels::notices::show(self, &ctx);
+                panels::dialogs::show(self, &ctx);
+                panels::people_workspace::overlay(self, &ctx);
+                panels::library_problem::show(self, &ctx);
+            }
             panels::toast(self, &ctx);
             self.widgets = widgets::take_registry(&ctx);
             self.finish_slider_if_released(&ctx);
@@ -966,6 +992,9 @@ impl LightcraftApp {
         }
         panels::library_problem::banner(self, ui);
         panels::strip::show(self, ui);
+        if self.host_modal {
+            ui.disable();
+        }
         if self.ui.right != state::RightPanel::None {
             panels::right::show(self, ui);
         }
@@ -995,16 +1024,19 @@ impl LightcraftApp {
         });
         self.paint_lights_out(&ctx);
         panels::second::show(self, &ctx);
-        panels::notices::show(self, &ctx);
-        panels::dialogs::show(self, &ctx);
-        panels::people_workspace::overlay(self, &ctx);
-        panels::library_problem::show(self, &ctx);
-        import::progress(self, &ctx);
-        import::scan_progress(self, &ctx);
-        tasks::progress(self, &ctx);
-        export_task::poll(self, &ctx);
+        if !self.host_modal {
+            panels::notices::show(self, &ctx);
+            panels::dialogs::show(self, &ctx);
+            panels::people_workspace::overlay(self, &ctx);
+            panels::library_problem::show(self, &ctx);
+            import::progress(self, &ctx);
+            import::scan_progress(self, &ctx);
+            tasks::progress(self, &ctx);
+        }
         smart_sort_task::poll(self, &ctx);
-        panels::grid::drag_feedback(self, &ctx);
+        if !self.host_modal {
+            panels::grid::drag_feedback(self, &ctx);
+        }
         panels::toast(self, &ctx);
         self.widgets = widgets::take_registry(&ctx);
         self.finish_slider_if_released(&ctx);
@@ -1351,3 +1383,6 @@ mod tests_library_export_theme;
 
 #[cfg(test)]
 mod tests_library_navigation;
+
+#[cfg(test)]
+mod shared_shell_tests;

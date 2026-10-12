@@ -4,6 +4,8 @@ use egui::{Key, Modifiers};
 use serde_json::json;
 
 use crate::LightcraftApp;
+#[path = "shortcuts_catalog.rs"]
+pub mod catalog;
 
 /// Secondary key bindings for commands that already exist: `(shortcut, command id, params JSON)`.
 /// They complement the primary shortcut declared on the command (Lightroom-desktop keys that our
@@ -34,16 +36,26 @@ pub const ALIASES: &[(&str, &str, &str)] = &[
 pub fn parse(s: &str) -> Option<(Modifiers, Key)> {
     let mut m = Modifiers::NONE;
     let mut key = None;
-    for part in s.split('+') {
+    let plus = s == "+" || s.ends_with("++");
+    let body = if plus { s.trim_end_matches('+') } else { s };
+    for part in body.split('+').filter(|part| !part.is_empty()) {
         match part {
             "Cmd" => m.command = true,
             "Shift" => m.shift = true,
             "Alt" => m.alt = true,
             "Ctrl" => m.ctrl = true,
             // "Delete" means the key labelled ⌫ (egui's Backspace); forward-delete also matches, see `matches`.
-            "Delete" => key = Some(Key::Backspace),
+            "Delete" => {
+                if key.is_some() {
+                    return None;
+                }
+                key = Some(Key::Backspace);
+            }
             k => {
-                key = Key::from_name(k).or(match k {
+                if key.is_some() {
+                    return None;
+                }
+                key = Some(Key::from_name(k).or(match k {
                     "Right" => Some(Key::ArrowRight),
                     "Left" => Some(Key::ArrowLeft),
                     "Up" => Some(Key::ArrowUp),
@@ -57,24 +69,38 @@ pub fn parse(s: &str) -> Option<(Modifiers, Key)> {
                     "'" => Some(Key::Quote),
                     "," => Some(Key::Comma),
                     _ => None,
-                })
+                })?)
             }
         }
+    }
+    if plus {
+        if key.is_some() {
+            return None;
+        }
+        key = Some(Key::Plus);
     }
     key.map(|k| (m, k))
 }
 
+/// One exact identity for dispatch, row navigation, held actions and collision precedence.
+pub(crate) fn chord_identity(mut modifiers: Modifiers, mut key: Key) -> (Modifiers, Key) {
+    if !cfg!(target_os = "macos") {
+        modifiers.command |= modifiers.ctrl;
+        modifiers.ctrl = false;
+    } else {
+        modifiers.command |= modifiers.mac_cmd;
+    }
+    modifiers.mac_cmd = false;
+    if key == Key::Delete {
+        key = Key::Backspace;
+    }
+    (modifiers, key)
+}
+pub(crate) fn key_matches(pattern: Modifiers, key: Key, actual: Modifiers, actual_key: Key) -> bool {
+    chord_identity(pattern, key) == chord_identity(actual, actual_key)
+}
 fn matches(i: &egui::InputState, m: Modifiers, k: Key) -> bool {
-    i.events.iter().any(|e| match e {
-        egui::Event::Key { key, pressed: true, modifiers, .. } => {
-            // `Ctrl` is the physical Control key (on macOS distinct from Cmd; elsewhere Cmd = Ctrl);
-            // "Delete" (⌫ = Backspace) also matches forward-delete
-            let ctrl_ok = if m.ctrl { modifiers.ctrl } else { !modifiers.ctrl || modifiers.command };
-            let cmd_ok = m.ctrl || modifiers.command == m.command;
-            (*key == k || (k == Key::Backspace && *key == Key::Delete)) && ctrl_ok && cmd_ok && modifiers.shift == m.shift && modifiers.alt == m.alt
-        }
-        _ => false,
-    })
+    i.events.iter().any(|event| matches!(event,egui::Event::Key{key,pressed:true,modifiers,..} if key_matches(m,k,*modifiers,*key)))
 }
 
 /// Labels use the same command lookup as dispatch, including UI wrappers of engine keys.
@@ -86,8 +112,28 @@ pub fn shortcut_label(command: &str) -> Option<String> {
         .map(|sc| crate::menubar::shortcut_text(sc, cfg!(target_os = "macos")))
 }
 
+/// Rendered labels and dispatch use the same effective primary bindings.
+pub fn publish_labels(app: &LightcraftApp, ctx: &egui::Context) {
+    let labels: std::collections::BTreeMap<_, _> =
+        catalog::effective(app).into_iter().filter(|(b, _)| b.params.is_none()).map(|(b, key)| (b.command, key)).collect();
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("library-effective-shortcuts"), std::sync::Arc::new(labels)));
+}
+pub fn label_in(ctx: &egui::Context, command: &str) -> Option<String> {
+    match ctx.data(|d| d.get_temp::<std::sync::Arc<std::collections::BTreeMap<String, String>>>(egui::Id::new("library-effective-shortcuts"))) {
+        Some(map) => map.get(command).map(|s| crate::menubar::shortcut_text(s, cfg!(target_os = "macos"))),
+        None => shortcut_label(command),
+    }
+}
+
+pub fn hint_in(ctx: &egui::Context, label: &str, command: &str) -> String {
+    let label = crate::i18n::tr(label);
+    label_in(ctx, command).map_or_else(|| label.to_string(), |key| format!("{label} ({key})"))
+}
+
 pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
-    if matches!(app.ui.dialog, Some(crate::state::Dialog::SmartSort { .. }))
+    if app.host_modal
+        || egui::Popup::is_any_open(ctx)
+        || matches!(app.ui.dialog, Some(crate::state::Dialog::SmartSort { .. }))
         || app.ui.people.queue.is_some()
         || app.ui.people.finder.is_some()
         || app.ui.people.merge.is_some()
@@ -101,46 +147,20 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     let mut fire: Vec<String> = Vec::new();
     // shortcuts the native menu bar handles (it consumes those key presses itself)
     let native = |sc: &str| app.native_shortcuts.contains(sc);
-    let mut aliased: Vec<(&str, serde_json::Value)> = Vec::new();
+    let mut aliased: Vec<(String, serde_json::Value)> = Vec::new();
     ctx.input(|i| {
-        let mut ui_keys = Vec::new();
-        for (id, _, sc, _) in crate::menus::ui_commands() {
-            if let Some((m, k)) = sc.and_then(parse) {
-                ui_keys.push((m, k));
-                if !native(sc.unwrap_or_default()) && matches(i, m, k) {
-                    fire.push(id.to_string());
+        for (binding, sc) in catalog::effective(app) {
+            if native(&sc) {
+                continue;
+            }
+            if let Some((m, k)) = parse(&sc)
+                && matches(i, m, k)
+            {
+                if let Some(params) = binding.params {
+                    aliased.push((binding.command, params));
+                } else {
+                    fire.push(binding.command);
                 }
-            }
-        }
-        for c in lightcraft_engine::command_specs() {
-            // A UI command bound to the same key wraps the engine command (e.g. `W` opens the
-            // White Balance Selector tool rather than sampling without a point): the UI one wins.
-            if let Some((m, k)) = c.shortcut.filter(|s| !native(s)).and_then(parse)
-                && !ui_keys.contains(&(m, k))
-                && matches(i, m, k)
-            {
-                fire.push(c.id.to_string());
-            }
-        }
-        for (sc, id, params) in ALIASES {
-            if let Some((m, k)) = parse(sc).filter(|_| !native(sc))
-                && matches(i, m, k)
-            {
-                aliased.push((id, serde_json::from_str(params).unwrap_or_default()));
-            }
-        }
-        // rating 0-5, colour labels 6-9 (with Shift: and advance)
-        for (n, key) in [Key::Num0, Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5].iter().enumerate() {
-            if matches(i, Modifiers::NONE, *key) && !native(&n.to_string()) {
-                fire.push(format!("rate:{n}:0"));
-            }
-            if matches(i, Modifiers::SHIFT, *key) {
-                fire.push(format!("rate:{n}:1"));
-            }
-        }
-        for (label, key, sc) in [("red", Key::Num6, "6"), ("yellow", Key::Num7, "7"), ("green", Key::Num8, "8"), ("blue", Key::Num9, "9")] {
-            if matches(i, Modifiers::NONE, key) && !native(sc) {
-                fire.push(format!("label:{label}"));
             }
         }
     });
@@ -169,10 +189,12 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     };
     fire.retain(|id| {
         id != "view.showOriginal"
+            && !id.starts_with("grid.")
             && !(matches!(app.ui.view, crate::state::ViewMode::PhotoGrid | crate::state::ViewMode::SquareGrid)
                 && matches!(id.as_str(), "library.next" | "library.previous"))
     });
     for (id, params) in aliased {
+        let id = id.as_str();
         // Space pauses / resumes a slideshow
         if id == "view.zoomToggle"
             && let Some((interval, _, paused)) = app.ui.slideshow

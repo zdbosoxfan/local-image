@@ -85,7 +85,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                         ("dialog.syncSettings", "Sync Settings…"),
                         ("dialog.export", "Export…"),
                         ("app.shortcuts", "Keyboard Shortcuts"),
-                        ("app.settings", "Settings…"),
+                        ("app.settings", "Preferences…"),
                     ] {
                         if !more_action_allowed(app, id) {
                             continue;
@@ -98,7 +98,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                             crate::menus::ui_enabled(app, id)
                         };
                         let mut button = egui::Button::new(crate::i18n::tr(label));
-                        if let Some(shortcut) = crate::shortcuts::shortcut_label(id) {
+                        if let Some(shortcut) = crate::shortcuts::label_in(ui.ctx(), id) {
                             button = button.shortcut_text(shortcut);
                         }
                         let response = ui.add_enabled(enabled, button);

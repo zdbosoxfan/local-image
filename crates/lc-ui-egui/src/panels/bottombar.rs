@@ -22,17 +22,18 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 .horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     let modes = [
-                        ("photoGrid", Icon::GridPhoto, ViewMode::PhotoGrid, "Photo Grid (G)"),
-                        ("squareGrid", Icon::GridSquare, ViewMode::SquareGrid, "Square Grid (G toggles)"),
-                        ("detail", Icon::Single, ViewMode::Detail, "Loupe (E)"),
-                        ("compare", Icon::Compare, ViewMode::Compare, "Compare (C)"),
-                        ("survey", Icon::Survey, ViewMode::Survey, "Survey (N)"),
+                        ("photoGrid", Icon::GridPhoto, ViewMode::PhotoGrid, "Photo Grid"),
+                        ("squareGrid", Icon::GridSquare, ViewMode::SquareGrid, "Square Grid"),
+                        ("detail", Icon::Single, ViewMode::Detail, "Loupe"),
+                        ("compare", Icon::Compare, ViewMode::Compare, "Compare"),
+                        ("survey", Icon::Survey, ViewMode::Survey, "Survey"),
                         ("people", Icon::Subject, ViewMode::People, "People"),
                     ];
                     if compact {
                         let response = ui.menu_button(crate::i18n::tr("View"), |ui| {
                             for (id, _, mode, tip) in modes {
-                                let response = ui.selectable_label(app.ui.view == mode, crate::i18n::tr(tip));
+                                let label = crate::shortcuts::hint_in(ui.ctx(), tip, &format!("view.{id}"));
+                                let response = ui.selectable_label(app.ui.view == mode, label);
                                 register(ui.ctx(), format!("button:compactView:{id}"), response.rect);
                                 if response.clicked() {
                                     let _ = app.run(&format!("view.{id}"), json!({}));
@@ -43,7 +44,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                         register(ui.ctx(), "button:compactViews", response.response.rect);
                     } else {
                         for (id, icon, mode, tip) in modes {
-                            if icon_button(ui, id, icon, vec2(32.0, 32.0), app.ui.view == mode, true, tip).clicked() {
+                            let tip = crate::shortcuts::hint_in(ui.ctx(), tip, &format!("view.{id}"));
+                            if icon_button(ui, id, icon, vec2(32.0, 32.0), app.ui.view == mode, true, &tip).clicked() {
                                 let _ = app.run(&format!("view.{id}"), json!({}));
                             }
                         }
@@ -183,16 +185,9 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect) -> f32 {
     if app.ui.view == ViewMode::Survey {
         // no zoom or thumbnail size in Survey
     } else if matches!(app.ui.view, ViewMode::Detail | ViewMode::Compare) {
-        if icon_button(
-            &mut child,
-            "beforeAfter",
-            Icon::BeforeAfter,
-            vec2(30.0, 30.0),
-            app.ui.before_after != BeforeAfter::Off,
-            true,
-            "Before/After (Y)",
-        )
-        .clicked()
+        let before_hint = crate::shortcuts::hint_in(child.ctx(), "Before/After", "view.beforeAfter");
+        if icon_button(&mut child, "beforeAfter", Icon::BeforeAfter, vec2(30.0, 30.0), app.ui.before_after != BeforeAfter::Off, true, &before_hint)
+            .clicked()
         {
             let _ = app.run("view.beforeAfter", json!({}));
         }
@@ -201,7 +196,8 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect) -> f32 {
         {
             let _ = app.run("view.faceBoxes", json!({}));
         }
-        if icon_button(&mut child, "filmstrip", Icon::Filmstrip, vec2(30.0, 30.0), app.ui.filmstrip, true, "Filmstrip (/)").clicked() {
+        let filmstrip_hint = crate::shortcuts::hint_in(child.ctx(), "Filmstrip", "view.filmstrip");
+        if icon_button(&mut child, "filmstrip", Icon::Filmstrip, vec2(30.0, 30.0), app.ui.filmstrip, true, &filmstrip_hint).clicked() {
             let _ = app.run("view.filmstrip", json!({}));
         }
         child.add_space(10.0);

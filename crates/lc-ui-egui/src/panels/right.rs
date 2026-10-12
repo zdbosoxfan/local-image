@@ -630,15 +630,10 @@ fn info(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         let gps = m.gps.map(|(la, lo)| format!("{la:.6}, {lo:.6}")).unwrap_or_default();
         let gid = egui::Id::new("info-gps");
         ui.label(egui::RichText::new("GPS").size(11.5).color(t.text_dim));
-        let mut text: String = ui.data(|d| d.get_temp(gid)).unwrap_or_else(|| gps.clone());
+        let mut text = metadata_draft(app, ui, gid, &gps);
         let r = ui.add(egui::TextEdit::singleline(&mut text).hint_text("latitude, longitude").desired_width(f32::INFINITY));
         register(ui.ctx(), "field:gps", r.rect);
-        if r.has_focus() {
-            ui.data_mut(|d| d.insert_temp(gid, text.clone()));
-        } else {
-            ui.data_mut(|d| d.remove::<String>(gid));
-        }
-        if r.lost_focus()
+        if metadata_blur(app, ui, gid, &r, &text)
             && text.trim() != gps
             && let Err(e) = app.run("photo.setMeta", json!({"gps": text.trim()}))
         {
@@ -770,20 +765,59 @@ fn copyright_status(app: &mut LightcraftApp, ui: &mut egui::Ui, current: lightcr
     ui.add_space(6.0);
 }
 
+// A host modal may remove TextEdit focus even though the user did not leave the
+// Library field. Retain that draft through dismissal, without manufacturing a
+// commit. The same field must regain focus before ordinary blur can publish it.
+// Capture the actual metadata target set and source value so resumed drafts can
+// never migrate to another photo/catalog or overwrite a changed base value.
+fn metadata_draft(app: &LightcraftApp, ui: &egui::Ui, id: egui::Id, value: &str) -> String {
+    let owner = egui::Id::new((app.session.library_identity(), app.session.library_generation, app.session.active()))
+        .with(&app.session.selection.ids)
+        .with(value);
+    ui.data_mut(|d| {
+        let state = id.with("metadata-owner");
+        if d.get_temp::<egui::Id>(state) != Some(owner) {
+            d.remove::<String>(id);
+            d.remove::<bool>(id.with("metadata-suspended"));
+            d.insert_temp(state, owner);
+        }
+        d.get_temp::<String>(id).unwrap_or_else(|| value.to_owned())
+    })
+}
+
+fn metadata_blur(app: &LightcraftApp, ui: &egui::Ui, id: egui::Id, response: &egui::Response, text: &str) -> bool {
+    // Response focus access reads Context memory; do it before taking its data lock.
+    let (has_focus, lost_focus) = (response.has_focus(), response.lost_focus());
+    ui.data_mut(|d| {
+        let suspended = id.with("metadata-suspended");
+        if app.host_modal {
+            if d.get_temp::<String>(id).is_some() {
+                d.insert_temp(suspended, true);
+            }
+            return false;
+        }
+        if has_focus {
+            d.insert_temp(id, text.to_owned());
+            d.remove::<bool>(suspended);
+            return false;
+        }
+        if d.get_temp::<bool>(suspended).unwrap_or(false) {
+            return false;
+        }
+        d.remove::<String>(id);
+        lost_focus
+    })
+}
+
 fn meta_field(app: &mut LightcraftApp, ui: &mut egui::Ui, label: &str, key: &str, value: &str, lines: usize) {
     let t = Tokens::get(ui.ctx());
     ui.label(egui::RichText::new(crate::i18n::tr(label)).size(11.5).color(t.text_dim));
     let id = egui::Id::new(("info-field", key));
-    let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_else(|| value.to_string());
+    let mut text = metadata_draft(app, ui, id, value);
     let edit = if lines > 1 { egui::TextEdit::multiline(&mut text).desired_rows(lines) } else { egui::TextEdit::singleline(&mut text) };
     let r = ui.add(edit.desired_width(f32::INFINITY));
     register(ui.ctx(), format!("field:{key}"), r.rect);
-    if r.has_focus() {
-        ui.data_mut(|d| d.insert_temp(id, text.clone()));
-    } else {
-        ui.data_mut(|d| d.remove::<String>(id));
-    }
-    if r.lost_focus() && text != value {
+    if metadata_blur(app, ui, id, &r, &text) && text != value {
         let _ = app.run("photo.setMeta", json!({key: text}));
     }
     ui.add_space(6.0);
@@ -798,7 +832,7 @@ fn keywords(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         let mut text = ui.data_mut(|d| d.get_temp::<String>(kid).unwrap_or_default());
         let r = ui.add(egui::TextEdit::singleline(&mut text).hint_text(crate::i18n::tr("Add keyword")).desired_width(f32::INFINITY));
         register(ui.ctx(), "field:keyword", r.rect);
-        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !text.trim().is_empty() {
+        if !app.host_modal && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !text.trim().is_empty() {
             let kws: Vec<String> = text.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
             let _ = app.run("photo.setMeta", json!({"addKeywords": kws}));
             text.clear();
@@ -1094,5 +1128,47 @@ mod tests {
     fn short_times() {
         assert_eq!(super::short_time("2026-09-30T12:00:05"), "Sep 30, 2026, 12:00 PM");
         assert_eq!(super::short_time("2026-01-02"), "Jan 2, 2026");
+    }
+}
+
+#[cfg(test)]
+mod shared_shell_metadata_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    use super::*;
+
+    #[test]
+    fn shared_shell_suspended_metadata_draft_cannot_change_owner_or_base() {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), crate::Services::default());
+        let ctx = egui::Context::default();
+        let id = egui::Id::new(("info-field", "title"));
+        let original = app.session.active().unwrap();
+        let other = app.session.catalog.photos().find(|photo| photo.id != original).unwrap().id;
+        let undo = app.session.undo.len();
+        for change in 0..4 {
+            ctx.run_ui(egui::RawInput::default(), |ui| {
+                assert_eq!(metadata_draft(&app, ui, id, "base"), "base");
+                ui.data_mut(|d| {
+                    d.insert_temp(id, "retained".to_owned());
+                    d.insert_temp(id.with("metadata-suspended"), true);
+                });
+            })
+            .textures_delta
+            .clear();
+            match change {
+                0 => app.session.library_generation += 1,
+                1 => app.session.selection.active = Some(other),
+                2 => app.session.selection.ids = vec![other],
+                _ => {}
+            }
+            let base = if change == 3 { "external edit" } else { "base" };
+            ctx.run_ui(egui::RawInput::default(), |ui| {
+                assert_eq!(metadata_draft(&app, ui, id, base), base);
+                assert!(ui.data(|d| d.get_temp::<String>(id)).is_none());
+                assert!(ui.data(|d| d.get_temp::<bool>(id.with("metadata-suspended"))).is_none());
+            })
+            .textures_delta
+            .clear();
+        }
+        assert_eq!(app.session.undo.len(), undo);
     }
 }

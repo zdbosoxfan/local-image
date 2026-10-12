@@ -1040,11 +1040,7 @@ fn navigate(app: &mut LightcraftApp, ctx: &egui::Context, ids: &[PhotoId], layou
     if ctx.egui_wants_keyboard_input() || app.ui.dialog.is_some() || app.host_session.is_some() {
         return;
     }
-    let key = ctx.input_mut(|i| {
-        [egui::Key::ArrowLeft, egui::Key::ArrowRight, egui::Key::ArrowUp, egui::Key::ArrowDown]
-            .into_iter()
-            .find(|k| i.consume_key(egui::Modifiers::NONE, *k))
-    });
+    let key = crate::shortcuts::catalog::consume_grid(app, ctx);
     let Some(key) = key else { return };
     let Some(index) = app.session.active().and_then(|id| ids.iter().position(|v| *v == id)) else { return };
     let Some(row) = layout.rows.iter().position(|r| r.start <= index && index < r.end) else { return };

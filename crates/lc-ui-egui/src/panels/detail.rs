@@ -251,7 +251,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         app.renderer.request_quick(Slot::Preview, q, 110);
     }
     let show_before = app.ui.before_after == BeforeAfter::Original
-        || (!ui.ctx().egui_wants_keyboard_input() && app.ui.dialog.is_none() && ui.input(|i| i.key_down(egui::Key::Backslash)));
+        || (!ui.ctx().egui_wants_keyboard_input() && app.ui.dialog.is_none() && crate::shortcuts::catalog::original_held(app, ui.ctx()));
     if (split || show_before || split_view)
         && let Some(job) = app.session.render_job(id, rw.max(8), rh.max(8), true, !crop_tool)
     {
@@ -1770,6 +1770,9 @@ pub fn remove_draft_keys(app: &mut LightcraftApp, ctx: &egui::Context) {
 
 /// Remove / Cancel beside the AI draft on the photo.
 fn draft_buttons(app: &mut LightcraftApp, ui: &mut egui::Ui, map: &CanvasMap, long: f64) {
+    if app.host_modal || !ui.is_enabled() {
+        return;
+    }
     let Some(dr) = app.ui.remove_draft.as_ref() else { return };
     if app.gesture.is_some() {
         return;

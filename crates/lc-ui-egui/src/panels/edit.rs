@@ -461,7 +461,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                     .on_hover_text(format!(
                         "{} ({})",
                         crate::i18n::tr("Reset all edits"),
-                        crate::shortcuts::shortcut_label("develop.reset").unwrap_or_default()
+                        crate::shortcuts::label_in(ui.ctx(), "develop.reset").unwrap_or_default()
                     ))
                     .clicked()
                 {

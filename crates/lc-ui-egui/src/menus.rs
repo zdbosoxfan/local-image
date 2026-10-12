@@ -223,7 +223,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     // Edit panel ▸ Curve ▸ Point Curve dropdown
     ("file.importCurvePresets", "Import Point Curve Presets…", None, ""),
     ("file.exportCurvePresets", "Export Point Curve Presets…", None, ""),
-    ("app.settings", "Settings…", Some("Cmd+,"), "Edit"),
+    ("app.settings", "Preferences…", Some("Cmd+,"), "Edit"),
     ("app.openLibrary", "Open Library…", None, "File"),
     ("app.about", "About Local Image", None, "Help"),
     ("app.systemInfo", "System Info…", None, "Help"),
@@ -1069,7 +1069,13 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(r)
         }
         "app.shortcuts" => {
-            app.ui.dialog = Some(Dialog::Shortcuts);
+            if app.shared_shortcuts {
+                app.open_shared_shortcuts = true;
+                // Ownership starts with the request, even when raised mid-paint by More.
+                app.host_modal = true;
+            } else {
+                app.ui.dialog = Some(Dialog::Shortcuts);
+            }
             Ok(Value::Null)
         }
         "library.browse" if !cfg!(target_arch = "wasm32") => {
@@ -1457,13 +1463,15 @@ pub struct MenuEntry {
 
 /// The flattened menu model (UI commands + engine commands with menu paths).
 pub fn menu_entries(app: &LightcraftApp) -> Vec<MenuEntry> {
+    let effective: std::collections::BTreeMap<_, _> =
+        crate::shortcuts::catalog::effective(app).into_iter().filter(|(b, _)| b.params.is_none()).map(|(b, key)| (b.command, key)).collect();
     let mut v: Vec<MenuEntry> = ui_commands()
         .filter(|c| !c.3.is_empty())
-        .map(|(id, label, sc, m)| MenuEntry {
+        .map(|(id, label, _sc, m)| MenuEntry {
             id: id.to_string(),
             label: label.to_string(),
             menu: m.split('>').map(str::to_string).collect(),
-            shortcut: sc.map(str::to_string),
+            shortcut: effective.get(*id).cloned(),
             enabled: ui_enabled(app, id),
         })
         .collect();
@@ -1473,7 +1481,7 @@ pub fn menu_entries(app: &LightcraftApp) -> Vec<MenuEntry> {
                 id: c.id.into(),
                 label: c.label.into(),
                 menu: c.menu.iter().map(|s| s.to_string()).collect(),
-                shortcut: c.shortcut.map(str::to_string),
+                shortcut: effective.get(c.id).cloned(),
                 enabled: crate::panels::smart_sort::review_history_enabled(app, c.id).unwrap_or(c.enabled),
             });
         }

@@ -547,6 +547,7 @@ fn mode_switch(ui: &mut egui::Ui, t: &Tokens, current: crate::Module, compact: b
                 let on = m == current;
                 let fill = if on { t.chrome } else { egui::Color32::TRANSPARENT };
                 let r = ui.add(egui::Button::new(text).fill(fill).corner_radius(4.0).min_size(vec2(58.0, 22.0)));
+                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("host-mode-rect", m.digit())), r.rect));
                 let key = crate::shortcuts::pretty(&format!("Cmd+Alt+{}", m.digit()));
                 if r.on_hover_text(format!("{}  ({key})", tl!(m.tip()))).clicked() && !on {
                     go = Some(m);
@@ -568,6 +569,17 @@ fn mode_switch(ui: &mut egui::Ui, t: &Tokens, current: crate::Module, compact: b
 /// asks the window to close (the host then checks every module for unsaved work). Returns the
 /// module the user picked.
 pub fn library_title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, title: &str, current: crate::Module) -> Option<crate::Module> {
+    library_title_bar_with_menus(app, ui, title, current, |ui, _| ui.cursor().left())
+}
+
+/// Hosted module menus share the title/caption/drag geometry; callback returns its right edge.
+pub fn library_title_bar_with_menus(
+    app: &mut PhotocraftApp,
+    ui: &mut egui::Ui,
+    title: &str,
+    current: crate::Module,
+    mut menus: impl FnMut(&mut egui::Ui, f32) -> f32,
+) -> Option<crate::Module> {
     let t = Tokens::get(ui.ctx());
     let custom = app.custom_titlebar;
     let left = if cfg!(target_os = "macos") && app.integrated_titlebar { 78 } else { 10 };
@@ -579,19 +591,22 @@ pub fn library_title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, title: &str
             let full = ui.max_rect();
             let right_edge = if custom { full.right() - crate::titlebar::WIDTH - 4.0 } else { full.right() };
             let mut controls_left = right_edge;
+            let mut menus_right = full.left() + 40.;
             ui.horizontal_centered(|ui| {
                 let side = if t.pro { 18.0 } else { 20.0 };
                 let (mark, _) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
                 crate::brand::paint_mark(ui, mark);
                 let group = egui::Rect::from_min_max(egui::pos2(ui.cursor().left() + TITLE_GAP, full.top()), egui::pos2(right_edge, full.bottom()));
                 let mut g = ui.new_child(egui::UiBuilder::new().max_rect(group).layout(egui::Layout::right_to_left(egui::Align::Center)));
-                go = mode_switch(&mut g, &t, current, custom);
+                go = mode_switch(&mut g, &t, current, true);
                 // CPU mode after a GPU failure, visible in the Library and Develop too.
                 crate::gpu_status::status_pill(app, &mut g);
                 controls_left = g.min_rect().left();
+                let room = (controls_left - ui.cursor().left() - TITLE_GAP).max(0.);
+                menus_right = menus(ui, room);
             });
             // The free space drags the window; a double click maximizes.
-            let gap = egui::Rect::from_x_y_ranges((full.left() + 40.0)..=(controls_left - 4.0).max(full.left() + 40.0), full.y_range());
+            let gap = egui::Rect::from_x_y_ranges((menus_right + 4.0)..=(controls_left - 4.0).max(menus_right + 4.0), full.y_range());
             let drag = ui.interact(gap, ui.id().with("library-titledrag"), Sense::click_and_drag());
             if drag.drag_started() {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
@@ -602,7 +617,7 @@ pub fn library_title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, title: &str
             }
             let font = theme::medium(13.0);
             let galley = ui.painter().layout_no_wrap(title.to_owned(), font, t.text_dim);
-            if let Some(x) = title_x(full.center().x, full.left() + 40.0, controls_left, galley.size().x) {
+            if let Some(x) = title_x(full.center().x, menus_right, controls_left, galley.size().x) {
                 ui.painter().galley(egui::pos2(x, full.center().y - galley.size().y / 2.0), galley, t.text_dim);
             }
         });

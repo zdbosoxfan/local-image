@@ -126,6 +126,12 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
             app.toast(ctx, msg);
         }
         Err(std::sync::mpsc::TryRecvError::Empty) => {
+            // Keep collecting worker completion above; suspend only this context-root
+            // Cancel window while the shared host dialog owns pointer/keyboard input.
+            if app.host_modal {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                return;
+            }
             let (done, current) = task.progress.lock().map(|g| g.clone()).unwrap_or_default();
             let (total, cancel, enhance_ctl) = (task.total, task.cancel.clone(), task.enhance_ctl.clone());
             let t = Tokens::get(ctx);
@@ -205,5 +211,40 @@ mod library_origin_tests {
         assert_eq!(serde_json::to_value(&app.session.catalog).unwrap(), before);
         assert!(app.session.undo.is_empty());
         assert_eq!(app.last_export_result.as_ref().unwrap()["libraryChanged"], true);
+    }
+    #[test]
+    fn shared_shell_export_poll_keeps_completion_and_failure_when_modal() {
+        for fail in [false, true] {
+            let mut app = LightcraftApp::new(lightcraft_engine::Session::new(), Default::default());
+            app.host_modal = true;
+            app.ui.dialog = Some(crate::state::Dialog::Settings { tab: "interface".into() });
+            let dialog = app.ui.dialog.clone();
+            let (tx, rx) = channel();
+            let cancel = Arc::new(AtomicBool::new(false));
+            app.export = Some(ExportTask {
+                library_generation: app.session.library_generation,
+                total: 1,
+                progress: Default::default(),
+                cancel: cancel.clone(),
+                enhance_ctl: lightcraft_engine::enhance::JobCtl::new(),
+                rx,
+                after: Default::default(),
+            });
+            let ctx = egui::Context::default();
+            poll(&mut app, &ctx);
+            assert!(app.export.is_some());
+            assert!(!cancel.load(Ordering::Relaxed));
+            assert!(crate::widgets::take_registry(&ctx).is_empty(), "only interactive progress paint is suspended");
+            tx.send(if fail { Err("injected export failure".into()) } else { Ok(vec![json!({"path":"already-written.png","photo":1})]) }).unwrap();
+            poll(&mut app, &ctx);
+            assert!(app.export.is_none());
+            assert_eq!(app.ui.dialog, dialog);
+            assert!(!cancel.load(Ordering::Relaxed));
+            if fail {
+                assert!(app.ui.toast.as_ref().unwrap().0.contains("injected export failure"));
+            } else {
+                assert_eq!(app.last_export_result.as_ref().unwrap()["files"][0]["path"], "already-written.png");
+            }
+        }
     }
 }

@@ -32,11 +32,26 @@ fn field(h: &Harness<'_, PhotocraftApp>, id: u64, name: &str) -> Value {
     h.state().ui.dialogs.iter().find(|d| d.id == id).unwrap().fields.get(name).cloned().unwrap_or(Value::Null)
 }
 
+/// Search is intentionally unbound by default: Ctrl/Cmd+K now opens Preferences.
+/// Locate the selected command's actual capture button, rather than assuming its
+/// old default label. Exercise real pointer input even when that label is empty.
+fn click_capture(h: &mut Harness<'_, PhotocraftApp>, command: &str) {
+    let rect = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("shortcut-capture", command)))).unwrap();
+    assert!(rect.width() > 0. && rect.height() > 0.);
+    assert!(h.ctx.content_rect().contains_rect(rect), "capture button must be fully visible: {command}: {rect:?}");
+    let pos = rect.center();
+    h.event(Event::PointerMoved(pos));
+    for pressed in [true, false] {
+        h.event(Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+}
+
 /// Click the selected command's shortcut button, then press `modifier` and `k` like a keyboard:
 /// the modifier key goes down first (its own key event), then the key with the modifier held.
-fn capture(h: &mut Harness<'_, PhotocraftApp>, button: &str, modifier: Key, held: Modifiers, k: Key) {
-    h.get_by_label(button).click();
-    h.run_steps(2);
+fn capture(h: &mut Harness<'_, PhotocraftApp>, command: &str, modifier: Key, held: Modifiers, k: Key) {
+    click_capture(h, command);
     key(h, modifier, true, held);
     h.run_steps(1);
     key(h, k, true, held);
@@ -50,9 +65,8 @@ fn capture(h: &mut Harness<'_, PhotocraftApp>, button: &str, modifier: Key, held
 fn ctrl_f_is_recorded_as_ctrl_f_not_the_control_key() {
     for ppp in [1.0, 2.0] {
         let (mut h, id) = dialog(ppp, "edit.search", "search…");
-        let current = crate::shortcuts::pretty("Cmd+K");
         // On Windows and Linux the Ctrl key is the command modifier.
-        capture(&mut h, &current, Key::ControlLeft, Modifiers::COMMAND, Key::F);
+        capture(&mut h, "edit.search", Key::ControlLeft, Modifiers::COMMAND, Key::F);
         assert_eq!(field(&h, id, "overrides")["edit.search"], json!("Cmd+F"), "@{ppp}x");
         assert_eq!(field(&h, id, "capture"), json!(false));
         let message = field(&h, id, "message");
@@ -81,8 +95,7 @@ fn every_modifier_key_waits_for_the_real_key() {
         (Key::ShiftRight, Modifiers::COMMAND | Modifiers::SHIFT),
     ] {
         let (mut h, id) = dialog(1.0, "edit.search", "search…");
-        h.get_by_label(&crate::shortcuts::pretty("Cmd+K")).click();
-        h.run_steps(2);
+        click_capture(&mut h, "edit.search");
         key(&mut h, modifier, true, held);
         h.run_steps(2);
         assert_eq!(field(&h, id, "capture"), json!(true), "{modifier:?} alone keeps capturing");
@@ -101,7 +114,7 @@ fn every_modifier_key_waits_for_the_real_key() {
 fn a_shortcut_in_use_is_reported_and_moved_on_ok() {
     // ⌘J is Layer › New › Layer via Copy: giving it to Search warns, and OK moves it.
     let (mut h, id) = dialog(1.0, "edit.search", "search…");
-    capture(&mut h, &crate::shortcuts::pretty("Cmd+K"), Key::ControlLeft, Modifiers::COMMAND, Key::J);
+    capture(&mut h, "edit.search", Key::ControlLeft, Modifiers::COMMAND, Key::J);
     let message = field(&h, id, "message");
     assert!(message.as_str().unwrap().contains("already in use"), "{message}");
     crate::dialogs::confirm(h.state_mut(), id).unwrap();
@@ -138,7 +151,7 @@ fn named_shortcuts_capture_persist_reload_and_dispatch() {
         (Key::CloseCurlyBracket, Modifiers::SHIFT, Key::ShiftLeft),
     ] {
         let (mut h, id) = dialog(1.0, "edit.search", "search…");
-        capture(&mut h, &crate::shortcuts::pretty("Cmd+K"), modifier, held, k);
+        capture(&mut h, "edit.search", modifier, held, k);
         let expected = crate::prefs_ui::shortcut_text(k, held).unwrap();
         assert_eq!(field(&h, id, "overrides")["edit.search"], json!(expected));
         crate::dialogs::confirm(h.state_mut(), id).unwrap();

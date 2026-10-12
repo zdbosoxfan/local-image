@@ -65,7 +65,8 @@ pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
         .shortcuts
         .iter()
         .filter(|(id, sc)| {
-            !sc.is_empty()
+            !id.starts_with("library::")
+                && !sc.is_empty()
                 && photocraft_engine::commands::find(id).is_none()
                 && !crate::menus::UI_COMMANDS.iter().any(|c| c.0 == id.as_str())
                 && !crate::hold_keys::is_temporary(id)
@@ -79,7 +80,11 @@ pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
     let pixel: Vec<_> =
         ui.chain(engine).chain(catalog).chain(overrides).chain(secondary).filter_map(|(id, sc)| sc.map(|sc| (id.to_owned(), sc.to_owned()))).collect();
     let mut result = photocraft_engine::vector_toolbar_layout::command_bindings_for(prefs.toolbar.persona, prefs.toolbar.vector_keyboard.preset, &pixel);
-    let custom: Vec<_> = prefs.shortcuts.iter().filter(|(id, _)| !id.starts_with("tools.select.") && !crate::hold_keys::is_temporary(id)).collect();
+    let custom: Vec<_> = prefs
+        .shortcuts
+        .iter()
+        .filter(|(id, _)| !id.starts_with("library::") && !id.starts_with("tools.select.") && !crate::hold_keys::is_temporary(id))
+        .collect();
     result.retain(|(id, key)| {
         !prefs.shortcuts.contains_key(id)
             && !prefs.shortcuts.iter().any(|(id, binding)| {

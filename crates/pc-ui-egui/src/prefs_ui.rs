@@ -865,6 +865,63 @@ fn field_order(p: &prefs::Preferences, sections: &Map<String, Value>) -> Value {
     Value::Object(out)
 }
 
+/// Runtime host catalog: key, human label, menu path, default chord. Shared dialog and
+/// existing Preferences.shortcuts remain the only editor and persisted authority.
+pub type HostShortcutItem = (String, String, Vec<String>, Option<String>);
+pub fn set_host_shortcut_catalog(app: &mut PhotocraftApp, ctx: &egui::Context, items: Vec<HostShortcutItem>) {
+    for dialog in &mut app.ui.dialogs {
+        if dialog.fields.get("__prefsui").and_then(Value::as_str) == Some("shortcuts") {
+            dialog.fields.insert("__hostShortcuts".into(), json!(items));
+        }
+    }
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("host-shortcut-catalog"), items));
+}
+/// Match the host's documented exact chords, retaining the genuine metadata-save default.
+fn reserved_library_chord(id: &str, chord: &str) -> Option<&'static str> {
+    if !id.starts_with("library::") {
+        return None;
+    }
+    let shortcut = crate::shortcuts::parse(chord)?;
+    let mut modifiers = shortcut.modifiers;
+    if !cfg!(target_os = "macos") && modifiers.ctrl {
+        modifiers.command = true;
+    }
+    if modifiers.matches_exact(egui::Modifiers::COMMAND | egui::Modifiers::ALT)
+        && matches!(shortcut.logical_key, egui::Key::Num1 | egui::Key::Num2 | egui::Key::Num3)
+    {
+        Some("switching Library, Develop and Compositing")
+    } else if modifiers.matches_exact(egui::Modifiers::COMMAND) && shortcut.logical_key == egui::Key::S && id != "library::photo.saveMetadataToFile" {
+        Some("saving the selected unsaved composite in Library")
+    } else {
+        None
+    }
+}
+fn reserved_message(action: &str) -> String {
+    format!("This shortcut is reserved for {action}. Choose another shortcut; the existing binding is unchanged.")
+}
+
+fn same_chord_in_scope(id: &str, a: &str, b: &str) -> bool {
+    if !id.starts_with("library::") {
+        return prefs::normalize_shortcut(a).is_some_and(|a| Some(a) == prefs::normalize_shortcut(b));
+    }
+    let identity = |value: &str| {
+        let mut shortcut = crate::shortcuts::parse(value)?;
+        // Library's longstanding Delete binding accepts both backward/forward delete.
+        if shortcut.logical_key == egui::Key::Delete {
+            shortcut.logical_key = egui::Key::Backspace;
+        }
+        if !cfg!(target_os = "macos") && shortcut.modifiers.ctrl {
+            shortcut.modifiers.ctrl = false;
+            shortcut.modifiers.command = true;
+        }
+        Some(shortcut)
+    };
+    identity(a).is_some_and(|a| Some(a) == identity(b))
+}
+fn same_shortcut_scope(a: &str, b: &str) -> bool {
+    a.starts_with("library::") == b.starts_with("library::")
+}
+
 /// Open Keyboard Shortcuts and Menus on a tab (0 shortcuts, 1 menus, 2 toolbar).
 pub fn open_shortcuts(app: &mut PhotocraftApp, tab: u64) -> u64 {
     let p = app.session.prefs();
@@ -1313,7 +1370,30 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     let mut selected = f.get("selected").and_then(Value::as_str).unwrap_or("").to_string();
     let mut capture = f.get("capture").and_then(Value::as_bool).unwrap_or(false);
     let mut message = f.get("message").and_then(Value::as_str).unwrap_or("").to_string();
-    let items = shortcut_items(app);
+    let mut items = shortcut_items(app);
+    if tab == 0 {
+        let host = ui.ctx().data(|d| d.get_temp::<Vec<HostShortcutItem>>(egui::Id::new("host-shortcut-catalog"))).unwrap_or_default();
+        f.insert("__hostShortcuts".into(), json!(host));
+        items.extend(host);
+    }
+    let mut scope = f.get("shortcutScope").and_then(Value::as_str).unwrap_or("all").to_string();
+    if tab == 0 {
+        ui.horizontal(|ui| {
+            ui.label(tl!("Module"));
+            egui::ComboBox::from_id_salt("shortcut-module")
+                .selected_text(match scope.as_str() {
+                    "library" => tl!("Library / Develop"),
+                    "editor" => tl!("Compositing"),
+                    _ => tl!("All modules"),
+                })
+                .show_ui(ui, |ui| {
+                    for (id, label) in [("all", tl!("All modules")), ("editor", tl!("Compositing")), ("library", tl!("Library / Develop"))] {
+                        ui.selectable_value(&mut scope, id.to_string(), label);
+                    }
+                });
+        });
+        f.insert("shortcutScope".into(), json!(scope));
+    }
     // Menu path and command label as shown in the menus, in the UI language.
     let shown = |id: &str, label: &str, path: &[String]| -> (Vec<String>, String) {
         let lang = crate::i18n::current();
@@ -1345,29 +1425,61 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                 capture = false;
                 message = tl!("Shortcut removed.").into();
             } else if let Some(sc) = shortcut_text(key, m) {
-                let clash: Vec<String> = items
-                    .iter()
-                    .filter(|(id, _, _, def)| *id != selected && eff(&overrides, id, def).as_deref().and_then(prefs::normalize_shortcut) == Some(sc.clone()))
-                    .map(|(id, label, path, _)| {
-                        let (path, label) = shown(id, label, path);
-                        format!("{} › {}", path.join(" › "), label.trim_end_matches('…'))
-                    })
-                    .collect();
-                overrides.insert(selected.clone(), sc.clone());
-                message = if clash.is_empty() {
-                    format!("{} assigned.", crate::shortcuts::pretty(&sc))
+                if let Some(action) = reserved_library_chord(&selected, &sc) {
+                    message = reserved_message(action);
+                    capture = false;
                 } else {
-                    format!("{} is already in use by {} and will be removed from it when you click OK.", crate::shortcuts::pretty(&sc), clash.join(", "))
-                };
-                capture = false;
+                    let clash: Vec<String> = items
+                        .iter()
+                        .filter(|(id, _, _, def)| {
+                            *id != selected
+                                && same_shortcut_scope(id, &selected)
+                                && eff(&overrides, id, def).as_deref().is_some_and(|old| same_chord_in_scope(&selected, old, &sc))
+                        })
+                        .map(|(id, label, path, _)| {
+                            let (path, label) = shown(id, label, path);
+                            format!("{} › {}", path.join(" › "), label.trim_end_matches('…'))
+                        })
+                        .collect();
+                    if selected.starts_with("library::") {
+                        let displaced: Vec<_> = items
+                            .iter()
+                            .filter(|(id, _, _, def)| {
+                                *id != selected
+                                    && same_shortcut_scope(id, &selected)
+                                    && eff(&overrides, id, def).as_deref().is_some_and(|old| same_chord_in_scope(&selected, old, &sc))
+                            })
+                            .map(|(id, _, _, _)| id.clone())
+                            .collect();
+                        for id in displaced {
+                            overrides.insert(id, String::new());
+                        }
+                    }
+                    overrides.insert(selected.clone(), sc.clone());
+                    message = if clash.is_empty() {
+                        format!("{} assigned.", crate::shortcuts::pretty(&sc))
+                    } else {
+                        format!("{} is already in use by {} and will be removed from it when you click OK.", crate::shortcuts::pretty(&sc), clash.join(", "))
+                    };
+                    capture = false;
+                }
             }
         }
+    }
+    if message.is_empty()
+        && let Some(chord) = overrides.get(&selected)
+        && let Some(action) = reserved_library_chord(&selected, chord)
+    {
+        message = format!("Saved binding retained. {}", reserved_message(action));
     }
     let needle = filter.to_ascii_lowercase();
     egui::ScrollArea::vertical().max_height(420.0).id_salt("shortcuts-scroll").show(ui, |ui| {
         let mut last_top = String::new();
         egui::Grid::new("shortcut-grid").num_columns(3).spacing([12.0, 3.0]).striped(true).show(ui, |ui| {
             for (id, label, path, def) in &items {
+                if tab == 0 && ((scope == "library" && !id.starts_with("library::")) || (scope == "editor" && id.starts_with("library::"))) {
+                    continue;
+                }
                 let cur = eff(&overrides, id, def);
                 let (shown_path, shown_label) = shown(id, label, path);
                 // Match what is shown and the English name (commands are documented in English).
@@ -1400,6 +1512,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                     let r = ui.add(
                         egui::Button::new(RichText::new(tl!(&text)).size(12.0).color(if changed { t.accent_text } else { t.text })).min_size(vec2(120.0, 18.0)),
                     );
+                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("shortcut-capture", id)), r.rect));
                     if r.clicked() {
                         selected = id.clone();
                         capture = true;
@@ -1432,17 +1545,23 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     if tab == 0 {
         ui.horizontal(|ui| {
             let has_sel = !selected.is_empty();
-            if ui.add_enabled(has_sel, egui::Button::new(tl!("Use Default"))).clicked() {
+            let action = ui.add_enabled(has_sel, egui::Button::new(tl!("Use Default")));
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("shortcut-action", "default")), action.rect));
+            if action.clicked() {
                 overrides.remove(&selected);
                 message = tl!("Default restored.").into();
             }
-            if ui.add_enabled(has_sel, egui::Button::new(tl!("Delete Shortcut"))).clicked() {
+            let action = ui.add_enabled(has_sel, egui::Button::new(tl!("Delete Shortcut")));
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("shortcut-action", "delete")), action.rect));
+            if action.clicked() {
                 overrides.insert(selected.clone(), String::new());
                 message = tl!("Shortcut removed.").into();
             }
-            if ui.button(tl!("Reset All to Defaults")).clicked() {
+            let action = ui.button(tl!("Reset All to Defaults"));
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("shortcut-action", "reset")), action.rect));
+            if action.clicked() {
                 overrides.clear();
-                message = tl!("All shortcuts reset to Photoshop defaults.").into();
+                message = tl!("All shortcuts reset to defaults.").into();
             }
         });
     } else if ui.button(tl!("Show All Menu Items")).clicked() {
@@ -1450,7 +1569,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         colors.clear();
     }
     if !message.is_empty() {
-        ui.label(RichText::new(&message).color(if message.contains("already in use") { t.warning } else { t.text_dim }));
+        ui.label(RichText::new(&message).color(if message.contains("already in use") || message.contains("reserved") { t.warning } else { t.text_dim }));
     }
     f.insert("overrides".into(), json!(overrides));
     f.insert("hidden".into(), json!(hidden));
@@ -1562,12 +1681,29 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             // Shortcuts moved to another command are taken from their old owner (shell
             // commands included, which the engine doesn't know).
             let mut ov: BTreeMap<String, String> = serde_json::from_value(overrides).unwrap_or_default();
-            let items = shortcut_items(app);
+            let mut items = shortcut_items(app);
+            items.extend(f.get("__hostShortcuts").and_then(|v| serde_json::from_value::<Vec<HostShortcutItem>>(v.clone()).ok()).unwrap_or_default());
             let changed: Vec<(String, String)> = ov.iter().filter(|(_, s)| !s.is_empty()).map(|(k, s)| (k.clone(), s.clone())).collect();
             for (id, sc) in changed {
                 let Some(sc) = prefs::normalize_shortcut(&sc) else { continue };
+                if let Some(action) = reserved_library_chord(&id, &sc)
+                    && app.session.prefs().shortcuts.get(&id).and_then(|old| prefs::normalize_shortcut(old)).as_deref() != Some(sc.as_str())
+                {
+                    return Err(reserved_message(action));
+                }
+                // Reviewing an existing legacy Library value must not silently disable
+                // a supported default elsewhere; only a changed assignment moves keys.
+                if id.starts_with("library::")
+                    && app.session.prefs().shortcuts.get(&id).and_then(|old| prefs::normalize_shortcut(old)).as_deref() == Some(sc.as_str())
+                {
+                    continue;
+                }
                 for (other, _, _, def) in &items {
-                    if *other != id && !ov.contains_key(other) && def.as_deref().and_then(prefs::normalize_shortcut).as_deref() == Some(sc.as_str()) {
+                    if *other != id
+                        && same_shortcut_scope(&id, other)
+                        && !ov.contains_key(other)
+                        && def.as_deref().is_some_and(|old| same_chord_in_scope(&id, old, &sc))
+                    {
                         ov.insert(other.clone(), String::new());
                     }
                 }
@@ -2413,3 +2549,7 @@ mod bugfix_save_tests {
         assert!(session.prefs().general.beep_when_done);
     }
 }
+
+#[cfg(test)]
+#[path = "shared_library_shortcut_tests.rs"]
+mod shared_library_shortcut_tests;

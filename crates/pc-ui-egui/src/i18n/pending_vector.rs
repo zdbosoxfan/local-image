@@ -1,5 +1,13 @@
 // Translations paused by docs/wip/CODEX-TASK.md; vector package 00–47 English keys.
 &[
+    "This shortcut is reserved for {action}. Choose another shortcut; the existing binding is unchanged.",
+    "switching Library, Develop and Compositing",
+    "saving the selected unsaved composite in Library",
+    "Saved binding retained.",
+    "Module",
+    "All shortcuts reset to defaults.",
+    "All modules",
+    "Library / Develop",
     // Recovery workflow labels: English until the explicitly deferred translation pass.
     "Hide Panels",
     "Pixel",

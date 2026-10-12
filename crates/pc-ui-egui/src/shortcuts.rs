@@ -87,6 +87,9 @@ pub fn tool_shortcut_id(tool: Tool) -> String {
 
 /// Inactive Pixel-only tool assignments must not reserve Vector's command/tool keys.
 pub(crate) fn override_applies_in_persona(persona: photocraft_engine::toolsets::Persona, id: &str) -> bool {
+    if id.starts_with("library::") {
+        return false;
+    }
     persona != photocraft_engine::toolsets::Persona::Vector
         || id
             .strip_prefix("tools.select.")

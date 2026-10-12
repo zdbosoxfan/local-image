@@ -63,6 +63,11 @@ pub const ABOUT_TABS: &[(&str, &str)] =
 pub const WHATS_NEW: &str = include_str!("../../../../docs/whats-new.md");
 
 pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
+    // Context-root windows do not inherit a parent's disabled Ui. Retain the
+    // entire dialog while the host owns input; do not consume its raw Escape.
+    if app.host_modal {
+        return;
+    }
     if matches!(app.ui.dialog, Some(Dialog::SmartSort { .. })) {
         super::smart_sort::show(app, ctx);
         return;
@@ -107,7 +112,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::SaveOverOriginal { plan, .. } if plan["mode"] == "beside" => "Save JPEG Beside Original",
         Dialog::SaveOverOriginal { .. } => "Save Over Original",
         Dialog::Merge { opts } => opts.title(),
-        Dialog::Settings { .. } => "Settings",
+        Dialog::Settings { .. } => "Preferences",
         Dialog::ConfirmDelete { .. } => "Delete Photos",
         Dialog::SamModel { .. } => "Download the SAM 3 Model?",
         Dialog::About => "About Local Image",
@@ -631,6 +636,10 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
 
         ctx.move_to_top(w.response.layer_id);
         crate::widgets::register(ctx, "dialog:window", w.response.rect);
+    }
+    if app.host_modal {
+        app.ui.dialog = Some(dlg);
+        return;
     }
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         close = true;

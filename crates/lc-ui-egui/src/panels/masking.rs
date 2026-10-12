@@ -189,12 +189,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 let rid = *rid;
                 let r = ui.add(egui::TextEdit::singleline(name).desired_width(ui.available_width()).id_salt(("maskRename", rid)));
                 register(ui.ctx(), format!("maskRename:{rid}"), r.rect);
-                if !r.has_focus() && !r.lost_focus() {
+                if !app.host_modal && !r.has_focus() && !r.lost_focus() {
                     r.request_focus();
                 }
-                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                if !app.host_modal && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     app.ui.renaming_mask = None;
-                } else if r.lost_focus() {
+                } else if !app.host_modal && r.lost_focus() {
                     let name = name.trim().to_string();
                     app.ui.renaming_mask = None;
                     if !name.is_empty() && name != m.name {
@@ -289,12 +289,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                     // inline rename: Enter (or leaving the field) commits, Escape cancels
                     let r = ui.add(egui::TextEdit::singleline(name).desired_width(ui.available_width() - 30.0).id_salt(("compRename", m.id, i)));
                     register(ui.ctx(), format!("componentRename:{i}"), r.rect);
-                    if !r.has_focus() && !r.lost_focus() {
+                    if !app.host_modal && !r.has_focus() && !r.lost_focus() {
                         r.request_focus();
                     }
-                    if ui.input(|inp| inp.key_pressed(egui::Key::Escape)) {
+                    if !app.host_modal && ui.input(|inp| inp.key_pressed(egui::Key::Escape)) {
                         app.ui.renaming_component = None;
-                    } else if r.lost_focus() {
+                    } else if !app.host_modal && r.lost_focus() {
                         let name = name.trim().to_string();
                         app.ui.renaming_component = None;
                         if Some(&name) != c.name.as_ref() {
@@ -904,17 +904,17 @@ fn describe_field(app: &mut LightcraftApp, ui: &mut egui::Ui, new_mask: bool) {
         let r =
             ui.add(egui::TextEdit::singleline(&mut text).hint_text("e.g. sky · the red car · car, road").desired_width(ui.available_width() - 64.0));
         register(ui.ctx(), "maskDescribe", r.rect);
-        if !r.has_focus() && !r.lost_focus() && text.is_empty() {
+        if !app.host_modal && !r.has_focus() && !r.lost_focus() && text.is_empty() {
             r.request_focus();
         }
-        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+        if !app.host_modal && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             submit = true;
         }
         if text_button(ui, "maskDescribeGo", crate::i18n::tr("Select"), false).clicked() {
             submit = true;
         }
     });
-    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+    if !app.host_modal && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         app.ui.describe = None;
         return;
     }

@@ -744,3 +744,60 @@ fn ds2_imported_people_cache_shares_snapshots_and_empty_filter_remains_actionabl
     assert!(ds2_painted_text(&h).contains("No named people in these photos"));
     assert!(h.app.widgets.iter().any(|(name, _)| name.starts_with("chip:")), "active filter must still offer a removable chip");
 }
+
+#[test]
+fn shared_shell_people_name_blur_waits_for_library_input_ownership() {
+    let mut s = session();
+    let photo = add(&mut s, &[[255, 0, 0]], true);
+    let person = named(&mut s, photo, "Original person");
+    let mut h = harness(s);
+    h.app.ui.people.show_everyone = true;
+    h.app.ui.people.refresh = true;
+    h.step();
+    h.step();
+    let field = format!("smartSort:bubbleName:{person}");
+    text(&mut h, &field, "Retained person");
+    let focus = h.view.ctx.memory(|m| m.focused()).unwrap();
+    let before = h.app.session.smart.people.data.clone();
+    let undo = h.app.session.undo.len();
+    // Exactly one disabled frame, then immediate dismissal. The next frame still
+    // carries egui's lost_focus signal, but it is not a genuine Library blur.
+    h.app.host_modal = true;
+    h.step();
+    h.app.host_modal = false;
+    h.step();
+    assert_eq!(h.app.session.smart.people.data, before, "quick dismissal must not publish delayed focus loss");
+    assert_eq!(h.app.session.undo.len(), undo);
+    assert_eq!(h.app.ui.people.names.get(&person).map(String::as_str), Some("Retained person"));
+    click(&mut h, &field);
+    h.app.host_modal = true;
+    for input in [egui::Key::Escape, egui::Key::Enter] {
+        h.view.ctx.memory_mut(|m| m.request_focus(focus));
+        // Bypass the modal-suspended control channel, but use the driver's raw
+        // input hook and clock so all frames advance through one time source.
+        for pressed in [true, false] {
+            assert!(h.app.synthetic.is_empty());
+            h.app.synthetic.push(egui::Event::Key { key: input, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE });
+            h.step();
+            assert!(h.app.synthetic.is_empty(), "the key reached the frame input");
+        }
+        assert_eq!(h.app.session.smart.people.data, before, "disabled name blur must not publish");
+        assert_eq!(h.app.session.undo.len(), undo);
+        assert_eq!(h.app.ui.people.names.get(&person).map(String::as_str), Some("Retained person"));
+        assert!(!h.app.widgets.iter().any(|(id, _)| id.starts_with("smartSort:nameSuggestion:")));
+    }
+    h.app.host_modal = false;
+    h.step();
+    h.step();
+    assert_eq!(h.app.ui.people.names.get(&person).map(String::as_str), Some("Retained person"));
+    assert_eq!(h.app.session.smart.people.data, before);
+    assert_eq!(h.app.session.undo.len(), undo);
+    click(&mut h, &field);
+    // Clicking empty chrome is an ordinary blur, with no second person action.
+    h.request("ui.click", json!({"x":10,"y":1000}), T);
+    h.step();
+    assert_eq!(h.app.session.smart.people.data.person(person).unwrap().name, "Retained person");
+    assert_eq!(h.app.session.undo.len(), undo + 1);
+    h.app.run("edit.undo", json!({})).unwrap();
+    assert_eq!(h.app.session.smart.people.data, before);
+}
