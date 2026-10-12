@@ -186,6 +186,11 @@ fn render_tiled_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> Buffer 
     out
 }
 
+/// Enter the existing document CMYK conversion scope while preparing detached
+/// caches. The scoped helper restores the previous thread context on return or
+/// unwind; parallel conversion workers must propagate the captured scope.
+pub use photocraft_color::convert::with_cmyk_space;
+
 /// The document's own CMYK profile for reading its CMYK pixels (`None`: not a CMYK document,
 /// untagged, or the built-in coated CMYK). Enter it with `photocraft_color::convert::with_cmyk_space`
 /// around code that converts the document's CMYK pixels or colours to RGB.

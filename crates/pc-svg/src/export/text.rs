@@ -162,6 +162,8 @@ mod dsfix_tests {
             let mut engine = photocraft_text::TextEngine::new();
             let mut cx = ExportContext { cancelled: &|| false, projection: None, text: &mut engine };
             let mut writer = Writer {
+                isolated_raster: BTreeSet::new(),
+                clipping_regions: BTreeMap::new(),
                 doc: &doc,
                 opts: &opts,
                 cx: &mut cx,

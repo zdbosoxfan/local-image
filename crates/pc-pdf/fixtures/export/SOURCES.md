@@ -120,3 +120,29 @@ layer with effects. Soft Light is deliberately excluded from native mappings:
 the compositor uses Photoshop's square-root variant whereas CSS/PDF specifies
 a different low-backdrop branch. Unsupported effects/artboard blend interactions
 remain conservative; this change does not claim portable adjustment semantics.
+
+
+FS008 sibling clipping source-atop fixtures (Local Image contributors, GPL-3.0-or-later):
+`tests/export/clipping.rs` authors fifty independent vector objects plus native type,
+solid vector clipping bases with fractional alpha/opacity/fill and one/two/three
+blended siblings, even-odd/inverted geometry, stroke-over-clip order, cropped
+pixel/feathered masks, raster alpha bases, visibility/orphans/empty bases, isolated
+nesting, dependency guards and cancellation/output limits. Existing independent
+renderer thresholds are unchanged. CPU interior alpha/color also has closed-form
+source-atop assertions; SVG's independent RGBA output checks retained alpha.
+Mask/base images are structurally cropped and distinguishable from whole-artwork
+flattening. Existing clipped-text-base negative controls remain unsupported: this
+stage admits constant solid-vector and raster base decomposition, not text-gamma
+source reconstruction or general variable-alpha gradient decomposition.
+
+Reviewer controls additionally retain the stroke of a compound-cancelled fill,
+require initial cancellation to fail, and route tagged CMYK sources through the
+existing document-profile-aware raster path. The CMYK control derives a valid
+nondefault profile from the repository CC0 coated-CMYK profile by scaling only
+A2B1 mft2 CLUT L* samples; it asserts active profile, changed source color, retained
+alpha and the unchanged independent renderer thresholds. Native direct source
+decomposition in this stage is limited to RGB documents and RGB raster sources.
+
+CMYK cache-context follow-up: `tagged_cmyk_vector_and_text_cache_rebuild_matches_independent_cms_inks` spans three 256-pixel bands with RGB/CMYK solid and gradient paint plus RGB text. A synthesized nondefault profile changes both A2B and B2A behavior. Expected ink caches are populated from explicit canonical CMS Transform evaluations, never render_shape; text uses white glyph coverage only. Actual exporter cache regeneration must produce identical bytes regardless of whether those reference caches are present, and independent renderer/alpha assertions retain existing thresholds. pc-vector profile tests also force two Rayon workers and test captured None, restoration and unwind.
+
+Uniform-color gamma-off text clipping uses public positioned glyph outlines (including counters and decorations), a single coverage boundary, existing masks, and native child blends. Gamma-off tests self-spawn their exact test in a deadline/reaped child process, preserving the parent global gamma and inherited private profiles/fonts. Default-gamma text remains guarded at the root; a supported closed isolated parent may rasterize only its bounded source, with outside50paths/native type preserved. Closed-parent tests include actual internal backdrop, opacity/fill/blend, masks, exact embedded RGB/alpha source samples, independent renderer comparisons and negative external-dependency/effect cases. Original numeric renderer thresholds remain.

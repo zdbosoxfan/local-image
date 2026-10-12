@@ -188,16 +188,28 @@ fn band_tiles(band: Rect, data: &[f32], channels: usize, keep: impl Fn(&[f32]) -
     out
 }
 
+// Every worker enters even a captured None: a reused Rayon thread must not
+// supply an unrelated document's ambient CMYK profile. RAII restores its prior
+// context on normal completion and unwinding.
+fn render_band_with_space(
+    space: Option<&std::sync::Arc<photocraft_color::convert::CmykSpace>>,
+    band: Rect,
+    f: &(dyn Fn(Rect) -> Vec<(Rect, Vec<f32>)> + Sync),
+) -> Vec<(Rect, Vec<f32>)> {
+    photocraft_color::convert::with_cmyk_space(space, || f(band))
+}
+
 /// Runs `f` over the bands of `r` (in parallel groups on native targets) and writes the
 /// resulting pieces into `surface`.
 fn render_bands(surface: &mut Surface, r: Rect, f: &(dyn Fn(Rect) -> Vec<(Rect, Vec<f32>)> + Sync)) {
     let bands = tile_bands(r);
+    let space = photocraft_color::convert::active_cmyk_space();
     #[cfg(not(target_arch = "wasm32"))]
     {
         use rayon::prelude::*;
         let group = rayon::current_num_threads().max(1) * 2;
         for chunk in bands.chunks(group) {
-            let parts: Vec<Vec<(Rect, Vec<f32>)>> = chunk.par_iter().map(|b| f(*b)).collect();
+            let parts: Vec<Vec<(Rect, Vec<f32>)>> = chunk.par_iter().map(|b| render_band_with_space(space.as_ref(), *b, f)).collect();
             for (tr, v) in parts.into_iter().flatten() {
                 surface.write_region(tr, &v);
             }
@@ -205,7 +217,7 @@ fn render_bands(surface: &mut Surface, r: Rect, f: &(dyn Fn(Rect) -> Vec<(Rect, 
     }
     #[cfg(target_arch = "wasm32")]
     for b in bands {
-        for (tr, v) in f(b) {
+        for (tr, v) in render_band_with_space(space.as_ref(), b, f) {
             surface.write_region(tr, &v);
         }
     }
@@ -597,3 +609,6 @@ pub mod live_corners;
 pub mod pencil_fit;
 
 pub mod view;
+
+#[cfg(test)]
+mod profile_tests;

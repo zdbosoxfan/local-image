@@ -494,3 +494,5 @@ fn review_additional_pdf_selection_of_empty_artboard_keeps_page_and_background()
 }
 
 mod blends;
+
+mod clipping;

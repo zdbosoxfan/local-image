@@ -25,6 +25,7 @@ svgtypes = "=0.15.3"
 roxmltree = "=0.20.0"
 simplecss = "=0.2.2"
 [dev-dependencies]
+photocraft-cms.workspace = true
 resvg = { version = "=0.45.1", default-features = false }
 photocraft-testkit.workspace = true
 proptest.workspace = true

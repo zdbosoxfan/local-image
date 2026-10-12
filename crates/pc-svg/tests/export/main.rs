@@ -619,3 +619,5 @@ fn svg_cropped_fallback_preserves_rotated_warped_text() {
 }
 
 mod blends;
+
+mod clipping;

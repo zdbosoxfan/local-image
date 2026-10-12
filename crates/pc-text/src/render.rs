@@ -306,6 +306,169 @@ impl skrifa::outline::OutlinePen for Recorder<'_> {
     }
 }
 
+/// Limits for the incremental outline visitor. Scratch includes the drawer's
+/// reported temporary bytes and this glyph's normalized variation coordinates.
+#[derive(Clone, Copy, Debug)]
+pub struct OutlineVisitLimits {
+    pub max_glyphs: usize,
+    pub max_segments: usize,
+    pub max_scratch_bytes: usize,
+}
+/// A glyph boundary followed by zero or more document-space path elements.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum OutlineEvent {
+    Glyph { index: usize, color: Color },
+    Element(PathEl),
+}
+#[derive(Debug)]
+pub enum OutlineVisitError<E> {
+    Cancelled,
+    Budget(&'static str),
+    Visitor(E),
+    InvalidOutline,
+}
+
+struct VisitingPen<'a, E, V> {
+    glyph: Xform,
+    post: Xform,
+    warp: Option<&'a Warp>,
+    cancelled: &'a dyn Fn() -> bool,
+    visit: &'a mut V,
+    segments: &'a mut usize,
+    limit: usize,
+    error: Option<OutlineVisitError<E>>,
+}
+impl<E, V: FnMut(OutlineEvent) -> Result<(), E>> VisitingPen<'_, E, V> {
+    fn active(&mut self) -> bool {
+        if self.error.is_some() {
+            return false;
+        }
+        if (self.cancelled)() {
+            self.error = Some(OutlineVisitError::Cancelled);
+            return false;
+        }
+        if *self.segments >= self.limit {
+            self.error = Some(OutlineVisitError::Budget("text outline segments"));
+            return false;
+        }
+        true
+    }
+    fn map(&self, x: f32, y: f32) -> [f64; 2] {
+        let (x, y) = self.glyph.apply(f64::from(x), f64::from(y));
+        let (x, y) = self.warp.map_or((x, y), |warp| warp.apply(x, y));
+        let (x, y) = self.post.apply(x, y);
+        [x, y]
+    }
+    fn emit(&mut self, element: PathEl) {
+        *self.segments += 1;
+        if let Err(error) = (self.visit)(OutlineEvent::Element(element)) {
+            self.error = Some(OutlineVisitError::Visitor(error));
+        }
+    }
+}
+impl<E, V: FnMut(OutlineEvent) -> Result<(), E>> skrifa::outline::OutlinePen for VisitingPen<'_, E, V> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        if self.active() {
+            let p = self.map(x, y);
+            self.emit(PathEl::MoveTo(p));
+        }
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        if self.active() {
+            let p = self.map(x, y);
+            self.emit(PathEl::LineTo(p));
+        }
+    }
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+        if self.active() {
+            let (c, p) = (self.map(cx, cy), self.map(x, y));
+            self.emit(PathEl::QuadTo(c, p));
+        }
+    }
+    fn curve_to(&mut self, ax: f32, ay: f32, bx: f32, by: f32, x: f32, y: f32) {
+        if self.active() {
+            let (a, b, p) = (self.map(ax, ay), self.map(bx, by), self.map(x, y));
+            self.emit(PathEl::CurveTo(a, b, p));
+        }
+    }
+    fn close(&mut self) {
+        if self.active() {
+            self.emit(PathEl::Close);
+        }
+    }
+}
+
+/// Visit outlines without building a per-glyph or full-layout path collection.
+/// Glyph admission precedes traversal; cancellation and the cumulative segment
+/// bound are checked before each emitted command. Per-glyph scratch is checked
+/// before allocation and supplied explicitly to the drawer. No layout is cloned.
+///
+/// The pinned skrifa pen is infallible: after a visitor error, limit or cancel,
+/// its current glyph draw finishes internally, but no further coordinates are
+/// mapped, callbacks invoked or path elements retained, and no next glyph starts.
+/// The caller must discard its temporary output on error. Existing collecting
+/// [`outlines`] / [`painted_outlines`] APIs retain their behavior.
+pub fn visit_outlines<E>(
+    layout: &TextLayout,
+    transform: &Affine,
+    warp: Option<&Warp>,
+    limits: OutlineVisitLimits,
+    cancelled: &dyn Fn() -> bool,
+    mut visit: impl FnMut(OutlineEvent) -> Result<(), E>,
+) -> Result<(), OutlineVisitError<E>> {
+    if cancelled() {
+        return Err(OutlineVisitError::Cancelled);
+    }
+    if layout.glyphs.len() > limits.max_glyphs {
+        return Err(OutlineVisitError::Budget("text glyphs"));
+    }
+    let mut segments = 0;
+    for (index, glyph) in layout.glyphs.iter().enumerate() {
+        if cancelled() {
+            return Err(OutlineVisitError::Cancelled);
+        }
+        let face = layout.faces.get(glyph.face as usize).ok_or(OutlineVisitError::InvalidOutline)?;
+        let color = layout.styles.get(glyph.style as usize).ok_or(OutlineVisitError::InvalidOutline)?.color;
+        visit(OutlineEvent::Glyph { index, color }).map_err(OutlineVisitError::Visitor)?;
+        let font = skrifa::FontRef::from_index(face.font.data.as_ref(), face.font.index).map_err(|_| OutlineVisitError::InvalidOutline)?;
+        let Some(outline) = font.outline_glyphs().get(GlyphId::new(glyph.id)) else {
+            continue;
+        };
+        let scratch_bytes = outline.draw_memory_size(skrifa::outline::Hinting::None);
+        let coordinate_bytes =
+            face.coords.len().checked_mul(std::mem::size_of::<NormalizedCoord>()).ok_or(OutlineVisitError::Budget("text outline scratch"))?;
+        if scratch_bytes.checked_add(coordinate_bytes).is_none_or(|bytes| bytes > limits.max_scratch_bytes) {
+            return Err(OutlineVisitError::Budget("text outline scratch"));
+        }
+        if cancelled() {
+            return Err(OutlineVisitError::Cancelled);
+        }
+        let mut coords = Vec::new();
+        coords.try_reserve_exact(face.coords.len()).map_err(|_| OutlineVisitError::Budget("text outline scratch"))?;
+        coords.extend(face.coords.iter().map(|&c| NormalizedCoord::from_bits(c)));
+        let mut scratch = Vec::new();
+        scratch.try_reserve_exact(scratch_bytes).map_err(|_| OutlineVisitError::Budget("text outline scratch"))?;
+        scratch.resize(scratch_bytes, 0u8);
+        let mut pen = VisitingPen {
+            glyph: glyph_xform(layout, glyph, face.skew_deg),
+            post: Xform(transform.m),
+            warp,
+            cancelled,
+            visit: &mut visit,
+            segments: &mut segments,
+            limit: limits.max_segments,
+            error: None,
+        };
+        let settings = DrawSettings::unhinted(Size::new(face.size_px), LocationRef::new(&coords)).with_memory(Some(&mut scratch));
+        let result = outline.draw(settings, &mut pen);
+        if let Some(error) = pen.error {
+            return Err(error);
+        }
+        result.map_err(|_| OutlineVisitError::InvalidOutline)?;
+    }
+    Ok(())
+}
+
 /// Glyph outlines of `layout` in document space (through `transform`, bent by `warp`), one
 /// element list per glyph, for Type › Create Work Path and Convert to Shape. Faux bold is not
 /// applied (Photoshop also converts the regular outline); faux italic and scaling are. Under a
@@ -358,5 +521,154 @@ mod tests {
             assert_eq!(first, expected, "bounds: {bounds:?}");
             assert_eq!(rect_from_bounds(bounds), first, "bounds: {bounds:?}");
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod outline_visit_tests {
+    use super::*;
+    use photocraft_doc::{
+        TextLayer,
+        text::{CharStyle, TextRun, TextWarp},
+    };
+    use std::cell::Cell;
+    fn fixture(value: &str) -> (TextLayer, TextLayout) {
+        let text = TextLayer { text: value.into(), font_family: "Inter".into(), size_pt: 32., ..Default::default() };
+        let layout = crate::TextEngine::new().layout(&text, 96.);
+        (text, layout)
+    }
+    fn limits() -> OutlineVisitLimits {
+        OutlineVisitLimits { max_glyphs: 100, max_segments: 10_000, max_scratch_bytes: 1 << 20 }
+    }
+    #[test]
+    fn visitor_matches_existing_painted_outlines_with_transform_and_warp() {
+        for warped in [false, true] {
+            let (mut text, _) = fixture("BO fi");
+            text.transform = Affine::translate(14., 80.).mul(&Affine::rotate(0.17));
+            text.runs = vec![
+                TextRun {
+                    len: 2,
+                    style: CharStyle { font_family: "Inter".into(), size_pt: 32., color: Color::rgba(0.8, 0.2, 0.1, 0.6), ..Default::default() },
+                },
+                TextRun {
+                    len: 3,
+                    style: CharStyle { font_family: "Inter".into(), size_pt: 32., color: Color::rgb(0.1, 0.4, 0.8), faux_italic: true, ..Default::default() },
+                },
+            ];
+            if warped {
+                text.warp = Some(TextWarp { style: "warpArc".into(), value: 18., ..Default::default() });
+            }
+            let layout = crate::TextEngine::new().layout(&text, 96.);
+            let warp = layout_warp(&layout, text.warp.as_ref());
+            let expected = painted_outlines(&layout, &text.transform, warp.as_ref());
+            let mut actual = Vec::<(Color, Vec<PathEl>)>::new();
+            visit_outlines(&layout, &text.transform, warp.as_ref(), limits(), &|| false, |event| {
+                match event {
+                    OutlineEvent::Glyph { color, .. } => actual.push((color, Vec::new())),
+                    OutlineEvent::Element(element) => actual.last_mut().unwrap().1.push(element),
+                }
+                Ok::<(), ()>(())
+            })
+            .unwrap();
+            actual.retain(|(_, path)| !path.is_empty());
+            assert!(!actual.is_empty());
+            assert_eq!(actual, expected);
+        }
+    }
+    #[test]
+    fn segment_budget_stops_retention_and_never_starts_remaining_glyphs() {
+        let (text, layout) = fixture("BBBBBBBB");
+        assert!(layout.glyphs.len() > 1);
+        let mut bounds = limits();
+        bounds.max_segments = 3;
+        let mut started = 0;
+        let mut retained = Vec::with_capacity(3);
+        let result = visit_outlines(&layout, &text.transform, None, bounds, &|| false, |event| {
+            match event {
+                OutlineEvent::Glyph { .. } => started += 1,
+                OutlineEvent::Element(element) => retained.push(element),
+            }
+            Ok::<(), ()>(())
+        });
+        assert!(matches!(result, Err(OutlineVisitError::Budget("text outline segments"))));
+        assert_eq!(started, 1);
+        assert_eq!(retained.len(), 3);
+        assert_eq!(retained.capacity(), 3);
+    }
+    #[test]
+    fn cancellation_and_visitor_error_stop_during_first_glyph() {
+        let (text, layout) = fixture("BBBBBBBB");
+        let mut callbacks = 0;
+        let result = visit_outlines(&layout, &text.transform, None, limits(), &|| true, |_| {
+            callbacks += 1;
+            Ok::<(), ()>(())
+        });
+        assert!(matches!(result, Err(OutlineVisitError::Cancelled)));
+        assert_eq!(callbacks, 0);
+        let elements = Cell::new(0);
+        let mut started = 0;
+        let mut retained = Vec::with_capacity(2);
+        let result = visit_outlines(&layout, &text.transform, None, limits(), &|| elements.get() >= 2, |event| {
+            match event {
+                OutlineEvent::Glyph { .. } => started += 1,
+                OutlineEvent::Element(element) => {
+                    elements.set(elements.get() + 1);
+                    retained.push(element);
+                }
+            }
+            Ok::<(), ()>(())
+        });
+        assert!(matches!(result, Err(OutlineVisitError::Cancelled)));
+        assert_eq!(started, 1);
+        assert_eq!(retained.len(), 2);
+        assert_eq!(retained.capacity(), 2);
+        let mut started = 0;
+        let mut elements = 0;
+        let result = visit_outlines(&layout, &text.transform, None, limits(), &|| false, |event| {
+            match event {
+                OutlineEvent::Glyph { .. } => started += 1,
+                OutlineEvent::Element(_) => {
+                    elements += 1;
+                    return Err("stop");
+                }
+            }
+            Ok(())
+        });
+        assert!(matches!(result, Err(OutlineVisitError::Visitor("stop"))));
+        assert_eq!(started, 1);
+        assert_eq!(elements, 1);
+    }
+    #[test]
+    fn glyph_and_scratch_budgets_refuse_before_path_allocation() {
+        let (text, layout) = fixture("BBBBBBBB");
+        let mut bounds = limits();
+        bounds.max_glyphs = 1;
+        let mut callbacks = 0;
+        let result = visit_outlines(&layout, &text.transform, None, bounds, &|| false, |_| {
+            callbacks += 1;
+            Ok::<(), ()>(())
+        });
+        assert!(matches!(result, Err(OutlineVisitError::Budget("text glyphs"))));
+        assert_eq!(callbacks, 0);
+        let glyph = &layout.glyphs[0];
+        let face = &layout.faces[glyph.face as usize];
+        let font = skrifa::FontRef::from_index(face.font.data.as_ref(), face.font.index).unwrap();
+        let outline = font.outline_glyphs().get(GlyphId::new(glyph.id)).unwrap();
+        assert!(outline.draw_memory_size(skrifa::outline::Hinting::None) > 0, "fixture needs drawer scratch");
+        bounds = limits();
+        bounds.max_scratch_bytes = 0;
+        let mut started = 0;
+        let mut elements = 0;
+        let result = visit_outlines(&layout, &text.transform, None, bounds, &|| false, |event| {
+            match event {
+                OutlineEvent::Glyph { .. } => started += 1,
+                OutlineEvent::Element(_) => elements += 1,
+            }
+            Ok::<(), ()>(())
+        });
+        assert!(matches!(result, Err(OutlineVisitError::Budget("text outline scratch"))));
+        assert_eq!(started, 1);
+        assert_eq!(elements, 0);
     }
 }

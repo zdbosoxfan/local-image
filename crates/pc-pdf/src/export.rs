@@ -91,7 +91,7 @@ pub fn export_with(doc: &Document, scope: &ExportScope, opts: &ExportOptions, cx
         let mut surface = page.surface();
         // krilla has a top-left y-down surface and inserts PDF's y flip itself.
         surface.push_transform(&Transform::from_row(factor, 0.0, 0.0, factor, -rect.x0 as f32 * factor, -rect.y0 as f32 * factor));
-        let mut w = Writer { doc: &scene, opts, cx, rect, warnings: &mut warnings };
+        let mut w = Writer { isolated_raster: BTreeSet::new(), clipping_regions: BTreeMap::new(), doc: &scene, opts, cx, rect, warnings: &mut warnings };
         let result = if w.scan(&scene.layers) || scene.mode == photocraft_doc::ColorMode::Lab {
             if partial_backdrop_dependency(doc, &scope) {
                 Err(invalid("this partial nonisolated scope requires rasterization with its enclosing backdrop; export the document instead"))
@@ -196,10 +196,40 @@ fn partial_backdrop_dependency(doc: &Document, scope: &ExportScope) -> bool {
     }
     walk(&doc.layers, &ids, false)
 }
-
 /// Validates every requested id before pruning, including hidden objects. Selecting both
 /// a group and its descendant includes the group only once, in document paint order.
 pub fn scoped_document(doc: &Document, scope: &ExportScope) -> Result<Document> {
+    let targets = match scope {
+        ExportScope::Document => &[][..],
+        ExportScope::Selection(ids) => ids.as_slice(),
+        ExportScope::Artboard(id) => std::slice::from_ref(id),
+    };
+    fn selected_descendant(layer: &Layer, targets: &[LayerId]) -> bool {
+        targets.contains(&layer.id) || layer.children().is_some_and(|children| children.iter().any(|l| selected_descendant(l, targets)))
+    }
+    fn check_clipped(layers: &[Layer], targets: &[LayerId], inherited: bool) -> bool {
+        let mut i = 0;
+        while i < layers.len() {
+            let end = clipping_end(layers, i);
+            let selected = inherited || targets.contains(&layers[i].id);
+            if !selected && layers[i + 1..end].iter().any(|l| l.visible && selected_descendant(l, targets)) {
+                return false;
+            }
+            for layer in &layers[i..end] {
+                if let Some(children) = layer.children()
+                    && !check_clipped(children, targets, inherited || targets.contains(&layer.id))
+                {
+                    return false;
+                }
+            }
+            i = end;
+        }
+        true
+    }
+    if !targets.is_empty() && !check_clipped(&doc.layers, targets, false) {
+        return Err(invalid("selected clipped artwork requires its clipping base; include the base or export its enclosing group"));
+    }
+
     let mut compatible = doc.clone();
     compatible.normalize_legacy_groups();
     let doc = &compatible;
@@ -390,6 +420,7 @@ fn effect_margin(layer: &Layer) -> i32 {
     if photocraft_compose::effects::has_effects(layer) { photocraft_compose::effects::margin(layer) } else { 0 }
 }
 fn prepare_caches(doc: &mut Document, cx: &mut ExportContext<'_>, opts: &ExportOptions, export_rect: Rect) -> Result<()> {
+    let space = photocraft_compose::cmyk_space(doc);
     let format = doc.pixel_format();
     let canvas = doc.bounds();
     let dpi = doc.resolution_dpi;
@@ -485,7 +516,7 @@ fn prepare_caches(doc: &mut Document, cx: &mut ExportContext<'_>, opts: &ExportO
         }
         Ok(())
     }
-    walk(&mut doc.layers, format, canvas, region, dpi, &doc.patterns, opts, cx)
+    photocraft_compose::with_cmyk_space(space.as_ref(), || walk(&mut doc.layers, format, canvas, region, dpi, &doc.patterns, opts, cx))
 }
 fn normalized_fill(path: &Path, rect: Rect) -> Result<Path> {
     if !path.inverted && path.components().len() <= 1 {
@@ -494,7 +525,107 @@ fn normalized_fill(path: &Path, rect: Rect) -> Result<Path> {
     photocraft_pathops::finish_compound(path, Some(kurbo::Rect::new(rect.x0 as f64, rect.y0 as f64, rect.x1 as f64, rect.y1 as f64)))
         .map_err(|e| invalid(e.to_string()))
 }
+
+// Sibling clipping is source-atop, not an independent clip-path on each child.
+fn clipping_end(layers: &[Layer], start: usize) -> usize {
+    let mut end = start + 1;
+    while !layers[start].clipped && end < layers.len() && layers[end].clipped {
+        end += 1;
+    }
+    end
+}
+fn clipping_base_independent(layer: &Layer) -> bool {
+    matches!(layer.content, LayerContent::Shape(_) | LayerContent::Raster(_) | LayerContent::Fill(_) | LayerContent::Text(_))
+        && native_blend(layer.blend).is_some()
+        && photocraft_compose::text_gamma(layer) == 1.0
+        && !photocraft_compose::effects::has_effects(layer)
+        && layer.excluded_channels == 0
+        && layer.blend_if.is_default()
+}
+
+// A local raster fallback may absorb descendant dependencies only when this
+// group's content starts from its own transparent backdrop. Its outer operator
+// must remain representable; effects/Blend If/channel restrictions can depend
+// on the enclosing backdrop and are deliberately not absorbed here.
+fn closed_isolated_group(layer: &Layer) -> bool {
+    let LayerContent::Group(group) = &layer.content else {
+        return false;
+    };
+    let isolated = group.isolation == photocraft_doc::GroupIsolation::Isolated
+        || group.isolation == photocraft_doc::GroupIsolation::Auto && (layer.blend != BlendMode::PassThrough || layer.fill_opacity < 1.0);
+    isolated
+        && group.artboard.is_none()
+        && !layer.clipped
+        && native_blend(layer.blend).is_some()
+        && layer.excluded_channels == 0
+        && layer.blend_if.is_default()
+        && !photocraft_compose::effects::has_effects(layer)
+}
+
+fn clipping_child_native(layer: &Layer) -> bool {
+    if !layer.visible {
+        return true;
+    }
+    if native_blend(layer.blend).is_none()
+        || photocraft_compose::effects::has_effects(layer)
+        || layer.excluded_channels != 0
+        || !layer.blend_if.is_default()
+        || photocraft_compose::text_gamma(layer) != 1.0
+    {
+        return false;
+    }
+    match &layer.content {
+        LayerContent::Adjustment(_) => false,
+        LayerContent::Group(group) => {
+            group.artboard.is_none() && group.isolation != photocraft_doc::GroupIsolation::NonIsolated && group.children.iter().all(clipping_child_native)
+        }
+        _ => true,
+    }
+}
+fn isolated_group(name: &str, children: Vec<Layer>) -> Layer {
+    let mut layer = Layer::group(name, children);
+    layer.blend = BlendMode::Normal;
+    if let LayerContent::Group(group) = &mut layer.content {
+        group.isolation = photocraft_doc::GroupIsolation::Isolated;
+    }
+    layer
+}
+
+// combined_mask's Gaussian uses three box passes per axis. Sampling a cropped
+// output directly would clamp intermediate blur values at the crop edge. Keep
+// exactly the full support of all passes, without allocating the full canvas.
+fn soft_mask_sampling_canvas(layer: &Layer, output: Rect, canvas: Rect) -> Result<Rect> {
+    if !photocraft_compose::masks::has_feather(layer) {
+        return Ok(output);
+    }
+    let support = |feather: f32| -> Result<i32> {
+        let sigma = photocraft_compose::masks::feather_sigma(feather);
+        if sigma <= 0.0 {
+            return Ok(0);
+        }
+        // Keep the same floating-point expression and odd-width rounding as
+        // masks::gaussian; pixel and vector masks blur separately then multiply.
+        let ideal = (12.0 * sigma * sigma / 3.0 + 1.0).sqrt();
+        let radius = (((ideal.floor() as usize) | 1).max(1) - 1) / 2;
+        radius.checked_mul(3).and_then(|v| i32::try_from(v).ok()).ok_or(ExportError::Budget("mask halo"))
+    };
+    let pixel = layer.mask.as_ref().filter(|m| m.enabled).map_or(Ok(0), |m| support(m.feather))?;
+    let vector = layer.vector_mask.as_ref().filter(|m| m.enabled).map_or(Ok(0), |m| support(m.feather))?;
+    let halo = pixel.max(vector);
+    let grow = |value: i32, delta: i32| value.checked_add(delta).ok_or(ExportError::Budget("mask halo coordinates"));
+    Ok(Rect::new(grow(output.x0, -halo)?, grow(output.y0, -halo)?, grow(output.x1, halo)?, grow(output.y1, halo)?).intersect(&canvas))
+}
+fn mask_allocation_bytes(pixels: u64, bytes_per_pixel: u64) -> Result<usize> {
+    pixels
+        .checked_mul(bytes_per_pixel)
+        .and_then(|bytes| usize::try_from(bytes).ok())
+        .filter(|bytes| *bytes <= isize::MAX as usize)
+        .ok_or(ExportError::Budget("mask working bytes"))
+}
+
 struct Writer<'a, 'b, 'c> {
+    isolated_raster: BTreeSet<LayerId>,
+    clipping_regions: BTreeMap<LayerId, Rect>,
     doc: &'a Document,
     opts: &'a ExportOptions,
     cx: &'b mut ExportContext<'c>,
@@ -506,20 +637,45 @@ impl Writer<'_, '_, '_> {
         self.warnings.entry(feature.into()).or_insert_with(|| VectorWarning { feature: feature.into(), object: None, message: message.into() });
     }
     fn scan(&mut self, layers: &[Layer]) -> bool {
+        let mut flatten = false;
+        let mut i = 0;
+        while i < layers.len() {
+            let end = clipping_end(layers, i);
+            let base = &layers[i];
+            if base.visible && base.opacity > 0.0 {
+                let active = layers[i + 1..end].iter().any(|l| l.visible && l.opacity > 0.0);
+                if !active || !clipping_base_independent(base) {
+                    flatten |= active || self.scan_plain(std::slice::from_ref(base));
+                }
+            }
+            i = end;
+        }
+        flatten
+    }
+    fn scan_plain(&mut self, layers: &[Layer]) -> bool {
         layers.iter().filter(|l| l.visible).any(|l| {
-            let unsupported = l.clipped
-                || native_blend(l.blend).is_none()
+            let unsupported = native_blend(l.blend).is_none()
                 || !matches!(l.blend, BlendMode::Normal | BlendMode::PassThrough) && (photocraft_compose::effects::has_effects(l) || l.artboard().is_some())
                 || l.excluded_channels != 0
                 || l.blend_if != Default::default();
             match &l.content {
                 LayerContent::Adjustment(_) => true,
                 LayerContent::Group(g) => {
-                    self.scan(&g.children)
+                    let inside = self.scan(&g.children);
+                    let local = inside && closed_isolated_group(l);
+                    if local {
+                        self.isolated_raster.insert(l.id);
+                        self.warn(
+                            "isolated composition",
+                            "Unsupported compositing was embedded only within its closed isolated group; outside artwork remains native.",
+                        );
+                    }
+                    inside && !local
                         || g.isolation == photocraft_doc::GroupIsolation::NonIsolated
                         || unsupported
                         || g.isolation == photocraft_doc::GroupIsolation::Auto
                             && l.blend == BlendMode::PassThrough
+                            && !closed_isolated_group(l)
                             && (l.opacity != 1.0
                                 || l.mask.as_ref().is_some_and(|m| m.enabled)
                                 || l.vector_mask.as_ref().is_some_and(|m| m.enabled)
@@ -568,13 +724,266 @@ impl Writer<'_, '_, '_> {
         }
         fallback
     }
+
+    fn clipping_text_geometry(&mut self, text: &photocraft_doc::TextLayer) -> Result<Option<(photocraft_doc::Color, Path)>> {
+        use photocraft_text::render::PathEl;
+        if text.antialias == photocraft_doc::text::AntiAlias::None || text.warp.is_some() {
+            return Ok(None);
+        }
+        let layout = self.cx.text.layout(text, self.doc.resolution_dpi);
+        if layout.glyphs.len() > 100_000 {
+            return Err(ExportError::Budget("text glyphs"));
+        }
+        let paints = photocraft_text::render::paint_runs(&layout);
+        let Some(color) = paints.first().map(|(color, _, _)| *color) else { return Ok(Some((photocraft_doc::Color::TRANSPARENT, Path::default()))) };
+        if paints.iter().any(|(paint, _, _)| *paint != color)
+            || layout.styles.iter().any(|style| style.faux_bold)
+            || layout.faces.iter().any(|face| face.embolden)
+        {
+            return Ok(None);
+        }
+        let mut geometry = kurbo::BezPath::new();
+        let mut segments = 0usize;
+        let point = |p: [f64; 2]| -> Result<kurbo::Point> {
+            if p.iter().any(|value| !value.is_finite() || value.abs() > 1_000_000.) {
+                return Err(invalid("text clipping outline exceeds coordinate bounds"));
+            }
+            Ok((p[0], p[1]).into())
+        };
+        let limits =
+            photocraft_text::render::OutlineVisitLimits { max_glyphs: 100_000, max_segments: 1_000_000, max_scratch_bytes: self.opts.max_bytes.min(16 << 20) };
+        photocraft_text::render::visit_outlines(&layout, &text.transform, None, limits, self.cx.cancelled, |event| {
+            let photocraft_text::render::OutlineEvent::Element(element) = event else {
+                return Ok(());
+            };
+            // The visitor checks cancellation and the segment budget before
+            // delivery; no eager full-layout outline collection is created.
+            segments += 1;
+            match element {
+                PathEl::MoveTo(p) => geometry.move_to(point(p)?),
+                PathEl::LineTo(p) => geometry.line_to(point(p)?),
+                PathEl::QuadTo(c, p) => geometry.quad_to(point(c)?, point(p)?),
+                PathEl::CurveTo(a, b, p) => geometry.curve_to(point(a)?, point(b)?, point(p)?),
+                PathEl::Close => geometry.close_path(),
+            }
+            Ok(())
+        })
+        .map_err(|error| match error {
+            photocraft_text::render::OutlineVisitError::Cancelled => ExportError::Cancelled,
+            photocraft_text::render::OutlineVisitError::Budget(kind) => ExportError::Budget(kind),
+            photocraft_text::render::OutlineVisitError::Visitor(error) => error,
+            photocraft_text::render::OutlineVisitError::InvalidOutline => invalid("invalid text clipping outline"),
+        })?;
+        for decoration in &layout.decorations {
+            check_cancel(self.cx)?;
+            segments += 5;
+            if segments > 1_000_000 {
+                return Err(ExportError::Budget("text outline segments"));
+            }
+            let mut points = [(decoration.x0, decoration.y0), (decoration.x1, decoration.y0), (decoration.x1, decoration.y1), (decoration.x0, decoration.y1)]
+                .into_iter()
+                .map(|(x, y)| text.transform.apply(photocraft_geom::Point::new(f64::from(x), f64::from(y))));
+            if let Some(p) = points.next() {
+                geometry.move_to(point([p.x, p.y])?);
+            }
+            for p in points {
+                geometry.line_to(point([p.x, p.y])?);
+            }
+            geometry.close_path();
+        }
+        // The adapter keeps all contours in one nonzero-winding component,
+        // preserving counters/holes and the same-colored glyph coverage union.
+        let path = photocraft_pathops::from_geometry(&photocraft_pathops::geom::PathData::from_bezpath(&geometry));
+        Ok(Some((color, path)))
+    }
+    fn clipping_source(&mut self, base: &Layer, clipped: &[Layer]) -> Result<Option<Layer>> {
+        // The row-wise opaque RGB decomposition does not install document ICC
+        // conversion. Other document/source modes use the existing renderer's
+        // scoped conversion in the bounded chain fallback.
+        if self.doc.mode != photocraft_doc::ColorMode::Rgb
+            || matches!(&base.content, LayerContent::Raster(surface) if surface.format().mode != photocraft_doc::ColorMode::Rgb)
+        {
+            return Ok(None);
+        }
+        // A valid imported fill cache can deliberately differ from the paint
+        // definition. Preserve its authoritative source in the local fallback.
+        if let LayerContent::Fill(fill) = &base.content
+            && base.fill_cache.as_ref().is_some_and(|cache| cache.fill == *fill)
+        {
+            return Ok(None);
+        }
+        if !clipped.iter().all(clipping_child_native) {
+            return Ok(None);
+        }
+        let region = layer_bounds(std::slice::from_ref(base), self.doc, self.cx)?.intersect(&self.rect);
+        let (mut body, stroke) = match &base.content {
+            LayerContent::Text(text) if base.vector.appearance.is_none() => {
+                let Some((color, geometry)) = self.clipping_text_geometry(text)? else {
+                    return Ok(None);
+                };
+                if geometry.is_empty() {
+                    return Ok(Some(isolated_group("Empty text clipping base", Vec::new())));
+                }
+                let mut opaque = color;
+                opaque.alpha = 1.0;
+                let mut body = isolated_group("Text clipping colors", vec![Layer::new("Text base color", LayerContent::Fill(Fill::Solid(opaque)))]);
+                body.opacity = color.alpha;
+                body.vector_mask = Some(photocraft_doc::VectorMask::new(geometry));
+                self.warn(
+                    "text clipping outlines",
+                    "Text clipping coverage was represented by positioned glyph outlines; the native source text is unchanged.",
+                );
+                (body, None)
+            }
+
+            LayerContent::Shape(shape) if base.vector.appearance.is_none() => {
+                let Some(Fill::Solid(color)) = &shape.fill else {
+                    if shape.fill.is_none() && shape.stroke.is_some() {
+                        // The compositor clips to the fill, then paints the stroke.
+                        return Ok(Some(base.clone()));
+                    }
+                    return Ok(None);
+                };
+                if shape.stroke.as_ref().is_some_and(|s| !paint::supported(&s.paint)) {
+                    return Ok(None);
+                }
+                let mut opaque = *color;
+                opaque.alpha = 1.0;
+                let mut body = isolated_group("Clipping colors", vec![Layer::new("Base color", LayerContent::Fill(Fill::Solid(opaque)))]);
+                body.opacity = color.alpha;
+                let geometry = normalized_fill(&shape.path, self.rect)?;
+                if geometry.is_empty() {
+                    // Compound fill operations can cancel while the original
+                    // subpaths still have a visible centered stroke.
+                    if shape.stroke.is_some() {
+                        let mut stroke_only = base.clone();
+                        if let LayerContent::Shape(shape) = &mut stroke_only.content {
+                            shape.fill = None;
+                            shape.cache = None;
+                        }
+                        return Ok(Some(stroke_only));
+                    }
+                    return Ok(Some(isolated_group("Empty clipping base", Vec::new())));
+                }
+                body.vector_mask = Some(photocraft_doc::VectorMask::new(geometry));
+                let stroke = shape.stroke.as_ref().map(|stroke| {
+                    Layer::new(
+                        "Base stroke",
+                        LayerContent::Shape(ShapeLayer { path: shape.path.clone(), fill: None, stroke: Some(stroke.clone()), ..Default::default() }),
+                    )
+                });
+                (body, stroke)
+            }
+            LayerContent::Fill(Fill::Solid(color)) => {
+                let mut opaque = *color;
+                opaque.alpha = 1.0;
+                let mut body = isolated_group("Clipping colors", vec![Layer::new("Base color", LayerContent::Fill(Fill::Solid(opaque)))]);
+                body.opacity = color.alpha;
+                (body, None)
+            }
+            LayerContent::Raster(surface) => {
+                let rect = photocraft_compose::composite_bounds(base, self.doc.bounds()).unwrap_or(self.doc.bounds()).intersect(&self.rect);
+                if rect.is_empty() {
+                    return Ok(Some(isolated_group("Empty clipping base", Vec::new())));
+                }
+                check_pixels(rect, self.opts)?;
+                let mut color = photocraft_doc::Surface::new(photocraft_doc::PixelFormat::RGBA32F);
+                let mut alpha = photocraft_doc::Surface::new(photocraft_doc::PixelFormat::new(
+                    photocraft_doc::ColorMode::Grayscale,
+                    photocraft_doc::SampleType::F32,
+                    false,
+                ));
+                for y in rect.y0..rect.y1 {
+                    check_cancel(self.cx)?;
+                    let row = Rect::new(rect.x0, y, rect.x1, y + 1);
+                    let pixels = photocraft_compose::surface_to_buffer(surface, row);
+                    let colors: Vec<f32> = pixels.px.iter().flat_map(|p| [p[0], p[1], p[2], 1.0]).collect();
+                    let alphas: Vec<f32> = pixels.px.iter().map(|p| p[3]).collect();
+                    if colors.iter().chain(&alphas).any(|v| !v.is_finite()) {
+                        return Err(invalid("nonfinite clipping base sample"));
+                    }
+                    color.write_region(row, &colors);
+                    alpha.write_region(row, &alphas);
+                }
+                let mut body = isolated_group("Clipping colors", vec![Layer::new("Opaque raster base", LayerContent::Raster(color))]);
+                let mut mask = photocraft_doc::LayerMask::hide_all();
+                mask.surface = alpha;
+                body.mask = Some(mask);
+                (body, None)
+            }
+            _ => return Ok(None),
+        };
+        if let LayerContent::Group(group) = &mut body.content {
+            for layer in clipped.iter().filter(|l| l.visible && l.opacity > 0.0) {
+                check_cancel(self.cx)?;
+                let mut layer = layer.clone();
+                layer.clipped = false;
+                // composite_atop renders ordinary groups as isolated content.
+                if let LayerContent::Group(group) = &mut layer.content {
+                    group.isolation = photocraft_doc::GroupIsolation::Isolated;
+                }
+                group.children.push(layer);
+            }
+        }
+        if !region.is_empty() {
+            self.clipping_regions.insert(body.id, region);
+        }
+        let mut children = vec![body];
+        if let Some(stroke) = stroke {
+            children.push(stroke);
+        }
+        let mut outer = isolated_group(&base.name, children);
+        outer.blend = base.blend;
+        outer.opacity = base.opacity * base.fill_opacity;
+        outer.mask = base.mask.clone();
+        outer.vector_mask = base.vector_mask.clone();
+        outer.vector.clip = base.vector.clip.clone();
+        if !region.is_empty() {
+            self.clipping_regions.insert(outer.id, region);
+        }
+        Ok(Some(outer))
+    }
     fn layers(&mut self, s: &mut Surface<'_>, layers: &[Layer], depth: usize) -> Result<()> {
+        if depth > photocraft_doc::MAX_GROUP_DEPTH {
+            return Err(ExportError::Budget("depth"));
+        }
+        let mut i = 0;
+        while i < layers.len() {
+            check_cancel(self.cx)?;
+            let end = clipping_end(layers, i);
+            let base = &layers[i];
+            let clipped = &layers[i + 1..end];
+            if base.visible && base.opacity > 0.0 {
+                if clipped.iter().any(|l| l.visible && l.opacity > 0.0) {
+                    if let Some(source) = self.clipping_source(base, clipped)? {
+                        self.layers_plain(s, std::slice::from_ref(&source), depth)?;
+                    } else {
+                        self.warn("clipping chain", "This isolated clipping chain was embedded as an image; unrelated artwork remains vector.");
+                        let rect = layer_bounds(std::slice::from_ref(base), self.doc, self.cx)?.intersect(&self.rect);
+                        if !rect.is_empty() {
+                            let mut source = layers[i..end].to_vec();
+                            source[0].blend = BlendMode::Normal;
+                            s.push_blend_mode(native_blend(base.blend).ok_or_else(|| invalid("unsupported clipping base blend"))?);
+                            let result = self.raster(s, &source, rect);
+                            s.pop();
+                            result?;
+                        }
+                    }
+                } else {
+                    self.layers_plain(s, std::slice::from_ref(base), depth)?;
+                }
+            }
+            i = end;
+        }
+        Ok(())
+    }
+    fn layers_plain(&mut self, s: &mut Surface<'_>, layers: &[Layer], depth: usize) -> Result<()> {
         if depth > photocraft_doc::MAX_GROUP_DEPTH {
             return Err(ExportError::Budget("depth"));
         }
         for l in layers.iter().filter(|l| l.visible && l.opacity > 0.0) {
             check_cancel(self.cx)?;
-            if self.fallback(l) {
+            if self.isolated_raster.contains(&l.id) || self.fallback(l) {
                 let rect = layer_bounds(std::slice::from_ref(l), self.doc, self.cx)?.intersect(&self.rect);
                 if !rect.is_empty() {
                     let mut source = l.clone();
@@ -591,12 +1000,8 @@ impl Writer<'_, '_, '_> {
             s.push_blend_mode(native_blend(l.blend).ok_or_else(|| invalid("unsupported blend reached writer"))?);
             s.push_opacity(norm(l.opacity));
             pushes += 1;
-            if !matches!(l.blend, BlendMode::Normal | BlendMode::PassThrough)
-                || matches!(&l.content, LayerContent::Group(g) if g.isolation == photocraft_doc::GroupIsolation::Isolated || g.isolation == photocraft_doc::GroupIsolation::Auto && (l.blend != BlendMode::PassThrough || l.fill_opacity < 1.0))
-            {
-                s.push_isolated();
-                pushes += 1;
-            }
+            let isolate = !matches!(l.blend, BlendMode::Normal | BlendMode::PassThrough)
+                || matches!(&l.content, LayerContent::Group(g) if g.isolation == photocraft_doc::GroupIsolation::Isolated || g.isolation == photocraft_doc::GroupIsolation::Auto && (l.blend != BlendMode::PassThrough || l.fill_opacity < 1.0));
             let result = (|| {
                 if let Some(p) = &l.vector.clip {
                     let clip = normalized_fill(p, self.rect)?;
@@ -643,6 +1048,12 @@ impl Writer<'_, '_, '_> {
                             pushes += 1;
                         }
                     }
+                }
+                // Apply geometry/masks to the completed group object, rather
+                // than independently clipping every color-chain operation.
+                if isolate {
+                    s.push_isolated();
+                    pushes += 1;
                 }
                 s.push_opacity(norm(l.fill_opacity));
                 pushes += 1;
@@ -772,12 +1183,24 @@ impl Writer<'_, '_, '_> {
     }
     fn soft_mask(&mut self, s: &mut Surface<'_>, l: &Layer) -> Result<krilla::mask::Mask> {
         self.warn("soft masks", "Feathered and pixel masks were embedded as soft mask images; their artwork stays vector.");
-        check_pixels(self.rect, self.opts)?;
-        let combined = photocraft_compose::masks::combined_mask(l, self.rect);
-        let mut pixels = Vec::with_capacity(self.rect.size().area() as usize * 4);
-        for y in self.rect.y0..self.rect.y1 {
+        let rect = self.clipping_regions.get(&l.id).copied().unwrap_or(self.rect);
+        check_pixels(rect, self.opts)?;
+        let sampling = soft_mask_sampling_canvas(l, rect, self.doc.bounds())?;
+        if !sampling.is_empty() {
+            check_pixels(sampling, self.opts)?;
+            // Two float blur planes are the largest contiguous allocations in
+            // combined_mask; the existing pixel budget bounds their work.
+            mask_allocation_bytes(sampling.size().area(), 2 * std::mem::size_of::<f32>() as u64)?;
+        }
+        let output_bytes = mask_allocation_bytes(rect.size().area(), 4)?;
+        check_cancel(self.cx)?;
+        let combined = photocraft_compose::masks::combined_mask(l, sampling);
+        check_cancel(self.cx)?;
+        let mut pixels = Vec::new();
+        pixels.try_reserve_exact(output_bytes).map_err(|_| ExportError::Budget("mask output allocation"))?;
+        for y in rect.y0..rect.y1 {
             check_cancel(self.cx)?;
-            for x in self.rect.x0..self.rect.x1 {
+            for x in rect.x0..rect.x1 {
                 let value =
                     combined.as_ref().map_or_else(|| l.mask.as_ref().filter(|m| m.enabled).map_or(1.0, |m| m.value(x, y)), |m| m.sample_channel(x, y, 0));
                 if !value.is_finite() {
@@ -788,7 +1211,7 @@ impl Writer<'_, '_, '_> {
         }
         let mut builder = s.stream_builder();
         let mut ms = builder.surface();
-        draw_image(&mut ms, pixels, self.rect)?;
+        draw_image(&mut ms, pixels, rect)?;
         ms.finish();
         Ok(krilla::mask::Mask::new(builder.finish(), krilla::mask::MaskType::Alpha))
     }
@@ -915,5 +1338,47 @@ mod dsfix_tests {
             .collect();
         assert!(!sizes.is_empty());
         assert!(sizes.iter().all(|s| *s == (8, 4)), "{sizes:?}");
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod mask_halo_tests {
+    use super::*;
+    #[test]
+    fn three_pass_support_uses_max_enabled_radius_and_canvas_boundary() {
+        let mut layer = Layer::new("mask", LayerContent::Fill(Fill::Solid(photocraft_doc::Color::WHITE)));
+        let mut pixel = photocraft_doc::LayerMask::reveal_all();
+        pixel.feather = 2.;
+        layer.mask = Some(pixel);
+        let mut vector = photocraft_doc::VectorMask::new(rectangle());
+        vector.feather = 1.;
+        layer.vector_mask = Some(vector);
+        let output = Rect::new(19, 39, 90, 82);
+        let canvas = Rect::new(0, 0, 128, 128);
+        assert_eq!(soft_mask_sampling_canvas(&layer, output, canvas).unwrap(), Rect::new(13, 33, 96, 88));
+        layer.vector_mask.as_mut().unwrap().feather = 3.;
+        assert_eq!(soft_mask_sampling_canvas(&layer, output, canvas).unwrap(), Rect::new(10, 30, 99, 91));
+        layer.vector_mask.as_mut().unwrap().enabled = false;
+        layer.mask.as_mut().unwrap().feather = 1.;
+        assert_eq!(soft_mask_sampling_canvas(&layer, Rect::new(-2, -1, 4, 3), Rect::new(0, 0, 5, 5)).unwrap(), Rect::new(0, 0, 5, 5));
+        layer.mask.as_mut().unwrap().enabled = false;
+        assert_eq!(soft_mask_sampling_canvas(&layer, output, canvas).unwrap(), output);
+        layer.mask.as_mut().unwrap().enabled = true;
+        layer.mask.as_mut().unwrap().feather = f32::NAN;
+        assert_eq!(soft_mask_sampling_canvas(&layer, output, canvas).unwrap(), output);
+    }
+    fn rectangle() -> Path {
+        Path::new(vec![photocraft_doc::Subpath::polygon(&[(0., 0.), (10., 0.), (10., 10.), (0., 10.)])])
+    }
+    #[test]
+    fn mask_byte_and_coordinate_overflow_refuse_before_sampling() {
+        assert!(mask_allocation_bytes(u64::MAX, 8).is_err());
+        assert!(mask_allocation_bytes(isize::MAX as u64 + 1, 1).is_err());
+        let mut layer = Layer::new("mask", LayerContent::Fill(Fill::Solid(photocraft_doc::Color::WHITE)));
+        let mut mask = photocraft_doc::LayerMask::reveal_all();
+        mask.feather = 1.;
+        layer.mask = Some(mask);
+        assert!(soft_mask_sampling_canvas(&layer, Rect::new(i32::MIN, 0, 0, 10), Rect::new(0, 0, 20, 20)).is_err());
     }
 }

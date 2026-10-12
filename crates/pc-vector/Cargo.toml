@@ -18,3 +18,6 @@ photocraft-doc = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = { workspace = true }
+
+[dev-dependencies]
+photocraft-cms.workspace = true

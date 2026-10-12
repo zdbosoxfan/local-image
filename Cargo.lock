@@ -5736,6 +5736,7 @@ dependencies = [
  "image",
  "krilla",
  "kurbo 0.13.1",
+ "photocraft-cms",
  "photocraft-compose",
  "photocraft-doc",
  "photocraft-format",
@@ -5803,6 +5804,7 @@ dependencies = [
  "flate2",
  "image",
  "kurbo 0.13.1",
+ "photocraft-cms",
  "photocraft-compose",
  "photocraft-doc",
  "photocraft-geom",
@@ -5930,6 +5932,7 @@ name = "photocraft-vector"
 version = "2.0.0-alpha.1"
 dependencies = [
  "kurbo 0.13.1",
+ "photocraft-cms",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",
