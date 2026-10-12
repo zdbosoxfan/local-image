@@ -161,7 +161,7 @@ fn autodetect_cached_templates_work_offline_and_prefer_edit_variants() {
     assert_eq!(found[0].label(), "template:edit");
     // Old bodies must refresh with the index, while retaining usable offline copies.
     for entry in std::fs::read_dir(&cache.dir).unwrap() {
-        std::fs::File::open(entry.unwrap().path()).unwrap().set_modified(SystemTime::UNIX_EPOCH).unwrap();
+        std::fs::File::options().write(true).open(entry.unwrap().path()).unwrap().set_modified(SystemTime::UNIX_EPOCH).unwrap();
     }
     struct RefreshOffline(Mutex<Vec<String>>);
     impl Net for RefreshOffline {

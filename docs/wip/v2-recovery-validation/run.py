@@ -10,7 +10,7 @@ lock=(ROOT/'target/recovery-cargo.lock');lock.parent.mkdir(exist_ok=True)
 with lock.open('a') as held:
  fcntl.flock(held,fcntl.LOCK_EX|fcntl.LOCK_NB)
  env=os.environ.copy(); profile=ROOT/'target/recovery-profiles'/label
- for name,d in [('LIGHTCRAFT_LIBRARY','library'),('LOCAL_IMAGE_DATA_DIR','local-image'),('LOCAL_IMAGE_MODELS_DIR','models'),('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_CACHE_HOME','cache'),('XDG_STATE_HOME','state'),('TMPDIR','tmp')]:
+ for name,d in [('LIGHTCRAFT_LIBRARY','library'),('LOCAL_IMAGE_LIBRARY','library'),('LOCAL_IMAGE_DATA_DIR','local-image'),('LOCAL_IMAGE_MODELS_DIR','models'),('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_CACHE_HOME','cache'),('XDG_STATE_HOME','state'),('TMPDIR','tmp')]:
   p=profile/d;p.mkdir(parents=True,exist_ok=True);env[name]=str(p)
  env.update(LIGHTCRAFT_GPU='1',LIGHTCRAFT_GPU_BACKEND='vulkan',WGPU_BACKEND='vulkan',WGPU_POWER_PREF='high',LC_REQUIRE_GPU='1',LOCAL_IMAGE_REQUIRE_GPU='1',LOCAL_IMAGE_COMFY='127.0.0.1:9')
  files=subprocess.check_output(['git','ls-files','-co','--exclude-standard','-z']).decode().split('\0'); manifest={}
