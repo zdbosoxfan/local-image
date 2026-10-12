@@ -67,6 +67,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let dialogs = app.ui.dialogs.clone();
     let mut shown = Vec::new();
     for d in dialogs {
+        if d.fields.contains_key("__export") && crate::export_dialog::settings_hidden(app, ctx) {
+            continue;
+        }
         let lang = if crate::prefs_ui::is_preferences(&d.fields) {
             crate::i18n::Lang::from_pref(d.fields.get("values").and_then(|v| v.pointer("/interface/language")).and_then(Value::as_str).unwrap_or("auto"))
         } else {
@@ -310,6 +313,9 @@ pub fn title(d: &Dialog) -> String {
 /// Cancel a dialog, including any toolbar preview. Used by the UI and automation.
 pub fn cancel(app: &mut PhotocraftApp, id: u64) -> Option<crate::state::Dialog> {
     let dialog = app.ui.close_dialog(id)?;
+    if dialog.fields.contains_key("__export") {
+        crate::export_dialog::cancel(app);
+    }
     crate::prefs_ui::cancel(app, &dialog.fields);
     Some(dialog)
 }
@@ -321,7 +327,9 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
     {
         let fields = d.fields.clone();
         let result = crate::export_dialog::confirm(app, &fields)?;
-        app.ui.close_dialog(id);
+        if result.get("pending").and_then(Value::as_bool) != Some(true) {
+            crate::export_dialog::complete(app);
+        }
         return Ok(result);
     }
     let d = app.ui.close_dialog(id).ok_or_else(|| format!("no dialog {id}"))?;

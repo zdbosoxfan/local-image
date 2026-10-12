@@ -15,6 +15,8 @@ pub struct State {
     artboards: Vec<(LayerId, String)>,
     artboard: Option<LayerId>,
     pub error: Option<String>,
+    pub(crate) embedded: bool,
+    pub(crate) preferences: Option<crate::export_dialog::Remembered>,
     pending: Option<super::vector_export::Pending>,
 }
 impl State {
@@ -32,7 +34,37 @@ impl State {
         self.error = None;
         Ok(())
     }
+    pub(crate) fn scope_name(&self) -> Option<&'static str> {
+        self.request.as_ref().map(|r| match r.scope {
+            Scope::Document => "document",
+            Scope::Selection { .. } => "selection",
+            Scope::Artboard { .. } => "artboard",
+        })
+    }
+    pub(crate) fn restore_scope(&mut self, kind: &str) {
+        if let Some(request) = &mut self.request {
+            request.scope = match kind {
+                "selection" if !self.selection.is_empty() => Scope::Selection { layers: self.selection.clone() },
+                "artboard" if self.artboard.is_some() => Scope::Artboard { layer: self.artboard.unwrap_or(LayerId(0)) },
+                _ => Scope::Document,
+            };
+        }
+    }
+    pub(crate) fn is_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+    fn cancelled_export(&mut self) {
+        if self.embedded {
+            self.preferences = None;
+            self.pending = None;
+            self.error = None;
+        } else {
+            self.cancel();
+        }
+    }
     pub fn cancel(&mut self) {
+        self.preferences = None;
+        self.embedded = false;
         self.request = None;
         self.error = None;
         self.pending = None;
@@ -64,9 +96,8 @@ pub enum Action {
 }
 /// Draw within the app's existing modal host; labels pass through its catalogue lookup.
 /// Controls operate on captured selection/artboards, never a fresh live selection.
-pub fn controls(ui: &mut Ui, state: &mut State, text: impl Fn(&str) -> String) -> Option<Action> {
-    let Some(request) = &mut state.request else { return None };
-    ui.heading(text("Export PDF"));
+pub(crate) fn settings(ui: &mut Ui, state: &mut State, text: impl Fn(&str) -> String) {
+    let Some(request) = &mut state.request else { return };
     let mut kind = match request.scope {
         Scope::Document => 0,
         Scope::Selection { .. } => 1,
@@ -107,6 +138,11 @@ pub fn controls(ui: &mut Ui, state: &mut State, text: impl Fn(&str) -> String) -
     if let Some(error) = &state.error {
         ui.colored_label(ui.visuals().error_fg_color, error);
     }
+}
+pub fn controls(ui: &mut Ui, state: &mut State, text: impl Fn(&str) -> String) -> Option<Action> {
+    state.request.as_ref()?;
+    ui.heading(text("Export PDF"));
+    settings(ui, state, &text);
     let mut action = None;
     ui.horizontal(|ui| {
         if ui.button(text("Export")).clicked() {
@@ -141,17 +177,38 @@ pub fn save(state: &mut State, s: &mut Session, services: &mut crate::Services) 
 
 /// File menu hook; captured UI state is transient and options use the existing prefs map.
 pub fn open_dialog(app: &mut crate::PhotocraftApp) -> std::result::Result<(), String> {
-    if let Some(options) = app.session.prefs().dialogs.get("vector.pdf.exportOptions") {
-        app.ui.pdf_export.options = serde_json::from_value(options.clone()).map_err(|e| e.to_string())?;
-    }
-    app.ui.pdf_export.open(&app.session).map_err(|e| e.to_string())
+    crate::export_dialog::open_format(app, "pdf").map(|_| ())
+}
+
+pub(crate) fn begin_embedded(app: &mut crate::PhotocraftApp, name: &str) -> std::result::Result<bool, String> {
+    let mut state = std::mem::take(&mut app.ui.pdf_export);
+    let result = (|| {
+        let mut request = state.request.clone().ok_or("Export document changed; reopen Export As")?;
+        request.options = state.options.clone();
+        if !matches!(request.scope, Scope::Document) {
+            request.options.artboards.clear();
+        }
+        match super::vector_export::begin_named(app, super::vector_export::Request::Pdf(request), Some(name))? {
+            Some(pending) => {
+                state.pending = Some(pending);
+                state.error = None;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    })();
+    app.ui.pdf_export = state;
+    result
 }
 
 /// Interactive export runs projection, encoding and native staging on a worker.
 pub fn frame(app: &mut crate::PhotocraftApp, ctx: &egui::Context) {
     let mut state = std::mem::take(&mut app.ui.pdf_export);
     state.synchronize(&app.session);
+    let mut completed_embedded = false;
+    let mut successful_preferences = None;
     if state.pending.is_some() {
+        crate::export_dialog::worker_frame(ctx);
         let cancel = egui::Modal::new(egui::Id::new("vector-pdf-export-progress")).show(ctx, |ui| {
             ui.set_min_width(320.0);
             state.pending.as_ref().is_some_and(|pending| pending.controls(ui, &app.session))
@@ -160,18 +217,20 @@ pub fn frame(app: &mut crate::PhotocraftApp, ctx: &egui::Context) {
             if let Some(pending) = &mut state.pending {
                 pending.cancel(&mut app.session);
             }
-            state.cancel();
+            state.cancelled_export();
             app.ui.status = tl!("Export cancelled").into();
             app.ui.status_error = false;
         } else if let Some(pending) = &mut state.pending {
             match pending.poll(app) {
                 Ok(super::vector_export::Poll::Complete(completion)) => {
+                    completed_embedded = state.embedded;
+                    successful_preferences = state.preferences.take();
                     state.cancel();
                     super::vector_export::report(app, completion);
                 }
                 Ok(super::vector_export::Poll::Pending) => {}
                 Ok(super::vector_export::Poll::Cancelled) => {
-                    state.cancel();
+                    state.cancelled_export();
                     app.ui.status = tl!("Export cancelled").into();
                     app.ui.status_error = false;
                 }
@@ -183,7 +242,7 @@ pub fn frame(app: &mut crate::PhotocraftApp, ctx: &egui::Context) {
                 }
             }
         }
-    } else if state.request.is_some() {
+    } else if state.request.is_some() && !state.embedded {
         let modal = egui::Modal::new(egui::Id::new("vector-pdf-export")).show(ctx, |ui| {
             ui.set_min_width(360.0);
             controls(ui, &mut state, |text| crate::i18n::t(text).to_owned())
@@ -218,4 +277,10 @@ pub fn frame(app: &mut crate::PhotocraftApp, ctx: &egui::Context) {
         }
     }
     app.ui.pdf_export = state;
+    if let Some(preferences) = successful_preferences {
+        crate::export_dialog::publish_preferences(app, preferences);
+    }
+    if completed_embedded {
+        crate::export_dialog::complete(app);
+    }
 }

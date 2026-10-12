@@ -235,7 +235,13 @@ pub fn button(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bool, tool
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(box_size), Sense::click());
     let tint = button_chrome(ui, rect, selected, resp.hovered());
     paint(ui, rect, name, (box_size * 0.52).round(), tint);
-    if tooltip.is_empty() { resp } else { resp.on_hover_text(tl!(tooltip)) }
+    if tooltip.is_empty() {
+        resp
+    } else {
+        let label = tl!(tooltip);
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, resp.enabled(), label));
+        resp.on_hover_text(label)
+    }
 }
 
 /// Rail toggle: "on" gets a quiet filled background and full-strength icon (no accent).

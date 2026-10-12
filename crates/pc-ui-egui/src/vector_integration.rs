@@ -1377,9 +1377,6 @@ fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
 /// Shared menu/catalog entries, with captured feature adapters above.
 pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
     let mut rows: Vec<(&str, &str, Vec<&str>)> = vec![
-        ("ui.svg.export", "Export SVG…", vec!["File", "Export"]),
-        ("ui.pdf.export", "Export PDF…", vec!["File", "Export"]),
-        ("file.export.pdf", "PDF…", vec!["File", "Export"]),
         ("path.outlineStroke", "Outline Stroke", vec!["Layer", "Geometry"]),
         ("layer.vectorize", "Vectorize / Image Trace", vec!["Layer"]),
         ("ui.vector.layout", "Transform and Layout", vec!["Window"]),

@@ -117,12 +117,15 @@ fn authority(app: &PhotocraftApp, request: &Request, automation: bool) -> Result
 }
 
 pub(super) fn begin(app: &mut PhotocraftApp, request: Request) -> Result<Option<Pending>, String> {
+    begin_named(app, request, None)
+}
+pub(super) fn begin_named(app: &mut PhotocraftApp, request: Request, suggested_name: Option<&str>) -> Result<Option<Pending>, String> {
     request.preflight(&app.session)?;
     let automation = app.automation_input;
     authority(app, &request, automation)?;
     let capture = request.capture(&app.session)?;
     let name = std::path::Path::new(&capture.snapshot.name).file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).unwrap_or("drawing");
-    let suggested = format!("{name}.{}", request.extension());
+    let suggested = suggested_name.map(str::to_owned).unwrap_or_else(|| format!("{name}.{}", request.extension()));
     let picker = app.services.pick_save.as_mut().ok_or("file save picker service unavailable")?;
     let Some(path) = picker(&suggested) else { return Ok(None) };
     capture.check(&app.session).map_err(|e| e.to_string())?;

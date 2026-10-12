@@ -855,6 +855,8 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             },
         );
     }
+    // Legacy export aliases remain invokable; Export As owns the visible format chooser.
+    items.retain(|item| !matches!(item.id.as_str(), "ui.svg.export" | "ui.pdf.export" | "file.export.pdf"));
     // Edit › Keyboard Shortcuts overrides, Edit › Menus hidden items and colours.
     let prefs = app.session.prefs();
     let bindings = crate::shortcut_dispatch::binding_strings(app);

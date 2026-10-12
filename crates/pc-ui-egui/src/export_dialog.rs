@@ -11,9 +11,25 @@ use crate::state::DialogKind;
 use crate::theme::Tokens;
 use crate::{ExportSettings, PhotocraftApp};
 
-const FORMATS: [(&str, &str); 5] = [("png", "PNG"), ("jpg", "JPG"), ("webp", "WebP"), ("tif", "TIFF"), ("tga", "TGA")];
+const FORMATS: [(&str, &str); 7] = [("png", "PNG"), ("jpg", "JPG"), ("webp", "WebP"), ("tif", "TIFF"), ("tga", "TGA"), ("svg", "SVG"), ("pdf", "PDF")];
+const PREFS: &str = "file.exportAs";
+const KEYS: [&str; 6] = ["format", "quality", "lossless", "transparency", "scale", "metadata"];
 
 pub fn open(app: &mut PhotocraftApp) -> Result<u64, String> {
+    open_with_format(app, None)
+}
+pub(crate) fn open_format(app: &mut PhotocraftApp, format: &str) -> Result<u64, String> {
+    open_with_format(app, Some(format))
+}
+fn open_with_format(app: &mut PhotocraftApp, format: Option<&str>) -> Result<u64, String> {
+    if app.session.active().is_none() {
+        return Err("no document".into());
+    }
+    // A second entry point must not replace the worker that owns publication.
+    if pending(app) {
+        return Err(tl!("An export is already running; finish or cancel it first").into());
+    }
+    complete(app);
     let st = app.session.active().ok_or("no document")?;
     let mut f = Map::new();
     f.insert("__export".into(), json!(true));
@@ -24,9 +40,100 @@ pub fn open(app: &mut PhotocraftApp) -> Result<u64, String> {
     f.insert("transparency".into(), json!(true));
     f.insert("scale".into(), json!(100));
     f.insert("metadata".into(), json!("none"));
+    if let Some(saved) = app.session.prefs().dialogs.get(PREFS).and_then(Value::as_object) {
+        for key in KEYS {
+            if let Some(value) = saved.get(key) {
+                f.insert(key.into(), value.clone());
+            }
+        }
+    }
+    if let Some(format) = format {
+        f.insert("format".into(), json!(format));
+    }
+    if !FORMATS.iter().any(|(format, _)| *format == s_fmt(&f)) {
+        f.insert("format".into(), json!("png"));
+    }
+    f.insert("__document".into(), json!(st.doc.id.0));
+    f.insert("__revision".into(), json!(st.revision));
+    f.insert("__stem".into(), json!(basename(st.path.as_deref().unwrap_or(&st.doc.name))));
     f.insert("__w".into(), json!(st.doc.size.width));
     f.insert("__h".into(), json!(st.doc.size.height));
+    app.ui.svg_export.options =
+        app.session.prefs().dialogs.get("vector.svg.exportOptions").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+    app.ui.pdf_export.options =
+        app.session.prefs().dialogs.get("vector.pdf.exportOptions").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
+    app.ui.svg_export.open(&app.session).map_err(|e| e.to_string())?;
+    app.ui.pdf_export.open(&app.session).map_err(|e| e.to_string())?;
+    let svg_scope = app.session.prefs().dialogs.get("vector.svg.exportScope").and_then(Value::as_str).unwrap_or("document");
+    app.ui.svg_export.restore_scope(svg_scope);
+    let pdf_scope = app.session.prefs().dialogs.get("vector.pdf.exportScope").and_then(Value::as_str).unwrap_or("document");
+    app.ui.pdf_export.restore_scope(pdf_scope);
+    app.ui.svg_export.embedded = true;
+    app.ui.pdf_export.embedded = true;
     Ok(app.ui.open_dialog(DialogKind::Command, f))
+}
+fn basename(name: &str) -> String {
+    // Both separators are accepted because documents can originate on another OS.
+    let file = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    std::path::Path::new(file).file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).unwrap_or("drawing").to_owned()
+}
+pub(crate) type Remembered = Map<String, Value>;
+fn remembered(app: &PhotocraftApp, f: &Map<String, Value>) -> Remembered {
+    let saved: Map<String, Value> = KEYS.iter().filter_map(|key| f.get(*key).map(|v| ((*key).into(), v.clone()))).collect();
+    let mut values = Map::from_iter([(PREFS.into(), Value::Object(saved))]);
+    match s_fmt(f).as_str() {
+        "svg" => {
+            if let Ok(options) = serde_json::to_value(&app.ui.svg_export.options) {
+                values.insert("vector.svg.exportOptions".into(), options);
+            }
+            if let Some(scope) = app.ui.svg_export.scope_name() {
+                values.insert("vector.svg.exportScope".into(), json!(scope));
+            }
+        }
+        "pdf" => {
+            // Layer IDs belong to one document, never to global export defaults.
+            let mut options = app.ui.pdf_export.options.clone();
+            options.artboards.clear();
+            if let Ok(options) = serde_json::to_value(options) {
+                values.insert("vector.pdf.exportOptions".into(), options);
+            }
+            if let Some(scope) = app.ui.pdf_export.scope_name() {
+                values.insert("vector.pdf.exportScope".into(), json!(scope));
+            }
+        }
+        _ => {}
+    }
+    values
+}
+pub(crate) fn publish_preferences(app: &mut PhotocraftApp, values: Remembered) {
+    app.session.edit_prefs(|prefs| prefs.dialogs.extend(values));
+}
+pub(crate) fn pending(app: &PhotocraftApp) -> bool {
+    app.ui.svg_export.is_pending() || app.ui.pdf_export.is_pending()
+}
+pub(crate) fn worker_frame(ctx: &egui::Context) {
+    let frame = ctx.cumulative_frame_nr();
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new("export-worker-frame"), frame));
+}
+pub(crate) fn settings_hidden(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
+    pending(app) || ctx.data(|data| data.get_temp::<u64>(egui::Id::new("export-worker-frame"))) == Some(ctx.cumulative_frame_nr())
+}
+pub(crate) fn complete(app: &mut PhotocraftApp) {
+    app.ui.dialogs.retain(|d| !d.fields.contains_key("__export"));
+    app.ui.svg_export.cancel();
+    app.ui.pdf_export.cancel();
+}
+pub(crate) fn cancel(app: &mut PhotocraftApp) {
+    complete(app);
+}
+fn capture_current(app: &PhotocraftApp, f: &Map<String, Value>) -> Result<(), String> {
+    if let Some(document) = f.get("__document").and_then(Value::as_u64) {
+        let active = app.session.active().ok_or(tl!("Export document is closed; reopen Export As"))?;
+        if active.doc.id.0 != document || Some(active.revision) != f.get("__revision").and_then(Value::as_u64) {
+            return Err(tl!("Export document changed; reopen Export As").into());
+        }
+    }
+    Ok(())
 }
 
 /// Layer › Export As…: the same dialog for just the active layer (trimmed to its pixels).
@@ -36,6 +143,10 @@ pub fn open_layer(app: &mut PhotocraftApp, layer: photocraft_doc::LayerId) -> Re
     let id = open(app)?;
     if let Some(d) = app.ui.dialogs.iter_mut().find(|d| d.id == id) {
         d.fields.insert("__layer".into(), json!(layer.0));
+        d.fields.insert("__stem".into(), json!(basename(&ldoc.name)));
+        if matches!(s_fmt(&d.fields).as_str(), "svg" | "pdf") {
+            d.fields.insert("format".into(), json!("png"));
+        }
         d.fields.insert("__label".into(), json!(format!("Export As: {}", ldoc.name)));
         d.fields.insert("__w".into(), json!(ldoc.size.width));
         d.fields.insert("__h".into(), json!(ldoc.size.height));
@@ -127,19 +238,39 @@ fn estimate(app: &PhotocraftApp, doc: &Document, f: &Map<String, Value>) -> Opti
 pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
     let Some(doc) = app.session.active().map(|s| s.doc.clone()) else { return };
+    ui.horizontal(|ui| {
+        ui.label(tl!("Format"));
+        let mut fmt = s_fmt(f);
+        let formats = if f.contains_key("__layer") { &FORMATS[..5] } else { &FORMATS[..] };
+        let opts: Vec<(String, &str)> = formats.iter().map(|(key, label)| ((*key).to_owned(), *label)).collect();
+        if crate::widgets::dropdown(ui, "export-format", &mut fmt, &opts, 160.0) {
+            f.insert("format".into(), json!(fmt));
+        }
+    });
+    ui.weak(format!("{}.{}", s(f, "__stem"), s_fmt(f)));
+    if let Err(error) = capture_current(app, f) {
+        ui.colored_label(ui.visuals().error_fg_color, error);
+    }
+    match s_fmt(f).as_str() {
+        "svg" => {
+            egui::ScrollArea::vertical().max_height((ui.ctx().content_rect().height() - 200.0).max(100.0)).show(ui, |ui| {
+                crate::vector_packages::svg_export::settings(ui, &mut app.ui.svg_export, |text| crate::i18n::t(text).to_owned());
+            });
+            return;
+        }
+        "pdf" => {
+            egui::ScrollArea::vertical().max_height((ui.ctx().content_rect().height() - 200.0).max(100.0)).show(ui, |ui| {
+                crate::vector_packages::pdf_export::settings(ui, &mut app.ui.pdf_export, |text| crate::i18n::t(text).to_owned());
+            });
+            return;
+        }
+        _ => {}
+    }
     ui.horizontal_top(|ui| {
         // Left: settings.
         ui.vertical(|ui| {
             ui.set_width(220.0);
             ui.label(egui::RichText::new(tl!("File Settings")).font(crate::theme::semibold(12.0)).color(t.text));
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(tl!("Format")).color(t.text_dim));
-                let mut fmt = s_fmt(f);
-                let opts: Vec<(String, &str)> = FORMATS.iter().map(|(k, l)| (k.to_string(), *l)).collect();
-                if crate::widgets::dropdown(ui, "export-format", &mut fmt, &opts, 130.0) {
-                    f.insert("format".into(), json!(fmt));
-                }
-            });
             let fmt = s_fmt(f);
             if fmt == "webp" {
                 let mut ll = lossless(f);
@@ -219,19 +350,48 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
 
 /// Export with the dialog's settings: choose a path, render, encode, write.
 pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
+    if pending(app) {
+        return Err(tl!("An export is already running; finish or cancel it first").into());
+    }
+    capture_current(app, f)?;
+    let preferences = f.contains_key("__export").then(|| remembered(app, f));
     let doc = source_document(app, f)?;
-    let stem = doc.name.rsplit_once('.').map_or(doc.name.as_str(), |(a, _)| a).to_string();
+    let stem = f.get("__stem").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| basename(&doc.name));
     let ext = s_fmt(f);
+    if !FORMATS.iter().any(|(format, _)| *format == ext) {
+        return Err(tl!("Unsupported export format").into());
+    }
     let suggested = format!("{stem}.{ext}");
+    if matches!(ext.as_str(), "svg" | "pdf") {
+        if f.contains_key("__layer") {
+            return Err(tl!("Use document Export As for SVG/PDF selection export").into());
+        }
+        let started = if ext == "svg" {
+            crate::vector_packages::svg_export::begin_embedded(app, &suggested)?
+        } else {
+            crate::vector_packages::pdf_export::begin_embedded(app, &suggested)?
+        };
+        if started {
+            if ext == "svg" {
+                app.ui.svg_export.preferences = preferences;
+            } else {
+                app.ui.pdf_export.preferences = preferences;
+            }
+            return Ok(json!({"pending": true}));
+        }
+        return Err("cancelled".into());
+    }
     let path = app.services.pick_save.as_mut().and_then(|p| p(&suggested)).ok_or("cancelled")?;
+    capture_current(app, f)?;
     let out = export_document(&doc, f, None)?;
     let export = app.services.export.as_ref().ok_or("no exporter configured")?;
-    let (bytes, warnings) = export(&out, &path, &settings(f))?;
+    let (bytes, warnings) = export(&out, &path, &settings(f)).map_err(|error| format!("Could not export {path}: {error}"))?;
     let write = app.services.write.as_mut().ok_or("no writer configured")?;
-    write(&path, &bytes)?;
-    app.ui.status = format!("Exported {path} ({})", crate::sizing::human_bytes(bytes.len() as f64));
-    app.ui.status_error = false;
-    crate::notices::io_warnings(app, &format!("Exported {}", crate::file_open::display_name(&path)), &warnings);
+    write(&path, &bytes).map_err(|error| format!("Could not export {path}: {error}"))?;
+    if let Some(preferences) = preferences {
+        publish_preferences(app, preferences);
+    }
+    crate::notices::file_result(app, tl!("Exported"), &path, &warnings);
     Ok(json!({"path": path, "bytes": bytes.len(), "warnings": warnings}))
 }
 
@@ -304,3 +464,7 @@ mod tests {
         assert!(settings(&f).webp_lossless, "other formats leave the WebP default alone");
     }
 }
+
+#[cfg(test)]
+#[path = "export_dialog/unified_tests.rs"]
+mod unified_tests;
