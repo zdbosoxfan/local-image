@@ -194,7 +194,7 @@ impl Ctx<'_> {
 
     /// The filter mask of the smart object whose `placed` id is `placed`, from the `FEid` cache:
     /// document coordinates, white beyond its bounds (`filterMaskExtendWithWhite`). An all-white
-    /// mask is no mask.
+    /// mask remains an explicitly stored mask.
     fn filter_mask(&mut self, placed: &str, stack: &crate::smart_map::FilterStack, name: &str) -> Option<LayerMask> {
         let item = self.filter_effects.iter().find(|i| i.id == placed)?;
         match crate::smart_map::mask_from_item(item, self.mask_fmt.sample, stack) {
@@ -379,6 +379,10 @@ impl Ctx<'_> {
             && !matches!(l.content, LayerContent::Shape(_))
         {
             self.apply_vector_mask(&mut l, rec);
+        }
+        let canvas = Rect::new(0, 0, self.file.header.width as i32, self.file.header.height as i32);
+        if let Err(warning) = crate::psd_editable::restore(&mut l, rec, self.fmt, canvas, &mut self.remaining) {
+            self.warn(warning);
         }
         l
     }

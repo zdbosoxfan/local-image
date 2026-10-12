@@ -37,6 +37,7 @@ pub mod linked;
 mod multichannel_map;
 pub mod pattern_map;
 mod pixels;
+mod psd_editable;
 mod psd_export;
 mod psd_import;
 pub mod raw;

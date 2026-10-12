@@ -377,10 +377,14 @@ impl Ex {
         // odd-length `lfx2` misaligned every block after it (#200).
         for b in &mut blocks {
             if b.data.len() % 2 == 1 && b.padding.is_none() {
-                b.data.push(0);
+                if l.psd_blocks.iter().any(|(key, data)| key == &b.key && data.as_slice() == b.data.as_slice()) {
+                    b.padding = Some(vec![0]);
+                } else {
+                    b.data.push(0);
+                }
             }
         }
-        LayerRecord {
+        let mut record = LayerRecord {
             rect,
             channels,
             blend_mode: PsdBlend::from_key(l.blend.psd_key()),
@@ -393,7 +397,11 @@ impl Ex {
             name: legacy_name(&l.name),
             blocks,
             extra_trailing: Vec::new(),
+        };
+        if let Err(warning) = crate::psd_editable::attach(l, &mut record) {
+            self.warnings.push(warning);
         }
+        record
     }
 
     /// Content blocks for `l`: preserved raw blocks (with `psd_raw`

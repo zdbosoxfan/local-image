@@ -831,7 +831,7 @@ pub fn stored_size(d: &Descriptor) -> Option<(f64, f64)> {
 
 /// The filter mask stored in an `FEid` item, in document coordinates and white beyond its bounds
 /// (`filterMaskExtendWithWhite`), as a grayscale mask of `sample` depth. `Ok(None)` when the
-/// item has no mask or it is all white (no mask); `Err` when it can't be decoded.
+/// item has no mask; an explicitly stored all-white mask remains editable.
 pub fn mask_from_item(item: &FilterEffectsItem, sample: SampleType, stack: &FilterStack) -> Result<Option<LayerMask>, String> {
     if item.mask.is_none() {
         return Ok(None);
@@ -847,9 +847,6 @@ pub fn mask_from_item(item: &FilterEffectsItem, sample: SampleType, stack: &Filt
     let bytes = crate::pixels::interleave(&[Some(&plane)], &[crate::pixels::zero_sample(sample)], n, sample, &[false]);
     surface.write_interleaved(GeomRect::new(rect.left, rect.top, rect.right, rect.bottom), &bytes);
     surface.prune();
-    if surface.content_bounds().is_empty() {
-        return Ok(None);
-    }
     Ok(Some(LayerMask { surface, enabled: stack.mask_enabled, linked: stack.mask_linked, density: 1.0, feather: 0.0 }))
 }
 
@@ -937,7 +934,15 @@ fn filter_mask_item(placed: &str, mask: Option<&LayerMask>, bounds: GeomRect, sa
     let plane = EffectsPlane::encode(compression, &plane, w, h, depth)
         .or_else(|_| EffectsPlane::encode(Compression::Raw, &plane, w, h, depth))
         .unwrap_or(EffectsPlane { compression: Compression::Raw, data: plane });
-    FilterEffectsItem { id: placed.to_string(), version: 1, rect, depth: u32::from(depth), max_channels: 24, slots: vec![None; 26], mask: Some((rect, plane)) }
+    FilterEffectsItem {
+        id: placed.to_string(),
+        version: 1,
+        rect,
+        depth: u32::from(depth),
+        max_channels: 24,
+        slots: vec![None; 26],
+        mask: mask.map(|_| (rect, plane)),
+    }
 }
 
 /// A uuid-shaped id (8-4-4-4-12 hex digits) derived from `seed`: equal contents get equal ids, so

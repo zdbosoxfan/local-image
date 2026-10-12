@@ -69,7 +69,6 @@ fn psd_psb_raster_groups_masks_adjustments_fills_and_metadata() {
     }
 }
 #[test]
-#[ignore = "known defect: PSD import synthesizes postscript_name for text runs that stored None"]
 fn psd_text_keeps_editable_runs_paragraphs_transform_and_styles() {
     let mut d = Document::new("Text", Size::new(128, 64), ColorMode::Rgb, SampleType::U8);
     let mut t = TextLayer {
@@ -102,7 +101,6 @@ fn psd_text_keeps_editable_runs_paragraphs_transform_and_styles() {
     stable(&back, "psd");
 }
 #[test]
-#[ignore = "known structural gap: independent shape masks use the saved clipped-raster fallback; editable shape is lost"]
 fn psd_shape_keeps_path_fill_stroke_live_shape_and_vector_mask() {
     let mut d = Document::new("Shape", Size::new(256, 256), ColorMode::Rgb, SampleType::U8);
     let s = ShapeLayer {
@@ -192,12 +190,68 @@ fn smart_contract(develop: bool) {
     stable(&back, "psd");
 }
 #[test]
-#[ignore = "known defect: PSD smart import drops an explicitly stored all-white smart-filter mask"]
 fn psd_smart_embedded_source_transform_filters_mask_and_cache() {
     smart_contract(false);
 }
 #[test]
-#[ignore = "known defect: PSD Develop import drops an explicitly stored all-white smart-filter mask"]
 fn psd_develop_settings_photo_link_and_embedded_source() {
     smart_contract(true);
+}
+
+#[test]
+fn private_editable_shape_is_stale_after_external_pixel_or_block_edits() {
+    let mut doc = Document::new("private controls", Size::new(16, 16), ColorMode::Rgb, SampleType::U8);
+    let mut shape = ShapeLayer { path: photocraft_vector::shapes::rect(0., 0., 12., 12.), fill: Some(Fill::Solid(Color::BLACK)), ..Default::default() };
+    shape.cache = Some(photocraft_vector::render_shape(&shape, doc.pixel_format(), doc.bounds()));
+    let mut layer = Layer::new("shape", LayerContent::Shape(shape));
+    layer.vector_mask = Some(VectorMask::new(photocraft_vector::shapes::rect(0., 0., 8., 8.)));
+    doc.layers.push(layer);
+    for extension in ["psd", "psb"] {
+        let exported = export(&doc, extension, &Default::default()).unwrap();
+        let parsed = PsdFile::from_bytes(&exported.bytes).unwrap();
+        // Match the filename used by stable() so the document name remains part of the full equality check.
+        let original = import("contracts.psd", &exported.bytes).unwrap();
+        assert!(matches!(original.document.layers[0].content, LayerContent::Shape(_)));
+        stable(&original.document, extension);
+        for modify_pixels in [true, false] {
+            let mut edited = parsed.clone();
+            let record = &mut edited.layer_info.as_mut().unwrap().layers[0];
+            if modify_pixels {
+                let channel = record.channels.iter_mut().find(|channel| channel.id == 0).unwrap();
+                channel.compression = Some(photocraft_psd::Compression::Raw);
+                channel.data = vec![100; 64];
+            } else {
+                record.blocks.push(photocraft_psd::TaggedBlock::new(*b"extE", b"external edit".to_vec()));
+            }
+            let bytes = edited.to_bytes().unwrap();
+            let back = import("edited.psd", &bytes).unwrap();
+            assert!(matches!(back.document.layers[0].content, LayerContent::Raster(_)));
+            assert!(back.warnings.iter().any(|warning| warning.contains("stale native editable")));
+        }
+        let mut malformed = parsed.clone();
+        let block = malformed.layer_info.as_mut().unwrap().layers[0].blocks.iter_mut().find(|block| block.key == *b"liED").unwrap();
+        block.data[8..12].copy_from_slice(&u32::MAX.to_be_bytes());
+        let back = import("malformed.psd", &malformed.to_bytes().unwrap()).unwrap();
+        assert!(matches!(back.document.layers[0].content, LayerContent::Raster(_)));
+        assert!(back.warnings.iter().any(|warning| warning.contains("invalid native editable")));
+    }
+}
+
+#[test]
+fn stale_native_text_runs_do_not_override_external_type_edits() {
+    let mut doc = Document::new("Text stale", Size::new(64, 32), ColorMode::Rgb, SampleType::U8);
+    let mut text = TextLayer { text: "A".into(), runs: vec![TextRun { len: 1, style: CharStyle::default() }], ..Default::default() };
+    text.sync_summary();
+    photocraft_text::TextEngine::new().render_layer(&mut text, doc.resolution_dpi, doc.pixel_format());
+    doc.layers.push(Layer::new("Text", LayerContent::Text(text)));
+    let output = export(&doc, "psd", &Default::default()).unwrap();
+    let mut parsed = PsdFile::from_bytes(&output.bytes).unwrap();
+    let layer = &mut parsed.layer_info.as_mut().unwrap().layers[0];
+    // An external editor may change type or its pixels without understanding liED.
+    // A changed ordinary block invalidates the complete private run snapshot.
+    layer.blocks.push(photocraft_psd::TaggedBlock::new(*b"extT", b"edited type".to_vec()));
+    let back = import("external.psd", &parsed.to_bytes().unwrap()).unwrap();
+    assert!(back.warnings.iter().any(|warning| warning.contains("stale native editable")));
+    let LayerContent::Text(text) = &back.document.layers[0].content else { panic!("standard type lost") };
+    assert!(text.char_runs()[0].style.postscript_name.is_some());
 }

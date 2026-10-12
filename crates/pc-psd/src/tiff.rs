@@ -18,9 +18,9 @@
 //! as in a PSD, and RLE row-count tables follow the container. [`ImageSourceData::from_bytes`]
 //! normalizes either order to the big-endian PSD model, and [`ImageSourceData::to_bytes`] writes
 //! either order, by transcoding every structure it knows field by field ([`transcode`]).
-//! Blocks the transcoder does not know are kept verbatim when no byte swap is needed, and dropped
-//! with a warning otherwise (a byte-swapped block passed through unchanged would be read as
-//! garbage by every other application).
+//! Unknown blocks keep their original byte order in a versioned opaque envelope when
+//! conversion is needed. Returning to that byte order restores the original block. Other
+//! applications may ignore that private envelope, but its payload is never falsely relabelled.
 
 use crate::descriptor::MAX_DEPTH;
 use crate::error::{PsdError, Result};
@@ -109,7 +109,7 @@ fn block_order(rest: &[u8]) -> Result<ByteOrder> {
 
 impl ImageSourceData {
     /// Parses a 37724 tag. Returns the data together with warnings about blocks that were
-    /// dropped because they could not be converted from the file's byte order.
+    /// retained in opaque envelopes because their source byte order is not understood.
     pub fn from_bytes(data: &[u8]) -> Result<(Self, Vec<String>)> {
         let (version, rest) = match data.get(..36) {
             Some(s) if s == SIGNATURE => (Version::Psd, &data[36..]),
@@ -147,7 +147,7 @@ impl ImageSourceData {
     }
 
     /// Serializes the data in `order`. Returns the bytes and warnings about blocks that were
-    /// dropped because they could not be converted to a little-endian layout.
+    /// retained in opaque envelopes because their source byte order is not understood.
     pub fn to_bytes(&self, order: ByteOrder) -> Result<(Vec<u8>, Vec<String>)> {
         let version = self.version;
         let mut blocks = Vec::with_capacity(self.global_blocks.len() + 2);
@@ -654,17 +654,46 @@ pub mod transcode {
 
         fn block(&mut self) -> Result<()> {
             let before = self.out.len();
-            self.key()?;
+            let signature = self.key()?;
             let key = self.key()?;
             let long = uses_long_length(self.version, &key);
             let len = self.r.len_field(long)?;
             let len_at = self.out.len();
             self.out.extend_from_slice(if long { &[0u8; 8] } else { &[0u8; 4] });
             let data = self.r.bytes_u64(len)?;
+            // The envelope is byte-neutral, with its original order and length explicit.
+            // Never feed an opaque payload back through a guessed known-block parser.
+            let opaque = if key == *b"liOP" && data.starts_with(b"LI-TIFF-OPAQUE\0\x01") {
+                if data.len() < 32 || data[16] > 1 || data[17..20] != [0, 0, 0] {
+                    return Err(PsdError::invalid("invalid opaque TIFF block envelope"));
+                }
+                let order = if data[16] == 0 { ByteOrder::Big } else { ByteOrder::Little };
+                let size = u32::from_be_bytes([data[28], data[29], data[30], data[31]]) as usize;
+                let end = 32usize.checked_add(size).ok_or(PsdError::LimitExceeded("opaque block size"))?;
+                let payload = data.get(32..end).ok_or_else(|| PsdError::invalid("truncated opaque TIFF block"))?;
+                if data.len() - end > 3 || data[end..].iter().any(|byte| *byte != 0) {
+                    return Err(PsdError::invalid("invalid opaque TIFF block padding"));
+                }
+                let signature = [data[20], data[21], data[22], data[23]];
+                let original_key = [data[24], data[25], data[26], data[27]];
+                if !matches!(&signature, b"8BIM" | b"8B64") || original_key == *b"liOP" {
+                    return Err(PsdError::invalid("invalid opaque TIFF block identity"));
+                }
+                let mut check = Tx::new(payload, self.version, order, order);
+                check.depth = self.depth + 1;
+                if check.depth > MAX_DEPTH || (check.block_body(&original_key)? && original_key != *b"shmd") {
+                    return Err(PsdError::invalid("typed payload cannot masquerade as an opaque TIFF block"));
+                }
+                Some((order, signature, original_key, payload))
+            } else {
+                None
+            };
             let mut child = Tx::new(data, self.version, self.from, self.to);
             child.depth = self.depth + 1;
             let handled = if child.depth > MAX_DEPTH {
                 Err(PsdError::LimitExceeded("tagged block nesting too deep"))
+            } else if opaque.is_some() {
+                Ok(false)
             } else if data.is_empty() {
                 Ok(true)
             } else {
@@ -675,6 +704,17 @@ pub mod transcode {
             let pad = (0..=3usize).find(|&k| k == rest.len() || (k < rest.len() && is_sig(&rest[k..], self.from.is_little()))).unwrap_or(0);
             let pad_bytes = self.r.bytes(pad)?;
             match handled {
+                Ok(false) if opaque.is_some() => {
+                    let Some((order, signature, original_key, payload)) = opaque else {
+                        return Err(PsdError::invalid("missing opaque block"));
+                    };
+                    self.out.truncate(before);
+                    if order == self.to {
+                        self.opaque_block(signature, original_key, payload, pad_bytes)?;
+                    } else {
+                        self.opaque_block(signature, key, data, pad_bytes)?;
+                    }
+                }
                 Ok(true) => {
                     child.rest()?;
                     self.warnings.append(&mut child.warnings);
@@ -689,18 +729,41 @@ pub mod transcode {
                 }
                 Ok(false) => {
                     self.out.truncate(before);
+                    let mut envelope = b"LI-TIFF-OPAQUE\0\x01".to_vec();
+                    envelope.extend_from_slice(&[u8::from(self.from.is_little()), 0, 0, 0]);
+                    envelope.extend_from_slice(&signature);
+                    envelope.extend_from_slice(&key);
+                    envelope.extend_from_slice(&u32::try_from(data.len()).map_err(|_| PsdError::LimitExceeded("opaque block size"))?.to_be_bytes());
+                    envelope.extend_from_slice(data);
+                    self.opaque_block(signature, *b"liOP", &envelope, pad_bytes)?;
                     self.warnings.push(format!(
-                        "{} block ({} bytes) dropped: its layout is unknown and cannot be converted to the file's byte order",
+                        "{} block ({} bytes) preserved in an opaque {:?}-order envelope",
                         String::from_utf8_lossy(&key),
-                        data.len()
+                        data.len(),
+                        self.from
                     ));
                 }
-                Err(e) if self.same_order() => return Err(PsdError::invalid(format!("{} block: {e}", String::from_utf8_lossy(&key)))),
-                Err(e) => {
-                    self.out.truncate(before);
-                    self.warnings.push(format!("{} block ({} bytes) dropped: {e}", String::from_utf8_lossy(&key), data.len()));
-                }
+                Err(e) => return Err(PsdError::invalid(format!("{} block: {e}", String::from_utf8_lossy(&key)))),
             }
+            Ok(())
+        }
+
+        fn opaque_block(&mut self, mut signature: [u8; 4], mut key: [u8; 4], data: &[u8], padding: &[u8]) -> Result<()> {
+            let long = uses_long_length(self.version, &key);
+            if self.to.is_little() {
+                signature.reverse();
+                key.reverse();
+            }
+            self.out.extend_from_slice(&signature);
+            self.out.extend_from_slice(&key);
+            if long {
+                self.out.extend_from_slice(&if self.to.is_little() { (data.len() as u64).to_le_bytes() } else { (data.len() as u64).to_be_bytes() });
+            } else {
+                let len = u32::try_from(data.len()).map_err(|_| PsdError::LimitExceeded("opaque block size"))?;
+                self.out.extend_from_slice(&if self.to.is_little() { len.to_le_bytes() } else { len.to_be_bytes() });
+            }
+            self.out.extend_from_slice(data);
+            self.out.extend_from_slice(padding);
             Ok(())
         }
 
@@ -740,7 +803,7 @@ pub mod transcode {
                 b"brst" => self.u32s_to_end()?,
                 b"LMsk" => self.u16s_upto(6)?,
                 b"FMsk" => self.u16s_to_end()?,
-                b"shmd" => self.metadata_setting()?,
+                b"shmd" => return self.metadata_setting(),
                 // Effects (lfxs: the effects as applied to a group), content credentials (CAI).
                 b"lfx2" | b"lmfx" | b"lfxs" | b"CAI " => {
                     self.u32()?;
@@ -1219,16 +1282,14 @@ pub mod transcode {
         // ---- other block layouts ----
 
         /// `shmd`: u32 count, then per item signature, key, copy flag, 3 bytes, u32 length, data.
-        /// An item whose layout is unknown is dropped on its own (and the count patched) rather
-        /// than taking the whole block with it.
-        fn metadata_setting(&mut self) -> Result<()> {
+        /// An unknown item makes the whole block opaque, preserving all items together.
+        fn metadata_setting(&mut self) -> Result<bool> {
             let n = self.r.u32()?;
             self.r.check_count(u64::from(n), 16)?;
             let count_at = self.out.len();
             self.out.extend_from_slice(&[0; 4]);
             let mut kept = 0u32;
             for _ in 0..n {
-                let before = self.out.len();
                 self.key()?;
                 let key = self.key()?;
                 self.u8()?;
@@ -1244,14 +1305,12 @@ pub mod transcode {
                 });
                 match res {
                     Ok(()) => kept += 1,
-                    Err(e) if same => return Err(e),
-                    Err(e) => {
-                        self.out.truncate(before);
-                        self.warnings.push(format!("shmd item {} dropped: {e}", String::from_utf8_lossy(&key)));
-                    }
+                    Err(PsdError::Unsupported(_)) if !same => return Ok(false),
+                    Err(error) => return Err(error),
                 }
             }
-            self.patch_len(count_at, false, u64::from(kept))
+            self.patch_len(count_at, false, u64::from(kept))?;
+            Ok(true)
         }
 
         /// 26-byte path records: a u16 selector then, for knots, six fixed-point coordinates.
@@ -1971,7 +2030,7 @@ mod tests {
         let desc = VersionedDescriptor::new(Descriptor::new("null")).to_bytes();
         let items = vec![crate::metadata::MetadataItem::new(*b"cmls", desc)];
         block_rt(*b"shmd", crate::metadata::write_shmd(&items));
-        // An unknown item cannot be converted: it is dropped on its own, the rest stays.
+        // An unknown item preserves the entire block in its original order.
         let items = vec![
             crate::metadata::MetadataItem::new(*b"zzzz", vec![1, 2, 3, 4, 5, 6, 7, 8]),
             crate::metadata::MetadataItem::new(*b"mdyn", vec![0, 0, 0, 1]),
@@ -1980,11 +2039,11 @@ mod tests {
         let d = ImageSourceData { global_blocks: vec![TaggedBlock::new(*b"shmd", crate::metadata::write_shmd(&items))], ..Default::default() };
         let (little, w) = d.to_bytes(ByteOrder::Little).unwrap();
         assert_eq!(w.len(), 1, "{w:?}");
-        assert!(w[0].starts_with("shmd item zzzz dropped"), "{}", w[0]);
+        assert!(w[0].starts_with("shmd block"), "{}", w[0]);
         let (back, w) = ImageSourceData::from_bytes(&little).unwrap();
         assert!(w.is_empty());
         let back_items = crate::metadata::parse_shmd(&back.global_blocks[0].data).unwrap();
-        assert_eq!(back_items, items[1..].to_vec());
+        assert_eq!(back_items, items);
     }
 
     #[test]
@@ -2074,7 +2133,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_blocks_kept_in_big_dropped_in_little() {
+    fn unknown_blocks_keep_source_order_across_conversions() {
         let mut d = sample_layers();
         d.global_blocks.push(TaggedBlock::new(*b"Zzzz", vec![1, 2, 3, 4, 5]));
         let (big, w) = d.to_bytes(ByteOrder::Big).unwrap();
@@ -2083,20 +2142,46 @@ mod tests {
         assert!(w.is_empty());
         assert_eq!(back.global_blocks, d.global_blocks);
         let (little, w) = d.to_bytes(ByteOrder::Little).unwrap();
-        assert_eq!(w.iter().filter(|w| w.starts_with("Zzzz block (5 bytes) dropped")).count(), 1, "{w:?}");
+        assert_eq!(w.iter().filter(|w| w.starts_with("Zzzz block (5 bytes) preserved")).count(), 1, "{w:?}");
         let (back, w) = ImageSourceData::from_bytes(&little).unwrap();
         assert!(w.is_empty());
-        assert_eq!(back.global_blocks.iter().map(|b| b.key).collect::<Vec<_>>(), vec![*b"Patt", *b"FMsk"]);
+        assert_eq!(back.global_blocks, d.global_blocks);
         assert_eq!(known(&back).layer_info, known(&d).layer_info);
-        // A little-endian file with an unknown block: the block is dropped on read, with a warning.
+        // A native little-endian unknown block keeps its payload/order through the BE model.
         let mut raw = little.clone();
         raw.extend_from_slice(b"MIB8zzzZ");
         raw.extend_from_slice(&4u32.to_le_bytes());
         raw.extend_from_slice(&[9, 9, 9, 9]);
         let (back, w) = ImageSourceData::from_bytes(&raw).unwrap();
         assert_eq!(w.len(), 1);
-        assert!(w[0].starts_with("Zzzz block (4 bytes) dropped"), "{}", w[0]);
+        assert!(w[0].starts_with("Zzzz block (4 bytes) preserved"), "{}", w[0]);
         assert_eq!(known(&back).layer_info, known(&d).layer_info);
+        assert!(back.global_blocks.iter().any(|block| block.key == *b"liOP"));
+        let (again, _) = back.to_bytes(ByteOrder::Little).unwrap();
+        assert!(again.ends_with(&raw[raw.len() - 16..]), "original LE block bytes restored");
+        let (back, _) = ImageSourceData::from_bytes(&again).unwrap();
+        let (twice, _) = back.to_bytes(ByteOrder::Little).unwrap();
+        assert_eq!(again, twice);
+    }
+
+    #[test]
+    fn malformed_opaque_envelopes_and_known_blocks_fail_before_output() {
+        for case in 0..3 {
+            let mut data = b"LI-TIFF-OPAQUE\0\x01".to_vec();
+            data.extend_from_slice(&[0; 4]);
+            data.extend_from_slice(b"8BIMZzzz");
+            data.extend_from_slice(&4u32.to_be_bytes());
+            data.extend_from_slice(&[1, 2, 3, 4]);
+            match case {
+                0 => data[28..32].copy_from_slice(&u32::MAX.to_be_bytes()),
+                1 => data[24..28].copy_from_slice(b"lyid"),
+                _ => data[20..24].fill(0),
+            }
+            let source = ImageSourceData { global_blocks: vec![TaggedBlock::new(*b"liOP", data)], ..Default::default() };
+            assert!(source.to_bytes(ByteOrder::Little).is_err());
+        }
+        let source = ImageSourceData { global_blocks: vec![TaggedBlock::new(*b"lyid", vec![1])], ..Default::default() };
+        assert!(source.to_bytes(ByteOrder::Little).is_err());
     }
 
     #[test]

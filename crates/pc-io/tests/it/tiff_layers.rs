@@ -274,3 +274,87 @@ fn default_export_options_write_a_flat_tiff() {
     assert_eq!(tags(&r.bytes), (None, None));
     assert_eq!(import("x.tif", &r.bytes).unwrap().document.layers.len(), 1);
 }
+
+#[test]
+fn private_layer_and_global_blocks_keep_bytes_and_source_order_over_two_tiff_saves() {
+    use photocraft_doc::{Layer, Surface};
+    use photocraft_psd::TaggedBlock;
+    const LAYER: &[u8] = b"layer\x80\0";
+    const GLOBAL: &[u8] = b"global\xfe\0";
+    fn payload(key: [u8; 4], bytes: &[u8], wanted: [u8; 4]) -> Option<(u8, Vec<u8>)> {
+        if key == wanted {
+            return Some((0, bytes.to_vec()));
+        }
+        if key == *b"liOP" && bytes.starts_with(b"LI-TIFF-OPAQUE\0\x01") && bytes.get(24..28) == Some(wanted.as_slice()) {
+            let len = u32::from_be_bytes(bytes[28..32].try_into().unwrap()) as usize;
+            return Some((bytes[16], bytes[32..32 + len].to_vec()));
+        }
+        None
+    }
+    fn container(order: ByteOrder, layers: &[u8]) -> Vec<u8> {
+        fn put(bytes: &mut [u8], at: usize, n: usize, value: u32, order: ByteOrder) {
+            let raw = if order == ByteOrder::Little { value.to_le_bytes() } else { value.to_be_bytes() };
+            bytes[at..at + n].copy_from_slice(if order == ByteOrder::Little { &raw[..n] } else { &raw[4 - n..] });
+        }
+        let mut bytes = vec![0; 300];
+        bytes[..2].copy_from_slice(if order == ByteOrder::Little { b"II" } else { b"MM" });
+        put(&mut bytes, 2, 2, 42, order);
+        put(&mut bytes, 4, 4, 8, order);
+        let fields = [
+            (256, 4, 1, 2),
+            (257, 4, 1, 2),
+            (258, 3, 3, 200),
+            (259, 3, 1, 1),
+            (262, 3, 1, 2),
+            (273, 4, 1, 256),
+            (277, 3, 1, 3),
+            (278, 4, 1, 2),
+            (279, 4, 1, 12),
+            (37724, 7, layers.len() as u32, 300),
+        ];
+        put(&mut bytes, 8, 2, fields.len() as u32, order);
+        for (index, (tag, typ, count, value)) in fields.into_iter().enumerate() {
+            let at = 10 + 12 * index;
+            put(&mut bytes, at, 2, tag, order);
+            put(&mut bytes, at + 2, 2, typ, order);
+            put(&mut bytes, at + 4, 4, count, order);
+            put(&mut bytes, at + 8, if typ == 3 && count == 1 { 2 } else { 4 }, value, order);
+        }
+        for at in [200, 202, 204] {
+            put(&mut bytes, at, 2, 8, order);
+        }
+        bytes.extend_from_slice(layers);
+        bytes
+    }
+    for order in [ByteOrder::Big, ByteOrder::Little] {
+        let mut doc = Document::new("private blocks", photocraft_geom::Size::new(2, 2), ColorMode::Rgb, SampleType::U8);
+        let mut pixels = Surface::new(doc.pixel_format());
+        pixels.fill_rect(doc.bounds(), &[0.25, 0.5, 0.75, 1.]);
+        doc.layers.push(Layer::new("pixels", LayerContent::Raster(pixels)));
+        let mut file = document_to_psd(&doc);
+        file.layer_info.as_mut().unwrap().layers[0].blocks.push(TaggedBlock::new(*b"ZzLy", LAYER.to_vec()));
+        file.global_blocks.push(TaggedBlock::new(*b"ZzGb", GLOBAL.to_vec()));
+        let (mut layers, _) = ImageSourceData::from_psd(&file).to_bytes(order).unwrap();
+        if order == ByteOrder::Little {
+            // Construct native LE opaque fields, not BE fields merely wrapped in LE.
+            let positions: Vec<_> = layers.windows(16).enumerate().filter(|(_, bytes)| *bytes == b"LI-TIFF-OPAQUE\0\x01").map(|(at, _)| at).collect();
+            for at in positions {
+                layers[at + 16] = 1;
+            }
+            layers = ImageSourceData::from_bytes(&layers).unwrap().0.to_bytes(order).unwrap().0;
+        }
+        let original = container(order, &layers);
+        let mut back = import("source.tif", &original).unwrap().document;
+        for _ in 0..2 {
+            let layer = back.layers[0].psd_blocks.iter().find_map(|(key, bytes)| payload(*key, bytes, *b"ZzLy")).unwrap();
+            let global = back.metadata.psd_global_blocks.iter().find_map(|(_, key, bytes)| payload(*key, bytes, *b"ZzGb")).unwrap();
+            assert_eq!(layer, (u8::from(order == ByteOrder::Little), LAYER.to_vec()));
+            assert_eq!(global, (u8::from(order == ByteOrder::Little), GLOBAL.to_vec()));
+            assert_eq!(back.layers[0].surface().unwrap().to_interleaved(doc.bounds()), doc.layers[0].surface().unwrap().to_interleaved(doc.bounds()));
+            let saved = tiff(&back, true);
+            back = import("saved.tif", &saved.bytes).unwrap().document;
+        }
+        let layer = back.layers[0].psd_blocks.iter().find_map(|(key, bytes)| payload(*key, bytes, *b"ZzLy")).unwrap();
+        assert_eq!(layer, (u8::from(order == ByteOrder::Little), LAYER.to_vec()));
+    }
+}
