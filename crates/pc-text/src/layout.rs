@@ -213,7 +213,7 @@ impl TextLayout {
 
     /// Byte offset of the caret nearest to a line-space point.
     pub fn hit_test_line(&self, x: f32, y: f32) -> usize {
-        let Some((li, line)) = self.lines.iter().enumerate().min_by(|a, b| {
+        let Some((li, _)) = self.lines.iter().enumerate().min_by(|a, b| {
             let d = |l: &LineInfo| {
                 if y < l.baseline - l.ascent {
                     l.baseline - l.ascent - y
@@ -227,6 +227,12 @@ impl TextLayout {
         }) else {
             return 0;
         };
+        self.hit_test_on_line(li, x)
+    }
+
+    /// Select along one known line; navigation must not reselect a line by its y box.
+    fn hit_test_on_line(&self, li: usize, x: f32) -> usize {
+        let Some(line) = self.lines.get(li) else { return 0 };
         let mut best = (f32::MAX, line.range.end);
         for c in self.clusters.iter().filter(|c| c.line == li) {
             let mid = c.x + c.advance / 2.0;
@@ -336,17 +342,28 @@ pub fn word_boundary(text: &str, idx: usize, forward: bool) -> usize {
 pub fn line_step(layout: &TextLayout, text: &str, idx: usize, x: f32, dir: i32) -> usize {
     let n = text.chars().count();
     let idx = idx.min(n);
-    let (_, top, bottom) = layout.caret(byte_index(text, idx));
-    let h = (bottom - top).max(1.0);
-    let y = if dir < 0 { top - h * 0.5 } else { bottom + h * 0.5 };
-    let Some(bounds) = layout.line_bounds() else { return idx };
-    if y < bounds[1] {
-        return 0;
+    if layout.lines.is_empty() {
+        return idx;
     }
-    if y > bounds[3] {
-        return n;
-    }
-    char_index(text, layout.hit_test_line(x, y))
+    let byte = byte_index(text, idx);
+    // Match caret()'s cluster-start priority at a shared wrapped-line boundary.
+    // Public line_index deliberately keeps its existing inclusive-range behavior.
+    let current = layout
+        .clusters
+        .iter()
+        .find(|cluster| cluster.range.start == byte && cluster.line < layout.lines.len())
+        .map_or_else(|| line_index(layout, byte), |cluster| cluster.line);
+    let next = if dir < 0 {
+        let Some(previous) = current.checked_sub(1) else { return 0 };
+        previous
+    } else {
+        let next = current + 1;
+        if next >= layout.lines.len() {
+            return n;
+        }
+        next
+    };
+    char_index(text, layout.hit_test_on_line(next, x))
 }
 
 /// Line start (`end` false) or end for the line containing `idx`, as a character index.

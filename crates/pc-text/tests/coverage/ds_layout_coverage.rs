@@ -280,3 +280,54 @@ fn hit_char_combines_hit_test_line_and_char_index() {
     assert_eq!(hit_char(&layout, text, 14.0, 0.0), (1, 0));
     assert_eq!(hit_char(&layout, text, 14.0, 20.0), (6, 1));
 }
+
+#[test]
+fn line_step_uses_adjacent_index_despite_wide_leading_overlap_or_empty_lines() {
+    for vertical in [false, true] {
+        for baselines in [[0., 100., 200.], [0., 1., 2.]] {
+            let mut layout = layout_with(
+                vec![line(0..2, baselines[0], 0., 20., 9., 3., 0), line(3..3, baselines[1], 0., 0., 1., 1., 1), line(4..6, baselines[2], 0., 20., 35., 8., 2)],
+                vec![cluster(0..1, 0., 10., 0, false), cluster(1..2, 10., 10., 0, false), cluster(4..5, 0., 10., 2, false), cluster(5..6, 10., 10., 2, false)],
+            );
+            layout.vertical = vertical;
+            let text = "ab\n\ncd";
+            assert_eq!(line_step(&layout, text, 1, 10., 1), 3, "first to empty exactly once");
+            assert_eq!(line_step(&layout, text, 3, 10., 1), 5, "empty to next");
+            assert_eq!(line_step(&layout, text, 5, 10., -1), 3, "last to empty");
+            assert_eq!(line_step(&layout, text, 3, 10., -1), 1, "empty to previous");
+            assert_eq!(line_step(&layout, text, 1, 10., -1), 0);
+            assert_eq!(line_step(&layout, text, 5, 10., 1), 6);
+            assert_eq!(line_step(&layout, text, usize::MAX, 10., 1), 6);
+        }
+    }
+    assert_eq!(line_step(&TextLayout::default(), "abc", 2, 0., 1), 2);
+    assert_eq!(line_step(&TextLayout::default(), "", 100, 0., -1), 0);
+}
+
+#[test]
+fn line_step_matches_caret_affinity_at_shared_wrap_boundary() {
+    let layout = layout_with(
+        vec![line(0..3, 0., 0., 30., 9., 3., 0), line(3..6, 100., 0., 30., 9., 3., 0), line(6..9, 200., 0., 30., 9., 3., 0)],
+        (0..9).map(|i| cluster(i..i + 1, (i % 3) as f32 * 10., 10., i / 3, false)).collect(),
+    );
+    assert_eq!(line_index(&layout, 3), 0, "public inclusive range semantics unchanged");
+    assert_eq!(layout.caret(3).1, 91., "caret belongs to next wrapped line");
+    assert_eq!(line_step(&layout, "abcdefghi", 3, 10., -1), 1);
+    assert_eq!(line_step(&layout, "abcdefghi", 3, 10., 1), 7);
+}
+
+#[test]
+fn line_step_keeps_multibyte_grapheme_and_bidi_cluster_edges() {
+    let text = "a\né\u{301}ב";
+    let mut layout = layout_with(
+        vec![line(0..1, 0., 0., 10., 9., 3., 0), line(2..8, 100., 0., 20., 9., 3., 1)],
+        vec![cluster(0..1, 0., 10., 0, false), cluster(2..6, 0., 10., 1, false), cluster(6..8, 10., 10., 1, true)],
+    );
+    for vertical in [false, true] {
+        layout.vertical = vertical;
+        assert_eq!(line_step(&layout, text, 0, 0., 1), 2);
+        assert_eq!(line_step(&layout, text, 0, 9., 1), 4, "combining grapheme has no interior stop");
+        assert_eq!(line_step(&layout, text, 0, 19., 1), 4, "RTL right edge is its logical start");
+        assert_eq!(line_step(&layout, text, 4, 0., -1), 0);
+    }
+}

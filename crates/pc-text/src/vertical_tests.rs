@@ -317,3 +317,30 @@ fn manual_kerning_runs_along_the_column() {
     let gap = |l: &crate::TextLayout| l.glyphs[3].y - l.glyphs[2].y;
     assert!((gap(&k) - gap(&plain)).abs() < 1e-3);
 }
+
+#[test]
+fn neighboring_line_navigation_with_12pt_type_and_30pt_leading_in_both_orientations() {
+    for orientation in [Orientation::Horizontal, Orientation::Vertical] {
+        let text = "abc\ndef\nghi";
+        let layer = TextLayer {
+            text: text.into(),
+            orientation,
+            runs: vec![TextRun {
+                len: text.len(),
+                style: CharStyle { font_family: "Inter".into(), size_pt: 12., leading_pt: Some(30.), ..Default::default() },
+            }],
+            ..Default::default()
+        };
+        let mut engine = TextEngine::new();
+        let layout = engine.layout(&layer, 72.);
+        assert_eq!(layout.lines.len(), 3);
+        assert!((layout.lines[1].baseline - layout.lines[0].baseline - 30.).abs() < 1e-3);
+        for index in [0, 4] {
+            let next = crate::layout::line_step(&layout, text, index, 0., 1);
+            assert_eq!(next, index + 4);
+            assert_eq!(crate::layout::line_step(&layout, text, next, 0., -1), index);
+        }
+        assert_eq!(crate::layout::line_step(&layout, text, 0, 0., -1), 0);
+        assert_eq!(crate::layout::line_step(&layout, text, 8, 0., 1), text.len());
+    }
+}
