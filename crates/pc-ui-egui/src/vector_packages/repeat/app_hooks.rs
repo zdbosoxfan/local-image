@@ -27,8 +27,11 @@ pub fn open(ctx: &egui::Context) {
 pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut b = bridge(ctx);
     let owner = (app.ui.tool, app.session.prefs().toolbar.persona, app.current_module);
+    let keyboard = crate::shortcuts::canvas_keyboard_available(ctx);
     let cancel = ctx.input(|i| {
-        !i.focused || i.key_pressed(Key::Escape) || i.events.iter().any(|e| matches!(e, egui::Event::PointerGone | egui::Event::WindowFocused(false)))
+        !i.focused
+            || (keyboard && i.key_pressed(Key::Escape))
+            || i.events.iter().any(|e| matches!(e, egui::Event::PointerGone | egui::Event::WindowFocused(false)))
     });
     if cancel || b.owner.is_some_and(|previous| previous != owner) || !app.ui.dialogs.is_empty() {
         b.state.cancel();

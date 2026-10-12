@@ -386,7 +386,8 @@ pub fn frame(app: &crate::PhotocraftApp, ctx: &egui::Context) {
         b.state.cancel();
         b.mode = None;
     }
-    if ctx.input(|i| i.key_pressed(egui::Key::Escape) || !i.focused) || !app.ui.dialogs.is_empty() {
+    let keyboard = crate::shortcuts::canvas_keyboard_available(ctx);
+    if ctx.input(|i| (keyboard && i.key_pressed(egui::Key::Escape)) || !i.focused) || !app.ui.dialogs.is_empty() {
         b.state.cancel();
         b.state.area = None;
     }

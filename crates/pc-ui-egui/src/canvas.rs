@@ -1155,9 +1155,16 @@ pub(crate) fn retain_gpu_documents(app: &mut PhotocraftApp) {
 /// Tabs + canvas for the active document, or the start screen; then drops layers dragged onto
 /// another document (`layer_transfer`).
 pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    airbrush_tick(app, ui.ctx());
+    let blocked = crate::restoration_ui::is_open(app);
+    if blocked {
+        ui.disable();
+    } else {
+        airbrush_tick(app, ui.ctx());
+    }
     documents(app, ui);
-    crate::layer_transfer::finish(app, ui.ctx());
+    if !blocked {
+        crate::layer_transfer::finish(app, ui.ctx());
+    }
 }
 
 /// Window › Arrange tiles: each document shown with its tile in `rect`, or `None` when the
@@ -1781,9 +1788,10 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let pixel_grid = app.ui.view.shows(app.ui.view.show.pixel_grid);
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
     let painter = ui.painter_at(rect);
-    let vector_input = primary && crate::vector_integration::input(app, ui, idx, &response, &xf, rect);
-    let symbol_input = vector_input || (primary && crate::symbols::canvas_input(app, &response, &xf));
-    let move_input = symbol_input || (primary && crate::move_input::canvas_input(app, &response, &xf));
+    let input_enabled = ui.is_enabled() && !crate::restoration_ui::is_open(app);
+    let vector_input = input_enabled && primary && crate::vector_integration::input(app, ui, idx, &response, &xf, rect);
+    let symbol_input = vector_input || (input_enabled && primary && crate::symbols::canvas_input(app, &response, &xf));
+    let move_input = symbol_input || (input_enabled && primary && crate::move_input::canvas_input(app, &response, &xf));
     let doc = if move_input { app.session.documents()[idx].doc.clone() } else { doc };
 
     match crate::prefs_ui::pasteboard_color(app) {
@@ -1987,6 +1995,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         }
     }
 
+    // Restoration owns its own preview and all input, including raw-pointer
+    // routes that bypass egui responses. The underlying camera stays unchanged.
+    if !input_enabled {
+        return view;
+    }
     // Under an open dialog the canvas widget is inert, but the image still pans and zooms.
     let under_dialog = !app.ui.dialogs.is_empty();
     let free_hover = under_dialog && crate::dialogs::free_pointer_over(&ctx, rect).is_some();

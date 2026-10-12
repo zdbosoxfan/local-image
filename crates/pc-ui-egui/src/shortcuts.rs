@@ -281,11 +281,19 @@ pub fn clipboard_keys(ctx: &egui::Context, typing: bool, raw: &mut egui::RawInpu
     raw.events = out;
 }
 
+/// Whether canvas tools may interpret keyboard input. Lifecycle maintenance must
+/// still run while a popup/modal/text or keyboard-focused widget owns the keys.
+pub(crate) fn canvas_keyboard_available(ctx: &egui::Context) -> bool {
+    !egui::Popup::is_any_open(ctx)
+        && ctx.memory(|memory| memory.top_modal_layer().is_none())
+        && crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::None
+}
+
 pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // Camera Raw is modal like Photoshop's filter dialog: no application shortcut (Save, Undo,
     // tools) runs beneath it, and it handles its own keys (Y, U, O, S). Unlike the other dialogs
     // below it covers the canvas, so canvas zoom keys are blocked too.
-    if app.camera_raw.is_some() || app.develop_filter.prompting() || (app.draft_refine.open && ctx.embed_viewports()) {
+    if crate::restoration_ui::is_open(app) || app.camera_raw.is_some() || app.develop_filter.prompting() || (app.draft_refine.open && ctx.embed_viewports()) {
         return;
     }
     // An open menu owns the keyboard (arrows, ↩, Esc), like a native menu.

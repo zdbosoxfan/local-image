@@ -378,10 +378,9 @@ fn watch_saves(app: &PhotocraftApp) {
     }
 }
 
-/// The strip itself: a bottom panel between the toolbar and the dock.
-pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    let ctx = ui.ctx().clone();
-    settle(app, &ctx);
+/// Pending navigation and saved-thumbnail maintenance continue while the panel is hidden.
+fn maintain(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    settle(app, ctx);
     if !is_open() {
         return;
     }
@@ -391,8 +390,17 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         *c = Some(ctx.clone());
     }
     watch_saves(app);
+}
+
+/// The strip itself: a bottom panel between the toolbar and the dock.
+pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let ctx = ui.ctx().clone();
+    maintain(app, &ctx);
+    if !is_open() || !app.ui.view.panels_visible() {
+        return;
+    }
     // Keyboard: ⌘⌥→ / Ctrl+Alt+→ Save & Next; Alt+←/→ (Page Up/Down too) step through the folder.
-    if !ctx.egui_wants_keyboard_input() {
+    if !crate::restoration_ui::is_open(app) && app.ui.text_edit.is_none() && crate::shortcuts::canvas_keyboard_available(&ctx) {
         if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::ArrowRight)) {
             save_and_next(app);
         }
@@ -717,5 +725,94 @@ mod tests {
         // The last image says so instead of wrapping.
         assert!(!step(&mut app, -1) || active_file(&app) == Some(a.clone()));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    fn modal_strip_harness() -> (egui_kittest::Harness<'static, PhotocraftApp>, Arc<std::sync::atomic::AtomicUsize>, u64, u64) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let writes = Arc::new(AtomicUsize::new(0));
+        let sink = writes.clone();
+        let mut app = PhotocraftApp::new(
+            photocraft_engine::Session::new(),
+            crate::Services {
+                export: Some(Box::new(|_, _, _| Ok((vec![1, 2, 3], vec![])))),
+                write: Some(Box::new(move |_, _| {
+                    sink.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                })),
+                ..Default::default()
+            },
+        );
+        let paths = [PathBuf::from("/fixture/modal-strip-a.png"), PathBuf::from("/fixture/modal-strip-b.png")];
+        let mut ids = Vec::new();
+        for path in &paths {
+            app.run("file.new", serde_json::json!({"width":16,"height":16})).unwrap();
+            let state = app.session.active_mut().unwrap();
+            state.path = Some(path.to_string_lossy().into_owned());
+            state.saved_revision = state.revision;
+            ids.push(state.doc.id.0);
+        }
+        app.session.set_active(0);
+        app.session.edit_prefs(|prefs| prefs.interface.save_and_next_saves_to = "original".into());
+        // Already-open documents and already-requested synthetic thumbnails avoid file loads.
+        strip(|state| {
+            *state = Strip { dir: Some(PathBuf::from("/fixture")), files: paths.to_vec(), requested: paths.into_iter().collect(), ..Default::default() }
+        });
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1200., 850.)).build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            app
+        });
+        h.run_steps(5);
+        (h, writes, ids[0], ids[1])
+    }
+
+    #[test]
+    fn restoration_modal_owns_filmstrip_page_and_save_next_keys() {
+        use std::sync::atomic::Ordering;
+        let (mut h, writes, a, _) = modal_strip_harness();
+        h.state_mut().run("layer.new.layer", serde_json::json!({"name":"Unsaved work"})).unwrap();
+        let doc = h.state().session.active().unwrap().doc.clone();
+        assert!(h.state().session.active().unwrap().is_dirty());
+        crate::restoration_ui::open(h.state_mut());
+        h.run_steps(3);
+        for (key, mods) in [
+            (egui::Key::PageDown, egui::Modifiers::NONE),
+            (egui::Key::ArrowRight, egui::Modifiers::ALT),
+            (egui::Key::ArrowRight, egui::Modifiers::COMMAND | egui::Modifiers::ALT),
+        ] {
+            h.key_press_modifiers(mods, key);
+            h.run_steps(3);
+            assert_eq!(h.state().session.active().unwrap().doc.id.0, a);
+            assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc));
+            assert_eq!(writes.load(Ordering::SeqCst), 0);
+            assert!(h.state().tiff_options.is_none() && h.state().overwrite_prompt.is_none());
+            assert!(crate::restoration_ui::is_open(h.state()));
+        }
+        strip(|state| *state = Strip::default());
+    }
+
+    #[test]
+    fn tab_hidden_filmstrip_settles_completed_step_without_closing_dirty_work() {
+        for dirty in [false, true] {
+            let (mut h, _, a, b) = modal_strip_harness();
+            assert!(step(h.state_mut(), 1));
+            assert!(strip(|state| state.pending_close.is_some()));
+            assert_eq!(h.state().session.active().unwrap().doc.id.0, b);
+            if dirty {
+                h.state_mut().session.set_active(0);
+                h.state_mut().run("layer.new.layer", serde_json::json!({"name":"Late edit"})).unwrap();
+                h.state_mut().session.set_active(1);
+            }
+            strip(|state| {
+                state.saved.remove(&b);
+            });
+            h.state_mut().ui.view.panels_hidden = true;
+            h.run_steps(3);
+            assert_eq!(h.state().session.active().unwrap().doc.id.0, b);
+            assert_eq!(h.state().session.documents().iter().any(|state| state.doc.id.0 == a), dirty);
+            assert!(!strip(|state| state.pending_close.is_some()));
+            assert!(h.state().ui.view.panels_hidden && is_open());
+            assert!(strip(|state| state.saved.contains_key(&b)), "save observation continues while hidden");
+            strip(|state| *state = Strip::default());
+        }
     }
 }

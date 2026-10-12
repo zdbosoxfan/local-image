@@ -341,7 +341,7 @@ enum Act {
 
 /// Draws the bar (call every frame after the canvas).
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    if app.ai_remove.is_some() {
+    if !app.ui.view.panels_visible() || app.ai_remove.is_some() || crate::restoration_ui::is_open(app) {
         return;
     }
     reveal_properties(app, ctx);

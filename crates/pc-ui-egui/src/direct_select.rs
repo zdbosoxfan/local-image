@@ -672,7 +672,7 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     if app.ui.tool != Tool::DirectSelection && app.ui.direct_selection.drag.is_none() {
         return false;
     }
-    if ctx.text_edit_focused() {
+    if ctx.text_edit_focused() || crate::restoration_ui::is_open(app) {
         return false;
     }
     if ctx.input_mut(|i| i.consume_key(i.modifiers, egui::Key::Escape)) {

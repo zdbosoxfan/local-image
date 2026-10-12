@@ -75,6 +75,9 @@ impl Default for SnapTo {
 pub struct ViewOptions {
     /// "standard" | "fullScreenWithMenuBar" | "fullScreen" (View › Screen Mode, F cycles).
     pub screen_mode: String,
+    /// Temporary Tab visibility, never persisted as a workspace/panel preference.
+    #[serde(skip)]
+    pub panels_hidden: bool,
     /// View › Extras (⌘H): master switch for guides, grid, edges and other overlays.
     pub extras: bool,
     pub show: Show,
@@ -100,6 +103,7 @@ impl Default for ViewOptions {
     fn default() -> Self {
         Self {
             screen_mode: "standard".into(),
+            panels_hidden: false,
             extras: true,
             show: Show::default(),
             snap_to: SnapTo::default(),
@@ -123,6 +127,9 @@ impl ViewOptions {
     }
     pub fn hides_chrome(&self) -> bool {
         self.screen_mode == "fullScreen"
+    }
+    pub fn panels_visible(&self) -> bool {
+        !self.panels_hidden && !self.hides_chrome()
     }
     pub fn hides_tabs(&self) -> bool {
         self.screen_mode != "standard"
@@ -257,6 +264,7 @@ pub fn handles(id: &str) -> bool {
     matches!(
         id,
         "view.extras"
+            | "view.togglePanels"
             | "view.twoHundredPercent"
             | "view.printSize"
             | "view.fitLayersOnScreen"
@@ -348,6 +356,7 @@ pub fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
         return Some(c);
     }
     Some(match id {
+        "view.togglePanels" => o.panels_hidden,
         "view.extras" => o.extras,
         "view.flipHorizontal" => o.flip_horizontal,
         "view.pixelAspectRatioCorrection" => o.pixel_aspect_correction,
@@ -436,6 +445,10 @@ fn flag_param(p: &Value, cur: bool) -> bool {
 }
 
 fn run(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, p: &Value) -> Result<Value, String> {
+    if id == "view.togglePanels" {
+        app.ui.view.panels_hidden = flag_param(p, app.ui.view.panels_hidden);
+        return Ok(json!({"hidden": app.ui.view.panels_hidden}));
+    }
     if let Some((panel, tab)) = panel_tab(app, id) {
         let group = crate::dock::Group::from_key(panel).unwrap_or(crate::dock::Group::Properties);
         // Like Photoshop: choosing a visible panel's menu item again hides it (its group, or

@@ -391,8 +391,30 @@ fn load_preview(url: String) -> Slot<Option<egui::ColorImage>> {
     slot
 }
 
+#[cfg(test)]
+thread_local! { static TEST_PLAN: RefCell<Option<Plan>> = const { RefCell::new(None) }; }
+
+#[cfg(test)]
+pub(crate) struct TestPlanGuard;
+#[cfg(test)]
+impl Drop for TestPlanGuard {
+    fn drop(&mut self) {
+        TEST_PLAN.with(|plan| *plan.borrow_mut() = None);
+    }
+}
+#[cfg(test)]
+pub(crate) fn test_install_plan(plan: Plan) -> TestPlanGuard {
+    TEST_PLAN.with(|next| *next.borrow_mut() = Some(plan));
+    with(|s| s.installed = Some((std::time::Instant::now(), Arc::new(HashSet::new()))));
+    TestPlanGuard
+}
+
 /// Resolves what installing `item` downloads (and, for a template, its workflow).
 fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
+    #[cfg(test)]
+    if let Some(plan) = TEST_PLAN.with(|next| next.borrow_mut().take()) {
+        return Arc::new(Mutex::new(Some(Ok((plan, None)))));
+    }
     let slot = Arc::new(Mutex::new(None));
     let out = slot.clone();
     let lang = crate::i18n::current();
@@ -608,20 +630,34 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut open = true;
     let screen = ctx.content_rect().size();
     let size = vec2((screen.x - 160.0).clamp(640.0, 1120.0), (screen.y - 200.0).clamp(380.0, 680.0));
-    egui::Window::new(tl!("Model Browser"))
-        .collapsible(false)
-        .resizable(false)
-        .fixed_size(size)
-        .frame(egui::Frame::window(&ctx.global_style()).fill(t.card).stroke(Stroke::new(1.0, t.card_border)).inner_margin(egui::Margin::same(0)))
-        .open(&mut open)
-        .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
-        .show(ctx, |ui| {
-            if with(|s| matches!(&s.nav, Nav::Family(f) if f == "restoration")) && ui.button(tl!("Bring your own model…")).clicked() {
-                crate::restoration_ui::open(app);
-                close();
-            }
-            with(|s| body(ui, s, &t));
+    if crate::restoration_ui::model_browser_is_modal(app) {
+        let modal = egui::Modal::new(egui::Id::new("restoration-model-browser")).backdrop_color(Color32::TRANSPARENT).show(ctx, |ui| {
+            ui.set_width(size.x);
+            ui.horizontal(|ui| {
+                ui.heading(tl!("Model Browser"));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(tl!("Close")).clicked() {
+                        open = false;
+                    }
+                });
+            });
+            ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Min), |ui| browser_content(app, ui, &t));
         });
+        #[cfg(test)]
+        ctx.data_mut(|data| data.insert_temp(egui::Id::new("restoration-model-browser-rect"), modal.response.rect));
+        if modal.is_top_modal && !modal.any_popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            open = false;
+        }
+    } else {
+        egui::Window::new(tl!("Model Browser"))
+            .collapsible(false)
+            .resizable(false)
+            .fixed_size(size)
+            .frame(egui::Frame::window(&ctx.global_style()).fill(t.card).stroke(Stroke::new(1.0, t.card_border)).inner_margin(egui::Margin::same(0)))
+            .open(&mut open)
+            .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .show(ctx, |ui| browser_content(app, ui, &t));
+    }
     confirm_window(ctx, &t);
     if !open {
         with(|s| {
@@ -630,6 +666,14 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         });
     }
     let _ = app;
+}
+
+fn browser_content(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
+    if with(|s| matches!(&s.nav, Nav::Family(f) if f == "restoration")) && ui.button(tl!("Bring your own model…")).clicked() {
+        crate::restoration_ui::open(app);
+        close();
+    }
+    with(|s| body(ui, s, t));
 }
 
 fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
@@ -724,9 +768,9 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
         ui.allocate_ui_with_layout(vec2(full.x - side, h), egui::Layout::top_down(egui::Align::LEFT), |ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
             egui::Frame::new().inner_margin(egui::Margin { left: 14, right: 14, top: 12, bottom: 0 }).show(ui, |ui| {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let hint = if s.kind == Kind::Lora { tl!("Search LoRAs") } else { tl!("Search models") };
-                    let resp = ui.add(egui::TextEdit::singleline(&mut s.search).hint_text(hint).desired_width(240.0));
+                    let resp = ui.add(egui::TextEdit::singleline(&mut s.search).hint_text(hint).desired_width(ui.available_width().min(240.0)));
                     if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         s.loaded = None;
                     }
@@ -1085,7 +1129,7 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| widgets::dialog_buttons(ui, list)).inner
     };
     // Like every dialog: no dimming behind it.
-    egui::Modal::new(egui::Id::new("browser-confirm")).backdrop_color(Color32::TRANSPARENT).show(ctx, |ui| {
+    let modal = egui::Modal::new(egui::Id::new("browser-confirm")).backdrop_color(Color32::TRANSPARENT).show(ctx, |ui| {
         ui.set_width(500.0);
         ui.label(RichText::new(crate::i18n::fmt(tl!("Install {name}"), &[("name", &item.title)])).size(15.0).strong().color(t.text));
         ui.add_space(6.0);
@@ -1181,6 +1225,9 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
             }
         }
     });
+    #[cfg(test)]
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new("browser-confirm-rect"), modal.response.rect));
+    close |= modal.is_top_modal && !modal.any_popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
     with(|s| {
         if let Some(c) = s.confirm.as_mut() {
             c.accept = accept;

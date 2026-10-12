@@ -93,7 +93,9 @@ impl State {
         self.hover_edge = None;
     }
     pub fn frame(&mut self, session: &Session, ctx: &egui::Context, active: bool) {
-        let cancel = ctx.input(|i| !i.focused || i.key_pressed(Key::Escape) || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false))));
+        let keyboard = crate::shortcuts::canvas_keyboard_available(ctx);
+        let cancel =
+            ctx.input(|i| !i.focused || (keyboard && i.key_pressed(Key::Escape)) || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false))));
         if !active || cancel || self.drag.as_ref().is_some_and(|d| !d.gesture.is_current(session)) {
             self.cancel();
         }

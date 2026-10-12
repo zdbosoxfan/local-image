@@ -4,11 +4,32 @@ use egui_kittest::{Harness, kittest::Queryable};
 use image::Rgba;
 use serde_json::json;
 
+// Reuse the existing CPU mesh painter so the compact modal artifact needs no GPU or inference.
+#[derive(Default)]
+struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
+impl egui_kittest::TestRenderer for CpuRenderer {
+    fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
+        self.0.apply(std::mem::take(delta));
+    }
+    fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
+        let scale = output.pixels_per_point;
+        let size = ctx.content_rect().size() * scale;
+        let primitives = ctx.tessellate(output.shapes.clone(), scale);
+        let image = crate::tool_icon_tests::cpu::paint(&primitives, &self.0, [size.x as usize, size.y as usize], scale, crate::theme::Tokens::get(ctx).canvas);
+        image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, image.pixels.iter().flat_map(|p| p.to_array()).collect())
+            .ok_or_else(|| "invalid CPU image size".into())
+    }
+}
+
 fn harness() -> Harness<'static, PhotocraftApp> {
+    harness_at(vec2(1200.0, 850.0), 1.0)
+}
+
+fn harness_at(size: egui::Vec2, ppp: f32) -> Harness<'static, PhotocraftApp> {
     let mut session = photocraft_engine::Session::new();
     session.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
     session.execute("edit.fill", json!({"color": "#334455"})).unwrap();
-    let mut h = Harness::builder().with_size(vec2(1200.0, 850.0)).with_max_steps(64).build_eframe(move |cc| {
+    let mut h = Harness::builder().with_size(size).with_pixels_per_point(ppp).with_max_steps(64).renderer(CpuRenderer::default()).build_eframe(move |cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
         PhotocraftApp::new(session, crate::Services::default())
     });
@@ -72,6 +93,38 @@ fn restoration_ui_menu_task_preview_split_apply_and_one_undo() {
     assert_eq!(h.state().session.active().unwrap().doc, before);
     h.state_mut().run("edit.redo", json!({})).unwrap();
     assert_eq!(h.state().session.active().unwrap().doc.layers.len(), before.layers.len() + 1);
+}
+
+#[test]
+fn restoration_modal_first_menu_click_stays_under_pointer_at_fractional_scales() {
+    for size in [vec2(760., 480.), vec2(1200., 850.)] {
+        for ppp in [1.0, 1.25, 2.0] {
+            let mut h = harness_at(size, ppp);
+            open_menu(&mut h);
+            let target = h.get_by_label("Clean up scan").rect();
+            let point = target.center();
+            let cancel = h.get_by_label("Cancel").rect();
+            let modal = h.ctx.memory(|m| m.area_rect(egui::Id::new("restoration-dialog"))).unwrap();
+            assert!(h.ctx.content_rect().contains_rect(modal), "{size:?} / {ppp}: modal is reachable");
+            for (phase, event) in [
+                ("hover", Event::PointerMoved(point)),
+                ("down", Event::PointerButton { pos: point, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }),
+                ("up", Event::PointerButton { pos: point, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }),
+            ] {
+                h.event(event);
+                h.step();
+                let current = h.get_by_label("Clean up scan").rect();
+                assert_eq!(current.top(), target.top(), "{size:?} / {ppp} / {phase}: task row cannot move under the first click");
+                assert!(current.contains(point), "{size:?} / {ppp} / {phase}: original click point remains inside the task");
+                assert_eq!(h.get_by_label("Cancel").rect(), cancel, "{size:?} / {ppp} / {phase}: footer remains stationary");
+                assert_eq!(h.ctx.layer_id_at(point), Some(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("restoration-dialog"))));
+            }
+            assert_eq!(h.state().restoration.task, Task::Scan, "a single first click selects the task");
+            h.get_by_label("Cancel").click();
+            h.run_steps(2);
+            assert!(!h.state().restoration.open);
+        }
+    }
 }
 
 #[test]
@@ -491,4 +544,291 @@ fn restoration_ui_import_rejects_unpinned_file_without_document_edits() {
     assert!(h.state().restoration.message.contains("size mismatch"));
     assert_eq!(h.state().session.active().unwrap().doc, before);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+fn click_at(h: &mut Harness<'_, PhotocraftApp>, point: egui::Pos2) {
+    h.hover_at(point);
+    h.event(Event::PointerButton { pos: point, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    h.run_steps(1);
+    h.event(Event::PointerButton { pos: point, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(2);
+}
+
+#[test]
+fn restoration_modal_owns_first_frame_pointer_keys_and_contextual_overlay() {
+    let mut h = harness();
+    h.state_mut().run("layer.new.layer", json!({"name":"Restore target"})).unwrap();
+    h.state_mut().run("edit.fill", json!({"color":"#223344"})).unwrap();
+    h.run_steps(3);
+    let bar = h.ctx.memory(|m| m.area_rect(egui::Id::new("li-context-bar"))).expect("real contextual bar before the modal");
+    assert!(h.query_all_by_label("Select Subject").any(|node| bar.contains(node.rect().center())));
+    h.key_press(egui::Key::B);
+    h.run_steps(2);
+    let doc = h.state().session.active().unwrap().doc.clone();
+    let view = h.state().ui.views[0].clone();
+    let center = h.state().last_canvas_rect.center();
+    let ctx = h.ctx.clone();
+    crate::menus::invoke(h.state_mut(), &ctx, "ai.restore", json!({})).unwrap();
+    // Before any previous-frame modal layer exists, raw canvas input must already be blocked.
+    click_at(&mut h, center);
+    assert!(h.state().restoration.open);
+    assert!(!h.query_all_by_label("Select Subject").any(|node| bar.contains(node.rect().center())), "contextual bar is absent while the modal owns the canvas");
+    assert_eq!(h.ctx.memory(|m| m.top_modal_layer()).unwrap().id, egui::Id::new("restoration-dialog"));
+    for key in [egui::Key::Delete, egui::Key::Backspace, egui::Key::Tab, egui::Key::V] {
+        h.key_press(key);
+        h.run_steps(2);
+    }
+    let outside = egui::pos2(h.state().last_canvas_rect.left() + 4., h.state().last_canvas_rect.top() + 4.);
+    h.hover_at(outside);
+    h.event(Event::PointerButton { pos: outside, button: PointerButton::Middle, pressed: true, modifiers: Modifiers::NONE });
+    h.run_steps(1);
+    h.event(Event::PointerMoved(outside + vec2(40., 25.)));
+    h.run_steps(1);
+    h.event(Event::PointerButton { pos: outside + vec2(40., 25.), button: PointerButton::Middle, pressed: false, modifiers: Modifiers::NONE });
+    h.event(Event::Zoom(2.0));
+    h.run_steps(2);
+    assert_eq!(h.state().ui.views[0], view, "underlying navigation is inert");
+    assert!(!h.state().ui.view.panels_hidden, "modal owns Tab");
+    assert_eq!(h.state().ui.tool, crate::state::Tool::Brush);
+    assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc));
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert!(!h.state().restoration.open);
+    assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc));
+}
+
+#[test]
+fn restoration_modal_actions_stay_reachable_at_compact_fractional_scales() {
+    for ppp in [1.0, 1.25, 2.0] {
+        let mut h = harness_at(vec2(760., 480.), ppp);
+        open(h.state_mut());
+        h.run_steps(4);
+        inject(&mut h);
+        let modal: egui::Rect = h.ctx.data(|d| d.get_temp(egui::Id::new("restoration-modal-rect"))).unwrap();
+        assert!(h.ctx.content_rect().contains_rect(modal), "{ppp}: {modal:?}");
+        if ppp == 1.25 {
+            let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/restoration-ux");
+            std::fs::create_dir_all(&dir).unwrap();
+            h.render().unwrap().save(dir.join("restore-compact-125.png")).unwrap();
+        }
+        h.get_by_label("Before / after split").scroll_to_me();
+        h.run_steps(3);
+        for label in ["Preview restoration", "Apply as new layer", "Cancel"] {
+            assert!(modal.contains_rect(h.get_by_label(label).rect()), "{ppp}: {label} is clipped");
+        }
+        click_at(&mut h, egui::pos2(4., 240.));
+        assert!(h.state().restoration.open, "backdrop clicks never discard preview");
+        assert!(h.state().restoration.result.is_some());
+        h.get_by_label("Apply as new layer").click();
+        h.run_steps(3);
+        assert!(!h.state().restoration.open);
+        assert_eq!(h.state().session.active().unwrap().doc.layers.len(), 2);
+    }
+}
+
+#[test]
+fn restoration_modal_blocks_direct_node_delete_without_discarding_selection() {
+    let mut h = harness();
+    h.state_mut().run("path.set", json!({"name":"work","path":{"subpaths":[{"closed":true,"knots":[[8,8],[50,8],[50,40],[8,40]]}]}})).unwrap();
+    h.key_press(egui::Key::A);
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::SHIFT, egui::Key::A);
+    h.run_steps(3);
+    assert_eq!(h.state().ui.tool, crate::state::Tool::DirectSelection);
+    let point = crate::canvas::ViewXform::active(h.state()).unwrap().to_screen(8., 8.);
+    click_at(&mut h, point);
+    assert!(!h.state().ui.direct_selection.anchors.is_empty());
+    let anchors = h.state().ui.direct_selection.anchors.clone();
+    let doc = h.state().session.active().unwrap().doc.clone();
+    open_menu(&mut h);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(2);
+    h.key_press(egui::Key::Backspace);
+    h.run_steps(2);
+    assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc));
+    assert_eq!(h.state().ui.direct_selection.anchors, anchors);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(!h.state().restoration.open, "Restore owns Escape before direct-selection handler");
+    assert_eq!(h.state().ui.direct_selection.anchors, anchors);
+    assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc));
+}
+
+#[test]
+fn restoration_model_browser_is_a_modal_child_and_escape_returns_to_preview() {
+    let mut h = harness();
+    open_menu(&mut h);
+    inject(&mut h);
+    let result = h.state().restoration.result.clone();
+    h.get_by_label("Install restoration models…").click();
+    h.run_steps(4);
+    assert!(crate::model_browser::is_open());
+    assert_eq!(h.ctx.memory(|m| m.top_modal_layer()).unwrap().id, egui::Id::new("restoration-model-browser"));
+    h.get_by_label("FBCNN · JPEG cleanup");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    assert!(!crate::model_browser::is_open());
+    assert!(h.state().restoration.open);
+    assert_eq!(h.state().restoration.result, result);
+    h.get_by_label("Apply as new layer");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(!h.state().restoration.open);
+}
+
+#[test]
+fn restoration_escape_cancels_its_preview_without_cancelling_an_unrelated_job() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let mut h = harness();
+    let gate = Arc::new(AtomicBool::new(false));
+    let worker = gate.clone();
+    let job = h
+        .state_mut()
+        .session
+        .start_job(
+            "test.restore-owner",
+            json!({}),
+            "Unrelated background work",
+            false,
+            move |ctx| {
+                let end = Instant::now() + Duration::from_secs(10);
+                while !worker.load(Ordering::SeqCst) {
+                    ctx.check()?;
+                    if Instant::now() >= end {
+                        return Err(photocraft_engine::EngineError::Other("fixture deadline".into()));
+                    }
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                Ok(())
+            },
+            |_, ()| Ok(json!({"done":true})),
+        )
+        .unwrap();
+    let photocraft_engine::jobs::Started::Job(job) = job else { panic!("worker") };
+    open_menu(&mut h);
+    let ctl = li_ai::JobControl::new();
+    h.state_mut().restoration.ctl = Some(ctl.clone());
+    h.state_mut().restoration.pending = Some(Arc::new(Mutex::new(None)));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(ctl.is_cancelled());
+    assert!(!h.state().restoration.open);
+    assert!(h.state().session.job(job).is_some(), "modal Escape cannot cancel unrelated work");
+    gate.store(true, Ordering::SeqCst);
+    let end = Instant::now() + Duration::from_secs(10);
+    while h.state().session.has_jobs() {
+        assert!(Instant::now() < end);
+        h.run_steps(1);
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+#[test]
+fn restoration_checkpoint_popup_owns_escape_without_cancelling_vector_brush_preview() {
+    use egui_kittest::kittest::By;
+    for (size, ppp) in [(vec2(1200., 850.), 1.), (vec2(760., 480.), 1.25)] {
+        let mut h = harness_at(size, ppp);
+        h.get_by_label("Vector persona").click();
+        h.run_steps(3);
+        h.get_by_label("Vector Brush Tool").scroll_to_me();
+        h.run_steps(3);
+        h.get_by_label("Vector Brush Tool").click();
+        h.run_steps(3);
+        {
+            let app = h.state_mut();
+            app.vector_brush.pointer(&mut app.session, crate::canvas::ToolEvent::Down { x: 8., y: 8., pressure: 1. }).unwrap();
+            app.vector_brush.pointer(&mut app.session, crate::canvas::ToolEvent::Move { x: 35., y: 25., pressure: 1. }).unwrap();
+        }
+        let draft = h.state().vector_brush.preview().unwrap().document.clone();
+        let doc = h.state().session.active().unwrap().doc.clone();
+        open(h.state_mut());
+        let model = byo::Model {
+            kind: byo::Kind::StableSr,
+            file: "fixture-stablesr.ckpt".into(),
+            folder: "upscale_models".into(),
+            adapter: Some(byo::Adapter::StableSr),
+            reason: String::new(),
+        };
+        h.state_mut().restoration.byo_models = vec![model.clone()];
+        h.state_mut().restoration.selected_byo = Some(model);
+        h.state_mut().restoration.checkpoints = vec!["fixture-a.safetensors".into(), "fixture-b.safetensors".into()];
+        h.state_mut().restoration.checkpoint = "fixture-a.safetensors".into();
+        h.run_steps(3);
+        inject(&mut h);
+        h.get_by_label("Bring your own model").click();
+        h.run_steps(3);
+        let combo = By::new().role(egui::accesskit::Role::ComboBox).value("fixture-a.safetensors");
+        h.get(combo.clone()).scroll_to_me();
+        h.run_steps(3);
+        h.get(combo).click();
+        h.run_steps(3);
+        assert!(egui::Popup::is_any_open(&h.ctx));
+        h.get_by_label("fixture-b.safetensors");
+        let preview = h.state().restoration.result.clone();
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(!egui::Popup::is_any_open(&h.ctx), "Escape must reach the checkpoint popup");
+        assert!(h.state().restoration.open);
+        assert_eq!(h.state().restoration.result, preview);
+        assert_eq!(h.state().restoration.checkpoint, "fixture-a.safetensors");
+        assert!(h.state().vector_brush.active());
+        assert!(Arc::ptr_eq(&h.state().vector_brush.preview().unwrap().document, &draft));
+        assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc));
+        // Modal ownership must not suspend stale-source cleanup.
+        h.state_mut()
+            .session
+            .edit("External source update", |doc, _| {
+                doc.name = "Changed".into();
+                Ok(())
+            })
+            .unwrap();
+        h.run_steps(2);
+        assert!(!h.state().vector_brush.active());
+        assert!(h.state().vector_brush.preview().is_none());
+    }
+}
+
+#[test]
+fn restoration_install_confirmation_escape_closes_only_the_top_modal_at_compact_size() {
+    for ppp in [1., 1.25, 2.] {
+        let mut h = harness_at(vec2(760., 480.), ppp);
+        open(h.state_mut());
+        h.run_steps(3);
+        inject(&mut h);
+        let preview = h.state().restoration.result.clone();
+        h.get_by_label("Install restoration models…").click();
+        h.run_steps(4);
+        let browser: egui::Rect = h.ctx.data(|d| d.get_temp(egui::Id::new("restoration-model-browser-rect"))).unwrap();
+        assert!(h.ctx.content_rect().contains_rect(browser), "{ppp}: child {browser:?}");
+        let _plan = crate::model_browser::test_install_plan(li_ai::browser::Plan {
+            files: vec![],
+            present: vec!["fixture-local-model".into()],
+            license: "Fixture licence".into(),
+            license_url: None,
+            gated: false,
+        });
+        h.run_steps(1);
+        h.get_all_by_label("Install").next().expect("actual model card install control").scroll_to_me();
+        h.run_steps(3);
+        h.get_all_by_label("Install").next().unwrap().click();
+        h.run_steps(3);
+        assert_eq!(h.ctx.memory(|m| m.top_modal_layer()).unwrap().id, egui::Id::new("browser-confirm"));
+        let confirm: egui::Rect = h.ctx.data(|d| d.get_temp(egui::Id::new("browser-confirm-rect"))).unwrap();
+        assert!(h.ctx.content_rect().contains_rect(confirm), "{ppp}: confirmation {confirm:?}");
+        assert!(confirm.contains_rect(h.get_by_label("Cancel").rect()));
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(crate::model_browser::is_open());
+        assert!(h.state().restoration.open);
+        assert_eq!(h.state().restoration.result, preview);
+        assert_eq!(h.ctx.memory(|m| m.top_modal_layer()).unwrap().id, egui::Id::new("restoration-model-browser"));
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(!crate::model_browser::is_open());
+        assert!(h.state().restoration.open);
+        assert_eq!(h.state().restoration.result, preview);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(!h.state().restoration.open);
+    }
 }

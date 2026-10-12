@@ -217,7 +217,7 @@ impl Focus {
 /// What decides which keys [`crate::shortcuts::handle`] gives the shortcuts: an open menu, a
 /// dialog, the unsaved-changes prompt, a warp or the Filter Gallery, inline type.
 fn key_owner(app: &PhotocraftApp, ctx: &egui::Context) -> (bool, usize, bool, bool, bool) {
-    let distort = app.distort.active() || app.distort.gallery.is_some();
+    let distort = app.distort.active() || app.distort.gallery.is_some() || crate::restoration_ui::is_open(app);
     (crate::menu_nav::is_open(ctx), app.ui.dialogs.len(), app.discard.is_some(), distort, app.ui.text_edit.is_some())
 }
 
@@ -233,10 +233,25 @@ pub fn dispatch_pressed(app: &mut PhotocraftApp, ctx: &egui::Context, focus: Foc
         return false;
     }
     const TEXT_OWNED: [&str; 6] = ["edit.copy", "edit.cut", "edit.paste", "edit.copyMerged", "select.all", "edit.pasteSpecial.pasteInPlace"];
-    let table: Vec<(String, KeyboardShortcut)> =
-        bindings(app).into_iter().filter(|(id, sc)| focus.allows(sc) && !(editing && TEXT_OWNED.contains(&id.as_str()))).collect();
+    let panels_allowed = focus == Focus::None
+        && !editing
+        && app.ui.text_edit.is_none()
+        && app.ui.dialogs.is_empty()
+        && app.discard.is_none()
+        && !app.distort.active()
+        && app.distort.gallery.is_none()
+        && !crate::restoration_ui::is_open(app)
+        && !crate::menu_nav::is_open(ctx)
+        && !egui::Popup::is_any_open(ctx)
+        && ctx.memory(|memory| memory.top_modal_layer().is_none());
+    let table: Vec<(String, KeyboardShortcut)> = bindings(app)
+        .into_iter()
+        .filter(|(id, sc)| focus.allows(sc) && !(editing && TEXT_OWNED.contains(&id.as_str())) && (id != "view.togglePanels" || panels_allowed))
+        .collect();
     let command = |e: &egui::Event| match e {
-        egui::Event::Key { key, pressed: true, modifiers, .. } => table.iter().find(|(_, sc)| key_matches(sc, *key, *modifiers)).map(|(id, _)| id.clone()),
+        egui::Event::Key { key, pressed: true, modifiers, .. } => {
+            table.iter().find(|(_, sc)| key_matches(sc, *key, *modifiers)).map(|(id, _)| (id.clone(), *key == Key::Tab))
+        }
         _ => None,
     };
     let mut ran = false;
@@ -246,7 +261,11 @@ pub fn dispatch_pressed(app: &mut PhotocraftApp, ctx: &egui::Context, focus: Foc
             i.events.remove(at);
             Some(id)
         });
-        let Some(id) = next else { break };
+        let Some((id, tab)) = next else { break };
+        if tab {
+            // begin_pass already queued traversal; this key belongs to an app command.
+            ctx.memory_mut(|memory| memory.move_focus(egui::FocusDirection::None));
+        }
         let owner = key_owner(app, ctx);
         dispatch(app, ctx, &id);
         ran = true;

@@ -132,7 +132,7 @@ impl State {
     }
     pub fn frame(&mut self, session: &Session, ctx: &egui::Context, active: bool) {
         let lost = ctx.input(|i| !i.focused || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false))));
-        let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        let escape = crate::shortcuts::canvas_keyboard_available(ctx) && ctx.input(|i| i.key_pressed(egui::Key::Escape));
         let stale = self.drag.as_ref().is_some_and(|d| !d.gesture.is_current(session)) || self.controls.as_ref().is_some_and(|g| !g.is_current(session));
         if !active || lost || escape || stale {
             self.cancel();

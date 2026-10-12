@@ -167,7 +167,7 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) {
     app.shared_tools = shared;
     let ids = app.session.active().map(|st| st.selected_layers()).unwrap_or_default();
     let focused = ctx.input(|i| i.focused);
-    let escape = crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::None && ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    let escape = crate::shortcuts::canvas_keyboard_available(ctx) && ctx.input(|i| i.key_pressed(egui::Key::Escape));
     if !focused {
         let mut shared = std::mem::take(&mut app.shared_tools);
         shared.suspend(app);
@@ -237,7 +237,9 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) {
             Err(e) => crate::notices::error(app, e),
         }
     }
-    crate::vector_packages::layout_app_hooks::window(app, ctx);
+    if app.ui.view.panels_visible() {
+        crate::vector_packages::layout_app_hooks::window(app, ctx);
+    }
     windows(app, ctx);
     crate::graphic_styles::frame(app, ctx);
     crate::object_path::app_hooks::dialogs(app, ctx);
@@ -1051,6 +1053,11 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     false
 }
 
+#[cfg(test)]
+pub(crate) fn open_panels_for_test(app: &PhotocraftApp) -> &std::collections::BTreeSet<String> {
+    &app.vector_runtime.windows
+}
+
 pub fn set_panel_open(app: &mut PhotocraftApp, name: &str, open: bool) {
     if open {
         app.vector_runtime.windows.insert(name.into());
@@ -1315,7 +1322,7 @@ pub(crate) fn keyboard_preset(ui: &mut egui::Ui, preset: &mut photocraft_engine:
 }
 
 fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    let names: Vec<_> = app.vector_runtime.windows.iter().cloned().collect();
+    let names: Vec<_> = if app.ui.view.panels_visible() { app.vector_runtime.windows.iter().cloned().collect() } else { Vec::new() };
     for name in names {
         let mut open = true;
         egui::Window::new(crate::i18n::t(&name)).id(egui::Id::new(("vector-panel", &name))).open(&mut open).show(ctx, |ui| {

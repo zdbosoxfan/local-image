@@ -85,7 +85,8 @@ impl State {
     }
 }
 pub fn panel(ui: &mut Ui, session: &mut Session, state: &mut State, targets: &[LayerId], tr: impl Fn(&'static str) -> String) {
-    state.maintain(session, targets, ui.input(cancel_input));
+    let keyboard = crate::shortcuts::canvas_keyboard_available(ui.ctx());
+    state.maintain(session, targets, ui.input(|i| cancel_input(i, keyboard)));
     let Some(st) = session.active() else {
         ui.label(tr("No document"));
         return;
@@ -341,8 +342,8 @@ struct InputCapture {
     zoom: f32,
     flip: bool,
 }
-fn cancel_input(i: &egui::InputState) -> bool {
-    !i.focused || i.key_pressed(egui::Key::Escape) || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)))
+fn cancel_input(i: &egui::InputState, keyboard: bool) -> bool {
+    !i.focused || (keyboard && i.key_pressed(egui::Key::Escape)) || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)))
 }
 /// Uses the app's existing captured-pointer contract; placement works with any active tool.
 pub fn canvas_input(app: &mut crate::PhotocraftApp, response: &egui::Response, xf: &crate::canvas::ViewXform) -> bool {
@@ -352,8 +353,10 @@ pub fn canvas_input(app: &mut crate::PhotocraftApp, response: &egui::Response, x
     if response.hovered() {
         response.ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
     }
-    let (pressed, released, down, pos, cancel) =
-        response.ctx.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.primary_down(), i.pointer.latest_pos(), cancel_input(i)));
+    let keyboard = crate::shortcuts::canvas_keyboard_available(&response.ctx);
+    let (pressed, released, down, pos, cancel) = response
+        .ctx
+        .input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.primary_down(), i.pointer.latest_pos(), cancel_input(i, keyboard)));
     if cancel {
         app.ui.symbols.cancel();
         return true;
@@ -408,7 +411,8 @@ pub fn open_panel(app: &mut crate::PhotocraftApp) {
 /// Frame guard runs even when the Symbols tab is hidden.
 pub fn frame(app: &mut crate::PhotocraftApp, ctx: &egui::Context) {
     let context = (app.ui.tool, app.session.prefs().toolbar.persona);
-    let cancel = app.ui.symbols.context.is_some_and(|old| old != context) || ctx.input(cancel_input);
+    let keyboard = crate::shortcuts::canvas_keyboard_available(ctx);
+    let cancel = app.ui.symbols.context.is_some_and(|old| old != context) || ctx.input(|i| cancel_input(i, keyboard));
     let targets = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
     app.ui.symbols.maintain(&app.session, &targets, cancel);
     app.ui.symbols.context = Some(context);

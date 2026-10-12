@@ -91,7 +91,7 @@ enum Place {
     LayersRow,
     /// Just after clicking into the Layers panel's Opacity field (a text field now).
     OpacityField,
-    /// A non-text widget focused (Tab from nothing focuses the first one, as egui does).
+    /// A non-text widget focused (Shift+Tab retains egui's reverse traversal).
     FocusedWidget,
 }
 
@@ -123,9 +123,9 @@ fn put_focus(h: &mut Harness<'_, PhotocraftApp>, place: Place) {
             assert_eq!(Focus::of(&h.ctx), Focus::Text, "clicking a value field edits it");
         }
         Place::FocusedWidget => {
-            h.event(egui::Event::Key { key: Key::Tab, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE });
+            h.event(egui::Event::Key { key: Key::Tab, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::SHIFT });
             h.run_steps(2);
-            assert_eq!(Focus::of(&h.ctx), Focus::Widget, "Tab focused a widget");
+            assert_eq!(Focus::of(&h.ctx), Focus::Widget, "Shift+Tab focused a widget");
         }
     }
     take_log(&h.ctx);
@@ -192,6 +192,12 @@ fn every_displayed_shortcut_dispatches_from_where_focus_usually_is() {
             if !live {
                 continue;
             }
+            // Dry-run prevents commands, but native keys such as Tab still move field focus.
+            // Every chord must start at the real place this case claims to exercise.
+            if Focus::of(&h.ctx) != focus {
+                put_focus(&mut h, place);
+            }
+            assert_eq!(Focus::of(&h.ctx), focus, "{place:?}: restore intended focus before {sc} ({id})");
             let parsed = parse(&sc).unwrap();
             press(&mut h, &sc);
             let log = take_log(&h.ctx);
@@ -492,4 +498,57 @@ fn vector_command_default_ignores_a_pixel_only_tool_override_collision() {
         assert!(h.state().ui.dialogs.iter().any(|d| crate::prefs_ui::is_preferences(&d.fields)));
         assert_eq!(h.state().session.prefs().toolbar.persona, photocraft_engine::toolsets::Persona::Vector);
     }
+}
+
+#[test]
+fn tab_keeps_widget_text_menu_and_dialog_keyboard_ownership() {
+    for place in [Place::FocusedWidget, Place::OpacityField] {
+        let mut h = harness();
+        put_focus(&mut h, place);
+        press(&mut h, "Tab");
+        assert!(!h.state().ui.view.panels_hidden, "{place:?} owns Tab");
+    }
+    let mut h = harness();
+    h.state_mut().run("type.create", json!({"text":"Tab remains text input","x":20,"y":60})).unwrap();
+    crate::type_tool::edit_active(h.state_mut()).unwrap();
+    h.run_steps(3);
+    press(&mut h, "Tab");
+    assert!(!h.state().ui.view.panels_hidden);
+    assert!(h.state().ui.text_edit.is_some());
+    crate::type_tool::commit(h.state_mut());
+    crate::prefs_ui::open_preferences(h.state_mut(), "interface");
+    h.run_steps(3);
+    press(&mut h, "Tab");
+    assert!(!h.state().ui.view.panels_hidden);
+    assert!(!h.state().ui.dialogs.is_empty());
+    press(&mut h, "Escape");
+    h.get_by_label("View").click();
+    h.run_steps(3);
+    press(&mut h, "Tab");
+    assert!(!h.state().ui.view.panels_hidden, "menu owns Tab");
+}
+
+#[test]
+fn vector_brush_escape_respects_prepass_text_focus_then_cancels_on_canvas() {
+    let mut h = harness();
+    h.get_by_label("Vector persona").click();
+    h.run_steps(3);
+    h.get_by_label("Vector Brush Tool").scroll_to_me();
+    h.run_steps(2);
+    h.get_by_label("Vector Brush Tool").click();
+    h.run_steps(3);
+    // Focus first: a real pointer release would finish an already captured brush draft.
+    put_focus(&mut h, Place::OpacityField);
+    {
+        let app = h.state_mut();
+        app.vector_brush.pointer(&mut app.session, crate::canvas::ToolEvent::Down { x: 20., y: 20., pressure: 1. }).unwrap();
+        app.vector_brush.pointer(&mut app.session, crate::canvas::ToolEvent::Move { x: 70., y: 35., pressure: 1. }).unwrap();
+    }
+    let preview = h.state().vector_brush.preview().unwrap().document.clone();
+    assert!(h.state().vector_brush.active());
+    press(&mut h, "Escape");
+    assert!(h.state().vector_brush.active(), "field Escape must not cancel the underlying draft");
+    assert!(std::sync::Arc::ptr_eq(&h.state().vector_brush.preview().unwrap().document, &preview));
+    press(&mut h, "Escape");
+    assert!(!h.state().vector_brush.active(), "the next canvas-owned Escape cancels the draft");
 }

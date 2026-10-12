@@ -517,7 +517,7 @@ pub fn activate(app: &crate::PhotocraftApp, ctx: &egui::Context, tool: Tool, nod
 }
 pub fn frame(app: &crate::PhotocraftApp, ctx: &egui::Context) {
     let mut b = bridge(ctx);
-    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+    if crate::shortcuts::canvas_keyboard_available(ctx) && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         b.state.cancel();
     }
     if b.owner.is_some_and(|t| t != app.ui.tool)

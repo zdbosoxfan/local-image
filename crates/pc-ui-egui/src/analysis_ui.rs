@@ -531,6 +531,9 @@ pub(crate) fn title_row(ui: &mut egui::Ui, title: &str) -> bool {
 
 /// A floating panel window; `movable` follows Window › Workspace › Lock Workspace.
 pub(crate) fn panel_window(app: &PhotocraftApp, ctx: &egui::Context, id: &str, title: &str, offset: egui::Vec2, width: f32, body: impl FnOnce(&mut egui::Ui)) {
+    if !app.ui.view.panels_visible() {
+        return;
+    }
     let t = Tokens::get(ctx);
     let canvas = app.last_canvas_rect;
     egui::Window::new(title)

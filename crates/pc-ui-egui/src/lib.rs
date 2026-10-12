@@ -1401,8 +1401,15 @@ impl eframe::App for PhotocraftApp {
         discard_ui::guard_window_close(self, ctx);
         // Background jobs: apply finished ones, keep frames coming, Esc cancels (before the
         // shortcuts see Esc).
-        ai_remove_ui::keys(self, ctx);
-        jobs_ui::tick(self, ctx);
+        let restoration_modal = restoration_ui::is_open(self);
+        restoration_ui::handle_keys(self, ctx);
+        if restoration_modal {
+            // Poll jobs without letting their global Escape handler steal modal input.
+            jobs_ui::tick_background(self, ctx);
+        } else {
+            ai_remove_ui::keys(self, ctx);
+            jobs_ui::tick(self, ctx);
+        }
         crate::toolsets_ui::persona::frame(self, ctx);
         shortcuts::handle(self, ctx);
         crate::vector_integration::frame(self, ctx);
@@ -1454,13 +1461,14 @@ impl eframe::App for PhotocraftApp {
         let t0 = gpu_canvas::now_ms();
         // View › Screen Mode › Full Screen Mode: only the image, on black (F or Esc returns).
         let chrome = !self.ui.view.hides_chrome();
+        let panels = self.ui.view.panels_visible();
         if !chrome && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
             let _ = menus::invoke(self, &ctx, "view.screenMode.standard", serde_json::json!({}));
         }
         if chrome {
             panels::title_bar(self, ui);
         }
-        if chrome && self.ui.panels.options_bar {
+        if panels && self.ui.panels.options_bar {
             panels::options_bar(self, ui);
         }
         if chrome && self.ui.panels.status_bar {
@@ -1469,28 +1477,26 @@ impl eframe::App for PhotocraftApp {
         if chrome {
             notices::panel(self, ui);
         }
-        if chrome && self.ui.panels.toolbar {
+        if panels && self.ui.panels.toolbar {
             panels::toolbar(self, ui);
         }
-        if chrome {
+        if panels {
             panels::right_dock(self, ui);
         }
-        // local-image: the folder filmstrip under the canvas.
-        if chrome {
-            filmstrip_ui::panel(self, ui);
-        }
+        // The filmstrip keeps pending navigation/save maintenance alive while hidden.
+        filmstrip_ui::panel(self, ui);
         crate::symbols::frame(self, &ctx);
         let t = theme::Tokens::get(&ctx);
         let backdrop = if chrome { prefs_ui::pasteboard_color(self).unwrap_or(t.canvas) } else { egui::Color32::BLACK };
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(backdrop)).show(ui, |ui| {
             canvas::document_area(self, ui);
         });
-        panels::properties_window(self, &ctx);
-        if chrome {
+        if panels {
+            panels::properties_window(self, &ctx);
             panels::floating_panels(self, &ctx);
+            brush_panel::window(self, &ctx);
+            preset_panels::windows(self, &ctx);
         }
-        brush_panel::window(self, &ctx);
-        preset_panels::windows(self, &ctx);
         // local-image: Local AI window and the AI prompt dialogs.
         ai_ui::windows(self, &ctx);
         ai_remove_ui::show(self, &ctx);
@@ -2217,3 +2223,6 @@ mod bugfix_save_tests;
 
 #[cfg(test)]
 mod deferred_colour_tests;
+
+#[cfg(test)]
+mod panel_visibility_tests;

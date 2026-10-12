@@ -50,6 +50,7 @@ type Discovery = Arc<Mutex<Option<Result<Discovered, String>>>>;
 #[derive(Default)]
 pub(crate) struct Runtime {
     open: bool,
+    browser_child: bool,
     task: Task,
     key: Option<SourceKey>,
     source: Option<Arc<RgbaImage>>,
@@ -79,11 +80,47 @@ pub(crate) struct Runtime {
 
 pub(crate) fn open(app: &mut PhotocraftApp) {
     app.restoration.open = true;
+    app.restoration.browser_child = false;
     app.restoration.split = 0.5;
     app.restoration.model_dir = settings().model_dir();
     app.restoration.local_ready = None;
     app.restoration.acks = byo::Acknowledgements::load(&ack_path());
     sync_source(app);
+}
+
+pub(crate) fn is_open(app: &PhotocraftApp) -> bool {
+    app.restoration.open
+}
+
+pub(crate) fn model_browser_is_modal(app: &PhotocraftApp) -> bool {
+    app.restoration.open && app.restoration.browser_child
+}
+
+fn close(r: &mut Runtime) {
+    stop(r);
+    r.result = None;
+    r.mask = None;
+    r.after = None;
+    r.open = false;
+    r.auto_preview = false;
+    r.browser_child = false;
+}
+
+/// Resolve Escape before canvas/vector or generic-job handlers can consume it.
+pub(crate) fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if !is_open(app) || egui::Popup::is_any_open(ctx) {
+        return;
+    }
+    let child = model_browser_is_modal(app) && crate::model_browser::is_open();
+    let owner = egui::Id::new(if child { "restoration-model-browser" } else { "restoration-dialog" });
+    if ctx.memory(|m| m.top_modal_layer().is_none_or(|layer| layer.id == owner)) && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+        if child {
+            crate::model_browser::close();
+            app.restoration.browser_child = false;
+        } else {
+            close(&mut app.restoration);
+        }
+    }
 }
 
 fn key(app: &PhotocraftApp) -> Option<SourceKey> {
@@ -351,98 +388,115 @@ pub(crate) fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     poll(&mut app.restoration);
     poll_discovery(&mut app.restoration);
-    let mut open = true;
+    if app.restoration.browser_child {
+        if crate::model_browser::is_open() {
+            return;
+        }
+        app.restoration.browser_child = false;
+    }
     let mut run = false;
     let mut apply_result = false;
     let mut install = false;
     let mut cancel = false;
-    egui::Window::new(tl!("Restore Photo"))
-        .id(egui::Id::new("restoration-dialog"))
-        .open(&mut open)
-        .collapsible(false)
-        .resizable(true)
-        .vscroll(true)
-        .max_height((ctx.content_rect().height() - 80.0).max(400.0))
-        .default_width(680.0)
-        .default_height(700.0)
-        .default_pos(egui::pos2(220.0, 50.0))
-        .show(ctx, |ui| {
-            let r = &mut app.restoration;
-            ui.label(tl!("Permissive models"));
-            ui.label(tl!("Task"));
-            ui.add_enabled_ui(r.pending.is_none(), |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for task in TASKS {
-                        if ui.selectable_label(r.selected_byo.is_none() && r.task == task, tl!(caption(task))).clicked() {
-                            r.task = task;
-                            r.selected_byo = None;
-                            r.result = None;
-                            r.mask = None;
-                            r.after = None;
-                            r.message.clear();
-                            r.elapsed = None;
+    let screen = ctx.content_rect().size();
+    let id = egui::Id::new("restoration-dialog");
+    // Keep controls under the pointer while preview/discovery content changes height.
+    // A centered, auto-shrinking area recenters between hover, press and release.
+    let area = egui::Modal::default_area(id).anchor(egui::Align2::CENTER_TOP, vec2(0.0, 24.0));
+    let content_height = (screen.y - 160.0).clamp(100.0, 540.0);
+    let modal = egui::Modal::new(id).area(area).backdrop_color(Color32::TRANSPARENT).show(ctx, |ui| {
+        ui.set_width((screen.x - 48.0).clamp(280.0, 680.0));
+        ui.heading(tl!("Restore Photo"));
+        widgets::hairline(ui);
+        let r = &mut app.restoration;
+        let (pin, local_ready) = egui::ScrollArea::vertical()
+            .id_salt("restoration-content")
+            .min_scrolled_height(content_height)
+            .max_height(content_height)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.label(tl!("Permissive models"));
+                ui.label(tl!("Task"));
+                ui.add_enabled_ui(r.pending.is_none(), |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        for task in TASKS {
+                            if ui.selectable_label(r.selected_byo.is_none() && r.task == task, tl!(caption(task))).clicked() {
+                                r.task = task;
+                                r.selected_byo = None;
+                                r.result = None;
+                                r.mask = None;
+                                r.after = None;
+                                r.message.clear();
+                                r.elapsed = None;
+                            }
                         }
-                    }
+                    });
                 });
-            });
-            let pin = r.selected_byo.is_none().then(|| local_pin(r.task)).flatten();
-            if let Some(pin) = pin {
-                ui.hyperlink_to(pin.licence, pin.source);
-                ui.label(tl!("Runs on this computer with the installed Restore model."));
-                ui.label(tl!("Choose the approved ONNX model to install locally."));
-            } else if r.selected_byo.is_none()
-                && let Ok(model) = r.task.model()
-            {
-                ui.horizontal(|ui| {
-                    ui.label(&model.label);
-                    if let Some(url) = &model.license_url {
-                        ui.hyperlink_to(model.license.as_deref().unwrap_or(""), url);
-                    }
-                });
-            }
-            if r.selected_byo.is_none() && r.task == Task::OldPhoto {
-                ui.label(tl!("Preview marks detected scratches in red. Review and adjust the mask in AI Remove, then click Remove to fill it."));
-                ui.checkbox(&mut r.colourise_after, tl!("Colourise after repair"));
-            } else {
-                ui.label(tl!("Original resolution. Apply creates a new layer and hides the source layers."));
-            }
-            let local_ready = if let Some(pin) = pin {
-                if r.local_ready.is_none_or(|(task, _, at)| task != r.task || at.elapsed() >= Duration::from_secs(1)) {
-                    r.local_ready = Some((r.task, pin.installed(&r.model_dir), Instant::now()));
+                let pin = r.selected_byo.is_none().then(|| local_pin(r.task)).flatten();
+                if let Some(pin) = pin {
+                    ui.hyperlink_to(pin.licence, pin.source);
+                    ui.label(tl!("Runs on this computer with the installed Restore model."));
+                    ui.label(tl!("Choose the approved ONNX model to install locally."));
+                } else if r.selected_byo.is_none()
+                    && let Ok(model) = r.task.model()
+                {
+                    ui.horizontal(|ui| {
+                        ui.label(&model.label);
+                        if let Some(url) = &model.license_url {
+                            ui.hyperlink_to(model.license.as_deref().unwrap_or(""), url);
+                        }
+                    });
                 }
-                r.local_ready.is_some_and(|(_, ready, _)| ready)
-            } else {
-                r.task.file().is_ok()
-            };
-            ui.horizontal(|ui| {
-                let ready = r.selected_byo.as_ref().map_or_else(|| local_ready, |m| m.adapter.is_some() && r.acks.contains(m, &r.byo_host));
-                #[cfg(test)]
-                let ready = ready || TEST_RESULT.with(|s| s.borrow().is_some()) || TEST_MASK.with(|s| s.borrow().is_some());
-                run = ui.add_enabled(r.source.is_some() && ready && r.pending.is_none(), egui::Button::new(tl!("Preview restoration"))).clicked();
-                let label = if r.mask.is_some() { tl!("Review scratches in AI Remove") } else { tl!("Apply as new layer") };
-                apply_result = ui.add_enabled(r.result.is_some() && r.pending.is_none(), egui::Button::new(label)).clicked();
-                install = ui
-                    .add_enabled(
-                        r.pending.is_none(),
-                        egui::Button::new(if pin.is_some() { tl!("Import Restore model…") } else { tl!("Install restoration models…") }),
-                    )
-                    .clicked();
-                cancel = ui.button(tl!("Cancel")).clicked();
-            });
-            byo_ui(r, ui);
-            preview(r, ui);
-            if !r.message.is_empty() {
-                ui.label(RichText::new(&r.message).color(crate::theme::Tokens::get(ui.ctx()).danger));
-            }
-            if let Some(elapsed) = r.elapsed {
-                ui.label(format!("{}: {:.2} s", tl!("Preview time"), elapsed.as_secs_f64()));
-            }
-            if let Some(ctl) = &r.ctl {
-                let p = ctl.progress();
-                ui.label(format!("{} · {}", tl!("Running…"), p.stage.label()));
-                ui.ctx().request_repaint_after(Duration::from_millis(100));
-            }
+                if r.selected_byo.is_none() && r.task == Task::OldPhoto {
+                    ui.label(tl!("Preview marks detected scratches in red. Review and adjust the mask in AI Remove, then click Remove to fill it."));
+                    ui.checkbox(&mut r.colourise_after, tl!("Colourise after repair"));
+                } else {
+                    ui.label(tl!("Original resolution. Apply creates a new layer and hides the source layers."));
+                }
+                let local_ready = if let Some(pin) = pin {
+                    if r.local_ready.is_none_or(|(task, _, at)| task != r.task || at.elapsed() >= Duration::from_secs(1)) {
+                        r.local_ready = Some((r.task, pin.installed(&r.model_dir), Instant::now()));
+                    }
+                    r.local_ready.is_some_and(|(_, ready, _)| ready)
+                } else {
+                    r.task.file().is_ok()
+                };
+                byo_ui(r, ui);
+                preview(r, ui);
+                if !r.message.is_empty() {
+                    ui.label(RichText::new(&r.message).color(crate::theme::Tokens::get(ui.ctx()).danger));
+                }
+                if let Some(elapsed) = r.elapsed {
+                    ui.label(format!("{}: {:.2} s", tl!("Preview time"), elapsed.as_secs_f64()));
+                }
+                if let Some(ctl) = &r.ctl {
+                    let p = ctl.progress();
+                    ui.label(format!("{} · {}", tl!("Running…"), p.stage.label()));
+                    ui.ctx().request_repaint_after(Duration::from_millis(100));
+                }
+                (pin, local_ready)
+            })
+            .inner;
+        widgets::hairline(ui);
+        ui.horizontal_wrapped(|ui| {
+            let ready = r.selected_byo.as_ref().map_or_else(|| local_ready, |m| m.adapter.is_some() && r.acks.contains(m, &r.byo_host));
+            #[cfg(test)]
+            let ready = ready || TEST_RESULT.with(|s| s.borrow().is_some()) || TEST_MASK.with(|s| s.borrow().is_some());
+            run = ui.add_enabled(r.source.is_some() && ready && r.pending.is_none(), egui::Button::new(tl!("Preview restoration"))).clicked();
+            let label = if r.mask.is_some() { tl!("Review scratches in AI Remove") } else { tl!("Apply as new layer") };
+            apply_result = ui.add_enabled(r.result.is_some() && r.pending.is_none(), egui::Button::new(label)).clicked();
+            install = ui
+                .add_enabled(
+                    r.pending.is_none(),
+                    egui::Button::new(if pin.is_some() { tl!("Import Restore model…") } else { tl!("Install restoration models…") }),
+                )
+                .clicked();
+            cancel = ui.button(tl!("Cancel")).clicked();
         });
+    });
+    #[cfg(test)]
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new("restoration-modal-rect"), modal.response.rect));
+    let escape = modal.is_top_modal && !modal.any_popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
     if run {
         start(app, ctx);
     }
@@ -467,16 +521,13 @@ pub(crate) fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         if app.restoration.selected_byo.is_none() && local_pin(app.restoration.task).is_some() {
             install_local(app, ctx);
         } else {
+            app.restoration.browser_child = true;
             crate::model_browser::open_restoration();
         }
     }
-    if !open || cancel || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-        stop(&mut app.restoration);
-        app.restoration.result = None;
-        app.restoration.mask = None;
-        app.restoration.after = None;
-        app.restoration.open = false;
-        app.restoration.auto_preview = false;
+    // A click on the backdrop is inert; only explicit Cancel or owned Escape closes.
+    if cancel || escape {
+        close(&mut app.restoration);
     }
 }
 

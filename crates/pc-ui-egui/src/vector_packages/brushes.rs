@@ -48,8 +48,8 @@ impl State {
     pub fn frame(&mut self, session: &Session, ctx: &egui::Context, selected: bool) {
         if !selected
             || !ctx.input(|i| i.focused)
-            || ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
             || self.gesture.as_ref().is_some_and(|g| g.capture.validate(session).is_err())
+            || (self.active() && crate::shortcuts::canvas_keyboard_available(ctx) && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)))
         {
             self.cancel();
         }
