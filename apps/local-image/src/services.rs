@@ -448,6 +448,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                 photocraft_engine::vector_integration::export_document(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string())
             })
         })),
+        prepare_save: Some(Arc::new(prepare_document_save)),
         overwrite_original: li_ai::trash::available().then(|| {
             Box::new(|doc: &Document, path: &str, quality: u8| overwrite_original(doc, Path::new(path), quality, li_ai::trash::copy_to_trash))
                 as photocraft_ui_egui::OverwriteFn
@@ -1059,5 +1060,222 @@ mod prepared_overwrite_tests {
         assert_eq!(std::fs::read(&path).unwrap(), changed);
         assert!(!touched.load(Ordering::Relaxed));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SaveTargetStamp {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    identity: (u64, u64, i64, i64),
+}
+fn save_target_stamp(path: &Path) -> Result<Option<SaveTargetStamp>, String> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    if !metadata.is_file() {
+        return Err("Save destination is not a regular file".into());
+    }
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt;
+    Ok(Some(SaveTargetStamp {
+        len: metadata.len(),
+        modified: metadata.modified().ok(),
+        #[cfg(unix)]
+        identity: (metadata.dev(), metadata.ino(), metadata.ctime(), metadata.ctime_nsec()),
+    }))
+}
+fn resolved_save_target(path: &Path) -> Result<PathBuf, String> {
+    let parent = path.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => std::fs::canonicalize(path).map_err(|error| error.to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(std::fs::canonicalize(parent).map_err(|error| error.to_string())?.join(path.file_name().ok_or("Save path has no file name")?))
+        }
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+pub(crate) fn prepare_document_save(
+    snapshot: Arc<Document>,
+    name: &str,
+    settings: &photocraft_ui_egui::ExportSettings,
+    interrupt: &photocraft_raster::Interrupt<'_>,
+) -> Result<photocraft_ui_egui::PreparedSave, String> {
+    let path = Path::new(name);
+    interrupt.check().map_err(|e| e.to_string())?;
+    let parent = path.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let resolved = resolved_save_target(path)?;
+    let stamp = save_target_stamp(path)?;
+    let original = if stamp.is_some() { Some(Arc::new(photocraft_format::read_file(path).map_err(|e| e.to_string())?)) } else { None };
+    if save_target_stamp(path)? != stamp || resolved_save_target(path)? != resolved {
+        return Err("Save destination changed while reading its previous contents".into());
+    }
+    let snapshot = if let Some(bytes) = &original {
+        photocraft_engine::develop_layer_cmds::freeze_source_snapshot(&snapshot, name, bytes.clone()).map_err(|e| e.to_string())?
+    } else {
+        snapshot
+    };
+    let mut options = photocraft_io::ExportOptions::default();
+    if let Some(value) = settings.jpeg_quality {
+        options.encode.jpeg_quality = value;
+    }
+    options.encode.webp_lossless = settings.webp_lossless;
+    if let Some(value) = settings.webp_quality {
+        options.encode.webp_quality = value;
+    }
+    options.tiff_layers = settings.tiff_layers;
+    options.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
+    let progress = |fraction| interrupt.progress(fraction * 0.8);
+    let cancel = || interrupt.cancelled();
+    let encode = photocraft_raster::Interrupt::new(&cancel, &progress);
+    let output = crate::crash_guard::guard("Save", || {
+        photocraft_engine::vector_integration::export_document_background(&snapshot, name, &options, &encode).map_err(|e| e.to_string())
+    })?;
+    interrupt.check().map_err(|e| e.to_string())?;
+    let progress = |fraction| interrupt.progress(0.8 + fraction * 0.19);
+    let writing = photocraft_raster::Interrupt::new(&cancel, &progress);
+    let staged = photocraft_format::atomic::stage_write(&resolved, &output.bytes, &writing).map_err(|e| e.to_string())?;
+    let path = path.to_owned();
+    #[cfg(not(target_os = "linux"))]
+    let expected = original.clone();
+    Ok(photocraft_ui_egui::PreparedSave {
+        original,
+        snapshot,
+        warnings: output.warnings,
+        write: photocraft_ui_egui::PreparedWrite {
+            commit: Box::new(move || {
+                if save_target_stamp(&path)? != stamp || resolved_save_target(&path)? != resolved {
+                    return Err("Save destination changed; save again to review the current file".into());
+                }
+                // Linux ctime plus file identity detects content changes without rereading a large
+                // file on the UI thread. Other targets retain an exact-byte check until their
+                // native change-token implementation is available.
+                #[cfg(not(target_os = "linux"))]
+                if let Some(expected) = expected {
+                    if photocraft_format::read_file(&path).map_err(|e| e.to_string())? != *expected {
+                        return Err("Save destination changed; save again to review the current file".into());
+                    }
+                }
+                staged.commit().map_err(|e| e.to_string())
+            }),
+        },
+    })
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod save_worker_native_tests {
+    use super::*;
+    use photocraft_doc::{ColorMode, Layer, LayerContent, SampleType, Size, SmartObject, SmartSource};
+    use photocraft_raster::Interrupt;
+    struct Dir(PathBuf);
+    impl Dir {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let tag = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "li-save-worker-{}-{tag}-{}",
+                std::process::id(),
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            ));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    fn doc() -> Arc<Document> {
+        photocraft_engine::vector_integration::initialize();
+        let mut doc = Document::new("snapshot", Size::new(32, 24), ColorMode::Rgb, SampleType::U8);
+        let mut layer = Layer::raster("pixels", doc.pixel_format());
+        layer.surface_mut().unwrap().fill_rect(doc.bounds(), &[0.2, 0.4, 0.7, 1.0]);
+        doc.layers.push(layer);
+        Arc::new(doc)
+    }
+    fn path(dir: &Dir, name: &str) -> String {
+        dir.0.join(name).to_string_lossy().into_owned()
+    }
+    #[test]
+    fn background_save_native_stages_without_publication_and_reopens_exact_snapshot() {
+        let dir = Dir::new();
+        let path = path(&dir, "saved.pcraft");
+        let doc = doc();
+        let prepared = prepare_document_save(doc.clone(), &path, &Default::default(), &Interrupt::NONE).unwrap();
+        assert!(!Path::new(&path).exists());
+        assert!(std::fs::read_dir(&dir.0).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().ends_with(".pcsave.tmp")));
+        (prepared.write.commit)().unwrap();
+        let back = photocraft_io::import(&path, &std::fs::read(&path).unwrap()).unwrap().document;
+        assert_eq!(photocraft_compose::flatten(&back).to_rgba8().pixels, photocraft_compose::flatten(&doc).to_rgba8().pixels);
+        assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 1);
+    }
+    #[test]
+    fn background_save_native_drop_cancel_and_changed_destination_keep_previous_file() {
+        let dir = Dir::new();
+        let path = path(&dir, "copy.png");
+        std::fs::write(&path, b"old contents").unwrap();
+        let prepared = prepare_document_save(doc(), &path, &Default::default(), &Interrupt::NONE).unwrap();
+        drop(prepared);
+        assert_eq!(std::fs::read(&path).unwrap(), b"old contents");
+        assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 1);
+        assert!(prepare_document_save(doc(), &path, &Default::default(), &Interrupt::cancel_only(&|| true)).is_err());
+        let prepared = prepare_document_save(doc(), &path, &Default::default(), &Interrupt::NONE).unwrap();
+        std::fs::write(&path, b"new contents").unwrap();
+        assert!((prepared.write.commit)().is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"new contents");
+        assert_eq!(std::fs::read_dir(&dir.0).unwrap().count(), 1);
+    }
+    #[test]
+    fn background_save_native_embeds_self_referenced_old_bytes_before_encoding() {
+        let dir = Dir::new();
+        let path = path(&dir, "source.pcraft");
+        let original_doc = doc();
+        let bytes = photocraft_io::export(&original_doc, "pcraft", &Default::default()).unwrap().bytes;
+        std::fs::write(&path, &bytes).unwrap();
+        let mut edited = (*original_doc).clone();
+        let cache = edited.layers[0].surface().unwrap().clone();
+        edited.layers.push(Layer::new(
+            "linked original",
+            LayerContent::Smart(SmartObject::new(SmartSource::Linked { path: path.clone() }, Default::default(), Some(cache))),
+        ));
+        let prepared = prepare_document_save(Arc::new(edited), &path, &Default::default(), &Interrupt::NONE).unwrap();
+        assert_eq!(prepared.original.as_deref().unwrap().as_slice(), bytes);
+        (prepared.write.commit)().unwrap();
+        let back = photocraft_io::import(&path, &std::fs::read(&path).unwrap()).unwrap().document;
+        assert!(matches!(&back.layers[1].content, LayerContent::Smart(s) if matches!(&s.source, SmartSource::Embedded { bytes:b, .. } if b.as_slice()==bytes)));
+    }
+    #[test]
+    #[cfg(unix)]
+    fn background_save_native_detects_symlink_retarget_between_hardlinks() {
+        let dir = Dir::new();
+        let a = dir.0.join("A.pcraft");
+        let b = dir.0.join("B.pcraft");
+        let link = dir.0.join("chosen.pcraft");
+        std::fs::write(&a, b"old source").unwrap();
+        std::fs::hard_link(&a, &b).unwrap();
+        std::os::unix::fs::symlink(&a, &link).unwrap();
+        let prepared = prepare_document_save(doc(), &link.to_string_lossy(), &Default::default(), &Interrupt::NONE).unwrap();
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(&b, &link).unwrap();
+        assert!((prepared.write.commit)().is_err());
+        assert_eq!(std::fs::read(&a).unwrap(), b"old source");
+        assert_eq!(std::fs::read(&link).unwrap(), b"old source");
+        assert!(!std::fs::read_dir(&dir.0).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().ends_with(".pcsave.tmp")));
+    }
+    #[test]
+    fn background_save_native_rejects_a_new_file_created_after_staging() {
+        let dir = Dir::new();
+        let path = path(&dir, "new.pcraft");
+        let prepared = prepare_document_save(doc(), &path, &Default::default(), &Interrupt::NONE).unwrap();
+        std::fs::write(&path, b"another application created this").unwrap();
+        assert!((prepared.write.commit)().is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"another application created this");
     }
 }

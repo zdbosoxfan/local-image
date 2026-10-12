@@ -195,6 +195,7 @@ pub mod point_curve;
 pub mod prefs_ui;
 pub mod preset_files_ui;
 pub mod preset_panels;
+mod save_worker;
 mod tool_icon_data;
 #[path = "vector_packages/fill_stroke_proxy/icons.rs"]
 pub mod vector_tool_icon_data;
@@ -280,6 +281,17 @@ impl Default for ExportSettings {
 
 /// Encode a document: (file bytes, warnings about anything approximated or dropped).
 pub type ExportFn = Box<dyn Fn(&Document, &str, &ExportSettings) -> Result<(Vec<u8>, Vec<String>), String>>;
+/// Prepared off-thread; the main thread rechecks authority and current source/history state
+/// before publication. The snapshot is exactly the document encoded, including frozen links.
+pub struct PreparedSave {
+    pub write: PreparedWrite,
+    pub original: Option<std::sync::Arc<Vec<u8>>>,
+    pub snapshot: std::sync::Arc<Document>,
+    pub warnings: Vec<String>,
+}
+pub type PrepareSaveFn =
+    std::sync::Arc<dyn Fn(std::sync::Arc<Document>, &str, &ExportSettings, &photocraft_raster::Interrupt<'_>) -> Result<PreparedSave, String> + Send + Sync>;
+
 /// The picked file's name and its bytes, or why it could not be read (shown like any other open
 /// failure); `None` when the dialog was cancelled.
 pub type PickOpenFn = Box<dyn FnMut() -> Option<(String, Result<Vec<u8>, String>)>>;
@@ -379,6 +391,8 @@ pub struct Services {
     pub import: Option<ImportFn>,
     /// Encode a document for a file name (format chosen by extension).
     pub export: Option<ExportFn>,
+    /// Optional native snapshot encoding/staging service for ordinary interactive saves.
+    pub prepare_save: Option<PrepareSaveFn>,
     pub overwrite_original: Option<OverwriteFn>,
     /// Show a single-file picker for commands that import one file (Open As, presets, scripts).
     pub pick_open: Option<PickOpenFn>,
@@ -537,6 +551,7 @@ pub struct PhotocraftApp {
     /// them): the Library adds a document that came from one of its photos, stacked on top of
     /// that photo, and reloads a file it already has (see [`develop_layer::LibrarySave`]).
     pub library_saves: Vec<develop_layer::LibrarySave>,
+    pub library_save_sources: develop_layer::LibrarySaveSources,
     /// local-image: Filter › Camera Raw Filter… sessions in the Library's Develop module (the host
     /// takes `develop_filter.request`), and the prompts around them.
     pub develop_filter: develop_filter_ui::State,
@@ -633,6 +648,7 @@ pub struct PhotocraftApp {
     pub(crate) discard: Option<discard_ui::Prompt>,
     /// A Save As to a layered TIFF parked behind the TIFF Options prompt (see `tiff_options_ui`).
     pub(crate) tiff_options: Option<tiff_options_ui::Prompt>,
+    pub(crate) pending_save: Option<save_worker::Pending>,
     pub overwrite_prompt: Option<overwrite_original::Prompt>,
     /// Set once the user has agreed to quit, so the resulting close request goes through.
     pub(crate) allow_close: bool,
@@ -705,6 +721,7 @@ impl PhotocraftApp {
             browse_in_library: None,
             develop_request: None,
             library_saves: Vec::new(),
+            library_save_sources: Default::default(),
             develop_filter: Default::default(),
             current_module: Module::Compositing,
             fonts_ready: false,
@@ -751,6 +768,7 @@ impl PhotocraftApp {
             prefs_rt: Default::default(),
             discard: None,
             tiff_options: None,
+            pending_save: None,
             overwrite_prompt: None,
             allow_close: false,
             stylus: Default::default(),
@@ -1130,6 +1148,9 @@ impl PhotocraftApp {
             self.run("layer.smartObjects.saveContents", serde_json::json!({}))?;
             return Ok(("smart object".into(), Vec::new()));
         }
+        if self.pending_save.is_some() {
+            return Err("A save is already running; wait for it to finish or finish cancelling".into());
+        }
         let st = self.session.active().ok_or("no document")?;
         // Documents are named after their file ("cat.png"): suggest "cat.psd", not "cat.png.psd".
         // local-image: a photo from the Library is suggested beside its original, as
@@ -1160,16 +1181,45 @@ impl PhotocraftApp {
     /// the document adopt the path and saved revision; flat copies keep the working document.
     /// Returns the path and the export warnings (also shown to the user).
     pub(crate) fn write_document(&mut self, path: String, settings: &ExportSettings) -> Result<(String, Vec<String>), String> {
+        if self.pending_save.is_some() {
+            return Err("A save is already running; wait for it to finish or finish cancelling".into());
+        }
         photocraft_engine::float_cmds::drop_floating(&mut self.session).map_err(|e| e.to_string())?;
+        if save_worker::enabled(self) {
+            return save_worker::begin(self, path, settings);
+        }
         // Save scripts may activate/close another tab. The handoff belongs to the
         // document being encoded, not whichever tab those scripts leave active.
-        let saved_photo = develop_layer::active_photo(self);
-        let saved_origin = develop_layer::active_origin(self);
+        let mut saved_photo = develop_layer::active_photo(self);
+        let mut saved_origin = develop_layer::active_origin(self);
         let st = self.session.active().ok_or("no document")?;
-        let export = self.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&st.doc, &path, settings)?;
-        let write = self.services.write.as_mut().ok_or("no writer configured")?;
-        write(&path, &bytes)?;
+        let source_reset = save_worker::source_reset(self, &path, saved_origin.as_ref())?;
+        if let Some(reset) = &source_reset {
+            saved_origin = Some(reset.origin.clone());
+            saved_photo = Some(reset.origin.photo);
+        }
+        if source_reset.is_some() && self.services.prepare_save.is_none() {
+            return Err("Replacing a Library source requires the native source-preserving save service".into());
+        }
+        let snapshot = save_worker::reset_snapshot(st.doc.clone(), source_reset.as_ref());
+        let warnings = if let Some(prepare) = &self.services.prepare_save {
+            let prepared = prepare(snapshot, &path, settings, &photocraft_raster::Interrupt::NONE)?;
+            save_worker::check_source_reset(&self.library_save_sources, source_reset.as_ref())?;
+            let preservation =
+                prepared.original.as_ref().map(|bytes| self.session.prepare_source_overwrite(&path, bytes.clone())).transpose().map_err(|e| e.to_string())?;
+            (prepared.write.commit)()?;
+            if let Some(plan) = preservation {
+                plan.publish(&mut self.session);
+            }
+            prepared.warnings
+        } else {
+            let export = self.services.export.as_ref().ok_or("no exporter configured")?;
+            let (bytes, warnings) = export(&snapshot, &path, settings)?;
+            let write = self.services.write.as_mut().ok_or("no writer configured")?;
+            write(&path, &bytes)?;
+            warnings
+        };
+        save_worker::acknowledge_reset(&mut self.session, source_reset.as_ref());
         let preserves_document = photocraft_engine::file_cmds::saves_in_place(&path) || (tiff_options_ui::is_tiff_path(&path) && settings.tiff_layers);
         if preserves_document && let Some(st) = self.session.active_mut() {
             st.path = Some(path.clone());
@@ -1196,6 +1246,7 @@ impl PhotocraftApp {
                 photo: saved_photo,
                 show: false,
                 overwritten: false,
+                source_reset,
             });
         }
         self.sync_views();
@@ -1206,6 +1257,9 @@ impl PhotocraftApp {
     /// picker or ambient writer is reachable from this path. Returns the path
     /// written and the export warnings (also shown to the user).
     pub fn save_automation(&mut self, path: Option<String>) -> Result<(String, Vec<String>), String> {
+        if self.pending_save.is_some() {
+            return Err("A save is already running; wait for it to finish".into());
+        }
         photocraft_engine::float_cmds::drop_floating(&mut self.session).map_err(|e| e.to_string())?;
         let state = self.session.active().ok_or("no document")?;
         // As File › Save: without `path` only a layered file is written back (#416).

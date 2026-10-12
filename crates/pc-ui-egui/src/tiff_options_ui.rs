@@ -48,6 +48,20 @@ fn finish(app: &mut PhotocraftApp, p: Prompt) -> Result<(), String> {
     let settings = ExportSettings { tiff_layers: !p.discard_layers, ..Default::default() };
     let saves_before = app.library_saves.len();
     let result = app.write_document(p.path, &settings).map(|_| ());
+    if result.is_ok()
+        && let Some(pending) = app.pending_save.as_mut().filter(|pending| pending.doc == p.doc)
+    {
+        pending.return_to_library = p.return_to_library;
+        pending.tiff_dont_ask = p.dont_ask_again;
+        if active == Some(p.doc) {
+            pending.next_file = p.next_file;
+        }
+        if let Some(index) = active.and_then(|id| app.session.documents().iter().position(|state| state.doc.id == id)) {
+            app.session.set_active(index);
+            app.sync_views();
+        }
+        return result;
+    }
     if result.is_ok() && p.dont_ask_again {
         app.session.edit_prefs(|prefs| prefs.file_handling.ask_before_saving_layered_tiff = false);
     }

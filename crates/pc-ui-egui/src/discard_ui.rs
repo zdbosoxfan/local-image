@@ -25,6 +25,7 @@ pub struct Prompt {
     /// Don't Save decisions apply only to the revision the user actually saw.
     discarded: Vec<(DocId, u64)>,
     waiting: Option<DocId>,
+    save_succeeded: Option<bool>,
 }
 
 fn index_of(app: &PhotocraftApp, id: DocId) -> Option<usize> {
@@ -59,7 +60,8 @@ fn discarded(app: &PhotocraftApp, id: &str, params: &Value) -> (Option<DocId>, V
         Some((_, Reach::All)) => (0..docs.len()).collect(),
         None => Vec::new(),
     };
-    let dirty = affected.into_iter().filter_map(|i| docs.get(i)).filter(|d| d.is_dirty()).map(|d| d.doc.id).collect();
+    let dirty =
+        affected.into_iter().filter_map(|i| docs.get(i)).filter(|d| d.is_dirty() || crate::save_worker::pending(app, d.doc.id)).map(|d| d.doc.id).collect();
     (target.and_then(|i| docs.get(i)).map(|d| d.doc.id), dirty)
 }
 
@@ -69,7 +71,9 @@ pub fn intercept(app: &mut PhotocraftApp, id: &str, params: &Value) -> bool {
     if docs.is_empty() {
         return false;
     }
-    let prompt = Prompt { id: id.to_string(), params: params.clone(), target, docs, answered: Vec::new(), discarded: Vec::new(), waiting: None };
+    let waiting = docs.first().copied().filter(|doc| crate::save_worker::pending(app, *doc));
+    let prompt =
+        Prompt { id: id.to_string(), params: params.clone(), target, docs, answered: Vec::new(), discarded: Vec::new(), waiting, save_succeeded: None };
     match &app.discard {
         None => app.discard = Some(prompt),
         // Quitting overrides whatever is pending: it covers every document, so nothing is lost.
@@ -159,9 +163,10 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
     app.session.set_active(i);
     match crate::menus::invoke_unguarded(app, ctx, "file.save", json!({})) {
         Ok(_) => {
-            if app.tiff_options.as_ref().is_some_and(|p| p.doc == doc) {
+            if app.tiff_options.as_ref().is_some_and(|p| p.doc == doc) || crate::save_worker::pending(app, doc) {
                 if let Some(p) = app.discard.as_mut() {
                     p.waiting = Some(doc);
+                    p.save_succeeded = None;
                 }
                 return false;
             }
@@ -179,13 +184,17 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
 
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if let Some(doc) = app.discard.as_ref().and_then(|p| p.waiting) {
-        if app.tiff_options.is_some() {
+        if app.tiff_options.is_some() || crate::save_worker::pending(app, doc) {
             return;
         }
-        if let Some(p) = app.discard.as_mut() {
-            p.waiting = None;
+        if app.session.active().is_some_and(|state| state.doc.id == doc) && crate::save_worker::has_live_input(app) {
+            return;
         }
-        if index_of(app, doc).is_none_or(|i| !app.session.documents()[i].is_dirty()) {
+        let saved = app.discard.as_mut().and_then(|p| {
+            p.waiting = None;
+            p.save_succeeded.take()
+        });
+        if saved != Some(false) && index_of(app, doc).is_none_or(|i| !app.session.documents()[i].is_dirty()) {
             advance(app, ctx);
         }
         return;
@@ -279,6 +288,13 @@ fn mnemonic(label: &str, key: Key) -> String {
     match label.split_at_checked(1) {
         Some((first, rest)) if first.eq_ignore_ascii_case(k) => format!("({first}){rest}"),
         _ => format!("{label} ({k})"),
+    }
+}
+
+/// Save dispatch is not completion: close/revert/quit may advance only after publication.
+pub(crate) fn save_finished(app: &mut PhotocraftApp, doc: DocId, success: bool) {
+    if let Some(prompt) = app.discard.as_mut().filter(|prompt| prompt.waiting == Some(doc)) {
+        prompt.save_succeeded = Some(success);
     }
 }
 

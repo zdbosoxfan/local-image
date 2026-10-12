@@ -301,26 +301,38 @@ fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool,
 struct LayeredSaveProjection;
 impl photocraft_io::vector_map::fallback::Projection for LayeredSaveProjection {
     fn layer(&self, document: &Document, layer: &photocraft_doc::Layer) -> std::result::Result<Option<photocraft_doc::Layer>, String> {
-        let mut isolated = document.clone();
-        let mut content = layer.clone();
-        content.visible = true;
-        content.opacity = 1.;
-        content.fill_opacity = 1.;
-        content.blend = photocraft_doc::BlendMode::Normal;
-        content.clipped = false;
-        content.mask = None;
-        content.vector_mask = None;
-        content.effects = Default::default();
-        content.blend_if = Default::default();
-        isolated.layers = vec![content];
-        let projected = project_document(&isolated).map_err(|e| e.to_string())?;
-        let mut out = layer.clone();
-        out.content = LayerContent::Raster(photocraft_compose::flatten_to_surface(&projected, document.pixel_format(), None));
-        out.vector = Default::default();
-        out.psd_blocks.retain(|(key, _)| ![b"vmsk", b"vsms", b"vogk", b"vstk", b"vscg", b"SoCo", b"GdFl", b"PtFl"].contains(&key));
-        Ok(Some(out))
+        save_layer_projection(document, layer, project_document)
     }
 }
+
+fn save_layer_projection(
+    document: &Document,
+    layer: &photocraft_doc::Layer,
+    project: impl FnOnce(&Document) -> Result<Document>,
+) -> std::result::Result<Option<photocraft_doc::Layer>, String> {
+    let mut isolated = document.clone();
+    let mut content = layer.clone();
+    content.visible = true;
+    content.opacity = 1.;
+    content.fill_opacity = 1.;
+    content.blend = photocraft_doc::BlendMode::Normal;
+    content.clipped = false;
+    content.mask = None;
+    content.vector_mask = None;
+    content.effects = Default::default();
+    content.blend_if = Default::default();
+    isolated.layers = vec![content];
+    let projected = project(&isolated).map_err(|e| e.to_string())?;
+    let mut out = layer.clone();
+    out.content = LayerContent::Raster(photocraft_compose::flatten_to_surface(&projected, document.pixel_format(), None));
+    out.vector = Default::default();
+    out.psd_blocks.retain(|(key, _)| ![b"vmsk", b"vsms", b"vogk", b"vstk", b"vscg", b"SoCo", b"GdFl", b"PtFl"].contains(&key));
+    Ok(Some(out))
+}
+
+#[path = "vector_integration/save_worker.rs"]
+mod save_worker;
+pub use save_worker::export_document_background;
 
 /// Normal application and headless layered-save bridge, with original editability losses.
 pub fn export_document(

@@ -25,7 +25,7 @@ use crate::{EngineError, Result, Session};
 use std::sync::Arc;
 #[path = "develop_layer_overwrite.rs"]
 mod overwrite;
-pub use overwrite::PreparedSourceOverwrite;
+pub use overwrite::{PreparedSourceOverwrite, acknowledge_library_snapshot, freeze_source_snapshot};
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }

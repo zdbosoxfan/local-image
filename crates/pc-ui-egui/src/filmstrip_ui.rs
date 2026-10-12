@@ -330,6 +330,10 @@ pub fn save_and_next(app: &mut PhotocraftApp) -> bool {
             }
             return false;
         }
+        if let Some(pending) = app.pending_save.as_mut() {
+            pending.next_file = Some(file);
+            return false;
+        }
         if let Some(prompt) = app.tiff_options.as_mut() {
             prompt.next_file = Some(file);
             return false;

@@ -110,6 +110,15 @@ pub fn start_open(app: &mut PhotocraftApp, name: &str, path: Option<String>, sou
 /// Per frame: apply finished jobs and react to them; keep frames coming while jobs run; Esc
 /// cancels the job in view.
 pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    crate::save_worker::tick(app, ctx);
+    // A queued Escape is considered before publishing a ready save in this frame.
+    if let Some(job) = job_in_view(app)
+        && crate::save_worker::owns_job(app, job.id)
+        && !ctx.text_edit_focused()
+        && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
+    {
+        cancel(app, job.id);
+    }
     dispatch_batch(app);
     if std::mem::take(&mut app.jobs.place_finished)
         && let Err(error) = crate::transform_tool::begin_placed(app, ctx)
@@ -135,6 +144,7 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
 
 /// local-image: [`tick`] while the editor is hidden: apply finished jobs, no key handling.
 pub fn tick_background(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    crate::save_worker::tick(app, ctx);
     dispatch_batch(app);
     if app.session.has_jobs() {
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -200,6 +210,9 @@ fn on_event(app: &mut PhotocraftApp, mut e: JobEvent) {
             true
         }
     });
+    if crate::save_worker::on_event(app, &e) {
+        return;
+    }
     // The owning export dialog reports staged publication/failure/cancellation once.
     // Control waiters above still receive the terminal job result; unrelated jobs
     // retain their ordinary reporting below.

@@ -42,6 +42,7 @@ use photocraft_ui_egui::{Module, PhotocraftApp};
 
 /// Files the Library asked the editor to open (Edit in External Editor with no other editor set).
 type Opens = Arc<Mutex<Vec<String>>>;
+type SaveSourcesKey = (String, u64, u64, Vec<photocraft_ui_egui::develop_layer::LibraryOrigin>);
 
 pub struct Host {
     pub editor: PhotocraftApp,
@@ -57,6 +58,7 @@ pub struct Host {
     /// returns to what was open there instead of bringing the photo forward again.
     left_compositing_with: Option<u64>,
     library_seen: Option<(String, u64)>,
+    save_sources_seen: Option<SaveSourcesKey>,
     /// The Camera Raw Filter session open in Develop.
     camera_raw: Option<CameraRawSession>,
     /// Composites of unsaved Compositing documents, rendered for the Library.
@@ -119,6 +121,7 @@ impl Host {
             frames: 0,
             left_compositing_with: None,
             library_seen: None,
+            save_sources_seen: None,
             camera_raw: None,
             composites: Composites::default(),
             round_trip_notice: None,
@@ -137,6 +140,34 @@ impl Host {
         })
     }
 
+    fn refresh_save_sources(&mut self) {
+        use photocraft_ui_egui::develop_layer;
+        let mut sources = Vec::new();
+        let origins: Vec<_> = self
+            .editor
+            .session
+            .documents()
+            .iter()
+            .flat_map(|state| state.doc.walk().into_iter().filter_map(|(_, _, layer)| develop_layer::layer_origin(layer)))
+            .collect();
+        let key = self
+            .library
+            .as_ref()
+            .map(|lib| (lib.session.library_identity().to_string(), lib.session.library_generation, lib.session.catalog.revision, origins.clone()));
+        if key == self.save_sources_seen {
+            return;
+        }
+        if let Some(lib) = &self.library {
+            for origin in origins {
+                if let Some(source) = capture_save_source(&lib.session, &origin) {
+                    sources.push(source);
+                }
+            }
+        }
+        *self.editor.library_save_sources.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = sources;
+        self.save_sources_seen = key;
+    }
+
     /// The Library's active photo: its id, file and develop settings (JSON).
     fn active_photo(&mut self) -> Option<(u64, String, serde_json::Value, String)> {
         let lib = self.library.as_ref()?;
@@ -151,6 +182,7 @@ impl Host {
     }
 
     fn observe_library(&mut self) {
+        self.refresh_save_sources();
         let current = self.library.as_ref().map(|l| (l.session.library_identity().to_string(), l.session.library_generation));
         if self.library_seen == current {
             return;
@@ -177,7 +209,9 @@ impl Host {
     fn open_editor_photo(&mut self, photo: u64, path: &str, settings: &serde_json::Value, name: &str) -> Result<(), String> {
         self.observe_library();
         let identity = self.library().session.library_identity().to_string();
-        photocraft_ui_egui::develop_layer::open_photo_in(&mut self.editor, &identity, photo, path, settings, name)
+        let result = photocraft_ui_egui::develop_layer::open_photo_in(&mut self.editor, &identity, photo, path, settings, name);
+        self.refresh_save_sources();
+        result
     }
 
     fn focus_library_document(&mut self, photo: u64) -> bool {
@@ -195,6 +229,7 @@ impl Host {
     /// the original) and reloads the ones it has; Save and Return to Library then shows it.
     /// Without `ctx` (at exit) nothing is shown.
     fn take_library_saves(&mut self, ctx: Option<&egui::Context>) {
+        self.refresh_save_sources();
         for save in std::mem::take(&mut self.editor.library_saves) {
             // An unopened library has none of the files; one opens for a photo from it.
             if self.library.is_none() && (save.photo.is_none() || ctx.is_none()) {
@@ -215,7 +250,12 @@ impl Host {
                 );
                 continue;
             }
-            let (id, msg) = match add_saved_file(&mut lib.session, &save.path, save.photo, save.overwritten) {
+            let update = if let Some(reset) = &save.source_reset {
+                add_replaced_source(&mut lib.session, &save.path, reset)
+            } else {
+                add_saved_file(&mut lib.session, &save.path, save.photo, save.overwritten)
+            };
+            let (id, msg) = match update {
                 Ok(Some(LibraryUpdate::Added { id, original })) => {
                     let name = lib.session.catalog.photo(original).map(|p| p.file_name.clone()).unwrap_or_default();
                     (Some(id), format!("Saved {}; added to the Library, stacked with {name}", save.path))
@@ -247,7 +287,7 @@ impl Host {
                     continue;
                 }
             };
-            if save.overwritten
+            if (save.overwritten || save.source_reset.is_some())
                 && let Some(id) = id
             {
                 let settings: Vec<_> = self
@@ -810,6 +850,59 @@ fn photo_at_path(s: &lightcraft_engine::Session, path: &str) -> Option<lightcraf
         .filter_map(|p| file(p).map(|f| (p.id, f)))
         .find(|(_, f)| std::path::Path::new(f).file_name() == Some(name) && std::fs::canonicalize(f).ok().as_ref() == Some(&canonical))
         .map(|(id, _)| id)
+}
+
+fn capture_save_source(
+    s: &lightcraft_engine::Session,
+    origin: &photocraft_ui_egui::develop_layer::LibraryOrigin,
+) -> Option<photocraft_ui_egui::develop_layer::LibrarySaveSource> {
+    if !matches_origin(s, origin) {
+        return None;
+    }
+    let photo = s.catalog.photo(lightcraft_catalog::PhotoId(origin.photo))?;
+    let master = photo.copy_of.unwrap_or(photo.id);
+    let canonical_path = std::fs::canonicalize(&origin.path).ok()?;
+    if s.catalog.photo(master)?.copy_of.is_some() {
+        return None;
+    }
+    if !s
+        .catalog
+        .photos()
+        .filter(|p| p.id == master || p.copy_of == Some(master))
+        .all(|p| matches!(&p.source,lightcraft_catalog::Source::File{path} if std::fs::canonicalize(path).ok().as_ref() == Some(&canonical_path)))
+    {
+        return None;
+    }
+    let source_paths = s
+        .catalog
+        .photos()
+        .filter(|p| p.id == master || p.copy_of == Some(master))
+        .filter_map(|p| if let lightcraft_catalog::Source::File { path } = &p.source { Some(path.clone()) } else { None })
+        .collect();
+    let settings = s
+        .catalog
+        .photos()
+        .filter(|p| p.id == master || p.copy_of == Some(master))
+        .map(|p| serde_json::to_value(&p.develop).ok().map(|settings| (p.id.0, settings)))
+        .collect::<Option<Vec<_>>>()?;
+    Some(photocraft_ui_egui::develop_layer::LibrarySaveSource { origin: origin.clone(), master: master.0, canonical_path, source_paths, settings })
+}
+
+fn add_replaced_source(
+    s: &mut lightcraft_engine::Session,
+    path: &str,
+    reset: &photocraft_ui_egui::develop_layer::LibrarySaveSource,
+) -> Result<Option<LibraryUpdate>, String> {
+    if capture_save_source(s, &reset.origin).as_ref() != Some(reset) || !photocraft_ui_egui::develop_layer::same_file_path(path, &reset.origin.path) {
+        return Err("Source identity or Develop edits changed; the saved file exists, but the newer Library edits were preserved".into());
+    }
+    let result = s.execute("photo.reload", &serde_json::json!({"ids":[reset.master],"resetDevelop":true})).map_err(|e| e.to_string())?;
+    if !result["reloaded"].as_array().is_some_and(|ids| ids.iter().any(|id| id.as_u64() == Some(reset.master)))
+        || !reset.settings.iter().all(|(id, _)| s.catalog.photo(lightcraft_catalog::PhotoId(*id)).is_some_and(|photo| *photo.develop == Default::default()))
+    {
+        return Err("The file was saved, but the Library could not reload it and reset its Develop settings".into());
+    }
+    Ok(Some(LibraryUpdate::Reloaded(lightcraft_catalog::PhotoId(reset.master))))
 }
 
 /// The Library's half of saving in Compositing: a file it has is reloaded; a file saved from a
@@ -1427,6 +1520,7 @@ mod tests {
             photo: Some(copy),
             show: false,
             overwritten: true,
+            source_reset: None,
         });
         host.take_library_saves(None);
         let defaults = lightcraft_engine::develop::DevelopSettings::default();
@@ -1453,6 +1547,227 @@ mod tests {
         assert_eq!(latest.library_baseline.as_deref(), Some(&serde_json::to_value(defaults).unwrap()));
         assert_eq!(latest.settings["light"]["exposure"], 0.5, "render settings still belong to the preserved source");
         drop(host);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn settle_background_save(host: &mut Host) {
+        let ctx = egui::Context::default();
+        let started = std::time::Instant::now();
+        while host.editor.session.has_jobs() {
+            host.observe_library();
+            photocraft_ui_egui::jobs_ui::tick_background(&mut host.editor, &ctx);
+            assert!(started.elapsed() < std::time::Duration::from_secs(15), "background save did not settle");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        host.take_library_saves(None);
+    }
+
+    #[test]
+    fn background_save_library_source_resets_copies_and_reopens_layered_baseline() {
+        for ext in ["png", "tif"] {
+            let (dir, path, mut library, master) = library_with_photo_format(&format!("background-source-{ext}"), ext);
+            library.run("develop.set", json!({"control":"light.exposure","value":0.5})).unwrap();
+            let copy = library.run("photo.virtualCopy", json!({})).unwrap()["ids"][0].as_u64().unwrap();
+            library.run("library.select", json!({"ids":[copy]})).unwrap();
+            library.run("develop.set", json!({"control":"light.exposure","value":0.75})).unwrap();
+            let original = std::fs::read(&path).unwrap();
+            let mut host = host_with_round_trip(library, lightcraft_catalog::PhotoId(copy), &path);
+            host.editor.services.prepare_save = Some(Arc::new(crate::services::prepare_document_save));
+            host.editor.background_jobs = true;
+            host.editor.session.edit_prefs(|p| p.file_handling.ask_before_saving_layered_tiff = false);
+            host.editor.save_as(Some(path.clone())).unwrap();
+            settle_background_save(&mut host);
+            assert!(host.editor.ui.notices.iter().all(|notice| !notice.error), "{}", host.editor.ui.status);
+            assert!(!host.editor.ui.status.contains("Trash"));
+            assert!(!dir.join("Trash").exists());
+            let defaults = lightcraft_engine::develop::DevelopSettings::default();
+            for id in [master, lightcraft_catalog::PhotoId(copy)] {
+                assert_eq!(*catalog(&host).catalog.photo(id).unwrap().develop, defaults);
+            }
+            let state = host.editor.session.active().unwrap();
+            let check = |doc: &photocraft_doc::Document, stage: &str| {
+                let photocraft_doc::LayerContent::Smart(smart) = &doc.layers[0].content else { panic!("Develop source lost") };
+                if stage == "open document" {
+                    assert!(matches!(&smart.source, photocraft_doc::SmartSource::Embedded { .. }), "current source was not frozen");
+                }
+                let bytes = match &smart.source {
+                    photocraft_doc::SmartSource::Embedded { bytes, .. } => Some(bytes.as_ref().clone()),
+                    photocraft_doc::SmartSource::Linked { path } => photocraft_io::linked::find_linked_file(&doc.metadata, path).map(|file| file.bytes),
+                };
+                assert!(bytes.as_deref() == Some(original.as_slice()), "{ext} {stage}: source table did not preserve exact original bytes");
+                let link = smart.develop.as_ref().unwrap();
+                assert_eq!(link.settings["light"]["exposure"], 0.75);
+                assert_eq!(link.library_baseline.as_deref(), Some(&serde_json::to_value(&defaults).unwrap()));
+            };
+            check(&state.doc, "open document");
+            if ext == "tif" {
+                assert!(!state.is_dirty(), "catalog bookkeeping dirtied the saved TIFF");
+                let reopened = photocraft_io::import(&path, &std::fs::read(&path).unwrap()).unwrap().document;
+                check(&reopened, "cold reopen");
+                assert_eq!(reopened.layers.len(), state.doc.layers.len());
+            } else {
+                assert!(state.is_dirty(), "a flat PNG doesn't save the editable document");
+            }
+            drop(host);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn background_save_library_newer_edits_prevent_source_publication() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (dir, path, mut library, photo) = library_with_photo("background-source-conflict");
+        library.run("develop.set", json!({"control":"light.exposure","value":0.5})).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let mut host = host_with_round_trip(library, photo, &path);
+        let release = Arc::new(AtomicBool::new(false));
+        let worker_release = release.clone();
+        host.editor.services.prepare_save = Some(Arc::new(move |doc, path, settings, interrupt| {
+            let started = std::time::Instant::now();
+            while !worker_release.load(Ordering::Acquire) {
+                if started.elapsed() > std::time::Duration::from_secs(10) {
+                    return Err("test barrier timeout".into());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            crate::services::prepare_document_save(doc, path, settings, interrupt)
+        }));
+        host.editor.background_jobs = true;
+        host.editor.save_as(Some(path.clone())).unwrap();
+        host.library().run("develop.set", json!({"control":"light.exposure","value":1.0})).unwrap();
+        host.observe_library();
+        release.store(true, Ordering::Release);
+        settle_background_save(&mut host);
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(catalog(&host).catalog.photo(photo).unwrap().develop.light.exposure, 1.0);
+        assert!(host.editor.ui.status_error);
+        assert!(host.editor.ui.status.contains("changed during saving"), "{}", host.editor.ui.status);
+        assert!(host.editor.library_saves.is_empty());
+        drop(host);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn background_save_library_alias_uses_qualified_source_without_importing_duplicate() {
+        let (dir, path, mut library, photo) = library_with_photo("background-source-alias");
+        library.run("develop.set", json!({"control":"light.exposure","value":0.5})).unwrap();
+        let mut host = host_with_round_trip(library, photo, &path);
+        let alias = dir.join("different-name.png");
+        std::os::unix::fs::symlink(&path, &alias).unwrap();
+        host.editor.services.prepare_save = Some(Arc::new(crate::services::prepare_document_save));
+        host.editor.background_jobs = true;
+        host.editor.save_as(Some(alias.to_string_lossy().into_owned())).unwrap();
+        settle_background_save(&mut host);
+        assert!(host.editor.ui.notices.iter().all(|notice| !notice.error), "{}", host.editor.ui.status);
+        assert_eq!(catalog(&host).catalog.len(), 1);
+        assert_eq!(catalog(&host).catalog.photo(photo).unwrap().develop.light.exposure, 0.0);
+        assert!(alias.is_symlink());
+        drop(host);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn background_save_library_rebound_master_invalidates_virtual_copy_capture() {
+        let (dir, path, mut library, master) = library_with_photo("background-source-rebind");
+        let copy = library.run("photo.virtualCopy", json!({})).unwrap()["ids"][0].as_u64().unwrap();
+        let mut host = host_with_round_trip(library, lightcraft_catalog::PhotoId(copy), &path);
+        let captured = host.editor.library_save_sources.lock().unwrap()[0].clone();
+        let other = dir.join("other.png");
+        std::fs::copy(&path, &other).unwrap();
+        host.library()
+            .session
+            .catalog
+            .apply(lightcraft_catalog::Op::SetFile {
+                id: master,
+                file_name: "other.png".into(),
+                source: lightcraft_catalog::Source::File { path: other.to_string_lossy().into_owned() },
+            })
+            .unwrap();
+        host.observe_library();
+        assert!(!host.editor.library_save_sources.lock().unwrap().contains(&captured));
+        assert!(add_replaced_source(&mut host.library().session, &path, &captured).is_err());
+        drop(host);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn background_save_library_failed_reload_reports_saved_file_but_no_catalog_reset() {
+        let (dir, path, mut library, photo) = library_with_photo("background-source-reload-failure");
+        library.run("develop.set", json!({"control":"light.exposure","value":0.5})).unwrap();
+        let mut host = host_with_round_trip(library, photo, &path);
+        let captured = host.editor.library_save_sources.lock().unwrap()[0].clone();
+        host.library().session.media.file_probe = Some(Arc::new(|_| Err("injected unavailable file".into())));
+        host.editor.library_saves.push(LibrarySave {
+            notice: None,
+            origin: Some(captured.origin.clone()),
+            path,
+            photo: Some(photo.0),
+            show: false,
+            overwritten: false,
+            source_reset: Some(captured),
+        });
+        host.take_library_saves(None);
+        assert!(host.editor.ui.status_error);
+        assert!(host.editor.ui.status.contains("could not reload"));
+        assert_eq!(catalog(&host).catalog.photo(photo).unwrap().develop.light.exposure, 0.5);
+        assert!(matches!(host.round_trip_notice, Some(RoundTripNotice::Error(_))));
+        drop(host);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn background_save_host_keyboard_cancel_retry_and_library_return() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (dir, path, library, photo) = library_with_photo("background-save-host-keys");
+        let mut host = host_with_round_trip(library, photo, &path);
+        let release = Arc::new(AtomicBool::new(false));
+        let exited = Arc::new(AtomicBool::new(false));
+        let worker_release = release.clone();
+        let worker_exited = exited.clone();
+        host.editor.services.prepare_save = Some(Arc::new(move |doc, path, settings, interrupt| {
+            let start = std::time::Instant::now();
+            while !worker_release.load(Ordering::Acquire) {
+                if start.elapsed() > std::time::Duration::from_secs(10) {
+                    return Err("test barrier timeout".into());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            let result = crate::services::prepare_document_save(doc, path, settings, interrupt);
+            worker_exited.store(true, Ordering::Release);
+            result
+        }));
+        host.editor.background_jobs = true;
+        let saved = dir.join("photo-Edit.psd");
+        let mut h = RoundTripUi::new(host);
+        h.step(vec![]);
+        h.step(vec![]);
+        h.key(egui::Key::S, egui::Modifiers::COMMAND);
+        assert!(h.host.editor.session.has_jobs());
+        assert!(!saved.exists());
+        // Real Host frames and keyboard navigation stay live while encoding is held.
+        let frames = h.frames;
+        for _ in 0..3 {
+            h.step(vec![]);
+        }
+        assert!(h.frames >= frames + 3);
+        h.key(egui::Key::Escape, egui::Modifiers::NONE);
+        release.store(true, Ordering::Release);
+        h.wait_for(|host| !host.editor.session.has_jobs() && exited.load(Ordering::Acquire));
+        h.step(vec![]);
+        assert!(!saved.exists(), "Escape published cancelled bytes");
+        assert!(h.host.editor.has_unsaved());
+        let result = photocraft_ui_egui::menus::invoke(&mut h.host.editor, &h.view.ctx, develop_layer::SAVE_RETURN_ID, json!({})).unwrap();
+        assert_eq!(result["pending"], true);
+        assert_eq!(h.host.mode, Module::Compositing);
+        h.wait_for(|host| !host.editor.session.has_jobs() && host.mode == Module::Library);
+        assert!(saved.exists());
+        assert!(!h.host.editor.has_unsaved());
+        assert!(photo_at_path(catalog(&h.host), &saved.to_string_lossy()).is_some());
+        let reopened = photocraft_io::import("photo-Edit.psd", &std::fs::read(&saved).unwrap()).unwrap().document;
+        assert_eq!(reopened.layers.len(), h.host.editor.session.active().unwrap().doc.layers.len());
+        assert!(h.host.editor.ui.notices.iter().all(|notice| !notice.error));
+        drop(h);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1612,7 +1927,8 @@ mod tests {
                 path: saved.clone(),
                 photo: Some(orig.0),
                 show: false,
-                overwritten: false
+                overwritten: false,
+                source_reset: None,
             }]
         );
 

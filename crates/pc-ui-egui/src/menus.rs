@@ -260,7 +260,7 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                 .map(str::to_string)
                 .or_else(|| app.session.active().and_then(|d| d.path.clone()).filter(|p| photocraft_engine::file_cmds::saves_in_place(p)))
                 .or_else(|| crate::develop_layer::library_save_path(app));
-            app.save_as(path).map(|(p, w)| json!({"path": p, "warnings": w}))
+            app.save_as(path).map(|(p, w)| crate::save_worker::response(app, p, w))
         }
         "file.exit" => {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -290,7 +290,7 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             crate::overwrite_original::request(app, doc, id == crate::overwrite_original::RETURN_ID)?;
             Ok(json!({"confirmation": app.overwrite_prompt.is_some()}))
         }
-        "file.saveAs" => app.save_as(params.get("path").and_then(Value::as_str).map(str::to_string)).map(|(p, w)| json!({"path": p, "warnings": w})),
+        "file.saveAs" => app.save_as(params.get("path").and_then(Value::as_str).map(str::to_string)).map(|(p, w)| crate::save_worker::response(app, p, w)),
         "view.zoomIn" | "view.zoomOut" | "view.fitOnScreen" | "view.actualPixels" => {
             let i = app.session.active_index().ok_or("no document")?;
             let v = &mut app.ui.views[i];

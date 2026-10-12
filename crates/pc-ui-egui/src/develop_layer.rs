@@ -56,6 +56,22 @@ pub fn origin_of(doc: &photocraft_doc::Document) -> Option<LibraryOrigin> {
     doc.walk().iter().find_map(|(_, _, layer)| layer_origin(layer))
 }
 
+/// A qualified, captured source family. The host refreshes this mirror before editor jobs
+/// publish. A changed catalog, source identity or Develop setting invalidates the save.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LibrarySaveSource {
+    pub origin: LibraryOrigin,
+    pub master: u64,
+    pub canonical_path: std::path::PathBuf,
+    pub source_paths: Vec<String>,
+    pub settings: Vec<(u64, Value)>,
+}
+pub type LibrarySaveSources = std::sync::Arc<std::sync::Mutex<Vec<LibrarySaveSource>>>;
+
+pub fn same_file_path(a: &str, b: &str) -> bool {
+    a == b || std::fs::canonicalize(a).ok().zip(std::fs::canonicalize(b).ok()).is_some_and(|(a, b)| a == b)
+}
+
 /// A file Save / Save As wrote (local-image: the host takes these for the Library).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LibrarySave {
@@ -71,6 +87,8 @@ pub struct LibrarySave {
     pub show: bool,
     /// Flattened replacement of the source, with its previous version in Trash.
     pub overwritten: bool,
+    /// Ordinary Save As replaced this Library source; no Trash backup is implied.
+    pub source_reset: Option<LibrarySaveSource>,
 }
 
 /// The Library photo a layer follows, when it is a Develop layer.
@@ -163,6 +181,10 @@ pub fn save_and_return(app: &mut PhotocraftApp, params: &Value) -> Result<Value,
         .or_else(|| library_save_path(app));
     let before = app.library_saves.len();
     let (path, warnings) = app.save_as(path)?;
+    if let Some(pending) = app.pending_save.as_mut() {
+        pending.return_to_library = true;
+        return Ok(crate::save_worker::response(app, path, warnings));
+    }
     if let Some(prompt) = app.tiff_options.as_mut() {
         prompt.return_to_library = true;
     }

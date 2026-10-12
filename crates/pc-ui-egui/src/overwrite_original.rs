@@ -95,6 +95,7 @@ fn save(app: &mut PhotocraftApp, prompt: Prompt) -> Result<(), String> {
         photo: Some(prompt.photo),
         show: prompt.show_library,
         overwritten: true,
+        source_reset: None,
     });
     app.ui.status = format!("Overwrote {}; previous version kept in Trash", prompt.path);
     app.ui.status_error = !warnings.is_empty();

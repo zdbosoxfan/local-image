@@ -73,6 +73,38 @@ impl PreparedSourceOverwrite {
         session.docs = self.states;
     }
 }
+fn freeze_layer(layer: &mut Layer, source: &mut SourcePath, name: &str, original: &Arc<Vec<u8>>) -> bool {
+    let LayerContent::Smart(smart) = &mut layer.content else {
+        return false;
+    };
+    if !matches!(&smart.source,SmartSource::Linked{path} if source.matches(path)) {
+        return false;
+    }
+    // Legacy Develop links derive their origin from the linked source. Keep that
+    // identity before the source becomes embedded.
+    if let SmartSource::Linked { path } = &smart.source
+        && let Some(link) = &mut smart.develop
+        && link.source.is_none()
+    {
+        link.source = Some(path.clone().into());
+    }
+    smart.source = SmartSource::Embedded { file_name: name.into(), bytes: original.clone() };
+    smart.psd_raw = None;
+    layer.psd_blocks.retain(|(key, _)| ![b"SoLd", b"SoLE", b"PlLd"].contains(&key));
+    true
+}
+
+/// Freeze only the captured export snapshot before replacing a source it references.
+/// Session/history rebasing must be prepared again at publication, against current edits.
+pub fn freeze_source_snapshot(doc: &Arc<Document>, path: &str, original: Arc<Vec<u8>>) -> Result<Arc<Document>> {
+    if original.len() as u64 > photocraft_format::read::MAX_FILE_BYTES {
+        return Err(EngineError::Other("Original source exceeds the file memory limit".into()));
+    }
+    let mut source = SourcePath::new(path);
+    let name = Path::new(path).file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| "original".into());
+    Ok(map_doc(doc, &mut HashMap::new(), &mut |layer| freeze_layer(layer, &mut source, &name, &original)))
+}
+
 impl Session {
     pub fn prepare_source_overwrite(&self, path: &str, original: Arc<Vec<u8>>) -> Result<PreparedSourceOverwrite> {
         if original.len() as u64 > photocraft_format::read::MAX_FILE_BYTES {
@@ -109,26 +141,7 @@ impl Session {
         }
         let name = Path::new(path).file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| "original".into());
         let mut memo = HashMap::new();
-        let mut freeze = |layer: &mut Layer| {
-            let LayerContent::Smart(smart) = &mut layer.content else {
-                return false;
-            };
-            if !matches!(&smart.source,SmartSource::Linked{path} if source.matches(path)) {
-                return false;
-            }
-            // Legacy Develop links derive their origin from the linked source. Keep that
-            // identity before the source becomes embedded.
-            if let SmartSource::Linked { path } = &smart.source
-                && let Some(link) = &mut smart.develop
-                && link.source.is_none()
-            {
-                link.source = Some(path.clone().into());
-            }
-            smart.source = SmartSource::Embedded { file_name: name.clone(), bytes: original.clone() };
-            smart.psd_raw = None;
-            layer.psd_blocks.retain(|(key, _)| ![b"SoLd", b"SoLE", b"PlLd"].contains(&key));
-            true
-        };
+        let mut freeze = |layer: &mut Layer| freeze_layer(layer, &mut source, &name, &original);
         let states = self.docs.iter().map(|state| map_state(state, &mut memo, &mut freeze)).collect();
         Ok(PreparedSourceOverwrite { states })
     }
@@ -136,24 +149,31 @@ impl Session {
     /// A filesystem overwrite reset is bookkeeping, not a new Develop edit.
     /// Rebase every undo/redo/snapshot copy as well as current documents.
     pub fn acknowledge_library_overwrite(&mut self, library: &str, photo: u64, path: &str, settings: &Value) {
-        let baseline = Arc::new(settings.clone());
         let mut memo = HashMap::new();
-        let mut acknowledge = |layer: &mut Layer| {
-            let LayerContent::Smart(smart) = &mut layer.content else {
-                return false;
-            };
-            if source_of(smart) != Some(path) {
-                return false;
-            }
-            let Some(link) = smart.develop.as_mut().filter(|link| link.library.as_deref() == Some(library) && link.photo == Some(photo)) else {
-                return false;
-            };
-            if link.library_baseline.as_deref() == Some(settings) {
-                return false;
-            }
-            link.library_baseline = Some(baseline.clone());
-            true
-        };
+        let mut source = SourcePath::new(path);
+        let baseline = Arc::new(settings.clone());
+        let mut acknowledge = |layer: &mut Layer| acknowledge_layer(layer, &mut source, library, photo, &baseline);
         self.docs = self.docs.iter().map(|state| map_state(state, &mut memo, &mut acknowledge)).collect();
     }
+}
+
+fn acknowledge_layer(layer: &mut Layer, source: &mut SourcePath, library: &str, photo: u64, baseline: &Arc<Value>) -> bool {
+    let LayerContent::Smart(smart) = &mut layer.content else { return false };
+    if !source_of(smart).is_some_and(|path| source.matches(path)) {
+        return false;
+    }
+    let Some(link) = smart.develop.as_mut().filter(|link| link.library.as_deref() == Some(library) && link.photo == Some(photo)) else { return false };
+    if link.library_baseline.as_deref() == Some(baseline.as_ref()) {
+        return false;
+    }
+    link.library_baseline = Some(baseline.clone());
+    true
+}
+
+/// Record the anticipated catalog baseline in the encoded project itself. Rendering settings
+/// and source pixels are unchanged; a normal cold reopen must not apply the reset as an edit.
+pub fn acknowledge_library_snapshot(doc: &Arc<Document>, library: &str, photo: u64, path: &str, settings: &Value) -> Arc<Document> {
+    let mut source = SourcePath::new(path);
+    let baseline = Arc::new(settings.clone());
+    map_doc(doc, &mut HashMap::new(), &mut |layer| acknowledge_layer(layer, &mut source, library, photo, &baseline))
 }

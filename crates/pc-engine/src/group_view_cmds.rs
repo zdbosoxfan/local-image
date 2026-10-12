@@ -73,6 +73,17 @@ pub(crate) fn restore_expansion(doc: &mut Arc<Document>, expanded: &HashMap<Laye
     restore(&mut Arc::make_mut(doc).layers, expanded);
 }
 
+/// Whether a saved snapshot matches current persistent content, permitting only
+/// group disclosure differences. Same-revision resource changes must remain unsaved.
+pub fn matches_saved_snapshot(current: &Arc<Document>, snapshot: &Arc<Document>) -> bool {
+    if Arc::ptr_eq(current, snapshot) {
+        return true;
+    }
+    let mut normalized = snapshot.clone();
+    restore_expansion(&mut normalized, &capture_expansion(current));
+    **current == *normalized
+}
+
 /// `{"layer":id?,"expanded":bool?,"all":bool?}`: open or close a group (no `expanded`: toggle).
 /// With `all`, every group in the document takes the new state (Photoshop's ⌥-click on a
 /// disclosure triangle); without a layer, `all` toggles from "any group open".
