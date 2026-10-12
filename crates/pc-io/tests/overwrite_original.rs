@@ -427,3 +427,77 @@ fn overwrite_jpeg_accepts_xml_semantic_extended_guid_links_and_rejects_missing_c
     let saved = photocraft_io::export_over_original(&doc, &original, 90).unwrap();
     assert_eq!(lightcraft_meta::jpeg_segments(&saved.bytes).xmp, lightcraft_meta::jpeg_segments(&original).xmp);
 }
+
+fn maker_note_tiff(little: bool, big: bool, sample: SampleType) -> Vec<u8> {
+    fn put(bytes: &mut [u8], at: usize, n: usize, value: u64, little: bool) {
+        let data = if little { value.to_le_bytes() } else { value.to_be_bytes() };
+        bytes[at..at + n].copy_from_slice(if little { &data[..n] } else { &data[8 - n..] });
+    }
+    let mut bytes = vec![0; 512];
+    bytes[..2].copy_from_slice(if little { b"II" } else { b"MM" });
+    put(&mut bytes, 2, 2, if big { 43 } else { 42 }, little);
+    if big {
+        put(&mut bytes, 4, 2, 8, little);
+    }
+    put(&mut bytes, if big { 8 } else { 4 }, if big { 8 } else { 4 }, if big { 16 } else { 8 }, little);
+    let (root, count_size, entry_size, offset_size) = if big { (16, 8, 20, 8) } else { (8, 2, 12, 4) };
+    let bits = sample.bytes() * 8;
+    let fields = [
+        (256u16, 4u16, 3u64),
+        (257, 4, 2),
+        (258, 3, bits as u64),
+        (259, 3, 1),
+        (262, 3, 1),
+        (273, 4, 512),
+        (277, 3, 1),
+        (278, 4, 2),
+        (279, 4, (6 * sample.bytes()) as u64),
+        (339, 3, if sample == SampleType::F32 { 3 } else { 1 }),
+        (34665, 4, 300),
+    ];
+    put(&mut bytes, root, count_size, fields.len() as u64, little);
+    for (index, (tag, typ, value)) in fields.into_iter().enumerate() {
+        let at = root + count_size + index * entry_size;
+        put(&mut bytes, at, 2, tag.into(), little);
+        put(&mut bytes, at + 2, 2, typ.into(), little);
+        put(&mut bytes, at + 4, if big { 8 } else { 4 }, 1, little);
+        put(&mut bytes, at + entry_size - offset_size, if typ == 3 { 2 } else { 4 }, value, little);
+    }
+    put(&mut bytes, 300, count_size, 1, little);
+    let entry = 300 + count_size;
+    put(&mut bytes, entry, 2, 37500, little);
+    put(&mut bytes, entry + 2, 2, 7, little);
+    put(&mut bytes, entry + 4, if big { 8 } else { 4 }, 64, little);
+    put(&mut bytes, entry + entry_size - offset_size, offset_size, 400, little);
+    bytes[400..464].fill(0x91);
+    put(&mut bytes, 408, 4, 480, little);
+    put(&mut bytes, 412, 4, 80, little);
+    bytes[480..496].copy_from_slice(b"opaque-reference");
+    for _ in 0..6 {
+        match sample {
+            SampleType::U8 => bytes.push(64),
+            SampleType::U16 => bytes.extend_from_slice(&if little { 16384u16.to_le_bytes() } else { 16384u16.to_be_bytes() }),
+            SampleType::F32 => bytes.extend_from_slice(&if little { 0.25f32.to_le_bytes() } else { 0.25f32.to_be_bytes() }),
+            _ => unreachable!(),
+        }
+    }
+    bytes
+}
+
+#[test]
+fn overwrite_tiff_refuses_opaque_makernotes_in_both_orders_variants_and_depths() {
+    for little in [true, false] {
+        for big in [false, true] {
+            for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+                let original = maker_note_tiff(little, big, sample);
+                let before = original.clone();
+                let replacement = Image::from_normalized(2, 3, ChannelLayout::Gray, sample, &[0.5; 6]).unwrap();
+                let encoded = photocraft_codecs::encode(&replacement, Format::Tiff, &EncodeOptions::default()).unwrap();
+                let doc = photocraft_io::import("replacement.tiff", &encoded).unwrap().document;
+                let err = photocraft_io::export_over_original(&doc, &original, 90).unwrap_err().to_string();
+                assert!(err.contains("cannot be safely rewritten"), "{little}/{big}/{sample:?}: {err}");
+                assert_eq!(original, before);
+            }
+        }
+    }
+}

@@ -335,6 +335,7 @@ pub fn export_over_original(doc: &Document, original: &[u8], jpeg_quality: u8) -
         let name = if original.get(4..6) == Some(&[0, 2]) { "psb" } else { "psd" };
         let mut out = crate::export(&flat, name, &ExportOptions::default())?;
         out.warnings.extend(warnings);
+        admit_overwrite_size(out.bytes.len() as u64)?;
         return Ok(out);
     }
     let opts = codecs::EncodeOptions {
@@ -352,7 +353,17 @@ pub fn export_over_original(doc: &Document, original: &[u8], jpeg_quality: u8) -
     } else {
         bytes
     };
+    admit_overwrite_size(bytes.len() as u64)?;
     Ok(ExportResult { bytes, warnings })
+}
+
+fn admit_overwrite_size(size: u64) -> Result<(), IoError> {
+    if size > photocraft_format::read::MAX_FILE_BYTES {
+        return Err(IoError::Unsupported(
+            "The edited file exceeds the app's reopen limit. The original was not changed; reduce its size or export a smaller copy.".into(),
+        ));
+    }
+    Ok(())
 }
 
 /// IFD1 describes the old thumbnail. Leave camera/EXIF/GPS entries and their original offsets
@@ -850,6 +861,14 @@ fn export_mode_specific(doc: &Document, format: Format, opts: &ExportOptions) ->
         }
         _ => Ok(None),
     }
+}
+
+#[test]
+fn overwrite_output_must_fit_the_reopen_limit() {
+    let limit = photocraft_format::read::MAX_FILE_BYTES;
+    assert!(admit_overwrite_size(limit).is_ok());
+    assert!(admit_overwrite_size(limit + 1).unwrap_err().to_string().contains("reopen limit"));
+    assert!(admit_overwrite_size(u64::MAX).is_err());
 }
 
 #[cfg(test)]

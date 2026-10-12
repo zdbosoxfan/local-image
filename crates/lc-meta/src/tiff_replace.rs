@@ -11,6 +11,15 @@ pub fn preserve_tiff_metadata(original: &[u8], encoded: &[u8]) -> lightcraft_tif
     let target = Tiff::parse(encoded)?;
     let old = source.ifds.first().ok_or_else(|| TiffError::Invalid("original has no IFD".into()))?;
     let new = target.ifds.first().ok_or_else(|| TiffError::Invalid("replacement has no IFD".into()))?;
+    // Unknown camera notes may point anywhere in the original allocation. Relocating them
+    // corrupts metadata; retaining the old allocation retains cropped/redacted image pixels.
+    // Until the vendor's relocation can be proven safe, leave the original untouched.
+    if has_maker_note(old) {
+        return Err(TiffError::Invalid(
+            "This TIFF's camera metadata uses offsets that cannot be safely rewritten. The original was not changed. Save an edited copy instead."
+                .into(),
+        ));
+    }
     let mut root = metadata(old);
     for entry in &new.entries {
         if PIXEL_TAGS.contains(&entry.tag) {
@@ -62,6 +71,10 @@ pub fn preserve_tiff_metadata(original: &[u8], encoded: &[u8]) -> lightcraft_tif
     }
     // Compressed pixel byte order belongs to the encoder, not to the previous TIFF header.
     TiffWriter::new(target.order, target.bigtiff).write(&[root])
+}
+
+fn has_maker_note(ifd: &Ifd) -> bool {
+    ifd.get(tags::MAKER_NOTE).is_some() || [&ifd.exif, &ifd.gps, &ifd.interop].into_iter().flatten().any(|child| has_maker_note(child))
 }
 
 // TIFF 6.0 raster storage, sample interpretation, old previews and Photoshop layers.
@@ -121,6 +134,27 @@ fn without_photoshop_previews(mut bytes: &[u8]) -> Vec<u8> {
 mod tests {
     use super::*;
     use lightcraft_tiff::ByteOrder;
+
+    #[test]
+    fn overwrite_tiff_refuses_unproven_camera_note_relocation() {
+        for order in [ByteOrder::Little, ByteOrder::Big] {
+            for big in [false, true] {
+                for note in [vec![1, 2], vec![0x91; 64], b"Nikon\0\x02\x10\0\0opaque-offsets".to_vec()] {
+                    let mut old = IfdBuilder::new();
+                    old.set_child(tags::EXIF_IFD, IfdBuilder::new().with(tags::MAKER_NOTE, Value::Undefined(note)));
+                    old.set_image(ImageData::Strips { rows_per_strip: 1, strips: vec![b"original-sensitive-pixels".to_vec()] });
+                    let original = TiffWriter::new(order, big).write(&[old]).unwrap();
+                    let before = original.clone();
+                    let mut new = IfdBuilder::new().with(tags::IMAGE_WIDTH, Value::Long(vec![1])).with(tags::IMAGE_LENGTH, Value::Long(vec![1]));
+                    new.set_image(ImageData::Strips { rows_per_strip: 1, strips: vec![vec![0]] });
+                    let encoded = TiffWriter::default().write(&[new]).unwrap();
+                    let err = preserve_tiff_metadata(&original, &encoded).unwrap_err().to_string();
+                    assert!(err.contains("cannot be safely rewritten"), "{err}");
+                    assert_eq!(original, before);
+                }
+            }
+        }
+    }
 
     #[test]
     fn overwrite_tiff_refuses_unreadable_xmp_before_returning_replacement() {
