@@ -18,12 +18,12 @@ fn indirect(data: &[u8], reference: &str) -> Vec<u8> {
     body.extend_from_slice(b"\nendstream");
     body
 }
-fn hex(data: &[u8]) -> Vec<u8> {
+pub(super) fn hex(data: &[u8]) -> Vec<u8> {
     let mut out = data.iter().map(|b| format!("{b:02X} ")).collect::<String>().into_bytes();
     out.push(b'>');
     out
 }
-fn a85(data: &[u8]) -> Vec<u8> {
+pub(super) fn a85(data: &[u8]) -> Vec<u8> {
     let mut out = vec![];
     for bytes in data.chunks(4) {
         let mut group = [0u8; 4];
@@ -39,7 +39,7 @@ fn a85(data: &[u8]) -> Vec<u8> {
     out.extend_from_slice(b"~>");
     out
 }
-fn rl(data: &[u8]) -> Vec<u8> {
+pub(super) fn rl(data: &[u8]) -> Vec<u8> {
     let mut out = vec![];
     for chunk in data.chunks(128) {
         out.push((chunk.len() - 1) as u8);
@@ -183,13 +183,13 @@ fn lzw_pack(codes: &[u16], early: bool) -> Vec<u8> {
     }
     bits.chunks(8).map(|b| b.iter().enumerate().fold(0, |v, (i, bit)| v | bit << (7 - i))).collect()
 }
-fn lzw_literals(data: &[u8], early: bool) -> Vec<u8> {
+pub(super) fn lzw_literals(data: &[u8], early: bool) -> Vec<u8> {
     let mut codes = vec![256];
     codes.extend(data.iter().map(|b| u16::from(*b)));
     codes.push(257);
     lzw_pack(&codes, early)
 }
-fn deflate(data: &[u8]) -> Vec<u8> {
+pub(super) fn deflate(data: &[u8]) -> Vec<u8> {
     let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
     encoder.write_all(data).unwrap();
     encoder.finish().unwrap()

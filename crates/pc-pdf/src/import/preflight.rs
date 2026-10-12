@@ -1,6 +1,7 @@
 //! Allocation/work guard before hayro's unbounded decoders run. PDF 1.7 §§3.2–3.5.
 //! This is a restrictive admission check, not a replacement PDF interpreter. In particular
-//! indirect filters, encryption, JPX/JBIG2 and inline images are refused. Every
+//! indirect filters, encryption and JPX/JBIG2 are refused. Inline images use
+//! exact codec boundaries and marker-safe canonical content normalization. Every
 //! accepted stream is measured with bounded decoding; object-stream dictionaries and the
 //! reference graph are checked before Pdf::new can traverse/decompress them.
 use super::{ImportError, Result, cancelled};
@@ -17,12 +18,16 @@ mod ccitt;
 mod ccitt_admission;
 #[path = "preflight/filters.rs"]
 mod filters;
+#[path = "preflight/inline.rs"]
+mod inline;
 #[path = "preflight/lengths.rs"]
 mod lengths;
 #[path = "preflight/lzw.rs"]
 mod lzw;
 #[path = "preflight/predictors.rs"]
 mod predictors;
+#[path = "preflight/roles.rs"]
+mod roles;
 
 #[derive(Clone, Debug, PartialEq)]
 enum Value {
@@ -273,6 +278,7 @@ struct Guard<'a> {
     bytes: u64,
     streams: Vec<((u32, u16), Vec<u8>)>,
     binary: BTreeSet<(u32, u16)>,
+    inline_images: usize,
 }
 impl Guard<'_> {
     fn charge(&mut self, n: u64) -> Result<()> {
@@ -570,40 +576,6 @@ impl Guard<'_> {
         }
         Ok(data)
     }
-    fn content(&self, data: &[u8]) -> Result<(usize, Vec<Vec<u8>>)> {
-        let mut l = Lexer::new(data, self.options, self.cancel);
-        let mut depth = 0usize;
-        let mut saves = 0usize;
-        let mut last_name = None;
-        let mut calls = vec![];
-        while let Some(t) = l.next()? {
-            match t {
-                Token::Name(n) => last_name = Some(n),
-                Token::Word(w) if w == b"Do" => {
-                    if let Some(n) = last_name.take() {
-                        calls.push(n);
-                    }
-                }
-                Token::OpenArray | Token::OpenDict => {
-                    depth += 1;
-                    if depth > self.options.limits.depth.min(64) {
-                        return Err(ImportError::Limit("content depth"));
-                    }
-                }
-                Token::CloseArray | Token::CloseDict => depth = depth.saturating_sub(1),
-                Token::Word(w) if w == b"BI" => return Err(ImportError::Unsupported("inline images require a bounded decoder")),
-                Token::Word(w) if w == b"q" => {
-                    saves += 1;
-                    if saves > self.options.limits.depth.min(64) {
-                        return Err(ImportError::Limit("graphics state depth"));
-                    }
-                }
-                Token::Word(w) if w == b"Q" => saves = saves.saturating_sub(1),
-                _ => {}
-            }
-        }
-        Ok((l.tokens, calls))
-    }
     fn graph(&self) -> Result<()> {
         // Forms may inherit their caller's Resources. Conservatively resolve Do names against
         // every declared XObject dictionary too; this catches cycles lacking local Resources.
@@ -700,7 +672,7 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
     if !options.dpi.is_finite() || !(1.0..=2400.0).contains(&options.dpi) {
         return Err(invalid("DPI must be finite and between 1 and 2400"));
     }
-    let mut g = Guard { options, cancel, objects: BTreeMap::new(), bytes: 0, streams: vec![], binary: BTreeSet::new() };
+    let mut g = Guard { options, cancel, objects: BTreeMap::new(), bytes: 0, streams: vec![], binary: BTreeSet::new(), inline_images: 0 };
     let mut l = Lexer::new(bytes, options, cancel);
     l.at = header;
     let mut words: Vec<(Vec<u8>, usize)> = Vec::new();
@@ -708,6 +680,7 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
     let mut xref_starts = BTreeSet::new();
     let mut length_index: Option<lengths::Index> = None;
     let mut bodies = BTreeMap::new();
+    let mut stream_ids = BTreeSet::new();
     let mut root = None;
     fn set_root(root: &mut Option<(u32, u16)>, value: &Value) -> Result<()> {
         if let Some(Value::Ref(a, b)) = value.get(b"Root") {
@@ -743,6 +716,7 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
                 let work = 0;
                 let calls = vec![];
                 if matches!(&next,Some(Token::Word(w)) if w==b"stream") {
+                    stream_ids.insert(id);
                     if l.data.get(l.at) == Some(&b'\r') {
                         l.at += 1;
                     }
@@ -776,6 +750,9 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
                         return Err(invalid("stream length mismatch"));
                     }
                     if value.get(b"Type").and_then(Value::name) == Some(b"ObjStm") {
+                        // Transport bytes are not drawing instructions. Expanded
+                        // members remain independently admitted ordinary objects.
+                        g.binary.insert(id);
                         let n = value.get(b"N").and_then(Value::number).ok_or_else(|| invalid("object stream count"))? as usize;
                         let first = value.get(b"First").and_then(Value::number).ok_or_else(|| invalid("object stream offset"))? as usize;
                         let header = data.get(..first).ok_or_else(|| invalid("object stream offset"))?;
@@ -842,78 +819,49 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
     if let Some(index) = length_index {
         index.verify(&g.objects, &object_starts, &xref_starts)?;
     }
-    // FontFile2 streams need not carry a Subtype or Length1. Identify them from their
-    // descriptors after all objects have been read, before lexing candidate content.
-    fn font_streams(v: &Value, out: &mut BTreeSet<(u32, u16)>) {
-        match v {
-            Value::Dict(d) => {
-                for (k, v) in d {
-                    if matches!(k.as_slice(), b"FontFile" | b"FontFile2" | b"FontFile3") {
-                        let mut ids = vec![];
-                        v.refs(&mut ids);
-                        out.extend(ids);
-                    }
-                    font_streams(v, out);
-                }
-            }
-            Value::Array(a) => {
-                for v in a {
-                    font_streams(v, out);
-                }
-            }
-            _ => {}
-        }
-    }
-    // Reusing a binary resource as a content stream would bypass content work checks.
-    fn content_refs(v: &Value, out: &mut Vec<(u32, u16)>) {
-        match v {
-            Value::Dict(d) => {
-                for (k, v) in d {
-                    if matches!(k.as_slice(), b"Contents" | b"CharProcs") {
-                        v.refs(out);
-                    }
-                    content_refs(v, out);
-                }
-            }
-            Value::Array(a) => {
-                for v in a {
-                    content_refs(v, out);
-                }
-            }
-            _ => {}
-        }
-    }
-    let mut contents = vec![];
-    for r in g.objects.values() {
-        content_refs(&r.value, &mut contents);
-    }
-    let mut content_ids = BTreeSet::new();
-    while let Some(id) = contents.pop() {
-        if content_ids.insert(id)
-            && let Some(r) = g.objects.get(&id)
-        {
-            // A CharProcs dictionary may itself be indirect.
-            if let Value::Dict(d) = &r.value
-                && !d.contains_key(b"Length".as_slice())
-            {
-                r.value.refs(&mut contents);
-            }
-        }
-    }
-    let mut fonts = BTreeSet::new();
-    for r in g.objects.values() {
-        font_streams(&r.value, &mut fonts);
-    }
-    if content_ids.iter().any(|id| fonts.contains(id) || g.binary.contains(id)) {
+    let roles::Roles { content: content_ids, opaque: opaque_ids, fonts } = roles::classify(&mut g, &stream_ids)?;
+    if content_ids.iter().any(|id| fonts.contains(id) || g.binary.contains(id) || opaque_ids.contains(id)) {
         return Err(ImportError::Unsupported("binary resource reused as page content"));
     }
+    let mut normalized = Vec::new();
+    let mut has_inline = false;
     for (id, data) in std::mem::take(&mut g.streams) {
         if !fonts.contains(&id) {
-            let (work, calls) = g.content(&data)?;
-            if let Some(r) = g.objects.get_mut(&id) {
-                r.work = work;
-                r.calls = calls;
+            if opaque_ids.contains(&id) {
+                // XML/CMap syntax is not PDF drawing syntax. Retain its bytes,
+                // decoded-byte charge and conservative byte-based work charge.
+                if data.len() > g.options.limits.segments.saturating_mul(16).min(16_000_000) {
+                    return Err(ImportError::Limit("opaque resource work"));
+                }
+                if let Some(r) = g.objects.get_mut(&id) {
+                    r.work = data.len().max(1);
+                }
+                continue;
             }
+            let content = inline::analyze(&mut g, &data)?;
+            has_inline |= content_ids.contains(&id) && content.has_inline;
+            if let Some(r) = g.objects.get_mut(&id) {
+                r.work = content.work;
+                r.calls = content.calls;
+            }
+            if content_ids.contains(&id) {
+                normalized.push((id, data, content.edits));
+            }
+        }
+    }
+    // hayro concatenates page content arrays. Escape marker-looking literals,
+    // names and comments in every relevant member, not only the one with BI.
+    if has_inline {
+        for (id, data, edits) in normalized {
+            if edits.is_empty() {
+                continue;
+            }
+            let data = inline::materialize(&mut g, &data, &edits)?;
+            let mut record = g.objects.remove(&id).ok_or_else(|| invalid("content record missing"))?;
+            let body = bodies.get(&id).ok_or_else(|| invalid("content body missing"))?;
+            let rewritten = inline::rewrite(&mut g, body, &data, &mut record.value)?;
+            bodies.insert(id, rewritten);
+            g.objects.insert(id, record);
         }
     }
     g.graph()?;
@@ -972,7 +920,7 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
 mod dsfix_tests {
     use super::*;
     fn guard<'a>(options: &'a ImportOptions, cancel: &'a AtomicBool) -> Guard<'a> {
-        Guard { options, cancel, objects: BTreeMap::new(), bytes: 0, streams: vec![], binary: BTreeSet::new() }
+        Guard { options, cancel, objects: BTreeMap::new(), bytes: 0, streams: vec![], binary: BTreeSet::new(), inline_images: 0 }
     }
     #[test]
     fn dsfix_flate_decoded_bytes_are_charged_once_and_bombs_stay_bounded() {

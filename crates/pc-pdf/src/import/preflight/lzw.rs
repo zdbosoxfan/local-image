@@ -4,6 +4,10 @@ use super::{ImportError, Result, cancelled, invalid};
 use std::sync::atomic::AtomicBool;
 
 pub(super) fn decode(data: &[u8], early: bool, limit: u64, work_limit: usize, cancel: &AtomicBool) -> Result<(Vec<u8>, u64)> {
+    let (bytes, cost, _) = prefix(data, early, limit, work_limit, cancel)?;
+    Ok((bytes, cost))
+}
+pub(super) fn prefix(data: &[u8], early: bool, limit: u64, work_limit: usize, cancel: &AtomicBool) -> Result<(Vec<u8>, u64, usize)> {
     let mut prefix = [0u16; 4096];
     let mut suffix = [0u8; 4096];
     let mut length = [1u16; 4096];
@@ -40,7 +44,7 @@ pub(super) fn decode(data: &[u8], early: bool, limit: u64, work_limit: usize, ca
             continue;
         }
         if code == 257 {
-            return Ok((output, cost));
+            return Ok((output, cost, bit.div_ceil(8)));
         }
         let special = code == next;
         let mut current = if special { previous.ok_or_else(|| invalid("LZW missing previous code"))? } else { code };

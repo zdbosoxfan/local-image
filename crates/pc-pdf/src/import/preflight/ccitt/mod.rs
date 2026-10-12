@@ -147,10 +147,18 @@ struct ColorChange {
 /// of rows were decoded successfully and written into the decoder, so those
 /// can still be used, but the image might be truncated.
 pub fn decode(data: &[u8], decoder: &mut impl Decoder, ctx: &mut DecoderContext, cancel: &AtomicBool, work: usize) -> Result<usize> {
+    decode_impl(data, decoder, ctx, cancel, work, false)
+}
+/// Stop at completed rows before optional EOL/EOB probing; return a bit offset.
+pub fn decode_prefix_bits(data: &[u8], decoder: &mut impl Decoder, ctx: &mut DecoderContext, cancel: &AtomicBool, work: usize) -> Result<usize> {
+    decode_impl(data, decoder, ctx, cancel, work, true)
+}
+fn decode_impl(data: &[u8], decoder: &mut impl Decoder, ctx: &mut DecoderContext, cancel: &AtomicBool, work: usize, prefix: bool) -> Result<usize> {
     // As in the pinned decoder, EOLs are auto-detected and 2D line tags
     // drive decoding; K is an encoding hint rather than a loop bound.
     let _ = ctx.settings.end_of_line;
     ctx.reset();
+    ctx.prefix = prefix;
     let remaining = Cell::new(work);
     let mut reader = BitReader::new(data, cancel, &remaining);
     reader.step()?;
@@ -165,6 +173,9 @@ pub fn decode(data: &[u8], decoder: &mut impl Decoder, ctx: &mut DecoderContext,
     }
 
     reader.step()?;
+    if prefix {
+        return Ok(reader.bit_offset());
+    }
     reader.align();
     Ok(reader.byte_pos())
 }
@@ -214,6 +225,9 @@ fn decode_group3_2d(ctx: &mut DecoderContext, reader: &mut BitReader<'_>, decode
 
 /// Check for end-of-block, including RTC (T.4 Section 4.1.4).
 fn group3_check_eob(ctx: &mut DecoderContext, reader: &mut BitReader<'_>) -> Result<bool> {
+    if ctx.prefix && ctx.decoded_rows == ctx.settings.rows {
+        return Ok(true);
+    }
     let eol_count = reader.read_eol_if_available()?;
 
     // T.4 Section 4.1.4: "The end of a document transmission is indicated by
@@ -233,6 +247,9 @@ fn group3_check_eob(ctx: &mut DecoderContext, reader: &mut BitReader<'_>) -> Res
 
 fn decode_group4(ctx: &mut DecoderContext, reader: &mut BitReader<'_>, decoder: &mut impl Decoder) -> Result<()> {
     loop {
+        if ctx.prefix && ctx.decoded_rows == ctx.settings.rows {
+            break;
+        }
         if ctx.settings.end_of_block && reader.peak_bits(24) == Ok(EOFB) {
             reader.read_bits(24)?;
             break;
@@ -327,6 +344,7 @@ pub struct DecoderContext {
     settings: DecodeSettings,
     /// Whether to invert black and white.
     invert_black: bool,
+    prefix: bool,
 }
 
 impl DecoderContext {
@@ -344,6 +362,7 @@ impl DecoderContext {
             decoded_rows: 0,
             settings,
             invert_black: settings.invert_black,
+            prefix: false,
         }
     }
 

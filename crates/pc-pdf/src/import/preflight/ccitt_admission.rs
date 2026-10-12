@@ -48,6 +48,12 @@ impl ccitt::Decoder for Counter<'_> {
     }
 }
 pub(super) fn check(value: &Value, params: Option<&Value>, data: &[u8], options: &ImportOptions, room: u64, cancel: &AtomicBool) -> Result<u64> {
+    run(value, params, data, options, room, cancel, false).map(|(cost, _)| cost)
+}
+pub(super) fn prefix_bits(value: &Value, params: Option<&Value>, data: &[u8], options: &ImportOptions, room: u64, cancel: &AtomicBool) -> Result<(u64, usize)> {
+    run(value, params, data, options, room, cancel, true)
+}
+fn run(value: &Value, params: Option<&Value>, data: &[u8], options: &ImportOptions, room: u64, cancel: &AtomicBool, prefix: bool) -> Result<(u64, usize)> {
     if [b"W".as_slice(), b"H", b"BPC", b"CS", b"IM"].iter().any(|key| value.get(key).is_some()) {
         return Err(ImportError::Unsupported("CCITT image aliases require bounded normalization"));
     }
@@ -112,7 +118,13 @@ pub(super) fn check(value: &Value, params: Option<&Value>, data: &[u8], options:
     };
     let mut counter = Counter { columns: settings.columns, height: settings.rows, column: 0, rows: 0, cancel };
     let work = options.limits.segments.saturating_mul(16).min(16_000_000);
-    ccitt::decode(data, &mut counter, &mut ccitt::DecoderContext::new(settings), cancel, work).map_err(|e| match e {
+    let mut context = ccitt::DecoderContext::new(settings);
+    let decoded = if prefix {
+        ccitt::decode_prefix_bits(data, &mut counter, &mut context, cancel, work)
+    } else {
+        ccitt::decode(data, &mut counter, &mut context, cancel, work)
+    };
+    let consumed = decoded.map_err(|e| match e {
         ccitt::DecodeError::Cancelled => ImportError::Cancelled,
         ccitt::DecodeError::WorkLimit => ImportError::Limit("CCITT decode work"),
         ccitt::DecodeError::OutputLimit => ImportError::Limit("CCITT decoded output"),
@@ -121,5 +133,5 @@ pub(super) fn check(value: &Value, params: Option<&Value>, data: &[u8], options:
     if counter.rows != settings.rows || counter.column != 0 {
         return Err(invalid("CCITT image ended before all declared rows"));
     }
-    Ok(cost)
+    Ok((cost, consumed))
 }

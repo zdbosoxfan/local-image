@@ -72,6 +72,10 @@ impl<'a> BitReader<'a> {
         self.byte_pos() >= self.data.len()
     }
 
+    pub(crate) fn bit_offset(&self) -> usize {
+        self.bit_offset
+    }
+
     #[inline(always)]
     pub(crate) fn byte_pos(&self) -> usize {
         self.bit_offset >> 3

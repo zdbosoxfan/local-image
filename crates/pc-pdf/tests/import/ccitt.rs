@@ -7,7 +7,7 @@ const HORIZONTAL_BLACK8: &str = "00100110101000101";
 fn pack(bits: &str) -> Vec<u8> {
     bits.as_bytes().chunks(8).map(|chunk| chunk.iter().enumerate().fold(0, |v, (i, b)| v | u8::from(*b == b'1') << (7 - i))).collect()
 }
-fn coded(k: i32, aligned: bool, markers: bool) -> Vec<u8> {
+pub(super) fn coded(k: i32, aligned: bool, markers: bool) -> Vec<u8> {
     let rows: Vec<String> = if k < 0 {
         vec!["1".into(), HORIZONTAL_BLACK8.into(), "11".into(), "0001".into()]
     } else if k == 0 {

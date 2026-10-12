@@ -20,6 +20,11 @@ fn trailing(data: &[u8], cancel: &AtomicBool) -> Result<()> {
     Ok(())
 }
 pub(super) fn decode(name: &[u8], data: &[u8], limit: u64, cancel: &AtomicBool) -> Result<Vec<u8>> {
+    let (out, consumed) = prefix(name, data, limit, cancel)?;
+    trailing(&data[consumed..], cancel)?;
+    Ok(out)
+}
+pub(super) fn prefix(name: &[u8], data: &[u8], limit: u64, cancel: &AtomicBool) -> Result<(Vec<u8>, usize)> {
     cancelled(cancel)?;
     let mut out = Vec::new();
     match name {
@@ -36,8 +41,7 @@ pub(super) fn decode(name: &[u8], data: &[u8], limit: u64, cancel: &AtomicBool) 
                     if let Some(n) = high {
                         append(&mut out, &[n << 4], limit)?;
                     }
-                    trailing(&data[i + 1..], cancel)?;
-                    return Ok(out);
+                    return Ok((out, i + 1));
                 }
                 let n = match b {
                     b'0'..=b'9' => b - b'0',
@@ -88,8 +92,7 @@ pub(super) fn decode(name: &[u8], data: &[u8], limit: u64, cancel: &AtomicBool) 
                         if n > 1 {
                             flush(&digits, n - 1, &mut out)?;
                         }
-                        trailing(&data[i + 2..], cancel)?;
-                        return Ok(out);
+                        return Ok((out, i + 2));
                     }
                     _ => return Err(invalid("ASCII85 character or terminator")),
                 }
@@ -103,8 +106,7 @@ pub(super) fn decode(name: &[u8], data: &[u8], limit: u64, cancel: &AtomicBool) 
                 at += 1;
                 match n {
                     128 => {
-                        trailing(&data[at..], cancel)?;
-                        return Ok(out);
+                        return Ok((out, at));
                     }
                     0..=127 => {
                         let end = at + usize::from(n) + 1;

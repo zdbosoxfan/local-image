@@ -122,3 +122,43 @@ because pinned Group3 and Group4 interpret it differently; missing Rows uses
 Height in pinned hayro-syntax 0.7.2. Indexed/indirect color spaces, overriding
 inline aliases and damaged-row repair need separate normalization. This stage
 does not enable inline images, encryption, nonisolated groups or new versions.
+
+## FS009 exact inline-image admission and canonical marker normalization
+
+`tests/import/inline.rs` uses original GPL-3.0-or-later fixtures, comparing inline
+images with separate XObjects carrying the same independently encoded samples.
+Cases cover exact packed rows; ASCIIHex/85, RunLength, Flate, LZW, CCITT and JPEG
+codec endpoints; predictors and filter chains; aliases, CRLF, stencils and pixel
+whitespace; fake EI/BI within binary data; JPEG EOI bytes inside APP data; later
+strings/names/comments in content arrays; subsequent real images; and recursive
+Form references after the actual boundary. Existing helper encoders remain
+unchanged apart from module visibility. Negative controls retain truncation,
+explicit Length, duplicate aliases, allocation/object/filter limits and cancel.
+
+Private tests in `preflight/inline.rs` append real PDF operators after each codec
+and assert the exact consumed position. Whole-stream ASCII decoder entry points
+still reject that tail. The pinned hayro typed parser independently compares
+literal/name values before and after escaping (including nested parentheses,
+backslashes, existing octal/name escapes, non-ASCII and NUL). Canonical stream
+rewrite tests preserve opaque dictionary spans while updating transport fields.
+
+Implementation is original and based on observed APIs/semantics, not copied
+upstream code. The compatibility target is hayro-syntax 0.7.2, registry-verified
+commit `34834627c0b4afa9c83c9b64d4d978b127030c77`: `content/mod.rs` heuristically
+searches EI and ignores inline Length; `page.rs` concatenates content arrays.
+Exact boundaries and ASCIIHex wrapping prevent those heuristics from seeing
+binary marker candidates. Equivalent octal/# escapes and comment removal cover
+all relevant content-array members while retaining decoded values. Unsupported
+resource-resolved colorspaces, indirect inline metadata, ambiguous syntax and
+tokens split across streams remain explicit refusals. No public schema, new
+dependency or relaxed decoder guard is introduced.
+
+The Group3 LF boundary regression uses exact bytes `[0x4d, 0x9a, 0x80]`:
+white1728 makeup `010011011` plus white0 `00110101`, padded by seven zeros.
+Those padding bits plus LF can mimic an EOL to a decoder reading the PDF tail.
+Prefix mode now returns the completed-row bit position before optional EOL/EOB
+lookahead. The inline boundary resolver tries that exact position first, then
+at most six Group3 or two Group4 EOL markers; it never searches arbitrary EI.
+The selected slice still passes ordinary isolated CCITT validation. The fixture
+requires identical output to the three-byte image XObject with a following blue
+vector marker, proving that the PDF separator and later drawing are retained.
