@@ -1,6 +1,6 @@
 //! Allocation/work guard before hayro's unbounded decoders run. PDF 1.7 §§3.2–3.5.
 //! This is a restrictive admission check, not a replacement PDF interpreter. In particular
-//! indirect filters/lengths, encryption, LZW/JPX/JBIG2 and inline images are refused. Every
+//! indirect filters, encryption, LZW/JPX/JBIG2 and inline images are refused. Every
 //! accepted stream is measured with bounded decoding; object-stream dictionaries and the
 //! reference graph are checked before Pdf::new can traverse/decompress them.
 use super::{ImportError, Result, cancelled};
@@ -10,6 +10,11 @@ use std::{
     io::Read,
     sync::atomic::AtomicBool,
 };
+
+#[path = "preflight/filters.rs"]
+mod filters;
+#[path = "preflight/lengths.rs"]
+mod lengths;
 
 #[derive(Clone, Debug, PartialEq)]
 enum Value {
@@ -71,6 +76,7 @@ enum Token {
 struct Lexer<'a> {
     data: &'a [u8],
     at: usize,
+    start: usize,
     tokens: usize,
     options: &'a ImportOptions,
     cancel: &'a AtomicBool,
@@ -86,7 +92,7 @@ fn invalid(s: &str) -> ImportError {
 }
 impl<'a> Lexer<'a> {
     fn new(data: &'a [u8], options: &'a ImportOptions, cancel: &'a AtomicBool) -> Self {
-        Self { data, at: 0, tokens: 0, options, cancel }
+        Self { data, at: 0, start: 0, tokens: 0, options, cancel }
     }
     fn next(&mut self) -> Result<Option<Token>> {
         cancelled(self.cancel)?;
@@ -106,6 +112,7 @@ impl<'a> Lexer<'a> {
         if self.tokens > self.options.limits.segments.saturating_mul(16).min(16_000_000) {
             return Err(ImportError::Limit("syntax token"));
         }
+        self.start = self.at;
         self.at += 1;
         Ok(Some(match b {
             b'<' if self.data.get(self.at) == Some(&b'<') => {
@@ -222,7 +229,7 @@ impl<'a> Lexer<'a> {
                     if !n.is_finite() {
                         return Err(invalid("nonfinite number"));
                     }
-                    let old = (self.at, self.tokens);
+                    let old = (self.at, self.tokens, self.start);
                     let second = self.next()?;
                     let third = if matches!(second, Some(Token::Word(_))) { self.next()? } else { None };
                     if let (Some(Token::Word(g)), Some(Token::Word(r))) = (second, third)
@@ -232,7 +239,7 @@ impl<'a> Lexer<'a> {
                         let b = std::str::from_utf8(&g).ok().and_then(|s| s.parse::<u16>().ok()).ok_or_else(|| invalid("object generation"))?;
                         Value::Ref(a, b)
                     } else {
-                        (self.at, self.tokens) = old;
+                        (self.at, self.tokens, self.start) = old;
                         Value::Number(n)
                     }
                 } else {
@@ -443,6 +450,23 @@ impl Guard<'_> {
         let mut decoded_charged = false;
         for f in filters {
             data = match f {
+                b"ASCIIHexDecode" | b"AHx" | b"ASCII85Decode" | b"A85" | b"RunLengthDecode" | b"RL" => {
+                    // The pinned ASCII decoders reserve from encoded length even
+                    // when most input is whitespace. Admit that allocation too.
+                    let reserve = match f {
+                        b"ASCIIHexDecode" | b"AHx" => (data.len() as u64).div_ceil(2),
+                        b"ASCII85Decode" | b"A85" => (data.len() as u64).saturating_mul(4) / 5,
+                        _ => 0,
+                    };
+                    let room = self.options.limits.decompressed_bytes.saturating_sub(self.bytes);
+                    if reserve > room {
+                        return Err(ImportError::Limit("decompressed byte"));
+                    }
+                    let decoded = filters::decode(f, &data, room, self.cancel)?;
+                    self.charge((decoded.len() as u64).max(reserve))?;
+                    decoded_charged = true;
+                    decoded
+                }
                 b"FlateDecode" | b"Fl" => {
                     let room = self.options.limits.decompressed_bytes.saturating_sub(self.bytes);
                     let mut decoded = Vec::new();
@@ -618,15 +642,20 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
     if bytes.len() > options.limits.bytes {
         return Err(ImportError::Limit("input byte"));
     }
-    if !bytes.starts_with(b"%PDF-") {
-        return Err(invalid("missing PDF header"));
+    let header = bytes[..bytes.len().min(1029)].windows(5).position(|s| s == b"%PDF-").ok_or_else(|| invalid("missing PDF header within 1024 bytes"))?;
+    if !bytes.get(header + 5..header + 8).is_some_and(|v| v[0].is_ascii_digit() && v[1] == b'.' && v[2].is_ascii_digit()) {
+        return Err(invalid("invalid PDF header version"));
     }
     if !options.dpi.is_finite() || !(1.0..=2400.0).contains(&options.dpi) {
         return Err(invalid("DPI must be finite and between 1 and 2400"));
     }
     let mut g = Guard { options, cancel, objects: BTreeMap::new(), bytes: 0, streams: vec![], binary: BTreeSet::new() };
     let mut l = Lexer::new(bytes, options, cancel);
-    let mut words: Vec<Vec<u8>> = Vec::new();
+    l.at = header;
+    let mut words: Vec<(Vec<u8>, usize)> = Vec::new();
+    let mut object_starts = BTreeMap::new();
+    let mut xref_starts = BTreeSet::new();
+    let mut length_index: Option<lengths::Index> = None;
     let mut bodies = BTreeMap::new();
     let mut root = None;
     fn set_root(root: &mut Option<(u32, u16)>, value: &Value) -> Result<()> {
@@ -639,15 +668,18 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
         Ok(())
     }
     while let Some(t) = l.next()? {
+        let token_start = l.start;
         match t {
             Token::Word(w) if w == b"obj" => {
                 let id = words
                     .last()
-                    .and_then(|s| std::str::from_utf8(s).ok())
+                    .and_then(|(s, _)| std::str::from_utf8(s).ok())
                     .and_then(|s| s.parse::<u16>().ok())
-                    .zip(words.iter().rev().nth(1).and_then(|s| std::str::from_utf8(s).ok()).and_then(|s| s.parse::<u32>().ok()))
+                    .zip(words.iter().rev().nth(1).and_then(|(s, _)| std::str::from_utf8(s).ok()).and_then(|s| s.parse::<u32>().ok()))
                     .map(|(b, a)| (a, b))
                     .ok_or_else(|| invalid("indirect object header"))?;
+                let object_start = words.iter().rev().nth(1).map(|(_, start)| *start).ok_or_else(|| invalid("object header start"))?;
+                object_starts.insert(id, object_start);
                 let body_start = l.at;
                 let t = l.next()?.ok_or_else(|| invalid("object value"))?;
                 let value = l.value(t, 0)?;
@@ -668,7 +700,21 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
                     } else if l.data.get(l.at.wrapping_sub(1)) != Some(&b'\r') {
                         return Err(invalid("stream newline"));
                     }
-                    let n = value.get(b"Length").and_then(Value::number).ok_or(ImportError::Unsupported("indirect stream lengths"))?;
+                    let n = match value.get(b"Length") {
+                        Some(Value::Ref(a, b)) => {
+                            let id = (*a, *b);
+                            if let Some(record) = g.objects.get(&id) {
+                                record.value.number().ok_or_else(|| invalid("stream length must be an integer object"))?
+                            } else {
+                                if length_index.is_none() {
+                                    length_index = Some(lengths::Index::read(bytes, header, options, cancel)?);
+                                }
+                                length_index.as_mut().ok_or_else(|| invalid("missing length index"))?.resolve(id, bytes, options, cancel)?
+                            }
+                        }
+                        Some(v) => v.number().ok_or_else(|| invalid("stream length must be a nonnegative integer"))?,
+                        None => return Err(invalid("missing stream length")),
+                    };
                     let end =
                         l.at.checked_add(usize::try_from(n).map_err(|_| ImportError::Limit("stream length"))?)
                             .filter(|&n| n <= bytes.len())
@@ -725,7 +771,10 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
                 words.clear();
             }
             Token::Word(w) => {
-                words.push(w);
+                if w == b"xref" {
+                    xref_starts.insert(token_start);
+                }
+                words.push((w, token_start));
                 if words.len() > 2 {
                     words.remove(0);
                 }
@@ -738,6 +787,9 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
             }
             _ => words.clear(),
         }
+    }
+    if let Some(index) = length_index {
+        index.verify(&g.objects, &object_starts, &xref_starts)?;
     }
     // FontFile2 streams need not carry a Subtype or Length1. Identify them from their
     // descriptors after all objects have been read, before lexing candidate content.

@@ -52,3 +52,22 @@ current sources (which fix an upstream snapshot lint), with no exporter edits:
 - export/paint.rs: 564fd28fe68619059777ad7aaa5c3a643394a44bce5442da634a2d1e12ffdf30
 - export/text.rs: a57b916fef6b0be94e5967e32193c28bd59da46a7f381a66882bbd72c172013d
 - export/validate.rs: d4219adbac62067ebaf6b17a7082b8d21a45942b4b798aad1f17907e93e3dae5
+
+## FS009 bounded compatibility, stage one
+
+`tests/import/compatibility.rs` adds original GPL-3.0-or-later compact fixtures
+using this directory's independent classic-xref writer. They cover leading
+headers at offsets 0, 1 and 1024; ASCIIHex/ASCII85/RunLength names and aliases;
+ASCII85+Flate chains; RunLength repeat packets; forward and backward scalar
+Length objects; exact editable-shape/compositor equivalence to unfiltered art.
+Negative controls include malformed encodings, missing terminators, expansion
+and intermediate-stage budgets, whitespace-driven upstream allocation, cancelled
+imports, invalid length types/generations/references, and an xref deliberately
+pointing at a convincing fake length object inside stream bytes. Private decoder
+known-answer tests cover odd hex nibbles, ASCII85 zero groups/padding and literal
+plus repeat RunLength packets at exact output budget boundaries.
+
+This stage requires no external program or new dependency. It intentionally does
+not enable LZW/CCITT/JPX/JBIG2, inline images, encryption, nonisolated transparency,
+Type 4 functions, forward lengths in xref-stream-only/hybrid/incremental files,
+or malformed filter repairs. Those require separate bounded semantic support.
