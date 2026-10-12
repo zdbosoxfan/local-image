@@ -200,6 +200,7 @@ impl GpuCanvas {
             clear_move_resources(res);
             res.scaled_sources.clear();
             res.scaled_frames.clear();
+            res.scaled_compositor_failed = None;
         }
         true
     }
@@ -1325,6 +1326,8 @@ struct ScaledFrame {
     rect: photocraft_geom::Rect,
     textures: DocTextures,
     projection: scaled_view::cpu::ProjectionCache,
+    /// The exact generation/scale/region stored here could not be projected; show 1x.
+    projection_failed: bool,
     // Base and scaled surfaces share layer IDs but have different pixels. Each
     // view must retain its own upload cache instead of evicting the 1x pages.
     compositor: Option<photocraft_gpu::Compositor>,
@@ -1336,6 +1339,12 @@ struct Resources {
     pixel_previews: std::collections::HashSet<u64>,
     scaled_sources: HashMap<u64, ScaledSource>,
     scaled_frames: HashMap<u64, ScaledFrame>,
+    /// Pipeline construction is device-wide; a document refusal must not poison it.
+    scaled_compositor_failed: Option<photocraft_gpu::Unsupported>,
+    #[cfg(test)]
+    scaled_compositor_creations: u64,
+    #[cfg(test)]
+    scaled_projection_attempts: u64,
     encode_pool: EncodePool,
     retry_cpu: bool,
     view_bgl: wgpu::BindGroupLayout,
@@ -1632,6 +1641,11 @@ impl Resources {
             pixel_previews: Default::default(),
             scaled_sources: HashMap::new(),
             scaled_frames: HashMap::new(),
+            scaled_compositor_failed: None,
+            #[cfg(test)]
+            scaled_compositor_creations: 0,
+            #[cfg(test)]
+            scaled_projection_attempts: 0,
             encode_pool: Vec::new(),
             retry_cpu: false,
             lut_bgl,
@@ -2091,11 +2105,13 @@ impl CanvasCallback {
             && f.generation == source.generation
             && f.scale == scale
             && f.rect.contains_rect(&required)
+            && (!f.projection_failed || f.rect == rect)
         {
+            let ready_scale = if f.projection_failed { 1.0 } else { scale };
             if let Some(frame) = frame.take() {
                 res.scaled_frames.insert(key, frame);
             }
-            return scale;
+            return ready_scale;
         }
         let source_doc = source.doc.clone();
         let dependencies = source.dependencies.clone();
@@ -2107,10 +2123,16 @@ impl CanvasCallback {
             f.source != self.params.doc
                 || f.scale != scale
                 || !f.rect.contains_rect(&required)
+                || f.projection_failed && f.rect != rect
                 || f.textures.format != format
                 || f.textures.size != [canvas.width(), canvas.height()]
         });
         if fresh {
+            // Scale/viewport targets change much more often than the device or source.
+            // Keep per-view pipelines and let resident/projection keys rebind new pixels.
+            let retained = frame.take().filter(|old| old.source == self.params.doc);
+            let (projection, compositor, uploads) =
+                retained.map_or_else(|| (ProjectionCache::default(), None, 0), |old| (old.projection, old.compositor, old.uploads));
             let textures = DocTextures::region(device, res, [canvas.width(), canvas.height()], SIDE as u32, format, rect, 1);
             frame = Some(ScaledFrame {
                 source: self.params.doc,
@@ -2120,14 +2142,15 @@ impl CanvasCallback {
                 scale,
                 rect,
                 textures,
-                projection: ProjectionCache::default(),
-                compositor: None,
-                uploads: 0,
-                rebuilds: 0,
+                rebuilds: projection.rebuilds,
+                projection,
+                projection_failed: false,
+                compositor,
+                uploads,
             });
         }
         let Some(mut frame) = frame else { return 1.0 };
-        let mut changed = if fresh {
+        let mut changed = if fresh || frame.projection_failed {
             frame.rect
         } else {
             scaled_view::damage(&frame.previous, &source_doc).and_then(|r| scaled_rect(r, scale).ok()).unwrap_or(frame.rect).intersect(&frame.rect)
@@ -2157,10 +2180,19 @@ impl CanvasCallback {
             (f64::from(frame.rect.x1) / scale).ceil() as i32,
             (f64::from(frame.rect.y1) / scale).ceil() as i32,
         );
+        #[cfg(test)]
+        {
+            res.scaled_projection_attempts += 1;
+        }
         let projected = match frame.projection.project_at(&source_doc, inverse, scale, &dependencies, scaled_view::project) {
             Ok(p) => p,
             Err(e) => {
                 log::warn!("scaled canvas: {e}");
+                frame.projection_failed = true;
+                frame.dependencies = dependencies;
+                frame.generation = generation;
+                frame.previous = source_doc;
+                res.scaled_frames.insert(key, frame);
                 return 1.0;
             }
         };
@@ -2182,7 +2214,23 @@ impl CanvasCallback {
             }
         }
         let pipe = res.encode_pipeline(format).cloned();
-        let mut compositor = frame.compositor.take().or_else(|| photocraft_gpu::Compositor::try_new_with_format(device, wgpu::TextureFormat::Rgba32Float).ok());
+        let mut compositor = frame.compositor.take().or_else(|| {
+            if res.scaled_compositor_failed.is_some() {
+                return None;
+            }
+            #[cfg(test)]
+            {
+                res.scaled_compositor_creations += 1;
+            }
+            match photocraft_gpu::Compositor::try_new_with_format(device, wgpu::TextureFormat::Rgba32Float) {
+                Ok(compositor) => Some(compositor),
+                Err(error) => {
+                    log::warn!("scaled canvas pipelines: {error}; using CPU rendering");
+                    res.scaled_compositor_failed = Some(error);
+                    None
+                }
+            }
+        });
         let mut ok = false;
         if let (Some(comp), Some(pipe)) = (&mut compositor, pipe) {
             comp.set_health(res.health.clone());
@@ -2251,6 +2299,7 @@ impl CanvasCallback {
         }
         frame.textures.regenerate_mips(device, queue, res, [changed.x0 as u32, changed.y0 as u32, changed.x1 as u32, changed.y1 as u32]);
         frame.rebuilds = frame.projection.rebuilds;
+        frame.projection_failed = false;
         frame.dependencies = dependencies;
         frame.generation = generation;
         frame.previous = source_doc;

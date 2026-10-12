@@ -242,7 +242,6 @@ fn scaled_full_app_actual_pan_zoom_pointer_events() {
     assert_eq!(*h.state().session.active().unwrap().doc, doc);
 }
 #[test]
-#[ignore = "requires package 00 detached node frame/canvas_input/display_doc routing"]
 fn scaled_full_app_node_drag_preview_release_and_cancel_rtx5090() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -296,7 +295,7 @@ fn scaled_full_app_node_drag_preview_release_and_cancel_rtx5090() {
 }
 
 #[test]
-#[ignore = "release acceptance benchmark; requires package 00 detached node routing"]
+#[ignore = "release acceptance benchmark; run explicitly with --release --ignored"]
 #[allow(clippy::assertions_on_constants)]
 fn scaled_release_6000x4000_500_shapes_node_pointer_frames_rtx5090() {
     let _gpu_gate = crate::gpu_test_support::lock();
@@ -438,5 +437,134 @@ fn scaled_full_app_display_p3_and_float_hdr_texture_rtx5090() {
     let expected = (1.055 * linear.powf(1.0 / 2.4) - 0.055) * 255.0;
     for a in &pixel[..3] {
         assert!((f64::from(*a) - expected).abs() <= 1.0, "HDR scaled shape {pixel:?}, expected {expected}");
+    }
+}
+
+#[test]
+fn scaled_compositor_reuses_pipelines_across_zoom_buckets() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut h = harness(1.0);
+    let doc = fixture();
+    add(&mut h, doc.clone(), 2.0);
+    assert_app_pixels(&mut h, &doc, 2.0);
+    let creations = |h: &H| {
+        let renderer = h.state().gpu.as_ref().unwrap().rs.renderer.read();
+        renderer.callback_resources.get::<Resources>().unwrap().scaled_compositor_creations
+    };
+    assert_eq!(creations(&h), 1);
+    for zoom in [4.0, 8.0, 2.0, 4.0] {
+        h.state_mut().ui.views[0].zoom = zoom;
+        h.run_steps(2);
+        assert_app_pixels(&mut h, &doc, f64::from(zoom));
+        assert_eq!(creations(&h), 1, "zoom bucket {zoom} rebuilt GPU pipelines");
+    }
+    assert_eq!(*h.state().session.active().unwrap().doc, doc);
+}
+
+fn scaled_test_callback(h: &H, zoom: f32) -> CanvasCallback {
+    let app = h.state();
+    let d = &app.session.active().unwrap().doc;
+    CanvasCallback {
+        rect: crate::rulers::content_rect(app, app.last_canvas_rect),
+        params: ViewParams {
+            doc: d.id.0,
+            doc_size: [d.size.width, d.size.height],
+            zoom,
+            center: app.ui.views[0].center,
+            shadow: false,
+            pixel_grid: false,
+            view_key: 0,
+            display: 0,
+            output: 0,
+            hdr: None,
+            flip: false,
+        },
+    }
+}
+fn prepare_scaled_test(h: &H, callback: &CanvasCallback) -> (f64, u64, u64) {
+    let rs = &h.state().gpu.as_ref().unwrap().rs;
+    let mut renderer = rs.renderer.write();
+    let res = renderer.callback_resources.get_mut::<Resources>().unwrap();
+    let screen = ScreenDescriptor { size_in_pixels: [1000, 700], pixels_per_point: 1.0 };
+    let scale = callback.prepare_scaled(&rs.device, &rs.queue, &screen, res);
+    (scale, res.scaled_compositor_creations, res.scaled_projection_attempts)
+}
+
+#[test]
+fn scaled_compositor_reuses_pipelines_across_viewport_aprons() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut h = harness(1.0);
+    let mut doc = fixture();
+    doc.size = Size::new(640, 480);
+    add(&mut h, doc.clone(), 2.0);
+    for center in [[80.0, 60.0], [300.0, 220.0], [500.0, 370.0], [80.0, 60.0]] {
+        h.state_mut().ui.views[0].center = center;
+        h.run_steps(2);
+        h.render().unwrap();
+        assert_live_view_texels(&h, &doc, 2.0);
+        let renderer = h.state().gpu.as_ref().unwrap().rs.renderer.read();
+        let res = renderer.callback_resources.get::<Resources>().unwrap();
+        assert_eq!(res.scaled_compositor_creations, 1, "panning recreated pipelines");
+    }
+}
+
+#[test]
+fn scaled_projection_refusal_is_memoized_only_for_exact_source_and_view() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut h = harness(1.0);
+    let doc = fixture();
+    add(&mut h, doc.clone(), 2.0);
+    let mut invalid = doc.clone();
+    let LayerContent::Shape(shape) = &mut invalid.layers[1].content else { panic!() };
+    shape.fill = Some(Fill::Pattern { name: "missing".into(), id: "missing".into(), scale: 1.0, angle: 0.0, link: true, phase: (0.0, 0.0) });
+    shape.cache = None;
+    h.state().gpu.as_ref().unwrap().refresh(doc.id.0, &invalid, None, None);
+    let callback = scaled_test_callback(&h, 2.0);
+    let first = prepare_scaled_test(&h, &callback);
+    assert_eq!(first.0, 1.0, "failed scaled projection must display the 1x fallback");
+    assert!(first.2 > 0);
+    for _ in 0..4 {
+        assert_eq!(prepare_scaled_test(&h, &callback), first);
+    }
+    let second = prepare_scaled_test(&h, &scaled_test_callback(&h, 4.0));
+    assert_eq!(second.0, 1.0);
+    assert_eq!(second.2, first.2 + 1, "a different view must retry");
+    let mut deps = HashMap::new();
+    deps.insert(doc.layers[1].id, 7);
+    h.state().gpu.as_ref().unwrap().set_scaled_dependencies(doc.id.0, deps);
+    let third = prepare_scaled_test(&h, &scaled_test_callback(&h, 4.0));
+    assert_eq!(third.2, second.2 + 1, "changed dependencies must retry");
+    let repaired_doc = photocraft_engine::vector_integration::project_document(&doc).unwrap();
+    h.state().gpu.as_ref().unwrap().refresh(doc.id.0, &repaired_doc, None, None);
+    let repaired = prepare_scaled_test(&h, &callback);
+    assert_eq!(repaired.0, 2.0, "repaired source must regain scaled rendering");
+    assert_eq!(repaired.2, third.2 + 1);
+    assert_live_view_texels(&h, &doc, 2.0);
+}
+
+#[test]
+fn scaled_pipeline_refusal_keeps_correct_cpu_rendering_without_repeated_construction() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut h = harness(1.0);
+    let doc = fixture();
+    add(&mut h, doc.clone(), 2.0);
+    {
+        let mut renderer = h.state().gpu.as_ref().unwrap().rs.renderer.write();
+        let res = renderer.callback_resources.get_mut::<Resources>().unwrap();
+        res.scaled_frames.clear();
+        res.scaled_compositor_failed = Some(photocraft_gpu::Unsupported("simulated unsupported device pipeline".into()));
+    }
+    let first = prepare_scaled_test(&h, &scaled_test_callback(&h, 2.0));
+    assert_eq!(first.0, 2.0);
+    assert_live_view_texels(&h, &doc, 2.0);
+    for zoom in [4.0, 2.0, 4.0] {
+        let result = prepare_scaled_test(&h, &scaled_test_callback(&h, zoom));
+        assert_eq!(result.0, f64::from(zoom));
+        assert_eq!(result.1, first.1, "cached device refusal must not rebuild pipelines");
+        assert_live_view_texels(&h, &doc, f64::from(zoom));
     }
 }
