@@ -488,7 +488,7 @@ pub struct PhotocraftApp {
     /// local-image: a folder for the Library to show (the filmstrip's Review in Library).
     pub browse_in_library: Option<String>,
     /// local-image: a Develop layer was double-clicked: the host shows Develop on this Library photo.
-    pub develop_request: Option<u64>,
+    pub develop_request: Option<develop_layer::LibraryOrigin>,
     /// local-image: files written by Save / Save As since the host last looked (the host takes
     /// them): the Library adds a document that came from one of its photos, stacked on top of
     /// that photo, and reloads a file it already has (see [`develop_layer::LibrarySave`]).
@@ -1074,6 +1074,10 @@ impl PhotocraftApp {
     /// Returns the path and the export warnings (also shown to the user).
     pub(crate) fn write_document(&mut self, path: String, settings: &ExportSettings) -> Result<(String, Vec<String>), String> {
         photocraft_engine::float_cmds::drop_floating(&mut self.session).map_err(|e| e.to_string())?;
+        // Save scripts may activate/close another tab. The handoff belongs to the
+        // document being encoded, not whichever tab those scripts leave active.
+        let saved_photo = develop_layer::active_photo(self);
+        let saved_origin = develop_layer::active_origin(self);
         let st = self.session.active().ok_or("no document")?;
         let export = self.services.export.as_ref().ok_or("no exporter configured")?;
         let (bytes, warnings) = export(&st.doc, &path, settings)?;
@@ -1096,8 +1100,13 @@ impl PhotocraftApp {
         notices::io_warnings(self, &format!("Saved {}", file_open::display_name(&path)), &warnings);
         // local-image: the Library picks the file up (adds it stacked on its photo, or reloads it).
         if self.host_modes {
-            let photo = develop_layer::active_photo(self);
-            self.library_saves.push(develop_layer::LibrarySave { path: path.clone(), photo, show: false, overwritten: false });
+            self.library_saves.push(develop_layer::LibrarySave {
+                origin: saved_origin,
+                path: path.clone(),
+                photo: saved_photo,
+                show: false,
+                overwritten: false,
+            });
         }
         self.sync_views();
         Ok((path, warnings))

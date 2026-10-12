@@ -56,6 +56,7 @@ pub struct Host {
     /// The Library's active photo when Compositing was last left: coming back with the same photo
     /// returns to what was open there instead of bringing the photo forward again.
     left_compositing_with: Option<u64>,
+    library_seen: Option<(String, u64)>,
     /// The Camera Raw Filter session open in Develop.
     camera_raw: Option<CameraRawSession>,
     /// Composites of unsaved Compositing documents, rendered for the Library.
@@ -113,6 +114,7 @@ impl Host {
             preserve_library_vectorize_return: false,
             frames: 0,
             left_compositing_with: None,
+            library_seen: None,
             camera_raw: None,
             composites: Composites::default(),
             round_trip_notice: None,
@@ -144,6 +146,46 @@ impl Host {
         Some((id.0, path, settings, ph.file_name.clone()))
     }
 
+    fn observe_library(&mut self) {
+        let current = self.library.as_ref().map(|l| (l.session.library_identity().to_string(), l.session.library_generation));
+        if self.library_seen == current {
+            return;
+        }
+        if self.library_seen.is_some() {
+            self.left_compositing_with = None;
+            self.round_trip_notice = None;
+            self.composites.pending.clear();
+            self.composites.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+            if let Some(lib) = self.library.as_mut() {
+                lib.host_composites.clear();
+            }
+            // These jobs captured the old Library's source/settings. Other editing/AI jobs retain ownership.
+            let ids: Vec<_> =
+                self.editor.session.jobs().iter().filter(|j| matches!(j.command.as_str(), "develop.openPhoto" | "develop.syncPhoto")).map(|j| j.id).collect();
+            for id in ids {
+                self.editor.session.cancel_job(id);
+            }
+        }
+        self.library_seen = current;
+    }
+
+    fn open_editor_photo(&mut self, photo: u64, path: &str, settings: &serde_json::Value, name: &str) -> Result<(), String> {
+        self.observe_library();
+        let identity = self.library().session.library_identity().to_string();
+        photocraft_ui_egui::develop_layer::open_photo_in(&mut self.editor, &identity, photo, path, settings, name)
+    }
+
+    fn focus_library_document(&mut self, photo: u64) -> bool {
+        let index = self.library.as_ref().and_then(|lib| document_of(&self.editor, &lib.session, lightcraft_catalog::PhotoId(photo)));
+        if let Some(index) = index {
+            self.editor.session.set_active(index);
+            self.editor.sync_views();
+            true
+        } else {
+            false
+        }
+    }
+
     /// Files saved in Compositing: the Library adds the ones that came from its photos (stacked on
     /// the original) and reloads the ones it has; Save and Return to Library then shows it.
     /// Without `ctx` (at exit) nothing is shown.
@@ -154,6 +196,12 @@ impl Host {
                 continue;
             }
             let lib = self.library();
+            if save.photo.is_some() && !save.origin.as_ref().is_some_and(|origin| Some(origin.photo) == save.photo && matches_origin(&lib.session, origin)) {
+                self.editor.ui.status = format!("Saved {}, but its source belongs to another or unlinked Library; switch to that Library to add it", save.path);
+                self.editor.ui.status_error = true;
+                self.round_trip_notice = Some(RoundTripNotice::Error(self.editor.ui.status.clone()));
+                continue;
+            }
             let (id, msg) = match add_saved_file(&mut lib.session, &save.path, save.photo, save.overwritten) {
                 Ok(Some(LibraryUpdate::Added { id, original })) => {
                     let name = lib.session.catalog.photo(original).map(|p| p.file_name.clone()).unwrap_or_default();
@@ -190,7 +238,9 @@ impl Host {
                     .map(|p| (p.id.0, serde_json::to_value(&p.develop).unwrap_or_default()))
                     .collect();
                 for (photo, settings) in settings {
-                    photocraft_ui_egui::develop_layer::sync(&mut self.editor, photo, &settings);
+                    if let Some((identity, path)) = self.library.as_ref().and_then(|lib| source_binding(&lib.session, photo)) {
+                        photocraft_ui_egui::develop_layer::sync_in(&mut self.editor, &identity, photo, &path, &settings);
+                    }
                 }
             }
             if !msg.is_empty() {
@@ -405,7 +455,9 @@ impl Host {
             .filter_map(|id| lib.session.develop_of(lightcraft_catalog::PhotoId(id)).and_then(|d| serde_json::to_value(&*d).ok()).map(|v| (id, v)))
             .collect();
         for (id, settings) in updates {
-            photocraft_ui_egui::develop_layer::sync(&mut self.editor, id, &settings);
+            if let Some((identity, path)) = self.library.as_ref().and_then(|lib| source_binding(&lib.session, id)) {
+                photocraft_ui_egui::develop_layer::sync_in(&mut self.editor, &identity, id, &path, &settings);
+            }
         }
     }
 
@@ -484,6 +536,7 @@ impl Host {
     }
 
     fn switch(&mut self, ctx: &egui::Context, to: Module) {
+        self.observe_library();
         if self.mode == to || !self.editor.host_modes {
             return;
         }
@@ -493,6 +546,15 @@ impl Host {
             return;
         }
         let from = self.mode;
+        if from == Module::Compositing
+            && to == Module::Develop
+            && photocraft_ui_egui::develop_layer::active_photo(&self.editor).is_some()
+            && !photocraft_ui_egui::develop_layer::active_origin(&self.editor).is_some_and(|origin| matches_origin(&self.library().session, &origin))
+        {
+            self.editor.ui.status = "This Develop layer belongs to another or legacy Library; open the correct Library before returning to Develop".into();
+            self.editor.ui.status_error = true;
+            return;
+        }
         let preserve_library = from == Module::Compositing
             && to == Module::Library
             && (self.preserve_library_vectorize_return || self.editor.library_vectorize.preserves_library_state(&self.editor.session));
@@ -519,10 +581,23 @@ impl Host {
             // Develop layer's source. Otherwise a plain Save followed by Library selects the
             // original again and hides the newly saved layers.
             let saved = (to == Module::Library)
-                .then(|| self.editor.session.active()?.path.as_deref().and_then(|p| self.library.as_ref().and_then(|l| photo_at_path(&l.session, p))))
+                .then(|| {
+                    let doc = self.editor.session.active()?;
+                    let lib = self.library.as_ref()?;
+                    if !document_in_library(&doc.doc, &lib.session) {
+                        return None;
+                    }
+                    doc.path.as_deref().and_then(|p| photo_at_path(&lib.session, p))
+                })
                 .flatten()
                 .map(|p| p.0);
-            if !preserve_library && let Some(id) = saved.or_else(|| photocraft_ui_egui::develop_layer::active_photo(&self.editor)) {
+            if !preserve_library
+                && let Some(id) = saved.or_else(|| {
+                    photocraft_ui_egui::develop_layer::active_origin(&self.editor)
+                        .filter(|origin| self.library.as_ref().is_some_and(|lib| matches_origin(&lib.session, origin)))
+                        .map(|origin| origin.photo)
+                })
+            {
                 let lib = self.library();
                 let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id }));
                 self.left_compositing_with = Some(id);
@@ -559,8 +634,8 @@ impl Host {
                 let changed = photo.as_ref().map(|p| p.0) != self.left_compositing_with || self.editor.session.documents().is_empty();
                 if let Some((id, path, settings, name)) = photo.filter(|_| changed || from == Module::Develop)
                     // a file open in Compositing (a saved `-Edit.psd`) comes forward as it is
-                    && (from == Module::Develop || !focus_open_document(&mut self.editor, &path))
-                    && let Err(e) = photocraft_ui_egui::develop_layer::open_photo(&mut self.editor, id, &path, &settings, &name)
+                    && (from == Module::Develop || !self.focus_library_document(id))
+                    && let Err(e) = self.open_editor_photo(id, &path, &settings, &name)
                 {
                     self.editor.ui.status = e;
                     self.editor.ui.status_error = true;
@@ -612,11 +687,34 @@ enum LibraryUpdate {
 
 /// The editor's document that shows Library photo `id`: the one saved to its file, else one whose
 /// Develop layer follows it.
+fn source_binding(s: &lightcraft_engine::Session, photo: u64) -> Option<(String, String)> {
+    let photo = s.catalog.photo(lightcraft_catalog::PhotoId(photo))?;
+    let lightcraft_catalog::Source::File { path } = &photo.source else { return None };
+    Some((s.library_identity().to_string(), path.clone()))
+}
+
+fn matches_origin(s: &lightcraft_engine::Session, origin: &photocraft_ui_egui::develop_layer::LibraryOrigin) -> bool {
+    origin.library.as_deref() == Some(s.library_identity())
+        && s.catalog
+            .photo(lightcraft_catalog::PhotoId(origin.photo))
+            .is_some_and(|photo| matches!(&photo.source, lightcraft_catalog::Source::File { path } if *path == origin.path))
+}
+
+fn document_in_library(doc: &photocraft_doc::Document, s: &lightcraft_engine::Session) -> bool {
+    let origins: Vec<_> = doc.walk().iter().filter_map(|(_, _, l)| photocraft_ui_egui::develop_layer::layer_origin(l)).collect();
+    origins.is_empty() || origins.iter().any(|o| o.library.as_deref() == Some(s.library_identity()))
+}
+
 fn document_of(editor: &PhotocraftApp, s: &lightcraft_engine::Session, id: lightcraft_catalog::PhotoId) -> Option<usize> {
-    let docs = editor.session.documents();
-    docs.iter()
-        .position(|d| d.path.as_deref().and_then(|p| photo_at_path(s, p)) == Some(id))
-        .or_else(|| photocraft_engine::develop_layer_cmds::document_of_photo(&editor.session, id.0))
+    editor.session.documents().iter().position(|d| {
+        document_in_library(&d.doc, s)
+            && (d.path.as_deref().and_then(|p| photo_at_path(s, p)) == Some(id)
+                || d.doc
+                    .walk()
+                    .iter()
+                    .filter_map(|(_, _, l)| photocraft_ui_egui::develop_layer::layer_origin(l))
+                    .any(|o| o.photo == id.0 && matches_origin(s, &o)))
+    })
 }
 
 /// The Library photos Compositing has unsaved work on: (photo, version key, document). A document
@@ -627,14 +725,16 @@ fn document_of(editor: &PhotocraftApp, s: &lightcraft_engine::Session, id: light
 fn unsaved_composites(editor: &PhotocraftApp, s: &lightcraft_engine::Session) -> Vec<(lightcraft_catalog::PhotoId, u64, Arc<photocraft_doc::Document>)> {
     let mut out: Vec<(lightcraft_catalog::PhotoId, u64, Arc<photocraft_doc::Document>)> = Vec::new();
     for d in editor.session.documents() {
-        if !d.is_dirty() {
+        if !d.is_dirty() || !document_in_library(&d.doc, s) {
             continue;
         }
         let photo = d.path.as_deref().and_then(|p| photo_at_path(s, p)).or_else(|| {
-            photocraft_engine::develop_layer_cmds::develop_layers(&d.doc)
-                .into_iter()
-                .filter_map(|(_, p)| p.map(lightcraft_catalog::PhotoId))
-                .find(|id| s.catalog.photo(*id).is_some())
+            d.doc
+                .walk()
+                .iter()
+                .filter_map(|(_, _, l)| photocraft_ui_egui::develop_layer::layer_origin(l))
+                .find(|origin| matches_origin(s, origin))
+                .map(|origin| lightcraft_catalog::PhotoId(origin.photo))
         });
         let Some(photo) = photo.filter(|p| !out.iter().any(|o| o.0 == *p)) else { continue };
         let key = (Arc::as_ptr(&d.doc) as usize as u64) ^ d.revision.rotate_left(32);
@@ -726,6 +826,7 @@ fn library_module(lib: &LightcraftApp) -> Module {
 
 impl eframe::App for Host {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.observe_library();
         self.frames += 1;
         self.editor.current_module = self.mode;
         self.module_keys(ctx);
@@ -785,12 +886,18 @@ impl eframe::App for Host {
             }
         }
         // Double-clicking a Develop layer: Develop on its photo.
-        if let Some(id) = self.editor.develop_request.take() {
-            self.left_compositing_with = Some(id);
-            let lib = self.library();
-            let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id }));
-            self.mode = Module::Compositing;
-            self.switch(ctx, Module::Develop);
+        if let Some(origin) = self.editor.develop_request.take() {
+            if matches_origin(&self.library().session, &origin) {
+                let id = origin.photo;
+                self.left_compositing_with = Some(id);
+                let lib = self.library();
+                let _ = lib.run("library.select", serde_json::json!({ "ids": [id], "active": id }));
+                self.mode = Module::Compositing;
+                self.switch(ctx, Module::Develop);
+            } else {
+                self.editor.ui.status = "This Develop layer belongs to another or legacy Library; reopen its photo from the correct Library".into();
+                self.editor.ui.status_error = true;
+            }
         }
         // Saved in Compositing: into the Library (Save and Return to Library: and show it there).
         if !self.editor.library_saves.is_empty() {
@@ -1243,7 +1350,13 @@ mod tests {
         library.run("develop.set", json!({"control": "light.exposure", "value": 0.5})).unwrap();
         let mut host = host_with_round_trip(library, lightcraft_catalog::PhotoId(copy), &path);
         image::RgbImage::from_pixel(40, 30, image::Rgb([128, 64, 32])).save(&path).unwrap();
-        host.editor.library_saves.push(LibrarySave { path, photo: Some(copy), show: false, overwritten: true });
+        host.editor.library_saves.push(LibrarySave {
+            origin: photocraft_ui_egui::develop_layer::active_origin(&host.editor),
+            path,
+            photo: Some(copy),
+            show: false,
+            overwritten: true,
+        });
         host.take_library_saves(None);
         let defaults = lightcraft_engine::develop::DevelopSettings::default();
         for id in [master, lightcraft_catalog::PhotoId(copy)] {
@@ -1330,10 +1443,78 @@ mod tests {
         let settings = serde_json::to_value(&*library.session.catalog.photo(photo).unwrap().develop).unwrap();
         host.library = Some(library);
         host.mode = Module::Compositing;
-        develop_layer::open_photo(&mut host.editor, photo.0, path, &settings, "photo.png").unwrap();
+        host.open_editor_photo(photo.0, path, &settings, "photo.png").unwrap();
         host.editor.run("layer.new.layer", json!({})).unwrap();
         assert!(host.editor.has_unsaved());
         host
+    }
+
+    #[test]
+    fn library_identity_prevents_cross_catalog_preview_save_and_document_reuse() {
+        let (dir_a, path_a, library_a, a) = library_with_photo("identity-host-a");
+        let (dir_b, path_b, library_b, b) = library_with_photo("identity-host-b");
+        assert_eq!(a, b, "fixture needs colliding numeric photo IDs");
+        let mut host = host_with_round_trip(library_a, a, &path_a);
+        let doc_a = host.editor.session.active().unwrap().doc.clone();
+        let old_origin = develop_layer::active_origin(&host.editor).unwrap();
+        assert!(matches_origin(catalog(&host), &old_origin));
+        host.library = Some(library_b);
+        host.observe_library();
+        assert!(!matches_origin(catalog(&host), &old_origin));
+        assert!(document_of(&host.editor, catalog(&host), b).is_none());
+        assert!(unsaved_composites(&host.editor, catalog(&host)).is_empty());
+        let selection = catalog(&host).selection.clone();
+        host.switch(&egui::Context::default(), Module::Develop);
+        assert_eq!(host.mode, Module::Compositing, "direct module switch entered another photo");
+        assert_eq!(catalog(&host).selection, selection);
+        assert!(host.editor.ui.status_error);
+        let before = serde_json::to_value(&catalog(&host).catalog).unwrap();
+        let saved = dir_a.join("belongs-to-a.psd").to_string_lossy().to_string();
+        host.editor.save_as(Some(saved.clone())).unwrap();
+        host.take_library_saves(None);
+        assert!(std::path::Path::new(&saved).is_file());
+        assert_eq!(serde_json::to_value(&catalog(&host).catalog).unwrap(), before);
+        assert!(host.editor.ui.status_error);
+        host.open_editor_photo(b.0, &path_b, &json!({}), "b.png").unwrap();
+        assert_eq!(host.editor.session.documents().len(), 2);
+        assert!(Arc::ptr_eq(&host.editor.session.documents()[0].doc, &doc_a));
+        let b_doc = host.editor.session.active().unwrap().doc.clone();
+        let copy = host.library().run("photo.virtualCopy", json!({})).unwrap()["ids"][0].as_u64().unwrap();
+        host.open_editor_photo(copy, &path_b, &json!({}), "copy.png").unwrap();
+        assert_eq!(host.editor.session.documents().len(), 3);
+        assert!(Arc::ptr_eq(&host.editor.session.documents()[1].doc, &b_doc));
+        let origin = develop_layer::active_origin(&host.editor).unwrap();
+        assert_eq!(origin.photo, copy);
+        assert!(matches_origin(catalog(&host), &origin));
+        drop(host);
+        std::fs::remove_dir_all(dir_a).unwrap();
+        std::fs::remove_dir_all(dir_b).unwrap();
+    }
+
+    #[test]
+    fn library_identity_legacy_embedded_layer_cannot_enter_an_unrelated_develop_photo() {
+        let (dir, path, library, photo) = library_with_photo("identity-legacy-embedded");
+        let mut host = host_with_round_trip(library, photo, &path);
+        let state = host.editor.session.active_mut().unwrap();
+        let doc = Arc::make_mut(&mut state.doc);
+        let layer = &mut doc.layers[0];
+        let photocraft_doc::LayerContent::Smart(sm) = &mut layer.content else { panic!("Develop layer") };
+        sm.source = photocraft_doc::SmartSource::Embedded { file_name: "legacy-photo.png".into(), bytes: Arc::new(std::fs::read(&path).unwrap()) };
+        let link = sm.develop.as_mut().unwrap();
+        link.library = None;
+        link.source = None;
+        state.active_layer = Some(layer.id);
+        assert_eq!(develop_layer::active_photo(&host.editor), Some(photo.0));
+        assert!(develop_layer::active_origin(&host.editor).is_none());
+        let before = serde_json::to_value(&catalog(&host).catalog).unwrap();
+        let selected = catalog(&host).selection.clone();
+        host.switch(&egui::Context::default(), Module::Develop);
+        assert_eq!(host.mode, Module::Compositing);
+        assert!(host.editor.ui.status_error);
+        assert_eq!(catalog(&host).selection, selected);
+        assert_eq!(serde_json::to_value(&catalog(&host).catalog).unwrap(), before);
+        drop(host);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn catalog(host: &Host) -> &lightcraft_engine::Session {
@@ -1351,7 +1532,10 @@ mod tests {
         let saved = dir.join("photo-Edit.psd").to_string_lossy().to_string();
         assert_eq!(r["path"], saved.as_str(), "beside the original, without a dialog");
         assert!(std::path::Path::new(&saved).is_file());
-        assert_eq!(host.editor.library_saves, vec![LibrarySave { path: saved.clone(), photo: Some(orig.0), show: false, overwritten: false }]);
+        assert_eq!(
+            host.editor.library_saves,
+            vec![LibrarySave { origin: develop_layer::active_origin(&host.editor), path: saved.clone(), photo: Some(orig.0), show: false, overwritten: false }]
+        );
 
         host.take_library_saves(Some(&ctx));
         assert!(host.editor.library_saves.is_empty());
@@ -2214,7 +2398,7 @@ mod tests {
         let mut host = host_with_round_trip(lib, orig, &path);
         // A clean Develop layer needs no unsaved stand-in.
         host.editor.session = photocraft_engine::Session::new();
-        develop_layer::open_photo(&mut host.editor, orig.0, &path, &json!({}), "photo.png").unwrap();
+        host.open_editor_photo(orig.0, &path, &json!({}), "photo.png").unwrap();
         assert!(unsaved_composites(&host.editor, catalog(&host)).is_empty());
         host.editor.run("layer.setProps", json!({"opacity": 0.5})).unwrap();
         let mut h = RoundTripUi::new(host);

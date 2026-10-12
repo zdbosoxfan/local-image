@@ -41,7 +41,29 @@ pub fn develop_layers(doc: &Document) -> Vec<(LayerId, Option<u64>)> {
 
 /// The open document showing Library photo `photo` in a Develop layer.
 pub fn document_of_photo(s: &Session, photo: u64) -> Option<usize> {
-    s.documents().iter().position(|d| develop_layers(&d.doc).iter().any(|(_, p)| *p == Some(photo)))
+    document_of_photo_in(s, None, photo, None)
+}
+
+/// Qualified Library lookup; unbound legacy links never match a named catalog.
+pub fn document_of_photo_in(s: &Session, library: Option<&str>, photo: u64, path: Option<&str>) -> Option<usize> {
+    s.documents().iter().position(|d| {
+        d.doc.walk().iter().any(|(_, _, layer)| match &layer.content {
+            LayerContent::Smart(sm) => {
+                sm.develop.as_ref().is_some_and(|link| link.photo == Some(photo) && link.library.as_deref() == library)
+                    && path.is_none_or(|path| source_of(sm) == Some(path))
+            }
+            _ => false,
+        })
+    })
+}
+
+pub fn source_of(sm: &SmartObject) -> Option<&str> {
+    // A PSD may represent its embedded source as a Linked UUID, so retain the
+    // explicit Library source path rather than treating that UUID as a disk path.
+    sm.develop.as_ref().and_then(|d| d.source.as_deref()).or(match &sm.source {
+        SmartSource::Linked { path } => Some(path.as_str()),
+        _ => None,
+    })
 }
 
 /// Expensive source reads, rendering, transforms and smart filters all run in the worker.
@@ -60,8 +82,8 @@ fn render_layer(doc: &Document, mut layer: Layer, link: DevelopLink, ctx: &JobCt
 
 pub const OPEN_JOB: &str = "develop.openPhoto";
 
-fn photo_key(photo: u64) -> String {
-    format!("develop/photo/{photo}")
+fn photo_key(library: Option<&str>, photo: u64) -> String {
+    format!("develop/photo/{}", json!([library, photo]))
 }
 fn layer_key(doc: DocId, layer: LayerId) -> String {
     format!("develop/layer/{}/{}", doc.0, layer.0)
@@ -72,12 +94,21 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
     let path = p.get("path").and_then(Value::as_str).filter(|v| !v.is_empty()).ok_or_else(|| bad(C, "missing `path`"))?.to_string();
     let settings = p.get("settings").cloned().unwrap_or_else(|| json!({}));
     let photo = p.get("photo").and_then(Value::as_u64);
-    // The host syncs settings separately. Bringing an existing photo forward never renders.
-    if let Some(i) = photo.and_then(|id| document_of_photo(s, id)) {
+    let library = p.get("library").and_then(Value::as_str).map(str::to_owned);
+    if library.is_some() && photo.is_none() {
+        return Err(bad(C, "a qualified Library open needs a photo identity"));
+    }
+    let keys = vec![
+        photo.map(|photo| format!("develop/open/{}", photo_key(library.as_deref(), photo))).unwrap_or_else(|| format!("develop/open/{path}")),
+        format!("develop/open/source/{}", json!([library, photo, path])),
+    ];
+    // Returning to an existing source supersedes any pending open of the same
+    // logical photo at another source, even though no new render is needed.
+    if let Some(i) = photo.and_then(|id| document_of_photo_in(s, library.as_deref(), id, Some(&path))) {
+        jobs::cancel_latest(s, &keys[..1]);
         s.set_active(i);
         return Ok(json!({ "document": i, "existing": true }));
     }
-    let keys = vec![photo.map(|photo| format!("develop/open/photo/{photo}")).unwrap_or_else(|| format!("develop/open/{path}"))];
     if let Some(job) = jobs::latest(s, &keys, &settings) {
         return Ok(json!({"job": job.0, "pending": true}));
     }
@@ -99,16 +130,17 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
             let r = photocraft_io::raw::develop_with_settings(&file_name, &bytes, &settings).map_err(|e| bad(C, e.to_string()))?;
             ctx.check()?;
             ctx.progress(1.0, "Opening");
-            Ok((r, path, settings, photo, name))
+            Ok((r, path, settings, photo, library, name))
         },
-        |s, (r, path, settings, photo, name)| {
+        |s, (r, path, settings, photo, library, name)| {
             let mut doc = r.document;
             doc.name = std::path::Path::new(&name).file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or(name.clone());
             let id = doc.layers.first().map(|l| l.id).ok_or(EngineError::Other("the developed photo has no layer".into()))?;
             let cache = doc.layer(id).and_then(|l| l.surface().cloned());
             crate::smart_cmds::approve_link(&path)?;
+            let source = Some(path.clone());
             let mut sm = SmartObject::new(SmartSource::Linked { path }, photocraft_geom::Affine::IDENTITY, cache);
-            sm.develop = Some(DevelopLink { settings, photo });
+            sm.develop = Some(DevelopLink { source, library: library.map(Into::into), settings, photo });
             if let Some(l) = doc.layer_mut(id) {
                 l.name = "Develop".into();
                 l.content = LayerContent::Smart(sm);
@@ -127,9 +159,15 @@ fn set_settings(s: &mut Session, p: &Value) -> Result<Value> {
     let layer = d.doc.layer(id).cloned().ok_or(EngineError::NoLayer(id))?;
     let LayerContent::Smart(sm) = &layer.content else { return Err(bad(C, "the layer isn't a Develop layer or smart object")) };
     let photo = p.get("photo").and_then(Value::as_u64).or(sm.develop.as_ref().and_then(|d| d.photo));
+    let library =
+        p.get("library").and_then(Value::as_str).map(str::to_owned).or_else(|| sm.develop.as_ref().and_then(|d| d.library.as_deref().map(str::to_owned)));
+    let source = sm.develop.as_ref().and_then(|d| d.source.clone()).or_else(|| match &sm.source {
+        SmartSource::Linked { path } => Some(path.clone()),
+        _ => None,
+    });
     let mut keys = vec![layer_key(d.doc.id, id)];
     if let Some(photo) = photo {
-        keys.push(photo_key(photo));
+        keys.push(photo_key(library.as_deref(), photo));
     }
     if let Some(job) = jobs::latest(s, &keys, &settings) {
         return Ok(json!({"job": job.0, "pending": true}));
@@ -137,7 +175,7 @@ fn set_settings(s: &mut Session, p: &Value) -> Result<Value> {
     let base = d.doc.clone();
     let doc_id = base.id;
     jobs::cancel_latest(s, &keys);
-    if sm.develop.as_ref().is_some_and(|link| link.settings == settings && link.photo == photo) {
+    if sm.develop.as_ref().is_some_and(|link| link.settings == settings && link.photo == photo && link.library.as_deref() == library.as_deref()) {
         return Ok(json!({"layer": id.0}));
     }
     let gate = take_work_gate();
@@ -148,7 +186,7 @@ fn set_settings(s: &mut Session, p: &Value) -> Result<Value> {
         move |ctx| {
             wait_work_gate(ctx, gate)?;
             let _work = enter_work(ctx)?;
-            let new = render_layer(&base, layer.clone(), DevelopLink { settings, photo }, ctx)?;
+            let new = render_layer(&base, layer.clone(), DevelopLink { source, library: library.map(Into::into), settings, photo }, ctx)?;
             Ok((base, layer, new))
         },
         move |s, (base, old, new)| {
@@ -214,7 +252,12 @@ fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "develop.syncPhoto";
     let photo = p.get("photo").and_then(Value::as_u64).ok_or_else(|| bad(C, "missing `photo`"))?;
     let settings = p.get("settings").cloned().ok_or_else(|| bad(C, "missing `settings`"))?;
-    let keys = vec![photo_key(photo)];
+    let library = p.get("library").and_then(Value::as_str).map(str::to_owned);
+    let path = p.get("path").and_then(Value::as_str).map(str::to_owned);
+    if library.is_some() && path.is_none() {
+        return Err(bad(C, "a qualified Library sync needs its source path"));
+    }
+    let keys = vec![photo_key(library.as_deref(), photo), format!("develop/sync/source/{}", json!([library, photo, path]))];
     if let Some(job) = jobs::latest(s, &keys, &settings) {
         return Ok(json!({"job": job.0, "pending": true}));
     }
@@ -228,7 +271,12 @@ fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
                 .walk()
                 .into_iter()
                 .filter_map(|(_, _, l)| match &l.content {
-                    LayerContent::Smart(SmartObject { develop: Some(link), .. }) if link.photo == Some(photo) => Some((l, link)),
+                    LayerContent::Smart(sm)
+                        if sm.develop.as_ref().is_some_and(|link| link.photo == Some(photo) && link.library.as_deref() == library.as_deref())
+                            && path.as_deref().is_none_or(|path| source_of(sm) == Some(path)) =>
+                    {
+                        sm.develop.as_ref().map(|link| (l, link))
+                    }
                     _ => None,
                 })
                 .next_back()?;
@@ -248,7 +296,15 @@ fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
             let _work = enter_work(ctx)?;
             let mut rendered = Vec::new();
             for (base, old) in targets {
-                let link = DevelopLink { settings: settings.clone(), photo: Some(photo) };
+                let link = DevelopLink {
+                    source: path.clone().or_else(|| match &old.content {
+                        LayerContent::Smart(sm) => sm.develop.as_ref().and_then(|link| link.source.clone()),
+                        _ => None,
+                    }),
+                    library: library.clone().map(Into::into),
+                    settings: settings.clone(),
+                    photo: Some(photo),
+                };
                 // Render both paths once: in-place keeps the template's smart filters; new layers
                 // start clean. Decide again at apply time, since compositing may start during work.
                 let clean = render_layer(&base, new_develop_layer(&old, link.clone()), link.clone(), ctx)?;

@@ -136,9 +136,9 @@ pub fn open(app: &mut PhotocraftApp, ctx: &egui::Context, layer: Option<LayerId>
     let l = st.doc.layer(id).ok_or("no such layer")?;
     // A Develop layer develops its own photo in Develop (every tool, raw data).
     if app.host_modes
-        && let Some(photo) = crate::develop_layer::layer_photo(l)
+        && let Some(origin) = crate::develop_layer::layer_origin(l)
     {
-        app.develop_request = Some(photo);
+        app.develop_request = Some(origin);
         return Ok(());
     }
     let raster = matches!(l.content, LayerContent::Raster(_));

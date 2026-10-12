@@ -113,7 +113,7 @@ mod tests {
         let png = photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &photocraft_codecs::EncodeOptions::default()).unwrap();
         let source = SmartSource::Embedded { file_name: "a.png".into(), bytes: std::sync::Arc::new(png) };
         let mut sm = SmartObject::new(source, photocraft_geom::Affine::IDENTITY, develop.surface().cloned());
-        sm.develop = Some(DevelopLink { settings: serde_json::json!({}), photo: Some(7) });
+        sm.develop = Some(DevelopLink { source: None, library: None, settings: serde_json::json!({}), photo: Some(7) });
         develop.content = LayerContent::Smart(sm);
         let mut retouch = raster("Retouch", [1.0, 0.0, 0.0, 1.0]);
         retouch.blend = BlendMode::Multiply;

@@ -625,6 +625,7 @@ pub fn open_library(app: &mut LightcraftApp, p: &Value) -> Result<Value, String>
     if matches!(app.ui.dialog, Some(crate::state::Dialog::Import { .. })) {
         app.ui.dialog = None;
     }
+    app.ui.external_edits.clear();
     app.people_task = None;
     app.smart_sort = None;
     app.people_images = Default::default();

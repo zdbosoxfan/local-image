@@ -174,7 +174,7 @@ fn smart_contract(develop: bool) {
         let mut settings = lightcraft_develop::DevelopSettings::default();
         settings.light.exposure = 1.25;
         settings.profile.id = "lc.vivid".into();
-        smart.develop = Some(DevelopLink { settings: serde_json::to_value(settings).unwrap(), photo: Some(42) });
+        smart.develop = Some(DevelopLink { source: None, library: None, settings: serde_json::to_value(settings).unwrap(), photo: Some(42) });
     }
     d.layers.push(Layer::new("Smart", LayerContent::Smart(smart.clone())));
     let back = reopen(&d, "psd");

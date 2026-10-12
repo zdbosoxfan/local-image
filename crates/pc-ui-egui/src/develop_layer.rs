@@ -11,7 +11,9 @@
 //! stacked on top of the original — or reloads it when the Library already has it. File › Save
 //! and Return to Library ([`SAVE_RETURN_ID`]) also shows the Library on the saved photo.
 
-use photocraft_doc::{Layer, LayerContent, SmartObject, SmartSource};
+#[cfg(test)]
+use photocraft_doc::SmartSource;
+use photocraft_doc::{Layer, LayerContent, SmartObject};
 use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
@@ -22,9 +24,42 @@ pub const DEVELOP_ID: &str = "li.developLayer";
 /// File › Save and Return to Library.
 pub const SAVE_RETURN_ID: &str = "file.saveAndReturnToLibrary";
 
+/// Captured identity of a Library photo, independent of the currently active catalog/tab.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LibraryOrigin {
+    pub library: Option<String>,
+    pub photo: u64,
+    pub path: String,
+}
+
+pub fn layer_origin(layer: &Layer) -> Option<LibraryOrigin> {
+    let LayerContent::Smart(sm) = &layer.content else { return None };
+    let link = sm.develop.as_ref()?;
+    Some(LibraryOrigin {
+        library: link.library.as_deref().map(str::to_owned),
+        photo: link.photo?,
+        path: photocraft_engine::develop_layer_cmds::source_of(sm)?.to_string(),
+    })
+}
+
+pub fn active_origin(app: &PhotocraftApp) -> Option<LibraryOrigin> {
+    let st = app.session.active()?;
+    if let Some(layer) = st.active_layer.and_then(|id| st.doc.layer(id))
+        && layer_photo(layer).is_some()
+    {
+        return layer_origin(layer);
+    }
+    origin_of(&st.doc)
+}
+
+pub fn origin_of(doc: &photocraft_doc::Document) -> Option<LibraryOrigin> {
+    doc.walk().iter().find_map(|(_, _, layer)| layer_origin(layer))
+}
+
 /// A file Save / Save As wrote (local-image: the host takes these for the Library).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LibrarySave {
+    pub origin: Option<LibraryOrigin>,
     /// The file written.
     pub path: String,
     /// The Library photo the document came from (its Develop layer's), if any: a file the Library
@@ -70,23 +105,12 @@ pub fn active_photo(app: &PhotocraftApp) -> Option<u64> {
 /// The Library photo the active document came from and the path of its original file: the photo
 /// [`active_photo`] names, when one of the document's Develop layers links it to a file.
 pub fn library_original(app: &PhotocraftApp) -> Option<(u64, String)> {
-    let doc = &app.session.active()?.doc;
-    original_for_photo(doc, active_photo(app)?)
+    active_origin(app).map(|origin| (origin.photo, origin.path))
 }
 
 /// Source identity independent of the currently selected document tab.
 pub fn original_of(doc: &photocraft_doc::Document) -> Option<(u64, String)> {
-    let photo = photocraft_engine::develop_layer_cmds::develop_layers(doc).into_iter().find_map(|(_, p)| p)?;
-    original_for_photo(doc, photo)
-}
-
-fn original_for_photo(doc: &photocraft_doc::Document, photo: u64) -> Option<(u64, String)> {
-    doc.walk().into_iter().find_map(|(_, _, l)| match &l.content {
-        LayerContent::Smart(SmartObject { develop: Some(d), source: SmartSource::Linked { path }, .. }) if d.photo == Some(photo) && !path.is_empty() => {
-            Some((photo, path.clone()))
-        }
-        _ => None,
-    })
+    origin_of(doc).map(|origin| (origin.photo, origin.path))
 }
 
 /// `<folder of original>/<name>-Edit.psd`, or `-Edit-2.psd`, `-Edit-3.psd`… when that file
@@ -149,6 +173,22 @@ pub fn save_and_return(app: &mut PhotocraftApp, params: &Value) -> Result<Value,
     Ok(json!({ "path": path, "warnings": warnings }))
 }
 
+pub fn sync_in(app: &mut PhotocraftApp, library: &str, photo: u64, path: &str, settings: &Value) {
+    match app.run("develop.syncPhoto", json!({"library": library, "photo": photo, "path": path, "settings": settings})) {
+        Ok(r) => finish_sync(app, &r),
+        Err(e) => {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
+    }
+}
+
+pub fn open_photo_in(app: &mut PhotocraftApp, library: &str, photo: u64, path: &str, settings: &Value, name: &str) -> Result<(), String> {
+    app.run("develop.openPhoto", json!({"library": library, "photo": photo, "path": path, "settings": settings, "name": name}))?;
+    app.sync_views();
+    Ok(())
+}
+
 /// Develop layers following `photo` take `settings` (one undo step per document that changed).
 pub fn sync(app: &mut PhotocraftApp, photo: u64, settings: &Value) {
     match app.run("develop.syncPhoto", json!({ "photo": photo, "settings": settings })) {
@@ -196,7 +236,7 @@ pub fn develop(app: &mut PhotocraftApp) -> Result<Value, String> {
     if !app.host_modes {
         return Err(tl!("Open the Library to develop this layer").into());
     }
-    app.develop_request = Some(photo);
+    app.develop_request = Some(active_origin(app).ok_or("This legacy Develop layer has no source identity; reopen the photo from its Library")?);
     Ok(json!({ "photo": photo }))
 }
 
@@ -211,7 +251,9 @@ mod tests {
         second.id = photocraft_doc::LayerId::fresh();
         if let LayerContent::Smart(smart) = &mut second.content {
             smart.develop.as_mut().unwrap().photo = Some(8);
-            smart.source = SmartSource::Linked { path: dir.join("other.png").to_string_lossy().into_owned() };
+            let path = dir.join("other.png").to_string_lossy().into_owned();
+            smart.develop.as_mut().unwrap().source = Some(path.clone());
+            smart.source = SmartSource::Linked { path };
         } else {
             panic!("expected Develop layer");
         }
@@ -222,6 +264,25 @@ mod tests {
         assert_eq!(library_save_path(&app).unwrap(), dir.join("other-Edit.psd").to_string_lossy());
         app.session.active_mut().unwrap().active_layer = None;
         assert_eq!(library_original(&app), Some((7, first)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn library_identity_save_handoff_is_captured_before_document_saved_scripts() {
+        let (dir, path, mut app) = photo_app("identity-save-script");
+        let a = active_origin(&app).unwrap();
+        open_photo_in(&mut app, "other-library", 7, &path, &json!({}), "other.png").unwrap();
+        let b = active_origin(&app).unwrap();
+        assert_ne!(a, b);
+        app.session.set_active(0);
+        app.run("file.scripts.scriptEventsManager", json!({"add":{"event":"saveDocument","steps":[["document.activate",{"document":1}]]}})).unwrap();
+        app.services.export = Some(Box::new(|_, _, _| Ok((vec![1], Vec::new()))));
+        app.services.write = Some(Box::new(|_, _| Ok(())));
+        app.save_as(Some(dir.join("saved.psd").to_string_lossy().to_string())).unwrap();
+        assert_eq!(app.session.active_index(), Some(1), "Save Document callback did not run");
+        let saved = app.library_saves.last().unwrap();
+        assert_eq!(saved.origin.as_ref(), Some(&a));
+        assert_ne!(saved.origin.as_ref(), Some(&b));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -259,7 +320,7 @@ mod tests {
         assert_eq!(app.session.documents().len(), 1);
         // Double-click: the host is asked for Develop on photo 7.
         assert!(develop(&mut app).is_ok());
-        assert_eq!(app.develop_request, Some(7));
+        assert_eq!(app.develop_request, active_origin(&app));
         std::fs::remove_dir_all(dir).ok();
     }
 

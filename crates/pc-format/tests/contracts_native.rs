@@ -98,8 +98,12 @@ fn embedded_linked_smart_objects_and_develop_settings() {
     let mut d = legacy::rich_doc(ColorMode::Rgb, SampleType::F32);
     for l in &mut d.layers {
         if let LayerContent::Smart(s) = &mut l.content {
-            s.develop =
-                Some(DevelopLink { settings: serde_json::json!({"light":{"exposure":1.25},"profile":{"id":"lc.vivid"},"private":[1,2,3]}), photo: Some(42) });
+            s.develop = Some(DevelopLink {
+                source: None,
+                library: None,
+                settings: serde_json::json!({"light":{"exposure":1.25},"profile":{"id":"lc.vivid"},"private":[1,2,3]}),
+                photo: Some(42),
+            });
         }
     }
     compare(&d);

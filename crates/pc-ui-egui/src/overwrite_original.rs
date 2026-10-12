@@ -10,6 +10,7 @@ pub const RETURN_ID: &str = "file.saveOverOriginalAndReturnToLibrary";
 const PREFERENCE: &str = "file.saveOverOriginal";
 
 pub struct Prompt {
+    pub origin: develop_layer::LibraryOrigin,
     pub doc: DocId,
     pub path: String,
     pub photo: u64,
@@ -50,7 +51,8 @@ pub fn request(app: &mut PhotocraftApp, doc: DocId, show_library: bool) -> Resul
     }
     let state = app.session.documents().iter().find(|d| d.doc.id == doc).ok_or("document was closed")?;
     let (photo, path) = develop_layer::original_of(&state.doc).ok_or("no Library original")?;
-    let prompt = Prompt { doc, path, photo, show_library, dont_ask_again: false };
+    let origin = develop_layer::origin_of(&state.doc).ok_or("no Library original")?;
+    let prompt = Prompt { origin, doc, path, photo, show_library, dont_ask_again: false };
     let skip = app.session.prefs().dialogs.get(PREFERENCE).and_then(|v| v.get("dontAskAgain")).and_then(serde_json::Value::as_bool).unwrap_or(false);
     // Photoshop originals lose their layers: always show this warning, even with Don't Ask Again.
     let layered_source = std::path::Path::new(&prompt.path).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("psd") || ext.eq_ignore_ascii_case("psb"));
@@ -67,7 +69,7 @@ fn save(app: &mut PhotocraftApp, prompt: Prompt) -> Result<(), String> {
         return Err(reason.into());
     }
     let state = app.session.documents().iter().find(|d| d.doc.id == prompt.doc).ok_or("document was closed")?;
-    if develop_layer::original_of(&state.doc) != Some((prompt.photo, prompt.path.clone())) {
+    if develop_layer::origin_of(&state.doc).as_ref() != Some(&prompt.origin) {
         return Err("the document's original changed; try again".into());
     }
     let doc = state.doc.clone();
@@ -80,7 +82,13 @@ fn save(app: &mut PhotocraftApp, prompt: Prompt) -> Result<(), String> {
             p.dialogs.insert(PREFERENCE.into(), json!({"dontAskAgain": true}));
         });
     }
-    app.library_saves.push(develop_layer::LibrarySave { path: prompt.path.clone(), photo: Some(prompt.photo), show: prompt.show_library, overwritten: true });
+    app.library_saves.push(develop_layer::LibrarySave {
+        origin: Some(prompt.origin.clone()),
+        path: prompt.path.clone(),
+        photo: Some(prompt.photo),
+        show: prompt.show_library,
+        overwritten: true,
+    });
     app.ui.status = format!("Overwrote {}; previous version kept in Trash", prompt.path);
     app.ui.status_error = false;
     crate::notices::io_warnings(app, &app.ui.status.clone(), &warnings);

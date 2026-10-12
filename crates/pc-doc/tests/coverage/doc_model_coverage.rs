@@ -264,7 +264,7 @@ fn text_styles_empty_json_defaults() {
 
 #[test]
 fn develop_link_serde_round_trip() {
-    let link = photocraft_doc::DevelopLink { settings: json!({"exposure": 1.0}), photo: Some(42) };
+    let link = photocraft_doc::DevelopLink { source: None, library: None, settings: json!({"exposure": 1.0}), photo: Some(42) };
     let json = serde_json::to_string(&link).unwrap();
     let back: photocraft_doc::DevelopLink = serde_json::from_str(&json).unwrap();
     assert_eq!(link, back);

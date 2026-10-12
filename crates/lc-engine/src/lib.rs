@@ -176,6 +176,8 @@ pub struct Session {
     pub library: Option<library::Library>,
     /// Invalidates background work when a library is opened or closed.
     pub library_generation: u64,
+    /// Identity for a catalog that exists only in this Session.
+    memory_library_identity: String,
     /// XMP sidecar preferences (persisted with the library).
     pub xmp: sidecar::XmpPrefs,
     /// Parameters of the last export (`app.export` params, minus targets), persisted in prefs.json.
@@ -282,6 +284,7 @@ impl Session {
             active_spot: None,
             library: None,
             library_generation: 0,
+            memory_library_identity: format!("memory:{}", uuid::Uuid::new_v4()),
             xmp: sidecar::XmpPrefs::default(),
             last_export: None,
             export_presets: Vec::new(),

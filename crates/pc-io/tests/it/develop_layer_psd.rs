@@ -31,7 +31,7 @@ fn link(exposure: f64, photo: Option<u64>) -> DevelopLink {
     s.color.vibrance = 15.0;
     // beyond what Camera Raw understands: only our record keeps it
     s.profile.id = "lc.vivid".into();
-    DevelopLink { settings: serde_json::to_value(&s).unwrap(), photo }
+    DevelopLink { source: Some("/library/source.dng".into()), library: Some("catalog-test".into()), settings: serde_json::to_value(&s).unwrap(), photo }
 }
 
 fn settings(v: &Value) -> lightcraft_develop::DevelopSettings {
@@ -134,4 +134,17 @@ fn photoshops_edits_to_the_filter_apply_over_ours() {
     assert_eq!(s.light.exposure, -0.5, "Photoshop's value");
     assert_eq!(s.profile.id, "lc.vivid", "ours where Photoshop has no setting");
     assert_eq!(f.params[DEVELOP_LAYER_MARKER]["photo"], 9);
+}
+
+#[test]
+fn library_identity_survives_two_layered_format_cycles() {
+    for ext in ["psd", "psb", "tif"] {
+        let expected = link(0.3, Some(19));
+        let mut doc = develop_doc("photo.png", &png(), expected.clone());
+        for _ in 0..2 {
+            let result = export(&doc, ext, &ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+            doc = import(&format!("identity.{ext}"), &result.bytes).unwrap().document;
+            assert_eq!(smart(&doc).develop.as_ref(), Some(&expected), "{ext}: origin lost");
+        }
+    }
 }

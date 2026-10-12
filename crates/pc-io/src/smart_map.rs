@@ -369,7 +369,10 @@ fn develop_import(item: &Descriptor, legacy: J) -> (&'static str, J) {
     // for `resolve_develop_layers`, which turns the filter back into the layer's link
     if let (Some(r), Some(m)) = (record.as_ref().filter(|r| r.get("command").and_then(J::as_str) == Some(DEVELOP_LAYER_RECORD)), params.as_object_mut()) {
         let link_settings = if untouched { r.get("settings").cloned().unwrap_or(J::Null) } else { serde_json::to_value(&settings).unwrap_or(J::Null) };
-        m.insert(DEVELOP_LAYER_MARKER.into(), json!({"settings": link_settings, "photo": r.get("photo")}));
+        m.insert(
+            DEVELOP_LAYER_MARKER.into(),
+            json!({"settings": link_settings, "photo": r.get("photo"), "library": r.get("library"), "source": r.get("source")}),
+        );
     }
     (dev::COMMAND, params)
 }
@@ -410,7 +413,7 @@ fn develop_export(f: &SmartFilter) -> Result<Descriptor, String> {
         .or_else(|_| camera_raw::export_item(&params(&neutral, None)).map(|d| (d, &neutral)))?;
     // local-image: a Develop layer's filter: our full link, always
     if let Some(link) = f.params.get(DEVELOP_LAYER_MARKER) {
-        let record = json!({"command": DEVELOP_LAYER_RECORD, "settings": link.get("settings"), "photo": link.get("photo"), "fltr": fltr_hash(&d)});
+        let record = json!({"command": DEVELOP_LAYER_RECORD, "settings": link.get("settings"), "photo": link.get("photo"), "library": link.get("library"), "source": link.get("source"), "fltr": fltr_hash(&d)});
         set(&mut d, camera_raw::PRIVATE_KEY, Value::Text(UnicodeString::new_nul(&record.to_string())));
         return Ok(d);
     }
@@ -440,7 +443,7 @@ pub const DEVELOP_LAYER_MARKER: &str = "__developLayer";
 pub fn develop_layer_filter(link: &photocraft_doc::DevelopLink) -> SmartFilter {
     let mut params = if link.settings.is_object() { link.settings.clone() } else { json!({}) };
     if let Some(m) = params.as_object_mut() {
-        m.insert(DEVELOP_LAYER_MARKER.into(), json!({"settings": link.settings, "photo": link.photo}));
+        m.insert(DEVELOP_LAYER_MARKER.into(), json!({"settings": link.settings, "photo": link.photo, "library": link.library, "source": link.source}));
     }
     SmartFilter { command: crate::develop_filter::COMMAND.into(), params, blend: BlendMode::Normal, opacity: 1.0, visible: true }
 }
@@ -461,7 +464,12 @@ pub(crate) fn resolve_develop_layers(doc: &mut photocraft_doc::Document) {
         let f = sm.smart_filters.remove(i);
         let m = f.params.get(DEVELOP_LAYER_MARKER);
         let settings = m.and_then(|m| m.get("settings")).cloned().unwrap_or_else(|| json!({}));
-        sm.develop = Some(photocraft_doc::DevelopLink { settings, photo: m.and_then(|m| m.get("photo")).and_then(J::as_u64) });
+        sm.develop = Some(photocraft_doc::DevelopLink {
+            source: m.and_then(|m| m.get("source")).and_then(J::as_str).map(str::to_owned),
+            library: m.and_then(|m| m.get("library")).and_then(J::as_str).map(Into::into),
+            settings,
+            photo: m.and_then(|m| m.get("photo")).and_then(J::as_u64),
+        });
     }
 }
 

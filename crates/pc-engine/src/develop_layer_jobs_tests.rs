@@ -60,7 +60,7 @@ fn develop_open_job_matches_the_synchronous_document_and_link() {
     assert_eq!(develop_layers(&actual)[0].1, Some(71));
     let LayerContent::Smart(sm) = &actual.layers[0].content else { panic!("Develop smart object") };
     assert_eq!(sm.source, SmartSource::Linked { path: photo.path.display().to_string() });
-    assert_eq!(sm.develop, Some(DevelopLink { settings: json!({}), photo: Some(71) }));
+    assert_eq!(sm.develop, Some(DevelopLink { source: Some(photo.path.display().to_string()), library: None, settings: json!({}), photo: Some(71) }));
     assert_eq!(actual.metadata, expected.metadata);
     assert_eq!(actual.name, "camera");
     let count = work_count_on_thread();
@@ -219,4 +219,95 @@ fn develop_missing_source_keeps_pixels_settings_and_history() {
     assert!(s.wait_job(id).unwrap_err().to_string().contains("unavailable"));
     assert!(Arc::ptr_eq(&old, &s.active().unwrap().doc));
     assert_eq!(s.active().unwrap().history.past_len(), steps);
+}
+
+#[test]
+fn library_identity_separates_colliding_photos_sources_and_pending_jobs() {
+    let a = Photo::new("identity-a");
+    let b = Photo::new("identity-b");
+    let mut s = Session::new();
+    let mut pa = a.params();
+    pa["library"] = json!("library-a");
+    let mut pb = b.params();
+    pb["library"] = json!("library-b");
+    let gate = Arc::new(AtomicBool::new(false));
+    gate_next_work(gate.clone());
+    let pending_a = job(&mut s, OPEN_JOB, pa.clone());
+    let pending_b = job(&mut s, OPEN_JOB, pb.clone());
+    s.wait_job(pending_b).unwrap();
+    let b_snapshot = s.active().unwrap().doc.clone();
+    gate.store(true, Ordering::Relaxed);
+    s.wait_job(pending_a).unwrap();
+    assert_eq!(s.documents().len(), 2);
+    let ai = document_of_photo_in(&s, Some("library-a"), 71, a.path.to_str()).unwrap();
+    let bi = document_of_photo_in(&s, Some("library-b"), 71, b.path.to_str()).unwrap();
+    assert_ne!(ai, bi);
+    assert!(Arc::ptr_eq(&s.documents()[bi].doc, &b_snapshot));
+    assert!(document_of_photo_in(&s, Some("library-a"), 71, b.path.to_str()).is_none());
+    assert!(document_of_photo(&s, 71).is_none(), "legacy unbound lookup matched a qualified catalog");
+    let a_snapshot = s.documents()[ai].doc.clone();
+    s.execute("develop.syncPhoto", json!({"library":"library-b","photo":71,"path":b.path,"settings":{"light":{"exposure":0.4}}})).unwrap();
+    assert!(Arc::ptr_eq(&s.documents()[ai].doc, &a_snapshot));
+    assert!(!Arc::ptr_eq(&s.documents()[bi].doc, &b_snapshot));
+    let changed_b = s.documents()[bi].doc.clone();
+    let result = s.execute("develop.syncPhoto", json!({"library":"library-b","photo":71,"path":a.path,"settings":{"light":{"exposure":0.8}}})).unwrap();
+    assert_eq!(result["updated"], 0);
+    assert!(Arc::ptr_eq(&s.documents()[bi].doc, &changed_b));
+    // A virtual copy has the same source file but a distinct catalog photo identity.
+    pb["photo"] = json!(72);
+    s.execute(OPEN_JOB, pb).unwrap();
+    assert_eq!(s.documents().len(), 3);
+    // An unbound old-document request also remains independent.
+    s.execute(OPEN_JOB, a.params()).unwrap();
+    assert_eq!(s.documents().len(), 4);
+    s.set_active(ai);
+    s.execute("layer.smartObjects.relinkToFile", json!({"path":b.path})).unwrap();
+    let LayerContent::Smart(sm) = &s.active().unwrap().doc.layers[0].content else { panic!("smart layer") };
+    let link = sm.develop.as_ref().unwrap();
+    assert!(link.library.is_none() && link.photo.is_none() && link.source.is_none(), "relinking another source retained a stale Library association");
+}
+
+#[test]
+fn library_identity_virtual_copies_do_not_cancel_each_others_pending_sync() {
+    let photo = Photo::new("identity-virtual-jobs");
+    let mut s = Session::new();
+    let mut p = photo.params();
+    p["library"] = json!("library");
+    s.execute(OPEN_JOB, p.clone()).unwrap();
+    p["photo"] = json!(72);
+    s.execute(OPEN_JOB, p).unwrap();
+    let sibling = s.active().unwrap().doc.clone();
+    let gate = Arc::new(AtomicBool::new(false));
+    gate_next_work(gate.clone());
+    let first = job(&mut s, "develop.syncPhoto", json!({"library":"library","photo":71,"path":photo.path,"settings":{"light":{"exposure":0.7}}}));
+    // Host checks every linked photo, including already-current virtual copies.
+    s.execute("develop.syncPhoto", json!({"library":"library","photo":72,"path":photo.path,"settings":{}})).unwrap();
+    assert_eq!(s.job(first).unwrap().state, "running");
+    gate.store(true, Ordering::Relaxed);
+    s.wait_job(first).unwrap();
+    assert!(Arc::ptr_eq(&s.documents()[1].doc, &sibling));
+    let LayerContent::Smart(sm) = &s.documents()[0].doc.layers[0].content else { panic!("smart") };
+    assert_eq!(sm.develop.as_ref().unwrap().settings["light"]["exposure"], 0.7);
+}
+
+#[test]
+fn library_identity_existing_source_supersedes_a_pending_replacement_open() {
+    let a = Photo::new("identity-existing-a");
+    let b = Photo::new("identity-existing-b");
+    let mut s = Session::new();
+    let mut pa = a.params();
+    pa["library"] = json!("library");
+    let mut pb = b.params();
+    pb["library"] = json!("library");
+    s.execute(OPEN_JOB, pa.clone()).unwrap();
+    let original = s.active().unwrap().doc.clone();
+    let gate = Arc::new(AtomicBool::new(false));
+    gate_next_work(gate.clone());
+    let replacement = job(&mut s, OPEN_JOB, pb);
+    assert_eq!(s.execute(OPEN_JOB, pa).unwrap()["existing"], true);
+    gate.store(true, Ordering::Relaxed);
+    assert!(s.wait_job(replacement).is_err());
+    s.join_cancelled_jobs();
+    assert_eq!(s.documents().len(), 1);
+    assert!(Arc::ptr_eq(&s.active().unwrap().doc, &original));
 }

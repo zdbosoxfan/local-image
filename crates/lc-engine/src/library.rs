@@ -43,6 +43,9 @@ pub fn default_dir() -> Option<PathBuf> {
 }
 
 pub struct Library {
+    /// Stable catalog identity qualified by its storage location. A copied catalog
+    /// at another location is independent; moved libraries require explicit relinking.
+    pub identity: String,
     /// The library directory, or a descriptive pseudo-path when the library isn't on disk.
     pub dir: PathBuf,
     /// The library is a real directory: photos can be copied into `Originals/` and thumbnails are
@@ -73,6 +76,42 @@ pub struct Library {
     /// Keeps other processes out of this library while it's open (last: released after the
     /// journal's background snapshot has landed).
     lock: Option<LibraryLock>,
+}
+
+const IDENTITY_FILE: &str = "library-identity.json";
+
+fn load_identity(files: &mut dyn Store, dir: &Path, on_disk: bool) -> (String, Option<String>) {
+    let identity = (|| -> std::result::Result<String, String> {
+        match files.read(IDENTITY_FILE).map_err(|e| e.to_string())? {
+            Some(bytes) => {
+                let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+                let id = value.get("id").and_then(serde_json::Value::as_str).ok_or("missing identity")?;
+                let id = uuid::Uuid::parse_str(id).map_err(|e| e.to_string())?;
+                if value["version"] != 1 || id.is_nil() {
+                    return Err("invalid library identity".into());
+                }
+                Ok(id.to_string())
+            }
+            None => {
+                let id = uuid::Uuid::new_v4().to_string();
+                let bytes = serde_json::to_vec(&serde_json::json!({"version":1,"id":id})).map_err(|e| e.to_string())?;
+                files.write_atomic(IDENTITY_FILE, &bytes).map_err(|e| e.to_string())?;
+                Ok(id)
+            }
+        }
+    })();
+    match identity {
+        Ok(id) => {
+            let location = if on_disk { dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()) } else { dir.to_path_buf() };
+            (serde_json::json!([id, lightcraft_preview::hash::hash_bytes(location.as_os_str().as_encoded_bytes()).to_string()]).to_string(), None)
+        }
+        Err(e) => (
+            format!("unavailable:{}", uuid::Uuid::new_v4()),
+            Some(format!(
+                "Library identity could not be loaded or saved ({e}). Existing identity data was left untouched. Develop links will not reconnect automatically until the library can be reopened with its identity."
+            )),
+        ),
+    }
 }
 
 /// Where a library's files live (see [`Session::open_library_in`]).
@@ -247,6 +286,11 @@ impl SettingsLoad {
 }
 
 impl Session {
+    /// Persistent identity of the open catalog, or this in-memory session's identity.
+    pub fn library_identity(&self) -> &str {
+        self.library.as_ref().map(|l| l.identity.as_str()).unwrap_or(&self.memory_library_identity)
+    }
+
     /// Open (or create) the library at `dir` into this session, replacing its catalog. With
     /// `seed_demo`, a newly created library starts with the procedural demo photos.
     ///
@@ -299,6 +343,7 @@ impl Session {
             log::error!("library: {e}");
         }
         let (mut journal, mut catalog, report) = Journal::open(catalog)?;
+        let (identity, identity_warning) = load_identity(files.as_mut(), &dir, on_disk);
         self.close_ephemeral();
         // A loaded catalog counts revisions from 0, like every other one. Caches (sidebar counts,
         // keyword tree, the grid's list…) are keyed on the revision, so give each library loaded
@@ -320,6 +365,7 @@ impl Session {
             journal.snapshot(&self.catalog)?;
         }
         let mut settings = SettingsLoad::default();
+        settings.warnings.extend(identity_warning);
         // presets
         if let Some(f) = settings.read::<PresetsFile>(files.as_mut(), "presets.json") {
             for p in &mut self.presets {
@@ -385,6 +431,7 @@ impl Session {
         crate::enhance::remove::install();
         let view_written = self.view_json();
         self.library = Some(Library {
+            identity,
             dir,
             on_disk,
             journal,

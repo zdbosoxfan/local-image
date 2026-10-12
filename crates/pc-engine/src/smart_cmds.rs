@@ -680,7 +680,15 @@ fn set_source(s: &mut Session, p: &Value, label: &str, keep_psd: bool, make: imp
     let id = layer_param(s, p)?;
     s.edit(label, |doc, _| {
         let new = make(&doc.metadata, &smart(doc, id)?.source)?;
-        smart_mut(doc, id)?.source = new;
+        let previous_source = crate::develop_layer_cmds::source_of(smart(doc, id)?).map(str::to_owned);
+        let keeps_origin = keep_psd || p.get("path").and_then(Value::as_str) == previous_source.as_deref();
+        let sm = smart_mut(doc, id)?;
+        sm.source = new;
+        if !keeps_origin && let Some(link) = sm.develop.as_mut() {
+            link.library = None;
+            link.photo = None;
+            link.source = None;
+        }
         if !keep_psd {
             detach_psd(doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?);
         }

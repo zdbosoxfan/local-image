@@ -333,7 +333,7 @@ fn uuid_from_deterministic_and_unique() {
 
 #[test]
 fn develop_layer_filter_creates_marker_and_command() {
-    let link = DevelopLink { settings: json!({"exposure": 0.5, "contrast": 10}), photo: Some(42) };
+    let link = DevelopLink { source: None, library: None, settings: json!({"exposure": 0.5, "contrast": 10}), photo: Some(42) };
     let f = develop_layer_filter(&link);
     assert_eq!(f.command, DEVELOP_COMMAND);
     let marker = &f.params[DEVELOP_LAYER_MARKER];

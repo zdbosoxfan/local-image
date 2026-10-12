@@ -394,6 +394,12 @@ pub struct SmartObject {
 /// current settings.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DevelopLink {
+    /// Library source identity retained even when a layered format embeds the pixels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// Catalog namespace. Missing in legacy documents: never implicitly matches a qualified Library.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library: Option<Arc<str>>,
     pub settings: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub photo: Option<u64>,

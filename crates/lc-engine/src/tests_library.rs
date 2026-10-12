@@ -407,3 +407,37 @@ fn a_library_open_elsewhere_is_refused() {
     assert_eq!(other.catalog.to_snapshot(), expect);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn library_identity_persists_and_copied_catalog_locations_remain_distinct() {
+    let root = temp_dir("persistent-identity");
+    let a = root.join("a");
+    let b = root.join("b");
+    let first = {
+        let mut session = Session::new();
+        session.open_library(&a, false).unwrap();
+        session.library_identity().to_string()
+    };
+    let mut session = Session::new();
+    session.open_library(&a, false).unwrap();
+    assert_eq!(session.library_identity(), first);
+    std::fs::create_dir_all(&b).unwrap();
+    std::fs::copy(a.join("library-identity.json"), b.join("library-identity.json")).unwrap();
+    session.open_library(&b, false).unwrap();
+    assert_ne!(session.library_identity(), first, "a copied catalog must not share document bindings with its original location");
+    let second = session.library_identity().to_owned();
+    drop(session);
+    let mut session = Session::new();
+    session.open_library(&b, false).unwrap();
+    assert_eq!(session.library_identity(), second);
+    drop(session);
+    std::fs::write(a.join("library-identity.json"), b"broken identity").unwrap();
+    let mut session = Session::new();
+    session.open_library(&a, false).unwrap();
+    assert!(session.library_identity().starts_with("unavailable:"));
+    assert!(!session.take_library_warnings().is_empty());
+    assert_eq!(std::fs::read(a.join("library-identity.json")).unwrap(), b"broken identity");
+    drop(session);
+    assert_ne!(Session::new().library_identity(), Session::new().library_identity());
+    std::fs::remove_dir_all(root).unwrap();
+}
