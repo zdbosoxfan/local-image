@@ -5,12 +5,9 @@ shapes/path/invalid-transform.svg	Strict malformed path/transform rejection; ref
 shapes/path/negative-large-arc-flag-value.svg	Strict malformed path/transform rejection; reference recovers a partial path or ignores the attribute.	invalid SVG: unexpected data at position 27
 shapes/path/no-commawsp-before-arc-flags.svg	Strict malformed path/transform rejection; reference recovers a partial path or ignores the attribute.	invalid SVG: unexpected data at position 31
 shapes/path/out-of-range-sweep-flag-value.svg	Strict malformed path/transform rejection; reference recovers a partial path or ignores the attribute.	invalid SVG: unexpected data at position 28
-painting/context/with-gradient-and-gradient-transform.svg	Strict duplicate-ID rejection; reference chooses one ambiguous definition.	invalid SVG: duplicate SVG id
 painting/marker/recursive-1.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
 painting/marker/recursive-5.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
 painting/shape-rendering/inheritance.svg	SVG crispEdges/optimizeSpeed hint uses native exact-area antialiasing; warned.	IoU=0.956252 premultiplied RGB MAE=0.000199
-painting/stroke/gradient-with-objectBoundingBox-and-fallback-on-lines.svg	Strict duplicate-ID rejection; reference chooses one ambiguous definition.	invalid SVG: duplicate SVG id
-painting/stroke/gradient-with-objectBoundingBox-on-path-without-a-bbox-2.svg	Strict duplicate-ID rejection; reference chooses one ambiguous definition.	invalid SVG: duplicate SVG id
 structure/svg/negative-size.svg	Invalid negative viewport; the pinned normalizer rejects this malformed fixture.	reference normalizer: SVG has an invalid size
 structure/use/indirect-recursive-2.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
 structure/use/nested-recursive-2.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference

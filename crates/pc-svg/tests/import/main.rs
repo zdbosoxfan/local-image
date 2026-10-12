@@ -405,3 +405,334 @@ fn review_additional_svg_gzip_has_separate_input_and_expanded_limits() {
     options.limits.decompressed_bytes -= 1;
     assert!(photocraft_svg::import(&compressed, &options).is_err());
 }
+
+#[test]
+fn svg_import_external_doctype_is_inert_and_matches_ordinary_svg() {
+    let body = "<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8'><g id='group'><rect id='box' x='1' y='1' width='4' height='3' fill='red'/><path id='path' d='M7 1h3v4h-3Z' fill='blue'/></g></svg>";
+    let plain = photocraft_svg::import(body.as_bytes(), &ImportOptions::default()).unwrap();
+    let names: Vec<_> = flat(&plain.layers).iter().map(|layer| (layer.name.clone(), layer.content.kind_name())).collect();
+    let expected = photocraft_compose::flatten(&document(plain)).to_rgba8().pixels;
+    for declaration in [
+        "<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">",
+        "<!DOCTYPE svg SYSTEM 'file:///this-file-must-never-be-read.dtd'>",
+        "<!DOCTYPE svg SYSTEM 'https://example.invalid/never-fetch[1].dtd'>",
+        "<!DOCTYPE svg>",
+    ] {
+        let source = format!("\u{feff}<?xml version='1.0'?>\n<!-- prolog --><?hint value='<!DOCTYPE inert>'?>\n{declaration}\n<!-- after -->{body}");
+        let admitted = photocraft_svg::import::source(source.as_bytes(), &ImportOptions::default()).unwrap();
+        assert!(!admitted.contains(declaration));
+        assert!(admitted.contains("<?hint value='<!DOCTYPE inert>'?>"));
+        let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+        assert_eq!(scene.size, photocraft_doc::Size::new(12, 8));
+        assert_eq!(flat(&scene.layers).iter().map(|layer| (layer.name.clone(), layer.content.kind_name())).collect::<Vec<_>>(), names);
+        assert_eq!(photocraft_compose::flatten(&document(scene)).to_rgba8().pixels, expected);
+    }
+    let prefixed = "<!DOCTYPE s:svg SYSTEM 'never.dtd'><s:svg xmlns:s='http://www.w3.org/2000/svg' width='2' height='2'><s:rect width='2' height='2'/></s:svg>";
+    assert!(photocraft_svg::import(prefixed.as_bytes(), &ImportOptions::default()).is_ok());
+    // Literal occurrences outside a prolog declaration are not rewritten.
+    let literal = "<!-- <!DOCTYPE svg [not a declaration]> --><svg xmlns='http://www.w3.org/2000/svg' width='2' height='2'><desc><![CDATA[<!DOCTYPE svg [still text]>]]></desc><rect width='2' height='2' data-note='&lt;!DOCTYPE quoted&gt;'/></svg>";
+    assert_eq!(photocraft_svg::import::source(literal.as_bytes(), &ImportOptions::default()).unwrap(), literal);
+    assert!(photocraft_svg::import(literal.as_bytes(), &ImportOptions::default()).is_ok());
+}
+
+#[test]
+fn svg_import_doctype_rejects_subsets_entities_and_malformed_prologs() {
+    let body = "<svg xmlns='http://www.w3.org/2000/svg' width='2' height='2'/>";
+    for declaration in [
+        "<!DOCTYPE svg []>",
+        "<!DOCTYPE svg [<!ENTITY x 'expanded'>]>",
+        "<!DOCTYPE svg SYSTEM 'never.dtd' [<!ENTITY % remote SYSTEM 'https://example.invalid/a.dtd'>%remote;]>",
+        "<!DOCTYPE svg PUBLIC '-//W3C//DTD SVG 1.1//EN'>",
+        "<!DOCTYPE svg SYSTEM unquoted>",
+        "<!DOCTYPE svg SYSTEM 'unclosed>",
+        "<!DOCTYPE svg SYSTEM 'a.dtd' garbage>",
+        "<!DOCTYPE svg OTHER 'a.dtd'>",
+        "<!DOCTYPE wrong SYSTEM 'a.dtd'>",
+        "<!DOCTYPEsvg SYSTEM 'a.dtd'>",
+        "<!DOCTYPE svg PUBLIC 'invalid\tpublic' 'a.dtd'>",
+        "<!DOCTYPE svg SYSTEM 'invalid\0uri'>",
+        "<!DOCTYPE svg SYSTEM 'a.dtd'><!DOCTYPE svg SYSTEM 'b.dtd'>",
+    ] {
+        let source = format!("{declaration}{body}");
+        let start = Instant::now();
+        assert!(photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).is_err(), "{declaration}");
+        assert!(start.elapsed() < Duration::from_secs(1));
+    }
+    let external_entity = "<!DOCTYPE svg SYSTEM 'https://example.invalid/entity.dtd'><svg xmlns='http://www.w3.org/2000/svg' width='2' height='2'><text>&notFetched;</text></svg>";
+    assert!(photocraft_svg::import(external_entity.as_bytes(), &ImportOptions::default()).is_err());
+    let late = format!("{body}<!DOCTYPE svg SYSTEM 'late.dtd'>");
+    assert!(photocraft_svg::import(late.as_bytes(), &ImportOptions::default()).is_err());
+}
+
+#[test]
+fn svg_import_doctype_does_not_bypass_source_or_decompression_limits() {
+    use std::io::Write;
+    let source = "<!DOCTYPE svg SYSTEM 'never.dtd'><svg xmlns='http://www.w3.org/2000/svg' width='2' height='2'><rect width='2' height='2'/></svg>";
+    let mut options = ImportOptions::default();
+    options.limits.bytes = source.len() - 1;
+    assert!(matches!(photocraft_svg::import(source.as_bytes(), &options), Err(photocraft_svg::ImportError::Limit("input byte"))));
+    let mut zipped = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    zipped.write_all(source.as_bytes()).unwrap();
+    let zipped = zipped.finish().unwrap();
+    let mut options = ImportOptions::default();
+    assert!(photocraft_svg::import(&zipped, &options).is_ok());
+    options.limits.decompressed_bytes = source.len() as u64 - 1;
+    assert!(matches!(photocraft_svg::import(&zipped, &options), Err(photocraft_svg::ImportError::Limit("decompressed byte"))));
+}
+
+#[test]
+fn svg_import_duplicate_use_and_text_ids_follow_first_binding() {
+    let source = r##"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><defs>
+        <g id="same"><rect width="4" height="4" fill="red"/></g>
+        <g id="same"><rect width="8" height="4" fill="blue"/></g><g id="same"/>
+        <use id="alias" href="#same"/><use id="alias" href="#missing"/>
+        </defs><use href="#alias" x="2" y="2"/></svg>"##;
+    let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+    for id in ["same", "alias"] {
+        assert_eq!(scene.warnings.iter().filter(|warning| warning.feature == "duplicate-id" && warning.object.as_deref() == Some(id)).count(), 1);
+    }
+    let pixels = photocraft_compose::flatten(&document(scene));
+    assert_eq!(pixels.get(3, 3), [1., 0., 0., 1.]);
+    assert_eq!(pixels.get(7, 3)[3], 0., "second duplicate's wider blue shape is not the use target");
+    let text = r##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><defs><text id="t" y="12" font-family="Inter">A</text><text id="t" y="12" font-family="Inter">B</text></defs><use href="#t"/></svg>"##;
+    let scene = photocraft_svg::import(text.as_bytes(), &ImportOptions::default()).unwrap();
+    let texts: Vec<_> = flat(&scene.layers)
+        .into_iter()
+        .filter_map(|layer| if let LayerContent::Text(text) = &layer.content { Some(text.text.as_str()) } else { None })
+        .collect();
+    assert_eq!(texts, ["A"]);
+}
+
+#[test]
+fn svg_import_duplicate_resources_match_downstream_last_recognized_binding() {
+    let source = r##"<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><defs>
+        <linearGradient id="paint"><stop stop-color="red"/><stop offset="1" stop-color="red"/></linearGradient>
+        <linearGradient id="paint"><stop stop-color="blue"/><stop offset="1" stop-color="blue"/></linearGradient>
+        <clipPath id="clip"><rect y="4" width="4" height="4"/></clipPath>
+        <clipPath id="clip"><rect x="4" y="4" width="4" height="4"/></clipPath>
+        </defs><rect width="8" height="3" fill="url(#paint)"/><rect y="4" width="8" height="4" fill="lime" clip-path="url(#clip)"/></svg>"##;
+    let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+    assert_eq!(scene.warnings.iter().filter(|warning| warning.feature == "duplicate-id").count(), 2);
+    let pixels = photocraft_compose::flatten(&document(scene));
+    assert_eq!(pixels.get(2, 1), [0., 0., 1., 1.]);
+    assert_eq!(pixels.get(1, 5)[3], 0.);
+    assert_eq!(pixels.get(6, 5), [0., 1., 0., 1.]);
+    // Independent downstream renderer confirms the observed 0.45.1 resource policy.
+    let tree = usvg::Tree::from_str(source, &usvg::Options::default()).unwrap();
+    let mut reference = resvg::tiny_skia::Pixmap::new(8, 8).unwrap();
+    resvg::render(&tree, usvg::Transform::identity(), &mut reference.as_mut());
+    for (x, y) in [(2, 1), (1, 5), (6, 5)] {
+        let expected = reference.pixels()[(y * 8 + x) as usize];
+        let actual = pixels.get(x, y);
+        assert_eq!(actual, [expected.red(), expected.green(), expected.blue(), expected.alpha()].map(|value| f32::from(value) / 255.));
+    }
+}
+
+#[test]
+fn svg_import_duplicate_references_cannot_hide_cycles_or_expansion() {
+    let cycle = r##"<svg xmlns="http://www.w3.org/2000/svg"><defs><g id="loop"><use href="#loop"/></g><g id="loop"><rect width="1" height="1"/></g></defs><use href="#loop"/></svg>"##;
+    assert!(matches!(photocraft_svg::import(cycle.as_bytes(), &ImportOptions::default()), Err(photocraft_svg::ImportError::Invalid(_))));
+    let paint_cycle = r##"<svg xmlns="http://www.w3.org/2000/svg"><defs><pattern id="p" width="1" height="1"><rect width="1" height="1"/></pattern><pattern id="p" width="1" height="1"><rect width="1" height="1" fill="url(#p)"/></pattern></defs><rect width="10" height="10" fill="url(#p)"/></svg>"##;
+    assert!(matches!(photocraft_svg::import(paint_cycle.as_bytes(), &ImportOptions::default()), Err(photocraft_svg::ImportError::Invalid(_))));
+    let mut expansion = String::from("<svg xmlns='http://www.w3.org/2000/svg'><defs><g id='a0'><rect width='1' height='1'/></g><g id='a0'/>");
+    for i in 1..16 {
+        expansion.push_str(&format!("<g id='a{i}'><use href='#a{}'/><use href='#a{}'/></g><g id='a{i}'/>", i - 1, i - 1));
+    }
+    expansion.push_str("</defs><use href='#a15'/></svg>");
+    let start = Instant::now();
+    assert!(matches!(photocraft_svg::import(expansion.as_bytes(), &ImportOptions::default()), Err(photocraft_svg::ImportError::Limit(_))));
+    assert!(start.elapsed() < Duration::from_secs(1));
+    // Last raw XML id is unknown to usvg, so it cannot hide the earlier pattern's cost.
+    let resource = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg"><defs><pattern id="p" width="1" height="1">{}</pattern><not-an-svg-element id="p"/></defs><rect width="2" height="2" fill="url(#p)"/></svg>"##,
+        "<rect width='1' height='1'/>".repeat(100)
+    );
+    let mut options = ImportOptions::default();
+    options.limits.objects = 150;
+    assert!(matches!(photocraft_svg::import(resource.as_bytes(), &options), Err(photocraft_svg::ImportError::Limit(_))));
+    let marker = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg"><defs>{}</defs>{}</svg>"##,
+        "<marker id='m'><rect width='1' height='1'/></marker>".repeat(40),
+        "<path d='M0 0L1 1' marker-start='url(#m)'/>".repeat(40)
+    );
+    // The selected marker is counted once per reference (243 ordinary expanded
+    // nodes here), before the additional per-vertex marker work is charged.
+    options.limits.objects = 400;
+    assert!(matches!(photocraft_svg::import(marker.as_bytes(), &options), Err(photocraft_svg::ImportError::Limit("expanded marker"))));
+}
+
+#[test]
+fn svg_import_namespace_less_whitespace_use_cannot_hide_duplicate_expansion() {
+    fn graph(depth: usize) -> String {
+        // No default namespace is declared: children have namespace None.
+        // This differs from xmlns='', represented by roxmltree as Some("").
+        let mut source = String::from(
+            "<s:svg xmlns:s='http://www.w3.org/2000/svg' width='2' height='2'><defs><g id='a0'><rect width='1' height='1' fill='red'/></g><g id='a0'/>",
+        );
+        for i in 1..=depth {
+            source.push_str(&format!("<g id='a{i}'><use href=' #a{} '/><use href=' #a{} '/></g><g id='a{i}'/>", i - 1, i - 1));
+        }
+        source.push_str(&format!("</defs><use href=' #a{depth} '/></s:svg>"));
+        source
+    }
+    let mut options = ImportOptions::default();
+    options.limits.objects = 1000;
+    let source = graph(2);
+    let empty_namespace = source.replace("<defs>", "<defs xmlns=''>");
+    for (source, expected_pixel) in [(&source, [1., 0., 0., 1.]), (&empty_namespace, [0.; 4])] {
+        let scene = photocraft_svg::import(source.as_bytes(), &options).unwrap();
+        let pixels = photocraft_compose::flatten(&document(scene));
+        assert_eq!(pixels.get(0, 0), expected_pixel);
+        let tree = usvg::Tree::from_str(source, &usvg::Options::default()).unwrap();
+        let mut reference = resvg::tiny_skia::Pixmap::new(2, 2).unwrap();
+        resvg::render(&tree, usvg::Transform::identity(), &mut reference.as_mut());
+        for y in 0..2 {
+            for x in 0..2 {
+                let expected = reference.pixels()[(y * 2 + x) as usize];
+                assert_eq!(pixels.get(x, y), [expected.red(), expected.green(), expected.blue(), expected.alpha()].map(|v| f32::from(v) / 255.));
+            }
+        }
+    }
+    options.limits.objects = 64;
+    let hostile = graph(9);
+    let xml = roxmltree::Document::parse(&hostile).unwrap();
+    let raw_count = xml.descendants().filter(|node| node.is_element()).count();
+    assert!(raw_count < options.limits.objects);
+    assert!(xml.root_element().descendants().skip(1).filter(|node| node.is_element()).all(|node| node.tag_name().namespace().is_none()));
+    let start = Instant::now();
+    let result = photocraft_svg::import(hostile.as_bytes(), &options);
+    assert!(
+        matches!(&result, Err(photocraft_svg::ImportError::Limit("expanded object"))),
+        "raw={raw_count}, result={}",
+        match &result {
+            Ok(scene) => format!("accepted {} layers", scene.layers.len()),
+            Err(error) => error.to_string(),
+        }
+    );
+    assert!(start.elapsed() < Duration::from_secs(1));
+}
+
+#[test]
+fn svg_import_shadowed_resource_edges_do_not_create_false_cycles() {
+    let red = "<stop stop-color='red'/><stop offset='1' stop-color='red'/>";
+    for ignored in [
+        "",
+        "<not-svg id='a' href='#b'><linearGradient id='a' href='#b'/></not-svg>",
+        "<f:g xmlns:f='urn:foreign' id='a' href='#b'><linearGradient id='a' href='#b'/></f:g>",
+        "<style id='a'/>",
+    ] {
+        let source = format!(
+            "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'><defs><linearGradient id='a' href=' #b '/><linearGradient id='a'>{red}</linearGradient><linearGradient id='b' href=' #a '/>{ignored}</defs><rect width='4' height='4' fill='url(#b)'/></svg>"
+        );
+        let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+        assert_eq!(photocraft_compose::flatten(&document(scene)).get(1, 1), [1., 0., 0., 1.]);
+    }
+    // ID attributes use the first admitted namespace spelling on each element.
+    let source = format!(
+        "<svg xmlns='http://www.w3.org/2000/svg' width='8' height='4'><defs><linearGradient id='a'>{red}</linearGradient><linearGradient xml:id='a' id='unused'><stop stop-color='blue'/><stop offset='1' stop-color='blue'/></linearGradient></defs><rect width='4' height='4' fill='url(#a)'/><rect x='4' width='4' height='4' fill='url(#unused) lime'/></svg>"
+    );
+    let pixels = photocraft_compose::flatten(&document(photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap()));
+    assert_eq!(pixels.get(1, 1), [0., 0., 1., 1.]);
+    assert_eq!(pixels.get(5, 1), [0., 1., 0., 1.]);
+    // IDs on ordinary use clones must not override later original resource bindings.
+    let source = format!(
+        "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'><defs><g id='source'><linearGradient id='a'><stop stop-color='blue'/></linearGradient></g><linearGradient id='a'>{red}</linearGradient></defs><use href='#source'/><rect width='4' height='4' fill='url(#a)'/></svg>"
+    );
+    let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+    assert_eq!(photocraft_compose::flatten(&document(scene)).get(1, 1), [1., 0., 0., 1.]);
+}
+
+#[test]
+fn svg_import_resolved_duplicate_id_corpus_cases_keep_their_art() {
+    let base = fixtures().join("resvg");
+    for name in [
+        "painting/context/with-gradient-and-gradient-transform.svg",
+        "painting/stroke/gradient-with-objectBoundingBox-and-fallback-on-lines.svg",
+        "painting/stroke/gradient-with-objectBoundingBox-on-path-without-a-bbox-2.svg",
+    ] {
+        let source = std::fs::read(base.join(name)).unwrap();
+        let options = ImportOptions { dpi: 96., ..Default::default() };
+        let scene = photocraft_svg::import(&source, &options).unwrap();
+        assert!(scene.warnings.iter().any(|warning| warning.feature == "duplicate-id"));
+        let cpu = photocraft_compose::flatten(&document(scene));
+        let tree = usvg::Tree::from_data(&source, &usvg::Options { dpi: 96., ..Default::default() }).unwrap();
+        let size = tree.size().to_int_size();
+        let mut reference = resvg::tiny_skia::Pixmap::new(size.width(), size.height()).unwrap();
+        resvg::render(&tree, usvg::Transform::identity(), &mut reference.as_mut());
+        if name.contains("/stroke/") {
+            for (x, y) in [(100, 40), (40, 100), (100, 100)] {
+                let pixel = cpu.get(x, y);
+                assert!(
+                    pixel[3] > 0.99 && pixel[0] < 0.001 && pixel[2] < 0.001 && (0.49..0.51).contains(&pixel[1]),
+                    "green fallback/underlying stroke missing: {name} {pixel:?}"
+                );
+                let expected = reference.pixels()[(y as u32 * size.width() + x as u32) as usize];
+                assert_eq!([expected.red(), expected.green(), expected.blue(), expected.alpha()], [0, 128, 0, 255]);
+            }
+            assert_eq!(cpu.get(50, 50)[3], 0.);
+        } else {
+            let mut compared = 0;
+            let mut error = 0.0;
+            for y in (20..180).step_by(10) {
+                for x in (20..180).step_by(10) {
+                    let at = (y * size.width() as i32 + x) as usize;
+                    let pixel = reference.pixels()[at];
+                    let channels = [pixel.red(), pixel.green(), pixel.blue()];
+                    if pixel.alpha() != 255 || channels.iter().max().unwrap() - channels.iter().min().unwrap() < 32 {
+                        continue;
+                    }
+                    if [-1, 0, 1]
+                        .into_iter()
+                        .any(|dy| [-1, 0, 1].into_iter().any(|dx| reference.pixels()[((y + dy) * size.width() as i32 + x + dx) as usize].alpha() != 255))
+                    {
+                        continue;
+                    }
+                    let actual = cpu.get(x, y);
+                    assert!(actual[3] > 0.99, "context-gradient interior art vanished at {x},{y}");
+                    error += actual[..3].iter().zip(channels).map(|(value, expected)| (*value - f32::from(expected) / 255.).abs()).sum::<f32>();
+                    compared += 1;
+                }
+            }
+            assert!(compared >= 10, "non-frame gradient art must be checked");
+            assert!(error / ((compared * 3) as f32) < 0.08, "context-gradient colour mismatch");
+        }
+    }
+}
+
+#[test]
+fn svg_import_removed_text_descendant_ids_cannot_hide_duplicate_expansion() {
+    fn graph(depth: usize) -> String {
+        let mut source = String::from("<svg xmlns='http://www.w3.org/2000/svg' width='2' height='2'><defs><text id='retained'>");
+        for i in 0..=depth {
+            source.push_str(&format!("<tspan id='a{i}'/>"));
+        }
+        source.push_str("</text><g id='a0'><rect width='1' height='1' fill='red'/></g>");
+        for i in 1..=depth {
+            source.push_str(&format!("<g id='a{i}'><use href='#a{}'/><use href='#a{}'/></g>", i - 1, i - 1));
+        }
+        source.push_str(&format!("</defs><use href='#a{depth}'/></svg>"));
+        source
+    }
+    let mut options = ImportOptions::default();
+    options.limits.objects = 64;
+    let small = graph(1);
+    let scene = photocraft_svg::import(small.as_bytes(), &options).unwrap();
+    let actual = photocraft_compose::flatten(&document(scene)).get(0, 0);
+    assert_eq!(actual, [1., 0., 0., 1.]);
+    // Independent renderer receives the equivalent prepared wrapper, with the
+    // removed tspan IDs absent; it must select the real groups that follow.
+    let start = small.find("<text").unwrap();
+    let end = small.find("</text>").unwrap() + "</text>".len();
+    let prepared = format!("{}<g id='retained'/>{}", &small[..start], &small[end..]);
+    let tree = usvg::Tree::from_str(&prepared, &usvg::Options::default()).unwrap();
+    let mut reference = resvg::tiny_skia::Pixmap::new(2, 2).unwrap();
+    resvg::render(&tree, usvg::Transform::identity(), &mut reference.as_mut());
+    assert_eq!(reference.pixels()[0].red(), 255);
+    assert_eq!(reference.pixels()[0].alpha(), 255);
+    let hostile = graph(8);
+    let xml = roxmltree::Document::parse(&hostile).unwrap();
+    assert!(xml.descendants().filter(|node| node.is_element()).count() < options.limits.objects);
+    let start = Instant::now();
+    assert!(matches!(photocraft_svg::import(hostile.as_bytes(), &options), Err(photocraft_svg::ImportError::Limit("expanded object"))));
+    assert!(start.elapsed() < Duration::from_secs(1));
+}
