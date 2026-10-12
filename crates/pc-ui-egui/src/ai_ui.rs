@@ -14,6 +14,7 @@
 //! The engine commands are in `photocraft_engine::ai_cmds`; the ComfyUI client in `li-ai`.
 
 mod enhance_settings;
+mod owned_engine;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -116,7 +117,7 @@ impl EngineStatus {
 
 /// The ComfyUI process Local Image started (never one the user started themselves). Kept outside
 /// [`Shared`] so quitting can stop it without starting the status poller.
-static CHILD: Mutex<Option<std::process::Child>> = Mutex::new(None);
+static CHILD: owned_engine::OwnedEngine = owned_engine::OwnedEngine::new();
 
 struct Shared {
     status: Mutex<EngineStatus>,
@@ -225,7 +226,15 @@ fn poll_loop(s: Arc<Shared>) {
             object_info = None;
             last_inventory = None;
         }
-        let child_alive = CHILD.lock().ok().and_then(|mut c| c.as_mut().map(|c| c.try_wait().map(|st| st.is_none()).unwrap_or(false))).unwrap_or(false);
+        let child_alive = match CHILD.is_running() {
+            Ok(alive) => alive,
+            Err(e) => {
+                if error.is_empty() {
+                    error = format!("Could not check whether the AI engine is running: {e}");
+                }
+                true // Preserve the handle/reservation when its state is uncertain.
+            }
+        };
         let changed;
         if let Ok(mut st) = s.status.lock() {
             let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected, limits, object_info };
@@ -247,15 +256,16 @@ fn poll_loop(s: Arc<Shared>) {
 
 /// Starts the configured (or first detected) ComfyUI installation.
 pub fn start_engine() -> Result<String, String> {
-    let settings = AiSettings::load();
-    let found = li_ai::setup::detect(&settings);
-    let inst = found.first().ok_or(tl!("No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first."))?;
-    let child = li_ai::setup::start(inst, &settings).map_err(|e| format!("{e:#}"))?;
-    if let Ok(mut c) = CHILD.lock() {
-        *c = Some(child);
-    }
+    let label = CHILD.start(|| {
+        let settings = AiSettings::load();
+        let found = li_ai::setup::detect(&settings);
+        let inst = found.first().ok_or(tl!("No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first."))?;
+        let label = inst.label();
+        let child = li_ai::setup::start(inst, &settings).map_err(|e| format!("{e:#}"))?;
+        Ok((child, label))
+    })?;
     refresh();
-    Ok(inst.label())
+    Ok(label)
 }
 
 /// Stops ComfyUI if Local Image started it.
@@ -272,8 +282,7 @@ pub fn shutdown_engine() -> bool {
 }
 
 fn kill_child() -> bool {
-    let child = CHILD.lock().map(|mut c| c.take()).unwrap_or_else(|p| p.into_inner().take());
-    child.map(|mut c| c.kill().is_ok() && c.wait().is_ok()).unwrap_or(false)
+    CHILD.stop()
 }
 
 /// Downloads a preset's missing files in the background (progress via [`downloads`]).
@@ -1505,7 +1514,7 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             dialogs_mut(|d| d.message = tl!("That folder has no ComfyUI (main.py and a Python environment).").into());
                         }
                     }
-                    let running_ours = CHILD.lock().map(|c| c.is_some()).unwrap_or(false);
+                    let running_ours = CHILD.is_running().unwrap_or(true);
                     if !st.connected && !st.starting && widgets::primary_button(ui, tl!("Start AI Engine"), 0.0).clicked() {
                         let _ = settings.save();
                         let m = match start_engine() {
@@ -1866,11 +1875,17 @@ mod tests {
     #[test]
     fn quitting_stops_the_engine_we_started() {
         let _g = AI_TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let child = std::process::Command::new("sleep").arg("60").spawn().expect("sleep");
-        let pid = child.id();
-        *CHILD.lock().unwrap() = Some(child);
+        let mut pid = 0;
+        CHILD
+            .start(|| {
+                let child = std::process::Command::new("sleep").arg("60").spawn().map_err(|e| e.to_string())?;
+                pid = child.id();
+                Ok((child, "test child".into()))
+            })
+            .unwrap();
+        assert_ne!(pid, 0);
         assert!(shutdown_engine(), "the started engine is stopped");
-        assert!(CHILD.lock().unwrap().is_none());
+        assert!(!CHILD.is_running().unwrap());
         assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists(), "process {pid} is gone (reaped)");
         assert!(!shutdown_engine(), "nothing to stop the second time (a user-started ComfyUI is never touched)");
     }
