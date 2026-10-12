@@ -53,7 +53,7 @@ pub fn acceptance(hooks: Hooks) {
     assert_eq!((hooks.read)(&roundtrip).unwrap(), (hooks.read)(doc).unwrap());
 }
 #[test]
-#[ignore = "requires package 00 native Document.graphic_styles/VectorData.graphic_style provider and manifest mirror"]
 fn styles38_native_roundtrip_linked_styles_undo_acceptance() {
+    crate::vector_integration::initialize();
     acceptance(installed_hooks().expect("actual native provider required"));
 }

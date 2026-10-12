@@ -2,8 +2,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 #[test]
-#[ignore = "integration: package 00 must install native VectorData.effects; speed rules defer native acceptance"]
 fn path_effects45_native_old_document_editable_roundtrip_and_one_journal() {
+    crate::vector_integration::initialize();
     let a = access().expect("native path-effect field provider required");
     let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-v1.pcraft")).unwrap();
     for (_, _, l) in old.walk() {
