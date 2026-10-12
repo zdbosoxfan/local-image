@@ -55,6 +55,52 @@ pub fn language_from_command(id: &str) -> Option<crate::i18n::Locale> {
     }
 }
 
+/// Platform wording only; the longstanding command ID stays compatible.
+pub const REVEAL_LABEL: &str = if cfg!(target_os = "macos") {
+    "Show in Finder"
+} else if cfg!(target_os = "windows") {
+    "Show in File Explorer"
+} else {
+    "Show in File Manager"
+};
+
+/// Human-facing shortcut table: mirror dispatch precedence by parsed chord.
+pub(crate) fn shortcut_rows(mac: bool) -> Vec<(String, String)> {
+    let mut rows = Vec::new();
+    let mut ui_keys = Vec::new();
+    for (_, label, sc, _) in ui_commands() {
+        if let Some(sc) = sc {
+            rows.push(((*label).to_owned(), crate::menubar::shortcut_text(sc, mac)));
+            if let Some(key) = crate::shortcuts::parse(sc) {
+                ui_keys.push(key);
+            }
+        }
+    }
+    for command in lightcraft_engine::command_specs() {
+        if let Some(sc) = command.shortcut
+            && crate::shortcuts::parse(sc).is_some_and(|key| !ui_keys.contains(&key))
+        {
+            rows.push((command.label.to_owned(), crate::menubar::shortcut_text(sc, mac)));
+        }
+    }
+    for (sc, id, _) in crate::shortcuts::ALIASES {
+        if let Some(label) = ui_commands().find(|c| c.0 == *id).map(|c| c.1).or_else(|| lightcraft_engine::find_command(id).map(|c| c.label)) {
+            rows.push((label.to_owned(), crate::menubar::shortcut_text(sc, mac)));
+        }
+    }
+    rows.sort();
+    rows.dedup();
+    rows
+}
+
+pub(crate) fn can_go_back(app: &LightcraftApp) -> bool {
+    app.ui.dialog.is_some()
+        || app.ui.keyword_painter.is_some()
+        || app.ui.fullscreen
+        || !app.ui.tool.is_empty()
+        || matches!(app.ui.view, ViewMode::Detail | ViewMode::Compare | ViewMode::Survey)
+}
+
 pub const UI_COMMANDS: &[UiCommand] = &[
     ("view.photoGrid", "Photo Grid", None, "View"),
     ("view.squareGrid", "Square Grid", None, "View"),
@@ -190,7 +236,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("app.artcraft", "ArtCraft Website", None, "Help"),
     ("app.shortcuts", "Keyboard Shortcuts", Some("Cmd+/"), "Help"),
     ("app.export", "Export Now", None, ""),
-    ("app.showInFinder", "Show in Finder", Some("Cmd+R"), "Photo"),
+    ("app.showInFinder", REVEAL_LABEL, Some("Cmd+R"), "Photo"),
     ("dialog.rename", "Rename Photos…", Some("F2"), "Photo"),
     ("dialog.labelNames", "Edit Color Label Names…", None, ""),
     ("dialog.captureTime", "Edit Capture Time…", None, "Photo"),
@@ -462,7 +508,13 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             app.ui.dialog = Some(Dialog::Settings { tab: tab.into() });
             Ok(Value::Null)
         }
-        "app.openLibrary" => crate::panels::settings::open_library(app, p),
+        "app.openLibrary" => {
+            let result = crate::panels::settings::open_library(app, p);
+            if result.as_ref().is_ok_and(|v| v.get("path").is_some()) && app.host_session.is_none() {
+                app.ui.empty_library_startup(app.session.catalog.is_empty());
+            }
+            result
+        }
         "file.backupLibrary" | "file.restoreLibrary" => {
             let action = if id == "file.backupLibrary" { app.services.backup_library.as_mut() } else { app.services.restore_library.as_mut() };
             match action {
@@ -1344,6 +1396,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
 
 pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
     match id {
+        "view.back" => can_go_back(app),
+        "file.addPhotos" => app.services.pick_files.is_some(),
         s if s.starts_with("panel.") || s.starts_with("tool.") || s.starts_with("section.") => app.session.active().is_some() || s == "panel.close",
         "app.export" | "dialog.export" | "dialog.createPreset" | "dialog.rename" | "dialog.captureTime" | "dialog.copySettings" => {
             app.session.active().is_some()
@@ -1630,3 +1684,7 @@ mod bugfix_save_tests {
         assert!(app.session.catalog.photo(PhotoId(100)).is_some());
     }
 }
+
+#[cfg(test)]
+#[path = "library_ux_tests.rs"]
+mod library_ux_tests;

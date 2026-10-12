@@ -29,10 +29,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     let _ = app.run("view.leftPanel", json!({}));
                 }
                 ui.add_space(8.0);
-                if icon_button(ui, "back", Icon::Back, vec2(30.0, 30.0), false, true, "Back").clicked() {
+                if icon_button(ui, "back", Icon::Back, vec2(30.0, 30.0), false, crate::menus::can_go_back(app), "Back (Esc)").clicked() {
                     let _ = app.run("view.back", json!({}));
                 }
-                icon_button(ui, "forward", Icon::Forward, vec2(30.0, 30.0), false, false, "Forward");
                 if !app.native_menu {
                     // no native menu bar (web, Windows, Linux): menus in the top bar
                     ui.add_space(10.0);
@@ -121,15 +120,19 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     n = n
                 )
             });
-            let cloud_tip = unsaved.as_deref().unwrap_or("Local library — no cloud account needed");
+            let cloud_tip = crate::i18n::tr("Library status");
             for (id, icon, tip, cmd) in [
-                ("cloud", Icon::Cloud, cloud_tip, ""),
+                ("cloud", Icon::Folder, cloud_tip, ""),
                 ("help", Icon::Help, "Keyboard shortcuts", "app.shortcuts"),
                 ("share", Icon::Share, "Export", "dialog.export"),
-                ("bell", Icon::Bell, "Activity", "panel.activity"),
+                ("bell", Icon::Clock, "History", "panel.activity"),
             ] {
                 let r = Rect::from_center_size(pos2(x, full.center().y), vec2(28.0, 28.0));
-                let resp = ui.interact(r, egui::Id::new(("top", id)), Sense::click()).on_hover_text(tip);
+                let enabled = cmd.is_empty() || crate::menus::ui_enabled(app, cmd);
+                let resp = ui
+                    .interact(r, egui::Id::new(("top", id)), if enabled { Sense::click() } else { Sense::hover() })
+                    .on_hover_text(crate::i18n::tr(tip));
+                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, false, crate::i18n::tr(tip)));
                 register(ui.ctx(), format!("icon:{id}"), r);
                 let warn = id == "cloud" && unsaved.is_some();
                 let colour = if warn {
@@ -146,7 +149,37 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     ui.painter().text(c, Align2::CENTER_CENTER, "!", t.semibold(9.5), t.canvas);
                     register(ui.ctx(), "indicator:unsaved", r);
                 }
-                if resp.clicked() && !cmd.is_empty() {
+                if id == "cloud" {
+                    egui::Popup::menu(&resp).show(|ui| {
+                        ui.heading(crate::i18n::tr("Library status"));
+                        if let Some(error) = &unsaved {
+                            ui.colored_label(t.caution, error);
+                        } else {
+                            ui.label(crate::i18n::tr(if app.session.library.is_some() {
+                                "Local Library — changes save automatically"
+                            } else {
+                                "Temporary session — not saved to a Library"
+                            }));
+                        }
+                        let settings = ui.button(crate::i18n::tr("Settings…"));
+                        register(ui.ctx(), "menu:libraryStatus:settings", settings.rect);
+                        if settings.clicked() {
+                            let _ = app.run("app.settings", json!({}));
+                            ui.close();
+                        }
+                        let open =
+                            ui.add_enabled(crate::menus::ui_enabled(app, "app.openLibrary"), egui::Button::new(crate::i18n::tr("Open Library…")));
+                        register(ui.ctx(), "menu:libraryStatus:open", open.rect);
+                        if open.clicked() {
+                            if let Err(error) = app.run("app.openLibrary", json!({})) {
+                                app.toast_error(ui.ctx(), error);
+                            }
+                            ui.close();
+                        }
+                        register(ui.ctx(), "panel:libraryStatus", ui.min_rect());
+                    });
+                }
+                if resp.clicked() && enabled && !cmd.is_empty() {
                     let _ = app.run(cmd, json!({}));
                 }
                 x -= 40.0;

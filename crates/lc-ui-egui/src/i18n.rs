@@ -384,6 +384,30 @@ pub const PENDING_SAVE_TRANSLATIONS: &[&str] = &[
     "couldn't preserve damaged Library settings: {error}",
 ];
 
+/// Library final-review polish: tracked English fallback until translated.
+pub const PENDING_LIBRARY_UX_TRANSLATIONS: &[&str] = &[
+    "Show in File Explorer",
+    "Show in File Manager",
+    "Import photos, or drop them here",
+    "Clear Filters",
+    "Back (Esc)",
+    "Library status",
+    "Local Library — changes save automatically",
+    "Temporary session — not saved to a Library",
+    "Loupe (E)",
+    "Compare (C)",
+    "Albums are collections of photos; adding a photo does not move its file.",
+    "Browse folders on this device.",
+    "Catalog of imported photos.",
+    "More actions",
+    "Opens photo actions and Library settings.",
+    "Copy or paste edit settings, sync photos, or export.",
+    "Open Keyboard Shortcuts or Settings from the same menu.",
+    "Versions are snapshots of your edit that you can restore.",
+    "Remove (Spot Removal)",
+    "Reset all edits",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -423,13 +447,17 @@ mod tests {
             out
         };
         let translated: Vec<Locale> = Locale::ALL.iter().copied().filter(|language| *language != Locale::En).collect();
-        let all: std::collections::BTreeSet<&String> = translated.iter().flat_map(|language| language.catalog().keys()).collect();
+        let all: std::collections::BTreeSet<&str> = translated
+            .iter()
+            .flat_map(|language| language.catalog().keys().map(String::as_str))
+            .chain(PENDING_LIBRARY_UX_TRANSLATIONS.iter().copied())
+            .collect();
         for language in &translated {
             let catalog = language.catalog();
             for (key, value) in catalog {
                 assert_eq!(fields(key), fields(value), "{language:?}: {key:?} -> {value:?}");
             }
-            let missing: Vec<&&String> = all.iter().filter(|key| !catalog.contains_key(key.as_str())).collect();
+            let missing: Vec<_> = all.iter().filter(|key| !catalog.contains_key(**key)).collect();
             if !missing.is_empty() {
                 eprintln!("{} lacks {} message(s) another language translates (shown in English): {missing:?}", language.code(), missing.len());
             }

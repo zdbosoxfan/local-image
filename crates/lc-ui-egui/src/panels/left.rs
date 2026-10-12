@@ -66,6 +66,12 @@ fn sidebar_section_header(app: &mut LightcraftApp, ui: &mut egui::Ui, id: &str, 
     if resp.clicked() {
         app.ui.toggle_sidebar_section(id);
     }
+    let tip = match id {
+        "albums" => "Albums are collections of photos; adding a photo does not move its file.",
+        "local" => "Browse folders on this device.",
+        _ => title,
+    };
+    let resp = resp.on_hover_text(crate::i18n::tr(tip));
     let open = !app.ui.sidebar_section_collapsed(id);
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, title));
     let text = ui.painter().text(pos2(r.left() + 18.0, r.center().y), Align2::LEFT_CENTER, title, t.semibold(13.5), t.text_label);
@@ -86,7 +92,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let width = app.ui.left_width;
     let resized = super::resizable_side(ui, true, "left_panel", frame, width, crate::state::LEFT_WIDTH, 0.0, |ui| {
         ui.spacing_mut().item_spacing.y = 0.0;
-        let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
+        let (hr, header) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
+        header.on_hover_text(crate::i18n::tr("Catalog of imported photos."));
         ui.painter().text(pos2(hr.left() + 18.0, hr.center().y), Align2::LEFT_CENTER, crate::i18n::tr("My Photos"), t.semibold(15.0), t.text);
         let counts = app.caches.counts(&app.session.catalog);
         let (total, picks, deleted) = (counts.total, counts.picks, counts.deleted);
@@ -531,7 +538,7 @@ fn folder_tree(
             }
         }
         if app.services.reveal.is_some()
-            && ui.button(crate::i18n::tr("Show in Finder")).clicked()
+            && ui.button(crate::i18n::tr(crate::menus::REVEAL_LABEL)).clicked()
             && let Some(f) = app.services.reveal.as_mut()
         {
             let _ = f(path);

@@ -436,7 +436,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 let _ = app.run("develop.treatment", json!({}));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if text_button(ui, "reset", crate::i18n::tr("Reset"), false).on_hover_text(crate::i18n::tr("Reset all edits (Cmd+Shift+R)")).clicked()
+                if text_button(ui, "reset", crate::i18n::tr("Reset"), false)
+                    .on_hover_text(format!(
+                        "{} ({})",
+                        crate::i18n::tr("Reset all edits"),
+                        crate::shortcuts::shortcut_label("develop.reset").unwrap_or_default()
+                    ))
+                    .clicked()
                 {
                     let _ = app.run("develop.reset", json!({}));
                 }

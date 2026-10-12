@@ -532,31 +532,9 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 Dialog::Shortcuts => {
                     egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
                         egui::Grid::new("shortcuts").striped(true).show(ui, |ui| {
-                            for (id, label, sc, _) in crate::menus::ui_commands() {
-                                if let Some(sc) = sc {
-                                    ui.label(crate::i18n::tr(label));
-                                    ui.label(*sc);
-                                    ui.label(egui::RichText::new(*id).color(t.text_dim));
-                                    ui.end_row();
-                                }
-                            }
-                            for c in lightcraft_engine::command_specs() {
-                                if let Some(sc) = c.shortcut {
-                                    ui.label(crate::i18n::tr(c.label));
-                                    ui.label(sc);
-                                    ui.label(egui::RichText::new(c.id).color(t.text_dim));
-                                    ui.end_row();
-                                }
-                            }
-                            for (sc, id, _) in crate::shortcuts::ALIASES {
-                                let label = crate::menus::ui_commands()
-                                    .find(|c| c.0 == *id)
-                                    .map(|c| c.1)
-                                    .or_else(|| lightcraft_engine::find_command(id).map(|c| c.label))
-                                    .unwrap_or(id);
-                                ui.label(crate::i18n::tr(label));
-                                ui.label(*sc);
-                                ui.label(egui::RichText::new(*id).color(t.text_dim));
+                            for (label, shortcut) in crate::menus::shortcut_rows(cfg!(target_os = "macos")) {
+                                ui.label(crate::i18n::tr(&label));
+                                ui.label(shortcut);
                                 ui.end_row();
                             }
                         });

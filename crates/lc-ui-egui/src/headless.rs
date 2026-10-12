@@ -528,6 +528,8 @@ mod tests {
     fn grid_groups_by_capture_date() {
         let mut h = demo([1300.0, 800.0]);
         let t = Duration::from_secs(10);
+        // Explicit Day exercises group headers; sparse Automatic now flows across dates.
+        h.app.run("library.sort", json!({"group": "day"})).unwrap();
         h.settle(SETTLE);
         let groups = h.app.session.execute("library.groups", &json!({})).unwrap();
         let first = groups[0].clone();
@@ -535,13 +537,44 @@ mod tests {
         let r = h.request("ui.clickWidget", json!({"id": format!("group:{key}")}), t);
         assert_eq!(r["ok"], true, "{r}");
         assert_eq!(h.app.session.selection.ids.len() as u64, first["count"].as_u64().unwrap());
-        // zoomed out: month headers
+        // Restore Automatic to retain the zoom-dependent month-header check.
+        h.app.run("library.sort", json!({"group": "auto"})).unwrap();
+        // zoomed out: month headers. The 24 demo photos span seven months,
+        // which is still sparse at this viewport. Make this Auto-header fixture
+        // dense using only the copies required by the actual grid allocation.
         h.app.ui.thumb_size = 120.0;
+        h.step();
+        let originals = h.app.session.visible_cloned();
+        let initial_months = h.app.session.catalog.date_runs(&originals, h.app.session.sort.key, lightcraft_catalog::GroupBy::Month);
+        assert_eq!((originals.len(), initial_months.len()), (24, 7));
+        let available = h.app.canvas_rect.expect("drawn grid").width() - 8.0;
+        let capacity = (available / (h.app.ui.thumb_size * 1.5)).floor().max(1.0) as usize;
+        let copies = (initial_months.len() * capacity).saturating_sub(originals.len());
+        assert!(copies > 0 && copies <= 32, "bounded dense fixture: {copies} copies, {capacity} photos per row");
+        for source in originals.iter().cycle().take(copies) {
+            let made = h.app.run("photo.virtualCopy", json!({"ids": [source.0]})).unwrap();
+            assert_eq!(made["ids"].as_array().map(Vec::len), Some(1));
+        }
+        // Copy selects its result; keep the first month header in the viewport.
+        h.app.run("library.select", json!({"ids": [originals[0].0]})).unwrap();
         h.settle(SETTLE);
         let vis = h.app.session.visible_cloned();
         let month = h.app.session.catalog.date_runs(&vis, h.app.session.sort.key, lightcraft_catalog::GroupBy::Month);
+        assert_eq!(vis.len(), originals.len() + copies);
+        assert_eq!(month.len(), initial_months.len());
+        assert!(
+            !crate::panels::grid::automatic_flow(
+                lightcraft_catalog::GroupBy::Auto,
+                &month,
+                vis.len(),
+                h.app.canvas_rect.unwrap().width() - 8.0,
+                h.app.ui.thumb_size,
+            ),
+            "the actual Auto-month rendering input must retain date headers"
+        );
         let r = h.request("ui.clickWidget", json!({"id": format!("group:{}", month[0].key)}), t);
         assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(h.app.session.selection.ids.len(), month[0].count, "month header selects its full group, including virtual copies");
         h.request("engine.execute", json!({"command": "library.sort", "params": {"group": "none"}}), t);
         let r = h.request("ui.clickWidget", json!({"id": format!("group:{}", month[0].key)}), t);
         assert_eq!(r["ok"], false, "no headers: {r}");

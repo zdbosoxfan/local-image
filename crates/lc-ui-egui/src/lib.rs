@@ -702,6 +702,9 @@ impl LightcraftApp {
 
     fn logic_inner(&mut self, ctx: &egui::Context) {
         if !self.styled {
+            if self.host_session.is_none() {
+                self.ui.empty_library_startup(self.session.catalog.is_empty());
+            }
             if !self.host_fonts {
                 theme::install_fonts(ctx);
             }

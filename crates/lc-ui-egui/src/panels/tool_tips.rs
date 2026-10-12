@@ -215,14 +215,14 @@ impl StripTool {
             StripTool::Presets => "Presets",
             StripTool::Edit => "Edit",
             StripTool::Crop => "Crop & Rotate",
-            StripTool::Remove => "Remove",
+            StripTool::Remove => "Remove (Spot Removal)",
             StripTool::Masking => "Masking",
             StripTool::RedEye => "Red Eye",
             StripTool::Versions => "Versions",
-            StripTool::Activity => "History & Activity",
+            StripTool::Activity => "History",
             StripTool::Keywords => "Keywords",
             StripTool::Info => "Info",
-            StripTool::More => "More",
+            StripTool::More => "More actions",
             StripTool::WbPicker => "White Balance Selector",
             StripTool::Straighten => "Straighten Tool",
             StripTool::Guided => "Guided Upright",
@@ -332,7 +332,7 @@ pub fn entry(tool: StripTool) -> Entry {
             how: &["Drag over an eye; the pupil inside is found automatically.", "Adjust Pupil Size and Darken to refine the correction."],
         },
         StripTool::Versions => Entry {
-            blurb: "Saves snapshots of your edit so you can return to them.",
+            blurb: "Versions are snapshots of your edit that you can restore.",
             how: &["Create Version saves the current edit.", "Restore on a version brings it back."],
         },
         StripTool::Activity => Entry {
@@ -348,8 +348,8 @@ pub fn entry(tool: StripTool) -> Entry {
             how: &["Select a photo, then open Info.", "Scroll the panel to review and edit metadata."],
         },
         StripTool::More => Entry {
-            blurb: "Opens the About window.",
-            how: &["Click to see the app version and credits.", "Close the window to return to your photos."],
+            blurb: "Opens photo actions and Library settings.",
+            how: &["Copy or paste edit settings, sync photos, or export.", "Open Keyboard Shortcuts or Settings from the same menu."],
         },
         StripTool::WbPicker => Entry {
             blurb: "Sets white balance from a neutral area of the photo.",

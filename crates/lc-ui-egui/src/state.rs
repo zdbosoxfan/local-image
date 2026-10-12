@@ -779,6 +779,14 @@ impl UiState {
             self.open_flyouts.push(id.to_string());
         }
     }
+    /// An empty Library has no photo to show in the loupe. Applied at startup
+    /// only; existing nonempty Library and hosted Develop choices remain intact.
+    pub(crate) fn empty_library_startup(&mut self, empty: bool) {
+        if empty && matches!(self.view, ViewMode::Detail | ViewMode::Compare | ViewMode::Survey | ViewMode::Reference) {
+            self.view = ViewMode::PhotoGrid;
+            self.right = RightPanel::None;
+        }
+    }
     /// Clamp values restored from disk.
     pub fn sanitized(mut self) -> Self {
         self.thumb_size = self.thumb_size.clamp(90.0, 480.0);

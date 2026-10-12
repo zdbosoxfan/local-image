@@ -79,10 +79,13 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "file.exportPresets",
             "---",
             "dialog.export",
+            "dialog.smartSort",
             "app.exportPrevious",
             "@Export with Preset",
             "dialog.saveOverOriginal",
             "---",
+            "file.findMissing",
+            "library.compact",
             "library.toggleAutoWriteXmp",
             "@Previews",
             "---",
@@ -167,6 +170,9 @@ const LAYOUT: &[(&str, &[&str])] = &[
         "Photo",
         &[
             "@Add to Album",
+            "photo.addToLibrary",
+            "library.findSimilar",
+            "dialog.cull",
             "---",
             "@Set Rating",
             "@Set Flag",
@@ -181,15 +187,21 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "---",
             "version.create",
             "photo.virtualCopy",
+            "photo.duplicate",
             "@Stack",
             "@Photo Merge",
             "---",
             "dialog.syncSettings",
             "develop.auto",
+            "develop.matchExposure",
             "develop.treatment",
             "develop.reset",
             "dialog.createPreset",
+            "photo.convertToDng",
             "---",
+            "dialog.allMetadata",
+            "photo.copyMetadata",
+            "photo.pasteMetadata",
             "photo.saveMetadataToFile",
             "photo.readMetadataFromFile",
             "photo.reload",
@@ -242,7 +254,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
 
 /// Items that always end their menu in their own separator group, after the entries appended
 /// because the layout doesn't list them (Quit is the last item of the in-window File menu).
-const LAST: &[&str] = &["app.quit"];
+const LAST: &[&str] = &["app.quit", "photo.delete", "photo.restore", "photo.deletePermanently"];
 
 /// Registry entries that are reached another way (parameterized commands are expanded into
 /// submenus below; others duplicate a dialog command).

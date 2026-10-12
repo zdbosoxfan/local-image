@@ -183,7 +183,22 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         } else if app.session.source == lightcraft_engine::LibrarySource::Folder {
             super::empty_message(ui, ui.max_rect(), "No photos in this folder", "Turn on Include subfolders, or pick another folder under Local");
         } else {
-            super::empty_message(ui, ui.max_rect(), "No photos", "Import photos with File → Import Photos… (Cmd+Shift+I), or drop them here");
+            super::empty_message(ui, ui.max_rect(), "No photos", "Import photos, or drop them here");
+        }
+        let filtered = !chips.is_empty() || app.session.filter != Default::default();
+        let action = if filtered { "library.clearFilter" } else { "file.addPhotos" };
+        let label = if filtered { "Clear Filters" } else { "Import Photos…" };
+        let available = filtered || crate::menus::ui_enabled(app, action);
+        let rect = Rect::from_center_size(ui.max_rect().center() + vec2(0.0, 62.0), vec2(170.0, 32.0));
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+        let response = child.add_enabled(available, egui::Button::new(crate::i18n::tr(label)).min_size(rect.size()));
+        register(ui.ctx(), if filtered { "button:emptyClearFilters" } else { "button:emptyImport" }, response.rect);
+        if response.clicked() {
+            match app.run(action, json!({})) {
+                Ok(_) if filtered => app.ui.search.clear(),
+                Ok(_) => {}
+                Err(error) => app.toast_error(ui.ctx(), error),
+            }
         }
         return;
     }
@@ -202,13 +217,15 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let runs = app.caches.grid.runs(stats, &app.session.catalog, &ids, runs_key);
     // the layout only changes with the photos (and their shapes), the grouping, the width and
     // the thumbnail size
-    let lay_key = (runs_key, avail_w.to_bits(), target.to_bits(), square);
+    let flow = automatic_flow(app.session.sort.group, &runs, ids.len(), avail_w, target);
+    let layout_key = if flow { (generation, group_key, GroupBy::None) } else { runs_key };
+    let lay_key = (layout_key, avail_w.to_bits(), target.to_bits(), square);
     let lay = match &app.caches.grid.layout {
         Some((k, l)) if *k == lay_key => l.clone(),
         _ => {
             stats.layout_builds += 1;
             let aspects = if square { vec![1.0; ids.len()] } else { aspects(&app.session.catalog, &ids) };
-            let spans: Vec<(usize, usize)> = runs.iter().map(|r| (r.start, r.count)).collect();
+            let spans: Vec<(usize, usize)> = if flow { Vec::new() } else { runs.iter().map(|r| (r.start, r.count)).collect() };
             let l = Arc::new(layout(&aspects, &spans, avail_w, target, square));
             app.caches.grid.layout = Some((lay_key, l.clone()));
             l
@@ -316,6 +333,13 @@ pub struct GridRow {
     pub bottom: f32,
     pub start: usize,
     pub end: usize,
+}
+
+/// Automatic grouping avoids mostly empty rows when date runs are sparse.
+/// Explicit Day/Month/Year/None choices never change with density.
+pub(crate) fn automatic_flow(group: GroupBy, runs: &[DateRun], count: usize, width: f32, target: f32) -> bool {
+    let row_capacity = (width / (target.max(1.0) * 1.5)).floor().max(1.0) as usize;
+    group == GroupBy::Auto && runs.len() > 1 && row_capacity > 1 && count < runs.len().saturating_mul(row_capacity)
 }
 
 /// The grouping actually shown: `Auto` is days with large thumbnails, months with medium ones and
@@ -967,7 +991,7 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         .add_enabled(
             app.services.reveal.is_some()
                 && app.session.catalog.photo(id).is_some_and(|p| matches!(p.source, lightcraft_catalog::Source::File { .. })),
-            egui::Button::new(crate::i18n::tr("Show in Finder")),
+            egui::Button::new(crate::i18n::tr(crate::menus::REVEAL_LABEL)),
         )
         .clicked()
     {

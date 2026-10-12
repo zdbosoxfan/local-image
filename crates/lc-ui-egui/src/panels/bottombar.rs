@@ -23,8 +23,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     for (id, icon, mode, tip) in [
                         ("photoGrid", Icon::GridPhoto, ViewMode::PhotoGrid, "Photo Grid (G)"),
                         ("squareGrid", Icon::GridSquare, ViewMode::SquareGrid, "Square Grid (G toggles)"),
-                        ("detail", Icon::Single, ViewMode::Detail, "Detail (D)"),
-                        ("compare", Icon::Compare, ViewMode::Compare, "Compare (Shift+C)"),
+                        ("detail", Icon::Single, ViewMode::Detail, "Loupe (E)"),
+                        ("compare", Icon::Compare, ViewMode::Compare, "Compare (C)"),
                         ("survey", Icon::Survey, ViewMode::Survey, "Survey (N)"),
                         ("people", Icon::Subject, ViewMode::People, "People"),
                     ] {
@@ -101,32 +101,40 @@ fn centre(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect, from: f32, to:
     }
     let copy_r = Rect::from_min_size(pos2(pill.right() + 10.0, pill.top()), vec2(136.0, 30.0));
     let has_clip = app.session.clipboard.is_some();
-    let label = if has_clip { "Paste Edit Settings" } else { "Copy Edit Settings" };
-    let cresp = ui.interact(copy_r, egui::Id::new("copy-settings"), Sense::click());
-    register(ui.ctx(), "button:copySettings", copy_r);
-    ui.painter().rect_filled(copy_r, 15.0, if cresp.hovered() { t.hover } else { t.canvas });
-    ui.painter().text(
-        copy_r.center(),
-        Align2::CENTER_CENTER,
-        crate::i18n::tr(label),
-        t.font(13.0),
-        if active.is_some() { t.text_label } else { t.text_disabled },
-    );
-    if cresp.clicked() && active.is_some() {
-        match if has_clip { app.run("develop.paste", json!({})) } else { app.run("develop.copy", json!({})) } {
-            Ok(r) if !has_clip || r["changed"].as_u64().unwrap_or(0) > 0 => {
-                app.toast(ui.ctx(), if has_clip { "Settings pasted" } else { "Edit settings copied" })
+    for (paste, label, command, widget) in
+        [(false, "Copy", "develop.copy", "button:copySettings"), (true, "Paste", "develop.paste", "button:pasteSettings")]
+    {
+        let enabled = active.is_some() && (!paste || has_clip);
+        let rect = Rect::from_min_size(copy_r.min + vec2(if paste { 70.0 } else { 0.0 }, 0.0), vec2(66.0, copy_r.height()));
+        let tip = if paste { "Paste Edit Settings" } else { "Copy Edit Settings" };
+        let response =
+            ui.interact(rect, egui::Id::new(widget), if enabled { Sense::click() } else { Sense::hover() }).on_hover_text(crate::i18n::tr(tip));
+        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, false, crate::i18n::tr(tip)));
+        register(ui.ctx(), widget, rect);
+        ui.painter().rect_filled(rect, 15.0, if response.hovered() && enabled { t.hover } else { t.canvas });
+        ui.painter().text(
+            rect.center(),
+            Align2::CENTER_CENTER,
+            crate::i18n::tr(label),
+            t.font(12.0),
+            if enabled { t.text_label } else { t.text_disabled },
+        );
+        if response.clicked() && enabled {
+            match app.run(command, json!({})) {
+                Ok(result) if !paste || result["changed"].as_u64().unwrap_or(0) > 0 => {
+                    app.toast(ui.ctx(), if paste { "Settings pasted" } else { "Edit settings copied" })
+                }
+                Err(error) => app.toast_error(ui.ctx(), error),
+                _ => {}
             }
-            Err(e) => app.toast_error(ui.ctx(), e),
-            _ => {}
         }
     }
     let gear_r = Rect::from_min_size(pos2(copy_r.right() + 4.0, pill.top()), vec2(30.0, 30.0));
-    let gresp = ui.interact(gear_r, egui::Id::new("copy-gear"), Sense::click());
+    let gresp = ui.interact(gear_r, egui::Id::new("copy-gear"), if active.is_some() { Sense::click() } else { Sense::hover() });
     register(ui.ctx(), "icon:copyGear", gear_r);
     ui.painter().rect_filled(gear_r, 15.0, if gresp.hovered() { t.hover } else { t.canvas });
     paint(ui.painter(), gear_r.shrink(7.0), Icon::Gear, t.icon);
-    if gresp.clicked() {
+    if gresp.clicked() && active.is_some() {
         let _ = app.run("dialog.copySettings", json!({}));
     }
 }

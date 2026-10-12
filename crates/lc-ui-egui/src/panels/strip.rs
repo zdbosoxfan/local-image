@@ -8,6 +8,12 @@ use crate::state::RightPanel;
 use crate::theme::Tokens;
 use crate::widgets::tool_button;
 
+/// A filter edits one temporary photo. Copy/Paste act on that working copy;
+/// Library settings (which can switch libraries), sync and export stay outside.
+fn more_action_allowed(app: &LightcraftApp, id: &str) -> bool {
+    app.host_session.is_none() || matches!(id, "develop.copy" | "develop.paste" | "dialog.copySettings" | "app.shortcuts")
+}
+
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     egui::Panel::right("tool_strip")
@@ -21,9 +27,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         )
         .show(ui, |ui| {
             let has_photo = app.session.active().is_some();
+            // The framed panel's stroke consumes part of its nominal width.
+            // Size hit rectangles to that inner allocation, not the outer token.
+            let inner = ui.max_rect();
+            let control_width = inner.width().min(t.strip_w).max(0.0);
+            crate::widgets::register(ui.ctx(), "panel:toolStripInner", inner);
             ui.vertical_centered(|ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
-                let sz = vec2(t.strip_w, 40.0);
+                let sz = vec2(control_width, 40.0);
                 use crate::panels::tool_tips::{StripTool as T, attach};
                 let mode = app.ui.settings.tool_tips;
                 let r = tool_button(ui, "presets", T::Presets.icon(), sz, app.ui.presets, has_photo, "");
@@ -59,16 +70,47 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 if r.clicked() {
                     let _ = app.run("panel.versions", json!({}));
                 }
-                let r = tool_button(ui, "activity", T::Activity.icon(), sz, app.ui.right == RightPanel::Activity, true, "");
+                let r = tool_button(ui, "activity", T::Activity.icon(), sz, app.ui.right == RightPanel::Activity, has_photo, "");
                 attach(mode, ui, &r, T::Activity);
                 if r.clicked() {
                     let _ = app.run("panel.activity", json!({}));
                 }
                 let r = tool_button(ui, "more", T::More.icon(), sz, false, true, "");
                 attach(mode, ui, &r, T::More);
-                if r.clicked() {
-                    app.ui.dialog = Some(crate::state::Dialog::About);
-                }
+                egui::Popup::menu(&r).show(|ui| {
+                    for (id, label) in [
+                        ("develop.copy", "Copy Edit Settings"),
+                        ("develop.paste", "Paste Edit Settings"),
+                        ("dialog.copySettings", "Choose Edit Settings to Copy…"),
+                        ("dialog.syncSettings", "Sync Settings…"),
+                        ("dialog.export", "Export…"),
+                        ("app.shortcuts", "Keyboard Shortcuts"),
+                        ("app.settings", "Settings…"),
+                    ] {
+                        if !more_action_allowed(app, id) {
+                            continue;
+                        }
+                        let enabled = if id == "develop.copy" {
+                            has_photo
+                        } else if id == "develop.paste" {
+                            has_photo && app.session.clipboard.is_some()
+                        } else {
+                            crate::menus::ui_enabled(app, id)
+                        };
+                        let mut button = egui::Button::new(crate::i18n::tr(label));
+                        if let Some(shortcut) = crate::shortcuts::shortcut_label(id) {
+                            button = button.shortcut_text(shortcut);
+                        }
+                        let response = ui.add_enabled(enabled, button);
+                        crate::widgets::register(ui.ctx(), format!("menu:more:{id}"), response.rect);
+                        if response.clicked() {
+                            if let Err(error) = app.run(id, json!({})) {
+                                app.toast_error(ui.ctx(), error);
+                            }
+                            ui.close();
+                        }
+                    }
+                });
             });
             // bottom icons
             let bottom = ui.max_rect().bottom();
@@ -77,7 +119,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     .max_rect(egui::Rect::from_min_max(egui::pos2(ui.max_rect().left(), bottom - 96.0), ui.max_rect().right_bottom())),
             );
             child.vertical_centered(|ui| {
-                let sz = vec2(t.strip_w, 40.0);
+                let sz = vec2(control_width, 40.0);
                 use crate::panels::tool_tips::{StripTool as T, attach};
                 let r = tool_button(ui, "keywords", T::Keywords.icon(), sz, app.ui.right == RightPanel::Keywords, has_photo, "");
                 attach(app.ui.settings.tool_tips, ui, &r, T::Keywords);
