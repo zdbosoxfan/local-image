@@ -136,6 +136,8 @@ pub struct Services {
     /// Host bridge; UI stays independent of li-ai and its downloader.
     pub download_models: Option<Box<dyn Fn(&str, bool) -> Result<(), String>>>,
     pub model_download_status: Option<Box<dyn Fn(&str) -> ModelDownloadStatus>>,
+    /// Presence state from the host; no download is triggered by querying it.
+    pub model_installed: Option<Box<dyn Fn(&str) -> bool>>,
     /// Open a web link in the browser (Help menu, About dialog).
     pub open_url: Option<OpenUrlFn>,
     /// Open a file in an external editor (Edit in External Editor; desktop only).
@@ -702,6 +704,9 @@ impl LightcraftApp {
 
     /// Per-frame logic before layout (control channel, renders, shortcuts, drops).
     pub fn logic(&mut self, ctx: &egui::Context) {
+        if self.ui.view != crate::state::ViewMode::Detail && self.ui.before_after == crate::state::BeforeAfter::Original {
+            self.ui.before_after = crate::state::BeforeAfter::Off;
+        }
         i18n::set_language(self.ui.language);
         let t0 = now_ms();
         panels::library_problem::logic(self);
@@ -1343,3 +1348,6 @@ impl Services {
 
 #[cfg(test)]
 mod tests_library_export_theme;
+
+#[cfg(test)]
+mod tests_library_navigation;

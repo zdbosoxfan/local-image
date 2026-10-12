@@ -280,14 +280,40 @@ pub fn denoise_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
         } else {
             "rawdenoise-nind"
         };
-        if text_button(ui, "denoiseDownload", "Download AI Denoise Model", false).clicked() {
+        denoise_download(app, ui, family);
+    });
+}
+
+pub(crate) fn denoise_download(app: &mut LightcraftApp, ui: &mut egui::Ui, family: &str) {
+    let status = app.services.model_download_status.as_ref().map(|f| f(family)).unwrap_or_default();
+    let installed = app.services.model_installed.as_ref().is_some_and(|f| f(family));
+    if status.running {
+        let progress = (status.done as f32 / status.total.max(1) as f32).clamp(0., 1.);
+        let response = ui.add(egui::ProgressBar::new(progress).show_percentage());
+        register(ui.ctx(), "progress:denoiseDownload", response.rect);
+        if text_button(ui, "denoiseDownloadCancel", "Cancel download", false).clicked()
+            && let Some(download) = &app.services.download_models
+            && let Err(error) = download(family, true)
+        {
+            app.toast_error(ui.ctx(), error);
+        }
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+    } else if installed {
+        let response = ui.label(crate::i18n::tr("AI Denoise model ready"));
+        register(ui.ctx(), "status:denoiseReady", response.rect);
+    } else {
+        if let Some(error) = status.error.as_ref() {
+            ui.colored_label(crate::theme::Tokens::get(ui.ctx()).caution, error);
+        }
+        let label = if status.error.is_some() { "Retry AI Denoise download" } else { "Download AI Denoise Model" };
+        if text_button(ui, "denoiseDownload", label, false).clicked() {
             if let Some(download) = &app.services.download_models {
-                if let Err(e) = download(family, false) {
-                    app.toast_error(ui.ctx(), e);
+                if let Err(error) = download(family, false) {
+                    app.toast_error(ui.ctx(), error);
                 }
             } else {
                 app.toast(ui.ctx(), "Model downloads are available in Settings › Local AI.");
             }
         }
-    });
+    }
 }

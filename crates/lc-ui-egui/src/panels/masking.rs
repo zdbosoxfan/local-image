@@ -10,7 +10,7 @@ use super::right::header;
 use crate::LightcraftApp;
 use crate::icons::{Icon, paint};
 use crate::theme::Tokens;
-use crate::widgets::{divider, icon_button, register, slider, text_button};
+use crate::widgets::{divider, icon_button, register, text_button};
 
 const fn spec(id: &'static str, label: &'static str, min: f64, max: f64, step: f64, decimals: u8, track: Track) -> ControlSpec {
     ControlSpec { id, label, section: Section::Light, min, max, default: 0.0, step, decimals, track }
@@ -322,7 +322,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                     egui::Popup::menu(&more).show(|ui| component_row_menu(app, ui, m.id, i, &label, m.components.len()));
                 });
             });
-            range_controls(app, ui, i, &c.shape);
+            ui.push_id(("mask-component", m.id, i), |ui| range_controls(app, ui, i, &c.shape));
         }
         ui.add_space(6.0);
         // wraps: the five actions are wider than a narrow panel
@@ -359,7 +359,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         decimals: 0,
         track: Track::Plain,
     };
-    let out = slider(ui, &opacity, m.opacity, true, None);
+    let out = crate::widgets::numeric_slider(
+        ui,
+        &opacity,
+        m.opacity,
+        true,
+        None,
+        crate::widgets::numeric_owner(app, ("mask-tools", app.session.active_mask)),
+    );
     apply_slider_out(app, &opacity, out, |app, v| app.run("mask.setOpacity", json!({"value": v})));
     let amt = ControlSpec {
         id: "amount",
@@ -372,7 +379,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         decimals: 0,
         track: Track::Plain,
     };
-    let out = slider(ui, &amt, m.adjust.amount, true, None);
+    let out = crate::widgets::numeric_slider(
+        ui,
+        &amt,
+        m.adjust.amount,
+        true,
+        None,
+        crate::widgets::numeric_owner(app, ("mask-tools", app.session.active_mask)),
+    );
     apply_slider_out(app, &amt, out, |app, v| app.run("mask.adjust", json!({"values": {"amount": v}})));
     let refine = ControlSpec {
         id: "refine",
@@ -385,7 +399,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         decimals: 0,
         track: Track::Plain,
     };
-    let out = slider(ui, &refine, m.refine, true, None);
+    let out = crate::widgets::numeric_slider(
+        ui,
+        &refine,
+        m.refine,
+        true,
+        None,
+        crate::widgets::numeric_owner(app, ("mask-tools", app.session.active_mask)),
+    );
     apply_slider_out(app, &refine, out, |app, v| app.run("mask.refine", json!({"value": v})));
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 6 }).show(ui, |ui| {
         // (two rows: side by side they don't fit the narrowest panel)
@@ -436,7 +457,8 @@ fn local_section(app: &mut LightcraftApp, ui: &mut egui::Ui, m: &lightcraft_deve
     if open {
         for s in LOCAL {
             let v = local_get(&m.adjust, s.id);
-            let out = slider(ui, s, v, true, None);
+            let out =
+                crate::widgets::numeric_slider(ui, s, v, true, None, crate::widgets::numeric_owner(app, ("mask-tools", app.session.active_mask)));
             apply_slider_out(app, s, out, |app, v| app.run("mask.adjust", json!({"values": {s.id: v}})));
         }
         ui.add_space(6.0);
@@ -516,7 +538,14 @@ fn overlay_options(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         decimals: 0,
         track: Track::Plain,
     };
-    let out = slider(ui, &spec, app.ui.mask_overlay_opacity as f64, colored && app.ui.mask_overlay, None);
+    let out = crate::widgets::numeric_slider(
+        ui,
+        &spec,
+        app.ui.mask_overlay_opacity as f64,
+        colored && app.ui.mask_overlay,
+        None,
+        crate::widgets::numeric_owner(app, ("mask-tools", app.session.active_mask)),
+    );
     if let Some(v) = out.value {
         app.ui.mask_overlay_opacity = v as f32;
     }
@@ -590,7 +619,14 @@ fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: usize, shape
                 track: Track::Plain,
             };
             let cur = ((lo_feather + hi_feather) / 2.0 / 0.5 * 100.0).clamp(0.0, 100.0);
-            let out = slider(ui, &smooth, cur, true, None);
+            let out = crate::widgets::numeric_slider(
+                ui,
+                &smooth,
+                cur,
+                true,
+                None,
+                crate::widgets::numeric_owner(app, ("mask-component", comp, app.session.catalog.revision)),
+            );
             apply_slider_out(app, &smooth, out, |app, v| {
                 let f = v / 100.0 * 0.5;
                 app.run("mask.update", json!({"component": comp, "shape": MaskShape::LuminanceRange { lo, hi, lo_feather: f, hi_feather: f }}))
@@ -672,7 +708,14 @@ fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: usize, shape
                 decimals: 0,
                 track: Track::Plain,
             };
-            let out = slider(ui, &smooth, (feather / 0.5 * 100.0).clamp(0.0, 100.0), true, None);
+            let out = crate::widgets::numeric_slider(
+                ui,
+                &smooth,
+                (feather / 0.5 * 100.0).clamp(0.0, 100.0),
+                true,
+                None,
+                crate::widgets::numeric_owner(app, ("mask-component", comp, app.session.catalog.revision)),
+            );
             apply_slider_out(app, &smooth, out, |app, v| app.run("mask.update", json!({"component": comp, "shape": with(lo, hi, v / 100.0 * 0.5)})));
         }
         MaskShape::Object { edge, .. } | MaskShape::Prompt { edge, .. } => {
@@ -688,7 +731,14 @@ fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: usize, shape
                 decimals: 0,
                 track: Track::Centered,
             };
-            let out = slider(ui, &spec, *edge, true, None);
+            let out = crate::widgets::numeric_slider(
+                ui,
+                &spec,
+                *edge,
+                true,
+                None,
+                crate::widgets::numeric_owner(app, ("mask-component", comp, app.session.catalog.revision)),
+            );
             let base = shape.clone();
             apply_slider_out(app, &spec, out, |app, v| {
                 let mut s = base.clone();
@@ -724,7 +774,14 @@ fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: usize, shape
                 decimals: 0,
                 track: Track::Plain,
             };
-            let out = slider(ui, &spec, *refine, true, None);
+            let out = crate::widgets::numeric_slider(
+                ui,
+                &spec,
+                *refine,
+                true,
+                None,
+                crate::widgets::numeric_owner(app, ("mask-component", comp, app.session.catalog.revision)),
+            );
             let samples = samples.clone();
             apply_slider_out(app, &spec, out, |app, v| {
                 app.run("mask.update", json!({"component": comp, "shape": MaskShape::ColorRange { samples: samples.clone(), refine: v }}))
@@ -938,7 +995,8 @@ fn brush_settings(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ("ui.brushFlow", "Flow", 1.0, 100.0, app.ui.brush_flow as f64),
     ] {
         let s = ControlSpec { id, label, section: Section::Light, min, max, default: min, step: 1.0, decimals: 0, track: Track::Plain };
-        let out = slider(ui, &s, get, true, None);
+        let out =
+            crate::widgets::numeric_slider(ui, &s, get, true, None, crate::widgets::numeric_owner(app, ("mask-tools", app.session.active_mask)));
         if let Some(v) = out.value {
             match id {
                 "ui.brushSize" => app.ui.brush_size = (v / 400.0) as f32,

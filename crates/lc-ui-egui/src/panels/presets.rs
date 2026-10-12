@@ -1,6 +1,6 @@
 //! The Presets column (opens to the left of the Edit panel): grouped presets with hover preview
 //! (the loupe shows the photo with the preset while the pointer rests on it; nothing is
-//! committed), optional live thumbnails, amount slider, create/favourite, import/export of preset
+//! committed), optional live thumbnails, amount  create/favourite, import/export of preset
 //! files.
 
 use std::collections::BTreeMap;
@@ -11,7 +11,7 @@ use serde_json::json;
 
 use crate::icons::{Icon, paint};
 use crate::theme::Tokens;
-use crate::widgets::{divider, icon_button, register, slider};
+use crate::widgets::{divider, icon_button, register};
 use crate::{HoverPreview, LightcraftApp};
 
 /// Long edge of preset thumbnails (px).
@@ -65,7 +65,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     decimals: 0,
                     track: Track::Plain,
                 };
-                let out = slider(ui, &spec, amount, true, None);
+                let out = crate::widgets::numeric_slider(ui, &spec, amount, true, None, crate::widgets::numeric_owner(app, ("preset", &pid)));
                 if let Some(v) = out.value {
                     // re-apply from the pre-preset state: undo last preset step then apply with the new amount
                     let _ = app.run("edit.undo", json!({}));

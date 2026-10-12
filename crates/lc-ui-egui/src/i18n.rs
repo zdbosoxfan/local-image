@@ -386,6 +386,9 @@ pub const PENDING_SAVE_TRANSLATIONS: &[&str] = &[
 
 /// Library final-review polish: tracked English fallback until translated.
 pub const PENDING_LIBRARY_UX_TRANSLATIONS: &[&str] = &[
+    "Export folder",
+    "AI Denoise model ready",
+    "Retry AI Denoise download",
     "Show in File Explorer",
     "Show in File Manager",
     "Import photos, or drop them here",

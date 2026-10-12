@@ -245,10 +245,18 @@ pub const UI_COMMANDS: &[UiCommand] = &[
 ];
 
 fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str) {
+    let auxiliary = matches!(p, RightPanel::Versions | RightPanel::Activity);
     if app.ui.right == p {
-        app.ui.right = RightPanel::None;
+        app.ui.right = if auxiliary {
+            app.ui.auxiliary_return.take().filter(|(view, _)| *view == app.ui.view).map(|(_, panel)| panel).unwrap_or(RightPanel::None)
+        } else {
+            RightPanel::None
+        };
         app.toast(ctx, crate::i18n::tr_format!("{name} Off", name = name));
     } else {
+        if auxiliary && !matches!(app.ui.right, RightPanel::Versions | RightPanel::Activity) {
+            app.ui.auxiliary_return = Some((app.ui.view, app.ui.right));
+        }
         app.ui.right = p;
         app.toast(ctx, crate::i18n::tr_format!("{name} On", name = name));
         if p.is_edit_tool() && !matches!(app.ui.view, ViewMode::Detail) {
@@ -547,6 +555,10 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "view.showOriginal" => {
+            if app.ui.view != ViewMode::Detail {
+                app.ui.before_after = BeforeAfter::Off;
+                return Some(Ok(Value::Null));
+            }
             app.ui.before_after = if app.ui.before_after == BeforeAfter::Original { BeforeAfter::Off } else { BeforeAfter::Original };
             Ok(Value::Null)
         }

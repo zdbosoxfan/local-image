@@ -338,7 +338,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut MergeDialog) 
                 }
                 ui.add_space(4.0);
                 let mut bw = opts.boundary_warp;
-                if num(ui, &BOUNDARY_WARP, &mut bw) {
+                if num(ui, &BOUNDARY_WARP, &mut bw, crate::widgets::numeric_owner(app, (&opts.command, &app.session.selection.ids))) {
                     opts.boundary_warp = bw.round();
                 }
                 ui.checkbox(&mut opts.fill_edges, crate::i18n::tr("Fill Edges"));
@@ -360,7 +360,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut MergeDialog) 
                 }
                 if opts.command == "merge.hdrPanorama" {
                     let mut b = opts.bracket as f64;
-                    if num(ui, &BRACKET, &mut b) {
+                    if num(ui, &BRACKET, &mut b, crate::widgets::numeric_owner(app, (&opts.command, &app.session.selection.ids))) {
                         opts.bracket = b.round() as u32;
                     }
                 }
@@ -397,8 +397,8 @@ const BRACKET: lightcraft_develop::ControlSpec = lightcraft_develop::ControlSpec
     track: lightcraft_develop::Track::Plain,
 };
 
-fn num(ui: &mut egui::Ui, spec: &lightcraft_develop::ControlSpec, v: &mut f64) -> bool {
-    match crate::widgets::slider(ui, spec, *v, true, None).value {
+fn num(ui: &mut egui::Ui, spec: &lightcraft_develop::ControlSpec, v: &mut f64, owner: egui::Id) -> bool {
+    match crate::widgets::numeric_slider(ui, spec, *v, true, None, owner).value {
         Some(n) => {
             *v = n;
             true

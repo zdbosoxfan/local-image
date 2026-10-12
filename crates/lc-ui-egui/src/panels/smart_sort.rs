@@ -122,7 +122,7 @@ pub fn open(app: &mut LightcraftApp, selected_only: bool) {
     let source_name = if selected_only || app.session.selection.ids.len() > 1 {
         tr("Selected photos").to_string()
     } else if let Some(browse) = &app.session.browse {
-        browse.path.clone()
+        friendly_folder(&browse.path)
     } else if let lightcraft_engine::LibrarySource::Album(id) = app.session.source {
         app.session.catalog.album(id).map(|a| a.name.clone()).unwrap_or_else(|| tr("Current view").to_string())
     } else if let Some(date) = &app.session.filter.date {
@@ -158,7 +158,11 @@ pub fn open(app: &mut LightcraftApp, selected_only: bool) {
             people_folders: preset.folders.iter().any(|f| f.people_enabled)
                 || app.session.smart.people.data.people.iter().any(|p| p.folder_enabled && !p.ignored),
             preset,
-            dest: home.join("Desktop").to_string_lossy().into_owned(),
+            dest: if app.ui.smart_sort_destination.is_empty() {
+                home.join("Desktop").to_string_lossy().into_owned()
+            } else {
+                app.ui.smart_sort_destination.clone()
+            },
             ..Default::default()
         }),
     });
@@ -1045,12 +1049,17 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
         check(ui, "smartSort:libraryStacks", &mut s.preset.bursts.also_stack_in_library, "Also stack in the Library");
     }
     ui.horizontal(|ui| {
-        ui.label(tr("Destination root"));
-        text(ui, "smartSort:dest", &mut s.dest, 560.0);
+        ui.label(tr("Export folder"));
+        ui.label(friendly_folder(&s.dest)).on_hover_text(&s.dest);
+        let response = text(ui, "smartSort:dest", &mut s.dest, 320.0);
+        if response.lost_focus() && !s.dest.trim().is_empty() {
+            app.ui.smart_sort_destination = s.dest.clone();
+        }
         if button(ui, "smartSort:chooseDest", "Choose…").clicked()
             && let Some(pick) = &mut app.services.pick_folder
             && let Some(dir) = pick()
         {
+            app.ui.smart_sort_destination = dir.clone();
             s.dest = dir;
         }
     });
@@ -1634,4 +1643,8 @@ fn folder_rules(app: &LightcraftApp, f: &FolderDef) -> lightcraft_catalog::RuleS
         mode: if f.people_or { lightcraft_catalog::Match::Any } else { lightcraft_catalog::Match::All },
         rules: vec![lightcraft_catalog::Rule::Group { group: f.rules.clone() }, lightcraft_catalog::Rule::Group { group: people }],
     }
+}
+
+fn friendly_folder(path: &str) -> String {
+    path.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next().filter(|name| !name.is_empty()).unwrap_or(path).to_string()
 }

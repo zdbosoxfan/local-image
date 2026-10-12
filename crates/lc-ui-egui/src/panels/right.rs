@@ -9,7 +9,7 @@ use crate::LightcraftApp;
 use crate::icons::{Icon, paint};
 use crate::state::RightPanel;
 use crate::theme::Tokens;
-use crate::widgets::{divider, register, slider, text_button};
+use crate::widgets::{divider, register, text_button};
 
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
@@ -118,7 +118,14 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     });
     let ang = lightcraft_develop::controls::find("crop.angle").copied();
     if let Some(spec) = ang {
-        let out = slider(ui, &spec, d.crop.geometry.angle, true, Some("Straighten"));
+        let out = crate::widgets::numeric_slider(
+            ui,
+            &spec,
+            d.crop.geometry.angle,
+            true,
+            Some("Straighten"),
+            crate::widgets::numeric_owner(app, ("photo-tools", app.session.active_spot, app.ui.eye)),
+        );
         super::edit::apply_slider_out(app, &spec, out, |app, v| app.run("crop.straighten", json!({"angle": v})));
     }
     padded(ui, |ui| {
@@ -224,7 +231,14 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     });
     for spec in lightcraft_develop::controls::in_section(lightcraft_develop::Section::Geometry).filter(|c| c.id != "crop.angle") {
         let v = lightcraft_develop::controls::get(&d, spec.id).unwrap_or(spec.default);
-        let out = slider(ui, spec, v, true, None);
+        let out = crate::widgets::numeric_slider(
+            ui,
+            spec,
+            v,
+            true,
+            None,
+            crate::widgets::numeric_owner(app, ("photo-tools", app.session.active_spot, app.ui.eye)),
+        );
         super::edit::apply_slider_out(app, spec, out, |app, v| app.run("develop.set", json!({"control": spec.id, "value": v})));
     }
 }
@@ -355,7 +369,14 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         (plain("ui.removeOpacity", "Opacity", 0.0, 100.0, 100.0), "opacity", ai_opacity.unwrap_or(app.ui.remove_opacity as f64)),
     ];
     for (spec, key, v) in sliders {
-        let out = slider(ui, &spec, v, true, None);
+        let out = crate::widgets::numeric_slider(
+            ui,
+            &spec,
+            v,
+            true,
+            None,
+            crate::widgets::numeric_owner(app, ("photo-tools", app.session.active_spot, app.ui.eye)),
+        );
         let scale = if key == "size" { 1000.0 } else { 1.0 };
         if let Some(v) = out.value {
             match key {
@@ -402,7 +423,14 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         decimals: 0,
         track: lightcraft_develop::Track::Plain,
     };
-    let out = slider(ui, &spec, app.ui.spots_threshold as f64, app.ui.visualize_spots, None);
+    let out = crate::widgets::numeric_slider(
+        ui,
+        &spec,
+        app.ui.spots_threshold as f64,
+        app.ui.visualize_spots,
+        None,
+        crate::widgets::numeric_owner(app, ("photo-tools", app.session.active_spot, app.ui.eye)),
+    );
     if let Some(v) = out.value {
         app.ui.spots_threshold = v as f32;
     }
@@ -457,7 +485,14 @@ fn red_eye(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         let cid = format!("redEye.{i}.{k}");
         let Some(spec) = lightcraft_develop::controls::find(&cid) else { continue };
         let v = lightcraft_develop::controls::get(&d, &cid).unwrap_or(spec.default);
-        let out = slider(ui, spec, v, true, None);
+        let out = crate::widgets::numeric_slider(
+            ui,
+            spec,
+            v,
+            true,
+            None,
+            crate::widgets::numeric_owner(app, ("photo-tools", app.session.active_spot, app.ui.eye)),
+        );
         super::edit::apply_slider_out(app, spec, out, |app, v| app.run("develop.set", json!({"control": cid, "value": v})));
     }
     padded(ui, |ui| {

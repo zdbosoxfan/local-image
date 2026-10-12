@@ -167,6 +167,11 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
             }
         }
     };
+    fire.retain(|id| {
+        id != "view.showOriginal"
+            && !(matches!(app.ui.view, crate::state::ViewMode::PhotoGrid | crate::state::ViewMode::SquareGrid)
+                && matches!(id.as_str(), "library.next" | "library.previous"))
+    });
     for (id, params) in aliased {
         // Space pauses / resumes a slideshow
         if id == "view.zoomToggle"

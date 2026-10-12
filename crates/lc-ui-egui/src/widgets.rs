@@ -145,6 +145,33 @@ pub struct SliderOut {
 /// A Lightroom slider row (label + value above a track with a hollow ring thumb).
 /// Double-click the label or thumb to reset. Shift-drag = fine adjustment.
 pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_override: Option<&str>) -> SliderOut {
+    slider_inner(ui, spec, value, enabled, label_override, None)
+}
+
+/// Explicit document/target identity for a numeric edit; ordinary UI drags keep their IDs.
+pub fn numeric_owner(app: &crate::LightcraftApp, target: impl std::hash::Hash + std::fmt::Debug) -> egui::Id {
+    egui::Id::new((app.session.library_identity(), app.session.library_generation, app.session.active()))
+        // Auto Sync commits through the current selected target list. Its policy and
+        // ordered IDs are captured too; even a same-active-photo change cancels.
+        .with((app.session.auto_sync, &app.session.selection.ids))
+        .with((app.session.active_mask, app.session.active_spot, app.ui.eye))
+        .with(format!("{:?}/{:?}/{:?}", app.ui.view, app.ui.right, app.ui.dialog.as_ref().map(std::mem::discriminant)))
+        .with(target)
+}
+
+pub fn numeric_slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_override: Option<&str>, owner: egui::Id) -> SliderOut {
+    slider_inner(ui, spec, value, enabled, label_override, Some(owner))
+}
+
+#[derive(Clone)]
+struct NumericDraft {
+    text: String,
+    owner: egui::Id,
+    base: f64,
+    frame: u64,
+}
+
+fn slider_inner(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_override: Option<&str>, owner: Option<egui::Id>) -> SliderOut {
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
     let (row, _) = ui.allocate_exact_size(vec2(w, t.slider_row_h), Sense::hover());
@@ -153,11 +180,23 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     let label_rect = Rect::from_min_size(pos2(row.left() + pad_l, row.top() + 4.0), vec2(w - pad_l - pad_r, 18.0));
     let track_rect = Rect::from_min_max(pos2(row.left() + pad_l, row.top() + 22.0), pos2(row.right() - pad_r, row.top() + 40.0));
     let id = ui.id().with(spec.id);
-    let resp = ui.interact(track_rect.expand2(vec2(8.0, 2.0)), id, if enabled { Sense::click_and_drag() } else { Sense::hover() });
+    let edit_id = id.with("numeric-edit");
+    let frame = ui.ctx().cumulative_frame_nr();
+    let mut draft = ui.data(|d| d.get_temp::<NumericDraft>(edit_id));
+    let admissible = enabled && ui.is_enabled() && ui.memory(|m| m.is_above_modal_layer(ui.layer_id()));
+    if draft.as_ref().is_some_and(|d| Some(d.owner) != owner || d.base != value || d.frame.saturating_add(1) < frame || !admissible) {
+        ui.data_mut(|d| d.remove::<NumericDraft>(edit_id));
+        ui.memory_mut(|m| m.surrender_focus(edit_id));
+        draft = None;
+    }
+    let editing = draft.is_some();
+    let resp = ui.interact(track_rect.expand2(vec2(8.0, 2.0)), id, if enabled && !editing { Sense::click_and_drag() } else { Sense::hover() });
     // screen readers: a slider named after its control, with its value
     let label_text = crate::i18n::tr(label_override.unwrap_or(spec.label)).to_string();
     resp.widget_info(|| egui::WidgetInfo::slider(enabled, value, label_text.clone()));
-    let label_resp = ui.interact(label_rect, id.with("label"), if enabled { Sense::click() } else { Sense::hover() });
+    let value_rect = Rect::from_min_max(pos2(label_rect.right() - 72., label_rect.top()), label_rect.max);
+    let label_hit = Rect::from_min_max(label_rect.min, pos2(value_rect.left() - 4., label_rect.bottom()));
+    let label_resp = ui.interact(label_hit, id.with("label"), if enabled { Sense::click() } else { Sense::hover() });
     register(ui.ctx(), format!("slider:{}", spec.id), track_rect);
     let mut out = SliderOut::default();
     let span = (spec.max - spec.min).max(1e-9);
@@ -165,11 +204,11 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     let from_x = |x: f32| spec.min + ((x - track_rect.left()) / track_rect.width()).clamp(0.0, 1.0) as f64 * span;
     let mut v = value;
     let drag_id = id.with("continuous-value");
-    if enabled && (resp.double_clicked() || label_resp.double_clicked()) {
+    if enabled && !editing && (resp.double_clicked() || label_resp.double_clicked()) {
         out.reset = true;
         out.value = Some(spec.default);
         v = spec.default;
-    } else {
+    } else if !editing {
         if resp.drag_started() {
             out.drag_started = true;
             // Keep unrounded motion across frames: rounding each tiny Shift-drag delta to a
@@ -207,7 +246,7 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
             ui.data_mut(|d| d.remove_temp::<(f64, f32)>(drag_id));
         }
         // ↑ / ↓ while the pointer rests on the row nudge the value (⇧: five times as much)
-        if enabled && out.value.is_none() && ui.rect_contains_pointer(row) {
+        if admissible && !ui.ctx().egui_wants_keyboard_input() && out.value.is_none() && ui.rect_contains_pointer(row) {
             let (up, down, shift) = ui.input_mut(|i| {
                 let shift = i.modifiers.shift;
                 let m = if shift { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
@@ -231,7 +270,60 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     p.text(label_rect.left_center(), Align2::LEFT_CENTER, crate::i18n::tr(label_override.unwrap_or(spec.label)), t.font(12.5), text_c);
     let shown = if spec.id == "wb.temp" { format!("{v:.0}") } else { spec.format(v).replace("+0.00", "0").replace("-0.00", "0") };
     let shown = if shown == "+0" || shown == "-0" { "0".to_string() } else { shown };
-    p.text(label_rect.right_center(), Align2::RIGHT_CENTER, shown, t.font(12.5), text_c);
+    if let Some(draft) = &mut draft {
+        // Consume confirmation before TextEdit handles it: Escape must never become
+        // indistinguishable from focus loss (which deliberately commits a valid draft).
+        let focused = ui.memory(|m| m.has_focus(edit_id));
+        let escape = focused && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
+        let enter = focused && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        let response = ui.put(
+            value_rect,
+            egui::TextEdit::singleline(&mut draft.text)
+                .id(edit_id)
+                .font(t.font(12.5))
+                .horizontal_align(egui::Align::RIGHT)
+                // Keep ownership through egui's begin-pass Escape handling so the
+                // focused field can cancel; otherwise Escape looks like valid blur.
+                .event_filter(egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, escape: true, ..Default::default() }),
+        );
+        response.widget_info(|| {
+            let mut info = egui::WidgetInfo::text_edit(admissible, &draft.text, &draft.text, "");
+            info.label = Some(label_text.clone());
+            info
+        });
+        register(ui.ctx(), format!("value:{}", spec.id), response.rect);
+        if escape || response.lost_focus() || enter || !response.has_focus() {
+            if !escape
+                && (enter || response.lost_focus())
+                && admissible
+                && let Ok(number) = draft.text.trim().parse::<f64>()
+                && number.is_finite()
+                && number >= spec.min
+                && number <= spec.max
+            {
+                out.value = Some(number);
+                out.drag_started = true;
+                out.drag_stopped = true;
+            }
+            ui.data_mut(|d| d.remove::<NumericDraft>(edit_id));
+            response.surrender_focus();
+        } else {
+            draft.frame = frame;
+            ui.data_mut(|d| d.insert_temp(edit_id, draft.clone()));
+        }
+    } else {
+        p.text(label_rect.right_center(), Align2::RIGHT_CENTER, shown, t.font(12.5), text_c);
+        let response = ui.interact(value_rect, id.with("value"), if admissible && owner.is_some() { Sense::click() } else { Sense::hover() });
+        register(ui.ctx(), format!("value:{}", spec.id), response.rect);
+        if response.clicked()
+            && let Some(owner) = owner
+        {
+            // Start empty: each typed number is an intentional replacement. Invalid,
+            // nonfinite and out-of-range intermediates never touch the document.
+            ui.data_mut(|d| d.insert_temp(edit_id, NumericDraft { text: String::new(), owner, base: value, frame }));
+            ui.memory_mut(|m| m.request_focus(edit_id));
+        }
+    }
     let ring = 7.0;
     let tx = to_x(v);
     paint_track(ui, track_rect, &spec.track, &t, tx, ring);
@@ -534,5 +626,42 @@ mod access_tests {
         assert!(found.iter().any(|(r, l, v)| r == "Slider" && l == "Exposure" && *v == Some(0.5)), "the slider's value: {found:?}");
         assert!(has("Button", "Auto"), "{found:?}");
         assert!(has("Button", "Delete mask"), "{found:?}");
+    }
+    #[test]
+    fn library_navigation_numeric_editor_exposes_control_name_and_text() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        ctx.enable_accesskit();
+        let spec = lightcraft_develop::controls::find("light.exposure").unwrap();
+        let mut frame = 0;
+        let mut value_rect = Rect::NOTHING;
+        let mut seen = false;
+        let mut run = |events: Vec<egui::Event>| {
+            frame += 1;
+            let raw = crate::headless::HeadlessView::raw_input(vec2(640., 480.), 1., frame as f64 / 60., events);
+            let mut out = ctx.run_ui(raw, |ui| {
+                let result = numeric_slider(ui, spec, 0.5, true, None, egui::Id::new("accessibility-owner"));
+                assert!(result.value.is_none(), "typing alone must not commit");
+                value_rect = take_registry(ui.ctx()).into_iter().find(|(name, _)| name == "value:light.exposure").unwrap().1;
+            });
+            if let Some(update) = out.platform_output.accesskit_update.take() {
+                seen |= update.nodes.iter().any(|(id, n)| {
+                    format!("{:?}", n.role()) == "TextInput" && n.label() == Some("Exposure") && n.value() == Some("1.25") && update.focus == *id
+                });
+            }
+            out.textures_delta.clear();
+            value_rect
+        };
+        run(vec![]);
+        let rect = run(vec![]);
+        let pos = rect.center();
+        run(vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+        ]);
+        run(vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE }]);
+        run(vec![]);
+        run(vec![egui::Event::Text("1.25".into())]);
+        assert!(seen, "focused numeric TextInput must expose its control name and current draft to accessibility");
     }
 }

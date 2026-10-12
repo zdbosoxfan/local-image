@@ -17,19 +17,35 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin { left: 12, right: 12, top: 0, bottom: 0 }))
         .show(ui, |ui| {
             let full = ui.max_rect();
+            let compact = full.width() < 650.;
             let left_end = ui
                 .horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
-                    for (id, icon, mode, tip) in [
+                    let modes = [
                         ("photoGrid", Icon::GridPhoto, ViewMode::PhotoGrid, "Photo Grid (G)"),
                         ("squareGrid", Icon::GridSquare, ViewMode::SquareGrid, "Square Grid (G toggles)"),
                         ("detail", Icon::Single, ViewMode::Detail, "Loupe (E)"),
                         ("compare", Icon::Compare, ViewMode::Compare, "Compare (C)"),
                         ("survey", Icon::Survey, ViewMode::Survey, "Survey (N)"),
                         ("people", Icon::Subject, ViewMode::People, "People"),
-                    ] {
-                        if icon_button(ui, id, icon, vec2(32.0, 32.0), app.ui.view == mode, true, tip).clicked() {
-                            let _ = app.run(&format!("view.{id}"), json!({}));
+                    ];
+                    if compact {
+                        let response = ui.menu_button(crate::i18n::tr("View"), |ui| {
+                            for (id, _, mode, tip) in modes {
+                                let response = ui.selectable_label(app.ui.view == mode, crate::i18n::tr(tip));
+                                register(ui.ctx(), format!("button:compactView:{id}"), response.rect);
+                                if response.clicked() {
+                                    let _ = app.run(&format!("view.{id}"), json!({}));
+                                    ui.close();
+                                }
+                            }
+                        });
+                        register(ui.ctx(), "button:compactViews", response.response.rect);
+                    } else {
+                        for (id, icon, mode, tip) in modes {
+                            if icon_button(ui, id, icon, vec2(32.0, 32.0), app.ui.view == mode, true, tip).clicked() {
+                                let _ = app.run(&format!("view.{id}"), json!({}));
+                            }
                         }
                     }
                     ui.add_space(10.0);
@@ -43,6 +59,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 .rect
                 .right();
             let right_start = right_side(app, ui, full);
+            register(ui.ctx(), "footer:left", Rect::from_min_max(full.min, pos2(left_end, full.bottom())));
+            register(ui.ctx(), "footer:right", Rect::from_min_max(pos2(right_start, full.top()), full.max));
             centre(app, ui, full, left_end + 12.0, right_start - 12.0);
         });
 }
@@ -207,22 +225,33 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect) -> f32 {
                     app.ui.pan = (0.5, 0.5);
                 }
             }
-        });
-        child.add_space(6.0);
-        let cz = crate::widgets::dropdown(
-            &mut child,
-            "clickZoom",
-            &crate::i18n::tr_format!("Click {}:1", app.ui.click_zoom / 100),
-            t.font(13.0),
-            t.text_label,
-        );
-        egui::Popup::menu(&cz).show(|ui| {
-            for pct in crate::state::CLICK_ZOOMS {
-                if ui.selectable_label(app.ui.click_zoom == pct, format!("{}:1", pct / 100)).clicked() {
-                    let _ = app.run("view.clickZoom", json!({"ratio": pct / 100}));
+            if full.width() < 650. {
+                ui.separator();
+                ui.label(crate::i18n::tr("Click Zoom Ratio"));
+                for pct in crate::state::CLICK_ZOOMS {
+                    if ui.selectable_label(app.ui.click_zoom == pct, format!("{}:1", pct / 100)).clicked() {
+                        let _ = app.run("view.clickZoom", json!({"ratio":pct/100}));
+                    }
                 }
             }
         });
+        if full.width() >= 650. {
+            child.add_space(6.0);
+            let cz = crate::widgets::dropdown(
+                &mut child,
+                "clickZoom",
+                &crate::i18n::tr_format!("Click {}:1", app.ui.click_zoom / 100),
+                t.font(13.0),
+                t.text_label,
+            );
+            egui::Popup::menu(&cz).show(|ui| {
+                for pct in crate::state::CLICK_ZOOMS {
+                    if ui.selectable_label(app.ui.click_zoom == pct, format!("{}:1", pct / 100)).clicked() {
+                        let _ = app.run("view.clickZoom", json!({"ratio": pct / 100}));
+                    }
+                }
+            });
+        }
     } else {
         // thumbnail size slider
         let (r, resp) = child.allocate_exact_size(vec2(110.0, 20.0), Sense::click_and_drag());
@@ -245,6 +274,13 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect) -> f32 {
 fn sort_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     use lightcraft_catalog::GroupBy;
     use lightcraft_catalog::SortKey::*;
+    let smart = ui.button(crate::i18n::tr("Smart Sort & Export…"));
+    register(ui.ctx(), "button:sortSmartExport", smart.rect);
+    if smart.clicked() {
+        let _ = app.run("dialog.smartSort", json!({}));
+        ui.close();
+    }
+    ui.separator();
     let cur = app.session.sort;
     ui.label(egui::RichText::new(crate::i18n::tr("Sort by")).weak());
     for (label, key, k) in [

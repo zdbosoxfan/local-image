@@ -1139,7 +1139,9 @@ impl eframe::App for Host {
                 // The Library's own navigation (D, G, Esc, the Edit button) moves between Library
                 // and Develop; the title bar follows.
                 if let Some(lib) = self.library.as_ref() {
-                    let now = library_module(lib);
+                    let auxiliary = lib.ui.view == lightcraft_ui_egui::state::ViewMode::Detail
+                        && matches!(lib.ui.right, lightcraft_ui_egui::state::RightPanel::Versions | lightcraft_ui_egui::state::RightPanel::Activity);
+                    let now = if auxiliary { self.mode } else { library_module(lib) };
                     if now != self.mode {
                         self.mode = now;
                         remember_module(now);
@@ -1442,6 +1444,12 @@ fn services(opens: Opens) -> Services {
                 photocraft_ui_egui::ai_ui::start_seg_download(spec);
             }
             Ok(())
+        })),
+        model_installed: Some(Box::new(|id| {
+            // Denoise presence is metadata-only; inference workers still verify weights.
+            li_seg::spec(id).is_some_and(|spec| {
+                matches!(spec.task, li_seg::Task::Denoise { .. }) && li_seg::installed_bytes(&photocraft_engine::seg::models_dir(), spec).is_some()
+            })
         })),
         model_download_status: Some(Box::new(|id| {
             photocraft_ui_egui::ai_ui::downloads()
@@ -3639,6 +3647,113 @@ mod tests {
             drop(h);
             previews.retire();
             std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+    #[test]
+    fn library_navigation_history_versions_keep_module_and_footer_bounds() {
+        let (dir, host) = workflow_host("navigation-modules");
+        let mut h = RoundTripUi::new(host);
+        workflow_theme(&mut h.host, photocraft_ui_egui::theme::ThemeKind::StudioLight);
+        let size = egui::vec2(760., 480.);
+        let ctx = h.view.ctx.clone();
+        h.host.switch(&ctx, Module::Develop);
+        for _ in 0..5 {
+            h.step_at(size, vec![]);
+        }
+        for command in ["panel.activity", "panel.versions"] {
+            h.host.library.as_mut().unwrap().run(command, json!({})).unwrap();
+            for _ in 0..3 {
+                h.step_at(size, vec![]);
+            }
+            assert_eq!(h.host.mode, Module::Develop);
+        }
+        h.host.library.as_mut().unwrap().run("panel.versions", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step_at(size, vec![]);
+        }
+        assert_eq!(h.host.mode, Module::Develop, "closing auxiliary panel restores Edit");
+        assert_eq!(h.host.library.as_ref().unwrap().ui.right, lightcraft_ui_egui::state::RightPanel::Edit);
+        let lib = h.host.library.as_ref().unwrap();
+        let left = lib.widgets.iter().find(|(id, _)| id == "footer:left").unwrap().1;
+        let right = lib.widgets.iter().find(|(id, _)| id == "footer:right").unwrap().1;
+        assert!(left.right() <= right.left(), "actual narrow Develop footer overlaps: {left:?}/{right:?}");
+        for id in ["button:compactViews", "dropdown:zoom", "icon:filmstrip", "icon:beforeAfter"] {
+            let hit = lib.widgets.iter().find(|(key, _)| key == id).unwrap().1;
+            assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(hit), "{id}: {hit:?}");
+            assert!(left.contains_rect(hit) || right.contains_rect(hit));
+        }
+        let image = h.view.paint(&lib.renderer.cpu_textures());
+        workflow_save_image(&image, "StudioLight-Develop-760x480-navigation-footer");
+        h.host.library.as_mut().unwrap().run("view.detail", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step_at(size, vec![]);
+        }
+        assert_eq!(h.host.mode, Module::Library, "explicit Loupe still leaves Develop");
+        h.host.library.as_mut().unwrap().run("panel.activity", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step_at(size, vec![]);
+        }
+        assert_eq!(h.host.mode, Module::Library, "Library history does not force Develop");
+        h.host.library.as_mut().unwrap().run("panel.activity", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step_at(size, vec![]);
+        }
+        assert_eq!(h.host.mode, Module::Library);
+        assert_eq!(
+            h.host.library.as_ref().unwrap().ui.right,
+            lightcraft_ui_egui::state::RightPanel::None,
+            "closing Library history restores Loupe, not stale Edit"
+        );
+        h.host.library.as_mut().unwrap().run("view.develop", json!({})).unwrap();
+        h.host.library.as_mut().unwrap().run("panel.versions", json!({})).unwrap();
+        h.host.library.as_mut().unwrap().run("view.photoGrid", json!({})).unwrap();
+        h.host.library.as_mut().unwrap().run("panel.versions", json!({})).unwrap();
+        for _ in 0..3 {
+            h.step_at(size, vec![]);
+        }
+        assert_eq!(h.host.mode, Module::Library);
+        assert_eq!(h.host.library.as_ref().unwrap().ui.right, lightcraft_ui_egui::state::RightPanel::None, "explicit grid change invalidates auxiliary return");
+        let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+        drop(h);
+        previews.retire();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn library_navigation_toast_overlay_contrast_light_and_classic() {
+        use photocraft_ui_egui::theme::ThemeKind;
+        for kind in [ThemeKind::StudioLight, ThemeKind::Classic] {
+            for background in [egui::Color32::BLACK, egui::Color32::WHITE] {
+                let mut app = LightcraftApp::new(lightcraft_engine::Session::new(), Default::default());
+                let mut view = lightcraft_ui_egui::headless::HeadlessView::new();
+                app.set_host_theme(library_palette(kind));
+                app.restyle(&view.ctx);
+                let canvas = egui::Rect::from_min_max(egui::pos2(10., 10.), egui::pos2(630., 300.));
+                app.canvas_rect = Some(canvas);
+                app.ui.toast = Some(("Versions Off".into(), 2.));
+                let mut rectangles = Vec::new();
+                let raw = lightcraft_ui_egui::headless::HeadlessView::raw_input(egui::vec2(640., 320.), 1., 0.1, vec![]);
+                view.run(raw, |ui| {
+                    ui.painter().rect_filled(canvas, 0., background);
+                    lightcraft_ui_egui::panels::toast(&mut app, ui.ctx());
+                    rectangles = lightcraft_ui_egui::widgets::take_registry(ui.ctx());
+                });
+                let body = rectangles.iter().find(|(id, _)| id == "toast:body").unwrap().1;
+                let text = rectangles.iter().find(|(id, _)| id == "toast:text").unwrap().1;
+                assert!(canvas.contains_rect(body) && body.contains_rect(text));
+                let image = view.paint(&std::collections::HashMap::new());
+                workflow_overlay_glyph(
+                    &image,
+                    text,
+                    body.left_center() + egui::vec2(5., 0.),
+                    library_palette(kind).overlay_fg,
+                    &format!("{kind:?}/{background:?}/toast"),
+                );
+                assert_eq!(app.ui.toast.as_ref().unwrap().0, "Versions Off", "contrast fix must not hide the notice");
+                workflow_save_image(&image, &format!("{kind:?}-toast-{}", background.r()));
+                let raw = lightcraft_ui_egui::headless::HeadlessView::raw_input(egui::vec2(640., 320.), 1., 2.1, vec![]);
+                view.run(raw, |ui| lightcraft_ui_egui::panels::toast(&mut app, ui.ctx()));
+                assert!(app.ui.toast.is_none(), "existing lifetime remains unchanged");
+            }
         }
     }
 }

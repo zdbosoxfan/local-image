@@ -233,6 +233,7 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     };
     let stacks = app.caches.grid.stacks(stats, &app.session.catalog, generation);
     let total_h = lay.height + 12.0;
+    navigate(app, ui.ctx(), &ids, &lay);
     let active = app.session.selection.active;
     // bring the active photo into view when it changes (keyboard, click, command) or the grid
     // comes back on screen; otherwise the scroll position is the user's
@@ -1031,6 +1032,37 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         }
     } else if ui.button(crate::i18n::tr("Delete Photo")).clicked() {
         let _ = run_context(app, id, "photo.delete", json!({}));
+    }
+}
+
+/// Match four-direction keyboard movement to the actual justified/square row layout.
+fn navigate(app: &mut LightcraftApp, ctx: &egui::Context, ids: &[PhotoId], layout: &GridLayout) {
+    if ctx.egui_wants_keyboard_input() || app.ui.dialog.is_some() || app.host_session.is_some() {
+        return;
+    }
+    let key = ctx.input_mut(|i| {
+        [egui::Key::ArrowLeft, egui::Key::ArrowRight, egui::Key::ArrowUp, egui::Key::ArrowDown]
+            .into_iter()
+            .find(|k| i.consume_key(egui::Modifiers::NONE, *k))
+    });
+    let Some(key) = key else { return };
+    let Some(index) = app.session.active().and_then(|id| ids.iter().position(|v| *v == id)) else { return };
+    let Some(row) = layout.rows.iter().position(|r| r.start <= index && index < r.end) else { return };
+    let next = match key {
+        egui::Key::ArrowLeft => index.checked_sub(1),
+        egui::Key::ArrowRight => (index + 1 < ids.len()).then_some(index + 1),
+        _ => {
+            let target = if key == egui::Key::ArrowUp { row.checked_sub(1) } else { Some(row + 1) };
+            target.and_then(|n| layout.rows.get(n)).and_then(|r| {
+                (r.start..r.end).min_by(|a, b| {
+                    let x = layout.cells[index].center().x;
+                    (layout.cells[*a].center().x - x).abs().total_cmp(&(layout.cells[*b].center().x - x).abs())
+                })
+            })
+        }
+    };
+    if let Some(id) = next.and_then(|n| ids.get(n)) {
+        let _ = app.run("library.select", json!({"ids":[id.0]}));
     }
 }
 

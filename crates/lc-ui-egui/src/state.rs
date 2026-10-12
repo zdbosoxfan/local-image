@@ -258,6 +258,9 @@ pub struct UiState {
     pub view: ViewMode,
     pub left_panel: bool,
     pub right: RightPanel,
+    /// Return from History/Versions without storing UI Context data in command dispatch.
+    #[serde(skip)]
+    pub auxiliary_return: Option<(ViewMode, RightPanel)>,
     /// Widths of the left sidebar and of the right panel in points (dragging their inner edge
     /// resizes them; within [`LEFT_WIDTH`] / [`RIGHT_WIDTH`]).
     pub left_width: f32,
@@ -276,7 +279,10 @@ pub struct UiState {
     /// Animate the loupe rect toward its target (set by a click-zoom).
     #[serde(skip)]
     pub zoom_anim: bool,
+    #[serde(serialize_with = "save_before_after", deserialize_with = "load_before_after")]
     pub before_after: BeforeAfter,
+    /// Last deliberately chosen Smart Sort export folder.
+    pub smart_sort_destination: String,
     pub thumb_size: f32,
     /// Open Edit sections by id.
     pub open_sections: Vec<String>,
@@ -654,6 +660,7 @@ impl Default for UiState {
             left_width: LEFT_WIDTH.default,
             right_width: RIGHT_WIDTH.default,
             right: RightPanel::Edit,
+            auxiliary_return: None,
             presets: false,
             preset_thumbs: false,
             filmstrip: true,
@@ -662,6 +669,7 @@ impl Default for UiState {
             click_zoom: 100,
             zoom_anim: false,
             before_after: BeforeAfter::Off,
+            smart_sort_destination: String::new(),
             thumb_size: 220.0,
             open_sections: vec!["light".into()],
             open_flyouts: vec![],
@@ -805,4 +813,12 @@ impl UiState {
         }
         self
     }
+}
+
+fn save_before_after<S: serde::Serializer>(value: &BeforeAfter, serializer: S) -> Result<S::Ok, S::Error> {
+    (if *value == BeforeAfter::Original { BeforeAfter::Off } else { *value }).serialize(serializer)
+}
+fn load_before_after<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<BeforeAfter, D::Error> {
+    let value = BeforeAfter::deserialize(deserializer)?;
+    Ok(if value == BeforeAfter::Original { BeforeAfter::Off } else { value })
 }

@@ -12,7 +12,7 @@ use crate::LightcraftApp;
 use crate::icons::{Icon, paint};
 use crate::render::Slot;
 use crate::theme::Tokens;
-use crate::widgets::{BAND_COLORS, SliderOut, divider, flyout_row, hex, register, section_header, slider, text_button};
+use crate::widgets::{BAND_COLORS, SliderOut, divider, flyout_row, hex, register, section_header, text_button};
 
 /// Commit a slider interaction: begin → live updates → end, so a drag is one undo step.
 pub fn apply_slider_out(
@@ -68,6 +68,13 @@ impl Target {
         }
     }
 
+    pub fn mask_id(self) -> Option<u32> {
+        match self {
+            Self::Global => None,
+            Self::Layer(id) => Some(id),
+        }
+    }
+
     pub fn is_layer(self) -> bool {
         matches!(self, Target::Layer(_))
     }
@@ -85,7 +92,7 @@ impl Target {
 pub(crate) fn control_t(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: &str, enabled: bool, target: Target) {
     let Some(spec) = controls::find(id) else { return };
     let v = controls::get(d, id).unwrap_or(spec.default);
-    let out = slider(ui, spec, v, enabled, None);
+    let out = crate::widgets::numeric_slider(ui, spec, v, enabled, None, crate::widgets::numeric_owner(app, (target.mask_id(), id)));
     apply_slider_out(app, spec, out, |app, v| target.set(app, json!({id: v})));
     if id == "detail.sharpenMasking" && matches!(target, Target::Global) {
         let preview = app.ui.dragging_control.as_deref() == Some(id) && ui.input(|i| i.modifiers.alt);
@@ -187,9 +194,23 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
                     control_t(app, ui, d, "wb.temp", true, target);
                     control_t(app, ui, d, "wb.tint", true, target);
                 } else {
-                    let out = slider(ui, &REL_TEMP, k_to_rel(d.wb.temp), true, None);
+                    let out = crate::widgets::numeric_slider(
+                        ui,
+                        &REL_TEMP,
+                        k_to_rel(d.wb.temp),
+                        true,
+                        None,
+                        crate::widgets::numeric_owner(app, (target.mask_id(), "relative-temperature")),
+                    );
                     apply_slider_out(app, &REL_TEMP, out, |app, v| target.set(app, json!({"wb.temp": rel_to_k(v)})));
-                    let out = slider(ui, &REL_TINT, d.wb.tint.clamp(-100.0, 100.0), true, None);
+                    let out = crate::widgets::numeric_slider(
+                        ui,
+                        &REL_TINT,
+                        d.wb.tint.clamp(-100.0, 100.0),
+                        true,
+                        None,
+                        crate::widgets::numeric_owner(app, (target.mask_id(), "relative-tint")),
+                    );
                     apply_slider_out(app, &REL_TINT, out, |app, v| target.set(app, json!({"wb.tint": v})));
                 }
             }
@@ -667,7 +688,7 @@ fn negative_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSetti
     });
     if n.film == FilmStock::Bw {
         if let Some(spec) = controls::find("negative.dminR") {
-            let out = slider(ui, spec, n.dmin.r, on, Some("Film Base"));
+            let out = crate::widgets::numeric_slider(ui, spec, n.dmin.r, on, Some("Film Base"), crate::widgets::numeric_owner(app, "film-base"));
             apply_slider_out(app, spec, out, |app, v| {
                 app.run("develop.set", json!({"values": {"negative.dminR": v, "negative.dminG": v, "negative.dminB": v}}))
             });

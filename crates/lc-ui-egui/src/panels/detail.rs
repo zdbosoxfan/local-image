@@ -250,7 +250,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     {
         app.renderer.request_quick(Slot::Preview, q, 110);
     }
-    let show_before = app.ui.before_after == BeforeAfter::Original || ui.input(|i| i.key_down(egui::Key::Backslash));
+    let show_before = app.ui.before_after == BeforeAfter::Original
+        || (!ui.ctx().egui_wants_keyboard_input() && app.ui.dialog.is_none() && ui.input(|i| i.key_down(egui::Key::Backslash)));
     if (split || show_before || split_view)
         && let Some(job) = app.session.render_job(id, rw.max(8), rh.max(8), true, !crop_tool)
     {
