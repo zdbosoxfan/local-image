@@ -347,6 +347,8 @@ pub fn install_fonts_with(ctx: &egui::Context, cjk: crate::cjk_fonts::Sources) {
     add(&mut fonts, "JetBrainsMono", photocraft_text::fonts::JETBRAINS_MONO_REGULAR);
     fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Inter".to_owned());
     fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "JetBrainsMono".to_owned());
+    // Low-priority symbol coverage (e.g. ▸/▾) for labels using proportional/named fonts.
+    fonts.families.entry(FontFamily::Proportional).or_default().push("JetBrainsMono".to_owned());
     // Named weights fall back to the default stack for missing glyphs.
     let fallback: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
     for (fam, primary) in [("medium", "Inter-Medium"), ("semibold", "Inter-SemiBold")] {
@@ -360,7 +362,7 @@ pub fn install_fonts_with(ctx: &egui::Context, cjk: crate::cjk_fonts::Sources) {
     }
     ctx.set_fonts(fonts);
     ctx.add_plugin(UiFontSizePlugin { applied: size });
-    // Japanese / Chinese / Korean fallback fonts (craft-fonts' Japanese ones if built in, then
+    // Japanese / Chinese / Korean fallback fonts (manifest-declared craft fonts if built in, then
     // the system's) are registered on demand (cjk_fonts.rs).
     crate::cjk_fonts::install_with(ctx, cjk);
 }

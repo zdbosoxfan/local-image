@@ -1,5 +1,5 @@
 //! Font database: bundled fonts (always available, also on the web), the optional craft-fonts
-//! Japanese fonts ([`crate::craft_fonts`], when built with `CRAFT_FONTS_DIR`), optional system
+//! Manifest-declared fonts ([`crate::craft_fonts`], when built with `CRAFT_FONTS_DIR`), optional system
 //! fonts found by scanning the platform font directories (no fontconfig), user-registered font
 //! data, and PostScript-name lookup for PSD import.
 
@@ -33,7 +33,8 @@ pub static BUNDLED: &[(&str, &[u8])] = &[
 
 /// Families tried (if installed) after the requested one, for missing glyphs. The CJK families
 /// ([`crate::cjk::families`]) go between these two lists, in the UI locale's script order.
-const FALLBACK_CANDIDATES: &[&str] = &["Noto Sans", "Segoe UI", "DejaVu Sans", "Geeza Pro", "Arial Hebrew", "Noto Sans Arabic", "Noto Sans Hebrew"];
+const FALLBACK_CANDIDATES: &[&str] =
+    &["Noto Sans", "Segoe UI", "DejaVu Sans", "Geeza Pro", "Arial Hebrew", "Noto Sans Arabic", "Noto Sans Hebrew", "Noto Sans Thai"];
 /// Broad-coverage and emoji fonts, tried after the CJK script fonts so shared Han characters get
 /// the locale's forms instead of Arial Unicode's.
 const FALLBACK_LAST: &[&str] = &["Arial Unicode MS", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"];
@@ -51,6 +52,60 @@ pub fn fallback_candidates(order: &[crate::cjk::CjkScript; 4]) -> Vec<&'static s
     }
     v.extend_from_slice(FALLBACK_LAST);
     v
+}
+
+/// Reorder only CJK fallback slots for explicit text language, or an unambiguous
+/// kana/hangul/bopomofo clue. Requested fonts stay first at the call site; ordinary
+/// Latin text and ambiguous Han-only text keep the cached UI-locale ordering.
+pub(crate) fn fallback_for_text<'a>(fallback: &'a [String], language: Option<&str>, text: &str) -> std::borrow::Cow<'a, [String]> {
+    use crate::cjk::{CjkChar, CjkScript};
+    let explicit = language.filter(|language| {
+        let base = language.split(['-', '_', '.', '@']).next().unwrap_or("");
+        ["ja", "ko", "zh", "yue"].iter().any(|name| base.eq_ignore_ascii_case(name))
+    });
+    let inferred = if explicit.is_none() {
+        let (mut kana, mut hangul, mut bopomofo) = (false, false, false);
+        for ch in text.chars() {
+            match crate::cjk::classify(ch) {
+                Some(CjkChar::Kana) => kana = true,
+                Some(CjkChar::Hangul) => hangul = true,
+                Some(CjkChar::Bopomofo) => bopomofo = true,
+                _ => {}
+            }
+        }
+        match (kana, hangul, bopomofo) {
+            (true, false, false) => Some("ja"),
+            (false, true, false) => Some("ko"),
+            (false, false, true) => Some("zh-Hant"),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let Some(locale) = explicit.or(inferred) else { return std::borrow::Cow::Borrowed(fallback) };
+    let order = crate::cjk::script_order(Some(locale));
+    let belongs = |name: &str, script: CjkScript| {
+        if crate::cjk::families(script).contains(&name) {
+            return true;
+        }
+        let tag = match script {
+            CjkScript::Japanese => "Jpan",
+            CjkScript::SimplifiedChinese => "Hans",
+            CjkScript::TraditionalChinese => "Hant",
+            CjkScript::Korean => "Kore",
+        };
+        crate::craft_fonts::CRAFT_FONTS
+            .iter()
+            .any(|font| font.family == name && (font.scripts.contains(&tag) || (script == CjkScript::Korean && font.scripts.contains(&"Hang"))))
+    };
+    let slots: Vec<_> = fallback.iter().enumerate().filter(|(_, name)| order.iter().any(|script| belongs(name, *script))).map(|(i, _)| i).collect();
+    let mut faces: Vec<_> = slots.iter().map(|i| fallback[*i].clone()).collect();
+    faces.sort_by_key(|name| order.iter().position(|script| belongs(name, *script)).unwrap_or(order.len()));
+    let mut output = fallback.to_vec();
+    for (slot, face) in slots.into_iter().zip(faces) {
+        output[slot] = face;
+    }
+    std::borrow::Cow::Owned(output)
 }
 
 /// One face in the database (for font menus).
@@ -104,7 +159,7 @@ impl FontDb {
         }
         // The optional craft-fonts (empty unless built with CRAFT_FONTS_DIR; always empty on
         // wasm32), before any system font.
-        for f in crate::craft_fonts::CRAFT_FONTS.iter().filter(|f| f.is_japanese()) {
+        for f in crate::craft_fonts::CRAFT_FONTS {
             db.register_static_font(f.bytes);
         }
         db.refresh_generics();
@@ -408,6 +463,28 @@ mod tests {
         let dirs = super::system_font_dirs();
         assert!(dirs.iter().any(|d| d.ends_with("run/host/fonts")));
         assert!(dirs.iter().any(|d| d.ends_with("run/host/user-fonts")));
+    }
+
+    #[test]
+    fn release_craft_fonts_shape_chinese_arabic_and_thai_without_system_fonts() {
+        use photocraft_doc::{PixelFormat, TextLayer};
+        for (family, text) in [("Noto Sans CJK SC", "图层编辑导出"), ("Noto Sans Arabic", "العربية"), ("Noto Sans Thai", "ภาพถ่าย")]
+        {
+            if !crate::craft_fonts::CRAFT_FONTS.iter().any(|font| font.family == family) {
+                assert!(std::env::var_os("CRAFT_FONTS_REQUIRED").is_none(), "required release font missing: {family}");
+                continue;
+            }
+            let mut engine = crate::TextEngine::new();
+            assert!(engine.fonts.has_family(family), "bundled face unavailable in document font picker: {family}");
+            for requested in [family, "Inter"] {
+                let layer = TextLayer { text: text.into(), font_family: requested.into(), size_pt: 24., ..Default::default() };
+                let (layout, rendered) = engine.render(&layer, 72., PixelFormat::RGBA8);
+                assert!(!layout.glyphs.is_empty());
+                assert!(layout.glyphs.iter().all(|glyph| glyph.id != 0), "{family} via{requested}: missing glyphs");
+                assert!(rendered.rect.width() > 0 && rendered.rect.height() > 0, "{family} empty render");
+                assert!(rendered.surface.read_region(rendered.rect).as_chunks::<4>().0.iter().any(|pixel| pixel[3] > 0.), "{family} invisible render");
+            }
+        }
     }
 
     /// The bundled UI fonts cover Czech (the `cs` UI language) on their own: every letter with a

@@ -493,7 +493,7 @@ impl Layouter {
                 // Paragraph-start style as the default (covers the direction mark and empty
                 // paragraphs), then every run piece intersecting this paragraph.
                 let si0 = style_at(prange.start);
-                for p in style_props(&out.styles[si0], k, &fallback, si0 as u32) {
+                for p in style_props(&out.styles[si0], k, &fallback, content, si0 as u32) {
                     b.push_default(p);
                 }
                 for (ri, st) in out.styles.iter().enumerate() {
@@ -503,7 +503,7 @@ impl Layouter {
                         continue;
                     }
                     let range = (a - prange.start + prefix.len())..(z - prange.start + prefix.len());
-                    for p in style_props(st, k, &fallback, ri as u32) {
+                    for p in style_props(st, k, &fallback, text.get(a..z).unwrap_or(content), ri as u32) {
                         b.push(p, range.clone());
                     }
                     if vertical {
@@ -1062,7 +1062,8 @@ fn feature_list(st: &CharStyle) -> Vec<String> {
     feats
 }
 
-fn style_props(st: &CharStyle, k: f32, fallback: &[String], idx: u32) -> Vec<StyleProperty<'static, RunBrush>> {
+fn style_props(st: &CharStyle, k: f32, fallback: &[String], text: &str, idx: u32) -> Vec<StyleProperty<'static, RunBrush>> {
+    let fallback = crate::fonts::fallback_for_text(fallback, st.language.as_deref(), text);
     let px = (st.size_pt * k).max(0.01);
     let mut fam: Vec<String> = Vec::new();
     if !st.font_family.is_empty() {
@@ -1070,7 +1071,7 @@ fn style_props(st: &CharStyle, k: f32, fallback: &[String], idx: u32) -> Vec<Sty
     }
     // Serif runs fall back to a Mincho face for Japanese (craft-fonts), others to a Gothic one.
     if crate::craft_fonts::is_serif_family(&st.font_family) {
-        fam.extend(crate::craft_fonts::mincho_first(fallback).iter().map(|f| quote(f)));
+        fam.extend(crate::craft_fonts::mincho_first(&fallback).iter().map(|f| quote(f)));
     } else {
         fam.extend(fallback.iter().map(|f| quote(f)));
     }

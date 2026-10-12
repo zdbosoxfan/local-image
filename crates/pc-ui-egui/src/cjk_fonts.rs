@@ -13,8 +13,8 @@
 //! frame, each file at most once, and once every script has been tried the scan stops.
 //!
 //! Builds made with the optional craft-fonts input (`CRAFT_FONTS_DIR`,
-//! [`photocraft_text::craft_fonts`]) carry Japanese fonts (BIZ UDPGothic first): they are tried
-//! before the system Japanese fonts, in the Japanese slot of the same locale order. Without
+//! [`photocraft_text::craft_fonts`]) carry faces for the scripts declared in their manifest.
+//! They are tried before system faces in the same locale order; Japanese prefers BIZ UDPGothic. Without
 //! craft-fonts (and on the web, which never embeds them) nothing changes.
 
 use egui::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
@@ -34,13 +34,25 @@ pub struct Sources {
     pub locale: fn() -> Option<String>,
     pub files: fn(CjkScript) -> Vec<FontFile>,
     pub last_resort: fn() -> Vec<FontFile>,
-    /// Embedded fonts tried before `files` for a script (craft-fonts' Japanese fonts).
+    /// Embedded fonts tried before `files` for the script declared by their manifest.
     pub embedded: fn(CjkScript) -> Vec<&'static CraftFont>,
 }
 
-/// craft-fonts' Japanese fonts for the Japanese script, UI face first (empty without craft-fonts).
+/// Embedded CJK faces in their own script slot, preserving locale-specific Han ordering.
 pub fn craft_embedded(script: CjkScript) -> Vec<&'static CraftFont> {
-    if script == CjkScript::Japanese { craft_fonts::japanese_for_ui() } else { Vec::new() }
+    if script == CjkScript::Japanese {
+        return craft_fonts::japanese_for_ui();
+    }
+    let tag = match script {
+        CjkScript::Japanese => "Jpan",
+        CjkScript::SimplifiedChinese => "Hans",
+        CjkScript::TraditionalChinese => "Hant",
+        CjkScript::Korean => "Kore",
+    };
+    let mut faces: Vec<_> =
+        craft_fonts::CRAFT_FONTS.iter().filter(|font| font.scripts.contains(&tag) || (script == CjkScript::Korean && font.scripts.contains(&"Hang"))).collect();
+    faces.sort_by_key(|font| font.style != "Regular");
+    faces
 }
 
 /// No embedded fonts (tests that pin the system-font behaviour).
@@ -471,6 +483,42 @@ mod tests {
     }
 
     #[test]
+    fn release_craft_fonts_render_chinese_ui_without_system_fonts() {
+        let Some(font) = craft_fonts::CRAFT_FONTS.iter().find(|font| font.family == "Noto Sans CJK SC") else {
+            assert!(std::env::var_os("CRAFT_FONTS_REQUIRED").is_none(), "required release Chinese font missing");
+            return;
+        };
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts_with(&ctx, craft_only(|| Some("zh_CN".into())));
+        assert!(render(&ctx, "▸ 图层编辑导出 ▾"), "Chinese UI has missing glyphs without system fonts");
+        let definitions = ctx.fonts(|fonts| fonts.definitions().clone());
+        assert!(
+            definitions.font_data.values().any(|data| std::ptr::eq(data.font.as_ref().as_ptr(), font.bytes.as_ptr())),
+            "Chinese UI did not use bundled Chinese face"
+        );
+        // Optional visual evidence accompanies the required-GPU release runs; glyph
+        // assertions above run on ordinary CI too, without a GPU dependency.
+        if std::env::var("LOCAL_IMAGE_REQUIRE_GPU").as_deref() == Ok("1") {
+            let _gpu = crate::gpu_test_support::lock();
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(900., 245.)).build_ui(|ui| {
+                ui.heading("Bundled Chinese UI font — no system fonts");
+                ui.add_space(14.);
+                ui.label(egui::RichText::new("文件  编辑  图层  选择  滤镜  视图  窗口  帮助").size(25.));
+                ui.add_space(10.);
+                ui.label(egui::RichText::new("简体中文：▸ 图层 ▾ 调整颜色、保存和导出。").size(25.));
+                ui.add_space(10.);
+                ui.label("Latin labels keep Inter · 0123456789");
+            });
+            crate::theme::install_fonts_with(&h.ctx, craft_only(|| Some("zh_CN".into())));
+            h.run_steps(12);
+            let image = h.render().expect("required GPU font render");
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/font-coverage-qa/chinese-ui.png");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            image.save(path).unwrap();
+        }
+    }
+
+    #[test]
     fn craft_fonts_render_japanese_without_system_fonts() {
         let Some(ui_font) = craft_fonts::japanese_for_ui().first().copied() else {
             eprintln!("skipping: built without craft-fonts (set CRAFT_FONTS_DIR to a craft-fonts checkout)");
@@ -479,7 +527,11 @@ mod tests {
         // An English locale tries Chinese first (none here), then Japanese: the craft font.
         for locale in [(|| Some("en_US".into())) as fn() -> Option<String>, || Some("ja_JP".into()), || None] {
             let ctx = egui::Context::default();
-            crate::theme::install_fonts_with(&ctx, craft_only(locale));
+            // This control intentionally supplies only the Japanese faces, even when the
+            // complete release manifest also contains a Chinese face.
+            let mut sources = craft_only(locale);
+            sources.embedded = |script| if script == CjkScript::Japanese { craft_fonts::japanese_for_ui() } else { Vec::new() };
+            crate::theme::install_fonts_with(&ctx, sources);
             assert!(render(&ctx, "日本語の文字"), "tofu in 日本語の文字");
             assert!(render(&ctx, "レイヤー 1"), "tofu in kana");
             let fonts = ctx.fonts(|f| f.definitions().clone());

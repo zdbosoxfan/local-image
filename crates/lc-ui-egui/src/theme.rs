@@ -118,6 +118,9 @@ pub fn font_definitions(craft: &'static [lightcraft_engine::CraftFont]) -> FontD
     let mut fonts = FontDefinitions::default();
     fonts.font_data.insert("Inter".into(), Arc::new(FontData::from_static(include_bytes!("../../../assets/fonts/Inter-Regular.ttf"))));
     fonts.font_data.insert("Inter-SemiBold".into(), Arc::new(FontData::from_static(include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf"))));
+    fonts
+        .font_data
+        .insert("JetBrainsMono".into(), Arc::new(FontData::from_static(include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"))));
     // Craft-fonts faces in preference order for a family drawn in `style`.
     let fallback = |style: &str| {
         lightcraft_engine::fonts::cjk_fallback(craft, crate::i18n::language().script(), style)
@@ -131,7 +134,10 @@ pub fn font_definitions(craft: &'static [lightcraft_engine::CraftFont]) -> FontD
             fonts.font_data.insert(name.clone(), Arc::new(FontData::from_static(font.bytes)));
         }
     }
-    let defaults: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+    let mut defaults: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+    // Inter/default egui fonts omit the small disclosure triangles used in labels.
+    // Reuse the bundled mono face only after those fonts, preserving Latin metrics.
+    defaults.push("JetBrainsMono".into());
     let mut prop = vec!["Inter".to_string()];
     prop.extend(defaults.iter().cloned());
     prop.extend(regular);
@@ -140,7 +146,9 @@ pub fn font_definitions(craft: &'static [lightcraft_engine::CraftFont]) -> FontD
     semi.extend(defaults);
     semi.extend(bold);
     fonts.families.insert(FontFamily::Name(FONT_SEMIBOLD.into()), semi);
-    fonts.families.entry(FontFamily::Monospace).or_default().extend(fallback("Regular"));
+    let mono = fonts.families.entry(FontFamily::Monospace).or_default();
+    mono.push("JetBrainsMono".into());
+    mono.extend(fallback("Regular"));
     fonts
 }
 

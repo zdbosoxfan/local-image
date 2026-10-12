@@ -32,3 +32,7 @@ BIZ UDPGothic, BIZ UDMincho, Shippori Mincho, Noto Sans CJK SC, Noto Sans Arabic
 The web build uses BIZ UDPGothic Regular only. These unmodified fonts use the SIL Open Font
 License 1.1. The pinned sources, authors and bundled OFL texts are listed in
 licenses/craft-fonts-NOTICE.md and licenses/OFL-<family>.txt.
+
+Local Image's Library UI additionally uses the already bundled JetBrains Mono font as a
+low-priority symbol fallback. Copyright JetBrains s.r.o.; SIL Open Font License 1.1.
+See assets/fonts/OFL-JetBrainsMono.txt.

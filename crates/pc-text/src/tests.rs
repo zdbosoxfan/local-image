@@ -904,3 +904,22 @@ fn word_and_line_navigation() {
     assert_eq!(jumped, char_index(text, l.lines[1].range.end), "own column");
     assert!(jumped > kept);
 }
+
+#[test]
+fn release_craft_text_language_selects_han_forms_without_overriding_requested_faces() {
+    if !crate::CRAFT_FONTS.iter().any(|font| font.family == "Noto Sans CJK SC") || !crate::CRAFT_FONTS.iter().any(|font| font.is_japanese()) {
+        assert!(std::env::var_os("CRAFT_FONTS_REQUIRED").is_none(), "required release CJK fonts missing");
+        return;
+    }
+    let mut e = TextEngine::new();
+    for (language, expected) in [("ja-JP", "BIZ UDPGothic"), ("zh-Hans", "Noto Sans CJK SC")] {
+        let mut layer = point("日本語", 24.);
+        let mut style = layer.char_runs()[0].style.clone();
+        style.language = Some(language.into());
+        layer.runs = vec![TextRun { len: layer.text.len(), style }];
+        assert_eq!(craft_family_of(&e.layout(&layer, 72.)), vec![expected]);
+    }
+    let mut chosen = point("日本語の文字", 24.);
+    chosen.font_family = "Noto Sans CJK SC".into();
+    assert_eq!(craft_family_of(&e.layout(&chosen, 72.)), vec!["Noto Sans CJK SC"], "an explicitly selected face wins over inferred language");
+}

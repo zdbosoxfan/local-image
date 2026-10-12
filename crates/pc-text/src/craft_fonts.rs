@@ -1,8 +1,9 @@
 //! Fonts from the optional craft-fonts build input (https://github.com/storytold/craft-fonts).
 //!
 //! `CRAFT_FONTS` is empty unless the app was built with `CRAFT_FONTS_DIR=<craft-fonts checkout>`
-//! (see `build.rs`); every user of it must work when it is empty. Today it carries the Japanese
-//! fonts: BIZ UDPGothic (UI) and Shippori Mincho / BIZ UDMincho (serif document text). The web
+//! (see `build.rs`); every user of it must work when it is empty. The release manifest carries
+//! Japanese, Simplified Chinese, Arabic and Thai faces. Japanese ordering helpers below retain
+//! BIZ UDPGothic for UI and Shippori Mincho / BIZ UDMincho for serif document text. The web
 //! build (wasm32) embeds none of them: they don't fit its size cap (see `build.rs`).
 
 /// A font from the optional craft-fonts build input (empty unless built with `CRAFT_FONTS_DIR`).
