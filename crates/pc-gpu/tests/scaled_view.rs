@@ -12,6 +12,7 @@ use photocraft_geom::Rect;
 use std::collections::HashMap;
 
 #[test]
+#[ignore = "required RTX 5090 Vulkan acceptance; see docs/GPU-VALIDATION.md"]
 fn scaled_view_rtx5090_vulkan_mixed_masks_clips_effects_tiled_parity() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

@@ -1,4 +1,5 @@
 //! The tests require the physical GPU; no software-adapter skips count as validation.
+//! The three graph/device gates are required explicit final acceptance in docs/GPU-VALIDATION.md.
 #![cfg(not(target_arch = "wasm32"))]
 mod support;
 use li_seg::{
@@ -8,6 +9,7 @@ use li_seg::{
 use lightcraft_gpu::denoise::Denoiser;
 
 #[test]
+#[ignore = "required physical GPU acceptance; see docs/GPU-VALIDATION.md"]
 fn denoiser_retains_its_device_across_context_release() {
     let _gpu = support::lock();
     let shape = Shape { c: 3, h: 16, w: 16 };
@@ -21,6 +23,7 @@ fn denoiser_retains_its_device_across_context_release() {
 }
 
 #[test]
+#[ignore = "required RTX 5090 acceptance; see docs/GPU-VALIDATION.md"]
 fn ai_denoise_gpu_transpose_and_shuffle() {
     let _gpu = support::lock();
     let s = Shape { c: 1, h: 16, w: 16 };
@@ -109,6 +112,7 @@ fn ai_denoise_real_models_match_tract_on_5090() {
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance; see docs/GPU-VALIDATION.md"]
 fn ai_denoise_gpu_conv_pool_skip_and_sigmoid() {
     let _gpu = support::lock();
     let shape = Shape { c: 3, h: 16, w: 16 };

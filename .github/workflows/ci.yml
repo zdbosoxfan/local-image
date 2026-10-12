@@ -80,6 +80,13 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
 
+      - name: Haze shader numerical conformance (Vulkan, software allowed)
+        if: runner.os == 'Linux'
+        run: >-
+          cargo test --locked -p lightcraft-gpu --lib
+          render::remaining_tests::haze_selection_numerical_vulkan_matches_sorted_quantile
+          -- --ignored --exact --nocapture --test-threads=1
+
       - name: Test
         run: cargo test --workspace --locked
 

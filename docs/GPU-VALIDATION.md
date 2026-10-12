@@ -1,5 +1,74 @@
 # GPU render path on real hardware (Develop toolset, October 2026)
 
+## Required hosted-CI and physical-hardware gates
+
+Hosted Linux CI uses Vulkan numerical tests, including llvmpipe when physical hardware is
+unavailable. This validates shader calculations, not physical GPU execution or performance.
+Production continues to reject software adapters. The ordinary workspace suite and its CPU
+quantile regression remain required; no crate is excluded to accommodate hosted runners.
+
+The named Linux CI step runs this explicit Vulkan conformance gate. It requires an adapter
+and fails if none is available; software adapters are allowed and logged as such:
+
+```sh
+cargo test --locked -p lightcraft-gpu --lib \
+  render::remaining_tests::haze_selection_numerical_vulkan_matches_sorted_quantile \
+  -- --ignored --exact --nocapture --test-threads=1
+```
+
+The conformance gate and physical haze gate share all 24 original kernel comparisons against
+the independent sorted-quantile oracle: the two short cases, three large sizes × five
+distributions, and seven compacted brightness counts, with poisoned unused storage. Exact
+value/bit assertions and device error checks are unchanged. Only the adapter admission differs.
+
+**All five physical gates below are required final acceptance on the exact release candidate.**
+Their `ignore` attributes schedule them explicitly; they do not waive coverage. Hosted CI
+success is insufficient for release acceptance. Run them serially on the approved RTX 5090
+machine, using the existing isolated validation profile and persistent target/toolchain,
+with other builds, GPU tests and inference idle. Preserve source manifests, commands and
+adapter logs. Each command must report exactly one test passed, no skipped test, and no
+unexpected fallback. Record RTX 5090, Vulkan and DiscreteGpu identity; do not infer hardware
+from environment flags. These are numerical/correctness gates, not performance measurements.
+
+```sh
+export LC_REQUIRE_GPU=1 LOCAL_IMAGE_REQUIRE_GPU=1 LIGHTCRAFT_GPU=1
+export LIGHTCRAFT_GPU_BACKEND=vulkan WGPU_BACKEND=vulkan
+export CARGO_BUILD_JOBS=4 RUST_TEST_THREADS=1
+
+cargo +1.98.1 test --offline --frozen -p lightcraft-gpu --lib \
+  render::remaining_tests::ds_finding_native_haze_selection_matches_sorted_quantile \
+  -- --ignored --exact --nocapture --test-threads=1
+cargo +1.98.1 test --offline --frozen -p lightcraft-gpu --test denoise \
+  denoiser_retains_its_device_across_context_release \
+  -- --ignored --exact --nocapture --test-threads=1
+cargo +1.98.1 test --offline --frozen -p lightcraft-gpu --test denoise \
+  ai_denoise_gpu_transpose_and_shuffle \
+  -- --ignored --exact --nocapture --test-threads=1
+cargo +1.98.1 test --offline --frozen -p lightcraft-gpu --test denoise \
+  ai_denoise_gpu_conv_pool_skip_and_sigmoid \
+  -- --ignored --exact --nocapture --test-threads=1
+cargo +1.98.1 test --offline --frozen -p photocraft-gpu --test scaled_view \
+  scaled_view_rtx5090_vulkan_mixed_masks_clips_effects_tiled_parity \
+  -- --ignored --exact --nocapture --test-threads=1
+```
+
+The haze gate retains its non-CPU assertion and now acquires only a production device.
+Invoking it without physical hardware must fail. The denoiser graph/device test bodies and
+scaled-view RTX/Vulkan/discrete assertions are unchanged. These graph tests require no model
+downloads. The separately existing `ai_denoise_real_models_match_tract_on_5090` keeps its
+original pinned-model prerequisite and opt-in schedule; it is not included by a broad
+`--ignored` command here. Other previously required device/model/workflow checks remain due.
+
+TEST-CHANGED: Five formerly ordinary physical-only tests now run by the explicit required
+final-acceptance commands above. The haze body also runs in the mandatory named Linux CI
+Vulkan conformance step. No numerical threshold, sample, hardware assertion or production
+fallback policy was removed or weakened. CI run 38279959831 at e0f57cc0 had rejected llvmpipe
+before executing the haze comparisons; it did not establish a numerical failure. The
+historical RTX 5090 pass in `docs/wip/v2-recovery-validation/final-union.log` remains evidence
+for that recorded source only; changed candidates must execute the gates again.
+
+## Historical hardware results
+
 The develop GPU renderer (`lightcraft-gpu`) and the compositing GPU renderer (`photocraft-gpu`)
 were written in a container without a GPU adapter, where every GPU test skipped itself. This
 records their first run on a real GPU, the tests added for the §4.1 toolset

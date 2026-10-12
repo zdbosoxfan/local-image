@@ -201,11 +201,28 @@ fn reference_select(mut v: Vec<f32>) -> f32 {
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance; see docs/GPU-VALIDATION.md"]
 fn ds_finding_native_haze_selection_matches_sorted_quantile() {
-    let gpu_device = crate::test_device().or_else(device).expect("a real GPU is required");
+    let gpu_device = crate::test_device().expect("a real GPU is required");
     let g = &*gpu_device;
     eprintln!("haze selection adapter: {:?}", g.info);
     assert_ne!(g.info.device_type, wgpu::DeviceType::Cpu);
+    haze_selection_matches_sorted_quantile(g);
+}
+
+#[test]
+#[ignore = "required Linux CI Vulkan numerical conformance; software adapters allowed"]
+fn haze_selection_numerical_vulkan_matches_sorted_quantile() {
+    let gpu_device = device().expect("Vulkan numerical-test adapter required");
+    let g = &*gpu_device;
+    eprintln!("haze numerical conformance adapter (software allowed): {:?}", g.info);
+    assert_eq!(g.info.backend, wgpu::Backend::Vulkan);
+    haze_selection_matches_sorted_quantile(g);
+}
+
+// Both entry points execute every original case against the independent sorted oracle.
+// Keep the owning TestGpu in the caller through readback and device teardown.
+fn haze_selection_matches_sorted_quantile(g: &Gpu) {
     let _scope = crate::ctx::RenderScope::new(g);
     let mut cx = Cx::new(g);
     let errors = crate::ctx::ErrorScopes::push(g);
