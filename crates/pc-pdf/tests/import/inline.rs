@@ -148,3 +148,37 @@ fn pdf_inline_group3_last_row_padding_cannot_consume_lf_before_ei() {
     );
     assert_eq!(render(&inline).px, render(&reference).px);
 }
+
+#[test]
+fn pdf_inline_typeless_type3_glyph_and_tiling_pattern_match_xobjects() {
+    let samples = b" EI Q q BI fakEI";
+    let image = fixture::stream("/Type /XObject /Subtype /Image /Width 16 /Height 1 /BitsPerComponent 8 /ColorSpace /DeviceGray", samples);
+    let font=b"<< /Subtype /Type3 /FontBBox [0 0 600 700] /FontMatrix [0.001 0 0 0.001 0 0] /FirstChar 65 /LastChar 65 /Widths [600] /Encoding << /Type /Encoding /Differences [65 /a] >> /Resources << /XObject << /Im 7 0 R >> >> /CharProcs << /a 6 0 R >> >>";
+    let mut glyph = b"600 0 d0 q 600 0 0 700 0 0 cm BI /W 16 /H 1 /BPC 8 /CS /G ID ".to_vec();
+    glyph.extend_from_slice(samples);
+    glyph.extend_from_slice(b" EI Q");
+    let make =
+        |glyph: &[u8]| fixture::page("BT /F 20 Tf 20 20 Td (A) Tj ET", "/Font << /F 5 0 R >>", "", &[font.to_vec(), fixture::stream("", glyph), image.clone()]);
+    let actual = render(&make(&glyph));
+    let expected = render(&make(b"600 0 d0 q 600 0 0 700 0 0 cm /Im Do Q"));
+    assert!(actual.px.iter().any(|p| p[3] > 0.));
+    assert_eq!(actual.px, expected.px);
+    let mut tile = b"q 8 0 0 8 0 0 cm BI /W 16 /H 1 /BPC 8 /CS /G ID ".to_vec();
+    tile.extend_from_slice(samples);
+    tile.extend_from_slice(b" EI Q");
+    let make = |tile: &[u8]| {
+        fixture::page(
+            "/Pattern cs /P scn 0 0 64 64 re f",
+            "/Pattern << /P 5 0 R >>",
+            "",
+            &[
+                fixture::stream("/PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 8 8] /XStep 8 /YStep 8 /Resources << /XObject << /Im 6 0 R >> >>", tile),
+                image.clone(),
+            ],
+        )
+    };
+    let actual = render(&make(&tile));
+    let expected = render(&make(b"q 8 0 0 8 0 0 cm /Im Do Q"));
+    assert!(actual.px.iter().any(|p| p[3] > 0.));
+    assert_eq!(actual.px, expected.px);
+}

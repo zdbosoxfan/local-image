@@ -74,8 +74,9 @@ fn discover(v: &Value, inherited: u8, seeds: &mut Seeds, budget: &mut Budget<'_>
         }
         Value::Dict(dict) => {
             let page = v.get(b"Type").and_then(Value::name) == Some(b"Page");
-            let font = v.get(b"Type").and_then(Value::name) == Some(b"Font");
-            let type3 = font && v.get(b"Subtype").and_then(Value::name) == Some(b"Type3");
+            // Pinned Font::new dispatches on Subtype; Type is optional.
+            let type3 = v.get(b"Subtype").and_then(Value::name) == Some(b"Type3");
+            let font = v.get(b"Type").and_then(Value::name) == Some(b"Font") || type3;
             for (key, value) in dict {
                 let mut role = inherited;
                 if page && key == b"Contents" || type3 && key == b"CharProcs" {
@@ -148,9 +149,7 @@ pub(super) fn classify(g: &mut Guard<'_>, streams: &BTreeSet<Id>) -> Result<Role
     for (&id, r) in &g.objects {
         discover(&r.value, 0, &mut seeds, &mut budget)?;
         if streams.contains(&id) {
-            if r.value.get(b"Subtype").and_then(Value::name) == Some(b"Form")
-                || r.value.get(b"Type").and_then(Value::name) == Some(b"Pattern") && r.value.get(b"PatternType").and_then(Value::number) == Some(1)
-            {
+            if r.value.get(b"Subtype").and_then(Value::name) == Some(b"Form") || r.value.get(b"PatternType").and_then(Value::number) == Some(1) {
                 budget.insert(&mut seeds.content, id)?;
             }
             if matches!(r.value.get(b"Type").and_then(Value::name), Some(b"Metadata" | b"CMap")) {

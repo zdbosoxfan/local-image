@@ -839,7 +839,10 @@ pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) 
                 continue;
             }
             let content = inline::analyze(&mut g, &data)?;
-            has_inline |= content_ids.contains(&id) && content.has_inline;
+            if content.has_inline && !content_ids.contains(&id) {
+                return Err(ImportError::Unsupported("inline image in unclassified stream"));
+            }
+            has_inline |= content.has_inline;
             if let Some(r) = g.objects.get_mut(&id) {
                 r.work = content.work;
                 r.calls = content.calls;

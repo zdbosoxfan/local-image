@@ -703,4 +703,50 @@ mod scope_tests {
             Err(ImportError::Unsupported("binary resource reused as page content"))
         ));
     }
+    #[test]
+    fn inline_semantic_roles_accept_optional_type_and_refuse_unknown_bi() {
+        use hayro_syntax::object::Object;
+        let draw = b"BI /W 1 /H 1 /BPC 8 /CS /G ID X EI";
+        for (resource, object) in [
+            (b"/Font << /F 5 0 R >>".as_slice(), b"<< /Subtype /Type3 /CharProcs << /a 6 0 R >> >>".as_slice()),
+            (b"/Pattern << /P 6 0 R >>".as_slice(), b"null".as_slice()),
+        ] {
+            let pattern = resource.starts_with(b"/Pattern");
+            let page = format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 8 8] /Resources << {} >> /Contents 4 0 R >>", String::from_utf8_lossy(resource));
+            let objects = vec![
+                b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+                b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+                page.into_bytes(),
+                stream("", b"q Q"),
+                object.to_vec(),
+                stream(if pattern { "/PatternType 1" } else { "" }, draw),
+            ];
+            let admitted = check(&pdf(&objects), &ImportOptions::default(), &AtomicBool::new(false)).unwrap();
+            assert!(
+                admitted
+                    .objects()
+                    .into_iter()
+                    .any(|o| matches!(o,Object::Stream(ref st) if st.raw_data().windows(b"/ASCIIHexDecode".len()).any(|s|s==b"/ASCIIHexDecode")))
+            );
+        }
+        let mut objects = vec![
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 8 8] /Contents 4 0 R >>".to_vec(),
+            stream("", b"q Q"),
+            stream("/Private true", draw),
+        ];
+        assert!(matches!(
+            check(&pdf(&objects), &ImportOptions::default(), &AtomicBool::new(false)),
+            Err(ImportError::Unsupported("inline image in unclassified stream"))
+        ));
+        objects[4] = stream("/Private true", b"(BI EI) pop % BI is not an instruction here\n");
+        let admitted = check(&pdf(&objects), &ImportOptions::default(), &AtomicBool::new(false)).unwrap();
+        assert!(
+            admitted
+                .objects()
+                .into_iter()
+                .any(|o| matches!(o,Object::Stream(ref st) if st.raw_data().as_ref()==b"(BI EI) pop % BI is not an instruction here\n"))
+        );
+    }
 }

@@ -162,3 +162,12 @@ at most six Group3 or two Group4 EOL markers; it never searches arbitrary EI.
 The selected slice still passes ordinary isolated CCITT validation. The fixture
 requires identical output to the three-byte image XObject with a following blue
 vector marker, proving that the PDF separator and later drawing are retained.
+
+Optional-Type role follow-up: pinned hayro-interpret 0.7.0 dispatches Type3 fonts
+from Subtype and tiling patterns from stream objects, without requiring Type.
+The role classifier therefore accepts Subtype Type3 CharProcs and declared
+PatternType1 streams without those optional Type names. New canonical and pixel
+fixtures omit Type, include fake EI/BI image samples in a glyph/pattern, and
+compare them with matching XObject images. Actual BI in any still-unclassified
+stream is refused before publication; literal/comment text containing BI remains
+opaque and byte-exact. Existing XML/CMap preservation controls are retained.
