@@ -13,11 +13,94 @@ fn err(e: impl std::fmt::Display) -> Error {
     Error::Malformed(F, e.to_string())
 }
 
+/// Present only the first IFD's WhiteIsZero tag as BlackIsZero to the decoder.
+/// tiff 0.11 already inverts single-channel gray, but rejects WhiteIsZero with
+/// extra samples. Reading stored samples lets us handle both without touching alpha.
+struct StoredSamples<'a> {
+    cursor: std::io::Cursor<&'a [u8]>,
+    patch: Option<(u64, Vec<u8>)>,
+}
+impl<'a> StoredSamples<'a> {
+    fn new(bytes: &'a [u8]) -> Result<Self> {
+        let patch = Self::photometric_patch(bytes)?;
+        Ok(Self { cursor: std::io::Cursor::new(bytes), patch })
+    }
+    fn photometric_patch(bytes: &[u8]) -> Result<Option<(u64, Vec<u8>)>> {
+        let little = match bytes.get(..2) {
+            Some(b"II") => true,
+            Some(b"MM") => false,
+            _ => return Ok(None),
+        };
+        let read = |at: usize, len: usize| -> Option<u64> {
+            let part = bytes.get(at..at.checked_add(len)?)?;
+            Some(if little {
+                part.iter().rev().fold(0, |v, b| (v << 8) | u64::from(*b))
+            } else {
+                part.iter().fold(0, |v, b| (v << 8) | u64::from(*b))
+            })
+        };
+        let (ifd, count_size, entry_size, value_at) = match read(2, 2) {
+            Some(42) => (read(4, 4), 2usize, 12usize, 8usize),
+            Some(43) if read(4, 2) == Some(8) && read(6, 2) == Some(0) => (read(8, 8), 8, 20, 12),
+            _ => return Ok(None),
+        };
+        let ifd = ifd.and_then(|n| usize::try_from(n).ok()).ok_or_else(|| err("invalid first IFD offset"))?;
+        let count = read(ifd, count_size).and_then(|n| usize::try_from(n).ok()).ok_or_else(|| err("invalid first IFD count"))?;
+        let table_len = count.checked_mul(entry_size).filter(|len| *len <= 32 << 20).ok_or_else(|| err("IFD exceeds metadata limit"))?;
+        let start = ifd.checked_add(count_size).ok_or_else(|| err("invalid IFD range"))?;
+        let end = start.checked_add(table_len).filter(|end| *end <= bytes.len()).ok_or_else(|| err("truncated IFD"))?;
+        let mut found = None;
+        for at in (start..end).step_by(entry_size) {
+            if read(at, 2) != Some(262) {
+                continue;
+            }
+            if found.is_some() {
+                return Err(err("duplicate PhotometricInterpretation"));
+            }
+            let len = match read(at + 2, 2) {
+                Some(3) => 2,
+                Some(4) => 4,
+                _ => return Err(err("invalid PhotometricInterpretation type")),
+            };
+            if read(at + 4, if count_size == 8 { 8 } else { 4 }) != Some(1) {
+                return Err(err("invalid PhotometricInterpretation count"));
+            }
+            let at = at + value_at;
+            found = Some((at, len, read(at, len).ok_or_else(|| err("truncated PhotometricInterpretation"))?));
+        }
+        Ok(found.filter(|(_, _, value)| *value == 0).map(|(at, len, _)| {
+            let mut replacement = vec![0; len];
+            replacement[if little { 0 } else { len - 1 }] = 1;
+            (at as u64, replacement)
+        }))
+    }
+}
+impl std::io::Read for StoredSamples<'_> {
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        let start = self.cursor.position();
+        let n = std::io::Read::read(&mut self.cursor, out)?;
+        if let Some((at, bytes)) = &self.patch {
+            let end = start.saturating_add(n as u64);
+            for pos in (*at).max(start)..at.saturating_add(bytes.len() as u64).min(end) {
+                out[(pos - start) as usize] = bytes[(pos - *at) as usize];
+            }
+        }
+        Ok(n)
+    }
+}
+impl std::io::Seek for StoredSamples<'_> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        std::io::Seek::seek(&mut self.cursor, pos)
+    }
+}
+
 pub(crate) fn decode(bytes: &[u8], opts: &DecodeOptions) -> Result<Decoded> {
     let mut limits = Limits::default();
     limits.decoding_buffer_size = opts.max_pixels.saturating_mul(4 * 8).min(usize::MAX as u64) as usize;
     limits.ifd_value_size = 32 << 20;
-    let mut d = Decoder::new(std::io::Cursor::new(bytes)).map_err(err)?.with_limits(limits);
+    let stored = StoredSamples::new(bytes)?;
+    let white_is_zero = stored.patch.is_some();
+    let mut d = Decoder::new(stored).map_err(err)?.with_limits(limits);
     let (w, h) = d.dimensions().map_err(err)?;
     check_size(F, w as u64, h as u64, opts)?;
     let ct = d.colortype().map_err(err)?;
@@ -41,6 +124,9 @@ pub(crate) fn decode(bytes: &[u8], opts: &DecodeOptions) -> Result<Decoded> {
         ColorType::Palette(b) => (Model::Rgb, 1, 1, b),
         // JPEG-compressed YCbCr is converted to RGB by the JPEG decoder.
         ColorType::YCbCr(b) if compression == Some(7) => (Model::Rgb, 3, 3, b),
+        ColorType::Multiband { bit_depth, num_samples } if num_samples >= 1 && matches!(photometric, Some(0 | 1)) => {
+            (Model::Gray, 1, num_samples as usize, bit_depth)
+        }
         ColorType::Multiband { bit_depth, num_samples } if num_samples >= 3 => (Model::Rgb, 3, num_samples as usize, bit_depth),
         ColorType::Multiband { bit_depth, num_samples } if num_samples >= 1 => (Model::Gray, 1, num_samples as usize, bit_depth),
         other => return Err(Error::Unsupported(F, unsupported_name(other))),
@@ -94,12 +180,14 @@ pub(crate) fn decode(bytes: &[u8], opts: &DecodeOptions) -> Result<Decoded> {
         return finish(F, raw, meta, (w, h), opts);
     }
 
-    // WhiteIsZero → invert.
-    if photometric == Some(0) {
+    // Match libtiff's setupMap/putagreytile convention: polarity maps stored
+    // gray to associated intensity first, then finish unassociates before TRC.
+    // Only colour changes: extra samples (including alpha) keep their exact values.
+    if white_is_zero {
         match &mut buf {
-            Buf::U8(v) => v.iter_mut().for_each(|x| *x = 255 - *x),
-            Buf::U16(v) => v.iter_mut().for_each(|x| *x = 65535 - *x),
-            Buf::F32(v) => v.iter_mut().for_each(|x| *x = 1.0 - *x),
+            Buf::U8(v) => v.chunks_exact_mut(n_samples).for_each(|pixel| pixel[0] = 255 - pixel[0]),
+            Buf::U16(v) => v.chunks_exact_mut(n_samples).for_each(|pixel| pixel[0] = 65535 - pixel[0]),
+            Buf::F32(v) => v.chunks_exact_mut(n_samples).for_each(|pixel| pixel[0] = 1.0 - pixel[0]),
         }
     }
 
@@ -175,5 +263,42 @@ fn select_channels(buf: Buf, n: usize, s: usize, keep: usize) -> Buf {
         Buf::U8(v) => Buf::U8(go(v, n, s, keep)),
         Buf::U16(v) => Buf::U16(go(v, n, s, keep)),
         Buf::F32(v) => Buf::F32(go(v, n, s, keep)),
+    }
+}
+
+#[cfg(test)]
+mod stored_samples_tests {
+    use super::*;
+    use std::io::{Read, Seek, SeekFrom};
+
+    #[test]
+    fn white_is_zero_view_only_changes_the_checked_tag_and_handles_partial_reads() {
+        let mut bytes = b"II\x2a\0\x08\0\0\0".to_vec();
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&262u16.to_le_bytes());
+        bytes.extend_from_slice(&3u16.to_le_bytes());
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&[0; 8]);
+        let original = bytes.clone();
+        let mut view = StoredSamples::new(&bytes).unwrap();
+        let mut actual = vec![];
+        view.read_to_end(&mut actual).unwrap();
+        let mut expected = bytes.clone();
+        expected[18] = 1;
+        assert_eq!(actual, expected);
+        view.seek(SeekFrom::Start(17)).unwrap();
+        let mut crossing = [0; 4];
+        view.read_exact(&mut crossing).unwrap();
+        assert_eq!(&crossing, &expected[17..21]);
+        assert_eq!(bytes, original, "source bytes are never rewritten");
+        for cut in 8..22 {
+            assert!(StoredSamples::new(&bytes[..cut]).is_err());
+        }
+        bytes[14..18].copy_from_slice(&2u32.to_le_bytes());
+        assert!(StoredSamples::new(&bytes).is_err(), "photometric array cannot be patched as a scalar");
+        let mut huge = b"II+\0\x08\0\0\0".to_vec();
+        huge.extend_from_slice(&16u64.to_le_bytes());
+        huge.extend_from_slice(&u64::MAX.to_le_bytes());
+        assert!(StoredSamples::new(&huge).is_err(), "count overflow rejected before traversal");
     }
 }

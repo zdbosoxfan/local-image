@@ -561,3 +561,159 @@ fn print_resolution_is_written() {
     let j = encode_jpeg(&img, 90, ChromaSubsampling::S444, &EncodeMeta::default()).unwrap();
     assert_eq!(&j[13..18], &[0, 0, 1, 0, 1]);
 }
+
+/// Independent uncompressed IFD fixture: no application encoder or decoder patch helper.
+struct AlphaTiff {
+    bits: u16,
+    channels: u16,
+    photo: u16,
+    extra: Option<u16>,
+    float: bool,
+    little: bool,
+    big: bool,
+}
+impl AlphaTiff {
+    fn bytes(&self, samples: &[u64], icc: Option<&[u8]>) -> Vec<u8> {
+        let number =
+            |value: u64, n: usize| -> Vec<u8> { if self.little { value.to_le_bytes()[..n].to_vec() } else { value.to_be_bytes()[8 - n..].to_vec() } };
+        let width = samples.len() / usize::from(self.channels);
+        let sample_bytes: Vec<u8> = samples.iter().flat_map(|value| number(*value, usize::from(self.bits / 8))).collect();
+        let short = |value: u16| number(u64::from(value), 2);
+        let mut fields = vec![
+            (256u16, 4u16, 1u64, number(width as u64, 4)),
+            (257, 4, 1, number(1, 4)),
+            (258, 3, u64::from(self.channels), short(self.bits).repeat(usize::from(self.channels))),
+            (259, 3, 1, short(1)),
+            (262, 3, 1, short(self.photo)),
+            (273, if self.big { 16 } else { 4 }, 1, vec![]),
+            (277, 3, 1, short(self.channels)),
+            (278, 4, 1, number(1, 4)),
+            (279, 4, 1, number(sample_bytes.len() as u64, 4)),
+            (284, 3, 1, short(1)),
+            (339, 3, u64::from(self.channels), short(if self.float { 3 } else { 1 }).repeat(usize::from(self.channels))),
+        ];
+        if let Some(extra) = self.extra {
+            fields.push((338, 3, 1, short(extra)));
+        }
+        if let Some(icc) = icc {
+            fields.push((34675, 7, icc.len() as u64, icc.to_vec()));
+        }
+        fields.sort_by_key(|field| field.0);
+        let (header, count_size, entry_size, offset_size) = if self.big { (16, 8, 20, 8) } else { (8, 2, 12, 4) };
+        let data_start = header + count_size + fields.len() * entry_size + offset_size;
+        let mut tail = vec![];
+        let mut entries = vec![];
+        let mut strip_at = 0;
+        for (tag, ty, count, value) in fields.iter() {
+            entries.extend(short(*tag));
+            entries.extend(short(*ty));
+            entries.extend(number(*count, if self.big { 8 } else { 4 }));
+            if *tag == 273 {
+                strip_at = entries.len();
+                entries.extend(vec![0; offset_size]);
+            } else if value.len() <= offset_size {
+                entries.extend(value);
+                entries.resize(entries.len() + offset_size - value.len(), 0);
+            } else {
+                entries.extend(number((data_start + tail.len()) as u64, offset_size));
+                tail.extend(value);
+                if !tail.len().is_multiple_of(2) {
+                    tail.push(0);
+                }
+            }
+        }
+        entries[strip_at..strip_at + offset_size].copy_from_slice(&number((data_start + tail.len()) as u64, offset_size));
+        let mut bytes = if self.little { b"II".to_vec() } else { b"MM".to_vec() };
+        bytes.extend(short(if self.big { 43 } else { 42 }));
+        if self.big {
+            bytes.extend(short(8));
+            bytes.extend(short(0));
+        }
+        bytes.extend(number(header as u64, offset_size));
+        bytes.extend(number(fields.len() as u64, count_size));
+        bytes.extend(entries);
+        bytes.extend(vec![0; offset_size]);
+        bytes.extend(tail);
+        bytes.extend(sample_bytes);
+        bytes
+    }
+}
+
+#[test]
+fn associated_integer_tiff_unassociates_before_transfer_with_profile_and_zero_alpha() {
+    for bits in [8, 16] {
+        let scale = if bits == 8 { 1u64 } else { 257 };
+        for little in [false, true] {
+            for big in [false, true] {
+                for profile in [None, Some(icc::write_matrix_trc(&lightcraft_color::SRGB, &Trc::Gamma(2.0)))] {
+                    let fixture = AlphaTiff { bits, channels: 4, photo: 2, extra: Some(1), float: false, little, big };
+                    let values = [99, 77, 55, 0, 32, 64, 96, 128, 64, 128, 192, 255].map(|value| value * scale);
+                    let d = decode(&fixture.bytes(&values, profile.as_deref()), DecodeOptions::default()).unwrap();
+                    let transfer = if profile.is_some() { Trc::Gamma(2.0) } else { Trc::Srgb };
+                    assert_eq!(d.image.data[0], [0.; 3]);
+                    for (i, expected) in [[0.25, 0.5, 0.75], [64. / 255., 128. / 255., 192. / 255.]].iter().enumerate() {
+                        for (actual, code) in d.image.data[i + 1].iter().zip(expected) {
+                            assert!((*actual - transfer.to_linear(*code)).abs() < 1e-5, "{bits} {actual} {code}");
+                        }
+                    }
+                    assert_eq!(d.alpha.as_ref().unwrap().data, [0., 128. / 255., 1.]);
+                    assert_eq!(d.icc, profile);
+                    let straight = AlphaTiff { extra: Some(2), ..fixture };
+                    let d = decode(&straight.bytes(&values, profile.as_deref()), DecodeOptions::default()).unwrap();
+                    assert!((d.image.data[1][0] - transfer.to_linear(32. / 255.)).abs() < 1e-5);
+                    assert!(d.image.data[0][0] > 0., "straight zero-alpha hidden colour is retained");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn white_is_zero_tiff_keeps_alpha_and_polarity_before_unassociation() {
+    // libtiff's setupMap/putagreytile maps WhiteIsZero to associated intensity
+    // before the alpha is removed: stored191, alpha128 => (255-191)/128 = 0.5.
+    for bits in [8, 16] {
+        let scale = if bits == 8 { 1u64 } else { 257 };
+        for little in [false, true] {
+            for big in [false, true] {
+                for extra in [None, Some(1), Some(2)] {
+                    let fixture = AlphaTiff { bits, channels: if extra.is_some() { 2 } else { 1 }, photo: 0, extra, float: false, little, big };
+                    let values: Vec<u64> =
+                        if extra.is_some() { vec![255, 0, 191, 128, 64, 255] } else { vec![255, 191, 64] }.into_iter().map(|v| v * scale).collect();
+                    let d = decode(&fixture.bytes(&values, None), DecodeOptions::default()).unwrap();
+                    assert!(d.grayscale);
+                    let expected = if extra == Some(1) { [0., 0.5, 191. / 255.] } else { [0., 64. / 255., 191. / 255.] };
+                    for (p, v) in d.image.data.iter().zip(expected) {
+                        assert!((p[0] - srgb_to_linear(v)).abs() < 1e-5);
+                        assert_eq!(p[0], p[1]);
+                        assert_eq!(p[1], p[2]);
+                    }
+                    if extra.is_some() {
+                        assert_eq!(d.alpha.as_ref().unwrap().data, [0., 128. / 255., 1.]);
+                    } else {
+                        assert!(d.alpha.is_none());
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn associated_float_white_is_zero_retains_linear_hdr_and_straight_alpha() {
+    for little in [false, true] {
+        for big in [false, true] {
+            for associated in [false, true] {
+                let fixture = AlphaTiff { bits: 32, channels: 2, photo: 0, extra: Some(if associated { 1 } else { 2 }), float: true, little, big };
+                let samples = [1.0f32, 0., 0.75, 0.5, -1., 0.5, 1.25, 1.].map(|v| u64::from(v.to_bits()));
+                let d = decode(&fixture.bytes(&samples, None), DecodeOptions::default()).unwrap();
+                assert!(d.float);
+                let expected = if associated { [0., 0.5, 4., -0.25] } else { [0., 0.25, 2., -0.25] };
+                for (p, v) in d.image.data.iter().zip(expected) {
+                    assert_eq!(*p, [v; 3]);
+                }
+                assert_eq!(d.alpha.as_ref().unwrap().data, [0., 0.5, 0.5, 1.]);
+            }
+        }
+    }
+}

@@ -62,6 +62,24 @@ pub(crate) struct Raw {
     pub bit_depth: u8,
 }
 
+impl Raw {
+    fn associated_integer(&self) -> bool {
+        self.alpha && self.premultiplied && !matches!(self.buf, Buf::F32(_))
+    }
+
+    /// Integers store associated device codes, not associated linear-light RGB.
+    /// Keep the division fractional; quantizing back to an integer loses precision.
+    fn device_sample(&self, pixel: usize, channel: usize, channels: usize) -> f32 {
+        let value = self.buf.norm(pixel * channels + channel);
+        if self.associated_integer() {
+            let alpha = self.buf.norm(pixel * channels + channels - 1);
+            if alpha > 0.0 { value / alpha } else { 0.0 }
+        } else {
+            value
+        }
+    }
+}
+
 /// Metadata and colour hints gathered from the container.
 #[derive(Default)]
 pub(crate) struct Meta {
@@ -117,7 +135,12 @@ pub(crate) fn finish(format: Format, raw: Raw, meta: Meta, source_dims: (u32, u3
         && let Some(a) = &alpha
     {
         for (p, &av) in image.data.iter_mut().zip(&a.data) {
-            if av > 0.0 {
+            if av <= 0.0 {
+                // Associated colour is undefined at zero coverage, including a
+                // subtractive CMS whose zero device values would otherwise be white.
+                *p = [0.0; 3];
+            } else if float {
+                // Float input retains its existing linear/HDR interpretation.
                 *p = p.map(|c| c / av);
             }
         }
@@ -163,12 +186,12 @@ fn to_rgb_passthrough(raw: &Raw, ch: usize) -> Rgb32f {
     let mut img = Rgb32f::new(raw.width, raw.height);
     par_rows(&mut img.data, raw.width, |y, row| {
         for (x, o) in row.iter_mut().enumerate() {
-            let i = (y * raw.width + x) * ch;
+            let p = y * raw.width + x;
             *o = if gray {
-                let v = raw.buf.norm(i);
+                let v = raw.device_sample(p, 0, ch);
                 [v, v, v]
             } else {
-                [raw.buf.norm(i), raw.buf.norm(i + 1), raw.buf.norm(i + 2)]
+                [raw.device_sample(p, 0, ch), raw.device_sample(p, 1, ch), raw.device_sample(p, 2, ch)]
             };
         }
     });
@@ -180,6 +203,19 @@ fn linearize(raw: &Raw, ch: usize, trc: &[Trc; 3]) -> Rgb32f {
     let gray = raw.model == Model::Gray;
     let mut img = Rgb32f::new(raw.width, raw.height);
     let w = raw.width;
+    if raw.associated_integer() {
+        par_rows(&mut img.data, w, |y, row| {
+            for (x, out) in row.iter_mut().enumerate() {
+                let pixel = y * w + x;
+                *out = if gray {
+                    [trc[1].to_linear(raw.device_sample(pixel, 0, ch)); 3]
+                } else {
+                    std::array::from_fn(|c| trc[c].to_linear(raw.device_sample(pixel, c, ch)))
+                };
+            }
+        });
+        return img;
+    }
     match &raw.buf {
         Buf::U8(v) => {
             let luts: Vec<Vec<f32>> = trc.iter().map(|t| t.lut8()).collect();
@@ -242,7 +278,7 @@ fn device_samples(raw: &Raw, ch: usize, n_color: usize) -> Vec<f32> {
     let mut out = Vec::with_capacity(n * n_color);
     for p in 0..n {
         for c in 0..n_color {
-            out.push(raw.buf.norm(p * ch + c).clamp(0.0, 1.0));
+            out.push(raw.device_sample(p, c, ch).clamp(0.0, 1.0));
         }
     }
     out
@@ -333,4 +369,59 @@ fn cmyk(raw: &Raw, ch: usize, icc_bytes: Option<&[u8]>, info: Option<&icc::IccIn
         .collect();
     let origin = if icc_bytes.is_some() { SpaceOrigin::IccUnsupported } else { SpaceOrigin::Naive };
     (from_vec(raw.width, raw.height, px), SourceSpace::named(NamedSpace::Srgb, origin))
+}
+
+#[cfg(test)]
+mod alpha_tests {
+    use super::*;
+
+    fn input(model: Model, buf: Buf, associated: bool) -> Raw {
+        Raw { width: buf.len() / (model.channels() + 1), height: 1, model, alpha: true, premultiplied: associated, buf, bit_depth: 32 }
+    }
+    #[test]
+    fn associated_integer_samples_reach_cms_unassociated() {
+        let rgb = input(Model::Rgb, Buf::U8(vec![32, 64, 96, 128]), true);
+        assert_eq!(device_samples(&rgb, 4, 3), [0.25, 0.5, 0.75]);
+        // Force the actual CMS dispatch using a known profile, then compare with
+        // independently unassociated input sent directly to that transform.
+        let profile = icc::write_named(NamedSpace::DisplayP3);
+        let mut info = icc::parse(&profile).unwrap();
+        info.kind = IccKind::NeedsCms;
+        let expected = icc::cms_to_linear_rec2020(&profile, &[0.25, 0.5, 0.75], 3).unwrap();
+        let meta = Meta { icc: Some(profile), ..Default::default() };
+        let (actual, space) = rgb_or_gray(&rgb, 4, &meta, Some(&info), false);
+        assert_eq!(space.origin, SpaceOrigin::IccCms);
+        for (a, b) in actual.data[0].iter().zip(expected[0]) {
+            assert!((*a - b).abs() < 1e-6);
+        }
+
+        let cmyk = input(Model::Cmyk, Buf::U16(vec![8192, 16384, 24576, 8192, 32768, 65535, 65535, 65535, 65535, 0]), true);
+        assert_eq!(device_samples(&cmyk, 5, 4), [0.25, 0.5, 0.75, 0.25, 0., 0., 0., 0.]);
+        let decoded = finish(Format::Tiff, cmyk, Meta::default(), (2, 1), &DecodeOptions::default()).unwrap();
+        let expected = [0.75 * 0.75, 0.5 * 0.75, 0.25 * 0.75].map(lightcraft_color::transfer::srgb_to_linear);
+        for (actual, want) in decoded.image.data[0].iter().zip(expected) {
+            assert!((*actual - want).abs() < 1e-6);
+        }
+        assert_eq!(decoded.image.data[1], [0.; 3]);
+    }
+    #[test]
+    fn associated_float_retains_linear_hdr_and_explicit_transfer_semantics() {
+        for associated in [false, true] {
+            let raw = input(Model::Rgb, Buf::F32(vec![-0.25, 1., 2., 0.5, 0.25, 0.5, 0.75, 0.]), associated);
+            let decoded = finish(Format::Tiff, raw, Meta::default(), (2, 1), &DecodeOptions::default()).unwrap();
+            assert!(decoded.float);
+            assert_eq!(decoded.image.data[0], if associated { [-0.5, 2., 4.] } else { [-0.25, 1., 2.] });
+            assert_eq!(decoded.image.data[1], if associated { [0.; 3] } else { [0.25, 0.5, 0.75] });
+            assert_eq!(decoded.alpha.unwrap().data, [0.5, 0.]);
+        }
+        let raw = input(Model::Rgb, Buf::F32(vec![0.25, 0.25, 0.25, 0.5]), true);
+        let meta = Meta { icc: Some(icc::write_named(NamedSpace::Srgb)), ..Default::default() };
+        let decoded = finish(Format::Tiff, raw, meta, (1, 1), &DecodeOptions::default()).unwrap();
+        assert!((decoded.image.data[0][0] - Trc::Srgb.to_linear(0.25) / 0.5).abs() < 1e-5);
+        let raw = input(Model::Rgb, Buf::U8(vec![32, 64, 96, 128]), true);
+        let meta = Meta { already_linear: Some(SourceSpace::named(NamedSpace::Srgb, SpaceOrigin::Untagged)), ..Default::default() };
+        let decoded = finish(Format::Tiff, raw, meta, (1, 1), &DecodeOptions::default()).unwrap();
+        assert!(!decoded.float);
+        assert_eq!(decoded.image.data[0], [0.25, 0.5, 0.75]);
+    }
 }
