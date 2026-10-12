@@ -403,3 +403,11 @@ Verification: 18 focused group cases and all 86 affected PDF library/import case
 TEST-CHANGED: the old normal nonisolated refusal case now asserts actual supported opaque pixels; knockout refusal and other assertions remain. The native edited-backdrop fixture rebuilds its shape cache as required by the compositor, retaining child-edit/save/reopen checks. Test-reference corrections preserve all original inputs and thresholds.
 
 This is a compatibility milestone, not full FS009 closure: non-Normal outer group blends, knockout, general group colour spaces, remaining encryption/index/format cases and final GPU/native workflow acceptance remain required. No whole-app or final-release claim is made.
+
+## Real generation lifecycle acceptance — 2026-10-12
+
+Added one opt-in integration test using public production APIs and an explicitly identified private Comfy runtime. It verifies manifest/port/model-view ownership, real CUDA RTX5090, an empty queue, legal256px/four-step Klein4B Create, production-default Edit with source plus reference, targeted cancellation after observing its own Sampling prompt, terminal Cancelled/no returned image/released ownership, and successful retry. No defaults, production graph steps or assertions are relaxed. The test is ignored in ordinary CI because it requires local verified model weights and an exclusively owned GPU runtime; missing prerequisites fail explicitly when invoked.
+
+Runtime gate generation-create-edit-cancel-real passed in26.66s including compilation; strict real-generation-test-lint passed. All5existing model bytes were SHA-verified before the isolated read-only runtime exposed them;20required core nodes were verified live. Create/Edit/retry PNGs inspected: red cube on blue table, requested red block changed to green, coherent retry. Cold Create20.70s, Edit3.51s, cancellation.895s and retry.342s are individual observations, not performance distributions.
+
+This is API lifecycle evidence. Native document targeting/gesture preservation, atomic generated-library publication, competing-prompt survival, real AI Remove and native quit/restart remain separate required gates. The new test embeds no personal directories, fixed port, unit UUID or credentials; explicit portable environment paths identify all fixtures and private outputs.
