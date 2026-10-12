@@ -5,6 +5,8 @@
 //!     dist/release/local-image-<version>-linux-<arch>.tar.gz (+ .sha256): the app and CLI,
 //!     README, LICENSE and licenses/. Unpack and run `./local-image --install` (or
 //!     `--install --system`) to add it to the application menu.
+//!     Builds both binaries with HEIF support. `--skip-build` packages existing release binaries
+//!     unchanged; the caller must ensure their features and build identity are correct.
 //! cargo xtask package windows [--arch x64|x86|arm64] [--skip-build]
 //!     an MSI (WiX v5: `dotnet tool install -g wix`) and a portable zip, both signed when signing
 //!     secrets are set (see `sign`).
@@ -168,7 +170,8 @@ fn package_linux(skip_build: bool) -> Result<()> {
     println!("Local Image {v} for Linux {arch}");
     if !skip_build {
         let mut c = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
-        c.args(["build", "--release", "--locked", "-p", "local-image", "-p", "local-image-cli"]).current_dir(root());
+        c.args(["build", "--release", "--locked", "-p", "local-image", "-p", "local-image-cli", "--features", "local-image/heif,local-image-cli/heif"])
+            .current_dir(root());
         build_env(&mut c);
         run("cargo build", &mut c)?;
     }

@@ -348,3 +348,10 @@ After correction, hidpi-picking-affected passed40 with two existing opt-in ignor
 Prior to these changes, release-vector-pointer-baseline at ddd5411e passed the unchanged6000x4000/500-shape64-sample release acceptance on RTX5090/Vulkan without CPU fallback: first click+GPU/readback91.678ms; warm median8.068ms,p95 8.662ms,p99 10.537ms; release8.304ms. This includes readback, has no before/after comparison and is not a universal UI speedup. Initial-phase, Move/pan/zoom and other measured workloads remain.
 
 The full original UX audit is not closed by this milestone: persona/theme/menu/dialog/Library requirements, full native workflows/AI/workspace/package/upgrade acceptance, normal v2 push and final installation remain pending.
+
+
+## Canonical Linux packaging enables HEIF
+
+The ordinary cargo xtask package linux build now explicitly enables local-image/heif and local-image-cli/heif, matching official distribution requirements and the interim test build. Previously only explicitly prebuilt --skip-build packages included that feature. The skip-build path still packages existing bytes; its documentation now states that the caller must verify feature/build identity.
+
+release-heif-package-regression passes the existing byte-exact57notice Linux staging regression (1passed,21filtered); release-heif-package-lint passes all-target xtask strict lint. Source hash matches its validation manifest and diff checks pass. Final canonical release archive and actual HEIF-open acceptance are still required. No assertion-only test mirroring the added command flags was added.
