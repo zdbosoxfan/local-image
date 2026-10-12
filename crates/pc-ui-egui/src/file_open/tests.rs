@@ -178,10 +178,14 @@ fn export_warnings_reach_status_notice_and_control_response() {
     assert_eq!(r["warnings"][0], "Layers were flattened");
     assert!(app.ui.status.contains("Saved cat.png"), "{}", app.ui.status);
     assert_eq!(app.ui.notices.len(), 1);
-    // No warnings: no notice, and the response says so.
+    // A second save has its own result without inheriting the first export's warning.
+    let first = app.ui.notices[0].id;
     let r = menus::invoke(&mut app, &ctx, "file.saveAs", json!({ "path": "/pics/cat.psd" })).unwrap();
     assert_eq!(r["warnings"], json!([]));
-    assert_eq!(app.ui.notices.len(), 1);
+    assert_eq!(app.ui.notices.len(), 2);
+    assert_ne!(app.ui.notices[1].id, first);
+    assert_eq!(app.ui.notices[1].warning_count, 0);
+    assert!(app.ui.notice_history.iter().any(|notice| notice.id == first && notice.lines.iter().any(|line| line == "Layers were flattened")));
 }
 
 #[test]

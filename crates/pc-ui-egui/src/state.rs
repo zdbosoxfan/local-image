@@ -1203,6 +1203,13 @@ pub struct UiState {
     /// Non-blocking notices (import/export warnings, files that couldn't open), newest last.
     #[serde(default)]
     pub notices: Vec<crate::notices::Notice>,
+    /// Recent complete operation results, including dismissed/compacted notices.
+    #[serde(default)]
+    pub notice_history: Vec<crate::notices::Notice>,
+    #[serde(default)]
+    pub notice_history_omitted: usize,
+    #[serde(skip)]
+    pub notice_history_open: bool,
     /// Pending GPU fallback warning, visible to automation.
     #[serde(default)]
     pub gpu_fallback_notice: Option<String>,
@@ -1278,6 +1285,9 @@ impl Default for UiState {
             status: String::new(),
             status_error: false,
             notices: Vec::new(),
+            notice_history: Vec::new(),
+            notice_history_omitted: 0,
+            notice_history_open: false,
             gpu_fallback_notice: None,
             chrome: Default::default(),
             camera_raw_scope: Default::default(),

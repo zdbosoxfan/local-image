@@ -204,7 +204,15 @@ impl Host {
             if save.photo.is_some() && !save.origin.as_ref().is_some_and(|origin| Some(origin.photo) == save.photo && matches_origin(&lib.session, origin)) {
                 self.editor.ui.status = format!("Saved {}, but its source belongs to another or unlinked Library; switch to that Library to add it", save.path);
                 self.editor.ui.status_error = true;
-                self.round_trip_notice = Some(RoundTripNotice::Error(self.editor.ui.status.clone()));
+                let detail = self.editor.ui.status.clone();
+                self.round_trip_notice = Some(RoundTripNotice::Error(detail.clone()));
+                photocraft_ui_egui::notices::complete_file_result(
+                    &mut self.editor,
+                    save.notice,
+                    format!("Saved {}; Library update failed", photocraft_ui_egui::file_open::display_name(&save.path)),
+                    detail,
+                    true,
+                );
                 continue;
             }
             let (id, msg) = match add_saved_file(&mut lib.session, &save.path, save.photo, save.overwritten) {
@@ -227,7 +235,15 @@ impl Host {
                 Err(e) => {
                     self.editor.ui.status = format!("Saved {}, but the Library couldn't add it: {e}", save.path);
                     self.editor.ui.status_error = true;
-                    self.round_trip_notice = Some(RoundTripNotice::Error(self.editor.ui.status.clone()));
+                    let detail = self.editor.ui.status.clone();
+                    self.round_trip_notice = Some(RoundTripNotice::Error(detail.clone()));
+                    photocraft_ui_egui::notices::complete_file_result(
+                        &mut self.editor,
+                        save.notice,
+                        format!("Saved {}; Library update failed", photocraft_ui_egui::file_open::display_name(&save.path)),
+                        detail,
+                        true,
+                    );
                     continue;
                 }
             };
@@ -253,18 +269,16 @@ impl Host {
                 self.editor.ui.status = msg.clone();
                 self.editor.ui.status_error = false;
                 self.round_trip_notice = Some(RoundTripNotice::Saved(msg.clone()));
-                if ctx.is_some() {
-                    photocraft_ui_egui::notices::post(&mut self.editor, msg.clone(), vec![], false, None);
-                }
+                let title = format!("{} {}", if save.overwritten { "Overwrote" } else { "Saved" }, photocraft_ui_egui::file_open::display_name(&save.path));
+                let notice = photocraft_ui_egui::notices::complete_file_result(&mut self.editor, save.notice, title, msg.clone(), false);
+                self.editor.ui.status_error =
+                    self.editor.ui.notices.iter().find(|entry| entry.id == notice).is_some_and(|entry| entry.warning_count > 0 || entry.error);
             }
             let Some(ctx) = ctx.filter(|_| save.show) else { continue };
             self.switch(ctx, Module::Library);
             if let Some(id) = id {
                 let lib = self.library();
                 let _ = lib.run("library.select", serde_json::json!({ "ids": [id.0], "active": id.0 }));
-                if !msg.is_empty() {
-                    lib.toast(ctx, msg);
-                }
                 // back in Compositing, the saved document is still the one shown
                 self.left_compositing_with = Some(id.0);
             }
@@ -292,7 +306,9 @@ impl Host {
                         lib.host_composites.remove(&lightcraft_catalog::PhotoId(photo));
                         self.editor.ui.status = format!("Couldn't update the Library preview: {e}");
                         self.editor.ui.status_error = true;
-                        self.round_trip_notice = Some(RoundTripNotice::Error(self.editor.ui.status.clone()));
+                        let detail = self.editor.ui.status.clone();
+                        self.round_trip_notice = Some(RoundTripNotice::Error(detail.clone()));
+                        photocraft_ui_egui::notices::complete_file_result(&mut self.editor, None, "Library preview failed".into(), detail, true);
                     }
                 }
             }
@@ -352,7 +368,7 @@ impl Host {
             }
             Err(e) => {
                 // Keep Save / Keep Editing available after a failed write.
-                self.library().toast_error(ctx, format!("Couldn't save the Compositing edit: {e}"));
+                photocraft_ui_egui::notices::complete_file_result(&mut self.editor, None, "Couldn't save the layered copy".into(), e, true);
             }
         }
     }
@@ -373,11 +389,17 @@ impl Host {
         }
     }
 
-    fn round_trip_notice_ui(&mut self, ctx: &egui::Context) {
+    fn round_trip_notice_ui(&mut self, ui: &mut egui::Ui) {
+        let context = ui.ctx().clone();
+        let ctx = &context;
         if self.mode != Module::Library {
             return;
         }
         let Some(notice) = self.round_trip_notice.clone() else { return };
+        // Completed operations share the editor's compact result row and full history.
+        if !matches!(notice, RoundTripNotice::Unsaved { .. }) {
+            return;
+        }
         if let RoundTripNotice::Unsaved { doc, .. } = &notice
             && !self.editor.session.documents().iter().any(|d| d.doc.id == *doc && d.is_dirty())
         {
@@ -390,48 +412,50 @@ impl Host {
         };
         let mut action = None;
         let t = lightcraft_ui_egui::theme::Tokens::get(ctx);
-        egui::Area::new(egui::Id::new("library-round-trip-notice"))
-            .order(egui::Order::Foreground)
-            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -48.0))
-            .show(ctx, |ui| {
-                egui::Frame::NONE.fill(t.chrome).stroke(egui::Stroke::new(1.0, t.button_border)).corner_radius(6.0).inner_margin(12).show(ui, |ui| {
-                    ui.set_width(440.0);
-                    match &notice {
-                        RoundTripNotice::Unsaved { destination, .. } => {
-                            ui.label(egui::RichText::new("Edited in Compositing · unsaved").strong());
-                            ui.label("The Library shows a preview of your layers. Save a copy or overwrite the original to keep this edit.");
-                            ui.label(format!("Save as {destination} and stack it with the original in the Library."));
-                        }
-                        RoundTripNotice::Saved(message) | RoundTripNotice::Error(message) => {
-                            ui.label(message);
+        egui::Panel::bottom("library-round-trip-notice").exact_size(96.0).show(ui, |ui| {
+            egui::Frame::NONE.fill(t.chrome).stroke(egui::Stroke::new(1.0, t.button_border)).corner_radius(6.0).inner_margin(12).show(ui, |ui| {
+                match &notice {
+                    RoundTripNotice::Unsaved { destination, .. } => {
+                        ui.label(egui::RichText::new("Edited in Compositing · unsaved").strong());
+                        ui.add(
+                            egui::Label::new(format!(
+                                "Save {} as a layered copy, or overwrite the original.",
+                                photocraft_ui_egui::file_open::display_name(destination)
+                            ))
+                            .truncate(),
+                        )
+                        .on_hover_text(destination);
+                    }
+                    RoundTripNotice::Saved(message) | RoundTripNotice::Error(message) => {
+                        ui.label(message);
+                    }
+                }
+                ui.horizontal_wrapped(|ui| {
+                    for (id, label, choice) in if matches!(notice, RoundTripNotice::Unsaved { .. }) {
+                        vec![
+                            ("roundTripSave", "Save", 0),
+                            ("roundTripOverwrite", "Overwrite Original", 3),
+                            ("roundTripEdit", "Keep Editing", 1),
+                            ("roundTripDismiss", "Dismiss", 2),
+                        ]
+                    } else {
+                        vec![("roundTripDismiss", "Dismiss", 2)]
+                    } {
+                        let r = ui.add_enabled(choice != 3 || overwrite_reason.is_none(), egui::Button::new(label));
+                        let r = if choice == 3 { r.on_disabled_hover_text(overwrite_reason.unwrap_or("")) } else { r };
+                        lightcraft_ui_egui::widgets::register(ctx, format!("button:{id}"), r.rect);
+                        if r.clicked() {
+                            action = Some(choice);
                         }
                     }
-                    ui.horizontal(|ui| {
-                        for (id, label, choice) in if matches!(notice, RoundTripNotice::Unsaved { .. }) {
-                            vec![
-                                ("roundTripSave", "Save", 0),
-                                ("roundTripOverwrite", "Overwrite Original", 3),
-                                ("roundTripEdit", "Keep Editing", 1),
-                                ("roundTripDismiss", "Dismiss", 2),
-                            ]
-                        } else {
-                            vec![("roundTripDismiss", "Dismiss", 2)]
-                        } {
-                            let r = ui.add_enabled(choice != 3 || overwrite_reason.is_none(), egui::Button::new(label));
-                            let r = if choice == 3 { r.on_disabled_hover_text(overwrite_reason.unwrap_or("")) } else { r };
-                            lightcraft_ui_egui::widgets::register(ctx, format!("button:{id}"), r.rect);
-                            if r.clicked() {
-                                action = Some(choice);
-                            }
-                        }
-                    });
                 });
             });
+        });
         match (action, notice) {
             (Some(0), RoundTripNotice::Unsaved { doc, .. }) => self.save_preview(ctx, doc),
             (Some(3), RoundTripNotice::Unsaved { doc, .. }) => {
                 if let Err(e) = photocraft_ui_egui::overwrite_original::request(&mut self.editor, doc, true) {
-                    self.library().toast_error(ctx, e);
+                    photocraft_ui_egui::notices::complete_file_result(&mut self.editor, None, "Couldn't overwrite the original".into(), e, true);
                 }
             }
             (Some(1), RoundTripNotice::Unsaved { doc, photo, .. }) => {
@@ -1003,18 +1027,23 @@ impl eframe::App for Host {
             self.switch(&ctx, m);
             ctx.request_repaint();
         }
+        self.round_trip_notice_ui(ui);
+        let dismissed = photocraft_ui_egui::notices::panel(&mut self.editor, ui);
+        if matches!(self.round_trip_notice, Some(RoundTripNotice::Saved(_) | RoundTripNotice::Error(_))) {
+            if let Some(rect) = photocraft_ui_egui::notices::control_rect(ui.ctx(), "dismiss") {
+                lightcraft_ui_egui::widgets::register(ui.ctx(), "button:roundTripDismiss", rect);
+            }
+            if dismissed {
+                self.round_trip_notice = None;
+            }
+        }
         if let Some(lib) = self.library.as_mut() {
             lib.ui(ui);
         }
+        photocraft_ui_egui::notices::show(&mut self.editor, ui.ctx());
         // The switched-to-CPU warning appears in every module, not only once Compositing is open.
         photocraft_ui_egui::gpu_status::show_fallback(&mut self.editor, ui.ctx());
-        self.round_trip_notice_ui(ui.ctx());
-        let status = self.editor.ui.status.clone();
         photocraft_ui_egui::overwrite_original::show(&mut self.editor, ui.ctx());
-        if self.editor.ui.status_error && self.editor.ui.status != status {
-            let message = self.editor.ui.status.clone();
-            self.library().toast_error(ui.ctx(), message);
-        }
         if let Some(lib) = self.library.as_mut() {
             lib.widgets.extend(lightcraft_ui_egui::widgets::take_registry(ui.ctx()));
         }
@@ -1392,6 +1421,7 @@ mod tests {
         let mut host = host_with_round_trip(library, lightcraft_catalog::PhotoId(copy), &path);
         image::RgbImage::from_pixel(40, 30, image::Rgb([128, 64, 32])).save(&path).unwrap();
         host.editor.library_saves.push(LibrarySave {
+            notice: None,
             origin: photocraft_ui_egui::develop_layer::active_origin(&host.editor),
             path,
             photo: Some(copy),
@@ -1576,7 +1606,14 @@ mod tests {
         assert!(std::path::Path::new(&saved).is_file());
         assert_eq!(
             host.editor.library_saves,
-            vec![LibrarySave { origin: develop_layer::active_origin(&host.editor), path: saved.clone(), photo: Some(orig.0), show: false, overwritten: false }]
+            vec![LibrarySave {
+                notice: host.editor.library_saves[0].notice,
+                origin: develop_layer::active_origin(&host.editor),
+                path: saved.clone(),
+                photo: Some(orig.0),
+                show: false,
+                overwritten: false
+            }]
         );
 
         host.take_library_saves(Some(&ctx));
@@ -1715,6 +1752,17 @@ mod tests {
         host.update_composites(&ctx);
         assert!(host.composites.pending.is_empty(), "do not retry the failed revision every frame");
         assert!(!host.library.as_ref().unwrap().host_composites.contains_key(&orig));
+        assert_eq!(host.editor.ui.notices.len(), 1);
+        let first = host.editor.ui.notices[0].id;
+        host.editor.ui.notices.clear(); // Same removal as dismiss; history remains.
+        host.editor.run("edit.fill", json!({"color":"#204060"})).unwrap();
+        let key2 = unsaved_composites(&host.editor, catalog(&host))[0].1;
+        assert_ne!(key2, key);
+        host.composites.done.lock().unwrap().push((orig.0, key2, Err("unsupported colour transform".into())));
+        host.update_composites(&ctx);
+        assert_eq!(host.editor.ui.notices.len(), 1, "a new failed attempt is visible even with identical text");
+        assert_ne!(host.editor.ui.notices[0].id, first);
+        assert_eq!(host.editor.ui.notice_history.len(), 2);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1959,7 +2007,7 @@ mod tests {
         } // Let the modal's sizing pass settle before clicking.
         click_overwrite(&mut h, "overwriteConfirm");
         assert!(h.host.editor.overwrite_prompt.is_none(), "overwrite confirmation remained open");
-        assert!(!h.host.editor.ui.status_error, "{}", h.host.editor.ui.status);
+        assert!(h.host.editor.ui.notices.last().is_some_and(|notice| !notice.error), "{}", h.host.editor.ui.status);
         assert_eq!(h.host.mode, Module::Library, "{}", h.host.editor.ui.status);
         let state = h.host.editor.session.active().unwrap();
         assert_eq!((state.revision, state.saved_revision, &state.path), (before.revision, before.saved_revision, &derivative));
@@ -2313,7 +2361,8 @@ mod tests {
         assert!(
             matches!(&h.host.round_trip_notice, Some(RoundTripNotice::Saved(msg)) if msg.contains(saved.to_str().unwrap()) && msg.contains("stacked with photo.png"))
         );
-        assert!(h.host.editor.ui.notices.iter().any(|n| n.title.contains(saved.to_str().unwrap()) && n.title.contains("stacked")));
+        assert!(h.host.editor.ui.notices.iter().any(|notice| notice.title == "Saved photo-Edit.psd"
+            && notice.lines.iter().any(|line| line.contains(saved.to_str().unwrap()) && line.contains("stacked"))));
         h.wait_for(|h| h.library.as_ref().unwrap().renderer.thumb(edit).is_some());
         let thumb =
             h.host.library.as_ref().unwrap().widgets.iter().find(|(w, _)| w == &format!("thumb:{}", edit.0)).expect("the saved edit is visible in the grid").1;
@@ -2509,6 +2558,64 @@ mod tests {
     }
 
     #[test]
+    fn save_notice_retains_encoder_warnings_in_one_reserved_result() {
+        fn capture(h: &RoundTripUi, name: &str) {
+            let pixels = h.view.paint(&h.host.library.as_ref().unwrap().renderer.cpu_textures());
+            let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/notices-ux");
+            std::fs::create_dir_all(&dir).unwrap();
+            image::RgbaImage::from_raw(pixels.size[0] as u32, pixels.size[1] as u32, pixels.pixels.iter().flat_map(|pixel| pixel.to_array()).collect())
+                .unwrap()
+                .save(dir.join(name))
+                .unwrap();
+        }
+        for size in [egui::vec2(1440.0, 900.0), egui::vec2(760.0, 480.0)] {
+            let (dir, path, lib, photo) = library_with_photo(&format!("notice-warnings-{}", size.x));
+            let mut host = host_with_round_trip(lib, photo, &path);
+            let export = host.editor.services.export.take().unwrap();
+            host.editor.services.export = Some(Box::new(move |doc, path, settings| {
+                let (bytes, mut warnings) = export(doc, path, settings)?;
+                warnings.push("Encoder preserved pixels but flattened an unsupported adjustment".into());
+                Ok((bytes, warnings))
+            }));
+            let mut h = RoundTripUi::new(host);
+            h.host.switch(&h.view.ctx, Module::Library);
+            for _ in 0..5 {
+                h.step_at(size, vec![]);
+            }
+            capture(&h, &format!("library-actions-{}.png", size.x as u32));
+            let save = h.host.library.as_ref().unwrap().widgets.iter().find(|(id, _)| id == "button:roundTripSave").unwrap().1;
+            assert!(h.view.ctx.content_rect().contains_rect(save));
+            let at = save.center();
+            h.step_at(size, vec![egui::Event::PointerMoved(at)]);
+            for pressed in [true, false] {
+                h.step_at(size, vec![egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+            }
+            for _ in 0..4 {
+                h.step_at(size, vec![]);
+            }
+            assert_eq!(h.host.editor.ui.notices.len(), 1, "save and Library result must not duplicate");
+            assert!(h.host.library.as_ref().unwrap().ui.toast.is_none(), "no duplicate floating success toast");
+            let notice = &h.host.editor.ui.notices[0];
+            assert!(notice.warning_count >= 1);
+            assert_eq!(notice.title, "Saved photo-Edit.psd");
+            assert!(notice.lines.iter().any(|line| line.contains("flattened an unsupported adjustment")));
+            assert!(notice.lines.iter().any(|line| line.contains("stacked")));
+            assert_eq!(h.host.editor.ui.notice_history.len(), 1);
+            capture(&h, &format!("library-result-{}.png", size.x as u32));
+            for name in ["details", "dismiss"] {
+                let rect = photocraft_ui_egui::notices::control_rect(&h.view.ctx, name).unwrap();
+                assert!(h.view.ctx.content_rect().contains_rect(rect) && rect.height() >= 18.0);
+            }
+            assert!(
+                !h.host.library.as_ref().unwrap().widgets.iter().any(|(id, _)| id == "button:roundTripSave"),
+                "completed result has no duplicate action card"
+            );
+            drop(h);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
     fn roundtrip_notice_actions_keep_editing_retry_save_and_dismiss() {
         let (dir, path, lib, orig) = library_with_photo("notice-actions");
         let mut host = host_with_round_trip(lib, orig, &path);
@@ -2533,7 +2640,7 @@ mod tests {
         assert!(h.host.editor.has_unsaved());
         assert_eq!(catalog(&h.host).catalog.len(), 1);
         assert!(matches!(h.host.round_trip_notice, Some(RoundTripNotice::Unsaved { .. })));
-        assert!(h.host.library.as_ref().unwrap().ui.toast.as_ref().unwrap().0.contains("test disk full"));
+        assert!(h.host.editor.ui.notices.iter().any(|notice| notice.error && notice.lines.iter().any(|line| line.contains("test disk full"))));
         h.host.editor.services.write = writer;
         h.host.editor.session.open_document(
             photocraft_doc::Document::new("Other tab", photocraft_doc::Size::new(4, 4), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8),

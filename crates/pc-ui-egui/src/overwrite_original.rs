@@ -87,7 +87,9 @@ fn save(app: &mut PhotocraftApp, prompt: Prompt) -> Result<(), String> {
             p.dialogs.insert(PREFERENCE.into(), json!({"dontAskAgain": true}));
         });
     }
+    let notice = crate::notices::file_result(app, "Overwrote", &prompt.path, &warnings);
     app.library_saves.push(develop_layer::LibrarySave {
+        notice: Some(notice),
         origin: Some(prompt.origin.clone()),
         path: prompt.path.clone(),
         photo: Some(prompt.photo),
@@ -95,8 +97,7 @@ fn save(app: &mut PhotocraftApp, prompt: Prompt) -> Result<(), String> {
         overwritten: true,
     });
     app.ui.status = format!("Overwrote {}; previous version kept in Trash", prompt.path);
-    app.ui.status_error = false;
-    crate::notices::io_warnings(app, &app.ui.status.clone(), &warnings);
+    app.ui.status_error = !warnings.is_empty();
     Ok(())
 }
 

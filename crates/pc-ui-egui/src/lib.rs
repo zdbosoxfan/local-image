@@ -882,11 +882,42 @@ impl PhotocraftApp {
         }
         // Long commands become background jobs when enabled (`jobs_ui`); the rest run inline.
         let params = self.with_mask_target(id, params);
+        let created_mask = matches!(
+            id,
+            "layer.layerMask.revealAll"
+                | "layer.layerMask.hideAll"
+                | "layer.layerMask.revealSelection"
+                | "layer.layerMask.hideSelection"
+                | "layer.layerMask.fromTransparency"
+        )
+        .then(|| {
+            self.session.active().and_then(|state| {
+                let layer = params.get("layer").and_then(Value::as_u64).map(photocraft_doc::LayerId).or(state.active_layer)?;
+                Some((state.doc.id, state.active_layer, layer))
+            })
+        })
+        .flatten();
         let r = jobs_ui::run(self, id, params);
         self.perf.last_command = id.to_string();
         self.perf.command_ms = gpu_canvas::now_ms() - t0;
         match &r {
             Ok(_) => {
+                // The newly requested mask is the next painting target. A script callback
+                // that changed document/selection keeps its own UI target instead.
+                if let Some((doc, previous_layer, layer)) = created_mask
+                    && let Some(state) = self.session.active()
+                    && state.doc.id == doc
+                    && state.active_layer == previous_layer
+                    && let Some(masked) = state.doc.layer(layer).filter(|layer| layer.mask.is_some())
+                {
+                    let name = masked.name.clone();
+                    if self.session.select_layer(layer).is_ok() {
+                        self.ui.mask_target = true;
+                        self.ui.vector_mask_target = false;
+                        self.ui.status = format!("Layer mask selected: {name}");
+                        self.ui.status_error = false;
+                    }
+                }
                 self.sync_views();
                 if self.ui.status_error {
                     self.ui.status.clear();
@@ -1142,10 +1173,13 @@ impl PhotocraftApp {
             self.ui.status = format!("Saved {path}; {} image assets in {}", r["files"].as_array().map_or(0, Vec::len), r["dir"].as_str().unwrap_or(""));
         }
         self.ui.status_error = false;
-        notices::io_warnings(self, &format!("Saved {}", file_open::display_name(&path)), &warnings);
+        let save_detail = self.ui.status.clone();
+        let notice = notices::file_result(self, "Saved", &path, &warnings);
+        notices::complete_file_result(self, Some(notice), format!("Saved {}", file_open::display_name(&path)), save_detail, false);
         // local-image: the Library picks the file up (adds it stacked on its photo, or reloads it).
         if self.host_modes {
             self.library_saves.push(develop_layer::LibrarySave {
+                notice: Some(notice),
                 origin: saved_origin,
                 path: path.clone(),
                 photo: saved_photo,
@@ -1361,6 +1395,9 @@ impl eframe::App for PhotocraftApp {
         if chrome && self.ui.panels.status_bar {
             panels::status_bar(self, ui);
         }
+        if chrome {
+            notices::panel(self, ui);
+        }
         if chrome && self.ui.panels.toolbar {
             panels::toolbar(self, ui);
         }
@@ -1462,7 +1499,17 @@ impl PhotocraftApp {
     /// Viewing a layer mask (#196) targets it; a vector-mask target needs a vector mask on the
     /// active layer (a shape layer's path is its content, not a mask).
     fn sync_mask_targets(&mut self) {
-        let Some(st) = self.session.active() else { return };
+        let Some(st) = self.session.active() else {
+            self.ui.mask_target = false;
+            self.ui.vector_mask_target = false;
+            return;
+        };
+        if st.active_layer.and_then(|id| st.doc.layer(id)).is_none_or(|layer| layer.mask.is_none()) {
+            self.ui.mask_target = false;
+            if self.ui.status.starts_with("Layer mask selected:") {
+                self.ui.status = "Layer pixels selected".into();
+            }
+        }
         if photocraft_engine::mask_view_cmds::current(st).is_some() {
             self.ui.mask_target = true;
             self.ui.vector_mask_target = false;

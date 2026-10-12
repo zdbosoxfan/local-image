@@ -59,6 +59,8 @@ pub fn origin_of(doc: &photocraft_doc::Document) -> Option<LibraryOrigin> {
 /// A file Save / Save As wrote (local-image: the host takes these for the Library).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LibrarySave {
+    /// File result to update when Library publication completes.
+    pub notice: Option<u64>,
     pub origin: Option<LibraryOrigin>,
     /// The file written.
     pub path: String,

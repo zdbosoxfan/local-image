@@ -420,3 +420,45 @@ fn command_i_inverts_the_targeted_mask() {
     let mask = &st.doc.layer(st.active_layer.unwrap()).unwrap().mask.as_ref().unwrap().surface;
     assert_eq!(mask.sample_channel(10, 10, 0), 0.0, "reveal all → hide all");
 }
+
+#[test]
+fn new_mask_is_selected_for_the_first_stroke_and_deletion_restores_pixels() {
+    for (ppp, command) in
+        [1.0, 2.0].into_iter().flat_map(|ppp| ["revealAll", "hideAll", "revealSelection", "hideSelection", "fromTransparency"].map(|command| (ppp, command)))
+    {
+        let (mut session, masked, _) = session();
+        session.execute("layer.layerMask.delete", json!({"layer":masked})).unwrap();
+        let mut h = harness(session, 0, ppp, 290.0);
+        let pixels = layer(&h, masked).content;
+        let ctx = h.ctx.clone();
+        if command.ends_with("Selection") {
+            h.state_mut().run("select.rect", json!({"x":20,"y":20,"width":80,"height":60})).unwrap();
+        }
+        crate::menus::invoke(h.state_mut(), &ctx, &format!("layer.layerMask.{command}"), json!({})).unwrap();
+        h.run_steps(3);
+        assert_eq!(crate::canvas::paint_target(h.state()), json!("mask"));
+        assert!(h.state().ui.mask_target && !h.state().ui.vector_mask_target);
+        assert_eq!(h.state().ui.status, "Layer mask selected: Masked");
+        let mask_rect = mask_rect(&h, masked, MaskKind::Pixel);
+        assert!(near(super::brackets(&h.ctx).unwrap(), mask_rect.expand(3.0)), "new mask thumbnail is visibly selected at {ppp}x");
+        let before = layer(&h, masked).mask.unwrap().surface.read_region(photocraft_geom::Rect::from_xywh(0, 0, 200, 100));
+        let was_dark = layer(&h, masked).mask.as_ref().unwrap().surface.sample_channel(50, 50, 0) < 0.5;
+        let color = if was_dark { "#ffffff" } else { "#000000" };
+        h.state_mut().run("paint.stroke", json!({"points":[[50,50]],"size":20,"hardness":1.0,"color":color})).unwrap();
+        let painted = layer(&h, masked);
+        assert_eq!(painted.content, pixels, "the first stroke must not touch layer pixels");
+        let value = painted.mask.as_ref().unwrap().surface.sample_channel(50, 50, 0);
+        assert!(if was_dark { value > 0.9 } else { value < 0.1 }, "{command} first stroke targeted wrong data: {value}");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!(layer(&h, masked).mask.unwrap().surface.read_region(photocraft_geom::Rect::from_xywh(0, 0, 200, 100)), before);
+        h.state_mut().run("layer.layerMask.delete", json!({})).unwrap();
+        h.run_steps(2);
+        assert!(!h.state().ui.mask_target);
+        assert_eq!(crate::canvas::paint_target(h.state()), json!("pixels"));
+        assert_eq!(layer(&h, masked).content, pixels);
+        assert_eq!(h.state().ui.status, "Layer pixels selected");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert!(layer(&h, masked).mask.is_some());
+        assert_eq!(crate::canvas::paint_target(h.state()), json!("pixels"), "restoring a deleted mask does not silently retarget a later stroke");
+    }
+}

@@ -643,6 +643,8 @@ pub fn inspect(app: &PhotocraftApp, ctx: &egui::Context) -> Value {
         "status": app.ui.status,
         "statusError": app.ui.status_error,
         "notices": app.ui.notices,
+        "noticeHistory": app.ui.notice_history,
+        "noticeHistoryOmitted": app.ui.notice_history_omitted,
         "gpuFallbackNotice": app.ui.gpu_fallback_notice,
         "frame": app.frame,
         "session": photocraft_engine::inspect::session(&app.session),

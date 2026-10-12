@@ -27,6 +27,7 @@ use crate::theme::Tokens;
 use crate::widgets;
 
 pub(crate) mod draft_refine;
+mod panel_controls;
 pub use draft_refine::Settings as DraftRefineSettings;
 
 #[cfg(not(test))]
@@ -228,6 +229,12 @@ struct Runtime {
     references: Vec<Reference>,
     /// Newest first: finished entries and pending jobs.
     results: VecDeque<Tile>,
+    /// Jobs started by this panel, including the official Enhance route.
+    panel_jobs: Vec<photocraft_engine::jobs::JobId>,
+    #[cfg(test)]
+    capture_panel_start: bool,
+    #[cfg(test)]
+    panel_start_clicks: usize,
     textures: HashMap<String, TextureHandle>,
     library: Arc<Vec<Entry>>,
     library_loaded: Option<Instant>,
@@ -1003,16 +1010,37 @@ fn browse_loras(model: &str) {
 
 /// The Generate tab.
 pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    let t = Tokens::get(ui.ctx());
-    let ctx = ui.ctx().clone();
-    if widgets::secondary_button(ui, tl!("Draft / Refinement…"), ui.available_width()).clicked() {
-        draft_refine::open(app);
+    let layout = panel_controls::layout(ui);
+    if layout.bounds.height() < 124.0 {
+        panel_controls::show_compact(app, ui, &layout);
+        return;
     }
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    let mut settings_ui =
+        ui.new_child(egui::UiBuilder::new().id_salt("generate-settings-area").max_rect(layout.settings).layout(egui::Layout::top_down(egui::Align::Min)));
+    settings_ui.set_clip_rect(ui.clip_rect().intersect(layout.settings));
+    let action = egui::ScrollArea::vertical()
+        .id_salt("generate-settings-scroll")
+        .max_height(layout.settings.height())
+        .min_scrolled_height(0.0)
+        .auto_shrink([false, false])
+        .show(&mut settings_ui, |ui| settings_ui_body(app, ui))
+        .inner;
+    panel_controls::show(app, ui, &layout, action);
+}
+
+/// Settings have one rendering path, either in their viewport or the squeezed-dock popup.
+fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_controls::Action {
+    let t = Tokens::get(ui.ctx());
+    let mut submit = false;
+    (|ui: &mut egui::Ui| {
+        let draft = widgets::secondary_button(ui, tl!("Draft / Refinement…"), ui.available_width());
+        panel_controls::note(ui, "settings-draft", &draft);
+        if draft.clicked() {
+            draft_refine::open(app);
+        }
         ui.set_width(ui.available_width());
         ui.spacing_mut().item_spacing.y = 6.0;
         let has_doc = app.session.active().is_some();
-        let has_active_layer = app.session.active().is_some_and(|d| d.active_layer.is_some());
         let has_sel = app.session.active().is_some_and(|d| d.doc.selection.is_some());
         let st = crate::ai_ui::status();
         let s = &mut app.ui.ai.generate;
@@ -1052,18 +1080,9 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         restore_upscale_choice(s);
         if s.mode == Mode::Upscale && !upscale_any() {
             crate::ai_ui::enhance_controls(ui, &mut s.enhance_method, &mut s.enhance_backend, &mut s.upscale);
-            let ready = crate::ai_ui::enhance_ready(s.enhance_method, s.enhance_backend, s.upscale as u32);
-            if let Err(why) = &ready {
-                ui.label(RichText::new(why).color(t.warning));
-            }
-            let clicked = ui.add_enabled_ui(has_doc && ready.is_ok(), |ui| widgets::primary_button(ui, tl!("Upscale"), ui.available_width())).inner.clicked();
             if widgets::secondary_button(ui, tl!("Choose another model…"), ui.available_width()).clicked() {
                 rt(|r| r.upscale_any = true);
             }
-            if clicked {
-                start(app, &ctx);
-            }
-            results_ui(app, ui);
             return;
         }
         // ---- Preset.
@@ -1418,69 +1437,15 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             });
         });
         s.advanced = resp.fully_open();
-        // ---- Readiness and the button.
-        let variant = s.variant.clone();
-        let ready = match (&custom, cloud) {
-            (_, Some(c)) => cloud_ready(c),
-            (Some(_), _) if st.connected => Ok(()),
-            (Some(_), _) => Err(tl!("The AI engine (ComfyUI) is not running.").to_owned()),
-            (None, None) if s.mode == Mode::Refine => refine_readiness(&st, m, &variant),
-            (None, None) => readiness(&st, m, &variant),
-        };
-        let refine_ready = if s.refine && s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
-            match ModelId::from_key(&s.refine_model) {
-                Some(rm) => refine_readiness(&st, rm, &s.refine_variant).map_err(|e| crate::i18n::fmt(tl!("Refine model: {why}"), &[("why", &e)])),
-                None => Err(tl!("Choose a model to refine with.").into()),
-            }
-        } else {
-            Ok(())
-        };
-        let needs_prompt = wants_prompt && matches!(s.mode, Mode::Create | Mode::Edit | Mode::Fill);
-        let blocker = match s.mode {
-            _ if needs_prompt && s.prompt.trim().is_empty() => Some(tl!("Describe what you want first.")),
-            Mode::Edit | Mode::Refine | Mode::Upscale if !has_doc => Some(tl!("Open an image first.")),
-            Mode::Refine if s.refine_input == RefineInput::SelectedLayer && !has_active_layer => Some(tl!("Select a layer first.")),
-            Mode::Fill if !has_sel => Some(tl!("Make a selection to fill.")),
-            _ => None,
-        };
-        ui.add_space(4.0);
-        for why in [ready.as_ref().err(), refine_ready.as_ref().err()].into_iter().flatten() {
-            readiness_warning(app, ui, why, &st, cloud.is_some());
-        }
-        let s = &app.ui.ai.generate;
-        let label_text = match s.mode {
-            Mode::Create if s.count > 1 => crate::i18n::fmt(tl!("Generate {n}"), &[("n", &s.count.to_string())]),
-            Mode::Create => tl!("Generate").into(),
-            Mode::Edit => tl!("Apply Edit").into(),
-            Mode::Fill => tl!("Fill Selection").into(),
-            Mode::Refine => tl!("Refine").into(),
-            Mode::Upscale => crate::i18n::fmt(tl!("Upscale {scale}×"), &[("scale", &widgets::fmt_num(s.upscale as f64))]),
-        };
-        let can = blocker.is_none() && ready.is_ok() && refine_ready.is_ok();
-        let create = s.mode == Mode::Create;
-        let mut count = s.count as f32;
-        let clicked = ui
-            .horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 6.0;
-                let w = ui.available_width() - if create { 46.0 } else { 0.0 };
-                let r = ui
-                    .add_enabled_ui(can, |ui| widgets::primary_button(ui, &label_text, w))
-                    .inner
-                    .on_disabled_hover_text(blocker.unwrap_or(tl!("The model isn't ready.")));
-                if create {
-                    widgets::value_field(ui, &mut count, 1.0..=4.0, "", 40.0).on_hover_text(tl!("Images per run (1–4)"));
-                }
-                r
-            })
-            .inner
-            .clicked();
-        app.ui.ai.generate.count = (count.round() as u32).clamp(1, 4);
-        if (clicked || enter) && can {
-            start(app, &ctx);
-        }
-        ui.add_space(8.0);
-        results_ui(app, ui);
-    });
+        submit = enter;
+    })(ui);
+    let mut action = panel_controls::action(app);
+    action.enter = submit;
+    let st = crate::ai_ui::status();
+    for why in &action.warnings {
+        readiness_warning(app, ui, why, &st, action.cloud);
+    }
+    action
 }
 
 fn refine_loras_ui(ui: &mut egui::Ui, picks: &mut Vec<LoraPick>, model: ModelId, variant: &str, t: &Tokens) {
@@ -1947,6 +1912,24 @@ fn local_request(
 
 /// Starts the generation jobs for the current settings.
 fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    #[cfg(test)]
+    if rt(|runtime| {
+        if runtime.capture_panel_start {
+            runtime.panel_start_clicks += 1;
+            true
+        } else {
+            false
+        }
+    }) {
+        return;
+    }
+    let before: Vec<_> = app.session.jobs().into_iter().map(|job| job.id).collect();
+    start_inner(app, ctx);
+    let started: Vec<_> = app.session.jobs().into_iter().filter(|job| job.command.starts_with("ai.") && !before.contains(&job.id)).map(|job| job.id).collect();
+    rt(|runtime| runtime.panel_jobs.extend(started));
+}
+
+fn start_inner(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let s = app.ui.ai.generate.clone();
     restore_upscale_choice(&s);
     if s.mode == Mode::Upscale && !upscale_any() {
@@ -2220,7 +2203,10 @@ fn launch_resolved(
         }
         Ok(photocraft_engine::jobs::Started::Done(v)) => {
             if let Ok(e) = serde_json::from_value::<Entry>(v) {
-                rt(|rt| rt.results.push_front(Tile::Done(e)));
+                rt(|rt| {
+                    rt.selected = Some(e.id.clone());
+                    rt.results.push_front(Tile::Done(e));
+                });
             }
             true
         }
@@ -2274,6 +2260,10 @@ pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
         JobOutcome::Cancelled => Tile::Failed(tl!("Cancelled").into()),
     };
     rt(|r| {
+        // Selecting a completed tile only exposes its choices; it does not open or insert it.
+        if let Tile::Done(entry) = &tile {
+            r.selected = Some(entry.id.clone());
+        }
         if let Some(i) = r.results.iter().position(|t| matches!(t, Tile::Pending { job, .. } if *job == e.id.0)) {
             r.results[i] = tile;
         } else {
@@ -2419,11 +2409,21 @@ fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>]
     if let Some(e) = rt(|r| r.selected.clone()).and_then(|id| items.iter().flatten().find(|e| e.id == id).cloned()) {
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
-            if widgets::secondary_button(ui, tl!("Open"), 0.0).clicked() {
+            let open = widgets::secondary_button(ui, tl!("Open"), 0.0);
+            if salt == "results" {
+                panel_controls::note(ui, "history-open", &open);
+            }
+            if open.clicked() {
                 action = Some((e.clone(), "open"));
             }
-            if app.session.active().is_some() && widgets::secondary_button(ui, tl!("Place as Layer"), 0.0).clicked() {
-                action = Some((e.clone(), "place"));
+            if app.session.active().is_some() {
+                let insert = widgets::secondary_button(ui, tl!("Place as Layer"), 0.0);
+                if salt == "results" {
+                    panel_controls::note(ui, "history-insert", &insert);
+                }
+                if insert.clicked() {
+                    action = Some((e.clone(), "place"));
+                }
             }
             if widgets::secondary_button(ui, tl!("Use as Reference"), 0.0).clicked() {
                 action = Some((e.clone(), "reference"));
