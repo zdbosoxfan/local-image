@@ -311,3 +311,66 @@ fn persona_geometry_actual_add_and_undo_restore_both_shapes() {
     assert!(Arc::ptr_eq(&doc, &st.doc));
     assert_eq!(st.selected_layers(), selected);
 }
+
+#[test]
+fn persona_unbound_pixel_keys_and_saved_pixel_overrides_do_not_leave_vector() {
+    use photocraft_engine::vector_toolbar_layout::Preset;
+    for preset in [Preset::Illustrator, Preset::Affinity] {
+        let mut h = harness();
+        h.state_mut().session.edit_prefs(|p| {
+            p.toolbar.vector_keyboard.preset = preset;
+            p.shortcuts.insert("tools.select.SpotHealing".into(), "J".into());
+        });
+        h.get_by_label("Vector persona").click();
+        h.run_steps(3);
+        let doc = h.state().session.active().unwrap().doc.clone();
+        let keys: &[Key] = if preset == Preset::Affinity { &[Key::J, Key::E, Key::L] } else { &[Key::J] };
+        for key in keys {
+            let tool = h.state().ui.tool;
+            h.key_press(*key);
+            h.run_steps(3);
+            assert_eq!(h.state().session.prefs().toolbar.persona, Persona::Vector, "{preset:?}/{key:?}");
+            assert_eq!(h.state().ui.tool, tool, "an unbound key keeps the selected tool");
+            assert!(Arc::ptr_eq(&doc, &h.state().session.active().unwrap().doc));
+        }
+        assert!(crate::shortcuts::tool_shortcut(&h.state().session, Tool::SpotHealing).is_none());
+        h.state_mut().session.edit_prefs(|p| {
+            p.shortcuts.insert("tools.select.SpotHealing".into(), "V".into());
+        });
+        h.get_by_label("Pen Tool").click();
+        h.run_steps(3);
+        assert_eq!(h.state().ui.tool, Tool::Pen);
+        h.key_press(Key::V);
+        h.run_steps(3);
+        assert_eq!(h.state().ui.tool, Tool::Move, "ignored Pixel-only override must not steal Vector V");
+    }
+}
+
+#[test]
+fn persona_photo_admission_rechecks_document_and_respects_later_explicit_choices() {
+    let mut h = harness();
+    assert_eq!(h.state().ui.tool, Tool::Move, "fresh editor starts with Move");
+    let a = h.state().session.active().unwrap().doc.id;
+    h.state_mut().run("file.new", json!({"width":32,"height":32})).unwrap();
+    let b = h.state().session.active().unwrap().doc.id;
+    h.get_by_label("Vector persona").click();
+    h.run_steps(3);
+    let tool = h.state().ui.tool;
+    assert!(!photo_admitted(h.state_mut(), a), "inactive photo cannot claim admission");
+    assert!(photo_admitted(h.state_mut(), b));
+    h.state_mut().session.set_active(0);
+    h.state_mut().ui.crop_rect = Some([1., 2., 20., 20.]);
+    h.run_steps(3);
+    assert_eq!(h.state().session.prefs().toolbar.persona, Persona::Vector);
+    assert_eq!(h.state().ui.tool, tool);
+    assert_eq!(h.state().ui.crop_rect, Some([1., 2., 20., 20.]), "another document's draft survives");
+    assert!(photo_admitted(h.state_mut(), a));
+    let ctx = h.ctx.clone();
+    select(h.state_mut(), &ctx, Persona::Vector);
+    h.run_steps(3);
+    assert_eq!(h.state().session.prefs().toolbar.persona, Persona::Vector, "explicit later persona choice wins");
+    assert!(photo_admitted(h.state_mut(), a));
+    h.run_steps(3);
+    assert_eq!(h.state().session.prefs().toolbar.persona, Persona::Pixel);
+    assert_eq!(h.state().ui.tool, Tool::Move);
+}

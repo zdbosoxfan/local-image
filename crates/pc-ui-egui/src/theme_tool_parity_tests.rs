@@ -181,3 +181,39 @@ fn theme_parity_toolbar_footer_actions_stay_visible_and_work() {
         }
     }
 }
+
+#[test]
+fn persona_switch_labels_are_painted_and_reachable_outside_tool_scrolling() {
+    fn text(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) => out.push(t.galley.job.text.clone()),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| text(s, out)),
+            _ => {}
+        }
+    }
+    for theme in ThemeKind::ALL {
+        for ppp in [1.0, 1.25, 2.0] {
+            let mut h = fixture(theme, 760.0, false, ppp);
+            select(&mut h, Tool::Brush);
+            h.get_by_label("More tool options").click();
+            h.run_steps(3);
+            let mut painted = Vec::new();
+            for shape in &h.output().shapes {
+                text(&shape.shape, &mut painted);
+            }
+            for label in ["Pixel", "Vector"] {
+                assert!(painted.iter().any(|s| s == label), "{theme:?}/{ppp}: visible {label} text");
+                let tip = format!("{label} persona");
+                let button = h.get_by_label(&tip);
+                assert!(viewport(&h).contains_rect(button.rect()));
+                assert!(button.rect().right() < options_clip(&h).left(), "persona stays outside scrolling");
+            }
+            h.get_by_label("Vector persona").click();
+            h.run_steps(3);
+            assert_eq!(h.state().session.prefs().toolbar.persona, photocraft_engine::toolsets::Persona::Vector);
+            h.get_by_label("Pixel persona").click();
+            h.run_steps(3);
+            assert_eq!(h.state().session.prefs().toolbar.persona, photocraft_engine::toolsets::Persona::Pixel);
+        }
+    }
+}

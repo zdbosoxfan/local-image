@@ -1058,6 +1058,9 @@ pub struct UiState {
     pub symbols: crate::symbols::State,
     #[serde(skip)]
     pub persona_pointer: Runtime<crate::toolsets_ui::persona::PointerGuard>,
+    /// Successful photo admission awaiting a frame with this document still active.
+    #[serde(skip)]
+    pub photo_admission: Option<photocraft_doc::DocId>,
     #[serde(skip)]
     pub vector_blend: Runtime<crate::blend::State>,
     #[serde(skip)]
@@ -1227,12 +1230,13 @@ impl Default for UiState {
         Self {
             symbols: Default::default(),
             persona_pointer: Default::default(),
+            photo_admission: None,
             vector_blend: Default::default(),
             svg_export: Default::default(),
             pdf_export: Default::default(),
             frame_compose: Default::default(),
             fill_stroke_proxy: Default::default(),
-            tool: Tool::Brush,
+            tool: Tool::Move,
             ai: Default::default(),
             recent_files: Vec::new(),
             text_edit: None,
@@ -1388,7 +1392,7 @@ mod tests {
     fn ui_state_serializes() {
         let s = UiState::default();
         let v = serde_json::to_value(&s).unwrap();
-        assert_eq!(v["tool"], "Brush");
+        assert_eq!(v["tool"], "Move");
         let back: UiState = serde_json::from_value(v).unwrap();
         assert_eq!(back, s);
     }

@@ -1062,7 +1062,9 @@ impl PhotocraftApp {
             };
         // Edit › Color Settings policies apply on open; mismatches can ask what to do.
         // No path yet: a bare name isn't a location to save back to (`open_file` sets the path).
-        let (_, color) = self.session.open_document_deferred(doc, None);
+        let photo = crate::toolsets_ui::persona::contains_photo(&doc) && !photocraft_engine::vector_integration::is_native_vector_file(bytes);
+        let (index, color) = self.session.open_document_deferred(doc, None);
+        let document = self.session.documents()[index].doc.id;
         if let Some(error) = color.get("error").and_then(Value::as_str) {
             warnings.push(format!("Colour conversion was not applied: {error}"));
         }
@@ -1074,6 +1076,9 @@ impl PhotocraftApp {
         // Script events bound to "Open Document".
         photocraft_engine::automate_cmds::document_opened(&mut self.session);
         self.sync_views();
+        if photo {
+            crate::toolsets_ui::persona::photo_admitted(self, document);
+        }
         let ask = color.get("ask").and_then(Value::as_bool) == Some(true);
         if ask
             && (color.get("mismatch").and_then(Value::as_bool) == Some(true) || color.get("missing").is_some())
@@ -1398,6 +1403,7 @@ impl eframe::App for PhotocraftApp {
         // shortcuts see Esc).
         ai_remove_ui::keys(self, ctx);
         jobs_ui::tick(self, ctx);
+        crate::toolsets_ui::persona::frame(self, ctx);
         shortcuts::handle(self, ctx);
         crate::vector_integration::frame(self, ctx);
         let arrived: Vec<(String, Vec<u8>)> =

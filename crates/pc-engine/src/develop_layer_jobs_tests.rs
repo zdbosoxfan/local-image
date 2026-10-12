@@ -54,6 +54,9 @@ fn develop_open_job_matches_the_synchronous_document_and_link() {
     assert_eq!(result["existing"], false);
     let expected = photo.session();
     let actual = s.active().unwrap().doc.clone();
+    assert_eq!(result["documentId"], actual.id.0);
+    let existing = s.execute(OPEN_JOB, photo.params()).unwrap();
+    assert_eq!(existing["documentId"], actual.id.0);
     let expected = &expected.active().unwrap().doc;
     assert_eq!((actual.size, actual.depth, actual.mode, &actual.icc_profile), (expected.size, expected.depth, expected.mode, &expected.icc_profile));
     assert_eq!(actual.layers[0].surface().unwrap().read_region(actual.bounds()), expected.layers[0].surface().unwrap().read_region(expected.bounds()));

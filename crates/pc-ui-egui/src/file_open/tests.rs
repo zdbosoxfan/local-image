@@ -581,3 +581,63 @@ fn notices_render_without_panicking() {
     out.textures_delta.clear();
     assert_eq!(app.ui.notices.len(), 2);
 }
+
+#[test]
+fn photo_open_success_selects_pixel_move_but_failure_and_picker_cancel_keep_vector() {
+    use photocraft_engine::toolsets::Persona;
+    let (mut app, _) = app_with(None, None);
+    app.services.import = Some(Box::new(|name, bytes| {
+        if bytes == b"bad" {
+            return Err("not an image".into());
+        }
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"name":name,"width":4,"height":4,"background":"white"})).unwrap();
+        Ok(((*s.active().unwrap().doc).clone(), vec![]))
+    }));
+    let ctx = egui::Context::default();
+    app.run("file.new", json!({"width":4,"height":4})).unwrap();
+    crate::toolsets_ui::persona::select(&mut app, &ctx, Persona::Vector);
+    let doc = app.session.active().unwrap().doc.id;
+    assert!(app.open_file("bad.png", b"bad").is_err());
+    let _ = menus::invoke(&mut app, &ctx, "file.open", json!({}));
+    crate::toolsets_ui::persona::frame(&mut app, &ctx);
+    assert_eq!(app.session.active().unwrap().doc.id, doc);
+    assert_eq!(app.session.prefs().toolbar.persona, Persona::Vector);
+    app.open_file("photo.png", b"ok").unwrap();
+    crate::toolsets_ui::persona::frame(&mut app, &ctx);
+    assert_eq!(app.session.prefs().toolbar.persona, Persona::Pixel);
+    assert_eq!(app.ui.tool, crate::state::Tool::Move);
+}
+
+#[test]
+fn photo_open_callback_switching_documents_does_not_reset_another_persona() {
+    use photocraft_engine::toolsets::Persona;
+    let (mut app, _) = app_with(None, None);
+    let mut source = photocraft_engine::Session::new();
+    source.execute("file.new", json!({"width":4,"height":4,"background":"white"})).unwrap();
+    let image = (*source.active().unwrap().doc).clone();
+    app.services.import = Some(Box::new(move |_, _| Ok((image.clone(), vec![]))));
+    app.run("file.new", json!({"width":8,"height":8})).unwrap();
+    let ctx = egui::Context::default();
+    crate::toolsets_ui::persona::select(&mut app, &ctx, Persona::Vector);
+    let doc = app.session.active().unwrap().doc.id;
+    app.run("file.scripts.scriptEventsManager", json!({"add":{"event":"openDocument","steps":[["document.activate",{"document":0}]]}})).unwrap();
+    app.open_bytes("photo.png", b"ok").unwrap();
+    crate::toolsets_ui::persona::frame(&mut app, &ctx);
+    assert_eq!(app.session.documents().len(), 2);
+    assert_eq!(app.session.active().unwrap().doc.id, doc);
+    assert_eq!(app.session.prefs().toolbar.persona, Persona::Vector);
+    assert!(app.ui.photo_admission.is_none());
+}
+
+#[test]
+fn opening_vector_art_keeps_the_selected_vector_persona() {
+    use photocraft_engine::toolsets::Persona;
+    let (mut app, _) = app_with(None, None);
+    let ctx = egui::Context::default();
+    crate::toolsets_ui::persona::select(&mut app, &ctx, Persona::Vector);
+    app.open_bytes("art.svg", br#"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="20" height="20"/></svg>"#).unwrap();
+    crate::toolsets_ui::persona::frame(&mut app, &ctx);
+    assert_eq!(app.session.prefs().toolbar.persona, Persona::Vector);
+    assert!(app.ui.photo_admission.is_none());
+}

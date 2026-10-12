@@ -140,7 +140,6 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.add_space(4.0);
             }
             // Tool set switcher (Window › Tool Set).
-            crate::toolsets_ui::persona::switcher(app, ui);
             crate::toolsets_ui::switcher(app, ui, if t.pro { bx } else { bx * 0.8 });
             ui.add_space(4.0);
             // Subtle violet wash at the bottom of the toolbar.
@@ -666,7 +665,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let r = ui.max_rect();
             ui.painter().line_segment([r.left_top(), r.right_top()], Stroke::new(1.0, t.separator));
             ui.painter().line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0, t.separator));
-            tool_options_scroll(ui, app.ui.tool, |ui| {
+            tool_options_scroll(ui, app, |app, ui| {
                 if t.pro {
                     crate::chrome_ui::home_button(app, ui);
                     widgets::vline(ui, 22.0);
@@ -1127,11 +1126,14 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
 /// Scroll the same controls in every theme. Arrow buttons remain visible at
 /// narrow widths; the explicit child height prevents an unbounded centered row.
-fn tool_options_scroll(ui: &mut egui::Ui, tool: Tool, controls: impl FnOnce(&mut egui::Ui)) {
+fn tool_options_scroll(ui: &mut egui::Ui, app: &mut PhotocraftApp, controls: impl FnOnce(&mut PhotocraftApp, &mut egui::Ui)) {
     let height = ui.available_height();
     ui.spacing_mut().scroll.floating = true;
     ui.spacing_mut().scroll.floating_allocated_width = 0.0;
     ui.horizontal_centered(|ui| {
+        crate::toolsets_ui::persona::switcher(app, ui);
+        widgets::vline(ui, 22.0);
+        let tool = app.ui.tool;
         let salt = ("tool-options-scroll", tool);
         let id = ui.make_persistent_id(salt);
         let previous_offset = egui::scroll_area::State::load(ui.ctx(), id).map_or(0.0, |state| state.offset.x);
@@ -1151,7 +1153,7 @@ fn tool_options_scroll(ui: &mut egui::Ui, tool: Tool, controls: impl FnOnce(&mut
                 // Native crop/type controls place their commit actions at the row end.
                 // A finite virtual width prevents right-to-left layouts using infinity.
                 ui.set_max_width(width.max(1200.0));
-                ui.horizontal_centered(controls);
+                ui.horizontal_centered(|ui| controls(app, ui));
             });
         #[cfg(test)]
         {

@@ -1024,6 +1024,7 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     let preset = app.session.prefs().toolbar.vector_keyboard.preset;
     for (id, key) in &app.session.prefs().shortcuts.clone() {
         if let Some(tool) = id.strip_prefix("tools.select.").and_then(Tool::from_name)
+            && photocraft_engine::toolsets::supports(&format!("{tool:?}"), Persona::Vector)
             && crate::fill_stroke_proxy::shortcut(key).is_some_and(|sc| crate::shortcuts::consume(ctx, &sc))
         {
             crate::toolsets_ui::persona::select_tool(app, ctx, tool);

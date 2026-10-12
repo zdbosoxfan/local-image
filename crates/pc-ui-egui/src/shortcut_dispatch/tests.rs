@@ -445,3 +445,51 @@ fn ds_finding_tool_without_default_accepts_assigned_shortcut() {
     press(&mut h, "Alt+F13");
     assert_eq!(h.state().ui.tool, expected);
 }
+
+#[test]
+fn conventions_preferences_chord_keeps_explicit_saved_overrides() {
+    let mut h = harness();
+    press(&mut h, "Cmd+K");
+    assert!(h.state().ui.dialogs.iter().any(|d| crate::prefs_ui::is_preferences(&d.fields)));
+    assert!(!h.state().ui.palette_open);
+    press(&mut h, "Escape");
+    h.state_mut().session.edit_prefs(|p| {
+        p.shortcuts.insert("edit.search".into(), "Cmd+K".into());
+    });
+    press(&mut h, "Cmd+K");
+    assert!(h.state().ui.palette_open, "explicit saved Search binding wins over new default");
+    assert!(!h.state().ui.dialogs.iter().any(|d| crate::prefs_ui::is_preferences(&d.fields)));
+}
+
+#[test]
+fn conventions_plain_letter_selects_shift_cycles_and_saved_legacy_behavior_survives() {
+    let mut h = harness();
+    press(&mut h, "B");
+    assert_eq!(h.state().ui.tool, Tool::Brush);
+    press(&mut h, "B");
+    assert_eq!(h.state().ui.tool, Tool::Brush);
+    press(&mut h, "Shift+B");
+    assert_eq!(h.state().ui.tool, Tool::Pencil);
+    press(&mut h, "B");
+    assert_eq!(h.state().ui.tool, Tool::Pencil, "plain group key keeps current tool");
+    h.state_mut().session.edit_prefs(|p| p.tools.use_shift_key_for_tool_switch = false);
+    press(&mut h, "B");
+    assert_eq!(h.state().ui.tool, Tool::MixerBrush, "explicit legacy cycling preference still applies");
+}
+
+#[test]
+fn vector_command_default_ignores_a_pixel_only_tool_override_collision() {
+    use photocraft_engine::vector_toolbar_layout::Preset;
+    for preset in [Preset::Illustrator, Preset::Affinity] {
+        let mut h = harness();
+        h.state_mut().session.edit_prefs(|p| {
+            p.toolbar.vector_keyboard.preset = preset;
+            p.shortcuts.insert("tools.select.SpotHealing".into(), "Cmd+K".into());
+        });
+        h.get_by_label("Vector persona").click();
+        h.run_steps(3);
+        press(&mut h, "Cmd+K");
+        assert!(h.state().ui.dialogs.iter().any(|d| crate::prefs_ui::is_preferences(&d.fields)));
+        assert_eq!(h.state().session.prefs().toolbar.persona, photocraft_engine::toolsets::Persona::Vector);
+    }
+}

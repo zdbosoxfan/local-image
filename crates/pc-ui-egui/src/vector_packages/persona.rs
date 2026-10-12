@@ -157,10 +157,36 @@ fn memory_key() -> egui::Id {
 /// Called before chrome/canvas each frame (00 also calls this when chrome is hidden). The
 /// owned toolbar and context bar use it already. Automation changes use the same prefs.
 pub fn frame(app: &mut PhotocraftApp, ctx: &Context) {
+    if let Some(document) = app.ui.photo_admission.take()
+        && app.session.active().is_some_and(|st| st.doc.id == document)
+    {
+        cancel(app, ctx);
+        app.session.edit_prefs(|prefs| {
+            prefs.toolbar.persona = Persona::Pixel;
+            prefs.toolbar.remember_tool(Persona::Pixel, "Move");
+        });
+        app.ui.tool = Tool::Move;
+    }
     sync(app, ctx);
 }
 
+/// After successful photo admission/focus, prepare Pixel/Move for that document only.
+/// The frame rechecks the identity before cancelling a gesture or changing persona.
+/// Hosts must pass the intended photo's DocId, never infer it after an asynchronous wait.
+pub fn photo_admitted(app: &mut PhotocraftApp, document: DocId) -> bool {
+    if !app.session.active().is_some_and(|st| st.doc.id == document) {
+        return false;
+    }
+    app.ui.photo_admission = Some(document);
+    true
+}
+
+pub(crate) fn contains_photo(doc: &photocraft_doc::Document) -> bool {
+    doc.walk().iter().any(|(_, _, layer)| matches!(layer.content, LayerContent::Raster(_)) || crate::develop_layer::is_develop_layer(layer))
+}
+
 pub fn select(app: &mut PhotocraftApp, ctx: &Context, persona: Persona) {
+    app.ui.photo_admission = None;
     sync(app, ctx);
     let previous = app.session.prefs().toolbar.persona;
     if persona == previous {
@@ -171,6 +197,7 @@ pub fn select(app: &mut PhotocraftApp, ctx: &Context, persona: Persona) {
 }
 
 pub fn select_tool(app: &mut PhotocraftApp, ctx: &Context, tool: Tool) {
+    app.ui.photo_admission = None;
     if app.ui.tool == tool {
         return;
     }
@@ -249,14 +276,13 @@ fn sync(app: &mut PhotocraftApp, ctx: &Context) {
     }
 }
 
-/// Compact segmented switcher at the far left of the Compositing toolbar header.
+/// Labelled segmented switcher at the fixed left edge of the Compositing options row.
 pub fn switcher(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let active = app.session.prefs().toolbar.persona;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 1.0;
-        let size = ((ui.available_width() - 1.0) / 2.0).clamp(14.0, 22.0);
-        for (persona, icon, tip) in [(Persona::Pixel, "brush", tl!("Pixel persona")), (Persona::Vector, "pen-tool", tl!("Vector persona"))] {
-            let r = crate::icons::tool_button(ui, icon, size, active == persona, "");
+        for (persona, label, tip) in [(Persona::Pixel, tl!("Pixel"), tl!("Pixel persona")), (Persona::Vector, tl!("Vector"), tl!("Vector persona"))] {
+            let r = ui.add(egui::Button::selectable(active == persona, label));
             r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tip));
             if r.on_hover_text(tip).clicked() {
                 select(app, ui.ctx(), persona);

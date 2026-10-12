@@ -476,3 +476,15 @@ fn shortcut_reset_assignment_and_whole_map_validation_are_atomic() {
     assert_eq!(s.prefs().shortcuts["future.command"], "Alt+FutureKey");
     assert_eq!(s.prefs().shortcuts["edit.undo"], "");
 }
+
+#[test]
+fn tool_switch_defaults_use_shift_but_explicit_saved_false_is_preserved() {
+    let mut s = session();
+    assert!(s.prefs().tools.use_shift_key_for_tool_switch);
+    s.load_prefs_json(r#"{"tools":{"useShiftKeyForToolSwitch":false}}"#).unwrap();
+    assert!(!s.prefs().tools.use_shift_key_for_tool_switch);
+    let saved = s.prefs_to_json();
+    let mut reopened = session();
+    reopened.load_prefs_json(&saved).unwrap();
+    assert!(!reopened.prefs().tools.use_shift_key_for_tool_switch);
+}

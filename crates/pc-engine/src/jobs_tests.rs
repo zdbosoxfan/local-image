@@ -307,6 +307,7 @@ fn open_runs_as_a_job_and_cancel_adds_nothing() {
     let JobOutcome::Done(v) = &e.outcome else { panic!("{e:?}") };
     assert_eq!(e.command, OPEN_JOB);
     assert_eq!(v["document"], 0);
+    assert_eq!(v["documentId"], s.documents()[0].doc.id.0);
     assert_eq!(s.documents().len(), 1);
     assert_eq!(s.documents()[0].doc.size.width, 40);
 
@@ -483,4 +484,27 @@ fn group_view_changes_preserve_cancellation_and_clean_state() {
     assert_eq!(s.active().unwrap().doc.layer(outer).unwrap().name, "outer");
     assert_eq!(s.active().unwrap().revision, revision);
     assert_eq!(s.active().unwrap().saved_revision, revision);
+}
+
+#[test]
+fn completed_open_results_keep_admission_ids_when_tabs_change_before_poll() {
+    let mut s = session(4, 4);
+    let bytes = photocraft_io::export(&s.active().unwrap().doc, "seed.psd", &Default::default()).unwrap().bytes;
+    let b_job = job(s.start_open("B.psd", OpenSource::Bytes(Arc::new(bytes.clone()))).unwrap());
+    let b_result = s.wait_job(b_job).unwrap();
+    let b = s.active().unwrap().doc.id;
+    let c_job = job(s.start_open("C.psd", OpenSource::Bytes(Arc::new(bytes))).unwrap());
+    let c_result = s.wait_job(c_job).unwrap();
+    let c = s.active().unwrap().doc.id;
+    // wait_job admits and queues completion events; commands can run before the UI polls.
+    s.move_document(2, 0).unwrap();
+    assert_ne!(s.documents()[b_result["document"].as_u64().unwrap() as usize].doc.id, b);
+    assert_ne!(s.documents()[c_result["document"].as_u64().unwrap() as usize].doc.id, c);
+    let events = s.poll_jobs();
+    for (job, document) in [(b_job, b), (c_job, c)] {
+        let event = events.iter().find(|event| event.id == job).unwrap();
+        let JobOutcome::Done(result) = &event.outcome else { panic!("{event:?}") };
+        assert_eq!(result["documentId"], document.0);
+        assert!(s.documents().iter().any(|st| st.doc.id.0 == result["documentId"].as_u64().unwrap()));
+    }
 }

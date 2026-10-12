@@ -141,6 +141,8 @@ fn b_cycles_brush_pencil_and_mixer_brush() {
         app.run("file.new", json!({"width": 200, "height": 120})).unwrap();
         app
     });
+    // This first half covers the explicit legacy preference; fresh defaults use Shift.
+    h.state_mut().session.edit_prefs(|p| p.tools.use_shift_key_for_tool_switch = false);
     h.state_mut().ui.tool = Tool::Move;
     h.run_steps(4);
     let press = |h: &mut Harness<'_, PhotocraftApp>, m: Modifiers| {

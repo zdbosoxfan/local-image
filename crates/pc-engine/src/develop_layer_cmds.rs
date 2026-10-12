@@ -115,7 +115,7 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(i) = photo.and_then(|id| document_of_photo_in(s, library.as_deref(), id, Some(&path))) {
         jobs::cancel_latest(s, &keys[..1]);
         s.set_active(i);
-        return Ok(json!({ "document": i, "existing": true }));
+        return Ok(json!({ "document": i, "documentId": s.documents()[i].doc.id.0, "existing": true }));
     }
     if let Some(job) = jobs::latest(s, &keys, &settings) {
         return Ok(json!({"job": job.0, "pending": true}));
@@ -163,7 +163,9 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
             let color = json!({"action":"kept","policy":"preserve","embedded":embedded.description,"working":working.description,
                 "mismatch":mismatch,"ask":ask_color_profile && mismatch,"internalDevelop":true});
             let i = s.add_document(doc, None);
-            Ok(json!({ "document": i, "name": name, "existing": false, "layer": id.0, "warnings": r.warnings, "color": color }))
+            Ok(
+                json!({ "document": i, "documentId": s.documents()[i].doc.id.0, "name": name, "existing": false, "layer": id.0, "warnings": r.warnings, "color": color }),
+            )
         },
     )
 }

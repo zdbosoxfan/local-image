@@ -208,9 +208,19 @@ pub fn sync_in(app: &mut PhotocraftApp, library: &str, photo: u64, path: &str, s
 }
 
 pub fn open_photo_in(app: &mut PhotocraftApp, library: &str, photo: u64, path: &str, settings: &Value, name: &str) -> Result<(), String> {
-    app.run("develop.openPhoto", json!({"library": library, "photo": photo, "path": path, "settings": settings, "name": name}))?;
+    let result = app.run("develop.openPhoto", json!({"library": library, "photo": photo, "path": path, "settings": settings, "name": name}))?;
+    admit_photo_result(app, &result);
     app.sync_views();
     Ok(())
+}
+
+fn admit_photo_result(app: &mut PhotocraftApp, result: &Value) {
+    if result["pending"].as_bool() == Some(true) {
+        return;
+    }
+    if let Some(document) = result["documentId"].as_u64().map(photocraft_doc::DocId) {
+        crate::toolsets_ui::persona::photo_admitted(app, document);
+    }
 }
 
 /// Develop layers following `photo` take `settings` (one undo step per document that changed).
@@ -245,6 +255,7 @@ pub(crate) fn finish_sync(app: &mut PhotocraftApp, r: &Value) {
 /// document that already has it, or a new one whose Background is its Develop layer.
 pub fn open_photo(app: &mut PhotocraftApp, photo: u64, path: &str, settings: &Value, name: &str) -> Result<(), String> {
     let r = app.run("develop.openPhoto", json!({ "path": path, "photo": photo, "settings": settings, "name": name }))?;
+    admit_photo_result(app, &r);
     app.sync_views();
     if r["pending"].as_bool() != Some(true) && !r["existing"].as_bool().unwrap_or(false) {
         app.ui.status = crate::i18n::fmt(tl!("{name} · Develop layer (double-click it to return to Develop)"), &[("name", name)]);
@@ -359,6 +370,26 @@ mod tests {
         let p = path.display().to_string();
         open_photo(&mut app, 7, &p, &json!({}), "photo.png").unwrap();
         (dir, p, app)
+    }
+
+    #[test]
+    fn develop_photo_success_admits_pixel_move_and_failure_preserves_vector() {
+        use photocraft_engine::toolsets::Persona;
+        let (dir, path, mut app) = photo_app("persona-admission");
+        let ctx = egui::Context::default();
+        crate::toolsets_ui::persona::frame(&mut app, &ctx);
+        crate::toolsets_ui::persona::select(&mut app, &ctx, Persona::Vector);
+        let document = app.session.active().unwrap().doc.id;
+        assert!(open_photo_in(&mut app, "test-library", 99, &format!("{path}.missing"), &json!({}), "missing.png").is_err());
+        crate::toolsets_ui::persona::frame(&mut app, &ctx);
+        assert_eq!(app.session.active().unwrap().doc.id, document);
+        assert_eq!(app.session.prefs().toolbar.persona, Persona::Vector);
+        open_photo_in(&mut app, "test-library", 8, &path, &json!({}), "photo.png").unwrap();
+        crate::toolsets_ui::persona::frame(&mut app, &ctx);
+        assert_eq!(app.session.prefs().toolbar.persona, Persona::Pixel);
+        assert_eq!(app.ui.tool, crate::state::Tool::Move);
+        drop(app);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Back from Develop with new edits to a photo that has compositing work on it: the new

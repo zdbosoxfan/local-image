@@ -85,14 +85,29 @@ pub fn tool_shortcut_id(tool: Tool) -> String {
     format!("tools.select.{leader:?}")
 }
 
+/// Inactive Pixel-only tool assignments must not reserve Vector's command/tool keys.
+pub(crate) fn override_applies_in_persona(persona: photocraft_engine::toolsets::Persona, id: &str) -> bool {
+    persona != photocraft_engine::toolsets::Persona::Vector
+        || id
+            .strip_prefix("tools.select.")
+            .is_none_or(|name| Tool::from_name(name).is_some_and(|tool| photocraft_engine::toolsets::supports(&format!("{tool:?}"), persona)))
+}
+
 pub fn tool_shortcut(session: &photocraft_engine::Session, tool: Tool) -> Option<String> {
     if session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+        if !photocraft_engine::toolsets::supports(&format!("{tool:?}"), photocraft_engine::toolsets::Persona::Vector) {
+            return None;
+        }
         let id = format!("tools.select.{tool:?}");
         let preset = session.prefs().toolbar.vector_keyboard.preset;
         let name = format!("{tool:?}");
         let default = photocraft_engine::vector_toolbar_layout::tool_bindings(preset).iter().find(|b| b.target == name).map(|b| b.key);
         if !session.prefs().shortcuts.contains_key(&id)
-            && default.is_some_and(|key| session.prefs().shortcuts.values().any(|binding| !binding.is_empty() && parse(binding) == parse(key)))
+            && default.is_some_and(|key| {
+                session.prefs().shortcuts.iter().any(|(id, binding)| {
+                    override_applies_in_persona(session.prefs().toolbar.persona, id) && !binding.is_empty() && parse(binding) == parse(key)
+                })
+            })
         {
             return None;
         }
@@ -393,6 +408,12 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             app.crop.drag = None;
             return;
         }
+    }
+    // Vector's binding table owns its tool letters. An unbound letter must not
+    // reach Pixel groups or a saved Pixel-only override and silently switch persona.
+    if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+        crate::opacity_keys::handle(app, ctx);
+        return;
     }
     // Tool keys; pressing the key of the current group cycles within it. With Preferences ›
     // Tools › Use Shift Key for Tool Switch, only ⇧+key cycles and the plain key keeps the

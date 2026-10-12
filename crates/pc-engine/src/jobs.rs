@@ -518,7 +518,10 @@ impl Session {
             },
             move |s, (r, native_import): (photocraft_io::ImportResult, bool)| {
                 let (index, color) = if deferred { s.open_document_deferred(r.document, None) } else { s.open_document(r.document, None) };
-                Ok(json!({"document": index, "name": name_a, "warnings": r.warnings, "color": color, "nativeImport": native_import}))
+                // The index is retained for API compatibility. Completion consumers must
+                // use the admitted ID: other jobs/callbacks may reorder or close tabs.
+                let document = s.documents()[index].doc.id;
+                Ok(json!({"document": index, "documentId": document.0, "name": name_a, "warnings": r.warnings, "color": color, "nativeImport": native_import}))
             },
         )
     }

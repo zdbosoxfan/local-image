@@ -263,6 +263,7 @@ fn alt_scroll_zooms_gently_around_the_pointer() {
 #[test]
 fn alt_scroll_zooms_while_a_temporary_tool_is_held() {
     let mut h = harness();
+    h.state_mut().ui.tool = crate::state::Tool::Brush;
     let p = h.state().last_canvas_rect.center();
     h.hover_at(p);
     // Space (the temporary Hand, #249) is down: ⌥ + scroll still zooms by notches, and the
@@ -297,16 +298,12 @@ fn type_tool_alt_arrows_kern_the_pair() {
     };
     let steps = |h: &Harness<'static, PhotocraftApp>| h.state().session.active().unwrap().history.entries().len();
     let metric = photocraft_text::shared().lock().unwrap().pair_kerning(&text(&h), 72.0, 0).unwrap().round();
-    h.state_mut().ui.text_edit = Some(crate::state::TextEdit {
-        layer: id,
-        caret: 1,
-        anchor: 1,
-        session: "kern-test".into(),
-        created: false,
-        dragging: false,
-        resize: None,
-        preedit: None,
-    });
+    // Enter through the real editor route: an active text session owns a Type tool.
+    crate::type_tool::edit_active(h.state_mut()).unwrap();
+    assert_eq!(h.state().ui.tool, crate::state::Tool::Type);
+    let edit = h.state_mut().ui.text_edit.as_mut().unwrap();
+    assert_eq!(edit.layer, id);
+    (edit.caret, edit.anchor) = (1, 1);
     h.run_steps(2);
     let s0 = steps(&h);
     h.key_press_modifiers(Modifiers::ALT, Key::ArrowRight);

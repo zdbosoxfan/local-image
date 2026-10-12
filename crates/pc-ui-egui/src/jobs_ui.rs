@@ -95,7 +95,10 @@ pub fn start_open(app: &mut PhotocraftApp, name: &str, path: Option<String>, sou
     let name = &app.open_name(name);
     match app.session.start_open_deferred(name, source).map_err(|e| e.to_string())? {
         // Inline (wasm): finish now, like a background open that ended at once.
-        Started::Done(v) => finish_open(app, name, path.as_deref(), &v, None),
+        Started::Done(v) => {
+            let document = opened_document(&v).ok_or("The opened document is no longer available")?;
+            finish_open(app, document, name, path.as_deref(), &v, None, None)
+        }
         Started::Job(job) => {
             app.jobs.opens.push(OpenTab { job, name: name.to_string(), path, slot: None });
             app.jobs.focus = Some(job);
@@ -152,15 +155,46 @@ pub fn tick_background(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 fn dispatch_batch(app: &mut PhotocraftApp) {
+    let previous = app.session.active().map(|st| st.doc.id);
     let events = app.session.poll_jobs();
+    dispatch_events(app, events, previous);
+}
+
+fn opened_document(result: &Value) -> Option<photocraft_doc::DocId> {
+    // Required admission-time identity. Never fall back to the mutable legacy index.
+    result.get("documentId")?.as_u64().map(photocraft_doc::DocId)
+}
+
+fn dispatch_events(app: &mut PhotocraftApp, events: Vec<JobEvent>, mut previous: Option<photocraft_doc::DocId>) {
+    // Read the whole batch's admission identities before any handoff or callback.
+    // They remain valid even when engine apply callbacks already changed tab order.
+    let events: Vec<_> = events
+        .into_iter()
+        .map(|event| {
+            let opening = matches!(event.command.as_str(), OPEN_JOB | photocraft_engine::develop_layer_cmds::OPEN_JOB);
+            let document = match &event.outcome {
+                JobOutcome::Done(value) if opening => opened_document(value),
+                _ => None,
+            };
+            (event, document)
+        })
+        .collect();
+    if events.iter().any(|(event, _)| {
+        matches!(event.command.as_str(), OPEN_JOB | photocraft_engine::develop_layer_cmds::OPEN_JOB) && matches!(event.outcome, JobOutcome::Done(_))
+    }) {
+        // Engine admission activates new documents. Restore first, even if a
+        // non-open event precedes the open: its sync_views must see the real owner.
+        restore_open_focus(app, previous);
+    }
     let mut handoff = std::mem::take(&mut app.library_vectorize);
-    let errors: Vec<_> = events.iter().filter_map(|event| handoff.on_job_event(app, event).err()).collect();
+    let errors: Vec<_> = events.iter().filter_map(|(event, _)| handoff.on_job_event(app, event).err()).collect();
     app.library_vectorize = handoff;
-    for event in events {
+    for (event, document) in events {
         if matches!(event.command.as_str(), "file.placeEmbedded" | "file.placeLinked") && matches!(event.outcome, JobOutcome::Done(_)) {
             app.jobs.place_finished = true;
         }
-        on_event(app, event);
+        on_event(app, event, previous, document);
+        previous = app.session.active().map(|st| st.doc.id);
     }
     for error in errors {
         notices::error(app, error);
@@ -188,7 +222,7 @@ pub fn cancel(app: &mut PhotocraftApp, id: JobId) {
     }
 }
 
-fn on_event(app: &mut PhotocraftApp, mut e: JobEvent) {
+fn on_event(app: &mut PhotocraftApp, mut e: JobEvent, previous: Option<photocraft_doc::DocId>, document: Option<photocraft_doc::DocId>) {
     if e.command == "clipboard.import"
         && let JobOutcome::Done(value) = &e.outcome
         && let Some(fields) = value.get("clipboardPrompt")
@@ -224,7 +258,11 @@ fn on_event(app: &mut PhotocraftApp, mut e: JobEvent) {
         let tab = app.jobs.opens.remove(i);
         match e.outcome {
             JobOutcome::Done(v) => {
-                if let Err(err) = finish_open(app, &tab.name, tab.path.as_deref(), &v, tab.slot) {
+                let restore = (app.jobs.focus != Some(e.id)).then_some(previous).flatten();
+                let result = document
+                    .ok_or_else(|| "The opened document is no longer available".to_string())
+                    .and_then(|document| finish_open(app, document, &tab.name, tab.path.as_deref(), &v, tab.slot, restore));
+                if let Err(err) = result {
                     app.open_failed(&tab.name, &err);
                 }
             }
@@ -271,21 +309,38 @@ fn on_event(app: &mut PhotocraftApp, mut e: JobEvent) {
     }
 }
 
-/// What [`crate::PhotocraftApp::open_bytes`] does after decoding, for a background open's result
-/// (`{document, warnings, color}`).
-fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Value, slot: Option<usize>) -> Result<(), String> {
-    let mut index = v.get("document").and_then(Value::as_u64).ok_or("the open job returned no document")? as usize;
-    if let Some(slot) = slot
-        && let Ok(moved) = app.run("document.move", json!({"document": index, "to": slot}))
-    {
-        index = moved.get("document").and_then(Value::as_u64).map_or(index, |i| i as usize);
+fn restore_open_focus(app: &mut PhotocraftApp, document: Option<photocraft_doc::DocId>) {
+    if let Some(index) = document.and_then(|id| app.session.documents().iter().position(|st| st.doc.id == id)) {
+        app.session.set_active(index);
     }
+}
+
+/// What [`crate::PhotocraftApp::open_bytes`] does after decoding, for a background open's result.
+fn finish_open(
+    app: &mut PhotocraftApp,
+    document: photocraft_doc::DocId,
+    name: &str,
+    path: Option<&str>,
+    v: &Value,
+    slot: Option<usize>,
+    restore: Option<photocraft_doc::DocId>,
+) -> Result<(), String> {
+    // Restore before document.move's UI synchronization can inspect a gesture.
+    restore_open_focus(app, restore);
+    let index = app.session.documents().iter().position(|st| st.doc.id == document).ok_or("The opened document is no longer available")?;
+    if let Some(slot) = slot {
+        let _ = app.run("document.move", json!({"document": index, "to": slot}));
+    }
+    let index = app.session.documents().iter().position(|st| st.doc.id == document).ok_or("The opened document is no longer available")?;
     let mut warnings: Vec<String> =
         v.get("warnings").and_then(Value::as_array).map(|a| a.iter().filter_map(|w| w.as_str().map(str::to_string)).collect()).unwrap_or_default();
     if let Some(error) = v.get("color").and_then(|color| color.get("error")).and_then(Value::as_str) {
         warnings.push(format!("Colour conversion was not applied: {error}"));
     }
-    app.session.set_active(index);
+    if !app.session.set_active(index) {
+        return Err("The opened document is no longer available".into());
+    }
+    let photo = v["nativeImport"] != true && app.session.active().is_some_and(|st| crate::toolsets_ui::persona::contains_photo(&st.doc));
     let color_target = crate::prefs_ui::mismatch_target(&app.session);
     if let Some(p) = path {
         if v["nativeImport"] == true {
@@ -295,13 +350,16 @@ fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Valu
             app.opened_from(p);
         }
     }
-    app.sync_views();
     app.ui.status = format!("Opened {name}");
     app.ui.status_error = false;
     notices::io_warnings(app, &format!("Opened {name}"), &warnings);
     // Script events bound to "Open Document".
     photocraft_engine::automate_cmds::document_opened(&mut app.session);
+    restore_open_focus(app, restore);
     app.sync_views();
+    if photo && restore.is_none() {
+        crate::toolsets_ui::persona::photo_admitted(app, document);
+    }
     let color = v.get("color").cloned().unwrap_or(Value::Null);
     let ask = color.get("ask").and_then(Value::as_bool) == Some(true);
     if ask

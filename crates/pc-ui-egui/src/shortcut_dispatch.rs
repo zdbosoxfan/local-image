@@ -82,10 +82,11 @@ pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
     let custom: Vec<_> = prefs.shortcuts.iter().filter(|(id, _)| !id.starts_with("tools.select.") && !crate::hold_keys::is_temporary(id)).collect();
     result.retain(|(id, key)| {
         !prefs.shortcuts.contains_key(id)
-            && !prefs
-                .shortcuts
-                .values()
-                .any(|binding| !binding.is_empty() && crate::fill_stroke_proxy::shortcut(binding) == crate::fill_stroke_proxy::shortcut(key))
+            && !prefs.shortcuts.iter().any(|(id, binding)| {
+                crate::shortcuts::override_applies_in_persona(prefs.toolbar.persona, id)
+                    && !binding.is_empty()
+                    && crate::fill_stroke_proxy::shortcut(binding) == crate::fill_stroke_proxy::shortcut(key)
+            })
     });
     let mut explicit: Vec<_> = custom.into_iter().filter(|(_, key)| !key.is_empty()).map(|(id, key)| (id.clone(), key.clone())).collect();
     explicit.extend(result);

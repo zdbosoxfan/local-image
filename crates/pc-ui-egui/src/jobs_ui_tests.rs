@@ -272,3 +272,143 @@ fn templates_open_untitled_in_the_background() {
     assert_eq!((st.doc.name.as_str(), st.path.as_deref()), ("Untitled-1", None));
     assert_eq!(h.state().ui.recent_files.first().map(String::as_str), Some("/tmp/photocraft-test/card.psdt"));
 }
+
+#[test]
+fn photo_background_completion_respects_focus_and_cancelled_opens_keep_persona() {
+    use crate::state::Tool;
+    use photocraft_engine::toolsets::Persona;
+    for focused in [false, true] {
+        let mut h = app_harness();
+        h.get_by_label("Vector persona").click();
+        h.run_steps(3);
+        let original = h.state().session.active().unwrap().doc.id;
+        let tool = h.state().ui.tool;
+        h.state_mut().open_file("/tmp/photocraft-test/persona-photo.psd", &psd_bytes()).unwrap();
+        if !focused {
+            h.state_mut().jobs.focus = None; // User returned to the existing document tab.
+            h.state_mut().ui.crop_rect = Some([1., 2., 20., 20.]);
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !h.state().jobs.opens.is_empty() {
+            assert!(Instant::now() < deadline);
+            h.run_steps(1);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        h.run_steps(3);
+        if focused {
+            assert_ne!(h.state().session.active().unwrap().doc.id, original);
+            assert_eq!(h.state().session.prefs().toolbar.persona, Persona::Pixel);
+            assert_eq!(h.state().ui.tool, Tool::Move);
+        } else {
+            assert_eq!(h.state().session.active().unwrap().doc.id, original);
+            assert_eq!(h.state().session.prefs().toolbar.persona, Persona::Vector);
+            assert_eq!(h.state().ui.tool, tool);
+            assert_eq!(h.state().ui.crop_rect, Some([1., 2., 20., 20.]));
+        }
+        h.get_by_label("Vector persona").click();
+        h.run_steps(3);
+        let active = h.state().session.active().unwrap().doc.id;
+        h.state_mut().open_file("/tmp/photocraft-test/persona-cancel.psd", &psd_bytes()).unwrap();
+        let job = h.state().jobs.opens[0].job;
+        crate::jobs_ui::cancel(h.state_mut(), job);
+        h.run_steps(3);
+        assert_eq!(h.state().session.active().unwrap().doc.id, active);
+        assert_eq!(h.state().session.prefs().toolbar.persona, Persona::Vector);
+        assert!(h.state().ui.photo_admission.is_none());
+    }
+}
+
+/// Reproduce two decoded opens in one poll without depending on worker timing.
+fn admitted_open(app: &mut PhotocraftApp, job: u64, name: &str) -> (photocraft_engine::jobs::JobEvent, photocraft_doc::DocId) {
+    let mut doc = (*app.session.active().unwrap().doc).clone();
+    doc.name = name.into();
+    let index = app.session.add_document(doc, None);
+    let document = app.session.documents()[index].doc.id;
+    app.jobs.opens.push(super::OpenTab { job: JobId(job), name: name.into(), path: Some(format!("/photos/{name}")), slot: None });
+    (
+        photocraft_engine::jobs::JobEvent {
+            id: JobId(job),
+            command: photocraft_engine::jobs::OPEN_JOB.into(),
+            label: format!("Opening {name}"),
+            document: None,
+            outcome: photocraft_engine::jobs::JobOutcome::Done(json!({"document":index,"documentId":document.0,"nativeImport":false})),
+        },
+        document,
+    )
+}
+
+#[test]
+fn photo_batch_completion_pins_all_targets_before_reordering_callbacks() {
+    use photocraft_engine::jobs::{JobEvent, JobOutcome};
+    for (focused, reordered_before_dispatch) in [(false, false), (true, false), (false, true), (true, true)] {
+        let mut h = app_harness();
+        let app = h.state_mut();
+        let original = app.session.active().unwrap().doc.id;
+        app.run("file.scripts.scriptEventsManager", json!({"add":{"event":"openDocument","steps":[["document.move",{"document":2,"to":0}]]}})).unwrap();
+        app.ui.tool = crate::state::Tool::Lasso;
+        crate::canvas::tool_event(app, crate::canvas::ToolEvent::Down { x: 10., y: 10., pressure: 1. }, egui::Modifiers::NONE);
+        assert!(crate::lasso_ui::active(app));
+        let points = app.drag.as_ref().unwrap().points.clone();
+        let (b_event, b) = admitted_open(app, 9001, "B.psd");
+        let (c_event, c) = admitted_open(app, 9002, "C.psd");
+        app.jobs.focus = focused.then_some(JobId(9002));
+        if reordered_before_dispatch {
+            app.session.move_document(2, 0).unwrap();
+        }
+        // This generic event syncs views. It must see A, not poll_jobs' last admitted C.
+        let generic = JobEvent {
+            id: JobId(9000),
+            command: "test.completed".into(),
+            label: "Completed".into(),
+            document: Some(original),
+            outcome: JobOutcome::Done(json!({})),
+        };
+        super::dispatch_events(app, vec![generic, b_event, c_event], Some(original));
+        for (id, path) in [(b, "/photos/B.psd"), (c, "/photos/C.psd")] {
+            assert_eq!(app.session.documents().iter().find(|st| st.doc.id == id).unwrap().path.as_deref(), Some(path));
+        }
+        assert!(app.session.documents().iter().find(|st| st.doc.id == original).unwrap().path.is_none());
+        assert_eq!(app.session.active().unwrap().doc.id, if focused { c } else { original });
+        assert_eq!(app.ui.photo_admission, focused.then_some(c), "admission must use C's pinned ID");
+        if !focused {
+            assert!(crate::lasso_ui::active(app), "mixed events must preserve A's live lasso");
+            assert_eq!(app.drag.as_ref().unwrap().points, points);
+            assert_eq!(app.ui.tool, crate::state::Tool::Lasso);
+        }
+    }
+}
+
+#[test]
+fn photo_batch_completion_does_not_retarget_a_document_closed_by_an_earlier_callback() {
+    let mut h = app_harness();
+    let app = h.state_mut();
+    let original = app.session.active().unwrap().doc.id;
+    app.run("file.scripts.scriptEventsManager", json!({"add":{"event":"openDocument","steps":[["file.close",{"document":2}]]}})).unwrap();
+    let (b_event, b) = admitted_open(app, 9011, "B.psd");
+    let (c_event, c) = admitted_open(app, 9012, "C.psd");
+    app.jobs.focus = Some(JobId(9012));
+    super::dispatch_events(app, vec![b_event, c_event], Some(original));
+    assert!(!app.session.documents().iter().any(|st| st.doc.id == c));
+    assert_eq!(app.session.documents().iter().find(|st| st.doc.id == b).unwrap().path.as_deref(), Some("/photos/B.psd"));
+    assert!(app.session.documents().iter().find(|st| st.doc.id == original).unwrap().path.is_none());
+    assert_eq!(app.session.active().unwrap().doc.id, original);
+    assert!(app.ui.photo_admission.is_none());
+    assert!(app.ui.status_error);
+    assert!(app.ui.status.contains("no longer available"));
+}
+
+#[test]
+fn photo_completion_requires_admission_id_instead_of_falling_back_to_an_index() {
+    let mut h = app_harness();
+    let app = h.state_mut();
+    let original = app.session.active().unwrap().doc.id;
+    let (mut event, b) = admitted_open(app, 9021, "B.psd");
+    let photocraft_engine::jobs::JobOutcome::Done(value) = &mut event.outcome else { panic!("fixture") };
+    value.as_object_mut().unwrap().remove("documentId");
+    app.jobs.focus = Some(JobId(9021));
+    super::dispatch_events(app, vec![event], Some(original));
+    assert_eq!(app.session.active().unwrap().doc.id, original);
+    assert!(app.session.documents().iter().find(|st| st.doc.id == b).unwrap().path.is_none());
+    assert!(app.ui.photo_admission.is_none());
+    assert!(app.ui.status_error);
+}

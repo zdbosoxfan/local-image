@@ -1,6 +1,8 @@
 // Translations paused by docs/wip/CODEX-TASK.md; vector package 00–47 English keys.
 &[
     // Recovery workflow labels: English until the explicitly deferred translation pass.
+    "Pixel",
+    "The opened document is no longer available",
     "Choose a valid generation input.",
     "Copy details",
     "Details / History",

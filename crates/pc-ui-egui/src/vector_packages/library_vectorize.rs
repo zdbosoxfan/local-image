@@ -97,8 +97,10 @@ impl State {
         }
         let Some(opening) = self.opening.take() else { return Ok(false) };
         if let JobOutcome::Done(value) = &event.outcome {
-            let index = value.get("document").and_then(|v| v.as_u64()).and_then(|i| usize::try_from(i).ok());
-            let st = index.and_then(|i| app.session.documents().get(i)).ok_or_else(|| tl!("The open job returned no photo document").to_string())?;
+            let document = value.get("documentId").and_then(|v| v.as_u64()).map(DocId);
+            let st = document
+                .and_then(|id| app.session.documents().iter().find(|st| st.doc.id == id))
+                .ok_or_else(|| tl!("The open job returned no photo document").to_string())?;
             if !opening.previous.contains(&st.doc.id) {
                 self.library_documents.push(st.doc.id);
             }
