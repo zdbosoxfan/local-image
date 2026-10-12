@@ -171,3 +171,14 @@ fixtures omit Type, include fake EI/BI image samples in a glyph/pattern, and
 compare them with matching XObject images. Actual BI in any still-unclassified
 stream is refused before publication; literal/comment text containing BI remains
 opaque and byte-exact. Existing XML/CMap preservation controls are retained.
+
+## Empty-user-password Standard security admission
+
+`encryption/README.md` and `encryption/generate.py` record the synthetic R2–4
+RC4/AES128 fixture provenance. Positive inputs are compared with the existing
+independent plaintext artwork builder. Private tests inspect exact metadata,
+strings, nonzero reference generations, a large scalar and deferred object-stream
+members. Original page cycles, invalid xref locations and bombs that only expand
+after decryption must fail normal admission after a safe bootstrap; invalid AES
+blocks/padding and malformed handlers fail before plaintext publication. Runtime
+tests need no OpenSSL, external network, new library or password UI.

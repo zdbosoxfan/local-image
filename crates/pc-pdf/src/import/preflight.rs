@@ -1,6 +1,6 @@
 //! Allocation/work guard before hayro's unbounded decoders run. PDF 1.7 §§3.2–3.5.
 //! This is a restrictive admission check, not a replacement PDF interpreter. In particular
-//! indirect filters, encryption and JPX/JBIG2 are refused. Inline images use
+//! indirect filters, unsupported encryption handlers and JPX/JBIG2 are refused. Inline images use
 //! exact codec boundaries and marker-safe canonical content normalization. Every
 //! accepted stream is measured with bounded decoding; object-stream dictionaries and the
 //! reference graph are checked before Pdf::new can traverse/decompress them.
@@ -16,6 +16,8 @@ use std::{
 mod ccitt;
 #[path = "preflight/ccitt_admission.rs"]
 mod ccitt_admission;
+#[path = "preflight/decryption/mod.rs"]
+mod decryption;
 #[path = "preflight/filters.rs"]
 mod filters;
 #[path = "preflight/inline.rs"]
@@ -94,6 +96,7 @@ struct Lexer<'a> {
     tokens: usize,
     options: &'a ImportOptions,
     cancel: &'a AtomicBool,
+    allocation: Option<&'a std::cell::Cell<u64>>,
 }
 fn white(b: u8) -> bool {
     matches!(b, 0 | 9 | 10 | 12 | 13 | 32)
@@ -106,7 +109,20 @@ fn invalid(s: &str) -> ImportError {
 }
 impl<'a> Lexer<'a> {
     fn new(data: &'a [u8], options: &'a ImportOptions, cancel: &'a AtomicBool) -> Self {
-        Self { data, at: 0, start: 0, tokens: 0, options, cancel }
+        Self { data, at: 0, start: 0, tokens: 0, options, cancel, allocation: None }
+    }
+    fn metered(data: &'a [u8], options: &'a ImportOptions, cancel: &'a AtomicBool, allocation: &'a std::cell::Cell<u64>) -> Self {
+        Self { allocation: Some(allocation), ..Self::new(data, options, cancel) }
+    }
+    fn allocate(&self, bytes: usize) -> Result<()> {
+        if let Some(total) = self.allocation {
+            let next = total.get().saturating_add(bytes as u64);
+            if next > self.options.limits.decompressed_bytes {
+                return Err(ImportError::Limit("decryption syntax allocation"));
+            }
+            total.set(next);
+        }
+        Ok(())
     }
     fn next(&mut self) -> Result<Option<Token>> {
         cancelled(self.cancel)?;
@@ -176,6 +192,7 @@ impl<'a> Lexer<'a> {
                     self.at += 1;
                 }
                 let raw = &self.data[start..self.at];
+                self.allocate(raw.len().saturating_mul(2).saturating_add(24))?;
                 let mut n = Vec::new();
                 let mut i = 0;
                 while i < raw.len() {
@@ -197,11 +214,53 @@ impl<'a> Lexer<'a> {
                 while self.data.get(self.at).is_some_and(|b| !delim(*b)) {
                     self.at += 1;
                 }
+                self.allocate((self.at - start).saturating_mul(2).saturating_add(24))?;
                 Token::Word(self.data[start..self.at].to_vec())
             }
         }))
     }
+    // Structural lookahead without allocating a retained Value tree. Used only
+    // to decide whether a trailer needs the bounded decryption path.
+    fn skip_value(&mut self, first: Token, depth: usize) -> Result<()> {
+        if depth > self.options.limits.depth.min(64) {
+            return Err(ImportError::Limit("dictionary depth"));
+        }
+        match first {
+            Token::OpenDict => loop {
+                match self.next()?.ok_or_else(|| invalid("unterminated dictionary"))? {
+                    Token::CloseDict => break,
+                    Token::Name(_) => {
+                        let first = self.next()?.ok_or_else(|| invalid("dictionary value"))?;
+                        self.skip_value(first, depth + 1)?;
+                    }
+                    _ => return Err(invalid("dictionary key")),
+                }
+            },
+            Token::OpenArray => loop {
+                let first = self.next()?.ok_or_else(|| invalid("unterminated array"))?;
+                if matches!(first, Token::CloseArray) {
+                    break;
+                }
+                self.skip_value(first, depth + 1)?;
+            },
+            Token::Word(w) => {
+                if std::str::from_utf8(&w).ok().and_then(|s| s.parse::<f64>().ok()).is_some() {
+                    let old = (self.at, self.tokens, self.start);
+                    let second = self.next()?;
+                    let third = if matches!(second, Some(Token::Word(_))) { self.next()? } else { None };
+                    if !matches!(third,Some(Token::Word(r)) if r==b"R") {
+                        (self.at, self.tokens, self.start) = old;
+                    }
+                }
+            }
+            Token::Name(_) | Token::String => {}
+            _ => return Err(invalid("unexpected container end")),
+        }
+        Ok(())
+    }
     fn value(&mut self, first: Token, depth: usize) -> Result<Value> {
+        // Optional shared crypto-bootstrap accounting, before container growth.
+        self.allocate(128)?;
         if depth > self.options.limits.depth.min(64) {
             return Err(ImportError::Limit("dictionary depth"));
         }
@@ -661,6 +720,12 @@ impl Guard<'_> {
     }
 }
 pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Result<hayro_syntax::Pdf> {
+    if let Some(plain) = decryption::normalize(bytes, options, cancel)? {
+        return check_plain(&plain, options, cancel);
+    }
+    check_plain(bytes, options, cancel)
+}
+fn check_plain(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Result<hayro_syntax::Pdf> {
     cancelled(cancel)?;
     if bytes.len() > options.limits.bytes {
         return Err(ImportError::Limit("input byte"));

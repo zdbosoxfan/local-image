@@ -420,4 +420,5 @@ fn pdf_xref_hidden_content_cannot_bypass_preflight() {
 mod ccitt;
 mod compatibility;
 
+mod encryption;
 mod inline;
