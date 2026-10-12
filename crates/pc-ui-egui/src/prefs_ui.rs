@@ -904,6 +904,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
         "presets" => presets_body(app, ui, f),
         "presetsIO" => presets_io_body(ui, f),
         "mismatch" => mismatch_body(ui, f),
+        "clipboard" => crate::clipboard_ui::body(ui, f),
         _ => {}
     }
 }
@@ -1561,6 +1562,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
                 Ok(json!({"path": path}))
             }
         }
+        "clipboard" => crate::clipboard_ui::confirm(app, f),
         "mismatch" => {
             let action = f.get("action").and_then(Value::as_str).unwrap_or("preserve");
             let applied = f.get("applied").and_then(Value::as_str).unwrap_or("preserve");

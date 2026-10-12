@@ -178,7 +178,13 @@ pub fn cancel(app: &mut PhotocraftApp, id: JobId) {
     }
 }
 
-fn on_event(app: &mut PhotocraftApp, e: JobEvent) {
+fn on_event(app: &mut PhotocraftApp, mut e: JobEvent) {
+    if e.command == "clipboard.import"
+        && let JobOutcome::Done(value) = &e.outcome
+        && let Some(fields) = value.get("clipboardPrompt")
+    {
+        e.outcome = JobOutcome::Done(crate::clipboard_ui::open(app, fields.clone()));
+    }
     crate::restoration_ui::repair_finished(app, &e);
     // Control requests waiting on this job.
     let reply = match &e.outcome {

@@ -144,6 +144,7 @@ pub mod generate_ui;
 mod import_worker;
 pub mod perspective_crop_ui;
 // local-image: the Model Browser.
+mod clipboard_ui;
 mod color_icon_data;
 mod color_icons;
 pub mod gpu_canvas;
@@ -845,16 +846,12 @@ impl PhotocraftApp {
         if let Some(r) = transform_tool::intercept(self, id) {
             return r;
         }
-        if !clip_read && matches!(id, "edit.paste" | "edit.pasteSpecial.pasteInPlace" | "edit.pasteSpecial.pasteSeamless" | "file.newFromClipboard") {
+        if matches!(id, "edit.paste" | "edit.pasteSpecial.pasteInPlace" | "edit.pasteSpecial.pasteSeamless" | "file.newFromClipboard") {
             let files =
                 self.services.clipboard_get_files.as_mut().and_then(|f| std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).ok()).unwrap_or_default();
             if !files.is_empty() {
                 return self.paste_files(id, params, files);
             }
-        }
-        let suppress_events = self.automation_input && self.session.prefs().script_events.enabled;
-        if suppress_events {
-            self.session.edit_prefs(|prefs| prefs.script_events.enabled = false);
         }
         let t0 = gpu_canvas::now_ms();
         // The OS clipboard is read only on an explicit paste, never in the background (privacy, CPU).
@@ -869,13 +866,18 @@ impl PhotocraftApp {
                 return Ok(serde_json::json!({"pasted": false}));
             }
         }
+        if !self.automation_input
+            && let Some(fields) = clipboard_ui::request(&self.session, id, &params)
+        {
+            return Ok(clipboard_ui::open(self, fields));
+        }
+        let suppress_events = self.automation_input && self.session.prefs().script_events.enabled;
+        if suppress_events {
+            self.session.edit_prefs(|prefs| prefs.script_events.enabled = false);
+        }
         // Long commands become background jobs when enabled (`jobs_ui`); the rest run inline.
         let params = self.with_mask_target(id, params);
         let r = jobs_ui::run(self, id, params);
-        if r.is_ok() && matches!(id, "edit.copy" | "edit.cut" | "edit.copyMerged") {
-            self.clip_external = false;
-            self.export_os_clipboard();
-        }
         self.perf.last_command = id.to_string();
         self.perf.command_ms = gpu_canvas::now_ms() - t0;
         match &r {
@@ -890,6 +892,10 @@ impl PhotocraftApp {
                 self.ui.status = e.clone();
                 self.ui.status_error = true;
             }
+        }
+        if r.is_ok() && matches!(id, "edit.copy" | "edit.cut" | "edit.copyMerged") {
+            self.clip_external = false;
+            self.export_os_clipboard();
         }
         if suppress_events {
             self.session.edit_prefs(|prefs| prefs.script_events.enabled = true);
@@ -1735,7 +1741,15 @@ impl PhotocraftApp {
             return;
         }
         let mut px = vec![[0u8; 4]; b.width() as usize * b.height() as usize];
-        clip.surface.read_rgba8_into(b, &mut px);
+        let surface = match clip.srgb() {
+            Ok(surface) => surface,
+            Err(error) => {
+                self.ui.status = format!("Copied inside Local Image; OS clipboard export failed: {error}");
+                self.ui.status_error = true;
+                return;
+            }
+        };
+        surface.read_rgba8_into(b, &mut px);
         let bytes: Vec<u8> = px.into_iter().flatten().collect();
         if set(b.width(), b.height(), &bytes).is_ok() {
             self.os_clip_sig = Some(clip_signature(b.width(), b.height(), &bytes));
@@ -1746,7 +1760,11 @@ impl PhotocraftApp {
     /// clipboard (so ⌘V pastes screenshots and images copied in other apps, like Photoshop).
     /// Returns true when a new external image was imported.
     fn paste_files(&mut self, id: &str, params: serde_json::Value, files: Vec<String>) -> Result<serde_json::Value, String> {
-        let command = id.to_string();
+        // A paste requested with no document means "create a document", even
+        // if another file is opened before this asynchronous decode completes.
+        let command = if self.session.active().is_none() { "file.newFromClipboard" } else { id }.to_string();
+        let ask_colour = !self.automation_input;
+        let clipboard_before = clipboard_ui::clipboard(&self.session);
         let lock = self.session.active().is_some() && id != "file.newFromClipboard";
         let started = self
             .session
@@ -1764,26 +1782,32 @@ impl PhotocraftApp {
                         {
                             continue;
                         }
-                        let image = match photocraft_codecs::decode(&bytes) {
-                            Ok(image) => image,
+                        let imported = match photocraft_io::import(&path, &bytes) {
+                            Ok(imported) => imported,
                             Err(_) => continue,
                         };
-                        let (w, h) = (image.width(), image.height());
                         ctx.check()?;
-                        let rect = photocraft_geom::Rect::new(0, 0, w as i32, h as i32);
-                        let surface = photocraft_raster::Surface::from_interleaved(photocraft_color::PixelFormat::RGBA8, rect, &image.to_rgba8());
-                        return Ok(photocraft_engine::edit_cmds::Clip { surface, bounds: rect });
+                        return photocraft_engine::edit_cmds::Clip::from_document_checked(&imported.document, || ctx.check());
                     }
                     Err(photocraft_engine::EngineError::Other("The copied files contain no readable image".into()))
                 },
                 move |session, clip| {
+                    if clipboard_ui::clipboard(session) != clipboard_before {
+                        return Err(photocraft_engine::EngineError::Other("The clipboard changed while the file was loading; paste again".into()));
+                    }
                     session.clipboard = Some(clip);
+                    if ask_colour && let Some(fields) = clipboard_ui::request(session, &command, &params) {
+                        return Ok(serde_json::json!({"clipboardPrompt":fields}));
+                    }
                     session.execute(&command, params)
                 },
             )
             .map_err(|e| e.to_string())?;
         Ok(match started {
-            photocraft_engine::jobs::Started::Done(v) => v,
+            photocraft_engine::jobs::Started::Done(v) => match v.get("clipboardPrompt") {
+                Some(fields) => clipboard_ui::open(self, fields.clone()),
+                None => v,
+            },
             photocraft_engine::jobs::Started::Job(job) => {
                 self.jobs.last_started = Some(job);
                 serde_json::json!({"job":job.0,"pending":true})
@@ -1804,7 +1828,7 @@ impl PhotocraftApp {
         let r = photocraft_geom::Rect::new(0, 0, w as i32, h as i32);
         let mut surface = photocraft_raster::Surface::from_interleaved(photocraft_color::PixelFormat::RGBA8, r, &bytes);
         surface.prune();
-        self.session.clipboard = Some(photocraft_engine::edit_cmds::Clip { surface, bounds: r });
+        self.session.clipboard = Some(photocraft_engine::edit_cmds::Clip::new(surface, r));
         self.os_clip_sig = Some(sig);
         self.clip_external = true;
         true

@@ -11,12 +11,9 @@ use serde_json::{Value, json};
 use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
 
-/// Pixels on the session clipboard, with where they came from (for Paste in Place).
-#[derive(Clone, Debug)]
-pub struct Clip {
-    pub surface: Surface,
-    pub bounds: Rect,
-}
+#[path = "edit_cmds/clipboard.rs"]
+mod clipboard;
+pub use clipboard::Clip;
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
@@ -66,7 +63,7 @@ fn lift(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Clip {
     };
     let mut out = Surface::new(with_alpha);
     if area.is_empty() {
-        return Clip { surface: out, bounds: Rect::EMPTY };
+        return Clip::new(out, Rect::EMPTY);
     }
     // Only the selected area is read: converting the whole layer (a 24 MP Background gaining
     // alpha) cost about a second per Layer via Copy (#668).
@@ -93,25 +90,31 @@ fn lift(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Clip {
     out.write_region(area, &px);
     out.prune();
     let bounds = out.content_bounds();
-    Clip { surface: out, bounds }
-}
-
-/// Merged composite of the visible document as a surface in the document's format.
-fn merged_surface(doc: &Document) -> Surface {
-    let fmt = doc.pixel_format();
-    photocraft_compose::flatten_to_surface(doc, PixelFormat::new(fmt.mode, fmt.sample, true), None)
+    Clip::new(out, bounds)
 }
 
 fn copy(s: &mut Session, merged: bool) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let canvas = d.doc.bounds();
-    let clip = if merged {
-        lift(&merged_surface(&d.doc), d.doc.selection.as_ref(), canvas)
+    let mut clip = if merged {
+        lift(&Clip::from_document(&d.doc)?.surface, d.doc.selection.as_ref(), canvas)
     } else {
         let id = d.active_layer.ok_or(EngineError::Other("no active layer".into()))?;
         let surf = d.doc.layer(id).and_then(Layer::surface).ok_or(EngineError::Other("the active layer has no pixels".into()))?;
         lift(surf, d.doc.selection.as_ref(), canvas)
     };
+    if clip.surface.format().mode == d.doc.mode {
+        clip.profile = crate::color_cmds::document_profile(&d.doc);
+    } else {
+        // A foreign-mode layer is read as RGBA by the compositor, and those RGB
+        // numbers are interpreted in the document's composite space. Keep that
+        // exact reading without adding layer opacity, masks or effects to Copy.
+        let cmyk = photocraft_compose::cmyk_space(&d.doc);
+        clip.surface = photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || {
+            clip.surface.convert(PixelFormat::new(photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::F32, true))
+        });
+        clip.profile = crate::color_cmds::composite_profile(&d.doc);
+    }
     if clip.bounds.is_empty() {
         return Err(EngineError::Other("Could not copy: the selected area is empty".into()));
     }
@@ -160,9 +163,14 @@ fn paste(s: &mut Session, p: &Value, in_place: bool) -> Result<Value> {
         let b = clip.bounds;
         ((cx - (b.x0 + b.x1) as f64 / 2.0).round() as i32, (cy - (b.y0 + b.y1) as f64 / 2.0).round() as i32)
     };
-    let moved = if dx == 0 && dy == 0 { clip.surface.clone() } else { photocraft_algo::resample::translate_surface(&clip.surface, dx, dy) };
     let target = PixelFormat::new(fmt.mode, fmt.sample, true);
-    let surf = if moved.format() == target { moved } else { moved.convert(target) };
+    let policy = match p.get("colorPolicy") {
+        None => "convert",
+        Some(Value::String(policy)) if matches!(policy.as_str(), "convert" | "numbers") => policy.as_str(),
+        _ => return Err(EngineError::Other("Paste colorPolicy must be convert or numbers".into())),
+    };
+    let converted = clip.for_document(&d.doc, policy == "numbers", s.color.settings.intent(), s.color.settings.bpc)?;
+    let surf = if dx == 0 && dy == 0 { converted } else { photocraft_algo::resample::translate_surface(&converted, dx, dy) };
     let id = s.edit("Paste", |doc, active| {
         let mut l = Layer::raster(doc.next_layer_name("Layer"), target);
         *crate::pixels_mut(&mut l)? = surf;
@@ -187,6 +195,7 @@ fn new_from_clipboard(s: &mut Session) -> Result<Value> {
     let target = PixelFormat::new(fmt.mode, fmt.sample, true);
     let moved = if b.x0 == 0 && b.y0 == 0 { clip.surface } else { photocraft_algo::resample::translate_surface(&clip.surface, -b.x0, -b.y0) };
     let mut doc = Document::new("Untitled", photocraft_geom::Size::new(w, h), fmt.mode, fmt.sample);
+    doc.icc_profile = Some(clip.profile.to_bytes());
     let mut l = Layer::raster(doc.next_layer_name("Layer"), target);
     *crate::pixels_mut(&mut l)? = if moved.format() == target { moved } else { moved.convert(target) };
     doc.layers.push(l);
@@ -507,7 +516,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Paste",
             &["Edit"],
             Some("Cmd+V"),
-            r##"{"center":[x,y]? (view centre; default keeps the position when it overlaps the canvas)} (with no document open: a new document from the clipboard)"##,
+            r##"{"colorPolicy":"convert|numbers"? (default convert; numbers requires the same mode),"center":[x,y]? (view centre; default keeps the position when it overlaps the canvas)} (with no document open: a new document from the clipboard)"##,
             has_clip_only,
             |s, p| paste(s, p, false)
         ),
@@ -516,11 +525,19 @@ pub fn specs() -> Vec<CommandSpec> {
             "New from Clipboard",
             &["File"],
             None,
-            "{} (a new document the size of the clipboard image, holding it as one layer)",
+            "{} (a new document the size of the clipboard image, holding it as one layer with its colour profile)",
             has_clip_only,
             |s, _| new_from_clipboard(s)
         ),
-        spec!("edit.pasteSpecial.pasteInPlace", "Paste in Place", &["Edit", "Paste Special"], Some("Cmd+Shift+V"), "{}", has_clip, |s, p| paste(s, p, true)),
+        spec!(
+            "edit.pasteSpecial.pasteInPlace",
+            "Paste in Place",
+            &["Edit", "Paste Special"],
+            Some("Cmd+Shift+V"),
+            r##"{"colorPolicy":"convert|numbers"? (default convert)}"##,
+            has_clip,
+            |s, p| paste(s, p, true)
+        ),
         spec!("layer.new.layerViaCopy", "Layer via Copy", &["Layer", "New"], Some("Cmd+J"), "{}", has_doc, |s, _| layer_via(s, false)),
         spec!("layer.new.layerViaCut", "Layer via Cut", &["Layer", "New"], Some("Cmd+Shift+J"), "{}", has_pixels, |s, _| layer_via(s, true)),
         spec!("layer.mergeVisible", "Merge Visible", &["Layer"], Some("Cmd+Shift+E"), "{}", has_doc, |s, _| merge_visible(s)),

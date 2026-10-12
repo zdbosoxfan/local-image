@@ -117,7 +117,7 @@ fn vanishing_point(s: &mut Session, p: &Value) -> Result<Value> {
             }
             None => {
                 let clip = s.clipboard.as_ref().ok_or_else(|| bad(format!("paste {k}: nothing on the clipboard (or pass `layer`)")))?;
-                (clip.surface.clone(), clip.surface.content_bounds())
+                (clip.for_document(&st.doc, false, s.color.settings.intent(), s.color.settings.bpc)?, clip.surface.content_bounds())
             }
         };
         let at = item.get("at").and_then(pt).unwrap_or([0.25, 0.25]);

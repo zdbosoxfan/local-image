@@ -72,6 +72,9 @@ fn paste_seamless(s: &mut Session, p: &Value) -> Result<Value> {
             params["center"] = json!([(b.x0 + b.x1) as f64 / 2.0, (b.y0 + b.y1) as f64 / 2.0]);
         }
     }
+    if let Some(policy) = p.get("colorPolicy") {
+        params["colorPolicy"] = policy.clone();
+    }
     let r = s.execute("edit.paste", params)?;
     let id = r.get("layer").and_then(Value::as_u64).map(LayerId).ok_or_else(|| EngineError::Other("nothing was pasted".into()))?;
     s.coalesce_request = Some(key);
@@ -90,7 +93,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Paste Seamless",
         menu: &["Edit", "Paste Special"],
         shortcut: None,
-        params: r##"{"center":[x,y]? (default: the selection's centre, else where Paste puts it)} → {"layer","offset","blended"} (a new layer whose colours blend into what shows under it)"##,
+        params: r##"{"colorPolicy":"convert|numbers"? (default convert),"center":[x,y]? (default: the selection's centre, else where Paste puts it)} → {"layer","offset","blended"} (a new layer whose colours blend into what shows under it)"##,
         enabled: has_clip,
         run: paste_seamless,
         journal: true,
