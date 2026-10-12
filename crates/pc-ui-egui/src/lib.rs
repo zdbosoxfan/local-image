@@ -1404,6 +1404,7 @@ impl eframe::App for PhotocraftApp {
         // shortcuts see Esc).
         let restoration_modal = restoration_ui::is_open(self);
         restoration_ui::handle_keys(self, ctx);
+        canvas::rotate_view::handle_keys(self, ctx);
         if restoration_modal {
             // Poll jobs without letting their global Escape handler steal modal input.
             jobs_ui::tick_background(self, ctx);

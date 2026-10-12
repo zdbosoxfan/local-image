@@ -68,7 +68,13 @@ fn harness(kind: CornerKind, star: bool) -> H {
 fn xf(h: &H) -> ViewXform {
     let app = h.state();
     let v = &app.ui.views[0];
-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: app.ui.view.flip_horizontal }
+    ViewXform {
+        rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect),
+        zoom: v.zoom,
+        center: v.center,
+        flip: app.ui.view.flip_horizontal,
+        rotation: v.rotation,
+    }
 }
 fn pointer(h: &mut H, p: Pos2) {
     h.event(Event::PointerMoved(p));

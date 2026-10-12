@@ -35,7 +35,7 @@ fn harness_at_scale(host: Host, ppp: f32) -> Harness<'static, Host> {
             }
             let rect = ui.allocate_space(egui::vec2(260., 260.)).1;
             h.rect = rect;
-            let xf = ViewXform { rect, zoom: 1., center: [130., 130.], flip: h.flip };
+            let xf = ViewXform { rect, zoom: 1., center: [130., 130.], flip: h.flip, rotation: 0.0 };
             h.tools.input(&mut h.app, ui, h.id, h.persona, &xf, rect);
             h.tools.overlay(ui.painter(), &xf, &h.app);
         },
@@ -43,7 +43,7 @@ fn harness_at_scale(host: Host, ppp: f32) -> Harness<'static, Host> {
     )
 }
 fn point_event(h: &mut Harness<'_, Host>, p: [f32; 2], pressed: Option<bool>, mods: Modifiers) {
-    let xf = ViewXform { rect: h.state().rect, zoom: 1., center: [130., 130.], flip: h.state().flip };
+    let xf = ViewXform { rect: h.state().rect, zoom: 1., center: [130., 130.], flip: h.state().flip, rotation: 0.0 };
     let pos = xf.to_screen(p[0], p[1]);
     h.event(egui::Event::ModifiersChanged(mods));
     h.event(egui::Event::PointerMoved(pos));

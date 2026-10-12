@@ -1,0 +1,7 @@
+crates/pc-engine/src/pathops_cmds.rs
+crates/pc-engine/src/vector_packages/drawing.rs
+crates/pc-engine/src/vector_packages/drawing/tests.rs
+crates/pc-ui-egui/src/liquify_ui.rs
+crates/pc-ui-egui/src/vector_packages/drawing.rs
+crates/pc-ui-egui/src/vector_packages/drawing/tests.rs
+crates/pc-ui-egui/src/vector_packages/frame_compose.rs

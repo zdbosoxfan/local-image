@@ -85,6 +85,7 @@ pub enum Tool {
     Type,
     VerticalType,
     Hand,
+    RotateView,
     Zoom,
     SpotHealing,
     Healing,
@@ -194,7 +195,7 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 126] = [
+    pub const ALL: [Tool; 127] = [
         Tool::Move,
         Tool::RectMarquee,
         Tool::EllipseMarquee,
@@ -219,6 +220,7 @@ impl Tool {
         Tool::Type,
         Tool::VerticalType,
         Tool::Hand,
+        Tool::RotateView,
         Tool::Zoom,
         Tool::SpotHealing,
         Tool::Healing,
@@ -351,6 +353,7 @@ impl Tool {
             Tool::Type => "Horizontal Type Tool",
             Tool::VerticalType => "Vertical Type Tool",
             Tool::Hand => "Hand Tool",
+            Tool::RotateView => "Rotate View Tool",
             Tool::Zoom => "Zoom Tool",
             Tool::SpotHealing => "Spot Healing Brush Tool",
             Tool::Healing => "Healing Brush Tool",
@@ -494,10 +497,11 @@ impl Tool {
             Tool::Gradient | Tool::PaintBucket => 'G',
             Tool::Type | Tool::VerticalType => 'T',
             Tool::Hand => 'H',
+            Tool::RotateView => 'R',
             Tool::Zoom => 'Z',
             Tool::SpotHealing | Tool::Healing | Tool::Patch | Tool::ContentAwareMove | Tool::RedEye => 'J',
-            // local-image: R for Remove (Photoshop's Rotate View has no tool here), K for cutout.
-            Tool::AiRemove => 'R',
+            // Rotate View owns the fresh Pixel R default; saved Remove bindings still win.
+            Tool::AiRemove => '\0',
             Tool::AiCutout => 'K',
             Tool::CloneStamp => 'S',
             Tool::HistoryBrush => 'Y',
@@ -692,6 +696,12 @@ pub struct View {
     pub zoom: f32,
     /// Document-space point shown at the canvas centre.
     pub center: [f32; 2],
+    /// Clockwise camera angle in radians; document geometry and exports stay unchanged.
+    #[serde(default)]
+    pub rotation: f32,
+    /// An in-progress navigation gesture belongs to this view only.
+    #[serde(skip)]
+    pub rotation_drag: Option<crate::canvas::rotate_view::Drag>,
     /// Recompute fit-to-screen on next frame.
     pub fit_pending: bool,
     /// Document size this view last showed; a change (Image/Canvas Size, crop) re-centres it.
@@ -701,7 +711,7 @@ pub struct View {
 
 impl Default for View {
     fn default() -> Self {
-        Self { zoom: 1.0, center: [0.0, 0.0], fit_pending: true, doc_size: [0, 0] }
+        Self { zoom: 1.0, center: [0.0, 0.0], rotation: 0.0, rotation_drag: None, fit_pending: true, doc_size: [0, 0] }
     }
 }
 
@@ -1323,7 +1333,7 @@ impl UiState {
     }
 
     pub fn new_document_fields() -> serde_json::Map<String, serde_json::Value> {
-        let v = serde_json::json!({"name": "Untitled-1", "width": 1920, "height": 1080, "mode": "rgb", "depth": 8, "background": "white"});
+        let v = serde_json::json!({"name": "Untitled-1", "width": 1920, "height": 1080, "resolution": 72, "mode": "rgb", "depth": 8, "background": "white"});
         v.as_object().cloned().unwrap_or_default()
     }
 }

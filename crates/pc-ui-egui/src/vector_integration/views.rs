@@ -125,8 +125,11 @@ pub fn overlay(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, xf: &Vi
     let Some(policy) = app.vector_runtime.views.documents.get(&st.doc.id) else { return Ok(()) };
     let ppp = f64::from(ctx.pixels_per_point());
     let origin = xf.to_screen(0., 0.);
-    let scale = f64::from(xf.zoom) * ppp;
-    let transform = Affine { m: [if xf.flip { -scale } else { scale }, 0., 0., scale, f64::from(origin.x) * ppp, f64::from(origin.y) * ppp] };
+    let dx = xf.camera().screen_delta(egui::vec2(1.0, 0.0));
+    let dy = xf.camera().screen_delta(egui::vec2(0.0, 1.0));
+    let transform = Affine {
+        m: [f64::from(dx.x) * ppp, f64::from(dx.y) * ppp, f64::from(dy.x) * ppp, f64::from(dy.y) * ppp, f64::from(origin.x) * ppp, f64::from(origin.y) * ppp],
+    };
     let rect = xf.rect;
     let clip = Rect::new(
         (f64::from(rect.left()) * ppp).round() as i32,

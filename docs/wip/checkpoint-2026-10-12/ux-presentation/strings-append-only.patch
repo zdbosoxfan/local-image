@@ -1,0 +1,17 @@
+diff --git a/crates/pc-ui-egui/src/i18n/pending_vector.rs b/crates/pc-ui-egui/src/i18n/pending_vector.rs
+--- a/crates/pc-ui-egui/src/i18n/pending_vector.rs
++++ b/crates/pc-ui-egui/src/i18n/pending_vector.rs
+@@ -1265,4 +1265,13 @@
+     "Edits vector objects with the selected tool.",
+     "Select the vector objects you want to edit.",
+     "Use the tool's controls in the context bar.",
++    "Callout",
++    "Ellipse Callout",
++    "Field spacing: {pixels} px/node",
++    "Last dab: {time} ms",
++    "Performance diagnostics",
++    "Select frame text",
++    "Strokes",
++    "name must be a string",
++    "shape name must be a string",
+ ]

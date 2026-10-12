@@ -16,7 +16,8 @@ type H = Harness<'static, PhotocraftApp>;
 fn screen(h: &H, p: [f32; 2]) -> Pos2 {
     let app = h.state();
     let v = &app.ui.views[0];
-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }.to_screen(p[0], p[1])
+    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
+        .to_screen(p[0], p[1])
 }
 fn pointer(h: &mut H, p: Pos2, mods: Modifiers) {
     h.event(Event::ModifiersChanged(mods));

@@ -227,7 +227,7 @@ fn canvas_host(overlay: bool) -> Harness<'static, CanvasHost> {
             egui::CentralPanel::default().show(ui, |ui| {
                 let response = ui.allocate_rect(egui::Rect::from_min_size(egui::pos2(0., 0.), egui::vec2(300., 300.)), egui::Sense::click_and_drag());
                 h.rect = response.rect;
-                let xf = ViewXform { rect: h.rect, zoom: h.zoom, center: [100., 100.], flip: false };
+                let xf = ViewXform { rect: h.rect, zoom: h.zoom, center: [100., 100.], flip: false, rotation: 0.0 };
                 input(&mut h.app, ui, 0, &response, &xf, h.rect);
             });
         },

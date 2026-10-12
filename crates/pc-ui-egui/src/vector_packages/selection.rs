@@ -27,21 +27,22 @@ pub struct View {
     pub document_origin: [f64; 2],
     pub zoom: f64,
     pub flip: bool,
+    pub rotation: f32,
 }
 impl View {
+    fn camera(self) -> crate::view_camera::Camera {
+        crate::view_camera::Camera::new(Rect::from_center_size(self.origin, egui::Vec2::ZERO), self.zoom as f32, [0.0, 0.0], self.flip, self.rotation)
+    }
     fn point(self, p: Pos2) -> [f64; 2] {
-        let p = p - self.origin;
-        [self.document_origin[0] + f64::from(p.x) / self.zoom * if self.flip { -1. } else { 1. }, self.document_origin[1] + f64::from(p.y) / self.zoom]
+        let d = self.camera().to_document(p);
+        [self.document_origin[0] + f64::from(d.x), self.document_origin[1] + f64::from(d.y)]
     }
     fn screen(self, p: [f64; 2]) -> Pos2 {
-        self.origin
-            + egui::vec2(
-                ((p[0] - self.document_origin[0]) * self.zoom * if self.flip { -1. } else { 1. }) as f32,
-                ((p[1] - self.document_origin[1]) * self.zoom) as f32,
-            )
+        self.camera().to_screen(egui::pos2((p[0] - self.document_origin[0]) as f32, (p[1] - self.document_origin[1]) as f32))
     }
     fn valid(self) -> bool {
-        self.zoom.is_finite()
+        self.rotation.is_finite()
+            && self.zoom.is_finite()
             && (1e-6..=1e6).contains(&self.zoom)
             && self.origin.x.is_finite()
             && self.origin.y.is_finite()
@@ -560,7 +561,7 @@ pub fn route(app: &mut crate::PhotocraftApp, ui: &mut Ui, idx: usize, xf: &crate
         }
     }
     let origin = xf.to_screen(0., 0.);
-    let view = View { origin, document_origin: [0., 0.], zoom: f64::from(xf.zoom), flip: xf.flip };
+    let view = View { origin, document_origin: [0., 0.], zoom: f64::from(xf.zoom), flip: xf.flip, rotation: xf.rotation };
     if let Some(st) = app.session.active()
         && b.state
             .selection

@@ -1,0 +1,685 @@
+diff --git a/crates/pc-ui-egui/src/ai_remove_ui.rs b/crates/pc-ui-egui/src/ai_remove_ui.rs
+index 1ba89048..193fbf7e 100644
+--- a/crates/pc-ui-egui/src/ai_remove_ui.rs
++++ b/crates/pc-ui-egui/src/ai_remove_ui.rs
+@@ -7,6 +7,9 @@ use crate::{PhotocraftApp, Tool, canvas::ViewXform, theme::Tokens, widgets};
+ 
+ pub(crate) struct Pending {
+     doc: u64,
++    layer: Option<photocraft_doc::LayerId>,
++    job: Option<photocraft_engine::jobs::JobId>,
++    require_confirmation: bool,
+     size: [u32; 2],
+     mask: Vec<u8>,
+     bounds: Rect,
+@@ -17,10 +20,17 @@ pub(crate) struct Pending {
+     undo: Vec<(Rect, Vec<u8>)>,
+ }
+ 
++fn target_active(app: &PhotocraftApp, p: &Pending) -> bool {
++    app.session.active().is_some_and(|d| d.doc.id.0 == p.doc && d.active_layer == p.layer && [d.doc.size.width, d.doc.size.height] == p.size)
++}
++
+ fn sync(app: &mut PhotocraftApp) {
++    // One captured transient operation may be dormant, but can never migrate to a new target.
+     if app.ai_remove.as_ref().is_some_and(|p| {
+-        !matches!(app.ui.tool, Tool::AiRemove | Tool::RotateView)
+-            || !app.session.active().is_some_and(|d| d.doc.id.0 == p.doc && [d.doc.size.width, d.doc.size.height] == p.size)
++        !app.session
++            .documents()
++            .iter()
++            .any(|d| d.doc.id.0 == p.doc && [d.doc.size.width, d.doc.size.height] == p.size && p.layer.is_none_or(|layer| d.doc.layer(layer).is_some()))
+     }) {
+         app.ai_remove = None;
+     }
+@@ -32,6 +42,9 @@ fn new(app: &PhotocraftApp) -> Option<Pending> {
+     Some(Pending {
+         undo: Vec::new(),
+         doc: d.doc.id.0,
++        layer: d.active_layer,
++        job: None,
++        require_confirmation: false,
+         size,
+         mask: vec![0; size[0] as usize * size[1] as usize],
+         bounds: Rect::EMPTY,
+@@ -63,6 +76,9 @@ fn changed(p: &mut Pending) {
+ 
+ pub(crate) fn paint(app: &mut PhotocraftApp, points: &[[f64; 3]], subtract: bool) {
+     sync(app);
++    if app.ai_remove.as_ref().is_some_and(|p| p.job.is_some() || !target_active(app, p)) {
++        return;
++    }
+     let brush = &app.session.tools.brush;
+     let params = json!({"points": points, "size": brush.size, "hardness": brush.hardness * 100.0});
+     let Ok((r, coverage)) = photocraft_engine::ai_cmds::stroke_mask(&app.session, &params, "ai.remove") else { return };
+@@ -98,9 +114,6 @@ pub(crate) fn paint(app: &mut PhotocraftApp, points: &[[f64; 3]], subtract: bool
+         }
+     }
+     if dirty.is_empty() {
+-        if p.bounds.is_empty() {
+-            app.ai_remove = None;
+-        }
+         return;
+     }
+     if removed_edge {
+@@ -117,14 +130,16 @@ pub(crate) fn paint(app: &mut PhotocraftApp, points: &[[f64; 3]], subtract: bool
+             p.undo.push((clipped, before));
+         }
+     }
+-    if p.bounds.is_empty() && p.undo.is_empty() {
+-        app.ai_remove = None;
+-    } else if app.ui.ai.remove_immediately && !subtract {
++    if !p.bounds.is_empty() && app.ui.ai.remove_immediately && !subtract && !p.require_confirmation {
+         remove(app);
+     }
+ }
+ 
+ pub(crate) fn selection(app: &mut PhotocraftApp) {
++    sync(app);
++    if app.ai_remove.is_some() {
++        return;
++    }
+     let Some(mask) = app.session.active().and_then(|d| photocraft_engine::ai_cmds::selection_gray(&d.doc)) else { return };
+     app.ui.tool = Tool::AiRemove;
+     app.ai_remove = new(app);
+@@ -137,7 +152,12 @@ pub(crate) fn selection(app: &mut PhotocraftApp) {
+ /// A learned detector's mask enters the same transient, editable confirmation as painting.
+ /// Even when immediate removal is enabled, importing a mask never submits a fill.
+ pub(crate) fn detected(app: &mut PhotocraftApp, mask: image::GrayImage, colourise_after: bool) -> Result<(), String> {
++    sync(app);
++    if app.ai_remove.is_some() {
++        return Err(tl!("Finish or cancel the current removal mask first.").into());
++    }
+     let mut pending = new(app).ok_or("Open an image to repair.")?;
++    pending.require_confirmation = true;
+     if mask.dimensions() != (pending.size[0], pending.size[1]) {
+         return Err("Scratch mask dimensions differ from the image.".into());
+     }
+@@ -159,10 +179,15 @@ fn ready(app: &PhotocraftApp) -> bool {
+ 
+ fn remove(app: &mut PhotocraftApp) {
+     sync(app);
++    let Some(p) = app.ai_remove.as_ref() else { return };
++    if p.job.is_some() || p.bounds.is_empty() || !target_active(app, p) {
++        return;
++    }
+     if !ready(app) {
++        app.ai_remove.as_mut().unwrap().require_confirmation = true;
+         return;
+     }
+-    let Some(p) = app.ai_remove.take() else { return };
++    let mut p = app.ai_remove.take().unwrap();
+     let params = json!({"mask": p.mask, "engine": app.ui.ai.remove_engine});
+     #[cfg(not(test))]
+     let result = app.run("ai.remove", params);
+@@ -173,21 +198,80 @@ fn remove(app: &mut PhotocraftApp) {
+     });
+     match result {
+         Err(error) => {
++            p.require_confirmation = true;
+             app.ai_remove = Some(p);
+             app.ui.status = error;
+             app.ui.status_error = true;
+         }
+-        Ok(value) if p.colourise_after => crate::restoration_ui::after_repair(app, &value, p.doc),
+-        Ok(_) => {}
++        Ok(value) => {
++            if p.colourise_after {
++                crate::restoration_ui::after_repair(app, &value, p.doc);
++            }
++            if value["pending"].as_bool() == Some(true)
++                && let Some(job) = value["job"].as_u64()
++            {
++                p.job = Some(photocraft_engine::jobs::JobId(job));
++                app.ai_remove = Some(p);
++            }
++        }
++    }
++}
++
++/// Called by the existing terminal job dispatcher, never by repaint or readiness polling.
++pub(crate) fn on_job_event(app: &mut PhotocraftApp, event: &photocraft_engine::jobs::JobEvent) {
++    let Some(p) = app.ai_remove.as_mut() else { return };
++    if p.job != Some(event.id) || event.command != "ai.remove" || event.document.map(|id| id.0) != Some(p.doc) {
++        return;
++    }
++    if matches!(event.outcome, photocraft_engine::jobs::JobOutcome::Done(_)) {
++        app.ai_remove = None;
++    } else {
++        p.job = None;
++        p.require_confirmation = true;
++        p.show_bar = true;
+     }
+ }
+ 
++fn clear(app: &mut PhotocraftApp) {
++    let Some(p) = app.ai_remove.as_mut() else { return };
++    if p.job.is_some() || p.bounds.is_empty() {
++        return;
++    }
++    let rect = p.bounds;
++    let mut before = Vec::new();
++    for y in rect.y0..rect.y1 {
++        let row = &mut p.mask[y as usize * p.size[0] as usize + rect.x0 as usize..y as usize * p.size[0] as usize + rect.x1 as usize];
++        before.extend_from_slice(row);
++        row.fill(0);
++    }
++    // Keep Clear undoable, even when that single snapshot exceeds the stroke budget.
++    while !p.undo.is_empty() && (p.undo.len() >= 32 || p.undo.iter().map(|(_, b)| b.len()).sum::<usize>() + before.len() > (32 << 20)) {
++        p.undo.remove(0);
++    }
++    p.undo.push((rect, before));
++    changed(p);
++}
++
++fn cancel(app: &mut PhotocraftApp) {
++    if let Some(job) = app.ai_remove.as_ref().and_then(|p| p.job) {
++        crate::jobs_ui::cancel(app, job);
++        return;
++    }
++    app.ai_remove = None;
++    app.drag = None;
++    app.trail = None;
++    app.ui.tool = Tool::Move;
++}
++
+ pub(crate) fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
+     sync(app);
+     // A retained mask is dormant while navigating; its keys belong to Remove only.
+     if app.ui.tool != Tool::AiRemove {
+         return;
+     }
++    if app.ai_remove.as_ref().is_some_and(|p| p.job.is_some() || !target_active(app, p)) {
++        return;
++    }
+     let painting = app.drag.as_ref().is_some_and(|d| d.tool == Tool::AiRemove);
+     if (app.ai_remove.is_none() && !painting) || ctx.memory(|m| m.top_modal_layer().is_some()) {
+         return;
+@@ -205,9 +289,7 @@ pub(crate) fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
+         app.drag = None;
+         app.trail = None;
+     } else if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+-        app.ai_remove = None;
+-        app.drag = None;
+-        app.trail = None;
++        cancel(app);
+     } else if app.drag.is_none() && !ctx.text_edit_focused() && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+         remove(app);
+     }
+@@ -219,23 +301,30 @@ fn engine(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+ }
+ 
+ fn actions(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+-    let can = ready(app);
++    let active = app.ai_remove.as_ref().is_some_and(|p| p.job.is_none() && target_active(app, p));
++    let can = active && ready(app) && app.ai_remove.as_ref().is_some_and(|p| !p.bounds.is_empty());
+     if ui.add_enabled_ui(can, |ui| widgets::primary_button(ui, tl!("Remove"), 0.0)).inner.clicked() {
+         remove(app);
+     }
+-    if widgets::secondary_button(ui, tl!("Keep painting"), 0.0).clicked()
++    if ui.add_enabled_ui(active, |ui| widgets::secondary_button(ui, tl!("Keep painting"), 0.0)).inner.clicked()
+         && let Some(p) = &mut app.ai_remove
+     {
+         p.show_bar = false;
+     }
+-    if widgets::secondary_button(ui, tl!("Clear"), 0.0).clicked() || widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
+-        app.ai_remove = None;
++    if ui.add_enabled_ui(active, |ui| widgets::secondary_button(ui, tl!("Clear"), 0.0)).inner.clicked() {
++        clear(app);
++    }
++    if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
++        cancel(app);
+     }
+ }
+ 
+ pub(crate) fn options(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+     sync(app);
+     engine(app, ui);
++    if app.ai_remove.as_ref().is_some_and(|p| !target_active(app, p)) {
++        ui.label(tl!("Return to the original image and layer to continue removal, or Cancel."));
++    }
+     if app.ai_remove.is_some() {
+         actions(app, ui);
+     } else if app.session.active().is_some_and(|d| d.doc.selection.is_some()) && widgets::secondary_button(ui, tl!("Remove Selection"), 0.0).clicked() {
+@@ -249,6 +338,9 @@ pub(crate) fn options(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+ 
+ pub(crate) fn overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
+     sync(app);
++    if app.ui.tool != Tool::AiRemove || app.ai_remove.as_ref().is_none_or(|p| !target_active(app, p)) {
++        return;
++    }
+     let Some(p) = &mut app.ai_remove else { return };
+     if !p.dirty.is_empty() {
+         let area = if p.texture.is_some() { p.dirty } else { Rect::from_xywh(0, 0, p.size[0], p.size[1]) };
+@@ -277,11 +369,17 @@ pub(crate) fn overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &Vie
+ pub(crate) fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
+     sync(app);
+     let Some(p) = &app.ai_remove else { return };
+-    if !p.show_bar || app.drag.is_some() || ctx.memory(|m| m.top_modal_layer().is_some()) {
++    if app.ui.tool != Tool::AiRemove
++        || !target_active(app, p)
++        || p.job.is_some()
++        || !p.show_bar
++        || app.drag.is_some()
++        || ctx.memory(|m| m.top_modal_layer().is_some())
++    {
+         return;
+     }
+     let Some(xf) = ViewXform::active(app) else { return };
+-    let r = xf.doc_rect(p.bounds);
++    let r = if p.bounds.is_empty() { egui::Rect::from_center_size(xf.rect.center(), egui::Vec2::ZERO) } else { xf.doc_rect(p.bounds) };
+     let id = egui::Id::new("remove-confirm");
+     let size = ctx.memory(|m| m.area_rect(id)).map_or(vec2(490.0, 42.0), |r| r.size());
+     let x = (r.center().x - size.x / 2.0).clamp(xf.rect.left() + 8.0, (xf.rect.right() - size.x - 8.0).max(xf.rect.left() + 8.0));
+@@ -290,10 +388,13 @@ pub(crate) fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
+     let t = Tokens::get(ctx);
+     egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
+         egui::Frame::new().fill(t.card).stroke(Stroke::new(1.0, t.card_border)).corner_radius(t.radius).inner_margin(6).show(ui, |ui| {
+-            ui.horizontal(|ui| {
+-                actions(app, ui);
+-                engine(app, ui);
+-            });
++            ui.set_max_width((xf.rect.width() - 28.0).max(120.0));
++            ui.horizontal_wrapped(|ui| actions(app, ui));
++            ui.horizontal_wrapped(|ui| engine(app, ui));
++            if !ready(app) {
++                let (model, variant) = crate::ai_ui::remove_engine(&app.ui.ai.remove_engine);
++                crate::ai_ui::readiness(app, ui, model, variant);
++            }
+         });
+     });
+ }
+diff --git a/crates/pc-ui-egui/src/ai_remove_ui/tests.rs b/crates/pc-ui-egui/src/ai_remove_ui/tests.rs
+index 632571f4..58d14485 100644
+--- a/crates/pc-ui-egui/src/ai_remove_ui/tests.rs
++++ b/crates/pc-ui-egui/src/ai_remove_ui/tests.rs
+@@ -3,6 +3,10 @@ use egui::{Event, PointerButton, pos2};
+ use egui_kittest::{Harness, kittest::Queryable};
+ 
+ fn harness() -> Harness<'static, PhotocraftApp> {
++    harness_mode(false)
++}
++
++fn harness_mode(immediate: bool) -> Harness<'static, PhotocraftApp> {
+     crate::ai_ui::TEST_STATUS.with(|s| {
+         *s.borrow_mut() = Some(crate::ai_ui::EngineStatus {
+             checked: true,
+@@ -19,6 +23,7 @@ fn harness() -> Harness<'static, PhotocraftApp> {
+         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+         let mut app = PhotocraftApp::new(s, crate::Services::default());
+         app.ui.tool = Tool::AiRemove;
++        app.ui.ai.remove_immediately = immediate;
+         app.session.tools.brush.size = 24.0;
+         app.session.tools.brush.hardness = 1.0;
+         app
+@@ -84,17 +89,33 @@ fn remove_confirmation_selection_clear_cancel_keep_painting_and_document_switch(
+     h.run_steps(2);
+     assert!(h.state().ai_remove.is_some());
+     assert!(!h.state().ai_remove.as_ref().unwrap().show_bar, "Keep painting hides the floating bar");
++    let before_clear = h.state().ai_remove.as_ref().unwrap().mask.clone();
++    let doc = h.state().session.active().unwrap().doc.clone();
++    let history = h.state().session.active().unwrap().history.past_len();
++    h.get_all_by_label("Clear").next().unwrap().click();
++    h.run_steps(2);
++    assert!(h.state().ai_remove.as_ref().unwrap().mask.iter().all(|v| *v == 0));
++    assert!(h.state().ai_remove.as_ref().unwrap().bounds.is_empty());
++    assert_eq!(h.state().ui.tool, Tool::AiRemove);
++    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
++    h.run_steps(2);
++    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, before_clear);
+     h.get_all_by_label("Clear").next().unwrap().click();
+     h.run_steps(2);
+-    assert!(h.state().ai_remove.is_none());
+     stroke(&mut h, 200.0, 190.0, Modifiers::NONE);
+     h.get_all_by_label("Cancel").next().unwrap().click();
+     h.run_steps(2);
+     assert!(h.state().ai_remove.is_none());
++    assert_eq!(h.state().ui.tool, Tool::Move);
++    assert_eq!(h.state().session.active().unwrap().doc, doc);
++    assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
++    h.state_mut().ui.tool = Tool::AiRemove;
+     stroke(&mut h, 200.0, 190.0, Modifiers::NONE);
++    let captured = h.state().ai_remove.as_ref().unwrap().doc;
+     h.state_mut().run("file.new", json!({"width": 40, "height": 40})).unwrap();
+     h.run_steps(3);
+-    assert!(h.state().ai_remove.is_none());
++    assert_eq!(h.state().ai_remove.as_ref().unwrap().doc, captured);
++    assert!(!target_active(h.state(), h.state().ai_remove.as_ref().unwrap()));
+ }
+ 
+ #[test]
+@@ -357,3 +378,271 @@ fn retained_remove_mask_keys_are_dormant_in_rotate_and_resume_in_remove() {
+     assert_eq!(calls.borrow().as_slice(), &[expected]);
+     assert!(h.state().ai_remove.is_none());
+ }
++
++struct RemoveMockReset;
++impl Drop for RemoveMockReset {
++    fn drop(&mut self) {
++        TEST_REMOVE.with(|mock| *mock.borrow_mut() = None);
++        crate::ai_ui::TEST_STATUS.with(|status| *status.borrow_mut() = None);
++    }
++}
++
++#[test]
++fn fresh_remove_submits_only_on_release_and_keeps_unavailable_or_failed_work_for_manual_retry() {
++    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
++    let seen = calls.clone();
++    TEST_REMOVE.with(|mock| {
++        *mock.borrow_mut() = Some(Box::new(move |_, _| {
++            seen.set(seen.get() + 1);
++            if seen.get() == 1 { Err("Synthetic submission failure".into()) } else { Ok(json!({})) }
++        }))
++    });
++    let _reset = RemoveMockReset;
++    let mut h = harness_mode(crate::ai_ui::AiOptions::default().remove_immediately);
++    assert!(h.state().ui.ai.remove_immediately);
++    let doc = h.state().session.active().unwrap().doc.clone();
++    let history = h.state().session.active().unwrap().history.past_len();
++    let revision = h.state().session.active().unwrap().revision;
++    let xf = ViewXform::active(h.state()).unwrap();
++    let a = xf.to_screen(60.0, 70.0);
++    let b = xf.to_screen(95.0, 70.0);
++    h.hover_at(a);
++    h.step();
++    h.event(Event::PointerButton { pos: a, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
++    h.step();
++    h.hover_at(b);
++    h.step();
++    assert_eq!(calls.get(), 0, "down and movement cannot submit");
++    h.event(Event::PointerButton { pos: b, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
++    h.run_steps(3);
++    assert_eq!(calls.get(), 1, "fresh default submits at release");
++    let mask = h.state().ai_remove.as_ref().unwrap().mask.clone();
++    h.run_steps(4);
++    assert_eq!(calls.get(), 1, "repaint cannot retry");
++    stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
++    assert_eq!(calls.get(), 1, "refining a failed mask cannot silently retry");
++    assert!(h.state().ai_remove.as_ref().unwrap().mask.iter().zip(mask).all(|(a, b)| *a >= b));
++    h.key_press(Key::Enter);
++    h.run_steps(3);
++    assert_eq!(calls.get(), 2);
++    assert!(h.state().ai_remove.is_none());
++    crate::ai_ui::TEST_STATUS.with(|status| status.borrow_mut().as_mut().unwrap().connected = false);
++    stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
++    assert!(h.state().ai_remove.is_some());
++    assert_eq!(calls.get(), 2);
++    crate::ai_ui::TEST_STATUS.with(|status| status.borrow_mut().as_mut().unwrap().connected = true);
++    h.run_steps(3);
++    stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
++    assert_eq!(calls.get(), 2, "availability and later paint cannot auto-resubmit");
++    h.key_press(Key::Enter);
++    h.run_steps(3);
++    assert_eq!(calls.get(), 3);
++    h.key_press(Key::Enter);
++    h.run_steps(2);
++    assert_eq!(calls.get(), 3);
++    let st = h.state().session.active().unwrap();
++    assert!(std::sync::Arc::ptr_eq(&doc, &st.doc));
++    assert_eq!((st.revision, st.history.past_len()), (revision, history));
++}
++
++#[test]
++fn pending_remove_terminal_identity_failure_and_cancel_retain_the_exact_mask() {
++    use photocraft_engine::jobs::{JobEvent, JobId, JobOutcome};
++    for outcome in [JobOutcome::Failed("Synthetic worker failure".into()), JobOutcome::Cancelled] {
++        let calls = std::rc::Rc::new(std::cell::Cell::new(0));
++        let seen = calls.clone();
++        TEST_REMOVE.with(|mock| {
++            *mock.borrow_mut() = Some(Box::new(move |_, _| {
++                seen.set(seen.get() + 1);
++                Ok(json!({"pending":true,"job":41}))
++            }))
++        });
++        let _reset = RemoveMockReset;
++        let mut h = harness_mode(true);
++        let doc = h.state().session.active().unwrap().doc.clone();
++        let revision = h.state().session.active().unwrap().revision;
++        let history = h.state().session.active().unwrap().history.past_len();
++        stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
++        let mask = h.state().ai_remove.as_ref().unwrap().mask.clone();
++        assert_eq!(h.state().ai_remove.as_ref().unwrap().job, Some(JobId(41)));
++        h.key_press(Key::Enter);
++        h.run_steps(2);
++        assert_eq!(calls.get(), 1);
++        let mut event = JobEvent { id: JobId(42), command: "ai.remove".into(), label: "AI Remove".into(), document: Some(doc.id), outcome: outcome.clone() };
++        on_job_event(h.state_mut(), &event);
++        assert_eq!(h.state().ai_remove.as_ref().unwrap().job, Some(JobId(41)));
++        event.id = JobId(41);
++        event.document = Some(photocraft_doc::DocId(doc.id.0 + 1000));
++        on_job_event(h.state_mut(), &event);
++        assert_eq!(h.state().ai_remove.as_ref().unwrap().job, Some(JobId(41)));
++        event.document = Some(doc.id);
++        on_job_event(h.state_mut(), &event);
++        h.run_steps(3);
++        assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
++        assert_eq!(h.state().ai_remove.as_ref().unwrap().job, None);
++        stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
++        assert_eq!(calls.get(), 1);
++        h.key_press(Key::Enter);
++        h.run_steps(2);
++        assert_eq!(calls.get(), 2);
++        event.outcome = JobOutcome::Done(json!({}));
++        on_job_event(h.state_mut(), &event);
++        assert!(h.state().ai_remove.is_none());
++        let st = h.state().session.active().unwrap();
++        assert!(std::sync::Arc::ptr_eq(&doc, &st.doc));
++        assert_eq!((st.revision, st.history.past_len()), (revision, history));
++    }
++}
++
++#[test]
++fn dormant_remove_mask_is_not_painted_or_rebound_to_another_layer_or_document() {
++    fn paints_texture(shape: &egui::Shape, texture: egui::TextureId) -> bool {
++        match shape {
++            egui::Shape::Mesh(mesh) => mesh.texture_id == texture,
++            egui::Shape::Vec(shapes) => shapes.iter().any(|shape| paints_texture(shape, texture)),
++            _ => false,
++        }
++    }
++    let mut h = harness();
++    stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
++    stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
++    let p = h.state().ai_remove.as_ref().unwrap();
++    let (mask, owner, layer, texture) = (p.mask.clone(), p.doc, p.layer, p.texture.as_ref().unwrap().id());
++    assert!(h.output().shapes.iter().any(|s| paints_texture(&s.shape, texture)));
++    h.key_press(Key::B);
++    h.run_steps(3);
++    assert_eq!(h.state().ui.tool, Tool::Brush);
++    assert!(!h.output().shapes.iter().any(|s| paints_texture(&s.shape, texture)));
++    assert!(h.query_by_label("Keep painting").is_none());
++    for key in [Key::Enter, Key::Escape] {
++        h.key_press(key);
++        h.run_steps(2);
++    }
++    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
++    h.state_mut().ui.tool = Tool::AiRemove;
++    h.run_steps(2);
++    assert!(h.output().shapes.iter().any(|s| paints_texture(&s.shape, texture)));
++    h.state_mut().run("layer.new.layer", json!({})).unwrap();
++    let other_layer_doc = h.state().session.active().unwrap().doc.clone();
++    let other_layer_history = h.state().session.active().unwrap().history.past_len();
++    stroke(&mut h, 100.0, 100.0, Modifiers::NONE);
++    h.key_press(Key::Enter);
++    h.run_steps(2);
++    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
++    assert_eq!(h.state().session.active().unwrap().doc, other_layer_doc);
++    assert_eq!(h.state().session.active().unwrap().history.past_len(), other_layer_history);
++    h.state_mut().session.active_mut().unwrap().active_layer = layer;
++    h.state_mut().run("file.new", json!({"width":320,"height":240})).unwrap();
++    let other_doc = h.state().session.active().unwrap().doc.clone();
++    stroke(&mut h, 100.0, 100.0, Modifiers::NONE);
++    h.key_press(Key::Enter);
++    h.run_steps(2);
++    assert_eq!(h.state().ai_remove.as_ref().unwrap().doc, owner);
++    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
++    assert_eq!(h.state().session.active().unwrap().doc, other_doc);
++    h.state_mut().session.set_active(0);
++    h.run_steps(3);
++    assert!(target_active(h.state(), h.state().ai_remove.as_ref().unwrap()));
++    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
++    h.state_mut().run("file.close", json!({"force":true})).unwrap();
++    h.run_steps(3);
++    assert!(h.state().ai_remove.is_none(), "closed source cannot attach to the remaining document");
++}
++
++#[test]
++fn detected_remove_mask_never_auto_submits_after_additive_refinement_or_clear_undo() {
++    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
++    let seen = calls.clone();
++    TEST_REMOVE.with(|mock| {
++        *mock.borrow_mut() = Some(Box::new(move |_, _| {
++            seen.set(seen.get() + 1);
++            Ok(json!({}))
++        }))
++    });
++    let _reset = RemoveMockReset;
++    let mut h = harness_mode(true);
++    let doc = h.state().session.active().unwrap().doc.clone();
++    let history = h.state().session.active().unwrap().history.past_len();
++    detected(
++        h.state_mut(),
++        image::GrayImage::from_fn(320, 240, |x, y| image::Luma([if (60..65).contains(&x) && (50..120).contains(&y) { 255 } else { 0 }])),
++        false,
++    )
++    .unwrap();
++    h.run_steps(3);
++    stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
++    assert_eq!(calls.get(), 0, "detected masks require approval even after adding paint");
++    let expected = h.state().ai_remove.as_ref().unwrap().mask.clone();
++    h.get_all_by_label("Clear").next().unwrap().click();
++    h.run_steps(2);
++    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
++    h.run_steps(2);
++    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, expected);
++    assert_eq!(calls.get(), 0);
++    assert_eq!(h.state().session.active().unwrap().doc, doc);
++    assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
++    h.key_press(Key::Enter);
++    h.run_steps(2);
++    assert_eq!(calls.get(), 1);
++    assert!(h.state().ai_remove.is_none());
++}
++
++#[test]
++fn removal_mask_changed_dimensions_cannot_rebind_on_return() {
++    let mut h = harness();
++    stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
++    h.key_press(Key::B);
++    h.run_steps(2);
++    h.state_mut().run("image.canvasSize", json!({"width":400,"height":260,"anchor":"topLeft"})).unwrap();
++    let resized = h.state().session.active().unwrap().doc.clone();
++    let history = h.state().session.active().unwrap().history.past_len();
++    h.run_steps(3);
++    assert!(h.state().ai_remove.is_none());
++    h.state_mut().ui.tool = Tool::AiRemove;
++    h.key_press(Key::Enter);
++    h.run_steps(2);
++    assert!(h.state().ai_remove.is_none());
++    assert_eq!(h.state().session.active().unwrap().doc, resized);
++    assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
++}
++
++#[test]
++fn remove_confirmation_controls_fit_compact_and_large_light_dark_frames() {
++    for theme in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::StudioLight] {
++        for size in [vec2(760.0, 480.0), vec2(1440.0, 900.0)] {
++            let mut h = harness();
++            h.set_size(size);
++            h.set_pixels_per_point(1.25);
++            h.state_mut().ui.theme = theme;
++            PhotocraftApp::setup_context(&h.ctx, theme);
++            h.run_steps(6);
++            stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
++            h.run_steps(4);
++            let area = h.ctx.memory(|m| m.area_rect(egui::Id::new("remove-confirm"))).unwrap();
++            let canvas = ViewXform::active(h.state()).unwrap().rect;
++            assert!(canvas.contains_rect(area), "{theme:?}/{size:?}: {area:?} outside {canvas:?}");
++            for label in ["Remove", "Keep painting", "Clear", "Cancel"] {
++                let node = h.get_all_by_label(label).find(|n| area.contains_rect(n.rect())).unwrap_or_else(|| panic!("{label} missing in {area:?}"));
++                assert!(canvas.contains_rect(node.rect()), "{label} clipped");
++            }
++            let doc = h.state().session.active().unwrap().doc.clone();
++            let history = h.state().session.active().unwrap().history.past_len();
++            h.get_all_by_label("Clear").find(|n| area.contains_rect(n.rect())).unwrap().click();
++            h.run_steps(3);
++            assert!(h.state().ai_remove.as_ref().unwrap().bounds.is_empty());
++            stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
++            h.run_steps(3);
++            crate::ai_ui::TEST_STATUS.with(|status| status.borrow_mut().as_mut().unwrap().connected = false);
++            h.run_steps(3);
++            let area = h.ctx.memory(|m| m.area_rect(egui::Id::new("remove-confirm"))).unwrap();
++            assert!(h.get_all_by_label("Remove").find(|n| area.contains_rect(n.rect())).unwrap().accesskit_node().is_disabled());
++            h.get_all_by_label("Cancel").find(|n| area.contains_rect(n.rect())).unwrap().click();
++            h.run_steps(3);
++            assert!(h.state().ai_remove.is_none());
++            assert_eq!(h.state().ui.tool, Tool::Move);
++            assert_eq!(h.state().session.active().unwrap().doc, doc);
++            assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
++        }
++    }
++    crate::ai_ui::TEST_STATUS.with(|status| *status.borrow_mut() = None);
++}
+diff --git a/crates/pc-ui-egui/src/ai_ui.rs b/crates/pc-ui-egui/src/ai_ui.rs
+index 5e1299a9..ed40d84d 100644
+--- a/crates/pc-ui-egui/src/ai_ui.rs
++++ b/crates/pc-ui-egui/src/ai_ui.rs
+@@ -38,7 +38,7 @@ use crate::widgets;
+ pub struct AiOptions {
+     /// AI Remove engine: `klein`, `qwen-int8` or `qwen-bf16`.
+     pub remove_engine: String,
+-    /// Opt in to the original release-to-remove behavior.
++    /// Apply a painted removal stroke on release; saved manual choices remain explicit.
+     pub remove_immediately: bool,
+     /// AI Cutout engine: `qwen-int8`, `qwen-bf16` or `quick` (on-device Subject & Background model).
+     pub cutout_engine: String,
+@@ -66,7 +66,7 @@ impl Default for AiOptions {
+     fn default() -> Self {
+         Self {
+             remove_engine: "klein".into(),
+-            remove_immediately: false,
++            remove_immediately: true,
+             cutout_engine: "qwen-int8".into(),
+             cutout_hint: String::new(),
+             cutout_output: "mask".into(),
+@@ -1830,6 +1830,15 @@ mod tests {
+     use super::*;
+     use egui_kittest::kittest::{NodeT, Queryable};
+ 
++    #[test]
++    fn remove_release_default_preserves_explicit_saved_manual_choice() {
++        assert!(AiOptions::default().remove_immediately);
++        assert!(serde_json::from_value::<AiOptions>(json!({})).unwrap().remove_immediately);
++        let manual: AiOptions = serde_json::from_value(json!({"remove_immediately": false})).unwrap();
++        assert!(!manual.remove_immediately);
++        assert!(!serde_json::from_value::<AiOptions>(serde_json::to_value(manual).unwrap()).unwrap().remove_immediately);
++    }
++
+     #[test]
+     fn enhance_dialog_clicks_method_scale_and_backend() {
+         let _lock = AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+diff --git a/crates/pc-ui-egui/src/jobs_ui.rs b/crates/pc-ui-egui/src/jobs_ui.rs
+index c726b1a4..2dd01967 100644
+--- a/crates/pc-ui-egui/src/jobs_ui.rs
++++ b/crates/pc-ui-egui/src/jobs_ui.rs
+@@ -226,6 +226,7 @@ pub fn cancel(app: &mut PhotocraftApp, id: JobId) {
+ 
+ fn on_event(app: &mut PhotocraftApp, mut e: JobEvent, previous: Option<photocraft_doc::DocId>, document: Option<photocraft_doc::DocId>) {
+     crate::filter_dialog::on_job_event(app, &e);
++    crate::ai_remove_ui::on_job_event(app, &e);
+     if e.command == "clipboard.import"
+         && let JobOutcome::Done(value) = &e.outcome
+         && let Some(fields) = value.get("clipboardPrompt")
+diff --git a/crates/pc-ui-egui/src/generate_ui/draft_refine/tests.rs b/crates/pc-ui-egui/src/generate_ui/draft_refine/tests.rs
+index 4c081d8a..28b9f8f0 100644
+--- a/crates/pc-ui-egui/src/generate_ui/draft_refine/tests.rs
++++ b/crates/pc-ui-egui/src/generate_ui/draft_refine/tests.rs
+@@ -342,7 +342,7 @@ fn draft_refine_zoom_pan_comparison_and_saved_defaults() {
+     drag(&mut h, slider.center(), vec2(25.0, 0.0));
+     assert!(h.state().draft_refine.split > 0.5);
+     let old: crate::ai_ui::AiOptions = serde_json::from_value(json!({"remove_engine":"qwen-int8","generate":{"prompt":"old"}})).unwrap();
+-    assert!(!old.remove_immediately);
++    assert!(old.remove_immediately);
+     assert_eq!(old.generate.refine_input, RefineInput::Composite);
+     assert_eq!(old.draft_refine.input, Input::Composite);
+     h.hover_at(pos2(15.0, 15.0));

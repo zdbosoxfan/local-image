@@ -38,7 +38,7 @@ fn harness(mode: Mode) -> Harness<'static, Host> {
             ui.horizontal_wrapped(|ui| context_bar(ui, &mut h.state));
             let (response, painter) = ui.allocate_painter(vec2(200., 200.), egui::Sense::click_and_drag());
             h.rect = response.rect;
-            let xf = ViewXform { rect: h.rect, zoom: 1., center: [100., 100.], flip: false };
+            let xf = ViewXform { rect: h.rect, zoom: 1., center: [100., 100.], flip: false, rotation: 0.0 };
             h.state.frame(&h.session, ui.ctx(), h.selected);
             if h.selected {
                 h.error = canvas_input_with_pressure(&mut h.state, &mut h.session, &response, &xf, h.pressure, h.color).err().map(|e| e.to_string());

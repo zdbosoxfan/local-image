@@ -12,7 +12,7 @@ use crate::theme::Tokens;
 
 /// Screen rects covering the document image minus every artboard (vertical slabs between the
 /// boards' x edges, split around the boards they cross).
-pub fn pasteboard_rects(xf: &ViewXform, doc: &Document) -> Vec<Rect> {
+fn pasteboard_document_rects(doc: &Document) -> Vec<photocraft_geom::Rect> {
     let canvas = doc.bounds();
     let boards: Vec<photocraft_geom::Rect> = doc.artboards().iter().map(|b| b.2.rect.intersect(&canvas)).filter(|r| !r.is_empty()).collect();
     let mut xs: Vec<i32> = vec![canvas.x0, canvas.x1];
@@ -29,15 +29,30 @@ pub fn pasteboard_rects(xf: &ViewXform, doc: &Document) -> Vec<Rect> {
         let mut y = canvas.y0;
         for (a, b) in spans {
             if a > y {
-                out.push(xf.doc_rect(photocraft_geom::Rect::new(x0, y, x1, a)));
+                out.push(photocraft_geom::Rect::new(x0, y, x1, a));
             }
             y = y.max(b);
         }
         if y < canvas.y1 {
-            out.push(xf.doc_rect(photocraft_geom::Rect::new(x0, y, x1, canvas.y1)));
+            out.push(photocraft_geom::Rect::new(x0, y, x1, canvas.y1));
         }
     }
     out
+}
+
+/// Conservative bounds, retained for layout/inspection; painting uses the actual quads.
+pub fn pasteboard_rects(xf: &ViewXform, doc: &Document) -> Vec<Rect> {
+    pasteboard_document_rects(doc).into_iter().map(|r| xf.doc_rect(r)).collect()
+}
+
+pub fn paint_pasteboard(painter: &egui::Painter, xf: &ViewXform, doc: &Document, fill: Color32, dots: Option<egui::TextureId>) {
+    for r in pasteboard_document_rects(doc) {
+        let rect = Rect::from_min_max(egui::pos2(r.x0 as f32, r.y0 as f32), egui::pos2(r.x1 as f32, r.y1 as f32));
+        painter.add(egui::Shape::convex_polygon(xf.camera().quad(rect).to_vec(), fill, Stroke::NONE));
+        if let Some(id) = dots {
+            painter.add(xf.camera().screen_textured_quad(id, rect, xf.rect.min, egui::Vec2::splat(22.0), Color32::WHITE));
+        }
+    }
 }
 
 /// Board outlines and names (the active board's name is highlighted, as in Photoshop).
@@ -48,7 +63,8 @@ pub fn draw_frames(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform)
     for (id, name, a) in st.doc.artboards() {
         let r = xf.doc_rect(a.rect);
         let on = active == Some(id);
-        painter.rect_stroke(r, 0.0, Stroke::new(1.0, if on { t.accent } else { Color32::from_black_alpha(90) }), egui::StrokeKind::Outside);
+        let bounds = Rect::from_min_max(egui::pos2(a.rect.x0 as f32, a.rect.y0 as f32), egui::pos2(a.rect.x1 as f32, a.rect.y1 as f32));
+        painter.add(egui::Shape::closed_line(xf.camera().quad(bounds).to_vec(), Stroke::new(1.0, if on { t.accent } else { Color32::from_black_alpha(90) })));
         let pos = Pos2::new(r.left(), r.top() - 4.0);
         painter.text(pos, Align2::LEFT_BOTTOM, name, egui::FontId::proportional(11.0), if on { t.text } else { t.text_dim });
     }
@@ -64,7 +80,8 @@ pub fn fit_artboard(app: &mut PhotocraftApp) -> Result<Value, String> {
     let area = if area.x > 50.0 { area } else { egui::vec2(1200.0, 800.0) };
     let v = &mut app.ui.views[i];
     // Leave room for the name above the board.
-    v.zoom = ((area.x - 60.0) / b.width().max(1) as f32).min((area.y - 80.0) / b.height().max(1) as f32).clamp(0.01, 64.0);
+    v.zoom = crate::canvas::rotate_view::fit_zoom(egui::vec2(b.width().max(1) as f32, b.height().max(1) as f32), area - egui::vec2(60.0, 80.0), v.rotation)
+        .clamp(0.01, 64.0);
     v.center = [(b.x0 + b.x1) as f32 / 2.0, (b.y0 + b.y1) as f32 / 2.0];
     v.fit_pending = false;
     Ok(json!({"zoom": v.zoom, "artboard": id.0, "bounds": [b.x0, b.y0, b.x1, b.y1]}))
@@ -152,7 +169,7 @@ mod tests {
         app.run("layer.new.artboard", json!({"rect": [0, 0, 40, 50]})).unwrap();
         app.run("layer.new.artboard", json!({"rect": [60, 10, 40, 30]})).unwrap();
         let doc = app.session.active().unwrap().doc.clone();
-        let xf = ViewXform { rect: Rect::from_min_size(Pos2::ZERO, egui::vec2(100.0, 50.0)), zoom: 1.0, center: [50.0, 25.0], flip: false };
+        let xf = ViewXform { rect: Rect::from_min_size(Pos2::ZERO, egui::vec2(100.0, 50.0)), zoom: 1.0, center: [50.0, 25.0], flip: false, rotation: 0.0 };
         let rects = pasteboard_rects(&xf, &doc);
         let area: f32 = rects.iter().map(|r| r.area()).sum();
         // 100×50 canvas − 40×50 − 40×30 boards.

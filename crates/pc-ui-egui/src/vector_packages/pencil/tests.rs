@@ -20,7 +20,7 @@ fn harness() -> Harness<'static, Host> {
             ui.horizontal(|ui| context_bar(ui, &mut h.pencil));
             let (response, _) = ui.allocate_painter(vec2(200., 200.), egui::Sense::click_and_drag());
             h.rect = response.rect;
-            let xf = ViewXform { rect: h.rect, zoom: 1.0, center: [100., 100.], flip: false };
+            let xf = ViewXform { rect: h.rect, zoom: 1.0, center: [100., 100.], flip: false, rotation: 0.0 };
             h.error = canvas_input(&mut h.pencil, &mut h.session, &response, &xf).err().map(|e| e.to_string());
         },
         host(),

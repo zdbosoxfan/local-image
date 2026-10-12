@@ -297,3 +297,63 @@ fn bugfix_vector_remove_undo_keeps_document_and_removes_last_stroke() {
     assert_eq!(h.state().session.active().unwrap().doc, before);
     assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
 }
+
+#[test]
+fn retained_remove_mask_keys_are_dormant_in_rotate_and_resume_in_remove() {
+    let calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::<Vec<u8>>::new()));
+    let seen = calls.clone();
+    TEST_REMOVE.with(|mock| {
+        *mock.borrow_mut() = Some(Box::new(move |_, params| {
+            seen.borrow_mut().push(serde_json::from_value(params["mask"].clone()).unwrap());
+            Ok(json!({}))
+        }))
+    });
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_REMOVE.with(|mock| *mock.borrow_mut() = None);
+            crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = None);
+        }
+    }
+    let _reset = Reset;
+    let mut h = harness();
+    h.state_mut().ui.ai.remove_immediately = false;
+    let before_fill = h.state().session.active().unwrap().doc.clone();
+    h.state_mut().run("edit.fill", json!({"color":"#00ff00"})).unwrap();
+    let filled = h.state().session.active().unwrap().doc.clone();
+    let undo = h.state().session.active().unwrap().history.past_len();
+    stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
+    stroke(&mut h, 190.0, 160.0, Modifiers::NONE);
+    let expected = h.state().ai_remove.as_ref().unwrap().mask.clone();
+    let mask_undo = h.state().ai_remove.as_ref().unwrap().undo.len();
+    assert!(mask_undo > 0);
+    h.key_press(Key::R);
+    h.run_steps(3);
+    assert_eq!(h.state().ui.tool, Tool::RotateView);
+    assert_eq!(crate::shortcut_dispatch::Focus::of(&h.ctx), crate::shortcut_dispatch::Focus::None);
+    for key in [Key::Enter, Key::Escape] {
+        h.key_press(key);
+        h.run_steps(2);
+        assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, expected);
+        assert_eq!(h.state().ai_remove.as_ref().unwrap().undo.len(), mask_undo);
+        assert!(calls.borrow().is_empty());
+        assert_eq!(h.state().session.active().unwrap().doc, filled);
+    }
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+    assert_eq!(h.state().session.active().unwrap().doc, before_fill, "Rotate leaves Ctrl+Z to document Undo");
+    assert_eq!(h.state().session.active().unwrap().history.past_len() + 1, undo);
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, expected);
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().undo.len(), mask_undo);
+    assert!(calls.borrow().is_empty());
+    h.state_mut().session.edit_prefs(|p| {
+        p.shortcuts.insert("tools.select.AiRemove".into(), "F14".into());
+    });
+    h.key_press(Key::F14);
+    h.run_steps(3);
+    assert_eq!(h.state().ui.tool, Tool::AiRemove);
+    h.key_press(Key::Enter);
+    h.run_steps(3);
+    assert_eq!(calls.borrow().as_slice(), &[expected]);
+    assert!(h.state().ai_remove.is_none());
+}

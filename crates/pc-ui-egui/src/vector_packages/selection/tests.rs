@@ -65,7 +65,7 @@ fn harness(host: Host) -> Harness<'static, Host> {
                 &mut h.state,
                 &mut h.direct,
                 rect,
-                View { origin: rect.min, document_origin: [0., 0.], zoom: 1., flip: false },
+                View { origin: rect.min, document_origin: [0., 0.], zoom: 1., flip: false, rotation: 0.0 },
                 h.tool,
                 h.node,
                 h.scope.clone(),

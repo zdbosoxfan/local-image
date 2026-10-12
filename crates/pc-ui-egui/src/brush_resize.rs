@@ -35,6 +35,9 @@ pub struct Resize {
     key: u64,
     /// Begun by an Alt+right-drag (#297): it ends when the right button is up.
     pub secondary: bool,
+    screen_x: egui::Vec2,
+    screen_y: egui::Vec2,
+    zoom: f32,
 }
 
 /// Tools the gesture resizes: every painting tool, and Quick Selection (it has a brush too).
@@ -76,8 +79,20 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers, ar
             if app.drag.is_some() || !applies(app.ui.tool) || !(armed || is_gesture(mods)) {
                 return false;
             }
+            let zoom = app.current_zoom().max(0.01);
+            let (screen_x, screen_y) = ViewXform::active(app)
+                .map(|xf| (xf.camera().screen_delta(vec2(1.0, 0.0)), xf.camera().screen_delta(vec2(0.0, 1.0))))
+                .unwrap_or((vec2(zoom * if app.ui.view.flip_horizontal { -1.0 } else { 1.0 }, 0.0), vec2(0.0, zoom)));
             let b = &app.session.tools.brush;
-            app.brush_resize = Some(Resize { anchor: [x, y], start: (b.size, b.hardness), key: KEY.fetch_add(1, Ordering::Relaxed), secondary: armed });
+            app.brush_resize = Some(Resize {
+                anchor: [x, y],
+                start: (b.size, b.hardness),
+                key: KEY.fetch_add(1, Ordering::Relaxed),
+                secondary: armed,
+                screen_x,
+                screen_y,
+                zoom,
+            });
             true
         }
         ToolEvent::Move { x, y, .. } => match app.brush_resize {
@@ -106,9 +121,10 @@ pub fn release_stale(app: &mut PhotocraftApp, secondary_down: bool) {
 }
 
 fn update(app: &mut PhotocraftApp, r: Resize, x: f64, y: f64) {
-    // Right is bigger on screen, also in a flipped view (View › Flip Horizontal).
-    let dx = (x - r.anchor[0]) * if app.ui.view.flip_horizontal { -1.0 } else { 1.0 };
-    let (size, hardness) = resized(r.start, dx, y - r.anchor[1], app.current_zoom());
+    // Diameter and hardness are screen-axis gestures. Undo the pointer's camera inverse
+    // using the basis captured at the press, including rotation and reflection.
+    let screen = r.screen_x * (x - r.anchor[0]) as f32 + r.screen_y * (y - r.anchor[1]) as f32;
+    let (size, hardness) = resized(r.start, f64::from(screen.x / r.zoom), f64::from(screen.y / r.zoom), r.zoom);
     let b = &app.session.tools.brush;
     if b.size == size && b.hardness == hardness {
         return;
@@ -440,5 +456,51 @@ mod tests {
         let _ = crate::control::handle(&mut a, &ctx, &req);
         assert_eq!(a.session.tools.brush.size, 100.0);
         assert!(a.ui.brush_picker.is_some());
+    }
+    #[test]
+    fn rotated_screen_axis_resize_preserves_diameter_hardness_and_document() {
+        for flip in [false, true] {
+            for (which, mods) in [(PointerButton::Primary, CTRL_ALT), (PointerButton::Secondary, Modifiers::ALT)] {
+                let mut a = app(Tool::Brush);
+                a.ui.view.flip_horizontal = flip;
+                a.ui.views[0].zoom = 2.0;
+                a.ui.views[0].center = [150.0, 100.0];
+                a.ui.views[0].rotation = std::f32::consts::FRAC_PI_2;
+                a.ui.views[0].fit_pending = false;
+                let mut h = canvas(a);
+                h.set_pixels_per_point(1.25);
+                h.run_steps(2);
+                let before = h.state().session.active().unwrap().doc.clone();
+                let revision = h.state().session.active().unwrap().revision;
+                let undo = history(h.state());
+                for (delta, size, hardness) in [(vec2(40.0, 0.0), 80.0, 0.2), (vec2(0.0, 40.0), 40.0, 0.4)] {
+                    h.state_mut().run("tools.setBrush", json!({"brush":{"size":40,"hardness":0.2}})).unwrap();
+                    let sets = h.state().session.journal.iter().filter(|(id, _)| id == "tools.setBrush").count();
+                    let start = h.state().last_canvas_rect.center();
+                    h.event(egui::Event::ModifiersChanged(mods));
+                    h.hover_at(start);
+                    h.step();
+                    button(&mut h, start, which, true, mods);
+                    h.hover_at(start + delta / 2.0);
+                    h.step();
+                    h.hover_at(start + delta);
+                    h.step();
+                    let resize = h.state().brush_resize.expect("actual resize capture");
+                    assert_eq!(resize.secondary, which == PointerButton::Secondary);
+                    button(&mut h, start + delta, which, false, mods);
+                    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+                    h.run_steps(2);
+                    assert_eq!(h.state().session.tools.brush.size, size, "{flip}/{which:?}/{delta:?}");
+                    assert_eq!(h.state().session.tools.brush.hardness, hardness, "{flip}/{which:?}/{delta:?}");
+                    assert!(h.state().brush_resize.is_none() && h.state().ui.brush_picker.is_none());
+                    assert_eq!(h.state().session.journal.iter().filter(|(id, _)| id == "tools.setBrush").count(), sets + 1, "one coalesced resize");
+                }
+                let st = h.state().session.active().unwrap();
+                assert!(std::sync::Arc::ptr_eq(&before, &st.doc));
+                assert_eq!(st.revision, revision);
+                assert_eq!(history(h.state()), undo);
+                assert!(!h.state().session.journal.iter().any(|(id, _)| id == "paint.stroke"));
+            }
+        }
     }
 }

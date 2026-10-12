@@ -49,6 +49,7 @@ fn screen(h: &H, x: f32, y: f32) -> Pos2 {
         zoom: v.zoom,
         center: v.center,
         flip: app.ui.view.flip_horizontal,
+        rotation: v.rotation,
     }
     .to_screen(x, y)
 }

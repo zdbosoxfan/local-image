@@ -42,7 +42,7 @@ struct Capture {
     screen: Pos2,
     start: Point,
     zoom: f64,
-    flip: bool,
+    camera: crate::view_camera::Camera,
     last: Point,
     modifiers: Modifiers,
 }
@@ -195,7 +195,8 @@ impl State {
                 let [x, y] = xf.to_doc(p);
                 self.pointer(session, crate::canvas::ToolEvent::Down { x, y, pressure: 1.0 }, modifiers, xf.zoom as f64);
                 if self.is_dragging() {
-                    self.capture = Some(Capture { screen: p, start: Point::new(x, y), zoom: xf.zoom as f64, flip: xf.flip, last: Point::new(x, y), modifiers });
+                    self.capture =
+                        Some(Capture { screen: p, start: Point::new(x, y), zoom: xf.zoom as f64, camera: xf.camera(), last: Point::new(x, y), modifiers });
                 }
             }
         }
@@ -203,8 +204,8 @@ impl State {
             return true;
         };
         let p = pos.map_or(capture.last, |p| {
-            let d = p - capture.screen;
-            Point::new(capture.start.x + d.x as f64 / capture.zoom * if capture.flip { -1.0 } else { 1.0 }, capture.start.y + d.y as f64 / capture.zoom)
+            let d = capture.camera.document_delta(p - capture.screen);
+            Point::new(capture.start.x + f64::from(d.x), capture.start.y + f64::from(d.y))
         });
         // Retain every OS pointer sample in the frame, including a release frame. A fast
         // freehand knife must not become the chord between only the first/last samples.
@@ -224,11 +225,8 @@ impl State {
                     .collect::<Vec<_>>()
             });
             for sample in samples {
-                let delta = sample - capture.screen;
-                let at = Point::new(
-                    capture.start.x + delta.x as f64 / capture.zoom * if capture.flip { -1.0 } else { 1.0 },
-                    capture.start.y + delta.y as f64 / capture.zoom,
-                );
+                let delta = capture.camera.document_delta(sample - capture.screen);
+                let at = Point::new(capture.start.x + f64::from(delta.x), capture.start.y + f64::from(delta.y));
                 if at != capture.last {
                     self.pointer(session, crate::canvas::ToolEvent::Move { x: at.x, y: at.y, pressure: 1.0 }, modifiers, capture.zoom);
                     capture.last = at;

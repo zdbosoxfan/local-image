@@ -10,7 +10,7 @@
 //!
 //! Everything here is a few rectangles per frame: no allocation and no per-pixel work.
 
-use egui::{Color32, CornerRadius, Id, Pos2, Rect, Sense, Ui, pos2, vec2};
+use egui::{Color32, CornerRadius, Id, Pos2, Rect, Sense, Ui, Vec2, pos2, vec2};
 
 use crate::state::View;
 
@@ -88,15 +88,27 @@ pub fn clamp_axis(center: f32, len: f32, size: f32, zoom: f32) -> f32 {
 /// Apply Preferences › Tools › Overscroll (off) to `view` for a canvas of `size` points. True
 /// when the view moved (the caller then repaints).
 pub fn clamp_view(view: &mut View, size: egui::Vec2) -> bool {
-    let [w, h] = view.doc_size;
-    if w == 0 || h == 0 {
+    clamp_view_flipped(view, size, false)
+}
+
+fn screen_basis(view: &View, flip: bool) -> (crate::view_camera::Camera, Rect) {
+    let camera = crate::view_camera::Camera::new(Rect::from_center_size(Pos2::ZERO, Vec2::ZERO), 1.0, [0.0, 0.0], flip, view.rotation);
+    let bounds = camera.screen_bounds(Rect::from_min_size(Pos2::ZERO, vec2(view.doc_size[0] as f32, view.doc_size[1] as f32)));
+    (camera, bounds)
+}
+
+/// Clamp screen-axis camera extents, then inverse-map the resulting center.
+pub fn clamp_view_flipped(view: &mut View, size: egui::Vec2, flip: bool) -> bool {
+    if view.doc_size.contains(&0) {
         return false;
     }
-    let c = [clamp_axis(view.center[0], w as f32, size.x, view.zoom), clamp_axis(view.center[1], h as f32, size.y, view.zoom)];
-    // Ignore sub-pixel float noise so the clamp never keeps requesting frames.
-    let moved = (c[0] - view.center[0]).abs() > 1e-3 || (c[1] - view.center[1]).abs() > 1e-3;
+    let (camera, bounds) = screen_basis(view, flip);
+    let center = camera.to_screen(pos2(view.center[0], view.center[1])) - bounds.min;
+    let c = vec2(clamp_axis(center.x, bounds.width(), size.x, view.zoom), clamp_axis(center.y, bounds.height(), size.y, view.zoom));
+    let point = camera.to_document(bounds.min + c);
+    let moved = (point.x - view.center[0]).abs() > 1e-3 || (point.y - view.center[1]).abs() > 1e-3;
     if moved {
-        view.center = c;
+        view.center = [point.x, point.y];
     }
     moved
 }
@@ -119,18 +131,25 @@ pub fn bar_rects(rect: Rect, horizontal: bool, vertical: bool) -> (Option<Rect>,
     (h, v)
 }
 
+fn axis_spans(rect: Rect, view: &View, flip: bool) -> [Option<(Span, (f32, f32))>; 2] {
+    let (camera, bounds) = screen_basis(view, flip);
+    let center = camera.to_screen(pos2(view.center[0], view.center[1])) - bounds.min;
+    [Span::of(bounds.width(), center.x, rect.width(), view.zoom), Span::of(bounds.height(), center.y, rect.height(), view.zoom)]
+        .map(|span| span.and_then(|span| span.extent(view.zoom).map(|extent| (span, extent))))
+}
+
+/// The same visible regions are used by raw-tool exclusion and actual scrollbar painting.
+pub(crate) fn visible_bar_rects(rect: Rect, view: &View, flip: bool) -> (Option<Rect>, Option<Rect>) {
+    let [horizontal, vertical] = axis_spans(rect, view, flip);
+    bar_rects(rect, horizontal.is_some(), vertical.is_some())
+}
+
 /// Show the scrollbars of the canvas `rect` and apply their drags and page clicks to `view`.
 /// `flip` is View › Flip Horizontal (the bar then runs the other way through the image).
 /// Returns true when the pointer is over a bar (the canvas then leaves the pointer alone).
 pub fn show(ui: &Ui, rect: Rect, view: &mut View, flip: bool, key: Id) -> bool {
-    let [w, h] = view.doc_size;
-    let zoom = view.zoom;
-    // Horizontal axis in "screen order": with the view flipped, run the image backwards.
-    let hx = |c: f32| if flip { w as f32 - c } else { c };
-    let sx = Span::of(w as f32, hx(view.center[0]), rect.width(), zoom);
-    let sy = Span::of(h as f32, view.center[1], rect.height(), zoom);
-    let ex = sx.and_then(|s| s.extent(zoom).map(|e| (s, e)));
-    let ey = sy.and_then(|s| s.extent(zoom).map(|e| (s, e)));
+    let (camera, bounds) = screen_basis(view, flip);
+    let [ex, ey] = axis_spans(rect, view, flip);
     if ex.is_none() && ey.is_none() {
         return false;
     }
@@ -157,11 +176,14 @@ pub fn show(ui: &Ui, rect: Rect, view: &mut View, flip: bool, key: Id) -> bool {
             if !c.is_finite() {
                 return;
             }
+            let mut center = camera.to_screen(pos2(view.center[0], view.center[1])) - bounds.min;
             if axis == 0 {
-                view.center[0] = if flip { w as f32 - c } else { c };
+                center.x = c;
             } else {
-                view.center[1] = c;
+                center.y = c;
             }
+            let point = camera.to_document(bounds.min + center);
+            view.center = [point.x, point.y];
         };
         let center = (s.v0 + s.v1) / 2.0;
         // The drag starts where the button went down, not where it passed egui's drag threshold.
@@ -266,7 +288,7 @@ mod tests {
         assert_eq!(clamp_axis(600.0, 1000.0, 500.0, 1.0), 600.0);
         // Smaller than the view: centred.
         assert_eq!(clamp_axis(-90.0, 1000.0, 500.0, 0.2), 500.0);
-        let mut v = View { zoom: 1.0, center: [-500.0, 20.0], fit_pending: false, doc_size: [1000, 800] };
+        let mut v = View { zoom: 1.0, center: [-500.0, 20.0], fit_pending: false, doc_size: [1000, 800], rotation: 0.0, rotation_drag: None };
         assert!(clamp_view(&mut v, vec2(500.0, 400.0)));
         assert_eq!(v.center, [250.0, 200.0]);
         assert!(!clamp_view(&mut v, vec2(500.0, 400.0)), "stable: no repaint loop");
@@ -285,7 +307,7 @@ mod tests {
         let (at, len) = s.thumb((0.0, 1000.0), 0.0);
         assert!(at.is_finite() && len.is_finite());
         assert_eq!(s.doc_per_point((0.0, 1000.0), 0.0), 0.0);
-        let mut v = View { zoom: 1.0, center: [0.0, 0.0], fit_pending: false, doc_size: [0, 0] };
+        let mut v = View { zoom: 1.0, center: [0.0, 0.0], fit_pending: false, doc_size: [0, 0], rotation: 0.0, rotation_drag: None };
         assert!(!clamp_view(&mut v, vec2(500.0, 400.0)));
     }
 

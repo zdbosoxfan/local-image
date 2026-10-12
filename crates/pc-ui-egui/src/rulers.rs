@@ -99,13 +99,11 @@ pub fn draw_guides(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform,
     let g = &app.session.prefs().guides_grid_and_slices;
     let (guide, style) = (pref_color(&g.guide_color, Color32::from_rgb(74, 255, 255)), g.guide_style);
     let line = |vertical: bool, pos: f64, color: Color32| {
-        if vertical {
-            let x = xf.to_screen(pos as f32, 0.0).x;
-            styled_line(painter, pos2(x, clip.top()), pos2(x, clip.bottom()), Stroke::new(1.0, color), style);
-        } else {
-            let y = xf.to_screen(0.0, pos as f32).y;
-            styled_line(painter, pos2(clip.left(), y), pos2(clip.right(), y), Stroke::new(1.0, color), style);
-        }
+        let anchor = if vertical { xf.to_screen(pos as f32, 0.0) } else { xf.to_screen(0.0, pos as f32) };
+        let direction = xf.camera().screen_delta(if vertical { vec2(0.0, 1.0) } else { vec2(1.0, 0.0) }).normalized();
+        let middle = anchor + direction * (clip.center() - anchor).dot(direction);
+        let reach = clip.size().length();
+        styled_line(painter, middle - direction * reach, middle + direction * reach, Stroke::new(1.0, color), style);
     };
     if app.ui.extras.guides {
         for (vertical, list) in [(true, &doc.guides.vertical), (false, &doc.guides.horizontal)] {
@@ -182,21 +180,24 @@ pub fn draw_rulers(app: &mut PhotocraftApp, ui: &mut egui::Ui, full: Rect, xf: &
         app.session.active().map_or((72.0, [1.0, 1.0]), |d| (d.doc.resolution_dpi.max(1.0) as f64, [d.doc.size.width as f64, d.doc.size.height as f64]));
     let whole = unit == photocraft_engine::prefs::Unit::Pixels;
     let label = |v: f64, step: f64| -> String { if step >= 1.0 || whole { format!("{}", v.round() as i64) } else { crate::widgets::fmt_num2(v) } };
-    for (vertical, extent) in [(false, size[0]), (true, size[1])] {
+    // Label the document axis most parallel to each screen ruler, including quarter turns.
+    let swap_axes = xf.rotation.sin().abs() > xf.rotation.cos().abs();
+    for vertical in [false, true] {
+        let axis = usize::from(vertical ^ swap_axes);
+        let extent = size[axis];
         let px_per_unit = unit.to_px(1.0, dpi, extent, ppi).max(1e-9);
-        let step = nice_step(60.0 / (xf.zoom as f64 * px_per_unit).max(1e-6), whole);
-        let (d0, d1) = if vertical {
-            (xf.to_doc(left.left_top())[1], xf.to_doc(left.left_bottom())[1])
-        } else {
-            (xf.to_doc(top.left_top())[0], xf.to_doc(top.right_top())[0])
-        };
-        let (u0, u1) = (d0 / px_per_unit, d1 / px_per_unit);
+        let (a, b) = if vertical { (left.right_top(), left.right_bottom()) } else { (top.left_bottom(), top.right_bottom()) };
+        let (d0, d1) = (xf.to_doc(a)[axis], xf.to_doc(b)[axis]);
+        let length = if vertical { b.y - a.y } else { b.x - a.x };
+        let slope = (d1 - d0) / f64::from(length.max(1.0));
+        if slope.abs() < 1e-9 {
+            continue;
+        }
+        let step = nice_step(60.0 * slope.abs() / px_per_unit, whole);
+        let (u0, u1) = (d0.min(d1) / px_per_unit, d0.max(d1) / px_per_unit);
         let mut v = (u0 / step).floor() * step;
+        let at = |u: f64| -> f32 { (if vertical { a.y } else { a.x }) + ((u * px_per_unit - d0) / slope) as f32 };
         while v <= u1 {
-            let at = |u: f64| -> f32 {
-                let px = (u * px_per_unit) as f32;
-                if vertical { xf.to_screen(0.0, px).y } else { xf.to_screen(px, 0.0).x }
-            };
             let c = at(v);
             if vertical {
                 p.line_segment([pos2(left.right() - RULER, c), pos2(left.right(), c)], tick);
@@ -227,7 +228,7 @@ pub fn draw_rulers(app: &mut PhotocraftApp, ui: &mut egui::Ui, full: Rect, xf: &
         p.line_segment([pos2(left.left(), h.y), pos2(left.right(), h.y)], m);
     }
     // Drag a new guide out of a ruler.
-    for (r, vertical, salt) in [(top, false, "ruler-top"), (left, true, "ruler-left")] {
+    for (r, vertical, salt) in [(top, swap_axes, "ruler-top"), (left, !swap_axes, "ruler-left")] {
         let resp = ui.interact(r, ui.id().with(salt), Sense::drag());
         if resp.hovered() {
             ui.ctx().set_cursor_icon(if vertical { egui::CursorIcon::ResizeHorizontal } else { egui::CursorIcon::ResizeVertical });

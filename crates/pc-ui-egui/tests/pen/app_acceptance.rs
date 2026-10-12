@@ -32,7 +32,8 @@ type H = Harness<'static, PhotocraftApp>;
 fn screen(h: &H, x: f32, y: f32) -> egui::Pos2 {
     let app = h.state();
     let v = &app.ui.views[0];
-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }.to_screen(x, y)
+    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
+        .to_screen(x, y)
 }
 fn button(h: &mut H, x: f32, y: f32, pressed: bool) {
     h.event(Event::PointerButton { pos: screen(h, x, y), button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });

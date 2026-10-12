@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
-use crate::state::{DialogKind, UiState};
+use crate::state::DialogKind;
 
 /// Top-level menus in Photoshop order.
 pub const TOP_MENUS: [&str; 10] = ["File", "Edit", "Image", "Layer", "Type", "Select", "Filter", "View", "Window", "Help"];
@@ -34,6 +34,9 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("view.lockGuides", "Lock Guides", &["View"], Some("Cmd+Alt+;")),
     ("view.extras", "Extras", &["View"], Some("Cmd+H")),
     ("view.togglePanels", "Hide Panels", &["View"], Some("Tab")),
+    ("view.rotateView", "Rotate View", &["View"], None),
+    ("view.resetRotation", "Reset View", &["View"], None),
+    ("view.rotation", "View angle", &[], None),
     ("view.show.targetPath", "Target Path", &["View", "Show"], Some("Cmd+Shift+H")),
     ("view.screenMode.cycle", "Cycle Screen Mode", &[], Some("F")),
     ("edit.freeTransformCopy", "Free Transform a Copy", &[], Some("Cmd+Alt+T")),
@@ -241,7 +244,8 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             Ok(Value::Null)
         }
         "file.new" if params.as_object().is_none_or(|o| o.is_empty()) => {
-            let d = app.ui.open_dialog(DialogKind::NewDocument, UiState::new_document_fields());
+            let fields = crate::new_doc_ui::fields(app);
+            let d = app.ui.open_dialog(DialogKind::NewDocument, fields);
             Ok(json!({"dialog": d}))
         }
         "file.open" => {

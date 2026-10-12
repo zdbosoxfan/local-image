@@ -1,5 +1,12 @@
 // Translations paused by docs/wip/CODEX-TASK.md; vector package 00–47 English keys.
 &[
+    "Rotate View Tool",
+    "Rotate View",
+    "View angle",
+    "Reset View",
+    "View angle must be a finite number of degrees.",
+    "View angle requires degrees.",
+    "Drag to rotate the view. Escape cancels the current drag.",
     "This shortcut is reserved for {action}. Choose another shortcut; the existing binding is unchanged.",
     "switching Library, Develop and Compositing",
     "saving the selected unsaved composite in Library",
@@ -1265,4 +1272,5 @@
     "Edits vector objects with the selected tool.",
     "Select the vector objects you want to edit.",
     "Use the tool's controls in the context bar.",
+    "No recent documents yet.",
 ]

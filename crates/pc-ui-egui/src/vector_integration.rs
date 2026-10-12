@@ -465,9 +465,8 @@ pub fn pointer(app: &mut PhotocraftApp, event: ToolEvent, mods: egui::Modifiers)
 
 fn canvas_scrollbar_at(app: &PhotocraftApp, idx: usize, xf: &ViewXform, rect: egui::Rect, pos: egui::Pos2) -> bool {
     let size = app.session.documents()[idx].doc.size;
-    let horizontal = crate::scrollbars::Span::of(size.width as f32, xf.center[0], rect.width(), xf.zoom).is_some_and(|s| s.extent(xf.zoom).is_some());
-    let vertical = crate::scrollbars::Span::of(size.height as f32, xf.center[1], rect.height(), xf.zoom).is_some_and(|s| s.extent(xf.zoom).is_some());
-    let (h, v) = crate::scrollbars::bar_rects(rect, horizontal, vertical);
+    let view = crate::state::View { zoom: xf.zoom, center: xf.center, rotation: xf.rotation, doc_size: [size.width, size.height], ..Default::default() };
+    let (h, v) = crate::scrollbars::visible_bar_rects(rect, &view, xf.flip);
     h.is_some_and(|r| r.contains(pos)) || v.is_some_and(|r| r.contains(pos))
 }
 

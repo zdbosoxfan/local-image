@@ -13,8 +13,7 @@ struct Capture {
     doc: DocId,
     origin: Pos2,
     start: [f64; 2],
-    zoom: f32,
-    flip: bool,
+    camera: crate::view_camera::Camera,
 }
 
 fn key() -> egui::Id {
@@ -75,7 +74,7 @@ pub(crate) fn canvas_input(app: &mut PhotocraftApp, response: &Response, xf: &Vi
         };
         let Some(doc) = app.session.active().map(|s| s.doc.id) else { return false };
         let start = xf.to_doc(p);
-        let c = Capture { doc, origin: p, start, zoom: xf.zoom, flip: xf.flip };
+        let c = Capture { doc, origin: p, start, camera: xf.camera() };
         capture = Some(c);
         ctx.data_mut(|d| d.insert_temp(key(), c));
         if app.ui.transform.is_none() {
@@ -93,8 +92,8 @@ pub(crate) fn canvas_input(app: &mut PhotocraftApp, response: &Response, xf: &Vi
     }
     let Some(c) = capture else { return false };
     let at = pos.map(|p| {
-        let d = (p - c.origin) / c.zoom.max(0.01);
-        [c.start[0] + f64::from(d.x) * if c.flip { -1.0 } else { 1.0 }, c.start[1] + f64::from(d.y)]
+        let d = c.camera.document_delta(p - c.origin);
+        [c.start[0] + f64::from(d.x), c.start[1] + f64::from(d.y)]
     });
     if released {
         let [x, y] = at.unwrap_or_else(|| app.drag.as_ref().and_then(|d| d.points.last()).map_or(c.start, |p| [p[0], p[1]]));

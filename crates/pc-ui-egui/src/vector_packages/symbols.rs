@@ -339,8 +339,8 @@ pub fn display_doc(session: &Session, state: &State, idx: usize) -> Option<(Arc<
 struct InputCapture {
     origin: egui::Pos2,
     start: [f64; 2],
-    zoom: f32,
-    flip: bool,
+    inverse_x: egui::Vec2,
+    inverse_y: egui::Vec2,
 }
 fn cancel_input(i: &egui::InputState, keyboard: bool) -> bool {
     !i.focused || (keyboard && i.key_pressed(egui::Key::Escape)) || i.events.iter().any(|e| matches!(e, egui::Event::WindowFocused(false)))
@@ -369,15 +369,21 @@ pub fn canvas_input(app: &mut crate::PhotocraftApp, response: &egui::Response, x
             return false;
         };
         let start = xf.to_doc(p);
-        app.ui.symbols.input = Some(InputCapture { origin: p, start, zoom: xf.zoom, flip: xf.flip });
+        app.ui.symbols.input = Some(InputCapture {
+            origin: p,
+            start,
+            inverse_x: xf.camera().document_delta(egui::vec2(1.0, 0.0)),
+            inverse_y: xf.camera().document_delta(egui::vec2(0.0, 1.0)),
+        });
     }
     let Some(c) = app.ui.symbols.input else {
         return false;
     };
     let at = pos
         .map(|p| {
-            let d = (p - c.origin) / c.zoom.max(0.01);
-            [c.start[0] + f64::from(d.x) * if c.flip { -1. } else { 1. }, c.start[1] + f64::from(d.y)]
+            let delta = p - c.origin;
+            let d = c.inverse_x * delta.x + c.inverse_y * delta.y;
+            [c.start[0] + f64::from(d.x), c.start[1] + f64::from(d.y)]
         })
         .unwrap_or(c.start);
     let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();

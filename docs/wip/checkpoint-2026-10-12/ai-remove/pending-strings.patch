@@ -1,0 +1,11 @@
+diff --git a/crates/pc-ui-egui/src/i18n/pending_vector.rs b/crates/pc-ui-egui/src/i18n/pending_vector.rs
+index 63e217f9..f6e35430 100644
+--- a/crates/pc-ui-egui/src/i18n/pending_vector.rs
++++ b/crates/pc-ui-egui/src/i18n/pending_vector.rs
+@@ -1273,4 +1273,6 @@
+     "Select the vector objects you want to edit.",
+     "Use the tool's controls in the context bar.",
+     "No recent documents yet.",
++    "Finish or cancel the current removal mask first.",
++    "Return to the original image and layer to continue removal, or Cancel.",
+ ]

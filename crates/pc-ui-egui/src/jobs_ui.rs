@@ -50,6 +50,8 @@ pub struct JobsUi {
     /// The job the latest [`run`] started (the control channel waits on it).
     pub(crate) last_started: Option<JobId>,
     place_finished: bool,
+    /// Durable filter choices wait for this exact submitted job to apply.
+    pub(crate) filter_defaults: Vec<(JobId, String, crate::filter_dialog::Remembered)>,
 }
 
 /// Run command `id`: in the background when background jobs are on and the command is a job
@@ -223,6 +225,7 @@ pub fn cancel(app: &mut PhotocraftApp, id: JobId) {
 }
 
 fn on_event(app: &mut PhotocraftApp, mut e: JobEvent, previous: Option<photocraft_doc::DocId>, document: Option<photocraft_doc::DocId>) {
+    crate::filter_dialog::on_job_event(app, &e);
     if e.command == "clipboard.import"
         && let JobOutcome::Done(value) = &e.outcome
         && let Some(fields) = value.get("clipboardPrompt")

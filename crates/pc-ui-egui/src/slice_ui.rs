@@ -126,7 +126,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
     let color = hex(&prefs.slice_color, Color32::from_rgb(0x38, 0xb5, 0xff));
     let numbers = prefs.show_slice_numbers;
     let selected_color = Color32::from_rgb(0xff, 0xb0, 0x00);
-    let to_screen = |r: photocraft_geom::Rect| Rect::from_two_pos(xf.to_screen(r.x0 as f32, r.y0 as f32), xf.to_screen(r.x1 as f32, r.y1 as f32));
+    let quad = |r: photocraft_geom::Rect| xf.camera().quad(Rect::from_min_max(egui::pos2(r.x0 as f32, r.y0 as f32), egui::pos2(r.x1 as f32, r.y1 as f32)));
     let all = slices::resolve(&doc);
     // Auto slices first (dotted, underneath), then user and layer slices.
     for pass in [true, false] {
@@ -134,27 +134,19 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             if pass && (!tool_on || app.ui.slices.hide_auto) {
                 continue;
             }
-            let sr = to_screen(r.rect);
+            let q = quad(r.rect);
+            let sr = Rect::from_points(&q);
             let selected = app.ui.slices.selected == Some(r.number);
             if pass {
-                let pts = [sr.left_top(), sr.right_top(), sr.right_bottom(), sr.left_bottom(), sr.left_top()];
+                let pts = [q[0], q[1], q[2], q[3], q[0]];
                 painter.add(egui::Shape::dashed_line(&pts, Stroke::new(1.0, color.gamma_multiply(0.7)), 3.0, 3.0));
             } else {
-                painter.rect_stroke(sr, 0.0, Stroke::new(1.0, color), egui::StrokeKind::Inside);
+                painter.add(egui::Shape::closed_line(q.to_vec(), Stroke::new(1.0, color)));
             }
             if selected && tool_on {
-                painter.rect_stroke(sr, 0.0, Stroke::new(2.0, selected_color), egui::StrokeKind::Inside);
+                painter.add(egui::Shape::closed_line(q.to_vec(), Stroke::new(2.0, selected_color)));
                 if r.origin == SliceOrigin::User {
-                    for c in [
-                        sr.left_top(),
-                        sr.right_top(),
-                        sr.left_bottom(),
-                        sr.right_bottom(),
-                        sr.center_top(),
-                        sr.center_bottom(),
-                        sr.left_center(),
-                        sr.right_center(),
-                    ] {
+                    for c in [q[0], q[1], q[2], q[3], q[0].lerp(q[1], 0.5), q[1].lerp(q[2], 0.5), q[2].lerp(q[3], 0.5), q[3].lerp(q[0], 0.5)] {
                         painter.rect_filled(Rect::from_center_size(c, vec2(5.0, 5.0)), 0.0, selected_color);
                     }
                 }
@@ -166,7 +158,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
                 };
                 let font = egui::FontId::proportional(10.0);
                 let galley = painter.layout_no_wrap(label, font, Color32::WHITE);
-                let badge = Rect::from_min_size(sr.left_top() + vec2(2.0, 2.0), galley.size() + vec2(6.0, 2.0));
+                let badge = Rect::from_min_size(q[0] + vec2(2.0, 2.0), galley.size() + vec2(6.0, 2.0));
                 let bg = if pass {
                     Color32::from_gray(110)
                 } else if selected && tool_on {
@@ -181,14 +173,14 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
     }
     match &app.ui.slices.drag {
         Some(SliceDrag::New { start, cur }) => {
-            let sr = to_screen(rect_from(*start, *cur));
-            painter.rect_stroke(sr, 0.0, Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Middle);
-            let pts = [sr.left_top(), sr.right_top(), sr.right_bottom(), sr.left_bottom(), sr.left_top()];
+            let q = quad(rect_from(*start, *cur));
+            painter.add(egui::Shape::closed_line(q.to_vec(), Stroke::new(1.0, Color32::WHITE)));
+            let pts = [q[0], q[1], q[2], q[3], q[0]];
             painter.add(egui::Shape::dashed_line(&pts, Stroke::new(1.0, color), 4.0, 4.0));
         }
         Some(SliceDrag::Move { start, cur, rect, .. }) => {
             let r = rect.translate((cur[0] - start[0]).round() as i32, (cur[1] - start[1]).round() as i32);
-            painter.rect_stroke(to_screen(r), 0.0, Stroke::new(2.0, selected_color), egui::StrokeKind::Inside);
+            painter.add(egui::Shape::closed_line(quad(r).to_vec(), Stroke::new(2.0, selected_color)));
         }
         None => {}
     }

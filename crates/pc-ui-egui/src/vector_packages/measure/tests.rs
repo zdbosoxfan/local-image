@@ -46,7 +46,7 @@ fn harness() -> Harness<'static, Host> {
             });
             let (rect, response) = ui.allocate_exact_size(egui::vec2(800., 400.), egui::Sense::click_and_drag());
             h.rect = rect;
-            let mapping = Mapping { origin: rect.min, document_origin: [0., 0.], zoom: h.zoom, flip: false };
+            let mapping = Mapping { origin: rect.min, document_origin: [0., 0.], zoom: h.zoom, flip: false, rotation: 0.0 };
             if let Err(e) = h.state.input(
                 &response,
                 Input {

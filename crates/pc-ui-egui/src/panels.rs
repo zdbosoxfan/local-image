@@ -41,7 +41,7 @@ const TOOL_SECTIONS: &[&[&[Tool]]] = &[
     ],
     // local-image: the AI tools, in their own section.
     &[&[Tool::AiRemove], &[Tool::AiCutout]],
-    &[&[Tool::Hand], &[Tool::Zoom]],
+    &[&[Tool::Hand, Tool::RotateView], &[Tool::Zoom]],
 ];
 
 /// The tool a slot shows: the current tool if it belongs to the slot, else the last one used.
@@ -703,6 +703,10 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     icons::paint(ui, r, "chevron-down", 10.0, t.text_faint);
                 }
                 widgets::vline(ui, 22.0);
+                if app.ui.tool == Tool::RotateView {
+                    crate::canvas::rotate_view::options(app, ui);
+                    return;
+                }
                 if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
                     crate::toolsets_ui::persona::geometry_bar(app, ui);
                     widgets::vline(ui, 22.0);
@@ -1105,6 +1109,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             &[("key", &crate::shortcuts::pretty("Alt"))],
                         ),
                     ),
+                    Tool::RotateView => crate::canvas::rotate_view::options(app, ui),
                     Tool::Zoom => {
                         widgets::checkbox(ui, &mut app.ui.tool_options.zoom_scrubby, tl!("Scrubby Zoom"));
                         hint(

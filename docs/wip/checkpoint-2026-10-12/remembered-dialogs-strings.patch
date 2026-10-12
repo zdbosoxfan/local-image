@@ -1,0 +1,9 @@
+diff --git a/crates/pc-ui-egui/src/i18n/pending_vector.rs b/crates/pc-ui-egui/src/i18n/pending_vector.rs
+--- a/crates/pc-ui-egui/src/i18n/pending_vector.rs
++++ b/crates/pc-ui-egui/src/i18n/pending_vector.rs
+@@ -1272,4 +1272,5 @@
+     "Edits vector objects with the selected tool.",
+     "Select the vector objects you want to edit.",
+     "Use the tool's controls in the context bar.",
++    "No recent documents yet.",
+ ]

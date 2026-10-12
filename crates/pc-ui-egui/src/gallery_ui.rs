@@ -22,6 +22,73 @@ use crate::filter_dialog::{Kind, parse_spec};
 use crate::theme::Tokens;
 use crate::widgets;
 
+/// Decode only reusable Gallery settings. Runtime layer/surface/path fields and
+/// current foreground/background swatches are deliberately not copied.
+fn remembered_effects(value: &Value) -> Option<Vec<EffectLayer>> {
+    let entries = value.get("effects")?.as_array()?;
+    // Keep every supported effect. Work and storage are linear in the already
+    // parsed recipe, with each effect limited to its fixed, validated schema.
+    // A persistence-only count cap would silently forget successful UI stacks.
+    if entries.is_empty() {
+        return None;
+    }
+    entries
+        .iter()
+        .map(|entry| {
+            let filter = GalleryFilter::from_key(entry.get("filter")?.as_str()?)?;
+            let visible = match entry.get("visible") {
+                Some(value) => value.as_bool()?,
+                None => true,
+            };
+            let mut effect = EffectLayer::new(filter);
+            effect.visible = visible;
+            if let Some(values) = entry.get("params") {
+                let values = values.as_object()?;
+                for param in parse_spec(filter.params_doc()) {
+                    let Some(value) = values.get(&param.key) else { continue };
+                    if matches!(param.key.as_str(), "foreground" | "background") {
+                        continue;
+                    }
+                    let validated = if param.key == "glowColor" {
+                        glow_color(value)?;
+                        // Preserve accepted hex spelling; conversion is display-only.
+                        value.clone()
+                    } else {
+                        crate::filter_dialog::durable_value(&param, value)?
+                    };
+                    effect.params.insert(param.key, validated);
+                }
+            }
+            Some(effect)
+        })
+        .collect()
+}
+
+/// Match the engine's documented RGB(A) and #rrggbb forms without persisting
+/// opaque data or changing the interpretation of an accepted literal.
+fn glow_color(value: &Value) -> Option<[f32; 4]> {
+    if let Some(text) = value.as_str() {
+        if text.len() != 7 || !text.starts_with('#') || !text.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit) {
+            return None;
+        }
+        let component = |i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok().map(|n| f32::from(n) / 255.);
+        return Some([component(1)?, component(3)?, component(5)?, 1.]);
+    }
+    let channels = value.as_array()?;
+    if !(3..=4).contains(&channels.len()) {
+        return None;
+    }
+    let mut rgba = [0., 0., 0., 1.];
+    for (index, channel) in channels.iter().enumerate() {
+        let n = channel.as_f64()?;
+        if !n.is_finite() || !(0.0..=1.0).contains(&n) {
+            return None;
+        }
+        rgba[index] = n as f32;
+    }
+    Some(rgba)
+}
+
 const MID_W: f32 = 300.0;
 const RIGHT_W: f32 = 290.0;
 const THUMB: [usize; 2] = [80, 56];
@@ -175,22 +242,9 @@ pub fn open(app: &mut PhotocraftApp) -> Result<(), String> {
     let st = app.session.active().ok_or("no document")?;
     let canvas = st.doc.bounds();
     let layer_name = st.doc.layer(layer).map(|l| l.name.clone()).unwrap_or_default();
-    let last = app.session.journal.iter().rev().find(|(id, _)| id == "filter.filterGallery").map(|(_, p)| p.clone());
-    let mut effects: Vec<EffectLayer> = last
-        .as_ref()
-        .and_then(|p| p.get("effects").and_then(Value::as_array).cloned())
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|e| {
-            let f = GalleryFilter::from_key(e.get("filter")?.as_str()?)?;
-            let mut l = EffectLayer::new(f);
-            if let Some(Value::Object(m)) = e.get("params") {
-                l.params.extend(m.clone());
-            }
-            l.visible = e.get("visible").and_then(Value::as_bool).unwrap_or(true);
-            Some(l)
-        })
-        .collect();
+    // Journal entries are session-local command records, not durable dialog
+    // settings. Do not fall back to a submitted/failed or stale runtime recipe.
+    let mut effects = app.session.prefs().dialogs.get(crate::filter_dialog::GALLERY_KEY).and_then(remembered_effects).unwrap_or_default();
     if effects.is_empty() {
         effects.push(EffectLayer::new(GalleryFilter::ColoredPencil));
     }
@@ -231,8 +285,9 @@ pub fn commit(app: &mut PhotocraftApp) -> Result<Value, String> {
         return Ok(json!({"committed": false}));
     }
     let mut p = d.params();
+    let remembered = remembered_effects(&p).map(|effects| crate::filter_dialog::Remembered::gallery(effects.iter().map(EffectLayer::to_json).collect()));
     p["layer"] = json!(d.layer.0);
-    app.run("filter.filterGallery", p)
+    crate::filter_dialog::submit(app, "filter.filterGallery".into(), p, remembered)
 }
 
 /// Control channel: `filter.filterGallery {"ui": {...}}` while the dialog is open.
@@ -503,19 +558,18 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         e.params.insert(p.key, json!(b));
                     }
                     Kind::Json if p.key == "glowColor" => {
-                        let c = e
-                            .params
-                            .get("glowColor")
-                            .and_then(Value::as_array)
-                            .map(|a| a.iter().filter_map(Value::as_f64).map(|v| v as f32).collect::<Vec<_>>())
-                            .filter(|v| v.len() >= 3);
                         let neon = photocraft_algo::GalleryEffect::new(GalleryFilter::NeonGlow).color;
-                        let mut rgb = c.map_or([neon[0], neon[1], neon[2]], |v| [v[0], v[1], v[2]]);
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(tl!("Glow Color")).color(t.text_dim));
-                            ui.color_edit_button_rgb(&mut rgb);
-                        });
-                        e.params.insert("glowColor".into(), json!([rgb[0], rgb[1], rgb[2], 1.0]));
+                        let color = e.params.get("glowColor").and_then(glow_color).unwrap_or(neon);
+                        let mut rgb = [color[0], color[1], color[2]];
+                        let changed = ui
+                            .horizontal(|ui| {
+                                ui.label(egui::RichText::new(tl!("Glow Color")).color(t.text_dim));
+                                ui.color_edit_button_rgb(&mut rgb).changed()
+                            })
+                            .inner;
+                        if changed {
+                            e.params.insert("glowColor".into(), json!([rgb[0], rgb[1], rgb[2], 1.0]));
+                        }
                     }
                     _ => {}
                 }
@@ -666,5 +720,216 @@ mod tests {
         let b = st.doc.layer(d.layer).unwrap().surface().unwrap().read_region(d.canvas);
         let worst = a.read_region(d.canvas).iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0.0, f32::max);
         assert!(worst < 2e-3, "preview differs from the result by {worst}");
+    }
+    fn remembered_recipe(app: &PhotocraftApp) -> Option<Value> {
+        app.session.prefs().dialogs.get(crate::filter_dialog::GALLERY_KEY).cloned()
+    }
+
+    fn poll_remembered_gallery(app: &mut PhotocraftApp) {
+        let ctx = egui::Context::default();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            crate::jobs_ui::tick(app, &ctx);
+            if !app.session.has_jobs() && app.jobs.filter_defaults.is_empty() {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "bounded Gallery completion");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn remembered_gallery_success_restart_recipe_and_preview_cancel_failure() {
+        let mut app = app();
+        open(&mut app).unwrap();
+        control(&mut app, &json!({"filter":"cutout","params":{"numberOfLevels":3}})).unwrap();
+        control(&mut app, &json!({"add":true})).unwrap();
+        control(&mut app, &json!({"filter":"texturizer","params":{"texture":"brick","relief":8}})).unwrap();
+        control(&mut app, &json!({"toggle":1})).unwrap();
+        let submitted = app.distort.gallery.as_ref().unwrap().effects.clone();
+        commit(&mut app).unwrap();
+        let saved = remembered_recipe(&app).unwrap();
+        assert_eq!(saved["effects"].as_array().unwrap().len(), 2);
+        assert_eq!(saved["effects"][0]["filter"], "cutout");
+        assert_eq!(saved["effects"][1]["visible"], false);
+        assert!(!saved.as_object().unwrap().contains_key("layer"));
+        assert!(!saved.as_object().unwrap().contains_key("foreground"));
+        let encoded = serde_json::to_string(&app.session.prefs().to_json()).unwrap();
+        // A real new session has no journal; loading preferences still restores it.
+        let mut restarted = self::app();
+        restarted.session.load_prefs_json(&encoded).unwrap();
+        restarted.session.journal.clear();
+        restarted.session.tools.foreground = [0.9, 0.1, 0.2, 1.];
+        open(&mut restarted).unwrap();
+        assert_eq!(restarted.distort.gallery.as_ref().unwrap().effects, submitted);
+        assert_eq!(restarted.distort.gallery.as_ref().unwrap().foreground, [0.9, 0.1, 0.2, 1.]);
+        control(&mut restarted, &json!({"select":0,"params":{"numberOfLevels":7}})).unwrap();
+        let ctx = egui::Context::default();
+        update_preview(restarted.distort.gallery.as_mut().unwrap(), &ctx, ERect::from_min_size(pos2(0., 0.), vec2(180., 120.)));
+        assert_eq!(remembered_recipe(&restarted), Some(saved.clone()));
+        control(&mut restarted, &json!({"cancel":true})).unwrap();
+        assert_eq!(remembered_recipe(&restarted), Some(saved.clone()));
+        open(&mut restarted).unwrap();
+        control(&mut restarted, &json!({"params":{"numberOfLevels":5}})).unwrap();
+        restarted.automation_input = true;
+        restarted.services.automation_command = Some(Box::new(|_, _| Err("injected Gallery refusal".into())));
+        assert!(commit(&mut restarted).unwrap_err().contains("injected Gallery refusal"));
+        assert_eq!(remembered_recipe(&restarted), Some(saved));
+    }
+
+    #[test]
+    fn remembered_gallery_async_success_is_submitted_recipe_and_cancel_does_not_publish() {
+        let mut app = app();
+        open(&mut app).unwrap();
+        control(&mut app, &json!({"filter":"cutout","params":{"numberOfLevels":3}})).unwrap();
+        commit(&mut app).unwrap();
+        let previous = remembered_recipe(&app).unwrap();
+        app.background_jobs = true;
+        open(&mut app).unwrap();
+        control(&mut app, &json!({"params":{"numberOfLevels":6}})).unwrap();
+        let result = commit(&mut app).unwrap();
+        assert_eq!(result["pending"], true);
+        assert_eq!(remembered_recipe(&app), Some(previous));
+        open(&mut app).unwrap();
+        control(&mut app, &json!({"params":{"numberOfLevels":8}})).unwrap();
+        poll_remembered_gallery(&mut app);
+        let saved = remembered_recipe(&app).unwrap();
+        assert_eq!(saved["effects"][0]["params"]["numberOfLevels"], 6, "later runtime edits cannot replace the submitted snapshot");
+        control(&mut app, &json!({"cancel":true})).unwrap();
+        open(&mut app).unwrap();
+        control(&mut app, &json!({"params":{"numberOfLevels":4}})).unwrap();
+        let result = commit(&mut app).unwrap();
+        crate::jobs_ui::cancel(&mut app, photocraft_engine::jobs::JobId(result["job"].as_u64().unwrap()));
+        poll_remembered_gallery(&mut app);
+        assert_eq!(remembered_recipe(&app), Some(saved.clone()));
+        open(&mut app).unwrap();
+        control(&mut app, &json!({"params":{"numberOfLevels":5}})).unwrap();
+        assert_eq!(commit(&mut app).unwrap()["pending"], true);
+        // Simulate an externally replaced target after submission. The engine's
+        // real apply guard must fail the job instead of publishing stale work.
+        app.session
+            .edit("External change fixture", |doc, _| {
+                doc.name.push_str(" changed");
+                Ok(())
+            })
+            .unwrap();
+        poll_remembered_gallery(&mut app);
+        assert!(app.ui.status_error);
+        assert!(app.ui.status.contains("changed"));
+        assert_eq!(remembered_recipe(&app), Some(saved.clone()));
+        // Never fall back to a session command record after a cancelled submission.
+        app.session.journal.push(("filter.filterGallery".into(), json!({"effects":[{"filter":"cutout","params":{"numberOfLevels":2}}]})));
+        open(&mut app).unwrap();
+        assert_eq!(app.distort.gallery.as_ref().unwrap().effects[0].params["numberOfLevels"], 6);
+        control(&mut app, &json!({"toggle":0})).unwrap();
+        assert_eq!(commit(&mut app).unwrap()["committed"], false);
+        assert_eq!(remembered_recipe(&app), Some(saved), "all-hidden no-op is not a successful recipe publication");
+    }
+
+    #[test]
+    fn remembered_gallery_validates_bounded_typed_recipe_without_runtime_state() {
+        let good = json!({"effects":[{"filter":"glass","visible":false,"params":{"distortion":8,"texture":"canvas","invert":true,
+            "layer":123,"sourcePath":"private","foreground":[1,0,0,1],"surface":{"opaque":true}}}],"layer":123,"foreground":[1,0,0,1]});
+        let parsed = remembered_effects(&good).unwrap();
+        assert!(!parsed[0].visible);
+        assert_eq!(parsed[0].params["distortion"], 8);
+        assert_eq!(parsed[0].params["texture"], "canvas");
+        assert_eq!(parsed[0].params["invert"], true);
+        for forbidden in ["layer", "sourcePath", "foreground", "surface"] {
+            assert!(!parsed[0].params.contains_key(forbidden));
+        }
+        for bad in [
+            json!({"effects":[]}),
+            json!({"effects":[{"filter":"unknown"}]}),
+            json!({"effects":[{"filter":"glass","visible":"false"}]}),
+            json!({"effects":[{"filter":"glass","params":{"distortion":21}}]}),
+            json!({"effects":[{"filter":"glass","params":{"texture":"private/path"}}]}),
+            json!({"effects":[{"filter":"glass","params":{"invert":1}}]}),
+            json!({"effects":[{"filter":"neonGlow","params":{"glowColor":[1,2,0]}}]}),
+            json!({"effects":[{"filter":"neonGlow","params":{"glowColor":"#33669x"}}]}),
+            json!({"effects":[{"filter":"neonGlow","params":{"glowColor":"#369"}}]}),
+        ] {
+            assert!(remembered_effects(&bad).is_none(), "{bad}");
+        }
+        let color = json!({"effects":[{"filter":"neonGlow","params":{"glowColor":[0.1,0.2,0.3,1]}}]});
+        assert_eq!(remembered_effects(&color).unwrap()[0].params["glowColor"], color["effects"][0]["params"]["glowColor"]);
+        let mut app = app();
+        app.session.edit_prefs(|p| p.dialogs.insert(crate::filter_dialog::GALLERY_KEY.into(), json!({"effects":[{"filter":"unknown"}]})));
+        app.session.journal.push(("filter.filterGallery".into(), good));
+        let before = remembered_recipe(&app);
+        open(&mut app).unwrap();
+        assert_eq!(
+            app.distort.gallery.as_ref().unwrap().effects[0].filter,
+            GalleryFilter::ColoredPencil,
+            "malformed preferences cannot revive an unrelated journal record"
+        );
+        control(&mut app, &json!({"cancel":true})).unwrap();
+        assert_eq!(remembered_recipe(&app), before);
+    }
+    #[test]
+    fn remembered_gallery_sixty_five_effects_recall_and_restart_without_truncation() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width":8,"height":8,"depth":16,"background":"transparent"})).unwrap();
+        app.run("edit.fill", json!({"color":"#668899"})).unwrap();
+        open(&mut app).unwrap();
+        control(&mut app, &json!({"filter":"cutout"})).unwrap();
+        for index in 0..65 {
+            if index != 0 {
+                control(&mut app, &json!({"add":true})).unwrap();
+            }
+            control(&mut app, &json!({"params":{"numberOfLevels":2 + index % 7}})).unwrap();
+        }
+        let expected = app.distort.gallery.as_ref().unwrap().effects.clone();
+        commit(&mut app).unwrap();
+        let saved = remembered_recipe(&app).unwrap();
+        assert_eq!(saved["effects"].as_array().unwrap().len(), 65);
+        open(&mut app).unwrap();
+        assert_eq!(app.distort.gallery.as_ref().unwrap().effects, expected);
+        control(&mut app, &json!({"cancel":true})).unwrap();
+        let serialized = serde_json::to_string(&app.session.prefs().to_json()).unwrap();
+        let mut restarted = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        restarted.run("file.new", json!({"width":8,"height":8,"depth":16,"background":"transparent"})).unwrap();
+        restarted.run("edit.fill", json!({"color":"#668899"})).unwrap();
+        restarted.session.load_prefs_json(&serialized).unwrap();
+        open(&mut restarted).unwrap();
+        assert_eq!(restarted.distort.gallery.as_ref().unwrap().effects, expected);
+        commit(&mut restarted).unwrap();
+        assert_eq!(remembered_recipe(&restarted), Some(saved));
+    }
+
+    #[test]
+    fn remembered_gallery_hex_glow_color_survives_success_restart_and_paint() {
+        for literal in ["#336699", "#aBcD01"] {
+            let mut app = app();
+            open(&mut app).unwrap();
+            control(&mut app, &json!({"filter":"neonGlow","params":{"glowColor":literal,"glowSize":3}})).unwrap();
+            let effect = photocraft_engine::gallery_cmds::effect_from_json(GalleryFilter::NeonGlow, &json!({"glowColor":literal}), &Value::Null);
+            assert_eq!(glow_color(&json!(literal)), Some(effect.color), "same interpretation as the engine");
+            commit(&mut app).unwrap();
+            let saved = remembered_recipe(&app).unwrap();
+            assert_eq!(saved["effects"][0]["params"]["glowColor"], literal);
+            let encoded = serde_json::to_string(&app.session.prefs().to_json()).unwrap();
+            let mut restarted = self::app();
+            restarted.session.load_prefs_json(&encoded).unwrap();
+            open(&mut restarted).unwrap();
+            let ctx = egui::Context::default();
+            PhotocraftApp::setup_context(&ctx, Default::default());
+            for frame in 0..2 {
+                let raw = egui::RawInput {
+                    screen_rect: Some(ERect::from_min_size(pos2(0., 0.), vec2(1100., 760.))),
+                    time: Some(frame as f64 / 60.),
+                    ..Default::default()
+                };
+                ctx.run_ui(raw, |_ui| show(&mut restarted, &ctx)).textures_delta.clear();
+                assert_eq!(
+                    restarted.distort.gallery.as_ref().unwrap().effects[0].params["glowColor"],
+                    literal,
+                    "ordinary colour-picker paint must not silently replace the accepted literal"
+                );
+                assert_eq!(remembered_recipe(&restarted), Some(saved.clone()));
+            }
+            commit(&mut restarted).unwrap();
+            assert_eq!(remembered_recipe(&restarted), Some(saved));
+        }
     }
 }

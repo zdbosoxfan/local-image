@@ -99,7 +99,8 @@ fn harness() -> (H, GpuCanvas) {
 fn screen(h: &H, x: f32, y: f32) -> Pos2 {
     let a = h.state();
     let v = &a.ui.views[0];
-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(a, a.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }.to_screen(x, y)
+    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(a, a.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
+        .to_screen(x, y)
 }
 fn present(h: &mut H) {
     h.run_steps(2);

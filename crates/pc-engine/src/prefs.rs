@@ -1379,6 +1379,7 @@ pub const TOOL_SHORTCUTS: &[(&str, &str, Option<&str>)] = &[
     ("tools.select.Gradient", "Fill Tools", Some("G")),
     ("tools.select.Type", "Type Tools", Some("T")),
     ("tools.select.Hand", "Hand Tool", Some("H")),
+    ("tools.select.RotateView", "Rotate View Tool", Some("R")),
     ("tools.select.Zoom", "Zoom Tool", Some("Z")),
     ("tools.select.SpotHealing", "Healing Tools", Some("J")),
     ("tools.select.CloneStamp", "Clone Stamp Tool", Some("S")),
@@ -1388,7 +1389,7 @@ pub const TOOL_SHORTCUTS: &[(&str, &str, Option<&str>)] = &[
     ("tools.select.Pen", "Pen Tool", Some("P")),
     ("tools.select.PathSelection", "Path Selection Tools", Some("A")),
     ("tools.select.Rectangle", "Shape Tools", Some("U")),
-    ("tools.select.AiRemove", "AI Remove Tool", Some("R")),
+    ("tools.select.AiRemove", "AI Remove Tool", None),
     ("tools.select.AiCutout", "AI Cutout Tool", Some("K")),
 ];
 

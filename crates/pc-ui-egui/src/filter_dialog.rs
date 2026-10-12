@@ -166,6 +166,132 @@ pub fn has_dialog(command: &str) -> bool {
         && photocraft_engine::commands::find(command).is_some_and(|c| !parse_spec(c.params).is_empty())
 }
 
+/// Submitted durable values only; a pending job owns this snapshot until its
+/// terminal event. It never contains layer/document references, paths or UI state.
+#[derive(Clone, Debug)]
+pub(crate) struct Remembered {
+    key: String,
+    values: Map<String, Value>,
+}
+
+fn preference_key(fields: &Map<String, Value>) -> Option<String> {
+    let command = fields.get("__command")?.as_str()?;
+    if command.starts_with("filter.") && photocraft_engine::commands::find(command).is_some() {
+        Some(format!("filter.dialog/{command}"))
+    } else if command == "plugin.run" {
+        // A stable registered plug-in identifier namespaces choices; it is not a
+        // live layer/document ID and is never retained among the scalar values.
+        let plugin = fields.get("id")?.as_str()?;
+        (plugin.len() <= 256 && photocraft_plugins::registry::get(plugin).is_some()).then(|| format!("filter.dialog/plugin/{plugin}"))
+    } else {
+        None // Ruler/canvas-derived defaults and other non-filter dialogs stay contextual.
+    }
+}
+
+pub(crate) fn durable_value(param: &Param, value: &Value) -> Option<Value> {
+    if param.key.starts_with("__")
+        || param.key.ends_with("Id")
+        || matches!(
+            param.key.as_str(),
+            "id" | "layer" | "document" | "reference" | "target" | "source" | "path" | "mapPath" | "mapDocument" | "foreground" | "background"
+        )
+    {
+        return None;
+    }
+    let valid = match &param.kind {
+        Kind::Range { min, max, .. } => value.as_f64().is_some_and(|n| n.is_finite() && (n as f32) >= *min && (n as f32) <= *max),
+        Kind::Choice(choices) => value.as_str().is_some_and(|s| s.len() <= 256 && choices.iter().any(|choice| choice == s)),
+        Kind::Bool(_) => value.is_boolean(),
+        Kind::Int { .. } => value.as_i64().is_some_and(|n| (-30_000..=30_000).contains(&n)),
+        // Custom Filter's matrix is editable reusable state, unlike arbitrary
+        // JSON. Accept only the declared square shape and integer cell bounds.
+        Kind::Grid(size) => {
+            *size > 0
+                && *size <= 256
+                && size.isqrt().pow(2) == *size
+                && value
+                    .as_array()
+                    .is_some_and(|cells| cells.len() == *size && cells.iter().all(|cell| cell.as_i64().is_some_and(|n| (-999..=999).contains(&n))))
+        }
+        Kind::Text | Kind::Document | Kind::Json => false,
+    };
+    valid.then(|| value.clone())
+}
+
+fn schema(fields: &Map<String, Value>) -> Option<&str> {
+    fields.get("__spec").and_then(Value::as_str).or_else(|| photocraft_engine::commands::find(fields.get("__command")?.as_str()?).map(|command| command.params))
+}
+
+fn snapshot(fields: &Map<String, Value>) -> Option<Remembered> {
+    if !fields.contains_key("__filter") {
+        return None;
+    }
+    let key = preference_key(fields)?;
+    let values = parse_spec(schema(fields)?)
+        .into_iter()
+        .filter_map(|param| {
+            let value = durable_value(&param, fields.get(&param.key)?)?;
+            Some((param.key, value))
+        })
+        .collect();
+    Some(Remembered { key, values })
+}
+
+fn restore(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
+    let Some(key) = preference_key(fields) else { return };
+    let Some(saved) = app.session.prefs().dialogs.get(&key).and_then(Value::as_object) else { return };
+    let params = schema(fields).map(parse_spec).unwrap_or_default();
+    for param in params {
+        if let Some(value) = saved.get(&param.key).and_then(|value| durable_value(&param, value)) {
+            fields.insert(param.key, value);
+        }
+    }
+}
+
+pub(crate) const GALLERY_KEY: &str = "filter.dialog/filter.filterGallery";
+
+impl Remembered {
+    /// Caller supplies Gallery's validated bounded typed recipe, not its runtime dialog.
+    pub(crate) fn gallery(effects: Vec<Value>) -> Self {
+        Self { key: GALLERY_KEY.into(), values: Map::from_iter([("effects".into(), Value::Array(effects))]) }
+    }
+
+    fn publish(self, app: &mut PhotocraftApp) {
+        app.session.edit_prefs(|prefs| prefs.dialogs.insert(self.key, Value::Object(self.values)));
+    }
+}
+
+/// Run through the existing smart-filter adapter and command/job admission. Only
+/// synchronous success or the matching job's applied result publishes preferences.
+pub(crate) fn confirm(app: &mut PhotocraftApp, fields: &Map<String, Value>, command: String, params: Value) -> Result<Value, String> {
+    submit(app, command, params, snapshot(fields))
+}
+
+pub(crate) fn submit(app: &mut PhotocraftApp, command: String, params: Value, remembered: Option<Remembered>) -> Result<Value, String> {
+    let result = app.run(&command, params)?;
+    if let Some(remembered) = remembered {
+        if result.get("pending").and_then(Value::as_bool) == Some(true) {
+            if let Some(job) = result.get("job").and_then(Value::as_u64).map(photocraft_engine::jobs::JobId)
+                && app.session.job(job).is_some()
+            {
+                app.jobs.filter_defaults.push((job, command, remembered));
+            }
+        } else {
+            remembered.publish(app);
+        }
+    }
+    Ok(result)
+}
+
+pub(crate) fn on_job_event(app: &mut PhotocraftApp, event: &photocraft_engine::jobs::JobEvent) {
+    if let Some(index) = app.jobs.filter_defaults.iter().position(|(job, _, _)| *job == event.id) {
+        let (_, command, remembered) = app.jobs.filter_defaults.remove(index);
+        if command == event.command && matches!(event.outcome, photocraft_engine::jobs::JobOutcome::Done(_)) {
+            remembered.publish(app);
+        }
+    }
+}
+
 pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     let spec = photocraft_engine::commands::find(command)?;
     let mut fields = Map::new();
@@ -192,6 +318,7 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
         };
         fields.insert(p.key, v);
     }
+    restore(app, &mut fields);
     if command == "image.rotation.arbitrary" {
         straighten_defaults(app, &mut fields);
     }
@@ -235,6 +362,7 @@ pub fn open_with_spec(app: &mut PhotocraftApp, command: &str, label: &str, spec:
         };
         fields.insert(p.key, v);
     }
+    restore(app, &mut fields);
     app.ui.open_dialog(crate::state::DialogKind::Command, fields)
 }
 
@@ -569,6 +697,266 @@ mod tests {
                 assert!(changed(0, half), "{depth:?} k={k}: noise inside the selection");
                 assert!(!changed(half, 64 / k as i32), "{depth:?} k={k}: nothing outside the selection");
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod remembered_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    use super::*;
+    use photocraft_engine::jobs::Started;
+    use std::time::{Duration, Instant};
+    const BLUR: &str = "filter.blur.gaussianBlur";
+    const NOISE: &str = "filter.noise.addNoise";
+
+    fn app() -> PhotocraftApp {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width":16,"height":12,"background":"transparent"})).unwrap();
+        s.execute("edit.fill", json!({"color":"#3366cc"})).unwrap();
+        PhotocraftApp::new(s, crate::Services::default())
+    }
+    fn saved(app: &PhotocraftApp, command: &str) -> Option<Value> {
+        app.session.prefs().dialogs.get(&format!("filter.dialog/{command}")).cloned()
+    }
+    fn poll(app: &mut PhotocraftApp) {
+        let ctx = egui::Context::default();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            crate::jobs_ui::tick(app, &ctx);
+            if !app.session.has_jobs() && app.jobs.filter_defaults.is_empty() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "bounded filter completion");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn remembered_filter_success_restart_preview_cancel_and_error() {
+        let mut app = app();
+        let id = open(&mut app, BLUR).unwrap();
+        app.ui.dialog_mut(id).unwrap().fields.insert("radius".into(), json!(2.5));
+        crate::dialogs::confirm(&mut app, id).unwrap();
+        assert_eq!(saved(&app, BLUR), Some(json!({"radius":2.5})));
+        let id = open(&mut app, NOISE).unwrap();
+        app.ui
+            .dialog_mut(id)
+            .unwrap()
+            .fields
+            .extend(json!({"amount":7.5,"distribution":"gaussian","monochromatic":true,"seed":17}).as_object().unwrap().clone());
+        crate::dialogs::confirm(&mut app, id).unwrap();
+        assert_eq!(saved(&app, NOISE), Some(json!({"amount":7.5,"distribution":"gaussian","monochromatic":true,"seed":17})));
+        let id = open(&mut app, BLUR).unwrap();
+        app.ui.dialog_mut(id).unwrap().fields.insert("radius".into(), json!(5));
+        let params = params_of(&app.ui.dialog_mut(id).unwrap().fields);
+        let state = app.session.active().unwrap();
+        assert!(preview_document(&state.doc, state.active_layer, BLUR, &params, 1).is_some());
+        assert_eq!(saved(&app, BLUR), Some(json!({"radius":2.5})), "preview must never publish");
+        crate::dialogs::cancel(&mut app, id).unwrap();
+        assert_eq!(saved(&app, BLUR), Some(json!({"radius":2.5})));
+        let serialized = serde_json::to_string(&app.session.prefs().to_json()).unwrap();
+        let mut s = photocraft_engine::Session::new();
+        s.load_prefs_json(&serialized).unwrap();
+        let mut restarted = PhotocraftApp::new(s, crate::Services::default());
+        let id = open(&mut restarted, BLUR).unwrap();
+        assert_eq!(restarted.ui.dialog_mut(id).unwrap().fields["radius"], 2.5);
+        restarted.ui.dialog_mut(id).unwrap().fields.insert("radius".into(), json!(8));
+        assert!(crate::dialogs::confirm(&mut restarted, id).is_err(), "no document");
+        assert_eq!(saved(&restarted, BLUR), Some(json!({"radius":2.5})));
+        let id = open(&mut restarted, NOISE).unwrap();
+        assert_eq!(restarted.ui.dialog_mut(id).unwrap().fields["monochromatic"], true);
+        assert_eq!(restarted.ui.dialog_mut(id).unwrap().fields["distribution"], "gaussian");
+    }
+
+    #[test]
+    fn remembered_filter_async_uses_submitted_snapshot_and_discards_cancel_failure() {
+        let mut app = app();
+        app.background_jobs = true;
+        let id = open(&mut app, BLUR).unwrap();
+        app.ui.dialog_mut(id).unwrap().fields.insert("radius".into(), json!(3.5));
+        let result = crate::dialogs::confirm(&mut app, id).unwrap();
+        assert_eq!(result["pending"], true);
+        assert!(saved(&app, BLUR).is_none(), "starting is not applying");
+        app.run("file.new", json!({"width":8,"height":8,"background":"transparent"})).unwrap();
+        let later = open(&mut app, BLUR).unwrap();
+        app.ui.dialog_mut(later).unwrap().fields.insert("radius".into(), json!(9));
+        poll(&mut app);
+        assert_eq!(saved(&app, BLUR), Some(json!({"radius":3.5})), "not the later dialog");
+        crate::dialogs::cancel(&mut app, later).unwrap();
+        let id = open(&mut app, BLUR).unwrap();
+        app.ui.dialog_mut(id).unwrap().fields.insert("radius".into(), json!(7));
+        let job = crate::dialogs::confirm(&mut app, id).unwrap()["job"].as_u64().unwrap();
+        crate::jobs_ui::cancel(&mut app, photocraft_engine::jobs::JobId(job));
+        poll(&mut app);
+        assert_eq!(saved(&app, BLUR), Some(json!({"radius":3.5})));
+        // An actual failing worker event exercises the same UI terminal-event path.
+        let id = open(&mut app, BLUR).unwrap();
+        app.ui.dialog_mut(id).unwrap().fields.insert("radius".into(), json!(8));
+        let submitted = snapshot(&app.ui.dialog_mut(id).unwrap().fields).unwrap();
+        crate::dialogs::cancel(&mut app, id).unwrap();
+        let Started::Job(job) = app
+            .session
+            .start_job(
+                BLUR,
+                json!({}),
+                "Failing filter fixture",
+                true,
+                |_ctx| Err::<(), _>(photocraft_engine::EngineError::Other("injected filter failure".into())),
+                |_session, ()| Ok(json!({})),
+            )
+            .unwrap()
+        else {
+            panic!("native job required")
+        };
+        app.jobs.filter_defaults.push((job, BLUR.into(), submitted));
+        poll(&mut app);
+        assert_eq!(saved(&app, BLUR), Some(json!({"radius":3.5})));
+        assert!(app.ui.status_error);
+        assert!(app.ui.status.contains("injected filter failure"));
+    }
+
+    #[test]
+    fn remembered_filter_scalar_validation_excludes_targets_paths_and_context() {
+        let mut app = app();
+        app.session.edit_prefs(|p| {
+            p.dialogs.insert(
+                format!("filter.dialog/{NOISE}"),
+                json!({"amount":-1,"distribution":"invalid","monochromatic":"true","seed":90000,"layer":12,"__preview":false}),
+            )
+        });
+        let id = open(&mut app, NOISE).unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!(f["amount"], 12.5);
+        assert_eq!(f["distribution"], "uniform");
+        assert_eq!(f["monochromatic"], false);
+        assert_eq!(f["seed"], 0);
+        assert_eq!(f["__preview"], true);
+        assert!(!f.contains_key("layer"));
+        for param in parse_spec(r#"{"mapPath":text,"mapDocument":doc,"reference":layer id,"pins":json,"kernel":int[25],"id":u32=0,"foreground":json}"#) {
+            assert!(durable_value(&param, &json!(12)).is_none(), "{}", param.key);
+        }
+        let fields = json!({"__command":"image.rotation.arbitrary","__filter":true,"angle":47,"direction":"cw"}).as_object().unwrap().clone();
+        assert!(snapshot(&fields).is_none(), "derived ruler angle stays contextual");
+    }
+
+    #[test]
+    fn remembered_filter_real_cancel_and_ok_buttons_publish_only_success() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1100., 760.)).build_eframe(|cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            app()
+        });
+        let id = open(h.state_mut(), NOISE).unwrap();
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("__preview".into(), json!(false));
+        h.run_steps(3);
+        h.get_by_label("Monochromatic").click();
+        h.run_steps(2);
+        assert_eq!(h.state_mut().ui.dialog_mut(id).unwrap().fields["monochromatic"], true);
+        h.get_by_label("Cancel").click();
+        h.run_steps(3);
+        assert!(saved(h.state(), NOISE).is_none());
+        let id = open(h.state_mut(), NOISE).unwrap();
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("__preview".into(), json!(false));
+        h.run_steps(3);
+        h.get_by_label("Monochromatic").click();
+        h.run_steps(2);
+        h.get_by_label("OK").click();
+        h.run_steps(3);
+        assert_eq!(saved(h.state(), NOISE).unwrap()["monochromatic"], true);
+    }
+    #[test]
+    fn remembered_custom_grid_success_restart_cancel_and_failure_preserve_behavior() {
+        const CUSTOM: &str = "filter.other.custom";
+        let mut app = app();
+        let pixel = |app: &PhotocraftApp| {
+            let state = app.session.active().unwrap();
+            state.doc.layer(state.active_layer.unwrap()).unwrap().surface().unwrap().pixel(4, 4)
+        };
+        let before = pixel(&app);
+        let mut kernel = vec![0; 25];
+        kernel[12] = 2;
+        let id = open(&mut app, CUSTOM).unwrap();
+        app.ui.dialog_mut(id).unwrap().fields.insert("kernel".into(), json!(kernel));
+        crate::dialogs::confirm(&mut app, id).unwrap();
+        let after = pixel(&app);
+        // A doubled centre coefficient is an actual gain, not the identity default.
+        for channel in 0..3 {
+            assert!((after[channel] - (before[channel] * 2.).min(1.)).abs() <= 1. / 255. + f32::EPSILON);
+        }
+        assert!(after[0] > before[0]);
+        assert_eq!(after[3], before[3]);
+        let saved_choices = saved(&app, CUSTOM).unwrap();
+        assert_eq!(saved_choices["kernel"], json!(kernel));
+        let id = open(&mut app, CUSTOM).unwrap();
+        assert_eq!(app.ui.dialog_mut(id).unwrap().fields["kernel"], json!(kernel));
+        app.ui.dialog_mut(id).unwrap().fields.insert("kernel".into(), json!(vec![0; 25]));
+        crate::dialogs::cancel(&mut app, id).unwrap();
+        assert_eq!(saved(&app, CUSTOM), Some(saved_choices.clone()));
+        assert_eq!(pixel(&app), after);
+        let serialized = serde_json::to_string(&app.session.prefs().to_json()).unwrap();
+        let mut session = photocraft_engine::Session::new();
+        session.load_prefs_json(&serialized).unwrap();
+        let mut restarted = PhotocraftApp::new(session, crate::Services::default());
+        let id = open(&mut restarted, CUSTOM).unwrap();
+        assert_eq!(restarted.ui.dialog_mut(id).unwrap().fields["kernel"], json!(kernel));
+        assert!(crate::dialogs::confirm(&mut restarted, id).is_err(), "no document cannot publish a new matrix");
+        assert_eq!(saved(&restarted, CUSTOM), Some(saved_choices));
+        restarted.run("file.new", json!({"width":16,"height":12,"background":"transparent"})).unwrap();
+        restarted.run("edit.fill", json!({"color":"#3366cc"})).unwrap();
+        let id = open(&mut restarted, CUSTOM).unwrap();
+        crate::dialogs::confirm(&mut restarted, id).unwrap();
+        assert_eq!(pixel(&restarted), after, "reopened settings produce the same filter output");
+    }
+
+    #[test]
+    fn remembered_custom_grid_requires_exact_bounded_integer_matrix() {
+        const CUSTOM: &str = "filter.other.custom";
+        let param = Param { key: "kernel".into(), kind: Kind::Grid(25) };
+        let mut valid = vec![0; 25];
+        valid[0] = -999;
+        valid[24] = 999;
+        assert_eq!(durable_value(&param, &json!(valid)), Some(json!(valid)));
+        let mut too_high = valid.clone();
+        too_high[12] = 1000;
+        let mut too_low = valid.clone();
+        too_low[12] = -1000;
+        let mut fractional = json!(valid);
+        fractional[12] = json!(0.5);
+        let mut typed_float = json!(valid);
+        typed_float[12] = json!(1.0);
+        let mut missing = json!(valid);
+        missing[12] = Value::Null;
+        let mut oversized_integer = json!(valid);
+        oversized_integer[12] = json!(u64::MAX);
+        let bad = [
+            json!(vec![0; 24]),
+            json!(vec![0; 26]),
+            json!(vec![vec![0; 5]; 5]),
+            json!(too_high),
+            json!(too_low),
+            fractional,
+            typed_float,
+            missing,
+            oversized_integer,
+        ];
+        let mut app = app();
+        let identity: Vec<i64> = (0..25).map(|i| i64::from(i == 12)).collect();
+        for matrix in bad {
+            assert!(durable_value(&param, &matrix).is_none());
+            app.session.edit_prefs(|p| p.dialogs.insert(format!("filter.dialog/{CUSTOM}"), json!({"kernel":matrix,"scale":2,"offset":5})));
+            let before = saved(&app, CUSTOM);
+            let id = open(&mut app, CUSTOM).unwrap();
+            let fields = &app.ui.dialog_mut(id).unwrap().fields;
+            assert_eq!(fields["kernel"], json!(identity));
+            assert_eq!(fields["scale"], 2);
+            assert_eq!(fields["offset"], 5);
+            crate::dialogs::cancel(&mut app, id).unwrap();
+            assert_eq!(saved(&app, CUSTOM), before, "read repair/cancel cannot overwrite stored choices");
+        }
+        for size in [0, 6, 289, usize::MAX] {
+            let malformed = Param { key: "kernel".into(), kind: Kind::Grid(size) };
+            assert!(durable_value(&malformed, &json!(valid)).is_none());
         }
     }
 }

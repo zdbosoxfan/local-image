@@ -45,9 +45,9 @@ pub fn scrub_zoom(zoom0: f32, dx: f32) -> f32 {
 /// Set `view` to `zoom` with document point `doc` shown at screen point `screen`.
 pub fn anchor_view(view: &mut View, xf: &ViewXform, screen: Pos2, doc: [f64; 2], zoom: f32) {
     view.zoom = zoom;
-    let d = (screen - xf.rect.center()) / zoom;
-    let dx = if xf.flip { -d.x } else { d.x };
-    view.center = [doc[0] as f32 - dx, doc[1] as f32 - d.y];
+    let camera = crate::view_camera::Camera::new(xf.rect, zoom, [0.0, 0.0], xf.flip, view.rotation);
+    let d = camera.document_delta(screen - xf.rect.center());
+    view.center = [doc[0] as f32 - d.x, doc[1] as f32 - d.y];
 }
 
 /// Route the canvas buttons for the Zoom tool. Returns true when it consumed the drag (the
@@ -146,7 +146,7 @@ mod tests {
     fn view_xf(h: &Harness<'static, PhotocraftApp>) -> ViewXform {
         let app = h.state();
         let v = &app.ui.views[0];
-        ViewXform { rect: app.last_canvas_rect, zoom: v.zoom, center: v.center, flip: false }
+        ViewXform { rect: app.last_canvas_rect, zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
     }
 
     fn press(h: &mut Harness<'static, PhotocraftApp>, p: Pos2, pressed: bool) {

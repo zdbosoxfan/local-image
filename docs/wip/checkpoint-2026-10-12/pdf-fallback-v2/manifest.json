@@ -1,0 +1,86 @@
+{
+  "implementation.patch": {
+    "bytes": 103837,
+    "sha256": "46ce29ff41105a2e1150cc6cfff433561c19a442f0a928eb98d8156668146c4c"
+  },
+  "core.patch": {
+    "bytes": 100774,
+    "sha256": "e7b3d135bc0f36eb526d91a89772b737f9d6258b4044035ca324cb217e1bcd7e"
+  },
+  "shared-lib-services.patch": {
+    "bytes": 698,
+    "sha256": "9ba98fe6c29a9969e0864b0e06c0108914bb09e58a0f9dcdf514eb859ee4b96d"
+  },
+  "place-route-file-open.patch": {
+    "bytes": 2365,
+    "sha256": "7494c46f6b32fbbd6cf211032a971bb4eb39ac55b8ba480957d71368a08604f8"
+  },
+  "correction-from-v1.patch": {
+    "bytes": 55134,
+    "sha256": "c141a97cd3686b4ea313a6b86d458f07256d9304de7d56fa8df8df02a94d7fad"
+  },
+  "files.txt": {
+    "bytes": 345,
+    "sha256": "358faa48ae745a79081f621484575d6a0a12e0a6ee91bbfd837e6124b1053911"
+  },
+  "base-sha256.json": {
+    "bytes": 908,
+    "sha256": "81413727e390eda666a47336707d9dd71a2fc9ebe8f75bb0c2f40887c56f93d2"
+  },
+  "sha256.json": {
+    "bytes": 1005,
+    "sha256": "1a0cb75cd9fd3fc8901e335966c751a06d3d066dfb9dd0aff4ee35cc337b3b0c"
+  },
+  "strings.json": {
+    "bytes": 1069,
+    "sha256": "be89c802fcb0ddc406d3aa7591121866d9861ac72b0dd636fa5e0b1a43091b95"
+  },
+  "strings-since-v1.json": {
+    "bytes": 437,
+    "sha256": "ff96cb581993a53d5a14c38765d092dea7369aa35790f696f325004bb4c6d86e"
+  },
+  "strings-append-only.patch": {
+    "bytes": 1522,
+    "sha256": "3130aa87b21e73cfbfceba4145e6a25ba2df469d10cb4d31ba4f628ce6434069"
+  },
+  "REPORT.md": {
+    "bytes": 9665,
+    "sha256": "d610f070ae1a005834b535ae9c17d587d218767ad14fada6c48b063cf0836aed"
+  },
+  "source/crates/pc-ui-egui/src/lib.rs": {
+    "bytes": 105346,
+    "sha256": "810647a4f2b0df249d25c2f73c3b31cf5ebb71d5cd47571f7621ff1513222944"
+  },
+  "source/crates/pc-ui-egui/src/pdf_raster.rs": {
+    "bytes": 4186,
+    "sha256": "9815f0e5f6c95c21ba9a063240e9ab5c8e1aaf7f86e7da4aadc7f65ad356bd99"
+  },
+  "source/crates/pc-ui-egui/src/file_open.rs": {
+    "bytes": 13526,
+    "sha256": "0bdd3a09a73daa1ede8c4e8d774632dc6eebae32d78eab98afd83b98d846830f"
+  },
+  "source/crates/pc-ui-egui/src/vector_packages/pdf_import.rs": {
+    "bytes": 64518,
+    "sha256": "221c3973fd396edb0dd0c47600767511102e886ec67796c8094b3d049393d814"
+  },
+  "source/crates/pc-pdf/src/import.rs": {
+    "bytes": 6223,
+    "sha256": "1ad5e214df07a71d5482d1a27cdeb7d1c39b42bed3556edf9dcdb3b7cd587345"
+  },
+  "source/crates/pc-pdf/src/import/preflight.rs": {
+    "bytes": 50134,
+    "sha256": "09672dde94fc0f61506093466639fe3ac7478bffa07df9f856cbb8b6119d8f29"
+  },
+  "source/apps/local-image/src/services.rs": {
+    "bytes": 63419,
+    "sha256": "48c0190ff648bdefd96b4708846645d7d479b533351a4e707ffd3354a607fafc"
+  },
+  "source/apps/local-image/src/services/pdf_raster.rs": {
+    "bytes": 24465,
+    "sha256": "f9bfc0403da20adcbf09a39e4056e7943d3fbeb0bf5cefc608842b4403b5668b"
+  },
+  "source/apps/local-image/src/services/pdf_raster_tests.rs": {
+    "bytes": 8760,
+    "sha256": "89ddd1def00a51d61cd0882ba209994b81be52fd680aab4c69e18e6d4858c62f"
+  }
+}

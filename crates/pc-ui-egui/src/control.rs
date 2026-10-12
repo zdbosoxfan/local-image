@@ -37,7 +37,7 @@ use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
 use crate::canvas::{ToolEvent, tool_event};
-use crate::state::{DialogKind, Tool, UiState};
+use crate::state::{DialogKind, Tool};
 
 pub type ControlResponse = Value;
 
@@ -376,7 +376,7 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 }
                 other => return err(format!("unknown dialog kind `{other}`")),
             };
-            let mut fields = if kind == DialogKind::NewDocument { UiState::new_document_fields() } else { Default::default() };
+            let mut fields = if kind == DialogKind::NewDocument { crate::new_doc_ui::fields(app) } else { Default::default() };
             if let Some(f) = p.get("fields").and_then(Value::as_object) {
                 fields.extend(f.clone());
             }

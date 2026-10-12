@@ -132,6 +132,12 @@ pub fn validate_rasterize_prompt(app: &PhotocraftApp, fields: &serde_json::Map<S
 pub fn cancel(app: &mut PhotocraftApp, ctx: &Context) {
     crate::vector_integration::cancel(app);
     app.ui.persona_pointer.clear();
+    for view in &mut app.ui.views {
+        view.rotation_drag = None;
+    }
+    for window in &mut app.ui.windows {
+        window.view.rotation_drag = None;
+    }
     app.ui.pen = None;
     app.ui.direct_selection.drag = None;
     app.live_stroke = None;

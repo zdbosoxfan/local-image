@@ -42,17 +42,21 @@ pub struct View {
     pub origin: Pos2,
     pub zoom: f64,
     pub flip: bool,
+    pub rotation: f32,
 }
 impl View {
+    fn camera(self) -> crate::view_camera::Camera {
+        crate::view_camera::Camera::new(Rect::from_center_size(self.origin, egui::Vec2::ZERO), self.zoom as f32, [0.0, 0.0], self.flip, self.rotation)
+    }
     pub fn point(self, pos: Pos2) -> Point {
-        let d = pos - self.origin;
-        Point::new(f64::from(d.x) / self.zoom * if self.flip { -1. } else { 1. }, f64::from(d.y) / self.zoom)
+        let d = self.camera().to_document(pos);
+        Point::new(f64::from(d.x), f64::from(d.y))
     }
     pub fn screen(self, p: Point) -> Pos2 {
-        self.origin + egui::vec2((p.x * self.zoom * if self.flip { -1. } else { 1. }) as f32, (p.y * self.zoom) as f32)
+        self.camera().to_screen(egui::pos2(p.x as f32, p.y as f32))
     }
     fn valid(self) -> bool {
-        self.origin.x.is_finite() && self.origin.y.is_finite() && self.zoom.is_finite() && (1e-6..=1e6).contains(&self.zoom)
+        self.rotation.is_finite() && self.origin.x.is_finite() && self.origin.y.is_finite() && self.zoom.is_finite() && (1e-6..=1e6).contains(&self.zoom)
     }
 }
 #[derive(Clone, Debug)]

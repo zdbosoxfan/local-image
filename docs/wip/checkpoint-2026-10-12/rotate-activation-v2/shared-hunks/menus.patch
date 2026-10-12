@@ -1,0 +1,14 @@
+diff --git a/crates/pc-ui-egui/src/menus.rs b/crates/pc-ui-egui/src/menus.rs
+index 329b382e..accb4258 100644
+--- a/crates/pc-ui-egui/src/menus.rs
++++ b/crates/pc-ui-egui/src/menus.rs
+@@ -34,6 +34,9 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
+     ("view.lockGuides", "Lock Guides", &["View"], Some("Cmd+Alt+;")),
+     ("view.extras", "Extras", &["View"], Some("Cmd+H")),
+     ("view.togglePanels", "Hide Panels", &["View"], Some("Tab")),
++    ("view.rotateView", "Rotate View", &["View"], None),
++    ("view.resetRotation", "Reset View", &["View"], None),
++    ("view.rotation", "View angle", &[], None),
+     ("view.show.targetPath", "Target Path", &["View", "Show"], Some("Cmd+Shift+H")),
+     ("view.screenMode.cycle", "Cycle Screen Mode", &[], Some("F")),
+     ("edit.freeTransformCopy", "Free Transform a Copy", &[], Some("Cmd+Alt+T")),

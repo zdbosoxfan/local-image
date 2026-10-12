@@ -81,7 +81,7 @@ pub fn effective_shortcut(app: &PhotocraftApp, id: &str, default: Option<&str>) 
 
 /// One id per toolbar key group. Hidden tools use the same lookup as visible tools.
 pub fn tool_shortcut_id(tool: Tool) -> String {
-    let leader = Tool::ALL.into_iter().find(|t| t.key() == tool.key()).unwrap_or(tool);
+    let leader = if tool.key() == '\0' { tool } else { Tool::ALL.into_iter().find(|t| t.key() == tool.key()).unwrap_or(tool) };
     format!("tools.select.{leader:?}")
 }
 

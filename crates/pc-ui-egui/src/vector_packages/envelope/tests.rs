@@ -31,7 +31,7 @@ fn host_ui(ui: &mut egui::Ui, h: &mut Host) {
         ui.horizontal_wrapped(|ui| h.state.context_bar(ui, &mut h.session));
         let (response, painter) = ui.allocate_painter(egui::vec2(192.0, 160.0), egui::Sense::click_and_drag());
         h.origin = response.rect.min;
-        let xf = ViewXform { rect: response.rect, zoom: 1.0, center: [96.0, 80.0], flip: false };
+        let xf = ViewXform { rect: response.rect, zoom: 1.0, center: [96.0, 80.0], flip: false, rotation: 0.0 };
         h.state.canvas_input(&mut h.session, &response, &xf);
         h.state.draw_overlay(&h.session, &painter, &xf);
     });

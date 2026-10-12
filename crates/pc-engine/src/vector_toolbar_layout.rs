@@ -63,7 +63,7 @@ pub const GROUPS: &[&[&str]] = &[
     &["VectorFill", "Mesh", "Transparency"],
     &["Eyedropper", "StylePicker", "Measure", "Area"],
     &["Blend", "Repeat", "Envelope"],
-    &["Hand"],
+    &["Hand", "RotateView"],
     &["Zoom"],
 ];
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,6 +104,7 @@ const ESSENTIALS: &[&str] = &[
     "Transparency",
     "Eyedropper",
     "Hand",
+    "RotateView",
     "Zoom",
 ];
 const ILLUSTRATION: &[&str] = &[
@@ -123,7 +124,8 @@ const ILLUSTRATION: &[&str] = &[
     "Contour",
     "Mesh",
 ];
-const LAYOUT: &[&str] = &["Move", "DirectSelection", "Artboard", "ArtText", "FrameText", "TextOnPath", "VerticalType", "Type", "Measure", "Hand", "Zoom"];
+const LAYOUT: &[&str] =
+    &["Move", "DirectSelection", "Artboard", "ArtText", "FrameText", "TextOnPath", "VerticalType", "Type", "Measure", "Hand", "RotateView", "Zoom"];
 const PHOTOGRAPHER: &[&str] = &[
     "Move",
     "DirectSelection",
@@ -139,6 +141,7 @@ const PHOTOGRAPHER: &[&str] = &[
     "Corner",
     "Eyedropper",
     "Hand",
+    "RotateView",
     "Zoom",
 ];
 /// Paired Photographer retains its established order; others follow the compact toolbar.

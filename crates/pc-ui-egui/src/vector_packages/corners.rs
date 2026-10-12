@@ -35,7 +35,7 @@ struct Capture {
     origin: Pos2,
     start: Point,
     zoom: f64,
-    flip: bool,
+    camera: crate::view_camera::Camera,
     last: Point,
     modifiers: Modifiers,
 }
@@ -212,7 +212,7 @@ impl State {
                 let start = Point::new(x, y);
                 self.pointer(session, crate::canvas::ToolEvent::Down { x, y, pressure: 1.0 }, modifiers, xf.zoom as f64);
                 if self.is_dragging() {
-                    self.capture = Some(Capture { origin, start, zoom: xf.zoom as f64, flip: xf.flip, last: start, modifiers });
+                    self.capture = Some(Capture { origin, start, zoom: xf.zoom as f64, camera: xf.camera(), last: start, modifiers });
                 }
             }
         }
@@ -220,11 +220,8 @@ impl State {
             return false;
         };
         let at = pos.map_or(capture.last, |p| {
-            let delta = p - capture.origin;
-            Point::new(
-                capture.start.x + f64::from(delta.x) / capture.zoom * if capture.flip { -1.0 } else { 1.0 },
-                capture.start.y + f64::from(delta.y) / capture.zoom,
-            )
+            let delta = capture.camera.document_delta(p - capture.origin);
+            Point::new(capture.start.x + f64::from(delta.x), capture.start.y + f64::from(delta.y))
         });
         if released {
             self.pointer(session, crate::canvas::ToolEvent::Up { x: at.x, y: at.y }, modifiers, capture.zoom);

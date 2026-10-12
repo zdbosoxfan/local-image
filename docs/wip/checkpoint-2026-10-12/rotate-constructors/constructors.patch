@@ -1,0 +1,198 @@
+diff --git a/crates/pc-ui-egui/tests/appearance/app_acceptance.rs b/crates/pc-ui-egui/tests/appearance/app_acceptance.rs
+index 36b9c5f3..4c371484 100644
+--- a/crates/pc-ui-egui/tests/appearance/app_acceptance.rs
++++ b/crates/pc-ui-egui/tests/appearance/app_acceptance.rs
+@@ -61,7 +61,8 @@ fn app() -> H {
+ fn screen(h: &H, x: f32, y: f32) -> egui::Pos2 {
+     let a = h.state();
+     let v = &a.ui.views[0];
+-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(a, a.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }.to_screen(x, y)
++    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(a, a.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
++        .to_screen(x, y)
+ }
+ fn button(h: &mut H, x: f32, y: f32, pressed: bool) {
+     h.event(Event::PointerButton { pos: screen(h, x, y), button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+diff --git a/crates/pc-ui-egui/tests/gpu/drag_preview_canvas.rs b/crates/pc-ui-egui/tests/gpu/drag_preview_canvas.rs
+index 8c50b716..caaef473 100644
+--- a/crates/pc-ui-egui/tests/gpu/drag_preview_canvas.rs
++++ b/crates/pc-ui-egui/tests/gpu/drag_preview_canvas.rs
+@@ -86,7 +86,13 @@ fn setup(h: &mut Harness, background: &str, tool: &str) {
+ fn xf(h: &Harness) -> ViewXform {
+     let app = h.state();
+     let v = &app.ui.views[0];
+-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: app.ui.view.flip_horizontal }
++    ViewXform {
++        rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect),
++        zoom: v.zoom,
++        center: v.center,
++        flip: app.ui.view.flip_horizontal,
++        rotation: v.rotation,
++    }
+ }
+ 
+ /// Screen point (egui points) of document point `(x, y)`.
+diff --git a/crates/pc-ui-egui/tests/gpu/layout_perf.rs b/crates/pc-ui-egui/tests/gpu/layout_perf.rs
+index 7d7637c5..73580a6a 100644
+--- a/crates/pc-ui-egui/tests/gpu/layout_perf.rs
++++ b/crates/pc-ui-egui/tests/gpu/layout_perf.rs
+@@ -46,7 +46,7 @@ fn screen(h: &H, p: [f64; 2]) -> Pos2 {
+     let app = h.state();
+     let v = &app.ui.views[0];
+     let rect = photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect);
+-    ViewXform { rect, zoom: v.zoom, center: v.center, flip: false }.to_screen(p[0] as f32, p[1] as f32)
++    ViewXform { rect, zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }.to_screen(p[0] as f32, p[1] as f32)
+ }
+ 
+ /// A point where `id` (or, for a group, one of its layers) is the topmost layer with pixels.
+diff --git a/crates/pc-ui-egui/tests/gpu/move_canvas.rs b/crates/pc-ui-egui/tests/gpu/move_canvas.rs
+index b8267be8..32801d98 100644
+--- a/crates/pc-ui-egui/tests/gpu/move_canvas.rs
++++ b/crates/pc-ui-egui/tests/gpu/move_canvas.rs
+@@ -66,8 +66,14 @@ fn layer(h: &mut H, name: &str, b: Rect, color: [f32; 4]) -> LayerId {
+ fn screen(h: &H, x: f32, y: f32) -> Pos2 {
+     let app = h.state();
+     let v = &app.ui.views[0];
+-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: app.ui.view.flip_horizontal }
+-        .to_screen(x, y)
++    ViewXform {
++        rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect),
++        zoom: v.zoom,
++        center: v.center,
++        flip: app.ui.view.flip_horizontal,
++        rotation: v.rotation,
++    }
++    .to_screen(x, y)
+ }
+ 
+ fn button(h: &mut H, p: Pos2, pressed: bool) {
+diff --git a/crates/pc-ui-egui/tests/gpu/shared_tools_perf.rs b/crates/pc-ui-egui/tests/gpu/shared_tools_perf.rs
+index 8eb4073e..8eac4f32 100644
+--- a/crates/pc-ui-egui/tests/gpu/shared_tools_perf.rs
++++ b/crates/pc-ui-egui/tests/gpu/shared_tools_perf.rs
+@@ -9,8 +9,14 @@ type H = Harness<'static, PhotocraftApp>;
+ fn position(h: &H, p: [f32; 2]) -> Pos2 {
+     let app = h.state();
+     let view = &app.ui.views[0];
+-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: view.zoom, center: view.center, flip: false }
+-        .to_screen(p[0], p[1])
++    ViewXform {
++        rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect),
++        zoom: view.zoom,
++        center: view.center,
++        flip: false,
++        rotation: view.rotation,
++    }
++    .to_screen(p[0], p[1])
+ }
+ fn button(h: &mut H, p: [f32; 2], pressed: bool) {
+     let pos = position(h, p);
+diff --git a/crates/pc-ui-egui/tests/gpu/vector_integration.rs b/crates/pc-ui-egui/tests/gpu/vector_integration.rs
+index fd3c3731..8473aea4 100644
+--- a/crates/pc-ui-egui/tests/gpu/vector_integration.rs
++++ b/crates/pc-ui-egui/tests/gpu/vector_integration.rs
+@@ -54,7 +54,8 @@ fn fixture(depth: SampleType, style: GradientStyle, align: bool) -> (Document, L
+ fn screen(h: &H, x: f32, y: f32) -> Pos2 {
+     let app = h.state();
+     let v = &app.ui.views[0];
+-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }.to_screen(x, y)
++    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
++        .to_screen(x, y)
+ }
+ 
+ fn present(h: &mut H) {
+diff --git a/crates/pc-ui-egui/tests/path_text/app_acceptance.rs b/crates/pc-ui-egui/tests/path_text/app_acceptance.rs
+index 3281424d..e4da70aa 100644
+--- a/crates/pc-ui-egui/tests/path_text/app_acceptance.rs
++++ b/crates/pc-ui-egui/tests/path_text/app_acceptance.rs
+@@ -29,7 +29,8 @@ type H = Harness<'static, PhotocraftApp>;
+ fn screen(h: &H, x: f32, y: f32) -> egui::Pos2 {
+     let app = h.state();
+     let v = &app.ui.views[0];
+-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }.to_screen(x, y)
++    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
++        .to_screen(x, y)
+ }
+ fn button(h: &mut H, x: f32, y: f32, pressed: bool) {
+     h.event(Event::PointerButton { pos: screen(h, x, y), button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+diff --git a/crates/pc-ui-egui/tests/pen/app_acceptance.rs b/crates/pc-ui-egui/tests/pen/app_acceptance.rs
+index 5c9b08cc..a984f356 100644
+--- a/crates/pc-ui-egui/tests/pen/app_acceptance.rs
++++ b/crates/pc-ui-egui/tests/pen/app_acceptance.rs
+@@ -32,7 +32,8 @@ type H = Harness<'static, PhotocraftApp>;
+ fn screen(h: &H, x: f32, y: f32) -> egui::Pos2 {
+     let app = h.state();
+     let v = &app.ui.views[0];
+-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }.to_screen(x, y)
++    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
++        .to_screen(x, y)
+ }
+ fn button(h: &mut H, x: f32, y: f32, pressed: bool) {
+     h.event(Event::PointerButton { pos: screen(h, x, y), button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+diff --git a/crates/pc-svg/tests/export/app_gpu.rs b/crates/pc-svg/tests/export/app_gpu.rs
+index 592a4000..afd1c6c4 100644
+--- a/crates/pc-svg/tests/export/app_gpu.rs
++++ b/crates/pc-svg/tests/export/app_gpu.rs
+@@ -14,7 +14,14 @@ type H = Harness<'static, PhotocraftApp>;
+ fn screen(h: &H, x: f32, y: f32) -> Pos2 {
+     let app = h.state();
+     let view = &app.ui.views[0];
+-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: view.zoom, center: view.center, flip: false }.to_screen(x, y)
++    ViewXform {
++        rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect),
++        zoom: view.zoom,
++        center: view.center,
++        flip: false,
++        rotation: view.rotation,
++    }
++    .to_screen(x, y)
+ }
+ fn present(h: &mut H) {
+     h.run_steps(2);
+diff --git a/crates/pc-pdf/tests/export/app_gpu.rs b/crates/pc-pdf/tests/export/app_gpu.rs
+index ea7bc986..c63a69aa 100644
+--- a/crates/pc-pdf/tests/export/app_gpu.rs
++++ b/crates/pc-pdf/tests/export/app_gpu.rs
+@@ -15,7 +15,14 @@ type H = Harness<'static, PhotocraftApp>;
+ fn screen(h: &H, x: f32, y: f32) -> Pos2 {
+     let app = h.state();
+     let view = &app.ui.views[0];
+-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: view.zoom, center: view.center, flip: false }.to_screen(x, y)
++    ViewXform {
++        rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect),
++        zoom: view.zoom,
++        center: view.center,
++        flip: false,
++        rotation: view.rotation,
++    }
++    .to_screen(x, y)
+ }
+ fn present(h: &mut H) {
+     h.run_steps(2);
+diff --git a/crates/pc-io/tests/vector_fallback/app_gpu.rs b/crates/pc-io/tests/vector_fallback/app_gpu.rs
+index 5566b584..23114ba6 100644
+--- a/crates/pc-io/tests/vector_fallback/app_gpu.rs
++++ b/crates/pc-io/tests/vector_fallback/app_gpu.rs
+@@ -99,7 +99,8 @@ fn harness() -> (H, GpuCanvas) {
+ fn screen(h: &H, x: f32, y: f32) -> Pos2 {
+     let a = h.state();
+     let v = &a.ui.views[0];
+-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(a, a.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }.to_screen(x, y)
++    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(a, a.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
++        .to_screen(x, y)
+ }
+ fn present(h: &mut H) {
+     h.run_steps(2);
+diff --git a/crates/pc-engine/src/vector_packages/svg_import/app_acceptance.rs b/crates/pc-engine/src/vector_packages/svg_import/app_acceptance.rs
+index 252bef0f..43953531 100644
+--- a/crates/pc-engine/src/vector_packages/svg_import/app_acceptance.rs
++++ b/crates/pc-engine/src/vector_packages/svg_import/app_acceptance.rs
+@@ -29,7 +29,8 @@ type H = Harness<'static, PhotocraftApp>;
+ fn screen(h: &H, x: f32, y: f32) -> egui::Pos2 {
+     let app = h.state();
+     let v = &app.ui.views[0];
+-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }.to_screen(x, y)
++    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
++        .to_screen(x, y)
+ }
+ fn button(h: &mut H, x: f32, y: f32, pressed: bool) {
+     h.event(Event::PointerButton { pos: screen(h, x, y), button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });

@@ -52,7 +52,8 @@ fn styles38_gpu_full_app_i_alt_shift_preview_release_rtx5090() {
     fn screen(h: &Harness<'_, PhotocraftApp>, p: [f32; 2]) -> egui::Pos2 {
         let a = h.state();
         let v = &a.ui.views[0];
-        crate::canvas::ViewXform { rect: crate::rulers::content_rect(a, a.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }.to_screen(p[0], p[1])
+        crate::canvas::ViewXform { rect: crate::rulers::content_rect(a, a.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
+            .to_screen(p[0], p[1])
     }
     fn event(h: &mut Harness<'_, PhotocraftApp>, p: [f32; 2], pressed: bool, modifiers: Modifiers) {
         let pos = screen(h, p);

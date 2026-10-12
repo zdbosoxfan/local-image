@@ -70,7 +70,7 @@ fn assert_app_pixels(h: &mut H, doc: &Document, scale: f64) {
             output: 0,
             hdr: None,
             flip: app.ui.view.flip_horizontal,
-            rotation: 0.0,
+            rotation: view.rotation,
         },
     };
     let ppp = h.ctx.pixels_per_point();
@@ -81,8 +81,11 @@ fn assert_app_pixels(h: &mut H, doc: &Document, scale: f64) {
     let mut worst = None;
     for y in 0..img.height() {
         for x in 0..img.width() {
-            let sx = (x as f32 + 0.5 - origin[0]) / physical * if cb.params.flip { -1.0 } else { 1.0 };
-            let sy = (y as f32 + 0.5 - origin[1]) / physical;
+            let dx = (x as f32 + 0.5 - origin[0]) / physical;
+            let dy = (y as f32 + 0.5 - origin[1]) / physical;
+            let (sin, cos) = cb.params.rotation.sin_cos();
+            let sx = (cos * dx + sin * dy) * if cb.params.flip { -1.0 } else { 1.0 };
+            let sy = -sin * dx + cos * dy;
             if !rect.shrink(16.0).contains(egui::pos2((x as f32 + 0.5) / ppp, (y as f32 + 0.5) / ppp)) || sx < 1.0 || sy < 1.0 || sx >= 159.0 || sy >= 119.0 {
                 continue;
             }
@@ -172,6 +175,7 @@ fn assert_live_view_texels(h: &H, expected: &Document, scale: f64) {
     assert!(max <= 1.0 / 255.0 + 1e-6, "live app texture premultiplied max={max}");
 }
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn scaled_full_app_rtx5090_parity_2_4_8x_hidpi_flip_and_warm_cache() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -214,6 +218,7 @@ fn scaled_full_app_rtx5090_parity_2_4_8x_hidpi_flip_and_warm_cache() {
     }
 }
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn scaled_full_app_actual_pan_zoom_pointer_events() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -243,6 +248,7 @@ fn scaled_full_app_actual_pan_zoom_pointer_events() {
     assert_eq!(*h.state().session.active().unwrap().doc, doc);
 }
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn scaled_full_app_node_drag_preview_release_and_cancel_rtx5090() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -255,8 +261,14 @@ fn scaled_full_app_node_drag_preview_release_and_cancel_rtx5090() {
     let screen = |h: &H, p: [f32; 2]| {
         let app = h.state();
         let v = &app.ui.views[0];
-        crate::canvas::ViewXform { rect: crate::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }
-            .to_screen(p[0], p[1])
+        crate::canvas::ViewXform {
+            rect: crate::rulers::content_rect(app, app.last_canvas_rect),
+            zoom: v.zoom,
+            center: v.center,
+            flip: false,
+            rotation: v.rotation,
+        }
+        .to_screen(p[0], p[1])
     };
     let p = screen(&h, [28.25, 30.5]);
     let q = p + egui::vec2(16.0, 8.0);
@@ -326,8 +338,14 @@ fn scaled_release_6000x4000_500_shapes_node_pointer_frames_rtx5090() {
     let screen = |h: &H, p: [f32; 2]| {
         let app = h.state();
         let v = &app.ui.views[0];
-        crate::canvas::ViewXform { rect: crate::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }
-            .to_screen(p[0], p[1])
+        crate::canvas::ViewXform {
+            rect: crate::rulers::content_rect(app, app.last_canvas_rect),
+            zoom: v.zoom,
+            center: v.center,
+            flip: false,
+            rotation: v.rotation,
+        }
+        .to_screen(p[0], p[1])
     };
     let p = screen(&h, [220.0, 220.0]);
     assert!(h.state().last_canvas_rect.contains(p), "benchmark node must be visible");
@@ -379,6 +397,7 @@ fn scaled_release_6000x4000_500_shapes_node_pointer_frames_rtx5090() {
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn scaled_full_app_display_p3_and_float_hdr_texture_rtx5090() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -393,8 +412,14 @@ fn scaled_full_app_display_p3_and_float_hdr_texture_rtx5090() {
     let image = h.render().unwrap();
     let app = h.state();
     let v = &app.ui.views[0];
-    let p = crate::canvas::ViewXform { rect: crate::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }
-        .to_screen(80.0, 60.0)
+    let p = crate::canvas::ViewXform {
+        rect: crate::rulers::content_rect(app, app.last_canvas_rect),
+        zoom: v.zoom,
+        center: v.center,
+        flip: false,
+        rotation: v.rotation,
+    }
+    .to_screen(80.0, 60.0)
         * h.ctx.pixels_per_point();
     let pixel = image.get_pixel(p.x as u32, p.y as u32).0;
     // Independently established P3(0.8,0.5,0.3) -> sRGB reference from CMS tests.
@@ -442,6 +467,7 @@ fn scaled_full_app_display_p3_and_float_hdr_texture_rtx5090() {
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn scaled_compositor_reuses_pipelines_across_zoom_buckets() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -494,6 +520,7 @@ fn prepare_scaled_test(h: &H, callback: &CanvasCallback) -> (f64, u64, u64) {
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn scaled_compositor_reuses_pipelines_across_viewport_aprons() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -513,6 +540,7 @@ fn scaled_compositor_reuses_pipelines_across_viewport_aprons() {
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn scaled_projection_refusal_is_memoized_only_for_exact_source_and_view() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -548,6 +576,7 @@ fn scaled_projection_refusal_is_memoized_only_for_exact_source_and_view() {
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn scaled_pipeline_refusal_keeps_correct_cpu_rendering_without_repeated_construction() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -590,6 +619,7 @@ fn rotation_color(x: f64, y: f64) -> [u8; 4] {
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn rotated_presentation_rtx5090_raster_proxy_and_live_move_keep_pixels_and_coverage() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -741,6 +771,7 @@ fn rotated_presentation_rtx5090_raster_proxy_and_live_move_keep_pixels_and_cover
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn rotated_scaled_projection_covers_inverse_viewport_corners() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -770,6 +801,7 @@ fn rotated_scaled_projection_covers_inverse_viewport_corners() {
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn rotated_shadow_rtx5090_preserves_interior_and_screen_down_light() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -910,4 +942,49 @@ fn rotated_shadow_rtx5090_preserves_interior_and_screen_down_light() {
     assert!(levels[1] < levels[0], "screen-lower edge must cast the stronger shadow");
     assert!(levels[3] < levels[2], "screen-down light also projects onto the rotated document x axis");
     assert!(light_space_separation > 4.0, "fixture must distinguish screen-down from a light vector rotated with the page");
+}
+
+#[test]
+#[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
+fn rotate_view_full_app_rtx5090_pointer_angle_pixels_and_reset() {
+    use egui_kittest::kittest::Queryable;
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut h = harness(1.25);
+    let doc = fixture();
+    add(&mut h, doc.clone(), 2.0);
+    h.state_mut().session.edit_prefs(|p| {
+        p.interface.canvas_border = photocraft_engine::prefs::CanvasBorder::None;
+        p.tools.overscroll = true;
+    });
+    let revision = h.state().session.active().unwrap().revision;
+    let history = h.state().session.active().unwrap().history.past_len();
+    h.key_press(egui::Key::R);
+    h.run_steps(3);
+    assert_eq!(h.state().ui.tool, crate::state::Tool::RotateView);
+    let center = crate::canvas::ViewXform::active(h.state()).unwrap().rect.center();
+    let start = center + egui::vec2(100.0, 0.0);
+    let (sin, cos) = 37.0_f32.to_radians().sin_cos();
+    let end = center + egui::vec2(100.0 * cos, 100.0 * sin);
+    h.hover_at(start);
+    h.step();
+    h.event(egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+    h.step();
+    h.hover_at(end);
+    h.step();
+    h.event(egui::Event::PointerButton { pos: end, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+    h.run_steps(2);
+    assert!((h.state().ui.views[0].rotation.to_degrees() - 37.0).abs() < 0.01);
+    assert_app_pixels(&mut h, &doc, 2.5);
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/rotate-view-activation");
+    std::fs::create_dir_all(&dir).unwrap();
+    h.render().unwrap().save(dir.join("full-app-gpu-37deg-125.png")).unwrap();
+    h.get_by_label("Reset View").click();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.views[0].rotation, 0.0);
+    assert_app_pixels(&mut h, &doc, 2.5);
+    let st = h.state().session.active().unwrap();
+    assert_eq!(*st.doc, doc);
+    assert_eq!(st.revision, revision);
+    assert_eq!(st.history.past_len(), history);
 }

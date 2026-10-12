@@ -3,7 +3,7 @@
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 //! See licenses/vectorcraft-LICENSE-{MIT,APACHE} and vectorcraft-NOTICE.
 //! Painter overlays never enter the document, raster cache, export or settings model.
-use egui::{Color32, Pos2, Response, Stroke, Ui};
+use egui::{Color32, Pos2, Rect, Response, Stroke, Ui};
 use photocraft_doc::vector_design::structure::DesignUnits;
 use photocraft_doc::{DocId, Document, LayerId};
 use photocraft_engine::{
@@ -27,18 +27,18 @@ pub struct Mapping {
     pub document_origin: [f64; 2],
     pub zoom: f64,
     pub flip: bool,
+    pub rotation: f32,
 }
 impl Mapping {
+    fn camera(self) -> crate::view_camera::Camera {
+        crate::view_camera::Camera::new(Rect::from_center_size(self.origin, egui::Vec2::ZERO), self.zoom as f32, [0.0, 0.0], self.flip, self.rotation)
+    }
     fn point(self, p: Pos2) -> [f64; 2] {
-        let d = p - self.origin;
-        [self.document_origin[0] + f64::from(d.x) / self.zoom * if self.flip { -1. } else { 1. }, self.document_origin[1] + f64::from(d.y) / self.zoom]
+        let d = self.camera().to_document(p);
+        [self.document_origin[0] + f64::from(d.x), self.document_origin[1] + f64::from(d.y)]
     }
     pub fn screen(self, p: [f64; 2]) -> Pos2 {
-        self.origin
-            + egui::vec2(
-                ((p[0] - self.document_origin[0]) * self.zoom * if self.flip { -1. } else { 1. }) as f32,
-                ((p[1] - self.document_origin[1]) * self.zoom) as f32,
-            )
+        self.camera().to_screen(egui::pos2((p[0] - self.document_origin[0]) as f32, (p[1] - self.document_origin[1]) as f32))
     }
 }
 #[derive(Clone)]
@@ -407,7 +407,7 @@ pub fn route(app: &mut crate::PhotocraftApp, ui: &mut Ui, idx: usize, xf: &crate
         return false;
     };
     let p = xf.to_doc(rect.min);
-    let mapping = Mapping { origin: rect.min, document_origin: p, zoom: f64::from(xf.zoom), flip: xf.flip };
+    let mapping = Mapping { origin: rect.min, document_origin: p, zoom: f64::from(xf.zoom), flip: xf.flip, rotation: xf.rotation };
     let response = ui.interact(rect, egui::Id::new(("measure44-canvas", st.doc.id.0)), egui::Sense::click_and_drag());
     if let Err(e) = b.state.input(
         &response,

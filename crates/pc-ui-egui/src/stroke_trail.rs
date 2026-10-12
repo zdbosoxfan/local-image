@@ -106,9 +106,9 @@ impl Trail {
         ColorImage::new([x1 - x0, y1 - y0], px)
     }
 
-    /// Upload what changed and draw the trail over the document (`doc_rect` = the document's
-    /// screen rectangle, `flip` = mirrored view), tinted `color` where fully covered.
-    pub fn draw(&mut self, painter: &egui::Painter, doc_rect: Rect, flip: bool, color: Color32) {
+    /// Upload what changed and map the document-space footprint through the current camera,
+    /// including reflected and rotated views; tint `color` where fully covered.
+    pub fn draw(&mut self, painter: &egui::Painter, xf: &crate::canvas::ViewXform, color: Color32) {
         let opts = TextureOptions::LINEAR;
         let dirty = self.dirty.take();
         if self.tex.is_none() {
@@ -123,8 +123,9 @@ impl Trail {
         let Some(t) = &self.tex else { return };
         // The mask's last column/row may reach past the document (sizes rounded up).
         let (u, v) = (self.doc[0] as f32 / (self.w as f32 * self.k), self.doc[1] as f32 / (self.h as f32 * self.k));
-        let uv = if flip { Rect::from_min_max(pos2(u, 0.0), pos2(0.0, v)) } else { Rect::from_min_max(pos2(0.0, 0.0), pos2(u, v)) };
-        painter.image(t.id(), doc_rect, uv, Color32::WHITE);
+        let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(u, v));
+        let doc = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(self.doc[0] as f32, self.doc[1] as f32));
+        painter.add(xf.camera().textured_quad(t.id(), doc, uv, Color32::WHITE));
     }
 }
 

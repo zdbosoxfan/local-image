@@ -98,6 +98,7 @@ pub fn entry(tool: Tool) -> Entry {
         Tool::AddAnchor => e(crate::i18n::t("Add Anchor Tool"), &[]),
         Tool::DeleteAnchor => e(crate::i18n::t("Delete Anchor Tool"), &[]),
         Tool::AnchorPoint => e(crate::i18n::t("Anchor Point Tool"), &[]),
+        Tool::RotateView => e(crate::i18n::t("Rotate View Tool"), &["Drag to rotate the view. Escape cancels the current drag."]),
         Tool::Rotate => e(crate::i18n::t("Rotate Tool"), &[]),
         Tool::Reflect => e(crate::i18n::t("Reflect Tool"), &[]),
         Tool::Scale => e(crate::i18n::t("Scale Tool"), &[]),

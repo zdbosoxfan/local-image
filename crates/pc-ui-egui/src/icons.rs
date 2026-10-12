@@ -182,6 +182,7 @@ pub fn tool_icon_name(t: Tool) -> &'static str {
         Tool::Type => "type",
         Tool::VerticalType => "vertical-type",
         Tool::Hand => "hand",
+        Tool::RotateView => "vector-rotate",
         Tool::Zoom => "zoom-in",
         Tool::SpotHealing => "spot-healing",
         Tool::Healing => "healing",

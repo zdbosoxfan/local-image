@@ -334,13 +334,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
     }
     let d = app.ui.close_dialog(id).ok_or_else(|| format!("no dialog {id}"))?;
     match d.kind {
-        DialogKind::NewDocument => {
-            let r = app.run("file.new", crate::new_doc_ui::command_params(&d.fields));
-            if let Some(i) = app.session.active_index() {
-                app.ui.views[i].fit_pending = true;
-            }
-            r
-        }
+        DialogKind::NewDocument => crate::new_doc_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::fill_ui::owns(&d.fields) => crate::fill_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::rasterize_prompt::owns(&d.fields) => crate::rasterize_prompt::confirm(app, &d.fields),
         DialogKind::Command if crate::variables_ui::owns(&d.fields) => crate::variables_ui::confirm(app, &d.fields),
@@ -353,7 +347,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
             app.filter_preview = None;
             let cmd = d.fields.get("__command").and_then(|v| v.as_str().map(str::to_string)).ok_or("dialog has no command")?;
             let (cmd, params) = crate::smart_ui::confirm_command(&d.fields, cmd, crate::filter_dialog::params_of(&d.fields));
-            app.run(&cmd, params)
+            crate::filter_dialog::confirm(app, &d.fields, cmd, params)
         }
         DialogKind::LayerStyle => crate::layer_style::confirm(app, &d.fields),
         DialogKind::About | DialogKind::Error => Ok(Value::Null),

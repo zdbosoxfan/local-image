@@ -9,8 +9,14 @@ type H = Harness<'static, PhotocraftApp>;
 fn position(h: &H, p: [f32; 2]) -> Pos2 {
     let app = h.state();
     let view = &app.ui.views[0];
-    ViewXform { rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect), zoom: view.zoom, center: view.center, flip: false }
-        .to_screen(p[0], p[1])
+    ViewXform {
+        rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect),
+        zoom: view.zoom,
+        center: view.center,
+        flip: false,
+        rotation: view.rotation,
+    }
+    .to_screen(p[0], p[1])
 }
 fn button(h: &mut H, p: [f32; 2], pressed: bool) {
     let pos = position(h, p);

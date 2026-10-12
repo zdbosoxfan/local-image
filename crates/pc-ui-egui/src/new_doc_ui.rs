@@ -9,12 +9,107 @@ use serde_json::{Map, Value, json};
 use crate::theme::Tokens;
 use crate::{icons, widgets};
 
+const REMEMBERED: &str = "file.new";
+const RECENT_LIMIT: usize = 8;
+
+/// Only durable document choices, never names, paths or dialog runtime state.
+fn choices(fields: &Map<String, Value>) -> Map<String, Value> {
+    fields
+        .iter()
+        .filter(|(key, value)| match key.as_str() {
+            "width" | "height" => value.as_u64().is_some_and(|n| (1..=300_000).contains(&n)),
+            "resolution" => value.as_f64().is_some_and(|n| n.is_finite() && (1.0..=30_000.0).contains(&n)),
+            "mode" => value.as_str().is_some_and(|s| ["rgb", "gray", "cmyk", "lab"].contains(&s)),
+            "depth" => value.as_u64().is_some_and(|n| [8, 16, 32].contains(&n)),
+            "background" => value.as_str().is_some_and(|s| ["white", "black", "backgroundColor", "transparent"].contains(&s)),
+            "designUnits" => serde_json::from_value::<photocraft_doc::vector_design::structure::DesignUnits>((*value).clone()).is_ok(),
+            _ => false,
+        })
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
+}
+
+fn recent(saved: Option<&Value>) -> Vec<Value> {
+    saved
+        .and_then(|v| v.get("recent"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|v| {
+            let values = choices(v.as_object()?);
+            ["width", "height", "resolution", "mode", "depth"].iter().all(|key| values.contains_key(*key)).then_some(Value::Object(values))
+        })
+        .take(RECENT_LIMIT)
+        .collect()
+}
+
+/// Shared by the menu, home button and automation dialog opener. No counter is
+/// consumed while a dialog is merely opened/cancelled.
+pub fn fields(app: &crate::PhotocraftApp) -> Map<String, Value> {
+    let mut fields = crate::state::UiState::new_document_fields();
+    let saved = app.session.prefs().dialogs.get(REMEMBERED);
+    if let Some(last) = saved.and_then(|v| v.get("last")).and_then(Value::as_object) {
+        fields.extend(choices(last));
+    }
+    let name = photocraft_engine::file_cmds::untitled_name("Untitled", |name| {
+        app.session.documents().iter().any(|d| d.doc.name == name)
+            || app.ui.dialogs.iter().any(|d| d.kind == crate::state::DialogKind::NewDocument && d.fields.get("name").and_then(Value::as_str) == Some(name))
+    });
+    fields.insert("name".into(), json!(name));
+    fields.insert("__generatedName".into(), json!(name));
+    fields.insert("__recent".into(), json!(recent(saved)));
+    fields
+}
+
+pub fn confirm(app: &mut crate::PhotocraftApp, submitted: &Map<String, Value>) -> Result<Value, String> {
+    let mut fields = submitted.clone();
+    if fields.get("name") == fields.get("__generatedName") {
+        let name = fields.get("name").and_then(Value::as_str).unwrap_or("");
+        if app.session.documents().iter().any(|d| d.doc.name == name) {
+            fields.insert(
+                "name".into(),
+                json!(photocraft_engine::file_cmds::untitled_name("Untitled", |name| app.session.documents().iter().any(|d| d.doc.name == name))),
+            );
+        }
+    }
+    let result = app.run("file.new", command_params(&fields))?;
+    // New is synchronous. Persist actual accepted geometry, not invalid input that
+    // the command may have clamped, and only after document creation succeeded.
+    if let Some(doc) = result.get("document").and_then(Value::as_u64).and_then(|i| app.session.documents().get(i as usize)).map(|s| &s.doc) {
+        let mut accepted = choices(&fields);
+        accepted.insert("width".into(), json!(doc.size.width));
+        accepted.insert("height".into(), json!(doc.size.height));
+        accepted.insert("resolution".into(), json!(doc.resolution_dpi));
+        accepted.insert("depth".into(), json!(doc.depth.bits()));
+        accepted.insert(
+            "mode".into(),
+            json!(match doc.mode {
+                photocraft_color::ColorMode::Grayscale => "gray",
+                photocraft_color::ColorMode::Cmyk => "cmyk",
+                photocraft_color::ColorMode::Lab => "lab",
+                _ => "rgb",
+            }),
+        );
+        accepted.insert("designUnits".into(), json!(doc.design_units));
+        let value = Value::Object(accepted);
+        let mut entries = recent(app.session.prefs().dialogs.get(REMEMBERED));
+        entries.retain(|entry| entry != &value);
+        entries.insert(0, value.clone());
+        entries.truncate(RECENT_LIMIT);
+        app.session.edit_prefs(|prefs| prefs.dialogs.insert(REMEMBERED.into(), json!({"last": value, "recent": entries})));
+    }
+    if let Some(i) = app.session.active_index() {
+        app.ui.views[i].fit_pending = true;
+    }
+    Ok(result)
+}
+
 /// A blank-document preset: (name, width px, height px, ppi).
 pub type Preset = (&'static str, u32, u32, f32);
 
 /// Photoshop's New Document categories and their blank-document presets.
 pub const CATEGORIES: &[(&str, &[Preset])] = &[
-    ("Recent", &[("Default Photoshop Size", 2100, 1500, 300.0), ("HDTV 1080p", 1920, 1080, 72.0)]),
+    ("Recent", &[]),
     (
         "Photo",
         &[
@@ -193,8 +288,36 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
         // Left: preset grid.
         ui.vertical(|ui| {
             ui.set_width(520.0);
-            ui.label(RichText::new(crate::i18n::fmt(tl!("BLANK DOCUMENT PRESETS ({n})"), &[("n", &presets.len().to_string())])).size(11.0).color(t.text_faint));
+            let count =
+                if cat == "Recent" { f.get("__recent").and_then(Value::as_array).map_or(0, |entries| entries.len().min(RECENT_LIMIT)) } else { presets.len() };
+            ui.label(RichText::new(crate::i18n::fmt(tl!("BLANK DOCUMENT PRESETS ({n})"), &[("n", &count.to_string())])).size(11.0).color(t.text_faint));
             ui.add_space(6.0);
+            if cat == "Recent" {
+                let entries = f.get("__recent").and_then(Value::as_array).cloned().unwrap_or_default();
+                if entries.is_empty() {
+                    ui.label(tl!("No recent documents yet."));
+                }
+                for entry in entries.into_iter().take(RECENT_LIMIT) {
+                    let Some(values) = entry.as_object() else { continue };
+                    let values = choices(values);
+                    if !["width", "height", "resolution", "mode", "depth"].iter().all(|key| values.contains_key(*key)) {
+                        continue;
+                    }
+                    let label = format!(
+                        "{} × {} px · {} ppi · {} · {} bit",
+                        values["width"],
+                        values["height"],
+                        widgets::fmt_num(values["resolution"].as_f64().unwrap_or(72.)),
+                        values["mode"].as_str().unwrap_or("rgb").to_uppercase(),
+                        values["depth"]
+                    );
+                    if ui.button(label).clicked() {
+                        f.extend(choices(&values));
+                        f.insert("__unit".into(), json!("px"));
+                        f.remove("__preset");
+                    }
+                }
+            }
             let card = vec2(164.0, 112.0);
             for row in presets.chunks(3) {
                 ui.horizontal(|ui| {
@@ -540,5 +663,134 @@ mod tests {
             enter(&mut h);
             assert_eq!(created(&h), (256, 512, 72.0));
         }
+    }
+}
+
+#[cfg(test)]
+mod remembered_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    use super::*;
+    use crate::{PhotocraftApp, Services};
+    use egui_kittest::kittest::Queryable;
+
+    fn open(app: &mut PhotocraftApp, ctx: &egui::Context) -> u64 {
+        crate::menus::invoke(app, ctx, "file.new", json!({})).unwrap()["dialog"].as_u64().unwrap()
+    }
+
+    #[test]
+    fn remembered_new_success_restart_cancel_failure_and_unique_names() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Services::default());
+        let ctx = egui::Context::default();
+        let first = open(&mut app, &ctx);
+        assert_eq!(app.ui.dialog_mut(first).unwrap().fields["name"], "Untitled-1");
+        crate::dialogs::cancel(&mut app, first).unwrap();
+        assert!(!app.session.prefs().dialogs.contains_key(REMEMBERED));
+        let first = open(&mut app, &ctx);
+        assert_eq!(app.ui.dialog_mut(first).unwrap().fields["name"], "Untitled-1");
+        let f = &mut app.ui.dialog_mut(first).unwrap().fields;
+        f.extend(json!({"width":24,"height":18,"resolution":150,"mode":"gray","depth":16,"background":"transparent"}).as_object().unwrap().clone());
+        crate::dialogs::confirm(&mut app, first).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.name, "Untitled-1");
+        let saved = app.session.prefs().dialogs[REMEMBERED].clone();
+        let second = open(&mut app, &ctx);
+        let f = &mut app.ui.dialog_mut(second).unwrap().fields;
+        assert_eq!(f["name"], "Untitled-2");
+        for key in ["width", "height", "resolution", "mode", "depth"] {
+            assert_eq!(f[key], saved["last"][key]);
+        }
+        f.insert("width".into(), json!(30));
+        crate::dialogs::cancel(&mut app, second).unwrap();
+        assert_eq!(app.session.prefs().dialogs[REMEMBERED], saved);
+        let failed = open(&mut app, &ctx);
+        app.ui.dialog_mut(failed).unwrap().fields.insert("designUnits".into(), json!("invalid"));
+        assert!(crate::dialogs::confirm(&mut app, failed).is_err());
+        assert_eq!(app.session.documents().len(), 1);
+        assert_eq!(app.session.prefs().dialogs[REMEMBERED], saved);
+        let second = open(&mut app, &ctx);
+        assert_eq!(app.ui.dialog_mut(second).unwrap().fields["name"], "Untitled-2");
+        crate::dialogs::confirm(&mut app, second).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.name, "Untitled-2");
+        assert_eq!(app.session.prefs().dialogs[REMEMBERED]["recent"].as_array().unwrap().len(), 1, "identical successful choices deduplicate");
+        let serialized = serde_json::to_string(&app.session.prefs().to_json()).unwrap();
+        let mut session = photocraft_engine::Session::new();
+        session.load_prefs_json(&serialized).unwrap();
+        let restarted = PhotocraftApp::new(session, Services::default());
+        let f = fields(&restarted);
+        assert_eq!(f["width"], 24);
+        assert_eq!(f["height"], 18);
+        assert_eq!(f["resolution"], 150.0);
+        assert_eq!(f["mode"], "gray");
+        assert_eq!(f["depth"], 16);
+        assert!(!saved["last"].as_object().unwrap().contains_key("name"));
+    }
+
+    #[test]
+    fn remembered_new_recent_uses_real_create_close_and_recall_buttons() {
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1100., 760.)).build_eframe(|cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            PhotocraftApp::new(photocraft_engine::Session::new(), Services::default())
+        });
+        let ctx = h.ctx.clone();
+        for (width, height) in [(24, 18), (32, 20)] {
+            let id = open(h.state_mut(), &ctx);
+            h.state_mut().ui.dialog_mut(id).unwrap().fields.extend(
+                json!({"width":width,"height":height,"resolution":150,"mode":"gray","depth":16,"background":"transparent"}).as_object().unwrap().clone(),
+            );
+            h.run_steps(3);
+            h.get_by_label("Create").click();
+            h.run_steps(3);
+            assert_eq!(h.state().session.active().unwrap().doc.size.width, width);
+        }
+        let id = open(h.state_mut(), &ctx);
+        h.run_steps(3);
+        let recent = h.get_by_label("24 × 18 px · 150 ppi · GRAY · 16 bit");
+        assert!(ctx.content_rect().contains_rect(recent.rect()));
+        recent.click();
+        h.run_steps(3);
+        assert_eq!(h.state_mut().ui.dialog_mut(id).unwrap().fields["width"], 24);
+        let saved = h.state().session.prefs().dialogs[REMEMBERED].clone();
+        assert_eq!(saved["recent"].as_array().unwrap().len(), 2);
+        h.get_by_label("Close").click();
+        h.run_steps(3);
+        assert_eq!(h.state().session.documents().len(), 2);
+        assert_eq!(h.state().session.prefs().dialogs[REMEMBERED], saved);
+        let id = open(h.state_mut(), &ctx);
+        assert_eq!(h.state_mut().ui.dialog_mut(id).unwrap().fields["name"], "Untitled-3");
+        assert_eq!(h.state_mut().ui.dialog_mut(id).unwrap().fields["width"], 32, "cancelled recall did not replace successful defaults");
+        h.run_steps(3);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+        assert!(h.state().ui.dialogs.is_empty());
+        assert_eq!(h.state().session.prefs().dialogs[REMEMBERED], saved);
+        let id = open(h.state_mut(), &ctx);
+        assert_eq!(h.state_mut().ui.dialog_mut(id).unwrap().fields["name"], "Untitled-3");
+    }
+
+    #[test]
+    fn remembered_new_rejects_malformed_saved_fields_and_bounds_recent_list() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Services::default());
+        app.session.edit_prefs(|p| {
+            p.dialogs.insert(
+                REMEMBERED.into(),
+                json!({"last":{"width":0,"height":"huge","resolution":-1,"mode":"broken","depth":64,"name":"old path","__preview":true},"recent":[{},false]}),
+            )
+        });
+        let f = fields(&app);
+        assert_eq!(f["width"], 1920);
+        assert_eq!(f["height"], 1080);
+        assert_eq!(f["resolution"], 72);
+        assert_eq!(f["mode"], "rgb");
+        assert_eq!(f["depth"], 8);
+        assert_eq!(f["name"], "Untitled-1");
+        assert!(f["__recent"].as_array().unwrap().is_empty());
+        assert!(!f.contains_key("__preview"));
+        for width in 1..=RECENT_LIMIT + 2 {
+            let mut f = fields(&app);
+            f.extend(json!({"width":width,"height":1,"background":"transparent"}).as_object().unwrap().clone());
+            confirm(&mut app, &f).unwrap();
+        }
+        let recent = &app.session.prefs().dialogs[REMEMBERED]["recent"];
+        assert_eq!(recent.as_array().unwrap().len(), RECENT_LIMIT);
+        assert_eq!(recent[0]["width"], RECENT_LIMIT + 2);
     }
 }

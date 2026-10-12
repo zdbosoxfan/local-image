@@ -30,7 +30,7 @@ fn host_ui(ui: &mut egui::Ui, host: &mut Host) {
         ui.horizontal(|ui| host.corners.context_bar(ui, &mut host.session));
         let (response, painter) = ui.allocate_painter(egui::vec2(200.0, 200.0), egui::Sense::click_and_drag());
         host.origin = response.rect.min;
-        let xf = crate::canvas::ViewXform { rect: response.rect, zoom: 1.0, center: [100.0, 100.0], flip: false };
+        let xf = crate::canvas::ViewXform { rect: response.rect, zoom: 1.0, center: [100.0, 100.0], flip: false, rotation: 0.0 };
         host.corners.canvas_input(&mut host.session, &response, &xf);
         host.corners.draw_overlay(&host.session, &painter, &|p| host.origin + egui::vec2(p.x as f32, p.y as f32), 1.0);
     });

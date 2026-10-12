@@ -265,6 +265,9 @@ pub fn handles(id: &str) -> bool {
         id,
         "view.extras"
             | "view.togglePanels"
+            | "view.rotateView"
+            | "view.rotation"
+            | "view.resetRotation"
             | "view.twoHundredPercent"
             | "view.printSize"
             | "view.fitLayersOnScreen"
@@ -300,7 +303,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
     let doc = app.session.active().is_some();
     Some(match id {
         "view.screenMode.cycle" => app.ui.text_edit.is_none(),
-        "view.twoHundredPercent" | "view.printSize" | "view.fitLayersOnScreen" => doc,
+        "view.twoHundredPercent" | "view.printSize" | "view.fitLayersOnScreen" | "view.rotateView" | "view.rotation" | "view.resetRotation" => doc,
         "view.fitArtboardOnScreen" => app.session.active().is_some_and(|d| d.doc.has_artboards()),
         i if i.starts_with("window.arrange.") => match &i["window.arrange.".len()..] {
             "consolidateAllToTabs" => true,
@@ -445,6 +448,14 @@ fn flag_param(p: &Value, cur: bool) -> bool {
 }
 
 fn run(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, p: &Value) -> Result<Value, String> {
+    if id == "view.rotateView" {
+        crate::toolsets_ui::persona::select_tool(app, ctx, crate::state::Tool::RotateView);
+        return Ok(json!({"tool":"RotateView"}));
+    }
+    if id == "view.rotation" || id == "view.resetRotation" {
+        let degrees = if id == "view.resetRotation" { 0.0 } else { p.get("degrees").and_then(Value::as_f64).ok_or(tl!("View angle requires degrees."))? };
+        return crate::canvas::rotate_view::set_angle(app, degrees);
+    }
     if id == "view.togglePanels" {
         app.ui.view.panels_hidden = flag_param(p, app.ui.view.panels_hidden);
         return Ok(json!({"hidden": app.ui.view.panels_hidden}));
@@ -572,7 +583,8 @@ fn fit_layers(app: &mut PhotocraftApp) -> Result<Value, String> {
     let area = app.last_canvas_rect.size();
     let area = if area.x > 50.0 { area } else { egui::vec2(1200.0, 800.0) };
     let v = &mut app.ui.views[i];
-    v.zoom = ((area.x - 40.0) / b.width().max(1) as f32).min((area.y - 40.0) / b.height().max(1) as f32).clamp(0.01, 64.0);
+    v.zoom = crate::canvas::rotate_view::fit_zoom(egui::vec2(b.width().max(1) as f32, b.height().max(1) as f32), area - egui::Vec2::splat(40.0), v.rotation)
+        .clamp(0.01, 64.0);
     v.center = [(b.x0 + b.x1) as f32 / 2.0, (b.y0 + b.y1) as f32 / 2.0];
     v.fit_pending = false;
     Ok(json!({"zoom": v.zoom, "bounds": [b.x0, b.y0, b.x1, b.y1]}))
@@ -582,6 +594,7 @@ fn float_window(app: &mut PhotocraftApp, doc: usize, offset: usize) -> u64 {
     let wid = app.ui.alloc_id();
     let mut view = app.ui.views.get(doc).cloned().unwrap_or_default();
     view.fit_pending = offset > 0 || view.fit_pending;
+    view.rotation_drag = None;
     app.ui.windows.push(crate::state::DocWindow { id: wid, document: doc, view, open: true });
     wid
 }
@@ -612,6 +625,7 @@ fn arrange(app: &mut PhotocraftApp, k: &str) -> Result<Value, String> {
             let i = app.session.active_index().ok_or("no document")?;
             let src = app.ui.views[i].clone();
             let (zoom, loc) = (matches!(k, "matchZoom" | "matchAll"), matches!(k, "matchLocation" | "matchAll"));
+            let rotation = matches!(k, "matchRotation" | "matchAll");
             let apply = |v: &mut crate::state::View| {
                 if zoom {
                     v.zoom = src.zoom;
@@ -619,12 +633,15 @@ fn arrange(app: &mut PhotocraftApp, k: &str) -> Result<Value, String> {
                 if loc {
                     v.center = src.center;
                 }
+                if rotation {
+                    v.rotation = src.rotation;
+                    v.rotation_drag = None;
+                }
                 v.fit_pending = false;
             };
             app.ui.views.iter_mut().for_each(apply);
             app.ui.windows.iter_mut().for_each(|w| apply(&mut w.view));
-            // Views never rotate in Photocraft, so Match Rotation has nothing to align.
-            Ok(json!({"zoom": src.zoom, "center": src.center, "rotation": 0}))
+            Ok(json!({"zoom": src.zoom, "center": src.center, "rotation": src.rotation.to_degrees()}))
         }
         _ => Err(format!("unknown arrangement {k}")),
     }

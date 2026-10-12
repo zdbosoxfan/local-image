@@ -36,7 +36,7 @@ fn harness() -> Harness<'static, Host> {
             session: fixture(),
             state: State { preferences: Preferences { rows: 2, cols: 3, ..Default::default() }, ..Default::default() },
             rect: Rect::NOTHING,
-            view: View { origin: Pos2::ZERO, zoom: 1., flip: false },
+            view: View { origin: Pos2::ZERO, zoom: 1., flip: false, rotation: 0.0 },
             enabled: true,
         },
     )

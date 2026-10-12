@@ -62,7 +62,14 @@ pub fn route(app: &mut PhotocraftApp, ui: &mut Ui, idx: usize, xf: &ViewXform, r
     let mut b = bridge(&ctx);
     let enabled =
         app.ui.tool == Tool::PathSelection && app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector && app.ui.dialogs.is_empty();
-    let consumed = input(ui, &mut app.session, &mut b.state, rect, View { origin: xf.to_screen(0., 0.), zoom: f64::from(xf.zoom), flip: xf.flip }, enabled);
+    let consumed = input(
+        ui,
+        &mut app.session,
+        &mut b.state,
+        rect,
+        View { origin: xf.to_screen(0., 0.), zoom: f64::from(xf.zoom), flip: xf.flip, rotation: xf.rotation },
+        enabled,
+    );
     if consumed {
         ctx.request_repaint();
     }
@@ -73,7 +80,7 @@ pub fn overlay(app: &PhotocraftApp, ui: &mut Ui, xf: &ViewXform) {
     if app.ui.tool != Tool::PathSelection || app.session.prefs().toolbar.persona != photocraft_engine::toolsets::Persona::Vector || !app.ui.dialogs.is_empty() {
         return;
     }
-    paint(ui, &app.session, &bridge(ui.ctx()).state, View { origin: xf.to_screen(0., 0.), zoom: f64::from(xf.zoom), flip: xf.flip });
+    paint(ui, &app.session, &bridge(ui.ctx()).state, View { origin: xf.to_screen(0., 0.), zoom: f64::from(xf.zoom), flip: xf.flip, rotation: xf.rotation });
 }
 /// Wrap canvas::display_doc before planning GPU or CPU output. Use the original source Arc
 /// and session revision in addition to preview keys: source edits and undo invalidate caches.

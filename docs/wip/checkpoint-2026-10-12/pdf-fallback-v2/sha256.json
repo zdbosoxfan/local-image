@@ -1,0 +1,11 @@
+{
+  "apps/local-image/src/services.rs": "48c0190ff648bdefd96b4708846645d7d479b533351a4e707ffd3354a607fafc",
+  "apps/local-image/src/services/pdf_raster.rs": "f9bfc0403da20adcbf09a39e4056e7943d3fbeb0bf5cefc608842b4403b5668b",
+  "apps/local-image/src/services/pdf_raster_tests.rs": "89ddd1def00a51d61cd0882ba209994b81be52fd680aab4c69e18e6d4858c62f",
+  "crates/pc-pdf/src/import.rs": "1ad5e214df07a71d5482d1a27cdeb7d1c39b42bed3556edf9dcdb3b7cd587345",
+  "crates/pc-pdf/src/import/preflight.rs": "09672dde94fc0f61506093466639fe3ac7478bffa07df9f856cbb8b6119d8f29",
+  "crates/pc-ui-egui/src/lib.rs": "810647a4f2b0df249d25c2f73c3b31cf5ebb71d5cd47571f7621ff1513222944",
+  "crates/pc-ui-egui/src/pdf_raster.rs": "9815f0e5f6c95c21ba9a063240e9ab5c8e1aaf7f86e7da4aadc7f65ad356bd99",
+  "crates/pc-ui-egui/src/vector_packages/pdf_import.rs": "221c3973fd396edb0dd0c47600767511102e886ec67796c8094b3d049393d814",
+  "crates/pc-ui-egui/src/file_open.rs": "0bdd3a09a73daa1ede8c4e8d774632dc6eebae32d78eab98afd83b98d846830f"
+}

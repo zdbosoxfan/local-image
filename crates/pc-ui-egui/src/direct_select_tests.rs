@@ -203,7 +203,7 @@ fn node_harness_at_scale(ppp: f32) -> H {
             egui::CentralPanel::default().show(ui, |ui| {
                 let rect = ui.available_rect_before_wrap();
                 let v = &app.ui.views[0];
-                let xf = crate::canvas::ViewXform { rect, zoom: v.zoom, center: v.center, flip: false };
+                let xf = crate::canvas::ViewXform { rect, zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation };
                 super::canvas_input(app, &ctx, 0, &xf, rect);
                 let painter = ui.painter_at(rect);
                 super::draw_overlay(app, &painter, &|p| xf.to_screen(p[0] as f32, p[1] as f32), egui::Color32::BLUE);
@@ -220,7 +220,8 @@ fn node_harness_at_scale(ppp: f32) -> H {
 fn scr(h: &H, p: [f64; 2]) -> egui::Pos2 {
     let app = h.state();
     let v = &app.ui.views[0];
-    crate::canvas::ViewXform { rect: app.last_canvas_rect, zoom: v.zoom, center: v.center, flip: false }.to_screen(p[0] as f32, p[1] as f32)
+    crate::canvas::ViewXform { rect: app.last_canvas_rect, zoom: v.zoom, center: v.center, flip: false, rotation: v.rotation }
+        .to_screen(p[0] as f32, p[1] as f32)
 }
 fn ui_button(h: &mut H, p: [f64; 2], pressed: bool, mods: Modifiers) {
     h.event(egui::Event::ModifiersChanged(mods));
@@ -435,8 +436,14 @@ fn node_full_app_gpu_drag_preview_release_escape_pixels_rtx5090() {
     fn screen(h: &H, p: [f64; 2]) -> egui::Pos2 {
         let app = h.state();
         let v = &app.ui.views[0];
-        crate::canvas::ViewXform { rect: crate::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }
-            .to_screen(p[0] as f32, p[1] as f32)
+        crate::canvas::ViewXform {
+            rect: crate::rulers::content_rect(app, app.last_canvas_rect),
+            zoom: v.zoom,
+            center: v.center,
+            flip: false,
+            rotation: v.rotation,
+        }
+        .to_screen(p[0] as f32, p[1] as f32)
     }
     fn event(h: &mut H, p: [f64; 2], pressed: Option<bool>) {
         let pos = screen(h, p);
@@ -604,8 +611,14 @@ fn node_full_app_release_pointer_frame_benchmark_rtx5090() {
     fn position(h: &H, p: [f64; 2]) -> egui::Pos2 {
         let app = h.state();
         let v = &app.ui.views[app.session.active_index().unwrap()];
-        crate::canvas::ViewXform { rect: crate::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: false }
-            .to_screen(p[0] as f32, p[1] as f32)
+        crate::canvas::ViewXform {
+            rect: crate::rulers::content_rect(app, app.last_canvas_rect),
+            zoom: v.zoom,
+            center: v.center,
+            flip: false,
+            rotation: v.rotation,
+        }
+        .to_screen(p[0] as f32, p[1] as f32)
     }
     let press = position(&h, [220.0, 220.0]);
     h.event(egui::Event::PointerButton { pos: press, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });

@@ -303,11 +303,8 @@ pub fn draw(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
     if let (Gesture::Move { rect }, Some(d)) =
         (&snap.gesture, app.drag.as_ref().and_then(|d| d.points.last()).map(|p| [p[0] - snap.start[0], p[1] - snap.start[1]]))
     {
-        let r = egui::Rect::from_two_pos(
-            xf.to_screen((rect[0] + d[0]) as f32, (rect[1] + d[1]) as f32),
-            xf.to_screen((rect[2] + d[0]) as f32, (rect[3] + d[1]) as f32),
-        );
-        painter.rect_stroke(r, 0.0, Stroke::new(1.0, crate::theme::Tokens::get(painter.ctx()).accent), egui::StrokeKind::Middle);
+        let r = egui::Rect::from_min_max(pos2((rect[0] + d[0]) as f32, (rect[1] + d[1]) as f32), pos2((rect[2] + d[0]) as f32, (rect[3] + d[1]) as f32));
+        painter.add(egui::Shape::closed_line(xf.camera().quad(r).to_vec(), Stroke::new(1.0, crate::theme::Tokens::get(painter.ctx()).accent)));
     }
     if !smart_on(app) {
         return;
