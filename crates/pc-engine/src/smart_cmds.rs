@@ -24,7 +24,8 @@ use std::sync::{Arc, Mutex};
 
 use photocraft_algo::resample::translate_surface;
 use photocraft_algo::transform::Homography;
-use photocraft_color::{BlendMode, PixelFormat};
+use photocraft_cms::{Intent, Profile, Transform};
+use photocraft_color::{BlendMode, ColorMode, PixelFormat};
 use photocraft_doc::{DocId, Document, Layer, LayerContent, LayerId, LayerMask, Metadata, SmartObject, SmartSource};
 use photocraft_geom::{Affine, Rect, Size};
 use photocraft_raster::Surface;
@@ -107,7 +108,7 @@ pub struct SourceImage {
     pub bounds: Rect,
 }
 
-type CacheKey = ([u8; 32], PixelFormat);
+type CacheKey = ([u8; 32], PixelFormat, u64);
 
 struct CacheEntry {
     key: CacheKey,
@@ -121,8 +122,8 @@ static SOURCE_CACHE: Mutex<Vec<CacheEntry>> = Mutex::new(Vec::new());
 const CACHE_ENTRIES: usize = 32;
 const CACHE_BYTES: usize = 1 << 30;
 
-fn cache_key(bytes: &[u8], fmt: PixelFormat) -> CacheKey {
-    (*blake3::hash(bytes).as_bytes(), fmt)
+fn cache_key(bytes: &[u8], fmt: PixelFormat, profile: &Profile) -> CacheKey {
+    (*blake3::hash(bytes).as_bytes(), fmt, profile.content_hash())
 }
 
 fn cache_get(key: &CacheKey) -> Option<SourceImage> {
@@ -149,62 +150,116 @@ fn cache_put(key: CacheKey, image: SourceImage) {
 
 /// How many times these contents were decoded at this pixel format (0 = never / evicted).
 pub fn source_decode_count(bytes: &[u8], fmt: PixelFormat) -> u32 {
-    let key = cache_key(bytes, fmt);
+    let key = cache_key(bytes, fmt, &crate::color_cmds::working_profile(fmt.mode));
     SOURCE_CACHE.lock().ok().and_then(|c| c.iter().find(|e| e.key == key).map(|e| e.decodes)).unwrap_or(0)
 }
 
-fn buffer_to_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat) -> Surface {
+fn buffer_to_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat, source: &Profile, target: &Profile) -> Result<Surface> {
+    if target.color_space != crate::color_cmds::mode_space(fmt.mode) {
+        return Err(other("smart-object destination profile does not match its pixel format"));
+    }
     let n = fmt.channels();
     let mut data = vec![0.0f32; buf.px.len() * n];
-    for (p, out) in buf.px.iter().zip(data.chunks_exact_mut(n)) {
-        photocraft_raster::from_rgba_into(&fmt, *p, out);
+    if fmt.mode == ColorMode::Rgb && source.same_colors(target) {
+        // Keep exact same-space HDR/negative values, and quantize only when storing
+        // into the destination surface. Alpha is coverage, not a colour channel.
+        for (pixel, out) in buf.px.iter().zip(data.chunks_exact_mut(n)) {
+            out[..3].copy_from_slice(&pixel[..3]);
+            if fmt.alpha {
+                out[3] = pixel[3];
+            }
+        }
+    } else {
+        let transform = Transform::new(source, target, Intent::RelativeColorimetric, true)
+            .map_err(|error| other(format!("smart-object colour conversion failed: {error}")))?;
+        if transform.inputs() != 3 || transform.outputs() != fmt.mode.color_channels() {
+            return Err(other("smart-object colour conversion has an unsupported channel layout"));
+        }
+        transform.convert_f32(buf.px.as_flattened(), 4, &mut data, n, fmt.alpha);
     }
-    let mut s = Surface::new(fmt);
+    let mut surface = Surface::new(fmt);
     if !buf.rect.is_empty() {
-        s.write_region(buf.rect, &data);
+        surface.write_region(buf.rect, &data);
     }
-    s.prune();
-    s
+    surface.prune();
+    Ok(surface)
 }
 
-/// The composited source image of `bytes` in pixel format `fmt` (decoded once, then cached).
+/// Source pixels in the built-in working profile for `fmt` (legacy public entry point).
 pub fn source_image(file_name: &str, bytes: &[u8], fmt: PixelFormat) -> Result<SourceImage> {
-    let key = cache_key(bytes, fmt);
-    if let Some(img) = cache_get(&key) {
-        return Ok(img);
+    source_image_in_profile(file_name, bytes, fmt, &crate::color_cmds::working_profile(fmt.mode))
+}
+
+/// Decode/composite into the destination profile. A cache hit from another profile
+/// cannot be reused merely because the channel model and bit depth happen to match.
+pub fn source_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, target: &Profile) -> Result<SourceImage> {
+    let key = cache_key(bytes, fmt, target);
+    if let Some(image) = cache_get(&key) {
+        return Ok(image);
     }
     let doc = decode_source(file_name, bytes)?;
     let projected = crate::vector_integration::project_document(&doc)?;
-    let buf = photocraft_compose::flatten(&projected);
-    let img = SourceImage { surface: Arc::new(buffer_to_surface(&buf, fmt)), bounds: doc.bounds() };
-    cache_put(key, img.clone());
-    Ok(img)
+    let surface = plain_image_surface(&projected, fmt, target)?;
+    let surface = match surface {
+        Some(surface) => surface,
+        None => buffer_to_surface(&photocraft_compose::flatten(&projected), fmt, &crate::color_cmds::composite_profile(&projected), target)?,
+    };
+    let image = SourceImage { surface: Arc::new(surface), bounds: doc.bounds() };
+    cache_put(key, image.clone());
+    Ok(image)
 }
 
-/// local-image: a Develop layer's source, developed with `settings` (cached by file, settings and
-/// pixel format, like [`source_image`]).
+/// Develop pixels in the built-in working profile for `fmt` (legacy entry point).
 pub fn developed_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, settings: &serde_json::Value) -> Result<SourceImage> {
-    let mut h = blake3::Hasher::new();
-    h.update(bytes);
-    h.update(b"\0develop\0");
-    h.update(settings.to_string().as_bytes());
-    let key = (*h.finalize().as_bytes(), fmt);
-    if let Some(img) = cache_get(&key) {
-        return Ok(img);
+    developed_image_in_profile(file_name, bytes, fmt, settings, &crate::color_cmds::working_profile(fmt.mode))
+}
+pub fn developed_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, settings: &Value, target: &Profile) -> Result<SourceImage> {
+    let mut hash = blake3::Hasher::new();
+    hash.update(bytes);
+    hash.update(b"\0develop\0");
+    hash.update(settings.to_string().as_bytes());
+    let key = (*hash.finalize().as_bytes(), fmt, target.content_hash());
+    if let Some(image) = cache_get(&key) {
+        return Ok(image);
     }
     let doc = crate::develop_layer_cmds::developed_doc(file_name, bytes, settings)?;
-    let img = match plain_layer_surface(&doc, fmt) {
-        Some(surface) => SourceImage { surface: Arc::new(surface), bounds: doc.bounds() },
-        None => SourceImage { surface: Arc::new(buffer_to_surface(&photocraft_compose::flatten(&doc), fmt)), bounds: doc.bounds() },
+    let surface = plain_image_surface(&doc, fmt, target)?;
+    let surface = match surface {
+        Some(surface) => surface,
+        None => buffer_to_surface(&photocraft_compose::flatten(&doc), fmt, &crate::color_cmds::composite_profile(&doc), target)?,
     };
-    cache_put(key, img.clone());
-    Ok(img)
+    let image = SourceImage { surface: Arc::new(surface), bounds: doc.bounds() };
+    cache_put(key, image.clone());
+    Ok(image)
+}
+
+/// A plain raster can cross directly between device profiles. Going through an
+/// RGB composite first would clip out-of-sRGB Lab/CMYK colours unnecessarily.
+fn plain_image_surface(doc: &Document, fmt: PixelFormat, target: &Profile) -> Result<Option<Surface>> {
+    let Some(surface) = plain_layer_surface(doc, doc.pixel_format()) else {
+        return Ok(None);
+    };
+    if target.color_space != crate::color_cmds::mode_space(fmt.mode) {
+        return Err(other("smart-object destination profile does not match its pixel format"));
+    }
+    let pixels = crate::edit_cmds::Clip {
+        surface: photocraft_algo::resample::crop_surface(&surface, doc.bounds()),
+        bounds: doc.bounds(),
+        profile: crate::color_cmds::document_profile(doc),
+    };
+    // Reuse the bounded per-tile device conversion, without touching session clipboard state.
+    let surface = pixels.converted(target, PixelFormat { alpha: true, ..fmt }, Intent::RelativeColorimetric, true)?;
+    Ok(Some(if fmt.alpha { surface } else { surface.convert(fmt) }))
 }
 
 /// A developed photo is one plain, opaque raster layer: in the document's own pixel format its
 /// composite is that layer's pixels. Taking them skips flattening and converting back (about
 /// 0.5 s of each re-develop of a 21 MP raw).
 fn plain_layer_surface(doc: &Document, fmt: PixelFormat) -> Option<Surface> {
+    // Spot channels contribute a separate backdrop even with one plain raster.
+    if doc.mode == ColorMode::Multichannel {
+        return None;
+    }
     let [l] = doc.layers.as_slice() else { return None };
     let LayerContent::Raster(s) = &l.content else { return None };
     let plain = l.visible
@@ -217,20 +272,28 @@ fn plain_layer_surface(doc: &Document, fmt: PixelFormat) -> Option<Surface> {
         && l.excluded_channels == 0
         && l.blend_if == photocraft_doc::BlendIf::default()
         && s.format() == fmt
-        && doc.pixel_format() == fmt;
+        && doc.pixel_format() == fmt
+        && fmt.alpha
+        && s.default_pixel().last() == Some(&0.0);
     plain.then(|| s.clone())
 }
 
 /// Layer › Smart Objects › Stack Mode: the source's layers (or, when it holds a single group, the
 /// group's layers) combined per pixel with `mode`. Cached like [`source_image`], keyed by mode.
 pub fn stack_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, mode: photocraft_doc::StackMode) -> Result<SourceImage> {
+    stack_image_in_profile(file_name, bytes, fmt, mode, &crate::color_cmds::working_profile(fmt.mode))
+}
+pub fn stack_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, mode: photocraft_doc::StackMode, target: &Profile) -> Result<SourceImage> {
     use photocraft_algo::stack::Stat;
-    let mut key = cache_key(bytes, fmt);
+    let mut key = cache_key(bytes, fmt, target);
     key.0 = *blake3::hash(&[&key.0[..], b"stack:", mode.id().as_bytes()].concat()).as_bytes();
     if let Some(img) = cache_get(&key) {
         return Ok(img);
     }
     let doc = decode_source(file_name, bytes)?;
+    let doc = crate::vector_integration::project_document(&doc)?;
+    let mut frame_doc = doc.clone();
+    frame_doc.layers.clear();
     let layers: &[Layer] = match doc.layers.as_slice() {
         [only] if only.is_group() => only.children().unwrap_or_default(),
         all => all,
@@ -243,7 +306,10 @@ pub fn stack_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, mode: photoc
             let mut one = l.clone();
             one.blend = BlendMode::Normal;
             one.clipped = false;
-            photocraft_compose::render_layer(&one, bounds).px
+            // Layer-only rendering otherwise loses the document's ICC/pattern/symbol context.
+            frame_doc.layers.clear();
+            frame_doc.layers.push(one);
+            photocraft_compose::render(&frame_doc, bounds).px
         })
         .collect();
     if frames.is_empty() {
@@ -263,7 +329,7 @@ pub fn stack_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, mode: photoc
         photocraft_doc::StackMode::Variance => Stat::Variance,
     };
     let buf = photocraft_compose::Buffer { rect: bounds, px: photocraft_algo::stack::combine(&frames, stat) };
-    let img = SourceImage { surface: Arc::new(buffer_to_surface(&buf, fmt)), bounds };
+    let img = SourceImage { surface: Arc::new(buffer_to_surface(&buf, fmt, &crate::color_cmds::composite_profile(&doc), target)?), bounds };
     cache_put(key, img.clone());
     Ok(img)
 }
@@ -316,7 +382,9 @@ fn mask_mix(base: &Surface, filtered: &Surface, mask: &LayerMask) -> Surface {
         op[a] = oa;
         for c in 0..a {
             let pm = bp[c] * bp[a] + (fp[c] * fp[a] - bp[c] * bp[a]) * m;
-            op[c] = if oa > 0.0 { (pm / oa).clamp(0.0, 1.0) } else { 0.0 };
+            // Integer surfaces clamp when stored. Float/HDR values must not be
+            // clipped merely because the user blends through a smart-filter mask.
+            op[c] = if oa > 0.0 { pm / oa } else { 0.0 };
         }
     }
     out.write_region(area, &o);
@@ -353,10 +421,11 @@ pub fn apply_smart_filters_in(placed: &Surface, sm: &SmartObject, canvas: Rect, 
 /// linked file, or a PSD placed layer without embedded data): callers keep the existing cache.
 pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
     let Some((name, bytes)) = source_bytes(&doc.metadata, &sm.source) else { return Ok(None) };
+    let target = crate::color_cmds::document_profile(doc);
     let img = match (&sm.develop, sm.stack_mode) {
-        (Some(d), _) => developed_image(&name, &bytes, doc.pixel_format(), &d.settings)?,
-        (None, Some(mode)) => stack_image(&name, &bytes, doc.pixel_format(), mode)?,
-        (None, None) => source_image(&name, &bytes, doc.pixel_format())?,
+        (Some(d), _) => developed_image_in_profile(&name, &bytes, doc.pixel_format(), &d.settings, &target)?,
+        (None, Some(mode)) => stack_image_in_profile(&name, &bytes, doc.pixel_format(), mode, &target)?,
+        (None, None) => source_image_in_profile(&name, &bytes, doc.pixel_format(), &target)?,
     };
     // Through the warp (source space) and the transform in one pass; whole-pixel moves are exact.
     let placed = match &sm.perspective {
@@ -364,7 +433,8 @@ pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
         None => photocraft_algo::warp::place_source(&img.surface, img.bounds, &sm.transform, sm.warp.as_ref()),
     };
     let profile = sm.smart_filters.iter().any(|f| f.command == crate::develop_filter_cmds::DEVELOP).then(|| crate::color_cmds::composite_profile(doc));
-    Ok(Some(apply_smart_filters_in(&placed, sm, doc.bounds(), profile.as_deref())))
+    let cmyk = photocraft_compose::cmyk_space(doc);
+    Ok(Some(photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || apply_smart_filters_in(&placed, sm, doc.bounds(), profile.as_deref()))))
 }
 
 /// The smart object's pixels below smart filter `index` (the input that filter edits): the placed
@@ -623,7 +693,11 @@ pub fn layer_to_smart(doc: &Document, l: &Layer) -> Result<Layer> {
         b = canvas;
     }
     let fmt = doc.pixel_format();
-    let mut cache = buffer_to_surface(&buf, fmt);
+    let target = crate::color_cmds::document_profile(doc);
+    let mut cache = match plain_layer_surface(&projected, fmt) {
+        Some(surface) => surface,
+        None => buffer_to_surface(&buf, fmt, &crate::color_cmds::composite_profile(&sub), &target)?,
+    };
     cache = photocraft_algo::resample::crop_surface(&cache, b);
     cache.prune();
 
@@ -631,7 +705,7 @@ pub fn layer_to_smart(doc: &Document, l: &Layer) -> Result<Layer> {
     sub.size = Size::new(b.width(), b.height());
     let bytes = encode_source(&sub)?;
     // Seed the decode cache with the composite we already have.
-    cache_put(cache_key(&bytes, fmt), SourceImage { surface: Arc::new(translate_surface(&cache, -b.x0, -b.y0)), bounds: sub.bounds() });
+    cache_put(cache_key(&bytes, fmt, &target), SourceImage { surface: Arc::new(translate_surface(&cache, -b.x0, -b.y0)), bounds: sub.bounds() });
 
     let source = SmartSource::Embedded { file_name: sub.name.clone(), bytes: Arc::new(bytes) };
     let mut out = Layer::new(
@@ -1121,3 +1195,6 @@ mod untrusted_link_regressions {
         std::fs::remove_file(path).unwrap();
     }
 }
+
+#[cfg(test)]
+mod colour_tests;

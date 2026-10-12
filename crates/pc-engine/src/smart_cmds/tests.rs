@@ -743,7 +743,9 @@ fn developed_source_shortcut_matches_the_flatten() {
     let doc = crate::develop_layer_cmds::developed_doc("a.dng", &bytes, &settings).unwrap();
     let fmt = doc.pixel_format();
     let fast = plain_layer_surface(&doc, fmt).expect("a developed photo is one plain layer");
-    let slow = buffer_to_surface(&photocraft_compose::flatten(&doc), fmt);
+    let slow =
+        buffer_to_surface(&photocraft_compose::flatten(&doc), fmt, &crate::color_cmds::composite_profile(&doc), &crate::color_cmds::document_profile(&doc))
+            .unwrap();
     assert_eq!(fast.read_region(doc.bounds()), slow.read_region(doc.bounds()));
     let other = PixelFormat { sample: photocraft_color::SampleType::U8, ..fmt };
     assert!(plain_layer_surface(&doc, other).is_none(), "another depth converts through the flatten");
