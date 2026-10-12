@@ -393,3 +393,39 @@ proptest! {
         prop_assert_eq!(t.ifds[0].f64s(501).unwrap().len(), v.len());
     }
 }
+
+#[test]
+fn ascii_payload_type_count_and_bytes_survive_two_roundtrips() {
+    // Include inline and out-of-line Latin-1, NUL-separated text, extra NULs,
+    // missing terminators and the zero-count field. These are not display strings.
+    let payloads: &[&[u8]] = &[b"\xe9\0", b"A\0B\0", b"one\0two\0three\0", b"Copyright \xa9 2026\0", b"text\0\0", b"no NUL", b""];
+    for order in ORDERS {
+        for big in [false, true] {
+            let mut root = IfdBuilder::new();
+            for (index, bytes) in payloads.iter().enumerate() {
+                root.set(65000 + index as u16, Value::AsciiBytes(bytes.to_vec()));
+            }
+            let writer = TiffWriter::new(order, big);
+            let mut bytes = writer.write(&[root]).unwrap();
+            for _ in 0..2 {
+                let parsed = Tiff::parse(&bytes).unwrap();
+                let mut copied = IfdBuilder::new();
+                for (index, expected) in payloads.iter().enumerate() {
+                    let tag = 65000 + index as u16;
+                    let entry = parsed.ifds[0].get(tag).unwrap();
+                    assert_eq!(entry.field_type(), FieldType::Ascii);
+                    assert_eq!(entry.count(), expected.len());
+                    assert_eq!(entry.value.as_bytes(), Some(*expected));
+                    let start = entry.offset as usize;
+                    assert_eq!(&bytes[start..start + entry.count()], *expected);
+                    assert!(entry.value.get_f64(0).is_none());
+                    assert!(entry.value.to_u64_vec().is_empty());
+                    copied.set(tag, entry.value.clone());
+                }
+                assert_eq!(parsed.ifds[0].string(65000).as_deref(), Some("\u{fffd}"));
+                assert_eq!(parsed.ifds[0].string(65001).as_deref(), Some("A"));
+                bytes = writer.write(&[copied]).unwrap();
+            }
+        }
+    }
+}

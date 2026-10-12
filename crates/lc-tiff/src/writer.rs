@@ -231,7 +231,7 @@ fn align(buf: &mut Vec<u8>) {
 pub fn encode(o: ByteOrder, v: &Value) -> Vec<u8> {
     let mut b = Vec::new();
     match v {
-        Value::Byte(x) | Value::Undefined(x) => b.extend_from_slice(x),
+        Value::Byte(x) | Value::Undefined(x) | Value::AsciiBytes(x) => b.extend_from_slice(x),
         Value::Ascii(s) => {
             b.extend_from_slice(s.as_bytes());
             b.push(0);

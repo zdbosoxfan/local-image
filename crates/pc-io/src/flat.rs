@@ -348,7 +348,7 @@ pub fn export_over_original(doc: &Document, original: &[u8], jpeg_quality: u8) -
     let bytes = if format == Format::Tiff {
         lightcraft_meta::preserve_tiff_metadata(original, &bytes).map_err(|e| IoError::Unsupported(e.to_string()))?
     } else if format == Format::Jpeg {
-        preserve_jpeg_metadata(original, &bytes)?
+        preserve_jpeg_metadata(original, &bytes, img.dimensions())?
     } else {
         bytes
     };
@@ -379,9 +379,206 @@ fn drop_exif_thumbnail(exif: &mut [u8]) {
     }
 }
 
+/// Patch dimensions in the original Exif allocation. Rebuilding its TIFF tree would
+/// relocate opaque MakerNotes (including their vendor-relative/absolute pointers).
+/// Only dimension entries change; old out-of-line payloads and all offsets remain.
+fn update_exif_dimensions(exif: &mut [u8], width: u32, height: u32) -> Result<(), IoError> {
+    fn number(bytes: &[u8], at: usize, n: usize, little: bool) -> Option<u64> {
+        let b = bytes.get(at..at.checked_add(n)?)?;
+        Some(if little { b.iter().rev().fold(0, |v, b| (v << 8) | u64::from(*b)) } else { b.iter().fold(0, |v, b| (v << 8) | u64::from(*b)) })
+    }
+    fn put(bytes: &mut [u8], value: u64, little: bool) {
+        let n = bytes.len();
+        for (i, byte) in bytes.iter_mut().enumerate() {
+            *byte = (value >> (8 * if little { i } else { n - i - 1 })) as u8;
+        }
+    }
+    let invalid = || IoError::Unsupported("invalid JPEG Exif directory; cannot update dimensions safely".into());
+    let little = exif.starts_with(b"II");
+    if !little && !exif.starts_with(b"MM") {
+        return Err(invalid());
+    }
+    let (header, count_size, entry_size, offset_size) = match number(exif, 2, 2, little) {
+        Some(42) => (4, 2, 12, 4),
+        Some(43) if number(exif, 4, 2, little) == Some(8) && number(exif, 6, 2, little) == Some(0) => (8, 8, 20, 8),
+        _ => return Err(invalid()),
+    };
+    let first = number(exif, header, offset_size, little).and_then(|v| usize::try_from(v).ok()).ok_or_else(invalid)?;
+    let mut pending = vec![(first, false)];
+    let mut visited = std::collections::BTreeSet::new();
+    let mut changes = Vec::new();
+    while let Some((at, is_exif)) = pending.pop() {
+        if at == 0 || !visited.insert(at) {
+            continue;
+        }
+        let count = number(exif, at, count_size, little).and_then(|v| usize::try_from(v).ok()).ok_or_else(invalid)?;
+        let start = at.checked_add(count_size).ok_or_else(invalid)?;
+        let end = count.checked_mul(entry_size).and_then(|n| start.checked_add(n)).ok_or_else(invalid)?;
+        exif.get(start..end.checked_add(offset_size).ok_or_else(invalid)?).ok_or_else(invalid)?;
+        for entry in (start..end).step_by(entry_size) {
+            let tag = number(exif, entry, 2, little).ok_or_else(invalid)?;
+            let typ = number(exif, entry + 2, 2, little).ok_or_else(invalid)?;
+            let count = number(exif, entry + 4, entry_size - 4 - offset_size, little).ok_or_else(invalid)?;
+            let slot = entry + entry_size - offset_size;
+            if !is_exif && tag == 34665 {
+                let size = match typ {
+                    4 | 13 => 4,
+                    16 | 18 if offset_size == 8 => 8,
+                    _ => return Err(invalid()),
+                };
+                if count != 1 {
+                    return Err(invalid());
+                }
+                let child = number(exif, slot, size, little).and_then(|v| usize::try_from(v).ok()).ok_or_else(invalid)?;
+                pending.push((child, true));
+            }
+            let dimension = match (is_exif, tag) {
+                (false, 256) | (true, 40962) => width,
+                (false, 257) | (true, 40963) => height,
+                _ => continue,
+            };
+            changes.push((entry, slot, typ == 3 && count == 1 && dimension <= u16::MAX as u32, dimension));
+        }
+    }
+    for (entry, slot, short, dimension) in changes {
+        let size = if short { 2 } else { 4 };
+        put(&mut exif[entry + 2..entry + 4], if short { 3 } else { 4 }, little);
+        put(&mut exif[entry + 4..slot], 1, little);
+        // Keep unused inline padding exactly as the camera wrote it.
+        put(&mut exif[slot..slot + size], u64::from(dimension), little);
+    }
+    Ok(())
+}
+
+const JPEG_XMP: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
+const JPEG_EXTENDED_XMP: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
+const MAX_EXTENDED_XMP: usize = 16 * 1024 * 1024;
+
+/// RFC 1321 MD5, solely for Adobe's Extended XMP content GUID. This is a file-format
+/// checksum, never an authentication or security primitive. No new dependency is needed.
+fn extended_xmp_guid(bytes: &[u8]) -> String {
+    const SHIFT: [u32; 16] = [7, 12, 17, 22, 5, 9, 14, 20, 4, 11, 16, 23, 6, 10, 15, 21];
+    const K: [u32; 64] = [
+        0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501, 0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be,
+        0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821, 0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+        0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a, 0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c,
+        0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70, 0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+        0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1, 0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1,
+        0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
+    ];
+    let mut state = [0x67452301u32, 0xefcdab89, 0x98badcfe, 0x10325476];
+    let mut compress = |block: &[u8]| {
+        let mut words = [0u32; 16];
+        for (word, chunk) in words.iter_mut().zip(block.as_chunks::<4>().0) {
+            *word = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        }
+        let [mut a, mut b, mut c, mut d] = state;
+        for i in 0..64 {
+            let (f, g) = match i / 16 {
+                0 => ((b & c) | (!b & d), i),
+                1 => ((d & b) | (!d & c), (5 * i + 1) % 16),
+                2 => (b ^ c ^ d, (3 * i + 5) % 16),
+                _ => (c ^ (b | !d), (7 * i) % 16),
+            };
+            let next = b.wrapping_add(a.wrapping_add(f).wrapping_add(K[i]).wrapping_add(words[g]).rotate_left(SHIFT[(i / 16) * 4 + i % 4]));
+            (a, b, c, d) = (d, next, b, c);
+        }
+        for (total, value) in state.iter_mut().zip([a, b, c, d]) {
+            *total = total.wrapping_add(value);
+        }
+    };
+    let (chunks, rest) = bytes.as_chunks::<64>();
+    for chunk in chunks {
+        compress(chunk);
+    }
+    let mut tail = [0u8; 128];
+    tail[..rest.len()].copy_from_slice(rest);
+    tail[rest.len()] = 0x80;
+    let size = if rest.len() < 56 { 64 } else { 128 };
+    tail[size - 8..size].copy_from_slice(&(bytes.len() as u64).wrapping_mul(8).to_le_bytes());
+    for block in tail[..size].as_chunks::<64>().0 {
+        compress(block);
+    }
+    state.into_iter().flat_map(u32::to_le_bytes).map(|byte| format!("{byte:02X}")).collect()
+}
+
+struct ExtendedXmp {
+    old_guid: String,
+    new_guid: String,
+    segments: Vec<Vec<u8>>,
+}
+
+/// Reassemble only a complete, coherent Extended XMP stream. The size budget is
+/// checked before allocation, and gaps/overlaps/GUID mismatches never yield output.
+fn normalize_extended_xmp(segments: &[&[u8]], width: u32, height: u32) -> Result<Option<ExtendedXmp>, IoError> {
+    let invalid = || IoError::Unsupported("invalid or oversized JPEG Extended XMP stream".into());
+    let mut chunks = Vec::new();
+    let mut identity: Option<(&[u8], usize)> = None;
+    for segment in segments {
+        if segment[1] != 0xe1 {
+            continue;
+        }
+        let Some(payload) = segment[4..].strip_prefix(JPEG_EXTENDED_XMP) else { continue };
+        let header = payload.get(..40).ok_or_else(invalid)?;
+        let guid = &header[..32];
+        let len = u32::from_be_bytes(header[32..36].try_into().map_err(|_| invalid())?) as usize;
+        let offset = u32::from_be_bytes(header[36..40].try_into().map_err(|_| invalid())?) as usize;
+        let data = &payload[40..];
+        if !guid.iter().all(u8::is_ascii_hexdigit) || len == 0 || len > MAX_EXTENDED_XMP || data.is_empty() || chunks.len() >= 4096 {
+            return Err(invalid());
+        }
+        if offset.checked_add(data.len()).is_none_or(|end| end > len) {
+            return Err(invalid());
+        }
+        match identity {
+            Some((previous, size)) if !previous.eq_ignore_ascii_case(guid) || size != len => return Err(invalid()),
+            None => identity = Some((guid, len)),
+            _ => {}
+        }
+        chunks.push((offset, data));
+    }
+    let Some((guid, len)) = identity else { return Ok(None) };
+    chunks.sort_by_key(|(offset, _)| *offset);
+    let mut end = 0;
+    for (offset, data) in &chunks {
+        if *offset != end {
+            return Err(invalid());
+        }
+        end += data.len();
+    }
+    if end != len {
+        return Err(invalid());
+    }
+    let packet: Vec<u8> = chunks.into_iter().flat_map(|(_, data)| data.iter().copied()).collect();
+    let old_guid = std::str::from_utf8(guid).map_err(|_| invalid())?.to_owned();
+    if !extended_xmp_guid(&packet).eq_ignore_ascii_case(&old_guid) {
+        return Err(invalid());
+    }
+    let packet = std::str::from_utf8(&packet).map_err(|_| invalid())?;
+    let packet = lightcraft_meta::normalize_xmp_geometry(packet, width, height).map_err(|e| IoError::Unsupported(e.to_string()))?;
+    if packet.len() > MAX_EXTENDED_XMP {
+        return Err(invalid());
+    }
+    let new_guid = extended_xmp_guid(packet.as_bytes());
+    let chunk_size = u16::MAX as usize - 2 - JPEG_EXTENDED_XMP.len() - 40;
+    let mut segments = Vec::new();
+    for (index, chunk) in packet.as_bytes().chunks(chunk_size).enumerate() {
+        let len = 2 + JPEG_EXTENDED_XMP.len() + 40 + chunk.len();
+        let mut segment = vec![0xff, 0xe1];
+        segment.extend_from_slice(&(len as u16).to_be_bytes());
+        segment.extend_from_slice(JPEG_EXTENDED_XMP);
+        segment.extend_from_slice(new_guid.as_bytes());
+        segment.extend_from_slice(&(packet.len() as u32).to_be_bytes());
+        segment.extend_from_slice(&((index * chunk_size) as u32).to_be_bytes());
+        segment.extend_from_slice(chunk);
+        segments.push(segment);
+    }
+    Ok(Some(ExtendedXmp { old_guid, new_guid, segments }))
+}
+
 /// Keep opaque APP metadata (including IPTC, extended XMP and private camera blocks) that
 /// the raster codec doesn't model. Use the new encoder's JFIF/Adobe and pixel segments.
-fn preserve_jpeg_metadata(original: &[u8], encoded: &[u8]) -> Result<Vec<u8>, IoError> {
+fn preserve_jpeg_metadata(original: &[u8], encoded: &[u8], (width, height): (u32, u32)) -> Result<Vec<u8>, IoError> {
     fn segments(bytes: &[u8]) -> Result<(Vec<&[u8]>, &[u8]), IoError> {
         let mut at = 2;
         let mut entries = Vec::new();
@@ -406,26 +603,52 @@ fn preserve_jpeg_metadata(original: &[u8], encoded: &[u8]) -> Result<Vec<u8>, Io
     let is_metadata = |s: &[u8]| matches!(s[1], 0xe1..=0xed | 0xef | 0xfe);
     let (old, _) = segments(original)?;
     let (new, pixels) = segments(encoded)?;
+    let extended = normalize_extended_xmp(&old, width, height)?;
+    let main_count = old.iter().filter(|segment| segment[1] == 0xe1 && segment[4..].starts_with(JPEG_XMP)).count();
+    if extended.is_some() && main_count != 1 {
+        return Err(IoError::Unsupported("Extended XMP requires one linked main XMP packet".into()));
+    }
+    let mut wrote_extended = false;
     let mut out = vec![0xff, 0xd8];
     for segment in new.into_iter().filter(|s| !is_metadata(s)) {
         out.extend_from_slice(segment);
     }
     for segment in old.into_iter().filter(|s| is_metadata(s) && !(s[1] == 0xe2 && s[4..].starts_with(b"MPF\0"))) {
+        if segment[1] == 0xe1 && segment[4..].starts_with(JPEG_EXTENDED_XMP) {
+            if !wrote_extended {
+                if let Some(extended) = &extended {
+                    for segment in &extended.segments {
+                        out.extend_from_slice(segment);
+                    }
+                }
+                wrote_extended = true;
+            }
+            continue;
+        }
         let mut segment = segment.to_vec();
         if segment[1] == 0xe1 && segment[4..].starts_with(b"Exif\0\0") {
             let upright = codecs::upright_exif(&segment[10..]);
             let mut payload = upright.into_owned();
+            update_exif_dimensions(&mut payload, width, height)?;
             drop_exif_thumbnail(&mut payload);
             segment[10..].copy_from_slice(&payload);
-        } else if segment[1] == 0xe1 && segment[4..].starts_with(b"http://ns.adobe.com/xap/1.0/\0") {
-            let begin = 4 + b"http://ns.adobe.com/xap/1.0/\0".len();
-            if let Ok(packet) = std::str::from_utf8(&segment[begin..]) {
-                let packet = codecs::upright_xmp(packet).into_owned();
-                segment.truncate(begin);
-                segment.extend_from_slice(packet.as_bytes());
-                let len = u16::try_from(segment.len() - 2).map_err(|_| IoError::Unsupported("JPEG XMP too large".into()))?;
-                segment[2..4].copy_from_slice(&len.to_be_bytes());
+        } else if segment[1] == 0xe1 && segment[4..].starts_with(JPEG_XMP) {
+            let begin = 4 + JPEG_XMP.len();
+            let packet = std::str::from_utf8(&segment[begin..]).map_err(|_| IoError::Unsupported("non-UTF-8 JPEG XMP".into()))?;
+            let packet = match &extended {
+                Some(extended) => lightcraft_meta::normalize_xmp_geometry_with_extended_guid(packet, width, height, &extended.old_guid, &extended.new_guid),
+                None => {
+                    if lightcraft_meta::xmp_has_extended_guid(packet).map_err(|e| IoError::Unsupported(e.to_string()))? {
+                        return Err(IoError::Unsupported("JPEG XMP references missing Extended XMP chunks".into()));
+                    }
+                    lightcraft_meta::normalize_xmp_geometry(packet, width, height)
+                }
             }
+            .map_err(|e| IoError::Unsupported(e.to_string()))?;
+            segment.truncate(begin);
+            segment.extend_from_slice(packet.as_bytes());
+            let len = u16::try_from(segment.len() - 2).map_err(|_| IoError::Unsupported("JPEG XMP too large".into()))?;
+            segment[2..4].copy_from_slice(&len.to_be_bytes());
         }
         out.extend_from_slice(&segment);
     }
@@ -626,5 +849,36 @@ fn export_mode_specific(doc: &Document, format: Format, opts: &ExportOptions) ->
             Ok(Some(r))
         }
         _ => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod overwrite_metadata_tests {
+    use super::extended_xmp_guid;
+
+    #[test]
+    fn extended_xmp_guid_matches_rfc1321_and_padding_vectors() {
+        // All seven RFC 1321 known-answer vectors, including multi-block input.
+        for (input, expected) in [
+            ("", "D41D8CD98F00B204E9800998ECF8427E"),
+            ("a", "0CC175B9C0F1B6A831C399E269772661"),
+            ("abc", "900150983CD24FB0D6963F7D28E17F72"),
+            ("message digest", "F96B697D7CB7938D525A2F31AAF161D0"),
+            ("abcdefghijklmnopqrstuvwxyz", "C3FCD3D76192E4007DFB496CCA67E13B"),
+            ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", "D174AB98D277D9F5A5611C2C9F419D9F"),
+            ("12345678901234567890123456789012345678901234567890123456789012345678901234567890", "57EDF4A22BE3C955AC49DA2E2107B67A"),
+        ] {
+            assert_eq!(extended_xmp_guid(input.as_bytes()), expected);
+        }
+        // Independent hashlib-generated fixture answers around MD5 padding boundaries.
+        for (len, expected) in [
+            (55, "EF1772B6DFF9A122358552954AD0DF65"),
+            (56, "3B0C8AC703F828B04C6C197006D17218"),
+            (63, "B06521F39153D618550606BE297466D5"),
+            (64, "014842D480B571495A4A0363793F7367"),
+            (65, "C743A45E0D2E6A95CB859ADAE0248435"),
+        ] {
+            assert_eq!(extended_xmp_guid(&vec![b'a'; len]), expected);
+        }
     }
 }

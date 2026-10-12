@@ -43,6 +43,23 @@ pub fn preserve_tiff_metadata(original: &[u8], encoded: &[u8]) -> lightcraft_tif
             }
         }
     }
+    if let Some(value) = root.entries.get_mut(&tags::XMP) {
+        let bytes = value.as_bytes().ok_or_else(|| TiffError::Invalid("non-byte XMP field".into()))?;
+        // Some writers terminate tag 700 with NULs. Keep that suffix byte for byte.
+        let text_len = bytes.iter().rposition(|b| *b != 0).map_or(0, |i| i + 1);
+        let packet = std::str::from_utf8(&bytes[..text_len]).map_err(|_| TiffError::Invalid("non-UTF-8 XMP packet".into()))?;
+        let packet = crate::normalize_xmp_geometry(packet, new.u32(tags::IMAGE_WIDTH).unwrap_or(0), new.u32(tags::IMAGE_LENGTH).unwrap_or(0))
+            .map_err(|e| TiffError::Invalid(e.to_string()))?;
+        let mut fixed = packet.as_bytes().to_vec();
+        fixed.extend_from_slice(&bytes[text_len..]);
+        *value = match value {
+            Value::Byte(_) => Value::Byte(fixed),
+            Value::Undefined(_) => Value::Undefined(fixed),
+            Value::Ascii(_) => Value::Ascii(packet),
+            Value::AsciiBytes(_) => Value::AsciiBytes(fixed),
+            _ => return Err(TiffError::Invalid("non-byte XMP field".into())),
+        };
+    }
     // Compressed pixel byte order belongs to the encoder, not to the previous TIFF header.
     TiffWriter::new(target.order, target.bigtiff).write(&[root])
 }
@@ -106,13 +123,43 @@ mod tests {
     use lightcraft_tiff::ByteOrder;
 
     #[test]
+    fn overwrite_tiff_refuses_unreadable_xmp_before_returning_replacement() {
+        let mut replacement = IfdBuilder::new().with(tags::IMAGE_WIDTH, Value::Long(vec![2])).with(tags::IMAGE_LENGTH, Value::Long(vec![1]));
+        replacement.set_image(ImageData::Strips { rows_per_strip: 1, strips: vec![vec![10, 20]] });
+        let encoded = TiffWriter::default().write(&[replacement]).unwrap();
+        for payload in [b"<broken>".as_slice(), &[0xff, 0xfe]] {
+            let old = IfdBuilder::new().with(tags::XMP, Value::Byte(payload.to_vec()));
+            let original = TiffWriter::default().write(&[old]).unwrap();
+            assert!(preserve_tiff_metadata(&original, &encoded).is_err());
+        }
+    }
+
+    #[test]
     fn overwrite_tiff_keeps_exif_gps_private_tags_and_new_strips() {
         for order in [ByteOrder::Little, ByteOrder::Big] {
             for big in [false, true] {
-                let exif = IfdBuilder::new().with(36867, Value::Ascii("2026:10:10 12:34:56".into())).with(40962, Value::Long(vec![99]));
+                let exif = IfdBuilder::new()
+                    .with(36867, Value::Ascii("2026:10:10 12:34:56".into()))
+                    .with(40962, Value::Long(vec![99]))
+                    .with(40963, Value::Short(vec![55]));
                 let gps = IfdBuilder::new().with(1, Value::Ascii("N".into()));
                 let mut old = IfdBuilder::new().with(tags::IMAGE_WIDTH, Value::Long(vec![99])).with(65001, Value::Undefined(vec![4, 5, 6]));
                 old.set(315, Value::Ascii("original artist".into()));
+                old.set(tags::ORIENTATION, Value::Short(vec![6]));
+                old.set(tags::IMAGE_LENGTH, Value::Long(vec![55]));
+                let raw_ascii = b"Copyright \xa9\0second string\0\0";
+                old.set(65002, Value::AsciiBytes(raw_ascii.to_vec()));
+                old.set(33432, Value::AsciiBytes(raw_ascii.to_vec()));
+                old.set(65003, Value::AsciiBytes(vec![0xe9, 0]));
+                let xmp = concat!(
+                    "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>",
+                    "<r:Description xmlns:t='http://ns.adobe.com/tiff/1.0/' xmlns:e='http://ns.adobe.com/exif/1.0/' ",
+                    "xmlns:f='urn:foreign' t:Orientation='6' t:ImageWidth='99' e:PixelYDimension='55' f:Exact = 'a &amp; b'>",
+                    "<t:Orientation>6</t:Orientation><t:ImageLength>55</t:ImageLength><e:PixelXDimension>99</e:PixelXDimension>",
+                    "<f:History><r:Seq><r:li>camera original</r:li></r:Seq></f:History>",
+                    "</r:Description></r:RDF>   \0\0"
+                );
+                old.set(tags::XMP, Value::Byte(xmp.as_bytes().to_vec()));
                 let resource = |id: u16, data: &[u8]| {
                     let mut bytes = b"8BIM".to_vec();
                     bytes.extend_from_slice(&id.to_be_bytes());
@@ -135,7 +182,7 @@ mod tests {
                 let mut new = IfdBuilder::new().with(tags::IMAGE_WIDTH, Value::Long(vec![2])).with(tags::IMAGE_LENGTH, Value::Long(vec![1]));
                 new.set(315, Value::Ascii("encoder artist".into()));
                 new.set_image(ImageData::Strips { rows_per_strip: 1, strips: vec![vec![10, 20]] });
-                let encoded = TiffWriter::default().write(&[new]).unwrap();
+                let encoded = TiffWriter::new(order, big).write(&[new]).unwrap();
                 let bytes = preserve_tiff_metadata(&original, &encoded).unwrap();
                 let back = Tiff::parse(&bytes).unwrap();
                 let root = &back.ifds[0];
@@ -146,6 +193,28 @@ mod tests {
                 assert_eq!(root.bytes(65001), Some(&[4, 5, 6][..]));
                 assert_eq!(root.exif.as_ref().unwrap().string(36867).as_deref(), Some("2026:10:10 12:34:56"));
                 assert_eq!(root.exif.as_ref().unwrap().u32(40962), Some(2));
+                assert_eq!(root.exif.as_ref().unwrap().u32(40963), Some(1));
+                assert_eq!(root.u32(tags::IMAGE_LENGTH), Some(1));
+                assert_eq!(back.order, order);
+                assert_eq!(back.bigtiff, big);
+                for (tag, expected) in [(33432, raw_ascii.as_slice()), (65002, raw_ascii.as_slice()), (65003, &[0xe9, 0][..])] {
+                    let entry = root.get(tag).unwrap();
+                    assert_eq!(entry.field_type(), lightcraft_tiff::FieldType::Ascii);
+                    assert_eq!(entry.count(), expected.len());
+                    assert_eq!(root.bytes(tag), Some(expected));
+                }
+                let expected_xmp = xmp
+                    .replace("t:Orientation='6'", "t:Orientation='1'")
+                    .replace("t:ImageWidth='99'", "t:ImageWidth='2'")
+                    .replace("e:PixelYDimension='55'", "e:PixelYDimension='1'")
+                    .replace("<t:Orientation>6", "<t:Orientation>1")
+                    .replace("<t:ImageLength>55", "<t:ImageLength>1")
+                    .replace("<e:PixelXDimension>99", "<e:PixelXDimension>2");
+                assert_eq!(root.bytes(tags::XMP), Some(expected_xmp.as_bytes()));
+                let twice = preserve_tiff_metadata(&bytes, &encoded).unwrap();
+                let twice = Tiff::parse(&twice).unwrap();
+                assert_eq!(twice.ifds[0].bytes(tags::XMP), Some(expected_xmp.as_bytes()));
+                assert_eq!(twice.ifds[0].bytes(65002), Some(raw_ascii.as_slice()));
                 assert_eq!(root.gps.as_ref().unwrap().string(1).as_deref(), Some("N"));
                 let at = root.u64(tags::STRIP_OFFSETS).unwrap() as usize;
                 assert_eq!(&bytes[at..at + 2], &[10, 20]);

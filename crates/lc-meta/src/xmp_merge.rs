@@ -44,6 +44,7 @@ fn listed(list: &[&str], name: &str) -> bool {
 
 #[derive(Debug)]
 struct Attr {
+    geometry: Option<&'static str>,
     raw: String,
     name: String,
     /// The value as written (still escaped).
@@ -52,6 +53,7 @@ struct Attr {
 
 #[derive(Debug)]
 struct Prop {
+    geometry: Option<&'static str>,
     name: String,
     start: usize,
     end: usize,
@@ -81,7 +83,35 @@ enum Kind {
     Other,
     Rdf,
     Desc(usize),
-    Prop { desc: usize, start: usize, name: String },
+    Prop { desc: usize, start: usize, name: String, geometry: Option<&'static str> },
+}
+
+// Geometry edits require a real namespace binding: a foreign namespace may use
+// the literal prefix `tiff` without owning TIFF properties.
+fn geometry_name(raw: &str, scopes: &[Vec<(String, String)>], attribute: bool) -> Option<&'static str> {
+    let (prefix, local) = raw.split_once(':').unwrap_or(("", raw));
+    if attribute && prefix.is_empty() {
+        return None;
+    }
+    let uri = scopes.iter().rev().flat_map(|scope| scope.iter().rev()).find(|(p, _)| p == prefix)?.1.as_str();
+    match (uri, local) {
+        ("http://ns.adobe.com/tiff/1.0/", "Orientation") => Some("tiff:Orientation"),
+        ("http://ns.adobe.com/tiff/1.0/", "ImageWidth") => Some("tiff:ImageWidth"),
+        ("http://ns.adobe.com/tiff/1.0/", "ImageLength") => Some("tiff:ImageLength"),
+        ("http://ns.adobe.com/exif/1.0/", "PixelXDimension") => Some("exif:PixelXDimension"),
+        ("http://ns.adobe.com/exif/1.0/", "PixelYDimension") => Some("exif:PixelYDimension"),
+        ("http://ns.adobe.com/xmp/note/", "HasExtendedXMP") => Some("xmpNote:HasExtendedXMP"),
+        _ => None,
+    }
+}
+
+fn in_namespace(raw: &str, scopes: &[Vec<(String, String)>], uri: &str, local: &str) -> bool {
+    let (prefix, name) = raw.split_once(':').unwrap_or(("", raw));
+    name == local && scopes.iter().rev().flat_map(|scope| scope.iter().rev()).find(|(p, _)| p == prefix).is_some_and(|(_, value)| value == uri)
+}
+
+fn xml_value(raw: &str) -> Result<String, XmpError> {
+    quick_xml::escape::unescape(raw).map(|value| value.into_owned()).map_err(|e| XmpError::Xml(e.to_string()))
 }
 
 fn is_meta_attr(name: &str) -> bool {
@@ -119,9 +149,9 @@ fn scan(s: &str) -> Result<Scan, XmpError> {
                     let k = String::from_utf8_lossy(a.key.as_ref()).into_owned();
                     let v = String::from_utf8_lossy(&a.value).into_owned();
                     if k == "xmlns" {
-                        scope.push((String::new(), v.clone()));
+                        scope.push((String::new(), xml_value(&v)?));
                     } else if let Some(p) = k.strip_prefix("xmlns:") {
-                        scope.push((p.to_string(), v.clone()));
+                        scope.push((p.to_string(), xml_value(&v)?));
                     }
                     raw_attrs.push((k, v));
                 }
@@ -129,21 +159,34 @@ fn scan(s: &str) -> Result<Scan, XmpError> {
                 let raw_name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
                 let name = canonical_name(&raw_name, &scopes);
                 let kind = match stack.last() {
-                    Some(Kind::Rdf) if name == "rdf:Description" => {
-                        let attrs = raw_attrs.into_iter().map(|(raw, value)| Attr { name: canonical_name(&raw, &scopes), raw, value }).collect();
+                    Some(Kind::Rdf) if in_namespace(&raw_name, &scopes, "http://www.w3.org/1999/02/22-rdf-syntax-ns#", "Description") => {
+                        let attrs = raw_attrs
+                            .into_iter()
+                            .map(|(raw, value)| Attr {
+                                geometry: geometry_name(&raw, &scopes, true),
+                                name: canonical_name(&raw, &scopes),
+                                raw,
+                                value,
+                            })
+                            .collect();
                         out.descs.push(Desc { tag_start: before, tag_end: after, raw_name, empty, attrs, props: Vec::new(), end: after });
                         Kind::Desc(out.descs.len() - 1)
                     }
-                    Some(Kind::Desc(i)) => Kind::Prop { desc: *i, start: before, name },
-                    _ if name == "rdf:RDF" && out.rdf_close.is_none() => Kind::Rdf,
+                    Some(Kind::Desc(i)) => Kind::Prop { desc: *i, start: before, geometry: geometry_name(&raw_name, &scopes, false), name },
+                    _ if in_namespace(&raw_name, &scopes, "http://www.w3.org/1999/02/22-rdf-syntax-ns#", "RDF")
+                        && out.rdf_close.is_none()
+                        && !stack.iter().any(|kind| matches!(kind, Kind::Rdf)) =>
+                    {
+                        Kind::Rdf
+                    }
                     _ => Kind::Other,
                 };
                 if empty {
                     scopes.pop();
-                    if let Kind::Prop { desc, start, name } = kind
+                    if let Kind::Prop { desc, start, name, geometry } = kind
                         && let Some(d) = out.descs.get_mut(desc)
                     {
-                        d.props.push(Prop { name, start, end: after });
+                        d.props.push(Prop { name, start, end: after, geometry });
                     }
                 } else {
                     stack.push(kind);
@@ -152,9 +195,9 @@ fn scan(s: &str) -> Result<Scan, XmpError> {
             Event::End(_) => {
                 scopes.pop();
                 match stack.pop() {
-                    Some(Kind::Prop { desc, start, name }) => {
+                    Some(Kind::Prop { desc, start, name, geometry }) => {
                         if let Some(d) = out.descs.get_mut(desc) {
-                            d.props.push(Prop { name, start, end: after });
+                            d.props.push(Prop { name, start, end: after, geometry });
                         }
                     }
                     Some(Kind::Desc(i)) => {
@@ -283,9 +326,231 @@ pub fn merge_xmp(existing: &str, fresh: &str, rules: MergeRules) -> Result<Strin
     Ok(out)
 }
 
+/// Normalize existing pixel-geometry properties for upright replacement pixels.
+/// Namespace aliases and duplicate properties are handled alike. Only geometry value
+/// spans are changed; foreign fields, whitespace, comments and packet padding survive.
+/// A packet with no geometry properties is returned unchanged. Unreadable geometry
+/// fails instead of publishing contradictory metadata alongside the replacement raster.
+pub fn normalize_xmp_geometry(packet: &str, width: u32, height: u32) -> Result<String, XmpError> {
+    rewrite_xmp_geometry(packet, width, height, None)
+}
+
+/// Whether a packet references Extended XMP, regardless of prefix or XML scalar form.
+/// Callers without Extended APP1 chunks must reject this dangling reference.
+pub fn xmp_has_extended_guid(packet: &str) -> Result<bool, XmpError> {
+    parse_xmp(packet)?;
+    Ok(scan(packet)?.descs.iter().any(|desc| {
+        desc.attrs.iter().any(|attr| attr.geometry == Some("xmpNote:HasExtendedXMP"))
+            || desc.props.iter().any(|prop| prop.geometry == Some("xmpNote:HasExtendedXMP"))
+    }))
+}
+
+/// Normalize a main JPEG XMP packet and update its Extended XMP link. At least one
+/// namespace-resolved link to `old_guid` must exist; foreign GUID-shaped text is kept.
+pub fn normalize_xmp_geometry_with_extended_guid(packet: &str, width: u32, height: u32, old_guid: &str, new_guid: &str) -> Result<String, XmpError> {
+    rewrite_xmp_geometry(packet, width, height, Some((old_guid, new_guid)))
+}
+
+fn rewrite_xmp_geometry(packet: &str, width: u32, height: u32, extended_guid: Option<(&str, &str)>) -> Result<String, XmpError> {
+    parse_xmp(packet)?;
+    let scan = scan(packet)?;
+    let bad = || XmpError::Xml("unsupported XMP geometry property".into());
+    let mut links_updated = 0;
+    let mut replacement = |name: &str, current: &str| -> Result<Option<String>, XmpError> {
+        Ok(match name {
+            "tiff:Orientation" => Some("1".into()),
+            "tiff:ImageWidth" | "exif:PixelXDimension" => Some(width.to_string()),
+            "tiff:ImageLength" | "exif:PixelYDimension" => Some(height.to_string()),
+            "xmpNote:HasExtendedXMP" => match extended_guid {
+                Some((old, new)) if current.trim().eq_ignore_ascii_case(old) => {
+                    links_updated += 1;
+                    Some(new.into())
+                }
+                Some(_) => return Err(XmpError::Xml("Extended XMP link does not match its packet GUID".into())),
+                None => None,
+            },
+            _ => None,
+        })
+    };
+    let mut edits = Vec::new();
+    for desc in scan.descs {
+        // XML was validated above. Walk quoted attribute values in source order,
+        // paired with the scanner's resolved names, so no foreign bytes are rebuilt.
+        let tag = &packet[desc.tag_start..desc.tag_end];
+        let bytes = tag.as_bytes();
+        let mut at = 1 + desc.raw_name.len();
+        for attr in desc.attrs {
+            while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
+                at += 1;
+            }
+            at = at.checked_add(attr.raw.len()).ok_or_else(bad)?;
+            while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
+                at += 1;
+            }
+            if bytes.get(at) != Some(&b'=') {
+                return Err(bad());
+            }
+            at += 1;
+            while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
+                at += 1;
+            }
+            let quote = *bytes.get(at).filter(|q| matches!(**q, b'\'' | b'"')).ok_or_else(bad)?;
+            at += 1;
+            let start = at;
+            at += bytes.get(at..).and_then(|rest| rest.iter().position(|b| *b == quote)).ok_or_else(bad)?;
+            if let Some(name) = attr.geometry
+                && let Some(value) = replacement(name, &xml_value(&attr.value)?)?
+            {
+                edits.push((desc.tag_start + start, desc.tag_start + at, value));
+            }
+            at += 1;
+        }
+        for prop in desc.props {
+            let Some(property) = prop.geometry else { continue };
+            if property == "xmpNote:HasExtendedXMP" && extended_guid.is_none() {
+                continue;
+            }
+            let source = &packet[prop.start..prop.end];
+            let mut reader = quick_xml::Reader::from_reader(source.as_bytes());
+            let first = reader.read_event().map_err(|e| XmpError::Xml(e.to_string()))?;
+            let opening_end = pos(&reader);
+            // Resource-valued/structured forms need their own RDF rewrite. Refuse
+            // them instead of adding text alongside a stale resource attribute.
+            if let Event::Start(ref e) | Event::Empty(ref e) = first {
+                for attr in e.attributes() {
+                    let attr = attr.map_err(|_| bad())?;
+                    let name = attr.key.as_ref();
+                    if !name.starts_with(b"xmlns") && name != b"xml:lang" {
+                        return Err(bad());
+                    }
+                }
+            }
+            match first {
+                Event::Empty(e) => {
+                    let Some(value) = replacement(property, "")? else { continue };
+                    let name = std::str::from_utf8(e.name().as_ref()).map_err(|_| bad())?.to_owned();
+                    let opening = source.strip_suffix("/>").ok_or_else(bad)?;
+                    edits.push((prop.start, prop.end, format!("{opening}>{value}</{name}>")));
+                }
+                Event::Start(_) => {
+                    let mut semantic_value = String::new();
+                    let closing_start = loop {
+                        let before = pos(&reader);
+                        match reader.read_event().map_err(|e| XmpError::Xml(e.to_string()))? {
+                            Event::Text(text) => semantic_value.push_str(&xml_value(&text.decode().map_err(|e| XmpError::Xml(e.to_string()))?)?),
+                            Event::CData(text) => semantic_value.push_str(&text.decode().map_err(|e| XmpError::Xml(e.to_string()))?),
+                            Event::GeneralRef(reference) => {
+                                let name = reference.decode().map_err(|e| XmpError::Xml(e.to_string()))?;
+                                semantic_value.push_str(&xml_value(&format!("&{name};"))?);
+                            }
+                            Event::Comment(_) => {}
+                            Event::End(_) => break before,
+                            _ => return Err(bad()),
+                        }
+                    };
+                    if let Some(value) = replacement(property, &semantic_value)? {
+                        edits.push((prop.start + opening_end, prop.start + closing_start, value));
+                    }
+                }
+                _ => return Err(bad()),
+            }
+        }
+    }
+    if extended_guid.is_some() && links_updated == 0 {
+        return Err(XmpError::Xml("missing Extended XMP link".into()));
+    }
+    edits.sort_by_key(|(start, _, _)| *start);
+    let mut out = String::with_capacity(packet.len());
+    let mut at = 0;
+    for (start, end, value) in edits {
+        if start < at {
+            return Err(bad());
+        }
+        out.push_str(&packet[at..start]);
+        out.push_str(&value);
+        at = end;
+    }
+    out.push_str(&packet[at..]);
+    parse_xmp(&out)?;
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn geometry_normalization_preserves_foreign_bytes_and_resolves_namespaces() {
+        let source = concat!(
+            "<?xpacket begin='test'?>\n<x:xmpmeta xmlns:x='adobe:ns:meta/'>",
+            "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>",
+            "<r:Description xmlns:t='http://ns.adobe.com/tiff/1.0/' xmlns:e='http://ns.adobe.com/exif/1.0/' ",
+            "xmlns:f='urn:foreign' f:Exact = 'a &amp; b' t:Orientation = '6' t:ImageWidth=\"99\" e:PixelYDimension='88'>",
+            "<!-- t:Orientation='8' is a comment -->",
+            "<t:ImageLength>88</t:ImageLength><e:PixelXDimension><![CDATA[99]]></e:PixelXDimension>",
+            "<t:Orientation>8</t:Orientation><f:History><r:Seq><r:li>untouched</r:li></r:Seq></f:History>",
+            "</r:Description>",
+            "<r:Description xmlns:tiff='urn:foreign' tiff:Orientation='7'><tiff:ImageWidth>123</tiff:ImageWidth></r:Description>",
+            "</r:RDF></x:xmpmeta>   \n<?xpacket end='w'?>"
+        );
+        let expected = source
+            .replace("t:Orientation = '6'", "t:Orientation = '1'")
+            .replace("t:ImageWidth=\"99\"", "t:ImageWidth=\"3\"")
+            .replace("e:PixelYDimension='88'", "e:PixelYDimension='2'")
+            .replace("<t:ImageLength>88", "<t:ImageLength>2")
+            .replace("<![CDATA[99]]>", "3")
+            .replace("<t:Orientation>8", "<t:Orientation>1");
+        let out = normalize_xmp_geometry(source, 3, 2).unwrap();
+        assert_eq!(out, expected);
+        assert_eq!(normalize_xmp_geometry(&out, 3, 2).unwrap(), out);
+        let absent = "<x:xmpmeta xmlns:x='adobe:ns:meta/'>original</x:xmpmeta>";
+        assert_eq!(normalize_xmp_geometry(absent, 3, 2).unwrap(), absent);
+        let default_namespace = "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns='http://ns.adobe.com/tiff/1.0/' ImageWidth='foreign'><ImageWidth>99</ImageWidth></r:Description></r:RDF>";
+        assert_eq!(normalize_xmp_geometry(default_namespace, 3, 2).unwrap(), default_namespace.replace(">99<", ">3<"));
+    }
+
+    #[test]
+    fn geometry_normalization_rejects_malformed_or_structured_geometry() {
+        for packet in [
+            "<a><b></a>",
+            "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:t='http://ns.adobe.com/tiff/1.0/'><t:Orientation r:resource='6'/></r:Description></r:RDF>",
+            "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:t='http://ns.adobe.com/tiff/1.0/'><t:Orientation><r:Seq><r:li>6</r:li></r:Seq></t:Orientation></r:Description></r:RDF>",
+        ] {
+            assert!(normalize_xmp_geometry(packet, 3, 2).is_err());
+        }
+    }
+
+    #[test]
+    fn geometry_and_extended_links_compare_xml_semantic_values() {
+        let packet = "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns&#35;'><r:Description xmlns:t='http://ns.adobe.com/tiff/1.0&#x2F;' xmlns:f='urn:foreign' t:Orientation='&#54;' f:Exact='&#54; &amp; untouched'><t:ImageWidth>&#57;&#57;</t:ImageWidth></r:Description></r:RDF>";
+        let expected = packet.replace("t:Orientation='&#54;'", "t:Orientation='1'").replace(">&#57;&#57;<", ">3<");
+        assert_eq!(normalize_xmp_geometry(packet, 3, 2).unwrap(), expected);
+        const OLD: &str = "A4AB635057D3BDE49D8FDAD7B888BC32";
+        const NEW: &str = "1C1A85B3C7F85F31F24FF5B1CCADE1C3";
+        for scalar in [format!("<![CDATA[{OLD}]]>"), OLD.replacen('A', "&#65;", 1), format!("<![CDATA[A4AB]]>{}", &OLD[4..])] {
+            let packet = format!(
+                "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:n='http://ns.adobe.com/xmp/note&#47;' xmlns:f='urn:foreign' f:Exact='&#65;'><n:HasExtendedXMP>{scalar}</n:HasExtendedXMP></r:Description></r:RDF>"
+            );
+            assert!(xmp_has_extended_guid(&packet).unwrap());
+            assert_eq!(normalize_xmp_geometry_with_extended_guid(&packet, 3, 2, OLD, NEW).unwrap(), packet.replace(&scalar, NEW));
+        }
+        let escaped = OLD.replacen('A', "&#x41;", 1);
+        let packet = format!(
+            "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:n='http://ns.adobe.com/xmp/note&#x2F;' xmlns:f='urn:foreign' n:HasExtendedXMP='{escaped}' f:Exact='{escaped}'/></r:RDF>"
+        );
+        let expected = packet.replace(&format!("n:HasExtendedXMP='{escaped}'"), &format!("n:HasExtendedXMP='{NEW}'"));
+        assert!(xmp_has_extended_guid(&packet).unwrap());
+        assert_eq!(normalize_xmp_geometry_with_extended_guid(&packet, 3, 2, OLD, NEW).unwrap(), expected);
+        assert!(normalize_xmp_geometry_with_extended_guid(&packet, 3, 2, NEW, OLD).is_err());
+    }
+
+    #[test]
+    fn foreign_and_nested_rdf_resources_are_not_image_geometry() {
+        let packet = "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#' xmlns:f='urn:foreign-props' xmlns:rdf='urn:foreign' xmlns:t='http://ns.adobe.com/tiff/1.0/'><r:Description><f:History r:parseType='Resource'><rdf:RDF><rdf:Description t:Orientation='6'/></rdf:RDF></f:History></r:Description></r:RDF>";
+        assert_eq!(normalize_xmp_geometry(packet, 3, 2).unwrap(), packet);
+        let nested = packet.replace("xmlns:rdf='urn:foreign'", "xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'");
+        assert_eq!(normalize_xmp_geometry(&nested, 3, 2).unwrap(), nested);
+    }
 
     const RULES: MergeRules =
         MergeRules { owned: &["xmp:Rating", "xmp:Label", "dc:subject", "dc:title", "lc:*"], owned_if_present: &["exif:DateTimeOriginal"] };

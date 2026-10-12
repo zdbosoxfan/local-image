@@ -220,6 +220,7 @@ fn value_text(group: &str, tag: u16, v: &Value) -> String {
     let single = |x: i64| enumerated(group, tag, x).map(str::to_string).unwrap_or_else(|| x.to_string());
     match v {
         Value::Ascii(s) => s.trim().to_string(),
+        Value::AsciiBytes(_) => v.as_str().unwrap_or_default(),
         Value::Short(a) if a.len() == 1 => single(a[0] as i64),
         Value::Long(a) if a.len() == 1 => single(a[0] as i64),
         Value::Short(a) => list(a),

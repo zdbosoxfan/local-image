@@ -173,7 +173,7 @@ impl FieldType {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     Byte(Vec<u8>),
-    /// ASCII text (bytes up to the first NUL, decoded lossily as UTF-8).
+    /// Canonical text, serialized as UTF-8 followed by one NUL.
     Ascii(String),
     Short(Vec<u16>),
     Long(Vec<u32>),
@@ -189,13 +189,16 @@ pub enum Value {
     Long8(Vec<u64>),
     SLong8(Vec<i64>),
     Ifd8(Vec<u64>),
+    /// Exact TIFF ASCII payload, including terminators and any non-UTF-8 bytes.
+    /// Used when decoding to `Ascii` would change the field bytes or count.
+    AsciiBytes(Vec<u8>),
 }
 
 impl Value {
     pub fn field_type(&self) -> FieldType {
         match self {
             Value::Byte(_) => FieldType::Byte,
-            Value::Ascii(_) => FieldType::Ascii,
+            Value::Ascii(_) | Value::AsciiBytes(_) => FieldType::Ascii,
             Value::Short(_) => FieldType::Short,
             Value::Long(_) => FieldType::Long,
             Value::Rational(_) => FieldType::Rational,
@@ -213,10 +216,10 @@ impl Value {
         }
     }
 
-    /// Number of values (for ASCII: bytes including the terminating NUL).
+    /// Number of values (for ASCII: exact encoded byte count, including any NULs).
     pub fn count(&self) -> usize {
         match self {
-            Value::Byte(v) | Value::Undefined(v) => v.len(),
+            Value::Byte(v) | Value::Undefined(v) | Value::AsciiBytes(v) => v.len(),
             Value::Ascii(s) => s.len() + 1,
             Value::Short(v) => v.len(),
             Value::Long(v) | Value::Ifd(v) => v.len(),
@@ -236,7 +239,7 @@ impl Value {
     pub fn get_f64(&self, i: usize) -> Option<f64> {
         Some(match self {
             Value::Byte(v) | Value::Undefined(v) => *v.get(i)? as f64,
-            Value::Ascii(_) => return None,
+            Value::Ascii(_) | Value::AsciiBytes(_) => return None,
             Value::Short(v) => *v.get(i)? as f64,
             Value::Long(v) | Value::Ifd(v) => *v.get(i)? as f64,
             Value::Rational(v) => {
@@ -301,17 +304,17 @@ impl Value {
 
     fn len_values(&self) -> usize {
         match self {
-            Value::Ascii(_) => 0,
+            Value::Ascii(_) | Value::AsciiBytes(_) => 0,
             _ => self.count(),
         }
     }
 
-    /// Text for ASCII values (trimmed of trailing NULs / spaces); `Byte`/`Undefined` are decoded as UTF-8 (lossy)
-    /// up to the first NUL, which covers XMP packets and UCS-less Exif strings.
+    /// Display text only: raw ASCII, `Byte` and `Undefined` are decoded lossily up to
+    /// the first NUL. This never changes the retained bytes used by the writer.
     pub fn as_str(&self) -> Option<String> {
         match self {
             Value::Ascii(s) => Some(s.trim_end_matches([' ', '\0']).to_string()),
-            Value::Byte(b) | Value::Undefined(b) => {
+            Value::Byte(b) | Value::Undefined(b) | Value::AsciiBytes(b) => {
                 let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
                 Some(String::from_utf8_lossy(&b[..end]).trim_end().to_string())
             }
@@ -319,10 +322,11 @@ impl Value {
         }
     }
 
-    /// Raw bytes for `Byte` / `Undefined` / `SByte` / `Ascii`.
+    /// Bytes for `Byte`, `Undefined`, `AsciiBytes` and the text of canonical `Ascii`.
+    /// `AsciiBytes` includes every original terminator; `Ascii` has an implicit final NUL.
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
-            Value::Byte(b) | Value::Undefined(b) => Some(b),
+            Value::Byte(b) | Value::Undefined(b) | Value::AsciiBytes(b) => Some(b),
             Value::Ascii(s) => Some(s.as_bytes()),
             _ => None,
         }

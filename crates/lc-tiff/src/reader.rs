@@ -216,8 +216,11 @@ pub(crate) fn decode(o: ByteOrder, typ: FieldType, b: &[u8]) -> Value {
         FieldType::Byte => Value::Byte(b.to_vec()),
         FieldType::Undefined => Value::Undefined(b.to_vec()),
         FieldType::Ascii => {
-            let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
-            Value::Ascii(String::from_utf8_lossy(&b[..end]).into_owned())
+            // Keep the convenient text variant only when it can reproduce every byte.
+            match b.strip_suffix(&[0]).filter(|text| !text.contains(&0)).and_then(|text| std::str::from_utf8(text).ok()) {
+                Some(text) => Value::Ascii(text.to_owned()),
+                None => Value::AsciiBytes(b.to_vec()),
+            }
         }
         FieldType::SByte => Value::SByte(b.iter().map(|&x| x as i8).collect()),
         FieldType::Short => Value::Short(b.as_chunks::<2>().0.iter().map(|c| o.u16(arr(c))).collect()),

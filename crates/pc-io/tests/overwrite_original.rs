@@ -161,3 +161,269 @@ fn ds2_overwrite_psd_retains_merged_alpha_and_refuses_damaged_channels() {
         assert!(photocraft_io::export_over_original(&document, &bytes, 85).unwrap_err().to_string().contains("damaged originals"));
     }
 }
+
+// Fixed-offset Exif fixture: its opaque MakerNote holds an absolute TIFF-relative
+// pointer into a private tail. Rebuilding or shifting the IFDs would corrupt it.
+fn overwrite_geometry_exif(little: bool) -> Vec<u8> {
+    fn put(b: &mut [u8], at: usize, n: usize, value: u32, little: bool) {
+        let raw = if little { value.to_le_bytes() } else { value.to_be_bytes() };
+        b[at..at + n].copy_from_slice(if little { &raw[..n] } else { &raw[4 - n..] });
+    }
+    fn entry(b: &mut [u8], at: usize, tag: u16, typ: u16, count: u32, value: u32, little: bool) {
+        put(b, at, 2, tag.into(), little);
+        put(b, at + 2, 2, typ.into(), little);
+        put(b, at + 4, 4, count, little);
+        put(b, at + 8, if typ == 3 && count == 1 { 2 } else { 4 }, value, little);
+    }
+    let mut exif = vec![0; 143];
+    exif[..2].copy_from_slice(if little { b"II" } else { b"MM" });
+    put(&mut exif, 2, 2, 42, little);
+    put(&mut exif, 4, 4, 8, little);
+    put(&mut exif, 8, 2, 5, little);
+    entry(&mut exif, 10, 256, 3, 1, 12, little);
+    entry(&mut exif, 22, 257, 4, 1, 8, little);
+    entry(&mut exif, 34, 274, 3, 1, 6, little);
+    entry(&mut exif, 46, 271, 2, 7, 128, little);
+    entry(&mut exif, 58, 34665, 4, 1, 74, little);
+    put(&mut exif, 74, 2, 3, little);
+    entry(&mut exif, 76, 40962, 3, 1, 12, little);
+    entry(&mut exif, 88, 40963, 4, 1, 8, little);
+    entry(&mut exif, 100, 37500, 7, 12, 116, little);
+    exif[116..120].copy_from_slice(b"NOTE");
+    put(&mut exif, 120, 4, 135, little);
+    exif[124..128].copy_from_slice(&[0xfa, 0xce, 0x80, 0]);
+    exif[128..135].copy_from_slice(b"Camera\0");
+    exif[135..].copy_from_slice(&[0xde, 0xad, 0, 0xbe, 0xef, 0x80, 0xff, 0]);
+    exif
+}
+
+fn jpeg_with_metadata(jpeg: &[u8], records: &[(u8, &[u8])]) -> Vec<u8> {
+    let mut out = vec![0xff, 0xd8];
+    for &(marker, payload) in records {
+        out.extend_from_slice(&[0xff, marker]);
+        out.extend_from_slice(&u16::try_from(payload.len() + 2).unwrap().to_be_bytes());
+        out.extend_from_slice(payload);
+    }
+    out.extend_from_slice(&jpeg[2..]);
+    out
+}
+
+#[test]
+fn overwrite_resized_jpeg_updates_geometry_without_relocating_opaque_metadata() {
+    let source = Image::from_u8(12, 8, ChannelLayout::Rgb, vec![80; 12 * 8 * 3]).unwrap();
+    let jpeg = photocraft_codecs::encode(&source, Format::Jpeg, &EncodeOptions::default()).unwrap();
+    let replacement = Image::from_u8(3, 2, ChannelLayout::Rgb, vec![160; 3 * 2 * 3]).unwrap();
+    let png = photocraft_codecs::encode(&replacement, Format::Png, &EncodeOptions::default()).unwrap();
+    let doc = photocraft_io::import("resized.png", &png).unwrap().document;
+    let xmp = concat!(
+        "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>",
+        "<r:Description xmlns:t='http://ns.adobe.com/tiff/1.0/' xmlns:e='http://ns.adobe.com/exif/1.0/' ",
+        "xmlns:f='urn:foreign' f:Exact = 'untouched &amp; opaque' t:Orientation='6' t:ImageWidth='12' e:PixelYDimension='8'>",
+        "<t:ImageLength>8</t:ImageLength><e:PixelXDimension>12</e:PixelXDimension>",
+        "<f:History><r:Seq><r:li>original history</r:li></r:Seq></f:History></r:Description></r:RDF>   "
+    );
+    let expected_xmp = xmp
+        .replace("t:Orientation='6'", "t:Orientation='1'")
+        .replace("t:ImageWidth='12'", "t:ImageWidth='3'")
+        .replace("e:PixelYDimension='8'", "e:PixelYDimension='2'")
+        .replace("<t:ImageLength>8", "<t:ImageLength>2")
+        .replace("<e:PixelXDimension>12", "<e:PixelXDimension>3");
+    let mut xmp_payload = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+    xmp_payload.extend_from_slice(xmp.as_bytes());
+    for little in [true, false] {
+        let exif = overwrite_geometry_exif(little);
+        let mut exif_payload = b"Exif\0\0".to_vec();
+        exif_payload.extend_from_slice(&exif);
+        let iptc = b"Photoshop 3.0\0opaque IPTC \xff\x80";
+        let private = b"camera-private\0\xff\x91\0\x05";
+        let original = jpeg_with_metadata(&jpeg, &[(0xe1, &exif_payload), (0xe1, &xmp_payload), (0xed, iptc), (0xef, private)]);
+        let mut expected_exif = photocraft_codecs::upright_exif(&exif).into_owned();
+        for (at, size, value) in [(18, 2, 3u32), (30, 4, 2), (84, 2, 3), (96, 4, 2)] {
+            let raw = if little { value.to_le_bytes() } else { value.to_be_bytes() };
+            expected_exif[at..at + size].copy_from_slice(if little { &raw[..size] } else { &raw[4 - size..] });
+        }
+        let mut saved = original;
+        for _ in 0..2 {
+            saved = photocraft_io::export_over_original(&doc, &saved, 90).unwrap().bytes;
+            let decoded = photocraft_codecs::decode(&saved).unwrap();
+            assert_eq!(decoded.dimensions(), (3, 2), "encoded SOF must match the replacement");
+            let embedded = lightcraft_meta::jpeg_segments(&saved);
+            let got = embedded.exif.unwrap();
+            assert_eq!(got, expected_exif, "every byte outside geometry stays at its original offset");
+            assert_eq!(photocraft_codecs::exif_orientation(&got), 1);
+            let metadata = lightcraft_meta::read_exif(&got);
+            assert_eq!((metadata.width, metadata.height), (Some(3), Some(2)));
+            assert_eq!(metadata.make.as_deref(), Some("Camera"));
+            let pointer: [u8; 4] = got[120..124].try_into().unwrap();
+            let pointer = if little { u32::from_le_bytes(pointer) } else { u32::from_be_bytes(pointer) } as usize;
+            assert_eq!(&got[pointer..pointer + 8], &exif[135..]);
+            assert_eq!(embedded.xmp.as_deref(), Some(expected_xmp.as_str()));
+            for (marker, payload) in [(0xed, iptc.as_slice()), (0xef, private.as_slice())] {
+                let record = jpeg_with_metadata(&[0xff, 0xd8], &[(marker, payload)]);
+                assert!(saved.windows(record.len() - 2).any(|bytes| bytes == &record[2..]));
+            }
+        }
+    }
+}
+
+#[test]
+fn overwrite_jpeg_refuses_unreadable_geometry_metadata() {
+    let image = Image::from_u8(3, 2, ChannelLayout::Rgb, vec![100; 18]).unwrap();
+    let jpeg = photocraft_codecs::encode(&image, Format::Jpeg, &EncodeOptions::default()).unwrap();
+    let png = photocraft_codecs::encode(&image, Format::Png, &EncodeOptions::default()).unwrap();
+    let doc = photocraft_io::import("replacement.png", &png).unwrap().document;
+    let mut exif = overwrite_geometry_exif(true);
+    exif[66..70].copy_from_slice(&u32::MAX.to_le_bytes());
+    let mut exif_payload = b"Exif\0\0".to_vec();
+    exif_payload.extend_from_slice(&exif);
+    let original = jpeg_with_metadata(&jpeg, &[(0xe1, &exif_payload)]);
+    let before = original.clone();
+    assert!(photocraft_io::export_over_original(&doc, &original, 90).is_err());
+    assert_eq!(original, before);
+    let packet = b"http://ns.adobe.com/xap/1.0/\0<broken>";
+    let original = jpeg_with_metadata(&jpeg, &[(0xe1, packet)]);
+    assert!(photocraft_io::export_over_original(&doc, &original, 90).is_err());
+}
+
+const EXTENDED_XMP_HEADER: &[u8] = b"http://ns.adobe.com/xmp/extension/\0";
+// Independently generated with Python hashlib.md5, not the production GUID routine.
+const EXTENDED_OLD_GUID: &str = "A4AB635057D3BDE49D8FDAD7B888BC32";
+const EXTENDED_NEW_GUID: &str = "1C1A85B3C7F85F31F24FF5B1CCADE1C3";
+
+fn extended_geometry_fixture() -> (String, String, Vec<Vec<u8>>) {
+    let packet = format!(
+        "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:t='http://ns.adobe.com/tiff/1.0/' xmlns:e='http://ns.adobe.com/exif/1.0/' xmlns:f='urn:foreign' t:Orientation='6' e:PixelXDimension='12'><t:ImageLength>8</t:ImageLength><f:Data>{}</f:Data></r:Description></r:RDF>",
+        "z".repeat(70000)
+    );
+    assert_eq!(packet.len(), 70292);
+    let main = format!(
+        "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:n='http://ns.adobe.com/xmp/note/' xmlns:f='urn:foreign' n:HasExtendedXMP='{EXTENDED_OLD_GUID}' f:UnrelatedGuid='{EXTENDED_OLD_GUID}'/></r:RDF>"
+    );
+    // Deliberately reverse two differently sized chunks to exercise reassembly by offset.
+    let mut chunks = Vec::new();
+    for (offset, data) in [(30000u32, &packet.as_bytes()[30000..]), (0, &packet.as_bytes()[..30000])] {
+        let mut chunk = EXTENDED_XMP_HEADER.to_vec();
+        chunk.extend_from_slice(EXTENDED_OLD_GUID.as_bytes());
+        chunk.extend_from_slice(&(packet.len() as u32).to_be_bytes());
+        chunk.extend_from_slice(&offset.to_be_bytes());
+        chunk.extend_from_slice(data);
+        chunks.push(chunk);
+    }
+    (packet, main, chunks)
+}
+
+#[test]
+fn overwrite_resized_jpeg_rechunks_extended_xmp_with_coherent_content_guid() {
+    let image = Image::from_u8(12, 8, ChannelLayout::Rgb, vec![80; 12 * 8 * 3]).unwrap();
+    let jpeg = photocraft_codecs::encode(&image, Format::Jpeg, &EncodeOptions::default()).unwrap();
+    let replacement = Image::from_u8(3, 2, ChannelLayout::Rgb, vec![160; 18]).unwrap();
+    let png = photocraft_codecs::encode(&replacement, Format::Png, &EncodeOptions::default()).unwrap();
+    let doc = photocraft_io::import("resized.png", &png).unwrap().document;
+    let (packet, main, chunks) = extended_geometry_fixture();
+    let expected = packet
+        .replace("t:Orientation='6'", "t:Orientation='1'")
+        .replace("e:PixelXDimension='12'", "e:PixelXDimension='3'")
+        .replace("<t:ImageLength>8", "<t:ImageLength>2");
+    let expected_main = main.replace(&format!("n:HasExtendedXMP='{EXTENDED_OLD_GUID}'"), &format!("n:HasExtendedXMP='{EXTENDED_NEW_GUID}'"));
+    let mut main_payload = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+    main_payload.extend_from_slice(main.as_bytes());
+    let mut saved = jpeg_with_metadata(&jpeg, &[(0xe1, &main_payload), (0xe1, &chunks[0]), (0xe1, &chunks[1])]);
+    for _ in 0..2 {
+        saved = photocraft_io::export_over_original(&doc, &saved, 90).unwrap().bytes;
+        assert_eq!(photocraft_codecs::decode(&saved).unwrap().dimensions(), (3, 2));
+        assert_eq!(lightcraft_meta::jpeg_segments(&saved).xmp.as_deref(), Some(expected_main.as_str()));
+        // Independently walk JPEG markers and reconstruct the Extended XMP; do not
+        // use the production reassembler or GUID generator as the expected oracle.
+        let mut reconstructed = Vec::new();
+        let mut at = 2;
+        let mut count = 0;
+        while saved[at + 1] != 0xda {
+            assert_eq!(saved[at], 0xff);
+            let len = u16::from_be_bytes([saved[at + 2], saved[at + 3]]) as usize;
+            assert!(len >= 2);
+            if saved[at + 1] == 0xe1
+                && let Some(payload) = saved[at + 4..at + 2 + len].strip_prefix(EXTENDED_XMP_HEADER)
+            {
+                assert_eq!(&payload[..32], EXTENDED_NEW_GUID.as_bytes());
+                assert_eq!(u32::from_be_bytes(payload[32..36].try_into().unwrap()) as usize, expected.len());
+                assert_eq!(u32::from_be_bytes(payload[36..40].try_into().unwrap()) as usize, reconstructed.len());
+                reconstructed.extend_from_slice(&payload[40..]);
+                count += 1;
+            }
+            at += 2 + len;
+        }
+        assert_eq!(count, 2);
+        assert_eq!(reconstructed, expected.as_bytes(), "foreign text must remain byte-exact across rechunking");
+    }
+}
+
+#[test]
+fn overwrite_jpeg_rejects_incoherent_or_oversized_extended_xmp() {
+    let image = Image::from_u8(3, 2, ChannelLayout::Rgb, vec![100; 18]).unwrap();
+    let jpeg = photocraft_codecs::encode(&image, Format::Jpeg, &EncodeOptions::default()).unwrap();
+    let png = photocraft_codecs::encode(&image, Format::Png, &EncodeOptions::default()).unwrap();
+    let doc = photocraft_io::import("replacement.png", &png).unwrap().document;
+    let (_, main, chunks) = extended_geometry_fixture();
+    let mut main_payload = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+    main_payload.extend_from_slice(main.as_bytes());
+    let h = EXTENDED_XMP_HEADER.len();
+    for case in 0..8 {
+        let mut parts = chunks.clone();
+        let mut main = main_payload.clone();
+        match case {
+            0 => {
+                parts.pop();
+            } // missing chunk
+            1 => parts[0][h + 36..h + 40].copy_from_slice(&29999u32.to_be_bytes()), // overlap
+            2 => parts[0][h + 36..h + 40].copy_from_slice(&30001u32.to_be_bytes()), // gap/range
+            3 => parts[0][h + 32..h + 36].copy_from_slice(&u32::MAX.to_be_bytes()), // allocation budget
+            4 => parts[0][h] = b'0',                                                // conflicting chunk GUIDs
+            5 => {
+                let last = parts[0].len() - 1;
+                parts[0][last] = b'!';
+            } // content/GUID mismatch
+            6 => {
+                main.clear();
+                main.extend_from_slice(b"http://ns.adobe.com/xap/1.0/\0<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'/>");
+            } // missing link
+            7 => {
+                parts.push(parts[0].clone());
+            }        // repeated chunk
+            _ => unreachable!(),
+        }
+        let mut records = vec![(0xe1, main.as_slice())];
+        records.extend(parts.iter().map(|part| (0xe1, part.as_slice())));
+        let original = jpeg_with_metadata(&jpeg, &records);
+        assert!(photocraft_io::export_over_original(&doc, &original, 90).is_err(), "case {case}");
+    }
+}
+
+#[test]
+fn overwrite_jpeg_accepts_xml_semantic_extended_guid_links_and_rejects_missing_chunks() {
+    let image = Image::from_u8(3, 2, ChannelLayout::Rgb, vec![100; 18]).unwrap();
+    let jpeg = photocraft_codecs::encode(&image, Format::Jpeg, &EncodeOptions::default()).unwrap();
+    let png = photocraft_codecs::encode(&image, Format::Png, &EncodeOptions::default()).unwrap();
+    let doc = photocraft_io::import("replacement.png", &png).unwrap().document;
+    let (_, main, chunks) = extended_geometry_fixture();
+    let encoded_guid = EXTENDED_OLD_GUID.replacen('A', "&#x41;", 1);
+    let escaped = main
+        .replace("http://ns.adobe.com/xmp/note/", "http://ns.adobe.com/xmp/note&#x2F;")
+        .replace(&format!("n:HasExtendedXMP='{EXTENDED_OLD_GUID}'"), &format!("n:HasExtendedXMP='{encoded_guid}'"));
+    let no_attribute = main.replace(&format!(" n:HasExtendedXMP='{EXTENDED_OLD_GUID}'"), "");
+    let cdata = no_attribute.replace("/></r:RDF>", &format!("><n:HasExtendedXMP><![CDATA[{EXTENDED_OLD_GUID}]]></n:HasExtendedXMP></r:Description></r:RDF>"));
+    let entity_text = no_attribute.replace("/></r:RDF>", &format!("><n:HasExtendedXMP>{encoded_guid}</n:HasExtendedXMP></r:Description></r:RDF>"));
+    for (main, encoded_link) in [(escaped, encoded_guid.clone()), (cdata, format!("<![CDATA[{EXTENDED_OLD_GUID}]]>")), (entity_text, encoded_guid)] {
+        let mut payload = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+        payload.extend_from_slice(main.as_bytes());
+        let original = jpeg_with_metadata(&jpeg, &[(0xe1, &payload), (0xe1, &chunks[0]), (0xe1, &chunks[1])]);
+        let saved = photocraft_io::export_over_original(&doc, &original, 90).unwrap();
+        assert_eq!(lightcraft_meta::jpeg_segments(&saved.bytes).xmp.as_deref(), Some(main.replace(&encoded_link, EXTENDED_NEW_GUID).as_str()));
+        let dangling = jpeg_with_metadata(&jpeg, &[(0xe1, &payload)]);
+        let error = photocraft_io::export_over_original(&doc, &dangling, 90).unwrap_err().to_string();
+        assert!(error.contains("missing Extended XMP chunks"), "{error}");
+    }
+    let foreign = b"http://ns.adobe.com/xap/1.0/\0<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:n='urn:foreign' n:HasExtendedXMP='foreign text'/></r:RDF>";
+    let original = jpeg_with_metadata(&jpeg, &[(0xe1, foreign)]);
+    let saved = photocraft_io::export_over_original(&doc, &original, 90).unwrap();
+    assert_eq!(lightcraft_meta::jpeg_segments(&saved.bytes).xmp, lightcraft_meta::jpeg_segments(&original).xmp);
+}
