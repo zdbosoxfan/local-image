@@ -796,9 +796,28 @@ fn add_saved_file(s: &mut lightcraft_engine::Session, path: &str, original: Opti
         return Ok(Some(LibraryUpdate::Reloaded(id)));
     }
     let Some(original) = original.map(lightcraft_catalog::PhotoId).filter(|id| s.catalog.photo(*id).is_some()) else { return Ok(None) };
-    let r = s.execute("library.import", &serde_json::json!({ "paths": [path] })).map_err(|e| e.to_string())?;
-    let Some(id) = r["imported"].get(0).and_then(serde_json::Value::as_u64).map(lightcraft_catalog::PhotoId) else {
-        let why = r["failed"][0][1].as_str().or(r["duplicates"][0]["reason"].as_str().map(|_| "the Library already has the same picture"));
+    let source = s.catalog.photo(original).ok_or("the source photo is missing")?;
+    let options = lightcraft_engine::import::ImportOptions {
+        inherited_organization: Some(lightcraft_engine::import::InheritedOrganization {
+            rating: source.rating,
+            flag: source.flag,
+            label: source.label,
+            keywords: source.meta.keywords.clone(),
+        }),
+        ..Default::default()
+    };
+    // Keep the command boundary's durable save and automatic XMP writes, just
+    // as ordinary and background imports do; metadata is already in AddPhoto.
+    let report = s
+        .execute_fn("library.import", |session| {
+            let report = lightcraft_engine::import::import_with(session, &[path.to_string()], &options)?;
+            serde_json::to_value(report).map_err(|error| lightcraft_engine::EngineError::Other(error.to_string()))
+        })
+        .map_err(|error| error.to_string())?;
+    let Some(id) = report["imported"].get(0).and_then(serde_json::Value::as_u64).map(lightcraft_catalog::PhotoId) else {
+        let why = report["failed"][0][1]
+            .as_str()
+            .or_else(|| report["duplicates"].as_array().filter(|items| !items.is_empty()).map(|_| "the Library already has the same picture"));
         return Err(why.unwrap_or("not a photo it reads").to_string());
     };
     s.execute("stack.group", &serde_json::json!({ "ids": [id.0, original.0], "top": id.0, "collapsed": false })).map_err(|e| e.to_string())?;
@@ -2593,6 +2612,50 @@ mod tests {
         assert!(!h.host.editor.has_unsaved());
         assert_eq!(read().layers.iter().find_map(|layer| layer.generation.as_ref()), Some(&updated));
         drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn derived_edit_inherits_organization_without_reusing_source_develop_or_dimensions() {
+        let (dir, path, mut lib, original) = library_with_photo("derived-organization");
+        lib.session.execute("photo.rate", &json!({"ids":[original.0],"rating":4})).unwrap();
+        lib.session.execute("photo.pick", &json!({"ids":[original.0]})).unwrap();
+        lib.session.execute("photo.label", &json!({"ids":[original.0],"label":"blue"})).unwrap();
+        lib.session.execute("photo.setMeta", &json!({"ids":[original.0],"keywords":["Places|Coast","Portfolio"]})).unwrap();
+        lib.session.execute("develop.set", &json!({"control":"light.exposure","value":1.5})).unwrap();
+        // Finish the source edit's normal automatic version before comparing
+        // the derivative handoff; leaving an edited photo records that version.
+        lib.session.auto_version(original);
+        let original_bytes = std::fs::read(&path).unwrap();
+        let before = lib.session.catalog.photo(original).unwrap().clone();
+        lib.session.xmp.auto_write = true;
+        let saved = dir.join("derivative.png");
+        image::RgbaImage::from_pixel(7, 5, image::Rgba([100u8, 60, 30, 255])).save(&saved).unwrap();
+        let Some(LibraryUpdate::Added { id, .. }) = add_saved_file(&mut lib.session, &saved.to_string_lossy(), Some(original.0), false).unwrap() else {
+            panic!("new derivative")
+        };
+        let sidecar = lightcraft_engine::sidecar::sidecar_path(&saved.to_string_lossy(), lib.session.sidecar_naming(id));
+        let metadata = lightcraft_engine::sidecar::parse_sidecar(&std::fs::read_to_string(sidecar).unwrap(), false).unwrap();
+        assert_eq!(metadata.rating, Some(4));
+        assert_eq!(metadata.flag, Some(lightcraft_catalog::Flag::Pick));
+        let derived = lib.session.catalog.photo(id).unwrap();
+        assert_eq!((derived.rating, derived.flag, derived.label), (before.rating, before.flag, before.label));
+        assert_eq!(derived.meta.keywords, before.meta.keywords);
+        assert_eq!((derived.width, derived.height), (7, 5));
+        assert_ne!(derived.source, before.source);
+        assert_ne!(derived.develop, before.develop);
+        assert!(lib.session.catalog.photo(original).unwrap() == &before, "source catalog record changed");
+        lib.session.execute("library.filter", &json!({"rating":4,"flag":"pick","label":"blue"})).unwrap();
+        assert!(lib.session.visible_cloned().contains(&id), "the saved edit remains visible in the source's rating/flag filters");
+        // A deliberate later rating on the edit belongs to the edit, not its source.
+        lib.session.execute("photo.rate", &json!({"ids":[id.0],"rating":2})).unwrap();
+        lib.session.execute("photo.unflag", &json!({"ids":[id.0]})).unwrap();
+        assert_eq!(add_saved_file(&mut lib.session, &saved.to_string_lossy(), Some(original.0), false).unwrap(), Some(LibraryUpdate::Reloaded(id)));
+        assert_eq!(lib.session.catalog.photo(id).unwrap().rating, 2);
+        assert_eq!(lib.session.catalog.photo(id).unwrap().flag, lightcraft_catalog::Flag::None);
+        assert!(lib.session.catalog.photo(original).unwrap() == &before, "source catalog record changed");
+        drop(lib);
+        assert_eq!(std::fs::read(&path).unwrap(), original_bytes);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

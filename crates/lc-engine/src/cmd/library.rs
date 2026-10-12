@@ -67,6 +67,7 @@ pub fn import_params(s: &Session, p: &Value) -> Result<ImportRequest> {
         return Err(bad("library.import", format!("unknown metadata preset `{n}`")));
     }
     let opts = crate::import::ImportOptions {
+        inherited_organization: None,
         mode,
         preset,
         keywords: strs(p, "keywords"),

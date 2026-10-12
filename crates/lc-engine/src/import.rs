@@ -48,9 +48,22 @@ pub enum ImportMode {
     Move,
 }
 
+/// Organisational metadata inherited by a newly saved derivative. Kept separate
+/// from technical metadata and Develop settings probed from the new file.
+#[derive(Clone, Debug)]
+pub struct InheritedOrganization {
+    pub rating: u8,
+    pub flag: lightcraft_catalog::Flag,
+    pub label: Option<lightcraft_catalog::ColorLabel>,
+    pub keywords: Vec<String>,
+}
+
 /// What an import does besides adding the photos.
 #[derive(Clone, Debug, Default)]
 pub struct ImportOptions {
+    /// Internal editor-save handoff; applied only to newly added records, after
+    /// sidecars/import defaults and within the same atomic AddPhoto batch.
+    pub inherited_organization: Option<InheritedOrganization>,
     pub mode: ImportMode,
     /// Applied to every imported photo (one History entry).
     pub preset: Option<lightcraft_develop::Preset>,
@@ -898,6 +911,16 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                         p.meta.keywords.push(k);
                     }
                 }
+                if let Some(inherited) = &opts.inherited_organization {
+                    p.rating = inherited.rating.min(5);
+                    p.flag = inherited.flag;
+                    p.label = inherited.label;
+                    for keyword in &inherited.keywords {
+                        if !p.meta.keywords.iter().any(|existing| existing.eq_ignore_ascii_case(keyword)) {
+                            p.meta.keywords.push(keyword.clone());
+                        }
+                    }
+                }
                 if let Some(preset) = &opts.preset {
                     let d = std::sync::Arc::new(preset.apply(&p.develop, 1.0));
                     let label = format!("Preset: {}", preset.name);
@@ -922,6 +945,9 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
         // nothing was catalogued: take the moves back (their sources were never touched)
         placed.iter().for_each(crate::import_move::rollback);
         return Err(e);
+    }
+    if opts.inherited_organization.is_some() && s.xmp.auto_write {
+        s.auto_write_sidecars_for(&report.imported.iter().copied().map(PhotoId).collect::<Vec<_>>());
     }
     if !placed.is_empty() {
         finish_moves(s, placed, log0, &mut report);

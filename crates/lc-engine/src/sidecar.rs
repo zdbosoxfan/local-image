@@ -512,11 +512,17 @@ impl Session {
     pub(crate) fn auto_write_sidecars(&self, ops: &[Op]) {
         let mut ids = Vec::new();
         ops.iter().for_each(|o| op_photos(o, &mut ids));
+        self.auto_write_sidecars_for(&ids);
+    }
+
+    /// New derivatives inherit user metadata inside AddPhoto, rather than later
+    /// SetMeta operations. Use the same auto-write naming and error policy.
+    pub(crate) fn auto_write_sidecars_for(&self, ids: &[PhotoId]) {
         if ids.is_empty() {
             return;
         }
         let owners = StemOwners::of(&self.catalog);
-        for id in ids {
+        for &id in ids {
             if !self.is_ephemeral(id)
                 && self.catalog.photo(id).is_some_and(|p| file_path(p).is_some() && p.copy_of.is_none())
                 && let Err(e) = self.save_sidecar_with(id, &owners)
