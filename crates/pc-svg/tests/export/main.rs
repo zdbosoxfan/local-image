@@ -617,3 +617,5 @@ fn svg_cropped_fallback_preserves_rotated_warped_text() {
     assert_eq!(pixels.as_raw(), &photocraft_compose::render(&doc, crop).to_rgba8().pixels);
     assert_raster_oracle_svg(&doc, &source, "cropped rotated warped text");
 }
+
+mod blends;

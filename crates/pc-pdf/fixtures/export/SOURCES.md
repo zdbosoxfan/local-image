@@ -100,3 +100,23 @@ comparison at the same threshold; absence of 22 is a missing gate, not a skip
 or structural-only success. No interactive performance claim is made.
 The original app fixture is a 256×256 white RGB/U8 canvas at 96 DPI with a
 128×128 blue rectangle at (40,40), moved by a real pointer drag by (20,10).
+
+
+## Native layer blend retention (FS008)
+
+Synthetic GPL-3.0-or-later fixtures in `tests/export/blends.rs` retain twenty
+small vector rectangles, their vector backdrop and a text layer beneath an
+overlapping translucent blended shape. The 14 admitted non-Normal standard
+modes are independently rendered with Poppler at native document DPI,
+using the existing unchanged pixel/coverage thresholds. Structural assertions
+require retained paths/type and native blend resources/styles, with no images
+for vector-only cases. Additional fixtures distinguish isolated and pass-through
+groups (including group fill opacity), and masked raster sources with Multiply
+and Screen whose blend must apply exactly once against the original backdrop.
+
+Negative controls retain warned whole-composition rasterization for Photoshop
+Soft Light, Linear Dodge, Blend If, an adjustment, clipped stacking and a blended
+layer with effects. Soft Light is deliberately excluded from native mappings:
+the compositor uses Photoshop's square-root variant whereas CSS/PDF specifies
+a different low-backdrop branch. Unsupported effects/artboard blend interactions
+remain conservative; this change does not claim portable adjustment semantics.

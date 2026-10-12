@@ -134,6 +134,30 @@ pub fn page_scopes(doc: &Document, scope: &ExportScope, opts: &ExportOptions) ->
     }
     Ok(opts.artboards.iter().copied().map(ExportScope::Artboard).collect())
 }
+// The compositor uses Photoshop's Soft Light variant, not PDF's low-tone
+// polynomial. Unsupported/nonstandard modes remain whole-composition fallbacks.
+fn native_blend(mode: BlendMode) -> Option<krilla::blend::BlendMode> {
+    use krilla::blend::BlendMode as B;
+    Some(match mode {
+        BlendMode::Normal | BlendMode::PassThrough => B::Normal,
+        BlendMode::Multiply => B::Multiply,
+        BlendMode::Screen => B::Screen,
+        BlendMode::Overlay => B::Overlay,
+        BlendMode::Darken => B::Darken,
+        BlendMode::Lighten => B::Lighten,
+        BlendMode::ColorDodge => B::ColorDodge,
+        BlendMode::ColorBurn => B::ColorBurn,
+        BlendMode::HardLight => B::HardLight,
+        BlendMode::Difference => B::Difference,
+        BlendMode::Exclusion => B::Exclusion,
+        BlendMode::Hue => B::Hue,
+        BlendMode::Saturation => B::Saturation,
+        BlendMode::Color => B::Color,
+        BlendMode::Luminosity => B::Luminosity,
+        _ => return None,
+    })
+}
+
 fn invalid(message: impl Into<String>) -> ExportError {
     ExportError::Invalid(message.into())
 }
@@ -454,14 +478,22 @@ impl Writer<'_, '_, '_> {
     }
     fn scan(&mut self, layers: &[Layer]) -> bool {
         layers.iter().filter(|l| l.visible).any(|l| {
-            let unsupported =
-                l.clipped || !matches!(l.blend, BlendMode::Normal | BlendMode::PassThrough) || l.excluded_channels != 0 || l.blend_if != Default::default();
+            let unsupported = l.clipped
+                || native_blend(l.blend).is_none()
+                || !matches!(l.blend, BlendMode::Normal | BlendMode::PassThrough) && (photocraft_compose::effects::has_effects(l) || l.artboard().is_some())
+                || l.excluded_channels != 0
+                || l.blend_if != Default::default();
             match &l.content {
                 LayerContent::Adjustment(_) => true,
                 LayerContent::Group(g) => {
                     self.scan(&g.children)
                         || unsupported
-                        || l.blend == BlendMode::PassThrough && (l.opacity != 1.0 || l.mask.as_ref().is_some_and(|m| m.enabled))
+                        || l.blend == BlendMode::PassThrough
+                            && (l.opacity != 1.0
+                                || l.mask.as_ref().is_some_and(|m| m.enabled)
+                                || l.vector_mask.as_ref().is_some_and(|m| m.enabled)
+                                || l.vector.clip.is_some()
+                                || photocraft_compose::effects::has_effects(l))
                 }
                 _ => unsupported,
             }
@@ -514,15 +546,23 @@ impl Writer<'_, '_, '_> {
             if self.fallback(l) {
                 let rect = layer_bounds(std::slice::from_ref(l), self.doc, self.cx)?.intersect(&self.rect);
                 if !rect.is_empty() {
-                    self.raster(s, std::slice::from_ref(l), rect)?;
+                    let mut source = l.clone();
+                    source.blend = BlendMode::Normal;
+                    s.push_blend_mode(native_blend(l.blend).ok_or_else(|| invalid("unsupported blend reached writer"))?);
+                    let result = self.raster(s, std::slice::from_ref(&source), rect);
+                    s.pop();
+                    result?;
                 }
                 continue;
             }
             // Balance every krilla push even on cancellation/error; its Drop checks this.
-            let mut pushes = 0;
+            let mut pushes = 1;
+            s.push_blend_mode(native_blend(l.blend).ok_or_else(|| invalid("unsupported blend reached writer"))?);
             s.push_opacity(norm(l.opacity));
             pushes += 1;
-            if matches!(&l.content, LayerContent::Group(_)) && l.blend != BlendMode::PassThrough {
+            if !matches!(l.blend, BlendMode::Normal | BlendMode::PassThrough)
+                || matches!(&l.content, LayerContent::Group(_)) && (l.blend != BlendMode::PassThrough || l.fill_opacity < 1.0)
+            {
                 s.push_isolated();
                 pushes += 1;
             }

@@ -134,6 +134,29 @@ pub fn export_with(doc: &Document, scope: &ExportScope, opts: &ExportOptions, cx
     Ok(ExportedVector { bytes: out.into_bytes(), warnings: w.warnings.into_values().collect() })
 }
 
+// Photoshop Soft Light differs from the PDF/CSS low-backdrop polynomial.
+// Keep that and nonstandard modes in the compositor fallback.
+fn native_blend(mode: BlendMode) -> Option<&'static str> {
+    Some(match mode {
+        BlendMode::Normal | BlendMode::PassThrough => "normal",
+        BlendMode::Multiply => "multiply",
+        BlendMode::Screen => "screen",
+        BlendMode::Overlay => "overlay",
+        BlendMode::Darken => "darken",
+        BlendMode::Lighten => "lighten",
+        BlendMode::ColorDodge => "color-dodge",
+        BlendMode::ColorBurn => "color-burn",
+        BlendMode::HardLight => "hard-light",
+        BlendMode::Difference => "difference",
+        BlendMode::Exclusion => "exclusion",
+        BlendMode::Hue => "hue",
+        BlendMode::Saturation => "saturation",
+        BlendMode::Color => "color",
+        BlendMode::Luminosity => "luminosity",
+        _ => return None,
+    })
+}
+
 fn invalid(message: impl Into<String>) -> ExportError {
     ExportError::Invalid(message.into())
 }
@@ -402,7 +425,9 @@ impl Writer<'_, '_, '_> {
         let mut flatten = false;
         for layer in layers.iter().filter(|l| l.visible) {
             if layer.clipped
-                || layer.blend != BlendMode::Normal && layer.blend != BlendMode::PassThrough
+                || native_blend(layer.blend).is_none()
+                || !matches!(layer.blend, BlendMode::Normal | BlendMode::PassThrough)
+                    && (photocraft_compose::effects::has_effects(layer) || layer.artboard().is_some())
                 || layer.excluded_channels != 0
                 || layer.blend_if != Default::default()
             {
@@ -418,7 +443,11 @@ impl Writer<'_, '_, '_> {
             match &layer.content {
                 LayerContent::Group(g) => {
                     if layer.blend == BlendMode::PassThrough
-                        && (layer.opacity != 1.0 || layer.mask.is_some() || layer.effects.items.iter().any(|e| e.enabled()))
+                        && (layer.opacity != 1.0
+                            || layer.mask.is_some()
+                            || layer.vector_mask.as_ref().is_some_and(|m| m.enabled)
+                            || layer.vector.clip.is_some()
+                            || layer.effects.items.iter().any(|e| e.enabled()))
                     {
                         flatten = true;
                     }
@@ -445,11 +474,23 @@ impl Writer<'_, '_, '_> {
             if self.raster_reason(layer) {
                 let rect = layer_bounds(std::slice::from_ref(layer), self.doc, self.cx, true)?.intersect(&self.rect);
                 if !rect.is_empty() {
-                    self.raster(std::slice::from_ref(layer), rect)?;
+                    // Encode source pixels/coverage once; the exported blend sees the
+                    // actual backdrop instead of being baked against transparency.
+                    let mut source = layer.clone();
+                    source.blend = BlendMode::Normal;
+                    let blend = native_blend(layer.blend).ok_or_else(|| invalid("unsupported blend reached writer"))?;
+                    self.line(&format!("<g style=\"mix-blend-mode:{blend}\">"))?;
+                    self.raster(std::slice::from_ref(&source), rect)?;
+                    self.line("</g>")?;
                 }
                 continue;
             }
             let mut attrs = String::new();
+            let blend = native_blend(layer.blend).ok_or_else(|| invalid("unsupported blend reached writer"))?;
+            let isolated = matches!(layer.content, LayerContent::Group(_)) && (layer.blend != BlendMode::PassThrough || layer.fill_opacity < 1.0);
+            if blend != "normal" || isolated {
+                attrs.push_str(&format!(" style=\"mix-blend-mode:{blend}{}\"", if isolated { ";isolation:isolate" } else { "" }));
+            }
             if layer.opacity != 1.0 {
                 attrs.push_str(&format!(" opacity=\"{}\"", self.n(f64::from(layer.opacity))));
             }
@@ -462,6 +503,7 @@ impl Writer<'_, '_, '_> {
                 && layer.vector_mask.is_none()
                 && layer.opacity == 1.0
                 && layer.fill_opacity == 1.0
+                && matches!(layer.blend, BlendMode::Normal | BlendMode::PassThrough)
                 && (shape.fill.is_some() != shape.stroke.is_some())
             {
                 self.label = Some((id, layer.name.clone()));

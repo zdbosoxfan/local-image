@@ -56,7 +56,11 @@ fn render(bytes: &[u8], label: &str, dpi: f32) -> image::RgbImage {
     let result =
         Command::new("pdftoppm").args(["-singlefile", "-png", "-r", &dpi.to_string()]).arg(&file).arg(&prefix).output().expect("Poppler reference is required");
     assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
-    image::open(prefix.with_extension("png")).unwrap().into_rgb8()
+    // Poppler appends the suffix; replacing an extension would strip decimal
+    // fixture labels such as native-group-Multiply-0.75.
+    let mut output = prefix.into_os_string();
+    output.push(".png");
+    image::open(PathBuf::from(output)).unwrap().into_rgb8()
 }
 fn oracle(d: &Document, label: &str) {
     let got = render(&output(d), label, d.resolution_dpi);
@@ -488,3 +492,5 @@ fn review_additional_pdf_selection_of_empty_artboard_keeps_page_and_background()
     assert_eq!(pdf.pages()[0].base_dimensions(), (60., 48.));
     assert_eq!(render(&bytes, "review-empty-board", 96.).get_pixel(40, 32).0, [0, 0, 0]);
 }
+
+mod blends;

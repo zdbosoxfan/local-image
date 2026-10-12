@@ -122,3 +122,23 @@ The rotated warped-text fixture uses bundled default type at 28 pt, a 0.2-radian
 rotation and a 60% arc warp on a 512px canvas. It requires ink beyond unwarped
 bounds, one cropped PNG matching the full warped ink rectangle, exact embedded
 pixels against the original compositor crop, and the same native Inkscape gates.
+
+
+## Native layer blend retention (FS008)
+
+Synthetic GPL-3.0-or-later fixtures in `tests/export/blends.rs` retain twenty
+small vector rectangles, their vector backdrop and a text layer beneath an
+overlapping translucent blended shape. The 14 admitted non-Normal standard
+modes are independently rendered with Inkscape at native 96 dpi (configured as above),
+using the existing unchanged pixel/coverage thresholds. Structural assertions
+require retained paths/type and native blend resources/styles, with no images
+for vector-only cases. Additional fixtures distinguish isolated and pass-through
+groups (including group fill opacity), and masked raster sources with Multiply
+and Screen whose blend must apply exactly once against the original backdrop.
+
+Negative controls retain warned whole-composition rasterization for Photoshop
+Soft Light, Linear Dodge, Blend If, an adjustment, clipped stacking and a blended
+layer with effects. Soft Light is deliberately excluded from native mappings:
+the compositor uses Photoshop's square-root variant whereas CSS/PDF specifies
+a different low-backdrop branch. Unsupported effects/artboard blend interactions
+remain conservative; this change does not claim portable adjustment semantics.
