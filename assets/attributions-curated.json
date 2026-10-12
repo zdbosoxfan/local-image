@@ -70,6 +70,18 @@
             "licenses/model-system-NOTICE.md"
           ],
           "url": "https://github.com/mcmonkeyprojects/SwarmUI"
+        },
+        {
+          "name": "hayro-ccitt bounded decoder adaptation",
+          "version": "0.3.0",
+          "author": "The Hayro Authors",
+          "used_for": "Bounded, cancellable Group 3/4 fax admission before PDF rendering; adapted code is detailed in docs/PORTS.md.",
+          "commit": "4ad1532e1cd719170c4f4baf669f13ec0f406abb",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/hayro-ccitt-MIT.txt"
+          ],
+          "url": "https://github.com/LaurenzV/hayro/tree/4ad1532e1cd719170c4f4baf669f13ec0f406abb/hayro-ccitt"
         }
       ]
     },
@@ -127,7 +139,9 @@
           "name": "FBCNN · JPEG cleanup",
           "used_for": "FBCNN · JPEG cleanup at original resolution; applies on a new layer. Automatic quality-factor prediction; the core node has no quality-factor input.",
           "licence": "Apache-2.0",
-          "licence_files": ["licenses/restoration-fbcnn-LICENSE.txt"],
+          "licence_files": [
+            "licenses/restoration-fbcnn-LICENSE.txt"
+          ],
           "url": "https://github.com/jiaxi-jiang/FBCNN/blob/main/LICENSE",
           "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
         },
@@ -135,7 +149,9 @@
           "name": "SCUNet-real · Scan cleanup",
           "used_for": "SCUNet-real · Scan cleanup at original resolution; applies on a new layer. PSNR-trained real-image cleanup; no GAN weights.",
           "licence": "Apache-2.0",
-          "licence_files": ["licenses/restoration-scunet-LICENSE.txt"],
+          "licence_files": [
+            "licenses/restoration-scunet-LICENSE.txt"
+          ],
           "url": "https://github.com/cszn/SCUNet/blob/main/LICENSE",
           "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
         },
@@ -143,7 +159,9 @@
           "name": "NAFNet-SIDD · Denoise",
           "used_for": "NAFNet-SIDD · Denoise at original resolution; applies on a new layer. SIDD real smartphone denoising, width 64.",
           "licence": "MIT",
-          "licence_files": ["licenses/restoration-nafnet-LICENSE.txt"],
+          "licence_files": [
+            "licenses/restoration-nafnet-LICENSE.txt"
+          ],
           "url": "https://github.com/megvii-research/NAFNet/blob/main/LICENSE",
           "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
         },
@@ -151,7 +169,9 @@
           "name": "DDColor · Colourise",
           "used_for": "Apache-2.0 relicensed Hugging Face tiny weights only, pinned revision e9e7b527709c8aeb2f5e1bf701e72fd468a13baa. Verified FP32 ONNX export runs on-device in Rust through tract; original Lab luminance and alpha are preserved.",
           "licence": "Apache-2.0",
-          "licence_files": ["licenses/restoration-ddcolor-LICENSE.txt"],
+          "licence_files": [
+            "licenses/restoration-ddcolor-LICENSE.txt"
+          ],
           "url": "https://huggingface.co/piddnad/DDColor-models/blob/e9e7b527709c8aeb2f5e1bf701e72fd468a13baa/README.md",
           "ours": "crates/li-seg/src/restoration.rs; crates/pc-ui-egui/src/restoration_ui.rs; scripts/export_restore_models.py"
         },
@@ -159,7 +179,10 @@
           "name": "Microsoft scratch detector · Repair old photo",
           "used_for": "MIT one-channel UNet from the official v1.0 release; verified FP32 ONNX export. Scratch mask reviewed in AI Remove before filling; optional DDColor preview after a successful repair. No dlib or face stage.",
           "licence": "MIT",
-          "licence_files": ["licenses/restoration-scratches-LICENSE.txt", "licenses/restoration-scratches-NOTICE.md"],
+          "licence_files": [
+            "licenses/restoration-scratches-LICENSE.txt",
+            "licenses/restoration-scratches-NOTICE.md"
+          ],
           "url": "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/blob/33875eccf4ebcd3665cf38cc56f3a0ce563d3a9c/LICENSE",
           "ours": "crates/li-seg/src/restoration.rs; crates/pc-ui-egui/src/restoration_ui.rs; scripts/export_restore_models.py"
         }
@@ -282,11 +305,21 @@
           ]
         },
         {
-          "name": "BIZ UDPGothic, BIZ UDMincho, Shippori Mincho (craft-fonts)",
-          "author": "Morisawa Inc.; The Shippori Mincho Project Authors",
-          "used_for": "Japanese UI and Type fallback fonts, embedded only in builds made with craft-fonts (all official releases).",
+          "name": "BIZ UDPGothic, BIZ UDMincho, Shippori Mincho, Noto Sans CJK SC, Noto Sans Arabic and Noto Sans Thai (craft-fonts)",
+          "author": "The BIZ UDGothic and BIZ UDMincho Project Authors (Morisawa); The Shippori Mincho Project Authors; The Noto Project Authors (Adobe, Google and contributors)",
+          "used_for": "Japanese, Simplified Chinese, Arabic and Thai UI/type fallback in desktop builds using the pinned craft-fonts input; all official desktop releases.",
           "licence": "OFL-1.1",
-          "url": "https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md"
+          "url": "https://github.com/storytold/craft-fonts/blob/3d9ab3a132ed0eff457e424226a435a901da30d3/ATTRIBUTION.md",
+          "commit": "3d9ab3a132ed0eff457e424226a435a901da30d3",
+          "licence_files": [
+            "licenses/OFL-shippori-mincho.txt",
+            "licenses/OFL-biz-ud-pgothic.txt",
+            "licenses/OFL-biz-ud-mincho.txt",
+            "licenses/OFL-noto-sans-cjk-sc.txt",
+            "licenses/OFL-noto-sans-arabic.txt",
+            "licenses/OFL-noto-sans-thai.txt",
+            "licenses/craft-fonts-NOTICE.md"
+          ]
         },
         {
           "name": "Original Local Image vector toolbar artwork",

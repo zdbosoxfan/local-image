@@ -134,6 +134,32 @@ fn build_env(cmd: &mut Command) {
     cmd.env("PHOTOCRAFT_BUILD_DATE", format!("{y:04}-{m:02}-{d:02}"));
 }
 
+/// Files displayed by Settings > Attributions must also travel with an unpacked release.
+/// Keep their repository-relative paths so references in notices continue to resolve.
+fn copy_distribution_attributions(stage: &Path) -> Result<()> {
+    let root = root();
+    let canonical_root = root.canonicalize()?;
+    let attribution_file = root.join(attributions::OUTPUT);
+    let attributions: attributions::Attributions = serde_json::from_slice(&std::fs::read(&attribution_file)?)?;
+    attributions::check_licence_files(&root, &attributions)?;
+    let mut files = attributions::referenced_files(&attributions);
+    files.insert(attributions::OUTPUT.into());
+    for relative in files {
+        let relative = Path::new(&relative);
+        if relative.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+            bail!("invalid distribution notice path {}", relative.display());
+        }
+        let source = root.join(relative).canonicalize()?;
+        if !source.starts_with(&canonical_root) || !source.is_file() {
+            bail!("distribution notice is outside source tree: {}", relative.display());
+        }
+        let dest = stage.join(relative);
+        std::fs::create_dir_all(dest.parent().context("notice destination has no parent")?)?;
+        std::fs::copy(source, dest)?;
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------------------------------ Linux
 
 fn package_linux(skip_build: bool) -> Result<()> {
@@ -158,6 +184,7 @@ fn package_linux(skip_build: bool) -> Result<()> {
         std::fs::copy(root().join(f), stage.join(f))?;
     }
     copy_dir(&root().join("licenses"), &stage.join("licenses"))?;
+    copy_distribution_attributions(&stage)?;
     run("local-image-cli --version", Command::new(stage.join("local-image-cli")).arg("--version"))?;
     let out = dist()?.join(format!("{name}.tar.gz"));
     {
@@ -701,6 +728,27 @@ mod tests {
             }]
         );
         assert!(upstream_repo("darktable").is_some() && upstream_repo("nope").is_none());
+    }
+
+    #[test]
+    fn linux_package_includes_every_referenced_attribution_text() {
+        let stage = std::env::temp_dir().join(format!(
+            "li-package-notices-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir(&stage).unwrap();
+        copy_distribution_attributions(&stage).unwrap();
+        let a: attributions::Attributions = serde_json::from_slice(&std::fs::read(stage.join(attributions::OUTPUT)).unwrap()).unwrap();
+        for rel in attributions::referenced_files(&a) {
+            assert_eq!(std::fs::read(stage.join(&rel)).unwrap(), std::fs::read(root().join(&rel)).unwrap(), "{rel}");
+        }
+        for family in ["biz-ud-pgothic", "biz-ud-mincho", "shippori-mincho", "noto-sans-cjk-sc", "noto-sans-arabic", "noto-sans-thai"] {
+            assert!(stage.join(format!("licenses/OFL-{family}.txt")).is_file(), "{family}");
+        }
+        assert!(stage.join("assets/fonts/OFL-Inter.txt").is_file());
+        assert!(stage.join("assets/fonts/OFL-JetBrainsMono.txt").is_file());
+        std::fs::remove_dir_all(stage).unwrap();
     }
 
     #[test]

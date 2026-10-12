@@ -27,8 +27,8 @@ the facebook/sam3 checkpoint only when they choose to (in the app, or by hand), 
 License (https://github.com/facebookresearch/sam3/blob/main/LICENSE), a separate, non-OSI
 licence. See docs/ai-masks.md.
 
-Builds made with craft-fonts (the optional CRAFT_FONTS_DIR build input; all official releases)
-also embed the fonts listed in https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md
-(the Japanese fonts BIZ UDPGothic, BIZ UDMincho and Shippori Mincho; the web build embeds only BIZ
-UDPGothic Regular), under the SIL Open Font License 1.1. Release packages include each font's
-licence as OFL-<family>.txt.
+Desktop builds made with craft-fonts (CRAFT_FONTS_DIR; all official desktop releases) embed
+BIZ UDPGothic, BIZ UDMincho, Shippori Mincho, Noto Sans CJK SC, Noto Sans Arabic and Noto Sans Thai.
+The web build uses BIZ UDPGothic Regular only. These unmodified fonts use the SIL Open Font
+License 1.1. The pinned sources, authors and bundled OFL texts are listed in
+licenses/craft-fonts-NOTICE.md and licenses/OFL-<family>.txt.

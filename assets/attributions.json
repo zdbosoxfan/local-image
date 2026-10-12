@@ -3110,6 +3110,42 @@
           "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/tools/src/catalog.rs"
         },
         {
+          "name": "hayro",
+          "used_for": "Fallible, bounded CCITT Group 3/4 admission.",
+          "upstream": "hayro-ccitt/src/lib.rs",
+          "commit": "4ad1532e1cd719170c4f4baf669f13ec0f406abb",
+          "ours": "crates/pc-pdf/src/import/preflight/ccitt/mod.rs",
+          "licence": "MIT",
+          "url": "https://github.com/LaurenzV/hayro/blob/4ad1532e1cd719170c4f4baf669f13ec0f406abb/hayro-ccitt/src/lib.rs"
+        },
+        {
+          "name": "hayro",
+          "used_for": "Shared work budget and cancellation, including peeks.",
+          "upstream": "hayro-ccitt/src/bit_reader.rs",
+          "commit": "4ad1532e1cd719170c4f4baf669f13ec0f406abb",
+          "ours": "crates/pc-pdf/src/import/preflight/ccitt/bit_reader.rs",
+          "licence": "MIT",
+          "url": "https://github.com/LaurenzV/hayro/blob/4ad1532e1cd719170c4f4baf669f13ec0f406abb/hayro-ccitt/src/bit_reader.rs"
+        },
+        {
+          "name": "hayro",
+          "used_for": "Strict Huffman/EOL decoding without partial repair.",
+          "upstream": "hayro-ccitt/src/decode.rs",
+          "commit": "4ad1532e1cd719170c4f4baf669f13ec0f406abb",
+          "ours": "crates/pc-pdf/src/import/preflight/ccitt/decode.rs",
+          "licence": "MIT",
+          "url": "https://github.com/LaurenzV/hayro/blob/4ad1532e1cd719170c4f4baf669f13ec0f406abb/hayro-ccitt/src/decode.rs"
+        },
+        {
+          "name": "hayro",
+          "used_for": "Pinned T.4/T.6 code tables.",
+          "upstream": "hayro-ccitt/src/state_machine.rs",
+          "commit": "4ad1532e1cd719170c4f4baf669f13ec0f406abb",
+          "ours": "crates/pc-pdf/src/import/preflight/ccitt/state_machine.rs",
+          "licence": "MIT",
+          "url": "https://github.com/LaurenzV/hayro/blob/4ad1532e1cd719170c4f4baf669f13ec0f406abb/hayro-ccitt/src/state_machine.rs"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
@@ -3163,6 +3199,18 @@
             "licenses/model-system-NOTICE.md"
           ],
           "url": "https://github.com/mcmonkeyprojects/SwarmUI"
+        },
+        {
+          "name": "hayro-ccitt bounded decoder adaptation",
+          "version": "0.3.0",
+          "author": "The Hayro Authors",
+          "used_for": "Bounded, cancellable Group 3/4 fax admission before PDF rendering; adapted code is detailed in docs/PORTS.md.",
+          "commit": "4ad1532e1cd719170c4f4baf669f13ec0f406abb",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/hayro-ccitt-MIT.txt"
+          ],
+          "url": "https://github.com/LaurenzV/hayro/tree/4ad1532e1cd719170c4f4baf669f13ec0f406abb/hayro-ccitt"
         }
       ]
     },
@@ -3625,11 +3673,21 @@
           ]
         },
         {
-          "name": "BIZ UDPGothic, BIZ UDMincho, Shippori Mincho (craft-fonts)",
-          "author": "Morisawa Inc.; The Shippori Mincho Project Authors",
-          "used_for": "Japanese UI and Type fallback fonts, embedded only in builds made with craft-fonts (all official releases).",
+          "name": "BIZ UDPGothic, BIZ UDMincho, Shippori Mincho, Noto Sans CJK SC, Noto Sans Arabic and Noto Sans Thai (craft-fonts)",
+          "author": "The BIZ UDGothic and BIZ UDMincho Project Authors (Morisawa); The Shippori Mincho Project Authors; The Noto Project Authors (Adobe, Google and contributors)",
+          "used_for": "Japanese, Simplified Chinese, Arabic and Thai UI/type fallback in desktop builds using the pinned craft-fonts input; all official desktop releases.",
+          "commit": "3d9ab3a132ed0eff457e424226a435a901da30d3",
           "licence": "OFL-1.1",
-          "url": "https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md"
+          "licence_files": [
+            "licenses/OFL-shippori-mincho.txt",
+            "licenses/OFL-biz-ud-pgothic.txt",
+            "licenses/OFL-biz-ud-mincho.txt",
+            "licenses/OFL-noto-sans-cjk-sc.txt",
+            "licenses/OFL-noto-sans-arabic.txt",
+            "licenses/OFL-noto-sans-thai.txt",
+            "licenses/craft-fonts-NOTICE.md"
+          ],
+          "url": "https://github.com/storytold/craft-fonts/blob/3d9ab3a132ed0eff457e424226a435a901da30d3/ATTRIBUTION.md"
         },
         {
           "name": "Original Local Image vector toolbar artwork",

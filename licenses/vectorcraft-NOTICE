@@ -35,11 +35,11 @@ windows-link crate 0.2.1 (vendor/windows-link; Microsoft, MIT OR Apache-2.0) tha
 through ole32.dll. Its license texts are in vendor/windows-link and ship in that build's ZIP; every
 other build uses the unmodified crate from crates.io.
 
-Builds made with craft-fonts (the CRAFT_FONTS_DIR build option; all official releases) embed the
-fonts listed in https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md (BIZ UDPGothic,
-Shippori Mincho, BIZ UDMincho, Noto Sans CJK SC and Noto Sans Arabic in the current manifest;
-web builds BIZ UDPGothic Regular only) under the SIL
-Open Font License 1.1. Their license texts ship with the release packages as OFL-<family>.txt.
+Desktop builds made with craft-fonts (CRAFT_FONTS_DIR; all official desktop releases) embed
+BIZ UDPGothic, BIZ UDMincho, Shippori Mincho, Noto Sans CJK SC, Noto Sans Arabic and Noto Sans Thai.
+The web build uses BIZ UDPGothic Regular only. These unmodified fonts use the SIL Open Font
+License 1.1. The pinned sources, authors and bundled OFL texts are listed in
+licenses/craft-fonts-NOTICE.md and licenses/OFL-<family>.txt.
 
 PDF import decodes CJK text with Adobe's CMap resources (https://github.com/adobe-type-tools/cmap-resources),
 compiled into the app through the hayro-cmap crate under the BSD 3-Clause License:
