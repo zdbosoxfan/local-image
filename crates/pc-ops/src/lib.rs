@@ -77,6 +77,15 @@ impl History {
         }
     }
 
+    /// Rebase resource identity in stored documents without making an edit,
+    /// changing labels/targets, or discarding redo. Call on a detached clone
+    /// when preparing a filesystem transaction, then publish only on success.
+    pub fn map_documents(&mut self, mut map: impl FnMut(&Arc<Document>) -> Arc<Document>) {
+        for state in self.undo.iter_mut().chain(self.redo.iter_mut()) {
+            state.doc = map(&state.doc);
+        }
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }

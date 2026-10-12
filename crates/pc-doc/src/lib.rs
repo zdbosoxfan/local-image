@@ -394,9 +394,13 @@ pub struct SmartObject {
 /// current settings.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DevelopLink {
+    /// Last acknowledged Library settings when the source was overwritten. The
+    /// render settings below still describe the preserved pre-overwrite bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub library_baseline: Option<Arc<serde_json::Value>>,
     /// Library source identity retained even when a layered format embeds the pixels.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
+    pub source: Option<Arc<str>>,
     /// Catalog namespace. Missing in legacy documents: never implicitly matches a qualified Library.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library: Option<Arc<str>>,

@@ -244,9 +244,10 @@ impl Host {
                     .collect();
                 for (photo, settings) in settings {
                     if let Some((identity, path)) = self.library.as_ref().and_then(|lib| source_binding(&lib.session, photo)) {
-                        photocraft_ui_egui::develop_layer::sync_in(&mut self.editor, &identity, photo, &path, &settings);
+                        self.editor.session.acknowledge_library_overwrite(&identity, photo, &path, &settings);
                     }
                 }
+                photocraft_ui_egui::prefs_ui::refresh_recovery(&mut self.editor);
             }
             if !msg.is_empty() {
                 self.editor.ui.status = msg.clone();
@@ -1419,7 +1420,8 @@ mod tests {
             })
             .next_back()
             .unwrap();
-        assert_eq!(latest.settings, serde_json::to_value(defaults).unwrap());
+        assert_eq!(latest.library_baseline.as_deref(), Some(&serde_json::to_value(defaults).unwrap()));
+        assert_eq!(latest.settings["light"]["exposure"], 0.5, "render settings still belong to the preserved source");
         drop(host);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1844,7 +1846,8 @@ mod tests {
         let mut host = host_with_round_trip(lib, photo, &path);
         let trash = dir.join("Trash");
         host.editor.services.overwrite_original = Some(Box::new(move |doc, path, quality| {
-            crate::services::overwrite_original(doc, std::path::Path::new(path), quality, |p| li_ai::trash::copy_to_trash_in(p, &trash))
+            let trash = trash.clone();
+            crate::services::overwrite_original(doc, std::path::Path::new(path), quality, move |p| li_ai::trash::copy_to_trash_in(p, &trash))
         }));
         host.editor.run("edit.fill", json!({"color": [1.0, 0.0, 0.0, 1.0]})).unwrap();
         (dir, path, photo, RoundTripUi::new(host))
@@ -1928,6 +1931,62 @@ mod tests {
     }
 
     #[test]
+    fn overwrite_preservation_native_develop_derivative_mask_and_return() {
+        use photocraft_doc::{LayerContent, SmartSource};
+        let (dir, path, mut library, photo) = library_with_photo("overwrite-develop-mask");
+        library.run("develop.set", json!({"control":"light.exposure","value":0.5})).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let mut host = host_with_round_trip(library, photo, &path);
+        let trash = dir.join("Trash");
+        host.editor.services.overwrite_original = Some(Box::new(move |doc, path, quality| {
+            let trash = trash.clone();
+            crate::services::overwrite_original(doc, std::path::Path::new(path), quality, move |p| li_ai::trash::copy_to_trash_in(p, &trash))
+        }));
+        host.editor.run("edit.fill", json!({"color":"#804020"})).unwrap();
+        let ctx = egui::Context::default();
+        photocraft_ui_egui::menus::invoke(&mut host.editor, &ctx, "file.save", json!({})).unwrap();
+        host.take_library_saves(None);
+        let derivative = host.editor.session.active().unwrap().path.clone();
+        assert!(derivative.as_deref().unwrap().ends_with("-Edit.psd"));
+        host.editor.run("layer.layerMask.revealAll", json!({})).unwrap();
+        let before = host.editor.session.active().unwrap().clone();
+        let mut h = RoundTripUi::new(host);
+        h.step(vec![]); // Install fonts before expecting actual modal rectangles.
+        h.step(vec![]);
+        photocraft_ui_egui::overwrite_original::request(&mut h.host.editor, before.doc.id, true).unwrap();
+        for _ in 0..3 {
+            h.step(vec![]);
+        } // Let the modal's sizing pass settle before clicking.
+        click_overwrite(&mut h, "overwriteConfirm");
+        assert!(h.host.editor.overwrite_prompt.is_none(), "overwrite confirmation remained open");
+        assert!(!h.host.editor.ui.status_error, "{}", h.host.editor.ui.status);
+        assert_eq!(h.host.mode, Module::Library, "{}", h.host.editor.ui.status);
+        let state = h.host.editor.session.active().unwrap();
+        assert_eq!((state.revision, state.saved_revision, &state.path), (before.revision, before.saved_revision, &derivative));
+        assert_eq!(state.history.entries(), before.history.entries());
+        assert_eq!(state.doc.layers.len(), before.doc.layers.len());
+        assert_eq!(state.doc.layers[1], before.doc.layers[1], "mask and edited pixels survive");
+        let LayerContent::Smart(smart) = &state.doc.layers[0].content else { panic!("Develop source") };
+        assert!(matches!(&smart.source,SmartSource::Embedded{bytes,..} if bytes.as_ref()==&original));
+        let link = smart.develop.as_ref().unwrap();
+        assert_eq!(link.settings["light"]["exposure"], 0.5);
+        assert_eq!(link.library_baseline.as_deref(), Some(&serde_json::to_value(lightcraft_engine::develop::DevelopSettings::default()).unwrap()));
+        assert_eq!(std::fs::read(dir.join("Trash/files/photo.png")).unwrap(), original);
+        assert!(h.host.editor.session.undo());
+        assert!(h.host.editor.session.active().unwrap().doc.layers[1].mask.is_none());
+        assert!(h.host.editor.session.redo());
+        assert_eq!(h.host.editor.session.active().unwrap().doc.layers[1], before.doc.layers[1]);
+        let count = h.host.editor.session.active().unwrap().doc.layers.len();
+        h.host.switch(&h.view.ctx, Module::Develop);
+        h.host.switch(&h.view.ctx, Module::Compositing);
+        h.wait_for(|host| !host.editor.session.has_jobs());
+        assert_eq!(h.host.editor.session.active().unwrap().doc.layers.len(), count, "return after overwrite must not append a Develop layer");
+        assert_eq!(h.host.editor.session.active().unwrap().path, derivative);
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn overwrite_original_cancel_and_dont_ask_again_persist() {
         let (dir, path, photo, mut h) = overwrite_host("overwrite-confirm", "png");
         let stored: Arc<Mutex<Option<String>>> = Arc::default();
@@ -1976,12 +2035,26 @@ mod tests {
         let (dir, path, photo, mut h) = overwrite_host("overwrite-raw-failure", "png");
         let raw = dir.join("photo.ARW");
         std::fs::write(&raw, b"raw original").unwrap();
+        let restore_source = h
+            .host
+            .library
+            .as_mut()
+            .unwrap()
+            .session
+            .catalog
+            .apply(lightcraft_catalog::Op::SetFile {
+                id: photo,
+                file_name: "photo.ARW".into(),
+                source: lightcraft_catalog::Source::File { path: raw.to_string_lossy().into() },
+            })
+            .unwrap();
         h.host
             .editor
             .session
             .edit("raw source", |doc, _| {
                 let photocraft_doc::LayerContent::Smart(s) = &mut doc.layers[0].content else { panic!("Develop layer") };
                 s.source = photocraft_doc::SmartSource::Linked { path: raw.to_string_lossy().into() };
+                s.develop.as_mut().unwrap().source = Some(raw.to_string_lossy().into());
                 Ok(())
             })
             .unwrap();
@@ -1994,6 +2067,7 @@ mod tests {
         assert_eq!(item.tooltip.as_deref(), Some("Raw files can't be overwritten; save a copy instead"));
         assert_eq!(std::fs::read(&raw).unwrap(), b"raw original");
         h.host.editor.session.undo();
+        h.host.library.as_mut().unwrap().session.catalog.apply(restore_source).unwrap();
         h.host.editor.services.overwrite_original = Some(Box::new(|doc, path, q| {
             crate::services::overwrite_original(doc, std::path::Path::new(path), q, |_| Err(std::io::Error::other("test Trash unavailable")))
         }));

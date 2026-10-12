@@ -252,7 +252,7 @@ mod tests {
         if let LayerContent::Smart(smart) = &mut second.content {
             smart.develop.as_mut().unwrap().photo = Some(8);
             let path = dir.join("other.png").to_string_lossy().into_owned();
-            smart.develop.as_mut().unwrap().source = Some(path.clone());
+            smart.develop.as_mut().unwrap().source = Some(path.clone().into());
             smart.source = SmartSource::Linked { path };
         } else {
             panic!("expected Develop layer");

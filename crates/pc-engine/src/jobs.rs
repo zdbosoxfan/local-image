@@ -234,6 +234,20 @@ pub struct Jobs {
 const RECENT: usize = 16;
 
 impl Jobs {
+    /// Source replacement must not invalidate an in-flight edit or source render.
+    pub(crate) fn conflicts_source_rebase(
+        &self,
+        documents: &std::collections::HashSet<DocId>,
+        keys: &std::collections::HashSet<String>,
+        mut matches_path: impl FnMut(&str) -> bool,
+    ) -> bool {
+        self.running.iter().any(|job| {
+            job.doc.is_some_and(|doc| documents.contains(&doc))
+                || job.latest_keys.iter().any(|key| keys.contains(key))
+                || job.params.get("path").and_then(Value::as_str).is_some_and(&mut matches_path)
+        })
+    }
+
     /// Advance a job snapshot across an explicitly view-only group disclosure change.
     /// Never acknowledge an intervening content edit: its pointer will not match `before`.
     pub(crate) fn rebase_group_view(&mut self, doc: DocId, before: &Weak<Document>, after: Weak<Document>) {
@@ -467,6 +481,15 @@ impl Session {
     /// [`Session::open_document`] (Color Settings policies apply). `name` names the document.
     /// The job's result is `{document, name, warnings, color}`; on wasm it runs inline.
     pub fn start_open(&mut self, name: &str, source: OpenSource) -> Result<Started> {
+        self.start_open_policy(name, source, false)
+    }
+
+    /// Interactive file admission keeps profile decisions pending until confirmation.
+    pub fn start_open_deferred(&mut self, name: &str, source: OpenSource) -> Result<Started> {
+        self.start_open_policy(name, source, true)
+    }
+
+    fn start_open_policy(&mut self, name: &str, source: OpenSource, deferred: bool) -> Result<Started> {
         let label = format!("Opening {name}");
         let name_w = name.to_string();
         let name_a = name.to_string();
@@ -494,7 +517,7 @@ impl Session {
                     .map(|r| (r, false))
             },
             move |s, (r, native_import): (photocraft_io::ImportResult, bool)| {
-                let (index, color) = s.open_document(r.document, None);
+                let (index, color) = if deferred { s.open_document_deferred(r.document, None) } else { s.open_document(r.document, None) };
                 Ok(json!({"document": index, "name": name_a, "warnings": r.warnings, "color": color, "nativeImport": native_import}))
             },
         )

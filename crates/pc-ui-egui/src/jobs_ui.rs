@@ -93,7 +93,7 @@ pub fn run(app: &mut PhotocraftApp, id: &str, params: Value) -> Result<Value, St
 /// replaces it when decoded. `path` is remembered for File › Save and Open Recent.
 pub fn start_open(app: &mut PhotocraftApp, name: &str, path: Option<String>, source: OpenSource) -> Result<(), String> {
     let name = &app.open_name(name);
-    match app.session.start_open(name, source).map_err(|e| e.to_string())? {
+    match app.session.start_open_deferred(name, source).map_err(|e| e.to_string())? {
         // Inline (wasm): finish now, like a background open that ended at once.
         Started::Done(v) => finish_open(app, name, path.as_deref(), &v, None),
         Started::Job(job) => {
@@ -261,8 +261,11 @@ fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Valu
     {
         index = moved.get("document").and_then(Value::as_u64).map_or(index, |i| i as usize);
     }
-    let warnings: Vec<String> =
+    let mut warnings: Vec<String> =
         v.get("warnings").and_then(Value::as_array).map(|a| a.iter().filter_map(|w| w.as_str().map(str::to_string)).collect()).unwrap_or_default();
+    if let Some(error) = v.get("color").and_then(|color| color.get("error")).and_then(Value::as_str) {
+        warnings.push(format!("Colour conversion was not applied: {error}"));
+    }
     app.session.set_active(index);
     let color_target = crate::prefs_ui::mismatch_target(&app.session);
     if let Some(p) = path {

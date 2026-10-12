@@ -60,7 +60,16 @@ fn develop_open_job_matches_the_synchronous_document_and_link() {
     assert_eq!(develop_layers(&actual)[0].1, Some(71));
     let LayerContent::Smart(sm) = &actual.layers[0].content else { panic!("Develop smart object") };
     assert_eq!(sm.source, SmartSource::Linked { path: photo.path.display().to_string() });
-    assert_eq!(sm.develop, Some(DevelopLink { source: Some(photo.path.display().to_string()), library: None, settings: json!({}), photo: Some(71) }));
+    assert_eq!(
+        sm.develop,
+        Some(DevelopLink {
+            library_baseline: None,
+            source: Some(photo.path.display().to_string().into()),
+            library: None,
+            settings: json!({}),
+            photo: Some(71)
+        })
+    );
     assert_eq!(actual.metadata, expected.metadata);
     assert_eq!(actual.name, "camera");
     let count = work_count_on_thread();
@@ -368,4 +377,138 @@ fn internal_develop_profile_prompt_request_supersedes_non_prompt_open() {
     assert_eq!(result["color"]["ask"], true);
     let _ = session.wait_job(first);
     assert_eq!(session.documents().len(), 1);
+}
+
+#[test]
+fn overwrite_preservation_keeps_sources_history_snapshots_and_library_baseline() {
+    let path = std::env::temp_dir().join(format!("overwrite-preserved-{}.png", std::process::id()));
+    image::RgbImage::from_fn(19, 13, |x, y| image::Rgb([(x * 7 + 30) as u8, (y * 11 + 20) as u8, 90])).save(&path).unwrap();
+    let original = Arc::new(std::fs::read(&path).unwrap());
+    let source = path.to_string_lossy().into_owned();
+    let mut session = Session::new();
+    let settings = json!({"light":{"exposure":0.5}});
+    session.execute(OPEN_JOB, json!({"library":"catalog-a","photo":71,"path":source,"settings":settings})).unwrap();
+    let state = session.active_mut().unwrap();
+    let LayerContent::Smart(smart) = &mut Arc::make_mut(&mut state.doc).layers[0].content else { panic!("Develop source") };
+    smart.develop.as_mut().unwrap().source = None; // Supported legacy path-backed link.
+    session.execute("layer.new.layer", json!({"name":"Retouch"})).unwrap();
+    session.execute("edit.fill", json!({"color":"#d04020"})).unwrap();
+    session.execute("history.newSnapshot", json!({"name":"Keep retouch"})).unwrap();
+    session.execute("edit.fill", json!({"color":"#3050a0"})).unwrap();
+    assert!(session.undo());
+    let old = session.active().unwrap().clone();
+    let old_base = old.doc.layers[0].surface().unwrap().clone();
+    let dropped = session.prepare_source_overwrite(&source, original.clone()).unwrap();
+    drop(dropped); // A failed/cancelled native commit does not publish this plan.
+    assert!(Arc::ptr_eq(&session.active().unwrap().doc, &old.doc));
+    let prepared = session.prepare_source_overwrite(&source, original.clone()).unwrap();
+    image::RgbImage::from_pixel(19, 13, image::Rgb([20u8, 200, 60])).save(&path).unwrap();
+    let replacement = Arc::new(std::fs::read(&path).unwrap());
+    prepared.publish(&mut session);
+    session.acknowledge_library_overwrite("catalog-a", 71, &source, &json!({}));
+    let state = session.active().unwrap();
+    assert_eq!((state.revision, state.saved_revision, state.is_dirty()), (old.revision, old.saved_revision, old.is_dirty()));
+    assert_eq!(state.history.entries(), old.history.entries());
+    assert_eq!(state.history.redo_labels().collect::<Vec<_>>(), old.history.redo_labels().collect::<Vec<_>>());
+    assert_eq!(state.doc.layers.iter().map(|layer| layer.id).collect::<Vec<_>>(), old.doc.layers.iter().map(|layer| layer.id).collect::<Vec<_>>());
+    assert_eq!(state.doc.layers[1], old.doc.layers[1]);
+    let verify = |doc: &Document| {
+        let LayerContent::Smart(smart) = &doc.layers[0].content else { panic!("Develop source") };
+        assert!(matches!(&smart.source,SmartSource::Embedded{bytes,..} if bytes.as_ref()==original.as_ref()));
+        let link = smart.develop.as_ref().unwrap();
+        assert_eq!(link.settings, settings);
+        assert_eq!(link.library_baseline.as_deref(), Some(&json!({})));
+        assert_eq!(source_of(smart), Some(source.as_str()));
+        let rendered = crate::smart_cmds::render(doc, smart).unwrap().unwrap();
+        assert_eq!(rendered.read_region(doc.bounds()), old_base.read_region(doc.bounds()));
+    };
+    verify(&state.doc);
+    let mut history = state.history.clone();
+    history.map_documents(|doc| {
+        verify(doc);
+        doc.clone()
+    });
+    for snapshot in &state.snapshots {
+        verify(&snapshot.doc);
+    }
+    // Qualified acknowledgement cannot follow an equal photo ID in another catalog.
+    session.acknowledge_library_overwrite("catalog-b", 71, &source, &json!({"wrong":true}));
+    verify(&session.active().unwrap().doc);
+    for extension in ["pcraft", "psd", "tif"] {
+        let name = format!("preserved.{extension}");
+        let options = photocraft_io::ExportOptions { tiff_layers: true, ..Default::default() };
+        let saved = crate::vector_integration::export_document(&session.active().unwrap().doc, &name, &options).unwrap().bytes;
+        let reopened = photocraft_io::import(&name, &saved).unwrap().document;
+        let LayerContent::Smart(smart) = &reopened.layers[0].content else { panic!("persisted Develop source") };
+        let link = smart.develop.as_ref().unwrap();
+        assert_eq!(link.library_baseline.as_deref(), Some(&json!({})), "{extension}");
+        assert_eq!(link.settings, settings);
+        let (_, bytes) = crate::smart_cmds::source_bytes(&reopened.metadata, &smart.source).unwrap();
+        assert_eq!(bytes.as_ref(), original.as_ref(), "{extension}");
+    }
+    let again = session.prepare_source_overwrite(&source, replacement.clone()).unwrap();
+    again.publish(&mut session);
+    verify(&session.active().unwrap().doc); // Later overwrites don't rewrite already frozen bytes.
+    let count = session.active().unwrap().doc.layers.len();
+    let layer = session.active().unwrap().doc.layers[0].id;
+    session.execute("layer.develop.set", json!({"layer":layer.0,"settings":{"light":{"exposure":0.75}}})).unwrap();
+    let LayerContent::Smart(adjusted) = &session.active().unwrap().doc.layers[0].content else { panic!("adjusted source") };
+    assert_eq!(adjusted.develop.as_ref().unwrap().library_baseline.as_deref(), Some(&json!({})));
+    assert!(matches!(&adjusted.source,SmartSource::Embedded{bytes,..} if bytes.as_ref()==original.as_ref()));
+    let ack = session.execute("develop.syncPhoto", json!({"library":"catalog-a","photo":71,"path":source,"settings":{}})).unwrap();
+    assert_eq!(ack["updated"], 0);
+    assert_eq!(session.active().unwrap().doc.layers.len(), count);
+    session.execute("develop.syncPhoto", json!({"library":"catalog-a","photo":71,"path":source,"settings":{"light":{"exposure":0.25}}})).unwrap();
+    let doc = &session.active().unwrap().doc;
+    assert_eq!(doc.layers.len(), count + 1);
+    let LayerContent::Smart(new) = &doc.layers.last().unwrap().content else { panic!("new Develop layer") };
+    assert!(matches!(&new.source,SmartSource::Linked{path} if path==&source));
+    assert!(new.develop.as_ref().unwrap().library_baseline.is_none());
+    let (_, bytes) = crate::smart_cmds::source_bytes(&doc.metadata, &new.source).unwrap();
+    assert_eq!(bytes.as_ref(), replacement.as_ref());
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn overwrite_preservation_rejects_source_work_before_preparing_state() {
+    let photo = Photo::new("overwrite-busy");
+    let mut session = photo.session();
+    let before = session.active().unwrap().doc.clone();
+    let gate = Arc::new(AtomicBool::new(false));
+    gate_next_work(gate.clone());
+    let pending = job(&mut session, "develop.syncPhoto", sync_params(0.75));
+    assert!(session.prepare_source_overwrite(&photo.path.to_string_lossy(), Arc::new(photo.bytes.clone())).is_err());
+    assert!(Arc::ptr_eq(&session.active().unwrap().doc, &before));
+    session.cancel_job(pending);
+    gate.store(true, Ordering::Relaxed);
+    session.join_cancelled_jobs();
+}
+
+#[test]
+fn overwrite_preservation_clean_saved_project_requires_resave_of_frozen_source() {
+    let photo = Photo::new("overwrite-clean-saved");
+    let mut session = photo.session();
+    let saved = photocraft_format::save_to_bytes(&session.active().unwrap().doc, &Default::default()).unwrap();
+    let old_native = photocraft_format::load_from_bytes(&saved).unwrap();
+    assert!(matches!(&old_native.layers[0].content,LayerContent::Smart(smart) if matches!(&smart.source,SmartSource::Linked{..})));
+    let state = session.active_mut().unwrap();
+    state.path = Some("saved-original.pcraft".into());
+    state.saved_revision = state.revision;
+    let revision = state.revision;
+    let history = state.history.entries();
+    assert!(!state.is_dirty());
+    let prepared = session.prepare_source_overwrite(&photo.path.to_string_lossy(), Arc::new(photo.bytes.clone())).unwrap();
+    std::fs::write(&photo.path, b"replacement file").unwrap();
+    prepared.publish(&mut session);
+    let state = session.active().unwrap();
+    assert!(state.is_dirty(), "closing needs a save prompt for the newly embedded source");
+    assert_eq!(state.revision, revision);
+    assert_eq!(state.history.entries(), history);
+    assert_eq!(state.path.as_deref(), Some("saved-original.pcraft"));
+    let saved = photocraft_format::save_to_bytes(&state.doc, &Default::default()).unwrap();
+    let reopened = photocraft_format::load_from_bytes(&saved).unwrap();
+    let LayerContent::Smart(smart) = &reopened.layers[0].content else { panic!("saved source") };
+    let (_, bytes) = crate::smart_cmds::source_bytes(&reopened.metadata, &smart.source).unwrap();
+    assert_eq!(bytes.as_ref(), &photo.bytes);
+    assert!(crate::smart_cmds::render(&reopened, smart).unwrap().is_some(), "cold refresh uses original embedded bytes");
 }

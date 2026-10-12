@@ -238,7 +238,7 @@ fn bugfix_save_o009_layered_original_always_warns_even_with_dont_ask_again() {
     let mut layer = photocraft_engine::smart_cmds::layer_to_smart(&original, &original.layers[0]).unwrap();
     if let LayerContent::Smart(smart) = &mut layer.content {
         smart.source = photocraft_doc::SmartSource::Linked { path: "/photos/photo.psd".into() };
-        smart.develop = Some(photocraft_doc::DevelopLink { source: None, library: None, photo: Some(7), settings: json!({}) });
+        smart.develop = Some(photocraft_doc::DevelopLink { library_baseline: None, source: None, library: None, photo: Some(7), settings: json!({}) });
     }
     let st = app.session.active_mut().unwrap();
     Arc::make_mut(&mut st.doc).layers = vec![layer];

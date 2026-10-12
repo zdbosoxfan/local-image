@@ -284,20 +284,45 @@ fn preferences_services(path: Option<PathBuf>) -> Services {
     }
 }
 
-/// Production overwrite path; the injected Trash destination keeps host tests isolated.
+/// Prepare encoding without touching the original or Trash. The injected Trash
+/// destination keeps native host tests isolated from the user's installation.
 pub(crate) fn overwrite_original(
     doc: &Document,
     path: &Path,
     quality: u8,
-    trash: impl FnOnce(&Path) -> std::io::Result<PathBuf>,
-) -> Result<Vec<String>, String> {
-    let original = photocraft_format::read_file(path).map_err(|e| e.to_string())?;
+    trash: impl FnOnce(&Path) -> std::io::Result<PathBuf> + 'static,
+) -> Result<photocraft_ui_egui::PreparedOverwrite, String> {
+    let original = Arc::new(photocraft_format::read_file(path).map_err(|e| e.to_string())?);
     let result = photocraft_io::export_over_original(doc, &original, quality).map_err(|e| e.to_string())?;
-    // Finish encoding before touching Trash. Leave the original present until the replacing
-    // rename; copying it into Trash avoids a missing-file window and preserves restore identity.
-    trash(path).map_err(|e| format!("Couldn't keep the previous version in Trash: {e}"))?;
-    write_atomic(path, &result.bytes)?;
-    Ok(result.warnings)
+    let path = path.to_owned();
+    let expected = original.clone();
+    Ok(photocraft_ui_egui::PreparedOverwrite {
+        original,
+        commit: Box::new(move || {
+            // A file changed by another application between prepare and commit
+            // must not be replaced using stale metadata or preserved source bytes.
+            let mut file = std::fs::File::open(&path).map_err(|error| error.to_string())?;
+            if file.metadata().map_err(|error| error.to_string())?.len() != expected.len() as u64 {
+                return Err("The original file changed; try overwriting again".into());
+            }
+            use std::io::Read;
+            let mut buffer = vec![0u8; 64 * 1024];
+            for chunk in expected.chunks(buffer.len()) {
+                file.read_exact(&mut buffer[..chunk.len()]).map_err(|error| error.to_string())?;
+                if &buffer[..chunk.len()] != chunk {
+                    return Err("The original file changed; try overwriting again".into());
+                }
+            }
+            if file.read(&mut buffer[..1]).map_err(|error| error.to_string())? != 0 {
+                return Err("The original file changed; try overwriting again".into());
+            }
+            // Keep the old file present until the replacing rename. No editor
+            // metadata is published unless both backup and replacement succeed.
+            trash(&path).map_err(|e| format!("Couldn't keep the previous version in Trash: {e}"))?;
+            write_atomic(&path, &result.bytes)?;
+            Ok(result.warnings)
+        }),
+    })
 }
 
 type SharedRecovery = Rc<RefCell<Option<RecoveryStore>>>;
@@ -981,4 +1006,41 @@ fn preference_orphan_reuse_never_follows_a_backup_symlink() {
     assert_eq!(std::fs::read(prefs_backup_dir(&path).join(record.backup_name)).unwrap(), bytes);
     assert_eq!(std::fs::read(other).unwrap(), bytes);
     std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[cfg(test)]
+mod prepared_overwrite_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    #[test]
+    fn overwrite_preparation_leaves_original_and_trash_untouched_and_rejects_changed_source() {
+        let dir = std::env::temp_dir().join(format!("li-prepared-overwrite-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("original.png");
+        image::RgbImage::from_pixel(4, 3, image::Rgb([40u8, 80, 120])).save(&path).unwrap();
+        let original = std::fs::read(&path).unwrap();
+        let document = Document::with_background(
+            "Replacement",
+            photocraft_doc::Size::new(4, 3),
+            photocraft_doc::ColorMode::Rgb,
+            photocraft_doc::SampleType::U8,
+            photocraft_doc::Color::WHITE,
+        );
+        let touched = Arc::new(AtomicBool::new(false));
+        let flag = touched.clone();
+        let prepared = overwrite_original(&document, &path, 90, move |_| {
+            flag.store(true, Ordering::Relaxed);
+            Ok(PathBuf::new())
+        })
+        .unwrap();
+        assert_eq!(prepared.original.as_ref(), &original);
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(!touched.load(Ordering::Relaxed));
+        image::RgbImage::from_pixel(4, 3, image::Rgb([120u8, 80, 40])).save(&path).unwrap();
+        let changed = std::fs::read(&path).unwrap();
+        assert!((prepared.commit)().is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), changed);
+        assert!(!touched.load(Ordering::Relaxed));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

@@ -31,7 +31,13 @@ fn link(exposure: f64, photo: Option<u64>) -> DevelopLink {
     s.color.vibrance = 15.0;
     // beyond what Camera Raw understands: only our record keeps it
     s.profile.id = "lc.vivid".into();
-    DevelopLink { source: Some("/library/source.dng".into()), library: Some("catalog-test".into()), settings: serde_json::to_value(&s).unwrap(), photo }
+    DevelopLink {
+        library_baseline: None,
+        source: Some("/library/source.dng".into()),
+        library: Some("catalog-test".into()),
+        settings: serde_json::to_value(&s).unwrap(),
+        photo,
+    }
 }
 
 fn settings(v: &Value) -> lightcraft_develop::DevelopSettings {

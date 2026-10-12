@@ -23,6 +23,9 @@ use crate::commands::CommandSpec;
 use crate::jobs::{self, JobCtx};
 use crate::{EngineError, Result, Session};
 use std::sync::Arc;
+#[path = "develop_layer_overwrite.rs"]
+mod overwrite;
+pub use overwrite::PreparedSourceOverwrite;
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
@@ -143,9 +146,9 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
             let id = doc.layers.first().map(|l| l.id).ok_or(EngineError::Other("the developed photo has no layer".into()))?;
             let cache = doc.layer(id).and_then(|l| l.surface().cloned());
             crate::smart_cmds::approve_link(&path)?;
-            let source = Some(path.clone());
+            let source = Some(path.clone().into());
             let mut sm = SmartObject::new(SmartSource::Linked { path }, photocraft_geom::Affine::IDENTITY, cache);
-            sm.develop = Some(DevelopLink { source, library: library.map(Into::into), settings, photo });
+            sm.develop = Some(DevelopLink { library_baseline: None, source, library: library.map(Into::into), settings, photo });
             if let Some(l) = doc.layer_mut(id) {
                 l.name = "Develop".into();
                 l.content = LayerContent::Smart(sm);
@@ -176,7 +179,7 @@ fn set_settings(s: &mut Session, p: &Value) -> Result<Value> {
     let library =
         p.get("library").and_then(Value::as_str).map(str::to_owned).or_else(|| sm.develop.as_ref().and_then(|d| d.library.as_deref().map(str::to_owned)));
     let source = sm.develop.as_ref().and_then(|d| d.source.clone()).or_else(|| match &sm.source {
-        SmartSource::Linked { path } => Some(path.clone()),
+        SmartSource::Linked { path } => Some(path.clone().into()),
         _ => None,
     });
     let mut keys = vec![layer_key(d.doc.id, id)];
@@ -192,6 +195,10 @@ fn set_settings(s: &mut Session, p: &Value) -> Result<Value> {
     if sm.develop.as_ref().is_some_and(|link| link.settings == settings && link.photo == photo && link.library.as_deref() == library.as_deref()) {
         return Ok(json!({"layer": id.0}));
     }
+    // A canvas adjustment edits the frozen source, not the Library's last acknowledged
+    // state. Retain that baseline unless this command explicitly changes the binding.
+    let library_baseline =
+        sm.develop.as_ref().filter(|link| link.photo == photo && link.library.as_deref() == library.as_deref()).and_then(|link| link.library_baseline.clone());
     let gate = take_work_gate();
     jobs::run_latest(
         s,
@@ -200,7 +207,7 @@ fn set_settings(s: &mut Session, p: &Value) -> Result<Value> {
         move |ctx| {
             wait_work_gate(ctx, gate)?;
             let _work = enter_work(ctx)?;
-            let new = render_layer(&base, layer.clone(), DevelopLink { source, library: library.map(Into::into), settings, photo }, ctx)?;
+            let new = render_layer(&base, layer.clone(), DevelopLink { library_baseline, source, library: library.map(Into::into), settings, photo }, ctx)?;
             Ok((base, layer, new))
         },
         move |s, (base, old, new)| {
@@ -294,7 +301,7 @@ fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
                     _ => None,
                 })
                 .next_back()?;
-            (layer.1.settings != settings).then(|| (d.doc.clone(), layer.0.clone()))
+            (layer.1.library_baseline.as_deref().unwrap_or(&layer.1.settings) != &settings).then(|| (d.doc.clone(), layer.0.clone()))
         })
         .collect();
     if targets.is_empty() {
@@ -311,7 +318,8 @@ fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
             let mut rendered = Vec::new();
             for (base, old) in targets {
                 let link = DevelopLink {
-                    source: path.clone().or_else(|| match &old.content {
+                    library_baseline: None,
+                    source: path.clone().map(Into::into).or_else(|| match &old.content {
                         LayerContent::Smart(sm) => sm.develop.as_ref().and_then(|link| link.source.clone()),
                         _ => None,
                     }),
@@ -319,10 +327,21 @@ fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
                     settings: settings.clone(),
                     photo: Some(photo),
                 };
+                // After an overwrite the old layer renders frozen bytes. A real
+                // new Library edit must instead read today's linked source.
+                let mut template = old.clone();
+                if let LayerContent::Smart(smart) = &mut template.content
+                    && smart.develop.as_ref().is_some_and(|link| link.library_baseline.is_some())
+                    && let Some(source) = link.source.as_ref()
+                {
+                    crate::smart_cmds::approve_link(source)?;
+                    smart.source = SmartSource::Linked { path: source.to_string() };
+                    smart.psd_raw = None;
+                }
                 // Render both paths once: in-place keeps the template's smart filters; new layers
                 // start clean. Decide again at apply time, since compositing may start during work.
-                let clean = render_layer(&base, new_develop_layer(&old, link.clone()), link.clone(), ctx)?;
-                let in_place = if is_untouched(&base) { Some(render_layer(&base, old.clone(), link, ctx)?) } else { None };
+                let clean = render_layer(&base, new_develop_layer(&template, link.clone()), link.clone(), ctx)?;
+                let in_place = if is_untouched(&base) { Some(render_layer(&base, template, link, ctx)?) } else { None };
                 rendered.push((base, old, clean, in_place));
             }
             ctx.progress(1.0, "Applying Develop edits");

@@ -99,6 +99,7 @@ fn embedded_linked_smart_objects_and_develop_settings() {
     for l in &mut d.layers {
         if let LayerContent::Smart(s) = &mut l.content {
             s.develop = Some(DevelopLink {
+                library_baseline: None,
                 source: None,
                 library: None,
                 settings: serde_json::json!({"light":{"exposure":1.25},"profile":{"id":"lc.vivid"},"private":[1,2,3]}),

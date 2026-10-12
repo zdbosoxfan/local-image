@@ -286,8 +286,13 @@ pub type PickOpenFn = Box<dyn FnMut() -> Option<(String, Result<Vec<u8>, String>
 /// File › Open's multi-file picker: the selected paths, `None` when cancelled.
 pub type PickOpenPathsFn = Box<dyn FnMut() -> Option<Vec<String>>>;
 pub type PickSaveFn = Box<dyn FnMut(&str) -> Option<String>>;
-/// Flatten, preserve the source in Trash, and atomically replace it.
-pub type OverwriteFn = Box<dyn FnMut(&Document, &str, u8) -> Result<Vec<String>, String>>;
+/// Encoding and source bytes are prepared before the editor allocates its history
+/// preservation plan. Only commit may copy to Trash and replace the file.
+pub struct PreparedOverwrite {
+    pub original: std::sync::Arc<Vec<u8>>,
+    pub commit: Box<dyn FnOnce() -> Result<Vec<String>, String>>,
+}
+pub type OverwriteFn = Box<dyn FnMut(&Document, &str, u8) -> Result<PreparedOverwrite, String>>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
 /// Read bytes through the desktop control session's authorized read root.
 pub type AutomationReadFn = Box<dyn FnMut(&str) -> Result<(String, Vec<u8>), String>>;
@@ -987,7 +992,7 @@ impl PhotocraftApp {
             jobs_ui::start_open(self, name, None, jobs_ui::bytes(bytes))?;
             return Ok(Vec::new());
         }
-        let (doc, warnings) =
+        let (doc, mut warnings) =
             if let Some(vector) = photocraft_engine::vector_integration::read_vector_file(name, bytes, &std::sync::atomic::AtomicBool::new(false)) {
                 let result = vector.map_err(|e| e.to_string())?;
                 (result.document, result.warnings)
@@ -997,7 +1002,10 @@ impl PhotocraftApp {
             };
         // Edit › Color Settings policies apply on open; mismatches can ask what to do.
         // No path yet: a bare name isn't a location to save back to (`open_file` sets the path).
-        let (_, color) = self.session.open_document(doc, None);
+        let (_, color) = self.session.open_document_deferred(doc, None);
+        if let Some(error) = color.get("error").and_then(Value::as_str) {
+            warnings.push(format!("Colour conversion was not applied: {error}"));
+        }
         let color_target = prefs_ui::mismatch_target(&self.session);
         self.sync_views();
         self.ui.status = format!("Opened {name}");
@@ -2088,3 +2096,6 @@ mod hotfix_critical_tests;
 
 #[cfg(test)]
 mod bugfix_save_tests;
+
+#[cfg(test)]
+mod deferred_colour_tests;

@@ -34,7 +34,9 @@ pub struct Runtime {
     save_retry: SaveRetry,
     theme_pref: Option<Theme>,
     next_autosave_ms: f64,
-    autosaved: HashMap<DocId, u64>,
+    // Resource preservation can replace a snapshot without advancing its edit revision.
+    // Weak identity detects those changes without retaining another large document.
+    autosaved: HashMap<DocId, (u64, std::sync::Weak<photocraft_doc::Document>)>,
     log_len: usize,
     /// Snapping state of the drag in progress (see `snap_ui`).
     pub(crate) snap: Option<crate::snap_ui::ActiveSnap>,
@@ -169,7 +171,7 @@ pub fn load(app: &mut PhotocraftApp) {
             // Their entry already holds this revision: it stays until a newer autosave replaces
             // it or the document is saved or closed (see `autosave`).
             let (id, revision) = (st.doc.id, st.revision);
-            app.prefs_rt.autosaved.insert(id, revision);
+            app.prefs_rt.autosaved.insert(id, (revision, std::sync::Arc::downgrade(&st.doc)));
             if let Some(adopt) = app.services.adopt_autosave.as_mut() {
                 adopt(id.0, &r.key);
             }
@@ -504,14 +506,21 @@ fn autosave(app: &mut PhotocraftApp) {
         .session
         .documents()
         .iter()
-        .filter(|d| d.is_dirty() && app.prefs_rt.autosaved.get(&d.doc.id) != Some(&d.revision))
+        .filter(|d| {
+            d.is_dirty()
+                && !app
+                    .prefs_rt
+                    .autosaved
+                    .get(&d.doc.id)
+                    .is_some_and(|(revision, snapshot)| *revision == d.revision && snapshot.ptr_eq(&std::sync::Arc::downgrade(&d.doc)))
+        })
         .map(|d| (d.doc.clone(), d.revision, d.path.clone()))
         .collect();
     for (doc, rev, path) in jobs {
         if let Some(save) = app.services.autosave.as_mut() {
             match save(&doc, rev, path.as_deref()) {
                 Ok(()) => {
-                    app.prefs_rt.autosaved.insert(doc.id, rev);
+                    app.prefs_rt.autosaved.insert(doc.id, (rev, std::sync::Arc::downgrade(&doc)));
                 }
                 Err(e) => app.ui.status = format!("Autosave failed: {e}"),
             }
@@ -522,6 +531,14 @@ fn autosave(app: &mut PhotocraftApp) {
 /// Force the autosave timer to fire on the next tick (tests, `prefs` changes).
 pub fn autosave_now(app: &mut PhotocraftApp) {
     app.prefs_rt.next_autosave_ms = f64::MIN_POSITIVE;
+}
+
+/// Queue changed recovery snapshots immediately after a source-preservation transaction.
+/// The native store serializes/coalesces requests per document, so an older in-flight
+/// write cannot land after the new snapshot. Still respects the autosave preference.
+pub fn refresh_recovery(app: &mut PhotocraftApp) {
+    autosave_now(app);
+    autosave(app);
 }
 
 /// History Log preference: append executed commands to a text file.
@@ -876,7 +893,12 @@ pub(crate) fn mismatch_target(session: &photocraft_engine::Session) -> Option<Va
 
 /// The mismatch report and decision belong to the captured imported document.
 pub(crate) fn open_mismatch_for(app: &mut PhotocraftApp, report: &Value, target: Value) -> u64 {
-    let msg = if report.get("missing").and_then(Value::as_bool) == Some(true) {
+    let msg = if report.get("invalidProfile").and_then(Value::as_bool) == Some(true) {
+        format!(
+            "The embedded colour profile is unusable or does not match the document's colour model. Working space: {}.",
+            report["working"].as_str().unwrap_or("?")
+        )
+    } else if report.get("missing").and_then(Value::as_bool) == Some(true) {
         format!("The document does not have an embedded colour profile. Working space: {}.", report["working"].as_str().unwrap_or("?"))
     } else {
         format!(
@@ -885,16 +907,19 @@ pub(crate) fn open_mismatch_for(app: &mut PhotocraftApp, report: &Value, target:
             report["working"].as_str().unwrap_or("?")
         )
     };
-    let action = match report["action"].as_str() {
+    let choice = |action: Option<&str>| match action {
         Some("converted") => "convert",
         Some("discarded") => "discard",
+        Some("assigned") => "assignWorking",
         _ => "preserve",
     };
+    let applied = choice(report.get("appliedAction").or_else(|| report.get("action")).and_then(Value::as_str));
+    let action = choice(report.get("requestedAction").or_else(|| report.get("action")).and_then(Value::as_str));
     open_kind(
         app,
         "mismatch",
         tl!("Embedded Profile Mismatch"),
-        json!({"message": format!("{}\n{msg}",target["name"].as_str().unwrap_or("Document")), "action": action, "applied": action, "missing": report.get("missing").is_some(), "target":target}),
+        json!({"message": format!("{}\n{msg}",target["name"].as_str().unwrap_or("Document")), "action": action, "applied": applied, "missing": report.get("missing").is_some(), "target":target}),
     )
 }
 

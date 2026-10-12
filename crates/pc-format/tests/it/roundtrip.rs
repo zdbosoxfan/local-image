@@ -456,6 +456,7 @@ fn develop_links_roundtrip() {
     let ids: Vec<LayerId> = doc.walk().into_iter().filter(|(_, _, l)| matches!(l.content, LayerContent::Smart(_))).map(|(_, _, l)| l.id).collect();
     assert!(ids.len() >= 2);
     let link = photocraft_doc::DevelopLink {
+        library_baseline: None,
         source: Some("/library/source.dng".into()),
         library: Some("catalog-native-test".into()),
         settings: serde_json::json!({"light": {"exposure": 0.65, "contrast": -12.0}, "profile": {"id": "lc.vivid"}}),

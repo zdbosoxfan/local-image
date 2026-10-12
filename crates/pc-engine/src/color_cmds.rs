@@ -235,27 +235,50 @@ impl ColorState {
         }
     }
 
-    /// Apply the colour management policy to a document being opened. Returns what happened
-    /// (`action`: kept|converted|discarded|assigned|untagged) and whether to ask the user.
+    /// Apply the colour policy immediately (the headless open behavior). `action`
+    /// and `appliedAction` describe the result; `requestedAction` describes the policy.
+    /// Failed conversions retain the original document and include an `error`.
     pub fn open_policy(&self, doc: &mut Document) -> Value {
+        self.open_policy_with(doc, false)
+    }
+
+    /// Admit an external document for an interactive caller. If an enabled mismatch
+    /// or missing-profile question applies, retain the original pixels and ICC bytes
+    /// until the caller resolves `color.profileMismatch`. The report then has
+    /// `deferred: true`, the actual unchanged `action`/`appliedAction`, and the default
+    /// `requestedAction` for the dialog. Without a question, apply the normal policy.
+    pub fn open_policy_deferred(&self, doc: &mut Document) -> Value {
+        self.open_policy_with(doc, true)
+    }
+
+    fn open_policy_with(&self, doc: &mut Document, defer_questions: bool) -> Value {
         let space = mode_space(doc.mode);
         if !matches!(space, ColorSpace::Rgb | ColorSpace::Cmyk | ColorSpace::Gray) {
-            return json!({"action": "kept"});
+            return json!({"action":"kept", "appliedAction":"kept", "requestedAction":"kept", "deferred":false});
         }
         let working = self.working(doc.mode);
         let policy = self.settings.policy(doc.mode);
         let embedded = doc.icc_profile.as_ref().and_then(|b| profile_from_bytes(b).ok()).filter(|p| p.color_space == space);
         match embedded {
             Some(emb) => {
-                // Compared by colour, not bytes: Photoshop's sRGB IEC61966-2.1 is our working sRGB.
+                // Compare colours, not byte identity: alternate sRGB encodings match.
                 let mismatch = !emb.same_colors(&working);
                 let base = json!({"embedded": emb.description, "working": working.description, "mismatch": mismatch, "policy": policy.id()});
-                // 32-bit linear images (EXR/HDR are tagged linear sRGB on import) stay linear, as
-                // Photoshop keeps 32-bit documents in a linear version of the working space.
+                // Preserve the established automatic linear-HDR exception, even when
+                // the configured policy requests conversion to a nonlinear working space.
                 let linear_hdr = doc.depth == SampleType::F32 && emb.same_colors(Builtin::LinearSrgb.profile());
                 if !mismatch || linear_hdr {
-                    return merge(base, json!({"action": "kept"}));
+                    return merge(base, json!({"action":"kept", "appliedAction":"kept", "requestedAction":"kept", "deferred":false}));
                 }
+                let requested = match policy {
+                    Policy::Preserve => "kept",
+                    Policy::Off => "discarded",
+                    Policy::Convert => "converted",
+                };
+                if defer_questions && self.settings.ask_on_mismatch {
+                    return merge(base, json!({"action":"kept", "appliedAction":"kept", "requestedAction":requested, "ask":true, "deferred":true}));
+                }
+                let mut error = None;
                 let action = match policy {
                     Policy::Preserve => "kept",
                     Policy::Off => {
@@ -264,20 +287,44 @@ impl ColorState {
                     }
                     Policy::Convert => match convert_document(doc, &working, self.settings.intent(), self.settings.bpc) {
                         Ok(()) => "converted",
-                        Err(_) => "kept",
+                        Err(e) => {
+                            error = Some(e.to_string());
+                            "kept"
+                        }
                     },
                 };
-                merge(base, json!({"action": action, "ask": self.settings.ask_on_mismatch}))
+                let mut report = merge(
+                    base,
+                    json!({"action":action, "appliedAction":action, "requestedAction":requested, "ask":self.settings.ask_on_mismatch, "deferred":false}),
+                );
+                if let Some(error) = error {
+                    report["error"] = json!(error);
+                }
+                report
             }
             None => {
-                // Untagged files are assumed to be in the working space; tag them when it is not
-                // the built-in default so they display (and save) as intended.
+                // Keep the existing automatic interpretation for untagged input, but
+                // never preassign a profile while the interactive choice is pending.
+                let invalid = doc.icc_profile.is_some();
                 let default = working_profile(doc.mode);
                 let assign = policy != Policy::Off && working.content_hash() != default.content_hash();
-                if assign {
+                let requested = if assign { "assigned" } else { "untagged" };
+                let deferred = defer_questions && self.settings.ask_on_missing;
+                if assign && !deferred {
                     doc.icc_profile = Some(working.to_bytes());
                 }
-                json!({"action": if assign { "assigned" } else { "untagged" }, "working": working.description, "policy": policy.id(), "ask": self.settings.ask_on_missing, "missing": true})
+                let action = if assign && !deferred {
+                    "assigned"
+                } else if invalid {
+                    "kept"
+                } else {
+                    "untagged"
+                };
+                let mut report = json!({"action":action,"appliedAction":action,"requestedAction":requested,"working":working.description,"policy":policy.id(),"ask":self.settings.ask_on_missing,"missing":true,"deferred":deferred});
+                if invalid {
+                    report["invalidProfile"] = json!(true);
+                }
+                report
             }
         }
     }
@@ -651,7 +698,22 @@ fn paint_colors(p: &mut FxPaint, cc: &mut impl FnMut(&mut Color)) {
 /// converted. The document is tagged with `dst`.
 pub fn convert_document(doc: &mut Document, dst: &Profile, intent: Intent, bpc: bool) -> Result<()> {
     let to_mode = space_mode(dst.color_space).ok_or_else(|| EngineError::Other(format!("cannot convert to a {:?} profile", dst.color_space)))?;
-    let src = document_profile(doc);
+    // Explicit conversion must not silently treat malformed or wrong-model ICC
+    // bytes as a default profile. Display-only fallback remains document_profile().
+    let src = match &doc.icc_profile {
+        Some(bytes) => {
+            let profile = profile_from_bytes(bytes).map_err(cms_err)?;
+            if profile.color_space != mode_space(doc.mode) {
+                return Err(EngineError::Other(format!(
+                    "embedded profile is {:?}, but the document is {:?}; assign the correct source profile before converting",
+                    profile.color_space,
+                    mode_space(doc.mode)
+                )));
+            }
+            profile
+        }
+        None => working_profile(doc.mode),
+    };
     let from_mode = doc.pixel_format().mode;
     let t = Transform::new(&src, dst, intent, bpc).map_err(cms_err)?;
     let fmt = PixelFormat::new(to_mode, doc.depth, true);
@@ -952,9 +1014,19 @@ fn profile_mismatch(s: &mut Session, p: &Value) -> Result<Value> {
 impl Session {
     /// Add a document read from a file, applying the Color Settings policy first (preserve,
     /// convert to the working space, or discard the embedded profile). Returns the document
-    /// index and a report (`action`, `mismatch`, `ask`) the UI can turn into a prompt.
+    /// index and an admission report. This immediate path may report `ask` after
+    /// applying policy; interactive callers must use `open_document_deferred`.
     pub fn open_document(&mut self, mut doc: Document, path: Option<String>) -> (usize, Value) {
         let report = self.color.open_policy(&mut doc);
+        (self.add_document(doc, path), report)
+    }
+
+    /// Interactive external-file admission: ask before mutating pixels/profile.
+    /// `report["requestedAction"]` is only the dialog default, not an applied edit.
+    /// Resolve the user's choice with `color.profileMismatch` on this document.
+    /// Native documents that bypass colour admission should still use `add_document`.
+    pub fn open_document_deferred(&mut self, mut doc: Document, path: Option<String>) -> (usize, Value) {
+        let report = self.color.open_policy_deferred(&mut doc);
         (self.add_document(doc, path), report)
     }
 }
@@ -1348,5 +1420,195 @@ mod settings_tests {
         s.execute("color.profileMismatch", json!({"action": "discard"})).unwrap();
         assert!(s.active().unwrap().doc.icc_profile.is_none());
         assert!(s.execute("color.profileMismatch", json!({"action": "explode"})).is_err());
+    }
+}
+
+#[cfg(test)]
+mod deferred_admission_tests {
+    use super::*;
+
+    fn tagged(profile: Builtin) -> Document {
+        let mut doc = Document::with_background("external", photocraft_doc::Size::new(4, 4), ColorMode::Rgb, SampleType::U8, Color::rgba(0.2, 0.6, 0.9, 1.));
+        doc.icc_profile = Some(profile.profile().to_bytes());
+        doc
+    }
+
+    #[test]
+    fn deferred_mismatch_preserves_original_for_every_default_and_explicit_choice() {
+        for policy in [Policy::Convert, Policy::Off, Policy::Preserve] {
+            for choice in ["preserve", "convert", "discard"] {
+                let mut session = Session::new();
+                session.color.settings.policy_rgb = policy;
+                session.color.settings.ask_on_mismatch = true;
+                let original = tagged(Builtin::DisplayP3);
+                let (_, report) = session.open_document_deferred(original.clone(), Some("external.psd".into()));
+                assert_eq!(report["deferred"], true);
+                assert_eq!(report["ask"], true);
+                assert_eq!(report["action"], "kept");
+                assert_eq!(report["appliedAction"], "kept");
+                assert_eq!(
+                    report["requestedAction"],
+                    match policy {
+                        Policy::Convert => "converted",
+                        Policy::Off => "discarded",
+                        Policy::Preserve => "kept",
+                    }
+                );
+                assert_eq!(session.active().unwrap().doc.as_ref(), &original, "admission must not change original samples or ICC bytes");
+                let result = session.execute("color.profileMismatch", json!({"action":choice})).unwrap();
+                let mut expected = original.clone();
+                match choice {
+                    "convert" => {
+                        convert_document(&mut expected, Builtin::Srgb.profile(), session.color.settings.intent(), session.color.settings.bpc).unwrap();
+                        assert_eq!(result["action"], "converted");
+                        assert_ne!(expected.layers[0].surface().unwrap().pixel(0, 0), original.layers[0].surface().unwrap().pixel(0, 0));
+                    }
+                    "discard" => {
+                        expected.icc_profile = None;
+                        assert_eq!(result["action"], "discarded");
+                    }
+                    _ => assert_eq!(result["action"], "kept"),
+                }
+                assert_eq!(session.active().unwrap().doc.as_ref(), &expected);
+                if choice != "preserve" {
+                    session.undo();
+                    assert_eq!(session.active().unwrap().doc.as_ref(), &original);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn deferred_missing_profile_waits_for_preserve_or_assignment() {
+        for choice in ["preserve", "assignWorking"] {
+            let mut session = Session::new();
+            session.color.settings.working_rgb = Builtin::DisplayP3.id().into();
+            session.color.settings.policy_rgb = Policy::Convert;
+            session.color.settings.ask_on_missing = true;
+            let mut original = tagged(Builtin::Srgb);
+            original.icc_profile = None;
+            let (_, report) = session.open_document_deferred(original.clone(), None);
+            assert_eq!(report["missing"], true);
+            assert_eq!(report["deferred"], true);
+            assert_eq!(report["action"], "untagged");
+            assert_eq!(report["appliedAction"], "untagged");
+            assert_eq!(report["requestedAction"], "assigned");
+            assert_eq!(session.active().unwrap().doc.as_ref(), &original);
+            session.execute("color.profileMismatch", json!({"action":choice})).unwrap();
+            let mut expected = original.clone();
+            if choice == "assignWorking" {
+                expected.icc_profile = Some(Builtin::DisplayP3.profile().to_bytes());
+            }
+            assert_eq!(session.active().unwrap().doc.as_ref(), &expected);
+            if choice == "assignWorking" {
+                session.undo();
+                assert_eq!(session.active().unwrap().doc.as_ref(), &original);
+            }
+        }
+    }
+
+    #[test]
+    fn deferred_no_ask_uses_the_existing_automatic_policy() {
+        for policy in [Policy::Preserve, Policy::Convert, Policy::Off] {
+            for missing in [false, true] {
+                let mut color = ColorState::default();
+                color.settings.working_rgb = Builtin::DisplayP3.id().into();
+                color.settings.policy_rgb = policy;
+                color.settings.ask_on_mismatch = false;
+                color.settings.ask_on_missing = false;
+                let mut immediate = tagged(Builtin::AdobeRgbCompat);
+                if missing {
+                    immediate.icc_profile = None;
+                }
+                let mut interactive = immediate.clone();
+                let expected = color.open_policy(&mut immediate);
+                let report = color.open_policy_deferred(&mut interactive);
+                assert_eq!(interactive, immediate);
+                assert_eq!(report["action"], expected["action"]);
+                assert_eq!(report["appliedAction"], expected["action"]);
+                assert_eq!(report["deferred"], false);
+                assert_eq!(report["ask"], false);
+            }
+        }
+        // Headless opens still apply Convert even with ask enabled.
+        let mut session = Session::new();
+        session.color.settings.policy_rgb = Policy::Convert;
+        let source = tagged(Builtin::DisplayP3);
+        let (_, report) = session.open_document(source.clone(), None);
+        assert_eq!(report["action"], "converted");
+        assert_eq!(report["deferred"], false);
+        assert_ne!(session.active().unwrap().doc.icc_profile, source.icc_profile);
+    }
+
+    #[test]
+    fn deferred_matching_profiles_and_linear_hdr_never_prompt_or_convert() {
+        let mut color = ColorState::default();
+        color.settings.policy_rgb = Policy::Convert;
+        color.settings.ask_on_mismatch = true;
+        color.settings.ask_on_missing = true;
+        let mut matching = tagged(Builtin::Srgb);
+        let before = matching.clone();
+        let report = color.open_policy_deferred(&mut matching);
+        assert_eq!(matching, before);
+        assert_eq!(report["deferred"], false);
+        assert!(report.get("ask").is_none());
+        let mut hdr = Document::with_background("HDR", photocraft_doc::Size::new(1, 1), ColorMode::Rgb, SampleType::F32, Color::rgba(0., 0., 0., 1.));
+        hdr.icc_profile = Some(Builtin::LinearSrgb.profile().to_bytes());
+        hdr.layers[0].surface_mut().unwrap().write_pixel(0, 0, &[-0.25, 0.5, 2., 0.75]);
+        let before = hdr.clone();
+        let report = color.open_policy_deferred(&mut hdr);
+        assert_eq!(hdr, before);
+        assert_eq!(report["action"], "kept");
+        assert_eq!(report["deferred"], false);
+        assert!(report.get("ask").is_none());
+    }
+
+    #[test]
+    fn deferred_failed_conversion_reports_requested_and_actual_without_mutation() {
+        let mut profile = Builtin::DisplayP3.profile().clone();
+        profile.class = photocraft_cms::ProfileClass::DeviceLink;
+        let mut source = tagged(Builtin::DisplayP3);
+        source.icc_profile = Some(profile.with_encoded_bytes().to_bytes());
+        assert!(profile_from_bytes(source.icc_profile.as_ref().unwrap()).is_ok(), "valid ICC header with unsupported conversion class");
+        let mut color = ColorState::default();
+        color.settings.policy_rgb = Policy::Convert;
+        color.settings.ask_on_mismatch = false;
+        for deferred in [false, true] {
+            let mut doc = source.clone();
+            let report = if deferred { color.open_policy_deferred(&mut doc) } else { color.open_policy(&mut doc) };
+            assert_eq!(doc, source);
+            assert_eq!(report["requestedAction"], "converted");
+            assert_eq!(report["appliedAction"], "kept");
+            assert_eq!(report["action"], "kept");
+            assert!(report["error"].as_str().is_some_and(|error| !error.is_empty()));
+        }
+    }
+
+    #[test]
+    fn deferred_invalid_profiles_are_preserved_and_explicit_conversion_fails_visibly() {
+        for bytes in [Arc::new(b"malformed ICC".to_vec()), Builtin::CoatedCmyk.profile().to_bytes()] {
+            let mut original = tagged(Builtin::Srgb);
+            original.icc_profile = Some(bytes);
+            let mut direct = original.clone();
+            assert!(convert_document(&mut direct, Builtin::Srgb.profile(), Intent::RelativeColorimetric, true).is_err());
+            assert_eq!(direct, original);
+            // Display continues to use its tolerant fallback.
+            assert!(document_profile(&original).same_colors(Builtin::Srgb.profile()));
+            let mut session = Session::new();
+            session.color.settings.ask_on_missing = true;
+            session.color.settings.working_rgb = Builtin::DisplayP3.id().into();
+            let (_, report) = session.open_document_deferred(original.clone(), None);
+            assert_eq!(report["invalidProfile"], true);
+            assert_eq!(report["deferred"], true);
+            assert_eq!(report["action"], "kept");
+            assert_eq!(session.active().unwrap().doc.as_ref(), &original);
+            assert!(session.execute("color.profileMismatch", json!({"action":"convert"})).is_err());
+            assert_eq!(session.active().unwrap().doc.as_ref(), &original);
+            session.execute("color.profileMismatch", json!({"action":"preserve"})).unwrap();
+            assert_eq!(session.active().unwrap().doc.as_ref(), &original);
+        }
+        let mut untagged = tagged(Builtin::Srgb);
+        untagged.icc_profile = None;
+        assert!(convert_document(&mut untagged, Builtin::DisplayP3.profile(), Intent::RelativeColorimetric, true).is_ok());
     }
 }
