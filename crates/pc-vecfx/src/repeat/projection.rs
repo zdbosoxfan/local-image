@@ -176,7 +176,7 @@ fn instance_group(id: LayerId, index: usize, children: Vec<Layer>) -> Layer {
         vector_mask: None,
         effects: Effects { enabled: true, ..Default::default() },
         label: LabelColor::None,
-        content: LayerContent::Group(Group { children, expanded: false, artboard: None }),
+        content: LayerContent::Group(Group { children, expanded: false, artboard: None, isolation: photocraft_doc::GroupIsolation::Auto }),
         psd_blocks: Vec::new(),
         psd_id: None,
         fill_cache: None,

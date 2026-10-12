@@ -358,3 +358,84 @@ fn private_layer_and_global_blocks_keep_bytes_and_source_order_over_two_tiff_sav
         assert_eq!(layer, (u8::from(order == ByteOrder::Little), LAYER.to_vec()));
     }
 }
+
+#[test]
+fn independent_pdf_groups_export_with_their_whole_document_backdrop() {
+    use photocraft_doc::{BlendMode, Color, Fill, GroupIsolation, Layer, Size};
+    let mut doc = Document::new("PDF groups", Size::new(4, 4), ColorMode::Rgb, SampleType::F32);
+    let mut bg = Color::rgb(0.2, 0.4, 0.6);
+    bg.alpha = 0.4;
+    let mut child = Layer::new("screen", LayerContent::Fill(Fill::Solid(Color::rgb(0.8, 0.6, 0.4))));
+    child.opacity = 0.6;
+    child.blend = BlendMode::Screen;
+    let mut group = Layer::group("nonisolated", vec![child]);
+    group.blend = BlendMode::Multiply;
+    group.opacity = 0.5;
+    if let LayerContent::Group(g) = &mut group.content {
+        g.isolation = GroupIsolation::NonIsolated;
+    }
+    doc.layers = vec![Layer::new("backdrop", LayerContent::Fill(Fill::Solid(bg))), group];
+    let before = doc.clone();
+    let expected = photocraft_compose::flatten(&doc);
+    let (psd, warnings) = document_to_psd_with(&doc, &PsdExportOptions { merged_matte: false, ..Default::default() });
+    assert!(warnings.iter().any(|w| w.contains("complete document") && w.contains("flattened")));
+    let (loaded, _) = psd_to_document(&psd);
+    assert_eq!(loaded.layers.len(), 1);
+    let actual = photocraft_compose::flatten(&loaded);
+    for (a, b) in actual.px.iter().zip(&expected.px) {
+        for c in 0..4 {
+            assert!((a[c] - b[c]).abs() < 0.00001);
+        }
+    }
+    let tiff = tiff(&doc, true);
+    assert!(tags(&tiff.bytes).1.is_none());
+    assert!(tiff.warnings.iter().any(|w| w.contains("complete document") && w.contains("flattened")));
+    let loaded = import("groups.tif", &tiff.bytes).unwrap().document;
+    let actual = photocraft_compose::flatten(&loaded);
+    for (a, b) in actual.px.iter().zip(&expected.px) {
+        for c in 0..4 {
+            assert!((a[c] - b[c]).abs() < 0.00001);
+        }
+    }
+    assert_eq!(doc, before, "exports must leave the editable native source intact");
+}
+
+#[test]
+fn normal_nonisolated_groups_retain_editable_psd_and_tiff_layers() {
+    use photocraft_doc::{BlendMode, Color, Fill, GroupIsolation, Layer, LayerMask, PixelFormat, Size, Surface};
+    let mut doc = Document::new("compatible groups", Size::new(4, 4), ColorMode::Rgb, SampleType::F32);
+    let mut bg = Color::rgb(0.2, 0.4, 0.6);
+    bg.alpha = 0.4;
+    let mut child = Layer::raster("paint", PixelFormat::RGBA32F);
+    child.surface_mut().unwrap().fill_rect(doc.bounds(), &[0.8, 0.6, 0.4, 0.6]);
+    child.blend = BlendMode::Screen;
+    let mut group = Layer::group("normal nonisolated", vec![child]);
+    group.blend = BlendMode::Normal;
+    group.opacity = 0.6;
+    if let LayerContent::Group(g) = &mut group.content {
+        g.isolation = GroupIsolation::NonIsolated;
+    }
+    let mut mask = LayerMask::hide_all();
+    mask.surface = Surface::new(PixelFormat::new(ColorMode::Grayscale, SampleType::F32, false));
+    mask.surface.fill_rect(doc.bounds(), &[0.4]);
+    group.mask = Some(mask);
+    doc.layers = vec![Layer::new("backdrop", LayerContent::Fill(Fill::Solid(bg))), group];
+    let before = doc.clone();
+    let expected = photocraft_compose::flatten(&doc);
+    let (file, warnings) = document_to_psd_with(&doc, &PsdExportOptions { merged_matte: false, ..Default::default() });
+    assert!(!warnings.iter().any(|w| w.contains("Independent PDF group isolation")));
+    let (psd, _) = psd_to_document(&file);
+    assert!(psd.walk().iter().any(|(_, _, l)| matches!(l.content, LayerContent::Group(_))));
+    let tiff = tiff(&doc, true);
+    assert!(tags(&tiff.bytes).1.is_some());
+    assert!(!tiff.warnings.iter().any(|w| w.contains("Independent PDF group isolation")));
+    let tiff = import("groups.tif", &tiff.bytes).unwrap().document;
+    for loaded in [psd, tiff] {
+        for (a, b) in photocraft_compose::flatten(&loaded).px.iter().zip(&expected.px) {
+            for c in 0..4 {
+                assert!((a[c] - b[c]).abs() < 0.00001);
+            }
+        }
+    }
+    assert_eq!(doc, before);
+}

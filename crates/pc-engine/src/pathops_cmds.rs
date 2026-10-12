@@ -309,7 +309,12 @@ fn outline_layers(s: &mut Session, input: &[Layer], label: &str) -> Result<Value
             let mut edge = Layer::new(original.name.clone(), LayerContent::Shape(outlined));
             edge.opacity = stroke.opacity;
             let ids = vec![base.id, edge.id];
-            layer.content = LayerContent::Group(photocraft_doc::Group { children: vec![base, edge], expanded: true, artboard: None });
+            layer.content = LayerContent::Group(photocraft_doc::Group {
+                children: vec![base, edge],
+                expanded: true,
+                artboard: None,
+                isolation: photocraft_doc::GroupIsolation::Auto,
+            });
             ids
         } else {
             layer.content = LayerContent::Shape(outlined);

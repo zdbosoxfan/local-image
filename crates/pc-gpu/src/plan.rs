@@ -319,6 +319,11 @@ pub fn plan(doc: &Document) -> Result<Plan<'_>, Unsupported> {
 }
 
 fn plan_scoped(doc: &Document) -> Result<Plan<'_>, Unsupported> {
+    // A subtree cache against transparency cannot represent its incoming
+    // backdrop. Fail the whole plan so the caller uses the CPU compositor.
+    if doc.walk().iter().any(|(_, _, layer)| matches!(&layer.content, LayerContent::Group(g) if g.isolation == photocraft_doc::GroupIsolation::NonIsolated)) {
+        return Err(Unsupported("independent nonisolated group composition requires the CPU".into()));
+    }
     if doc.mode == photocraft_color::ColorMode::Multichannel {
         return Err(Unsupported("Multichannel inks (printed on the CPU)".into()));
     }
@@ -593,6 +598,7 @@ impl<'a> Planner<'a> {
 
         // Below 100% fill a pass-through group renders isolated (as the CPU compositor does).
         if let LayerContent::Group(g) = &layer.content
+            && g.isolation == photocraft_doc::GroupIsolation::Auto
             && layer.blend == BlendMode::PassThrough
             && layer.fill_opacity >= 1.0
             && !has_effects(layer)
@@ -1722,6 +1728,17 @@ mod tests {
     use photocraft_color::{Color, ColorMode, SampleType};
     use photocraft_geom::Size;
 
+    #[test]
+    fn independent_nonisolated_group_requires_whole_render_cpu_fallback() {
+        let mut doc = photocraft_doc::Document::new("PDF", photocraft_geom::Size::new(2, 2), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::F32);
+        let mut group = photocraft_doc::Layer::group("PDF", vec![]);
+        if let photocraft_doc::LayerContent::Group(g) = &mut group.content {
+            g.isolation = photocraft_doc::GroupIsolation::NonIsolated;
+        }
+        doc.layers.push(group);
+        let error = plan(&doc).expect_err("explicit CPU fallback");
+        assert!(error.0.contains("nonisolated"));
+    }
     #[test]
     fn cached_tone_programs_match_fresh_tables_and_invalidate_on_edits() {
         let mut levels = Adjustment::identity_levels();

@@ -141,3 +141,51 @@ fn assert_fallback(doc: &Document, label: &str) {
     assert!(!parsed.descendants().any(|n| n.has_tag_name("path")));
     assert_raster_oracle_svg(doc, &source, label);
 }
+
+#[test]
+fn explicit_group_isolation_keeps_vector_isolated_output_and_backdrop_safe_fallback() {
+    let mut doc = scene(photocraft_vector::shapes::rect(20., 20., 80., 80.), Fill::Solid(Color::rgb(0.7, 0.3, 0.5)));
+    let child = doc.layers.pop().unwrap();
+    let mut group = Layer::group("isolated", vec![child]);
+    if let LayerContent::Group(g) = &mut group.content {
+        g.isolation = photocraft_doc::GroupIsolation::Isolated;
+    }
+    let id = group.id;
+    doc.layers.push(group);
+    let text = svg(&doc);
+    assert!(text.contains("isolation:isolate"));
+    assert!(!text.contains("<image"));
+    assert_oracle_svg(&doc, &text, "explicit-isolated-vector");
+    let LayerContent::Group(g) = &mut doc.layers[0].content else { panic!("group") };
+    g.isolation = photocraft_doc::GroupIsolation::NonIsolated;
+    doc.layers[0].blend = BlendMode::Multiply;
+    let before = doc.clone();
+    let text = svg(&doc);
+    assert!(text.contains("<image"));
+    assert_raster_oracle_svg(&doc, &text, "explicit-nonisolated-document");
+    assert!(export::export(&doc, &ExportScope::Selection(vec![id]), &ExportOptions::default()).is_err());
+    assert_eq!(doc, before);
+}
+
+#[test]
+fn normal_nonisolated_legacy_subset_keeps_native_vectors_and_safe_partial_scope() {
+    let mut doc = scene(photocraft_vector::shapes::rect(0., 0., 256., 256.), Fill::Solid(Color::rgb(0.2, 0.4, 0.6)));
+    let mut child = shape(&doc, "multiply", (16., 16., 48., 48.), Color::rgb(0.8, 0.6, 0.4));
+    child.blend = BlendMode::Multiply;
+    let mut g = Layer::group("normal nonisolated", vec![child]);
+    g.blend = BlendMode::Normal;
+    if let LayerContent::Group(group) = &mut g.content {
+        group.isolation = photocraft_doc::GroupIsolation::NonIsolated;
+    }
+    let id = g.id;
+    doc.layers.push(g);
+    let original = doc.clone();
+    let text = svg(&doc);
+    assert!(!text.contains("<image"));
+    assert_oracle_svg(&doc, &text, "legacy-normal-nonisolated-vector");
+    assert!(export::export(&doc, &ExportScope::Selection(vec![id]), &ExportOptions::default()).is_ok());
+    doc.layers[1].opacity = 0.6;
+    assert!(export::export(&doc, &ExportScope::Selection(vec![id]), &ExportOptions::default()).is_err(), "partial raster fallback must not discard B");
+    doc.layers[1].opacity = 1.0;
+    assert_eq!(doc, original);
+}

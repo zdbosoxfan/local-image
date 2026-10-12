@@ -32,12 +32,18 @@ fn project(
                     let def = symbols.get(&instance.symbol.0).ok_or_else(|| validation::error("missing symbol"))?;
                     let a = inherited.mul(&instance.transform);
                     validation::affine(a)?;
-                    LayerContent::Group(Group { children: project(&def.layers, symbols, a, true, transforms)?, expanded: true, artboard: None })
+                    LayerContent::Group(Group {
+                        children: project(&def.layers, symbols, a, true, transforms)?,
+                        expanded: true,
+                        artboard: None,
+                        isolation: photocraft_doc::GroupIsolation::Auto,
+                    })
                 }
                 LayerContent::Group(g) => LayerContent::Group(Group {
                     children: project(&g.children, symbols, inherited, template, transforms)?,
                     expanded: g.expanded,
                     artboard: g.artboard.clone(),
+                    isolation: g.isolation,
                 }),
                 content => content.clone(),
             };

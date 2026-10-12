@@ -12,8 +12,8 @@ fn surface_value() -> Value {
 }
 
 #[test]
-fn format_version_is_one() {
-    assert_eq!(FORMAT_VERSION, 2);
+fn format_version_guards_independent_group_isolation() {
+    assert_eq!(FORMAT_VERSION, 3);
 }
 
 #[test]

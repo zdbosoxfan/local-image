@@ -840,6 +840,13 @@ impl Ex {
                         ..Default::default()
                     });
                     self.emit(&g.children);
+                    let normalized =
+                        (g.isolation == photocraft_doc::GroupIsolation::Isolated && l.blend == photocraft_doc::BlendMode::PassThrough).then(|| {
+                            let mut layer = l.clone();
+                            layer.blend = photocraft_doc::BlendMode::Normal;
+                            layer
+                        });
+                    let l = normalized.as_ref().unwrap_or(l);
                     let kind = if g.expanded { SectionType::OpenFolder } else { SectionType::ClosedFolder };
                     let lsct = TaggedBlock::section_divider(kind, Some(PsdBlend::from_key(l.blend.psd_key())), None);
                     let r = self.record(l, std::iter::once(lsct).chain(extra).collect(), None);
@@ -1161,6 +1168,23 @@ pub(crate) fn psd_size_exceeds_limit(doc: &Document) -> bool {
 
 /// [`document_to_psd_with`] for a document embedded `depth` smart objects deep.
 fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -> (PsdFile, Vec<String>) {
+    let mut compatible = doc.clone();
+    compatible.normalize_legacy_groups();
+    let doc = &compatible;
+    if doc.walk().iter().any(|(_, _, l)| matches!(&l.content, LayerContent::Group(g) if g.isolation == photocraft_doc::GroupIsolation::NonIsolated)) {
+        // Photoshop cannot encode isolation independently from the outer blend.
+        // Flatten the complete detached document with its actual backdrop,
+        // never a backdrop-dependent subtree against transparency.
+        let surface = photocraft_compose::flatten_to_surface(doc, doc.pixel_format(), None);
+        let mut flat = doc.clone();
+        flat.layers = vec![Layer::new("PDF group composition", LayerContent::Raster(surface))];
+        flat.layer_comps.clear();
+        flat.last_document_state = None;
+        flat.last_applied_comp = None;
+        let (file, mut warnings) = document_to_psd_nested(&flat, opts, depth);
+        warnings.push("Independent PDF group isolation cannot be represented as PSD layers; the complete document was flattened with its backdrop. The native document is unchanged.".into());
+        return (file, warnings);
+    }
     if doc.mode == ColorMode::Multichannel {
         return crate::multichannel_map::document_to_psd(doc, opts.force_psb);
     }

@@ -9,7 +9,7 @@ use base64::Engine as _;
 use image::ImageEncoder as _;
 use photocraft_doc::vector_design::appearance::{AppearanceItem, StrokeGradientMode};
 use photocraft_doc::vector_design::exchange::{ExportScope, ExportedVector, VectorWarning};
-use photocraft_doc::{BlendMode, DesignUnits, Document, Fill, FillRule, Layer, LayerContent, Path, ShapeLayer, ShapeStroke};
+use photocraft_doc::{BlendMode, DesignUnits, Document, Fill, FillRule, Layer, LayerContent, LayerId, Path, ShapeLayer, ShapeStroke};
 use photocraft_geom::Rect;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -97,6 +97,9 @@ pub fn export_with(doc: &Document, scope: &ExportScope, opts: &ExportOptions, cx
         flatten = true;
     }
     if flatten {
+        if partial_backdrop_dependency(doc, scope) {
+            return Err(invalid("this partial nonisolated scope requires rasterization with its enclosing backdrop; export the document instead"));
+        }
         w.warn("compositing", "The scoped composition was embedded as PNG to preserve adjustments, clipping or backdrop-dependent blending.");
         w.raster(&scene.layers, rect)?;
     } else {
@@ -173,9 +176,31 @@ fn check_pixels(rect: Rect, opts: &ExportOptions) -> Result<()> {
     Ok(())
 }
 
+fn partial_backdrop_dependency(doc: &Document, scope: &ExportScope) -> bool {
+    let ids = match scope {
+        ExportScope::Document => return false,
+        ExportScope::Selection(ids) => ids.clone(),
+        ExportScope::Artboard(id) => vec![*id],
+    };
+    fn selected(layer: &Layer, ids: &[LayerId]) -> bool {
+        ids.contains(&layer.id) || layer.children().is_some_and(|kids| kids.iter().any(|l| selected(l, ids)))
+    }
+    fn walk(layers: &[Layer], ids: &[LayerId], inside: bool) -> bool {
+        layers.iter().any(|layer| {
+            let included = inside || ids.contains(&layer.id);
+            matches!(&layer.content,LayerContent::Group(g) if g.isolation==photocraft_doc::GroupIsolation::NonIsolated && (included||selected(layer,ids)))
+                || layer.children().is_some_and(|kids| walk(kids, ids, included))
+        })
+    }
+    walk(&doc.layers, &ids, false)
+}
+
 /// Validates every requested id before pruning, including hidden objects. Selecting both
 /// a group and its descendant includes the group only once, in document paint order.
 pub fn scoped_document(doc: &Document, scope: &ExportScope) -> Result<Document> {
+    let mut compatible = doc.clone();
+    compatible.normalize_legacy_groups();
+    let doc = &compatible;
     let ids = match scope {
         ExportScope::Document => return Ok(doc.clone()),
         ExportScope::Selection(ids) if !ids.is_empty() => ids.clone(),
@@ -219,6 +244,9 @@ pub fn scoped_document(doc: &Document, scope: &ExportScope) -> Result<Document> 
     }
     let mut scene = doc.clone();
     scene.layers = prune(&doc.layers, &selected);
+    if scene.walk().iter().any(|(_, _, l)| matches!(&l.content,LayerContent::Group(g) if g.isolation==photocraft_doc::GroupIsolation::NonIsolated)) {
+        return Err(invalid("nonisolated groups require Document export to retain their actual backdrop"));
+    }
     Ok(scene)
 }
 
@@ -442,7 +470,9 @@ impl Writer<'_, '_, '_> {
             self.raster_reason(layer);
             match &layer.content {
                 LayerContent::Group(g) => {
-                    if layer.blend == BlendMode::PassThrough
+                    flatten |= g.isolation == photocraft_doc::GroupIsolation::NonIsolated;
+                    if g.isolation == photocraft_doc::GroupIsolation::Auto
+                        && layer.blend == BlendMode::PassThrough
                         && (layer.opacity != 1.0
                             || layer.mask.is_some()
                             || layer.vector_mask.as_ref().is_some_and(|m| m.enabled)
@@ -487,7 +517,7 @@ impl Writer<'_, '_, '_> {
             }
             let mut attrs = String::new();
             let blend = native_blend(layer.blend).ok_or_else(|| invalid("unsupported blend reached writer"))?;
-            let isolated = matches!(layer.content, LayerContent::Group(_)) && (layer.blend != BlendMode::PassThrough || layer.fill_opacity < 1.0);
+            let isolated = matches!(&layer.content, LayerContent::Group(g) if g.isolation == photocraft_doc::GroupIsolation::Isolated || g.isolation == photocraft_doc::GroupIsolation::Auto && (layer.blend != BlendMode::PassThrough || layer.fill_opacity < 1.0));
             if blend != "normal" || isolated {
                 attrs.push_str(&format!(" style=\"mix-blend-mode:{blend}{}\"", if isolated { ";isolation:isolate" } else { "" }));
             }

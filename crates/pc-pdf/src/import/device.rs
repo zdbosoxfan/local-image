@@ -6,7 +6,7 @@ use super::{ImportError, Result, cancelled, geometry, paint, preflight::groups, 
 use hayro_interpret::{CacheKey, ClipPath, Device, GlyphDrawMode, Image, ImageData, MaskType, Paint, PathDrawMode, SoftMask, font::Glyph, pattern::Pattern};
 use kurbo::{Affine, BezPath, Point};
 use photocraft_doc::{
-    BlendMode, Fill, Layer, LayerContent, LayerMask, Path, PixelFormat, Rect, ShapeLayer, Surface, VectorMask,
+    BlendMode, Fill, GroupIsolation, Layer, LayerContent, LayerMask, Path, PixelFormat, Rect, ShapeLayer, Surface, VectorMask,
     vector_design::exchange::{ImportOptions, VectorWarning},
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::atomic::AtomicBool};
@@ -26,6 +26,7 @@ enum FrameKind {
 struct Frame {
     kind: FrameKind,
     marked: bool,
+    isolation: GroupIsolation,
     children: Vec<Layer>,
     clip: Option<Path>,
     opacity: f32,
@@ -34,7 +35,16 @@ struct Frame {
 }
 impl Frame {
     fn root() -> Self {
-        Self { kind: FrameKind::Root, marked: false, children: vec![], clip: None, opacity: 1.0, blend: BlendMode::Normal, mask: None }
+        Self {
+            kind: FrameKind::Root,
+            marked: false,
+            isolation: GroupIsolation::Auto,
+            children: vec![],
+            clip: None,
+            opacity: 1.0,
+            blend: BlendMode::Normal,
+            mask: None,
+        }
     }
 }
 pub(super) struct Builder<'a> {
@@ -192,6 +202,9 @@ impl<'a> Builder<'a> {
             }
             group.vector.clip = Some(p.clone());
             group.vector_mask = Some(VectorMask::new(p));
+        }
+        if let LayerContent::Group(g) = &mut group.content {
+            g.isolation = frame.isolation;
         }
         group.opacity = frame.opacity;
         group.blend = frame.blend;
@@ -596,15 +609,10 @@ impl<'pdf> Device<'pdf> for Builder<'_> {
                 {
                     return Err(ImportError::Invalid("PDF marker does not own a transparency frame".into()));
                 }
-                if !isolated {
-                    if b.pattern_cell {
-                        return Err(ImportError::Unsupported("nonisolated group inside rasterized pattern"));
-                    }
-                    if b.frames[index].blend != BlendMode::Normal {
-                        return Err(ImportError::Unsupported("nonisolated group with outer blend"));
-                    }
-                    b.frames[index].blend = BlendMode::PassThrough;
+                if !isolated && b.pattern_cell {
+                    return Err(ImportError::Unsupported("nonisolated group inside rasterized pattern"));
                 }
+                b.frames[index].isolation = if isolated { GroupIsolation::Isolated } else { GroupIsolation::NonIsolated };
                 b.frames[index].marked = true;
                 owner = Some(index);
             }

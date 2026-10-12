@@ -117,9 +117,12 @@ fn layer_m(l: &Layer, sink: &mut dyn Sink) -> LayerM {
     let content = match &l.content {
         LayerContent::Symbol(s) => ContentM::Symbol { symbol: s.symbol, transform: s.transform, cache: s.cache.as_ref().map(|c| surface_m(c, sink)) },
         LayerContent::Raster(s) => ContentM::Raster { surface: surface_m(s, sink) },
-        LayerContent::Group(g) => {
-            ContentM::Group { children: g.children.iter().map(|c| layer_m(c, sink)).collect(), expanded: g.expanded, artboard: g.artboard.clone() }
-        }
+        LayerContent::Group(g) => ContentM::Group {
+            isolation: g.isolation,
+            children: g.children.iter().map(|c| layer_m(c, sink)).collect(),
+            expanded: g.expanded,
+            artboard: g.artboard.clone(),
+        },
         LayerContent::Adjustment(a) => ContentM::Adjustment { adjustment: a.clone() },
         LayerContent::Fill(f) => ContentM::Fill { fill: f.clone() },
         LayerContent::Text(t) => ContentM::Text {
@@ -411,7 +414,9 @@ impl Loader<'_> {
                 LayerContent::Symbol(photocraft_doc::SymbolInstance { symbol: *symbol, transform: *transform, cache: self.opt_surface(cache)? })
             }
             ContentM::Raster { surface } => LayerContent::Raster(self.surface(surface)?),
-            ContentM::Group { expanded, artboard, .. } => LayerContent::Group(Group { artboard: artboard.clone(), children, expanded: *expanded }),
+            ContentM::Group { expanded, artboard, isolation, .. } => {
+                LayerContent::Group(Group { artboard: artboard.clone(), children, expanded: *expanded, isolation: *isolation })
+            }
             ContentM::Adjustment { adjustment } => LayerContent::Adjustment(adjustment.clone()),
             ContentM::Fill { fill } => LayerContent::Fill(fill.clone()),
             ContentM::Text { text, font_family, size_pt, color, transform, cache, psd_raw, runs, paragraphs, shape, orientation, antialias, warp } => {
@@ -766,14 +771,14 @@ mod symbol_tests {
         }
     }
     #[test]
-    fn symbols_frozen_v1_fixture_loads_and_v2_writer_is_guarded() {
+    fn symbols_frozen_v1_fixture_loads_and_v3_writer_is_guarded() {
         let d = crate::load_from_bytes(include_bytes!("../tests/fixtures/vector-v1.pcraft")).unwrap();
         assert_eq!(d.layers.len(), 2);
         assert!(d.symbols.is_empty());
         assert!(d.layers[0].vector_mask.is_some());
         assert!(!d.paths.is_empty());
         let m = crate::read_manifest(&save_to_bytes(&d, &Default::default()).unwrap()).unwrap();
-        assert_eq!(m.format_version, 2);
+        assert_eq!(m.format_version, 3);
     }
 }
 

@@ -185,6 +185,19 @@ pub(crate) fn export_layered(
     projection: Option<&dyn crate::vector_map::fallback::Projection>,
 ) -> Result<ExportResult, IoError> {
     crate::psd_generation::admit(doc)?;
+    let mut compatible = doc.clone();
+    compatible.normalize_legacy_groups();
+    let doc = &compatible;
+    if doc
+        .walk()
+        .iter()
+        .any(|(_, _, l)| matches!(&l.content, photocraft_doc::LayerContent::Group(g) if g.isolation == photocraft_doc::GroupIsolation::NonIsolated))
+    {
+        let prepared = crate::vector_map::fallback::prepare(doc, projection)?;
+        let mut result = crate::flat::export_flat(&prepared, Format::Tiff, opts)?;
+        result.warnings.push("Independent PDF group isolation cannot be represented as TIFF layers; the complete document was flattened with its backdrop. The native document is unchanged.".into());
+        return Ok(result);
+    }
     let losses = crate::vector_map::fallback::LossCollector::document(doc);
     let prepared = crate::vector_map::fallback::prepare(doc, projection)?;
     crate::psd_generation::admit(&prepared)?;

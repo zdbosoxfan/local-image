@@ -513,7 +513,7 @@ fn paint_child(template: &Layer, path: Path) -> Result<Layer> {
     Ok(layer)
 }
 fn make_group(layer: &mut Layer, children: Vec<Layer>) {
-    layer.content = LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None });
+    layer.content = LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None, isolation: photocraft_doc::GroupIsolation::Auto });
     layer.vector.appearance = None;
     layer.vector.live_shape = None;
     layer.vector.corners.clear();

@@ -26,6 +26,7 @@ pub mod gradient_fill;
 pub mod masks;
 pub mod multichannel;
 pub mod pattern;
+mod pdf_group;
 pub mod proxy;
 pub mod psblend;
 pub mod shape_split;
@@ -263,6 +264,17 @@ pub fn render_layer(layer: &Layer, rect: Rect) -> Buffer {
         std::slice::from_ref(layer),
         &mut buf,
         &Ctx {
+            isolated_contents: Vec::new(),
+            #[cfg(test)]
+            layer_visits: Default::default(),
+            #[cfg(test)]
+            memo_stats: Default::default(),
+            roots: std::slice::from_ref(layer),
+            document: None,
+            backdrop_key: layers_identity(std::slice::from_ref(layer)),
+            suppress_adjustments: false,
+            counterfactual_root: None,
+            capture: None,
             canvas: rect,
             transfer: adjust::Transfer::Srgb,
             light: photocraft_doc::GlobalLight::default(),
@@ -426,7 +438,58 @@ impl RenderVectorMasks {
 }
 
 /// Rendering context shared down the tree.
+#[derive(Clone)]
+struct BackdropCapture {
+    target: photocraft_doc::LayerId,
+    value: std::sync::Arc<std::sync::Mutex<Option<Buffer>>>,
+}
+type IsolatedContentMemo = std::sync::Arc<std::sync::Mutex<Option<IsolatedContent>>>;
+struct IsolatedContent {
+    key: (u64, [i32; 4]),
+    nodes: usize,
+    buffer: std::sync::Arc<MemoBuffer>,
+    #[cfg(test)]
+    stats: std::sync::Arc<MemoStats>,
+}
+struct MemoBuffer {
+    buffer: Buffer,
+    #[cfg(test)]
+    stats: std::sync::Arc<MemoStats>,
+}
+#[cfg(test)]
+#[derive(Default)]
+struct MemoStats {
+    live: std::sync::atomic::AtomicUsize,
+    peak: std::sync::atomic::AtomicUsize,
+    bytes: std::sync::atomic::AtomicUsize,
+    peak_bytes: std::sync::atomic::AtomicUsize,
+}
+#[cfg(test)]
+impl Drop for IsolatedContent {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.stats.live.fetch_sub(1, Relaxed);
+    }
+}
+#[cfg(test)]
+impl Drop for MemoBuffer {
+    fn drop(&mut self) {
+        self.stats.bytes.fetch_sub(self.buffer.px.len() * std::mem::size_of::<[f32; 4]>(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
 struct Ctx<'a> {
+    // One heavy isolated subtree per paired scope, never retained across tiles.
+    isolated_contents: Vec<IsolatedContentMemo>,
+    #[cfg(test)]
+    layer_visits: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    #[cfg(test)]
+    memo_stats: std::sync::Arc<MemoStats>,
+    roots: &'a [Layer],
+    document: Option<&'a Document>,
+    backdrop_key: u64,
+    suppress_adjustments: bool,
+    counterfactual_root: Option<photocraft_doc::LayerId>,
+    capture: Option<BackdropCapture>,
     /// Document canvas: fill layers and gradients are laid out relative to it, never to the render rect.
     canvas: Rect,
     /// Tone transfer used by adjustments that work in linear light.
@@ -447,6 +510,53 @@ struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
+    fn derived(&self, suppress_adjustments: bool, capture: Option<BackdropCapture>) -> Ctx<'_> {
+        Ctx {
+            isolated_contents: self.isolated_contents.clone(),
+            #[cfg(test)]
+            layer_visits: self.layer_visits.clone(),
+            #[cfg(test)]
+            memo_stats: self.memo_stats.clone(),
+            roots: self.roots,
+            document: self.document,
+            backdrop_key: self.backdrop_key,
+            suppress_adjustments,
+            counterfactual_root: self.counterfactual_root,
+            capture,
+            canvas: self.canvas,
+            transfer: self.transfer,
+            light: self.light,
+            patterns: self.patterns,
+            paint_key: self.paint_key,
+            mode: self.mode,
+            depth: self.depth,
+            vector_masks: RenderVectorMasks::default(),
+            fx_maps: Default::default(),
+        }
+    }
+    fn capture_done(&self) -> bool {
+        self.capture.as_ref().is_some_and(|capture| capture.value.lock().unwrap_or_else(|e| e.into_inner()).is_some())
+    }
+    fn capture_before(&self, layer: &Layer, backdrop: &Buffer, clipped: bool) -> bool {
+        let Some(capture) = self.capture.as_ref().filter(|c| c.target == layer.id) else { return false };
+        let mut value = backdrop.clone();
+        if clipped {
+            for p in &mut value.px {
+                p[3] = 1.0;
+            }
+        }
+        *capture.value.lock().unwrap_or_else(|e| e.into_inner()) = Some(value);
+        true
+    }
+    fn backdrop_for(&self, layer: &Layer, rect: Rect) -> Buffer {
+        let capture = BackdropCapture { target: layer.id, value: Default::default() };
+        let replay = self.derived(false, Some(capture.clone()));
+        let mut backdrop = self.document.map_or_else(|| Buffer::transparent(rect), |doc| multichannel::backdrop(doc, rect));
+        // Replay only the actual prefix: capture hooks stop every active stack
+        // before the target's own operation, including nested/clipped groups.
+        composite_stack(self.roots, &mut backdrop, &replay);
+        capture.value.lock().unwrap_or_else(|e| e.into_inner()).take().unwrap_or_else(|| Buffer::transparent(rect))
+    }
     fn paint_key(patterns: &[Pattern], cmyk: u64) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut key = std::collections::hash_map::DefaultHasher::new();
@@ -459,8 +569,19 @@ impl<'a> Ctx<'a> {
         key.finish()
     }
 
-    fn for_doc(doc: &Document, patterns: &'a pattern::PreparedPatterns<'a>) -> Self {
+    fn for_doc(doc: &'a Document, patterns: &'a pattern::PreparedPatterns<'a>) -> Self {
         Self {
+            isolated_contents: Vec::new(),
+            #[cfg(test)]
+            layer_visits: Default::default(),
+            #[cfg(test)]
+            memo_stats: Default::default(),
+            roots: &doc.layers,
+            document: Some(doc),
+            backdrop_key: layers_identity(&doc.layers),
+            suppress_adjustments: false,
+            counterfactual_root: None,
+            capture: None,
             canvas: doc.bounds(),
             transfer: adjust::Transfer::for_document(doc.mode, doc.depth),
             light: doc.global_light,
@@ -523,8 +644,14 @@ fn effect_layers<'l>(layers: &'l [Layer], rect: Rect, depth: u32, out: &mut Vec<
 
 /// Composite a sibling list (bottom→top) onto `backdrop`.
 fn composite_stack(layers: &[Layer], backdrop: &mut Buffer, cx: &Ctx) {
+    composite_stack_covered(layers, backdrop, cx, None);
+}
+fn composite_stack_covered(layers: &[Layer], backdrop: &mut Buffer, cx: &Ctx, mut coverage: Option<&mut [f32]>) {
     let mut i = 0;
     while i < layers.len() {
+        if cx.capture_done() {
+            return;
+        }
         let base = &layers[i];
         // Collect the clipping group: following layers with `clipped = true`.
         let mut j = i + 1;
@@ -533,7 +660,7 @@ fn composite_stack(layers: &[Layer], backdrop: &mut Buffer, cx: &Ctx) {
         }
         let clipped = &layers[i + 1..j];
         if base.visible {
-            composite_layer(base, clipped, backdrop, cx);
+            composite_layer_covered(base, clipped, backdrop, cx, coverage.as_deref_mut());
             if let (LayerContent::Adjustment(_), Some(q)) = (&base.content, adjustment_quantum(cx.depth)) {
                 quantize(backdrop, q);
             }
@@ -624,6 +751,12 @@ pub fn effect_outline(layer: &Layer) -> Option<&photocraft_doc::vector::Path> {
 /// path where the fill fades out (psd-tools stroke-effects).
 fn effect_shape(layer: &Layer, rect: Rect, cx: &Ctx) -> Vec<f32> {
     let n = rect.width() as usize * rect.height() as usize;
+    if let LayerContent::Group(group) = &layer.content
+        && group.isolation == photocraft_doc::GroupIsolation::NonIsolated
+    {
+        let backdrop = cx.backdrop_for(layer, rect);
+        return pdf_group::prepare(layer, group, &backdrop, cx).actual_shape;
+    }
     let Some(path) = effect_outline(layer).filter(|_| n > 0) else {
         return render_content(layer, rect, cx).map(|b| b.px.iter().map(|p| p[3]).collect()).unwrap_or_else(|| vec![0.0; n]);
     };
@@ -737,13 +870,39 @@ fn mask_k(m: &Option<Vec<f32>>, i: usize) -> f32 {
 /// Render a layer's own content (no blending into the backdrop yet) into an isolated buffer.
 /// Returns None for layers that operate on the backdrop (adjustments, pass-through groups).
 fn render_content(layer: &Layer, rect: Rect, cx: &Ctx) -> Option<Buffer> {
+    fn contains(layer: &Layer, id: photocraft_doc::LayerId) -> bool {
+        layer.id == id || matches!(&layer.content, LayerContent::Group(g) if g.children.iter().any(|l| contains(l, id)))
+    }
+    // Content rendering establishes an isolated boundary: suppression outside
+    // it cannot change its pixels. Share that work between actual/counterfactual
+    // passes, unless a capture or suppression anchor needs to execute inside it.
+    let eligible = matches!(layer.content, LayerContent::Group(_))
+        && !cx.capture.as_ref().is_some_and(|c| contains(layer, c.target))
+        && !cx.counterfactual_root.is_some_and(|id| contains(layer, id));
+    let memos = if eligible { cx.isolated_contents.as_slice() } else { &[] };
+    let key = (!memos.is_empty()).then(|| (layers_identity(std::slice::from_ref(layer)), [rect.x0, rect.y0, rect.x1, rect.y1]));
+    if let Some(key) = key {
+        for memo in memos.iter().rev() {
+            if let Some(entry) = memo.lock().unwrap_or_else(|e| e.into_inner()).as_ref().filter(|entry| entry.key == key) {
+                return Some(entry.buffer.buffer.clone());
+            }
+        }
+    }
     let mut buf = match &layer.content {
         LayerContent::Group(g) => {
             if let Some(buffer) = mosaic::render(layer, rect, 1.0) {
                 buffer
             } else {
                 let mut b = Buffer::transparent(rect);
-                composite_stack(&g.children, &mut b, cx);
+                // The caller memo chain is captured above. Start a fresh
+                // chain inside this isolation boundary and publish its complete
+                // result back to every caller pair after rendering.
+                let local = (cx.suppress_adjustments || !cx.isolated_contents.is_empty()).then(|| {
+                    let mut local = cx.derived(false, cx.capture.clone());
+                    local.isolated_contents.clear();
+                    local
+                });
+                composite_stack(&g.children, &mut b, local.as_ref().unwrap_or(cx));
                 b
             }
         }
@@ -761,6 +920,52 @@ fn render_content(layer: &Layer, rect: Rect, cx: &Ctx) -> Option<Buffer> {
     if let Some(m) = mask_vals(layer, rect, cx) {
         for (p, k) in buf.px.iter_mut().zip(&m) {
             p[3] *= k;
+        }
+    }
+    if let Some(key) = key {
+        fn nodes(layer: &Layer) -> usize {
+            1 + layer.children().map_or(0, |children| children.iter().map(nodes).sum::<usize>())
+        }
+        let nodes = nodes(layer);
+        let mut shared = None;
+        for memo in memos {
+            let mut slot = memo.lock().unwrap_or_else(|e| e.into_inner());
+            // Retain one heaviest subtree per active pair, publishing through
+            // all intervening nonisolated scopes. Cheap siblings cannot evict
+            // the heavy chain. Shared pixels cost at most one region per pair,
+            // independent of sibling width.
+            if slot.as_ref().is_none_or(|entry| nodes > entry.nodes) {
+                *slot = None;
+                let buffer = shared
+                    .get_or_insert_with(|| {
+                        #[cfg(test)]
+                        {
+                            use std::sync::atomic::Ordering::Relaxed;
+                            let bytes = buf.px.len() * std::mem::size_of::<[f32; 4]>();
+                            let bytes = cx.memo_stats.bytes.fetch_add(bytes, Relaxed) + bytes;
+                            cx.memo_stats.peak_bytes.fetch_max(bytes, Relaxed);
+                        }
+                        std::sync::Arc::new(MemoBuffer {
+                            buffer: buf.clone(),
+                            #[cfg(test)]
+                            stats: cx.memo_stats.clone(),
+                        })
+                    })
+                    .clone();
+                #[cfg(test)]
+                {
+                    use std::sync::atomic::Ordering::Relaxed;
+                    let live = cx.memo_stats.live.fetch_add(1, Relaxed) + 1;
+                    cx.memo_stats.peak.fetch_max(live, Relaxed);
+                }
+                *slot = Some(IsolatedContent {
+                    key,
+                    nodes,
+                    buffer,
+                    #[cfg(test)]
+                    stats: cx.memo_stats.clone(),
+                });
+            }
         }
     }
     Some(buf)
@@ -938,7 +1143,12 @@ pub fn change_bounds(layer: &Layer, canvas: Rect) -> Option<Rect> {
         match &l.content {
             // Clipped, it changes only its base's pixels.
             LayerContent::Adjustment(_) => !l.clipped,
-            LayerContent::Group(g) if l.blend == BlendMode::PassThrough => g.children.iter().any(reaches_below),
+            LayerContent::Group(g)
+                if g.isolation == photocraft_doc::GroupIsolation::NonIsolated
+                    || g.isolation == photocraft_doc::GroupIsolation::Auto && l.blend == BlendMode::PassThrough =>
+            {
+                g.children.iter().any(reaches_below)
+            }
             _ => false,
         }
     }
@@ -953,6 +1163,7 @@ pub fn change_bounds(layer: &Layer, canvas: Rect) -> Option<Rect> {
 /// by their reach.
 pub fn transparent_outside(layer: &Layer) -> bool {
     match &layer.content {
+        LayerContent::Group(g) if g.isolation == photocraft_doc::GroupIsolation::NonIsolated && pdf_group::reaching_adjustment(&g.children) => false,
         LayerContent::Group(g) => g.children.iter().filter(|c| c.visible).all(transparent_outside),
         // Fill layers cover the canvas (their bounds); adjustments draw nothing of their own.
         LayerContent::Fill(_) | LayerContent::Adjustment(_) => true,
@@ -1034,17 +1245,21 @@ fn blend_if_weight(layer: &Layer, mode: photocraft_color::ColorMode, this: Optio
 /// is mixed back towards `before` (the backdrop without it) where the ranges hide the layer.
 /// Mixing premultiplied colour by `k` equals compositing the layer at `k` × its alpha, since
 /// every blend mode's source-over result is linear in the source alpha.
-fn apply_blend_if(layer: &Layer, before: &Buffer, out: &mut Buffer, cx: &Ctx) {
+fn apply_blend_if(layer: &Layer, before: &Buffer, out: &mut Buffer, cx: &Ctx, mut coverage: Option<&mut [f32]>, own_override: Option<&Buffer>) {
     // "This Layer" is the layer's own colour; adjustment layers (no content of their own) are
     // judged by their result.
-    let own = if matches!(layer.content, LayerContent::Adjustment(_)) { None } else { render_content(layer, out.rect, cx) };
+    let isolated = if own_override.is_none() && !matches!(layer.content, LayerContent::Adjustment(_)) { render_content(layer, out.rect, cx) } else { None };
+    let own = own_override.or(isolated.as_ref());
     for (i, (p, b)) in out.px.iter_mut().zip(&before.px).enumerate() {
-        let this = match &own {
+        let this = match own {
             Some(o) => Some(o.px[i]).filter(|q| q[3] > 0.0),
             None => Some(*p),
         };
         let under = Some(*b).filter(|q| q[3] > 0.0);
         let k = blend_if_weight(layer, cx.mode, this, under);
+        if let Some(coverage) = coverage.as_deref_mut() {
+            coverage[i] *= k;
+        }
         if k >= 1.0 {
             continue;
         }
@@ -1060,34 +1275,53 @@ fn apply_blend_if(layer: &Layer, before: &Buffer, out: &mut Buffer, cx: &Ctx) {
 
 /// Composite `layer` (plus its clipping group) onto `backdrop`, honouring its channel restrictions
 /// and Blend If.
-fn composite_layer(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer, cx: &Ctx) {
+fn composite_layer_covered(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer, cx: &Ctx, coverage: Option<&mut [f32]>) {
+    if cx.capture_done() || cx.capture_before(layer, backdrop, false) {
+        return;
+    }
+    let mut contribution = coverage.as_ref().map(|_| vec![0.0; backdrop.px.len()]);
     let w = channel_weights(layer, cx.mode);
     let blend_if = blend_if_active(layer, cx.mode);
     let before = (w.is_some() || blend_if).then(|| backdrop.clone());
-    composite_layer_any(layer, clipped, backdrop, cx);
+    let mut this_layer = None;
+    composite_layer_any(layer, clipped, backdrop, cx, contribution.as_deref_mut(), &mut this_layer);
+    if cx.capture_done() {
+        return;
+    }
     if let Some(before) = &before {
         if let Some(w) = w {
             restore_channels(backdrop, before, w);
         }
         if blend_if {
-            apply_blend_if(layer, before, backdrop, cx);
+            apply_blend_if(layer, before, backdrop, cx, contribution.as_deref_mut(), this_layer.as_ref());
         }
+    }
+    if let (Some(coverage), Some(contribution)) = (coverage, contribution) {
+        pdf_group::merge(coverage, &contribution);
     }
 }
 
-fn composite_layer_any(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer, cx: &Ctx) {
+fn composite_layer_any(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer, cx: &Ctx, coverage: Option<&mut [f32]>, this_layer: &mut Option<Buffer>) {
     if let LayerContent::Group(g) = &layer.content
         && let Some(ab) = &g.artboard
     {
-        composite_artboard(layer, ab, clipped, backdrop, cx);
+        composite_artboard(layer, ab, clipped, backdrop, cx, coverage, this_layer);
         return;
     }
-    composite_layer_plain(layer, clipped, backdrop, cx);
+    composite_layer_plain(layer, clipped, backdrop, cx, coverage, this_layer);
 }
 
 /// An artboard: its background and the group, composited only inside the board (contents and
 /// effects outside it are clipped away; the backdrop there is untouched).
-fn composite_artboard(layer: &Layer, ab: &photocraft_doc::Artboard, clipped: &[Layer], backdrop: &mut Buffer, cx: &Ctx) {
+fn composite_artboard(
+    layer: &Layer,
+    ab: &photocraft_doc::Artboard,
+    clipped: &[Layer],
+    backdrop: &mut Buffer,
+    cx: &Ctx,
+    mut coverage: Option<&mut [f32]>,
+    this_layer: &mut Option<Buffer>,
+) {
     let board = ab.rect.intersect(&backdrop.rect);
     if board.is_empty() {
         return;
@@ -1103,25 +1337,60 @@ fn composite_artboard(layer: &Layer, ab: &photocraft_doc::Artboard, clipped: &[L
     if let Some(bg) = ab.background.rgba() {
         blend_into(&mut sub, &Buffer::filled(board, bg), BlendMode::Normal, 1.0);
     }
-    composite_layer_plain(layer, clipped, &mut sub, cx);
+    let mut sub_coverage = coverage.as_ref().map(|_| vec![0.0; sub.px.len()]);
+    let mut sub_source = None;
+    composite_layer_plain(layer, clipped, &mut sub, cx, sub_coverage.as_deref_mut(), &mut sub_source);
+    if let Some(source) = &sub_source {
+        let mut full = Buffer::transparent(backdrop.rect);
+        for y in board.y0..board.y1 {
+            let o = row0(y);
+            let so = (y - board.y0) as usize * bw;
+            full.px[o..o + bw].copy_from_slice(&source.px[so..so + bw]);
+        }
+        *this_layer = Some(full);
+    }
+    if let Some(sub_coverage) = &mut sub_coverage {
+        let background = ab.background.rgba().map_or(0.0, |c| c[3]);
+        for value in sub_coverage {
+            *value = background + *value * (1.0 - background);
+        }
+    }
     for y in board.y0..board.y1 {
         let o = row0(y);
         let so = (y - board.y0) as usize * bw;
         backdrop.px[o..o + bw].copy_from_slice(&sub.px[so..so + bw]);
+        if let (Some(dst), Some(src)) = (coverage.as_deref_mut(), sub_coverage.as_ref()) {
+            pdf_group::merge(&mut dst[o..o + bw], &src[so..so + bw]);
+        }
     }
 }
 
-fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer, cx: &Ctx) {
+fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer, cx: &Ctx, mut coverage: Option<&mut [f32]>, this_layer: &mut Option<Buffer>) {
+    #[cfg(test)]
+    cx.layer_visits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let rect = backdrop.rect;
     if empty_in(layer, rect) {
         return;
     }
     let opacity = layer.opacity * layer.fill_opacity;
+    let prepared_group = match &layer.content {
+        LayerContent::Group(group) if group.isolation == photocraft_doc::GroupIsolation::NonIsolated => Some(pdf_group::prepare(layer, group, backdrop, cx)),
+        _ => None,
+    };
+    if cx.capture_done() {
+        return;
+    }
+    if blend_if_active(layer, cx.mode) {
+        *this_layer = prepared_group.as_ref().map(|group| group.this_layer.clone());
+    }
+    let mut group_source = prepared_group.as_ref().map(|group| group.paint.clone());
+    let group_before = prepared_group.as_ref().filter(|g| g.has_residual()).map(|_| backdrop.clone());
 
     // Pass-through groups composite their children straight into the backdrop. Below 100% fill
     // Photoshop renders the group isolated, like Normal (psd-tools passthrough_fill_*: an
     // adjustment inside no longer reaches the layers beneath).
     if let LayerContent::Group(g) = &layer.content
+        && g.isolation == photocraft_doc::GroupIsolation::Auto
         && layer.blend == BlendMode::PassThrough
         && layer.fill_opacity >= 1.0
         && !effects::has_effects(layer)
@@ -1130,11 +1399,14 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
         let has_clipped = clipped.iter().any(|c| c.visible);
         // Children can draw directly unless mixing or clipping needs the original backdrop.
         let before = (needs_mix || has_clipped).then(|| backdrop.clone());
-        composite_stack(&g.children, backdrop, cx);
+        composite_stack_covered(&g.children, backdrop, cx, coverage.as_deref_mut());
         if needs_mix && let Some(before) = &before {
             let mv = mask_vals(layer, rect, cx);
             for (i, (p, a)) in backdrop.px.iter_mut().zip(&before.px).enumerate() {
                 let k = opacity * mask_k(&mv, i);
+                if let Some(coverage) = coverage.as_deref_mut() {
+                    coverage[i] *= k;
+                }
                 let b = *p;
                 // Coverage mixes premultiplied colour; the stored buffer remains straight alpha.
                 let wa = a[3] * (1.0 - k);
@@ -1179,6 +1451,9 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
 
     // Adjustment layers transform the backdrop, then blend the result back in.
     if let LayerContent::Adjustment(adj) = &layer.content {
+        if cx.suppress_adjustments {
+            return;
+        }
         let mut adjusted = backdrop.clone();
         adjust::apply_depth(adj, &mut adjusted, cx.transfer, Some(cx.depth));
         // Clipped layers onto an adjustment are uncommon; they composite atop the adjusted result.
@@ -1210,15 +1485,22 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
         let (mut content, vstroke) = match split_parts(layer, rect, cx) {
             Some((fill, stroke, mask)) => (fill, Some((stroke, mask))),
             None => {
-                let Some(content) = render_content(layer, rect, cx) else { return };
+                let Some(content) = group_source.take().or_else(|| render_content(layer, rect, cx)) else { return };
                 (content, None)
             }
         };
+        if cx.capture_done() {
+            return;
+        }
         for c in clipped.iter().filter(|c| c.visible) {
             composite_atop(c, &mut content, cx);
         }
         let vstroke = vstroke.as_ref().map(|(s, m)| effects::VectorStroke { stroke: s, mask: m.as_deref() });
-        let maps = effect_maps(layer, cx);
+        let mut counter = prepared_group.as_ref().filter(|g| g.has_residual()).map(|_| cx.derived(true, cx.capture.clone()));
+        if let Some(counter) = &mut counter {
+            counter.counterfactual_root = cx.counterfactual_root.or(Some(layer.id));
+        }
+        let maps = effect_maps(layer, counter.as_ref().unwrap_or(cx));
         effects::composite_with_effects_prepared(
             layer,
             &content,
@@ -1226,8 +1508,27 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
             &maps,
             paint_bounds(layer).unwrap_or_else(|| layer_bounds(layer, cx.canvas)),
             cx.patterns,
-            vstroke,
+            vstroke.as_ref().map(|s| effects::VectorStroke { stroke: s.stroke, mask: s.mask }),
         );
+        if let Some(coverage) = coverage.as_deref_mut() {
+            // Effect opacity/coverage depends on prepared source geometry, not
+            // the external backdrop color. This second pass extracts alpha
+            // only; its isolated RGB never substitutes for the real composite.
+            let mut alpha = Buffer::transparent(rect);
+            effects::composite_with_effects_prepared(
+                layer,
+                &content,
+                &mut alpha,
+                &maps,
+                paint_bounds(layer).unwrap_or_else(|| layer_bounds(layer, cx.canvas)),
+                cx.patterns,
+                vstroke.as_ref().map(|s| effects::VectorStroke { stroke: s.stroke, mask: s.mask }),
+            );
+            pdf_group::add_source(coverage, &alpha, 1.0);
+        }
+        if let (Some(group), Some(before)) = (&prepared_group, &group_before) {
+            group.apply_residual(layer, clipped, before, backdrop, coverage.as_deref_mut(), cx);
+        }
         return;
     }
     if let Some((mut content, stroke, mask)) = shape_parts(layer, clipped, rect, cx) {
@@ -1238,14 +1539,26 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
             *p = psblend::composite(BlendMode::Normal, *p, *s, 1.0);
             p[3] *= mask_k(&mask, i);
         }
+        if let Some(coverage) = coverage.as_deref_mut() {
+            pdf_group::add_paint(coverage, &content, opacity, layer.blend);
+        }
         blend_into(backdrop, &content, layer.blend, opacity);
         return;
     }
-    let Some(mut content) = render_content(layer, rect, cx) else { return };
+    let Some(mut content) = group_source.or_else(|| render_content(layer, rect, cx)) else { return };
+    if cx.capture_done() {
+        return;
+    }
     for c in clipped.iter().filter(|c| c.visible) {
         composite_atop(c, &mut content, cx);
     }
+    if let Some(coverage) = coverage.as_deref_mut() {
+        pdf_group::add_paint(coverage, &content, opacity, layer.blend);
+    }
     blend_into_g(backdrop, &content, layer.blend, opacity, text_gamma(layer));
+    if let (Some(group), Some(before)) = (&prepared_group, &group_before) {
+        group.apply_residual(layer, clipped, before, backdrop, coverage, cx);
+    }
 }
 
 /// The coverage-mixing gamma of a layer: the text blending gamma
@@ -1286,6 +1599,7 @@ fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHash
     fn surface_fp(s: &Surface) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         s.format().hash(&mut h);
+        s.revision().hash(&mut h);
         // Missing tiles read the default pixel, so tile identity alone is not pixel identity.
         for sample in s.default_pixel() {
             sample.to_bits().hash(&mut h);
@@ -1300,6 +1614,10 @@ fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHash
     }
     layer.id.0.hash(h);
     layer.visible.hash(h);
+    layer.clipped.hash(h);
+    layer.blend.psd_key().hash(h);
+    layer.excluded_channels.hash(h);
+    format!("{:?}", layer.blend_if).hash(h);
     layer.opacity.to_bits().hash(h);
     layer.fill_opacity.to_bits().hash(h);
     match &layer.content {
@@ -1308,8 +1626,14 @@ fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHash
                 layer_identity(c, h);
             }
             format!("{:?}", g.artboard).hash(h);
+            g.isolation.hash(h);
         }
-        LayerContent::Fill(f) => format!("{f:?}").hash(h),
+        LayerContent::Fill(f) => {
+            format!("{f:?}").hash(h);
+            if let Some(cache) = layer.fill_cache.as_ref().filter(|cache| cache.fill == *f) {
+                surface_fp(&cache.surface).hash(h);
+            }
+        }
         LayerContent::Adjustment(a) => format!("{a:?}").hash(h),
         _ => layer.surface().map_or(0, surface_fp).hash(h),
     }
@@ -1323,6 +1647,14 @@ fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHash
     h.write_u8(0xfe);
 }
 
+fn layers_identity(layers: &[Layer]) -> u64 {
+    use std::hash::Hasher;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for layer in layers {
+        layer_identity(layer, &mut h);
+    }
+    h.finish()
+}
 struct FxEntry {
     maps: std::sync::Arc<effects::FxMaps>,
     _pin: Layer,
@@ -1385,7 +1717,10 @@ fn effect_maps(layer: &Layer, cx: &Ctx) -> std::sync::Arc<effects::FxMaps> {
     }
     let mut h = std::collections::hash_map::DefaultHasher::new();
     layer_identity(layer, &mut h);
-    (cx.paint_key, cx.mode, cx.depth, cx.canvas).hash(&mut h);
+    (cx.paint_key, cx.mode, cx.depth, cx.canvas, cx.suppress_adjustments, cx.counterfactual_root.map(|id| id.0)).hash(&mut h);
+    if matches!(&layer.content,LayerContent::Group(g) if g.isolation==photocraft_doc::GroupIsolation::NonIsolated) {
+        cx.backdrop_key.hash(&mut h);
+    }
     (region.x0, region.y0, region.x1, region.y1).hash(&mut h);
     (cx.light.angle.to_bits(), cx.light.altitude.to_bits()).hash(&mut h);
     let key = h.finish();
@@ -1459,6 +1794,21 @@ fn texture_ctx<'a>(layer: &Layer, region: Rect, cx: &Ctx<'a>) -> effects::Textur
 /// Composite `layer` onto `base` restricted to the base's alpha (clipping mask semantics),
 /// honouring its channel restrictions and Blend If.
 fn composite_atop(layer: &Layer, base: &mut Buffer, cx: &Ctx) {
+    if cx.capture_done() || cx.capture_before(layer, base, true) {
+        return;
+    }
+    let enabled = cx.suppress_adjustments.then(|| cx.derived(false, cx.capture.clone()));
+    let cx = enabled.as_ref().unwrap_or(cx);
+    if matches!(&layer.content,LayerContent::Group(g) if g.isolation==photocraft_doc::GroupIsolation::NonIsolated) {
+        let mut opaque = Buffer { rect: base.rect, px: base.px.iter().map(|p| [p[0], p[1], p[2], 1.0]).collect() };
+        composite_layer_covered(layer, &[], &mut opaque, cx, None);
+        for (p, q) in base.px.iter_mut().zip(&opaque.px) {
+            if p[3] > 0.0 {
+                *p = [q[0], q[1], q[2], p[3]];
+            }
+        }
+        return;
+    }
     let w = channel_weights(layer, cx.mode);
     let blend_if = blend_if_active(layer, cx.mode);
     let before = (w.is_some() || blend_if).then(|| base.clone());
@@ -1468,13 +1818,14 @@ fn composite_atop(layer: &Layer, base: &mut Buffer, cx: &Ctx) {
             restore_channels(base, before, w);
         }
         if blend_if {
-            apply_blend_if(layer, before, base, cx);
+            apply_blend_if(layer, before, base, cx, None, None);
         }
     }
 }
 
 fn composite_atop_any(layer: &Layer, base: &mut Buffer, cx: &Ctx) {
     let rect = base.rect;
+
     if let LayerContent::Adjustment(adj) = &layer.content {
         let mut adjusted = base.clone();
         adjust::apply_depth(adj, &mut adjusted, cx.transfer, Some(cx.depth));

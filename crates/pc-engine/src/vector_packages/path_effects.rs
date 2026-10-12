@@ -314,7 +314,7 @@ fn projected_layer_with_ids(source: &Layer, scene: &[geometry::PaintPath], doc: 
         child.vector.appearance = Some(appearance);
         children.push(child);
     }
-    out.content = LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None });
+    out.content = LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None, isolation: photocraft_doc::GroupIsolation::Auto });
     out.vector.corners.clear();
     out.vector.live_shape = None;
     out.vector.appearance = None;

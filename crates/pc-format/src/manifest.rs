@@ -15,7 +15,7 @@ use photocraft_geom::{Affine, Size};
 use serde::{Deserialize, Serialize};
 
 /// Current manifest version written by this build.
-pub const FORMAT_VERSION: u32 = 2;
+pub const FORMAT_VERSION: u32 = 3;
 
 /// Hex-encoded BLAKE3 hash (64 chars).
 pub type Hash = String;
@@ -256,6 +256,8 @@ pub enum ContentM {
         cache: Option<SurfaceM>,
     },
     Group {
+        #[serde(default)]
+        isolation: photocraft_doc::GroupIsolation,
         children: Vec<LayerM>,
         expanded: bool,
         /// Artboard (Layer › New › Artboard).

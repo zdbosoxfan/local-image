@@ -10,7 +10,12 @@ pub(crate) type Step = fn(&mut Value) -> Result<()>;
 
 /// `STEPS[i]` upgrades version `i + 1` to `i + 2`. V1 needs no data changes:
 /// all additions have serde defaults; v2 guards the new Symbol content variant.
-pub(crate) const STEPS: &[Step] = &[v1_to_v2];
+pub(crate) const STEPS: &[Step] = &[v1_to_v2, v2_to_v3];
+// Missing isolation defaults to Auto. The version bump prevents older readers
+// from silently discarding explicit nonisolated group semantics.
+fn v2_to_v3(_: &mut Value) -> Result<()> {
+    Ok(())
+}
 fn v1_to_v2(_: &mut Value) -> Result<()> {
     Ok(())
 }
@@ -84,13 +89,18 @@ mod tests {
         let mut v: Value = serde_json::from_str(include_str!("../tests/fixtures/vector-v1.json")).unwrap();
         let before = v["document"].clone();
         assert_eq!(migrate(&mut v).unwrap(), 1);
-        assert_eq!(v["format_version"], 2);
+        assert_eq!(v["format_version"], FORMAT_VERSION);
         assert_eq!(v["document"], before);
     }
     #[test]
     fn symbols_simulated_v1_reader_refuses_v2_before_content_deserialization() {
         let mut v = json!({"format_version":2,"document":{"layers":[{"content":{"kind":"symbol","symbol":1}}]}});
         assert!(matches!(migrate_with(&mut v, &[], 1), Err(FormatError::TooNew { found: 2, supported: 1 })));
+    }
+    #[test]
+    fn independent_group_semantics_are_rejected_by_simulated_v2_reader() {
+        let mut v = json!({"format_version":3,"document":{"layers":[{"content":{"kind":"group","isolation":"NonIsolated"}}]}});
+        assert!(matches!(migrate_with(&mut v, &[v1_to_v2], 2), Err(FormatError::TooNew { found: 3, supported: 2 })));
     }
     #[test]
     fn current_version_is_noop() {

@@ -225,7 +225,10 @@ fn distort41_engine_group_conversion_preflights_locked_children_atomically() {
             sh.live = Some(photocraft_doc::LiveShape::Rect { rect: [20., 30., 70., 100.], radii: [0.; 4] });
         }
         children[1].locks.position = true;
-        let group = Layer::new("Group", LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None }));
+        let group = Layer::new(
+            "Group",
+            LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None, isolation: photocraft_doc::GroupIsolation::Auto }),
+        );
         group_id = group.id;
         doc.layers.push(group);
         Ok(())

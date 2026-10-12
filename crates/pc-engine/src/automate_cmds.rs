@@ -383,7 +383,10 @@ fn statistics(s: &mut Session, p: &Value) -> Result<Value> {
         let name = s.active().map(|d| d.doc.name.clone()).unwrap_or_default();
         s.edit("Convert to Smart Object", |doc, active| {
             let children = std::mem::take(&mut doc.layers);
-            let group = Layer::new(name.clone(), LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None }));
+            let group = Layer::new(
+                name.clone(),
+                LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None, isolation: photocraft_doc::GroupIsolation::Auto }),
+            );
             let smart = crate::smart_cmds::layer_to_smart(doc, &group)?;
             *active = Some(smart.id);
             doc.layers = vec![smart];

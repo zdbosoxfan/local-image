@@ -474,3 +474,23 @@ fn develop_links_roundtrip() {
     assert_eq!(develop(ids[0]), Some(link));
     assert_eq!(develop(ids[1]), None);
 }
+
+#[test]
+fn independent_group_isolation_roundtrips_and_old_group_json_defaults_to_auto() {
+    let mut doc = Document::new("PDF", photocraft_geom::Size::new(2, 2), ColorMode::Rgb, SampleType::F32);
+    for isolation in [photocraft_doc::GroupIsolation::Auto, photocraft_doc::GroupIsolation::Isolated, photocraft_doc::GroupIsolation::NonIsolated] {
+        let mut layer = Layer::group("group", vec![]);
+        layer.blend = photocraft_doc::BlendMode::Multiply;
+        if let LayerContent::Group(g) = &mut layer.content {
+            g.isolation = isolation;
+        }
+        doc.layers.push(layer);
+    }
+    let bytes = save_to_bytes(&doc, &Default::default()).unwrap();
+    assert_eq!(load_from_bytes(&bytes).unwrap(), doc);
+    let manifest = read_manifest(&bytes).unwrap();
+    let mut old = serde_json::to_value(&manifest.document.layers[2]).unwrap();
+    old["content"].as_object_mut().unwrap().remove("isolation");
+    let old: photocraft_format::manifest::LayerM = serde_json::from_value(old).unwrap();
+    assert!(matches!(old.content, photocraft_format::manifest::ContentM::Group { isolation: photocraft_doc::GroupIsolation::Auto, .. }));
+}

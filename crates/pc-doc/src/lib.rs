@@ -188,8 +188,19 @@ pub struct Effects {
 /// this up front; `photocraft-format` refuses to save deeper trees.
 pub const MAX_GROUP_DEPTH: usize = 100;
 
+/// Group isolation is independent of its outer blend mode. Auto preserves the
+/// existing Photoshop/editor rule (PassThrough versus an isolated blend group).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum GroupIsolation {
+    #[default]
+    Auto,
+    Isolated,
+    NonIsolated,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Group {
+    pub isolation: GroupIsolation,
     pub children: Vec<Layer>,
     pub expanded: bool,
     /// Set when this (top-level) group is an artboard: children are clipped to its rect.
@@ -567,7 +578,7 @@ impl Layer {
         Self::new(name, LayerContent::Raster(Surface::new(format)))
     }
     pub fn group(name: impl Into<String>, children: Vec<Layer>) -> Self {
-        let mut l = Self::new(name, LayerContent::Group(Group { children, expanded: true, artboard: None }));
+        let mut l = Self::new(name, LayerContent::Group(Group { children, expanded: true, artboard: None, isolation: GroupIsolation::Auto }));
         l.blend = BlendMode::PassThrough;
         l
     }
@@ -747,6 +758,39 @@ pub struct Document {
 pub type LayerPath = Vec<usize>;
 
 impl Document {
+    /// Normalize only groups exactly representable by legacy PassThrough.
+    /// Exporters call this on detached copies; native isolation stays intact.
+    pub fn normalize_legacy_groups(&mut self) {
+        fn walk(layers: &mut [Layer]) {
+            for i in 0..layers.len() {
+                // Only non-clipped groups can normalize. Their following clip
+                // chains are disjoint, so these scans total at most O(layers).
+                let has_clipped = !layers[i].clipped
+                    && matches!(layers[i].content, LayerContent::Group(_))
+                    && layers[i + 1..].iter().take_while(|l| l.clipped).any(|l| l.visible);
+                let layer = &mut layers[i];
+                if let LayerContent::Group(g) = &mut layer.content {
+                    walk(&mut g.children);
+                    if g.isolation == GroupIsolation::NonIsolated
+                        && matches!(layer.blend, BlendMode::Normal | BlendMode::PassThrough)
+                        && layer.fill_opacity >= 1.0
+                        && !layer.clipped
+                        && !has_clipped
+                        && layer.blend_if.is_default()
+                        && !(layer.effects.enabled && layer.effects.items.iter().any(|e| e.enabled()))
+                    {
+                        g.isolation = GroupIsolation::Auto;
+                        layer.blend = BlendMode::PassThrough;
+                    }
+                }
+            }
+        }
+        walk(&mut self.layers);
+        for symbol in &mut self.symbols {
+            walk(&mut symbol.layers);
+        }
+    }
+
     pub fn new(name: impl Into<String>, size: Size, mode: ColorMode, depth: SampleType) -> Self {
         Document {
             symbols: Vec::new(),

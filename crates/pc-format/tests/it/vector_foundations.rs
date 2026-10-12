@@ -84,7 +84,7 @@ fn vector_foundations_empty_fields_are_absent_in_v1_output() {
     assert!(json["document"].get("symbols").is_none());
     assert!(json["document"].get("design_units").is_none());
     assert!(json["document"]["layers"][0].get("vector").is_none());
-    assert_eq!(FORMAT_VERSION, 2); // Symbol content is atomically activated in package 15
+    assert_eq!(FORMAT_VERSION, 3); // Independent group isolation is guarded by v3.
 }
 #[test]
 fn vector_foundations_symbol_depth_uses_the_existing_limit() {

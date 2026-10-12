@@ -260,7 +260,8 @@ fn replace_projection(layer: &mut Layer, projected: &[Piece], next_id: &mut usiz
                 child.psd_blocks.clear();
                 children.push(child);
             }
-            layer.content = LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None });
+            layer.content =
+                LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None, isolation: photocraft_doc::GroupIsolation::Auto });
             layer.vector.on_path = None;
             layer.psd_blocks.retain(|(k, _)| k != b"TySh");
         }

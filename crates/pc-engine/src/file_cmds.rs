@@ -917,7 +917,10 @@ fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
         // "Create Smart Object after Loading Layers": the layers go inside one smart object, ready
         // for Layer › Smart Objects › Stack Mode.
         let children = std::mem::take(&mut stack.layers);
-        let group = Layer::new(stem(&paths[0]), LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None }));
+        let group = Layer::new(
+            stem(&paths[0]),
+            LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None, isolation: photocraft_doc::GroupIsolation::Auto }),
+        );
         let smart = crate::smart_cmds::layer_to_smart(&stack, &group)?;
         stack.layers = vec![smart];
     }

@@ -404,7 +404,8 @@ fn expand_command(session: &mut Session, params: &Value) -> Result<Value> {
             }
         }
         let mut group = layer.clone();
-        group.content = LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None });
+        group.content =
+            LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None, isolation: photocraft_doc::GroupIsolation::Auto });
         group.vector.appearance = None;
         replacements.push(group);
     }

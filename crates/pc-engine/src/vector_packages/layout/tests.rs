@@ -442,3 +442,65 @@ fn review_regression_layout16_automatic_spacing_uses_farthest_edge_not_last_orig
     assert_eq!(b(&s, ids[0])[0], 10.);
     assert_eq!(b(&s, ids[2])[0] + b(&s, ids[2])[2], 200.);
 }
+
+#[allow(dead_code)]
+#[path = "../../../../pc-pdf/fixtures/import/source.rs"]
+mod pdf_clip_fixture;
+#[test]
+fn projected_pdf_bbox_and_local_clips_preserve_nonisolated_backdrop_pixels() {
+    let bytes = pdf_clip_fixture::page(
+        "0.2 0.4 0.6 rg 0 0 64 64 re f /X Do",
+        "/XObject << /X 5 0 R >>",
+        "",
+        &[pdf_clip_fixture::stream(
+            "/Subtype /Form /BBox [8.5 8.5 55.5 55.5] /Group << /S /Transparency /I false /CS /DeviceRGB >> /Resources << /ExtGState << /M << /BM /Multiply /ca 0.6 >> >> >>",
+            b"q 12.5 12.5 36 36 re W n /M gs 0.8 0.6 0.4 rg 0 0 64 64 re f Q",
+        )],
+    );
+    let scene = photocraft_pdf::import(&bytes, &Default::default()).unwrap();
+    let mut doc = Document::new("PDF clips", scene.size, ColorMode::Rgb, SampleType::F32);
+    doc.layers = scene.layers;
+    let raw = photocraft_compose::flatten(&doc);
+    let projected = crate::vector_integration::project_document(&doc).unwrap();
+    for (a, b) in raw.px.iter().zip(photocraft_compose::flatten(&projected).px) {
+        for c in 0..4 {
+            assert!((a[c] - b[c]).abs() < 0.00001, "{a:?} != {b:?}");
+        }
+    }
+}
+#[test]
+fn projected_nonisolated_crop_keeps_existing_masks_and_outer_blend_once() {
+    use photocraft_doc::{GroupIsolation, LayerMask, PixelFormat, Rect, Surface};
+    let mut doc = Document::new("crop", Size::new(64, 64), ColorMode::Rgb, SampleType::F32);
+    let mut bg = Color::rgb(0.2, 0.4, 0.6);
+    bg.alpha = 0.4;
+    let mut paint = Layer::raster("paint", PixelFormat::RGBA32F);
+    paint.surface_mut().unwrap().fill_rect(doc.bounds(), &[0.8, 0.6, 0.4, 0.6]);
+    paint.blend = BlendMode::Screen;
+    let mut group = Layer::group("nonisolated", vec![paint]);
+    group.blend = BlendMode::Multiply;
+    group.opacity = 0.7;
+    if let LayerContent::Group(g) = &mut group.content {
+        g.isolation = GroupIsolation::NonIsolated;
+    }
+    let crop = photocraft_vector::shapes::rect(8., 8., 48., 48.);
+    group.vector.clip = Some(crop);
+    let mut vector = VectorMask::new(photocraft_vector::shapes::rect(4., 4., 48., 48.));
+    vector.density = 0.6;
+    group.vector_mask = Some(vector);
+    let mut mask = LayerMask::hide_all();
+    mask.surface = Surface::new(PixelFormat::new(ColorMode::Grayscale, SampleType::F32, false));
+    mask.surface.fill_rect(doc.bounds(), &[0.8]);
+    group.mask = Some(mask);
+    doc.layers = vec![Layer::new("backdrop", LayerContent::Fill(Fill::Solid(bg))), group];
+    let mut expected = doc.clone();
+    expected.layers[1].vector.clip = None;
+    expected.layers[1].mask.as_mut().unwrap().surface = Surface::new(PixelFormat::new(ColorMode::Grayscale, SampleType::F32, false));
+    expected.layers[1].mask.as_mut().unwrap().surface.fill_rect(Rect::new(8, 8, 56, 56), &[0.8]);
+    let projected = crate::vector_integration::project_document(&doc).unwrap();
+    for (a, b) in photocraft_compose::flatten(&expected).px.iter().zip(photocraft_compose::flatten(&projected).px) {
+        for c in 0..4 {
+            assert!((a[c] - b[c]).abs() < 0.00001, "{a:?} != {b:?}");
+        }
+    }
+}

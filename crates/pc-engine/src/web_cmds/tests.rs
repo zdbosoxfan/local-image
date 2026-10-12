@@ -205,7 +205,10 @@ fn image_assets_are_generated_now_and_on_save() {
     let s2 = session(8);
     let doc = s2.active().unwrap().doc.clone();
     let mut d = (*doc).clone();
-    d.layers.push(Layer::new("default 200% @2x", LayerContent::Group(photocraft_doc::Group { children: vec![], expanded: false, artboard: None })));
+    d.layers.push(Layer::new(
+        "default 200% @2x",
+        LayerContent::Group(photocraft_doc::Group { children: vec![], expanded: false, artboard: None, isolation: photocraft_doc::GroupIsolation::Auto }),
+    ));
     let lid = d.layers[1].id;
     d.layer_mut(lid).unwrap().name = "icon.png".into();
     let (files, errors) = generate_assets(&d, &dir);

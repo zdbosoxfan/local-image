@@ -160,7 +160,7 @@ fn shape_expansion(layer: &Layer, options: Options, appearance: bool) -> Result<
     }
     let mut out = layer.clone();
     if appearance || options.fill || options.stroke {
-        out.content = LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None });
+        out.content = LayerContent::Group(photocraft_doc::Group { children, expanded: true, artboard: None, isolation: photocraft_doc::GroupIsolation::Auto });
         out.vector.appearance = None;
     } else {
         sh.cache = None;

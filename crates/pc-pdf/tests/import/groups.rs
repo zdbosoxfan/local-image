@@ -1,6 +1,6 @@
 //! Original-PDF Poppler oracles: never export the imported scene as reference.
 use super::*;
-use photocraft_doc::{BlendMode, Fill};
+use photocraft_doc::{BlendMode, Fill, GroupIsolation};
 use std::{path::PathBuf, process::Command, sync::OnceLock};
 
 const PAINT: &str = "/M gs 0.8 0.25 0.5 rg 4 4 40 48 re f /S gs 0.15 0.7 0.4 rg 20 12 40 48 re f";
@@ -118,7 +118,9 @@ fn pdf_groups_original_poppler_missing_false_true_opacity_and_partial_backdrop()
                 let groups: Vec<_> = d.walk().into_iter().filter(|(_, _, l)| l.name == "PDF transparency").collect();
                 assert_eq!(groups.len(), 1);
                 let layer = groups[0].2;
-                assert_eq!(layer.blend, if i == 2 { BlendMode::Normal } else { BlendMode::PassThrough });
+                assert_eq!(layer.blend, BlendMode::Normal);
+                let LayerContent::Group(group) = &layer.content else { panic!("group") };
+                assert_eq!(group.isolation, if i == 2 { GroupIsolation::Isolated } else { GroupIsolation::NonIsolated });
                 assert_eq!(layer.opacity, *opacity);
                 assert_eq!(layer.fill_opacity, 1.0);
             }
@@ -135,9 +137,15 @@ fn pdf_groups_mixed_nested_repeated_forms_clips_and_image_interleaving() {
         &[form("/I false", "/Span BMC q 8 8 36 36 re W n /Inner Do Q EMC /Inner Do", "/XObject << /Inner 6 0 R >>"), form("/I true", PAINT, STATES), image],
     );
     let d = oracle(&bytes, "nested-repeated-image");
-    let blends: Vec<_> = d.walk().into_iter().filter(|(_, _, l)| l.name == "PDF transparency").map(|(_, _, l)| l.blend).collect();
-    assert_eq!(blends.iter().filter(|&&b| b == BlendMode::PassThrough).count(), 2);
-    assert_eq!(blends.iter().filter(|&&b| b == BlendMode::Normal).count(), 5);
+    let isolation: Vec<_> = d
+        .walk()
+        .into_iter()
+        .filter(|(_, _, l)| l.name == "PDF transparency")
+        .filter_map(|(_, _, l)| if let LayerContent::Group(g) = &l.content { Some(g.isolation) } else { None })
+        .collect();
+    assert_eq!(isolation.iter().filter(|&&i| i == GroupIsolation::NonIsolated).count(), 2);
+    assert_eq!(isolation.iter().filter(|&&i| i == GroupIsolation::Isolated).count(), 4);
+    assert_eq!(isolation.iter().filter(|&&i| i == GroupIsolation::Auto).count(), 1);
 }
 #[test]
 fn pdf_groups_nonisolated_masks_use_bc_before_child_blend_and_transfer() {
@@ -249,7 +257,7 @@ fn pdf_groups_marker_spoof_balance_expansion_cancel_and_unsupported_semantics() 
     options.limits.segments = 4;
     assert!(matches!(import(&bytes, &options), Err(ImportError::Limit(_))));
     assert!(matches!(import_with(&bytes, &ImportOptions::default(), &PdfOptions::default(), &AtomicBool::new(true)), Err(ImportError::Cancelled)));
-    for (isolation, state) in [("/K true", ""), ("/I false", "/BM /Multiply"), ("/I 1", "")] {
+    for (isolation, state) in [("/K true", ""), ("/I 1", "")] {
         let bytes = fixture::page("/A gs /X Do", &format!("/ExtGState << /A << {state} >> >> /XObject << /X 5 0 R >>"), "", &[form(isolation, PAINT, STATES)]);
         assert!(import(&bytes, &ImportOptions::default()).is_err(), "{isolation}, {state}");
     }
@@ -481,4 +489,104 @@ fn pdf_groups_gray_aliased_transfer_dictionary_never_reuses_a_scalar_exemption()
     let scene = import(&bytes, &ImportOptions::default()).unwrap();
     assert!(gray_warning(&scene));
     assert_eq!(reference(&bytes, "gray-aliased-transfer").get_pixel(30, 30)[3], 255);
+}
+
+fn outer_blend_pdf(mode: &str, isolation: &str, bg: [f32; 3], alpha: f32, mask: bool) -> Vec<u8> {
+    let state_mask = if mask { "/SMask << /S /Alpha /G 6 0 R >>" } else { "" };
+    fixture::page(
+        &format!("q /B gs {} {} {} rg 0 0 64 64 re f Q /A gs /X Do", bg[0], bg[1], bg[2]),
+        &format!("/ExtGState << /B << /ca {alpha} >> /A << /BM /{mode} /ca 0.5 {state_mask} >> >> /XObject << /X 5 0 R >>"),
+        "",
+        &[
+            form(isolation, "/S gs 0.8 0.6 0.4 rg 8 8 48 48 re f", "/ExtGState << /S << /BM /Screen /ca 0.6 >> >>"),
+            form("/I true", "/M gs 1 g 8 8 48 48 re f", "/ExtGState << /M << /ca 0.4 >> >>"),
+        ],
+    )
+}
+#[test]
+fn pdf_groups_independent_outer_blends_match_original_splash_and_exact_alpha() {
+    for mode in [
+        "Multiply",
+        "Screen",
+        "Overlay",
+        "Darken",
+        "Lighten",
+        "ColorDodge",
+        "ColorBurn",
+        "HardLight",
+        "SoftLight",
+        "Difference",
+        "Exclusion",
+        "Hue",
+        "Saturation",
+        "Color",
+        "Luminosity",
+    ] {
+        for (index, alpha) in [0.0_f32, 0.4, 1.0].into_iter().enumerate() {
+            for mask in [false, true] {
+                let bytes = outer_blend_pdf(mode, "/I false", [0.2, 0.4, 0.6], alpha, mask);
+                let label = format!("outer-{mode}-{index}-{mask}");
+                let d = oracle(&bytes, &label);
+                alpha_oracle(
+                    &d,
+                    |x, y| {
+                        let (x, y) = (x as f32 + 0.5, 63.5 - y as f32);
+                        let covered = (8.0..56.0).contains(&x) && (8.0..56.0).contains(&y);
+                        alpha + (1.0 - alpha) * if covered { 0.6 * 0.5 * if mask { 0.4 } else { 1.0 } } else { 0.0 }
+                    },
+                    &label,
+                );
+                let layer = d.walk().into_iter().find(|(_, _, l)| l.name == "PDF transparency" && l.blend != BlendMode::Normal).unwrap().2;
+                assert!(matches!(&layer.content,LayerContent::Group(g) if g.isolation==GroupIsolation::NonIsolated));
+            }
+        }
+    }
+}
+#[test]
+fn pdf_groups_nested_independent_blends_do_not_reuse_outer_backdrop_coverage() {
+    for nested_isolation in ["/I false", "/I true"] {
+        let bytes = fixture::page(
+            "/B gs 0.2 0.4 0.6 rg 0 0 64 64 re f /A gs /X Do",
+            "/ExtGState << /B << /ca 0.4 >> /A << /ca 0.5 /BM /Multiply >> >> /XObject << /X 5 0 R >>",
+            "",
+            &[
+                form(
+                    "/I false",
+                    "/S gs /Y Do /N gs 0.4 0.6 0.8 rg 20 20 20 20 re f",
+                    "/XObject << /Y 6 0 R >> /ExtGState << /S << /BM /Screen /ca 0.8 >> /N << /BM /Normal /ca 0.4 >> >>",
+                ),
+                form(nested_isolation, "/M gs 0.8 0.6 0.4 rg 8 8 48 48 re f", "/ExtGState << /M << /BM /Multiply /ca 0.6 >> >>"),
+            ],
+        );
+        oracle(&bytes, &format!("outer-nested-{}", nested_isolation.ends_with("true")));
+    }
+}
+#[test]
+fn pdf_groups_outer_blend_native_roundtrip_and_changed_backdrop_keep_independent_isolation() {
+    let bytes = outer_blend_pdf("Multiply", "/I false", [0.2, 0.4, 0.6], 0.4, true);
+    let original = oracle(&bytes, "outer-native-original");
+    let native = photocraft_format::save_to_bytes(&original, &Default::default()).unwrap();
+    let mut reopened = photocraft_format::load_from_bytes(&native).unwrap();
+    assert_eq!(original, reopened);
+    let id = reopened.walk().into_iter().find(|(_, _, l)| matches!(l.content, LayerContent::Shape(_))).unwrap().2.id;
+    let format = reopened.pixel_format();
+    let bounds = reopened.bounds();
+    let LayerContent::Shape(shape) = &mut reopened.layer_mut(id).unwrap().content else { panic!("shape") };
+    let mut color = photocraft_doc::Color::rgb(0.6, 0.2, 0.8);
+    color.alpha = 0.4;
+    shape.fill = Some(Fill::Solid(color));
+    shape.cache = Some(photocraft_vector::render_shape(shape, format, bounds));
+    let changed = outer_blend_pdf("Multiply", "/I false", [0.6, 0.2, 0.8], 0.4, true);
+    oracle_doc(&changed, &reopened, "outer-native-backdrop-edit");
+    let child_id = reopened.walk().into_iter().filter(|(_, _, l)| matches!(l.content, LayerContent::Shape(_))).nth(1).unwrap().2.id;
+    let LayerContent::Shape(shape) = &mut reopened.layer_mut(child_id).unwrap().content else { panic!("shape") };
+    let mut color = photocraft_doc::Color::rgb(0.2, 0.8, 0.6);
+    color.alpha = 0.6;
+    shape.fill = Some(Fill::Solid(color));
+    shape.cache = Some(photocraft_vector::render_shape(shape, format, bounds));
+    let changed = String::from_utf8(changed).unwrap().replace("0.8 0.6 0.4 rg", "0.2 0.8 0.6 rg").into_bytes();
+    oracle_doc(&changed, &reopened, "outer-native-child-edit");
+    let native = photocraft_format::save_to_bytes(&reopened, &Default::default()).unwrap();
+    let final_doc = photocraft_format::load_from_bytes(&native).unwrap();
+    oracle_doc(&changed, &final_doc, "outer-native-edited-reopen");
 }

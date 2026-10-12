@@ -793,7 +793,10 @@ fn smart_resource_nested_symbols_styles_swatches_survive_cold_source_and_content
     let outside_id = outside.id;
     let instance =
         Layer::new("Nested instance", LayerContent::Symbol(SymbolInstance { symbol: SymbolId(9), transform: Affine::translate(30., 8.), cache: None }));
-    let mut group = Layer::new("Artwork", LayerContent::Group(Group { children: vec![root, instance], expanded: true, artboard: None }));
+    let mut group = Layer::new(
+        "Artwork",
+        LayerContent::Group(Group { children: vec![root, instance], expanded: true, artboard: None, isolation: photocraft_doc::GroupIsolation::Auto }),
+    );
     symbols::refresh_layer_symbols(&doc, &mut group).unwrap();
     let group_id = group.id;
     doc.layers = vec![group, outside];

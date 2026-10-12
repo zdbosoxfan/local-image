@@ -93,8 +93,12 @@ pub fn export_with(doc: &Document, scope: &ExportScope, opts: &ExportOptions, cx
         surface.push_transform(&Transform::from_row(factor, 0.0, 0.0, factor, -rect.x0 as f32 * factor, -rect.y0 as f32 * factor));
         let mut w = Writer { doc: &scene, opts, cx, rect, warnings: &mut warnings };
         let result = if w.scan(&scene.layers) || scene.mode == photocraft_doc::ColorMode::Lab {
-            w.warn("compositing", "The scoped composition was embedded as an image to preserve unsupported compositing.");
-            w.raster(&mut surface, &scene.layers, rect)
+            if partial_backdrop_dependency(doc, &scope) {
+                Err(invalid("this partial nonisolated scope requires rasterization with its enclosing backdrop; export the document instead"))
+            } else {
+                w.warn("compositing", "The scoped composition was embedded as an image to preserve unsupported compositing.");
+                w.raster(&mut surface, &scene.layers, rect)
+            }
         } else {
             w.layers(&mut surface, &scene.layers, 0)
         };
@@ -174,9 +178,31 @@ fn check_pixels(rect: Rect, opts: &ExportOptions) -> Result<()> {
     Ok(())
 }
 
+fn partial_backdrop_dependency(doc: &Document, scope: &ExportScope) -> bool {
+    let ids = match scope {
+        ExportScope::Document => return false,
+        ExportScope::Selection(ids) => ids.clone(),
+        ExportScope::Artboard(id) => vec![*id],
+    };
+    fn selected(layer: &Layer, ids: &[LayerId]) -> bool {
+        ids.contains(&layer.id) || layer.children().is_some_and(|kids| kids.iter().any(|l| selected(l, ids)))
+    }
+    fn walk(layers: &[Layer], ids: &[LayerId], inside: bool) -> bool {
+        layers.iter().any(|layer| {
+            let included = inside || ids.contains(&layer.id);
+            matches!(&layer.content,LayerContent::Group(g) if g.isolation==photocraft_doc::GroupIsolation::NonIsolated && (included||selected(layer,ids)))
+                || layer.children().is_some_and(|kids| walk(kids, ids, included))
+        })
+    }
+    walk(&doc.layers, &ids, false)
+}
+
 /// Validates every requested id before pruning, including hidden objects. Selecting both
 /// a group and its descendant includes the group only once, in document paint order.
 pub fn scoped_document(doc: &Document, scope: &ExportScope) -> Result<Document> {
+    let mut compatible = doc.clone();
+    compatible.normalize_legacy_groups();
+    let doc = &compatible;
     let ids = match scope {
         ExportScope::Document => return Ok(doc.clone()),
         ExportScope::Selection(ids) if !ids.is_empty() => ids.clone(),
@@ -220,6 +246,9 @@ pub fn scoped_document(doc: &Document, scope: &ExportScope) -> Result<Document> 
     }
     let mut scene = doc.clone();
     scene.layers = prune(&doc.layers, &selected);
+    if scene.walk().iter().any(|(_, _, l)| matches!(&l.content, LayerContent::Group(g) if g.isolation == photocraft_doc::GroupIsolation::NonIsolated)) {
+        return Err(invalid("nonisolated groups require Document export to retain their actual backdrop"));
+    }
     Ok(scene)
 }
 
@@ -487,8 +516,10 @@ impl Writer<'_, '_, '_> {
                 LayerContent::Adjustment(_) => true,
                 LayerContent::Group(g) => {
                     self.scan(&g.children)
+                        || g.isolation == photocraft_doc::GroupIsolation::NonIsolated
                         || unsupported
-                        || l.blend == BlendMode::PassThrough
+                        || g.isolation == photocraft_doc::GroupIsolation::Auto
+                            && l.blend == BlendMode::PassThrough
                             && (l.opacity != 1.0
                                 || l.mask.as_ref().is_some_and(|m| m.enabled)
                                 || l.vector_mask.as_ref().is_some_and(|m| m.enabled)
@@ -561,7 +592,7 @@ impl Writer<'_, '_, '_> {
             s.push_opacity(norm(l.opacity));
             pushes += 1;
             if !matches!(l.blend, BlendMode::Normal | BlendMode::PassThrough)
-                || matches!(&l.content, LayerContent::Group(_)) && (l.blend != BlendMode::PassThrough || l.fill_opacity < 1.0)
+                || matches!(&l.content, LayerContent::Group(g) if g.isolation == photocraft_doc::GroupIsolation::Isolated || g.isolation == photocraft_doc::GroupIsolation::Auto && (l.blend != BlendMode::PassThrough || l.fill_opacity < 1.0))
             {
                 s.push_isolated();
                 pushes += 1;

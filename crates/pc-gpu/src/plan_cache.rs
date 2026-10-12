@@ -119,7 +119,7 @@ impl PlanCache {
                     self.surface(s, key, false);
                 }
                 LayerContent::Group(g) => {
-                    let _ = write!(key, "g{:?}", g.artboard);
+                    let _ = write!(key, "g{:?}{:?}", g.artboard, g.isolation);
                     self.layers(&g.children, key);
                 }
                 LayerContent::Adjustment(a) => {
@@ -302,6 +302,17 @@ mod tests {
         Document::with_background("cache", Size::new(512, 512), ColorMode::Rgb, SampleType::U8, Color::rgb(0.2, 0.3, 0.4))
     }
 
+    #[test]
+    fn isolation_change_cannot_reuse_a_legacy_gpu_plan() {
+        let mut doc = Document::new("PDF", Size::new(4, 4), ColorMode::Rgb, SampleType::F32);
+        doc.layers.push(Layer::group("group", vec![]));
+        let mut cache = PlanCache::default();
+        cache.get(&doc, |_| Ok(())).unwrap();
+        if let LayerContent::Group(g) = &mut doc.layers[0].content {
+            g.isolation = photocraft_doc::GroupIsolation::NonIsolated;
+        }
+        assert!(cache.get(&doc, |_| Ok(())).is_err());
+    }
     #[test]
     fn pixel_edits_rebind_sources_and_structure_edits_rebuild() {
         let mut d = doc();

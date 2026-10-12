@@ -494,7 +494,17 @@ pub fn project_clips(source: &Document) -> Result<Document> {
             let Some(clip) = l.vector.clip.take() else { continue };
             validate_geometry(&clip)?;
             *next = next.checked_add(1).ok_or_else(|| error("projection layer id overflow"))?;
+            let isolation = match &l.content {
+                LayerContent::Group(g) => g.isolation,
+                _ => photocraft_doc::GroupIsolation::Auto,
+            };
+            let group = l.is_group();
             let mut child = l.clone();
+            // Imported PDF BBox clips also carry an identical VectorMask. Do
+            // not apply the same antialias coverage twice after projection.
+            if child.vector_mask.as_ref().is_some_and(|m| m.enabled && m.density == 1.0 && m.feather == 0.0 && m.path == clip) {
+                child.vector_mask = None;
+            }
             child.id = LayerId(*next);
             child.clipped = false;
             child.blend = if child.is_group() && child.blend == BlendMode::PassThrough { BlendMode::PassThrough } else { BlendMode::Normal };
@@ -502,8 +512,9 @@ pub fn project_clips(source: &Document) -> Result<Document> {
             child.fill_opacity = 1.;
             child.effects = Default::default();
             child.blend_if = Default::default();
-            l.content = LayerContent::Group(Group { children: vec![child], expanded: true, artboard: None });
-            if l.blend == BlendMode::PassThrough {
+            child.excluded_channels = 0;
+            l.content = LayerContent::Group(Group { children: vec![child], expanded: true, artboard: None, isolation });
+            if !group && l.blend == BlendMode::PassThrough {
                 l.blend = BlendMode::Normal;
             }
             l.mask = None;
