@@ -174,7 +174,8 @@ pub fn source_image(file_name: &str, bytes: &[u8], fmt: PixelFormat) -> Result<S
         return Ok(img);
     }
     let doc = decode_source(file_name, bytes)?;
-    let buf = photocraft_compose::flatten(&doc);
+    let projected = crate::vector_integration::project_document(&doc)?;
+    let buf = photocraft_compose::flatten(&projected);
     let img = SourceImage { surface: Arc::new(buffer_to_surface(&buf, fmt)), bounds: doc.bounds() };
     cache_put(key, img.clone());
     Ok(img)
@@ -514,6 +515,9 @@ fn detach_psd(l: &mut Layer) {
 
 // ---------- conversion ----------
 
+#[path = "smart_cmds/resources.rs"]
+mod resources;
+
 /// Moves a layer (any kind) by whole pixels without re-rendering anything.
 fn shift_layer(l: &mut Layer, dx: i32, dy: i32) {
     if dx == 0 && dy == 0 {
@@ -569,7 +573,8 @@ fn any_layer(l: &Layer, f: &dyn Fn(&Layer) -> bool) -> bool {
 /// Builds the smart-object layer replacing `l` in `doc`: the layer (with its mask, effects and
 /// fill opacity) becomes a nested document cropped to its rendered bounds; visibility, opacity,
 /// blend mode, clipping and label stay on the smart layer. The cache is the exact composite, so
-/// the document looks the same before and after.
+/// the document looks the same before and after. Editable vector/type and canvas-relative
+/// paint retain the original canvas coordinate frame and native resources inside the source.
 pub fn layer_to_smart(doc: &Document, l: &Layer) -> Result<Layer> {
     let canvas = doc.bounds();
     let background = l.name == "Background" && l.locks.position;
@@ -588,15 +593,21 @@ pub fn layer_to_smart(doc: &Document, l: &Layer) -> Result<Layer> {
     sub.resolution_dpi = doc.resolution_dpi;
     sub.icc_profile = doc.icc_profile.clone();
     sub.global_light = doc.global_light;
-    if any_layer(l, &|x| matches!(x.content, LayerContent::Smart(_))) {
-        // Nested PSD placed layers find their embedded files here.
+    sub.layers = vec![inner];
+    resources::inherit(doc, &mut sub)?;
+    if any_layer(l, &|x| matches!(x.content, LayerContent::Smart(_)))
+        || sub.symbols.iter().flat_map(|master| &master.layers).any(|layer| any_layer(layer, &|x| matches!(x.content, LayerContent::Smart(_))))
+    {
+        // Nested PSD placed layers, including those inside symbol masters,
+        // resolve their embedded UUID sources through this document context.
         sub.metadata.psd_global_blocks = doc.metadata.psd_global_blocks.clone();
     }
-    sub.layers = vec![inner];
+    let keep_canvas = resources::keep_canvas(l);
 
     let has_fx = any_layer(l, &|x| x.effects.enabled && !x.effects.items.is_empty());
-    let region = subtree_bounds(l, canvas).union(&canvas).inflate(if has_fx { 256 } else { 0 });
-    let buf = photocraft_compose::render(&sub, region);
+    let region = if keep_canvas { canvas } else { subtree_bounds(l, canvas).union(&canvas).inflate(if has_fx { 256 } else { 0 }) };
+    let projected = crate::vector_integration::project_document(&sub)?;
+    let buf = photocraft_compose::render(&projected, region);
     let w = region.width() as usize;
     let mut b = Rect::EMPTY;
     for (i, p) in buf.px.iter().enumerate() {
@@ -607,6 +618,9 @@ pub fn layer_to_smart(doc: &Document, l: &Layer) -> Result<Layer> {
     }
     if b.is_empty() {
         return Err(other("the layer is empty, so there is nothing to convert"));
+    }
+    if keep_canvas {
+        b = canvas;
     }
     let fmt = doc.pixel_format();
     let mut cache = buffer_to_surface(&buf, fmt);

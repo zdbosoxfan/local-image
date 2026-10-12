@@ -751,3 +751,222 @@ fn developed_source_shortcut_matches_the_flatten() {
     faded.layers[0].opacity = 0.5;
     assert!(plain_layer_surface(&faded, fmt).is_none());
 }
+
+#[test]
+fn smart_resource_nested_symbols_styles_swatches_survive_cold_source_and_contents_edit() {
+    use crate::vector_packages::{colours, symbols};
+    use photocraft_doc::vector_design::{
+        styles::{StyleLink, starter_library},
+        swatches::*,
+    };
+    use photocraft_doc::{Color, ColorMode, Fill, Group, ShapeLayer, SymbolDef, SymbolId, SymbolInstance};
+    let mut doc = Document::new("Resource closure", Size::new(80, 60), ColorMode::Rgb, photocraft_color::SampleType::U8);
+    let shape = |doc: &Document, x: f64, y: f64| {
+        let mut sh =
+            ShapeLayer { path: photocraft_vector::shapes::rect(x, y, 12., 10.), fill: Some(Fill::Solid(Color::rgb(1., 0., 0.))), ..Default::default() };
+        crate::vector_cmds::refresh_shape(doc, &mut sh);
+        Layer::new("Badge", LayerContent::Shape(sh))
+    };
+    let mut master = shape(&doc, 2., 3.);
+    let styles = starter_library();
+    master.vector.graphic_style =
+        Some(StyleLink { style: styles[0].id, applied: styles[0].attributes.clone(), character_runs: vec![], paragraph_runs: vec![] });
+    let master_layer = master.id;
+    doc.graphic_styles = styles;
+    doc.symbols = vec![
+        SymbolDef { id: SymbolId(7), name: "Leaf".into(), layers: vec![master] },
+        SymbolDef {
+            id: SymbolId(9),
+            name: "Nested".into(),
+            layers: vec![Layer::new(
+                "Leaf instance",
+                LayerContent::Symbol(SymbolInstance { symbol: SymbolId(7), transform: Affine::translate(8., 4.), cache: None }),
+            )],
+        },
+        SymbolDef { id: SymbolId(15), name: "Unrelated".into(), layers: vec![shape(&doc, 0., 0.)] },
+    ];
+    let root = shape(&doc, 5., 40.);
+    let root_id = root.id;
+    let outside = shape(&doc, 70., 50.);
+    let outside_id = outside.id;
+    let instance =
+        Layer::new("Nested instance", LayerContent::Symbol(SymbolInstance { symbol: SymbolId(9), transform: Affine::translate(30., 8.), cache: None }));
+    let mut group = Layer::new("Artwork", LayerContent::Group(Group { children: vec![root, instance], expanded: true, artboard: None }));
+    symbols::refresh_layer_symbols(&doc, &mut group).unwrap();
+    let group_id = group.id;
+    doc.layers = vec![group, outside];
+    doc.swatches = SwatchBook {
+        swatches: vec![
+            Swatch {
+                id: SwatchId(1),
+                name: "Brand red".into(),
+                paint: Fill::Solid(Color::rgb(1., 0., 0.)),
+                global: true,
+                spot: false,
+                group: Some(2),
+                stops: vec![],
+            },
+            Swatch { id: SwatchId(3), name: "Unused".into(), paint: Fill::Solid(Color::WHITE), global: false, spot: false, group: None, stops: vec![] },
+        ],
+        groups: vec![SwatchGroup { id: 2, name: "Brand".into() }, SwatchGroup { id: 4, name: "Unused group".into() }],
+        links: vec![(None, root_id), (Some(SymbolId(7)), master_layer), (None, outside_id)]
+            .into_iter()
+            .map(|(symbol, layer)| PaintLink {
+                target: PaintTarget { symbol, layer, paint: PaintSlot::Fill, stop: None },
+                reference: SwatchRef { swatch: SwatchId(1), tint: 100. },
+            })
+            .collect(),
+    };
+    let before = photocraft_compose::flatten(&doc).px;
+    let mut session = Session::new();
+    session.add_document(doc, None);
+    session.execute("layer.smartObjects.convertToSmartObject", json!({"layer":group_id.0})).unwrap();
+    assert_eq!(flat(&session), before);
+    let smart_layer = session.active().unwrap().active_layer.unwrap();
+    let sm = active_smart(&session);
+    let SmartSource::Embedded { file_name, bytes } = &sm.source else { panic!("embedded contents expected") };
+    let mut contents = decode_source(file_name, bytes).unwrap();
+    assert_eq!(contents.symbols.iter().map(|master| master.name.as_str()).collect::<Vec<_>>(), ["Leaf", "Nested"]);
+    assert_eq!(contents.graphic_styles.len(), 1);
+    assert_eq!(contents.swatches.links.len(), 2);
+    assert_eq!(contents.swatches.swatches.len(), 1);
+    assert_eq!(contents.swatches.groups.len(), 1);
+    assert_eq!(contents.size, Size::new(80, 60), "symbol paint keeps its original canvas frame");
+    photocraft_doc::vector_design::validation::document(&contents).unwrap();
+    let projected = crate::vector_integration::project_document(&contents).unwrap();
+    let expected = photocraft_compose::flatten(&projected).px;
+    contents.name.push_str(" cold decode");
+    let cold = encode_source(&contents).unwrap();
+    let fresh = source_image("contents.pcraft", &cold, contents.pixel_format()).unwrap();
+    let mut actual = vec![[0.; 4]; 80 * 60];
+    fresh.surface.read_rgba_into(contents.bounds(), &mut actual);
+    assert!(max_diff(&actual, &expected) <= 1. / 255. + 1e-6);
+    // Reopen the outer native document and verify its editable nested source again.
+    let saved = photocraft_format::save_to_bytes(&session.active().unwrap().doc, &Default::default()).unwrap();
+    let reopened = photocraft_format::load_from_bytes(&saved).unwrap();
+    assert_eq!(photocraft_compose::flatten(&reopened).px, before);
+    session.execute("layer.smartObjects.editContents", json!({"layer":smart_layer.0})).unwrap();
+    let mut swatch = session.active().unwrap().doc.swatches.swatches[0].clone();
+    swatch.paint = Fill::Solid(Color::rgb(0., 1., 0.));
+    let request = colours::Request { capture: colours::Capture::begin(&session).unwrap(), action: colours::Action::Edit { swatch } };
+    session.execute("swatch.document.edit", serde_json::to_value(request).unwrap()).unwrap();
+    session.execute("layer.smartObjects.saveContents", json!({})).unwrap();
+    session.set_active(0);
+    let after = flat(&session);
+    assert_eq!(after[43 * 80 + 8], [0., 1., 0., 1.]);
+    assert_eq!(after[18 * 80 + 44], [0., 1., 0., 1.]);
+    assert_eq!(after[55 * 80 + 74], [1., 0., 0., 1.], "unrelated outer art is unchanged");
+    assert!(session.undo());
+    assert_eq!(flat(&session), before, "contents update is one undoable step");
+    assert!(session.undo());
+    assert!(matches!(session.active().unwrap().doc.layer(group_id).unwrap().content, LayerContent::Group(_)));
+}
+
+#[test]
+fn smart_resource_canvas_gradient_pattern_and_live_geometry_reproject_identically() {
+    use photocraft_doc::{Color, ColorMode, Fill, Pattern, ShapeLayer};
+    let mut doc = Document::new("Canvas paint", Size::new(120, 80), ColorMode::Rgb, photocraft_color::SampleType::U8);
+    let mut tile = Surface::new(PixelFormat::RGBA8);
+    tile.fill_rect(Rect::from_xywh(0, 0, 2, 2), &[0., 0., 1., 1.]);
+    doc.patterns.push(Pattern::new("Tile", tile, 2, 2));
+    let mut gradient = Fill::gradient(vec![(0., Color::BLACK), (1., Color::WHITE)], 0., 1., photocraft_doc::GradientStyle::Linear, false);
+    if let Fill::Gradient { align, .. } = &mut gradient {
+        *align = false;
+    }
+    for fill in [gradient, Fill::Pattern { name: "Tile".into(), id: doc.patterns[0].id.clone(), scale: 1., angle: 0., link: false, phase: (1., 1.) }] {
+        let sh = ShapeLayer { path: photocraft_vector::shapes::rect(40., 20., 30., 25.), fill: Some(fill), ..Default::default() };
+        let mut layer = Layer::new("Canvas-relative vector", LayerContent::Shape(sh));
+        layer.vector.live_shape = Some(photocraft_doc::vector_design::drawing::DesignShape {
+            rect: [40., 20., 30., 25.],
+            angle: 0.,
+            parameters: photocraft_doc::vector_design::drawing::ShapeParameters::Rect { radii: [0.; 4], kinds: [Default::default(); 4] },
+        });
+        layer.vector.clip = Some(photocraft_vector::shapes::rect(42., 22., 24., 20.));
+        doc.layers = vec![layer];
+        let before = photocraft_compose::flatten(&crate::vector_integration::project_document(&doc).unwrap()).px;
+        let out = layer_to_smart(&doc, &doc.layers[0]).unwrap();
+        let LayerContent::Smart(sm) = out.content else { panic!("smart expected") };
+        let SmartSource::Embedded { file_name, bytes } = sm.source else { panic!("embedded expected") };
+        let mut contents = decode_source(&file_name, &bytes).unwrap();
+        assert_eq!(contents.size, doc.size);
+        assert_eq!(contents.patterns, doc.patterns);
+        assert_eq!(contents.layers[0].vector.live_shape, doc.layers[0].vector.live_shape);
+        assert_eq!(contents.layers[0].vector.clip, doc.layers[0].vector.clip);
+        let projected = crate::vector_integration::project_document(&contents).unwrap();
+        assert!(max_diff(&photocraft_compose::flatten(&projected).px, &before) <= 1. / 255. + 1e-6);
+        contents.name.push_str(" independent cold source");
+        let bytes = encode_source(&contents).unwrap();
+        let cold = source_image("cold.pcraft", &bytes, contents.pixel_format()).unwrap();
+        let mut pixels = vec![[0.; 4]; 120 * 80];
+        cold.surface.read_rgba_into(contents.bounds(), &mut pixels);
+        assert!(max_diff(&pixels, &before) <= 1. / 255. + 1e-6);
+    }
+}
+
+#[test]
+fn smart_resource_raster_pattern_reference_survives_cold_crop_boundary() {
+    let mut doc = Document::new("Pattern reference", Size::new(80, 60), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+    let mut pixels = Surface::new(PixelFormat::RGBA8);
+    pixels.write_region(Rect::from_xywh(0, 0, 3, 1), &[1., 0., 0., 1., 0., 1., 0., 1., 0., 0., 1., 1.]);
+    let pattern = photocraft_doc::Pattern::new("RGB tile", pixels, 3, 1);
+    let mut layer = Layer::raster("Paint", PixelFormat::RGBA8);
+    layer.surface_mut().unwrap().fill_rect(Rect::from_xywh(17, 13, 20, 18), &[0.7, 0.7, 0.7, 1.]);
+    layer.effects.reference = Some((7., 11.));
+    layer.effects.items.push(photocraft_doc::Effect::PatternOverlay {
+        common: photocraft_doc::FxCommon::new(BlendMode::Normal, 1.),
+        name: pattern.name.clone(),
+        id: pattern.id.clone(),
+        scale: 1.,
+        angle: 0.,
+        link: true,
+        phase: (1., 0.),
+    });
+    doc.patterns.push(pattern);
+    doc.layers.push(layer);
+    let before = photocraft_compose::flatten(&doc).px;
+    let layer = layer_to_smart(&doc, &doc.layers[0]).unwrap();
+    let LayerContent::Smart(sm) = layer.content else { panic!("expected smart") };
+    let SmartSource::Embedded { file_name, bytes } = sm.source else { panic!("expected embedded") };
+    let mut inner = decode_source(&file_name, &bytes).unwrap();
+    inner.name.push_str(" cold");
+    let bytes = encode_source(&inner).unwrap();
+    let image = source_image("cold.pcraft", &bytes, inner.pixel_format()).unwrap();
+    let mut after = vec![[0.; 4]; 80 * 60];
+    image.surface.read_rgba_into(doc.bounds(), &mut after);
+    assert!(max_diff(&before, &after) <= 1. / 255. + 1e-6);
+}
+
+#[test]
+fn smart_resource_nested_psd_linked_source_remains_editable() {
+    use photocraft_doc::{Color, ColorMode, SampleType, SymbolDef, SymbolId, SymbolInstance};
+    let inner = Document::with_background("Embedded source", Size::new(10, 8), ColorMode::Rgb, SampleType::U8, Color::rgb(0., 1., 0.));
+    let png = photocraft_io::export(&inner, "png", &Default::default()).unwrap().bytes;
+    let linked = photocraft_io::linked::encode_linked_file(&photocraft_io::linked::LinkedFile {
+        uuid: "master-source".into(),
+        file_name: "source.png".into(),
+        bytes: png.clone(),
+    });
+    let mut doc = Document::new("Linked master", Size::new(32, 24), ColorMode::Rgb, SampleType::U8);
+    doc.metadata.psd_global_blocks.push((*b"8BIM", *b"lnk2", Arc::new(linked)));
+    let smart = Layer::new(
+        "Linked pixels",
+        LayerContent::Smart(SmartObject::new(
+            SmartSource::Linked { path: "master-source".into() },
+            Affine::IDENTITY,
+            Some(inner.layers[0].surface().unwrap().clone()),
+        )),
+    );
+    doc.symbols.push(SymbolDef { id: SymbolId(1), name: "Master".into(), layers: vec![smart] });
+    let mut instance = Layer::new("Instance", LayerContent::Symbol(SymbolInstance { symbol: SymbolId(1), transform: Affine::translate(5., 6.), cache: None }));
+    crate::vector_packages::symbols::refresh_layer_symbols(&doc, &mut instance).unwrap();
+    doc.layers.push(instance);
+    let converted = layer_to_smart(&doc, &doc.layers[0]).unwrap();
+    let LayerContent::Smart(sm) = converted.content else { panic!("expected smart") };
+    let SmartSource::Embedded { file_name, bytes } = sm.source else { panic!("expected embedded") };
+    let contents = decode_source(&file_name, &bytes).unwrap();
+    let LayerContent::Smart(nested) = &contents.symbols[0].layers[0].content else { panic!("expected nested smart") };
+    let (name, bytes) = source_bytes(&contents.metadata, &nested.source).unwrap();
+    assert_eq!(name, "source.png");
+    assert_eq!(bytes.as_ref(), &png);
+    assert_eq!(decode_source(&name, &bytes).unwrap().size, Size::new(10, 8));
+}
