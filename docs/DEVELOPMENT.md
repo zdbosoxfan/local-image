@@ -12,8 +12,18 @@ lives on `main` until V2 replaces it.
     libgl1-mesa-dev libgtk-3-dev mesa-vulkan-drivers
   ```
 * Windows: the MSVC toolchain (Visual Studio Build Tools) and the Windows SDK.
-* Optional: [craft-fonts](https://github.com/storytold/craft-fonts) next to the repository
-  (`CRAFT_FONTS_DIR=../craft-fonts`) for Chinese and Japanese UI text.
+* [craft-fonts](https://github.com/storytold/craft-fonts) supplies Japanese, Simplified Chinese,
+  Arabic and Thai fallback fonts. CI and release builds use commit
+  `3d9ab3a132ed0eff457e424226a435a901da30d3`, with `CRAFT_FONTS_DIR` pointing at that checkout
+  and `CRAFT_FONTS_REQUIRED=1`. Local builds may omit it, but then cannot prove those scripts render.
+* Full SVG/PDF export tests require **Inkscape 1.4+** with `--app-id-tag`, and Poppler's
+  **pdftoppm** on `PATH`. These are independent test renderers, not runtime app requirements.
+  On Ubuntu use the [official stable Inkscape PPA](https://wiki.inkscape.org/wiki/Installing_Inkscape)
+  if the distribution package is too old, then install `inkscape poppler-utils`.
+  The Windows CI setup uses Chocolatey [Inkscape 1.4.4](https://community.chocolatey.org/packages/inkscape)
+  and [Poppler 26.7.0](https://community.chocolatey.org/packages/poppler/26.7.0).
+  Set `LOCAL_IMAGE_INKSCAPE` to the executable when it is not on `PATH`; on Windows use
+  `C:\Program Files\Inkscape\bin\inkscape.com`. CI verifies both tools before starting Cargo tests.
 
 ## Build and run
 
@@ -51,7 +61,12 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Set `CARGO_INCREMENTAL=0` on machines short of disk space.
+During development, run focused regressions first (for example,
+`cargo test -p photocraft-engine --lib prefs::tests`), then affected suites at a stable integration
+boundary. Run the workspace suite and strict lint for the final candidate. Keep one Cargo build
+lane per target directory, retain its cache, and avoid routine `cargo clean` or overlapping full
+suites. CI limits compilation and test concurrency to two; larger local hosts can use a measured
+limit appropriate to their memory. Set `CARGO_INCREMENTAL=0` on machines short of disk space.
 
 ### The mock ComfyUI
 
@@ -95,7 +110,8 @@ Packaging is Rust too (`xtask/`, run through the `cargo xtask` alias):
 
 * **Linux:** `cargo xtask package linux` writes
   `dist/release/local-image-<version>-linux-<arch>.tar.gz` and its `.sha256` (app, CLI, README,
-  licences). After unpacking, `./local-image --install` adds it to the application menu for the
+  licences and all referenced attribution texts). Run `cargo xtask attributions` after changing
+  the curated credits, port records or dependency graph. After unpacking, `./local-image --install` adds it to the application menu for the
   current user (`--install --system` for `/usr/local`, `--uninstall` to remove it).
 * **Windows:** `cargo xtask package windows --arch x64` builds with a static CRT, checks the PE
   headers, and writes an MSI (WiX v5: `dotnet tool install -g wix`) and a portable zip
