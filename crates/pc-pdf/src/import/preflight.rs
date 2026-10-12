@@ -1,6 +1,6 @@
 //! Allocation/work guard before hayro's unbounded decoders run. PDF 1.7 §§3.2–3.5.
 //! This is a restrictive admission check, not a replacement PDF interpreter. In particular
-//! indirect filters, encryption, LZW/JPX/JBIG2 and inline images are refused. Every
+//! indirect filters, encryption, CCITT/JPX/JBIG2 and inline images are refused. Every
 //! accepted stream is measured with bounded decoding; object-stream dictionaries and the
 //! reference graph are checked before Pdf::new can traverse/decompress them.
 use super::{ImportError, Result, cancelled};
@@ -15,6 +15,10 @@ use std::{
 mod filters;
 #[path = "preflight/lengths.rs"]
 mod lengths;
+#[path = "preflight/lzw.rs"]
+mod lzw;
+#[path = "preflight/predictors.rs"]
+mod predictors;
 
 #[derive(Clone, Debug, PartialEq)]
 enum Value {
@@ -24,6 +28,7 @@ enum Value {
     Array(Vec<Value>),
     Dict(BTreeMap<Vec<u8>, Value>),
     Ref(u32, u16),
+    Null,
     Other,
 }
 impl Value {
@@ -221,6 +226,7 @@ impl<'a> Lexer<'a> {
                 }
                 Value::Array(a)
             }
+            Token::Word(w) if w == b"null" => Value::Null,
             Token::Word(w) if w == b"true" || w == b"false" => Value::Bool(w == b"true"),
             Token::Word(w) => {
                 if let Ok(s) = std::str::from_utf8(&w)
@@ -431,6 +437,10 @@ impl Guard<'_> {
             Some(Value::Array(a)) => a.iter().map(|v| v.name().ok_or(ImportError::Unsupported("indirect filters"))).collect::<Result<Vec<_>>>()?,
             _ => return Err(ImportError::Unsupported("indirect filters")),
         };
+        if filters.len() > self.options.limits.depth.min(64) {
+            return Err(ImportError::Limit("filter chain"));
+        }
+        let params = predictors::parameters(value, matches!(value.get(b"Filter"), Some(Value::Array(_))), filters.len())?;
         let image = value.get(b"Subtype").and_then(Value::name) == Some(b"Image");
         let dct = filters.iter().any(|f| matches!(*f, b"DCTDecode" | b"DCT"));
         let mut declared_pixels = 0;
@@ -448,7 +458,7 @@ impl Guard<'_> {
         }
         let mut data = raw.to_vec();
         let mut decoded_charged = false;
-        for f in filters {
+        for (f, params) in filters.into_iter().zip(params) {
             data = match f {
                 b"ASCIIHexDecode" | b"AHx" | b"ASCII85Decode" | b"A85" | b"RunLengthDecode" | b"RL" => {
                     // The pinned ASCII decoders reserve from encoded length even
@@ -464,6 +474,17 @@ impl Guard<'_> {
                     }
                     let decoded = filters::decode(f, &data, room, self.cancel)?;
                     self.charge((decoded.len() as u64).max(reserve))?;
+                    decoded_charged = true;
+                    decoded
+                }
+                b"LZWDecode" | b"LZW" => {
+                    let early = predictors::parameter(params, b"EarlyChange", 1)?;
+                    if early > 1 {
+                        return Err(invalid("LZW EarlyChange must be 0 or 1"));
+                    }
+                    let room = self.options.limits.decompressed_bytes.saturating_sub(self.bytes);
+                    let (decoded, cost) = lzw::decode(&data, early == 1, room, self.options.limits.segments.saturating_mul(16).min(16_000_000), self.cancel)?;
+                    self.charge(cost)?;
                     decoded_charged = true;
                     decoded
                 }
@@ -489,6 +510,11 @@ impl Guard<'_> {
                 }
                 _ => return Err(ImportError::Unsupported("stream codec has no bounded decoder")),
             };
+            if matches!(f, b"LZWDecode" | b"LZW" | b"FlateDecode" | b"Fl") {
+                let (predicted, cost) = predictors::apply(data, params, self.options.limits.decompressed_bytes.saturating_sub(self.bytes), self.cancel)?;
+                self.charge(cost)?;
+                data = predicted;
+            }
         }
         if !decoded_charged {
             self.charge(data.len() as u64)?;

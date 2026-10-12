@@ -71,3 +71,28 @@ This stage requires no external program or new dependency. It intentionally does
 not enable LZW/CCITT/JPX/JBIG2, inline images, encryption, nonisolated transparency,
 Type 4 functions, forward lengths in xref-stream-only/hybrid/incremental files,
 or malformed filter repairs. Those require separate bounded semantic support.
+
+## FS009 LZW and predictor admission, stage two
+
+`compatibility.rs` adds an independent literal/code packer which crosses the
+9/10/11/12-bit boundaries for both EarlyChange values, exercises clear resets
+and table saturation, and renders the resulting PDFs against uncompressed art.
+The private decoder known-answer vector is also used by pinned hayro-syntax
+0.7.2 (`filter/lzw_flate.rs`), with expected bytes `-----A---B`; it exercises
+actual dictionary references and the next-code special case rather than literals.
+
+TIFF Predictor 2 and PNG predictors 10–15 are compared against unfiltered native
+geometry and image pixels. Image cases include byte-aligned 1/2/4/8/16-bit
+Grayscale TIFF prediction and 8-bit RGB PNG prediction. The same content-stream
+predictor checks run through existing Flate and new LZW paths. A predictor-hidden
+recursive Form must still fail graph admission. Malformed codes/EOD, bad
+DecodeParms/DP shapes, overflow-prone dimensions, truncation, PNG row tags,
+packing unsupported by the pinned decoder, output/dictionary/work budgets and
+cancellation retain explicit negative controls. No new dependency or external
+renderer is needed: interpreted output is compared with independently generated
+unfiltered PDF fixtures and known samples.
+
+LZW support here does not enable CCITT, other image codecs, encryption, inline
+images or nonisolated transparency. Predictor layouts whose upstream BitChunks
+handling drops partial pixel chunks or misaligns TIFF sub-byte rows are refused;
+indirect DecodeParms and ambiguous aliases are also refused explicitly.
