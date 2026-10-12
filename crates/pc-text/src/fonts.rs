@@ -74,6 +74,7 @@ pub struct ResolvedFont {
     pub exact: bool,
 }
 
+#[derive(Clone)]
 pub struct FontDb {
     pub(crate) fcx: FontContext,
     system_loaded: bool,
@@ -445,4 +446,25 @@ mod tests {
         super::collect_font_files(std::path::Path::new("/nonexistent/photocraft/fonts"), 0, &mut files);
         assert!(files.is_empty());
     }
+}
+
+#[cfg(test)]
+#[test]
+fn export_font_snapshot_keeps_registered_families_and_independent_layout() {
+    let mut original = crate::TextEngine::new();
+    let family = "Export private registered family";
+    original.fonts.fcx.collection.register_fonts(
+        Blob::new(Arc::new(INTER_REGULAR.to_vec())),
+        Some(parley::fontique::FontInfoOverride { family_name: Some(family), ..Default::default() }),
+    );
+    assert!(original.fonts.has_family(family));
+    let mut fork = original.fork();
+    assert!(fork.fonts.has_family(family));
+    let text = photocraft_doc::TextLayer { text: "Wide café".into(), font_family: family.into(), size_pt: 18., ..Default::default() };
+    let expected = original.layout(&text, 96.);
+    let actual = fork.layout(&text, 96.);
+    assert_eq!(actual.lines, expected.lines);
+    assert_eq!(actual.clusters, expected.clusters);
+    assert_eq!(actual.glyphs.iter().map(|glyph| glyph.id).collect::<Vec<_>>(), expected.glyphs.iter().map(|glyph| glyph.id).collect::<Vec<_>>());
+    assert!(!crate::TextEngine::new().fonts.has_family(family), "fixture must exercise a non-bundled registration");
 }

@@ -261,56 +261,64 @@ fn scope_rect(doc: &Document, scope: &ExportScope, cx: &mut ExportContext<'_>) -
     match scope {
         ExportScope::Document => Ok(doc.bounds()),
         ExportScope::Artboard(id) => doc.layer(*id).and_then(Layer::artboard).map(|a| a.rect).ok_or_else(|| invalid("artboard disappeared")),
-        ExportScope::Selection(_) => {
-            fn bounds(layers: &[Layer], doc: &Document, cx: &mut ExportContext<'_>) -> Result<Rect> {
-                let mut rect = Rect::EMPTY;
-                for l in layers.iter().filter(|l| l.visible) {
-                    check_cancel(cx)?;
-                    let b = match &l.content {
-                        LayerContent::Group(g) => {
-                            let b = bounds(&g.children, doc, cx)?;
-                            g.artboard.as_ref().map_or(b, |a| b.intersect(&a.rect))
-                        }
-                        LayerContent::Shape(s) => {
-                            // Bounds of ALL visible appearance items, not the PSD paint mirror.
-                            let mut b = Rect::EMPTY;
-                            for shape in painted_shapes(l, s) {
-                                let r = if shape.stroke.as_ref().is_some_and(|s| s.width > 0.0) {
-                                    photocraft_vector::CompiledShape::new(&shape, 0.01, doc.bounds()).bounds()
-                                } else if shape.fill.is_some() {
-                                    let path = normalized_fill(&shape.path, doc.bounds())?;
-                                    photocraft_pathops::bounds(&path)
-                                        .map_err(|e| invalid(e.to_string()))?
-                                        .map(|r| Rect::new(r.0.floor() as i32, r.1.floor() as i32, r.2.ceil() as i32, r.3.ceil() as i32))
-                                } else {
-                                    None
-                                };
-                                if let Some(r) = r {
-                                    b = b.union(&r);
-                                }
-                            }
-                            b
-                        }
-                        LayerContent::Text(t) => {
-                            let layout = cx.text.layout(t, doc.resolution_dpi);
-                            photocraft_text::render::ink_rect(&layout, &t.transform)
-                        }
-                        LayerContent::Fill(_) | LayerContent::Adjustment(_) => doc.bounds(),
-                        _ => l.surface().map_or(Rect::EMPTY, |s| s.content_bounds()),
-                    };
-                    let margin = effect_margin(l);
-                    let b = if !b.is_empty() && margin > 0 {
-                        Rect::new(b.x0.saturating_sub(margin), b.y0.saturating_sub(margin), b.x1.saturating_add(margin), b.y1.saturating_add(margin))
-                    } else {
-                        b
-                    };
-                    rect = rect.union(&b);
-                }
-                Ok(rect)
-            }
-            bounds(&doc.layers, doc, cx)
-        }
+        ExportScope::Selection(_) => layer_bounds(&doc.layers, doc, cx, false),
     }
+}
+
+// Selection describes current semantic ink; raster crops must also retain authoritative
+// enhanced caches and complete artboard compositing regions. Do not let conservative
+// cache bounds change the selection viewBox or physical dimensions.
+fn layer_bounds(layers: &[Layer], doc: &Document, cx: &mut ExportContext<'_>, raster_crop: bool) -> Result<Rect> {
+    let mut rect = Rect::EMPTY;
+    for l in layers.iter().filter(|l| l.visible) {
+        check_cancel(cx)?;
+        let b = if raster_crop && !photocraft_compose::transparent_outside(l) {
+            doc.bounds()
+        } else {
+            match &l.content {
+                LayerContent::Group(g) => {
+                    let b = layer_bounds(&g.children, doc, cx, raster_crop)?;
+                    g.artboard.as_ref().map_or(b, |a| if raster_crop { a.rect } else { b.intersect(&a.rect) })
+                }
+                LayerContent::Shape(s) if raster_crop && l.vector.appearance.is_some() => s.cache.as_ref().map_or(doc.bounds(), |cache| cache.content_bounds()),
+                LayerContent::Shape(s) => {
+                    // Bounds of ALL visible appearance items, not the PSD paint mirror.
+                    let mut b = Rect::EMPTY;
+                    for shape in painted_shapes(l, s) {
+                        let r = if shape.stroke.as_ref().is_some_and(|s| s.width > 0.0) {
+                            photocraft_vector::CompiledShape::new(&shape, 0.01, doc.bounds()).bounds()
+                        } else if shape.fill.is_some() {
+                            let path = normalized_fill(&shape.path, doc.bounds())?;
+                            photocraft_pathops::bounds(&path)
+                                .map_err(|e| invalid(e.to_string()))?
+                                .map(|r| Rect::new(r.0.floor() as i32, r.1.floor() as i32, r.2.ceil() as i32, r.3.ceil() as i32))
+                        } else {
+                            None
+                        };
+                        if let Some(r) = r {
+                            b = b.union(&r);
+                        }
+                    }
+                    b
+                }
+                LayerContent::Text(t) => {
+                    let layout = cx.text.layout(t, doc.resolution_dpi);
+                    let warp = photocraft_text::render::layout_warp(&layout, t.warp.as_ref());
+                    photocraft_text::render::ink_rect_warped(&layout, &t.transform, warp.as_ref())
+                }
+                LayerContent::Fill(_) | LayerContent::Adjustment(_) => doc.bounds(),
+                _ => l.surface().map_or(Rect::EMPTY, |s| s.content_bounds()),
+            }
+        };
+        let margin = effect_margin(l);
+        let b = if !b.is_empty() && margin > 0 {
+            Rect::new(b.x0.saturating_sub(margin), b.y0.saturating_sub(margin), b.x1.saturating_add(margin), b.y1.saturating_add(margin))
+        } else {
+            b
+        };
+        rect = rect.union(&b);
+    }
+    Ok(rect)
 }
 
 fn painted_shapes(l: &Layer, shape: &ShapeLayer) -> Vec<ShapeLayer> {
@@ -329,6 +337,30 @@ fn painted_shapes(l: &Layer, shape: &ShapeLayer) -> Vec<ShapeLayer> {
             .collect()
     } else {
         vec![shape.clone()]
+    }
+}
+
+/// Bound compressed allocation and observe cancellation during encoder writes.
+struct PngSink<'a> {
+    bytes: Vec<u8>,
+    cancelled: &'a dyn Fn() -> bool,
+    limit: usize,
+    exceeded: bool,
+}
+impl std::io::Write for PngSink<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if (self.cancelled)() {
+            return Err(std::io::Error::other("SVG export cancelled"));
+        }
+        if bytes.len() > self.limit.saturating_sub(self.bytes.len()) {
+            self.exceeded = true;
+            return Err(std::io::Error::other("SVG embedded PNG exceeds output budget"));
+        }
+        self.bytes.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
@@ -411,7 +443,10 @@ impl Writer<'_, '_, '_> {
         for layer in layers.iter().filter(|l| l.visible && l.opacity > 0.0) {
             check_cancel(self.cx)?;
             if self.raster_reason(layer) {
-                self.raster(std::slice::from_ref(layer), self.rect)?;
+                let rect = layer_bounds(std::slice::from_ref(layer), self.doc, self.cx, true)?.intersect(&self.rect);
+                if !rect.is_empty() {
+                    self.raster(std::slice::from_ref(layer), rect)?;
+                }
                 continue;
             }
             let mut attrs = String::new();
@@ -594,12 +629,25 @@ impl Writer<'_, '_, '_> {
         // Refresh ordinary geometry only; projection supplies authoritative enhanced caches.
         prepare_caches(&mut doc, self.cx, self.opts, rect)?;
         check_cancel(self.cx)?;
-        let rgba = photocraft_compose::render(&doc, rect).to_rgba8();
+        let mut rgba = Vec::new();
+        photocraft_compose::render_bands(&doc, rect, 256, |band| {
+            check_cancel(self.cx)?;
+            rgba.extend_from_slice(&band.to_rgba8().pixels);
+            check_cancel(self.cx)
+        })?;
         check_cancel(self.cx)?;
-        let mut png = Vec::new();
-        image::codecs::png::PngEncoder::new(&mut png)
-            .write_image(&rgba.pixels, rect.width(), rect.height(), image::ExtendedColorType::Rgba8)
-            .map_err(|e| invalid(e.to_string()))?;
+        let mut sink = PngSink { bytes: Vec::new(), cancelled: self.cx.cancelled, limit: self.opts.max_bytes, exceeded: false };
+        image::codecs::png::PngEncoder::new(&mut sink).write_image(&rgba, rect.width(), rect.height(), image::ExtendedColorType::Rgba8).map_err(|e| {
+            if (self.cx.cancelled)() {
+                ExportError::Cancelled
+            } else if sink.exceeded {
+                ExportError::Budget("embedded PNG bytes")
+            } else {
+                invalid(e.to_string())
+            }
+        })?;
+        check_cancel(self.cx)?;
+        let png = sink.bytes;
         if png.len().saturating_mul(4).div_ceil(3) > self.opts.max_bytes {
             return Err(ExportError::Budget("embedded PNG bytes"));
         }

@@ -7,7 +7,7 @@ use photocraft_doc::{Affine, DocId, Document, Layer, LayerContent, LayerId, Symb
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 mod render;
-pub use render::{prepare_expansion, refresh_layer_symbols, render_instance, transform_cached_instance};
+pub use render::{prepare_expansion, prepare_expansion_for_export, refresh_layer_symbols, render_instance, transform_cached_instance};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Capture {

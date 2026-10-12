@@ -195,6 +195,10 @@ fn bugfix_save_o031_locked_swatch_links_survive_unlock_and_prune_deleted_targets
 /// One detached projection traversal for canvas, exports and expanded objects.
 /// Sources remain native and editable; evaluated metadata is cleared only on this copy.
 pub fn project_document(source: &Document) -> Result<Document> {
+    project_document_cancellable(source, &|| false, true)
+}
+
+fn project_document_cancellable(source: &Document, cancelled: &dyn Fn() -> bool, refresh_type: bool) -> Result<Document> {
     use photocraft_doc::vector_design::live::LiveGroup;
     fn ids(layer: &photocraft_doc::Layer, out: &mut std::collections::HashSet<photocraft_doc::LayerId>) {
         out.insert(layer.id);
@@ -216,15 +220,20 @@ pub fn project_document(source: &Document) -> Result<Document> {
         }
         Ok(())
     }
-    fn project(source: &Document, layer: &mut photocraft_doc::Layer, next: &mut u64) -> Result<()> {
+    fn project(source: &Document, layer: &mut photocraft_doc::Layer, next: &mut u64, cancelled: &dyn Fn() -> bool, refresh_type: bool) -> Result<()> {
+        if cancelled() {
+            return Err(EngineError::Cancelled);
+        }
         if let Some(children) = layer.children_mut() {
             for child in children {
-                project(source, child, next)?;
+                project(source, child, next, cancelled, refresh_type)?;
             }
         }
         if matches!(layer.content, LayerContent::Symbol(_)) {
             let ex = packages::symbols::expansion::expand(source, std::slice::from_ref(layer)).map_err(|e| error(e.to_string()))?;
-            *layer = packages::symbols::prepare_expansion(source, ex)?.into_iter().next().ok_or_else(|| error("empty symbol projection"))?;
+            let expanded =
+                if refresh_type { packages::symbols::prepare_expansion(source, ex)? } else { packages::symbols::prepare_expansion_for_export(source, ex)? };
+            *layer = expanded.into_iter().next().ok_or_else(|| error("empty symbol projection"))?;
         }
         if layer.vector.live.is_some() {
             let mut original = std::collections::HashSet::new();
@@ -262,18 +271,29 @@ pub fn project_document(source: &Document) -> Result<Document> {
             shape.live = None;
         }
         if let LayerContent::Text(text) = &mut layer.content
+            && refresh_type
             && (layer.vector.on_path.is_some() || frame_options(&layer.vector).enabled)
         {
             refresh_text(source, text, &layer.vector)?;
         }
+        if cancelled() {
+            return Err(EngineError::Cancelled);
+        }
         Ok(())
+    }
+    if cancelled() {
+        return Err(EngineError::Cancelled);
     }
     let mut out = source.clone();
     let mut next = photocraft_vecfx::blend::max_document_id(source);
     for layer in &mut out.layers {
-        project(source, layer, &mut next)?;
+        project(source, layer, &mut next, cancelled, refresh_type)?;
     }
-    packages::layout::project_clips(&out)
+    let out = packages::layout::project_clips(&out)?;
+    if cancelled() {
+        return Err(EngineError::Cancelled);
+    }
+    Ok(out)
 }
 
 /// PSD/TIFF fallback evaluates the same native features as the canvas. Only the detached
@@ -373,12 +393,31 @@ pub fn refresh_text(doc: &Document, text: &mut photocraft_doc::TextLayer, vector
 
 /// Export consumes the same evaluated geometry as display, before taking the text lock.
 pub fn project_for_export(source: &Document) -> Result<(Document, Vec<photocraft_doc::vector_design::exchange::VectorWarning>)> {
+    let mut text = photocraft_text::shared().lock().map_err(|_| error("text engine unavailable"))?.fork();
+    project_for_export_with(source, &mut text, &|| false)
+}
+
+/// Detached worker projection with a private font/layout snapshot and cooperative checks.
+pub fn project_for_export_with(
+    source: &Document,
+    text: &mut photocraft_text::TextEngine,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<(Document, Vec<photocraft_doc::vector_design::exchange::VectorWarning>)> {
     use photocraft_doc::vector_design::appearance::{AppearanceItem, StrokeGradientMode};
     use photocraft_doc::{Fill, Layer, LayerContent};
-    fn rec(doc: &Document, layer: &mut Layer, warnings: &mut Vec<photocraft_doc::vector_design::exchange::VectorWarning>) -> Result<()> {
+    fn rec(
+        doc: &Document,
+        layer: &mut Layer,
+        warnings: &mut Vec<photocraft_doc::vector_design::exchange::VectorWarning>,
+        engine: &mut photocraft_text::TextEngine,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<()> {
+        if cancelled() {
+            return Err(EngineError::Cancelled);
+        }
         if let Some(children) = layer.children_mut() {
             for child in children {
-                rec(doc, child, warnings)?;
+                rec(doc, child, warnings, engine, cancelled)?;
             }
         }
         if photocraft_doc::vector_design::mosaic::active(layer) {
@@ -399,8 +438,7 @@ pub fn project_for_export(source: &Document) -> Result<(Document, Vec<photocraft
         }
         if let LayerContent::Text(text) = &layer.content {
             if let Some(path) = &layer.vector.on_path {
-                let mut engine = photocraft_text::shared().lock().map_err(|_| error("text engine unavailable"))?;
-                let layout = packages::path_text::project(&mut engine, doc, text, path)?;
+                let layout = packages::path_text::project(engine, doc, text, path)?;
                 let paints = photocraft_text::on_path::validated_outlines(&layout, &text.transform).map_err(|e| error(e.to_string()))?;
                 let children = packages::path_text::curves::paths(&paints)
                     .into_iter()
@@ -411,8 +449,7 @@ pub fn project_for_export(source: &Document) -> Result<(Document, Vec<photocraft
                 layer.content = Layer::group("Text curves", children).content;
                 layer.vector.on_path = None;
             } else if frame_options(&layer.vector).enabled {
-                let mut engine = photocraft_text::shared().lock().map_err(|_| error("text engine unavailable"))?;
-                let layout = text_layout(&mut engine, doc, text, &layer.vector)?;
+                let layout = text_layout(engine, doc, text, &layer.vector)?;
                 let warp = photocraft_text::render::layout_warp(&layout, text.warp.as_ref());
                 let paints = photocraft_text::render::painted_outlines(&layout, &text.transform, warp.as_ref())
                     .into_iter()
@@ -453,13 +490,16 @@ pub fn project_for_export(source: &Document) -> Result<(Document, Vec<photocraft
                 message: "Advanced paint was embedded as an image to preserve its rendering.".into(),
             });
         }
+        if cancelled() {
+            return Err(EngineError::Cancelled);
+        }
         Ok(())
     }
-    let mut doc = project_document(source)?;
+    let mut doc = project_document_cancellable(source, cancelled, false)?;
     let snapshot = doc.clone();
     let mut warnings = Vec::new();
     for layer in &mut doc.layers {
-        rec(&snapshot, layer, &mut warnings)?;
+        rec(&snapshot, layer, &mut warnings, text, cancelled)?;
     }
     Ok((doc, warnings))
 }

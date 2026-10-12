@@ -294,6 +294,15 @@ pub struct PreparedOverwrite {
 }
 pub type OverwriteFn = Box<dyn FnMut(&Document, &str, u8) -> Result<PreparedOverwrite, String>>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
+/// A prepared native write. Dropping this token abandons/removes its staging file.
+/// Consume the commit only after the UI rechecks cancellation and captured document state.
+pub struct PreparedWrite {
+    pub commit: Box<dyn FnOnce() -> Result<(), String> + Send>,
+}
+/// Background staging for ordinary user-chosen exports. Automation must retain its
+/// separately capability-scoped writer; this hook grants no automation authority.
+pub type StageWriteFn = std::sync::Arc<dyn Fn(&str, &[u8], &photocraft_raster::Interrupt<'_>) -> Result<PreparedWrite, String> + Send + Sync>;
+
 /// Read bytes through the desktop control session's authorized read root.
 pub type AutomationReadFn = Box<dyn FnMut(&str) -> Result<(String, Vec<u8>), String>>;
 /// Write bytes through the desktop control session's authorized write root.
@@ -379,6 +388,8 @@ pub struct Services {
     pub pick_save: Option<PickSaveFn>,
     /// Write bytes to a path (native) or trigger a download (web).
     pub write: Option<WriteFn>,
+    /// Optional background staging with a small final publication step.
+    pub stage_write: Option<StageWriteFn>,
     /// File access used only by control/MCP requests. Interactive dialogs keep
     /// using `pick_open`, `pick_save` and `write` with the user's authority.
     pub automation_read: Option<AutomationReadFn>,

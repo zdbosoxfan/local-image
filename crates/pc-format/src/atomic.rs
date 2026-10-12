@@ -29,6 +29,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub trait AtomicFs {
     /// Create `tmp` (it must not exist), write all of `bytes` and `sync_all` it.
     fn write_new(&self, tmp: &Path, bytes: &[u8]) -> io::Result<()>;
+    /// Create/write/sync a staging file with cooperative cancellation. Hosts which
+    /// override this should check between bounded chunks; the default supports test
+    /// filesystems while preserving their existing failure-injection implementation.
+    fn write_new_interrupted(&self, tmp: &Path, bytes: &[u8], interrupt: &photocraft_raster::Interrupt<'_>) -> io::Result<()> {
+        check_interrupt(interrupt)?;
+        self.write_new(tmp, bytes)?;
+        check_interrupt(interrupt)
+    }
     /// Rename `from` over `to`, replacing it.
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
     /// Remove a (temporary) file.
@@ -49,6 +57,40 @@ impl AtomicFs for RealFs {
         let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(tmp)?;
         f.write_all(bytes)?;
         f.sync_all()
+    }
+    fn write_new_interrupted(&self, tmp: &Path, bytes: &[u8], interrupt: &photocraft_raster::Interrupt<'_>) -> io::Result<()> {
+        check_interrupt(interrupt)?;
+        let file = std::fs::OpenOptions::new().write(true).create_new(true).open(tmp)?;
+        // Native callbacks can unwind too: never leave an owned partial temporary
+        // file behind on an error, cancellation or progress-callback panic.
+        struct Partial {
+            file: Option<std::fs::File>,
+            path: Option<PathBuf>,
+        }
+        impl Drop for Partial {
+            fn drop(&mut self) {
+                self.file.take(); // Close before unlinking, including on Windows.
+                if let Some(path) = self.path.take() {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+        let mut partial = Partial { file: Some(file), path: Some(tmp.to_path_buf()) };
+        let file = partial.file.as_mut().ok_or_else(|| io::Error::other("staging file is unavailable"))?;
+        let mut written = 0usize;
+        for chunk in bytes.chunks(1024 * 1024) {
+            check_interrupt(interrupt)?;
+            file.write_all(chunk)?;
+            written += chunk.len();
+            interrupt.progress(0.95 * written as f32 / bytes.len().max(1) as f32);
+        }
+        check_interrupt(interrupt)?;
+        file.sync_all()?;
+        check_interrupt(interrupt)?;
+        interrupt.progress(1.0);
+        check_interrupt(interrupt)?;
+        partial.path = None;
+        Ok(())
     }
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         std::fs::rename(from, to)
@@ -143,6 +185,82 @@ pub fn atomic_write_with(fs: &dyn AtomicFs, retry: RenameRetry, path: &Path, byt
     Ok(())
 }
 
+fn check_interrupt(interrupt: &photocraft_raster::Interrupt<'_>) -> io::Result<()> {
+    interrupt.check().map_err(|_| io::Error::new(io::ErrorKind::Interrupted, "export cancelled; the original file was not changed"))
+}
+
+/// An owned, fully written and synced same-directory temporary file. No destination
+/// bytes change until commit; dropping the token discards its staging file.
+pub struct StagedWrite {
+    fs: std::sync::Arc<dyn AtomicFs + Send + Sync>,
+    retry: RenameRetry,
+    target: PathBuf,
+    requested: PathBuf,
+    dir: PathBuf,
+    tmp: Option<PathBuf>,
+}
+impl Drop for StagedWrite {
+    fn drop(&mut self) {
+        if let Some(tmp) = self.tmp.take() {
+            let _ = self.fs.remove(&tmp);
+        }
+    }
+}
+impl StagedWrite {
+    /// Publish after the caller's final capture/cancellation checks. Bulk writes and
+    /// file fsync already happened on the worker. Directory fsync retains atomic_write's
+    /// post-rename best-effort semantics: a published file must not be reported unchanged.
+    pub fn commit(mut self) -> io::Result<()> {
+        let tmp = self.tmp.as_ref().ok_or_else(|| io::Error::other("staged write is unavailable"))?;
+        retry_rename(self.retry, || self.fs.rename(tmp, &self.target)).map_err(|error| rename_error(error, &self.requested))?;
+        self.tmp = None;
+        let _ = self.fs.sync_dir(&self.dir);
+        Ok(())
+    }
+}
+
+/// Prepare a cancellable atomic replacement on a worker, without publishing it.
+pub fn stage_write(path: &Path, bytes: &[u8], interrupt: &photocraft_raster::Interrupt<'_>) -> io::Result<StagedWrite> {
+    stage_write_with(std::sync::Arc::new(RealFs), RenameRetry::platform(), path, bytes, interrupt)
+}
+
+/// Staging's failure-injection seam; every pre-publication error preserves the destination.
+pub fn stage_write_with(
+    fs: std::sync::Arc<dyn AtomicFs + Send + Sync>,
+    retry: RenameRetry,
+    path: &Path,
+    bytes: &[u8],
+    interrupt: &photocraft_raster::Interrupt<'_>,
+) -> io::Result<StagedWrite> {
+    check_interrupt(interrupt)?;
+    let target = resolve_symlink(path);
+    let name = target.file_name().ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, format!("{}: not a file path", path.display())))?;
+    let dir = target.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new(".")).to_path_buf();
+    std::fs::create_dir_all(&dir).map_err(|error| context(error, format!("cannot create the folder {}", dir.display())))?;
+    for _ in 0..8 {
+        check_interrupt(interrupt)?;
+        let tmp = dir.join(temp_name(&name.to_string_lossy()));
+        match fs.write_new_interrupted(&tmp, bytes, interrupt) {
+            Ok(()) => {
+                let staged =
+                    StagedWrite { fs: fs.clone(), retry, target: target.clone(), requested: path.to_path_buf(), dir: dir.clone(), tmp: Some(tmp.clone()) };
+                check_interrupt(interrupt)?;
+                if target.exists() {
+                    let _ = fs.copy_permissions(&target, &tmp);
+                }
+                check_interrupt(interrupt)?;
+                return Ok(staged);
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                let _ = fs.remove(&tmp);
+                return Err(write_error(error, path, &dir));
+            }
+        }
+    }
+    Err(io::Error::new(io::ErrorKind::AlreadyExists, format!("{}: could not create a temporary file", dir.display())))
+}
+
 /// Run `rename`, retrying with backoff while it fails with `PermissionDenied` (see
 /// [`RenameRetry`]). For callers that rename through their own handles (capability directories).
 pub fn retry_rename(retry: RenameRetry, mut rename: impl FnMut() -> io::Result<()>) -> io::Result<()> {
@@ -219,3 +337,6 @@ fn is_cross_device(e: &io::Error) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod staged_tests;

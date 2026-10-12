@@ -60,3 +60,22 @@ fn pdf_export_cancelled_has_no_side_effects() {
 fn pdf_export_old_options_load_with_defaults() {
     assert_eq!(serde_json::from_str::<ExportOptions>("{}").unwrap(), ExportOptions::default());
 }
+
+#[test]
+fn pdf_export_base64_is_explicit_and_legacy_arrays_stay_compatible() {
+    let mut s = session();
+    let request = request(&s);
+    let mut params = serde_json::to_value(&request).unwrap();
+    let legacy = s.execute("file.pdf.export", params.clone()).unwrap();
+    assert!(legacy["bytes"].is_array());
+    assert!(legacy.get("encoding").is_none());
+    params["encoding"] = serde_json::json!("base64");
+    let encoded = s.execute("file.pdf.export", params.clone()).unwrap();
+    assert_eq!(encoded["encoding"], "base64");
+    let bytes = photocraft_paint::tile::b64_decode(encoded["bytes"].as_str().unwrap()).unwrap();
+    assert!(bytes.starts_with(b"%PDF-"));
+    let old: Vec<u8> = serde_json::from_value(legacy["bytes"].clone()).unwrap();
+    assert_eq!(bytes, old);
+    params["encoding"] = serde_json::json!("invalid");
+    assert!(s.execute("file.pdf.export", params).is_err());
+}

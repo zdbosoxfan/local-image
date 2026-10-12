@@ -1357,32 +1357,7 @@ fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
             app.vector_runtime.windows.remove(&name);
         }
     }
-    if app.ui.svg_export.request.is_some() {
-        let mut state = std::mem::take(&mut app.ui.svg_export);
-        state.synchronize(&app.session);
-        let mut action = None;
-        egui::Window::new(crate::i18n::t("Export SVG")).show(ctx, |ui| {
-            action = crate::vector_packages::svg_export::controls(ui, &mut state, |s| crate::i18n::t(s).into());
-        });
-        match action {
-            Some(crate::vector_packages::svg_export::Action::Export) => {
-                app.session.edit_prefs(|prefs| {
-                    prefs.dialogs.insert("vector.svg.exportOptions".into(), serde_json::json!(state.options));
-                });
-                match crate::vector_packages::svg_export::save(&mut state, &mut app.session, &mut app.services) {
-                    Err(e) => report(app, e),
-                    Ok(Some(warnings)) => {
-                        let lines = warnings.into_iter().map(|w| w.message).collect::<Vec<_>>();
-                        crate::notices::io_warnings(app, crate::i18n::t("Export SVG"), &lines);
-                    }
-                    _ => {}
-                }
-            }
-            Some(crate::vector_packages::svg_export::Action::Cancel) => state.cancel(),
-            _ => {}
-        }
-        app.ui.svg_export = state;
-    }
+    crate::vector_packages::svg_export::frame(app, ctx);
     let mut recolor = std::mem::take(&mut app.vector_runtime.recolor);
     match photocraft_engine::vector_packages::colours::access().and_then(|access| crate::recolor::dialog(ctx, &app.session, access, &mut recolor)) {
         Ok(Some(plan)) => {

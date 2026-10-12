@@ -32,6 +32,7 @@ pub mod trace_centerline;
 pub mod trace_cleanup;
 pub mod trace_cutout;
 pub mod trace_output;
+pub mod vector_export_job;
 pub mod width;
 
 pub(crate) fn specs() -> Vec<CommandSpec> {

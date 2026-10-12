@@ -687,13 +687,17 @@ impl Writer<'_, '_, '_> {
         doc.layers = layers.to_vec();
         prepare_caches(&mut doc, self.cx, self.opts, rect)?;
         check_cancel(self.cx)?;
-        let rendered = photocraft_compose::render(&doc, rect);
-        if rendered.px.iter().flatten().any(|v| !v.is_finite()) {
-            return Err(invalid("nonfinite raster sample"));
-        }
-        let rgba = rendered.to_rgba8();
+        let mut rgba = Vec::new();
+        photocraft_compose::render_bands(&doc, rect, 256, |band| {
+            check_cancel(self.cx)?;
+            if band.px.iter().flatten().any(|v| !v.is_finite()) {
+                return Err(invalid("nonfinite raster sample"));
+            }
+            rgba.extend_from_slice(&band.to_rgba8().pixels);
+            check_cancel(self.cx)
+        })?;
         check_cancel(self.cx)?;
-        draw_image(s, rgba.pixels, rect)
+        draw_image(s, rgba, rect)
     }
     fn soft_mask(&mut self, s: &mut Surface<'_>, l: &Layer) -> Result<krilla::mask::Mask> {
         self.warn("soft masks", "Feathered and pixel masks were embedded as soft mask images; their artwork stays vector.");

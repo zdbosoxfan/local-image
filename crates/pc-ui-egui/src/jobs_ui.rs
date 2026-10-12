@@ -200,6 +200,12 @@ fn on_event(app: &mut PhotocraftApp, mut e: JobEvent) {
             true
         }
     });
+    // The owning export dialog reports staged publication/failure/cancellation once.
+    // Control waiters above still receive the terminal job result; unrelated jobs
+    // retain their ordinary reporting below.
+    if (e.command == "file.svg.export" && app.ui.svg_export.on_job_event(&e)) || (e.command == "file.pdf.export" && app.ui.pdf_export.on_job_event(&e)) {
+        return;
+    }
     if e.command == OPEN_JOB || e.command == photocraft_engine::develop_layer_cmds::OPEN_JOB {
         let Some(i) = app.jobs.opens.iter().position(|o| o.job == e.id) else { return };
         let tab = app.jobs.opens.remove(i);

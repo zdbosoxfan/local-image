@@ -15,9 +15,14 @@ pub struct State {
     artboards: Vec<(LayerId, String)>,
     artboard: Option<LayerId>,
     pub error: Option<String>,
+    pending: Option<super::vector_export::Pending>,
 }
 impl State {
+    pub(crate) fn on_job_event(&mut self, event: &photocraft_engine::jobs::JobEvent) -> bool {
+        self.pending.as_mut().is_some_and(|pending| pending.on_event(event))
+    }
     pub fn open(&mut self, s: &Session) -> Result<()> {
+        self.cancel();
         let st = s.active().ok_or(EngineError::NoDocument)?;
         self.selection = st.selected_layers();
         self.artboards = st.doc.artboards().into_iter().map(|(id, name, _)| (id, name.to_owned())).collect();
@@ -29,8 +34,12 @@ impl State {
     pub fn cancel(&mut self) {
         self.request = None;
         self.error = None;
+        self.pending = None;
     }
     pub fn synchronize(&mut self, s: &Session) {
+        if self.pending.is_some() {
+            return;
+        }
         if self.request.as_ref().is_some_and(|r| s.active().is_none_or(|st| st.doc.id.0 != r.document || st.revision != r.revision)) {
             self.cancel();
         }
@@ -40,11 +49,8 @@ impl State {
         let mut r = self.request.clone().ok_or_else(|| EngineError::Other("SVG export dialog is closed".into()))?;
         r.options = self.options.clone();
         preflight(s, &r)?;
-        let params = serde_json::to_value(&r).map_err(|e| EngineError::Other(e.to_string()))?;
-        let output = s.execute("file.svg.export", params)?;
-        let bytes = serde_json::from_value(output["bytes"].clone()).map_err(|e| EngineError::Other(e.to_string()))?;
-        let warnings = serde_json::from_value(output["warnings"].clone()).map_err(|e| EngineError::Other(e.to_string()))?;
-        Ok((r, ExportedVector { bytes, warnings }))
+        let output = photocraft_engine::vector_packages::svg_export::export(s, &r, &|| false)?;
+        Ok((r, output))
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -126,4 +132,74 @@ pub fn open_dialog(app: &mut crate::PhotocraftApp) -> std::result::Result<(), St
         app.ui.svg_export.options = serde_json::from_value(options.clone()).map_err(|e| e.to_string())?;
     }
     app.ui.svg_export.open(&app.session).map_err(|e| e.to_string())
+}
+
+/// Interactive export runs projection, encoding and native staging on a worker.
+pub fn frame(app: &mut crate::PhotocraftApp, ctx: &egui::Context) {
+    let mut state = std::mem::take(&mut app.ui.svg_export);
+    state.synchronize(&app.session);
+    if state.pending.is_some() {
+        let cancel = egui::Modal::new(egui::Id::new("vector-svg-export-progress")).show(ctx, |ui| {
+            ui.set_min_width(320.0);
+            state.pending.as_ref().is_some_and(|pending| pending.controls(ui, &app.session))
+        });
+        if cancel.inner || cancel.should_close() {
+            if let Some(pending) = &mut state.pending {
+                pending.cancel(&mut app.session);
+            }
+            state.cancel();
+            app.ui.status = tl!("Export cancelled").into();
+            app.ui.status_error = false;
+        } else if let Some(pending) = &mut state.pending {
+            match pending.poll(app) {
+                Ok(super::vector_export::Poll::Complete(completion)) => {
+                    state.cancel();
+                    super::vector_export::report(app, completion);
+                }
+                Ok(super::vector_export::Poll::Pending) => {}
+                Ok(super::vector_export::Poll::Cancelled) => {
+                    state.cancel();
+                    app.ui.status = tl!("Export cancelled").into();
+                    app.ui.status_error = false;
+                }
+                Err(error) => {
+                    pending.cancel(&mut app.session);
+                    pending.report_failure(app, &error);
+                    state.pending = None;
+                    state.error = Some(error);
+                }
+            }
+        }
+    } else if state.request.is_some() {
+        let modal = egui::Modal::new(egui::Id::new("vector-svg-export")).show(ctx, |ui| {
+            ui.set_min_width(360.0);
+            controls(ui, &mut state, |text| crate::i18n::t(text).to_owned())
+        });
+        match modal.inner {
+            Some(Action::Export) => {
+                let Some(mut request) = state.request.clone() else {
+                    app.ui.svg_export = state;
+                    return;
+                };
+                request.options = state.options.clone();
+                match super::vector_export::begin(app, super::vector_export::Request::Svg(request)) {
+                    Ok(Some(pending)) => {
+                        state.pending = Some(pending);
+                        state.error = None;
+                        if let Ok(options) = serde_json::to_value(&state.options) {
+                            app.session.edit_prefs(|prefs| {
+                                prefs.dialogs.insert("vector.svg.exportOptions".into(), options);
+                            });
+                        }
+                    }
+                    Ok(None) => state.cancel(),
+                    Err(error) => state.error = Some(error),
+                }
+            }
+            Some(Action::Cancel) => state.cancel(),
+            None if modal.should_close() => state.cancel(),
+            _ => {}
+        }
+    }
+    app.ui.svg_export = state;
 }

@@ -157,6 +157,16 @@ fn svg_export_selection_artboard_and_physical_units() {
     let out = export::export(&doc, &ExportScope::Selection(vec![id]), &Default::default()).unwrap();
     let s = String::from_utf8(out.bytes).unwrap();
     assert_eq!(xml(&s).root_element().attribute("viewBox"), Some("24 40 48 64"));
+    // A valid portable appearance is exported from current geometry, not a stale
+    // render cache (here still the original child rectangle).
+    let selected = doc.layer_mut(id).unwrap();
+    selected.vector.appearance = Some(Appearance { items: vec![AppearanceItem::Fill(FillItem::new(Fill::Solid(Color::BLACK)))] });
+    if let LayerContent::Shape(shape) = &mut selected.content {
+        shape.path = photocraft_vector::shapes::rect(32., 48., 24., 32.);
+    }
+    let out = export::export(&doc, &ExportScope::Selection(vec![id]), &Default::default()).unwrap();
+    let source = String::from_utf8(out.bytes).unwrap();
+    assert_eq!(xml(&source).root_element().attribute("viewBox"), Some("32 48 24 32"));
     let outside = scene(photocraft_vector::shapes::rect(-48., -64., 32., 48.), Fill::Solid(Color::BLACK));
     let out = export::export(&outside, &ExportScope::Selection(vec![outside.layers[0].id]), &Default::default()).unwrap();
     let out = String::from_utf8(out.bytes).unwrap();
@@ -221,7 +231,17 @@ fn svg_export_png_fallback_preserves_pixels_and_aggregates_warnings() {
         Fill::gradient(vec![(0., Color::BLACK), (1., Color::WHITE)], 20., 1., GradientStyle::Angle, false),
     ))
     .to_rgba8();
-    assert_eq!(decoded.as_raw(), &original.pixels);
+    let x: usize = imgs[0].attribute("x").unwrap().parse().unwrap();
+    let y: usize = imgs[0].attribute("y").unwrap().parse().unwrap();
+    assert_eq!(decoded.width(), 220);
+    assert_eq!(decoded.height(), 220);
+    let mut reconstructed = vec![0u8; original.pixels.len()];
+    for row in 0..decoded.height() as usize {
+        let target = ((y + row) * 256 + x) * 4;
+        let source = row * decoded.width() as usize * 4;
+        reconstructed[target..target + decoded.width() as usize * 4].copy_from_slice(&decoded.as_raw()[source..source + decoded.width() as usize * 4]);
+    }
+    assert_eq!(reconstructed, original.pixels, "cropped embedding preserves every original pixel");
 }
 #[test]
 fn svg_export_text_curves_use_pc_text_and_preserve_style_colors() {
@@ -425,4 +445,175 @@ fn svg_export_translucent_text_decorations_share_native_color_coverage() {
         }
     }
     assert!(checked > 100);
+}
+
+/// Raster fallbacks preserve coverage at their requested output resolution. The
+/// vector-only 8x geometry oracle cannot scale baked masks/shadows or raster pixels.
+/// Keep the same IoU and colour gates, with independent native image compositing.
+fn assert_raster_oracle_svg(doc: &Document, source: &str, label: &str) {
+    let actual = oracle::native_raster_render(source);
+    let expected = photocraft_compose::flatten(doc).to_rgba8();
+    assert_eq!(actual.len() * 4, expected.pixels.len());
+    let (mut intersection, mut union, mut delta) = (0u64, 0u64, 0.0);
+    for (a, b) in actual.iter().zip(expected.pixels.as_chunks::<4>().0) {
+        intersection += u64::from(a[3].min(b[3]));
+        union += u64::from(a[3].max(b[3]));
+        let white = |pixel: [u8; 4], premultiplied: bool| {
+            std::array::from_fn(|i| {
+                let colour = if premultiplied { u32::from(pixel[i]) } else { (u32::from(pixel[i]) * u32::from(pixel[3]) + 127) / 255 };
+                (colour + 255 - u32::from(pixel[3])).min(255) as u8
+            })
+        };
+        let a = photocraft_testkit::vector::oklab(white(*a, false));
+        let b = photocraft_testkit::vector::oklab(white(*b, false));
+        delta += a.iter().zip(b).map(|(a, b)| (a - b).powi(2)).sum::<f64>().sqrt() * 100.;
+    }
+    let iou = if union == 0 { 1. } else { intersection as f64 / union as f64 };
+    let mean = delta / actual.len() as f64;
+    eprintln!("{label}: native raster IoU={iou:.8} mean DeltaE_ok={mean:.6}");
+    assert!(iou > 0.995, "{label}: IoU {iou}");
+    assert!(mean < 0.5, "{label}: DeltaE {mean}");
+}
+
+#[test]
+fn svg_cropped_fallback_scales_with_small_effect_layers_and_preserves_oracle() {
+    let mut doc = Document::new("sparse effects", Size::new(2048, 2048), ColorMode::Rgb, SampleType::U8);
+    for i in 0..8 {
+        let x = 80. + f64::from(i % 4) * 480.;
+        let y = 90. + f64::from(i / 4) * 1500.;
+        let mut shape =
+            ShapeLayer { path: photocraft_vector::shapes::rect(x, y, 24., 20.), fill: Some(Fill::Solid(Color::rgb(0.2, 0.5, 0.8))), ..Default::default() };
+        shape.cache = Some(photocraft_vector::render_shape(&shape, doc.pixel_format(), doc.bounds()));
+        let mut layer = Layer::new("small shadow", LayerContent::Shape(shape));
+        layer.effects.items.push(photocraft_doc::Effect::default_drop_shadow());
+        doc.layers.push(layer);
+    }
+    let source = svg(&doc);
+    let xml = xml(&source);
+    let images = xml.descendants().filter(|node| node.has_tag_name("image")).collect::<Vec<_>>();
+    assert_eq!(images.len(), 8);
+    let mut area = 0u64;
+    for (index, image) in images.into_iter().enumerate() {
+        let w = image.attribute("width").unwrap().parse::<u64>().unwrap();
+        let h = image.attribute("height").unwrap().parse::<u64>().unwrap();
+        assert!(w < 128 && h < 128, "small icon fallback must not allocate canvas-sized PNG");
+        area += w * h;
+        let href = image.attribute(("http://www.w3.org/1999/xlink", "href")).unwrap();
+        let bytes = base64::engine::general_purpose::STANDARD.decode(href.strip_prefix("data:image/png;base64,").unwrap()).unwrap();
+        let decoded = image::load_from_memory(&bytes).unwrap();
+        assert_eq!((decoded.width() as u64, decoded.height() as u64), (w, h));
+        let x: i32 = image.attribute("x").unwrap().parse().unwrap();
+        let y: i32 = image.attribute("y").unwrap().parse().unwrap();
+        let rect = photocraft_doc::Rect::new(x, y, x + w as i32, y + h as i32);
+        let mut isolated = doc.clone();
+        isolated.layers = vec![doc.layers[index].clone()];
+        let reference = photocraft_compose::render(&isolated, rect).to_rgba8();
+        assert!(decoded.to_rgba8().pixels().any(|pixel| pixel[3] > 0), "embedded image must contain art");
+        assert_eq!(decoded.to_rgba8().as_raw(), &reference.pixels, "PNG samples and SVG coordinates must match original layer {index} at {rect:?}");
+    }
+    assert!(area < 128 * 128 * 8);
+    assert_raster_oracle_svg(&doc, &source, "cropped sparse shadow layers");
+}
+
+#[test]
+fn svg_cropped_fallback_keeps_masks_nontransparent_defaults_and_skips_empty_scope() {
+    let mut doc = scene(photocraft_vector::shapes::rect(60., 65., 80., 75.), Fill::Solid(Color::rgb(0.3, 0.7, 0.1)));
+    let mut mask = photocraft_doc::LayerMask::reveal_all();
+    mask.feather = 4.;
+    mask.surface.fill_rect(photocraft_doc::Rect::new(80, 60, 120, 150), &[0.]);
+    doc.layers[0].mask = Some(mask);
+    doc.layers[0].effects.items.push(photocraft_doc::Effect::default_drop_shadow());
+    assert_raster_oracle_svg(&doc, &svg(&doc), "cropped feathered-mask shadow");
+    let surface = photocraft_doc::Surface::with_default(doc.pixel_format(), &[0.1, 0.2, 0.3, 1.]);
+    doc.layers = vec![Layer::new("opaque infinite surface", LayerContent::Raster(surface))];
+    let source = svg(&doc);
+    let xml = xml(&source);
+    let image = xml.descendants().find(|node| node.has_tag_name("image")).unwrap();
+    assert_eq!(image.attribute("width"), Some("256"));
+    assert_eq!(image.attribute("height"), Some("256"));
+    assert_raster_oracle_svg(&doc, &source, "nontransparent-default raster");
+    let mut outside = photocraft_doc::Surface::new(doc.pixel_format());
+    outside.fill_rect(photocraft_doc::Rect::new(1000, 1000, 1010, 1010), &[1., 0., 0., 1.]);
+    doc.layers = vec![Layer::new("outside", LayerContent::Raster(outside))];
+    assert!(!roxmltree::Document::parse(&svg(&doc)).unwrap().descendants().any(|node| node.has_tag_name("image")));
+}
+
+#[test]
+fn svg_cropped_fallback_preserves_canvas_relative_gradient_frame() {
+    for align in [false, true] {
+        let fill = Fill::Gradient {
+            stops: vec![(0., Color::BLACK), (1., Color::WHITE)],
+            style: GradientStyle::Linear,
+            angle: 0.,
+            scale: 1.,
+            reverse: false,
+            opacity_stops: vec![],
+            midpoints: vec![],
+            offset: (0., 0.),
+            dither: false,
+            align,
+        };
+        let mut doc = scene(photocraft_vector::shapes::rect(70., 80., 48., 40.), fill);
+        doc.layers[0].effects.items.push(photocraft_doc::Effect::default_drop_shadow());
+        let source = svg(&doc);
+        let xml = xml(&source);
+        let image = xml.descendants().find(|node| node.has_tag_name("image")).unwrap();
+        let coordinate = |name| image.attribute(name).unwrap().parse::<i32>().unwrap();
+        let (x, y, w, h) = (coordinate("x"), coordinate("y"), coordinate("width"), coordinate("height"));
+        assert!(w < 128 && h < 128, "gradient fallback must remain cropped");
+        let crop = photocraft_doc::Rect::new(x, y, x + w, y + h);
+        let href = image.attribute(("http://www.w3.org/1999/xlink", "href")).unwrap();
+        let png = base64::engine::general_purpose::STANDARD.decode(href.strip_prefix("data:image/png;base64,").unwrap()).unwrap();
+        let pixels = image::load_from_memory(&png).unwrap().into_rgba8();
+        let expected = photocraft_compose::render(&doc, crop).to_rgba8();
+        assert_eq!(pixels.as_raw(), &expected.pixels, "align={align}: cropped PNG retains original canvas paint frame");
+        if !align {
+            // Prove this fixture detects mistakenly treating the crop as the canvas.
+            let mut wrong_frame = doc.clone();
+            let format = wrong_frame.pixel_format();
+            if let LayerContent::Shape(shape) = &mut wrong_frame.layers[0].content {
+                shape.cache = Some(photocraft_vector::CompiledShape::new(shape, 0.01, crop).render(format, doc.bounds()));
+            }
+            assert_ne!(photocraft_compose::render(&wrong_frame, crop).to_rgba8().pixels, expected.pixels);
+        }
+        assert_raster_oracle_svg(&doc, &source, &format!("cropped gradient align={align}"));
+    }
+}
+
+#[test]
+fn svg_cropped_fallback_preserves_rotated_warped_text() {
+    let mut doc = Document::new("Rotated warped type", Size::new(512, 512), ColorMode::Rgb, SampleType::U8);
+    doc.resolution_dpi = 96.;
+    let mut text = photocraft_doc::TextLayer {
+        text: "WARPED TEXT".into(),
+        size_pt: 28.,
+        color: Color::rgb(0.2, 0.4, 0.8),
+        transform: photocraft_doc::Affine::rotate(0.2).then(&photocraft_doc::Affine::translate(90., 140.)),
+        warp: Some(photocraft_doc::text::TextWarp { style: "warpArc".into(), value: 60., horizontal: true, ..Default::default() }),
+        ..Default::default()
+    };
+    let mut fonts = photocraft_text::TextEngine::new();
+    let layout = fonts.layout(&text, doc.resolution_dpi);
+    let unwarped = photocraft_text::render::ink_rect(&layout, &text.transform);
+    let warped = fonts.render_layer(&mut text, doc.resolution_dpi, doc.pixel_format());
+    assert_ne!(warped.intersect(&unwarped), warped, "fixture must expose ink outside the unwarped bounds");
+    doc.layers.push(Layer::new("Rotated arc", LayerContent::Text(text)));
+    let source = svg(&doc);
+    let xml = xml(&source);
+    let images = xml.descendants().filter(|node| node.has_tag_name("image")).collect::<Vec<_>>();
+    assert_eq!(images.len(), 1, "warped type must exercise the cropped raster path");
+    assert!(!xml.descendants().any(|node| node.has_tag_name("text")));
+    let image = images[0];
+    let coordinate = |name| image.attribute(name).unwrap().parse::<i32>().unwrap();
+    let (x, y, w, h) = (coordinate("x"), coordinate("y"), coordinate("width"), coordinate("height"));
+    let crop = photocraft_doc::Rect::new(x, y, x + w, y + h);
+    assert_eq!(crop, warped.intersect(&doc.bounds()), "crop must include rotated and warped ink");
+    assert!(w > 0 && h > 0 && w < 512 && h < 512, "small text must not embed the full canvas");
+    let href = image.attribute(("http://www.w3.org/1999/xlink", "href")).unwrap();
+    let png = base64::engine::general_purpose::STANDARD.decode(href.strip_prefix("data:image/png;base64,").unwrap()).unwrap();
+    let pixels = image::load_from_memory(&png).unwrap().into_rgba8();
+    assert_eq!(pixels.dimensions(), (w as u32, h as u32));
+    assert!(pixels.pixels().any(|pixel| pixel[3] > 0));
+    assert_eq!(pixels.as_raw(), &photocraft_compose::render(&doc, crop).to_rgba8().pixels);
+    assert_raster_oracle_svg(&doc, &source, "cropped rotated warped text");
 }

@@ -71,16 +71,25 @@ fn composite_surface(doc: &Document, layers: Vec<Layer>, bounds: Rect) -> Result
 }
 /// Applies the shared data projection exactly once. Package 09 may substitute its scaled
 /// geometry/appearance provider for this legacy preparation step, using the same Expansion.
-pub fn prepare_expansion(doc: &Document, mut ex: expansion::Expansion) -> Result<Vec<Layer>> {
+pub fn prepare_expansion(doc: &Document, ex: expansion::Expansion) -> Result<Vec<Layer>> {
+    prepare_expansion_with(doc, ex, true)
+}
+
+/// Export refreshes/outlines text later through its own font engine. Avoid the UI's
+/// shared text lock during this preliminary transform pass.
+pub fn prepare_expansion_for_export(doc: &Document, ex: expansion::Expansion) -> Result<Vec<Layer>> {
+    prepare_expansion_with(doc, ex, false)
+}
+fn prepare_expansion_with(doc: &Document, mut ex: expansion::Expansion, refresh_type: bool) -> Result<Vec<Layer>> {
     validation::validate(&[], &ex.layers).map_err(|e| bad(e.to_string()))?;
     for a in ex.transforms.values() {
         validation::affine(*a).map_err(|e| bad(e.to_string()))?;
     }
-    fn prepare(doc: &Document, layer: &mut Layer, transforms: &std::collections::BTreeMap<u64, Affine>) -> Result<()> {
+    fn prepare(doc: &Document, layer: &mut Layer, transforms: &std::collections::BTreeMap<u64, Affine>, refresh_type: bool) -> Result<()> {
         let a = *transforms.get(&layer.id.0).ok_or_else(|| bad("projection transform missing"))?;
         if let LayerContent::Group(g) = &mut layer.content {
             for child in &mut g.children {
-                prepare(doc, child, transforms)?;
+                prepare(doc, child, transforms, refresh_type)?;
             }
             if let Some(artboard) = &mut g.artboard {
                 artboard.rect = mapped_bounds(artboard.rect, a)?;
@@ -135,7 +144,7 @@ pub fn prepare_expansion(doc: &Document, mut ex: expansion::Expansion) -> Result
                     shape_valid(sh)?;
                     sh.cache = Some(crate::vector_integration::render_shape(doc, sh, &layer.vector)?);
                 }
-                LayerContent::Text(t) => {
+                LayerContent::Text(t) if refresh_type => {
                     crate::vector_integration::refresh_text(doc, t, &layer.vector)?;
                     if let Some(cache) = &t.cache {
                         mapped_bounds(cache.content_bounds(), Affine::IDENTITY)?;
@@ -172,7 +181,7 @@ pub fn prepare_expansion(doc: &Document, mut ex: expansion::Expansion) -> Result
         Ok(())
     }
     for l in &mut ex.layers {
-        prepare(doc, l, &ex.transforms)?;
+        prepare(doc, l, &ex.transforms, refresh_type)?;
     }
     Ok(ex.layers)
 }

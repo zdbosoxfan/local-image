@@ -57,6 +57,12 @@ impl TextEngine {
         Self { fonts: FontDb::new(), layouter: layout::Layouter::new() }
     }
 
+    /// Independent layout state with the exact current font collection, including
+    /// registered/system fonts. Font bytes remain shared; workers never hold the UI engine lock.
+    pub fn fork(&self) -> Self {
+        Self { fonts: self.fonts.clone(), layouter: layout::Layouter::new() }
+    }
+
     /// Bundled plus installed system fonts (native desktop).
     pub fn with_system_fonts() -> Self {
         Self { fonts: FontDb::with_system_fonts(), layouter: layout::Layouter::new() }

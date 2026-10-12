@@ -11,11 +11,11 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// Everything File › Open reads: Local Image and Photoshop documents, flat images, and Photoshop
-/// brushes (.abr) and gradients (.grd), which go to the preset libraries.
+/// File › Open formats: native/layered documents, editable SVG/SVGZ/PDF, flat/raw
+/// images, and Photoshop brushes/gradients (which go to the preset libraries).
 const OPEN_EXTS: &[&str] = &[
-    "pcraft", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm", "pgm", "ppm", "pam",
-    "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd",
+    "pcraft", "psd", "psb", "psdt", "svg", "svgz", "pdf", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm",
+    "pgm", "ppm", "pam", "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd",
 ];
 
 /// File › Save As formats: (filter name, extensions). The filter matching the suggested name's
@@ -35,6 +35,13 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
 /// [`SAVE_FILTERS`] with the one for `suggested`'s extension first.
 fn save_filters(suggested: &str) -> Vec<(&'static str, &'static [&'static str])> {
     let ext = Path::new(suggested).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    // Dedicated vector-export dialogs must not append a Photoshop extension.
+    // Keep these formats out of ordinary Save As: its writer is the raster/native IO path.
+    match ext.as_str() {
+        "svg" => return vec![("Scalable Vector Graphics", &["svg"])],
+        "pdf" => return vec![("PDF document", &["pdf"])],
+        _ => {}
+    }
     let mut v = SAVE_FILTERS.to_vec();
     if let Some(i) = v.iter().position(|(_, exts)| exts.contains(&ext.as_str())) {
         let f = v.remove(i);
@@ -474,6 +481,10 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             Some(d.save_file()?.to_string_lossy().to_string())
         })),
         write: Some(Box::new(|path: &str, bytes: &[u8]| write_atomic(Path::new(path), bytes))),
+        stage_write: Some(Arc::new(|path, bytes, interrupt| {
+            let staged = photocraft_format::atomic::stage_write(Path::new(path), bytes, interrupt).map_err(|error| error.to_string())?;
+            Ok(photocraft_ui_egui::PreparedWrite { commit: Box::new(move || staged.commit().map_err(|error| error.to_string())) })
+        })),
         automation_read,
         automation_write,
         automation_command,
@@ -661,9 +672,15 @@ mod tests {
     /// "Export As" formats must lead with their own filter, or the save panel appends the first one's extension (`photo.webp.psd`).
     #[test]
     fn save_filters_lead_with_every_export_format() {
-        for ext in ["png", "jpg", "webp", "tif", "tga"] {
+        for ext in ["png", "jpg", "webp", "tif", "tga", "svg", "pdf"] {
             assert!(save_filters(&format!("photo.{ext}"))[0].1.contains(&ext), "{ext}");
         }
+        assert!(
+            save_filters("drawing.psd").iter().all(|(_, extensions)| !extensions.contains(&"svg") && !extensions.contains(&"pdf")),
+            "ordinary Save As must not offer unsupported writer formats"
+        );
+        assert_eq!(save_filters("drawing.SVG"), vec![("Scalable Vector Graphics", ["svg"].as_slice())]);
+        assert_eq!(save_filters("drawing.pdf"), vec![("PDF document", ["pdf"].as_slice())]);
     }
 
     const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];

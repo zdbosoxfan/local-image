@@ -90,3 +90,35 @@ all-target linting separate from package-13 WIP. No lint allowance is introduced
 the combined shared-crate lint gate remains an integration requirement. Record the exact source
 revision/working-tree status if used, and do not describe a sibling WIP probe as
 merged acceptance.
+
+
+## Cropped raster-fallback gate (FS007)
+
+The cropped PNG fallback fixtures require installed **Inkscape 1.4+**. They use
+`inkscape` on PATH by default; set `LOCAL_IMAGE_INKSCAPE` to an executable path
+when needed (including Windows CI). Both version and rendering invocations use
+that executable, with
+`--app-id-tag`, `--export-type=png`, `--export-area-page`, `--export-dpi=96` and
+transparent export background. The inspected validation host has **Inkscape 1.4.4
+(dcaf3e7d9e, 2026-05-05)**. Missing Inkscape, unsupported flags, timeout or failed
+output fails the test explicitly; there is no successful skip. No Cargo feature,
+dependency or version was added.
+
+Each invocation uses a unique alphanumeric application-ID tag, isolated
+XDG_CONFIG_HOME/CACHE_HOME/DATA_HOME/STATE_HOME/RUNTIME_DIR and TMPDIR, and removes
+DISPLAY, WAYLAND_DISPLAY and session-bus addresses. It never requests a GUI or an
+active window. Only its own child is killed on the 30-second timeout. SVG, PNG,
+version and process logs remain in `target/svg-crop-qa/<unique-tag>/` for review.
+
+These are **native output-resolution** raster/effect fixtures. Inkscape PNG and
+pc-compose RGBA are both decoded as straight alpha; compare integrated coverage
+IoU>0.995 and mean DeltaE_ok<0.5 over white. The vector-only 8x opaque coverage gate
+above remains unchanged: scaling its paths without scaling baked masks/shadows
+would not be a valid raster-fallback reference. Each sparse-icon embedded PNG is
+also decoded and checked byte-for-byte against its original isolated layer at the
+SVG-declared x/y/width/height, with nonempty art and bounded summed image areas.
+
+The rotated warped-text fixture uses bundled default type at 28 pt, a 0.2-radian
+rotation and a 60% arc warp on a 512px canvas. It requires ink beyond unwarped
+bounds, one cropped PNG matching the full warped ink rectangle, exact embedded
+pixels against the original compositor crop, and the same native Inkscape gates.

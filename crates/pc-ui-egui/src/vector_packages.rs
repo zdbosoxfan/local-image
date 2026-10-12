@@ -12,6 +12,7 @@ pub mod selection;
 pub mod snapping;
 pub mod svg_export;
 pub mod svg_import;
+mod vector_export;
 
 #[path = "vector_packages/layout/app_hooks.rs"]
 pub mod layout_app_hooks;
