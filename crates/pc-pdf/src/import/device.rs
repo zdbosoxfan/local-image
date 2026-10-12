@@ -2,7 +2,7 @@
 //! Callback/group/mask mapping adapted from VectorCraft pdf/import.rs/import_mask.rs at
 //! d522c1d7be4035bd4f4a84cd6ebfca44f5155092. Copyright (c) 2026 ArtCraft
 //! Team and the VectorCraft contributors. MIT OR Apache-2.0. pc-vector remains the only path rasterizer.
-use super::{ImportError, Result, cancelled, geometry, paint, warn};
+use super::{ImportError, Result, cancelled, geometry, paint, preflight::groups, warn};
 use hayro_interpret::{CacheKey, ClipPath, Device, GlyphDrawMode, Image, ImageData, MaskType, Paint, PathDrawMode, SoftMask, font::Glyph, pattern::Pattern};
 use kurbo::{Affine, BezPath, Point};
 use photocraft_doc::{
@@ -15,8 +15,17 @@ struct Budget {
     objects: usize,
     segments: usize,
     bytes: u64,
+    callbacks: usize,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FrameKind {
+    Root,
+    Clip,
+    Transparency,
 }
 struct Frame {
+    kind: FrameKind,
+    marked: bool,
     children: Vec<Layer>,
     clip: Option<Path>,
     opacity: f32,
@@ -25,7 +34,7 @@ struct Frame {
 }
 impl Frame {
     fn root() -> Self {
-        Self { children: vec![], clip: None, opacity: 1.0, blend: BlendMode::Normal, mask: None }
+        Self { kind: FrameKind::Root, marked: false, children: vec![], clip: None, opacity: 1.0, blend: BlendMode::Normal, mask: None }
     }
 }
 pub(super) struct Builder<'a> {
@@ -34,6 +43,9 @@ pub(super) struct Builder<'a> {
     canvas: Rect,
     budget: Rc<RefCell<Budget>>,
     frames: Vec<Frame>,
+    groups: Rc<groups::Table>,
+    markers: Vec<Option<usize>>,
+    pattern_cell: bool,
     blend: BlendMode,
     mask: Option<LayerMask>,
     masks: HashMap<(u128, bool, [u32; 4]), LayerMask>,
@@ -42,13 +54,16 @@ pub(super) struct Builder<'a> {
     pub warnings: Vec<VectorWarning>,
 }
 impl<'a> Builder<'a> {
-    pub fn new(options: &'a ImportOptions, cancel: &'a AtomicBool, canvas: Rect) -> Self {
+    pub fn new(options: &'a ImportOptions, cancel: &'a AtomicBool, canvas: Rect, groups: Rc<groups::Table>) -> Self {
         Self {
             options,
             cancel,
             canvas,
             budget: Rc::default(),
             frames: vec![Frame::root()],
+            groups,
+            markers: vec![],
+            pattern_cell: false,
             blend: BlendMode::Normal,
             mask: None,
             masks: HashMap::new(),
@@ -61,13 +76,15 @@ impl<'a> Builder<'a> {
         if self.nested + self.frames.len() >= self.options.limits.depth.min(photocraft_doc::MAX_GROUP_DEPTH).saturating_sub(2) {
             return Err(ImportError::Limit("nested mask/pattern/glyph"));
         }
-        let mut b = Self::new(self.options, self.cancel, canvas);
+        let mut b = Self::new(self.options, self.cancel, canvas, self.groups.clone());
         b.budget = self.budget.clone();
         b.nested = self.nested + 1;
+        b.pattern_cell = self.pattern_cell;
         Ok(b)
     }
     pub fn begin_page(&mut self) {
         self.frames = vec![Frame::root()];
+        self.markers.clear();
         self.mask = None;
         self.blend = BlendMode::Normal;
     }
@@ -76,6 +93,9 @@ impl<'a> Builder<'a> {
             return Err(e);
         }
         cancelled(self.cancel)?;
+        if !self.markers.is_empty() {
+            return Err(ImportError::Invalid("unbalanced PDF markers".into()));
+        }
         while self.frames.len() > 1 {
             self.pop()?;
         }
@@ -159,6 +179,9 @@ impl<'a> Builder<'a> {
         if self.frames.len() <= 1 {
             return Err(ImportError::Invalid("unbalanced drawing stack".into()));
         }
+        if self.markers.iter().flatten().any(|&index| index + 1 >= self.frames.len()) {
+            return Err(ImportError::Invalid("PDF marker crossed drawing frame".into()));
+        }
         let Some(frame) = self.frames.pop() else {
             return Err(ImportError::Invalid("drawing frame".into()));
         };
@@ -196,7 +219,21 @@ impl<'a> Builder<'a> {
         mask.interpret(&mut b);
         let children = b.end_page()?;
         self.warnings.extend(b.warnings);
-        let group = Layer::group("PDF mask source", children);
+        let mut group = Layer::group("PDF mask source", children);
+        if matches!(mask.mask_type(), MaskType::Luminosity) {
+            {
+                let mut budget = self.budget.borrow_mut();
+                budget.objects = budget.objects.saturating_add(2);
+                if budget.objects > self.options.limits.objects {
+                    return Err(ImportError::Limit("mask background object"));
+                }
+            }
+            // BC is an initial backdrop: backdrop-dependent child blends must
+            // see it during interpretation of the compositing tree.
+            let background =
+                Layer::new("PDF mask background", LayerContent::Fill(Fill::Solid(photocraft_doc::Color::rgb(background[0], background[1], background[2]))));
+            group = Layer::group("PDF luminosity mask", vec![background, group]);
+        }
         self.charge(self.canvas)?;
         let mut out = LayerMask::hide_all();
         out.surface = Surface::new(PixelFormat::new(photocraft_doc::ColorMode::Grayscale, photocraft_doc::SampleType::F32, false));
@@ -328,6 +365,7 @@ impl<'a> Builder<'a> {
                 return Err(ImportError::Limit("overlapping pattern tiles"));
             }
             let mut child = self.child(local)?;
+            child.pattern_cell = true;
             t.interpret(&mut child, Affine::IDENTITY, matches!(mode, PathDrawMode::Stroke(_))).ok_or_else(|| ImportError::Invalid("pattern content".into()))?;
             let children = child.end_page()?;
             self.warnings.extend(child.warnings);
@@ -507,11 +545,16 @@ impl<'pdf> Device<'pdf> for Builder<'_> {
     fn push_clip_path(&mut self, c: &ClipPath) {
         self.run(|b| {
             let p = b.path(&c.path, Affine::IDENTITY, c.fill)?;
-            b.frame(Frame { clip: Some(p), blend: BlendMode::PassThrough, ..Frame::root() })
+            b.frame(Frame { kind: FrameKind::Clip, clip: Some(p), blend: BlendMode::PassThrough, ..Frame::root() })
         });
     }
     fn pop_clip_path(&mut self) {
-        self.run(Self::pop);
+        self.run(|b| {
+            if b.frames.last().is_none_or(|f| f.kind != FrameKind::Clip) {
+                return Err(ImportError::Invalid("PDF clip stack".into()));
+            }
+            b.pop()
+        });
     }
     fn push_transparency_group(&mut self, opacity: f32, m: Option<SoftMask<'pdf>>, blend: hayro_interpret::BlendMode) {
         self.run(|b| {
@@ -519,11 +562,66 @@ impl<'pdf> Device<'pdf> for Builder<'_> {
                 return Err(ImportError::Invalid("group opacity".into()));
             }
             let mask = m.as_ref().map(|m| b.soft_mask(m)).transpose()?;
-            b.frame(Frame { opacity, blend: paint::blend(blend), mask, ..Frame::root() })
+            b.frame(Frame { kind: FrameKind::Transparency, opacity, blend: paint::blend(blend), mask, ..Frame::root() })
         });
     }
     fn pop_transparency_group(&mut self) {
-        self.run(Self::pop);
+        self.run(|b| {
+            if b.frames.last().is_none_or(|f| f.kind != FrameKind::Transparency) {
+                return Err(ImportError::Invalid("PDF transparency stack".into()));
+            }
+            b.pop()
+        });
+    }
+    fn begin_marked_content(&mut self, tag: &[u8], _: Option<i32>) {
+        self.run(|b| {
+            {
+                let mut budget = b.budget.borrow_mut();
+                budget.callbacks = budget.callbacks.saturating_add(1);
+                if budget.callbacks > b.options.limits.segments {
+                    return Err(ImportError::Limit("marked content callbacks"));
+                }
+            }
+            if b.markers.len() + b.nested >= b.options.limits.depth.min(64) {
+                return Err(ImportError::Limit("marked content depth"));
+            }
+            let mut owner = None;
+            if tag.starts_with(groups::PREFIX) {
+                let isolated = *b.groups.get(tag).ok_or_else(|| ImportError::Invalid("unknown PDF group marker".into()))?;
+                let index = b.frames.len().checked_sub(2).ok_or_else(|| ImportError::Invalid("PDF marker without Form frame".into()))?;
+                if b.frames.last().is_none_or(|f| f.kind != FrameKind::Clip)
+                    || b.frames[index].kind != FrameKind::Transparency
+                    || b.frames[index].marked
+                    || !b.frames[index + 1].children.is_empty()
+                {
+                    return Err(ImportError::Invalid("PDF marker does not own a transparency frame".into()));
+                }
+                if !isolated {
+                    if b.pattern_cell {
+                        return Err(ImportError::Unsupported("nonisolated group inside rasterized pattern"));
+                    }
+                    if b.frames[index].blend != BlendMode::Normal {
+                        return Err(ImportError::Unsupported("nonisolated group with outer blend"));
+                    }
+                    b.frames[index].blend = BlendMode::PassThrough;
+                }
+                b.frames[index].marked = true;
+                owner = Some(index);
+            }
+            b.markers.push(owner);
+            Ok(())
+        });
+    }
+    fn end_marked_content(&mut self) {
+        self.run(|b| {
+            let owner = b.markers.pop().ok_or_else(|| ImportError::Invalid("unbalanced PDF marker callback".into()))?;
+            if let Some(index) = owner
+                && (b.frames.len() != index + 2 || b.frames[index + 1].kind != FrameKind::Clip)
+            {
+                return Err(ImportError::Invalid("PDF marker crossed Form boundary".into()));
+            }
+            Ok(())
+        });
     }
     fn draw_glyph(&mut self, g: &Glyph<'pdf>, m: Affine, gm: Affine, paint: &Paint<'pdf>, mode: &GlyphDrawMode) {
         self.run(|b| {

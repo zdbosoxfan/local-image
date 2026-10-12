@@ -20,6 +20,8 @@ mod ccitt_admission;
 mod decryption;
 #[path = "preflight/filters.rs"]
 mod filters;
+#[path = "preflight/groups.rs"]
+pub(super) mod groups;
 #[path = "preflight/inline.rs"]
 mod inline;
 #[path = "preflight/lengths.rs"]
@@ -363,13 +365,8 @@ impl Guard<'_> {
     fn inspect(&self, v: &Value) -> Result<()> {
         match v {
             Value::Dict(d) => {
-                if d.get(b"S".as_slice()).and_then(Value::name) == Some(b"Transparency") {
-                    if matches!(d.get(b"K".as_slice()), Some(Value::Bool(true))) {
-                        return Err(ImportError::Unsupported("knockout transparency groups"));
-                    }
-                    if !matches!(d.get(b"I".as_slice()), Some(Value::Bool(true))) {
-                        return Err(ImportError::Unsupported("nonisolated transparency groups"));
-                    }
+                if d.get(b"S".as_slice()).and_then(Value::name) == Some(b"Transparency") && matches!(d.get(b"K".as_slice()), Some(Value::Bool(true))) {
+                    return Err(ImportError::Unsupported("knockout transparency groups"));
                 }
                 if d.get(b"Predictor".as_slice()).and_then(Value::number).is_some_and(|n| n > 1) {
                     let columns = d.get(b"Columns".as_slice()).map_or(Some(1), Value::number).ok_or_else(|| invalid("predictor columns"))?;
@@ -719,13 +716,24 @@ impl Guard<'_> {
         Ok(())
     }
 }
-pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Result<hayro_syntax::Pdf> {
+pub(super) struct Admitted {
+    pub pdf: hayro_syntax::Pdf,
+    pub groups: std::rc::Rc<groups::Table>,
+    pub unverified_group_space: bool,
+}
+impl std::ops::Deref for Admitted {
+    type Target = hayro_syntax::Pdf;
+    fn deref(&self) -> &Self::Target {
+        &self.pdf
+    }
+}
+pub(super) fn check(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Result<Admitted> {
     if let Some(plain) = decryption::normalize(bytes, options, cancel)? {
         return check_plain(&plain, options, cancel);
     }
     check_plain(bytes, options, cancel)
 }
-fn check_plain(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Result<hayro_syntax::Pdf> {
+fn check_plain(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Result<Admitted> {
     cancelled(cancel)?;
     if bytes.len() > options.limits.bytes {
         return Err(ImportError::Limit("input byte"));
@@ -884,10 +892,12 @@ fn check_plain(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Re
     if let Some(index) = length_index {
         index.verify(&g.objects, &object_starts, &xref_starts)?;
     }
-    let roles::Roles { content: content_ids, opaque: opaque_ids, fonts } = roles::classify(&mut g, &stream_ids)?;
+    let roles::Roles { content: mut content_ids, opaque: opaque_ids, fonts } = roles::classify(&mut g, &stream_ids)?;
+    content_ids.extend(stream_ids.iter().filter(|id| g.objects.get(*id).is_some_and(|record| record.value.get(b"Group").is_some())).copied());
     if content_ids.iter().any(|id| fonts.contains(id) || g.binary.contains(id) || opaque_ids.contains(id)) {
         return Err(ImportError::Unsupported("binary resource reused as page content"));
     }
+    let (groups, unverified_group_space) = groups::collect(&mut g, &stream_ids, &content_ids)?;
     let mut normalized = Vec::new();
     let mut has_inline = false;
     for (id, data) in std::mem::take(&mut g.streams) {
@@ -903,7 +913,7 @@ fn check_plain(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Re
                 }
                 continue;
             }
-            let content = inline::analyze(&mut g, &data)?;
+            let content = inline::analyze(&mut g, &data, groups.contains_key(groups::tag(id).as_bytes()))?;
             if content.has_inline && !content_ids.contains(&id) {
                 return Err(ImportError::Unsupported("inline image in unclassified stream"));
             }
@@ -919,18 +929,26 @@ fn check_plain(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Re
     }
     // hayro concatenates page content arrays. Escape marker-looking literals,
     // names and comments in every relevant member, not only the one with BI.
-    if has_inline {
-        for (id, data, edits) in normalized {
-            if edits.is_empty() {
-                continue;
-            }
-            let data = inline::materialize(&mut g, &data, &edits)?;
-            let mut record = g.objects.remove(&id).ok_or_else(|| invalid("content record missing"))?;
-            let body = bodies.get(&id).ok_or_else(|| invalid("content body missing"))?;
-            let rewritten = inline::rewrite(&mut g, body, &data, &mut record.value)?;
-            bodies.insert(id, rewritten);
-            g.objects.insert(id, record);
+    for (id, data, edits) in normalized {
+        let tag = groups::tag(id);
+        let group = groups.contains_key(tag.as_bytes());
+        if !group && (!has_inline || edits.is_empty()) {
+            continue;
         }
+        let mut data = if has_inline { inline::materialize(&mut g, &data, &edits)? } else { data };
+        if group {
+            let prefix = format!("/{tag} BMC\nq\n");
+            g.charge((prefix.len() + data.len() + 7) as u64)?;
+            data = [prefix.as_bytes(), data.as_slice(), b"\nQ\nEMC\n"].concat();
+        }
+        let mut record = g.objects.remove(&id).ok_or_else(|| invalid("content record missing"))?;
+        if group {
+            record.work = record.work.saturating_add(5);
+        }
+        let body = bodies.get(&id).ok_or_else(|| invalid("content body missing"))?;
+        let rewritten = inline::rewrite(&mut g, body, &data, &mut record.value)?;
+        bodies.insert(id, rewritten);
+        g.objects.insert(id, record);
     }
     g.graph()?;
     // hayro builds its page tree during Pdf::new, before we can inspect its xref.
@@ -980,7 +998,7 @@ fn check_plain(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Re
             }
         }
     }
-    Ok(pdf)
+    Ok(Admitted { pdf, groups: std::rc::Rc::new(groups), unverified_group_space })
 }
 
 #[cfg(test)]

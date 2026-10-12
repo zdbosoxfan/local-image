@@ -5738,6 +5738,7 @@ dependencies = [
  "kurbo 0.13.1",
  "photocraft-compose",
  "photocraft-doc",
+ "photocraft-format",
  "photocraft-geom",
  "photocraft-pathops",
  "photocraft-testkit",

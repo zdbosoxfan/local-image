@@ -3,10 +3,7 @@
 //! Team and the VectorCraft contributors. MIT OR Apache-2.0. PDF 1.7 §§3.6.2, 10.10.1.
 use super::{ImportError, PageBox, PdfOptions, Result, cancelled, device::Builder, geometry, preflight, warn};
 use hayro_interpret::{Context, InterpreterCache, InterpreterSettings, InterpreterWarning, interpret_page};
-use hayro_syntax::{
-    Pdf,
-    page::{Page, Rotation},
-};
+use hayro_syntax::page::{Page, Rotation};
 use kurbo::{Affine, Rect};
 use photocraft_doc::{
     DesignUnits, Layer, Size, VectorMask,
@@ -24,7 +21,7 @@ pub struct PageInfo {
 pub struct PdfInfo {
     pub pages: Vec<PageInfo>,
 }
-pub(super) fn open(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Result<Pdf> {
+pub(super) fn open(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Result<preflight::Admitted> {
     let pdf = preflight::check(bytes, options, cancel)?;
     cancelled(cancel)?;
     if pdf.len() > options.limits.objects || pdf.pages().len() > options.limits.objects {
@@ -45,7 +42,7 @@ fn box_rect(page: &Page<'_>, which: PageBox) -> Result<Rect> {
     }
     Ok(Rect::new(r.x0, r.y0, r.x1, r.y1))
 }
-pub(super) fn info(pdf: &Pdf, options: &ImportOptions, cancel: &AtomicBool) -> Result<PdfInfo> {
+pub(super) fn info(pdf: &preflight::Admitted, options: &ImportOptions, cancel: &AtomicBool) -> Result<PdfInfo> {
     let mut pages = Vec::new();
     for p in pdf.pages().iter() {
         cancelled(cancel)?;
@@ -67,7 +64,7 @@ pub(super) fn info(pdf: &Pdf, options: &ImportOptions, cancel: &AtomicBool) -> R
     }
     Ok(PdfInfo { pages })
 }
-pub(super) fn convert(pdf: &Pdf, options: &ImportOptions, extra: &PdfOptions, cancel: &AtomicBool) -> Result<ImportedScene> {
+pub(super) fn convert(pdf: &preflight::Admitted, options: &ImportOptions, extra: &PdfOptions, cancel: &AtomicBool) -> Result<ImportedScene> {
     let selected = if options.pages.is_empty() { vec![0] } else { options.pages.clone() };
     if selected.len() > options.limits.objects {
         return Err(ImportError::Limit("selected page"));
@@ -101,7 +98,15 @@ pub(super) fn convert(pdf: &Pdf, options: &ImportOptions, extra: &PdfOptions, ca
         frames.push((number, frame, transform));
     }
     let size = Size::new(x as u32, h as u32);
-    let mut b = Builder::new(options, cancel, photocraft_doc::Rect::from_size(size));
+    let mut b = Builder::new(options, cancel, photocraft_doc::Rect::from_size(size), pdf.groups.clone());
+    if pdf.unverified_group_space {
+        warn(
+            &mut b.warnings,
+            "group-colour-space-unverified",
+            None,
+            "An existing isolated/page group uses a blending colour space whose conversion is not verified; legacy RGB compositing is retained and may differ from the PDF.",
+        );
+    }
     let cache = InterpreterCache::new();
     let sink: Arc<Mutex<Vec<VectorWarning>>> = Arc::default();
     let warnings = sink.clone();

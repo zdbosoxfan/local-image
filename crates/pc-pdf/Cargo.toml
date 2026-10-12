@@ -23,6 +23,7 @@ hayro-interpret.workspace = true
 flate2.workspace = true
 image.workspace = true
 [dev-dependencies]
+photocraft-format.workspace = true
 proptest.workspace = true
 photocraft-testkit.workspace = true
 [[test]]

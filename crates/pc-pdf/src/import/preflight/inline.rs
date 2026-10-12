@@ -397,9 +397,10 @@ fn edit(g: &mut Guard<'_>, edits: &mut Vec<Edit>, start: usize, end: usize, repl
     edits.push(Edit { start, end, replacement });
     Ok(())
 }
-pub(super) fn analyze(g: &mut Guard<'_>, data: &[u8]) -> Result<Content> {
+pub(super) fn analyze(g: &mut Guard<'_>, data: &[u8], form_group: bool) -> Result<Content> {
     let mut l = Lexer::new(data, g.options, g.cancel);
     let (mut depth, mut saves, mut previous) = (0usize, 0usize, 0usize);
+    let mut marked = 0isize;
     let mut last_name = None;
     let mut calls = Vec::new();
     let mut edits = Vec::new();
@@ -415,7 +416,24 @@ pub(super) fn analyze(g: &mut Guard<'_>, data: &[u8]) -> Result<Content> {
             edit(g, &mut edits, start, l.at, None)?;
         }
         match token {
-            Token::Name(n) => last_name = Some(n),
+            Token::Name(n) => {
+                if n.starts_with(super::groups::PREFIX) {
+                    return Err(invalid("reserved PDF group marker"));
+                }
+                last_name = Some(n);
+            }
+            Token::Word(w) if depth == 0 && (w == b"BMC" || w == b"BDC") => {
+                marked += 1;
+                if marked > g.options.limits.depth.min(64) as isize {
+                    return Err(ImportError::Limit("marked content depth"));
+                }
+            }
+            Token::Word(w) if depth == 0 && w == b"EMC" => {
+                marked -= 1;
+                if form_group && marked < 0 {
+                    return Err(invalid("unbalanced marked content"));
+                }
+            }
             Token::Word(w) if w == b"BI" => {
                 if depth != 0 {
                     return Err(invalid("inline image inside operand container"));
@@ -440,14 +458,25 @@ pub(super) fn analyze(g: &mut Guard<'_>, data: &[u8]) -> Result<Content> {
             Token::CloseArray | Token::CloseDict => depth = depth.saturating_sub(1),
             Token::Word(w) if w == b"q" => {
                 saves += 1;
-                if saves > g.options.limits.depth.min(64) {
+                if saves.saturating_add(usize::from(form_group)) > g.options.limits.depth.min(64) {
                     return Err(ImportError::Limit("graphics state depth"));
                 }
             }
-            Token::Word(w) if w == b"Q" => saves = saves.saturating_sub(1),
+            Token::Word(w) if w == b"Q" => {
+                if form_group && saves == 0 {
+                    return Err(invalid("Form graphics state underflow"));
+                }
+                saves = saves.saturating_sub(1);
+            }
             _ => {}
         }
         previous = l.at;
+    }
+    if form_group && saves != 0 {
+        return Err(invalid("unbalanced Form graphics state"));
+    }
+    if form_group && marked != 0 {
+        return Err(invalid("unbalanced marked content"));
     }
     Ok(Content { work: l.tokens, calls, edits, has_inline })
 }

@@ -287,14 +287,20 @@ fn pdf_import_strokes_radial_alpha_masks_and_explicit_refusals() {
     let bytes = fixture::alpha_masked();
     let p = render(&bytes);
     assert_eq!(p.get(16, 32)[3], 1.0);
-    for group in ["/S /Transparency /I true /K true", "/S /Transparency /I false"] {
+    for (group, supported) in [("/S /Transparency /I true /K true", false), ("/S /Transparency /I false", true)] {
         let bytes = fixture::page(
             "/X Do",
             "/XObject << /X 5 0 R >>",
             "",
             &[fixture::stream(&format!("/Type /XObject /Subtype /Form /BBox [0 0 64 64] /Resources << >> /Group << {group} >>"), b"0 0 64 64 re f")],
         );
-        assert!(matches!(import(&bytes, &ImportOptions::default()), Err(ImportError::Unsupported(_))));
+        if supported {
+            // Normal nonisolated groups are now admitted; preserve a real pixel check.
+            let imported = doc(import(&bytes, &ImportOptions::default()).unwrap());
+            assert_eq!(photocraft_compose::flatten(&imported).get(16, 32), [0.0, 0.0, 0.0, 1.0]);
+        } else {
+            assert!(matches!(import(&bytes, &ImportOptions::default()), Err(ImportError::Unsupported(_))));
+        }
     }
     // Binary resources reused as page content cannot evade the content guard.
     let bytes = fixture::pdf(&[
@@ -422,3 +428,5 @@ mod compatibility;
 
 mod encryption;
 mod inline;
+
+mod groups;
