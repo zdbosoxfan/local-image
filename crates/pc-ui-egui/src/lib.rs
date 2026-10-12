@@ -998,6 +998,7 @@ impl PhotocraftApp {
         // Edit › Color Settings policies apply on open; mismatches can ask what to do.
         // No path yet: a bare name isn't a location to save back to (`open_file` sets the path).
         let (_, color) = self.session.open_document(doc, None);
+        let color_target = prefs_ui::mismatch_target(&self.session);
         self.sync_views();
         self.ui.status = format!("Opened {name}");
         self.ui.status_error = false;
@@ -1006,8 +1007,11 @@ impl PhotocraftApp {
         photocraft_engine::automate_cmds::document_opened(&mut self.session);
         self.sync_views();
         let ask = color.get("ask").and_then(Value::as_bool) == Some(true);
-        if ask && (color.get("mismatch").and_then(Value::as_bool) == Some(true) || color.get("missing").is_some()) {
-            prefs_ui::open_mismatch(self, &color);
+        if ask
+            && (color.get("mismatch").and_then(Value::as_bool) == Some(true) || color.get("missing").is_some())
+            && let Some(target) = color_target
+        {
+            prefs_ui::open_mismatch_for(self, &color, target);
         }
         Ok(warnings)
     }

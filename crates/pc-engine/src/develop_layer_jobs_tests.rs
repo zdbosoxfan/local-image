@@ -311,3 +311,61 @@ fn library_identity_existing_source_supersedes_a_pending_replacement_open() {
     assert_eq!(s.documents().len(), 1);
     assert!(Arc::ptr_eq(&s.active().unwrap().doc, &original));
 }
+
+#[test]
+fn internal_develop_profile_preserves_managed_pixels_despite_external_import_policy() {
+    use crate::color_cmds::{Policy, document_profile};
+    let photo = Photo::new("internal-profile");
+    let expected = photocraft_io::raw::develop_with_settings("camera.dng", &photo.bytes, &json!({})).unwrap().document;
+    for policy in [Policy::Preserve, Policy::Convert, Policy::Off] {
+        let mut session = Session::new();
+        session.color.settings.policy_rgb = policy;
+        session.color.settings.working_rgb = "srgb".into();
+        session.color.settings.ask_on_mismatch = true;
+        let result = session.execute(OPEN_JOB, photo.params()).unwrap();
+        let actual = &session.active().unwrap().doc;
+        assert_eq!(actual.icc_profile, expected.icc_profile);
+        assert_eq!(actual.layers[0].surface().unwrap().read_region(actual.bounds()), expected.layers[0].surface().unwrap().read_region(expected.bounds()));
+        assert_eq!(result["color"]["ask"], false);
+        assert_eq!(result["color"]["action"], "kept");
+        let mut external = Session::new();
+        external.color.settings = session.color.settings.clone();
+        let (_, report) = external.open_document(expected.clone(), None);
+        assert_eq!(
+            report["action"],
+            match policy {
+                Policy::Preserve => "kept",
+                Policy::Convert => "converted",
+                Policy::Off => "discarded",
+            }
+        );
+        if policy == Policy::Convert {
+            assert!(document_profile(&external.active().unwrap().doc).same_colors(photocraft_cms::Builtin::Srgb.profile()));
+        }
+    }
+    let mut session = Session::new();
+    let mut params = photo.params();
+    params["askColorProfile"] = json!(true);
+    let pending = job(&mut session, OPEN_JOB, params);
+    let result = session.wait_job(pending).unwrap();
+    assert_eq!(result["color"]["ask"], true);
+    assert_eq!(session.active().unwrap().doc.icc_profile, expected.icc_profile);
+}
+
+#[test]
+fn internal_develop_profile_prompt_request_supersedes_non_prompt_open() {
+    let photo = Photo::new("profile-latest");
+    let mut session = Session::new();
+    let gate = Arc::new(AtomicBool::new(false));
+    gate_next_work(gate.clone());
+    let first = job(&mut session, OPEN_JOB, photo.params());
+    let mut params = photo.params();
+    params["askColorProfile"] = json!(true);
+    let next = job(&mut session, OPEN_JOB, params);
+    assert_ne!(first, next);
+    gate.store(true, Ordering::Relaxed);
+    let result = session.wait_job(next).unwrap();
+    assert_eq!(result["color"]["ask"], true);
+    let _ = session.wait_job(first);
+    assert_eq!(session.documents().len(), 1);
+}

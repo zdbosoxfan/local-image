@@ -264,6 +264,7 @@ fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Valu
     let warnings: Vec<String> =
         v.get("warnings").and_then(Value::as_array).map(|a| a.iter().filter_map(|w| w.as_str().map(str::to_string)).collect()).unwrap_or_default();
     app.session.set_active(index);
+    let color_target = crate::prefs_ui::mismatch_target(&app.session);
     if let Some(p) = path {
         if v["nativeImport"] == true {
             app.push_recent(p);
@@ -281,8 +282,11 @@ fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Valu
     app.sync_views();
     let color = v.get("color").cloned().unwrap_or(Value::Null);
     let ask = color.get("ask").and_then(Value::as_bool) == Some(true);
-    if ask && (color.get("mismatch").and_then(Value::as_bool) == Some(true) || color.get("missing").is_some()) {
-        crate::prefs_ui::open_mismatch(app, &color);
+    if ask
+        && (color.get("mismatch").and_then(Value::as_bool) == Some(true) || color.get("missing").is_some())
+        && let Some(target) = color_target
+    {
+        crate::prefs_ui::open_mismatch_for(app, &color, target);
     }
     Ok(())
 }

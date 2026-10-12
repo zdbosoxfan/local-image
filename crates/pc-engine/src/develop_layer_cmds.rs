@@ -93,6 +93,11 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = OPEN_JOB;
     let path = p.get("path").and_then(Value::as_str).filter(|v| !v.is_empty()).ok_or_else(|| bad(C, "missing `path`"))?.to_string();
     let settings = p.get("settings").cloned().unwrap_or_else(|| json!({}));
+    let ask_color_profile = match p.get("askColorProfile") {
+        None => false,
+        Some(Value::Bool(ask)) => *ask,
+        _ => return Err(bad(C, "askColorProfile must be a boolean")),
+    };
     let photo = p.get("photo").and_then(Value::as_u64);
     let library = p.get("library").and_then(Value::as_str).map(str::to_owned);
     if library.is_some() && photo.is_none() {
@@ -100,7 +105,7 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let keys = vec![
         photo.map(|photo| format!("develop/open/{}", photo_key(library.as_deref(), photo))).unwrap_or_else(|| format!("develop/open/{path}")),
-        format!("develop/open/source/{}", json!([library, photo, path])),
+        format!("develop/open/source/{}", json!([library, photo, path, ask_color_profile])),
     ];
     // Returning to an existing source supersedes any pending open of the same
     // logical photo at another source, even though no new render is needed.
@@ -130,9 +135,9 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
             let r = photocraft_io::raw::develop_with_settings(&file_name, &bytes, &settings).map_err(|e| bad(C, e.to_string()))?;
             ctx.check()?;
             ctx.progress(1.0, "Opening");
-            Ok((r, path, settings, photo, library, name))
+            Ok((r, path, settings, photo, library, name, ask_color_profile))
         },
-        |s, (r, path, settings, photo, library, name)| {
+        |s, (r, path, settings, photo, library, name, ask_color_profile)| {
             let mut doc = r.document;
             doc.name = std::path::Path::new(&name).file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or(name.clone());
             let id = doc.layers.first().map(|l| l.id).ok_or(EngineError::Other("the developed photo has no layer".into()))?;
@@ -145,7 +150,16 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
                 l.name = "Develop".into();
                 l.content = LayerContent::Smart(sm);
             }
-            let (i, color) = s.open_document(doc, None);
+            // This is already a colour-managed internal render, not a foreign
+            // file import. Retain its profile regardless of external-import policy.
+            // An explicit caller can still ask the normal mismatch dialog to offer
+            // Convert/Discard; those commands retain their visible failure path.
+            let embedded = crate::color_cmds::document_profile(&doc);
+            let working = s.color.working(doc.mode);
+            let mismatch = !embedded.same_colors(&working);
+            let color = json!({"action":"kept","policy":"preserve","embedded":embedded.description,"working":working.description,
+                "mismatch":mismatch,"ask":ask_color_profile && mismatch,"internalDevelop":true});
+            let i = s.add_document(doc, None);
             Ok(json!({ "document": i, "name": name, "existing": false, "layer": id.0, "warnings": r.warnings, "color": color }))
         },
     )
@@ -373,7 +387,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Open Photo as Develop Layer",
             menu: &[],
             shortcut: None,
-            params: r##"{"path":str,"settings":DevelopSettings JSON,"photo":id?,"name":str?} → {document, existing, layer?}"##,
+            params: r##"{"path":str,"settings":DevelopSettings JSON,"photo":id?,"name":str?,"askColorProfile":bool=false} → {document, existing, layer?}"##,
             enabled: always,
             run: open_photo,
             journal: true,

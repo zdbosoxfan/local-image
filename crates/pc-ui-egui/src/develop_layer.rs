@@ -456,4 +456,103 @@ mod tests {
         assert_eq!(work_count_on_thread(), count);
         std::fs::remove_dir_all(dir).ok();
     }
+
+    #[test]
+    fn internal_develop_profile_prompt_is_opt_in_for_background_handoffs() {
+        for ask in [false, true] {
+            let (dir, path, mut app) = photo_app(if ask { "profile-ask" } else { "profile-preserve" });
+            app.session.execute("file.close", json!({})).unwrap();
+            app.sync_views();
+            app.session.color.settings.working_rgb = "adobe-rgb-compat".into();
+            app.session.color.settings.policy_rgb = photocraft_engine::color_cmds::Policy::Convert;
+            app.session.color.settings.ask_on_mismatch = true;
+            app.background_jobs = true;
+            app.run("develop.openPhoto", json!({"photo":8,"path":path,"settings":{},"askColorProfile":ask})).unwrap();
+            let ctx = egui::Context::default();
+            let start = std::time::Instant::now();
+            while app.session.has_jobs() && start.elapsed() < std::time::Duration::from_secs(5) {
+                crate::jobs_ui::tick(&mut app, &ctx);
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            assert!(!app.session.has_jobs(), "handoff did not finish");
+            let profile = photocraft_engine::color_cmds::document_profile(&app.session.active().unwrap().doc);
+            assert!(!profile.same_colors(photocraft_cms::Builtin::AdobeRgbCompat.profile()));
+            let dialogs = app.ui.dialogs.iter().filter(|dialog| dialog.fields.get("__prefsui").and_then(Value::as_str) == Some("mismatch")).count();
+            assert_eq!(dialogs, usize::from(ask));
+            if ask {
+                let id = app.ui.dialogs.iter().find(|dialog| dialog.fields.get("__prefsui").and_then(Value::as_str) == Some("mismatch")).unwrap().id;
+                crate::dialogs::cancel(&mut app, id);
+                assert_eq!(photocraft_engine::color_cmds::document_profile(&app.session.active().unwrap().doc).to_bytes(), profile.to_bytes());
+            }
+            drop(app);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn internal_develop_profile_prompt_targets_admitted_doc_after_open_callback_switches_tabs() {
+        let (dir, path, mut app) = photo_app("profile-callback");
+        app.session.color.settings.working_rgb = "adobe-rgb-compat".into();
+        app.run("file.scripts.scriptEventsManager", json!({"add":{"event":"openDocument","steps":[["document.activate",{"document":0}]]}})).unwrap();
+        let other = app.session.active().unwrap().doc.clone();
+        app.background_jobs = true;
+        app.run("develop.openPhoto", json!({"photo":8,"path":path,"settings":{},"askColorProfile":true})).unwrap();
+        let ctx = egui::Context::default();
+        let start = std::time::Instant::now();
+        while app.session.has_jobs() && start.elapsed() < std::time::Duration::from_secs(5) {
+            crate::jobs_ui::tick(&mut app, &ctx);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(!app.session.has_jobs());
+        assert_eq!(app.session.active_index(), Some(0), "Open Document callback switched to the other tab");
+        let admitted = app.session.documents()[1].doc.id;
+        let dialog = app.ui.dialogs.iter().find(|dialog| dialog.fields.get("__prefsui").and_then(Value::as_str) == Some("mismatch")).unwrap().id;
+        let fields = &mut app.ui.dialog_mut(dialog).unwrap().fields;
+        assert_eq!(fields["target"]["doc"], admitted.0);
+        fields.insert("action".into(), json!("convert"));
+        crate::dialogs::confirm(&mut app, dialog).unwrap();
+        assert_eq!(app.session.active_index(), Some(0));
+        assert!(app.session.documents()[0].doc.as_ref() == other.as_ref(), "the unrelated tab changed");
+        assert!(
+            photocraft_engine::color_cmds::document_profile(&app.session.documents()[1].doc).same_colors(photocraft_cms::Builtin::AdobeRgbCompat.profile())
+        );
+        drop(app);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn internal_develop_profile_prompt_rejects_changed_closed_or_unauthorized_targets() {
+        for change in ["edit", "close", "settings", "authorization"] {
+            let (dir, _, mut app) = photo_app(&format!("profile-stale-{change}"));
+            let target = crate::prefs_ui::mismatch_target(&app.session).unwrap();
+            app.session.execute("file.new", json!({"width":2,"height":2})).unwrap();
+            app.sync_views();
+            let other = app.session.active().unwrap().doc.clone();
+            let dialog =
+                crate::prefs_ui::open_mismatch_for(&mut app, &json!({"action":"kept","mismatch":true,"embedded":"source","working":"destination"}), target);
+            app.ui.dialog_mut(dialog).unwrap().fields.insert("action".into(), json!("discard"));
+            match change {
+                "edit" => {
+                    app.session.set_active(0);
+                    app.session.execute("layer.new.layer", json!({})).unwrap();
+                    app.session.set_active(1);
+                }
+                "close" => {
+                    app.session.set_active(0);
+                    app.session.execute("file.close", json!({})).unwrap();
+                }
+                "settings" => app.session.color.settings.working_rgb = "display-p3".into(),
+                _ => {
+                    app.automation_input = true;
+                    app.services.automation_command = Some(Box::new(|_, _| Err("denied".into())));
+                }
+            }
+            assert!(crate::dialogs::confirm(&mut app, dialog).is_err(), "{change}");
+            let actual = app.session.documents().iter().find(|state| state.doc.id == other.id).unwrap();
+            assert!(actual.doc.as_ref() == other.as_ref(), "{change}: other tab changed");
+            assert_eq!(app.session.active().unwrap().doc.id, other.id);
+            drop(app);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
 }

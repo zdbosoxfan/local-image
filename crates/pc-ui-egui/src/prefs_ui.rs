@@ -865,8 +865,17 @@ pub fn open_shortcuts(app: &mut PhotocraftApp, tab: u64) -> u64 {
     open_kind(app, "shortcuts", tl!("Keyboard Shortcuts and Menus"), fields)
 }
 
-/// Open the Embedded Profile Mismatch prompt for the active document.
-pub fn open_mismatch(app: &mut PhotocraftApp, report: &Value) -> u64 {
+/// Capture before Open Document callbacks can switch, edit or close the admitted tab.
+pub(crate) fn mismatch_target(session: &photocraft_engine::Session) -> Option<Value> {
+    let state = session.active()?;
+    Some(json!({"doc":state.doc.id.0,"name":state.doc.name,"revision":state.revision,
+        "profile":photocraft_engine::color_cmds::document_profile(&state.doc).content_hash(),
+        "working":session.color.working(state.doc.mode).content_hash(),
+        "intent":session.color.settings.intent,"bpc":session.color.settings.bpc}))
+}
+
+/// The mismatch report and decision belong to the captured imported document.
+pub(crate) fn open_mismatch_for(app: &mut PhotocraftApp, report: &Value, target: Value) -> u64 {
     let msg = if report.get("missing").and_then(Value::as_bool) == Some(true) {
         format!("The document does not have an embedded colour profile. Working space: {}.", report["working"].as_str().unwrap_or("?"))
     } else {
@@ -885,7 +894,7 @@ pub fn open_mismatch(app: &mut PhotocraftApp, report: &Value) -> u64 {
         app,
         "mismatch",
         tl!("Embedded Profile Mismatch"),
-        json!({"message": msg, "action": action, "applied": action, "missing": report.get("missing").is_some()}),
+        json!({"message": format!("{}\n{msg}",target["name"].as_str().unwrap_or("Document")), "action": action, "applied": action, "missing": report.get("missing").is_some(), "target":target}),
     )
 }
 
@@ -1563,16 +1572,54 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             }
         }
         "clipboard" => crate::clipboard_ui::confirm(app, f),
-        "mismatch" => {
-            let action = f.get("action").and_then(Value::as_str).unwrap_or("preserve");
-            let applied = f.get("applied").and_then(Value::as_str).unwrap_or("preserve");
-            if action == applied {
-                return Ok(json!({"action": action}));
-            }
-            app.run("color.profileMismatch", json!({"action": action}))
-        }
+        "mismatch" => confirm_mismatch(app, f),
         _ => Err("unknown dialog".into()),
     }
+}
+
+fn confirm_mismatch(app: &mut PhotocraftApp, fields: &Map<String, Value>) -> Result<Value, String> {
+    let target = fields.get("target").ok_or("The colour decision has no document; open the file again")?;
+    let doc = target["doc"].as_u64().ok_or("The colour decision has no document")?;
+    let index = app.session.documents().iter().position(|state| state.doc.id.0 == doc).ok_or("The colour decision's document was closed")?;
+    let viewed = app.session.active().map(|state| state.doc.id);
+    app.session.set_active(index);
+    let result = (|| {
+        if mismatch_target(&app.session).as_ref() != Some(target) {
+            return Err("The document or colour settings changed; choose its profile again".into());
+        }
+        let action = fields.get("action").and_then(Value::as_str).unwrap_or("preserve");
+        let applied = fields.get("applied").and_then(Value::as_str).unwrap_or("preserve");
+        if action == applied {
+            return Ok(json!({"action":action}));
+        }
+        let params = json!({"action":action});
+        if app.automation_input
+            && let Some(authorize) = app.services.automation_command.as_ref()
+        {
+            authorize("color.profileMismatch", &params)?;
+        }
+        let gate = if app.automation_input && app.session.authorize.is_none() { app.services.automation_authorize } else { None };
+        if gate.is_some() {
+            app.session.authorize = gate;
+        }
+        let suppress = app.automation_input && app.session.prefs().script_events.enabled;
+        if suppress {
+            app.session.edit_prefs(|prefs| prefs.script_events.enabled = false);
+        }
+        let result = app.session.execute("color.profileMismatch", params).map_err(|error| error.to_string());
+        if suppress {
+            app.session.edit_prefs(|prefs| prefs.script_events.enabled = true);
+        }
+        if gate.is_some() {
+            app.session.authorize = None;
+        }
+        result
+    })();
+    if let Some(index) = viewed.and_then(|id| app.session.documents().iter().position(|state| state.doc.id == id)) {
+        app.session.set_active(index);
+    }
+    app.sync_views();
+    result
 }
 
 #[cfg(test)]
