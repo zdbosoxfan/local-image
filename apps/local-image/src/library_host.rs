@@ -2548,6 +2548,53 @@ mod tests {
         eprintln!("unsaved_composites, 3 dirty documents, {n} photos: {:.2} ms/frame", t.elapsed().as_secs_f64() * 1000.0 / reps as f64);
         std::fs::remove_dir_all(dir).unwrap();
     }
+
+    #[test]
+    fn generation_metadata_library_save_return_and_update_keep_settings() {
+        let (dir, path, lib, orig) = library_with_photo("generation-save-return");
+        let mut host = host_with_round_trip(lib, orig, &path);
+        let settings =
+            json!({"command":"ai.generativeFill","prompt":"a copper badge","seed":u64::MAX,"engine":"int8","bounds":[1,1,2,2],"extension":{"kept":true}});
+        host.editor
+            .session
+            .edit("Generated fixture", |doc, active| {
+                let mut layer = photocraft_doc::Layer::raster("Generated badge", photocraft_color::PixelFormat::RGBA8);
+                layer.surface_mut().unwrap().fill_rect(photocraft_geom::Rect::from_xywh(1, 1, 2, 2), &[0.7, 0.3, 0.1, 1.]);
+                layer.generation = Some(settings.clone());
+                let id = doc.insert_above(*active, layer);
+                *active = Some(id);
+                Ok(())
+            })
+            .unwrap();
+        let mut h = RoundTripUi::new(host);
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        h.click("button:roundTripSave");
+        let saved = dir.join("photo-Edit.psd");
+        let read = || photocraft_io::import("photo-Edit.psd", &std::fs::read(&saved).unwrap()).unwrap().document;
+        let back = read();
+        assert_eq!(back.layers.iter().find_map(|layer| layer.generation.as_ref()), Some(&settings));
+        assert!(photo_at_path(catalog(&h.host), &saved.to_string_lossy()).is_some());
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        let mut updated = settings.clone();
+        updated["prompt"] = json!("a silver badge");
+        h.host
+            .editor
+            .session
+            .edit("Update generation settings", |doc, _| {
+                doc.layers.iter_mut().find(|layer| layer.generation.is_some()).unwrap().generation = Some(updated.clone());
+                Ok(())
+            })
+            .unwrap();
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.key(egui::Key::S, egui::Modifiers::COMMAND);
+        assert!(!h.host.editor.has_unsaved());
+        assert_eq!(read().layers.iter().find_map(|layer| layer.generation.as_ref()), Some(&updated));
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 #[cfg(test)]

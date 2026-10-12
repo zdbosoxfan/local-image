@@ -39,6 +39,7 @@ pub mod pattern_map;
 mod pixels;
 mod psd_editable;
 mod psd_export;
+mod psd_generation;
 mod psd_import;
 pub mod raw;
 pub mod slices_map;
@@ -215,8 +216,10 @@ pub fn export_with_projection(
         return Ok(ExportResult { bytes: photocraft_format::save_to_bytes(doc, &previews)?, warnings: Vec::new() });
     }
     if ext == "psd" || ext == "psb" {
+        psd_generation::admit(doc)?;
         let o = PsdExportOptions { force_psb: opts.force_psb || ext == "psb", ..Default::default() };
         let prepared = vector_map::fallback::prepare(doc, projection)?;
+        psd_generation::admit(&prepared)?;
         let (file, mut warnings) = document_to_psd_with(&prepared, &o);
         // Collect before projection clears native metadata, and present each loss once.
         let prepared_notice = vector_map::fallback::LossCollector::document(&prepared).notice();

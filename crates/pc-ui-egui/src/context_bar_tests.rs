@@ -692,3 +692,57 @@ fn a_new_shape_reveals_properties() {
     assert!(app.ui.panels.properties);
     assert_eq!(app.ui.dock_tabs.properties, 0);
 }
+
+#[test]
+fn generation_metadata_saved_layers_regenerate_from_context_bar() {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            li_ai::set_service_override(None);
+            crate::ai_ui::TEST_STATUS.with(|status| *status.borrow_mut() = None);
+        }
+    }
+    let server = li_ai::mock::MockComfy::start().expect("local mock server required for regeneration regression");
+    li_ai::set_service_override(Some(server.host().to_owned()));
+    let _reset = Reset;
+    crate::ai_ui::TEST_STATUS.with(|status| *status.borrow_mut() = Some(crate::ai_ui::EngineStatus { connected: true, checked: true, ..Default::default() }));
+    let mut source = Document::with_background("Saved generation", Size::new(120, 90), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+    let image = image::RgbaImage::from_pixel(12, 10, image::Rgba([170, 80, 40, 255]));
+    let mut generated = photocraft_engine::ai_cmds::layer_from_rgba(&source, "Generated badge", &image, 20, 15).unwrap();
+    let settings = json!({"command":"ai.generativeFill","prompt":"a copper badge","seed":71,"engine":"int8","bounds":[20,15,12,10]});
+    generated.generation = Some(settings.clone());
+    source.layers.push(generated);
+    for format in ["psd", "psb", "tif"] {
+        let name = format!("generated.{format}");
+        let bytes =
+            photocraft_engine::vector_integration::export_document(&source, &name, &photocraft_io::ExportOptions { tiff_layers: true, ..Default::default() })
+                .unwrap()
+                .bytes;
+        let doc = photocraft_io::import(&name, &bytes).unwrap().document;
+        let old =
+            doc.layers.iter().find(|layer| layer.generation.is_some()).unwrap_or_else(|| panic!("{format}: generation metadata missing after layered save")).id;
+        let mut session = photocraft_engine::Session::new();
+        session.add_document(doc, None);
+        session.select_layer(old).unwrap();
+        let mut h = Harness::builder().with_size(vec2(1000., 700.)).with_max_steps(48).build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            let mut app = PhotocraftApp::new(session, crate::Services::default());
+            app.ui.tool = Tool::Move;
+            app
+        });
+        h.run_steps(4);
+        let at = bar_widget(&h, "Regenerate");
+        click_at(&mut h, at);
+        assert!(!h.state().ui.status_error, "{format}: {}", h.state().ui.status);
+        let st = h.state().session.active().unwrap();
+        assert!(!st.doc.layer(old).unwrap().visible, "old result hidden only after success");
+        let new = st.doc.layer(st.active_layer.unwrap()).unwrap();
+        let regenerated = new.generation.as_ref().unwrap();
+        assert_eq!(regenerated["prompt"], settings["prompt"]);
+        assert_eq!(regenerated["engine"], settings["engine"]);
+        assert_eq!(regenerated["bounds"], settings["bounds"]);
+        assert_ne!(regenerated["seed"], settings["seed"]);
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert!(h.state().session.active().unwrap().doc.layer(old).unwrap().visible);
+    }
+}

@@ -788,6 +788,9 @@ pub mod transcode {
                 }
                 // Text-engine global data: a textual structure, no byte order.
                 b"Txt2" => self.rest()?,
+                // Local Image provenance has a fixed BE length and UTF-8 JSON;
+                // its payload never follows the surrounding TIFF byte order.
+                b"liGM" => self.rest()?,
                 b"lnsr" => {
                     self.key()?;
                 }
@@ -2130,6 +2133,33 @@ mod tests {
         let (_, little) = block_rt(*b"Anno", a);
         assert!(little.windows(4).any(|w| w == b"Atxt"));
         assert!(little.windows(6).any(|w| w == text), "text kept as stored");
+    }
+
+    #[test]
+    fn generation_block_is_byte_exact_across_orders_versions_and_depths() {
+        let json = br#"{"prompt":"fixed byte order","seed":18446744073709551615}"#;
+        let mut payload = b"LIGEN001".to_vec();
+        payload.extend_from_slice(&(json.len() as u32).to_be_bytes());
+        payload.extend_from_slice(json);
+        if !payload.len().is_multiple_of(2) {
+            payload.push(0);
+        }
+        for version in [Version::Psd, Version::Psb] {
+            for depth in [8, 16, 32] {
+                let file = testgen::layered(version, ColorMode::Rgb, depth, Compression::Raw);
+                let mut data = known(&ImageSourceData::from_psd(&file));
+                data.layer_info.as_mut().unwrap().layers[0].blocks.push(TaggedBlock::new(*b"liGM", payload.clone()));
+                for order in [ByteOrder::Big, ByteOrder::Little, ByteOrder::Big, ByteOrder::Little] {
+                    let (bytes, warnings) = data.to_bytes(order).unwrap();
+                    assert!(warnings.is_empty(), "{warnings:?}");
+                    let (parsed, warnings) = ImageSourceData::from_bytes(&bytes).unwrap();
+                    assert!(warnings.is_empty(), "{warnings:?}");
+                    assert_eq!(parsed.layer_info.as_ref().unwrap().layers[0].block(b"liGM").unwrap().data, payload);
+                    assert_eq!(known(&parsed).layer_info, known(&data).layer_info);
+                    data = parsed;
+                }
+            }
+        }
     }
 
     #[test]

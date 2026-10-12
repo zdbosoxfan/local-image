@@ -255,3 +255,149 @@ fn stale_native_text_runs_do_not_override_external_type_edits() {
     let LayerContent::Text(text) = &back.document.layers[0].content else { panic!("standard type lost") };
     assert!(text.char_runs()[0].style.postscript_name.is_some());
 }
+
+fn generated_document(depth: SampleType) -> Document {
+    let mut doc = Document::new("generation", Size::new(4, 4), ColorMode::Rgb, depth);
+    let mut pixels = Surface::new(doc.pixel_format());
+    pixels.write_pixel(1, 1, &[0.25, 0.5, 0.75, 1.]);
+    let mut layer = Layer::new("generated", LayerContent::Raster(pixels));
+    layer.generation = Some(serde_json::json!({
+        "command":"ai.generativeFill", "prompt":"light over water; 🌅", "seed":u64::MAX,
+        "engine":"qwen", "model":"custom:example", "bounds":[1,1,2,2],
+        "refine":{"model":"other","strength":0.25,"loras":[{"name":"style","strength":0.7}]},
+        "extension":{"future":[true,null,-4,0.125]}
+    }));
+    doc.layers.push(layer);
+    doc
+}
+
+#[test]
+fn generation_psd_psb_layered_tiff_two_cycles_keep_settings_and_pixels() {
+    for extension in ["psd", "psb", "tif"] {
+        for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let mut doc = generated_document(depth);
+            let mut duplicate = doc.layers[0].duplicate();
+            duplicate.name = "duplicate".into();
+            let mut group = Layer::group("group", vec![duplicate]);
+            group.generation = Some(serde_json::json!({"extension":{"group":"provenance"}}));
+            doc.layers.push(group);
+            let expected = doc.clone();
+            for _ in 0..2 {
+                let output = export(&doc, extension, &ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+                assert!(output.warnings.iter().all(|w| !w.contains("generation") && !w.contains("liGM")), "{:?}", output.warnings);
+                let opened = import(extension, &output.bytes).unwrap();
+                assert!(opened.warnings.iter().all(|w| !w.contains("generation") && !w.contains("liGM")), "{:?}", opened.warnings);
+                doc = opened.document;
+                let expected_layers = expected.walk();
+                let actual_layers = doc.walk();
+                assert_eq!(actual_layers.len(), expected_layers.len());
+                for ((_, _, want), (_, _, got)) in expected_layers.iter().zip(&actual_layers) {
+                    assert_eq!(got.name, want.name);
+                    assert_eq!(got.generation, want.generation);
+                    assert!(got.psd_blocks.iter().all(|(key, _)| key != b"liGM"));
+                    if let (Some(a), Some(b)) = (want.surface(), got.surface()) {
+                        surface_eq(a, b, "generation roundtrip");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn generation_edits_and_clear_cannot_restore_stale_private_block() {
+    for extension in ["psd", "psb", "tif"] {
+        let source = generated_document(SampleType::U8);
+        let first = export(&source, extension, &ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+        let mut doc = import(extension, &first.bytes).unwrap().document;
+        // Simulate a caller retaining stale raw private data. Current typed state wins.
+        doc.layers[0].psd_blocks.push((*b"liGM", Arc::new(b"stale".to_vec())));
+        for value in [Some(serde_json::json!({"command":"ai.generateBackground","prompt":"changed","seed":7})), None] {
+            doc.layers[0].generation = value.clone();
+            let output = export(&doc, extension, &ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+            doc = import(extension, &output.bytes).unwrap().document;
+            assert_eq!(doc.layers[0].generation, value);
+            surface_eq(source.layers[0].surface().unwrap(), doc.layers[0].surface().unwrap(), "edited metadata pixels");
+        }
+    }
+}
+
+#[test]
+fn generation_locked_single_layer_tiff_remains_layered() {
+    let mut doc = generated_document(SampleType::U8);
+    doc.layers[0].locks.transparency = true;
+    assert!(photocraft_io::tiff_layers::would_write_layers(&doc));
+    for _ in 0..2 {
+        let output = export(&doc, "tif", &ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+        assert!(photocraft_codecs::tiff_photoshop_tags(&output.bytes).1.is_some());
+        let back = import("tif", &output.bytes).unwrap().document;
+        assert_eq!(back.layers[0].generation, doc.layers[0].generation);
+        assert!(back.layers[0].locks.transparency);
+        doc = back;
+    }
+}
+
+#[test]
+fn generation_bad_import_keeps_standard_pixels_and_warns() {
+    let doc = generated_document(SampleType::U8);
+    let output = export(&doc, "psd", &ExportOptions::default()).unwrap();
+    let original = PsdFile::from_bytes(&output.bytes).unwrap();
+    for case in 0..5 {
+        let mut file = original.clone();
+        let record = &mut file.layer_info.as_mut().unwrap().layers[0];
+        let block = record.blocks.iter_mut().find(|b| b.key == *b"liGM").unwrap();
+        match case {
+            0 => block.data[7] = b'2',
+            1 => block.data.truncate(11),
+            2 => block.data[8..12].copy_from_slice(&u32::MAX.to_be_bytes()),
+            3 => block.data[12] = 0xff,
+            _ => {
+                let duplicate = block.clone();
+                record.blocks.push(duplicate);
+            }
+        }
+        let bytes = file.to_bytes().unwrap();
+        let opened = import("psd", &bytes).unwrap();
+        assert_eq!(opened.warnings.iter().filter(|w| w.contains("generation metadata")).count(), 1, "{:?}", opened.warnings);
+        assert!(opened.document.layers[0].generation.is_none());
+        surface_eq(doc.layers[0].surface().unwrap(), opened.document.layers[0].surface().unwrap(), "malformed generation pixels");
+    }
+}
+
+#[test]
+fn generation_export_limits_fail_before_publishing_bytes() {
+    let mut doc = generated_document(SampleType::U8);
+    for extension in ["psd", "psb", "tif"] {
+        doc.layers[0].generation = Some(serde_json::json!({"prompt":"x".repeat(256*1024)}));
+        assert!(export(&doc, extension, &ExportOptions { tiff_layers: true, ..Default::default() }).is_err());
+    }
+    doc.layers[0].generation = Some(serde_json::json!({"prompt":"x".repeat(255*1024)}));
+    let layer = doc.layers[0].clone();
+    doc.layers = (0..33).map(|_| layer.duplicate()).collect();
+    for extension in ["psd", "psb", "tif"] {
+        assert!(export(&doc, extension, &ExportOptions { tiff_layers: true, ..Default::default() }).is_err());
+    }
+}
+
+#[test]
+fn generation_coexists_with_editable_shape_fingerprint_for_two_cycles() {
+    let mut doc = Document::new("private controls", Size::new(16, 16), ColorMode::Rgb, SampleType::U8);
+    let mut shape = ShapeLayer { path: photocraft_vector::shapes::rect(0., 0., 12., 12.), fill: Some(Fill::Solid(Color::BLACK)), ..Default::default() };
+    shape.cache = Some(photocraft_vector::render_shape(&shape, doc.pixel_format(), doc.bounds()));
+    let mut layer = Layer::new("generated shape", LayerContent::Shape(shape));
+    layer.vector_mask = Some(VectorMask::new(photocraft_vector::shapes::rect(0., 0., 8., 8.)));
+    layer.generation = Some(serde_json::json!({"extension":{"provenance":"shape source"}}));
+    doc.layers.push(layer);
+    for extension in ["psd", "psb", "tif"] {
+        let mut current = doc.clone();
+        for _ in 0..2 {
+            let output = export(&current, extension, &ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+            let opened = import(extension, &output.bytes).unwrap();
+            assert!(opened.warnings.iter().all(|w| !w.contains("generation metadata") && !w.contains("stale native editable")), "{:?}", opened.warnings);
+            current = opened.document;
+            assert!(matches!(current.layers[0].content, LayerContent::Shape(_)));
+            assert_eq!(current.layers[0].vector_mask, doc.layers[0].vector_mask);
+            assert_eq!(current.layers[0].generation, doc.layers[0].generation);
+        }
+    }
+}

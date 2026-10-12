@@ -55,6 +55,7 @@ struct Ex {
     canvas: photocraft_geom::Rect,
     records: Vec<LayerRecord>,
     warnings: Vec<String>,
+    generation_remaining: usize,
     /// Guides (artboard blocks list the guides inside each board).
     guides: photocraft_doc::Guides,
     /// Layer comps to regenerate into each layer's `cmls`; None = preserved data still matches.
@@ -398,6 +399,10 @@ impl Ex {
             blocks,
             extra_trailing: Vec::new(),
         };
+        // Include provenance before binding editable controls to the standard record.
+        if let Err(warning) = crate::psd_generation::attach(l, &mut record, &mut self.generation_remaining) {
+            self.warnings.push(warning);
+        }
         if let Err(warning) = crate::psd_editable::attach(l, &mut record) {
             self.warnings.push(warning);
         }
@@ -1178,6 +1183,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         canvas: doc.bounds(),
         records: Vec::new(),
         warnings: Vec::new(),
+        generation_remaining: crate::psd_generation::DOCUMENT_BYTES,
         guides: doc.guides.clone(),
         comps: (!crate::comps_map::comps_unchanged(doc)).then(|| (doc.layer_comps.clone(), doc.last_document_state.clone())),
         smart: SmartOut::new(doc, depth),

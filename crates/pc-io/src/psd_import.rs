@@ -40,7 +40,7 @@ pub(crate) const MAPPED_RESOURCES: [u16; 19] = [
 
 /// Blocks regenerated from document fields on export; not kept in
 /// `Layer::psd_blocks`.
-pub(crate) const REGENERATED: [&[u8; 4]; 9] = [b"luni", b"lyid", b"lsct", b"lsdk", b"iOpa", b"lspf", b"lclr", b"lfx2", b"lfxs"];
+pub(crate) const REGENERATED: [&[u8; 4]; 10] = [b"luni", b"lyid", b"lsct", b"lsdk", b"iOpa", b"lspf", b"lclr", b"lfx2", b"lfxs", &crate::psd_generation::KEY];
 
 pub(crate) struct Ctx<'a> {
     pub file: &'a PsdFile,
@@ -61,6 +61,7 @@ pub(crate) struct Ctx<'a> {
     pub done: usize,
     pub total: usize,
     pub remaining: usize,
+    pub generation_remaining: usize,
 }
 
 fn doc_mode(m: PsdMode) -> Option<ColorMode> {
@@ -207,6 +208,10 @@ impl Ctx<'_> {
     }
 
     fn apply_common(&mut self, l: &mut Layer, rec: &LayerRecord, blend_override: Option<photocraft_psd::BlendMode>) {
+        match crate::psd_generation::restore(rec, &mut self.generation_remaining) {
+            Ok(value) => l.generation = value,
+            Err(warning) => self.warn(format!("layer \"{}\": {warning}", l.name)),
+        }
         l.visible = rec.is_visible();
         l.opacity = f32::from(rec.opacity) / 255.0;
         l.fill_opacity = f32::from(rec.fill_opacity()) / 255.0;
@@ -617,6 +622,7 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
         done: 0,
         total: file.layers().len(),
         remaining: 512 << 20,
+        generation_remaining: crate::psd_generation::DOCUMENT_BYTES,
     };
     for b in file.global_blocks.iter().filter(|b| matches!(&b.key, b"FEid" | b"FXid")) {
         // Smart-filter caches can be large: a cancelled open stops between blocks.
@@ -867,6 +873,7 @@ mod file_input_regressions {
             done: 0,
             total: 0,
             remaining: 400_000,
+            generation_remaining: crate::psd_generation::DOCUMENT_BYTES,
         };
         assert!(ctx.charge(1, 1, 4));
         assert!(ctx.charge(1, 1, 4));

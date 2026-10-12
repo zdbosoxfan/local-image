@@ -27,7 +27,7 @@ use crate::{ExportOptions, ExportResult, ImportResult, IoError};
 /// exactly. A lone unlocked layer keeps its layer data, as in Photoshop, so it reopens as that
 /// layer rather than as a Background.
 pub fn would_write_layers(doc: &Document) -> bool {
-    !(single_layer(doc).is_some() && doc.layers.first().is_some_and(|l| l.locks.transparency))
+    !(single_layer(doc).is_some() && doc.layers.first().is_some_and(|l| l.locks.transparency && l.generation.is_none()))
 }
 
 /// Documents a layered TIFF can hold: the TIFF composite must be in the document's model so
@@ -184,8 +184,10 @@ pub(crate) fn export_layered(
     opts: &ExportOptions,
     projection: Option<&dyn crate::vector_map::fallback::Projection>,
 ) -> Result<ExportResult, IoError> {
+    crate::psd_generation::admit(doc)?;
     let losses = crate::vector_map::fallback::LossCollector::document(doc);
     let prepared = crate::vector_map::fallback::prepare(doc, projection)?;
+    crate::psd_generation::admit(&prepared)?;
     let doc = &prepared;
     if !layered_mode(doc) {
         let mut r = crate::flat::export_flat(doc, Format::Tiff, opts)?;
