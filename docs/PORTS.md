@@ -329,3 +329,18 @@ The inherited PhotoCraft licence notices remain in `licenses/photocraft-*`.
 | `crates/pc-vecfx/src/path_effects/distort.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/effects/src/distort.rs`, `crates/effects/src/util.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-engine/src/vector_packages/path_effects.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/engine/src/cmd/effectcmd.rs` (transaction semantics) | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | crates/pc-engine/src/vector_toolbar_layout.rs | [VectorCraft](https://github.com/storytold/vectorcraft) | crates/tools/src/catalog.rs (order and Illustrator keymap adapted to Local Image IDs) | d522c1d7be4035bd4f4a84cd6ebfca44f5155092 | MIT OR Apache-2.0 | 2026-10-10 |
+
+### Bounded PDF CCITT admission (2026-10-12)
+
+Pinned registry `.cargo_vcs_info.json` verifies commit below for hayro-ccitt 0.3.0.
+The MIT license option is selected; notice: `licenses/hayro-ccitt-MIT.txt`.
+No dependency version changes. Tables/decoding organization are retained, with
+fallible output, strict rejection of malformed/overlong rows, per-bit and
+reference-search work/cancel checks. No panic-based cancellation.
+
+| Our file | Upstream project | Upstream path | Upstream commit | Licence | Date | Used for |
+|---|---|---|---|---|---|---|
+| `crates/pc-pdf/src/import/preflight/ccitt/mod.rs` | [hayro](https://github.com/LaurenzV/hayro) | `hayro-ccitt/src/lib.rs` | `4ad1532e1cd719170c4f4baf669f13ec0f406abb` | MIT | 2026-10-12 | Fallible, bounded CCITT Group 3/4 admission. |
+| `crates/pc-pdf/src/import/preflight/ccitt/bit_reader.rs` | [hayro](https://github.com/LaurenzV/hayro) | `hayro-ccitt/src/bit_reader.rs` | `4ad1532e1cd719170c4f4baf669f13ec0f406abb` | MIT | 2026-10-12 | Shared work budget and cancellation, including peeks. |
+| `crates/pc-pdf/src/import/preflight/ccitt/decode.rs` | [hayro](https://github.com/LaurenzV/hayro) | `hayro-ccitt/src/decode.rs` | `4ad1532e1cd719170c4f4baf669f13ec0f406abb` | MIT | 2026-10-12 | Strict Huffman/EOL decoding without partial repair. |
+| `crates/pc-pdf/src/import/preflight/ccitt/state_machine.rs` | [hayro](https://github.com/LaurenzV/hayro) | `hayro-ccitt/src/state_machine.rs` | `4ad1532e1cd719170c4f4baf669f13ec0f406abb` | MIT | 2026-10-12 | Pinned T.4/T.6 code tables. |

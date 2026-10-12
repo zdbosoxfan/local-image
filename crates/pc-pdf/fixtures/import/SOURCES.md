@@ -96,3 +96,29 @@ LZW support here does not enable CCITT, other image codecs, encryption, inline
 images or nonisolated transparency. Predictor layouts whose upstream BitChunks
 handling drops partial pixel chunks or misaligns TIFF sub-byte rows are refused;
 indirect DecodeParms and ambiguous aliases are also refused explicitly.
+
+## FS009 CCITT strict admission, stage three
+
+Original hand-coded T.4/T.6 fixtures in `tests/import/ccitt.rs` encode four 8px
+rows: white, black, black, white. White8=`10011`; black8 consists of white0
+`00110101` plus black8 `000101`. Group4 uses V0, Horizontal, V0/V0 and Pass;
+Group3 fixtures cover 1D and tagged mixed 1D/2D. These fixtures do not call the
+production decoder or an encoder to build their data. Uncompressed one-bit
+image PDFs supply independent exact pixel references, including stencil and
+BlackIs1 inversion. Options cover row byte alignment, optional EOL/EOB, missing
+Rows using pinned image-height default, alias CCF and ASCIIHex filter chains.
+
+Private decoder tests check those known pixels, callback output errors,
+cancellation triggered after the first decoded row, shared bit-work exhaustion,
+and repeated zero-length runs that consume work without output growth.
+Malformed/truncated/early-EOB/overlong rows, dimensions, explicit Rows=0,
+damaged-row repair, allocation budgets, decoder aliases and filter-order bypasses
+must fail before canonical PDF publication. No partial upstream rows count as
+success. The adapted implementation's source/hash/license is in `docs/PORTS.md`.
+
+Admitted CCITT streams use direct one-bit DeviceGray or stencil image metadata,
+matching positive Width/Columns and Height/Rows. Explicit Rows=0 remains refused
+because pinned Group3 and Group4 interpret it differently; missing Rows uses
+Height in pinned hayro-syntax 0.7.2. Indexed/indirect color spaces, overriding
+inline aliases and damaged-row repair need separate normalization. This stage
+does not enable inline images, encryption, nonisolated groups or new versions.

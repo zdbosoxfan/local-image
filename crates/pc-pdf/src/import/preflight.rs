@@ -1,6 +1,6 @@
 //! Allocation/work guard before hayro's unbounded decoders run. PDF 1.7 §§3.2–3.5.
 //! This is a restrictive admission check, not a replacement PDF interpreter. In particular
-//! indirect filters, encryption, CCITT/JPX/JBIG2 and inline images are refused. Every
+//! indirect filters, encryption, JPX/JBIG2 and inline images are refused. Every
 //! accepted stream is measured with bounded decoding; object-stream dictionaries and the
 //! reference graph are checked before Pdf::new can traverse/decompress them.
 use super::{ImportError, Result, cancelled};
@@ -11,6 +11,10 @@ use std::{
     sync::atomic::AtomicBool,
 };
 
+#[path = "preflight/ccitt/mod.rs"]
+mod ccitt;
+#[path = "preflight/ccitt_admission.rs"]
+mod ccitt_admission;
 #[path = "preflight/filters.rs"]
 mod filters;
 #[path = "preflight/lengths.rs"]
@@ -442,6 +446,11 @@ impl Guard<'_> {
         }
         let params = predictors::parameters(value, matches!(value.get(b"Filter"), Some(Value::Array(_))), filters.len())?;
         let image = value.get(b"Subtype").and_then(Value::name) == Some(b"Image");
+        if let Some(i) = filters.iter().position(|f| matches!(*f, b"CCITTFaxDecode" | b"CCF"))
+            && (i + 1 != filters.len() || filters[..i].iter().any(|f| matches!(*f, b"DCTDecode" | b"DCT")))
+        {
+            return Err(ImportError::Unsupported("CCITT must be the terminal image decoder"));
+        }
         let dct = filters.iter().any(|f| matches!(*f, b"DCTDecode" | b"DCT"));
         let mut declared_pixels = 0;
         if image {
@@ -458,7 +467,8 @@ impl Guard<'_> {
         }
         let mut data = raw.to_vec();
         let mut decoded_charged = false;
-        for (f, params) in filters.into_iter().zip(params) {
+        let filter_count = filters.len();
+        for (index, (f, params)) in filters.into_iter().zip(params).enumerate() {
             data = match f {
                 b"ASCIIHexDecode" | b"AHx" | b"ASCII85Decode" | b"A85" | b"RunLengthDecode" | b"RL" => {
                     // The pinned ASCII decoders reserve from encoded length even
@@ -498,6 +508,21 @@ impl Guard<'_> {
                     self.charge(decoded.len() as u64)?;
                     decoded_charged = true;
                     decoded
+                }
+                b"CCITTFaxDecode" | b"CCF" if image => {
+                    if index + 1 != filter_count {
+                        return Err(ImportError::Unsupported("filters after CCITT image decode"));
+                    }
+                    let cost = ccitt_admission::check(
+                        value,
+                        params,
+                        &data,
+                        self.options,
+                        self.options.limits.decompressed_bytes.saturating_sub(self.bytes),
+                        self.cancel,
+                    )?;
+                    self.charge(cost)?;
+                    return Ok(vec![]);
                 }
                 b"DCTDecode" | b"DCT" if image => {
                     let reader = image::ImageReader::new(std::io::Cursor::new(&data)).with_guessed_format().map_err(|_| invalid("image header"))?;

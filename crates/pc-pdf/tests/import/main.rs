@@ -417,4 +417,5 @@ fn pdf_xref_hidden_content_cannot_bypass_preflight() {
     assert_eq!(result.get(16, 16), [1.0, 0.0, 0.0, 1.0]);
 }
 
+mod ccitt;
 mod compatibility;
