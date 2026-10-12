@@ -235,6 +235,7 @@ pub mod type_panels_ui;
 pub mod type_tool;
 mod variables_ui;
 pub mod vector_ui;
+pub mod view_camera;
 pub mod view_cmds;
 pub mod wheel_nav;
 pub mod wide_angle_ui;

@@ -463,3 +463,11 @@ The focused Tab/Restore scenarios passed after correcting fixture issues. The af
 TEST-CHANGED: the menu fixture now matches the actual decorated item, scrolls its offscreen row into view and asserts reachability before clicking. The context-bar check distinguishes its Select Subject button from the separate Properties button. The detached brush fixture establishes real field focus before injecting its draft, avoiding a pointer-release side effect. The shortcut sweep restores and checks its intended real focus for each chord because native Tab still moves focus during command dry-run. All original behavioral, negative, undo, enablement and dispatch assertions remain. Temporary tracing was removed.
 
 Actual Rotate View and the remaining original UX list are still required. Shared Library menus/preferences/shortcut editing, native clipping/CMYK work, final native/GPU workflows, full supported workspace and the final installed release remain incomplete.
+
+## Rotate View presentation foundation
+
+The internal camera adapter now supplies one forward/inverse basis, textured CPU quadrilaterals and four-corner bounds. GPU normal, proxy, live-move, scaled-region and shadow presentation use the same mapping. All real application callers still supply rotation zero; this checkpoint does not expose an incomplete Rotate View tool. Camera state, gestures, overlays, angle/reset controls and actual user-facing rotation remain required next.
+
+Validation: five CPU/math/image controls passed. Actual RTX5090 Vulkan discrete hardware passed the scaled rotated viewport and shadow cases, followed by all five raster/proxy/live-move variants (including reflection and fractional scaling). The original eight GPU view regressions passed, covering pan/zoom/node editing, HDR/P3 display, cache reuse and CPU fallback; the opt-in release timing benchmark remains separate. All four output PNGs were visually inspected. Strict affected lint, exact-file formatting and source hashes passed. The single fixture correction gives each independent kittest harness a fresh RenderState, as required by kittest font-texture ownership; no case, pixel assertion or tolerance was removed.
+
+This is a rendering foundation only, not closure of U016 or final native UX acceptance. No touch-rotation or restart-camera persistence requirements were invented.

@@ -70,6 +70,7 @@ fn assert_app_pixels(h: &mut H, doc: &Document, scale: f64) {
             output: 0,
             hdr: None,
             flip: app.ui.view.flip_horizontal,
+            rotation: 0.0,
         },
     };
     let ppp = h.ctx.pixels_per_point();
@@ -479,6 +480,7 @@ fn scaled_test_callback(h: &H, zoom: f32) -> CanvasCallback {
             output: 0,
             hdr: None,
             flip: false,
+            rotation: 0.0,
         },
     }
 }
@@ -567,4 +569,345 @@ fn scaled_pipeline_refusal_keeps_correct_cpu_rendering_without_repeated_construc
         assert_eq!(result.1, first.1, "cached device refusal must not rebuild pipelines");
         assert_live_view_texels(&h, &doc, f64::from(zoom));
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RotationPath {
+    Raster,
+    Proxy,
+    Move,
+}
+
+struct RotationFrame {
+    gpu: GpuCanvas,
+    params: ViewParams,
+    path: RotationPath,
+    rect: egui::Rect,
+}
+
+fn rotation_color(x: f64, y: f64) -> [u8; 4] {
+    [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255], [255, 255, 0, 255]][usize::from(x >= 48.0) + 2 * usize::from(y >= 40.0)]
+}
+
+#[test]
+fn rotated_presentation_rtx5090_raster_proxy_and_live_move_keep_pixels_and_coverage() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    for (degrees, flip, ppp, path) in [
+        (0.0_f32, true, 1.25, RotationPath::Raster),
+        (37.0, false, 1.25, RotationPath::Raster),
+        (-90.0, true, 2.0, RotationPath::Raster),
+        (37.0, true, 1.25, RotationPath::Proxy),
+        (37.0, true, 1.25, RotationPath::Move),
+    ] {
+        // Independent egui contexts need fresh renderer texture namespaces (including fonts).
+        let mut setup = wgpu_setup();
+        use_adapter_limits_with(&mut setup, |adapter| {
+            let info = adapter.get_info();
+            assert!(info.name.contains("RTX 5090"), "{info:?}");
+            assert_eq!(info.backend, wgpu::Backend::Vulkan);
+            assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+            eprintln!("rotated presentation gate {info:?}");
+        });
+        let rs = egui_kittest::wgpu::create_render_state(setup, eframe::egui_wgpu::RendererOptions::PREDICTABLE);
+        let gpu = GpuCanvas::with_tile(&rs, Some(64));
+        let reduced = matches!(path, RotationPath::Proxy);
+        let factor = if reduced { 2 } else { 1 };
+        let pixels: Vec<u8> =
+            (0..96 / factor).flat_map(|y| (0..128 / factor).flat_map(move |x| rotation_color(f64::from(x * factor), f64::from(y * factor)))).collect();
+        gpu.upload_full(9001, [128 / factor, 96 / factor], &pixels);
+        for (key, start) in [(9002, 0), (9003, 64)] {
+            let pixels: Vec<u8> = (0..96).flat_map(|y| (0..64).flat_map(move |x| rotation_color(f64::from(x + start), f64::from(y)))).collect();
+            gpu.upload_full(key, [64, 96], &pixels);
+        }
+        let state = RotationFrame {
+            gpu,
+            params: ViewParams {
+                doc: 9001,
+                doc_size: [128 / factor, 96 / factor],
+                zoom: 1.5 * factor as f32,
+                center: [64.0 / factor as f32, 48.0 / factor as f32],
+                shadow: false,
+                pixel_grid: false,
+                view_key: 9100,
+                display: 0,
+                output: 0,
+                hdr: None,
+                flip,
+                rotation: degrees.to_radians(),
+            },
+            path,
+            rect: egui::Rect::NOTHING,
+        };
+        let background = egui::Color32::from_rgb(19, 27, 41);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(320.0, 260.0))
+            .with_pixels_per_point(ppp)
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs.clone()))
+            .build_ui_state(
+                move |ui, state: &mut RotationFrame| {
+                    state.rect = ui.max_rect();
+                    let painter = ui.painter_at(state.rect);
+                    painter.rect_filled(state.rect, 0, background);
+                    if matches!(state.path, RotationPath::Move) {
+                        GpuCanvas::paint_move(
+                            &painter,
+                            state.rect,
+                            state.params,
+                            vec![
+                                MovePlane { key: 9002, size: [64, 96], origin: [0, 0], moving: false, offset: [0, 0] },
+                                MovePlane { key: 9003, size: [64, 96], origin: [64, 0], moving: true, offset: [9, -5] },
+                            ],
+                        );
+                    } else {
+                        GpuCanvas::paint(&painter, state.rect, state.params);
+                    }
+                },
+                state,
+            );
+        h.run_steps(2);
+        let output = h.render().expect("required hardware presentation readback");
+        if degrees == 37.0 {
+            let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/rotate-view-foundation");
+            std::fs::create_dir_all(&dir).unwrap();
+            output.save(dir.join(format!("{path:?}-37deg-{ppp}x-flip{flip}.png"))).unwrap();
+        }
+        assert!(h.state().gpu.fault().is_none());
+        let rect = h.state().rect;
+        let physical = 1.5 * ppp;
+        let (sin, cos) = f64::from(degrees).to_radians().sin_cos();
+        // Independent screen inverse. Only the upright case uses legacy snapped device origin.
+        let mut anchor = [f64::from(rect.center().x * ppp), f64::from(rect.center().y * ppp)];
+        if degrees == 0.0 {
+            let dx = f64::from(64.0 * physical * if flip { -1.0 } else { 1.0 });
+            let dy = f64::from(48.0 * physical);
+            anchor = [(anchor[0] - dx).round() + dx, (anchor[1] - dy).round() + dy];
+        }
+        let mut covered = 0;
+        let mut clear = 0;
+        for y in 0..output.height() {
+            for x in 0..output.width() {
+                let point = egui::pos2((x as f32 + 0.5) / ppp, (y as f32 + 0.5) / ppp);
+                if !rect.shrink(1.0).contains(point) {
+                    continue;
+                }
+                let sx = (f64::from(x) + 0.5 - anchor[0]) / f64::from(physical);
+                let sy = (f64::from(y) + 0.5 - anchor[1]) / f64::from(physical);
+                let dx = (cos * sx + sin * sy) * if flip { -1.0 } else { 1.0 } + 64.0;
+                let dy = -sin * sx + cos * sy + 48.0;
+                let actual = output.get_pixel(x, y).0;
+                if dx < -2.0 || dy < -2.0 || dx > 130.0 || dy > 98.0 {
+                    assert_eq!(actual, background.to_array(), "{path:?} {degrees}/{flip}: pasteboard at {x},{y} was filled by the rotated AABB");
+                    clear += 1;
+                    continue;
+                }
+                if !(2.0..126.0).contains(&dx) || !(2.0..94.0).contains(&dy) {
+                    continue;
+                }
+                let (sample_x, sample_y) = if matches!(path, RotationPath::Move) {
+                    if dx < 62.0 {
+                        (dx, dy)
+                    } else if dx > 75.0 && dy < 89.0 {
+                        (dx - 9.0, dy + 5.0)
+                    } else {
+                        continue;
+                    }
+                } else {
+                    (dx, dy)
+                };
+                if (sample_x - 48.0).abs() < 2.0 || (sample_y - 40.0).abs() < 2.0 {
+                    continue;
+                }
+                let expected = rotation_color(sample_x, sample_y);
+                for c in 0..4 {
+                    assert!(actual[c].abs_diff(expected[c]) <= 1, "{path:?} {degrees}/{flip} {x},{y}: {actual:?} != {expected:?}, doc={dx},{dy}");
+                }
+                covered += 1;
+            }
+        }
+        assert!(covered > 10000 && clear > 10000, "nonvacuous coverage {path:?}: {covered}/{clear}");
+        if matches!(path, RotationPath::Move) {
+            // An actual translated plane leaves a gap, which must show checker, not stale pixels.
+            let d = [68.0_f64 - 64.0, 20.0_f64 - 48.0];
+            let dx = d[0] * if flip { -1.0 } else { 1.0 };
+            let px = anchor[0] + (cos * dx - sin * d[1]) * f64::from(physical);
+            let py = anchor[1] + (sin * dx + cos * d[1]) * f64::from(physical);
+            let gap = output.get_pixel(px as u32, py as u32).0;
+            assert_eq!(gap[0], gap[1]);
+            assert_eq!(gap[1], gap[2]);
+            assert_ne!(gap, background.to_array());
+        }
+    }
+}
+
+#[test]
+fn rotated_scaled_projection_covers_inverse_viewport_corners() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut h = harness(1.0);
+    let mut doc = fixture();
+    doc.size = Size::new(1200, 900);
+    add(&mut h, doc, 4.0);
+    let mut callback = scaled_test_callback(&h, 4.0);
+    callback.params.center = [600.0, 400.0];
+    callback.params.rotation = std::f32::consts::FRAC_PI_2;
+    callback.params.view_key = 9931;
+    callback.rect = egui::Rect::from_min_size(egui::pos2(50.0, 50.0), egui::vec2(800.0, 80.0));
+    let (scale, _, _) = prepare_scaled_test(&h, &callback);
+    assert_eq!(scale, 4.0);
+    let renderer = h.state().gpu.as_ref().unwrap().rs.renderer.read();
+    let frame = renderer.callback_resources.get::<Resources>().unwrap().scaled_frames.get(&9931).unwrap();
+    // A 90° rotation swaps this wide/short viewport: its document y span is300..500.
+    // The old axis-aligned ROI plus its sampling apron began at320, clipping the top corner.
+    for [x, y] in [[590.0, 300.0], [610.0, 300.0], [590.0, 500.0], [610.0, 500.0]] {
+        let (x, y) = ((x * scale) as i32, (y * scale) as i32);
+        assert!(
+            frame.rect.x0 < x && frame.rect.y0 < y && frame.rect.x1 > x && frame.rect.y1 > y,
+            "scaled ROI {:?} omits rotated visible corner {x},{y} plus filter gutter",
+            frame.rect
+        );
+    }
+}
+
+#[test]
+fn rotated_shadow_rtx5090_preserves_interior_and_screen_down_light() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut setup = wgpu_setup();
+    use_adapter_limits_with(&mut setup, |adapter| {
+        let info = adapter.get_info();
+        assert!(info.name.contains("RTX 5090"), "{info:?}");
+        assert_eq!(info.backend, wgpu::Backend::Vulkan);
+        assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+    });
+    let rs = egui_kittest::wgpu::create_render_state(setup, eframe::egui_wgpu::RendererOptions::PREDICTABLE);
+    let linear_target = rs.target_format.is_srgb();
+    let gpu = GpuCanvas::with_tile(&rs, Some(64));
+    let pixels: Vec<u8> = (0..96).flat_map(|y| (0..128).flat_map(move |x| rotation_color(f64::from(x), f64::from(y)))).collect();
+    gpu.upload_full(9201, [128, 96], &pixels);
+    let state = RotationFrame {
+        gpu,
+        params: ViewParams {
+            doc: 9201,
+            doc_size: [128, 96],
+            zoom: 1.5,
+            center: [64.0, 48.0],
+            shadow: false,
+            pixel_grid: false,
+            view_key: 9202,
+            display: 0,
+            output: 0,
+            hdr: None,
+            flip: false,
+            rotation: 37.0_f32.to_radians(),
+        },
+        path: RotationPath::Raster,
+        rect: egui::Rect::NOTHING,
+    };
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(480.0, 400.0))
+        .with_pixels_per_point(1.25)
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(
+            |ui, state: &mut RotationFrame| {
+                state.rect = ui.max_rect();
+                let painter = ui.painter_at(state.rect);
+                painter.rect_filled(state.rect, 0, egui::Color32::WHITE);
+                GpuCanvas::paint(&painter, state.rect, state.params);
+            },
+            state,
+        );
+    h.run_steps(2);
+    let off = h.render().expect("required shadow-off hardware readback");
+    h.state_mut().params.shadow = true;
+    h.step();
+    let on = h.render().expect("required shadow-on hardware readback");
+    assert!(h.state().gpu.fault().is_none());
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/rotate-view-foundation");
+    std::fs::create_dir_all(&dir).unwrap();
+    on.save(dir.join("shadow-37deg-1.25x.png")).unwrap();
+
+    // Independent scalar coordinates and numerically integrated Gaussian CDF. This does
+    // not reuse Camera, shader uniforms, or the shader's fast erf approximation.
+    let (sin, cos) = 37.0_f64.to_radians().sin_cos();
+    let rect = h.state().rect;
+    let anchor = [f64::from(rect.center().x) * 1.25, f64::from(rect.center().y) * 1.25];
+    let inverse = |p: [f64; 2]| {
+        let (x, y) = ((p[0] - anchor[0]) / 1.875, (p[1] - anchor[1]) / 1.875);
+        [cos * x + sin * y + 64.0, -sin * x + cos * y + 48.0]
+    };
+    let sample = |d: [f64; 2]| {
+        let (x, y) = ((d[0] - 64.0) * 1.875, (d[1] - 48.0) * 1.875);
+        [(anchor[0] + cos * x - sin * y).floor() as u32, (anchor[1] + sin * x + cos * y).floor() as u32]
+    };
+    let mut interior = 0;
+    for y in 0..on.height() {
+        for x in 0..on.width() {
+            let d = inverse([f64::from(x) + 0.5, f64::from(y) + 0.5]);
+            if (2.0..126.0).contains(&d[0]) && (2.0..94.0).contains(&d[1]) {
+                assert_eq!(on.get_pixel(x, y), off.get_pixel(x, y), "shadow changed opaque document pixel {x},{y}");
+                interior += 1;
+            }
+        }
+    }
+    assert!(interior > 10000);
+    for p in [
+        rect.left_top() + egui::vec2(8.0, 8.0),
+        rect.right_top() + egui::vec2(-8.0, 8.0),
+        rect.left_bottom() + egui::vec2(8.0, -8.0),
+        rect.right_bottom() - egui::vec2(8.0, 8.0),
+    ] {
+        let (x, y) = ((p.x * 1.25) as u32, (p.y * 1.25) as u32);
+        assert_eq!(off.get_pixel(x, y).0, [255; 4]);
+        assert_eq!(on.get_pixel(x, y), off.get_pixel(x, y), "far pasteboard changed");
+    }
+    fn cdf(x: f64) -> f64 {
+        let end = x.abs().min(10.0);
+        let step = end / 256.0;
+        let integral: f64 = (0..=256)
+            .map(|i| {
+                let t = f64::from(i) * step;
+                let weight = if i == 0 || i == 256 {
+                    1.0
+                } else if i % 2 == 0 {
+                    2.0
+                } else {
+                    4.0
+                };
+                weight * (-0.5 * t * t).exp()
+            })
+            .sum();
+        0.5 + x.signum() * integral * step / (3.0 * std::f64::consts::TAU.sqrt())
+    }
+    let alpha = |p: [f64; 2], rotated_light: bool| {
+        let coverage = |offset: f64, sigma: f64| {
+            let delta = if rotated_light { [-sin * offset * 1.25, cos * offset * 1.25] } else { [0.0, offset * 1.25] };
+            let d = inverse([p[0] - delta[0], p[1] - delta[1]]);
+            let sigma = sigma / 1.5;
+            (cdf((128.0 - d[0]) / sigma) - cdf(-d[0] / sigma)) * (cdf((96.0 - d[1]) / sigma) - cdf(-d[1] / sigma))
+        };
+        1.0 - (1.0 - 0.40 * coverage(7.0, 16.0)) * (1.0 - 0.30 * coverage(0.75, 1.25))
+    };
+    let intensity = |alpha: f64| {
+        let c = 1.0 - alpha;
+        255.0 * if linear_target { 1.055 * c.powf(1.0 / 2.4) - 0.055 } else { c }
+    };
+    let mut levels = Vec::new();
+    let mut light_space_separation = 0.0_f64;
+    for d in [[64.0, -4.0], [64.0, 100.0], [-4.0, 48.0], [132.0, 48.0]] {
+        let [x, y] = sample(d);
+        let p = [f64::from(x) + 0.5, f64::from(y) + 0.5];
+        let expected = intensity(alpha(p, false));
+        light_space_separation = light_space_separation.max((expected - intensity(alpha(p, true))).abs());
+        let actual = on.get_pixel(x, y).0;
+        assert_eq!(off.get_pixel(x, y).0, [255; 4], "paired sample must be exterior");
+        assert!(actual[0] < 250, "near-edge exterior needs visible shadow: {actual:?}");
+        for channel in &actual[..3] {
+            assert!((f64::from(*channel) - expected).abs() <= 2.0, "screen-down shadow at {d:?}: {actual:?}, Gaussian oracle={expected}");
+        }
+        levels.push(actual[0]);
+    }
+    assert!(levels[1] < levels[0], "screen-lower edge must cast the stronger shadow");
+    assert!(levels[3] < levels[2], "screen-down light also projects onto the rotated document x axis");
+    assert!(light_space_separation > 4.0, "fixture must distinguish screen-down from a light vector rotated with the page");
 }

@@ -468,17 +468,19 @@ impl ViewXform {
         let v = app.ui.views.get(app.session.active_index()?)?;
         Some(Self { rect: crate::rulers::content_rect(app, app.last_canvas_rect), zoom: v.zoom, center: v.center, flip: app.ui.view.flip_horizontal })
     }
+    /// Presentation foundation: UI camera angles remain upright until tool/input activation.
+    pub fn camera(&self) -> crate::view_camera::Camera {
+        crate::view_camera::Camera::new(self.rect, self.zoom, self.center, self.flip, 0.0)
+    }
     pub fn to_screen(&self, x: f32, y: f32) -> Pos2 {
-        let sx = if self.flip { -1.0 } else { 1.0 };
-        self.rect.center() + vec2((x - self.center[0]) * self.zoom * sx, (y - self.center[1]) * self.zoom)
+        self.camera().to_screen(pos2(x, y))
     }
     pub fn to_doc(&self, p: Pos2) -> [f64; 2] {
-        let d = (p - self.rect.center()) / self.zoom;
-        let dx = if self.flip { -d.x } else { d.x };
-        [(dx + self.center[0]) as f64, (d.y + self.center[1]) as f64]
+        let d = self.camera().to_document(p);
+        [f64::from(d.x), f64::from(d.y)]
     }
     pub fn doc_rect(&self, r: DRect) -> Rect {
-        Rect::from_two_pos(self.to_screen(r.x0 as f32, r.y0 as f32), self.to_screen(r.x1 as f32, r.y1 as f32))
+        self.camera().screen_bounds(Rect::from_min_max(pos2(r.x0 as f32, r.y0 as f32), pos2(r.x1 as f32, r.y1 as f32)))
     }
 }
 
@@ -1049,11 +1051,11 @@ fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u6
     app.filter_preview.as_ref().filter(|p| p.result.is_some()).map(|p| (p.k, key))
 }
 
-/// The document pixels a (non-rotated) view shows, with a margin for filtering.
+/// Conservative four-corner document coverage, with a margin for filtering.
 fn visible_doc_rect(xf: &ViewXform) -> DRect {
-    let (a, b) = (xf.to_doc(xf.rect.min), xf.to_doc(xf.rect.max));
-    let c = |v: f64| v.clamp(-1e9, 1e9) as i32;
-    DRect::new(c(a[0].min(b[0]).floor()) - 2, c(a[1].min(b[1]).floor()) - 2, c(a[0].max(b[0]).ceil()) + 2, c(a[1].max(b[1]).ceil()) + 2)
+    let visible = xf.camera().document_bounds(xf.rect);
+    let c = |v: f32| v.clamp(-1e9, 1e9) as i32;
+    DRect::new(c(visible.left().floor()) - 2, c(visible.top().floor()) - 2, c(visible.right().ceil()) + 2, c(visible.bottom().ceil()) + 2)
 }
 
 /// Zoomed-out Image › Adjustments preview on a large document: the wgpu compositor renders the
@@ -1804,6 +1806,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let drop_shadow = border == photocraft_engine::prefs::CanvasBorder::DropShadow;
     // Drop shadow, checkerboard, document image.
     let img_rect = xf.doc_rect(doc.bounds());
+    let image_bounds = Rect::from_min_size(Pos2::ZERO, vec2(doc.size.width as f32, doc.size.height as f32));
     // Live adjustment previews on big documents use a downsampled proxy (see proxy.rs).
     let mut on_gpu = false;
     let move_planes = crate::move_fast::planes(app, idx);
@@ -1826,6 +1829,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             output: output.unwrap_or(0),
             hdr: hdr_preview(app, &doc),
             flip,
+            rotation: 0.0,
         };
         crate::gpu_canvas::GpuCanvas::paint_move(&painter, rect, params, planes);
     } else if app.gpu.is_some()
@@ -1849,6 +1853,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             output: output.unwrap_or(0),
             hdr: hdr_preview(app, &doc),
             flip,
+            rotation: 0.0,
         };
         crate::gpu_canvas::GpuCanvas::paint(&painter, rect, params);
     } else if ensure_gpu(app, &ctx, idx, visible_doc_rect(&xf)) {
@@ -1870,6 +1875,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             output: output.unwrap_or(0),
             hdr: hdr_preview(app, &doc),
             flip,
+            rotation: 0.0,
         };
         crate::gpu_canvas::GpuCanvas::paint(&painter, rect, params);
     } else {
@@ -1879,16 +1885,14 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         match app.session.prefs().transparency_and_gamut.square() {
             Some(square) => {
                 let checker_id = checker(app, &ctx);
-                let tiles = img_rect.size() / (2.0 * square);
-                painter.image(checker_id, img_rect, Rect::from_min_max(Pos2::ZERO, pos2(tiles.x, tiles.y)), Color32::WHITE);
+                painter.add(xf.camera().screen_textured_quad(checker_id, image_bounds, img_rect.min, Vec2::splat(2.0 * square), Color32::WHITE));
             }
             None => {
                 painter.rect_filled(img_rect, 0.0, Color32::WHITE);
             }
         }
         if let Some((tex, _scale)) = ensure_texture(app, &ctx, idx, output) {
-            let uv = if flip { Rect::from_min_max(pos2(1.0, 0.0), pos2(0.0, 1.0)) } else { Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)) };
-            painter.image(tex, img_rect, uv, Color32::WHITE);
+            painter.add(xf.camera().textured_quad(tex, image_bounds, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE));
         }
     }
     if let Err(e) = crate::vector_integration::views::overlay(app, &ctx, idx, &xf, &painter) {
@@ -1897,8 +1901,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     }
     // Channels panel: alpha / Quick Mask overlays and single-channel views (channel_view.rs).
     if let Some(tex) = crate::channel_view::ensure(app, &ctx, idx) {
-        let uv = if flip { Rect::from_min_max(pos2(1.0, 0.0), pos2(0.0, 1.0)) } else { Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)) };
-        painter.image(tex, img_rect, uv, Color32::WHITE);
+        painter.add(xf.camera().textured_quad(tex, image_bounds, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE));
     }
     // Artboards: pasteboard between the boards, outlines and names (artboard_ui.rs).
     if doc.has_artboards() {

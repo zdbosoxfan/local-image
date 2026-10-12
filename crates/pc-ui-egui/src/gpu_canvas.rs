@@ -78,6 +78,8 @@ pub struct ViewParams {
     /// View › Flip Horizontal: the document is drawn mirrored left-right about the view centre
     /// (document x grows to the left).
     pub flip: bool,
+    /// Clockwise view rotation in radians; production callers remain upright until activation.
+    pub rotation: f32,
 }
 
 /// A cached section of the layer stack, positioned in document coordinates by the Move shader.
@@ -1979,12 +1981,11 @@ impl CallbackTrait for MoveCallback {
                 let scaled = res.scaled_frames.get(&cb.params.view_key).filter(|f| f.source == cb.params.doc && view.frame_data[29] > 1.0);
                 let Some(doc) = scaled.map(|f| &f.textures).or_else(|| res.docs.get(&cb.params.doc)) else { continue };
                 pass.set_bind_group(0, &view.bind_group, &[]);
-                let (origin, scale) = cb.placement(ppp);
+                let camera = cb.camera(ppp);
                 for tile in &doc.tiles {
                     let [tx, ty, tw, th] = tile.rect.map(|v| v as f32 / view.frame_data[29]);
-                    let (left, right) = cb.screen_x(origin[0], scale, tx, tx + tw);
-                    let (top, bottom) = (origin[1] + ty * scale, origin[1] + (ty + th) * scale);
-                    if right < x0 as f32 || bottom < y0 as f32 || left > x1 as f32 || top > y1 as f32 {
+                    let bounds = camera.screen_bounds(egui::Rect::from_min_size(egui::pos2(tx, ty), egui::vec2(tw, th)));
+                    if bounds.right() < x0 as f32 || bounds.bottom() < y0 as f32 || bounds.left() > x1 as f32 || bounds.top() > y1 as f32 {
                         continue;
                     }
                     pass.set_bind_group(1, &tile.bind_group, &[]);
@@ -2051,11 +2052,8 @@ impl CanvasCallback {
         {
             return 1.0;
         }
-        let (origin, screen_scale) = self.placement(screen.pixels_per_point);
-        let x = |p: f32| (p * screen.pixels_per_point - origin[0]) / screen_scale * if self.params.flip { -1.0 } else { 1.0 };
-        let y = |p: f32| (p * screen.pixels_per_point - origin[1]) / screen_scale;
-        let (a, b) = (x(self.rect.left()), x(self.rect.right()));
-        let visible = Rect::new(a.min(b).floor() as i32, y(self.rect.top()).floor() as i32, a.max(b).ceil() as i32, y(self.rect.bottom()).ceil() as i32)
+        let visible = self.camera(screen.pixels_per_point).document_bounds(self.rect * screen.pixels_per_point);
+        let visible = Rect::new(visible.left().floor() as i32, visible.top().floor() as i32, visible.right().ceil() as i32, visible.bottom().ceil() as i32)
             .intersect(&source.doc.bounds());
         let request = ViewRequest {
             document: source.doc.id,
@@ -2307,25 +2305,22 @@ impl CanvasCallback {
         scale
     }
 
-    /// Screen-pixel origin of document (0, 0) (snapped to whole pixels) and device px per doc px.
-    /// Document x maps to `origin.x + x · scale`, or `origin.x − x · scale` when flipped.
-    fn placement(&self, ppp: f32) -> ([f32; 2], f32) {
+    fn camera(&self, ppp: f32) -> crate::view_camera::Camera {
         let p = &self.params;
-        let scale = p.zoom * ppp;
-        let c = self.rect.center();
-        let ox = if p.flip { (c.x * ppp + p.center[0] * scale).round() } else { (c.x * ppp - p.center[0] * scale).round() };
-        let oy = (c.y * ppp - p.center[1] * scale).round();
-        ([ox, oy], scale)
+        crate::view_camera::Camera::new(self.rect, p.zoom, p.center, p.flip, p.rotation).device_pixels(ppp)
     }
 
-    /// Screen-pixel x extent of document columns `x0..x1` (left, right).
-    fn screen_x(&self, origin: f32, scale: f32, x0: f32, x1: f32) -> (f32, f32) {
-        if self.params.flip { (origin - x1 * scale, origin - x0 * scale) } else { (origin + x0 * scale, origin + x1 * scale) }
+    /// Shared device mapping, including legacy pixel-aligned upright placement.
+    fn placement(&self, ppp: f32) -> ([f32; 2], f32) {
+        let camera = self.camera(ppp);
+        let origin = camera.origin();
+        ([origin.x, origin.y], camera.scale())
     }
 
     fn uniforms(&self, screen: [u32; 2], ppp: f32, out_linear: bool, style: &CanvasStyle) -> [f32; VIEW_FLOATS] {
         let p = &self.params;
         let (origin, scale) = self.placement(ppp);
+        let [sin, cos] = self.camera(ppp).sin_cos();
         let (mode, lod) = filter_mode(scale);
         let grid = if p.pixel_grid && p.zoom >= 8.0 { 0.16 } else { 0.0 };
         let square = if style.checker_square > 0.0 { (style.checker_square * ppp).round().max(1.0) } else { 0.0 };
@@ -2366,8 +2361,8 @@ impl CanvasCallback {
             inv_gamma,
             if p.flip { -1.0 } else { 1.0 },
             1.0,
-            0.0,
-            0.0,
+            sin,
+            cos,
         ]
     }
 }
@@ -2448,7 +2443,7 @@ impl CallbackTrait for CanvasCallback {
         if scaled.is_none() && doc.size != self.params.doc_size {
             return;
         }
-        let (origin, scale) = self.placement(info.pixels_per_point);
+        let camera = self.camera(info.pixels_per_point);
         let (cx0, cy0) = (clip.left_px as f32, clip.top_px as f32);
         let (cx1, cy1) = (cx0 + clip.width_px as f32, cy0 + clip.height_px as f32);
         pass.set_pipeline(&res.tile_pipeline);
@@ -2456,9 +2451,8 @@ impl CallbackTrait for CanvasCallback {
         for t in &doc.tiles {
             let raster_scale = view.frame_data[29];
             let [tx, ty, tw, th] = t.rect.map(|v| v as f32 / raster_scale);
-            let (x0, x1) = self.screen_x(origin[0], scale, tx, tx + tw);
-            let (y0, y1) = (origin[1] + ty * scale, origin[1] + (ty + th) * scale);
-            if x1 < cx0 || y1 < cy0 || x0 > cx1 || y0 > cy1 {
+            let bounds = camera.screen_bounds(egui::Rect::from_min_size(egui::pos2(tx, ty), egui::vec2(tw, th)));
+            if bounds.right() < cx0 || bounds.bottom() < cy0 || bounds.left() > cx1 || bounds.top() > cy1 {
                 continue;
             }
             pass.set_bind_group(1, &t.bind_group, &[]);
@@ -2476,7 +2470,7 @@ struct View {
     e: vec4<f32>, // checker light rgb, gamut warning opacity
     f: vec4<f32>, // checker dark rgb, 32-bit preview gain (2^exposure; 0 = off)
     g: vec4<f32>, // gamut warning rgb, 32-bit preview 1 / gamma
-    h: vec4<f32>, // x direction (1, or -1 for View › Flip Horizontal), raster scale, unused
+    h: vec4<f32>, // x direction (1, or -1 for View › Flip Horizontal), raster scale, rotation sine, cosine
 };
 struct Tile { r: vec4<f32>, s: vec4<f32> }; // core and sampling rect: x, y, w, h
 
@@ -2498,11 +2492,21 @@ fn px_to_clip(p: vec2<f32>) -> vec4<f32> {
     return vec4(n.x, -n.y, 0.0, 1.0);
 }
 
-// Document pixel coordinates -> device pixels (x mirrored about the origin when flipped).
-fn doc_to_px(d: vec2<f32>) -> vec2<f32> { return view.b.xy + vec2(d.x * view.h.x, d.y) * view.a.z; }
-fn px_to_doc(p: vec2<f32>) -> vec2<f32> { let d = (p - view.b.xy) / view.a.z; return vec2(d.x * view.h.x, d.y); }
-fn doc_min() -> vec2<f32> { return min(view.b.xy, doc_to_px(view.b.zw)); }
-fn doc_max() -> vec2<f32> { return max(view.b.xy, doc_to_px(view.b.zw)); }
+// Same reflected, scaled rotation basis as view_camera::Camera (and its inverse).
+fn doc_to_px(d: vec2<f32>) -> vec2<f32> {
+    let q = vec2(d.x * view.h.x, d.y) * view.a.z;
+    return view.b.xy + vec2(view.h.w * q.x - view.h.z * q.y, view.h.z * q.x + view.h.w * q.y);
+}
+fn px_to_doc(p: vec2<f32>) -> vec2<f32> {
+    let q = (p - view.b.xy) / view.a.z;
+    return vec2((view.h.w * q.x + view.h.z * q.y) * view.h.x, -view.h.z * q.x + view.h.w * q.y);
+}
+fn doc_min() -> vec2<f32> {
+    return min(min(doc_to_px(vec2(0.0)), doc_to_px(view.b.zw)), min(doc_to_px(vec2(view.b.z, 0.0)), doc_to_px(vec2(0.0, view.b.w))));
+}
+fn doc_max() -> vec2<f32> {
+    return max(max(doc_to_px(vec2(0.0)), doc_to_px(view.b.zw)), max(doc_to_px(vec2(view.b.z, 0.0)), doc_to_px(vec2(0.0, view.b.w))));
+}
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     let lo = c / 12.92;
@@ -2542,14 +2546,21 @@ fn vs_shadow(@builtin(vertex_index) vi: u32) -> VOut {
 @fragment
 fn fs_shadow(in: VOut) -> @location(0) vec4<f32> {
     let p = in.pos.xy;
-    let lo = doc_min();
-    let hi = doc_max();
-    if (all(p >= lo) && all(p < hi)) {
-        discard;
-    }
+    let d = px_to_doc(p);
     let u = view.a.w;
-    let ambient = box_blur(p - vec2(0.0, 7.0 * u), lo, hi, 16.0 * u) * 0.40;
-    let contact = box_blur(p - vec2(0.0, 0.75 * u), lo, hi, 1.25 * u) * 0.30;
+    if (view.h.z == 0.0 && view.h.w == 1.0) {
+        // Preserve the existing upright shadow's arithmetic and coverage exactly.
+        let lo = doc_min();
+        let hi = doc_max();
+        if (all(p >= lo) && all(p < hi)) { discard; }
+        let ambient = box_blur(p - vec2(0.0, 7.0 * u), lo, hi, 16.0 * u) * 0.40;
+        let contact = box_blur(p - vec2(0.0, 0.75 * u), lo, hi, 1.25 * u) * 0.30;
+        return vec4(0.0, 0.0, 0.0, 1.0 - (1.0 - ambient) * (1.0 - contact));
+    }
+    if (all(d >= vec2(0.0)) && all(d < view.b.zw)) { discard; }
+    // The box rotates with the document; light/shadow offsets remain screen-vertical.
+    let ambient = box_blur(px_to_doc(p - vec2(0.0, 7.0 * u)), vec2(0.0), view.b.zw, 16.0 * u / view.a.z) * 0.40;
+    let contact = box_blur(px_to_doc(p - vec2(0.0, 0.75 * u)), vec2(0.0), view.b.zw, 1.25 * u / view.a.z) * 0.30;
     let a = 1.0 - (1.0 - ambient) * (1.0 - contact);
     return vec4(0.0, 0.0, 0.0, a);
 }
@@ -2659,7 +2670,7 @@ fn fs_plane(in: VOut) -> @location(0) vec4<f32> {
 
 @vertex
 fn vs_move(@builtin(vertex_index) vi: u32) -> VOut {
-    return VOut(px_to_clip(mix(doc_min(), doc_max(), corner(vi))));
+    return VOut(px_to_clip(doc_to_px(view.b.zw * corner(vi))));
 }
 
 @fragment
