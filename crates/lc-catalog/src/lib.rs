@@ -401,7 +401,12 @@ impl Catalog {
                 let old_edit = std::mem::replace(&mut p.edited, edited);
                 Op::SetDevelop { id, settings: old, label, edited: old_edit }
             }
-            Op::SetMeta { id, meta } => {
+            Op::SetMeta { id, mut meta } => {
+                // A carried snapshot must describe the incoming scalar. Coherent snapshots
+                // (including inverse operations for undo/redo) are retained verbatim.
+                if !meta.creators.is_empty() && meta.creators.join("; ") != meta.creator {
+                    meta.creators.clear();
+                }
                 let p = self.photo_mut(id)?;
                 Op::SetMeta { id, meta: Box::new(std::mem::replace(&mut p.meta, *meta)) }
             }

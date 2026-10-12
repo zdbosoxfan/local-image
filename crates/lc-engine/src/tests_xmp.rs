@@ -960,3 +960,117 @@ fn bugfix_develop_dng_refreshes_content_identity_and_virtual_copies() {
     assert_eq!(s.catalog.photo(id).unwrap().content_hash.as_deref(), Some("old-raw"));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+fn creator_packet(items: &str) -> (String, String) {
+    let sequence = format!("<d:creator>\n <r:Seq>{items}</r:Seq>\n</d:creator>");
+    let packet = format!(
+        "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:d='http://purl.org/dc/elements/1.1/' xmlns:f='urn:foreign' f:Keep='original'>{sequence}<f:History>unchanged</f:History></r:Description></r:RDF>"
+    );
+    (packet, sequence)
+}
+
+#[test]
+fn creator_list_survives_rating_save_catalog_reopen_and_new_sidecar_export() {
+    for embedded in [false, true] {
+        for (index, (items, expected)) in [
+            ("<r:li>Ann</r:li><r:li>Bob</r:li>", vec!["Ann", "Bob"]),
+            ("<r:li>Studio; Team</r:li>", vec!["Studio; Team"]),
+            ("<r:li>Studio; Team</r:li><r:li>Ann &amp; Bob</r:li>", vec!["Studio; Team", "Ann & Bob"]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let dir = temp_dir(&format!("creator-list-{embedded}-{index}"));
+            let library = dir.join("library");
+            let image = dir.join("photo.png");
+            let sidecar = dir.join("photo.xmp");
+            let (packet, sequence) = creator_packet(items);
+            if embedded {
+                let raster = lightcraft_raster::Rgba8 { width: 2, height: 2, data: vec![[100, 100, 100, 255]; 4] };
+                let bytes = lightcraft_codecs::encode_png(
+                    &lightcraft_codecs::EncodeImage::rgba8(&raster),
+                    &lightcraft_codecs::EncodeMeta { xmp: Some(&packet), ..Default::default() },
+                )
+                .unwrap();
+                std::fs::write(&image, bytes).unwrap();
+            } else {
+                write_png(&image, 1);
+                std::fs::write(&sidecar, &packet).unwrap();
+            }
+            let mut session = Session::new().with_fs();
+            session.open_library(&library, false).unwrap();
+            session.execute("library.import", &json!({"paths":[image.to_string_lossy()]})).unwrap();
+            let id = only(&session);
+            session.execute("library.select", &json!({"ids":[id.0]})).unwrap();
+            assert_eq!(session.catalog.photo(id).unwrap().meta.creator, expected.join("; "));
+            for rating in [4, 2] {
+                session.execute("photo.rate", &json!({"rating":rating})).unwrap();
+                session.execute("photo.saveMetadataToFile", &json!({})).unwrap();
+                let saved = std::fs::read_to_string(&sidecar).unwrap();
+                let parsed = lightcraft_meta::parse_xmp(&saved).unwrap();
+                assert_eq!(parsed.properties["dc:creator"], expected);
+                assert_eq!(parsed.metadata.rating, Some(rating));
+                if !embedded {
+                    assert!(saved.contains(&sequence), "unchanged creator XML is retained exactly");
+                    assert!(saved.contains("<f:History>unchanged</f:History>"));
+                }
+            }
+            drop(session);
+            let mut reopened = Session::new().with_fs();
+            reopened.open_library(&library, false).unwrap();
+            let photo = reopened.catalog.photo(id).unwrap();
+            let expected_snapshot = if expected.len() > 1 { expected.iter().map(|name| name.to_string()).collect::<Vec<_>>() } else { Vec::new() };
+            assert_eq!(photo.meta.creators, expected_snapshot);
+            for policy in [crate::export::MetadataPolicy::All, crate::export::MetadataPolicy::Copyright] {
+                let options = crate::export::ExportOptions { metadata: policy, ..Default::default() };
+                let metadata = crate::export::export_metadata(photo, &options).unwrap();
+                assert_eq!(lightcraft_meta::parse_xmp(&lightcraft_meta::write_xmp(&metadata, None)).unwrap().properties["dc:creator"], expected);
+            }
+            drop(reopened);
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}
+
+#[test]
+fn explicit_creator_edits_are_literal_undoable_and_never_revive_an_old_list() {
+    let dir = temp_dir("creator-edits");
+    let image = dir.join("photo.png");
+    let sidecar = dir.join("photo.xmp");
+    write_png(&image, 1);
+    std::fs::write(&sidecar, creator_packet("<r:li>Ann</r:li><r:li>Bob</r:li>").0).unwrap();
+    let mut session = Session::new().with_fs();
+    session.open_library(dir.join("library"), false).unwrap();
+    session.execute("library.import", &json!({"paths":[image.to_string_lossy()]})).unwrap();
+    let id = only(&session);
+    session.execute("library.select", &json!({"ids":[id.0]})).unwrap();
+    let multiple = vec!["Ann".to_string(), "Bob".to_string()];
+    assert_eq!(session.catalog.photo(id).unwrap().meta.creators, multiple);
+    session.execute("photo.setMeta", &json!({"creator":"Ann; Bob"})).unwrap();
+    assert!(session.catalog.photo(id).unwrap().meta.creators.is_empty(), "explicit same-display assignment is one literal name");
+    session.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(session.catalog.photo(id).unwrap().meta.creators, multiple);
+    session.execute("edit.redo", &json!({})).unwrap();
+    assert!(session.catalog.photo(id).unwrap().meta.creators.is_empty());
+    for creator in ["Ann; Bob", "Another author", "Ann; Bob", ""] {
+        session.execute("photo.setMeta", &json!({"creator":creator})).unwrap();
+        session.execute("photo.saveMetadataToFile", &json!({})).unwrap();
+        let packet = lightcraft_meta::parse_xmp(&std::fs::read_to_string(&sidecar).unwrap()).unwrap();
+        if creator.is_empty() {
+            assert!(!packet.properties.contains_key("dc:creator"));
+        } else {
+            assert_eq!(packet.properties["dc:creator"], vec![creator]);
+        }
+        assert!(session.catalog.photo(id).unwrap().meta.creators.is_empty());
+    }
+    // A metadata preset is also an explicit scalar edit, even for identical display text.
+    std::fs::write(&sidecar, creator_packet("<r:li>Ann</r:li><r:li>Bob</r:li>").0).unwrap();
+    session.execute("photo.readMetadataFromFile", &json!({})).unwrap();
+    assert_eq!(session.catalog.photo(id).unwrap().meta.creators, multiple);
+    session.execute("metadata.savePreset", &json!({"name":"Literal", "fields":{"creator":"Ann; Bob"}})).unwrap();
+    session.execute("metadata.applyPreset", &json!({"name":"Literal", "ids":[id.0]})).unwrap();
+    assert!(session.catalog.photo(id).unwrap().meta.creators.is_empty());
+    session.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(session.catalog.photo(id).unwrap().meta.creators, multiple);
+    let _ = std::fs::remove_dir_all(dir);
+}

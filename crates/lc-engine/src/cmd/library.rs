@@ -625,6 +625,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 for id in targets {
                     let Some(ph) = s.catalog.photo(id) else { continue };
                     let mut m = ph.meta.clone();
+                    // An explicit scalar creator is one literal name, even if it equals
+                    // the display of a previously imported multi-creator sequence.
+                    if str_param(p, "creator").is_some() {
+                        m.creators.clear();
+                    }
                     if let Some(g) = gps {
                         m.gps = g;
                     }

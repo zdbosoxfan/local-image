@@ -182,6 +182,10 @@ pub struct Meta {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub copyright_url: String,
     pub creator: String,
+    /// Preserved multi-creator sequence while `creator` is its joined display value.
+    /// Explicit scalar edits clear this; older catalogs default to a literal creator.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub creators: Vec<String>,
     pub keywords: Vec<String>,
     /// Face/pet/focus regions read from XMP (MWG-RS), on the upright (EXIF-oriented) photo.
     /// Removing or resizing one edits the catalog only; LightCraft never writes regions to XMP.

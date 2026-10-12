@@ -49,6 +49,9 @@ fn text_field<'a>(m: &'a mut Meta, k: &str) -> Option<&'a mut String> {
 
 /// Apply preset `fields` to `m`: text fields replace, keywords are added.
 pub fn apply_to(m: &mut Meta, fields: &Value) {
+    if fields.get("creator").and_then(Value::as_str).is_some() {
+        m.creators.clear();
+    }
     for (k, v) in fields.as_object().into_iter().flatten() {
         if k == "copyrightStatus" {
             if let Some(st) = v.as_str().and_then(CopyrightStatus::parse) {

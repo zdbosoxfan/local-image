@@ -245,14 +245,23 @@ pub fn merge_xmp(existing: &str, fresh: &str, rules: MergeRules) -> Result<Strin
         Some(rest) => ("\u{feff}", rest),
         None => ("", existing),
     };
-    parse_xmp(old)?;
+    let previous = parse_xmp(old)?;
+    let want = parse_xmp(fresh)?;
+    // Preserve the original creator sequence and its XML framing when its actual
+    // list is unchanged. Equal joined display strings alone are deliberately insufficient.
+    let keep_creators = previous.values.contains_key("dc:creator")
+        && previous.values.get("dc:creator") == want.values.get("dc:creator")
+        && previous.properties.get("dc:creator") == want.properties.get("dc:creator");
     let ex = scan(old)?;
     let rdf_close = ex.rdf_close.ok_or_else(|| XmpError::Xml("no rdf:RDF element".into()))?;
     let new = scan(fresh)?;
     let fresh_desc = new.descs.first().ok_or_else(|| XmpError::Xml("the new packet has no rdf:Description".into()))?;
     let fresh_names: BTreeSet<&str> = fresh_desc.props.iter().map(|p| p.name.as_str()).collect();
-    let remove = |name: &str| listed(rules.owned, name) || (listed(rules.owned_if_present, name) && fresh_names.contains(name));
-    let write = |name: &str| listed(rules.owned, name) || listed(rules.owned_if_present, name);
+    let remove = |name: &str| {
+        !(keep_creators && name == "dc:creator")
+            && (listed(rules.owned, name) || (listed(rules.owned_if_present, name) && fresh_names.contains(name)))
+    };
+    let write = |name: &str| !(keep_creators && name == "dc:creator") && (listed(rules.owned, name) || listed(rules.owned_if_present, name));
 
     // edits on `old`: (start, end, replacement), applied back to front
     let mut edits: Vec<(usize, usize, String)> = Vec::new();
@@ -316,7 +325,6 @@ pub fn merge_xmp(existing: &str, fresh: &str, rules: MergeRules) -> Result<Strin
 
     // read back: everything written must come out as written
     let merged = parse_xmp(&out)?;
-    let want = parse_xmp(fresh)?;
     for (k, v) in &want.properties {
         let top = k.split('/').next().unwrap_or(k);
         if write(top) && merged.properties.get(k) != Some(v) {
@@ -550,6 +558,29 @@ mod tests {
         assert_eq!(normalize_xmp_geometry(packet, 3, 2).unwrap(), packet);
         let nested = packet.replace("xmlns:rdf='urn:foreign'", "xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'");
         assert_eq!(normalize_xmp_geometry(&nested, 3, 2).unwrap(), nested);
+    }
+
+    #[test]
+    fn unchanged_creator_sequence_keeps_xml_but_same_display_scalar_edit_replaces_it() {
+        let creator = "<d:creator>\n <r:Seq><r:li>Ann</r:li><!-- order matters --><r:li>Bob</r:li></r:Seq>\n</d:creator>";
+        let original = format!(
+            "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:d='http://purl.org/dc/elements/1.1/' xmlns:f='urn:foreign' f:Exact='keep &amp; me'>{creator}<f:Thing>foreign</f:Thing></r:Description></r:RDF>"
+        );
+        let rules = MergeRules { owned: &["dc:creator", "xmp:Rating"], ..Default::default() };
+        let mut metadata = parse_xmp(&original).unwrap().metadata;
+        metadata.rating = Some(5);
+        let saved = merge_xmp(&original, &crate::write_xmp(&metadata, None), rules).unwrap();
+        assert!(saved.contains(creator));
+        assert!(saved.contains("f:Exact='keep &amp; me'"));
+        assert_eq!(parse_xmp(&saved).unwrap().properties["dc:creator"], vec!["Ann", "Bob"]);
+        metadata.set_artist(Some("Ann; Bob".into()));
+        let edited = merge_xmp(&saved, &crate::write_xmp(&metadata, None), rules).unwrap();
+        assert_eq!(parse_xmp(&edited).unwrap().properties["dc:creator"], vec!["Ann; Bob"]);
+        assert!(!edited.contains(creator));
+        metadata.set_artist(None);
+        let cleared = merge_xmp(&edited, &crate::write_xmp(&metadata, None), rules).unwrap();
+        assert!(!parse_xmp(&cleared).unwrap().properties.contains_key("dc:creator"));
+        assert!(cleared.contains("<f:Thing>foreign</f:Thing>"));
     }
 
     const RULES: MergeRules =

@@ -119,6 +119,11 @@ pub struct Metadata {
     pub height: Option<u32>,
     // descriptive / user
     pub artist: Option<String>,
+    /// Original multi-creator sequence behind the semicolon-joined display field.
+    /// Used only while `artist` still equals this sequence's joined display. A scalar
+    /// artist edit is one literal creator, never a string to split on semicolons.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub creators: Vec<String>,
     pub copyright: Option<String>,
     /// Copyright status (`xmpRights:Marked`): `true` = copyrighted, `false` = public domain, `None` = unknown.
     pub copyright_marked: Option<bool>,
@@ -157,8 +162,19 @@ macro_rules! overlay {
 }
 
 impl Metadata {
+    /// Intentionally replace the creator field with one literal name, or clear it.
+    /// Unlike retaining the imported display value, this discards the source list.
+    pub fn set_artist(&mut self, artist: Option<String>) {
+        self.artist = artist;
+        self.creators.clear();
+    }
+
     /// Fill every empty field of `self` from `other`.
     pub fn fill_missing(&mut self, other: &Metadata) {
+        if self.artist.is_none() {
+            self.artist = other.artist.clone();
+            self.creators = other.creators.clone();
+        }
         fill!(
             self,
             other,
@@ -185,7 +201,6 @@ impl Metadata {
             gps,
             width,
             height,
-            artist,
             copyright,
             copyright_marked,
             usage_terms,
@@ -215,7 +230,11 @@ impl Metadata {
     /// Replace the user-editable fields (rating, label, title, caption, artist, copyright, keywords, GPS) with
     /// `other`'s where `other` has them — the XMP-over-EXIF precedence rule.
     pub fn overlay_user_fields(&mut self, other: &Metadata) {
-        overlay!(self, other, rating, label, title, caption, artist, copyright, copyright_marked, usage_terms, copyright_url, gps);
+        if other.artist.is_some() {
+            self.artist = other.artist.clone();
+            self.creators = other.creators.clone();
+        }
+        overlay!(self, other, rating, label, title, caption, copyright, copyright_marked, usage_terms, copyright_url, gps);
         if !other.keywords.is_empty() {
             self.keywords = other.keywords.clone();
         }

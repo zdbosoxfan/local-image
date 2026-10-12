@@ -504,3 +504,32 @@ fn people_filter_any_everyone_and_old_filter_defaults() {
     let loaded: Filter = serde_json::from_value(saved).unwrap();
     assert_eq!(loaded, f);
 }
+
+#[test]
+fn creator_snapshot_survives_inverse_ops_and_old_catalog_defaults() {
+    let mut catalog = Catalog::new();
+    let id = photo(&mut catalog, "creators.jpg", "2026-01-01");
+    let multiple = Meta { creator: "Ann; Bob".into(), creators: vec!["Ann".into(), "Bob".into()], ..Default::default() };
+    catalog.apply(Op::SetMeta { id, meta: Box::new(multiple.clone()) }).unwrap();
+    let reopened = Catalog::from_snapshot(&catalog.to_snapshot()).unwrap();
+    assert_eq!(reopened.photo(id).unwrap().meta.creators, multiple.creators);
+    let mut edited = multiple.clone();
+    edited.creator = "Someone else".into(); // defensive SetMeta must discard this carried snapshot
+    let undo = catalog.apply(Op::SetMeta { id, meta: Box::new(edited) }).unwrap();
+    assert!(catalog.photo(id).unwrap().meta.creators.is_empty());
+    let redo = catalog.apply(undo).unwrap();
+    assert_eq!(catalog.photo(id).unwrap().meta, multiple);
+    catalog.apply(redo).unwrap();
+    assert!(catalog.photo(id).unwrap().meta.creators.is_empty());
+    let mut back = catalog.photo(id).unwrap().meta.clone();
+    back.creator = "Ann; Bob".into();
+    catalog.apply(Op::SetMeta { id, meta: Box::new(back) }).unwrap();
+    assert!(catalog.photo(id).unwrap().meta.creators.is_empty(), "old snapshot must not revive after edit-away/edit-back");
+    let legacy: Meta = serde_json::from_value(serde_json::json!({"creator":"Ann; Bob"})).unwrap();
+    assert_eq!(legacy.creator, "Ann; Bob");
+    assert!(legacy.creators.is_empty());
+    let serialized = serde_json::to_value(&legacy).unwrap();
+    assert!(serialized.get("creators").is_none());
+    let reopened: Meta = serde_json::from_value(serde_json::to_value(&multiple).unwrap()).unwrap();
+    assert_eq!(reopened, multiple);
+}

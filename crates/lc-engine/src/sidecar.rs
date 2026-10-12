@@ -92,6 +92,8 @@ pub struct SidecarData {
     pub usage_terms: Option<String>,
     pub copyright_url: Option<String>,
     pub creator: Option<String>,
+    /// Structured source sequence, stated whenever the packet states dc:creator.
+    pub creators: Option<Vec<String>>,
     pub location: Option<String>,
     pub city: Option<String>,
     pub state: Option<String>,
@@ -123,6 +125,7 @@ pub fn parse_sidecar(xmp: &str, raw: bool) -> std::result::Result<SidecarData, S
     }
     let d = lightcraft_meta::parse_xmp(xmp).map_err(|e| e.to_string())?;
     let m = &d.metadata;
+    let creator_stated = d.values.contains_key("dc:creator") || d.properties.contains_key("dc:creator");
     let lc = |k: &str| d.properties.get(&format!("lc:{k}")).and_then(|v| v.first()).cloned();
     let mut out = SidecarData {
         title: m.title.clone(),
@@ -131,7 +134,8 @@ pub fn parse_sidecar(xmp: &str, raw: bool) -> std::result::Result<SidecarData, S
         copyright_marked: m.copyright_marked,
         usage_terms: m.usage_terms.clone(),
         copyright_url: m.copyright_url.clone(),
-        creator: m.artist.clone(),
+        creator: creator_stated.then(|| m.artist.clone().unwrap_or_default()),
+        creators: creator_stated.then(|| m.creators.clone()),
         location: lc("location").or_else(|| m.sublocation.clone()),
         city: m.city.clone(),
         state: m.state.clone(),
@@ -208,6 +212,9 @@ pub fn merge_into(p: &mut Photo, sc: &SidecarData, now: &str) -> bool {
             *dst = v.clone();
         }
     }
+    if sc.creator.is_some() {
+        m.creators = sc.creators.clone().unwrap_or_default();
+    }
     if let Some(marked) = sc.copyright_marked {
         m.copyright_status = lightcraft_catalog::CopyrightStatus::from_marked(Some(marked));
     }
@@ -266,6 +273,7 @@ pub fn sidecar_packet(p: &Photo, cat: &lightcraft_catalog::Catalog) -> String {
         usage_terms: nz(&p.meta.usage_terms),
         copyright_url: nz(&p.meta.copyright_url),
         artist: nz(&p.meta.creator),
+        creators: p.meta.creators.clone(),
         keywords: p.meta.keywords.clone(),
         rating: Some(p.rating.min(5) as i8),
         label: p.label.map(|l| cat.label_name(l)),

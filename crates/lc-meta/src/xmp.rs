@@ -520,6 +520,9 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
     }
     if let Some(creators) = props.get("dc:creator").filter(|c| !c.is_empty()) {
         m.artist = Some(creators.join("; "));
+        if creators.len() > 1 {
+            m.creators = creators.clone();
+        }
     }
     m.keywords = props.get("dc:subject").cloned().unwrap_or_default().into_iter().filter(|k| !k.is_empty()).collect();
     m.hierarchical_keywords = props.get("lr:hierarchicalSubject").cloned().unwrap_or_default().into_iter().filter(|k| !k.is_empty()).collect();
@@ -654,7 +657,12 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
     array(&mut x, "Iptc4xmpCore:ExtDescrAccessibility", "Alt", &one(&meta.extended_description), true);
     array(&mut x, "dc:rights", "Alt", &one(&meta.copyright), true);
     array(&mut x, "xmpRights:UsageTerms", "Alt", &one(&meta.usage_terms), true);
-    array(&mut x, "dc:creator", "Seq", &one(&meta.artist), false);
+    let creators = if meta.creators.len() > 1 && meta.artist.as_deref() == Some(meta.creators.join("; ").as_str()) {
+        meta.creators.clone()
+    } else {
+        one(&meta.artist)
+    };
+    array(&mut x, "dc:creator", "Seq", &creators, false);
     array(&mut x, "dc:subject", "Bag", &meta.keywords, false);
     array(&mut x, "lr:hierarchicalSubject", "Bag", &meta.hierarchical_keywords, false);
     array(&mut x, "exif:ISOSpeedRatings", "Seq", &meta.iso.map(|v| vec![v.to_string()]).unwrap_or_default(), false);
@@ -680,6 +688,50 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn creator_sequences_survive_unrelated_metadata_edits_without_splitting_names() {
+        for (items, expected) in [
+            ("<r:li>Ann</r:li><r:li>Bob</r:li>", vec!["Ann", "Bob"]),
+            ("<r:li>Ann; Bob</r:li>", vec!["Ann; Bob"]),
+            ("<r:li>Studio; Team</r:li><r:li>Ann &amp; Bob</r:li>", vec!["Studio; Team", "Ann & Bob"]),
+        ] {
+            let packet = format!(
+                "<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:d='http://purl.org/dc/elements/1.1/'><d:creator><r:Seq>{items}</r:Seq></d:creator></r:Description></r:RDF>"
+            );
+            let mut metadata = parse_xmp(&packet).unwrap().metadata;
+            assert_eq!(metadata.artist.as_deref(), Some(expected.join("; ").as_str()));
+            metadata.rating = Some(4);
+            let saved = parse_xmp(&write_xmp(&metadata, None)).unwrap();
+            assert_eq!(saved.properties["dc:creator"], expected);
+            // Setting the scalar intentionally means one literal author, even when
+            // its text happens to equal the old multi-author display.
+            metadata.set_artist(Some("Ann; Bob".into()));
+            assert!(metadata.creators.is_empty());
+            assert_eq!(parse_xmp(&write_xmp(&metadata, None)).unwrap().properties["dc:creator"], vec!["Ann; Bob"]);
+            metadata.set_artist(None);
+            assert!(!parse_xmp(&write_xmp(&metadata, None)).unwrap().properties.contains_key("dc:creator"));
+        }
+    }
+
+    #[test]
+    fn creator_snapshot_merges_and_legacy_metadata_deserialization_stay_coherent() {
+        let multi = Metadata { artist: Some("A; B".into()), creators: vec!["A".into(), "B".into()], ..Default::default() };
+        let mut filled = Metadata::default();
+        filled.fill_missing(&multi);
+        assert_eq!(filled.creators, multi.creators);
+        let single = Metadata { artist: Some("A; B".into()), ..Default::default() };
+        filled.overlay_user_fields(&single);
+        assert!(filled.creators.is_empty());
+        assert_eq!(parse_xmp(&write_xmp(&filled, None)).unwrap().properties["dc:creator"], vec!["A; B"]);
+        filled.overlay_user_fields(&multi);
+        assert_eq!(filled.creators, multi.creators);
+        let mut legacy = serde_json::to_value(&multi).unwrap();
+        legacy.as_object_mut().unwrap().remove("creators");
+        let old: Metadata = serde_json::from_value(legacy).unwrap();
+        assert!(old.creators.is_empty());
+        assert_eq!(parse_xmp(&write_xmp(&old, None)).unwrap().properties["dc:creator"], vec!["A; B"]);
+    }
 
     fn full() -> Metadata {
         Metadata {
@@ -710,6 +762,7 @@ mod tests {
             width: Some(8000),
             height: Some(6000),
             artist: Some("Ann \"Photo\" Lee".into()),
+            creators: Vec::new(),
             copyright: Some("© 2022".into()),
             copyright_marked: Some(true),
             usage_terms: Some("Editorial use only; no <resale>".into()),
