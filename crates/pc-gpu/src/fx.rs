@@ -457,9 +457,9 @@ pub(crate) fn program_with(e: &Effect, light: &GlobalLight, vector_shape: bool, 
             v.to_bits().hash(&mut h);
         }
         if let Some(p) = &s.pattern {
-            (&p.id, &p.name, p.width, p.height).hash(&mut h);
-            for (c, t) in p.surface.tiles() {
-                (c.tx, c.ty, Arc::as_ptr(t) as usize).hash(&mut h);
+            (&p.id, &p.name, p.width, p.height, p.surface.revision()).hash(&mut h);
+            if p.surface.format().mode == photocraft_color::ColorMode::Cmyk {
+                photocraft_color::convert::active_cmyk_space().as_ref().map_or(0, |space| space.id).hash(&mut h);
             }
         }
         if let Some(l) = &s.lut {

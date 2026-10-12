@@ -267,6 +267,7 @@ pub fn render_layer(layer: &Layer, rect: Rect) -> Buffer {
             transfer: adjust::Transfer::Srgb,
             light: photocraft_doc::GlobalLight::default(),
             patterns: &patterns,
+            paint_key: Ctx::paint_key(&[], photocraft_color::convert::active_cmyk_space().as_ref().map_or(0, |space| space.id)),
             mode: photocraft_color::ColorMode::Rgb,
             depth: photocraft_color::SampleType::F32,
             vector_masks: RenderVectorMasks::default(),
@@ -434,6 +435,8 @@ struct Ctx<'a> {
     light: photocraft_doc::GlobalLight,
     /// Prepared document patterns, shared across all tiles and bands of this render call.
     patterns: &'a pattern::PreparedPatterns<'a>,
+    /// Pattern pixels and CMYK conversion context affecting cached effect maps.
+    paint_key: u64,
     /// The document's colour mode (channel restrictions name its channels).
     mode: photocraft_color::ColorMode,
     depth: photocraft_color::SampleType,
@@ -444,12 +447,25 @@ struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
+    fn paint_key(patterns: &[Pattern], cmyk: u64) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut key = std::collections::hash_map::DefaultHasher::new();
+        cmyk.hash(&mut key);
+        // Compute once per render context, not once per layer or tile. Order matters
+        // because duplicate pattern names resolve to the first matching entry.
+        for p in patterns {
+            (&p.id, &p.name, p.width, p.height, p.surface.revision()).hash(&mut key);
+        }
+        key.finish()
+    }
+
     fn for_doc(doc: &Document, patterns: &'a pattern::PreparedPatterns<'a>) -> Self {
         Self {
             canvas: doc.bounds(),
             transfer: adjust::Transfer::for_document(doc.mode, doc.depth),
             light: doc.global_light,
             patterns,
+            paint_key: Self::paint_key(patterns.source(), cmyk_space(doc).as_ref().map_or(0, |space| space.id)),
             mode: doc.mode,
             depth: doc.depth,
             vector_masks: RenderVectorMasks::default(),
@@ -1369,6 +1385,7 @@ fn effect_maps(layer: &Layer, cx: &Ctx) -> std::sync::Arc<effects::FxMaps> {
     }
     let mut h = std::collections::hash_map::DefaultHasher::new();
     layer_identity(layer, &mut h);
+    (cx.paint_key, cx.mode, cx.depth, cx.canvas).hash(&mut h);
     (region.x0, region.y0, region.x1, region.y1).hash(&mut h);
     (cx.light.angle.to_bits(), cx.light.altitude.to_bits()).hash(&mut h);
     let key = h.finish();

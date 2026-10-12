@@ -75,6 +75,8 @@ pub const FX_BUDGET: usize = 1536 << 20;
 pub const PAGE: u32 = 2048;
 /// GPU memory resident layer pages may hold before the least recently used are evicted.
 pub const RESIDENT_BUDGET: u64 = 4 << 30;
+/// Maximum primary pattern-texture cache; explicit memory budgets reserve at most one eighth.
+pub const PATTERN_BUDGET: u64 = 256 << 20;
 /// Uploads (bytes) [`Compositor::render`] stages before submitting the work recorded so far, so
 /// a refresh of a huge document never holds all its uploads in staging memory at once.
 const FLUSH_BYTES: u64 = 512 << 20;
@@ -406,6 +408,14 @@ fn texture_group(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, views: &
     device.create_bind_group(&wgpu::BindGroupDescriptor { label: Some("pc_compose_pass"), layout, entries: &e })
 }
 
+struct PatternEntry {
+    revision: u64,
+    cmyk: u64,
+    texture: Tex,
+    doc: DocId,
+    last_used: u64,
+}
+
 /// GPU compositor. Create once per device; call [`Compositor::render`] per refresh.
 pub struct Compositor {
     kit: Kit,
@@ -420,7 +430,9 @@ pub struct Compositor {
     noise: HashMap<LayerId, NoiseEntry>,
     /// Effect temporaries (R32F, region sized) and the frame they were last used.
     temps: Vec<(Tex, u64)>,
-    patterns: HashMap<String, (u64, Tex)>,
+    patterns: HashMap<String, PatternEntry>,
+    pattern_budget: u64,
+    pattern_uploads: u64,
     /// Texture side limit the paging is planned for (the device's, or smaller in tests).
     max_dim: u32,
     /// The device's real texture side limit.
@@ -631,6 +643,8 @@ impl Compositor {
             luts: HashMap::new(),
             temps: Vec::new(),
             patterns: HashMap::new(),
+            pattern_budget: PATTERN_BUDGET,
+            pattern_uploads: 0,
             max_dim: 0,
             device_max: device.limits().max_texture_dimension_2d,
             page: PAGE,
@@ -690,17 +704,24 @@ impl Compositor {
         self.resident_budget = bytes;
     }
 
-    /// Set the GPU memory the compositor may hold for layer pages and effect maps together
-    /// (a quarter of it, at most [`FX_BUDGET`], for effect maps). Uploads and evicted pages in
-    /// flight during a refresh stay within about a quarter more.
+    /// Set the cache budget for layer pages, effect maps and pattern textures. Patterns
+    /// reserve at most one eighth (capped at PATTERN_BUDGET), effects at most one quarter.
+    /// Temporary render targets and queued commands are additional transient storage.
     pub fn set_memory_budget(&mut self, bytes: u64) {
+        let patterns = PATTERN_BUDGET.min(bytes / 8);
+        if self.pattern_budget != patterns {
+            self.pattern_budget = patterns;
+            // A cached support/refusal result depends on the admitted pattern working set.
+            self.plans = Default::default();
+            self.trim_patterns(0);
+        }
         self.fx_budget = (FX_BUDGET as u64).min(bytes / 4);
-        self.resident_budget = bytes.saturating_sub(self.fx_budget);
+        self.resident_budget = bytes.saturating_sub(self.fx_budget).saturating_sub(self.pattern_budget);
     }
 
-    /// The budget of layer pages plus effect maps (bytes).
+    /// Combined budget of layer pages, effect maps and primary patterns (bytes).
     pub fn memory_budget(&self) -> u64 {
-        self.resident_budget.saturating_add(self.fx_budget)
+        self.resident_budget.saturating_add(self.fx_budget).saturating_add(self.pattern_budget)
     }
 
     /// Bytes of the layer pages a render of `region` needs resident (each layer and mask
@@ -747,6 +768,16 @@ impl Compositor {
     /// entries must be invalidated when the corresponding cached textures are replaced.
     pub fn texture_binding_cache_entries(&self) -> usize {
         self.texture_groups.len()
+    }
+
+    /// Bytes held by the primary GPU pattern cache, excluding queued commands.
+    pub fn pattern_cache_bytes(&self) -> u64 {
+        self.patterns.values().map(|entry| entry.texture.bytes() as u64).sum()
+    }
+
+    /// Cumulative pattern uploads, for cache diagnostics.
+    pub fn pattern_uploads(&self) -> u64 {
+        self.pattern_uploads
     }
 
     /// Whether `doc` can be composited on the GPU. Documents and layers larger than the texture
@@ -833,11 +864,36 @@ impl Compositor {
             return Err(Unsupported("layer effects need float effect-map render targets, which this GPU lacks".into()));
         }
         self.fx_work_side(doc, p)?;
+        // Include patterns used only by effect-map programs, not just main draw passes.
+        // Admission precedes all GPU allocation and charges each distinct pixel state once.
+        let mut seen = std::collections::HashSet::new();
+        let mut bytes = 0u64;
+        let mut charge = |pat: &Pattern| -> Result<(), Unsupported> {
+            if pat.width == 0 || pat.height == 0 || pat.width > self.device_max || pat.height > self.device_max {
+                return Err(Unsupported(format!("pattern `{}` exceeds supported GPU texture dimensions", pat.name)));
+            }
+            if seen.insert((pat.id.clone(), pat.name.clone(), pat.surface.revision(), pat.width, pat.height)) {
+                bytes = bytes.saturating_add(u64::from(pat.width).saturating_mul(u64::from(pat.height)).saturating_mul(16));
+                if bytes > self.pattern_budget {
+                    return Err(Unsupported(format!("pattern textures need {bytes} bytes, exceeding GPU pattern budget {}", self.pattern_budget)));
+                }
+            }
+            Ok(())
+        };
         for pass in &p.passes {
-            if let Some(pat) = pass.pattern
-                && (pat.width > self.device_max || pat.height > self.device_max)
-            {
-                return Err(Unsupported(format!("pattern `{}` larger than the GPU texture limit", pat.name)));
+            if let Some(pat) = pass.pattern {
+                charge(pat)?;
+            }
+        }
+        for f in &p.fx {
+            let vector_shape = photocraft_compose::vector_effects(f.layer) && photocraft_compose::effect_outline(f.layer).is_none();
+            for effect in f.layer.effects.items.iter().filter(|e| e.enabled()) {
+                let program = fx::program_with(effect, &doc.global_light, vector_shape, &doc.patterns, (0.0, 0.0));
+                for stage in &program.stages {
+                    if let Some(pat) = &stage.pattern {
+                        charge(pat)?;
+                    }
+                }
             }
         }
         Ok(())
@@ -850,6 +906,7 @@ impl Compositor {
         self.residents.retain(|_, r| r.doc != doc);
         self.fx.retain(|_, e| e.doc != doc);
         self.noise.retain(|_, e| e.doc != doc);
+        self.patterns.retain(|_, entry| entry.doc != doc);
     }
 
     /// Memory held by cached effect maps and their CPU shape/noise inputs (bytes).
@@ -1003,7 +1060,7 @@ impl Compositor {
                 self.sync_fx(device, queue, encoder, doc, f, (f.layer.id, None), f.region, &mut stats);
             }
         }
-        let fr = self.frame_res(device, queue, canvas, &plan);
+        let fr = self.frame_res(device, queue, doc.id, canvas, &plan);
 
         // Page cells; every other frame in reverse, so a repeated full refresh of a document
         // larger than the budget starts with the pages still resident.
@@ -1164,7 +1221,7 @@ impl Compositor {
     }
 
     /// Per-frame resources of `plan`: the tile area of each pass's surfaces, its LUT and pattern.
-    fn frame_res(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, canvas: Rect, plan: &Plan<'_>) -> FrameRes {
+    fn frame_res(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, doc: DocId, canvas: Rect, plan: &Plan<'_>) -> FrameRes {
         let grid = tile_grid(canvas);
         let area = |s: &Surface| s.tile_bounds().intersect(&grid);
         let areas = plan
@@ -1185,7 +1242,7 @@ impl Compositor {
                     .map(|rows| self.luts.entry(Arc::as_ptr(rows) as usize).or_insert_with(|| (rows.clone(), lut_texture(device, queue, rows))).1.clone())
             })
             .collect();
-        let patterns = plan.passes.iter().map(|p| p.pattern.map(|pat| self.pattern_view(device, queue, pat))).collect();
+        let patterns = plan.passes.iter().map(|p| p.pattern.map(|pat| self.pattern_view(device, queue, doc, pat))).collect();
         FrameRes { areas, luts, patterns }
     }
 
@@ -1546,19 +1603,41 @@ impl Compositor {
         Some((key, [region.x0, region.y0, region.width() as i32, region.height() as i32]))
     }
 
+    /// Drop least recently used primary owners before reserving another pattern texture.
+    /// Recorded commands and per-frame views retain their own lifetimes; never destroy them.
+    fn trim_patterns(&mut self, incoming: u64) {
+        let mut bytes = self.pattern_cache_bytes();
+        while bytes.saturating_add(incoming) > self.pattern_budget {
+            let oldest = self.patterns.iter().min_by(|(ka, a), (kb, b)| a.last_used.cmp(&b.last_used).then_with(|| ka.cmp(kb))).map(|(key, _)| key.clone());
+            let Some(key) = oldest else { break };
+            if let Some(previous) = self.patterns.remove(&key) {
+                bytes = bytes.saturating_sub(previous.texture.bytes() as u64);
+                self.texture_groups.retain(|views, _| !views.contains(&previous.texture.view));
+            }
+        }
+    }
+
     /// Premultiplied RGBA32F texture of a pattern (cached by pixel identity).
-    fn pattern_view(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, pat: &Pattern) -> wgpu::TextureView {
+    fn pattern_view(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, doc: DocId, pat: &Pattern) -> wgpu::TextureView {
         // Surface revisions cover in-place edits, format/default changes and replacement;
         // tile pointer addresses can stay the same after Arc::make_mut or be reused.
         let fp = pat.surface.revision();
+        let cmyk = if pat.surface.format().mode == photocraft_color::ColorMode::Cmyk { self.cmyk } else { 0 };
         let key = format!("{}\u{0}{}", pat.id, pat.name);
-        if let Some((f, t)) = self.patterns.get(&key)
-            && *f == fp
-            && t.texture.width() == pat.width
-            && t.texture.height() == pat.height
+        if let Some(entry) = self.patterns.get_mut(&key)
+            && entry.revision == fp
+            && entry.cmyk == cmyk
+            && entry.texture.texture.width() == pat.width
+            && entry.texture.texture.height() == pat.height
         {
-            return t.view.clone();
+            entry.doc = doc;
+            entry.last_used = self.frame;
+            return entry.texture.view.clone();
         }
+        if let Some(previous) = self.patterns.remove(&key) {
+            self.texture_groups.retain(|views, _| !views.contains(&previous.texture.view));
+        }
+        self.trim_patterns(u64::from(pat.width) * u64::from(pat.height) * 16);
         let (w, h) = (pat.width, pat.height);
         let mut px = vec![[0.0f32; 4]; w as usize * h as usize];
         pat.surface.read_rgba_into(pat.rect(), &mut px);
@@ -1571,9 +1650,8 @@ impl Compositor {
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         let v = t.view.clone();
-        if let Some((_, previous)) = self.patterns.insert(key, (fp, t)) {
-            self.texture_groups.retain(|views, _| !views.contains(&previous.view));
-        }
+        self.patterns.insert(key, PatternEntry { revision: fp, cmyk, texture: t, doc, last_used: self.frame });
+        self.pattern_uploads += 1;
         v
     }
 
@@ -1842,8 +1920,9 @@ impl Compositor {
         d: Rect,
         stats: &mut Stats,
     ) {
+        let Some(doc) = self.fx.get(&key).map(|e| e.doc) else { return };
         let pattern_views: Vec<Option<wgpu::TextureView>> =
-            prog.stages.iter().map(|s| s.pattern.as_ref().map(|p| self.pattern_view(device, queue, p))).collect();
+            prog.stages.iter().map(|s| s.pattern.as_ref().map(|p| self.pattern_view(device, queue, doc, p))).collect();
         let Some(e) = self.fx.get(&key) else { return };
         let region = e.region;
         let shape = e.shape.view.clone();

@@ -2200,3 +2200,170 @@ fn effect_and_pattern_replacement_do_not_accumulate_binding_owners() {
         assert_eq!(entries, *baseline.get_or_insert(entries), "stale pattern bindings at {step}");
     }
 }
+
+#[test]
+fn closing_pattern_documents_releases_primary_cache() {
+    let Some(mut g) = gpu() else {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
+        return;
+    };
+    for step in 0..8 {
+        let mut d = base_doc(64, 64);
+        let mut pat = checker_pattern();
+        pat.id = format!("document pattern {step}");
+        d.layers.push(Layer::new(
+            "pattern",
+            LayerContent::Fill(Fill::Pattern { name: pat.name.clone(), id: pat.id.clone(), scale: 1.0, angle: 0.0, link: true, phase: (0.0, 0.0) }),
+        ));
+        d.patterns.push(pat);
+        check(&mut g, &d, "pattern before close");
+        assert!(g.comp.pattern_cache_bytes() > 0);
+        g.comp.forget_doc(d.id);
+        g.paged.forget_doc(d.id);
+        assert_eq!(g.comp.pattern_cache_bytes(), 0, "pattern leaked after document {step}");
+        assert_eq!(g.paged.pattern_cache_bytes(), 0);
+    }
+}
+
+fn pattern_budget_doc(label: &str, count: u32) -> Document {
+    let mut d = base_doc(64, 64);
+    for i in 0..count {
+        let mut pat = checker_pattern();
+        pat.id = format!("{label} {i}");
+        pat.surface.fill_rect(Rect::new(0, 0, 2, 2), &[i as f32 / 5.0, 0.3, 0.6, 1.0]);
+        let mut layer = Layer::new(
+            "pattern",
+            LayerContent::Fill(Fill::Pattern { name: pat.name.clone(), id: pat.id.clone(), scale: 1.0, angle: 0.0, link: true, phase: (i as f32, 0.0) }),
+        );
+        layer.opacity = 0.5;
+        d.layers.push(layer);
+        d.patterns.push(pat);
+    }
+    d
+}
+
+#[test]
+fn pattern_cache_budget_evicts_old_documents_and_preserves_warm_patterns() {
+    let Some(mut g) = gpu() else {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
+        return;
+    };
+    let one = 6 * 5 * 16;
+    let budget = 3 * one;
+    g.comp.set_memory_budget(budget * 8);
+    g.paged.set_memory_budget(budget * 8);
+    let a = pattern_budget_doc("A", 2);
+    let b = pattern_budget_doc("B", 2);
+    for step in 0..8 {
+        let doc = if step % 2 == 0 { &a } else { &b };
+        check(&mut g, doc, "pattern LRU under budget");
+        assert!(g.comp.pattern_cache_bytes() <= budget);
+        assert!(g.paged.pattern_cache_bytes() <= budget);
+        let uploads = g.comp.pattern_uploads();
+        check(&mut g, doc, "unchanged current patterns");
+        assert_eq!(g.comp.pattern_uploads(), uploads, "current working set should remain warm");
+    }
+    assert!(g.comp.pattern_uploads() > 4, "fixture must force actual eviction/reupload");
+    g.comp.forget_doc(a.id);
+    g.comp.forget_doc(b.id);
+    assert_eq!(g.comp.pattern_cache_bytes(), 0);
+    assert_eq!(g.comp.texture_binding_cache_entries(), 0);
+}
+
+#[test]
+fn pattern_working_set_refusal_precedes_allocation_and_budget_changes_retry() {
+    let Some(mut g) = gpu() else {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
+        return;
+    };
+    let d = pattern_budget_doc("over budget", 4);
+    let one = 6 * 5 * 16;
+    g.comp.set_memory_budget(3 * one * 8);
+    let err = g.comp.supports(&d).unwrap_err();
+    assert!(err.to_string().contains("pattern budget"), "{err}");
+    assert!(photocraft_gpu::render_to_vec(&mut g.comp, &g.device, &g.queue, &d, d.bounds()).is_err());
+    assert_eq!((g.comp.pattern_cache_bytes(), g.comp.pattern_uploads()), (0, 0));
+    assert!(!photocraft_compose::flatten(&d).px.is_empty(), "CPU fallback remains available");
+    g.comp.set_memory_budget(4 * one * 8);
+    assert!(g.comp.supports(&d).is_ok(), "budget-dependent refusals must be invalidated");
+    check(&mut g, &d, "admitted after budget increase");
+    assert_eq!(g.comp.pattern_cache_bytes(), 4 * one);
+    g.comp.set_memory_budget(one * 8);
+    assert!(g.comp.pattern_cache_bytes() <= one, "shrinking a budget evicts immediately");
+    assert!(g.comp.supports(&d).is_err());
+    g.comp.set_texture_limit(256);
+    assert_eq!(g.comp.pattern_cache_bytes(), 0);
+}
+
+#[test]
+fn effect_only_pattern_inputs_obey_working_set_budget() {
+    let Some(mut g) = gpu() else {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
+        return;
+    };
+    let mut d = fx_doc(64, 64, SampleType::U8);
+    let mut layer = blob("pattern bevel", d.pixel_format(), 32.0, 32.0, 12.0, [0.7, 0.3, 0.1]);
+    layer.effects.items = effect_cases().into_iter().find(|(name, _)| *name == "bevel texture").unwrap().1;
+    d.layers.push(layer);
+    d.patterns.push(checker_pattern());
+    g.comp.set_memory_budget(8);
+    let err = g.comp.supports(&d).unwrap_err();
+    assert!(err.to_string().contains("pattern budget"), "{err}");
+    assert_eq!(g.comp.pattern_uploads(), 0);
+    g.comp.set_memory_budget(8 << 20);
+    check(&mut g, &d, "admitted effect pattern");
+    assert!(g.comp.pattern_cache_bytes() > 0);
+}
+
+#[test]
+fn pattern_context_tracks_document_cmyk_profile() {
+    let Some(mut g) = gpu() else {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
+        return;
+    };
+    let mut d = Document::new("CMYK pattern profile", Size::new(64, 64), ColorMode::Cmyk, SampleType::U8);
+    let surface = photocraft_raster::Surface::with_default(PixelFormat::new(ColorMode::Cmyk, SampleType::U8, true), &[0.0, 0.5, 0.5, 0.0, 1.0]);
+    let pat = Pattern::new("CMYK", surface, 6, 5);
+    d.layers.push(Layer::new(
+        "pattern",
+        LayerContent::Fill(Fill::Pattern { name: pat.name.clone(), id: pat.id.clone(), scale: 1.0, angle: 0.0, link: true, phase: (0.0, 0.0) }),
+    ));
+    d.patterns.push(pat);
+    let profile = photocraft_cms::synth::cmyk_profile(&photocraft_cms::synth::CmykParams {
+        description: "Pattern uncoated fixture".into(),
+        tvi: [0.26, 0.26, 0.26, 0.3],
+        grid_a2b: 5,
+        grid_b2a: 9,
+        ..Default::default()
+    })
+    .to_bytes();
+    let initial = photocraft_compose::flatten(&d).px;
+    check(&mut g, &d, "default CMYK pattern");
+    d.icc_profile = Some(profile);
+    let changed = photocraft_compose::flatten(&d).px;
+    assert!(worst_diff(&initial, &changed).0 > 0.01, "profile fixture must materially change appearance");
+    check(&mut g, &d, "same pattern in assigned CMYK profile");
+    d.icc_profile = None;
+    check(&mut g, &d, "same pattern restored to default CMYK");
+}
+
+#[test]
+fn pattern_context_pixel_changes_rebuild_bevel_program() {
+    let Some(mut g) = gpu() else {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
+        return;
+    };
+    let mut d = fx_doc(96, 96, SampleType::U8);
+    let mut layer = blob("textured bevel", d.pixel_format(), 48.0, 48.0, 24.0, [0.7, 0.3, 0.1]);
+    layer.effects.items = effect_cases().into_iter().find(|(name, _)| *name == "bevel texture").unwrap().1;
+    d.layers.push(layer);
+    // Identical name/id/dimensions and the same tile allocation after an in-place edit.
+    d.patterns = vec![checker_pattern()];
+    fx_check(&mut g, &d, "first bevel texture");
+    let before = photocraft_compose::flatten(&d).px;
+    d.patterns[0].surface.fill_rect(Rect::new(0, 0, 3, 3), &[0.95, 0.95, 0.95, 1.0]);
+    let after = photocraft_compose::flatten(&d).px;
+    assert!(worst_diff(&before, &after).0 > TOL, "fixture must visibly change bevel lighting");
+    let stats = fx_check(&mut g, &d, "changed bevel texture");
+    assert!(stats.fx_programs > 0, "pattern-only change must rebuild its effect maps");
+}
