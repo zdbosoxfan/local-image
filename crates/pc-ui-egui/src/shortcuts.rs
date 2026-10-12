@@ -8,6 +8,8 @@ use crate::state::Tool;
 
 /// Parse `Cmd+Shift+N` style strings. `Cmd` maps to ⌘ on macOS and Ctrl elsewhere.
 pub fn parse(s: &str) -> Option<KeyboardShortcut> {
+    let normalized = photocraft_engine::prefs::normalize_shortcut(s)?;
+    let s = normalized.as_str();
     let mut mods = Modifiers::NONE;
     let mut key = None;
     for part in s.split('+') {

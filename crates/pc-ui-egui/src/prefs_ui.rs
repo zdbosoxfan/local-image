@@ -652,16 +652,16 @@ pub fn shortcut_text(key: egui::Key, m: egui::Modifiers) -> Option<String> {
     }
     let mut parts = Vec::new();
     if m.command || m.mac_cmd {
-        parts.push(tl!("Cmd").to_string());
+        parts.push("Cmd");
     }
     if m.ctrl && !m.command {
-        parts.push(tl!("Ctrl").into());
+        parts.push("Ctrl");
     }
     if m.alt {
-        parts.push(tl!("Alt").into());
+        parts.push("Alt");
     }
     if m.shift {
-        parts.push(tl!("Shift").into());
+        parts.push("Shift");
     }
     let name = match key {
         egui::Key::Equals => "=",
@@ -670,10 +670,10 @@ pub fn shortcut_text(key: egui::Key, m: egui::Modifiers) -> Option<String> {
         egui::Key::CloseBracket => "]",
         egui::Key::Semicolon => ";",
         egui::Key::Quote => "'",
-        egui::Key::Plus => "",
+        egui::Key::Plus => "+",
         k => k.name(),
     };
-    parts.push(name.to_string());
+    parts.push(name);
     prefs::normalize_shortcut(&parts.join("+"))
 }
 
@@ -1565,11 +1565,9 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             let items = shortcut_items(app);
             let changed: Vec<(String, String)> = ov.iter().filter(|(_, s)| !s.is_empty()).map(|(k, s)| (k.clone(), s.clone())).collect();
             for (id, sc) in changed {
+                let Some(sc) = prefs::normalize_shortcut(&sc) else { continue };
                 for (other, _, _, def) in &items {
-                    if *other != id
-                        && !ov.contains_key(other)
-                        && def.as_deref().and_then(prefs::normalize_shortcut).as_deref() == prefs::normalize_shortcut(&sc).as_deref()
-                    {
+                    if *other != id && !ov.contains_key(other) && def.as_deref().and_then(prefs::normalize_shortcut).as_deref() == Some(sc.as_str()) {
                         ov.insert(other.clone(), String::new());
                     }
                 }

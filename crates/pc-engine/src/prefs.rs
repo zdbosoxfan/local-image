@@ -1134,17 +1134,34 @@ impl Preferences {
     }
 
     fn set_unmigrated(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
-        let value = match (path.strip_prefix("shortcuts."), &value) {
-            // Normalise shortcut spelling so conflicts compare equal.
-            (Some(_), Value::String(s)) if !s.is_empty() => Value::String(normalize_shortcut(s).ok_or_else(|| format!("`{s}` is not a valid shortcut"))?),
-            (Some(_), Value::Null) => {
-                // null = back to the default.
-                let id = &path["shortcuts.".len()..];
-                self.shortcuts.remove(id);
-                return Ok(());
+        if let Some(id) = path.strip_prefix("shortcuts.") {
+            if id.is_empty() {
+                return Err("missing shortcut command id".into());
             }
-            _ => value,
-        };
+            match checked_shortcut(&value, self.shortcuts.get(id))? {
+                Some(value) => {
+                    self.shortcuts.insert(id.into(), value);
+                }
+                None => {
+                    self.shortcuts.remove(id);
+                }
+            }
+            return Ok(());
+        }
+        if path == "shortcuts" {
+            let values = value.as_object().ok_or("shortcuts needs an object")?;
+            let mut next = BTreeMap::new();
+            for (id, value) in values {
+                if id.is_empty() {
+                    return Err("missing shortcut command id".into());
+                }
+                if let Some(value) = checked_shortcut(value, self.shortcuts.get(id))? {
+                    next.insert(id.clone(), value);
+                }
+            }
+            self.shortcuts = next;
+            return Ok(());
+        }
         check_value(path, &value)?;
         let mut root = self.to_json();
         set_path(&mut root, path, value)?;
@@ -1158,6 +1175,21 @@ impl Preferences {
             *self = Preferences::default();
             return Ok(());
         };
+        if let Some((section, id)) = keyed(path) {
+            if id.is_empty() {
+                return Err(format!("missing command id in `{path}`"));
+            }
+            match section {
+                "shortcuts" => {
+                    self.shortcuts.remove(id);
+                }
+                "menus.colors" => {
+                    self.menus.colors.remove(id);
+                }
+                _ => return Err(format!("unknown preference `{path}`")),
+            }
+            return Ok(());
+        }
         let def = Preferences::default().get(path).ok_or_else(|| format!("unknown preference `{path}`"))?;
         if path == "shortcuts" {
             self.shortcuts.clear();
@@ -1181,6 +1213,19 @@ impl Preferences {
 
 // ------------------------------------------------------------------ shortcuts
 
+// Unchanged legacy spellings may survive a full dialog round trip; newly introduced
+// invalid keys are refused. Null means remove the override, empty means disable it.
+fn checked_shortcut(value: &Value, previous: Option<&String>) -> std::result::Result<Option<String>, String> {
+    match value {
+        Value::Null => Ok(None),
+        Value::String(s) if s.is_empty() => Ok(Some(String::new())),
+        Value::String(s) => {
+            normalize_shortcut(s).or_else(|| previous.filter(|old| *old == s).cloned()).map(Some).ok_or_else(|| format!("`{s}` is not a valid shortcut"))
+        }
+        _ => Err("shortcut must be a string or null".into()),
+    }
+}
+
 /// Canonical spelling of a shortcut: modifiers in `Cmd+Ctrl+Alt+Shift` order, key last
 /// (single characters upper-cased). `None` if it has no key or an unknown modifier.
 pub fn normalize_shortcut(s: &str) -> Option<String> {
@@ -1202,8 +1247,7 @@ pub fn normalize_shortcut(s: &str) -> Option<String> {
                 if key.is_some() {
                     return None;
                 }
-                let k = if part.chars().count() == 1 { part.to_uppercase() } else { capitalize(part) };
-                key = Some(k);
+                key = Some(shortcut_key(part)?);
             }
         }
     }
@@ -1235,20 +1279,80 @@ pub fn normalize_shortcut(s: &str) -> Option<String> {
     Some(s)
 }
 
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) if f.is_ascii_alphabetic() => {
-            let rest: String = c.collect();
-            // Function keys stay upper-case (F1…F24); named keys are Title case.
-            if f.eq_ignore_ascii_case(&'f') && rest.chars().all(|c| c.is_ascii_digit()) && !rest.is_empty() {
-                format!("F{rest}")
-            } else {
-                format!("{}{}", f.to_ascii_uppercase(), rest.to_ascii_lowercase())
+/// Platform-independent key vocabulary. UI regression tests check every egui key against
+/// this table, so persisted spellings stay executable without making the engine depend on egui.
+fn shortcut_key(s: &str) -> Option<String> {
+    let lower = s.to_ascii_lowercase();
+    let canonical = match lower.as_str() {
+        "arrowdown" | "down" | "⏷" => "Down",
+        "arrowleft" | "left" | "⏴" => "Left",
+        "arrowright" | "right" | "⏵" => "Right",
+        "arrowup" | "up" | "⏶" => "Up",
+        "esc" | "escape" => "Escape",
+        "return" | "numpadenter" | "enter" => "Enter",
+        "help" | "insert" => "Insert",
+        "numpadcomma" | "comma" | "," => ",",
+        "numpadsubtract" | "minus" | "−" | "-" => "-",
+        "numpaddecimal" | "period" | "." => ".",
+        "numpadadd" | "plus" | "+" => "+",
+        "numpadequal" | "equal" | "equals" | "=" => "=",
+        "colon" | ":" => ":",
+        "semicolon" | ";" => ";",
+        "backslash" | "\\" => "\\",
+        "numpaddivide" | "slash" | "/" => "/",
+        "pipe" | "|" => "|",
+        "questionmark" | "?" => "?",
+        "exclamationmark" | "!" => "!",
+        "bracketleft" | "openbracket" | "[" => "[",
+        "bracketright" | "closebracket" | "]" => "]",
+        "opencurlybracket" | "{" => "OpenCurlyBracket",
+        "closecurlybracket" | "}" => "CloseCurlyBracket",
+        "backtick" | "backquote" | "grave" | "`" => "Backtick",
+        "quote" | "'" => "'",
+        "metaleft" | "osleft" => "SuperLeft",
+        "metaright" | "osright" => "SuperRight",
+        _ => {
+            const NAMES: &[&str] = &[
+                "Tab",
+                "Backspace",
+                "Delete",
+                "Home",
+                "End",
+                "PageUp",
+                "PageDown",
+                "Copy",
+                "Cut",
+                "Paste",
+                "Space",
+                "BrowserBack",
+                "ShiftLeft",
+                "ShiftRight",
+                "ControlLeft",
+                "ControlRight",
+                "AltLeft",
+                "AltRight",
+                "SuperLeft",
+                "SuperRight",
+                "IntlBackslash",
+            ];
+            if let Some(name) = NAMES.iter().find(|name| name.eq_ignore_ascii_case(s)) {
+                return Some((*name).into());
             }
+            let digit = lower.strip_prefix("digit").or_else(|| lower.strip_prefix("numpad")).unwrap_or(&lower);
+            if digit.len() == 1 && digit.as_bytes()[0].is_ascii_digit() {
+                return Some(digit.into());
+            }
+            let letter = lower.strip_prefix("key").unwrap_or(&lower);
+            if letter.len() == 1 && letter.as_bytes()[0].is_ascii_alphabetic() {
+                return Some(letter.to_ascii_uppercase());
+            }
+            if let Some(number) = lower.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()).filter(|n| (1..=35).contains(n)) {
+                return Some(format!("F{number}"));
+            }
+            return None;
         }
-        _ => s.to_string(),
-    }
+    };
+    Some(canonical.into())
 }
 
 /// Hold-and-release gestures (#249): temporary tools that last while their key is held and give
@@ -1393,7 +1497,14 @@ impl Session {
         let mut v: Value = serde_json::from_str(s).map_err(|e| format!("preferences: {e}"))?;
         let color = v.as_object_mut().and_then(|m| m.remove("colorSettings"));
         let presets = v.as_object_mut().and_then(|m| m.remove("presets"));
-        let (prefs, mut rejected) = lenient::<Preferences>(v).map_err(|e| format!("preferences: {e}"))?;
+        let (mut prefs, mut rejected) = lenient::<Preferences>(v).map_err(|e| format!("preferences: {e}"))?;
+        // Repair old mixed-case named keys while retaining disabled or unrecognised user
+        // entries. Validation of new assignments is strict; loading never discards a binding.
+        for shortcut in prefs.shortcuts.values_mut() {
+            if let Some(normalized) = normalize_shortcut(shortcut) {
+                *shortcut = normalized;
+            }
+        }
         if let Some(c) = color {
             let (settings, bad) = lenient(c).map_err(|e| format!("colour settings: {e}"))?;
             self.color.settings = settings;
@@ -1529,7 +1640,9 @@ fn prefs_reset(s: &mut Session, p: &Value) -> Result<Value> {
     }
     s.prefs.edit(|_| ());
     s.apply_prefs();
-    prefs_get(s, &json!({"path": path.unwrap_or("")}))
+    // A keyed reset removes an override; absence is the successful result, not
+    // an unknown-path error from querying the deleted map entry.
+    if path.and_then(keyed).is_some() { Ok(Value::Null) } else { prefs_get(s, &json!({"path": path.unwrap_or("")})) }
 }
 
 /// `edit.preferences.<section>`: the section's values (the GUI opens the dialog on it instead).
@@ -1543,24 +1656,41 @@ fn preferences_section(s: &mut Session, p: &Value) -> Result<Value> {
 /// Edit › Keyboard Shortcuts (engine part): list, change and reset application shortcuts.
 fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "edit.keyboardShortcuts";
+    if p.get("set").is_some_and(|value| !value.is_object()) {
+        return Err(bad(cmd, "set needs an object"));
+    }
+    let before = s.prefs().clone();
+    let mut next = before.clone();
+    let mut changed = false;
     if let Some(r) = p.get("reset") {
         match r {
-            Value::Bool(true) => s.edit_prefs(|p| p.shortcuts.clear()),
-            Value::Array(ids) => s.edit_prefs(|p| {
+            Value::Bool(true) => {
+                next.shortcuts.clear();
+                changed = true;
+            }
+            Value::Array(ids) => {
+                changed = true;
                 for id in ids.iter().filter_map(Value::as_str) {
-                    p.shortcuts.remove(id);
+                    next.shortcuts.remove(id);
                 }
-            }),
+            }
             _ => {}
         }
     }
     if let Some(m) = p.get("set").and_then(Value::as_object) {
-        let mut next = s.prefs().clone();
+        changed = true;
         for (id, v) in m {
             if !bindable().any(|(b, _)| b == id) && !p.get("allowUnknown").and_then(Value::as_bool).unwrap_or(false) {
                 return Err(bad(cmd, format!("unknown command `{id}`")));
             }
-            next.set_unmigrated(&format!("shortcuts.{id}"), v.clone()).map_err(|e| bad(cmd, e))?;
+            match checked_shortcut(v, before.shortcuts.get(id)).map_err(|e| bad(cmd, e))? {
+                Some(value) => {
+                    next.shortcuts.insert(id.clone(), value);
+                }
+                None => {
+                    next.shortcuts.remove(id);
+                }
+            }
         }
         // Like Photoshop, a shortcut moved to a new command is taken away from the old one.
         if p.get("removeConflicts").and_then(Value::as_bool).unwrap_or(true) {
@@ -1580,6 +1710,8 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
                 }
             }
         }
+    }
+    if changed {
         s.edit_prefs(|p| *p = next);
     }
     let prefs = s.prefs();

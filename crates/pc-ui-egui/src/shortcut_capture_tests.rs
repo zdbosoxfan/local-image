@@ -112,3 +112,65 @@ fn a_shortcut_in_use_is_reported_and_moved_on_ok() {
         crate::shortcut_dispatch::bindings(app).into_iter().filter(|(_, sc)| *sc == crate::shortcuts::parse("Cmd+J").unwrap()).map(|(id, _)| id).collect();
     assert_eq!(bound, ["edit.search"], "one owner for ⌘J");
 }
+
+#[test]
+fn every_named_key_remains_dispatchable_after_preference_normalization() {
+    for key in Key::ALL {
+        if !crate::prefs_ui::is_modifier_key(*key) {
+            let captured = crate::prefs_ui::shortcut_text(*key, Modifiers::ALT).unwrap();
+            assert_eq!(crate::shortcuts::parse(&captured).unwrap().logical_key, *key, "capture {key:?}");
+        }
+        let raw = format!("Alt+{}", key.name());
+        let normalized = photocraft_engine::prefs::normalize_shortcut(&raw).unwrap_or_else(|| panic!("key vocabulary missing {raw}"));
+        assert_eq!(crate::shortcuts::parse(&normalized).unwrap().logical_key, *key, "{raw}");
+        assert_eq!(crate::shortcuts::parse(&raw.to_ascii_lowercase()).unwrap().logical_key, *key, "old persisted {raw}");
+    }
+    assert!(crate::shortcuts::parse("Cmd+Pageup").is_some());
+    assert!(crate::shortcuts::parse("Cmd+Banana").is_none());
+}
+
+#[test]
+fn named_shortcuts_capture_persist_reload_and_dispatch() {
+    for (k, held, modifier) in [
+        (Key::PageUp, Modifiers::COMMAND, Key::ControlLeft),
+        (Key::PageDown, Modifiers::COMMAND, Key::ControlLeft),
+        (Key::OpenCurlyBracket, Modifiers::SHIFT, Key::ShiftLeft),
+        (Key::CloseCurlyBracket, Modifiers::SHIFT, Key::ShiftLeft),
+    ] {
+        let (mut h, id) = dialog(1.0, "edit.search", "search…");
+        capture(&mut h, &crate::shortcuts::pretty("Cmd+K"), modifier, held, k);
+        let expected = crate::prefs_ui::shortcut_text(k, held).unwrap();
+        assert_eq!(field(&h, id, "overrides")["edit.search"], json!(expected));
+        crate::dialogs::confirm(h.state_mut(), id).unwrap();
+        h.run_steps(2);
+        let stored = h.state().session.prefs().to_json();
+        let mut reload = photocraft_engine::Session::new();
+        reload.load_prefs_json(&serde_json::to_string(&stored).unwrap()).unwrap();
+        let shortcut = reload.prefs().shortcut("edit.search", None).unwrap();
+        assert_eq!(crate::shortcuts::parse(shortcut).unwrap().logical_key, k);
+        let binding = crate::shortcut_dispatch::bindings(h.state()).into_iter().find(|(id, _)| id == "edit.search").unwrap().1;
+        assert_eq!(binding.logical_key, k);
+        // The captured key actually opens Search after the dialog is gone.
+        key(&mut h, k, true, held);
+        h.run_steps(2);
+        key(&mut h, k, false, Modifiers::NONE);
+        h.run_steps(2);
+        assert!(h.state().ui.palette_open, "recorded {expected} did not dispatch");
+    }
+}
+
+#[test]
+fn shortcut_dialog_preserves_unknown_legacy_entries_without_clearing_other_bindings() {
+    for change in [false, true] {
+        let (mut h, id) = dialog(1.0, "edit.search", "search…");
+        h.state_mut().session.load_prefs_json(r#"{"shortcuts":{"edit.search":"Alt+F35","edit.undo":"","future.command":"Alt+FutureKey"}}"#).unwrap();
+        let mut overrides = h.state().session.prefs().shortcuts.clone();
+        if change {
+            overrides.insert("edit.search".into(), "Alt+F34".into());
+        }
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!(overrides));
+        crate::dialogs::confirm(h.state_mut(), id).unwrap();
+        assert_eq!(h.state().session.prefs().shortcuts, overrides);
+        assert_eq!(h.state().session.prefs().shortcut("layer.new.layerViaCopy", Some("Cmd+J")), Some("Cmd+J"));
+    }
+}

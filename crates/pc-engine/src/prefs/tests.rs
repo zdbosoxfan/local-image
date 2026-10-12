@@ -404,3 +404,75 @@ fn dsfix_v030_v031_toolbar_edit_and_reset_follow_vector_persona() {
     assert_eq!(s.prefs().toolbar.vector_set, "vector.allTools");
     assert_eq!(s.prefs().toolbar.active_set, "photographer");
 }
+
+#[test]
+fn named_shortcut_keys_are_canonical_and_unknown_keys_are_refused() {
+    for (input, expected) in [
+        ("ctrl+pageup", "Ctrl+PageUp"),
+        ("Ctrl+Pagedown", "Ctrl+PageDown"),
+        ("Shift+Opencurlybracket", "Shift+OpenCurlyBracket"),
+        ("Shift+CloseCurlyBracket", "Shift+CloseCurlyBracket"),
+        ("Cmd+ArrowUp", "Cmd+Up"),
+        ("Alt+NumpadEnter", "Alt+Enter"),
+        ("Ctrl+KeyQ", "Ctrl+Q"),
+        ("f35", "F35"),
+    ] {
+        assert_eq!(normalize_shortcut(input).as_deref(), Some(expected));
+    }
+    for input in ["Cmd+Banana", "Ctrl+F36", "Ctrl+Numpad42", "Ctrl+A+B"] {
+        assert!(normalize_shortcut(input).is_none(), "{input}");
+    }
+    let mut s = session();
+    assert!(s.execute("prefs.set", json!({"path":"shortcuts.edit.search","value":"Cmd+Banana"})).is_err());
+}
+
+#[test]
+fn keyed_preference_reset_removes_only_the_requested_override() {
+    let mut s = session();
+    s.execute("prefs.set", json!({"values":{"shortcuts.edit.undo":"Alt+PageUp","shortcuts.edit.redo":"Alt+PageDown","menus.colors.edit.undo":"red","menus.colors.edit.redo":"blue"}})).unwrap();
+    for path in ["shortcuts.edit.undo", "menus.colors.edit.undo"] {
+        assert_eq!(s.execute("prefs.reset", json!({"path":path})).unwrap(), Value::Null);
+        assert_eq!(s.execute("prefs.reset", json!({"path":path})).unwrap(), Value::Null);
+    }
+    assert!(!s.prefs().shortcuts.contains_key("edit.undo"));
+    assert_eq!(s.prefs().shortcut("edit.undo", Some("Cmd+Z")), Some("Cmd+Z"));
+    assert_eq!(s.prefs().shortcuts["edit.redo"], "Alt+PageDown");
+    assert!(!s.prefs().menus.colors.contains_key("edit.undo"));
+    assert_eq!(s.prefs().menus.colors["edit.redo"], "blue");
+    assert!(s.execute("prefs.reset", json!({"path":"no.such.preference"})).is_err());
+    assert!(s.execute("prefs.reset", json!({"path":"shortcuts."})).is_err());
+}
+
+#[test]
+fn legacy_named_shortcuts_load_with_readable_canonical_labels() {
+    let mut s = session();
+    s.load_prefs_json(r#"{"shortcuts":{"edit.search":"Cmd+Pageup","edit.undo":"Shift+Opencurlybracket","edit.redo":"","unknown.command":"Alt+FutureKey"}}"#)
+        .unwrap();
+    assert_eq!(s.prefs().shortcuts["edit.search"], "Cmd+PageUp");
+    assert_eq!(s.prefs().shortcuts["edit.undo"], "Shift+OpenCurlyBracket");
+    assert_eq!(s.prefs().shortcuts["edit.redo"], "");
+    assert_eq!(s.prefs().shortcuts["unknown.command"], "Alt+FutureKey");
+}
+
+#[test]
+fn shortcut_reset_assignment_and_whole_map_validation_are_atomic() {
+    let mut s = session();
+    s.load_prefs_json(r#"{"shortcuts":{"edit.search":"Alt+F35","edit.undo":"","future.command":"Alt+FutureKey"}}"#).unwrap();
+    let before = s.prefs().shortcuts.clone();
+    assert!(s.execute("edit.keyboardShortcuts", json!({"reset":true,"set":"not an object"})).is_err());
+    assert_eq!(s.prefs().shortcuts, before);
+    assert!(
+        s.execute("edit.keyboardShortcuts", json!({"reset":true,"allowUnknown":true,"set":{"edit.search":"Alt+PageUp","edit.redo":"Cmd+Banana"}})).is_err()
+    );
+    assert_eq!(s.prefs().shortcuts, before);
+    for values in [json!({"shortcuts":{"edit.search":"Cmd+Banana"}}), json!({"shortcuts":{"edit.search":"Alt+PageUp","edit.redo":"Cmd+Banana"}})] {
+        assert!(s.execute("prefs.set", json!({"path":"","value":values})).is_err());
+        assert_eq!(s.prefs().shortcuts, before);
+    }
+    let mut edited = before.clone();
+    edited.insert("edit.search".into(), "Alt+Pageup".into());
+    s.execute("prefs.set", json!({"path":"","value":{"shortcuts":edited}})).unwrap();
+    assert_eq!(s.prefs().shortcuts["edit.search"], "Alt+PageUp");
+    assert_eq!(s.prefs().shortcuts["future.command"], "Alt+FutureKey");
+    assert_eq!(s.prefs().shortcuts["edit.undo"], "");
+}
