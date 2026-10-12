@@ -27,6 +27,10 @@ pub struct Runtime {
     saved_rev: u64,
     /// This instance's preferences as of `saved_rev`: the base of the three-way merge on save.
     saved_value: Option<Value>,
+    /// Defaults/current state before an initial I/O failure; local edits are rebased
+    /// onto the first readable original, never saved over it as a default snapshot.
+    unreadable_base: Option<Value>,
+    unreadable_notice: Option<u64>,
     save_retry: SaveRetry,
     theme_pref: Option<Theme>,
     next_autosave_ms: f64,
@@ -93,6 +97,21 @@ fn theme_pref(k: ThemeKind) -> Theme {
 
 // ------------------------------------------------------------------ lifecycle
 
+fn load_prefs_text(services: &mut crate::Services) -> Result<Option<String>, crate::PrefsLoadError> {
+    if let Some(load) = services.load_prefs_checked.as_mut() { load() } else { Ok(services.load_prefs.as_mut().and_then(|load| load())) }
+}
+
+fn show_prefs_recovery(app: &mut PhotocraftApp) {
+    let Some(recovery) = app.services.prefs_recovery.as_mut().and_then(|load| load()) else { return };
+    let key = format!("ui.preferencesRecoveryDismissed:{}", recovery.backup_path);
+    if app.session.prefs().dialogs.get(&key).and_then(Value::as_bool) == Some(true)
+        || app.ui.notices.iter().any(|notice| notice.dismiss_pref.as_deref() == Some(key.as_str()))
+    {
+        return;
+    }
+    crate::notices::post(app, "Original preferences preserved", vec![recovery.reason, format!("Backup: {}", recovery.backup_path)], true, Some(&key));
+}
+
 /// Load saved preferences (once) and recover autosaved documents. Called when the app is
 /// created.
 pub fn load(app: &mut PhotocraftApp) {
@@ -101,12 +120,38 @@ pub fn load(app: &mut PhotocraftApp) {
     }
     app.prefs_rt.loaded = true;
     let mut repaired = false;
-    if let Some(text) = app.services.load_prefs.as_mut().and_then(|f| f())
-        && let Err(e) = app.session.load_prefs_json(&text)
-    {
-        app.ui.status = crate::i18n::fmt(tl!("Some preferences used defaults: {error}"), &[("error", &e)]);
-        repaired = true;
+    let loaded = load_prefs_text(&mut app.services).and_then(|text| match text {
+        Some(text) => app.session.load_prefs_json(&text).map_err(crate::PrefsLoadError::Damaged),
+        None => Ok(()),
+    });
+    if let Err(error) = loaded {
+        let unreadable = matches!(error, crate::PrefsLoadError::Unreadable(_));
+        if unreadable {
+            app.prefs_rt.unreadable_base = Some(app.session.prefs_value());
+        } else {
+            repaired = true;
+        }
+        let error = error.to_string();
+        app.ui.status = crate::i18n::fmt(tl!("Some preferences used defaults: {error}"), &[("error", &error)]);
+        let notice = crate::notices::post(
+            app,
+            if unreadable { "Preferences couldn't be read" } else { "Preferences need repair" },
+            vec![
+                error,
+                if unreadable {
+                    "Preference changes wait until the original can be reloaded.".into()
+                } else {
+                    "The original must be preserved before repaired preferences can replace it.".into()
+                },
+            ],
+            true,
+            None,
+        );
+        if unreadable {
+            app.prefs_rt.unreadable_notice = Some(notice);
+        }
     }
+    show_prefs_recovery(app);
     crate::dock::restore(app);
     app.sync_recent();
     app.prefs_rt.saved_rev = if repaired { 0 } else { app.session.prefs.rev() };
@@ -258,12 +303,37 @@ struct SaveRetry {
     notice: Option<u64>,
 }
 
+/// Recover an initial I/O failure by loading the real preferences and replaying only
+/// edits made since that failed load. Session values and the merge baseline move together.
+fn rebase_unreadable_prefs(app: &mut PhotocraftApp) -> Result<(), String> {
+    let Some(base) = app.prefs_rt.unreadable_base.clone() else { return Ok(()) };
+    let ours = app.session.prefs_value();
+    match load_prefs_text(&mut app.services) {
+        Err(crate::PrefsLoadError::Unreadable(error)) => return Err(error),
+        Err(crate::PrefsLoadError::Damaged(_)) => app.prefs_rt.saved_value = None,
+        Ok(None) => app.prefs_rt.saved_value = Some(base),
+        Ok(Some(text)) => {
+            let repaired = app.session.load_prefs_json(&text).is_err();
+            let stored_base = app.session.prefs_value();
+            let mut rebased = stored_base.clone();
+            merge_changes(&base, &ours, &mut rebased);
+            app.session.load_prefs_json(&serde_json::to_string(&rebased).map_err(|error| error.to_string())?)?;
+            app.prefs_rt.saved_value = if repaired { None } else { Some(stored_base) };
+        }
+    }
+    app.prefs_rt.unreadable_base = None;
+    if let Some(id) = app.prefs_rt.unreadable_notice.take() {
+        app.ui.notices.retain(|notice| notice.id != id);
+    }
+    Ok(())
+}
+
 /// Save changed preferences. A failed write stays pending and is retried with a backoff (a newer
 /// change retries sooner); the status bar reports the first failure and a notice a persistent
 /// one. Returns the seconds until the next retry while one is pending.
 fn persist(app: &mut PhotocraftApp, now: f64) -> Option<f64> {
     let rev = app.session.prefs.rev();
-    if rev == app.prefs_rt.saved_rev {
+    if rev == app.prefs_rt.saved_rev && app.prefs_rt.unreadable_base.is_none() {
         return None;
     }
     let r = &app.prefs_rt.save_retry;
@@ -273,22 +343,26 @@ fn persist(app: &mut PhotocraftApp, now: f64) -> Option<f64> {
             return Some(due - now);
         }
     }
-    let ours = app.session.prefs_value();
-    // A change that was undone (or set a value to what it already was) leaves nothing to write.
-    let written = if app.prefs_rt.saved_value.as_ref() == Some(&ours) { Ok(()) } else { write_prefs(app, &ours) };
+    let rebased = app.prefs_rt.unreadable_base.is_some();
+    let written = rebase_unreadable_prefs(app).and_then(|()| {
+        let ours = app.session.prefs_value();
+        // An undone change leaves nothing to write; a recovered read may also need no write.
+        if app.prefs_rt.saved_value.as_ref() == Some(&ours) { Ok(()) } else { write_prefs(app, &ours) }
+    });
+    show_prefs_recovery(app);
     match written {
         Ok(()) => {
-            app.prefs_rt.saved_rev = rev;
-            app.prefs_rt.saved_value = Some(ours);
+            app.prefs_rt.saved_rev = app.session.prefs.rev();
+            app.prefs_rt.saved_value = Some(app.session.prefs_value());
             let r = std::mem::take(&mut app.prefs_rt.save_retry);
-            if r.failures > 0 {
-                app.ui.status = "Preferences saved".into();
+            if r.failures > 0 || rebased {
+                app.ui.status = if rebased { "Preferences reloaded".into() } else { "Preferences saved".into() };
                 app.ui.status_error = false;
                 if let Some(id) = r.notice {
                     app.ui.notices.retain(|n| n.id != id);
                 }
             }
-            None
+            rebased.then_some(0.0) // apply any newly loaded visual preferences on the next frame
         }
         Err(e) => {
             let r = &mut app.prefs_rt.save_retry;
@@ -313,8 +387,14 @@ fn persist(app: &mut PhotocraftApp, now: f64) -> Option<f64> {
 /// Write `ours` over the stored preferences, keeping what another instance (a second browser
 /// tab, another app window) changed there since this one last loaded or saved them.
 fn write_prefs(app: &mut PhotocraftApp, ours: &Value) -> Result<(), String> {
-    let Some(save) = app.services.save_prefs.as_mut() else { return Ok(()) };
-    let stored = app.services.load_prefs.as_mut().and_then(|load| load()).and_then(|t| serde_json::from_str::<Value>(&t).ok());
+    if app.services.save_prefs.is_none() {
+        return Ok(());
+    }
+    let stored = match load_prefs_text(&mut app.services) {
+        Ok(text) => text.and_then(|text| serde_json::from_str::<Value>(&text).ok()),
+        Err(crate::PrefsLoadError::Damaged(_)) => None, // native save must back up readable damaged bytes
+        Err(crate::PrefsLoadError::Unreadable(error)) => return Err(error),
+    };
     let text = match (stored, &app.prefs_rt.saved_value) {
         (Some(mut theirs @ Value::Object(_)), Some(base)) => {
             merge_changes(base, ours, &mut theirs);
@@ -323,7 +403,7 @@ fn write_prefs(app: &mut PhotocraftApp, ours: &Value) -> Result<(), String> {
         _ => serde_json::to_string_pretty(ours),
     }
     .map_err(|e| e.to_string())?;
-    save(&text)
+    app.services.save_prefs.as_mut().map_or(Ok(()), |save| save(&text))
 }
 
 /// Three-way merge of preference trees: whatever `ours` changed since `base` goes over `theirs`
@@ -1590,6 +1670,93 @@ mod tests {
 
     fn stored(store: &Arc<Mutex<Option<String>>>) -> Value {
         serde_json::from_str(store.lock().unwrap().as_deref().unwrap_or("null")).unwrap()
+    }
+
+    #[test]
+    fn transient_initial_read_failure_rebases_local_edits_and_next_save() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        let original = r#"{"interface":{"theme":"studio"},"shortcuts":{"file.new":"Ctrl+Alt+N","file.open":"Ctrl+Shift+O"},"performance":{"historyStates":12},"future":{"keep":"original"}}"#;
+        let store = Arc::new(Mutex::new(Some(original.to_string())));
+        let failed = Arc::new(AtomicBool::new(true));
+        let writes = Arc::new(AtomicUsize::new(0));
+        let (read, write, read_failure, write_count) = (store.clone(), store.clone(), failed.clone(), writes.clone());
+        let mut app = PhotocraftApp::new(
+            photocraft_engine::Session::new(),
+            crate::Services {
+                load_prefs_checked: Some(Box::new(move || {
+                    if read_failure.load(Ordering::Relaxed) {
+                        return Err(crate::PrefsLoadError::Unreadable("temporarily locked".into()));
+                    }
+                    Ok(read.lock().unwrap().clone())
+                })),
+                save_prefs: Some(Box::new(move |text| {
+                    write_count.fetch_add(1, Ordering::Relaxed);
+                    *write.lock().unwrap() = Some(text.into());
+                    Ok(())
+                })),
+                ..Default::default()
+            },
+        );
+        app.run("prefs.set", json!({"values":{"interface.theme":"classic"}})).unwrap();
+        assert_eq!(persist(&mut app, 100.), Some(SAVE_RETRY_S));
+        assert_eq!(writes.load(Ordering::Relaxed), 0, "unreadable source must never reach the writer");
+        assert_eq!(store.lock().unwrap().as_deref(), Some(original));
+        failed.store(false, Ordering::Relaxed);
+        assert_eq!(persist(&mut app, 102.), Some(0.));
+        let saved = stored(&store);
+        assert_eq!(saved["interface"]["theme"], "classic");
+        assert_eq!(saved["shortcuts"], json!({"file.new":"Ctrl+Alt+N","file.open":"Ctrl+Shift+O"}));
+        assert_eq!(saved["performance"]["historyStates"], 12);
+        assert_eq!(saved["future"]["keep"], "original");
+        assert_eq!(app.session.prefs_value()["shortcuts"], saved["shortcuts"], "live prefs must be rebased too");
+        assert_eq!(app.session.prefs_value()["performance"]["historyStates"], 12);
+        assert_eq!(app.prefs_rt.saved_value, Some(app.session.prefs_value()));
+        // A later ordinary save must not write old default shortcuts back over the recovered file.
+        app.run("prefs.set", json!({"values":{"performance.historyStates":32}})).unwrap();
+        assert_eq!(persist(&mut app, 103.), None);
+        let next = stored(&store);
+        assert_eq!(next["shortcuts"], saved["shortcuts"]);
+        assert_eq!(next["performance"]["historyStates"], 32);
+        assert_eq!(next["future"], saved["future"]);
+        assert_eq!(writes.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn checked_preferences_keep_three_way_merge_and_persistent_recovery_location() {
+        let store = Arc::new(Mutex::new(Some(r#"{"interface":{"theme":"studio"},"future":{"value":1}}"#.to_string())));
+        let read = store.clone();
+        let write = store.clone();
+        let mut app = PhotocraftApp::new(
+            photocraft_engine::Session::new(),
+            crate::Services {
+                load_prefs: Some(Box::new(|| Some("{broken legacy loader".into()))),
+                load_prefs_checked: Some(Box::new(move || Ok(read.lock().unwrap().clone()))),
+                save_prefs: Some(Box::new(move |text| {
+                    *write.lock().unwrap() = Some(text.into());
+                    Ok(())
+                })),
+                prefs_recovery: Some(Box::new(|| {
+                    Some(crate::PrefsRecoveryNotice {
+                        backup_path: "/settings/preference-backups/original.json".into(),
+                        reason: "Invalid fields used defaults".into(),
+                    })
+                })),
+                ..Default::default()
+            },
+        );
+        assert_eq!(app.session.prefs().interface.theme, Theme::Studio);
+        app.run("prefs.set", json!({"values":{"interface.theme":"classic"}})).unwrap();
+        *store.lock().unwrap() = Some(r#"{"interface":{"theme":"studio"},"future":{"value":2,"otherWindow":true}}"#.into());
+        assert_eq!(persist(&mut app, 100.), None);
+        let saved = stored(&store);
+        assert_eq!(saved["interface"]["theme"], "classic");
+        assert_eq!(saved["future"], json!({"value":2,"otherWindow":true}));
+        app.ui.status = "a later action replaced the status text".into();
+        show_prefs_recovery(&mut app);
+        let notices: Vec<_> = app.ui.notices.iter().filter(|notice| notice.title == "Original preferences preserved").collect();
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].lines.iter().any(|line| line.contains("/settings/preference-backups/original.json")));
+        assert!(notices[0].dismiss_pref.is_some());
     }
 
     #[test]

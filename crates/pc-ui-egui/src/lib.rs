@@ -305,7 +305,30 @@ pub type ClipboardGetFn = Box<dyn FnMut() -> Option<(u32, u32, Vec<u8>)>>;
 pub type Inbox = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<u8>)>>>;
 /// Read the saved preferences text (`None` when there is none yet).
 pub type LoadTextFn = Box<dyn FnMut() -> Option<String>>;
-/// Persist the preferences text.
+/// Checked preferences read: I/O and encoding errors are distinct from a missing file.
+pub type LoadPrefsFn = Box<dyn FnMut() -> Result<Option<String>, PrefsLoadError>>;
+/// An unreadable file has unknown contents and must be reloaded before merging edits.
+/// Damaged readable bytes may use defaults, provided the save service preserves them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PrefsLoadError {
+    Unreadable(String),
+    Damaged(String),
+}
+impl std::fmt::Display for PrefsLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unreadable(message) | Self::Damaged(message) => f.write_str(message),
+        }
+    }
+}
+/// Original preference bytes preserved by a native host before repairing the file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrefsRecoveryNotice {
+    pub backup_path: String,
+    pub reason: String,
+}
+/// Persist the preferences text. Native hosts must refuse to replace unreadable source
+/// files and durably preserve damaged bytes before writing repaired preferences.
 pub type SaveTextFn = Box<dyn FnMut(&str) -> Result<(), String>>;
 /// Autosave a document snapshot for crash recovery: (snapshot, revision, original path).
 pub type AutosaveFn = Box<dyn FnMut(&std::sync::Arc<Document>, u64, Option<&str>) -> Result<(), String>>;
@@ -373,6 +396,10 @@ pub struct Services {
     /// Preferences persistence: the platform config directory on native, browser storage on
     /// the web (see `prefs_ui`).
     pub load_prefs: Option<LoadTextFn>,
+    /// Preferred when present; legacy/web hosts may continue using `load_prefs`.
+    pub load_prefs_checked: Option<LoadPrefsFn>,
+    /// Persisted recovery location, shown until explicitly dismissed by the user.
+    pub prefs_recovery: Option<Box<dyn FnMut() -> Option<PrefsRecoveryNotice>>>,
     pub save_prefs: Option<SaveTextFn>,
     /// The native window is connected directly to a Wayland compositor.
     pub is_wayland: bool,

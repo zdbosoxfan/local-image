@@ -71,6 +71,219 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     photocraft_format::atomic_write(path, bytes).map_err(|e| e.to_string())
 }
 
+/// Persisted separately so the recovery location remains discoverable after restart.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PrefsRecoveryRecord {
+    backup_name: String,
+    reason: String,
+}
+
+fn prefs_recovery_file(path: &Path) -> PathBuf {
+    path.with_extension("recovery.json")
+}
+fn prefs_backup_dir(path: &Path) -> PathBuf {
+    path.parent().unwrap_or_else(|| Path::new(".")).join("preference-backups")
+}
+
+fn prefs_recovery(path: &Path) -> Option<PrefsRecoveryRecord> {
+    let record: PrefsRecoveryRecord = serde_json::from_slice(&std::fs::read(prefs_recovery_file(path)).ok()?).ok()?;
+    let mut parts = Path::new(&record.backup_name).components();
+    if !matches!(parts.next(), Some(std::path::Component::Normal(_))) || parts.next().is_some() {
+        return None;
+    }
+    Some(record)
+}
+
+fn read_editor_prefs(path: &Path) -> Result<Option<String>, photocraft_ui_egui::PrefsLoadError> {
+    match std::fs::read(path) {
+        Ok(bytes) => String::from_utf8(bytes).map(Some).map_err(|_| {
+            photocraft_ui_egui::PrefsLoadError::Damaged(format!(
+                "{} is not valid UTF-8; its original bytes must be backed up before replacement",
+                path.display()
+            ))
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(photocraft_ui_egui::PrefsLoadError::Unreadable(format!(
+            "Cannot read {}: {error}. The file will not be replaced while it is unreadable",
+            path.display()
+        ))),
+    }
+}
+
+/// Match the editor's lenient field repair without mutating a Session/global colour state.
+fn damaged_editor_prefs(bytes: &[u8]) -> Option<String> {
+    let mut value: serde_json::Value = match serde_json::from_slice(bytes) {
+        Ok(value) => value,
+        Err(error) => return Some(format!("Preferences contain unreadable JSON: {error}")),
+    };
+    let color = value.as_object_mut().and_then(|object| object.remove("colorSettings"));
+    let (_, mut rejected) = match photocraft_engine::prefs::lenient::<photocraft_engine::prefs::Preferences>(value) {
+        Ok(parsed) => parsed,
+        Err(error) => return Some(format!("Preferences could not be read: {error}")),
+    };
+    if let Some(color) = color {
+        match photocraft_engine::prefs::lenient::<photocraft_engine::color_cmds::ColorSettings>(color) {
+            Ok((_, fields)) => rejected.extend(fields.into_iter().map(|field| format!("colorSettings.{field}"))),
+            Err(error) => return Some(format!("Colour preferences could not be read: {error}")),
+        }
+    }
+    (!rejected.is_empty()).then(|| format!("Invalid preference fields used defaults: {}", rejected.join(", ")))
+}
+
+fn write_new_prefs_backup(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    write_new_prefs_backup_with(path, |file| file.write_all(bytes))
+}
+
+fn write_new_prefs_backup_with(path: &Path, write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>) -> std::io::Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    if let Err(error) = write(&mut file) {
+        drop(file);
+        // Only this call's newly created, incomplete backup is eligible for cleanup.
+        if let Err(cleanup) = std::fs::remove_file(path) {
+            return Err(std::io::Error::new(
+                error.kind(),
+                format!("Backup write failed: {error}; could not remove partial backup {}: {cleanup}", path.display()),
+            ));
+        }
+        return Err(error);
+    }
+    // Complete bytes remain available for exact-byte verification/resync if sync fails.
+    file.sync_all()
+}
+
+/// Recover a synced orphan too: a recovery-record failure must not create another
+/// full backup on each retry. Only regular app-named files are considered, never symlinks.
+fn matching_prefs_backup(path: &Path, bytes: &[u8]) -> Result<Option<PathBuf>, String> {
+    let directory = prefs_backup_dir(path);
+    let matches = |candidate: &Path| -> Result<bool, String> {
+        let metadata = match std::fs::symlink_metadata(candidate) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.to_string()),
+        };
+        if !metadata.file_type().is_file() || metadata.len() != bytes.len() as u64 {
+            return Ok(false);
+        }
+        Ok(std::fs::read(candidate).map_err(|error| error.to_string())? == bytes)
+    };
+    if let Some(record) = prefs_recovery(path) {
+        let backup = directory.join(record.backup_name);
+        if matches(&backup)? {
+            return Ok(Some(backup));
+        }
+    }
+    for entry in std::fs::read_dir(&directory).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("preferences.corrupt-") && name.ends_with(".json") && matches(&entry.path())? {
+            return Ok(Some(entry.path()));
+        }
+    }
+    Ok(None)
+}
+
+/// The original is never replaced until both its exact-byte backup and recovery record
+/// have reached stable storage. Ordinary read failures block saving, rather than looking absent.
+fn save_editor_prefs(path: &Path, text: &str) -> Result<(), String> {
+    use photocraft_format::atomic::{AtomicFs, RealFs};
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let original = match std::fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("Cannot read {} before saving: {error}. The original was not changed", path.display())),
+    };
+    if let Some(bytes) = &original
+        && let Some(reason) = damaged_editor_prefs(bytes)
+    {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let directory = prefs_backup_dir(path);
+        std::fs::create_dir_all(&directory)
+            .map_err(|error| format!("Cannot create preference backup directory {}: {error}. The original was not changed", directory.display()))?;
+        RealFs.sync_dir(parent).map_err(|error| format!("Cannot make the preference backup directory durable: {error}. The original was not changed"))?;
+        let previous =
+            matching_prefs_backup(path, bytes).map_err(|error| format!("Cannot verify existing preference backups: {error}. The original was not changed"))?;
+        let backup = if let Some(backup) = previous {
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&backup)
+                .and_then(|file| file.sync_all())
+                .map_err(|error| format!("Cannot sync preference backup {}: {error}. The original was not changed", backup.display()))?;
+            backup
+        } else {
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
+            let mut created = None;
+            for _ in 0..32 {
+                let backup = directory.join(format!("preferences.corrupt-{stamp}-{}-{}.json", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+                match write_new_prefs_backup(&backup, bytes) {
+                    Ok(()) => {
+                        created = Some(backup);
+                        break;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => return Err(format!("Cannot preserve original preferences at {}: {error}. The original was not changed", backup.display())),
+                }
+            }
+            created.ok_or_else(|| "Cannot allocate a unique preference backup. The original was not changed".to_string())?
+        };
+        RealFs
+            .sync_dir(&directory)
+            .map_err(|error| format!("Cannot make preference backup {} durable: {error}. The original was not changed", backup.display()))?;
+        let record = PrefsRecoveryRecord { backup_name: backup.file_name().ok_or("invalid preference backup path")?.to_string_lossy().into_owned(), reason };
+        let record = serde_json::to_vec_pretty(&record).map_err(|error| error.to_string())?;
+        write_atomic(&prefs_recovery_file(path), &record).map_err(|error| {
+            format!(
+                "Original preferences are backed up at {}, but the recovery record could not be saved: {error}. The original was not changed",
+                backup.display()
+            )
+        })?;
+        RealFs.sync_dir(parent).map_err(|error| format!("Cannot make the preferences recovery record durable: {error}. The original was not changed"))?;
+    }
+    // A second window may have changed the source while the backup was synced. Retry
+    // against its new content instead of replacing something that was not inspected.
+    let current = match std::fs::read(path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("Cannot recheck preferences before saving: {error}. The original was not changed")),
+    };
+    if current != original {
+        return Err("Preferences changed while preparing the save; retrying will merge the new version. The original was not changed".into());
+    }
+    write_atomic(path, text.as_bytes())
+}
+
+/// Path-injected preference services keep native recovery tests isolated from user config.
+fn preferences_services(path: Option<PathBuf>) -> Services {
+    let load = path.clone();
+    let save = path.clone();
+    Services {
+        load_prefs_checked: Some(Box::new(move || match &load {
+            Some(path) => read_editor_prefs(path),
+            None => Ok(None),
+        })),
+        save_prefs: Some(Box::new(move |text| save_editor_prefs(save.as_deref().ok_or("no config directory")?, text))),
+        prefs_recovery: Some(Box::new(move || {
+            let path = path.as_ref()?;
+            let record = prefs_recovery(path)?;
+            Some(photocraft_ui_egui::PrefsRecoveryNotice {
+                backup_path: prefs_backup_dir(path).join(record.backup_name).to_string_lossy().into_owned(),
+                reason: record.reason,
+            })
+        })),
+        ..Default::default()
+    }
+}
+
 /// Production overwrite path; the injected Trash destination keeps host tests isolated.
 pub(crate) fn overwrite_original(
     doc: &Document,
@@ -166,6 +379,7 @@ fn image_from_files(paths: &[PathBuf]) -> Option<(u32, u32, Vec<u8>)> {
 
 pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) -> Services {
     let clip: Rc<RefCell<Option<arboard::Clipboard>>> = Rc::default();
+    let preferences = preferences_services(prefs_file());
     let automation_read = automation.clone().map(|workspace| {
         Box::new(move |path: &str| {
             let bytes = workspace.read(path).map_err(|error| error.to_string())?;
@@ -284,8 +498,10 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                 })
             })
         }),
-        load_prefs: Some(Box::new(|| std::fs::read_to_string(prefs_file()?).ok())),
-        save_prefs: Some(Box::new(|text: &str| write_atomic(&prefs_file().ok_or("no config directory")?, text.as_bytes()))),
+        load_prefs: None,
+        load_prefs_checked: preferences.load_prefs_checked,
+        save_prefs: preferences.save_prefs,
+        prefs_recovery: preferences.prefs_recovery,
         append_text: Some(Box::new(|path: &str, text: &str| {
             use std::io::Write;
             let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| e.to_string())?;
@@ -595,4 +811,174 @@ mod bugfix_develop_tests {
     fn bugfix_develop_clipboard_reader_survives_decoder_panic() {
         assert!(super::guarded_clipboard::<()>(|| panic!("damaged clipboard file")).is_none());
     }
+}
+
+#[cfg(test)]
+mod prefs_safety_tests {
+    use super::*;
+    use photocraft_ui_egui::{PhotocraftApp, prefs_ui};
+    use serde_json::json;
+
+    struct TempPrefs(PathBuf);
+    impl TempPrefs {
+        fn new() -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!("li-editor-prefs-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+        fn path(&self) -> PathBuf {
+            self.0.join("preferences.json")
+        }
+    }
+    impl Drop for TempPrefs {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn damaged_editor_preferences_keep_exact_bytes_before_service_save_and_report_on_restart() {
+        for bytes in [
+            br#"{"interface":{"theme":"studio""#.as_slice(),
+            b"{\"interface\":{\"theme\":\"studio\"}}\xff\x80".as_slice(),
+            br#"{"interface":{"theme":"retired-theme","showTooltips":false},"performance":{"historyStates":12}}"#.as_slice(),
+        ] {
+            let temp = TempPrefs::new();
+            let path = temp.path();
+            std::fs::write(&path, bytes).unwrap();
+            let mut services = preferences_services(Some(path.clone()));
+            if std::str::from_utf8(bytes).is_err() {
+                assert!(services.load_prefs_checked.as_mut().unwrap()().is_err());
+            }
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+            app.run("prefs.set", json!({"values":{"interface.theme":"studio"}})).unwrap();
+            prefs_ui::tick(&mut app, &egui::Context::default());
+            let record = prefs_recovery(&path).unwrap();
+            let backup = prefs_backup_dir(&path).join(&record.backup_name);
+            assert_eq!(std::fs::read(&backup).unwrap(), bytes);
+            let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            assert_eq!(saved["interface"]["theme"], "studio");
+            if bytes.starts_with(br#"{"interface":{"theme":"retired-theme"#) {
+                assert_eq!(saved["interface"]["showTooltips"], false);
+                assert_eq!(saved["performance"]["historyStates"], 12);
+            }
+            assert!(app.ui.notices.iter().any(|notice| notice.lines.iter().any(|line| line.contains(backup.to_string_lossy().as_ref()))));
+            app.ui.status = "an unrelated operation completed".into();
+            let restarted = PhotocraftApp::new(photocraft_engine::Session::new(), preferences_services(Some(path.clone())));
+            assert!(
+                restarted
+                    .ui
+                    .notices
+                    .iter()
+                    .any(|notice| notice.dismiss_pref.is_some() && notice.lines.iter().any(|line| line.contains(backup.to_string_lossy().as_ref())))
+            );
+            save_editor_prefs(&path, &serde_json::to_string(&saved).unwrap()).unwrap();
+            assert_eq!(std::fs::read_dir(prefs_backup_dir(&path)).unwrap().count(), 1);
+            // The same original content encountered again reuses a verified backup.
+            std::fs::write(&path, bytes).unwrap();
+            save_editor_prefs(&path, &serde_json::to_string(&saved).unwrap()).unwrap();
+            assert_eq!(prefs_recovery(&path).unwrap().backup_name, record.backup_name);
+            assert_eq!(std::fs::read_dir(prefs_backup_dir(&path)).unwrap().count(), 1);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                assert_eq!(std::fs::metadata(backup).unwrap().permissions().mode() & 0o077, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn backup_or_recovery_record_failure_never_replaces_original_preferences() {
+        for block_record in [false, true] {
+            let temp = TempPrefs::new();
+            let path = temp.path();
+            let original = b"\xff\x80truncated {\"original\":true";
+            std::fs::write(&path, original).unwrap();
+            if block_record {
+                std::fs::create_dir(prefs_recovery_file(&path)).unwrap();
+            } else {
+                std::fs::write(prefs_backup_dir(&path), b"blocked backup directory").unwrap();
+            }
+            let mut services = preferences_services(Some(path.clone()));
+            for _ in 0..5 {
+                let error = services.save_prefs.as_mut().unwrap()("{\"interface\":{\"theme\":\"studio\"}}").unwrap_err();
+                assert!(error.contains("original was not changed"), "{error}");
+                assert_eq!(std::fs::read(&path).unwrap(), original);
+            }
+            if block_record {
+                let entries = std::fs::read_dir(prefs_backup_dir(&path)).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+                assert_eq!(entries.len(), 1);
+                assert_eq!(std::fs::read(entries[0].path()).unwrap(), original);
+                std::fs::remove_dir(prefs_recovery_file(&path)).unwrap();
+                services.save_prefs.as_mut().unwrap()("{}").unwrap();
+                assert_eq!(std::fs::read_dir(prefs_backup_dir(&path)).unwrap().count(), 1);
+                assert_eq!(prefs_recovery(&path).unwrap().backup_name, entries[0].file_name().to_string_lossy());
+            }
+        }
+    }
+
+    #[test]
+    fn partial_preference_backup_write_failures_clean_only_their_own_file() {
+        use std::io::Write;
+        let temp = TempPrefs::new();
+        let source = temp.path();
+        let original = b"{broken preferences";
+        std::fs::write(&source, original).unwrap();
+        let directory = prefs_backup_dir(&source);
+        std::fs::create_dir_all(&directory).unwrap();
+        for attempt in 0..5 {
+            let path = directory.join(format!("preferences.corrupt-test-{attempt}.json"));
+            let error = write_new_prefs_backup_with(&path, |file| {
+                file.write_all(&original[..4])?;
+                Err(std::io::Error::other("injected short-write failure"))
+            })
+            .unwrap_err();
+            assert!(error.to_string().contains("short-write"));
+            assert!(!path.exists());
+            assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
+            assert_eq!(std::fs::read(&source).unwrap(), original);
+        }
+        let existing = directory.join("preferences.corrupt-existing.json");
+        std::fs::write(&existing, b"older backup").unwrap();
+        assert_eq!(write_new_prefs_backup_with(&existing, |_| Ok(())).unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&existing).unwrap(), b"older backup");
+    }
+
+    #[test]
+    fn unreadable_preferences_are_errors_not_absence_and_cannot_be_overwritten() {
+        let temp = TempPrefs::new();
+        let path = temp.path();
+        std::fs::create_dir(&path).unwrap(); // deterministic read failure on every platform, including privileged tests
+        let sentinel = path.join("do-not-delete");
+        std::fs::write(&sentinel, b"original directory").unwrap();
+        let mut services = preferences_services(Some(path.clone()));
+        assert!(services.load_prefs_checked.as_mut().unwrap()().is_err());
+        assert!(services.save_prefs.as_mut().unwrap()("{}").is_err());
+        assert_eq!(std::fs::read(sentinel).unwrap(), b"original directory");
+        assert!(path.is_dir());
+    }
+}
+
+#[cfg(all(test, unix))]
+#[test]
+fn preference_orphan_reuse_never_follows_a_backup_symlink() {
+    use std::os::unix::fs::symlink;
+    let directory = std::env::temp_dir().join(format!("li-pref-symlink-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("preferences.json");
+    let bytes = b"{broken preferences";
+    std::fs::write(&path, bytes).unwrap();
+    let other = directory.join("unrelated-file");
+    std::fs::write(&other, bytes).unwrap();
+    std::fs::create_dir_all(prefs_backup_dir(&path)).unwrap();
+    let link = prefs_backup_dir(&path).join("preferences.corrupt-link.json");
+    symlink(&other, &link).unwrap();
+    save_editor_prefs(&path, "{}").unwrap();
+    let record = prefs_recovery(&path).unwrap();
+    assert_ne!(record.backup_name, "preferences.corrupt-link.json");
+    assert_eq!(std::fs::read(prefs_backup_dir(&path).join(record.backup_name)).unwrap(), bytes);
+    assert_eq!(std::fs::read(other).unwrap(), bytes);
+    std::fs::remove_dir_all(directory).unwrap();
 }
