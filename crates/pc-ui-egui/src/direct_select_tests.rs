@@ -184,6 +184,9 @@ fn shape_layer_paths_are_edited_too() {
 // with the exact router hooks supplied to 00. This does not stand in for full-app wiring.
 type H = egui_kittest::Harness<'static, PhotocraftApp>;
 fn node_harness() -> H {
+    node_harness_at_scale(1.0)
+}
+fn node_harness_at_scale(ppp: f32) -> H {
     let mut app = app(Tool::DirectSelection);
     with_path(&mut app);
     app.ui.direct_selection.document = Some(app.session.active().unwrap().doc.id.0);
@@ -192,7 +195,7 @@ fn node_harness() -> H {
     app.ui.views[0].zoom = 1.0;
     app.ui.views[0].center = [100.0, 100.0];
     app.ui.views[0].fit_pending = false;
-    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(800.0, 600.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(800.0, 600.0)).with_pixels_per_point(ppp).with_step_dt(1.0 / 60.0).build_ui_state(
         |ui, app: &mut PhotocraftApp| {
             let ctx = ui.ctx().clone();
             super::frame(app, &ctx);
@@ -636,4 +639,28 @@ fn node_full_app_release_pointer_frame_benchmark_rtx5090() {
         samples[63],
         start.elapsed().as_secs_f64() * 1000.0
     );
+}
+
+#[test]
+fn hidpi_node_hit_target_keeps_six_logical_points_at_every_zoom() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    for ppp in [1.0, 1.25, 2.0] {
+        for zoom in [0.5, 1.0, 2.0] {
+            let mut h = node_harness_at_scale(ppp);
+            h.state_mut().ui.views[0].zoom = zoom;
+            h.run_steps(3);
+            let before = work(h.state());
+            let outside = [40.0 - 7.0 / f64::from(zoom), 40.0];
+            ui_drag(&mut h, outside, outside, Modifiers::NONE);
+            assert!(h.state().ui.direct_selection.anchors.is_empty(), "outside six-point target at {ppp}x/{zoom}");
+            assert_eq!(work(h.state()), before);
+            h.run_steps(20); // A distinct gesture, never a double-click conversion.
+            let start = [40.0 - 5.0 / f64::from(zoom), 40.0];
+            ui_drag(&mut h, start, [start[0] + 10.0, start[1] + 10.0], Modifiers::NONE);
+            assert_eq!(h.state().ui.direct_selection.anchors, vec![[0, 0]], "five-point hit at {ppp}x/{zoom}");
+            assert_eq!(anchor(h.state(), 0), Point::new(50.0, 50.0), "drag at {ppp}x/{zoom}");
+            assert!(h.state_mut().session.undo());
+            assert_eq!(work(h.state()), before);
+        }
+    }
 }

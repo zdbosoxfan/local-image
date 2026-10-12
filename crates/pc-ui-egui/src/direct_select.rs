@@ -228,9 +228,9 @@ pub fn install_snapping(query: SnapQuery) -> Result<(), SnapQuery> {
     SNAP_QUERY.set(query)
 }
 fn pick_tolerance(app: &PhotocraftApp) -> f64 {
-    let pixels = app.ui.direct_selection.pixels_per_point;
-    let pixels = if pixels.is_finite() && pixels > 0.0 { pixels } else { 1.0 };
-    6.0 / f64::from(app.current_zoom().max(0.01) * pixels)
+    // Canvas input and overlays use logical points. DPI scales both together;
+    // only document zoom converts the six-point hit radius to document units.
+    6.0 / f64::from(app.current_zoom().max(0.01))
 }
 fn snapped_end(app: &PhotocraftApp, base: &Path, edit: &Edit, targets: &[Target], start: [f64; 2], end: [f64; 2], mods: Modifiers) -> [f64; 2] {
     if mods.shift || mods.command || !app.ui.extras.snap {

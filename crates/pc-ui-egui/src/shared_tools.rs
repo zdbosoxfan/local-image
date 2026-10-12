@@ -515,7 +515,8 @@ fn pen_event(state: &mut State, app: &mut PhotocraftApp, ev: ToolEvent, mods: Mo
     let at = origin.map_or(point(ev), |origin| photocraft_engine::vector_packages::pen::constrain(origin, point(ev), mods.shift));
     let at = snap_point(state, at, mods, zoom, origin.map(|p| (p, std::f64::consts::FRAC_PI_4, 0.)))?;
     let ev = with_point(ev, at);
-    pen_pointer(&mut state.pen, &mut app.session, ev, mods, state.shape_mode, app.ui.vector_mask_target, zoom * state.pixels_per_point.unwrap_or(1.), paint)
+    // The pointer is already in document units; zoom is logical points per unit.
+    pen_pointer(&mut state.pen, &mut app.session, ev, mods, state.shape_mode, app.ui.vector_mask_target, zoom, paint)
 }
 fn shape_event(state: &mut State, app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> Result<()> {
     let ev = match ev {

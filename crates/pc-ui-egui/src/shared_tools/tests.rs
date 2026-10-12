@@ -24,7 +24,10 @@ fn host(id: &'static str, persona: Persona) -> Host {
     Host { app, tools, id, persona, rect: Rect::NOTHING, flip: false }
 }
 fn harness(host: Host) -> Harness<'static, Host> {
-    Harness::builder().with_size(egui::vec2(900., 700.)).build_ui_state(
+    harness_at_scale(host, 1.0)
+}
+fn harness_at_scale(host: Host, ppp: f32) -> Harness<'static, Host> {
+    Harness::builder().with_size(egui::vec2(900., 700.)).with_pixels_per_point(ppp).build_ui_state(
         |ui, h| {
             h.tools.activate(&mut h.app, h.id, h.persona);
             if registry::handler(h.id) == Some(Handler::Pen) {
@@ -638,4 +641,33 @@ fn bugfix_vector_path_text_survives_pointer_leaving_and_escape_keeps_text() {
     let s = h.state().app.session.active().unwrap();
     let LayerContent::Text(text) = &s.doc.layer(s.active_layer.unwrap()).unwrap().content else { panic!("text required") };
     assert_eq!(text.text, "Keep me");
+}
+
+#[test]
+fn hidpi_pen_closure_keeps_six_logical_points_in_both_personas() {
+    for persona in [Persona::Pixel, Persona::Vector] {
+        for ppp in [1.0, 1.25, 2.0] {
+            for (offset, closes) in [(5.0, true), (7.0, false)] {
+                let mut h = harness_at_scale(host("Pen", persona), ppp);
+                h.run_steps(3);
+                let before = h.state().app.session.active().unwrap().doc.clone();
+                let journal = h.state().app.session.journal.len();
+                for point in [[30., 40.], [100., 40.], [100., 110.], [30. - offset, 40.]] {
+                    draw(&mut h, point, point, Modifiers::NONE);
+                }
+                if closes {
+                    assert!(h.state().tools.pen.gesture.is_none(), "five-point closure at {ppp}x/{persona:?}");
+                    let path = active_path(&h.state().app);
+                    assert!(path.subpaths[0].closed);
+                    assert_eq!(path.subpaths[0].knots.len(), 3);
+                    assert_eq!(h.state().app.session.journal.len(), journal + 1);
+                    assert!(h.state_mut().app.session.undo());
+                } else {
+                    assert!(h.state().tools.pen.gesture.is_some(), "seven-point miss at {ppp}x/{persona:?}");
+                    assert_eq!(h.state().app.session.journal.len(), journal);
+                }
+                assert!(h.state().app.session.active().unwrap().doc == before, "document changed at {ppp}x/{persona:?}, closes={closes}");
+            }
+        }
+    }
 }

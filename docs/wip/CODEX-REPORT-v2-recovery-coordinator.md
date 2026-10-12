@@ -335,3 +335,16 @@ Independent review identified an eager-repair hazard in the initial unpublished 
 Evidence: pdf-encryption-first9passed; pdf-encryption-affected69passed/0failed/0ignored (complete PDF library and import suites). Synthetic independently generated fixtures cover R2/R3/R4, separate Identity string/stream selections, nonzero object generation, metadata exemption with encrypted dictionary strings, object members, required passwords, invalid mapping/auth/block/padding, direct/indirect Length forms, malformed-value-plus-encrypted-object-stream bombs and valid bomb rejection at bounded plaintext admission. Runtime assertions ensure every bootstrap object is non-stream. Independent static re-review found the original repair route removed. pdf-hidpi-strict-lint passes strict all-target desktop+PDF lint; all36owned file hashes match its manifest, Rust formatting and scoped diff checks pass. PDF fixtures have local binary Git attributes so required xref spaces and exact bytes survive.
 
 Remaining encryption revisions/index compatibility, nonisolated/general transparency, native final UX/performance/AI/package/upgrade gates, v2 push and final local installation remain active work.
+
+
+## O059: consistent logical-point Pen and node targets
+
+Pen closure and Direct Selection now convert their six-point pick radius using document zoom only. Canvas events and overlays already use logical points, so multiplying by display pixels-per-point incorrectly halved hit areas at2x. Snapping and drawing resolution keep their separate physical-scale logic.
+
+New actual egui pointer regressions cover1x/1.25x/2x, node zoom0.5/1/2, both Pen personas,5point hits and7point misses, closed path knot count and undo. The before-run reproduced a missed node drag. Its initial Pen test also had a fixture error: it treated Escape as cancellation, although established Pen Escape finishes the open path. The negative fixture now inspects the uncommitted miss without sending Escape; no existing test was weakened. Changed assertions avoid dumping whole Document pixel arrays.
+
+After correction, hidpi-picking-affected passed40 with two existing opt-in ignores. hidpi-native-node-acceptance explicitly ran the ignored full-app RTX5090 drag/preview/release/Escape pixel-equivalence gate and passed1. The separate old release timing ignore remains accounted as performance work; the newer scaled fixture was explicitly run. pdf-hidpi-strict-lint passes strict all-target desktop+PDF lint; all four owned source hashes match, scoped formatting/diff pass.
+
+Prior to these changes, release-vector-pointer-baseline at ddd5411e passed the unchanged6000x4000/500-shape64-sample release acceptance on RTX5090/Vulkan without CPU fallback: first click+GPU/readback91.678ms; warm median8.068ms,p95 8.662ms,p99 10.537ms; release8.304ms. This includes readback, has no before/after comparison and is not a universal UI speedup. Initial-phase, Move/pan/zoom and other measured workloads remain.
+
+The full original UX audit is not closed by this milestone: persona/theme/menu/dialog/Library requirements, full native workflows/AI/workspace/package/upgrade acceptance, normal v2 push and final installation remain pending.
