@@ -383,3 +383,9 @@ Evidence: library-ux-checked10passed after production fixes. library-ui-mileston
 TEST-CHANGED: grid_groups_by_capture_date now explicitly selects Day for day headers, then uses bounded virtual copies derived from the actual grid width to make its24-photo/seven-month Auto-month portion dense. It retains every original day/month/off click and selection assertion and adds count/run/density assertions; no production grouping heuristic or tolerance changed to satisfy the fixture. Sparse-default and dense-Auto counterexamples remain independently covered.
 
 ui-milestone-lint-final passes strict all-target desktop lint; all16owned hashes match and scoped formatting/diff checks pass. Full native workflows, remaining U026/U027/theme/export defaults and the other original UX requirements remain active. Large-library scaling and the full translation review retain their explicit post-core-release scope.
+
+## Deterministic mock-hub CI fixture — 2026-10-12
+
+GitHub run 38260307829 Ubuntu failed only `ds_mock_hub_coverage::handle_templates_serves_json_and_rewrites_hf_links`: the test selected the first arbitrary JSON directory entry, including index.json with no Hugging Face URLs. TEST-CHANGED: select the known image_sdxl_simple.json workflow and assert its exact upstream checkpoint URL before checking the handler. MIME, local rewritten URL presence and original upstream URL absence assertions remain; broad upstream-domain absence is now unconditional. Production behavior is unchanged.
+
+Validation: ci-mock-hub-deterministic passed all 23 affected coverage tests; ci-mock-hub-strict-lint passed with warnings denied; exact-file rustfmt passed. This repairs the observed CI defect; it is not evidence that a subsequent hosted CI run has completed or that final release gates are done.

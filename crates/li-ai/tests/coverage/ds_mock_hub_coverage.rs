@@ -47,15 +47,10 @@ fn handle_manager_list_returns_two_models() {
 
 #[test]
 fn handle_templates_serves_json_and_rewrites_hf_links() {
-    let base = fixtures_dir();
-    let json_file = std::fs::read_dir(&base)
-        .expect("fixtures dir")
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .find(|p| p.extension().is_some_and(|ext| ext == "json"))
-        .expect("at least one template json fixture");
+    let name = "image_sdxl_simple.json";
+    let original = std::fs::read_to_string(fixtures_dir().join(name)).expect("SDXL template fixture");
+    assert!(original.contains("https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors?download=true"));
 
-    let name = json_file.file_name().unwrap().to_str().unwrap();
     let reply = handle("example.test", &format!("/templates/{name}")).expect("template should serve");
     let Reply::Bytes(bytes, content_type) = reply else {
         panic!("expected Bytes reply");
@@ -66,10 +61,7 @@ fn handle_templates_serves_json_and_rewrites_hf_links() {
     assert!(text.contains("http://example.test/hf/"));
     assert!(!text.contains("https://huggingface.co/"));
 
-    let original = std::fs::read_to_string(&json_file).unwrap();
-    if original.contains("huggingface.co") {
-        assert!(!text.contains("huggingface.co"));
-    }
+    assert!(!text.contains("huggingface.co"));
 }
 
 #[test]
