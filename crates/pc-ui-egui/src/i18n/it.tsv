@@ -3901,3 +3901,16 @@ ai	New	Nuovi
 	testing…	test in corso…
 	Autosave failed	Salvataggio automatico non riuscito
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Il ripristino dopo un arresto anomalo non può conservare una copia delle modifiche non salvate. Salva il lavoro per non perderlo.
+# Stroke Path brush tool dialog (PhotoCraft 55c1847f)
+	Simulate Pressure	Simula pressione
+	Stroke Path…	Traccia tracciato…
+	Background Eraser	Gomma per sfondo
+	Healing Brush	Pennello correttivo
+	Spot Healing Brush	Pennello correttivo al volo
+	Smudge	Sfumino
+# Tablet compatibility and shared colour controls
+	Pen tablet: use compatibility mode (XWayland)	Tavoletta grafica: usa la modalità compatibilità (XWayland)
+	On	Attivo
+	Colour hue	Tonalità del colore
+	Colour saturation	Saturazione del colore
+	Colour brightness	Luminosità del colore

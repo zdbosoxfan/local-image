@@ -3896,3 +3896,16 @@ ai	New	Nuevos
 	testing…	probando…
 	Autosave failed	Error al guardar automáticamente
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	La recuperación tras bloqueo no puede guardar una copia de los cambios sin guardar. Guarda tu trabajo para conservarlo.
+# Stroke Path brush tool dialog (PhotoCraft 55c1847f)
+	Simulate Pressure	Simular presión
+	Stroke Path…	Contornear trazado…
+	Background Eraser	Borrador de fondo
+	Healing Brush	Pincel corrector
+	Spot Healing Brush	Pincel corrector puntual
+	Smudge	Dedo
+# Tablet compatibility and shared colour controls
+	Pen tablet: use compatibility mode (XWayland)	Tableta gráfica: usar modo de compatibilidad (XWayland)
+	On	Activado
+	Colour hue	Tono del color
+	Colour saturation	Saturación del color
+	Colour brightness	Brillo del color

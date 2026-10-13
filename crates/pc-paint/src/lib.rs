@@ -299,3 +299,8 @@ mod tests {
 
 #[cfg(test)]
 mod brush_tests;
+
+pub use brush::ImportedBrushImage;
+
+#[cfg(debug_assertions)]
+pub mod profiling;

@@ -100,6 +100,7 @@ fn second_half(ui: &egui::Ui, r: egui::Rect, grid: bool) -> bool {
 /// Drag, drop and context menu of one preset cell or row.
 fn preset_interactions(ui: &egui::Ui, resp: &egui::Response, r: egui::Rect, p: &BrushPreset, presets: &[BrushPreset], grid: bool, acts: &mut Vec<Action>) {
     let t = Tokens::get(ui.ctx());
+    let _ = resp.clone().on_hover_text(preset_tooltip(p));
     resp.dnd_set_drag_payload(BrushDrag::Preset(p.name.clone()));
     if let Some(d) = resp.dnd_hover_payload::<BrushDrag>()
         && matches!(&*d, BrushDrag::Preset(n) if *n != p.name)
@@ -181,7 +182,7 @@ fn grid_cell(ui: &mut egui::Ui, p: &BrushPreset, current: bool, presets: &[Brush
         egui::FontId::proportional(9.5),
         t.text_dim,
     );
-    let resp = resp.on_hover_text(&p.name);
+    let resp = resp.on_hover_text(preset_tooltip(p));
     preset_interactions(ui, &resp, r, p, presets, true, acts);
 }
 
@@ -397,7 +398,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let name = new_preset_name(&app.session.tools.presets);
                 run_or_status(app, "brush.presets.save", json!({ "name": name }));
             }
-            if icons::button(ui, "folder-open", 24.0, false, "Import Brushes… (.abr)").clicked() {
+            if icons::button(ui, "folder-open", 24.0, false, "Import Brushes…").clicked() {
                 app.open_dialog_file();
             }
         });
@@ -407,4 +408,8 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     brush_preview::with_cache(ui.ctx(), |c| {
         c.retain(|slot| slot.split_once(':').is_none_or(|(_, n)| names.contains(n)));
     });
+}
+
+fn preset_tooltip(p: &BrushPreset) -> String {
+    if p.brush.import_notes.is_empty() { p.name.clone() } else { format!("{}\napproximate\n{}", p.name, p.brush.import_notes.join("\n")) }
 }

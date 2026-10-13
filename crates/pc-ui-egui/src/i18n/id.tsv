@@ -3876,3 +3876,16 @@ ai	New	Baru
 @id	path.finishCompound	Selesaikan Jalur Gabungan
 	Autosave failed	Simpan otomatis gagal
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Pemulihan crash tidak dapat menyimpan salinan perubahan yang belum disimpan. Simpan pekerjaan Anda agar tidak hilang.
+# Stroke Path brush tool dialog (PhotoCraft 55c1847f)
+	Simulate Pressure	Simulasikan Tekanan
+	Stroke Path…	Stroke Path…
+	Background Eraser	Background Eraser
+	Healing Brush	Healing Brush
+	Spot Healing Brush	Spot Healing Brush
+	Smudge	Smudge
+# Tablet compatibility and shared colour controls
+	Pen tablet: use compatibility mode (XWayland)	Tablet pena: gunakan mode kompatibilitas (XWayland)
+	On	Aktif
+	Colour hue	Rona warna
+	Colour saturation	Saturasi warna
+	Colour brightness	Kecerahan warna

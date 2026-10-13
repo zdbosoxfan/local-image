@@ -273,3 +273,11 @@ pub fn merged_composite(file: &PsdFile) -> Result<Vec<[f32; 4]>, IoError> {
     let s = l.surface().ok_or_else(|| IoError::Unsupported("no merged image".into()))?;
     Ok(photocraft_compose::surface_to_buffer(s, doc.bounds()).px)
 }
+
+pub mod brush_import;
+mod brush_import_gimp;
+mod brush_import_krita;
+mod brush_import_mypaint;
+mod brush_import_plist;
+mod brush_import_procreate;
+mod brush_import_xml;

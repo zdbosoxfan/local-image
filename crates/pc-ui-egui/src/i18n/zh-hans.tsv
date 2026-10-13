@@ -3876,3 +3876,16 @@ ai	New	最新
 @id	path.finishCompound	完成复合路径
 	Autosave failed	自动保存失败
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	崩溃恢复无法保留未保存更改的副本。请保存您的工作。
+# Stroke Path brush tool dialog (PhotoCraft 55c1847f)
+	Simulate Pressure	模拟压力
+	Stroke Path…	描边路径…
+	Background Eraser	背景橡皮擦
+	Healing Brush	修复画笔
+	Spot Healing Brush	污点修复画笔
+	Smudge	涂抹
+# Tablet compatibility and shared colour controls
+	Pen tablet: use compatibility mode (XWayland)	数位笔：使用兼容模式（XWayland）
+	On	开
+	Colour hue	颜色色相
+	Colour saturation	颜色饱和度
+	Colour brightness	颜色亮度

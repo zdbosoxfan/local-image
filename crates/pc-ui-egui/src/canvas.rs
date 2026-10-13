@@ -2046,7 +2046,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     // local-image: Preferences › Tools › Pen pressure curve.
     let curve = app.session.prefs().tools.pen_pressure_curve.clone();
     app.stylus.set_pressure_curve(&curve);
-    app.stylus.update(&ui.input(|i| i.events.clone()));
+    app.stylus.update_for_frame(ui.ctx().cumulative_frame_nr(), &ui.input(|i| i.events.clone()));
     crate::stylus::Stylus::sync_eraser_tool(app);
     // A Magnetic Lasso border left behind by a tool or document switch is dropped.
     crate::magnetic_lasso_ui::frame(app);
@@ -2153,7 +2153,23 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // A drag is only recognised once the pointer has moved past egui's click distance: the
         // gesture starts where the button went down, not where it is now (#123).
         let gesture_active_before = app.drag.is_some();
+        let events = ui.input(|i| i.events.clone());
+        let painting = tool.is_brushlike();
+        let pressed = events.iter().find_map(|e| match e {
+            egui::Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers } if rect.contains(*pos) => Some((*pos, *modifiers)),
+            _ => None,
+        });
+        if painting
+            && !move_input
+            && (response.is_pointer_button_down_on() || buttons.clicked || buttons.started)
+            && !gesture_active_before
+            && let Some((p, press_mods)) = pressed
+        {
+            let d = xf.to_doc(p);
+            tool_event(app, ToolEvent::Down { x: d[0], y: d[1], pressure: app.stylus.pressure() }, press_mods);
+        }
         if buttons.started
+            && !(painting && app.drag.is_some())
             && let Some(p) = ui.input(|i| i.pointer.press_origin()).filter(|p| rect.contains(*p)).or(response.interact_pointer_pos())
         {
             if tool == Tool::Move && app.ui.transform.is_none() {
@@ -2198,18 +2214,29 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 positions.push(p);
             }
             app.defer_live_stroke = true;
-            for p in positions {
+            let n = positions.len();
+            for (k, p) in positions.into_iter().enumerate() {
+                app.stylus.select(k, n);
                 let d = xf.to_doc(p);
                 tool_event(app, ToolEvent::Move { x: d[0], y: d[1], pressure: app.stylus.pressure() }, mods);
             }
+            app.stylus.clear_selection();
             app.defer_live_stroke = false;
             // One live-stroke update for the whole frame, not one per recovered sample.
             feed_live_stroke(app);
             crate::magnetic_lasso_ui::flush(app);
         }
-        if buttons.stopped {
+        let painting_lift = painting
+            && app.drag.is_some()
+            && events.iter().any(|e| matches!(e, egui::Event::PointerButton { button: PointerButton::Primary, pressed: false, .. }));
+        if buttons.stopped || painting_lift {
+            // egui may report both stopped and clicked: commit the stroke only once.
+            if painting && app.drag.is_some() {
+                buttons.clicked = false;
+            }
             let p = response.interact_pointer_pos().map(|p| xf.to_doc(p)).or_else(|| app.drag.as_ref().and_then(|d| d.points.last().map(|q| [q[0], q[1]])));
             if let Some(d) = p {
+                tap_at_peak_pressure(app);
                 tool_event(app, ToolEvent::Up { x: d[0], y: d[1] }, mods);
             }
         }
@@ -2236,7 +2263,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                     if tool == Tool::Move && app.ui.transform.is_none() {
                         begin_transform_controls_at(app, &ctx, &xf, p);
                     }
-                    tool_event(app, ToolEvent::Down { x: d[0], y: d[1], pressure: 1.0 }, click_mods);
+                    tool_event(app, ToolEvent::Down { x: d[0], y: d[1], pressure: app.stylus.pressure() }, click_mods);
+                    tap_at_peak_pressure(app);
                     tool_event(app, ToolEvent::Up { x: d[0], y: d[1] }, click_mods);
                 }
             }
@@ -3050,9 +3078,9 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
             let from = app.last_stroke_end.filter(|(doc, _)| mods.shift && crate::stroke_constraint::connects(tool) && Some(*doc) == active).map(|(_, p)| p);
             let mut points = vec![[x, y, pressure as f64]];
             if let Some(p) = from {
-                points.insert(0, [p[0], p[1], pressure as f64]);
+                points.insert(0, p);
             }
-            app.drag = Some(Drag::new(tool, from.unwrap_or([x, y]), points, mods, erase));
+            app.drag = Some(Drag::new(tool, from.map_or([x, y], |p| [p[0], p[1]]), points, mods, erase));
             if tool == Tool::Move {
                 crate::move_ui::begin_pixels(app, mods.alt);
             }
@@ -3171,7 +3199,7 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
     if crate::stroke_constraint::connects(d.tool)
         && let Some(st) = app.session.active()
     {
-        app.last_stroke_end = Some((st.doc.id, [end[0], end[1]]));
+        app.last_stroke_end = Some((st.doc.id, end));
     }
     if crate::eraser_ui::finish_stroke(app, d.tool, &d.points) || crate::retouch_ui::finish_stroke(app, d.tool, &d.points, d.modifiers) {
         return;
@@ -3997,3 +4025,18 @@ mod transform_controls_tests {
         assert!(!transform_controls_hit(r, pos2(60.0, 4.0)));
     }
 }
+
+// PhotoCraft 994a0421: a stationary tap uses the strongest contact sample.
+fn tap_at_peak_pressure(app: &mut PhotocraftApp) {
+    if app.stylus.sample().is_none() {
+        return;
+    }
+    let peak = f64::from(app.stylus.tap_pressure());
+    if let Some(p) = app.drag.as_mut().filter(|d| d.points.len() == 1).and_then(|d| d.points.first_mut()) {
+        p[2] = p[2].max(peak);
+    }
+}
+
+#[cfg(test)]
+#[path = "canvas_brush_batch_tests.rs"]
+mod brush_batch_tests;

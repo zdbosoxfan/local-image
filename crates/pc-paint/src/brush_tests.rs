@@ -497,6 +497,23 @@ fn dual_brush_intersects() {
 }
 
 #[test]
+fn wet_edges_shape_the_stroke_not_each_dab() {
+    // #2088: Wet Edges darkens the rim of the whole stroke. Along the centre of a straight stroke
+    // of overlapping dabs the paint is even (no chain of per-dab rings), and the stroke's sides are
+    // darker than its centre.
+    let b = BrushSettings { size: 40.0, hardness: 0.8, wet_edges: true, ..brush() };
+    let s = paint(&b, &line(20.0, 220.0, 50.0), 240, 100);
+    let centre: Vec<f32> = (60..180).map(|x| s.rgba(x, 50)[3]).collect();
+    let (lo, hi) = centre.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &a| (lo.min(a), hi.max(a)));
+    assert!(hi - lo < 0.02, "centre line is even: {lo}..{hi}");
+    assert!(hi < 0.6, "wet interior is lighter: {hi}");
+    for x in [80, 120, 160] {
+        let side = s.rgba(x, 50 + 16)[3];
+        assert!(side > hi + 0.15, "the side at x={x} is darker than the centre: {side} vs {hi}");
+    }
+}
+
+#[test]
 fn wet_edges_and_noise() {
     let b = BrushSettings { size: 40.0, hardness: 0.0, wet_edges: true, ..brush() };
     let s = paint(&b, &line(20.0, 120.0, 50.0), 140, 100);
@@ -1095,4 +1112,25 @@ fn dab_rect_of_a_far_or_non_finite_centre_does_not_overflow() {
     let huge = Dab::round(Point::new(5.0, 5.0), f32::INFINITY, 1.0);
     let r = crate::retouch::dab_rect(&huge);
     assert!(r.x0 <= r.x1 && r.y0 <= r.y1, "{r:?}");
+}
+
+#[test]
+fn brush_batch_renderer_snapshots_keep_coverage_and_dual_tile_seams() {
+    let b = BrushSettings { size: 60.0, pressure_size: false, dual_brush: crate::DualBrush { enabled: true, size: 45.0, ..Default::default() }, ..brush() };
+    let fmt = photocraft_color::PixelFormat::RGBA32F;
+    let mut r = crate::render::StrokeRenderer::new(&b, Some(fmt), 1.0);
+    r.push(&[StrokePoint::new(15.0, 60.0, 1.0), StrokePoint::new(130.0, 60.0, 1.0)]);
+    let snapshot = r.clone();
+    let before = snapshot.coverage_at(170, 60);
+    r.push(&[StrokePoint::new(180.0, 60.0, 1.0)]);
+    r.finish();
+    assert_eq!(snapshot.coverage_at(170, 60), before);
+    let pre = Surface::new(fmt);
+    let mut actual = pre.clone();
+    let bounds = r.composite(&pre, &mut actual, None, false, true);
+    for y in bounds.y0..bounds.y1 {
+        for x in bounds.x0..bounds.x1 {
+            assert!((actual.rgba(x, y)[3] - r.coverage_at(x, y)).abs() < 1e-6, "({x},{y})");
+        }
+    }
 }

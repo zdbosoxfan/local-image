@@ -340,6 +340,8 @@ pub struct Tools {
     pub right_click_with_painting_tools: RightClickPaint,
     /// Pen tablets: pressure, tilt and rotation reach the brush (off: a pen paints like a mouse).
     pub use_tablet_pressure: bool,
+    /// XWayland tablet compatibility on Wayland; restart to apply.
+    pub tablet_compatibility_mode: String,
     /// local-image: the global pen pressure curve, `[input, output]` points in `0..=1` (Krita's
     /// tablet pressure curve), applied to stylus pressure before brush dynamics. The default
     /// line is the identity.
@@ -360,6 +362,7 @@ impl Default for Tools {
             double_click_layer_mask_launches_select_and_mask: true,
             right_click_with_painting_tools: RightClickPaint::BrushPicker,
             use_tablet_pressure: true,
+            tablet_compatibility_mode: "auto".into(),
             pen_pressure_curve: photocraft_paint::pressure::LINEAR.to_vec(),
         }
     }
@@ -968,6 +971,7 @@ pub fn choices(path: &str) -> Option<&'static [&'static str]> {
         "cursors.painting" => PaintingCursor::NAMES,
         "cursors.other" => OtherCursor::NAMES,
         "tools.rightClickWithPaintingTools" => RightClickPaint::NAMES,
+        "tools.tabletCompatibilityMode" => &["auto", "on", "off"],
         "transparencyAndGamut.gridSize" => CheckerSize::NAMES,
         "transparencyAndGamut.gridColors" => CheckerColors::NAMES,
         "unitsAndRulers.rulers" | "guidesGridAndSlices.gridUnit" => Unit::NAMES,
@@ -1085,6 +1089,19 @@ fn set_path(root: &mut Value, path: &str, value: Value) -> std::result::Result<(
 
 /// Validate one value for `path` before it is stored (choices, ranges, colours).
 fn check_value(path: &str, v: &Value) -> std::result::Result<(), String> {
+    // PhotoCraft 8d23c622: direct edits require 2..16 unit-square point pairs.
+    // Whole-section/legacy loads remain lenient; PressureCurve sanitizes their data.
+    if path == "tools.penPressureCurve" {
+        let valid = v.as_array().is_some_and(|points| {
+            (2..=photocraft_paint::pressure::MAX_POINTS).contains(&points.len())
+                && points.iter().all(|p| {
+                    p.as_array().is_some_and(|p| p.len() == 2 && p.iter().all(|v| v.as_f64().is_some_and(|v| v.is_finite() && (0.0..=1.0).contains(&v))))
+                })
+        });
+        if !valid {
+            return Err("`tools.penPressureCurve` needs 2..16 [input, output] pairs within 0..1".into());
+        }
+    }
     if path == "performance.renderingMode" && v.is_null() {
         return Ok(()); // Legacy policy, resolved from useGpu and gpuBackend.
     }

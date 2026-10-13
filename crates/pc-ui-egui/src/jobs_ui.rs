@@ -314,9 +314,7 @@ fn on_event(app: &mut PhotocraftApp, mut e: JobEvent, previous: Option<photocraf
     }
     match e.outcome {
         JobOutcome::Done(v) if e.command == "brush.presets.importAbr" => {
-            let n = v.get("count").and_then(Value::as_u64).unwrap_or(0);
-            let group = v.get("group").and_then(Value::as_str).unwrap_or_default();
-            app.ui.status = format!("Imported {n} brushes from {group}");
+            app.ui.status = crate::preset_files_ui::summary(&v);
             app.ui.status_error = false;
             app.ui.panels.brush_settings = true;
             app.ui.brush_tab = 1;

@@ -3988,3 +3988,16 @@ ai	New	Новые
 @id	path.finishCompound	Завершить составной контур
 	Autosave failed	Ошибка автосохранения
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Восстановление после сбоя не может сохранить копию несохранённых изменений. Сохраните работу, чтобы не потерять её.
+# Stroke Path brush tool dialog (PhotoCraft 55c1847f)
+	Simulate Pressure	Имитировать нажим
+	Stroke Path…	Обвести контур…
+	Background Eraser	Фоновый ластик
+	Healing Brush	Восстанавливающая кисть
+	Spot Healing Brush	Точечная восстанавливающая кисть
+	Smudge	Палец
+# Tablet compatibility and shared colour controls
+	Pen tablet: use compatibility mode (XWayland)	Планшет: использовать режим совместимости (XWayland)
+	On	Вкл.
+	Colour hue	Тон цвета
+	Colour saturation	Насыщенность цвета
+	Colour brightness	Яркость цвета

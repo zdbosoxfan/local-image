@@ -3905,3 +3905,16 @@ ai	New	Nové
 	testing…	testování…
 	Autosave failed	Automatické ukládání selhalo
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Obnova po pádu nemůže uchovat kopii neuložených změn. Uložte svou práci, abyste o ni nepřišli.
+# Stroke Path brush tool dialog (PhotoCraft 55c1847f)
+	Simulate Pressure	Simulovat přítlak
+	Stroke Path…	Vytáhnout cestu…
+	Background Eraser	Guma pozadí
+	Healing Brush	Retušovací štětec
+	Spot Healing Brush	Bodový retušovací štětec
+	Smudge	Rozmazání
+# Tablet compatibility and shared colour controls
+	Pen tablet: use compatibility mode (XWayland)	Tabletové pero: používat režim kompatibility (XWayland)
+	On	Zapnuto
+	Colour hue	Odstín barvy
+	Colour saturation	Sytost barvy
+	Colour brightness	Jas barvy

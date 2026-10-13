@@ -11,7 +11,8 @@
 //!   raw events on the root window and maps the tablet device's valuators ("Abs Pressure",
 //!   "Abs Tilt X/Y", "Abs Rotary Z") to samples. Raw events reach every client that asks, also
 //!   while winit holds the pointer grab of a drag. No `unsafe`.
-//! - **Wayland**: not covered. The `zwp_tablet_v2` protocol has to be bound on winit's own
+//! - **Wayland**: the application chooses XWayland compatibility when a pen is detected
+//!   (Auto / On / Off preference; LOCAL_IMAGE_NATIVE_WAYLAND=1 opts out). Native tablet input is not covered. The `zwp_tablet_v2` protocol has to be bound on winit's own
 //!   `wl_display` connection (the tablet events name winit's `wl_surface`), which needs
 //!   `unsafe` foreign-display interop, and binding it makes compositors stop emulating the
 //!   pointer for the pen, so pen motion would have to be re-injected into egui as well.
@@ -25,6 +26,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod appkit;
+pub mod wayland;
 pub mod xi;
 
 #[cfg(target_os = "macos")]
