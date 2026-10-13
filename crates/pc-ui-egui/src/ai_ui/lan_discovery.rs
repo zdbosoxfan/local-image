@@ -28,6 +28,9 @@ pub(super) fn row(ui: &mut egui::Ui, settings: &mut AiSettings) {
         }
     });
     ui.label(tl!("Search nearby LAN addresses on port 8188 and the selected port. For other networks, enter the address manually."));
+    if cfg!(target_os = "macos") {
+        ui.label(tl!("On macOS, allow Local Image in System Settings > Privacy & Security > Local Network."));
+    }
     if let Some(snapshot) = snapshot {
         if running {
             ui.label(crate::i18n::fmt(

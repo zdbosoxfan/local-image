@@ -803,6 +803,7 @@ mod tests {
             "Use a remote ComfyUI server",
             "Connect / Check Server",
             "Find on LAN",
+            "On macOS, allow Local Image in System Settings > Privacy & Security > Local Network.",
             "Search nearby LAN addresses on port 8188 and the selected port. For other networks, enter the address manually.",
             "Searching LAN… {checked}/{total}",
             "Use this ComfyUI server",

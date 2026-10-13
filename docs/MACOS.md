@@ -59,6 +59,9 @@ then use remote mode with `127.0.0.1` and port `8188`. The explicit remote check
 Local Image from starting a local server or placing generative weights on the wrong machine.
 Direct connections use HTTP/WebSocket; use a trusted LAN, Tailscale or SSH tunnel. The client
 currently does not provide HTTPS, proxy-path or authentication settings for a public endpoint.
+On macOS, allow Local Image's Local Network prompt. If a running server is not reachable, check
+**System Settings > Privacy & Security > Local Network** and allow Local Image there.
+The bundle declares its network purpose as required by [Apple's local-network guidance](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy).
 
 ## Build and validate
 
