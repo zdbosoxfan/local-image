@@ -1,6 +1,6 @@
 //! Chrome around the canvas: title bar, options bar, toolbar, status bar, dock cards, Properties.
 
-use egui::{Align2, Color32, CornerRadius, Rect, RichText, Sense, Stroke, StrokeKind, Vec2, pos2, vec2};
+use egui::{Align2, Color32, CornerRadius, Rect, RichText, Sense, Stroke, StrokeKind, pos2, vec2};
 use photocraft_color::BlendMode;
 use photocraft_doc::{Layer, LayerContent, LayerId};
 use serde_json::{Value, json};
@@ -1369,12 +1369,10 @@ pub fn floating_panels(app: &mut PhotocraftApp, ctx: &egui::Context) {
 /// One dock tab's content, docked or floating; `dock` bounds it and scrolls it when it's taller.
 fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate::dock::Tab) {
     use crate::dock::Tab;
-    let pro = Tokens::get(ui.ctx()).pro;
     match tab {
         Tab::Gradients => crate::preset_panels::gradients_panel(app, ui),
         Tab::Patterns => crate::preset_panels::patterns_panel(app, ui),
-        Tab::Color if pro => color_field(app, ui),
-        Tab::Color => color_picker(app, ui),
+        Tab::Color => swatches_panel::color_panel(app, ui),
         Tab::Swatches => swatches(app, ui),
         Tab::Properties => properties_body(app, ui),
         Tab::Adjustments => adjustments_grid(app, ui),
@@ -1573,46 +1571,17 @@ const SWATCHES: [[u8; 3]; 40] = [
     [110, 20, 90],
 ];
 
+#[path = "swatches_panel.rs"]
+pub(crate) mod swatches_panel;
 fn swatches(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut app.vector_runtime.document_palette, false, tl!("Application Swatches"));
-            ui.selectable_value(&mut app.vector_runtime.document_palette, true, tl!("Document Palette"));
-        });
-        if app.vector_runtime.document_palette {
-            crate::vector_integration::palette(app, ui);
-            return;
-        }
-    }
-    let t = Tokens::get(ui.ctx());
-    let cols = 10;
-    let gap = 4.0;
-    let w = ui.available_width();
-    let cell = ((w - gap * (cols as f32 - 1.0)) / cols as f32).floor();
-    let rows = SWATCHES.len().div_ceil(cols);
-    let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (cell + gap)), Sense::hover());
-    for (i, s) in SWATCHES.iter().enumerate() {
-        let (cx, cy) = ((i % cols) as f32, (i / cols) as f32);
-        let r = Rect::from_min_size(area.min + vec2(cx * (cell + gap), cy * (cell + gap)), Vec2::splat(cell));
-        let resp = ui.interact(r, ui.id().with(("sw", i)), Sense::click());
-        ui.painter().rect_filled(r, 4.0, Color32::from_rgb(s[0], s[1], s[2]));
-        if resp.hovered() {
-            ui.painter().rect_stroke(r, 4.0, Stroke::new(1.5, t.text), StrokeKind::Outside);
-        }
-        let c = [s[0] as f32 / 255.0, s[1] as f32 / 255.0, s[2] as f32 / 255.0, 1.0];
-        if resp.clicked() {
-            app.session.tools.foreground = c;
-            crate::type_tool::foreground_changed(app);
-        }
-        if resp.secondary_clicked() {
-            app.session.tools.background = c;
-        }
-    }
-    ui.add_space(2.0);
-    ui.label(RichText::new(tl!("Click sets foreground · right-click sets background")).small().color(t.text_faint));
+    swatches_panel::panel(app, ui);
 }
 
+#[cfg(test)]
 fn color_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    color_picker_edit(app, ui, true);
+}
+fn color_picker_edit(app: &mut PhotocraftApp, ui: &mut egui::Ui, notify_type: bool) {
     let fg = app.session.tools.foreground;
     // Keep the last edited HSB while it still gives the foreground: black and greys have no hue or
     // saturation of their own, so recomputing them from RGB would reset what was just typed to 0.
@@ -1623,19 +1592,21 @@ fn color_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut s = hsva0.s * 100.0;
     let mut v = hsva0.v * 100.0;
     let hue = widgets::hue_stops();
-    let mut changed = widgets::slider_row(ui, tl!("Hue"), &mut h, 0.0..=360.0, "°", Some(&hue)).changed();
+    let mut changed = widgets::slider_row(ui, tl!("Colour hue"), &mut h, 0.0..=360.0, "°", Some(&hue)).changed();
     let sat_stops =
         [egui::ecolor::Hsva::new(hsva0.h, 0.0, hsva0.v.max(0.2), 1.0), egui::ecolor::Hsva::new(hsva0.h, 1.0, hsva0.v.max(0.2), 1.0)].map(Color32::from);
-    changed |= widgets::slider_row(ui, tl!("Saturation"), &mut s, 0.0..=100.0, "%", Some(&sat_stops)).changed();
+    changed |= widgets::slider_row(ui, tl!("Colour saturation"), &mut s, 0.0..=100.0, "%", Some(&sat_stops)).changed();
     let val_stops = [Color32::BLACK, Color32::from(egui::ecolor::Hsva::new(hsva0.h, hsva0.s, 1.0, 1.0))];
-    changed |= widgets::slider_row(ui, tl!("Brightness"), &mut v, 0.0..=100.0, "%", Some(&val_stops)).changed();
+    changed |= widgets::slider_row(ui, tl!("Colour brightness"), &mut v, 0.0..=100.0, "%", Some(&val_stops)).changed();
     let hsva = egui::ecolor::Hsva::new(h / 360.0, s / 100.0, v / 100.0, 1.0);
     // Only an edit counts: the h/s/v round trip isn't exact, so comparing values would rewrite
     // the foreground (and recolour selected type) every frame.
     if changed {
         app.session.tools.foreground = hsva_srgb(hsva);
         ui.data_mut(|d| d.insert_temp(key, hsva));
-        crate::type_tool::foreground_changed(app);
+        if notify_type {
+            crate::type_tool::foreground_changed(app);
+        }
     }
     let [r, g, b, _] = hsva.to_srgba_unmultiplied();
     let t = Tokens::get(ui.ctx());
@@ -2713,6 +2684,7 @@ fn adjustments_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
 /// The Color panel's foreground and background chips. A click picks the colour the field edits,
 /// framed; a double-click opens the Color Picker on it.
+#[cfg(test)]
 fn field_chips(app: &mut PhotocraftApp, ui: &mut egui::Ui, chips: Rect) {
     let t = Tokens::get(ui.ctx());
     let bgr = Rect::from_min_size(chips.min + vec2(13.0, 13.0), vec2(22.0, 22.0));
@@ -2741,6 +2713,7 @@ fn field_chips(app: &mut PhotocraftApp, ui: &mut egui::Ui, chips: Rect) {
 }
 
 /// Photoshop Color panel: saturation/brightness field + hue strip, drawn as shaded meshes.
+#[cfg(test)]
 fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let bg_active = app.ui.color_panel.background;
@@ -3306,7 +3279,6 @@ mod lock_tests {
 #[cfg(test)]
 mod swatch_type_tests {
     use super::*;
-    use egui::Modifiers;
     use egui_kittest::Harness;
 
     /// Clicking a swatch while characters are selected recolours them, not just the foreground.
@@ -3318,14 +3290,10 @@ mod swatch_type_tests {
         app.ui.tool = Tool::Type;
         app.ui.text_edit =
             Some(crate::state::TextEdit { layer: id, caret: 0, anchor: 5, session: "s".into(), created: false, dragging: false, resize: None, preedit: None });
-        let mut h = Harness::builder().with_size(vec2(300.0, 200.0)).build_ui_state(|ui, app: &mut PhotocraftApp| swatches(app, ui), app);
+        let mut h = Harness::builder().with_size(vec2(300.0, 600.0)).build_ui_state(|ui, app: &mut PhotocraftApp| swatches(app, ui), app);
         h.run_steps(2);
-        // The first swatch is the top-left cell of the panel's content.
-        let p = h.ctx.input(|i| i.viewport_rect()).min + vec2(12.0, 12.0);
-        h.hover_at(p);
-        h.run_steps(1);
-        h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
-        h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+        use egui_kittest::kittest::Queryable;
+        h.get_by_label("Starter 1").click();
         h.run_steps(2);
         let s = SWATCHES[0];
         assert_eq!(h.state().session.tools.foreground, [s[0] as f32 / 255.0, s[1] as f32 / 255.0, s[2] as f32 / 255.0, 1.0]);

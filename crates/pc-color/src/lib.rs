@@ -5,9 +5,12 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod aco;
 pub mod ase;
 pub mod blend;
 pub mod convert;
+pub mod gpl;
+pub mod kpl;
 
 pub use blend::BlendMode;
 
@@ -233,3 +236,7 @@ mod tests {
         assert!(k.to_rgba8()[..3].iter().all(|v| *v < 20), "{:?}", k.to_rgba8());
     }
 }
+
+#[cfg(test)]
+#[path = "swatches_formats_tests.rs"]
+mod swatches_formats_tests;
