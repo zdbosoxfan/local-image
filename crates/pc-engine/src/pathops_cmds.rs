@@ -93,8 +93,42 @@ fn join_option(p: &Value, cmd: &str) -> Result<ops::Join> {
         _ => return Err(bad(cmd, "join must be miter|round|bevel")),
     })
 }
+fn generated_result_name(operation: Operation, p: &Value, cmd: &str) -> Result<Option<String>> {
+    if !matches!(operation, Operation::Boolean | Operation::Pathfinder) {
+        return Ok(None);
+    }
+    if let Some(value) = p.get("name").filter(|v| !v.is_null()) {
+        let name = value.as_str().ok_or_else(|| bad(cmd, "name must be a string"))?;
+        if !name.trim().is_empty() {
+            return Ok(Some(name.to_owned()));
+        }
+    }
+    // Name results after the Vector Geometry button that made them (U032), so a Divide's pieces
+    // read "Divide" instead of repeating the first source's name. "Add" reads as a command, so its
+    // result is the noun "Union". Absent/blank optional names never produce an unnamed layer.
+    let name = match operation {
+        Operation::Boolean => match bool_op(p, cmd)? {
+            Some(ops::BoolOp::Union) => "Union",
+            Some(ops::BoolOp::Difference) => "Subtract",
+            Some(ops::BoolOp::Intersect) => "Intersect",
+            Some(ops::BoolOp::Xor) => "Xor",
+            None => "Divide",
+        },
+        Operation::Pathfinder => match p.get("op").and_then(Value::as_str).unwrap_or("trim") {
+            "trim" => "Trim",
+            "merge" => "Merge",
+            "crop" => "Crop",
+            "outline" => "Outline",
+            "minusBack" => "Minus Back",
+            _ => return Ok(None), // the existing geometry preflight reports invalid operations
+        },
+        _ => return Ok(None),
+    };
+    Ok(Some(name.into()))
+}
 fn run(s: &mut Session, p: &Value, operation: Operation, cmd: &str, label: &str) -> Result<Value> {
     let input = selected(s, p, cmd)?;
+    let result_name = generated_result_name(operation, p, cmd)?;
     if matches!(operation, Operation::Outline) {
         return outline_layers(s, &input, label);
     }
@@ -224,6 +258,9 @@ fn run(s: &mut Session, p: &Value, operation: Operation, cmd: &str, label: &str)
         for (source, path) in results {
             let template = &input[source];
             let mut layer = template.clone();
+            if let Some(name) = &result_name {
+                layer.name = name.clone();
+            }
             // Geometry results are curves: regenerating the source parameters would erase them.
             layer.vector.live_shape = None;
             layer.vector.corners.clear();
@@ -344,10 +381,13 @@ fn outline_layers(s: &mut Session, input: &[Layer], label: &str) -> Result<Value
 pub fn specs() -> Vec<CommandSpec> {
     type Run = fn(&mut Session, &Value) -> Result<Value>;
     let commands: [(&str, &str, &str, Run); 10] = [
-        ("path.boolean", "Boolean Paths", r#"{layers:[ids]?,op:add|subtract|intersect|xor|divide,keep_compound:false} → {layers:[ids]}"#, |s, p| {
-            run(s, p, Operation::Boolean, "path.boolean", "Boolean Paths")
-        }),
-        ("path.pathfinder", "Pathfinder", r#"{layers:[ids]?,op:trim|merge|crop|outline|minusBack} → {layers:[ids]}"#, |s, p| {
+        (
+            "path.boolean",
+            "Boolean Paths",
+            r#"{layers:[ids]?,op:add|subtract|intersect|xor|divide,keep_compound:false,name?:string} → {layers:[ids]}"#,
+            |s, p| run(s, p, Operation::Boolean, "path.boolean", "Boolean Paths"),
+        ),
+        ("path.pathfinder", "Pathfinder", r#"{layers:[ids]?,op:trim|merge|crop|outline|minusBack,name?:string} → {layers:[ids]}"#, |s, p| {
             run(s, p, Operation::Pathfinder, "path.pathfinder", "Pathfinder")
         }),
         ("path.outlineStroke", "Outline Stroke", r#"{layers:[ids]?} → {layers:[ids]}"#, |s, p| {
@@ -381,6 +421,54 @@ pub fn specs() -> Vec<CommandSpec> {
 mod validation_tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    #[test]
+    fn boolean_multi_results_use_operation_or_explicit_name_and_undo_restores_sources() {
+        let cases = [
+            ("path.boolean", "divide", "Divide"),
+            ("path.boolean", "add", "Union"),
+            ("path.boolean", "subtract", "Subtract"),
+            ("path.pathfinder", "merge", "Merge"),
+        ];
+        for ((cmd, op, generated), name) in cases.into_iter().flat_map(|case| [None, Some(""), Some("Authored result")].map(|name| (case, name))) {
+            let mut doc =
+                photocraft_doc::Document::new("names", photocraft_doc::Size::new(96, 96), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+            let mut ids = Vec::new();
+            for (label, x) in [("Source A", 10.), ("Source B", 30.)] {
+                let layer = Layer::new(
+                    label,
+                    LayerContent::Shape(photocraft_doc::ShapeLayer {
+                        path: photocraft_vector::shapes::rect(x, 10., 40., 40.),
+                        fill: Some(photocraft_doc::Fill::Solid(photocraft_doc::Color::BLACK)),
+                        ..Default::default()
+                    }),
+                );
+                ids.push(layer.id.0);
+                doc.layers.push(layer);
+            }
+            let mut s = Session::new();
+            s.add_document(doc, None);
+            let before = s.active().unwrap().doc.clone();
+            let mut p = json!({"layers":ids,"op":op});
+            if let Some(name) = name {
+                p["name"] = json!(name);
+            }
+            let result = s.execute(cmd, p).unwrap();
+            let output = result["layers"].as_array().unwrap();
+            assert!(if op == "divide" { output.len() > 1 } else { !output.is_empty() }, "{op}");
+            for id in output {
+                assert_eq!(
+                    s.active().unwrap().doc.layer(LayerId(id.as_u64().unwrap())).unwrap().name,
+                    name.filter(|n| !n.is_empty()).unwrap_or(generated),
+                    "{op}"
+                );
+            }
+            let after = s.active().unwrap().doc.clone();
+            assert!(s.undo());
+            assert_eq!(s.active().unwrap().doc, before);
+            assert!(s.redo());
+            assert_eq!(s.active().unwrap().doc, after);
+        }
+    }
     #[test]
     fn review_regression_boolean_operation_rejects_non_string_and_unknown_values() {
         assert_eq!(bool_op(&json!({}), "path.boolean").unwrap(), Some(ops::BoolOp::Union));

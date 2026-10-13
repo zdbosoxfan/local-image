@@ -53,6 +53,24 @@ fn pointer(h: &mut Harness<'_, Host>, p: [f32; 2], pressed: Option<bool>, mods: 
 fn shape(h: &Harness<'_, Host>) -> DesignShape {
     h.state().session.active().unwrap().doc.layers.last().unwrap().vector.live_shape.clone().unwrap()
 }
+#[test]
+fn shape_preview_and_pointer_commit_share_the_kind_name() {
+    let mut host = host();
+    host.state.parameters = S::Ellipse;
+    let mut h = harness(host);
+    let before = h.state().session.active().unwrap().doc.clone();
+    pointer(&mut h, [20., 20.], Some(true), Modifiers::NONE);
+    pointer(&mut h, [90., 70.], None, Modifiers::NONE);
+    assert_eq!(h.state().state.preview_layer.as_ref().unwrap().name, "Ellipse");
+    assert_eq!(h.state().session.active().unwrap().doc, before);
+    pointer(&mut h, [90., 70.], Some(false), Modifiers::NONE);
+    assert_eq!(h.state().session.active().unwrap().doc.layers.last().unwrap().name, "Ellipse");
+    let after = h.state().session.active().unwrap().doc.clone();
+    assert!(h.state_mut().session.undo());
+    assert_eq!(h.state().session.active().unwrap().doc, before);
+    assert!(h.state_mut().session.redo());
+    assert_eq!(h.state().session.active().unwrap().doc, after);
+}
 fn add_star(host: &mut Host) {
     let c = Capture::new(&host.session).unwrap();
     let d = DesignShape { rect: [40., 40., 120., 120.], angle: 0., parameters: S::Star { points: 5, inner: 0.5, corner: 0. } };

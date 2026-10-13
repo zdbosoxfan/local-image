@@ -251,6 +251,7 @@ pub fn cancel(app: &mut PhotocraftApp, id: JobId) {
 
 fn on_event(app: &mut PhotocraftApp, mut e: JobEvent, previous: Option<photocraft_doc::DocId>, document: Option<photocraft_doc::DocId>) {
     crate::filter_dialog::on_job_event(app, &e);
+    crate::ai_remove_ui::on_job_event(app, &e);
     if e.command == "clipboard.import"
         && let JobOutcome::Done(value) = &e.outcome
         && let Some(fields) = value.get("clipboardPrompt")

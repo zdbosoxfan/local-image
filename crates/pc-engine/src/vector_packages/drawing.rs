@@ -4,7 +4,7 @@
 pub use photocraft_vector::design_shapes as geometry;
 
 use crate::{EngineError, Result, Session, commands::CommandSpec, vector_api};
-use photocraft_doc::vector_design::drawing::DesignShape;
+use photocraft_doc::vector_design::drawing::{CornerKind, DesignShape, ShapeParameters};
 use photocraft_doc::{Color, DocId, Document, Fill, Layer, LayerContent, LayerId, ShapeLayer};
 use serde_json::{Value, json};
 
@@ -55,9 +55,47 @@ fn default_shape(design: &DesignShape) -> ShapeLayer {
         ShapeLayer { fill: Some(Fill::Solid(Color::BLACK)), ..Default::default() }
     }
 }
+/// Generated names shared by command creation and the detached UI preview.
+pub fn layer_name(parameters: &ShapeParameters) -> &'static str {
+    use ShapeParameters::*;
+    match parameters {
+        Rect { radii, kinds } if radii.iter().any(|r| *r > 0.) && kinds.iter().all(|k| *k == CornerKind::Round) => "Rounded Rectangle",
+        Rect { .. } => "Rectangle",
+        Ellipse => "Ellipse",
+        Polygon { .. } => "Polygon",
+        Star { .. } => "Star",
+        DoubleStar { .. } => "Double Star",
+        SquareStar { .. } => "Square Star",
+        Triangle { .. } => "Triangle",
+        Trapezoid { .. } => "Trapezoid",
+        Diamond { .. } => "Diamond",
+        Donut { .. } => "Donut",
+        Pie { .. } => "Pie",
+        Segment { .. } => "Segment",
+        Arrow { .. } => "Arrow",
+        Callout { ellipse: true, .. } => "Ellipse Callout",
+        Callout { .. } => "Callout",
+        Cog { .. } => "Cog",
+        Heart { .. } => "Heart",
+        Tear { .. } => "Tear",
+        Crescent { .. } => "Crescent",
+        Cloud { .. } => "Cloud",
+        Spiral { .. } => "Spiral",
+        Arc { .. } => "Arc",
+        Line { .. } => "Line",
+        RectGrid { .. } => "Rectangular Grid",
+        PolarGrid { .. } => "Polar Grid",
+    }
+}
 fn create(s: &mut Session, p: &Value) -> Result<Value> {
     capture(p)?.check(s)?;
     let design = design(p)?;
+    let name = match p.get("name") {
+        None | Some(Value::Null) => layer_name(&design.parameters),
+        Some(Value::String(name)) if name.trim().is_empty() => layer_name(&design.parameters),
+        Some(Value::String(name)) => name.as_str(),
+        _ => return Err(EngineError::Other("shape name must be a string".into())),
+    };
     let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
     let above = match p.get("above") {
         None | Some(Value::Null) => None,
@@ -88,7 +126,7 @@ fn create(s: &mut Session, p: &Value) -> Result<Value> {
         stroke: base.stroke.clone(),
     })?;
     let shape = prepare(doc, &design, base)?;
-    let mut layer = Layer::new("Live Shape", LayerContent::Shape(shape));
+    let mut layer = Layer::new(name, LayerContent::Shape(shape));
     layer.vector.live_shape = Some(design);
     let id = layer.id;
     crate::vector_integration::insert_layer(s, above, layer, "Create Live Shape")?;
@@ -156,7 +194,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         menu: &[],
         shortcut: None,
         params: if id == "shape.design.create" {
-            "{document:id,revision:n,design:DesignShape,above?:id,fill?:Fill|null,stroke?:ShapeStroke|null}"
+            "{document:id,revision:n,design:DesignShape,above?:id,fill?:Fill|null,stroke?:ShapeStroke|null,name?:string}"
         } else {
             "{document:id,revision:n,design:DesignShape | edits:[{layer,design}] | layers:[id]}"
         },

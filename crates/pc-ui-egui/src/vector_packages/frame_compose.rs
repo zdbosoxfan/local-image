@@ -201,11 +201,20 @@ impl State {
 /// Context controls using the existing i18n entrypoint. Catalogue rows are supplied to 00.
 pub fn panel(ui: &mut egui::Ui, state: &mut State, s: &mut Session, metadata: &impl Metadata) -> Result<()> {
     state.synchronize(s, true);
-    let st = s.active().ok_or(EngineError::NoDocument)?;
-    let id = st.active_layer.ok_or_else(|| error("select frame text"))?;
-    let layer = st.doc.layer(id).ok_or(EngineError::NoLayer(id))?;
-    let LayerContent::Text(t) = &layer.content else { return Ok(()) };
-    let TextShape::Box { x, y, width, height } = t.shape else { return Ok(()) };
+    let selected = s.active().and_then(|st| {
+        let id = st.active_layer?;
+        let LayerContent::Text(text) = &st.doc.layer(id)?.content else {
+            return None;
+        };
+        let TextShape::Box { x, y, width, height } = text.shape else {
+            return None;
+        };
+        Some((st, id, text, x, y, width, height))
+    });
+    let Some((st, id, t, x, y, width, height)) = selected else {
+        empty_state(ui);
+        return Ok(());
+    };
     let current = state.draft.as_ref().and_then(|d| d.edits.first()).cloned().unwrap_or(Edit {
         layer: id,
         frame: [x, y, width, height],
@@ -253,6 +262,20 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State, s: &mut Session, metadata: &i
         Ok(())
     })
     .inner
+}
+
+/// UX09: say what to select instead of showing an empty window. Point text, shapes and
+/// pixel layers have no frame to compose.
+fn empty_state(ui: &mut egui::Ui) {
+    let tokens = crate::theme::Tokens::get(ui.ctx());
+    ui.label(crate::i18n::t("Select a frame text layer"));
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(crate::i18n::t("Frame Composition works on text set in a frame. Drag with the Frame Text Tool to make one."))
+                .color(tokens.text_dim),
+        )
+        .wrap(),
+    );
 }
 
 /// Actual frame-width handle in text space. The caller supplies view/transform conversion.
@@ -352,6 +375,44 @@ mod tests {
     use super::*;
     use egui::{Event, Modifiers};
     use egui_kittest::{Harness, kittest::Queryable};
+    #[test]
+    fn inapplicable_frame_selection_has_a_bounded_nonmutating_empty_state() {
+        for kind in ["no-document", "no-selection", "shape", "point-text"] {
+            let mut s = Session::new();
+            if kind != "no-document" {
+                let mut doc = Document::new("inapplicable", Size::new(64, 64), ColorMode::Rgb, SampleType::U8);
+                let content = if kind == "point-text" {
+                    LayerContent::Text(TextLayer { text: "Point".into(), ..Default::default() })
+                } else {
+                    LayerContent::Shape(Default::default())
+                };
+                let layer = Layer::new("Selected", content);
+                let id = layer.id;
+                doc.layers.push(layer);
+                s.add_document(doc, None);
+                if kind != "no-selection" {
+                    s.select_layer(id).unwrap();
+                } else {
+                    s.active_mut().unwrap().active_layer = None;
+                }
+            }
+            let before: Vec<_> = s.documents().iter().map(|d| d.doc.clone()).collect();
+            let mut h = Harness::builder().with_size(egui::vec2(220., 160.)).build_ui_state(
+                |ui, host: &mut (Session, State)| {
+                    panel(ui, &mut host.1, &mut host.0, &NativeOnly).unwrap();
+                },
+                (s, State::default()),
+            );
+            h.run_steps(2);
+            let label = h.get_by_label("Select a frame text layer");
+            assert!(h.ctx.content_rect().contains_rect(label.rect()));
+            let hint = h.get_by_label("Frame Composition works on text set in a frame. Drag with the Frame Text Tool to make one.");
+            assert!(h.ctx.content_rect().contains_rect(hint.rect()), "{kind}: hint wraps inside a narrow panel");
+            assert!(h.query_by_label("Frame width").is_none());
+            assert!(h.state().0.journal.is_empty());
+            assert_eq!(h.state().0.documents().iter().map(|d| d.doc.clone()).collect::<Vec<_>>(), before);
+        }
+    }
     use photocraft_doc::{ColorMode, Layer, SampleType, Size, TextLayer};
     struct Host {
         session: Session,

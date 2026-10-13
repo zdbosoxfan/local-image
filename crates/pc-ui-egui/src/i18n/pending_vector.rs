@@ -1291,4 +1291,13 @@
     "Selecting object…",
     "Selecting sky…",
     "Selecting…",
+    // AI Remove mask workflow, Liquify footer, Frame Composition empty state and shape names
+    // (docs/wip/BUILD-airemove-ux.md); English until translations resume.
+    "Finish or cancel the current removal mask first.",
+    "Return to the original image and layer to continue removal, or Cancel.",
+    "Strokes: {count}",
+    "Select a frame text layer",
+    "Frame Composition works on text set in a frame. Drag with the Frame Text Tool to make one.",
+    "Callout",
+    "Ellipse Callout",
 ]

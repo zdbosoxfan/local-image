@@ -20,6 +20,41 @@ fn create_shape(s: &mut Session, design: &DesignShape) -> LayerId {
     LayerId(s.execute("shape.design.create", p).unwrap()["layer"].as_u64().unwrap())
 }
 #[test]
+fn shape_names_follow_kind_preserve_explicit_names_and_survive_native_roundtrip() {
+    let mut s = session();
+    let mut d = design_shape();
+    let rectangle = create_shape(&mut s, &d);
+    assert_eq!(s.active().unwrap().doc.layer(rectangle).unwrap().name, "Rectangle");
+    d.parameters = S::Ellipse;
+    let ellipse = create_shape(&mut s, &d);
+    assert_eq!(s.active().unwrap().doc.layer(ellipse).unwrap().name, "Ellipse");
+    let mut p = params(&s);
+    p["design"] = json!(d);
+    p["name"] = json!("  Authored badge  ");
+    let id = LayerId(s.execute("shape.design.create", p).unwrap()["layer"].as_u64().unwrap());
+    let created = s.active().unwrap().doc.clone();
+    assert_eq!(created.layer(id).unwrap().name, "  Authored badge  ");
+    d.rect[2] = 60.;
+    let mut p = params(&s);
+    p["edits"] = json!([{"layer":id.0,"design":d}]);
+    s.execute("shape.design.set", p).unwrap();
+    assert_eq!(s.active().unwrap().doc.layer(id).unwrap().name, "  Authored badge  ");
+    assert!(s.undo());
+    assert_eq!(s.active().unwrap().doc, created);
+    assert!(s.redo());
+    let (bytes, _) = photocraft_format::PcraftWriter::new().save_zip(&s.active().unwrap().doc, &Default::default()).unwrap();
+    let loaded = photocraft_format::load_from_bytes(&bytes).unwrap();
+    for layer in &s.active().unwrap().doc.layers {
+        assert_eq!(loaded.layer(layer.id).unwrap().name, layer.name);
+    }
+    let before = s.active().unwrap().doc.clone();
+    let mut p = params(&s);
+    p["design"] = json!(d);
+    p["name"] = json!(17);
+    assert!(s.execute("shape.design.create", p).is_err());
+    assert_eq!(s.active().unwrap().doc, before);
+}
+#[test]
 fn live_shapes_create_preview_edit_convert_one_undo_each() {
     let mut s = session();
     let before = s.active().unwrap().doc.clone();
