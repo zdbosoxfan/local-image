@@ -80,23 +80,37 @@ fn step_px(diameter: f32, spacing: f32) -> f64 {
 
 /// A half dab (`v = 1 − √(1 − flow·cov)`) at a stroke end, over [`dab_reach`] into `out`.
 pub fn end_cap(d: &Dab, hardness: f32, out: &mut Vec<f32>) -> Rect {
+    end_cap_interruptible(d, hardness, out, None, None)
+}
+
+pub(crate) fn end_cap_interruptible(
+    d: &Dab,
+    hardness: f32,
+    out: &mut Vec<f32>,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+    executor: Option<&dyn crate::render::StrokeExecutor>,
+) -> Rect {
     let rect = dab_reach(d);
     let (w, h) = (rect.width() as usize, rect.height() as usize);
     out.clear();
     out.resize(w * h, 0.0);
     let tip = Tip::of(d, hardness);
     let (cx, cy) = (d.center.x as f32, d.center.y as f32);
-    for yy in 0..h {
+    let row = |yy: usize, out: &mut [f32], _: Option<&mut [f32]>| {
+        if cancelled(cancel) {
+            return;
+        }
         let dy = (rect.y0 + yy as i32) as f32 + 0.5 - cy;
         for xx in 0..w {
             let dx = (rect.x0 + xx as i32) as f32 + 0.5 - cx;
             let c = tip.cov(dx, dy, d.radius, d.roundness);
             if c > 0.0 {
                 let a = (f64::from(d.alpha) * f64::from(c)).min(MAX_V);
-                out[yy * w + xx] = (1.0 - (1.0 - a).sqrt()) as f32;
+                out[xx] = (1.0 - (1.0 - a).sqrt()) as f32;
             }
         }
-    }
+    };
+    crate::render::raster_rows(executor, out, None, w, &row);
     rect
 }
 
@@ -107,6 +121,23 @@ pub fn end_cap(d: &Dab, hardness: f32, out: &mut Vec<f32>) -> Rect {
 /// on them) read the integral from a cumulative table kept in `table` (rebuilt when the dab
 /// changes); others integrate per pixel.
 pub fn segment(a: &Dab, b: &Dab, hardness: f32, spacing: f32, table: &mut Option<LineTable>, out: &mut Vec<f32>) -> Rect {
+    segment_interruptible(a, b, hardness, spacing, table, out, None, None)
+}
+
+fn cancelled(flag: Option<&std::sync::atomic::AtomicBool>) -> bool {
+    flag.is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+pub(crate) fn segment_interruptible(
+    a: &Dab,
+    b: &Dab,
+    hardness: f32,
+    spacing: f32,
+    table: &mut Option<LineTable>,
+    out: &mut Vec<f32>,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+    executor: Option<&dyn crate::render::StrokeExecutor>,
+) -> Rect {
     let rect = dab_reach(a).union(&dab_reach(b));
     let (w, h) = (rect.width() as usize, rect.height() as usize);
     out.clear();
@@ -123,12 +154,15 @@ pub fn segment(a: &Dab, b: &Dab, hardness: f32, spacing: f32, table: &mut Option
             Some(t) if t.fits(a, hardness) => t,
             _ => LineTable::new(a, hardness),
         };
-        t.segment(a, b, &tip, spacing, rect, out);
+        t.segment(a, b, &tip, spacing, rect, out, cancel, executor);
         *table = Some(t);
         return rect;
     }
     let rmax = f64::from(a.radius.max(b.radius)) + 1.0;
-    let row = |yy: usize, out: &mut [f32]| {
+    let row = |yy: usize, out: &mut [f32], _: Option<&mut [f32]>| {
+        if cancelled(cancel) {
+            return;
+        }
         let py = f64::from(rect.y0 + yy as i32) + 0.5;
         for (xx, o) in out.iter_mut().enumerate() {
             let px = f64::from(rect.x0 + xx as i32) + 0.5;
@@ -176,7 +210,7 @@ pub fn segment(a: &Dab, b: &Dab, hardness: f32, spacing: f32, table: &mut Option
             }
         }
     };
-    out.chunks_mut(w).enumerate().for_each(|(yy, r)| row(yy, r));
+    crate::render::raster_rows(executor, out, None, w, &row);
     rect
 }
 
@@ -253,7 +287,17 @@ impl LineTable {
         r0 + (r1 - r0) * tp
     }
 
-    fn segment(&self, a: &Dab, b: &Dab, tip: &Tip, spacing: f32, rect: Rect, out: &mut [f32]) {
+    fn segment(
+        &self,
+        a: &Dab,
+        b: &Dab,
+        tip: &Tip,
+        spacing: f32,
+        rect: Rect,
+        out: &mut [f32],
+        cancel: Option<&std::sync::atomic::AtomicBool>,
+        executor: Option<&dyn crate::render::StrokeExecutor>,
+    ) {
         let w = rect.width() as usize;
         let ro = f64::from(a.roundness.max(0.5 / a.radius).min(1.0));
         let (cs, sn) = (f64::from(tip.cs), f64::from(tip.sn));
@@ -271,7 +315,10 @@ impl LineTable {
         }
         let (nx, ny) = (vx / lt, vy / lt);
         let k = len / (lt * step_px(2.0 * a.radius, spacing));
-        for (yy, row) in out.chunks_mut(w).enumerate() {
+        let row = |yy: usize, row: &mut [f32], _: Option<&mut [f32]>| {
+            if cancelled(cancel) {
+                return;
+            }
             let py = f64::from(rect.y0 + yy as i32) + 0.5 - a.center.y;
             for (xx, o) in row.iter_mut().enumerate() {
                 let px = f64::from(rect.x0 + xx as i32) + 0.5 - a.center.x;
@@ -286,7 +333,8 @@ impl LineTable {
                     *o = (1.0 - i.exp()) as f32;
                 }
             }
-        }
+        };
+        crate::render::raster_rows(executor, out, None, w, &row);
     }
 }
 
