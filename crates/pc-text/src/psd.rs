@@ -24,8 +24,10 @@ pub struct TySh {
     pub transform: Affine,
     pub text: Descriptor,
     pub warp: Option<Descriptor>,
-    /// The four trailing i32 values (left, top, right, bottom).
-    pub bounds: [i32; 4],
+    /// The four trailing big-endian f32 values (left, top, right, bottom) after the warp
+    /// descriptor. Photoshop writes zeros for unwarped type and the text-space bounds (the
+    /// `bounds` descriptor's rectangle) for warped type.
+    pub bounds: [f32; 4],
 }
 
 /// Parses a `TySh` block.
@@ -42,10 +44,10 @@ pub fn parse_tysh(data: &[u8]) -> Option<TySh> {
         None => (None, 0),
     };
     let tail = rest.get(wused..).unwrap_or(&[]);
-    let mut bounds = [0i32; 4];
+    let mut bounds = [0f32; 4];
     for (i, b) in bounds.iter_mut().enumerate() {
         if let Some(x) = tail.get(i * 4..i * 4 + 4) {
-            *b = i32::from_be_bytes(x.try_into().unwrap_or([0; 4]));
+            *b = f32::from_be_bytes(x.try_into().unwrap_or([0; 4]));
         }
     }
     Some(TySh { transform: Affine { m }, text: text.descriptor, warp, bounds })
@@ -876,7 +878,9 @@ pub fn build_tysh(layer: &TextLayer, dpi: f32, ink: Option<[f32; 4]>) -> Vec<u8>
         (None, Some(old)) if enum_value(&old, "warpStyle").as_deref() == Some("warpNone") => Some(old),
         _ => None,
     };
-    let bounds = [l.floor() as i32, t.floor() as i32, r.ceil() as i32, b.ceil() as i32];
+    // Photoshop's trailing bounds: zeros for unwarped type, the text-space bounds when warped.
+    let warped = warp.as_ref().is_some_and(|w| enum_value(w, "warpStyle").is_some_and(|s| s != "warpNone"));
+    let bounds = if warped { [l, t, r, b] } else { [0.0; 4] };
     write_tysh(&TySh { transform: layer.transform, text, warp, bounds })
 }
 

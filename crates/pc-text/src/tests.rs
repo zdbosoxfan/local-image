@@ -923,3 +923,26 @@ fn release_craft_text_language_selects_han_forms_without_overriding_requested_fa
     chosen.font_family = "Noto Sans CJK SC".into();
     assert_eq!(craft_family_of(&e.layout(&chosen, 72.)), vec!["Noto Sans CJK SC"], "an explicitly selected face wins over inferred language");
 }
+
+/// The four values after the `TySh` warp descriptor are big-endian f32, as Photoshop writes them:
+/// zeros for unwarped type, the text-space bounds for warped type (upstream PhotoCraft 6f1c4481).
+#[test]
+fn tysh_trailing_bounds_are_f32() {
+    use photocraft_doc::text::TextWarp;
+    let tail = |b: &[u8]| -> [f32; 4] {
+        let t = b.get(b.len() - 16..).unwrap();
+        std::array::from_fn(|i| f32::from_be_bytes(t[i * 4..i * 4 + 4].try_into().unwrap()))
+    };
+    let ink = [0.0, -34.316406, 288.90625, 15.058594];
+    let plain = crate::psd::build_tysh(&point("Type", 20.0), 72.0, Some(ink));
+    assert_eq!(tail(&plain), [0.0; 4]);
+    let warped = TextLayer {
+        warp: Some(TextWarp { style: "warpArc".into(), value: 50.0, horizontal_distortion: 0.0, vertical_distortion: 0.0, horizontal: true }),
+        ..point("Type", 20.0)
+    };
+    let bytes = crate::psd::build_tysh(&warped, 72.0, Some(ink));
+    assert_eq!(tail(&bytes), ink);
+    let parsed = crate::psd::parse_tysh(&bytes).unwrap();
+    assert_eq!(parsed.bounds, ink);
+    assert_eq!(crate::psd::write_tysh(&parsed), bytes);
+}

@@ -542,6 +542,65 @@ fn pdf_groups_independent_outer_blends_match_original_splash_and_exact_alpha() {
         }
     }
 }
+/// Closed-form ISO 32000 group compositing (11.4.8, "Summary of group compositing computations")
+/// for the nested fixture below, as RGB over white. Page backdrop B; nonisolated group X
+/// (outer Multiply, ca 0.5) holding group Y (Screen, ca 0.8) and a Normal ca 0.4 square N.
+/// A nonisolated Y starts from X's running state, which includes X's own backdrop; its group
+/// alpha (coverage) is tracked apart from that backdrop, as is X's.
+fn spec_nested(x: i32, y: i32, nested_isolated: bool) -> [f32; 3] {
+    type State = ([f32; 3], f32);
+    fn union(a: f32, b: f32) -> f32 {
+        a + b - a * b
+    }
+    fn multiply(b: f32, s: f32) -> f32 {
+        b * s
+    }
+    fn screen(b: f32, s: f32) -> f32 {
+        b + s - b * s
+    }
+    fn normal(_: f32, s: f32) -> f32 {
+        s
+    }
+    // One element composited onto the running state (C, alpha).
+    fn paint(state: State, color: [f32; 3], alpha: f32, blend: fn(f32, f32) -> f32) -> State {
+        let (c, ab) = state;
+        let ar = union(ab, alpha);
+        if ar == 0.0 {
+            return state;
+        }
+        let k = alpha / ar;
+        (std::array::from_fn(|i| (1.0 - k) * c[i] + k * ((1.0 - ab) * color[i] + ab * blend(c[i], color[i]))), ar)
+    }
+    // A group's result: its backdrop contribution removed (C = Cn + (Cn - C0)(a0/ag - a0)).
+    fn result(initial: State, last: State, group_alpha: f32) -> State {
+        if group_alpha == 0.0 {
+            return ([0.0; 3], 0.0);
+        }
+        let (c0, a0) = initial;
+        (std::array::from_fn(|i| last.0[i] + (last.0[i] - c0[i]) * (a0 / group_alpha - a0)), group_alpha)
+    }
+    let (px, py) = (x as f32 + 0.5, 63.5 - y as f32);
+    let inside = |lo: f32, hi: f32| (lo..hi).contains(&px) && (lo..hi).contains(&py);
+    let page = paint(([0.0; 3], 0.0), [0.2, 0.4, 0.6], 0.4, normal);
+    let mut state = page;
+    if inside(8.0, 56.0) {
+        // X is nonisolated: it starts from the page state, with its own coverage at 0.
+        let (x0, mut xs, mut xg) = (page, page, 0.0);
+        let y0 = if nested_isolated { ([0.0; 3], 0.0) } else { xs };
+        let ys = paint(y0, [0.8, 0.6, 0.4], 0.6, multiply);
+        let (yc, ya) = result(y0, ys, 0.6);
+        xs = paint(xs, yc, ya * 0.8, screen);
+        xg = union(xg, ya * 0.8);
+        if inside(20.0, 40.0) {
+            xs = paint(xs, [0.4, 0.6, 0.8], 0.4, normal);
+            xg = union(xg, 0.4);
+        }
+        let (xc, xa) = result(x0, xs, xg);
+        state = paint(page, xc, xa * 0.5, multiply);
+    }
+    let (c, a) = state;
+    c.map(|v| v * a + 1.0 - a)
+}
 #[test]
 fn pdf_groups_nested_independent_blends_do_not_reuse_outer_backdrop_coverage() {
     for nested_isolation in ["/I false", "/I true"] {
@@ -558,7 +617,39 @@ fn pdf_groups_nested_independent_blends_do_not_reuse_outer_backdrop_coverage() {
                 form(nested_isolation, "/M gs 0.8 0.6 0.4 rg 8 8 48 48 re f", "/ExtGState << /M << /BM /Multiply /ca 0.6 >> >>"),
             ],
         );
-        oracle(&bytes, &format!("outer-nested-{}", nested_isolation.ends_with("true")));
+        let isolated = nested_isolation.ends_with("true");
+        let label = format!("outer-nested-{isolated}");
+        let document = doc(import(&bytes, &ImportOptions::default()).unwrap());
+        // Every fixture value is a multiple of 1/255, so the closed form is exact up to float error.
+        let rendered = photocraft_compose::flatten(&document);
+        for y in SAMPLES {
+            for x in SAMPLES {
+                let a = rendered.get(x, y);
+                let e = spec_nested(x, y, isolated);
+                for k in 0..3 {
+                    let actual = a[k] * a[3] + 1.0 - a[3];
+                    assert!((actual - e[k]).abs() < 0.002, "{label}: ({x},{y}) channel {k} was {actual}, ISO 32000 gives {}", e[k]);
+                }
+            }
+        }
+        if isolated {
+            oracle_doc(&bytes, &document, &label);
+        } else {
+            // Poppler Splash draws a nonisolated group nested in a nonisolated group as if it were
+            // isolated: it starts the nested group from the outer group's own (empty) coverage,
+            // not from the backdrop the outer group itself composites over. Ghostscript and the
+            // closed form above agree with each other and not with Splash here (at (10,10):
+            // spec 0.612/0.675/0.737 on white, Splash 0.647/0.698/0.749, the isolated value), so
+            // Splash is no oracle for this case. It must still differ from the isolated result.
+            let mut as_isolated = 0.0_f32;
+            for y in SAMPLES {
+                for x in SAMPLES {
+                    let (n, i) = (spec_nested(x, y, false), spec_nested(x, y, true));
+                    as_isolated = as_isolated.max((0..3).map(|k| (n[k] - i[k]).abs()).fold(0.0, f32::max));
+                }
+            }
+            assert!(as_isolated > 0.03, "{label}: the nonisolated nesting must change the result");
+        }
     }
 }
 #[test]
