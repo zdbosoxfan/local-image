@@ -550,3 +550,230 @@ fn develop_c_full_scalar_opacity_mixed_masks_and_skin_overlay_match() {
     s.skin_tone = Default::default();
     compare(g, &src, &info, &s, &RenderRequest { overlay: lightcraft_pipeline::Overlay::SkinToneRange(Some(7)), ..req }, &stages);
 }
+
+#[test]
+fn sequential_stack_owner_order_composition_and_prefix_cache() {
+    use lightcraft_develop::{LayerTools, Light, Mixer, ToneCurve};
+    let gpu_device = crate::test_device().expect("stack acceptance requires physical GPU");
+    let g = &*gpu_device;
+    let adapter = format!("{} {:?}", g.info.name, g.info.backend);
+    eprintln!("stack acceptance adapter: {adapter}");
+    assert!(!adapter.to_lowercase().contains("llvmpipe"));
+    let _scope = crate::ctx::RenderScope::new(g);
+    let src = input(240, 160);
+    let req = RenderRequest::fit(240, 160);
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let stages = GpuStages::default();
+    let mut s = DevelopSettings::default();
+    s.light.exposure = 0.8;
+    s.light.contrast = 45.0;
+    s.light.highlights = -60.0;
+    s.light.shadows = 50.0;
+    s.curve.lights = 30.0;
+    s.color.vibrance = 25.0;
+    let mut colour = mask();
+    colour.adjust = Default::default();
+    colour.opacity = 100.0;
+    let mut mixer = Mixer::default();
+    mixer.red.hue = 70.0;
+    mixer.red.sat = -30.0;
+    mixer.blue.hue = -50.0;
+    colour.tools = LayerTools { mixer: Some(mixer), ..Default::default() };
+    s.masks.push(colour);
+    let mut gradient = mask();
+    gradient.id = 2;
+    gradient.adjust = Default::default();
+    gradient.opacity = 100.0;
+    gradient.components[0].shape = MaskShape::Linear { start: Point::new(0., 0.), end: Point::new(0., 1.) };
+    gradient.tools = LayerTools { light: Some(Light { exposure: -1.0, ..Default::default() }), ..Default::default() };
+    s.masks.push(gradient);
+    compare(g, &src, &info, &s, &req, &stages);
+    assert_eq!(stages.stack_renders(), (1, 2));
+    compare(g, &src, &info, &s, &req, &stages);
+    assert_eq!(stages.stack_renders(), (0, 0));
+    s.masks[1].tools.light.as_mut().unwrap().exposure = -0.5;
+    compare(g, &src, &info, &s, &req, &stages);
+    assert_eq!(stages.stack_renders(), (0, 1));
+    s.light.contrast += 10.0;
+    compare(g, &src, &info, &s, &req, &stages);
+    assert_eq!(stages.stack_renders(), (1, 2));
+    s.masks[0].components[0].shape = MaskShape::Full;
+    s.masks[0].tools =
+        LayerTools { curve: Some(ToneCurve { master: vec![Point::new(0., 0.12), Point::new(1., 1.)], ..Default::default() }), ..Default::default() };
+    s.masks[1].components[0].shape = MaskShape::Full;
+    let before = compare(g, &src, &info, &s, &req, &stages);
+    s.masks.swap(0, 1);
+    let after = compare(g, &src, &info, &s, &req, &stages);
+    assert!(before.data != after.data, "layer order must change pixels");
+    assert_eq!(stages.stack_renders(), (0, 2));
+    let mut ev = Mask {
+        components: vec![MaskComponent { name: None, op: Default::default(), invert: false, shape: MaskShape::Full }],
+        tools: LayerTools { light: Some(Light { exposure: 0.5, ..Default::default() }), ..Default::default() },
+        ..Default::default()
+    };
+    s.masks = vec![ev.clone(), Mask { id: 2, ..ev.clone() }];
+    let halves = compare(g, &src, &info, &s, &req, &stages);
+    s.masks.truncate(1);
+    s.masks[0].tools.light.as_mut().unwrap().exposure = 1.0;
+    let whole = compare(g, &src, &info, &s, &req, &stages);
+    assert!(halves.data.iter().zip(&whole.data).all(|(a, b)| (0..3).all(|c| a[c].abs_diff(b[c]) <= 1)));
+    s.masks[0].tools.light.as_mut().unwrap().exposure = 3.0;
+    ev.tools.light.as_mut().unwrap().exposure = -3.0;
+    s.masks.push(Mask { id: 2, ..ev });
+    let recovered = compare(g, &src, &info, &s, &req, &stages);
+    // Compare to the same developed Background boundary, without an exposure change.
+    s.masks.truncate(1);
+    s.masks[0].tools.light.as_mut().unwrap().exposure = 0.0;
+    let baseline = compare(g, &src, &info, &s, &req, &stages);
+    assert!(recovered.data == baseline.data, "over-white intermediate exposure must be recoverable");
+}
+
+#[test]
+fn stacked_full_tool_sets_match_cpu_after_developed_inputs() {
+    use lightcraft_develop::{
+        ColorAdj, ColorGrading, Detail, Effects, Grain, LayerTools, Light, Mixer, PointColor, SkinTone, ToneCurve, Vignette, WhiteBalance,
+    };
+    let Some(gpu_device) = device() else { return };
+    let g = &*gpu_device;
+    let _scope = crate::ctx::RenderScope::new(g);
+    let src = input(93, 61);
+    let req = RenderRequest::fit(93, 61);
+    let stages = GpuStages::default();
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let mut mixer = Mixer::default();
+    mixer.red.hue = 50.0;
+    mixer.blue.sat = -50.0;
+    mixer.orange.lum = 30.0;
+    let mut grading = ColorGrading::default();
+    grading.shadows.hue = 220.0;
+    grading.shadows.sat = 40.0;
+    grading.highlights.hue = 40.0;
+    grading.highlights.sat = 30.0;
+    let reference = lightcraft_pipeline::skin_reference_sample(&src, &info, &DevelopSettings::default(), &req, Point::new(0.2, 0.5)).unwrap();
+    let cases = vec![
+        LayerTools {
+            light: Some(Light { exposure: 0.4, contrast: 30.0, highlights: -50.0, shadows: 40.0, whites: 20.0, blacks: -15.0 }),
+            ..Default::default()
+        },
+        LayerTools { wb: Some(WhiteBalance { temp: 3500.0, tint: 20.0, ..Default::default() }), ..Default::default() },
+        LayerTools {
+            curve: Some(ToneCurve { lights: 35.0, blue: vec![Point::new(0.0, 0.03), Point::new(1.0, 0.9)], ..Default::default() }),
+            ..Default::default()
+        },
+        LayerTools { color: Some(ColorAdj { vibrance: 35.0, saturation: -25.0 }), ..Default::default() },
+        LayerTools { mixer: Some(mixer), ..Default::default() },
+        LayerTools {
+            point_colors: Some(vec![PointColor {
+                lum: 0.6,
+                chroma: 0.12,
+                hue: 50.0,
+                hue_shift: 70.0,
+                sat_shift: -50.0,
+                range: 100.0,
+                ..Default::default()
+            }]),
+            ..Default::default()
+        },
+        LayerTools { grading: Some(grading), ..Default::default() },
+        LayerTools {
+            skin_tone: Some(SkinTone { reference: Some(reference), uniformity: 60.0, lightness: 25.0, ..Default::default() }),
+            ..Default::default()
+        },
+        LayerTools {
+            effects: Some(Effects { clarity: 25.0, texture: -35.0, structure: 40.0, dehaze: 20.0, ..Default::default() }),
+            ..Default::default()
+        },
+        LayerTools {
+            detail: Some(Detail { nr_luminance: 45.0, nr_color: 35.0, sharpen_amount: 80.0, sharpen_radius: 2.0, ..Default::default() }),
+            ..Default::default()
+        },
+        LayerTools {
+            vignette: Some(Vignette { amount: -40.0, ..Default::default() }),
+            grain: Some(Grain { amount: 30.0, ..Default::default() }),
+            ..Default::default()
+        },
+        LayerTools { treatment: Some(lightcraft_develop::Treatment::Bw), ..Default::default() },
+    ];
+    for (index, tools) in cases.into_iter().enumerate() {
+        eprintln!("stacked tools parity case {index}");
+        let mut s = DevelopSettings::default();
+        s.light.exposure = 0.7;
+        s.light.contrast = 35.0;
+        s.light.highlights = -40.0;
+        s.color.vibrance = 15.0;
+        let mut lower = mask();
+        lower.id = 1;
+        lower.tools = LayerTools {
+            light: Some(Light { exposure: 0.25, ..Default::default() }),
+            curve: Some(ToneCurve { darks: 20.0, ..Default::default() }),
+            ..Default::default()
+        };
+        let mut top = mask();
+        top.id = 2;
+        top.tools = tools;
+        top.opacity = 80.0;
+        s.masks = vec![lower, top];
+        compare(g, &src, &info, &s, &req, &stages);
+        s.masks[1].components = vec![MaskComponent { name: None, op: Default::default(), invert: false, shape: MaskShape::Full }];
+        compare(g, &src, &info, &s, &req, &stages);
+        let deep_req = RenderRequest { depth: lightcraft_pipeline::OutputDepth::U16, ..req };
+        if index == 9 {
+            // Existing 16-bit NR uses precise host VST transforms around native wavelets.
+            // The preview above must stay fully native; export keeps its established precision path.
+            crate::CPU_STAGES.with(|stages| stages.borrow_mut().clear());
+            let errors = crate::ctx::ErrorScopes::push(g);
+            let gpu = render(g, &src, &info, &s, &deep_req, Some(&stages), None, HsMethod::LiTone).unwrap();
+            assert!(errors.pop().is_none());
+            assert!(crate::ctx::take_failure().is_none());
+            assert_eq!(crate::last_cpu_stages(), vec!["NR variance transform"]);
+            let cpu = lightcraft_pipeline::render(&src, &info, &s, &deep_req);
+            let mut sum = 0usize;
+            let mut max = 0u8;
+            for (a, b) in cpu.image.data.iter().zip(&gpu.image.data) {
+                for c in 0..3 {
+                    let d = a[c].abs_diff(b[c]);
+                    sum += d as usize;
+                    max = max.max(d);
+                }
+            }
+            let mean = sum as f64 / (cpu.image.len() * 3) as f64;
+            assert!(mean < 0.5 && max <= 3, "deep NR stack parity: mean {mean}, max {max}");
+        } else {
+            compare(g, &src, &info, &s, &deep_req, &stages);
+        }
+        assert_eq!(stages.stack_renders(), (1, 2), "deep NR/precision boundary has a distinct stack key");
+    }
+}
+
+#[test]
+fn stacked_hidden_and_imported_mask_overlays_match_warm_cpu() {
+    use lightcraft_develop::{LayerTools, Light};
+    let Some(gpu_device) = device() else { return };
+    let g = &*gpu_device;
+    let _scope = crate::ctx::RenderScope::new(g);
+    let src = input(93, 61);
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(93, 61);
+    let stages = GpuStages::default();
+    let mut s = DevelopSettings::default();
+    s.light.contrast = 40.0;
+    let mut layer = mask();
+    layer.id = 1;
+    layer.tools = LayerTools { light: Some(Light { exposure: 0.5, ..Default::default() }), ..Default::default() };
+    let mut legacy = mask();
+    legacy.id = 2;
+    legacy.adjust.exposure = 0.3;
+    let mut hidden = mask();
+    hidden.id = 3;
+    hidden.visible = false;
+    s.masks = vec![layer, legacy, hidden];
+    for id in [1, 2, 3] {
+        let r = RenderRequest {
+            overlay: lightcraft_pipeline::Overlay::Mask { id, view: lightcraft_pipeline::MaskView::WhiteOnBlack, color: [255, 0, 0], opacity: 50 },
+            ..req
+        };
+        let cold = compare(g, &src, &info, &s, &r, &stages);
+        let warm = compare(g, &src, &info, &s, &r, &stages);
+        assert!(cold.data == warm.data);
+    }
+}

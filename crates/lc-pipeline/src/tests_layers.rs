@@ -264,40 +264,155 @@ fn layers_without_tools_render_like_no_layer() {
     assert_eq!(shot(&s, &SourceInfo::default()).data, shot(&DevelopSettings::default(), &SourceInfo::default()).data);
 }
 
+/// TEST-CHANGED: layer tools now act on the completed Background; RAW global exposure
+/// happens before its tone map and therefore is deliberately a different operation.
 #[test]
-fn a_layer_over_everything_matches_the_global_tool() {
+fn filled_layer_brightens_the_finished_raw_background_by_a_stop() {
+    use std::sync::Arc;
     let info = SourceInfo { raw: true, ..Default::default() };
-    for (name, tools, global) in [
-        ("exposure", json!({"light": {"exposure": 0.8}}), json!({"light": {"exposure": 0.8}})),
-        ("contrast", json!({"light": {"contrast": 50.0, "blacks": -20.0}}), json!({"light": {"contrast": 50.0, "blacks": -20.0}})),
-        ("curve", json!({"curve": {"lights": 40.0}}), json!({"curve": {"lights": 40.0}})),
-        ("mixer", json!({"mixer": {"green": {"hue": 50.0, "sat": 40.0}}}), json!({"mixer": {"green": {"hue": 50.0, "sat": 40.0}}})),
-        ("grading", json!({"grading": {"midtones": {"hue": 300.0, "sat": 50.0}}}), json!({"grading": {"midtones": {"hue": 300.0, "sat": 50.0}}})),
-        ("shadows", json!({"light": {"shadows": 60.0}}), json!({"light": {"shadows": 60.0}})),
-    ] {
-        let a = shot(&full_layer(tools), &info);
-        let b = shot(&DevelopSettings::default().merged(&global).expect("global"), &info);
-        let (mean, max) = diff(&a, &b, 0, W);
-        assert!(mean < 0.1 && max <= 2, "{name}: layer vs global differ by mean {mean:.3}, max {max}");
+    let src = Arc::new(scene());
+    let req = RenderRequest::fit(W, H);
+    let cache = crate::StageCache::default();
+    let mut s = full_layer(json!({"light": {"exposure": 1.0}}));
+    s.light.exposure = 0.7;
+    s.light.contrast = 45.0;
+    s.light.highlights = -50.0;
+    crate::render_cached(&src, &info, &s, &req, &cache);
+    let entries = cache.lock();
+    let outputs = &entries[0].stack.outputs;
+    for (base, layer) in outputs[0].1.as_ref().unwrap().data.iter().zip(&outputs[1].1.as_ref().unwrap().data) {
+        for c in 0..3 {
+            assert!((layer[c] - base[c] * 2.0).abs() < 1e-6);
+        }
     }
+    drop(entries);
+    let mut global = s.clone();
+    global.masks.clear();
+    global.light.exposure += 1.0;
+    assert!(diff(&shot(&s, &info), &shot(&global, &info), 0, W).0 > 1.0);
 }
 
+/// TEST-CHANGED: Background exposure plus a layer is no longer summed before the tone map.
 #[test]
 fn layers_stack_on_the_photo_and_on_each_other() {
-    // the layer's exposure adds to the photo's
-    let info = SourceInfo::default();
+    let info = SourceInfo { raw: true, ..Default::default() };
     let mut s = full_layer(json!({"light": {"exposure": 0.5}}));
     s.light.exposure = 0.5;
-    let one = shot(&DevelopSettings { light: lightcraft_develop::Light { exposure: 1.0, ..Default::default() }, ..Default::default() }, &info);
-    let (mean, _) = diff(&shot(&s, &info), &one, 0, W);
-    assert!(mean < 0.5, "{mean}");
-    // two layers both apply
     let mut two = s.clone();
     let mut m = two.masks[0].clone();
     m.id = 2;
     two.masks.push(m);
-    let more = shot(&two, &info);
-    assert!(diff(&more, &shot(&s, &info), 0, W).0 > 2.0);
+    let mut one = s.clone();
+    one.masks[0].tools.light.as_mut().unwrap().exposure = 1.0;
+    let (mean, max) = diff(&shot(&two, &info), &shot(&one, &info), 0, W);
+    assert!(mean < 0.01 && max <= 1, "two half-stops equal one stop: {mean}, {max}");
+}
+
+#[test]
+fn owner_colour_then_gradient_stack_uses_the_finished_colour_image() {
+    use std::sync::Arc;
+    let src = Arc::new(scene());
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(W, H);
+    let cache = crate::StageCache::default();
+    let mut s = left_layer(json!({"mixer":{"red":{"hue":70.0,"sat":-30.0},"blue":{"hue":-50.0}}}), 100.0);
+    s.light.exposure = 0.8;
+    s.light.contrast = 45.0;
+    s.light.highlights = -60.0;
+    s.light.shadows = 50.0;
+    s.curve.lights = 30.0;
+    s.color.vibrance = 25.0;
+    let mut gradient = full_layer(json!({"light":{"exposure":-1.0}})).masks.remove(0);
+    gradient.id = 2;
+    gradient.components[0].shape = MaskShape::Linear { start: Point::new(0.0, 0.0), end: Point::new(0.0, 1.0) };
+    s.masks.push(gradient);
+    crate::render_cached(&src, &info, &s, &req, &cache);
+    let entries = cache.lock();
+    let outputs = &entries[0].stack.outputs;
+    let log = outputs[1].1.as_ref().unwrap().map(crate::local::log_lum);
+    let frame = crate::frame_for(&src, &info, &s, true);
+    let alpha = crate::masks::evaluate_one(&s.masks[1], &frame, W, H, outputs[1].1.as_ref().unwrap(), &log, 0.0);
+    let mut changed = 0;
+    for (i, &a) in alpha.data.iter().enumerate() {
+        let colour = outputs[1].1.as_ref().unwrap().data[i];
+        let top = outputs[2].1.as_ref().unwrap().data[i];
+        for c in 0..3 {
+            assert!((top[c] - colour[c] * (1.0 - 0.5 * a)).abs() < 1e-6, "pixel {i}");
+            changed += usize::from((colour[c] - outputs[0].1.as_ref().unwrap().data[i][c]).abs() > 0.001);
+        }
+    }
+    assert!(changed > 100, "the colour layer has a measurable effect before the gradient");
+}
+
+#[test]
+fn layer_order_changes_the_expected_curve_exposure_result() {
+    let src = std::sync::Arc::new(Rgb32f::from_fn(16, 16, |_, _| [0.08, 0.06, 0.04]));
+    let info = SourceInfo::default();
+    let req = RenderRequest::fit(16, 16);
+    let mut s = full_layer(json!({"curve":{"master":[{"x":0.0,"y":0.12},{"x":1.0,"y":1.0}]}}));
+    s.masks[0].components[0].shape = MaskShape::Full;
+    let mut ev = s.masks[0].clone();
+    ev.id = 2;
+    ev.tools = LayerTools::default().merged((6500.0, 0.0), &json!({"light":{"exposure":-1.0}})).unwrap();
+    s.masks.push(ev);
+    let a = crate::render_cached(&src, &info, &s, &req, &crate::StageCache::default()).image;
+    s.masks.swap(0, 1);
+    let b = render(&src, &info, &s, &req).image;
+    assert!(
+        a.data.iter().zip(&b.data).all(|(a, b)| a[0] < b[0] && a[1] < b[1] && a[2] < b[2]),
+        "a lifted curve applied after darkening lifts the shadow more"
+    );
+}
+
+#[test]
+fn stack_prefix_cache_invalidates_only_the_edited_layer_and_above() {
+    let src = std::sync::Arc::new(scene());
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(W, H);
+    let cache = crate::StageCache::default();
+    let mut s = full_layer(json!({"light":{"exposure":0.2}}));
+    s.masks[0].components[0].shape = MaskShape::Full;
+    for id in [2, 3] {
+        let mut m = s.masks[0].clone();
+        m.id = id;
+        s.masks.push(m);
+    }
+    let render_check = |s: &DevelopSettings, expected| {
+        let a = crate::render_cached(&src, &info, s, &req, &cache).image;
+        assert_eq!(cache.stack_renders(), expected);
+        assert_eq!(a, render(&src, &info, s, &req).image);
+    };
+    render_check(&s, (1, 3));
+    render_check(&s, (0, 0));
+    s.masks[2].tools.light.as_mut().unwrap().exposure = 0.5;
+    render_check(&s, (0, 1));
+    s.masks[1].tools.light.as_mut().unwrap().exposure = -0.1;
+    render_check(&s, (0, 2));
+    s.masks[1].opacity = 40.0;
+    render_check(&s, (0, 2));
+    s.light.contrast = 20.0;
+    render_check(&s, (1, 3));
+    s.masks.swap(0, 2);
+    render_check(&s, (0, 3));
+    s.masks[0].visible = false;
+    render_check(&s, (0, 2));
+}
+
+#[test]
+fn stacked_over_white_exposure_can_be_recovered_before_output() {
+    let src = std::sync::Arc::new(Rgb32f::from_fn(24, 16, |_, _| [0.4, 0.3, 0.2]));
+    let info = SourceInfo::default();
+    let req = RenderRequest::fit(24, 16);
+    let cache = crate::StageCache::default();
+    let mut s = full_layer(json!({"light":{"exposure":3.0}}));
+    s.masks[0].components[0].shape = MaskShape::Full;
+    let mut restore = s.masks[0].clone();
+    restore.id = 2;
+    restore.tools.light.as_mut().unwrap().exposure = -3.0;
+    s.masks.push(restore);
+    let result = crate::render_cached(&src, &info, &s, &req, &cache).image;
+    assert_eq!(result, render(&src, &info, &DevelopSettings::default(), &req).image);
+    assert!(cache.lock()[0].stack.outputs[1].1.as_ref().unwrap().data.iter().all(|c| c[0] > 1.0));
 }
 
 #[test]
@@ -374,4 +489,45 @@ fn filled_alpha_is_scalar_until_a_spatial_component_is_added() {
     assert!(alpha[0].alpha.plane().is_some());
     assert!(alpha[0].alpha.get(16, 8) < 0.01);
     assert_eq!(alpha[0].alpha.get(0, 0), 0.5);
+}
+
+#[test]
+fn stacked_spatial_overlay_is_identical_with_warm_prefixes() {
+    let src = std::sync::Arc::new(scene());
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let mut s = left_layer(json!({"mixer":{"red":{"hue":60.0}}}), 80.0);
+    let mut top = s.masks[0].clone();
+    top.id = 2;
+    top.tools = LayerTools::default().merged((6500.0, 0.0), &json!({"light":{"exposure":-0.5}})).unwrap();
+    s.masks.push(top);
+    let cache = crate::StageCache::default();
+    let req = RenderRequest {
+        overlay: crate::Overlay::Mask { id: 2, view: crate::MaskView::WhiteOnBlack, color: [255, 0, 0], opacity: 50 },
+        ..RenderRequest::fit(W, H)
+    };
+    let cold = crate::render_cached(&src, &info, &s, &req, &cache).image;
+    let warm = crate::render_cached(&src, &info, &s, &req, &cache).image;
+    assert!(cold.data == warm.data);
+    assert_eq!(cache.stack_renders(), (0, 0));
+}
+
+#[test]
+fn layer_whites_and_blacks_respond_in_the_developed_display_range() {
+    use std::sync::Arc;
+    for (input, name, tool) in [(0.65, "whites", json!({"light":{"whites":80.0}})), (0.005, "blacks", json!({"light":{"blacks":-80.0}}))] {
+        let src = Arc::new(Rgb32f::from_fn(16, 16, |_, _| [input; 3]));
+        let info = SourceInfo::default();
+        let req = RenderRequest::fit(16, 16);
+        let cache = crate::StageCache::default();
+        let mut s = full_layer(tool);
+        s.masks[0].components[0].shape = MaskShape::Full;
+        let image = crate::render_cached(&src, &info, &s, &req, &cache).image;
+        let base = render(&src, &info, &DevelopSettings::default(), &req).image;
+        if name == "whites" {
+            assert!(image.data[0][0] > base.data[0][0] + 5);
+        } else {
+            assert!(image.data[0][0] + 3 < base.data[0][0]);
+        }
+        assert!(image.data.iter().all(|c| c[0] == c[1] && c[1] == c[2]));
+    }
 }

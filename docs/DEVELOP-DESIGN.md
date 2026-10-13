@@ -46,46 +46,59 @@ and metadata kept re-editable, and with a Camera Raw Filter that has the same to
 
 `pc-algo::camera_raw` is retired; its Photoshop descriptor mapping (`pc-io/src/camera_raw_map.rs`) is kept so PSDs from Photoshop still open with their Camera Raw smart filters (mapped onto `DevelopSettings`).
 
-### 3.2 Capture One-style develop layers (inside develop)
+### 3.2 Sequential Develop adjustment layers
 
-`DevelopSettings` gains `layers: Vec<DevelopLayer>` (replacing `masks` + `LocalAdjustments`, migrated automatically):
+Layers use the existing `DevelopSettings.masks` list. Each `Mask` contains source-coordinate
+components, visibility, opacity (0–100), imported Lightroom `adjust`, and sparse `LayerTools`
+(14 optional sections, including Skin Tone). The JSON format and defaults are unchanged.
+Vignette, Grain and B&W remain Background-only in the UI; historical layer values still load.
+Geometry, lens/camera profiles, demosaic, capture sharpening and RAW reconstruction belong to
+Background.
+
+The original is at the bottom. Background finishes all its scene and finish tools, then each
+visible layer applies its **whole tool set to the finished result below it**, in stored list
+order (the order shown in the Develop layer bar). Each layer blends once:
 
 ```text
-DevelopLayer { name, enabled, opacity, mask: MaskExpr, settings: sparse DevelopSettings, kind: Adjust | Heal | Clone | Remove(AI) }
-MaskExpr     = ordered [ (Add|Subtract|Intersect, Component, invert, opacity, feather, refine) ]
-Component    = Brush | Linear | Radial | Polygon | LuminanceRange | ColorRange | DepthRange
-             | AiSubject | AiSky | AiBackground | AiObject(points/box) | AiPrompt(text) | AiPeople(parts) | External(file) | Linked(layer)
+out_0 = Background(source)
+out_k = out_(k-1) + (Tools_k(out_(k-1)) - out_(k-1)) * coverage_k * amount_k * opacity_k
+output = OutputTransform(out_top)
 ```
 
-* **Any tool on a layer** except image-level ones (crop, geometry/Upright, lens profile, camera profile/calibration, demosaic, raw NR). That is Capture One's list, minus its odd exclusions (we allow vignette, B&W mix and grain on layers).
-* **Evaluation the darktable way, not once per layer:** each tool runs once at its canonical pipeline position; at that stage every layer that sets it mixes in `out = mix(in, tool_L(in), mask_L · opacity_L)`. Exposure still runs before the tone curve, so layers behave like Lightroom masks, not like stacked renders. Cost ≈ one render + per-layer stage evaluations only for the tools a layer touches.
-* **Masks are stored in source coordinates** and pushed through geometry (as `SegMask` already is), so cropping or straightening later keeps them aligned. AI masks keep their logits/raster in the settings (works offline after the first run).
-* **UI:** the Develop panel shows a layer strip (Background + layers, opacity, mask thumbnail, add/subtract/intersect chips), the same tool panels as global develop, and a "Show all tools / tools this layer uses" filter.
+The stack holds floating-point, **display-referred linear Rec.2020**. Background establishes
+the developed look; calling it scene-linear after a camera tone curve would be misleading.
+There is no output gamut conversion, display transfer, clipping or quantization between layers.
+Exposure multiplies the current image by `2^EV` (two +0.5 EV Filled layers equal one +1 EV layer).
+Layer contrast changes log slope about linear 0.18, without repeating Background's camera tone
+map. WB adapts relative to Background's effective white. Highlights/Shadows/Whites/Blacks
+operate on the current developed luminance (Whites targets +0.5..+2.5 EV around grey,
+Blacks targets -6..-3 EV); layer Highlights is a tonal adjustment and cannot
+reconstruct lost RAW sensor channels. Clarity/Texture/Structure, dehaze, NR, sharpening and
+Skin Tone build their spatial fields from this layer's input. HSL/mixer and grading use the
+existing UCS22 implementations; Point Color uses OkLCh. Curves act on encoded working colour,
+return to linear, and extend their tails beyond 0–1 so intermediate over-white exposure can be
+recovered by later layers. Output-space conversion, proofing and encoding occur once at the end.
 
-**Built (October 2026):** layers are the existing masks, not a new `layers` list. `Mask` gained
-`opacity` (0–100) and `tools: LayerTools`: a sparse partial `DevelopSettings` (`wb`, `light`, `curve`,
-`color`, `mixer`, `point_colors`, `treatment`, `bw_mix`, `grading`, `effects`, `vignette`, `grain`,
-`detail`; each `Option`, left out of the JSON when unset, as is an opacity of 100, so older
-settings serialize, hash and render bit-identically, which golden hashes in
-`lc-pipeline/src/tests_layers.rs` check). Layer values are relative to the photo's (white balance is
-the layer's own white). `LocalAdjustments` (`adjust`) is kept alongside, not mapped: its sliders
-are summed across masks in one log-domain term (mapping them to sequential mixes would change
-existing renders), half of them have no global tool (hue shift, ± sharpness / noise, moiré,
-defringe, colour overlay), and the GPU already renders them; the Masking panel shows them as
-"Local Adjustments" above the full tool sections. `adjust.amount` × `opacity` scale the mask's
-alpha, so presets' amount and the opacity fade everything the layer does.
-Evaluation (`lc-pipeline/src/layers.rs`): each tool runs at its stage and every layer that sets it
-blends `mix(in, tool_L(in), alpha)`: NR (lin image denoised again, cached), dehaze, WB + exposure
-(with the local exposure), highlights/shadows/clarity/texture/sharpening (local tone stage),
-contrast/whites/blacks (tone map with summed values), colour tools, vignette, curves, grain.
-Settings with layer tools render on the CPU (`layers_need_cpu`; `lightcraft_gpu::render` returns
-`None` with a reason); opacity alone stays on the GPU. Commands: `mask.setTools {id, tools?, values?}`
-(merges like presets, clamps, `null` drops a section), `mask.setOpacity`, `mask.resetTools {section?}`,
-`pointColor.pick/delete {mask}`; copy/paste, presets and Auto Sync carry layers with the Masking
-group. UI: the Masking panel reuses the Edit panel's sections (`edit::tool_sections` with
-`Target::Layer`), with a dot on sections a layer sets, Reset Section / Reset Layer and the
-"Show only tools this layer uses" filter. Not yet: a WGSL port of the layer tools, a layer
-White Balance picker, curve presets / targeted adjustment on layers.
+Imported `Mask.adjust` values keep their established behavior in Background, including summed
+local exposure and their existing processing order. They are neither migrated nor applied twice.
+New `tools` values use sequential stacking even when a mask also has imported `adjust` values.
+No-layer renders use the historical CPU/GPU paths bit-for-bit; the six golden hashes are unchanged.
+Layer documents intentionally change appearance.
+
+CPU and GPU cache completed prefixes per view/output size. A top-layer edit reuses Background
+and all lower layers; a mask/opacity/order edit invalidates the changed suffix. Background edits
+invalidate every prefix. Filled masks use scalar coverage and allocate no alpha plane. Exposure-
+only layers skip all spatial preparation. Uncovered pixels skip exposure and blend arithmetic;
+neighborhood filters retain full input context to avoid boundary artifacts. The existing bounded
+rayon compute pool is used, with no thread pool per layer. GPU results remain on the device until
+the final readback, with existing short band submissions on slow hardware. Retained stack state
+is capped at 512 MiB per output size (two sizes per view); previews retain all prefixes, while
+large exports can evict older prefixes. One current image remains retained even if it exceeds
+the cap. Eviction changes performance only, never the rendering rule.
+
+The existing layer bar, reused tool sections, opacity/mask controls, copy/paste/presets/sync and
+undo/redo drive the stack. Reordering must change pixels for noncommuting tools, and undo must
+restore the earlier displayed image, including when caches are warm.
 
 ### 3.3 AI masks and AI Remove in the Library (and the same in the Editor)
 

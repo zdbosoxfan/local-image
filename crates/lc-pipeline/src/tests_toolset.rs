@@ -114,8 +114,10 @@ const GOLDEN: [(&str, u64, u64); 14] = [
     ("b&w profile/raw", 0xc3d16db57db48b3d, 0xb6159ee7a2d437b0),
     ("negative/rendered", 0x30b5bb6ca4d2340b, 0xb00a5805f4d46110),
     ("negative/raw", 0xd4e80f8f014fb4b0, 0xb00a5805f4d46110),
-    ("layers/rendered", 0x9e4387b7ce70062f, 0x72a3db4f1a1900ec),
-    ("layers/raw", 0x7a6a3c0ba4313a72, 0x72a3db4f1a1900ec),
+    // TEST-CHANGED: only layer render hashes change for sequential developed-image tools.
+    // Historical no-layer renders and every settings hash above/below are unchanged.
+    ("layers/rendered", 0x2b8db6150bc87e19, 0x72a3db4f1a1900ec),
+    ("layers/raw", 0x0fa75a20cc053614, 0x72a3db4f1a1900ec),
 ];
 
 #[test]

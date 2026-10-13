@@ -112,12 +112,23 @@ impl CameraTone {
 
 #[derive(Clone, Debug)]
 pub struct ToneMap {
+    working_identity: bool,
     lut: Vec<f32>,
     chroma: [f32; CHROMA_N],
     method: crate::tone2::ToneMethod,
 }
 
 impl ToneMap {
+    /// Mask selection on a developed stack input needs no further tone map or clipping.
+    pub fn working_identity() -> Self {
+        let mut t = Self::display(0.0, 0.0, 0.0);
+        t.working_identity = true;
+        t
+    }
+    pub fn is_working_identity(&self) -> bool {
+        self.working_identity
+    }
+
     pub fn camera(curve: &CameraTone, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
         Self::scene(&crate::tone2::BaseCurve::Camera(*curve), lightcraft_develop::ToneBase::Standard, 0.75, contrast, whites, blacks)
     }
@@ -131,7 +142,7 @@ impl ToneMap {
     }
 
     pub(crate) fn from_tables(lut: Vec<f32>, chroma: [f32; CHROMA_N], method: crate::tone2::ToneMethod) -> ToneMap {
-        ToneMap { lut, chroma, method }
+        ToneMap { working_identity: false, lut, chroma, method }
     }
 
     pub fn method(&self) -> crate::tone2::ToneMethod {

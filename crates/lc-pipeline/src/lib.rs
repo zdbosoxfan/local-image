@@ -10,10 +10,14 @@
 //! 2. white balance/camera calibration, reconstruction input, retouching and noise reduction
 //! 3. primary scene tools (`primary`): exposed log-EV Highlights/Shadows/Whites/Blacks,
 //!    local-Laplacian Clarity, EIGF Texture/Structure, UCS22 colour tools and Skin Tone;
-//!    stage blends for global and layer settings, with a fixed geometric tone proxy
+//!    Background and imported Lightroom local adjustments, with a fixed geometric tone proxy
 //! 4. established scene/finish tools: dehaze, local exposure, faithful EIGF tone equalizer,
 //!    contrast tone map, curves and Point Color (OkLCh), vignette, grain and sharpening
-//! 5. display: output gamut mapping and transfer encoding (sRGB by default)
+//! 5. adjustment layers — each visible `Mask::tools` runs its complete tool set on the finished
+//!    result below it, in stored list order, and blends once by coverage × amount × opacity;
+//!    inputs/outputs are unclipped, display-referred linear Rec.2020; spatial fields are rebuilt
+//!    from this layer's input, and a layer never repeats the camera tone map or RAW reconstruction
+//! 6. display: output gamut mapping, proofing and transfer encoding once (sRGB by default)
 //!
 //! Spatial parameters are specified relative to the image's long edge, so a 400 px preview and a
 //! 60 MP export look alike.
@@ -22,6 +26,9 @@
 //! then removes that gain so the established finish applies exposure once. With
 //! [`render_cached`] each stage's output is reused while its inputs are unchanged ([`StageCache`]);
 //! primary edits reuse geometry and WB/NR, and finish-only edits reuse the primary result.
+//! With adjustment layers, completed Background/layer prefixes are cached independently;
+//! editing k re-evaluates k..top, while a Background edit invalidates the entire stack.
+//! No-layer documents retain their original render path and golden hashes.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -242,6 +249,7 @@ pub struct Rendered {
 /// The image and planes are computed *before exposure* (so they can be reused while exposure is
 /// dragged): the per-pixel stage multiplies the image by `gain` and shifts log planes by `ev`.
 /// Spatial filters on log luminance are shift-equivariant, so this equals filtering after exposure.
+#[derive(Clone)]
 pub(crate) struct Prepared {
     pub img: Arc<Rgb32f>,
     /// Log2 luminance relative to middle grey (before exposure: add `ev`).
@@ -297,6 +305,7 @@ pub fn frame_for(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, apply_cro
 pub struct StageCache {
     entries: Mutex<Vec<CacheEntry>>,
     capacity: usize,
+    stack_renders: Mutex<(usize, usize)>,
     /// Another renderer's per-view state (the GPU renderer keeps its device-resident stages here).
     ext: Mutex<Option<Arc<dyn Any + Send + Sync>>>,
     /// The capture-sharpened source of the last render: (source, parameters key, result).
@@ -305,11 +314,16 @@ pub struct StageCache {
 
 impl Default for StageCache {
     fn default() -> Self {
-        StageCache { entries: Mutex::new(Vec::new()), capacity: 2, ext: Mutex::new(None), pre: Mutex::new(None) }
+        StageCache { entries: Mutex::new(Vec::new()), capacity: 2, stack_renders: Mutex::new((0, 0)), ext: Mutex::new(None), pre: Mutex::new(None) }
     }
 }
 
 impl StageCache {
+    /// Background finishes and layer evaluations performed by the latest cached CPU render.
+    pub fn stack_renders(&self) -> (usize, usize) {
+        *self.stack_renders.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Drop everything (e.g. when memory is needed).
     pub fn clear(&self) {
         self.lock().clear();
@@ -357,6 +371,9 @@ impl StageCache {
             }
             if let Some((_, p)) = &e.primary {
                 add(Arc::as_ptr(p) as usize, size(p));
+            }
+            for image in e.stack.outputs.iter().filter_map(|p| p.1.as_ref()) {
+                add(Arc::as_ptr(image) as usize, size(image));
             }
             let pl = &e.planes;
             let planes = pl.log_l.iter().chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
@@ -414,6 +431,7 @@ struct CacheEntry {
     lin: Option<(u64, Arc<Rgb32f>)>,
     planes: local::Planes,
     primary: primary::Cached,
+    stack: layers::Cache,
 }
 
 fn hash_of(parts: impl std::hash::Hash) -> u64 {
@@ -424,6 +442,7 @@ fn hash_of(parts: impl std::hash::Hash) -> u64 {
 /// What a render resolves to before any pixel work: the effective settings (profile and Upright
 /// applied), the geometric frame, the output size and the stage-cache keys. Shared by the CPU
 /// renderer and the GPU renderer (`lightcraft-gpu`), so both key their caches identically.
+#[derive(Clone)]
 pub struct Plan<'a> {
     pub settings: Cow<'a, DevelopSettings>,
     pub frame: geometry::Frame,
@@ -491,7 +510,7 @@ pub fn tools_need_cpu(_s: &DevelopSettings, _req: &RenderRequest) -> bool {
     false
 }
 
-/// Develop layer tools have native stage blends (device limits still permit fallback).
+/// Develop layer stacks have native device-resident evaluation (device limits still permit fallback).
 pub fn layers_need_cpu(_s: &DevelopSettings) -> bool {
     false
 }
@@ -618,6 +637,11 @@ fn render_impl(
         Src::Shared(a) => a,
     };
     let mut plan = plan(src_img, info, s, req);
+    let stack_settings = layers::active(&plan.settings).then(|| plan.settings.clone().into_owned());
+    if stack_settings.is_some() {
+        plan.settings = Cow::Owned(layers::background(&plan.settings));
+    }
+    let stack_base_key = layers::background_key(&plan, info, req.quality, hs_method);
     let Plan { w, h, px_per_long, src_long, geo, lin_key, .. } = plan;
     let frame = plan.frame.clone();
     let s = &*plan.settings;
@@ -662,23 +686,93 @@ fn render_impl(
     }
     let s = &*plan.settings;
     let planes_key = if primary.is_some() { primary_key } else { lin_key };
+    let mut stack_cache = cached.as_ref().map(|e| e.stack.clone()).unwrap_or_default();
     let mut planes = match cached.map(|e| e.planes) {
         Some(p) if p.key == planes_key => p,
         _ => local::Planes { key: planes_key, ..Default::default() },
     };
     let prep = local::prepare(prepared_lin, s, info, &frame, px_per_long, src_long, req.quality, &mut planes);
     lap("prepare", &mut t);
+    let result = if let Some(original) = &stack_settings {
+        let layers::Stacked { image, background_renders: background, layer_renders: layers, masks, diagnostic } =
+            layers::stack(&prep, &plan, original, info, req, hs_method, stack_base_key, &mut stack_cache);
+        if let Some(c) = cache {
+            *c.stack_renders.lock().unwrap_or_else(|e| e.into_inner()) = (background, layers);
+        }
+        let mut p = prep.clone();
+        p.img = image;
+        p.masks = masks;
+        p.masks.extend(prep.masks.clone());
+        plan.settings = Cow::Borrowed(original);
+        finish_stack(&p, &plan, info, req, diagnostic.as_ref())
+    } else {
+        if let Some(c) = cache {
+            *c.stack_renders.lock().unwrap_or_else(|e| e.into_inner()) = (0, 0);
+        }
+        stack_cache.outputs.clear();
+        finish_prepared(&prep, &plan, info, req)
+    };
     if let Some((a, c)) = shared {
-        c.put(CacheEntry { src: a.clone(), geo, sampled, lin: Some((lin_key, lin)), planes, primary });
+        c.put(CacheEntry { src: a.clone(), geo, sampled, lin: Some((lin_key, lin)), planes, primary, stack: stack_cache });
     }
-    finish_prepared(&prep, &plan, info, req)
+    result
 }
 
 /// A CPU finish stage inside the GPU renderer, for the faithful EIGF tone equalizer.
 /// Geometry, white balance, and noise reduction have already run on the device.
-pub fn finish_scene_stage(img: Arc<Rgb32f>, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest) -> Rendered {
+pub fn finish_scene_stage(mut img: Arc<Rgb32f>, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest) -> Rendered {
+    if layers::active(&plan.settings) {
+        let original = &*plan.settings;
+        let mut background = Plan { settings: Cow::Owned(layers::background(original)), ..plan.clone() };
+        let key = layers::background_key(&background, info, req.quality, primary::DEFAULT_HS_METHOD);
+        if primary::active(&background.settings) {
+            let proxy = if primary::needs_proxy(&background.settings) { (*img).clone() } else { Rgb32f::new(0, 0) };
+            img = Arc::new(primary::process(&img, &proxy, info, &background, primary::DEFAULT_HS_METHOD));
+            background.settings = Cow::Owned(visualize::remaining_for_overlay(req.overlay, &background.settings));
+        }
+        let mut prep = local::prepare(
+            img,
+            &background.settings,
+            info,
+            &background.frame,
+            background.px_per_long,
+            background.src_long,
+            req.quality,
+            &mut local::Planes::default(),
+        );
+        let stacked = layers::stack(&prep, &background, original, info, req, primary::DEFAULT_HS_METHOD, key, &mut layers::Cache::default());
+        prep.img = stacked.image;
+        prep.masks = stacked.masks;
+        return finish_stack(&prep, plan, info, req, stacked.diagnostic.as_ref());
+    }
     let prep = local::prepare(img, &plan.settings, info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
     finish_prepared(&prep, plan, info, req)
+}
+
+fn finish_stack(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest, diagnostic: Option<&Plane>) -> Rendered {
+    let neutral = DevelopSettings::default();
+    let deep = (req.depth != OutputDepth::U8)
+        .then(|| finish::finish_deep_mode(prep, &neutral, &plan.frame, info, req.space, req.depth, req.proof, finish::FinishMode::Output));
+    let mut image = deep.as_ref().map_or_else(
+        || finish::finish_mode(prep, &neutral, &plan.frame, info, req.space, req.proof, finish::FinishMode::Output),
+        DeepImage::to_rgba8,
+    );
+    let histogram = Histogram::of_srgb8(&image);
+    if req.depth == OutputDepth::U8 {
+        let mask = if diagnostic.is_some() {
+            None
+        } else if let Some(m) = req.overlay.mask(&plan.settings)
+            && masks::scalar_alpha(m).is_none()
+            && !prep.masks.iter().any(|mask| mask.id == m.id)
+        {
+            let log = prep.img.map(local::log_lum);
+            Some(masks::evaluate_one_tone(m, &plan.frame, plan.w, plan.h, &prep.img, &log, 0.0, Some(&ToneMap::working_identity())))
+        } else {
+            overlay_alpha(req.overlay, plan, prep)
+        };
+        visualize::apply(&mut image, req.overlay, plan, diagnostic.or(mask.as_ref()));
+    }
+    Rendered { image, histogram, deep }
 }
 
 fn finish_prepared(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest) -> Rendered {

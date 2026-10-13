@@ -1,25 +1,19 @@
-//! Develop layers (Capture One-style): every mask can hold any develop tool that isn't
-//! image-level ([`LayerTools`]), faded by its opacity.
+//! Sequential Develop adjustment layers in unclipped, display-referred linear Rec.2020.
 //!
-//! Evaluated the darktable way, not once per layer: each tool still runs once at its own stage of
-//! the pipeline, and at that stage every layer that sets it blends in its own instance,
-//! `out = mix(in, tool_L(in), alpha_L)` with `alpha_L` the mask's alpha × amount × opacity. So the
-//! layer's exposure still comes before the tone map and its curve after the photo's curve, and N
-//! layers cost one render plus the per-pixel work of the tools they set (nothing for the others).
+//! Background runs its complete scene/finish tools first. Visible `Mask::tools` then run in
+//! stored list order (bottom to top), each on the finished result below it:
+//! `out = mix(input, Tools(input), coverage * amount * opacity)`. The output transform,
+//! proofing and quantization run once, after the stack. Imported `Mask::adjust` stays in the
+//! Background's established stages; it is not converted into a stacked tool set.
 //!
-//! Where each layer tool runs (see `finish::finish_with`):
-//! * noise reduction: the linear image denoised once more with the layer's settings
-//!   ([`nr_images`]), blended at the start of the per-pixel stage;
-//! * dehaze: right after the photo's dehaze (scene linear);
-//! * white balance (a change from the photo's white to the layer's) and exposure: with the
-//!   masks' local exposure, before highlights/shadows;
-//! * highlights/shadows, clarity, texture, sharpening: the local tone stage (log luminance, the
-//!   photo's edge-aware planes);
-//! * contrast, whites, blacks: the tone map, built with the photo's values plus the layer's;
-//! * vibrance, saturation, colour mixer, Point Color, B&W, colour grading: after the photo's;
-//! * vignette, tone curves (encoded values), grain: after the photo's.
+//! Spatial tools build their fields from this layer's input, not from the source. Exposure is
+//! a linear gain; contrast is log slope about 0.18 without a second camera tone map. WB is a
+//! chromatic adaptation relative to the Background white. RAW reconstruction is Background-only.
+//! Filled coverage uses a scalar, including the exposure-only fast path. Cached prefixes are
+//! keyed by the Background and all earlier layers; editing k invalidates k..top only.
 //!
-//! The GPU renderer mirrors these stage blends with device-resident NR/sharpening planes.
+//! `LayerK` below describes the historical stage blends used by low-level finish helpers;
+//! render entry points remove `tools` from Background and use the sequential evaluator.
 
 use std::sync::Arc;
 
@@ -222,4 +216,254 @@ pub(crate) fn nr_images(
 #[inline]
 pub fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
+}
+
+/// Background keeps imported local adjustments in their historical stages. Neutral adjustment
+/// masks do not invalidate its caches when an adjustment layer's mask changes.
+pub fn background(s: &DevelopSettings) -> DevelopSettings {
+    let mut b = s.clone();
+    b.masks.retain(|m| {
+        let mut a = m.adjust;
+        a.amount = 100.0;
+        a.color_hue = 0.0;
+        a != lightcraft_develop::LocalAdjustments::default()
+    });
+    for m in &mut b.masks {
+        m.tools = LayerTools::default();
+    }
+    b
+}
+
+/// A layer's complete, neutral-by-default tools and white adaptation. No image-level tools.
+pub fn settings(m: &Mask, s: &DevelopSettings, info: &SourceInfo) -> (DevelopSettings, Option<[[f32; 3]; 3]>) {
+    let white = crate::local::effective_wb(info, s);
+    let mut d = m.tools.view(white);
+    d.disabled_sections = s.disabled_sections.clone();
+    let wb = m.tools.wb.and_then(|w| crate::local::wb_change(white, (w.temp, w.tint)));
+    (d, wb)
+}
+
+/// +1 EV is exactly twice the developed linear RGB, including values above display white.
+/// The contrast slope uses the established slider response without a bounded base curve.
+pub fn contrast(c: [f32; 3], amount: f32) -> [f32; 3] {
+    if amount == 0.0 {
+        return c;
+    }
+    let y = lightcraft_color::luminance_2020(c).max(1e-9);
+    let slope = crate::tone2::contrast_slope(amount as f64);
+    let gain = (y / crate::tone::GREY).powf(slope - 1.0);
+    c.map(|v| v * gain)
+}
+
+/// Whites and Blacks use developed-image anchors, rather than RAW's over-white range.
+/// Middle grey is 0.18; Whites ramps through +0.5..+2.5 EV, Blacks through -6..-3 EV.
+/// Exposure shifts selection, but its gain itself is still applied only by finish.
+pub fn anchors(c: [f32; 3], exposure: f32, whites: f32, blacks: f32) -> [f32; 3] {
+    let light = crate::primary::log_light(c.map(|v| v * exposure.exp2()));
+    let ev = 0.8 * whites * crate::primary::smooth(0.5, 2.5, light) + 0.8 * blacks * (1.0 - crate::primary::smooth(-6.0, -3.0, light));
+    c.map(|v| v * ev.exp2())
+}
+
+/// Skip all spatial preparation for layers setting exposure alone.
+pub fn exposure_only(m: &Mask) -> Option<f32> {
+    let mut t = m.tools.clone();
+    let light = t.light.take()?;
+    let mut neutral = light;
+    neutral.exposure = 0.0;
+    (t.is_empty() && neutral == Default::default()).then(|| (light.exposure as f32).exp2())
+}
+
+/// Shared rolling cache keys for CPU and device-resident stack prefixes.
+pub fn background_key(plan: &crate::Plan<'_>, info: &SourceInfo, quality: crate::Quality, method: crate::primary::HsMethod) -> u64 {
+    crate::hash_of((crate::primary::key_for(plan, info, method), format!("{:?}", plan.settings), quality == crate::Quality::Draft))
+}
+pub fn key(input: u64, m: &Mask) -> u64 {
+    crate::hash_of((input, format!("{:?}", (&m.tools, &m.components, m.invert, m.refine)), crate::masks::mask_scale(m).to_bits()))
+}
+
+/// Maximum retained stack pixels per output size. The current image is always retained,
+/// even when a single full-resolution image exceeds this bound. No new compute pool is created.
+pub const STACK_CACHE_BYTES: usize = 512 << 20;
+
+/// Prefix cache (at most two output sizes live in StageCache). Pixel work uses the application's
+/// existing bounded rayon pool; no thread-per-layer pool or simultaneous layer renders.
+#[derive(Clone, Default)]
+pub(crate) struct Cache {
+    pub outputs: Vec<(u64, Option<Arc<Rgb32f>>)>,
+}
+
+pub(crate) struct Stacked {
+    pub image: Arc<Rgb32f>,
+    pub background_renders: usize,
+    pub layer_renders: usize,
+    pub masks: Vec<crate::masks::Evaluated>,
+    pub diagnostic: Option<lightcraft_raster::Plane>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn stack(
+    prep: &crate::Prepared,
+    plan: &crate::Plan<'_>,
+    original: &DevelopSettings,
+    info: &SourceInfo,
+    req: &crate::RenderRequest,
+    method: crate::primary::HsMethod,
+    base_key: u64,
+    cache: &mut Cache,
+) -> Stacked {
+    let mut background_renders = 0;
+    let mut layer_renders = 0;
+    let mut input = match cache.outputs.first().filter(|p| p.0 == base_key) {
+        Some((_, Some(image))) => image.clone(),
+        _ => {
+            background_renders += 1;
+            Arc::new(crate::finish::working(prep, &plan.settings, plan, info, false, None))
+        }
+    };
+    let mut keep = vec![(base_key, Some(input.clone()))];
+    let mut ik = base_key;
+    let mut masks = Vec::new();
+    let mut diagnostic = if req.overlay == crate::Overlay::SkinToneRange(None) {
+        req.overlay
+            .skin(original)
+            .filter(|s| s.reference.is_some())
+            .map(|skin| crate::visualize::skin_alpha(&prep.img, skin, (original.light.exposure as f32).exp2()))
+    } else {
+        None
+    };
+    for m in evaluated(original).filter(|m| !m.tools.is_empty()) {
+        let k = key(ik, m);
+        if req.overlay == crate::Overlay::SkinToneRange(Some(m.id)) {
+            diagnostic = req.overlay.skin(original).filter(|s| s.reference.is_some()).map(|skin| crate::visualize::skin_alpha(&input, skin, 1.0));
+        }
+        if let Some((_, Some(out))) = cache.outputs.get(keep.len()).filter(|p| p.0 == k) {
+            if req.overlay.mask(original).is_some_and(|mask| mask.id == m.id) {
+                let log = input.map(crate::local::log_lum);
+                let alpha = crate::masks::scalar_alpha(m).map(crate::masks::Alpha::Scalar).unwrap_or_else(|| {
+                    crate::masks::Alpha::Spatial(crate::masks::evaluate_one_tone(
+                        m,
+                        &plan.frame,
+                        plan.w,
+                        plan.h,
+                        &input,
+                        &log,
+                        0.0,
+                        Some(&crate::ToneMap::working_identity()),
+                    ))
+                });
+                masks.push(crate::masks::Evaluated { id: m.id, alpha, adjust: m.adjust });
+            }
+            input = out.clone();
+        } else {
+            layer_renders += 1;
+            let log = if crate::masks::scalar_alpha(m).is_none() { input.map(crate::local::log_lum) } else { lightcraft_raster::Plane::new(0, 0) };
+            let alpha = crate::masks::scalar_alpha(m).map(crate::masks::Alpha::Scalar).unwrap_or_else(|| {
+                crate::masks::Alpha::Spatial(crate::masks::evaluate_one_tone(
+                    m,
+                    &plan.frame,
+                    plan.w,
+                    plan.h,
+                    &input,
+                    &log,
+                    0.0,
+                    Some(&crate::ToneMap::working_identity()),
+                ))
+            });
+            let mut out = (*input).clone();
+            if matches!(alpha, crate::masks::Alpha::Scalar(0.0)) {
+                // No covered pixels: no tool field or pixel evaluation is needed.
+            } else if let Some(gain) = exposure_only(m) {
+                crate::for_rows(&mut out.data, plan.w, |y, row| {
+                    for (x, c) in row.iter_mut().enumerate() {
+                        let a = alpha.at(y * plan.w + x);
+                        if a != 0.0 {
+                            *c = c.map(|v| v * (1.0 + (gain - 1.0) * a));
+                        }
+                    }
+                });
+            } else {
+                let (mut d, wb) = settings(m, original, info);
+                let mut tool_input = (*input).clone();
+                if let Some(mat) = wb {
+                    tool_input.map_in_place(|c| crate::ucs::mul(&mat, c));
+                }
+                crate::local::denoise(&mut tool_input, &d, plan.src_long, plan.px_per_long, info.sensor_scale);
+                if d.light.whites != 0.0 || d.light.blacks != 0.0 {
+                    let light = d.light;
+                    tool_input.map_in_place(|c| anchors(c, light.exposure as f32, light.whites as f32 / 100.0, light.blacks as f32 / 100.0));
+                    d.light.whites = 0.0;
+                    d.light.blacks = 0.0;
+                }
+                let layer_info = SourceInfo { sensor_scale: info.sensor_scale, ..Default::default() };
+                let mut lp = crate::Plan {
+                    settings: std::borrow::Cow::Owned(d.clone()),
+                    frame: plan.frame.clone(),
+                    w: plan.w,
+                    h: plan.h,
+                    px_per_long: plan.px_per_long,
+                    src_long: plan.src_long,
+                    geo: plan.geo,
+                    lin_key: ik,
+                    eyes: Vec::new(),
+                };
+                if crate::primary::active(&d) {
+                    // The proxy is this layer's developed input, never the original RAW.
+                    let scale = ((crate::primary::PROXY_PIXELS as f64 / input.len().max(1) as f64).sqrt()).min(1.0);
+                    let proxy = if crate::primary::needs_proxy(&d) {
+                        lightcraft_raster::resample::resize(
+                            &tool_input,
+                            (plan.w as f64 * scale).round().max(1.0) as usize,
+                            (plan.h as f64 * scale).round().max(1.0) as usize,
+                            lightcraft_raster::resample::Filter::Bilinear,
+                        )
+                    } else {
+                        Rgb32f::new(0, 0)
+                    };
+                    tool_input = crate::primary::process(&tool_input, &proxy, &layer_info, &lp, method);
+                    d = crate::primary::remaining(&d);
+                    lp.settings = std::borrow::Cow::Owned(d.clone());
+                }
+                let p = crate::local::prepare(
+                    Arc::new(tool_input),
+                    &d,
+                    &layer_info,
+                    &plan.frame,
+                    plan.px_per_long,
+                    plan.src_long,
+                    req.quality,
+                    &mut crate::local::Planes::default(),
+                );
+                let q = crate::finish::working(&p, &d, &lp, &layer_info, true, Some(&alpha));
+                crate::for_rows(&mut out.data, plan.w, |y, row| {
+                    for (x, c) in row.iter_mut().enumerate() {
+                        let i = y * plan.w + x;
+                        let a = alpha.at(i);
+                        if a != 0.0 {
+                            *c = mix3(*c, q.data[i], a);
+                        }
+                    }
+                });
+            }
+            if req.overlay.mask(original).is_some_and(|mask| mask.id == m.id) {
+                masks.push(crate::masks::Evaluated { id: m.id, alpha, adjust: m.adjust });
+            }
+            input = Arc::new(out);
+        }
+        keep.push((k, Some(input.clone())));
+        // Keep all preview prefixes, but avoid N full-resolution images on small machines.
+        // Evicted keys retain their positions; a surviving suffix can still be reused exactly.
+        let bytes = input.data.len() * 12;
+        let capacity = (STACK_CACHE_BYTES / bytes.max(1)).max(1);
+        let retained = keep.iter().filter(|p| p.1.is_some()).count();
+        let mut evict = retained.saturating_sub(capacity);
+        for (_, image) in &mut keep {
+            if evict > 0 && image.is_some() {
+                *image = None;
+                evict -= 1;
+            }
+        }
+        ik = k;
+    }
+    cache.outputs = keep;
+    Stacked { image: input, background_renders, layer_renders, masks, diagnostic }
 }

@@ -86,7 +86,14 @@ fn develop_a_filled_background_and_global_only_links() {
     drag(&mut h, "slider:light.exposure", slider.width() * 0.1);
     assert_eq!(d(&h).light.exposure, 1.0);
     let global_pixels = h.app.session.render_now(photo, 160, 160).unwrap().image;
-    assert!(layer_pixels.data.as_flattened().iter().zip(global_pixels.data.as_flattened()).all(|(a, b)| a.abs_diff(*b) <= 1));
+    // TEST-CHANGED: a RAW Background exposure precedes its camera tone map; a layer
+    // exposure multiplies the completed image. Rendered sources remain equivalent here.
+    let same = layer_pixels.data.as_flattened().iter().zip(global_pixels.data.as_flattened()).all(|(a, b)| a.abs_diff(*b) <= 1);
+    if h.app.session.source_info(photo).raw {
+        assert!(!same, "RAW Background and developed-image exposure have distinct meanings");
+    } else {
+        assert!(same);
+    }
     click(&mut h, "icon:maskVisible:1");
     click(&mut h, "mask:1");
     click(&mut h, "section:layer-color");
@@ -525,4 +532,33 @@ fn ux_layer_bar_one_line_thumbnails_and_whole_image_group() {
     assert!(!h.app.widgets.iter().any(|(id, _)| id == "mask:1"));
     let name = d(&h).masks[1].name.clone();
     assert!(text(&h).contains(&format!("Layers · {name}")), "{}", text(&h));
+}
+
+/// The UI's stored order must drive the renderer, including its warm caches.
+#[test]
+fn develop_a_stack_reorder_drag_changes_displayed_pixels() {
+    use crate::render::Slot;
+    let mut h = setup(400.0, true, 1.0);
+    h.app.ui.mask_overlay = false;
+    h.app.renderer.keep_pixels = true;
+    exec(&mut h, "develop.merge", json!({"settings":{"light":{"exposure":0.6,"contrast":40.0,"highlights":-50.0,"shadows":45.0}}}));
+    new_layer(&mut h, "full");
+    exec(&mut h, "mask.setTools", json!({"id":1,"tools":{"curve":{"master":[{"x":0.0,"y":0.12},{"x":1.0,"y":1.0}]},"mixer":{"blue":{"hue":50.0}}}}));
+    new_layer(&mut h, "full");
+    click(&mut h, "section:layer-light");
+    let slider = rect(&h, "slider:light.exposure");
+    drag(&mut h, "slider:light.exposure", -slider.width() * 0.1);
+    assert!(d(&h).masks[1].tools.light.unwrap().exposure < 0.0);
+    assert!(h.settle(T));
+    let before = h.app.renderer.textures[&Slot::Main].pixels.as_ref().unwrap().clone();
+    let to = rect(&h, "mask:1").center();
+    request(&mut h, "ui.dragWidget", json!({"id":"mask:2","toX":to.x,"toY":to.y,"steps":8}));
+    assert_eq!(d(&h).masks[0].id, 2);
+    assert!(h.settle(T));
+    let after = h.app.renderer.textures[&Slot::Main].pixels.as_ref().unwrap().clone();
+    assert!(before.pixels != after.pixels, "reordering curve and exposure must change the actual preview");
+    exec(&mut h, "edit.undo", json!({}));
+    assert!(h.settle(T));
+    let restored = h.app.renderer.textures[&Slot::Main].pixels.as_ref().unwrap();
+    assert!(restored.pixels == before.pixels, "undo must restore the pixels, including cached prefixes");
 }

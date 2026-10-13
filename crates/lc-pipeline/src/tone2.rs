@@ -354,6 +354,17 @@ pub fn tone_map(s: &lightcraft_develop::DevelopSettings, info: &crate::SourceInf
 /// global tone of scene-linear `c` (see the module docs); display linear out, in 0..1.
 #[inline]
 pub fn tone_px(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] {
+    if tone.is_working_identity() {
+        return c;
+    }
+    crate::finish::gamut_map(tone_px_working(tone, v, c), [0.2627, 0.6780, 0.0593]).0
+}
+
+/// Tone response before display gamut containment, for a developed stack's Background.
+pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] {
+    if tone.is_working_identity() {
+        return c;
+    }
     // negative channels (out-of-gamut scene colours) desaturated to zero (darktable sigmoid)
     let c = desaturate_negative(c);
     if v.luminance {
@@ -369,7 +380,7 @@ pub fn tone_px(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] {
             let q = v.hue * c[i] * o / y + (1.0 - v.hue) * per[i] * o / py;
             o + (q - o) * k
         });
-        return crate::finish::gamut_map(d, [0.2627, 0.6780, 0.0593]).0;
+        return d;
     }
     let per = c.map(|x| tone.apply(x));
     let (lo, mid, hi) = channel_order(c);
@@ -380,7 +391,7 @@ pub fn tone_px(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] {
     if k != 1.0 {
         d = d.map(|x| o + (x - o) * k);
     }
-    crate::finish::gamut_map(d, [0.2627, 0.6780, 0.0593]).0
+    d
 }
 
 /// darktable sigmoid's `_desaturate_negative_values`.
