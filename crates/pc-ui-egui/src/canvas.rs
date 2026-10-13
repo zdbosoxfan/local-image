@@ -63,6 +63,8 @@ pub struct Drag {
 
 impl Drag {
     pub fn new(tool: Tool, start: [f64; 2], points: Vec<[f64; 3]>, modifiers: egui::Modifiers, erase: bool) -> Self {
+        // The press is time zero. Later `stamp` calls must not move it to the first idle tick.
+        let times = vec![0.0; points.len()];
         Self {
             tool,
             start,
@@ -75,7 +77,7 @@ impl Drag {
             reposition: false,
             sel_move: None,
             lasso: None,
-            times: Vec::new(),
+            times,
             born: std::time::Instant::now(),
         }
     }
@@ -194,6 +196,135 @@ pub(crate) struct LiveStroke {
     first_step: u64,
     /// Drag points rendered so far.
     fed: usize,
+    worker: Option<StrokeWorker>,
+    shown_doc: Option<std::sync::Arc<Document>>,
+    pending: Vec<photocraft_engine::paint::StrokePoint>,
+    pending_since: Option<std::time::Instant>,
+    pending_damage: DRect,
+    finish: Option<(&'static str, serde_json::Value)>,
+    queued: Vec<QueuedStrokeEvent>,
+}
+struct QueuedStrokeEvent {
+    when: std::time::Instant,
+    tick: bool,
+    event: ToolEvent,
+    modifiers: egui::Modifiers,
+    pose: [f32; 3],
+    tool: Tool,
+    settings: Option<serde_json::Value>,
+    secondary_erase: bool,
+    resize_armed: bool,
+}
+/// Freeze the settings at the actual release/queued press, rather than at a later worker result.
+fn stroke_settings(app: &PhotocraftApp) -> serde_json::Value {
+    json!({"brush":app.session.tools.brush,"color":app.session.tools.foreground,
+        "background":app.session.tools.background,"zoom":app.current_zoom(),"target":paint_target(app),
+        "layer":app.session.active().and_then(|s| s.active_layer).map(|l|l.0)})
+}
+fn apply_stroke_settings(params: &mut serde_json::Value, settings: &serde_json::Value) {
+    if let Some(settings) = settings.as_object() {
+        for (k, v) in settings {
+            params[k] = v.clone();
+        }
+    }
+}
+struct StrokeWork {
+    queued_at: std::time::Instant,
+    points: Vec<photocraft_engine::paint::StrokePoint>,
+    finish: bool,
+    ctx: egui::Context,
+}
+struct StrokeFrame {
+    _queued_at: std::time::Instant,
+    doc: std::sync::Arc<Document>,
+    damage: DRect,
+    finished: Option<Box<photocraft_engine::brush_cmds::LiveStroke>>,
+    #[cfg(debug_assertions)]
+    timing: photocraft_engine::paint::profiling::StrokeTiming,
+}
+/// One OS coordinator owns the stroke. Channels hold at most one work item and one snapshot;
+/// UI input accumulates in one batch while it is busy. No waits/joins run on UI or rayon threads.
+struct StrokeWorker {
+    input: std::sync::mpsc::SyncSender<StrokeWork>,
+    output: std::sync::mpsc::Receiver<Result<StrokeFrame, String>>,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    busy: bool,
+}
+impl Drop for StrokeWorker {
+    fn drop(&mut self) {
+        self.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+impl StrokeWorker {
+    fn start(mut stroke: photocraft_engine::brush_cmds::LiveStroke, threads: usize) -> Option<Self> {
+        let (input, requests) = std::sync::mpsc::sync_channel::<StrokeWork>(1);
+        let (responses, output) = std::sync::mpsc::sync_channel(1);
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopped = cancel.clone();
+        stroke.set_cancel_flag(cancel.clone());
+        stroke.set_worker_budget(threads);
+        std::thread::Builder::new()
+            .name("pc-live-stroke".into())
+            .spawn(move || {
+                lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Interactive);
+                while let Ok(work) = requests.recv() {
+                    if stopped.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    #[cfg(debug_assertions)]
+                    let started = std::time::Instant::now();
+                    #[cfg(debug_assertions)]
+                    let (result, mut timing) = photocraft_engine::paint::profiling::measure(|| stroke.push(&work.points));
+                    #[cfg(not(debug_assertions))]
+                    let result = stroke.push(&work.points);
+                    if stopped.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    let damage = match result {
+                        Ok(r) => r,
+                        Err(e) => {
+                            let _ = responses.send(Err(e.to_string()));
+                            work.ctx.request_repaint();
+                            break;
+                        }
+                    };
+                    #[cfg(debug_assertions)]
+                    {
+                        timing.worker_ms = started.elapsed().as_secs_f64() * 1000.0;
+                        timing.worker_batches = 1;
+                    }
+                    let doc = stroke.doc.clone();
+                    if work.finish {
+                        let _ = responses.send(Ok(StrokeFrame {
+                            _queued_at: work.queued_at,
+                            doc,
+                            damage,
+                            finished: Some(Box::new(stroke)),
+                            #[cfg(debug_assertions)]
+                            timing,
+                        }));
+                        work.ctx.request_repaint();
+                        break;
+                    }
+                    if responses
+                        .send(Ok(StrokeFrame {
+                            _queued_at: work.queued_at,
+                            doc,
+                            damage,
+                            finished: None,
+                            #[cfg(debug_assertions)]
+                            timing,
+                        }))
+                        .is_err()
+                    {
+                        break;
+                    }
+                    work.ctx.request_repaint();
+                }
+            })
+            .ok()?;
+        Some(Self { input, output, cancel, busy: false })
+    }
 }
 
 impl LiveStroke {
@@ -223,7 +354,7 @@ fn damage_since_step(first: u64, damage: &[DRect], key: u64) -> Option<DRect> {
 /// The live stroke on document `idx`, while it is current.
 fn live_stroke(app: &PhotocraftApp, idx: usize) -> Option<&LiveStroke> {
     let st = app.session.documents().get(idx)?;
-    app.live_stroke.as_ref().filter(|l| app.drag.is_some() && l.doc == st.doc.id && l.revision == st.revision)
+    app.live_stroke.as_ref().filter(|l| (app.drag.is_some() || l.finish.is_some()) && l.doc == st.doc.id && l.revision == st.revision)
 }
 
 /// `paint.stroke` params for a Brush/Eraser drag (shared by the live preview and the commit). The
@@ -244,9 +375,11 @@ pub(crate) fn airbrush_on(app: &PhotocraftApp, tool: Tool) -> bool {
 
 /// The drag's points for `paint.stroke`, with their times when the airbrush is on
 /// (`[x, y, pressure, tiltX, tiltY, rotation, timeMs]`).
-fn timed_points(app: &PhotocraftApp, d: &Drag) -> Vec<Vec<f64>> {
+fn timed_points(app: &PhotocraftApp, d: &Drag, settings: Option<&serde_json::Value>) -> Vec<Vec<f64>> {
     let mut pts = app.stylus.stroke_points(&d.points);
-    if airbrush_on(app, d.tool) {
+    let build_up =
+        matches!(d.tool, Tool::Brush | Tool::Eraser) && settings.and_then(|p| p["brush"]["buildUp"].as_bool()).unwrap_or_else(|| airbrush_on(app, d.tool));
+    if build_up {
         for (i, p) in pts.iter_mut().enumerate() {
             p.resize(6, 0.0);
             p.push(d.times.get(i).copied().unwrap_or(0.0));
@@ -258,6 +391,36 @@ fn timed_points(app: &PhotocraftApp, d: &Drag) -> Vec<Vec<f64>> {
 /// While an airbrush stroke is held still, repeat its last point every frame so paint builds up
 /// (pointer moves alone would only deposit while moving).
 fn airbrush_tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if app.drag.is_none()
+        && app.session.tools.brush.build_up
+        && let Some(l) = &mut app.live_stroke
+        && l.finish.is_some()
+        && let Some(boundary) = l.queued.iter().rposition(|e| matches!(e.event, ToolEvent::Down { .. } | ToolEvent::Up { .. }))
+        && matches!(l.queued[boundary].event, ToolEvent::Down { .. })
+        && matches!(l.queued[boundary].tool, Tool::Brush | Tool::Eraser)
+        && let Some(last) = l.queued.last()
+    {
+        let now = std::time::Instant::now();
+        if now.duration_since(last.when).as_millis() >= 16 {
+            let event = match last.event {
+                ToolEvent::Down { x, y, pressure } | ToolEvent::Move { x, y, pressure } => ToolEvent::Move { x, y, pressure },
+                ToolEvent::Up { .. } => return,
+            };
+            l.queued.push(QueuedStrokeEvent {
+                when: now,
+                tick: true,
+                event,
+                modifiers: last.modifiers,
+                pose: last.pose,
+                tool: last.tool,
+                settings: None,
+                secondary_erase: last.secondary_erase,
+                resize_armed: last.resize_armed,
+            });
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        return;
+    }
     let on = app.drag.as_ref().is_some_and(|d| airbrush_on(app, d.tool) && !d.points.is_empty());
     if !on {
         return;
@@ -326,12 +489,32 @@ fn brush_tip_centre(tool: Tool, option: bool, show_crosshair: bool, radius: f32)
     show_crosshair || radius > 6.0 || tool == Tool::BackgroundEraser
 }
 
-fn begin_live_stroke(app: &PhotocraftApp) -> Option<LiveStroke> {
+fn begin_live_stroke(app: &PhotocraftApp, settings: Option<&serde_json::Value>) -> Option<LiveStroke> {
     static STROKES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let st = app.session.active()?;
     let d = app.drag.as_ref()?;
-    let p = stroke_params(app, d.tool, d.erase, &timed_points(app, d));
-    let stroke = photocraft_engine::brush_cmds::LiveStroke::begin_with(&app.session, stroke_command(d.tool), &p).ok()?;
+    let mut p = stroke_params(app, d.tool, d.erase, &timed_points(app, d, settings));
+    if let Some(settings) = settings {
+        apply_stroke_settings(&mut p, settings);
+    }
+    // Pixel work selects the worker; lower-core profiles have a smaller inline budget.
+    let profile = lightcraft_sysmem::profile();
+    let pixel_budget = (profile.threads.max(1) as f32 * 16_384.0).min(131_072.0);
+    let size = p.get("brush").and_then(|b| b.get("size")).and_then(serde_json::Value::as_f64).map_or(app.session.tools.brush.size, |s| s as f32);
+    let asynchronous = size.powi(2) > pixel_budget;
+    let stroke = if asynchronous {
+        photocraft_engine::brush_cmds::LiveStroke::begin_unpainted(&app.session, stroke_command(d.tool), &p)
+    } else {
+        photocraft_engine::brush_cmds::LiveStroke::begin_with(&app.session, stroke_command(d.tool), &p)
+    }
+    .ok()?;
+    let worker = asynchronous.then(|| StrokeWorker::start(stroke.clone(), profile.threads)).flatten();
+    // Thread creation failure retains the established synchronous fallback.
+    let mut stroke = stroke;
+    if asynchronous && worker.is_none() {
+        stroke.push(&photocraft_engine::brush_cmds::parse_points(&p, stroke_command(d.tool)).ok()?).ok()?;
+    }
+    let fed = if worker.is_some() { 0 } else { d.points.len() };
     let n = STROKES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) & 0xff_ffff;
     let damage_bounds = stroke.bounds();
     let damage = vec![damage_bounds];
@@ -344,7 +527,14 @@ fn begin_live_stroke(app: &PhotocraftApp) -> Option<LiveStroke> {
         damage_bounds,
         steps: 1,
         first_step: 0,
-        fed: d.points.len(),
+        fed,
+        worker,
+        shown_doc: None,
+        pending: Vec::new(),
+        pending_since: None,
+        pending_damage: DRect::EMPTY,
+        finish: None,
+        queued: Vec::new(),
     })
 }
 
@@ -356,7 +546,7 @@ fn feed_live_stroke(app: &mut PhotocraftApp) {
     if app.defer_live_stroke {
         return;
     }
-    let airbrush = app.drag.as_ref().is_some_and(|d| airbrush_on(app, d.tool));
+    let airbrush = app.live_stroke.as_ref().is_some_and(|l| l.stroke.uses_build_up());
     let (Some(l), Some(d)) = (app.live_stroke.as_mut(), app.drag.as_ref()) else { return };
     let pose = &app.stylus.stroke;
     let pts: Vec<_> = (l.fed..d.points.len())
@@ -375,6 +565,13 @@ fn feed_live_stroke(app: &mut PhotocraftApp) {
         return;
     }
     l.fed = d.points.len();
+    if l.worker.is_some() {
+        if l.pending.is_empty() {
+            l.pending_since = Some(std::time::Instant::now());
+        }
+        l.pending.extend(pts);
+        return;
+    }
     match l.stroke.push(&pts) {
         Ok(r) => {
             l.steps += 1;
@@ -387,6 +584,163 @@ fn feed_live_stroke(app: &mut PhotocraftApp) {
         }
         Err(_) => app.live_stroke = None,
     }
+}
+
+/// Poll and publish completed snapshots. Revision/document changes and Escape discard them;
+/// the owner document is never changed until the complete stroke is accepted as one command.
+fn poll_live_stroke(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    let escape = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::Escape, pressed: true, .. })));
+    let invalid = app
+        .live_stroke
+        .as_ref()
+        .is_some_and(|l| app.session.active().is_none_or(|st| st.doc.id != l.doc || st.revision != l.revision) || (app.drag.is_none() && l.finish.is_none()));
+    if escape || invalid {
+        if app.live_stroke.is_some() {
+            app.drag = None;
+            app.live_stroke = None;
+        }
+        return;
+    }
+    // The first asynchronous batch includes the press, whose points weren't rasterized at begin.
+    feed_live_stroke(app);
+    let Some(l) = &mut app.live_stroke else { return };
+    let Some(worker) = &mut l.worker else { return };
+    let received = worker.output.try_recv();
+    let mut completed = None;
+    match received {
+        Ok(Ok(frame)) => {
+            worker.busy = false;
+            #[cfg(debug_assertions)]
+            {
+                let mut timing = frame.timing;
+                timing.preview_latency_ms = frame._queued_at.elapsed().as_secs_f64() * 1000.0;
+                photocraft_engine::paint::profiling::record(timing);
+            }
+            l.shown_doc = Some(frame.doc);
+            l.steps += 1;
+            let damage = frame.damage.union(&std::mem::replace(&mut l.pending_damage, DRect::EMPTY));
+            l.damage_bounds = l.damage_bounds.union(&damage);
+            if l.damage.len() == 128 {
+                l.damage.drain(..64);
+                l.first_step += 64;
+            }
+            l.damage.push(damage);
+            completed = frame.finished;
+        }
+        Ok(Err(error)) => {
+            app.ui.status = error;
+            app.ui.status_error = true;
+            app.live_stroke = None;
+            app.drag = None;
+            return;
+        }
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            app.live_stroke = None;
+            app.drag = None;
+            return;
+        }
+        Err(std::sync::mpsc::TryRecvError::Empty) => {}
+    }
+    if let Some(mut stroke) = completed {
+        let Some(mut l) = app.live_stroke.take() else { return };
+        if let Some((cmd, p)) = l.finish.take() {
+            if !stroke.bind_commit_params(&app.session, cmd, &p).unwrap_or(false) {
+                // Size, colour, target or smoothing can change while the pen is held. The old
+                // commit would rerender synchronously; keep that same result on the worker.
+                match photocraft_engine::brush_cmds::LiveStroke::begin_unpainted(&app.session, cmd, &p)
+                    .and_then(|next| photocraft_engine::brush_cmds::parse_points(&p, cmd).map(|points| (next, points)))
+                {
+                    Ok((next, points)) => {
+                        if let Some(worker) = StrokeWorker::start(next.clone(), lightcraft_sysmem::profile().threads) {
+                            l.stroke = next;
+                            l.worker = Some(worker);
+                            l.pending = points;
+                            l.pending_since = Some(std::time::Instant::now());
+                            l.pending_damage = l.damage_bounds;
+                            l.finish = Some((cmd, p));
+                            app.live_stroke = Some(l);
+                            ctx.request_repaint();
+                            return;
+                        }
+                        app.ui.status = "Could not finish the brush stroke".into();
+                        app.ui.status_error = true;
+                    }
+                    Err(error) => {
+                        app.ui.status = error.to_string();
+                        app.ui.status_error = true;
+                    }
+                }
+                return;
+            }
+            app.session.prepare_live_commit(*stroke);
+            let committed = app.run(cmd, p).is_ok();
+            app.session.discard_live_commit();
+            if committed {
+                shown_as_document(app, l.doc, |k| k == 0 || (l.key..=l.key + l.steps).contains(&k));
+            }
+        }
+        let tool = app.ui.tool;
+        for event in l.queued {
+            if let Some(next) = &mut app.live_stroke
+                && next.finish.is_some()
+            {
+                next.queued.push(event);
+                continue;
+            }
+            if event.tick {
+                if let (Some(d), ToolEvent::Move { x, y, pressure }) = (&mut app.drag, event.event) {
+                    d.points.push([x, y, pressure as f64]);
+                    d.times.push(event.when.saturating_duration_since(d.born).as_secs_f64() * 1000.0);
+                    app.stylus.stroke.push(event.pose);
+                    feed_live_stroke(app);
+                }
+                continue;
+            }
+            app.ui.tool = event.tool;
+            app.secondary_erase = event.secondary_erase;
+            app.brush_resize_armed = event.resize_armed;
+            tool_event_with_pose(app, event.event, event.modifiers, Some(event.pose), event.settings, Some(event.when));
+        }
+        app.ui.tool = tool;
+        ctx.request_repaint();
+        return;
+    }
+    if !worker.busy && (!l.pending.is_empty() || l.finish.is_some()) {
+        let work = StrokeWork {
+            queued_at: l.pending_since.take().unwrap_or_else(std::time::Instant::now),
+            points: std::mem::take(&mut l.pending),
+            finish: l.finish.is_some(),
+            ctx: ctx.clone(),
+        };
+        match worker.input.try_send(work) {
+            Ok(()) => worker.busy = true,
+            Err(std::sync::mpsc::TrySendError::Full(work)) => {
+                l.pending_since = Some(work.queued_at);
+                l.pending = work.points;
+            }
+            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                app.live_stroke = None;
+                app.drag = None;
+                return;
+            }
+        }
+    }
+    if worker.busy {
+        ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    }
+}
+
+/// A following press is already a held gesture even while its predecessor finishes.
+fn queued_stroke_point(app: &PhotocraftApp) -> Option<[f64; 3]> {
+    let l = app.live_stroke.as_ref().filter(|l| l.finish.is_some())?;
+    let boundary = l.queued.iter().rposition(|e| matches!(e.event, ToolEvent::Down { .. } | ToolEvent::Up { .. }))?;
+    if !matches!(l.queued[boundary].event, ToolEvent::Down { .. }) {
+        return None;
+    }
+    l.queued[boundary..].iter().rev().find_map(|e| match e.event {
+        ToolEvent::Down { x, y, pressure } | ToolEvent::Move { x, y, pressure } => Some([x, y, pressure as f64]),
+        ToolEvent::Up { .. } => None,
+    })
 }
 
 /// Tools whose gesture follows a freehand path (a polyline of the input points), so every pointer
@@ -603,7 +957,7 @@ fn legacy_display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Arc<Do
     }
     let st = &app.session.documents()[idx];
     if let Some(l) = live_stroke(app, idx) {
-        return (l.stroke.doc.clone(), l.display_key());
+        return (l.shown_doc.as_ref().unwrap_or(&l.stroke.doc).clone(), l.display_key());
     }
     if let (Some(t), Some(pv)) = (&app.ui.transform, &app.transform_preview)
         && app.session.active_index() == Some(idx)
@@ -895,7 +1249,7 @@ fn damage_since(app: &PhotocraftApp, idx: usize, seen: (u64, u64), now: (u64, u6
     }
     let l = live_stroke(app, idx).filter(|l| seen.0 == now.0 && l.display_key() == now.1)?;
     let r = l.since(seen.1 ^ display_key)?;
-    Some(if r.is_empty() { r } else { r.inflate(effect_reach(&l.stroke.doc.layers)) })
+    Some(if r.is_empty() { r } else { r.inflate(effect_reach(&l.shown_doc.as_ref().unwrap_or(&l.stroke.doc).layers)) })
 }
 
 /// Document `doc`'s canvas caches showed a preview that the edit just committed reproduces
@@ -1167,6 +1521,7 @@ pub(crate) fn retain_gpu_documents(app: &mut PhotocraftApp) {
 /// Tabs + canvas for the active document, or the start screen; then drops layers dragged onto
 /// another document (`layer_transfer`).
 pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    poll_live_stroke(app, ui.ctx());
     let blocked = crate::restoration_ui::is_open(app);
     if blocked {
         ui.disable();
@@ -1174,6 +1529,8 @@ pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         airbrush_tick(app, ui.ctx());
     }
     documents(app, ui);
+    // Input is dispatched by `documents`; start its batch before an otherwise idle tap frame ends.
+    poll_live_stroke(app, ui.ctx());
     if !blocked {
         crate::layer_transfer::finish(app, ui.ctx());
     }
@@ -2152,7 +2509,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         }
         // A drag is only recognised once the pointer has moved past egui's click distance: the
         // gesture starts where the button went down, not where it is now (#123).
-        let gesture_active_before = app.drag.is_some();
+        let gesture_active_before = app.drag.is_some() || queued_stroke_point(app).is_some();
         let events = ui.input(|i| i.events.clone());
         let painting = tool.is_brushlike();
         let pressed = events.iter().find_map(|e| match e {
@@ -2169,7 +2526,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             tool_event(app, ToolEvent::Down { x: d[0], y: d[1], pressure: app.stylus.pressure() }, press_mods);
         }
         if buttons.started
-            && !(painting && app.drag.is_some())
+            && !(painting && (app.drag.is_some() || queued_stroke_point(app).is_some()))
             && let Some(p) = ui.input(|i| i.pointer.press_origin()).filter(|p| rect.contains(*p)).or(response.interact_pointer_pos())
         {
             if tool == Tool::Move && app.ui.transform.is_none() {
@@ -2227,14 +2584,18 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             crate::magnetic_lasso_ui::flush(app);
         }
         let painting_lift = painting
-            && app.drag.is_some()
+            && (app.drag.is_some() || queued_stroke_point(app).is_some())
             && events.iter().any(|e| matches!(e, egui::Event::PointerButton { button: PointerButton::Primary, pressed: false, .. }));
         if buttons.stopped || painting_lift {
             // egui may report both stopped and clicked: commit the stroke only once.
-            if painting && app.drag.is_some() {
+            if painting && (app.drag.is_some() || queued_stroke_point(app).is_some()) {
                 buttons.clicked = false;
             }
-            let p = response.interact_pointer_pos().map(|p| xf.to_doc(p)).or_else(|| app.drag.as_ref().and_then(|d| d.points.last().map(|q| [q[0], q[1]])));
+            let p = response
+                .interact_pointer_pos()
+                .map(|p| xf.to_doc(p))
+                .or_else(|| app.drag.as_ref().and_then(|d| d.points.last().map(|q| [q[0], q[1]])))
+                .or_else(|| queued_stroke_point(app).map(|p| [p[0], p[1]]));
             if let Some(d) = p {
                 tap_at_peak_pressure(app);
                 tool_event(app, ToolEvent::Up { x: d[0], y: d[1] }, mods);
@@ -2865,6 +3226,35 @@ fn tool_move(app: &mut PhotocraftApp, x: f64, y: f64, pressure: f32, mods: egui:
 
 /// Tool state machine. Shared by mouse input and automation.
 pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
+    tool_event_with_pose(app, ev, mods, None, None, None);
+}
+
+fn tool_event_with_pose(
+    app: &mut PhotocraftApp,
+    ev: ToolEvent,
+    mods: egui::Modifiers,
+    pose: Option<[f32; 3]>,
+    settings: Option<serde_json::Value>,
+    when: Option<std::time::Instant>,
+) {
+    if app.live_stroke.as_ref().is_some_and(|l| l.finish.is_some()) {
+        let settings = settings.or_else(|| matches!(ev, ToolEvent::Down { .. } | ToolEvent::Up { .. }).then(|| stroke_settings(app)));
+        let sample = app.stylus.sample().unwrap_or_default();
+        if let Some(l) = &mut app.live_stroke {
+            l.queued.push(QueuedStrokeEvent {
+                when: when.unwrap_or_else(std::time::Instant::now),
+                tick: false,
+                event: ev,
+                modifiers: mods,
+                pose: pose.unwrap_or([sample.tilt_x, sample.tilt_y, sample.rotation]),
+                tool: app.ui.tool,
+                settings,
+                secondary_erase: app.secondary_erase,
+                resize_armed: app.brush_resize_armed,
+            });
+        }
+        return;
+    }
     let armed = std::mem::take(&mut app.brush_resize_armed);
     let mut guard = std::mem::take(&mut app.ui.persona_pointer);
     let intercepted = guard.intercept(app, ev);
@@ -3085,14 +3475,32 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
                 crate::move_ui::begin_pixels(app, mods.alt);
             }
             app.trail = None;
+            if let (Some(when), Some(d)) = (when, app.drag.as_mut()) {
+                d.born = when;
+            }
             app.stylus.begin_stroke();
             if from.is_some() {
                 app.stylus.record_point();
             }
-            app.live_stroke = if strokes_live(tool) { begin_live_stroke(app) } else { None };
+            if let (Some(pose), Some(last)) = (pose, app.stylus.stroke.last_mut()) {
+                *last = pose;
+            }
+            app.live_stroke = if strokes_live(tool) { begin_live_stroke(app, settings.as_ref()) } else { None };
         }
         ToolEvent::Move { x, y, pressure } => {
+            let count = app.stylus.stroke.len();
             tool_move(app, x, y, pressure, mods);
+            if let Some(pose) = pose {
+                for last in &mut app.stylus.stroke[count..] {
+                    *last = pose;
+                }
+            }
+            if app.stylus.stroke.len() > count
+                && let (Some(when), Some(d)) = (when, app.drag.as_mut())
+                && let Some(t) = d.times.last_mut()
+            {
+                *t = when.saturating_duration_since(d.born).as_secs_f64() * 1000.0;
+            }
             feed_live_stroke(app);
         }
         ToolEvent::Up { x, y } => {
@@ -3123,8 +3531,15 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
             if d.points.last().is_none_or(|p| p[0] != x || p[1] != y) {
                 d.points.push([x, y, d.points.last().map_or(1.0, |p| p[2])]);
                 app.stylus.record_point();
+                if let (Some(pose), Some(last)) = (pose, app.stylus.stroke.last_mut()) {
+                    *last = pose;
+                }
             }
-            finish_gesture(app, d);
+            if let Some(settings) = settings {
+                finish_brush_gesture(app, d, Some(settings));
+            } else {
+                finish_gesture(app, d);
+            }
             crate::move_mods::finish(app);
         }
     }
@@ -3189,6 +3604,58 @@ fn finish_selection_drag(app: &mut PhotocraftApp, floating: bool, start: [f64; 2
     }
 }
 
+fn finish_brush_gesture(app: &mut PhotocraftApp, d: Drag, settings: Option<serde_json::Value>) {
+    if !strokes_live(d.tool) {
+        finish_gesture(app, d);
+        return;
+    }
+    let captured = settings.is_some();
+    let frozen = settings.unwrap_or_else(|| stroke_settings(app));
+    let mut p = stroke_params(app, d.tool, d.erase, &timed_points(app, &d, Some(&frozen)));
+    if crate::stroke_constraint::connects(d.tool)
+        && let Some(st) = app.session.active()
+    {
+        app.last_stroke_end = Some((st.doc.id, d.points.last().copied().unwrap_or([d.start[0], d.start[1], 1.0])));
+    }
+    if let Some(l) = &mut app.live_stroke
+        && l.worker.is_some()
+    {
+        if let Ok(points) = photocraft_engine::brush_cmds::parse_points(&p, stroke_command(d.tool)) {
+            if l.pending.is_empty() {
+                l.pending_since = Some(std::time::Instant::now());
+            }
+            l.pending.extend_from_slice(&points[l.fed.min(points.len())..]);
+            l.fed = points.len();
+        }
+        p["seed"] = json!(l.stroke.seed);
+        apply_stroke_settings(&mut p, &frozen);
+        l.finish = Some((stroke_command(d.tool), p));
+        return;
+    }
+    if captured {
+        apply_stroke_settings(&mut p, &frozen);
+    }
+    let live = app.live_stroke.take();
+    // The commit takes the live stroke's pixels when it is the same stroke, instead of
+    // rendering it all again at mouse-up (`Session::prepare_live_commit`).
+    let shown = live.map(|mut l| {
+        p["seed"] = json!(l.stroke.seed);
+        if captured {
+            let _ = l.stroke.bind_commit_params(&app.session, stroke_command(d.tool), &p);
+        }
+        app.session.prepare_live_commit(l.stroke);
+        (l.doc, l.key, l.steps)
+    });
+    // The canvas already shows the stroke: let the commit's damage rect refresh it rather
+    // than recompositing the whole document.
+    let committed = app.run(stroke_command(d.tool), p).is_ok();
+    app.session.discard_live_commit();
+    if committed && let Some((doc, first, steps)) = shown {
+        // Raw preview key 0 = the document itself (its colour display folded in).
+        shown_as_document(app, doc, |k| k == 0 || (first..=first + steps).contains(&k));
+    }
+}
+
 pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
     let end = d.points.last().copied().unwrap_or([d.start[0], d.start[1], 1.0]);
     if let Some(floating) = d.sel_move {
@@ -3209,25 +3676,7 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
         t if crate::vector_ui::is_shape_tool(t) => crate::vector_ui::finish_shape(app, t, d.start, [end[0], end[1]], d.live),
         Tool::PathSelection => crate::vector_ui::path_selection_finish(app, d.start, [end[0], end[1]]),
         Tool::Type | Tool::VerticalType => crate::type_tool::pointer_up(app, d.start, [end[0], end[1]]),
-        Tool::Brush | Tool::Pencil | Tool::Eraser => {
-            let live = app.live_stroke.take();
-            let mut p = stroke_params(app, d.tool, d.erase, &timed_points(app, &d));
-            // The commit takes the live stroke's pixels when it is the same stroke, instead of
-            // rendering it all again at mouse-up (`Session::prepare_live_commit`).
-            let shown = live.map(|l| {
-                p["seed"] = json!(l.stroke.seed);
-                app.session.prepare_live_commit(l.stroke);
-                (l.doc, l.key, l.steps)
-            });
-            // The canvas already shows the stroke: let the commit's damage rect refresh it rather
-            // than recompositing the whole document.
-            let committed = app.run(stroke_command(d.tool), p).is_ok();
-            app.session.discard_live_commit();
-            if committed && let Some((doc, first, steps)) = shown {
-                // Raw preview key 0 = the document itself (its colour display folded in).
-                shown_as_document(app, doc, |k| k == 0 || (first..=first + steps).contains(&k));
-            }
-        }
+        Tool::Brush | Tool::Pencil | Tool::Eraser => finish_brush_gesture(app, d, None),
         Tool::RectMarquee | Tool::EllipseMarquee => {
             let (a, b) = marquee_corners(&app.ui.tool_options, &d, [end[0], end[1]]);
             let [x0, y0, x1, y1] = marquee_px(a, b);

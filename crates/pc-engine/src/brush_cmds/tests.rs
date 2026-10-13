@@ -661,6 +661,16 @@ fn committing_a_live_stroke_reuses_its_pixels_bit_for_bit() {
             json!({"brush": {"size": 40, "hardness": 0.0, "pressureSize": true, "smoothing": {"amount": 0.45}}}),
             false,
         ),
+        (
+            "textured dual",
+            "paint.stroke",
+            json!({"brush": {
+                "size": 65, "hardness": 0.2,
+                "texture": {"enabled": true, "eachTip": true, "pattern": {"tile": {"width": 2, "height": 2, "data": [0.0, 0.6, 0.3, 1.0]}}},
+                "dualBrush": {"enabled": true, "size": 42, "hardness": 0.4}
+            }}),
+            false,
+        ),
         ("spatter preset", "paint.stroke", json!({"preset": "Spatter", "zoom": 0.5}), false),
         (
             "scatter, dual brush, colour dynamics, wet edges, noise",
@@ -821,4 +831,70 @@ fn out_of_range_scatter_is_rejected_and_the_maximum_still_paints() {
     let mut s = new();
     s.execute("tools.setBrush", json!({ "brush": scatter(2.0) })).unwrap();
     assert_eq!(s.execute("paint.stroke", stroke).unwrap(), json!({"damage": [17, 14, 23, 23]}));
+}
+
+#[test]
+fn bigbrush_parallel_pixels_equal_serial_at_one_and_four_cores() {
+    let cases = [
+        json!({"size":90,"hardness":0.0,"pressureSize":false}),
+        json!({"size":90,"hardness":1.0}),
+        json!({"size":90,"hardness":0.0,"pressureSize":true,"pressureOpacity":true}),
+        json!({"size":90,"hardness":0.3,"wetEdges":true,"noise":true}),
+        json!({"size":90,"hardness":0.4,"colorDynamics":{"enabled":true,"hueJitter":0.3}}),
+        json!({"size":90,"texture":{"enabled":true,"eachTip":true,"pattern":{"tile":{"width":2,"height":2,"data":[0.2,0.8,0.4,1.0]}}},"dualBrush":{"enabled":true,"size":70}}),
+        json!({"size":90,"texture":{"enabled":true,"eachTip":false,"pattern":{"tile":{"width":2,"height":2,"data":[0.2,0.8,0.4,1.0]}}},"dualBrush":{"enabled":true,"size":70}}),
+        json!({"size":90,"tip":TipShape::Sampled(photocraft_paint::procedural::chalk_tip(16,42)),"wetEdges":true,"dualBrush":{"enabled":true,"size":70,"tip":TipShape::Sampled(photocraft_paint::procedural::bristle_tip(16,7))}}),
+    ];
+    for budget in [1, 4] {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(budget).build().unwrap();
+        for depth in [8, 16, 32] {
+            for (case, brush) in cases.iter().enumerate() {
+                let mut s = painted_session(depth, true);
+                if case == cases.len() - 1 {
+                    s.execute("path.set", json!({"name":"work","path":{"subpaths":[{"closed":false,"knots":[[130,0],[130,180]]}]}})).unwrap();
+                    s.execute("paint.symmetryFromPath", json!({"name":"work"})).unwrap();
+                }
+                let p = json!({"brush":brush,"freehand":true,"erase":case == 2,"points":[[20,20,1.0]],"seed":42});
+                let mut serial = LiveStroke::begin_unpainted(&s, "paint.stroke", &p).unwrap();
+                let mut parallel = LiveStroke::begin_unpainted(&s, "paint.stroke", &p).unwrap();
+                parallel.set_worker_budget(budget);
+                for (x, y, pressure) in [(20.0, 20.0, 1.0), (80.0, 140.0, 0.6), (180.0, 40.0, 0.1), (60.0, -15.0, 0.8), (-35.0, 85.0, 0.2)] {
+                    let mut point = StrokePoint::new(x, y, pressure);
+                    point.tilt_x = 25.0;
+                    point.rotation = 40.0;
+                    serial.push(&[point]).unwrap();
+                    pool.install(|| parallel.push(&[point])).unwrap();
+                    let id = s.active().unwrap().active_layer.unwrap();
+                    let a = serial.doc.layer(id).unwrap().surface().unwrap();
+                    let b = parallel.doc.layer(id).unwrap().surface().unwrap();
+                    let region = a.tile_bounds().union(&b.tile_bounds());
+                    let av: Vec<_> = a.read_region(region).into_iter().map(f32::to_bits).collect();
+                    let bv: Vec<_> = b.read_region(region).into_iter().map(f32::to_bits).collect();
+                    assert!(av == bv, "{budget} cores, depth {depth}, brush {case}, at {x},{y}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn bigbrush_ready_commit_keeps_original_target_when_active_layer_changes() {
+    let mut s = painted_session(8, false);
+    let paint = s.active().unwrap().active_layer.unwrap();
+    let group = s
+        .edit("Group", |doc, _| {
+            let layer = photocraft_doc::Layer::group("Group", Vec::new());
+            let id = layer.id;
+            doc.layers.push(layer);
+            Ok(id)
+        })
+        .unwrap();
+    let p = json!({"points":[[40,40],[100,80]],"layer":paint.0,"seed":42});
+    let live = LiveStroke::begin(&s, &p).unwrap();
+    s.active_mut().unwrap().active_layer = Some(group);
+    assert!(!s.is_enabled("paint.stroke"));
+    s.prepare_live_commit(live);
+    s.execute("paint.stroke", p).unwrap();
+    assert_eq!(s.live_commits_reused(), 1);
+    assert_eq!(s.active().unwrap().active_layer, Some(group));
 }

@@ -205,7 +205,7 @@ pub fn resolve_brush(s: &Session, p: &Value, cmd: &str) -> Result<BrushSettings>
         b.smoothing.amount = v.clamp(0.0, 1.0);
     }
     b.color = color(p.get("color"), s.tools.foreground);
-    b.background = s.tools.background;
+    b.background = color(p.get("background"), s.tools.background);
     // local-image: the Clear painting mode erases, with the Eraser's rules.
     b.erase = flag(p, "erase", false) || b.paint_mode == photocraft_paint::brush::PaintMode::Clear;
     b.seed = match p.get("seed").and_then(Value::as_u64) {
@@ -235,7 +235,7 @@ fn damage_json(s: &mut Session, dmg: Rect) -> Value {
 fn stroke_target(s: &Session, p: &Value, brush: BrushSettings) -> Result<(Option<photocraft_doc::LayerId>, BrushSettings, f32)> {
     let gray = is_mask_target(p) || crate::channel_cmds::is_channel_target(p);
     let id = if crate::channel_cmds::is_channel_target(p) { None } else { Some(layer_id(s, p)?) };
-    let brush = if gray && brush.erase { BrushSettings { erase: false, color: s.tools.background, ..brush } } else { brush };
+    let brush = if gray && brush.erase { BrushSettings { erase: false, color: brush.background, ..brush } } else { brush };
     Ok((id, brush, num(p, "zoom").unwrap_or(1.0)))
 }
 
@@ -250,7 +250,7 @@ fn erase_locked(brush: &mut BrushSettings, lock: bool, bg: [f32; 4]) {
 
 /// Stroke with a resolved brush onto the target layer (pixels or mask).
 fn stroke_with(s: &mut Session, cmd: &str, p: &Value, label: &str, brush: BrushSettings, pts: Vec<StrokePoint>, auto_erase: bool) -> Result<Value> {
-    let bg = s.tools.background;
+    let bg = brush.background;
     let fg = brush.color;
     let symmetry = s.active().and_then(|st| st.symmetry_path.clone());
     let (id, brush, zoom) = stroke_target(s, p, brush)?;
@@ -338,6 +338,19 @@ fn with_blend_mode(mut b: BrushSettings, p: &Value) -> BrushSettings {
     b
 }
 
+/// A finished live stroke still targets its original validated raster when the user has
+/// selected another layer during its deferred commit. No document edit may have intervened.
+pub(crate) fn paintable_or_live(s: &Session) -> std::result::Result<(), String> {
+    if let Some(l) = &s.live_commit
+        && let Some(st) = s.active()
+        && l.revision == st.revision
+        && std::ptr::eq(l.base.as_ptr(), std::sync::Arc::as_ptr(&st.doc))
+    {
+        return Ok(());
+    }
+    has_paintable(s)
+}
+
 /// `paint.stroke`: the Brush (and Eraser) tool.
 pub fn paint_stroke(s: &mut Session, p: &Value) -> Result<Value> {
     let pts = parse_points(p, "paint.stroke")?;
@@ -346,9 +359,61 @@ pub fn paint_stroke(s: &mut Session, p: &Value) -> Result<Value> {
     stroke_with(s, "paint.stroke", p, label, brush, pts, false)
 }
 
+/// Splits only CPU pixel work on the existing global pool, using the frozen compute budget
+/// supplied by the canvas. Coordinating channels and repaint callbacks remain on its OS thread.
+#[derive(Debug)]
+struct LiveExecutor {
+    threads: usize,
+}
+impl photocraft_paint::render::StrokeExecutor for LiveExecutor {
+    fn rows(&self, out: &mut [f32], depth: Option<&mut [f32]>, width: usize, row: &photocraft_paint::render::RasterRow<'_>) {
+        use rayon::prelude::*;
+        let rows = out.len() / width;
+        let band = rows.div_ceil(self.threads).max(1);
+        let pixels = width * band;
+        match depth {
+            Some(depth) => out.par_chunks_mut(pixels).zip(depth.par_chunks_mut(pixels)).enumerate().for_each(|(i, (o, d))| {
+                for (y, (o, d)) in o.chunks_mut(width).zip(d.chunks_mut(width)).enumerate() {
+                    row(i * band + y, o, Some(d));
+                }
+            }),
+            None => out.par_chunks_mut(pixels).enumerate().for_each(|(i, o)| {
+                for (y, o) in o.chunks_mut(width).enumerate() {
+                    row(i * band + y, o, None);
+                }
+            }),
+        }
+    }
+    fn coverage(&self, tasks: &mut [photocraft_paint::render::CoverageTask<'_>]) {
+        use rayon::prelude::*;
+        let band = tasks.len().div_ceil(self.threads).max(1);
+        tasks.par_chunks_mut(band).for_each(|tasks| tasks.iter_mut().for_each(photocraft_paint::render::CoverageTask::run));
+    }
+    fn composite(
+        &self,
+        plan: &photocraft_paint::render::LiveCompositePlan,
+        pre: &Surface,
+        target: &mut Surface,
+        selection: Option<&Surface>,
+        lock: bool,
+    ) -> Rect {
+        use rayon::prelude::*;
+        let mut jobs = plan.jobs(target);
+        let band = jobs.len().div_ceil(self.threads).max(1);
+        jobs.par_chunks_mut(band).for_each(|jobs| {
+            for job in jobs {
+                plan.run(job, pre, selection, lock);
+            }
+        });
+        target.put_tiles(jobs.into_iter().map(photocraft_paint::render::CompositeTile::into_tile));
+        plan.damage()
+    }
+}
+
 /// A `paint.stroke` rendered while it is drawn, onto a copy of the active document, so the canvas
 /// shows the real dabs before the stroke commits. Committing the same params and points with
 /// `"seed": live.seed` gives the same pixels.
+#[derive(Clone)]
 pub struct LiveStroke {
     /// The active document with the stroke so far.
     pub doc: std::sync::Arc<photocraft_doc::Document>,
@@ -381,6 +446,54 @@ pub struct LiveStroke {
 }
 
 impl LiveStroke {
+    pub fn uses_build_up(&self) -> bool {
+        self.cmd == "paint.stroke" && self.brush.build_up
+    }
+
+    /// Use the host compute budget for disjoint pixel work on a disposable preview worker.
+    pub fn set_worker_budget(&mut self, threads: usize) {
+        let executor = std::sync::Arc::new(LiveExecutor { threads: threads.max(1) });
+        self.renderer.set_executor(executor.clone());
+        if let Some((_, mirror)) = &mut self.mirror {
+            mirror.set_executor(executor);
+        }
+    }
+
+    /// Interrupt a disposable preview worker without joining it on the UI thread.
+    pub fn set_cancel_flag(&mut self, flag: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+        self.renderer.set_cancel_flag(flag.clone());
+        if let Some((_, mirror)) = &mut self.mirror {
+            mirror.set_cancel_flag(flag);
+        }
+    }
+
+    /// Bind explicit release-time settings to this preview when they describe the same pixels.
+    /// The resolved brush, target and geometry must match; points are checked by the commit.
+    /// This freezes queued commands without forcing a full rerender for equivalent parameters.
+    pub fn bind_commit_params(&mut self, s: &Session, cmd: &str, p: &Value) -> Result<bool> {
+        if self.cmd != cmd {
+            return Ok(false);
+        }
+        let brush = if cmd == "paint.pencil" { pencil_brush(s, p)? } else { with_blend_mode(resolve_brush(s, p, cmd)?, p) };
+        let (layer, brush, zoom) = stroke_target(s, p, brush)?;
+        let st = s.active().ok_or(EngineError::NoDocument)?;
+        fn rest(v: &Value) -> Option<Vec<(&String, &Value)>> {
+            v.as_object().map(|o| o.iter().filter(|(k, _)| !matches!(k.as_str(), "points" | "seed" | "brush" | "color" | "background" | "layer")).collect())
+        }
+        let same = self.revision == st.revision
+            && std::ptr::eq(self.base.as_ptr(), std::sync::Arc::as_ptr(&st.doc))
+            && self.layer == layer
+            && self.brush == brush
+            && self.zoom.to_bits() == zoom.to_bits()
+            && self.symmetry.as_ref() == st.symmetry_path.as_ref()
+            && self.auto_erase == (cmd == "paint.pencil" && flag(p, "autoErase", false))
+            && rest(&self.params) == rest(p);
+        if same {
+            self.params = p.clone();
+        }
+        Ok(same)
+    }
+
     /// Start from `paint.stroke` params; their `points` are rendered.
     pub fn begin(s: &Session, p: &Value) -> Result<Self> {
         Self::begin_with(s, "paint.stroke", p)
@@ -389,6 +502,14 @@ impl LiveStroke {
     /// Start a live stroke of `cmd`: `paint.stroke` (the Brush and Eraser) or `paint.pencil`.
     /// Committing `cmd` with the same params and `"seed": live.seed` gives the same pixels.
     pub fn begin_with(s: &Session, cmd: &str, p: &Value) -> Result<Self> {
+        let mut live = Self::begin_unpainted(s, cmd, p)?;
+        live.push(&parse_points(p, cmd)?)?;
+        Ok(live)
+    }
+
+    /// Prepare a stroke without rasterizing its input. The interactive canvas can transfer this
+    /// state to a named worker; its first `push` must include `p`'s points in their original order.
+    pub fn begin_unpainted(s: &Session, cmd: &str, p: &Value) -> Result<Self> {
         has_paintable(s).map_err(EngineError::Other)?;
         let pts = parse_points(p, cmd)?;
         let pencil = match cmd {
@@ -405,15 +526,16 @@ impl LiveStroke {
         let mut doc = (*st.doc).clone();
         let sel = doc.selection.clone();
         let (surf, lock) = crate::channel_cmds::target_surface(&mut doc, layer, p)?;
-        erase_locked(&mut brush, lock, s.tools.background);
+        let brush_background = brush.background;
+        erase_locked(&mut brush, lock, brush_background);
         let auto_erase = pencil && flag(p, "autoErase", false);
         if auto_erase {
-            apply_auto_erase(&mut brush, surf, pts.first(), fg, s.tools.background);
+            apply_auto_erase(&mut brush, surf, pts.first(), fg, brush_background);
         }
         let renderer = StrokeRenderer::new(&brush, Some(surf.format()), zoom);
         let mirror = symmetry.clone().map(|axis| (axis, StrokeRenderer::new(&brush, Some(surf.format()), zoom)));
         let pre = surf.clone();
-        let mut live = Self {
+        let live = Self {
             doc: std::sync::Arc::new(doc),
             seed,
             renderer,
@@ -435,7 +557,6 @@ impl LiveStroke {
             points: Vec::new(),
             final_damage: Rect::EMPTY,
         };
-        live.push(&pts)?;
         Ok(live)
     }
 
@@ -512,23 +633,10 @@ impl LiveStroke {
             self.tail = tail;
             return Ok(damage);
         }
-        let mut dmg = Rect::EMPTY;
-        let old = std::mem::replace(&mut self.tail, Rect::EMPTY);
-        if !old.is_empty() {
-            // Back to the stroke without the previous tail.
-            surf.write_region(old, &self.pre.read_region(old));
-            self.renderer.mark_dirty(old);
-            dmg = old;
-        }
-        dmg = dmg.union(&self.renderer.composite(&self.pre, surf, self.sel.as_ref(), self.lock, false));
-        // What `render_stroke` returns: the finished stroke's bounds.
-        self.final_damage = self.renderer.bounds();
-        if let Some(mut tail) = self.renderer.tail_preview() {
-            self.final_damage = tail.bounds();
-            self.tail = tail.composite(&self.pre, surf, self.sel.as_ref(), self.lock, false);
-            dmg = dmg.union(&self.tail);
-        }
-        Ok(dmg)
+        let (damage, tail, done) = self.renderer.composite_live(&self.pre, surf, self.sel.as_ref(), self.lock, self.tail);
+        self.final_damage = done;
+        self.tail = tail;
+        Ok(damage)
     }
 }
 
@@ -860,7 +968,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "paint.pencil",
             "Pencil",
             r##"{"points":[[x,y,pressure?,tiltX?,tiltY?,rotation?,timeMs?,wheel?],…],"brush":{…}?,"preset":name?,"size":0.5..5000 px?,"opacity":0..1?,"color":"#rrggbb"?=foreground,"mode":"normal|multiply|screen|…"="normal","erase":bool?,"autoErase":bool=false,"seed":u64?,"target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target}"##,
-            has_paintable,
+            paintable_or_live,
             pencil,
             true
         ),

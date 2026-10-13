@@ -455,6 +455,8 @@ impl GpuCanvas {
         if std::env::var_os("PHOTOCRAFT_CPU_COMPOSE").is_some() {
             return Err(photocraft_gpu::Unsupported("disabled by PHOTOCRAFT_CPU_COMPOSE".into()));
         }
+        #[cfg(debug_assertions)]
+        let _span = photocraft_engine::paint::profiling::span(photocraft_engine::paint::profiling::Stage::GpuUpload);
         if let Some(f) = self.fault() {
             return Err(photocraft_gpu::Unsupported(f.to_string()));
         }
