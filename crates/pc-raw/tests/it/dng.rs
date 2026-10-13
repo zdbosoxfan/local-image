@@ -71,6 +71,27 @@ fn linear_raw_decodes_and_develops() {
     assert!(d.info.cfa.is_none());
 }
 
+/// `spec`'s file with its Orientation entry (a SHORT `from`) rewritten as a LONG `to`.
+fn with_long_orientation(spec: &DngSpec, from: u16, to: u32) -> Vec<u8> {
+    let mut b = spec.build();
+    let short = [&[0x12, 0x01, 3, 0, 1, 0, 0, 0][..], &from.to_le_bytes(), &[0, 0]].concat();
+    let at: Vec<usize> = b.windows(short.len()).enumerate().filter(|(_, w)| *w == short.as_slice()).map(|(i, _)| i).collect();
+    assert_eq!(at.len(), 1, "one Orientation entry");
+    let long = [&[0x12, 0x01, 4, 0, 1, 0, 0, 0][..], &to.to_le_bytes()].concat();
+    b[at[0]..at[0] + long.len()].copy_from_slice(&long);
+    b
+}
+
+#[test]
+fn an_orientation_past_u16_is_not_truncated_into_range() {
+    // #1817: 65538 truncated to 2 and rotated the image; it is out of range, so 1.
+    let mut spec = DngSpec::cfa(8, 6, vec![500; 48]);
+    spec.orientation = 2;
+    assert_eq!(sensor(&with_long_orientation(&spec, 2, 65_538)).orientation, 1);
+    // Control: a LONG orientation in range is read.
+    assert_eq!(sensor(&with_long_orientation(&spec, 2, 6)).orientation, 6);
+}
+
 #[test]
 fn metadata_is_read() {
     let (w, h) = (40, 30);
@@ -128,8 +149,9 @@ fn out_of_range_default_crop_falls_back_to_active_area_with_warning() {
     assert!(s.warnings.iter().any(|warning| warning.contains("out-of-range") && warning.contains("default crop")), "{:?}", s.warnings);
 }
 
+/// DefaultCropSize defaults to the whole image, which can't fit once the origin moves in.
 #[test]
-fn incomplete_default_crop_falls_back_to_active_area_with_warning() {
+fn default_crop_origin_without_size_falls_back_to_active_area_with_warning() {
     let (w, h) = (16, 12);
     let mut spec = DngSpec::cfa(w, h, vec![1000; w * h]);
     spec.active_area = Some([2, 3, 10, 14]);
@@ -137,7 +159,32 @@ fn incomplete_default_crop_falls_back_to_active_area_with_warning() {
 
     let s = sensor(&spec.build());
     assert_eq!(s.crop, s.active);
-    assert!(s.warnings.iter().any(|warning| warning.contains("incomplete") && warning.contains("default crop")), "{:?}", s.warnings);
+    assert!(s.warnings.iter().any(|warning| warning.contains("out-of-range") && warning.contains("default crop")), "{:?}", s.warnings);
+}
+
+/// Upstream #950: DefaultCropOrigin defaults to (0, 0), so a size-only crop starts at the active
+/// area's top-left corner.
+#[test]
+fn default_crop_size_without_origin_crops_from_the_active_area_origin() {
+    let (w, h) = (8, 8);
+    let mut spec = DngSpec::cfa(w, h, (0..w * h).map(|i| (i as u16) * 37).collect());
+    spec.active_area = Some([0, 0, 8, 8]);
+    spec.default_crop_size_only = Some([4, 4]);
+    let bytes = spec.build();
+
+    let s = sensor(&bytes);
+    assert_eq!(s.crop, Rect::new(0, 0, 4, 4));
+    assert!(s.warnings.iter().all(|warning| !warning.contains("default crop")), "{:?}", s.warnings);
+    let d = develop(&bytes, &DevelopOptions::default()).unwrap();
+    assert_eq!((d.width, d.height), (4, 4));
+
+    // Inside an offset active area the crop starts at that area's corner.
+    let (w, h) = (16, 12);
+    let mut spec = DngSpec::cfa(w, h, vec![1000; w * h]);
+    spec.active_area = Some([2, 3, 10, 14]);
+    spec.default_crop_size_only = Some([6, 4]);
+    let s = sensor(&spec.build());
+    assert_eq!(s.crop, Rect::new(3, 2, 6, 4));
 }
 
 /// Linear sRGB (D65) → XYZ, from the sRGB primaries (IEC 61966-2-1).
@@ -250,6 +297,31 @@ fn highlights_clip_to_white_and_exposure_applies() {
     let up = develop(&b, &DevelopOptions { exposure: 1.0, ..Default::default() }).unwrap().rgb[27];
     let lin = |v: u16| (f64::from(v) / 65535.0).powf(1.8);
     assert!((lin(up) / lin(base) - 2.0).abs() < 0.02, "{} vs {}", lin(up), lin(base));
+}
+
+/// storytold/photocraft#4348 (as storytold/lightcraft#548): a 12-bit DNG that states WhiteLevel 4095
+/// but whose sensor saturates at 3567 in every colour. Under the camera's white balance (red x2.46,
+/// blue x1.59) the stuck red and blue samples clip at 1 while green stays at 0.85, so a blown wall
+/// rendered magenta. The wall must come out neutral, and the unclipped ramp beside it unchanged.
+#[test]
+fn highlights_that_clip_below_the_stated_white_level_stay_neutral() {
+    let (w, h) = (64, 32);
+    let data: Vec<u16> = (0..w * h).map(|i| if i % w < w / 2 { 528 + ((i % w) * 90 + (i / w) * 3) as u16 } else { 3567 }).collect();
+    let mut spec = DngSpec::cfa(w, h, data.clone());
+    spec.bits = 12;
+    spec.black = vec![528];
+    spec.white = 4095;
+    spec.as_shot_neutral = Some([1.0 / 2.46, 1.0, 1.0 / 1.59]);
+    let b = spec.build();
+    let d = develop(&b, &DevelopOptions::default()).unwrap();
+    let px = &d.rgb[(16 * w + 48) * 3..(16 * w + 48) * 3 + 3];
+    let lin = |v: u16| (f64::from(v) / 65535.0).powf(1.8);
+    let tint = (lin(px[0]) / lin(px[1]) - 1.0).abs().max((lin(px[2]) / lin(px[1]) - 1.0).abs());
+    assert!(tint < 0.01, "the clipped wall is tinted: {px:?}");
+    let s = sensor(&b);
+    for (i, (&got, &was)) in s.data.iter().zip(&data).enumerate() {
+        assert_eq!(got, if was == 3567 { 4095 } else { was }, "sample {i}");
+    }
 }
 
 #[test]

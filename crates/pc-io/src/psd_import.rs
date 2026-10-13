@@ -134,6 +134,12 @@ impl Ctx<'_> {
             return Surface::new(self.fmt);
         }
         let (w, h) = r.size().unwrap_or((0, 0));
+        // Only channel data justifies a buffer: a bare rectangle can declare 300000^2 pixels in a
+        // few bytes (upstream #755), and a layer holding only mask channels has no pixels either.
+        if !(0..self.cc as i16).chain([CHANNEL_TRANSPARENCY]).any(|id| rec.channel(id).is_some()) {
+            self.warn(format!("layer \"{name}\": no channel data for its {w}x{h} bounds; treated as empty"));
+            return Surface::new(self.fmt);
+        }
         if !self.charge(w, h, self.cc + 1) {
             return Surface::new(self.fmt);
         }
@@ -476,6 +482,15 @@ fn apply_link_groups(nodes: &[LayerNode], layers: &mut [Layer], ids: &[u16]) {
     rec(nodes, layers, ids, 0);
 }
 
+/// Rejects a file whose groups nest deeper than the document model's cap, with the actionable
+/// limit error. Nesting past the cap could never be saved (.pcraft refuses it).
+pub(crate) fn check_group_depth(file: &PsdFile) -> Result<(), crate::IoError> {
+    if group_depth(file) > photocraft_doc::MAX_GROUP_DEPTH {
+        return Err(crate::IoError::Unsupported(format!("layer groups nested deeper than {}", photocraft_doc::MAX_GROUP_DEPTH)));
+    }
+    Ok(())
+}
+
 /// Deepest group nesting of the file's layer records (a layer inside this many groups is the
 /// deepest), computed like `layer_tree`'s stack — iteratively, so no file can make it recurse.
 pub(crate) fn group_depth(file: &PsdFile) -> usize {
@@ -603,6 +618,9 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
     doc.patterns = crate::pattern_map::from_global_blocks(&doc);
     // Notes (`Anno`) and the measurement scale (resource 1074); raw data stays for verbatim export.
     doc.notes = crate::annotations_map::notes_from_blocks(&doc);
+    if crate::annotations_map::anno_unreadable(&doc) {
+        warnings.push("the notes (Anno block) could not be read; they are kept unchanged on PSD save unless a note is added".into());
+    }
     if let Some(scale) = crate::annotations_map::raw_scale(&doc) {
         doc.measurement.scale = scale;
     }
@@ -675,7 +693,9 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
             cx.warn(format!("Multichannel documents have no layers: {} layer records were not imported", file.layers().len()));
         }
     } else if layered {
-        let tree = file.layer_tree();
+        // Capped like `build` (upstream #2940): a group past the document's nesting cap keeps no
+        // children, so no file can make this tree, or anything walking or dropping it, recurse deeper.
+        let tree = file.layer_tree_max_depth(photocraft_doc::MAX_GROUP_DEPTH);
         doc.layers = cx.build(&tree, 0);
         // local-image: smart objects that are Develop layers get their develop link back
         crate::smart_map::resolve_develop_layers(&mut doc);

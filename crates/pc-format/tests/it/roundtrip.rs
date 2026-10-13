@@ -494,3 +494,47 @@ fn independent_group_isolation_roundtrips_and_old_group_json_defaults_to_auto() 
     let old: photocraft_format::manifest::LayerM = serde_json::from_value(old).unwrap();
     assert!(matches!(old.content, photocraft_format::manifest::ContentM::Group { isolation: photocraft_doc::GroupIsolation::Auto, .. }));
 }
+
+/// Issue #1101: serde_json writes NaN and the infinities as `null`, which the manifest's float
+/// fields refuse on load, so such a document saved "successfully" and never opened again. The
+/// save is refused instead, naming the value; finite documents are unaffected.
+#[test]
+fn a_non_finite_float_is_refused_at_save_rather_than_breaking_every_later_load() {
+    use photocraft_doc::Adjustment;
+    type Mutate = Box<dyn Fn(&mut Document)>;
+    let base = rich_doc(ColorMode::Rgb, SampleType::U8);
+    let cases: Vec<(&str, Mutate)> = vec![
+        (
+            "exposure",
+            Box::new(|d| {
+                d.insert_above(None, Layer::new("adj", LayerContent::Adjustment(Adjustment::Exposure { exposure: f32::NAN, offset: 0.0, gamma: 1.0 })));
+            }),
+        ),
+        (
+            "gamma",
+            Box::new(|d| {
+                d.insert_above(
+                    None,
+                    Layer::new("adj", LayerContent::Adjustment(Adjustment::Exposure { exposure: 0.0, offset: 0.0, gamma: f32::NEG_INFINITY })),
+                );
+            }),
+        ),
+        ("resolution_dpi", Box::new(|d| d.resolution_dpi = f32::INFINITY)),
+    ];
+    for (field, mutate) in cases {
+        let mut doc = base.clone();
+        mutate(&mut doc);
+        let err = save_to_bytes(&doc, &SaveOptions::default()).expect_err(field);
+        assert!(matches!(err, FormatError::NonFinite { .. }), "{field}: {err:?}");
+        let msg = err.to_string();
+        assert!(msg.contains(field) && msg.contains("NaN or infinite"), "{field}: {msg}");
+        // The incremental writer shares the check, for autosave and directory bundles.
+        let mut w = PcraftWriter::new();
+        assert!(matches!(w.save_zip(&doc, &SaveOptions::default()), Err(FormatError::NonFinite { .. })), "{field}: PcraftWriter");
+    }
+    // The same document with finite values round-trips as before.
+    let mut doc = base.clone();
+    doc.insert_above(None, Layer::new("adj", LayerContent::Adjustment(Adjustment::Exposure { exposure: 0.5, offset: 0.0, gamma: 1.0 })));
+    let back = load_from_bytes(&save_to_bytes(&doc, &SaveOptions::default()).unwrap()).unwrap();
+    assert_eq!(back, doc);
+}
