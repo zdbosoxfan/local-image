@@ -42,3 +42,11 @@ Collected while integrating the up-* batches into `claude/v2-continue`. Per-batc
 - **Threading policy batch (A):** cx-bgremove used `Executor::multithread(n)` (capped at 8). Switch to `Executor::RayonGlobal` with a sized global rayon pool per REVIEW-threading-policy-fable.md rules 1–2.
 - **Qwen AI cutout:** the live ComfyUI probe on the RTX 5090 returned unusable alpha (0..3/0..4), so the client's usable-cutout check fails. This is an existing backend/workflow issue; investigate the Qwen cutout graph. The owner wants Qwen kept.
 - **Swatches:** bundled libraries so far are Open Color, CSS names, Tailwind, web-safe and the generated PS-style groups. Optional: add GIMP / Inkscape / Krita / Tango / Material palettes after per-file licence checks.
+- Thread policy, next batch (C, with the export/preview/import pipelines):
+  - size JobPool / Renderer from the compute profile (`lc-preview/src/pool.rs` ~100, `lc-ui-egui/src/render.rs`)
+  - size the import probe (`lc-engine/src/import.rs` ~405) and `lc-catalog/src/local.rs` ~253
+  - show the profile line in `lc-ui-egui/src/menus.rs` ~1048
+  - add a Utility-priority rayon pool for Utility jobs if measurements show it's needed
+- UX polish batch:
+  - Swatches panel: replace the stacked text buttons with Photoshop-style footer icons plus panel menu items
+  - Develop layer bar: Background as a list row, mask thumbnails, and collapse the repeated "applies to the whole image" notes into one line
