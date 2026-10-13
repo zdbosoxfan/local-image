@@ -1611,6 +1611,15 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
             if matches!(id, "vector.object.unlockAll" | "vector.object.showAll") {
                 row.enabled = app.session.is_enabled(id);
                 row.shortcut = crate::shortcut_dispatch::binding_strings(app).into_iter().find(|(command, _)| command == id).map(|(_, key)| key);
+                if !row.enabled && row.tooltip.is_none() {
+                    // Every disabled row explains itself (U029).
+                    row.tooltip = Some(match app.session.disabled_reason(id) {
+                        Some(raw) => crate::command_feedback::message(&raw),
+                        None if app.session.active().is_none() => tl!("Open a photo first.").into(),
+                        None if id == "vector.object.unlockAll" => tl!("Nothing in this document is locked.").into(),
+                        None => tl!("Nothing in this document is hidden.").into(),
+                    });
+                }
             }
             if matches!(id, "ui.pdf.export" | "file.export.pdf") {
                 row.enabled &= app.services.pick_save.is_some() && app.services.write.is_some();

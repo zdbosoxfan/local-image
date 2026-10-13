@@ -1376,4 +1376,6 @@
     "{name} panel tab",
     "{name} value",
     "{name} slider",
+    "Nothing in this document is locked.",
+    "Nothing in this document is hidden.",
 ]
