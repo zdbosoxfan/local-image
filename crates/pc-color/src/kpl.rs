@@ -7,7 +7,7 @@ use crate::{
 use std::collections::BTreeMap;
 
 fn valid_name(s: &str) -> Result<(), String> {
-    if s.encode_utf16().count() > MAX_NAME || s.chars().any(|c| c == '\0' || (c < ' ' && !matches!(c, '\t' | '\n' | '\r'))) {
+    if s.encode_utf16().count() > MAX_NAME || s.chars().any(|c| matches!(c, '\0' | '\u{fffe}' | '\u{ffff}') || (c < ' ' && !matches!(c, '\t' | '\n' | '\r'))) {
         return Err("invalid KPL name".into());
     }
     Ok(())
@@ -294,7 +294,7 @@ pub fn read_profiles_xml(bytes: &[u8]) -> Result<Vec<(String, String)>, String> 
     if bytes.len() > MAX_BYTES {
         return Err("KPL profile XML byte budget exceeded".into());
     }
-    let mut rest = std::str::from_utf8(bytes).map_err(|_| "KPL profile XML is not UTF-8")?.trim();
+    let mut rest = std::str::from_utf8(bytes).map_err(|_| "KPL profile XML is not UTF-8")?.trim_start_matches('\u{feff}').trim();
     if rest.starts_with("<?xml") {
         let end = rest.find("?>").ok_or("invalid profile XML declaration")?;
         rest = rest[end + 2..].trim_start();
@@ -352,4 +352,14 @@ pub fn read_profiles_xml(bytes: &[u8]) -> Result<Vec<(String, String)>, String> 
         }
         rest = rest[end + 1..].trim_start();
     }
+}
+
+#[test]
+fn dsfix_profile_xml_accepts_bom_and_names_reject_invalid_xml_scalars() {
+    let xml = "\u{feff}<?xml version=\"1.0\"?><Profiles><Profile name=\"sRGB\" filename=\"srgb.icc\"/></Profiles>";
+    assert_eq!(read_profiles_xml(xml.as_bytes()).unwrap(), vec![("sRGB".into(), "srgb.icc".into())]);
+    for bad in ["bad\u{fffe}", "bad\u{ffff}"] {
+        assert!(valid_name(bad).is_err());
+    }
+    assert!(valid_name("Valid\tname😀").is_ok());
 }

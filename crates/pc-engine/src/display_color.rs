@@ -92,26 +92,27 @@ impl CanvasDisplay {
     /// CPU canvas: a straight-alpha composite → RGBA8 monitor values.
     pub fn to_rgba8(&self, buf: &Buffer) -> Rgba8Image {
         let mut img = Rgba8Image::new(buf.rect.width(), buf.rect.height());
-        let mut input = [0.0; 3];
-        let mut output = [0.0; 3];
-        for (i, (dst, src)) in img.pixels.as_chunks_mut::<4>().0.iter_mut().zip(&buf.px).enumerate() {
-            for c in 0..3 {
-                input[c] = if self.encode_srgb { photocraft_color::convert::linear_to_srgb(src[c]) } else { src[c] };
-            }
-            if let Some(t) = &self.transform {
-                t.eval(&input, &mut output);
+        use rayon::prelude::*;
+        const CHUNK: usize = 4096;
+        let width = img.width as usize;
+        img.pixels.par_chunks_mut(CHUNK * 4).zip(buf.px.par_chunks(CHUNK)).enumerate().for_each(|(chunk, (dst, src))| {
+            let input: Vec<f32> =
+                src.iter().flat_map(|p| p[..3].iter().map(|v| if self.encode_srgb { photocraft_color::convert::linear_to_srgb(*v) } else { *v })).collect();
+            let mut output = vec![0.0; input.len()];
+            let output = if let Some(t) = &self.transform {
+                t.convert_f32(&input, 3, &mut output, 3, false);
+                &output
             } else {
-                output = input;
+                &input
+            };
+            for (j, ((dst, src), color)) in dst.as_chunks_mut::<4>().0.iter_mut().zip(src).zip(output.as_chunks::<3>().0).enumerate() {
+                let i = chunk * CHUNK + j;
+                for c in 0..3 {
+                    dst[c] = quantize_display(color[c], (i % width).wrapping_add(buf.rect.x0 as usize), (i / width).wrapping_add(buf.rect.y0 as usize));
+                }
+                dst[3] = (src[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
             }
-            for c in 0..3 {
-                dst[c] = quantize_display(
-                    output[c],
-                    (i % img.width as usize).wrapping_add(buf.rect.x0 as usize),
-                    (i / img.width as usize).wrapping_add(buf.rect.y0 as usize),
-                );
-            }
-            dst[3] = (src[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
-        }
+        });
         img
     }
 
@@ -559,3 +560,16 @@ impl ColorState {
 #[cfg(test)]
 #[path = "display_color_tests.rs"]
 mod tests;
+
+#[test]
+fn dsfix_parallel_display_keeps_dither_phase_alpha_and_fractional_values() {
+    let source = Arc::new(Builtin::Srgb.profile().clone());
+    let display = CanvasDisplay { encode_srgb: false, source: source.clone(), monitor: source, transform: None, key: 0, texture_key: 0 };
+    let rect = photocraft_geom::Rect::new(3, 5, 136, 72);
+    let buf = Buffer::filled(rect, [0.5, 0.25, 0.75, 0.3]);
+    let image = display.to_rgba8(&buf);
+    for (i, p) in image.pixels.as_chunks::<4>().0.iter().enumerate() {
+        let (x, y) = (i % 133 + 3, i / 133 + 5);
+        assert_eq!(*p, [quantize_display(0.5, x, y), quantize_display(0.25, x, y), quantize_display(0.75, x, y), 77]);
+    }
+}

@@ -248,8 +248,8 @@ pub fn encode_planes(compression: Compression, decoded: &[u8], layout: &PlaneLay
 /// bytes; for Raw it is the decoded size; for ZIP the zlib stream is
 /// decompressed (without keeping output) and the whole input is consumed.
 ///
-/// A ZIP stream whose declared size is over [`MAX_DECODED_BYTES`] is not
-/// decompressed at all (upstream #2926): [`decode_planes`] refuses that layout
+/// A ZIP stream whose declared size is over [`MAX_IMPORT_DECODED_BYTES`] is not
+/// decompressed at all (upstream #2926): [`decode_planes`] refuses that import
 /// with `LimitExceeded` anyway, so inflating it here would only be work on an
 /// untrusted file before the same error. The bytes are kept verbatim, like an
 /// unknown compression method, so a layered file whose merged composite is
@@ -276,7 +276,7 @@ pub(crate) fn validate_planes(compression: Compression, data: &[u8], layout: &Pl
             }
             Ok(())
         }
-        Compression::Zip | Compression::ZipPrediction if total > MAX_DECODED_BYTES => Ok(()),
+        Compression::Zip | Compression::ZipPrediction if total > MAX_IMPORT_DECODED_BYTES => Ok(()),
         Compression::Zip | Compression::ZipPrediction => {
             // Decompress without keeping the output, through the end of the
             // stream so the Adler-32 checksum is verified too.
@@ -688,6 +688,7 @@ mod tests {
     /// parse time. Garbage zlib data proves it: decompressing it would fail, skipping it passes,
     /// and decoding the layout still reports the size limit.
     #[test]
+    // TEST-CHANGED F146: check the import budget as well as the larger encoder budget.
     fn zip_over_budget_is_not_decompressed_at_parse() {
         let l = layout(4, 300_000, 300_000, 8, Version::Psb);
         assert!(l.total_bytes().unwrap() > MAX_DECODED_BYTES);
@@ -695,6 +696,14 @@ mod tests {
         for c in [Compression::Zip, Compression::ZipPrediction] {
             validate_planes(c, &garbage, &l).unwrap();
             assert!(matches!(decode_planes(c, &garbage, &l), Err(PsdError::LimitExceeded(_))), "{c:?}");
+        }
+        // Between the import budget (512 MiB) and encoder budget (16 GiB), parse must also skip inflation.
+        let medium = layout(4, 30_000, 30_000, 8, Version::Psb);
+        assert!(medium.total_bytes().unwrap() > MAX_IMPORT_DECODED_BYTES);
+        assert!(medium.total_bytes().unwrap() < MAX_DECODED_BYTES);
+        for c in [Compression::Zip, Compression::ZipPrediction] {
+            validate_planes(c, &garbage, &medium).unwrap();
+            assert!(matches!(decode_planes(c, &garbage, &medium), Err(PsdError::LimitExceeded(_))));
         }
         // Within the budget the stream is still checked.
         let small = layout(1, 4, 4, 8, Version::Psd);

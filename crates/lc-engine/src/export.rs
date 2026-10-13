@@ -1375,9 +1375,9 @@ impl PreparedExport {
                 };
                 let Some(dng) = dng else {
                     // the file is copied byte for byte: refuse rather than leak a location it embeds
-                    if remove_location && lightcraft_meta::extract(&bytes).gps.is_some() {
+                    if remove_location && original_embeds_location(&bytes) {
                         return Err(format!(
-                            "{label}: can't remove the location from an original file that embeds GPS; export as JPEG, TIFF or DNG instead"
+                            "{label}: can't remove the location from an original file that embeds location info; export as JPEG, TIFF or DNG instead"
                         ));
                     }
                     let e =
@@ -2873,4 +2873,21 @@ fn ds2_original_export_borrows_photo_unless_people_keywords_are_requested() {
     let augmented = photo_for_sidecar(&photo, true, false);
     assert!(matches!(augmented, std::borrow::Cow::Owned(_)));
     assert_eq!(augmented.meta.keywords, photo.meta.keywords);
+}
+
+/// Original files cannot be scrubbed while preserving their bytes. Include textual XMP/IPTC places.
+fn original_embeds_location(bytes: &[u8]) -> bool {
+    let m = lightcraft_meta::extract(bytes);
+    m.gps.is_some() || [&m.sublocation, &m.city, &m.state, &m.country].into_iter().any(|s| s.as_deref().is_some_and(|s| !s.trim().is_empty()))
+}
+
+#[test]
+fn dsfix_original_export_rejects_embedded_places_without_gps() {
+    for field in 0..4 {
+        let mut m = lightcraft_meta::Metadata::default();
+        [&mut m.sublocation, &mut m.city, &mut m.state, &mut m.country][field].replace("Private place".into());
+        let jpg = encode_with_metadata(&Rgba8 { width: 1, height: 1, data: vec![[0, 0, 0, 255]] }, &ExportOptions::default(), Some(&m)).unwrap();
+        assert!(original_embeds_location(&jpg), "field {field}");
+    }
+    assert!(!original_embeds_location(b"original without location"));
 }

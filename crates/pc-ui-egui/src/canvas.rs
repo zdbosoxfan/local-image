@@ -4535,3 +4535,24 @@ mod display_dither_tests {
         assert_eq!(part.pixels[3], high.pixels[3 * 8 + 4]);
     }
 }
+
+#[test]
+#[ignore = "manual timing of the real CPU canvas path; run explicitly with --nocapture"]
+fn dsfix_cpu_canvas_interactive_display_timing() {
+    let mut session = photocraft_engine::Session::new();
+    session.execute("file.new", serde_json::json!({"width":2048,"height":2048,"depth":32,"background":"white"})).unwrap();
+    session.color.settings.monitor_profile = "display-p3".into();
+    let mut app = crate::PhotocraftApp::new(session, Default::default());
+    assert!(app.gpu.is_none());
+    let ctx = egui::Context::default();
+    let mut runs = Vec::new();
+    for _ in 0..6 {
+        app.canvases.clear();
+        let start = std::time::Instant::now();
+        assert!(ensure_texture(&mut app, &ctx, 0, None).is_some());
+        runs.push(start.elapsed().as_secs_f64() * 1000.0);
+    }
+    runs.remove(0);
+    runs.sort_by(f64::total_cmp);
+    eprintln!("dsfix CPU canvas ensure_texture 2048x2048 f32 -> P3 median {:.3} ms; all {:?}", runs[runs.len() / 2], runs);
+}

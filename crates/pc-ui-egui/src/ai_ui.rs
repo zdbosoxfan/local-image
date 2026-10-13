@@ -179,6 +179,7 @@ thread_local! {
 
 /// Ask the poller to check again now.
 pub fn refresh() {
+    dialogs_mut(|d| d.subject_quality = None);
     shared().refresh.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
@@ -1248,6 +1249,7 @@ fn short_gpu(name: &str) -> String {
 #[derive(Default)]
 struct Dialogs {
     local_ai: bool,
+    subject_quality: Option<String>,
     background: bool,
     fill: bool,
     fill_target: Option<crate::command_feedback::SelectionTarget>,
@@ -1277,7 +1279,8 @@ pub fn open_local_ai(_app: &mut PhotocraftApp) {
 /// Floating windows: Local AI, Generate Background, Generative Fill, AI Enhance, batch.
 pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     li_seg::init_executor();
-    if matches!(app.ui.ai.cutout_engine.as_str(), "fast" | "quick" | "better") {
+    let changed = dialogs_mut(|d| subject_quality_changed(&mut d.subject_quality, &app.ui.ai.cutout_engine));
+    if changed && matches!(app.ui.ai.cutout_engine.as_str(), "fast" | "quick" | "better") {
         li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), app.ui.ai.cutout_engine == "better");
     }
     if dialogs_mut(|d| d.local_ai) {
@@ -2605,4 +2608,25 @@ fn reasons_ux_generative_fill_real_click_submits_captured_selection_to_existing_
         }
     }
     assert_eq!(result.generation.as_ref().unwrap()["bounds"], json!([8, 10, 20, 16]));
+}
+
+fn subject_quality_changed(previous: &mut Option<String>, engine: &str) -> bool {
+    if previous.as_deref() == Some(engine) {
+        return false;
+    }
+    *previous = Some(engine.to_owned());
+    true
+}
+
+#[test]
+fn dsfix_subject_quality_refresh_is_change_driven() {
+    let mut previous = None;
+    assert!(subject_quality_changed(&mut previous, "fast"));
+    for _ in 0..120 {
+        assert!(!subject_quality_changed(&mut previous, "fast"));
+    }
+    assert!(subject_quality_changed(&mut previous, "better"));
+    assert!(!subject_quality_changed(&mut previous, "better"));
+    previous = None; // Local AI settings refresh invalidates the cache.
+    assert!(subject_quality_changed(&mut previous, "better"));
 }

@@ -47,6 +47,12 @@ pub fn parse_iptc(b: &[u8]) -> Metadata {
                     m.keywords.push(k);
                 }
             }
+            // IPTC-IIM 4.2 datasets 2:90/92/95/100/101 (location of origin).
+            (2, 90) => m.city = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
+            (2, 92) => m.sublocation = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
+            (2, 95) => m.state = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
+            (2, 100) if m.country.is_none() => m.country = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
+            (2, 101) => m.country = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 80) => m.artist = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 116) => m.copyright = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
             (2, 120) => m.caption = Some(decode(data, utf8)).filter(|s| !s.is_empty()),
@@ -121,4 +127,19 @@ pub(crate) mod tests {
         }
         assert_eq!(parse_iptc(&[0x1c, 2, 5, 0xff, 0xff]), Metadata::default());
     }
+}
+
+#[test]
+fn dsfix_iptc_iim_location_fields_are_extracted_for_export_privacy() {
+    let mut data = Vec::new();
+    for (id, text) in [(90, "City"), (92, "Sublocation"), (95, "State"), (100, "ZZZ"), (101, "Country")] {
+        data.extend_from_slice(&[0x1c, 2, id]);
+        data.extend_from_slice(&(text.len() as u16).to_be_bytes());
+        data.extend_from_slice(text.as_bytes());
+    }
+    let m = parse_iptc(&data);
+    assert_eq!(
+        (m.city.as_deref(), m.sublocation.as_deref(), m.state.as_deref(), m.country.as_deref()),
+        (Some("City"), Some("Sublocation"), Some("State"), Some("Country"))
+    );
 }

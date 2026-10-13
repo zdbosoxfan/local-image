@@ -512,3 +512,22 @@ fn tool_group_default_keys_are_unique_and_r_is_rotate_view() {
     let tool_conflicts: Vec<_> = r["conflicts"].as_array().unwrap().iter().filter(|c| c["commands"].to_string().contains("tools.select.")).collect();
     assert!(tool_conflicts.is_empty(), "default tool keys conflict: {tool_conflicts:?}");
 }
+
+#[test]
+fn dsfix_legacy_shortcut_diff_keeps_profile_only_bindings() {
+    for library in [false, true] {
+        let mut prefs = Preferences::default();
+        prefs.shortcut_profiles.migrated = true;
+        let id = if library { "library::view.detail" } else { "tools.select.Brush" };
+        let profile_only = if library { "library::view.grid" } else { "tools.select.Move" };
+        let ws = prefs.shortcut_profiles.workspace_mut(library);
+        ws.duplicate("Mine").unwrap();
+        ws.custom.get_mut("Mine").unwrap().overrides.insert(profile_only.into(), "F8".into());
+        prefs.set(&format!("shortcuts.{id}"), json!("F7")).unwrap();
+        assert_eq!(prefs.shortcut_overrides(library).get(profile_only).map(String::as_str), Some("F8"));
+        assert_eq!(prefs.shortcut_overrides(library).get(id).map(String::as_str), Some("F7"));
+        prefs.reset(Some(&format!("shortcuts.{id}"))).unwrap();
+        assert!(!prefs.shortcut_overrides(library).contains_key(id));
+        assert_eq!(prefs.shortcut_overrides(library).get(profile_only).map(String::as_str), Some("F8"));
+    }
+}

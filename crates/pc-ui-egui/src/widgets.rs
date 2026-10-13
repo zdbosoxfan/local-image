@@ -702,7 +702,9 @@ pub fn color_control(ui: &mut Ui, color: &mut photocraft_doc::Color, label: &str
     let response = ui
         .horizontal(|ui| {
             let side = ui.spacing().interact_size.y;
-            let tile = ui.allocate_exact_size(Vec2::splat(side), Sense::hover()).0;
+            let (tile, tile_response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
+            let tile_label = crate::i18n::fmt(tl!("{label} colour swatch"), &[("label", label)]);
+            tile_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tile_label.as_str()));
             color_tile(
                 ui,
                 tile,
@@ -713,7 +715,7 @@ pub fn color_control(ui: &mut Ui, color: &mut photocraft_doc::Color, label: &str
                     (color.alpha.clamp(0.0, 1.0) * 255.0) as u8,
                 ),
             );
-            secondary_button(ui, label, 0.0)
+            secondary_button(ui, label, 0.0).union(tile_response)
         })
         .inner;
     let key = response.id.with("color-fields");
@@ -1125,4 +1127,23 @@ pub fn disabled_reason_tooltip(response: Response, reason: &str) -> Response {
         ui.set_max_width(ui.spacing().tooltip_width.min(room.max(ui.spacing().interact_size.x)));
         ui.add(egui::Label::new(reason).wrap());
     })
+}
+
+#[test]
+fn dsfix_color_tile_click_opens_picker() {
+    use egui_kittest::{Harness, kittest::Queryable as _};
+    let mut h = Harness::builder().with_size(egui::vec2(800., 700.)).build_ui_state(
+        |ui, color: &mut photocraft_doc::Color| {
+            if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                color_control(ui, color, "Paint");
+            }
+        },
+        photocraft_doc::Color::WHITE,
+    );
+    crate::PhotocraftApp::setup_context(&h.ctx, Default::default());
+    h.run_steps(3);
+    assert!(h.query_by_label("Paint").is_some(), "the original label button remains available");
+    h.get_by_label("Paint colour swatch").click();
+    h.run();
+    assert!(h.query_by_label("Hex colour").is_some(), "the color tile opens the ordinary picker");
 }

@@ -250,3 +250,36 @@ fn keys_profiles_preferences_entry_and_malformed_draft_are_safe() {
     assert!(crate::dialogs::confirm(h.state_mut(), id).is_err());
     assert_eq!(h.state().session.prefs(), &before);
 }
+
+#[test]
+fn dsfix_shortcuts_ok_uses_selected_capture_one_defaults() {
+    let mut h = harness();
+    h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Editor")).click();
+    h.run();
+    h.get_by_label("Library + Develop").click();
+    h.run();
+    h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Lightroom")).click();
+    h.run();
+    h.get_by_label("Capture One").click();
+    h.run();
+    // Lightroom's Linear default is M, Capture One's is G. Assigning M must keep Linear.
+    h.state_mut().1.insert("overrides".into(), json!({"library::view.maskOverlay":"M"}));
+    let (app, fields) = h.state_mut();
+    confirm(app, fields).unwrap();
+    assert!(!h.state().0.session.prefs().shortcut_overrides(true).contains_key("library::tool.linear"));
+    // G really conflicts with the selected profile's Linear default and is taken from it.
+    let (mut app, mut fields) = state();
+    fields["profiles"]["library"]["active"] = json!("Capture One");
+    fields.insert("__hostShortcuts".into(), json!(host()));
+    fields.insert("overrides".into(), json!({"library::view.maskOverlay":"G"}));
+    confirm(&mut app, &fields).unwrap();
+    assert_eq!(app.session.prefs().shortcut_overrides(true).get("library::tool.linear").map(String::as_str), Some(""));
+    // A saved chord can acquire a new default conflict when its parent profile changes.
+    let (mut app, mut fields) = state();
+    app.session.edit_prefs(|prefs| prefs.shortcuts.insert("library::view.maskOverlay".into(), "G".into()));
+    fields["profiles"]["library"]["active"] = json!("Capture One");
+    fields.insert("__hostShortcuts".into(), json!(host()));
+    fields.insert("overrides".into(), json!({"library::view.maskOverlay":"G"}));
+    confirm(&mut app, &fields).unwrap();
+    assert_eq!(app.session.prefs().shortcut_overrides(true).get("library::tool.linear").map(String::as_str), Some(""));
+}

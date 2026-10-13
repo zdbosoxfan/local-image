@@ -406,3 +406,20 @@ fn an_actions_file_that_failed_to_load_is_not_overwritten() {
     assert_eq!(mem.files.lock().unwrap().get(ACTIONS_FILE), Some(&newer), "an actions file the store could not read was overwritten");
     assert!(!s.preset_store.as_mut().unwrap().take_warnings().is_empty());
 }
+
+#[test]
+fn dsfix_skipped_group_keeps_tip_shared_with_deleted_group() {
+    let dir = TempDir::new("shared-skipped-tip");
+    let mut opened = open_dir(&dir.0);
+    let presets = vec![sampled("A", "Loaded", tip8(8, 8, 1)), sampled("B", "Unreadable", tip8(8, 8, 1))];
+    opened.store.sync(&presets);
+    let file = group_file_name("Unreadable");
+    std::fs::write(dir.0.join(&file), b"broken json").unwrap();
+    let tip = tip_file(&tip_hash(&tip8(8, 8, 1)));
+    let original = std::fs::read(dir.0.join(&tip)).unwrap();
+    let mut reopened = open_dir(&dir.0);
+    assert_eq!(reopened.presets.len(), 1);
+    reopened.store.sync(&[]);
+    assert_eq!(std::fs::read(dir.0.join(&tip)).unwrap(), original);
+    assert_eq!(std::fs::read(dir.0.join(&file)).unwrap(), b"broken json");
+}

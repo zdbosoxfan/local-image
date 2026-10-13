@@ -6,3 +6,5 @@
 - `charcoal.myb`: Martin Renold and MyPaint team, CC0-1.0 per Licenses.dep5, MyPaint brushes commit 08da4a48fa88c136c1166eb59dddf894c149d9f8. https://github.com/mypaint/mypaint-brushes . Unchanged original file.
 
 GBR v1/v2, GIH grid cells, shaped VBR, hostile ZIP/plist/XML, and brushsets are generated in tests from the public format descriptions. No additional downloaded artwork is redistributed.
+
+- `dsfix-direction-false.archive`, `dsfix-direction-true.archive`: original synthetic NSKeyedArchiver dictionaries for the direction/scatter regression (GPL-3.0-or-later). No image assets; tests combine them with `plain-stitch.brush`'s existing CC0 Shape.png. Each dictionary has `shapeScatter = 0.35`, `shapeRotation = 1`, and `shapeRandomise = false`/`true`. Generated with Python's standard `plistlib` binary writer; the application parses and imports them through its Rust reader.

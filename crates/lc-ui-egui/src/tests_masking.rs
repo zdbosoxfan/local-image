@@ -740,3 +740,84 @@ fn a_selected_mask_shows_its_layer_tools() {
     assert_eq!(r["ok"], true, "{r}");
     assert!(develop(&h).masks[0].tools.is_empty());
 }
+
+#[test]
+fn dsfix_edit_switch_and_enter_finish_mask_tools() {
+    let mut h = detail("panel.remove");
+    h.app.ui.tool = "heal".into();
+    exec(&mut h, "panel.edit", json!({}));
+    assert!(h.app.ui.tool.is_empty());
+    for tool in ["brush", "linear", "radial"] {
+        exec(&mut h, &format!("tool.{tool}"), json!({}));
+        assert_eq!(h.app.ui.right, RightPanel::Edit);
+        h.request("ui.key", json!({"key":"enter"}), T);
+        assert!(h.app.ui.tool.is_empty(), "{tool}: Done must finish the Edit-hosted tool");
+        assert!(h.app.ui.pending_mask_shape.is_none());
+        assert!(h.app.ui.pending_mask_origin.is_none());
+    }
+}
+
+#[test]
+fn dsfix_pending_gradient_click_and_tool_switch_do_not_convert_shape() {
+    let mut h = detail("panel.edit");
+    exec(&mut h, "tool.linear", json!({}));
+    pointer(&mut h, json!([{"kind":"down","x":0.4,"y":0.4},{"kind":"up","x":0.4,"y":0.4}]));
+    assert!(h.app.ui.pending_mask_shape.is_none(), "a plain click ends gradient creation");
+    assert!(matches!(develop(&h).masks[0].components[0].shape, MaskShape::Linear { .. }));
+    for command in ["tool.none", "tool.brush", "view.back"] {
+        exec(&mut h, "tool.linear", json!({}));
+        assert!(h.app.ui.pending_mask_shape.is_some());
+        exec(&mut h, command, json!({}));
+        assert!(h.app.ui.pending_mask_shape.is_none(), "{command}");
+        assert!(h.app.ui.pending_mask_origin.is_none(), "{command}");
+        pointer(&mut h, json!([{"kind":"down","x":0.2,"y":0.2},{"kind":"drag","x":0.3,"y":0.3},{"kind":"up","x":0.3,"y":0.3}]));
+        assert!(
+            develop(&h).masks.iter().flat_map(|m| &m.components).all(|c| !matches!(c.shape, MaskShape::Radial { .. })),
+            "{command} converted a linear gradient"
+        );
+    }
+}
+
+#[test]
+#[ignore = "real hardware GPU regression; run explicitly"]
+fn dsfix_gpu_stack_preserves_background_range_overlay() {
+    use lightcraft_develop::{LayerTools, LocalAdjustments, Mask, MaskComponent};
+    use lightcraft_pipeline::{MaskView, Overlay, RenderRequest, SourceInfo};
+    use std::sync::Arc;
+    let _gate = crate::gpu_test_support::lock();
+    lightcraft_engine::gpu::set_enabled(true);
+    let adapter = lightcraft_engine::gpu::adapter_name().expect("hardware GPU required");
+    assert!(
+        if cfg!(target_os = "macos") { adapter.contains("Metal") } else { adapter.contains("RTX 5090") && adapter.contains("Vulkan") },
+        "hardware GPU required: {adapter}"
+    );
+    eprintln!("dsfix Background overlay adapter: {adapter}");
+    let source = Arc::new(lightcraft_raster::Rgb32f::from_fn(64, 32, |x, _| [0.01 + x as f32 / 128.0; 3]));
+    let component = |shape| MaskComponent { shape, name: None, op: Default::default(), invert: false };
+    let settings = lightcraft_develop::DevelopSettings {
+        masks: vec![
+            Mask {
+                id: 1,
+                components: vec![component(MaskShape::Full)],
+                tools: LayerTools::default().merged((6500.0, 0.0), &json!({"light":{"exposure":3.0}})).unwrap(),
+                ..Default::default()
+            },
+            Mask {
+                id: 42,
+                components: vec![component(MaskShape::LuminanceRange { lo: 0.0, hi: 0.4, lo_feather: 0.01, hi_feather: 0.01 })],
+                adjust: LocalAdjustments { exposure: 0.5, ..Default::default() },
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    };
+    let req = RenderRequest {
+        overlay: Overlay::Mask { id: 42, view: MaskView::WhiteOnBlack, color: [255, 0, 0], opacity: 100 },
+        ..RenderRequest::fit(64, 32)
+    };
+    let info = SourceInfo::default();
+    let cpu = lightcraft_pipeline::render(&source, &info, &settings, &req).image;
+    let gpu = lightcraft_engine::gpu::render(&source, &info, &settings, &req, None).expect("the actual GPU render must complete").image;
+    let max = cpu.data.iter().zip(&gpu.data).flat_map(|(a, b)| a.iter().zip(b).map(|(a, b)| a.abs_diff(*b))).max().unwrap();
+    assert!(max <= 1, "Background overlay CPU/GPU mismatch: maximum {max} codes");
+}

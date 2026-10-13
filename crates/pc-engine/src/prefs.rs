@@ -1460,7 +1460,16 @@ impl Preferences {
                 let _ = workspace.duplicate(&name);
             }
             if let Some(profile) = workspace.custom.get_mut(&workspace.active) {
-                profile.overrides = overrides;
+                for id in scoped(previous).keys() {
+                    if !overrides.contains_key(id) {
+                        profile.overrides.remove(id);
+                    }
+                }
+                for (id, key) in overrides {
+                    if previous.get(&id) != Some(&key) {
+                        profile.overrides.insert(id, key);
+                    }
+                }
             }
         }
     }

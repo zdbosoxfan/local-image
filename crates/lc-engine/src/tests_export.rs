@@ -510,3 +510,58 @@ fn remove_location_holds_for_original_and_dng_exports() {
     assert!(err.contains("can't remove the location") && err.contains("export as JPEG"), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn dsfix_original_export_refuses_textual_xmp_and_iptc_locations() {
+    let dir = temp_dir("dsfix-export-places");
+    let image = lightcraft_raster::Rgba8::from_fn(2, 2, |_, _| [20, 30, 40, 255]);
+    for (i, place) in ["sublocation", "city", "state", "country"].into_iter().enumerate() {
+        let mut metadata = lightcraft_meta::Metadata::default();
+        match place {
+            "sublocation" => metadata.sublocation = Some("Private".into()),
+            "city" => metadata.city = Some("Private".into()),
+            "state" => metadata.state = Some("Private".into()),
+            _ => metadata.country = Some("Private".into()),
+        }
+        let xmp = lightcraft_meta::write_xmp(&metadata, None);
+        let bytes = lightcraft_codecs::encode_jpeg(
+            &lightcraft_codecs::EncodeImage::rgba8(&image),
+            90,
+            Default::default(),
+            &lightcraft_codecs::EncodeMeta { xmp: Some(&xmp), ..Default::default() },
+        )
+        .unwrap();
+        // Check the XMP-only and IPTC-only encodings through the actual Original export.
+        for iptc in [false, true] {
+            let bytes = if iptc {
+                let dataset = [92, 90, 95, 101][i];
+                let iim = [0x1c, 2, dataset, 0, 7, b'P', b'r', b'i', b'v', b'a', b't', b'e'];
+                let mut ps = b"Photoshop 3.0\0".to_vec();
+                ps.extend_from_slice(b"8BIM\x04\x04\0\0");
+                ps.extend_from_slice(&(iim.len() as u32).to_be_bytes());
+                ps.extend_from_slice(&iim);
+                let plain =
+                    lightcraft_codecs::encode_jpeg(&lightcraft_codecs::EncodeImage::rgba8(&image), 90, Default::default(), &Default::default())
+                        .unwrap();
+                let mut jpeg = plain[..2].to_vec();
+                jpeg.extend_from_slice(&[0xff, 0xed]);
+                jpeg.extend_from_slice(&((ps.len() + 2) as u16).to_be_bytes());
+                jpeg.extend(ps);
+                jpeg.extend_from_slice(&plain[2..]);
+                jpeg
+            } else {
+                bytes.clone()
+            };
+            let file = dir.join(format!("places-{i}-{iptc}.jpg"));
+            std::fs::write(&file, &bytes).unwrap();
+            let mut session = Session::new().with_fs();
+            let id = session.execute("library.import", &json!({"paths":[file.to_string_lossy()]})).unwrap()["imported"][0].as_u64().unwrap();
+            let id = lightcraft_catalog::PhotoId(id);
+            let keep = ExportOptions::from_json(&json!({"format":"original"}));
+            assert_eq!(export_photo(&mut session, id, &keep, 1).unwrap().bytes, bytes);
+            let remove = ExportOptions::from_json(&json!({"format":"original","removeLocation":true}));
+            assert!(export_photo(&mut session, id, &remove, 1).err().unwrap().contains("can't remove the location"), "{place}");
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

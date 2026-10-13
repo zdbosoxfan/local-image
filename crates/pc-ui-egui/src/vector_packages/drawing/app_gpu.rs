@@ -26,7 +26,7 @@ fn harness() -> H {
                     i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
                 }
             })
-            .ok_or_else(|| "RTX 5090 Vulkan required".to_string())?;
+            .ok_or_else(|| (if cfg!(target_os = "macos") { "hardware Metal non-CPU adapter required" } else { "RTX 5090 Vulkan required" }).to_string())?;
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(adapter), wgpu::TextureFormat::Rgba32Float);
         eprintln!("live-shapes full-app GPU: {:?}", adapter.get_info());
         Ok(adapter.clone())

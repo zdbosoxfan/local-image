@@ -30,10 +30,10 @@ fn main() -> anyhow::Result<()> {
         let mut runs: Vec<f64> = (0..warm)
             .map(|_| {
                 let t = Instant::now();
-                let _ = seg.predict(img.as_raw(), w, h);
-                t.elapsed().as_secs_f64()
+                seg.predict(img.as_raw(), w, h)?;
+                Ok(t.elapsed().as_secs_f64())
             })
-            .collect();
+            .collect::<anyhow::Result<_>>()?;
         runs.sort_by(f64::total_cmp);
         let median = runs[runs.len() / 2];
         let covered = first.map_or(0.0, |p| p.iter().filter(|v| **v >= 0.5).count() as f64 / (w * h) as f64);

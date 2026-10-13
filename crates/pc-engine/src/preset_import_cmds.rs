@@ -138,6 +138,9 @@ fn add_abr_presets(s: &mut Session, p: &Value, group: String, imp: photocraft_io
 /// All supported packs, sharing the existing cancellable job/apply and preset store path.
 fn import_brushes(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "brush.presets.importAbr";
+    if p.get("group").is_some_and(|group| group.as_str().is_none_or(|s| s.trim().is_empty())) {
+        return Err(bad(cmd, "`group` must be a non-empty string"));
+    }
     let params = p.clone();
     let apply = p.clone();
     crate::jobs::run(
@@ -531,5 +534,17 @@ mod pack_tests {
         assert!(tip.get(8, 8) > 0.99);
         assert!(tip.get(0, 0) < 0.01);
         assert!(svg_brush_tip(br#"<svg xmlns="http://www.w3.org/2000/svg" width="9000" height="9000"/>"#).is_err());
+    }
+}
+
+#[test]
+fn dsfix_non_abr_import_rejects_invalid_group_before_import() {
+    let data = photocraft_paint::tile::b64_encode(include_bytes!("../../pc-io/tests/fixtures/brushes/krita-basic.kpp"));
+    let mut s = Session::new();
+    let before = s.tools.presets.clone();
+    for group in [json!(3), json!(null), json!("   "), json!([])] {
+        let err = s.execute("brush.presets.importAbr", json!({"data":data,"format":"kpp","group":group})).unwrap_err();
+        assert!(err.to_string().contains("`group` must be a non-empty string"), "{err}");
+        assert_eq!(s.tools.presets, before);
     }
 }

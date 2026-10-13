@@ -120,6 +120,7 @@ file `crates/pc-ui-egui/src/widgets.rs` (`pc`), library file `crates/lc-ui-egui/
 | `menu_scroll` | Body of a context menu that scrolls instead of running off screen | 594 |
 | `swatch_popup` | Colour picker popup anchored to a swatch | 612 |
 | `icon_action` | Square footer/header icon button with accessible label and disabled-with-reason: `icon_action(ui, "plus", 24.0, "New Swatch", tip, None)` | 660 |
+| `color_control` | Named colour value; both the tile and label open the shared colour picker popup, with one combined anchor and accessibility labels | 699 |
 | `color_tile` | Paint a colour value (checkerboard under alpha, `radius_sm`, outline). Paint only; owner supplies click and name | 679 |
 | `checker` | Transparency checkerboard | 690 |
 | `section_label` (`_translated`) | Small-caps section heading in a panel | 534 |

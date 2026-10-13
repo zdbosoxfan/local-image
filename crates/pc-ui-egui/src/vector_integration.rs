@@ -1421,7 +1421,7 @@ pub fn disabled_reason(app: &PhotocraftApp, id: &str) -> Option<String> {
     use photocraft_engine::vector_packages::{clip_compound, transform_tools};
     let vector_layer_action = app.session.prefs().toolbar.persona == Persona::Vector
         && (matches!(id, "layer.groupLayers" | "layer.ungroupLayers" | "type.convertToShape") || id.starts_with("layer.arrange."));
-    if !handles(id) && !vector_layer_action {
+    if !handles(id) && !vector_layer_action && !matches!(id, "path.outlineStroke" | "vector.transform.again") {
         return None;
     }
     let st = match app.session.active() {
@@ -1441,6 +1441,13 @@ pub fn disabled_reason(app: &PhotocraftApp, id: &str) -> Option<String> {
         return Some(tl!("Switch to the Vector persona first.").into());
     }
     let ids = st.selected_layers();
+    if id == "path.outlineStroke" {
+        if ids.is_empty() || !ids.iter().all(|id| st.doc.layer(*id).is_some_and(|l| matches!(&l.content, LayerContent::Shape(shape) if shape.stroke.is_some())))
+        {
+            return Some(tl!("Select a shape with a stroke first.").into());
+        }
+        return app.session.disabled_reason(id).map(|raw| crate::command_feedback::message(&raw));
+    }
     if matches!(id, "layer.vectorize" | "ui.vectorize") {
         return app.session.disabled_reason("layer.vectorize").map(|raw| crate::command_feedback::message(&raw));
     }

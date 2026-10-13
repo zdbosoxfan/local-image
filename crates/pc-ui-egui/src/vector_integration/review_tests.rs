@@ -426,3 +426,17 @@ fn bugfix_vector_preferences_preset_apply_cancel_and_custom_keys() {
     h.run();
     assert!(h.state().session.active().unwrap().selected_layers().is_empty());
 }
+
+#[test]
+fn dsfix_outline_and_transform_again_menu_reasons() {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    for id in ["path.outlineStroke", "vector.transform.again"] {
+        assert!(disabled_reason(&app, id).is_some(), "{id} without document");
+    }
+    app.run("file.new", json!({"width":32,"height":32})).unwrap();
+    app.session.edit_prefs(|p| p.toolbar.persona = Persona::Vector);
+    assert!(disabled_reason(&app, "path.outlineStroke").is_some(), "a raster cannot be outlined");
+    assert!(disabled_reason(&app, "vector.transform.again").is_some(), "no previous transform");
+    app.run("shape.create", json!({"kind":"rect","rect":[1,1,10,10],"fill":"#ffffff","stroke":{"color":"#000000","width":2}})).unwrap();
+    assert!(disabled_reason(&app, "path.outlineStroke").is_none(), "an ordinary stroked shape can be outlined");
+}

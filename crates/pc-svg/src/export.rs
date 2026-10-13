@@ -500,6 +500,12 @@ fn pass_through_matches_isolated(children: &[Layer]) -> bool {
                     g.isolation != photocraft_doc::GroupIsolation::NonIsolated
                         && match l.blend {
                             BlendMode::Normal => true,
+                            BlendMode::PassThrough
+                                if g.isolation == photocraft_doc::GroupIsolation::Isolated
+                                    || (g.isolation == photocraft_doc::GroupIsolation::Auto && l.fill_opacity < 1.0) =>
+                            {
+                                true
+                            }
                             BlendMode::PassThrough => pass_through_matches_isolated(&g.children),
                             _ => false,
                         }
@@ -1518,4 +1524,17 @@ mod mask_halo_tests {
         layer.mask = Some(mask);
         assert!(soft_mask_sampling_canvas(&layer, Rect::new(i32::MIN, 0, 0, 10), Rect::new(0, 0, 20, 20)).is_err());
     }
+}
+
+#[test]
+fn dsfix_isolated_child_does_not_force_outer_passthrough_raster() {
+    let mut child = isolated_group("isolated", vec![Layer::new("multiply", LayerContent::Fill(Fill::Solid(photocraft_doc::Color::WHITE)))]);
+    child.children_mut().unwrap()[0].blend = BlendMode::Multiply;
+    child.blend = BlendMode::PassThrough;
+    assert!(pass_through_matches_isolated(&[child.clone()]));
+    let LayerContent::Group(g) = &mut child.content else { panic!() };
+    g.isolation = photocraft_doc::GroupIsolation::Auto;
+    assert!(!pass_through_matches_isolated(&[child.clone()]));
+    child.fill_opacity = 0.5;
+    assert!(pass_through_matches_isolated(&[child]));
 }

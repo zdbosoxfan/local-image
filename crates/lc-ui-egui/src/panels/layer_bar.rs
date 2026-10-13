@@ -287,7 +287,7 @@ fn mask_thumb(ui: &egui::Ui, r: Rect, m: Option<&Mask>, aspect: f64, visible: bo
     if probe.is_none() {
         // image-dependent: the kind's icon on the badge pair (content, not chrome)
         p.rect_filled(r, 2.0, t.overlay_bg.gamma_multiply(fade));
-        let shape = &m.components[0].shape;
+        let Some(shape) = image_dependent_shape(m) else { return };
         crate::icons::paint_tool(ui, r.shrink(3.0), crate::icons::mask_name(shape), Icon::Mask, t.overlay_fg, visible);
         p.rect_stroke(r, 2.0, frame_stroke, egui::StrokeKind::Inside);
         return;
@@ -687,4 +687,24 @@ mod thumb_tests {
         // image-dependent masks don't pretend: the row shows their kind icon instead
         assert_eq!(coverage(&mask(vec![(MaskOp::Add, MaskShape::Sky { seg: None })]), p(0.5, 0.5), 1.5), None);
     }
+}
+
+fn image_dependent_shape(mask: &Mask) -> Option<&MaskShape> {
+    mask.components
+        .iter()
+        .map(|c| &c.shape)
+        .find(|shape| !matches!(shape, MaskShape::Full | MaskShape::Linear { .. } | MaskShape::Radial { .. } | MaskShape::Brush { .. }))
+}
+
+#[test]
+fn dsfix_mixed_mask_badge_uses_image_dependent_component() {
+    use lightcraft_develop::MaskComponent;
+    let mask = Mask {
+        components: vec![
+            MaskComponent { shape: MaskShape::Full, name: None, op: Default::default(), invert: false },
+            MaskComponent { shape: MaskShape::Sky { seg: None }, name: None, op: Default::default(), invert: false },
+        ],
+        ..Default::default()
+    };
+    assert_eq!(crate::icons::mask_name(image_dependent_shape(&mask).unwrap()), "sky-mask");
 }

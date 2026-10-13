@@ -247,7 +247,7 @@ fn styles38_gpu_ui_rtx5090_offscreen_pointer_preview_release() {
                 }
             })
             .cloned()
-            .ok_or_else(|| "RTX 5090 Vulkan required".into())
+            .ok_or_else(|| (if cfg!(target_os = "macos") { "hardware Metal non-CPU adapter required" } else { "RTX 5090 Vulkan required" }).into())
     }));
     let rs = egui_kittest::wgpu::create_render_state(eframe::egui_wgpu::WgpuSetup::CreateNew(setup), eframe::egui_wgpu::RendererOptions::PREDICTABLE);
     let info = rs.adapter.get_info();

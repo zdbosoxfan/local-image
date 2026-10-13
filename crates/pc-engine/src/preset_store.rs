@@ -680,7 +680,8 @@ impl PresetStore {
         }
         // Tips nothing references any more.
         let used: HashSet<&String> = self.groups.values().flat_map(|g| g.tips.iter()).collect();
-        let unused: Vec<String> = self.tips.keys().filter(|h| !used.contains(h)).cloned().collect();
+        // An unreadable group may reference any existing tip, including one shared with a deleted group.
+        let unused: Vec<String> = self.tips.keys().filter(|h| self.skipped.is_empty() && !used.contains(h)).cloned().collect();
         for h in unused {
             match self.backend.remove(&tip_file(&h)) {
                 Ok(()) => drop(self.tips.remove(&h)),
