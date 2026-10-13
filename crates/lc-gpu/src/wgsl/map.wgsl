@@ -221,3 +221,12 @@ fn toneeq_log(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups
 fn toneeq_preview(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) nw:vec3<u32>) {
     let i=lin_index(g,nw);if(i>=pu(0u)){return;}dst[i]=floor(clamp(a[i],-8.0,0.0)+8.0+0.5)/8.0;
 }
+
+// A scalar Filled layer has no alpha plane. Spatial exposure touches only covered pixels.
+@compute @workgroup_size(256)
+fn stack_exposure(@builtin(global_invocation_id) g:vec3<u32>, @builtin(num_workgroups) ng:vec3<u32>) {
+    let i=lin_index(g,ng); if(i>=P[0]){return;}
+    var alpha=bitcast<f32>(P[2]); if(P[1]!=0xffffffffu){alpha=c[P[1]+i];}
+    let gain=1.0+(bitcast<f32>(P[3])-1.0)*alpha;
+    dst[3u*i]=a[3u*i]*gain;dst[3u*i+1u]=a[3u*i+1u]*gain;dst[3u*i+2u]=a[3u*i+2u]*gain;
+}

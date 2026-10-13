@@ -10,6 +10,11 @@ pub const CURVE_N: u32 = 1024;
 
 /// Field name and number of 32-bit words.
 const FIELDS: &[(&str, usize)] = &[
+    ("MODE", 1),
+    ("COVERAGE", 1),
+    ("COVERAGE_PLANE", 1),
+    ("COVERAGE_SCALAR", 1),
+    ("LAYER_CONTRAST", 1),
     ("NLAYER", 1),
     ("LAYER_OFF", 1),
     ("LAYER_WB", 1),
@@ -184,6 +189,16 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
         aux.extend_from_slice(curve.lut());
     }
     let mut p = Block::new();
+    p.u(
+        "MODE",
+        match fp.mode {
+            lightcraft_pipeline::finish::FinishMode::Display => 0,
+            lightcraft_pipeline::finish::FinishMode::Working => 1,
+            lightcraft_pipeline::finish::FinishMode::Layer => 2,
+            lightcraft_pipeline::finish::FinishMode::Output => 3,
+        },
+    );
+    p.f("LAYER_CONTRAST", fp.layer_contrast);
     p.b("TEQ", fp.tone_eq.is_some());
     p.u("TEQ_OFF", teq_off as u32);
 

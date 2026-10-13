@@ -10,6 +10,7 @@ use lightcraft_raster::{Plane, Rgb32f};
 use crate::for_rows;
 use crate::geometry::Frame;
 
+#[derive(Clone)]
 pub struct Evaluated {
     /// The mask's id ([`Mask::id`]).
     pub id: u32,

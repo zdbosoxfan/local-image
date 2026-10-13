@@ -77,24 +77,28 @@ impl CurveTables {
     /// Linear Rec.2020 in/out. The master uses encoded luminance or encoded RGB; channel
     /// curves follow it. Keeping this before the output conversion makes export spaces agree.
     pub fn apply(&self, c: [f32; 3], refine: f32) -> [f32; 3] {
+        self.apply_mode(c, refine, false)
+    }
+    fn apply_mode(&self, c: [f32; 3], refine: f32, working: bool) -> [f32; 3] {
+        let eval = |table: &Lut1, x: f32| table.eval(x) + if working { x - x.clamp(0.0, 1.0) } else { 0.0 };
         use lightcraft_color::transfer::srgb_to_linear;
         let mut d = if self.luminance {
             let y = luminance_2020(c).max(0.0);
-            let z = srgb_to_linear(self.tables[0].eval(linear_to_srgb(y)));
+            let z = srgb_to_linear(eval(&self.tables[0], linear_to_srgb(y)));
             if y > 1e-9 { c.map(|x| x * z / y) } else { [z; 3] }
         } else {
             let e = c.map(linear_to_srgb);
-            let q = e.map(|x| self.tables[0].eval(x));
+            let q = e.map(|x| eval(&self.tables[0], x));
             refine_saturation(e, q, refine).map(srgb_to_linear)
         };
         // Smooth hue-preserving path to white when a luminance lift exceeds the RGB cube.
         let y = luminance_2020(d).clamp(0.0, 1.0);
         let mx = d[0].max(d[1]).max(d[2]);
-        if mx > 1.0 {
+        if mx > 1.0 && !working {
             let k = (1.0 - y) / (mx - y).max(1e-9);
             d = d.map(|x| y + (x - y) * k);
         }
-        std::array::from_fn(|i| srgb_to_linear(self.tables[i + 1].eval(linear_to_srgb(d[i].max(0.0)))))
+        std::array::from_fn(|i| srgb_to_linear(eval(&self.tables[i + 1], linear_to_srgb(if working { d[i] } else { d[i].max(0.0) }))))
     }
 }
 
@@ -242,7 +246,23 @@ pub fn mask_terms(j: &LocalAdjustments) -> [f32; MASK_TERMS] {
 
 /// Everything the per-pixel stage computes once per render: the CPU loop below and the GPU kernel
 /// (`lightcraft-gpu`) both read their parameters from here, so the two cannot drift apart.
+/// Internal render boundary; never persisted in settings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FinishMode {
+    #[default]
+    Display,
+    /// Background finish without an output transform.
+    Working,
+    /// A developed-image adjustment; no camera tone map.
+    Layer,
+    /// Only the final output transform, encoding and quantization.
+    Output,
+}
+
 pub struct FinishParams {
+    pub mode: FinishMode,
+    /// Developed-image contrast, independent of the Background tone map.
+    pub layer_contrast: f32,
     /// A LUT profile and its amount (0..2), applied to the display-encoded colour.
     pub lut: Option<(std::sync::Arc<crate::lut::Lut3d>, f32)>,
     pub tone: ToneMap,
@@ -311,6 +331,8 @@ impl FinishParams {
         let grain = if effects { grain(s, px_per_long) } else { None };
         let calibration = s.section_enabled("calibration");
         FinishParams {
+            mode: FinishMode::Display,
+            layer_contrast: 0.0,
             calib: if calibration { crate::colorops::calibration_matrix(&s.calibration) } else { None },
             shadow_tint: if calibration { (s.calibration.shadows_tint / 100.0) as f32 } else { 0.0 },
             tone: tone_map(s, info, s.light.contrast, s.light.whites, s.light.blacks),
@@ -360,11 +382,40 @@ impl FinishParams {
     }
 }
 
+/// Finish into unquantized linear Rec.2020 for the next adjustment layer.
+pub(crate) fn working(
+    p: &Prepared,
+    s: &DevelopSettings,
+    plan: &crate::Plan<'_>,
+    info: &SourceInfo,
+    layer: bool,
+    coverage: Option<&crate::masks::Alpha>,
+) -> lightcraft_raster::Rgb32f {
+    let mut fp = FinishParams::new(s, &plan.frame, info, plan.w, plan.h, plan.px_per_long, OutputSpace::Srgb)
+        .with_planes(p.sharp.as_ref().map(|x| x.2), p.haze.as_ref().map(|x| (x.air, x.distance)));
+    fp.mode = if layer { FinishMode::Layer } else { FinishMode::Working };
+    fp.layer_contrast = s.light.contrast as f32;
+    lightcraft_raster::Rgb32f { width: plan.w, height: plan.h, data: finish_with_mask(p, &fp, true, coverage, |c, _, _| c) }
+}
+
 pub(crate) fn finish(p: &Prepared, s: &DevelopSettings, frame: &Frame, info: &SourceInfo, space: OutputSpace, proof: Option<crate::Proof>) -> Rgba8 {
+    finish_mode(p, s, frame, info, space, proof, FinishMode::Display)
+}
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn finish_mode(
+    p: &Prepared,
+    s: &DevelopSettings,
+    frame: &Frame,
+    info: &SourceInfo,
+    space: OutputSpace,
+    proof: Option<crate::Proof>,
+    mode: FinishMode,
+) -> Rgba8 {
     let (w, h) = (p.img.width, p.img.height);
     let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, space)
         .with_planes(p.sharp.as_ref().map(|x| x.2), p.haze.as_ref().map(|x| (x.air, x.distance)));
     fp.proof = proof.map(|pr| pr.params(space));
+    fp.mode = mode;
     let trc = fp.out_trc;
     let data = finish_with(p, &fp, false, |e, x, y| {
         let e = match trc {
@@ -387,11 +438,25 @@ pub(crate) fn finish_deep(
     depth: OutputDepth,
     proof: Option<crate::Proof>,
 ) -> DeepImage {
+    finish_deep_mode(p, s, frame, info, space, depth, proof, FinishMode::Display)
+}
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn finish_deep_mode(
+    p: &Prepared,
+    s: &DevelopSettings,
+    frame: &Frame,
+    info: &SourceInfo,
+    space: OutputSpace,
+    depth: OutputDepth,
+    proof: Option<crate::Proof>,
+    mode: FinishMode,
+) -> DeepImage {
     use lightcraft_color::transfer::srgb_to_linear;
     let (w, h) = (p.img.width, p.img.height);
     let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, space)
         .with_planes(p.sharp.as_ref().map(|x| x.2), p.haze.as_ref().map(|x| (x.air, x.distance)));
     fp.proof = proof.map(|pr| pr.params(space));
+    fp.mode = mode;
     let trc = fp.out_trc;
     let samples = match depth {
         OutputDepth::F32Linear => {
@@ -419,6 +484,15 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
     exact: bool,
     store: impl Fn([f32; 3], usize, usize) -> T + Sync + Send,
 ) -> Vec<T> {
+    finish_with_mask(p, fp, exact, None, store)
+}
+fn finish_with_mask<T: Copy + Default + Send>(
+    p: &Prepared,
+    fp: &FinishParams,
+    exact: bool,
+    coverage: Option<&crate::masks::Alpha>,
+    store: impl Fn([f32; 3], usize, usize) -> T + Sync + Send,
+) -> Vec<T> {
     let (w, h) = (p.img.width, p.img.height);
     let p_lut = fp.lut.clone();
     let FinishParams { tone, ops, curves, vig, to_out, out_luma, hl, sh, clar, tex, dehaze, gain, ev, grain, .. } = fp;
@@ -437,244 +511,290 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
         for (x, px) in row.iter_mut().enumerate() {
             let i = y * w + x;
             let mut raw = p.img.data[i];
-            // develop layers' noise reduction (see `crate::layers`)
-            for (k, im) in &p.layer_nr {
-                let a = p.masks[*k].alpha.at(i);
-                if a > 0.0 {
-                    raw = mix3(raw, im.data[i], a);
-                }
+            if fp.mode == FinishMode::Layer && coverage.is_some_and(|alpha| alpha.at(i) == 0.0) {
+                *px = store(raw, x, y);
+                continue;
             }
-            let mut c = if gain == 1.0 { raw } else { raw.map(|v| v * gain) };
-            let l_pre = p.log_l.data[i];
-            let l0 = l_pre + ev;
+            let mut d = raw;
+            if fp.mode != FinishMode::Output {
+                // develop layers' noise reduction (see `crate::layers`)
+                for (k, im) in &p.layer_nr {
+                    let a = p.masks[*k].alpha.at(i);
+                    if a > 0.0 {
+                        raw = mix3(raw, im.data[i], a);
+                    }
+                }
+                let mut c = if gain == 1.0 { raw } else { raw.map(|v| v * gain) };
+                let l_pre = p.log_l.data[i];
+                let l0 = l_pre + ev;
 
-            // --- local (mask) contributions: alpha-weighted sums of the masks' terms
-            let mut l = [0.0f32; MASK_SUMS];
-            let mut tint_col: Option<([f32; 3], f32)> = None;
-            for (m, t) in p.masks.iter().zip(&terms) {
-                let a = m.alpha.at(i);
-                if a <= 0.0 {
-                    continue;
+                // --- local (mask) contributions: alpha-weighted sums of the masks' terms
+                let mut l = [0.0f32; MASK_SUMS];
+                let mut tint_col: Option<([f32; 3], f32)> = None;
+                for (m, t) in p.masks.iter().zip(&terms) {
+                    let a = m.alpha.at(i);
+                    if a <= 0.0 {
+                        continue;
+                    }
+                    for k in 0..MASK_SUMS {
+                        l[k] += a * t[k];
+                    }
+                    if t[MASK_SUMS] > 0.0 {
+                        tint_col = Some(([t[MASK_SUMS + 1], t[MASK_SUMS + 2], 0.0], a * t[MASK_SUMS + 3]));
+                    }
                 }
-                for k in 0..MASK_SUMS {
-                    l[k] += a * t[k];
-                }
-                if t[MASK_SUMS] > 0.0 {
-                    tint_col = Some(([t[MASK_SUMS + 1], t[MASK_SUMS + 2], 0.0], a * t[MASK_SUMS + 3]));
-                }
-            }
-            let [l_exp, l_temp, l_tint, l_con, l_hl, l_sh, l_wh, l_bl, l_tex, l_clar, l_dehaze, l_sat, l_hue, l_sharp, l_noise, l_moire, l_defringe] =
-                l;
+                let [
+                    l_exp,
+                    l_temp,
+                    l_tint,
+                    l_con,
+                    l_hl,
+                    l_sh,
+                    l_wh,
+                    l_bl,
+                    l_tex,
+                    l_clar,
+                    l_dehaze,
+                    l_sat,
+                    l_hue,
+                    l_sharp,
+                    l_noise,
+                    l_moire,
+                    l_defringe,
+                ] = l;
 
-            // --- local Moiré (and the colour part of Noise): chromaticity towards its blur
-            let mt = (l_moire + 0.5 * l_noise.max(0.0)).clamp(-1.0, 1.0);
-            if mt != 0.0
-                && let Some(cb) = &p.chroma_blur
-            {
-                let (y, ch0, cb) = (luminance_2020(c), crate::masks::chromaticity(raw), cb.data[i]);
-                c = std::array::from_fn(|k| ((ch0[k] + (cb[k] - ch0[k]) * mt) * y).max(0.0));
-            }
-            // --- local Defringe: desaturate purple / green fringes along edges
-            let df = l_defringe.clamp(0.0, 1.0);
-            if df > 0.0
-                && let Some(b) = &p.texture_blur
-            {
-                let k = df * defringe_weight(c, p.log_l.data[i] - b.data[i]);
-                if k > 0.0 {
-                    let y = luminance_2020(c);
-                    c = c.map(|v| v + (y - v) * k);
+                // --- local Moiré (and the colour part of Noise): chromaticity towards its blur
+                let mt = (l_moire + 0.5 * l_noise.max(0.0)).clamp(-1.0, 1.0);
+                if mt != 0.0
+                    && let Some(cb) = &p.chroma_blur
+                {
+                    let (y, ch0, cb) = (luminance_2020(c), crate::masks::chromaticity(raw), cb.data[i]);
+                    c = std::array::from_fn(|k| ((ch0[k] + (cb[k] - ch0[k]) * mt) * y).max(0.0));
                 }
-            }
+                // --- local Defringe: desaturate purple / green fringes along edges
+                let df = l_defringe.clamp(0.0, 1.0);
+                if df > 0.0
+                    && let Some(b) = &p.texture_blur
+                {
+                    let k = df * defringe_weight(c, p.log_l.data[i] - b.data[i]);
+                    if k > 0.0 {
+                        let y = luminance_2020(c);
+                        c = c.map(|v| v + (y - v) * k);
+                    }
+                }
 
-            // --- dehaze (scene linear)
-            let dz = dehaze + l_dehaze;
-            if dz != 0.0
-                && let Some(hz) = &p.haze
-            {
-                c = crate::detail::dehaze_px(c, dz, hz.at(i, dz), haze_air, fp.haze_distance);
-            }
-            // layers: their dehaze, then (below) their white balance and exposure
-            let mut layer_scene = false;
-            for l in fp.layers.iter().filter(|l| l.scene()) {
-                let a = p.masks[l.mask].alpha.at(i);
-                if a <= 0.0 {
-                    continue;
-                }
-                layer_scene = true;
-                if l.dehaze != 0.0
+                // --- dehaze (scene linear)
+                let dz = dehaze + l_dehaze;
+                if dz != 0.0
                     && let Some(hz) = &p.haze
                 {
-                    c = mix3(c, crate::detail::dehaze_px(c, l.dehaze, hz.at(i, l.dehaze), haze_air, fp.haze_distance), a);
+                    c = crate::detail::dehaze_px(c, dz, hz.at(i, dz), haze_air, fp.haze_distance);
                 }
-            }
-
-            // --- local exposure / temp / tint
-            if l_exp != 0.0 {
-                let g = l_exp.exp2();
-                c = c.map(|v| v * g);
-            }
-            if l_temp != 0.0 || l_tint != 0.0 {
-                let y0 = luminance_2020(c);
-                c = [c[0] * (1.0 + 0.3 * l_temp), c[1] * (1.0 - 0.22 * l_tint), c[2] * (1.0 - 0.3 * l_temp).max(0.0)];
-                let y1 = luminance_2020(c).max(1e-9);
-                c = c.map(|v| v * y0 / y1);
-            }
-            if layer_scene {
-                for l in fp.layers.iter().filter(|l| l.wb.is_some() || l.gain.is_some()) {
+                // layers: their dehaze, then (below) their white balance and exposure
+                let mut layer_scene = false;
+                for l in fp.layers.iter().filter(|l| l.scene()) {
                     let a = p.masks[l.mask].alpha.at(i);
                     if a <= 0.0 {
                         continue;
                     }
-                    let mut q = match &l.wb {
-                        Some(m) => mul3(m, c).map(|v| v.max(0.0)),
-                        None => c,
-                    };
-                    if let Some(g) = l.gain {
-                        q = q.map(|v| v * g);
+                    layer_scene = true;
+                    if l.dehaze != 0.0
+                        && let Some(hz) = &p.haze
+                    {
+                        c = mix3(c, crate::detail::dehaze_px(c, l.dehaze, hz.at(i, l.dehaze), haze_air, fp.haze_distance), a);
                     }
-                    c = mix3(c, q, a);
                 }
-            }
 
-            // --- tone equalizer: exposure by luminance zone (its mask is pre-exposure, see `toneeq`)
-            let mut teq = false;
-            if let (Some((curve, adj)), Some(m)) = (&fp.tone_eq, &p.tone_eq) {
-                let g = curve.gain(adj.zone_ev(m.data[i], ev));
-                if g != 1.0 {
+                // --- local exposure / temp / tint
+                if l_exp != 0.0 {
+                    let g = l_exp.exp2();
                     c = c.map(|v| v * g);
-                    teq = true;
                 }
-            }
+                if l_temp != 0.0 || l_tint != 0.0 {
+                    let y0 = luminance_2020(c);
+                    c = [c[0] * (1.0 + 0.3 * l_temp), c[1] * (1.0 - 0.22 * l_tint), c[2] * (1.0 - 0.3 * l_temp).max(0.0)];
+                    let y1 = luminance_2020(c).max(1e-9);
+                    c = c.map(|v| v * y0 / y1);
+                }
+                if layer_scene {
+                    for l in fp.layers.iter().filter(|l| l.wb.is_some() || l.gain.is_some()) {
+                        let a = p.masks[l.mask].alpha.at(i);
+                        if a <= 0.0 {
+                            continue;
+                        }
+                        let mut q = match &l.wb {
+                            Some(m) => mul3(m, c).map(|v| v.max(0.0)),
+                            None => c,
+                        };
+                        if let Some(g) = l.gain {
+                            q = q.map(|v| v * g);
+                        }
+                        c = mix3(c, q, a);
+                    }
+                }
 
-            // --- local tone in log luminance
-            let l1 = if dz != 0.0 || l_exp != 0.0 || layer_scene || teq { log_lum(c) } else { l0 };
-            let shift = l1 - l0;
-            let base = p.base.data[i] + ev + shift;
-            let mut delta = 0.0f32;
-            let (hh, ss) = (hl + l_hl, sh + l_sh);
-            if hh != 0.0 || ss != 0.0 {
-                let ws = 1.0 - smooth(-4.8, 0.3, base);
-                let wh = smooth(-1.0, 2.8, base);
-                delta += ss * 1.7 * ws * ws.sqrt() + hh * 1.7 * wh;
-            }
-            if l_wh != 0.0 {
-                delta += l_wh * 0.8 * smooth(0.5, 3.0, l1);
-            }
-            if l_bl != 0.0 {
-                delta += l_bl * 0.8 * (1.0 - smooth(-6.0, -1.5, l1));
-            }
-            if l_con != 0.0 {
-                delta += l_con * 0.14 * l1.clamp(-6.0, 4.0);
-            }
-            let cl = clar + l_clar;
-            if cl != 0.0
-                && let Some(b) = &p.clarity_blur
-            {
-                let det = (l_pre - b.data[i]).clamp(-2.5, 2.5);
-                let mid = (-(base / 3.2).powi(2)).exp();
-                delta += cl * 0.85 * det * (0.35 + 0.65 * mid);
-            }
-            let tx = tex + l_tex;
-            if tx != 0.0
-                && let Some(b) = &p.texture_blur
-            {
-                let det = l_pre - b.data[i];
-                let tame = 1.0 - 0.6 * smooth(0.4, 1.6, det.abs());
-                delta += tx * 1.1 * det.clamp(-1.0, 1.0) * tame;
-            }
-            // pixel-scale sharpening: pixel-scale, on its own planes (local Sharpness too)
-            let sharp_amount = fp.sharp_amount + l_sharp * 0.9;
-            if sharp_amount != 0.0
-                && let Some((b1, b2, _)) = &p.sharp
-            {
-                delta += crate::detail::sharpen_at(sharp_amount, &sharp_k, &p.log_l.data, &b1.data, &b2.data, w, h, x, y);
-            }
-            // local Noise: smooth (or, negative, boost) small-amplitude detail, keep edges
-            if l_noise != 0.0
-                && let Some(b) = &p.texture_blur
-            {
-                let det = l_pre - b.data[i];
-                delta -= l_noise.clamp(-1.0, 1.0) * 0.9 * det * (1.0 - smooth(0.1, 0.5, det.abs()));
-            }
-            if delta != 0.0 {
-                let g = delta.exp2();
-                c = c.map(|v| v * g);
-            }
-            for l in &fp.layers {
-                let Some(lt) = &l.local else { continue };
-                let a = p.masks[l.mask].alpha.at(i);
-                if a <= 0.0 {
-                    continue;
+                // --- tone equalizer: exposure by luminance zone (its mask is pre-exposure, see `toneeq`)
+                let mut teq = false;
+                if let (Some((curve, adj)), Some(m)) = (&fp.tone_eq, &p.tone_eq) {
+                    let g = curve.gain(adj.zone_ev(m.data[i], ev));
+                    if g != 1.0 {
+                        c = c.map(|v| v * g);
+                        teq = true;
+                    }
                 }
-                let mut dl =
-                    layer_tone_delta(lt, base, l_pre, p.clarity_blur.as_ref().map(|b| b.data[i]), p.texture_blur.as_ref().map(|b| b.data[i]));
-                if lt.sharp_amount != 0.0
-                    && let Some((_, b1, b2, sg)) = p.layer_sharp.iter().find(|(mask, _, _, _)| *mask == l.mask)
+
+                // --- local tone in log luminance
+                let l1 = if dz != 0.0 || l_exp != 0.0 || layer_scene || teq { log_lum(c) } else { l0 };
+                let shift = l1 - l0;
+                let base = p.base.data[i] + ev + shift;
+                let mut delta = 0.0f32;
+                let (hh, ss) = (hl + l_hl, sh + l_sh);
+                if hh != 0.0 || ss != 0.0 {
+                    let ws = 1.0 - smooth(-4.8, 0.3, base);
+                    let wh = smooth(-1.0, 2.8, base);
+                    delta += ss * 1.7 * ws * ws.sqrt() + hh * 1.7 * wh;
+                }
+                if l_wh != 0.0 {
+                    delta += l_wh * 0.8 * smooth(0.5, 3.0, l1);
+                }
+                if l_bl != 0.0 {
+                    delta += l_bl * 0.8 * (1.0 - smooth(-6.0, -1.5, l1));
+                }
+                if l_con != 0.0 {
+                    delta += l_con * 0.14 * l1.clamp(-6.0, 4.0);
+                }
+                let cl = clar + l_clar;
+                if cl != 0.0
+                    && let Some(b) = &p.clarity_blur
                 {
-                    let k = crate::detail::SharpK::new(lt.sharpen_detail, lt.sharpen_mask, *sg);
-                    dl += crate::detail::sharpen_at(lt.sharp_amount, &k, &p.log_l.data, &b1.data, &b2.data, w, h, x, y);
+                    let det = (l_pre - b.data[i]).clamp(-2.5, 2.5);
+                    let mid = (-(base / 3.2).powi(2)).exp();
+                    delta += cl * 0.85 * det * (0.35 + 0.65 * mid);
                 }
-
-                if dl != 0.0 {
-                    let g = dl.exp2();
-                    c = mix3(c, c.map(|v| v * g), a);
+                let tx = tex + l_tex;
+                if tx != 0.0
+                    && let Some(b) = &p.texture_blur
+                {
+                    let det = l_pre - b.data[i];
+                    let tame = 1.0 - 0.6 * smooth(0.4, 1.6, det.abs());
+                    delta += tx * 1.1 * det.clamp(-1.0, 1.0) * tame;
                 }
-            }
-
-            // --- calibration (scene linear, before the tone map)
-            if fp.calib.is_some() || fp.shadow_tint != 0.0 {
-                c = crate::colorops::calibrate(c, fp.calib.as_ref(), fp.shadow_tint);
-            }
-
-            // --- tone map on luminance, highlight desaturation
-            let mut d = tone_px(tone, c);
-            for l in &fp.layers {
-                if let Some(t) = &l.tone {
+                // pixel-scale sharpening: pixel-scale, on its own planes (local Sharpness too)
+                let sharp_amount = fp.sharp_amount + l_sharp * 0.9;
+                if sharp_amount != 0.0
+                    && let Some((b1, b2, _)) = &p.sharp
+                {
+                    delta += crate::detail::sharpen_at(sharp_amount, &sharp_k, &p.log_l.data, &b1.data, &b2.data, w, h, x, y);
+                }
+                // local Noise: smooth (or, negative, boost) small-amplitude detail, keep edges
+                if l_noise != 0.0
+                    && let Some(b) = &p.texture_blur
+                {
+                    let det = l_pre - b.data[i];
+                    delta -= l_noise.clamp(-1.0, 1.0) * 0.9 * det * (1.0 - smooth(0.1, 0.5, det.abs()));
+                }
+                if delta != 0.0 {
+                    let g = delta.exp2();
+                    c = c.map(|v| v * g);
+                }
+                for l in &fp.layers {
+                    let Some(lt) = &l.local else { continue };
                     let a = p.masks[l.mask].alpha.at(i);
-                    if a > 0.0 {
-                        d = mix3(d, tone_px(t, c), a);
+                    if a <= 0.0 {
+                        continue;
+                    }
+                    let mut dl =
+                        layer_tone_delta(lt, base, l_pre, p.clarity_blur.as_ref().map(|b| b.data[i]), p.texture_blur.as_ref().map(|b| b.data[i]));
+                    if lt.sharp_amount != 0.0
+                        && let Some((_, b1, b2, sg)) = p.layer_sharp.iter().find(|(mask, _, _, _)| *mask == l.mask)
+                    {
+                        let k = crate::detail::SharpK::new(lt.sharpen_detail, lt.sharpen_mask, *sg);
+                        dl += crate::detail::sharpen_at(lt.sharp_amount, &k, &p.log_l.data, &b1.data, &b2.data, w, h, x, y);
+                    }
+
+                    if dl != 0.0 {
+                        let g = dl.exp2();
+                        c = mix3(c, c.map(|v| v * g), a);
+                    }
+                }
+
+                // --- calibration (scene linear, before the tone map)
+                if fp.calib.is_some() || fp.shadow_tint != 0.0 {
+                    c = crate::colorops::calibrate(c, fp.calib.as_ref(), fp.shadow_tint);
+                }
+
+                // --- tone map on luminance, highlight desaturation
+                d = if fp.mode == FinishMode::Layer {
+                    crate::layers::contrast(c, fp.layer_contrast)
+                } else if fp.mode == FinishMode::Working {
+                    crate::tone2::tone_px_working(tone, &tone.method(), c)
+                } else {
+                    tone_px(tone, c)
+                };
+                for l in &fp.layers {
+                    if let Some(t) = &l.tone {
+                        let a = p.masks[l.mask].alpha.at(i);
+                        if a > 0.0 {
+                            d = mix3(d, tone_px(t, c), a);
+                        }
+                    }
+                }
+
+                // --- colour
+                d = ops.apply(d, l_sat, l_hue);
+                if let Some((dir, amt)) = tint_col {
+                    let lab = lightcraft_color::perceptual::oklab_from_2020(d);
+                    d = lightcraft_color::perceptual::oklab_to_2020([lab[0], lab[1] + dir[0] * 0.08 * amt, lab[2] + dir[1] * 0.08 * amt]);
+                }
+                for l in &fp.layers {
+                    if let Some(o) = &l.ops {
+                        let a = p.masks[l.mask].alpha.at(i);
+                        if a > 0.0 {
+                            d = mix3(d, o.apply(d, 0.0, 0.0), a);
+                        }
+                    }
+                }
+
+                // --- vignette (display linear, post-crop)
+                if let Some(v) = vig {
+                    d = vignette_px(v, d, x, y, w, h, aspect);
+                }
+                for l in &fp.layers {
+                    if let Some(v) = &l.vig {
+                        let a = p.masks[l.mask].alpha.at(i);
+                        if a > 0.0 {
+                            d = mix3(d, vignette_px(v, d, x, y, w, h, aspect), a);
+                        }
+                    }
+                }
+
+                if let Some(l) = curves {
+                    d = l.apply_mode(d, fp.refine_sat, fp.mode != FinishMode::Display);
+                }
+                for l in &fp.layers {
+                    if let Some((lut, refine)) = &l.curves {
+                        let a = p.masks[l.mask].alpha.at(i);
+                        if a > 0.0 {
+                            d = mix3(d, lut.apply(d, *refine), a);
+                        }
                     }
                 }
             }
-
-            // --- colour
-            d = ops.apply(d, l_sat, l_hue);
-            if let Some((dir, amt)) = tint_col {
-                let lab = lightcraft_color::perceptual::oklab_from_2020(d);
-                d = lightcraft_color::perceptual::oklab_to_2020([lab[0], lab[1] + dir[0] * 0.08 * amt, lab[2] + dir[1] * 0.08 * amt]);
-            }
-            for l in &fp.layers {
-                if let Some(o) = &l.ops {
-                    let a = p.masks[l.mask].alpha.at(i);
-                    if a > 0.0 {
-                        d = mix3(d, o.apply(d, 0.0, 0.0), a);
+            if matches!(fp.mode, FinishMode::Working | FinishMode::Layer) {
+                // Grain and profile LUTs belong to this image/layer, before the next layer.
+                // Encode in working primaries without output clipping or quantization.
+                if grain.is_some() || p_lut.is_some() {
+                    let mut e = d.map(linear_to_srgb);
+                    if let Some(g) = *grain {
+                        e = grain_px(e, g, out_to_norm.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5)), fp, long);
                     }
-                }
-            }
-
-            // --- vignette (display linear, post-crop)
-            if let Some(v) = vig {
-                d = vignette_px(v, d, x, y, w, h, aspect);
-            }
-            for l in &fp.layers {
-                if let Some(v) = &l.vig {
-                    let a = p.masks[l.mask].alpha.at(i);
-                    if a > 0.0 {
-                        d = mix3(d, vignette_px(v, d, x, y, w, h, aspect), a);
+                    if let Some((lut, k)) = &p_lut {
+                        e = mix3(e, lut.apply(e), *k);
                     }
+                    d = e.map(lightcraft_color::transfer::srgb_to_linear);
                 }
-            }
-
-            if let Some(l) = curves {
-                d = l.apply(d, fp.refine_sat);
-            }
-            for l in &fp.layers {
-                if let Some((lut, refine)) = &l.curves {
-                    let a = p.masks[l.mask].alpha.at(i);
-                    if a > 0.0 {
-                        d = mix3(d, lut.apply(d, *refine), a);
-                    }
-                }
+                *px = store(d, x, y);
+                continue;
             }
 
             // --- gamut map to the output space (desaturate towards luminance until in range);

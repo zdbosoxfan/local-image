@@ -55,6 +55,7 @@ const MODULES: &[Module] = &[
             "p_transpose",
             "p_clip",
             "p_scale",
+            "p_stack_anchors",
             "p_log",
             "p_biased",
             "p_lum",
@@ -151,6 +152,7 @@ const MODULES: &[Module] = &[
         src: include_str!("wgsl/map.wgsl"),
         bindings: &[("a", false, "f32"), ("b", false, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
         entries: &[
+            "stack_exposure",
             "toneeq_lum",
             "toneeq_log",
             "toneeq_preview",

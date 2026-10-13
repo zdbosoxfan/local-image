@@ -308,3 +308,12 @@ fn p_skin_low(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroup
     let i=lin_index(g,ng);if(i>=pu(0u)) {return;}let v=a[i];let mg=b[2u*i];let mp=c[2u*i];
     let aa=(c[2u*i+1u]-mg*mp)/(max(b[2u*i+1u]-mg*mg,0.0)+0.05*max(mg*v,1e-6));out[i]=aa*v+mp-aa*mg;
 }
+
+// Developed-image white/black anchors. RAW scene anchors remain unchanged for Background.
+@compute @workgroup_size(256)
+fn p_stack_anchors(@builtin(global_invocation_id) g:vec3<u32>, @builtin(num_workgroups) ng:vec3<u32>) {
+    let i=lin_index(g,ng);if(i>=pu(0u)){return;}
+    let c=rgb_a(i);let light=primary_log(c*exp2(pf(1u)));
+    let ev=0.8*pf(2u)*sstep(0.5,2.5,light)+0.8*pf(3u)*(1.0-sstep(-6.0,-3.0,light));
+    put_rgb(i,c*exp2(ev));
+}
