@@ -175,15 +175,25 @@ pub fn verify_projected_fixture(doc: Document, expected_losses: &[&str], project
     h.run_steps(3);
     assert_eq!(written.lock().unwrap().len(), 1);
     assert_eq!(h.state().ui.notices.len(), 1);
-    assert_eq!(h.state().ui.notices[0].lines.len(), 1);
-    let warning = h.state().ui.notices[0].lines[0].clone();
+    // Save results (f0558183) list the path, the encoder warnings and the completion line; the
+    // compact row shows the title and warning count, the lines appear under Details / History.
+    let notice = h.state().ui.notices[0].clone();
+    assert_eq!(notice.warning_count, 1, "{:?}", notice.lines);
+    assert_eq!(notice.lines.len(), 3, "{:?}", notice.lines);
+    assert_eq!((notice.lines[0].as_str(), notice.lines[2].as_str()), ("fixture.psd", "Saved fixture.psd"));
+    let warning = notice.lines[1].clone();
     for &feature in expected_losses {
         assert_eq!(warning.matches(feature).count(), 1);
     }
-    let _ = h.get_by_label(&format!("• {warning}"));
-    h.get_by_label("×").click();
+    h.get_by_label("Details / History").click();
+    h.run_steps(2);
+    let _ = h.get_by_label(&warning);
+    h.get_by_label("Dismiss notice").click();
     h.run_steps(2);
     assert!(h.state().ui.notices.is_empty());
+    h.get_by_label("Close window").click();
+    h.run_steps(2);
+    assert!(!h.state().ui.notice_history_open);
     let bytes = written.lock().unwrap()[0].clone();
     let back = import("fixture.psd", &bytes).unwrap().document;
     let (a, b) = (photocraft_compose::flatten(&displayed), photocraft_compose::flatten(&back));
@@ -239,7 +249,12 @@ pub fn verify_projected_fixture(doc: Document, expected_losses: &[&str], project
     h.get_by_label_contains("Save As…").click();
     h.run_steps(3);
     assert_eq!(written.lock().unwrap().len(), 2);
-    assert!(h.state().ui.notices.is_empty(), "losses are reported once when editability is first lost");
+    // The save shows its ordinary result card, without the loss warning again.
+    let notices = &h.state().ui.notices;
+    assert!(
+        notices.iter().all(|n| n.warning_count == 0 && !n.lines.iter().any(|line| line.contains("editability lost"))),
+        "losses are reported once when editability is first lost: {notices:?}"
+    );
     let moved_back = import("moved.psd", &written.lock().unwrap()[1]).unwrap().document;
     let moved_back = photocraft_compose::flatten(&moved_back);
     let diff = released

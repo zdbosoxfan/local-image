@@ -150,11 +150,18 @@ fn pdf_export_app_real_gpu_preview_release_and_menu_dialog() {
         record.lock().unwrap().push(bytes.to_vec());
         Ok(())
     }));
+    // Export As is enabled where the app has its raster exporter; PDF itself goes through pick_save/write.
+    h.state_mut().services.export = Some(Box::new(|_, _, _| Err("raster export is not used by this PDF test".into())));
     h.get_by_label("File").click();
     h.run_steps(2);
     h.get_by_label("Export ⏵").hover();
     h.run_steps(3);
-    h.get_by_label("PDF…").click();
+    // The visible PDF… item became a format of the unified Export As dialog (3b4604a1).
+    h.get_by_label_contains("Export As…").click();
+    h.run_steps(3);
+    h.get(egui_kittest::kittest::By::new().role(egui::accesskit::Role::ComboBox).value("PNG")).click();
+    h.run_steps(2);
+    h.get_by_label("PDF").click();
     h.run_steps(3);
     h.get_by_label("Text as curves").click();
     h.run_steps(2);
@@ -186,7 +193,10 @@ fn pdf_export_app_real_gpu_preview_release_and_menu_dialog() {
     assert!(!h.state().ui.notices.is_empty());
     assert!(h.state().ui.notices.iter().any(|n| n.lines.iter().any(|line| line.contains("embedded"))));
     let warning = h.state().ui.notices.iter().flat_map(|n| &n.lines).find(|line| line.contains("embedded")).unwrap().clone();
-    let _ = h.get_by_label(&format!("• {warning}"));
+    // Notice lines are shown under Details / History since the compact notice row (f0558183).
+    h.get_by_label("Details / History").click();
+    h.run_steps(2);
+    let _ = h.get_by_label(&warning);
 
     #[cfg(feature = "pdf-import-integrated")]
     roundtrip(&mut h, &gpu, &original, &bytes);
