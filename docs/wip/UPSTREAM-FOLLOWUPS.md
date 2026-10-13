@@ -54,3 +54,4 @@ Collected while integrating the up-* batches into `claude/v2-continue`. Per-batc
 - Wayland pen: compatibility mode re-execs without WAYLAND_DISPLAY when a pen is detected. Verify it on the owner's KDE Wayland with a real tablet.
 - **Exports aren't byte-reproducible:** the ICC profile header embeds the current time (moxcms encoder via `lc-codecs::icc::write_named`). Set a fixed or derived creation date so identical exports give identical files.
 - **Preferences:** add "Concurrent exports/previews/imports: Auto / 1", mapping to `pipeline::Shape::serial()` and `ImportJob::copy_workers`. Serial helps card readers and spinning disks.
+- **Match Look review check:** no cap on the number of saved looks (owner). Only per-file safety bounds on imported look files are allowed.

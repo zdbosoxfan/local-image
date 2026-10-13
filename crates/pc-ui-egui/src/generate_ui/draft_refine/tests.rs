@@ -342,7 +342,7 @@ fn draft_refine_zoom_pan_comparison_and_saved_defaults() {
     drag(&mut h, slider.center(), vec2(25.0, 0.0));
     assert!(h.state().draft_refine.split > 0.5);
     let old: crate::ai_ui::AiOptions = serde_json::from_value(json!({"remove_engine":"qwen-int8","generate":{"prompt":"old"}})).unwrap();
-    assert!(!old.remove_immediately);
+    assert!(old.remove_immediately); // TEST-CHANGED: the fresh default is now apply-on-release (U030)
     assert_eq!(old.generate.refine_input, RefineInput::Composite);
     assert_eq!(old.draft_refine.input, Input::Composite);
     h.hover_at(pos2(15.0, 15.0));
