@@ -3,6 +3,8 @@
 //! `photocraft_algo::matting`; these commands pick the pixels to analyse (active layer or
 //! composite), run them, and store the result as the selection (or a mask / new layer).
 
+use std::sync::Arc;
+
 use photocraft_algo::matting::{self, RefineParams};
 use photocraft_algo::segment::{Sampler, SurfaceSampler, focus, grabcut, quick, subject};
 use photocraft_algo::selection::{Region, SelectionMode, combine_region};
@@ -11,6 +13,7 @@ use photocraft_geom::Rect;
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
+use crate::jobs::JobCtx;
 use crate::{EngineError, Result, Session};
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
@@ -98,21 +101,33 @@ fn quick_selection(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let enhance = b(p, "enhanceEdge", false);
     let all = b(p, "sampleAllLayers", false);
+    let (doc, layer) = snapshot(s)?;
     // local-image: the installed subject model as a weak prior (`subjectAssist`, on by default;
     // nothing happens without a model).
-    let prior = if b(p, "subjectAssist", true) {
-        let d = s.active().ok_or(EngineError::NoDocument)?;
-        crate::seg::quick_prior(&d.doc, d.active_layer, all)
-    } else {
-        None
+    let model = if b(p, "subjectAssist", true) { crate::seg::SubjectModel::current() } else { None };
+    // The model runs once per pixel state: only the stroke that has to run it becomes a job
+    // (later strokes reuse the map and stay as immediate as before).
+    let needs_model = model.as_ref().is_some_and(|m| crate::seg::cached_probability(m, &doc, layer, all).is_none());
+    let work = move |ctx: &JobCtx| -> Result<Option<Region>> {
+        if needs_model {
+            ctx.progress(0.0, "Selecting");
+        }
+        let prior = model.as_ref().and_then(|m| crate::seg::probability_with(m, &doc, layer, all));
+        ctx.check()?;
+        Ok(with_doc_sampler(&doc, layer, all, |smp, doc| {
+            let canvas = doc.bounds();
+            let prior = prior.as_ref().map(|p| quick::Prior { area: p.0, prob: &p.1 });
+            let r = quick::quick_select_with(smp, canvas, &pts, size, quick::WORK_PX, prior)?;
+            if enhance { matting::refine_mask(smp, &matting::region_reader(&r), r.bbox, canvas, &ENHANCE) } else { Some(r) }
+        }))
     };
-    let region = with_sampler(s, all, |smp, doc| {
-        let canvas = doc.bounds();
-        let prior = prior.as_ref().map(|p| quick::Prior { area: p.0, prob: &p.1 });
-        let r = quick::quick_select_with(smp, canvas, &pts, size, quick::WORK_PX, prior)?;
-        if enhance { matting::refine_mask(smp, &matting::region_reader(&r), r.bbox, canvas, &ENHANCE) } else { Some(r) }
-    })?;
-    apply(s, "Quick Selection", region, m)
+    let finish = move |s: &mut Session, region: Option<Region>| apply(s, "Quick Selection", region, m);
+    if needs_model {
+        crate::jobs::run(s, "Quick Selection", true, work, finish)
+    } else {
+        let region = work(&JobCtx::new())?;
+        finish(s, region)
+    }
 }
 
 fn rect_param(p: &Value) -> Option<Rect> {
@@ -134,44 +149,85 @@ pub(crate) fn learned_refine(canvas: Rect) -> RefineParams {
     RefineParams { radius: r, smart_radius: true, smooth: 0.0, feather: 0.0, contrast: 20.0, shift_edge: 0.0 }
 }
 
-/// local-image: a learned region, refined against the pixels the tool samples.
-fn learned(s: &Session, all_layers: bool, find: impl FnOnce(&Document, Option<LayerId>) -> Option<Region>) -> Result<Option<Region>> {
+/// The document as the command sees it (copy-on-write: cloning the `Arc` is free) and its active
+/// layer, for a job's worker.
+fn snapshot(s: &Session) -> Result<(Arc<Document>, Option<LayerId>)> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
-    let Some(r) = find(&d.doc, d.active_layer) else { return Ok(None) };
-    with_sampler(s, all_layers, |smp, doc| {
+    Ok((d.doc.clone(), d.active_layer))
+}
+
+/// local-image: a learned region, refined against the pixels the tool samples. Runs on a job's
+/// worker (or inline for `Session::execute`).
+fn learned(
+    doc: &Document,
+    layer: Option<LayerId>,
+    all_layers: bool,
+    ctx: &JobCtx,
+    find: impl FnOnce(&Document, Option<LayerId>) -> Option<Region>,
+) -> Result<Option<Region>> {
+    let Some(r) = find(doc, layer) else { return Ok(None) };
+    ctx.check()?;
+    ctx.progress(0.7, "Refining edge");
+    Ok(Some(with_doc_sampler(doc, layer, all_layers, |smp, doc| {
         let canvas = doc.bounds();
         let refined = matting::refine_mask(smp, &matting::region_reader(&r), r.bbox, canvas, &learned_refine(canvas));
-        Some(refined.unwrap_or(r))
-    })
+        refined.unwrap_or(r)
+    })))
 }
 
 fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
-    // local-image: click mode (`"point": [x, y]`): the object under the click, from the learned model.
+    // local-image: click mode (`"point": [x, y]`): the object under the click, from the learned
+    // model. A background job (the model and the edge refinement take seconds on large images);
+    // repeated clicks on the same pixels reuse the model's map.
     if let Some(pt) = p.get("point").and_then(Value::as_array) {
         let xy = (pt.first().and_then(Value::as_f64), pt.get(1).and_then(Value::as_f64));
         let (Some(x), Some(y)) = xy else { return Err(bad("select.object", "\"point\" must be [x, y]")) };
-        crate::seg::installed()
+        let model = crate::seg::SubjectModel::current()
             .ok_or_else(|| bad("select.object", "click mode needs a selection model (Help › AI Models & GPU…); drag a rectangle instead"))?;
         let all = b(p, "sampleAllLayers", false);
-        let region = learned(s, all, |doc, layer| crate::seg::object_at(doc, layer, all, x.floor() as i32, y.floor() as i32))?;
-        return apply(s, "Object Selection", region, mode(p, "replace"));
+        let m = mode(p, "replace");
+        let (doc, layer) = snapshot(s)?;
+        let (x, y) = (x.floor() as i32, y.floor() as i32);
+        return crate::jobs::run(
+            s,
+            "Object Selection",
+            true,
+            move |ctx| {
+                ctx.progress(0.0, "Selecting object");
+                learned(&doc, layer, all, ctx, |doc, layer| crate::seg::object_at_with(&model, doc, layer, all, x, y))
+            },
+            move |s, region| apply(s, "Object Selection", region, m),
+        );
     }
     let rect = rect_param(p).ok_or_else(|| bad("select.object", "needs \"rect\": [x, y, w, h] or \"point\": [x, y]"))?;
     let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| grabcut::object_select(smp, doc.bounds(), rect, 160_000))?;
     apply(s, "Object Selection", region, mode(p, "replace"))
 }
 
+/// Select › Subject: a background job (the model, or the classical saliency + GrabCut, on the
+/// whole composite); the selection mode is applied to the selection when it finishes.
 fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
     let all = b(p, "sampleAllLayers", true);
     // local-image: the learned model when one is installed (`"engine": "auto|classic|learned"`).
-    if crate::seg::wanted(p).map_err(|m| bad("select.subject", &m))? {
-        let region = learned(s, all, |doc, layer| crate::seg::subject(doc, layer, all))?;
-        if region.is_some() {
-            return apply(s, "Select Subject", region, mode(p, "replace"));
-        }
-    }
-    let region = with_sampler(s, all, |smp, doc| subject::select_subject(smp, doc.bounds()))?;
-    apply(s, "Select Subject", region, mode(p, "replace"))
+    let model = if crate::seg::wanted(p).map_err(|m| bad("select.subject", &m))? { crate::seg::SubjectModel::current() } else { None };
+    let m = mode(p, "replace");
+    let (doc, layer) = snapshot(s)?;
+    crate::jobs::run(
+        s,
+        "Select Subject",
+        true,
+        move |ctx| {
+            ctx.progress(0.0, "Selecting subject");
+            if let Some(model) = model
+                && let Some(r) = learned(&doc, layer, all, ctx, |doc, layer| crate::seg::subject_with(&model, doc, layer, all))?
+            {
+                return Ok(Some(r));
+            }
+            ctx.check()?;
+            Ok(with_doc_sampler(&doc, layer, all, |smp, doc| subject::select_subject(smp, doc.bounds())))
+        },
+        move |s, region| apply(s, "Select Subject", region, m),
+    )
 }
 
 fn focus_area(s: &mut Session, p: &Value) -> Result<Value> {
@@ -582,5 +638,226 @@ mod tests {
         });
         s.execute("select.focusArea", json!({})).unwrap();
         assert!(cov(&s, 30, 50) >= 0.5 && cov(&s, 130, 50) < 0.5);
+    }
+
+    // ------------------------------------------------ background jobs (audit F13)
+
+    use crate::jobs::{JobEvent, JobId, JobOutcome, Started};
+    use crate::seg::{MockModel, mock_subject_model_on_thread};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    /// Tests with a mock model share the process-wide probability cache: one at a time.
+    static MOCK_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A mock subject model installed on this thread for the test's lifetime.
+    struct Mocked {
+        model: Arc<MockModel>,
+        _serial: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for Mocked {
+        fn drop(&mut self) {
+            mock_subject_model_on_thread(None);
+        }
+    }
+
+    /// The `disc` fixture's subject: 1 inside the centred disc, 0 elsewhere.
+    fn mocked(gate: Option<Arc<AtomicBool>>) -> Mocked {
+        let serial = MOCK_SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let model = MockModel::new(gate, |w, h| {
+            let (cx, cy, r) = (w as f32 / 2.0, h as f32 / 2.0, w.min(h) as f32 * 0.28);
+            Some((0..w * h).map(|i| (((i % w) as f32 + 0.5 - cx).hypot((i / w) as f32 + 0.5 - cy) <= r) as u8 as f32).collect())
+        });
+        mock_subject_model_on_thread(Some(model.clone()));
+        Mocked { model, _serial: serial }
+    }
+
+    fn job(r: Started) -> JobId {
+        match r {
+            Started::Job(id) => id,
+            Started::Done(v) => panic!("expected a background job, ran inline: {v}"),
+        }
+    }
+
+    fn wait_event(s: &mut Session, id: JobId) -> JobEvent {
+        let t = Instant::now();
+        loop {
+            if let Some(e) = s.poll_jobs().into_iter().find(|e| e.id == id) {
+                return e;
+            }
+            assert!(t.elapsed() < Duration::from_secs(60), "job {id:?} did not finish");
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    /// Start `cmd` in the background and wait for its result.
+    fn run_job(s: &mut Session, cmd: &str, p: Value) -> Value {
+        let id = job(s.start(cmd, p).unwrap());
+        match wait_event(s, id).outcome {
+            JobOutcome::Done(v) => v,
+            o => panic!("{cmd}: {o:?}"),
+        }
+    }
+
+    fn steps(s: &Session) -> usize {
+        s.active().unwrap().history.past_len()
+    }
+
+    #[test]
+    fn select_subject_runs_as_a_job_the_caller_does_not_wait_for() {
+        let gate = Arc::new(AtomicBool::new(false));
+        let mk = mocked(Some(gate.clone()));
+        let (mut s, inside) = disc(8);
+        let before = steps(&s);
+        let t = Instant::now();
+        let id = job(s.start("select.subject", json!({})).unwrap());
+        // `start` returned while the model is still held by the gate.
+        assert!(t.elapsed() < Duration::from_secs(5));
+        assert_eq!(s.job(id).map(|j| j.label), Some("Select Subject".to_string()));
+        assert!(s.active().unwrap().doc.selection.is_none(), "nothing applied yet");
+        // Another selection or edit on the busy document is refused with the job's name.
+        let err = s.start("select.object", json!({"point": [100, 80]})).unwrap_err().to_string();
+        assert!(err.contains("Select Subject"), "{err}");
+        assert!(s.execute("select.all", json!({})).is_err());
+        gate.store(true, Ordering::SeqCst);
+        let e = wait_event(&mut s, id);
+        let JobOutcome::Done(v) = &e.outcome else { panic!("{e:?}") };
+        assert_eq!(v["selected"], true);
+        assert!(sel_iou(&s, 200, 160, &inside) > 0.9);
+        assert_eq!(steps(&s), before + 1, "one undo step");
+        assert_eq!(s.active().unwrap().history.undo_label(), Some("Select Subject"));
+        assert!(s.undo());
+        assert!(s.active().unwrap().doc.selection.is_none());
+        assert_eq!(mk.model.calls(), 1);
+    }
+
+    #[test]
+    fn cancelling_an_object_click_unlocks_at_once_and_changes_nothing() {
+        let gate = Arc::new(AtomicBool::new(false));
+        let mk = mocked(Some(gate.clone()));
+        let (mut s, _) = disc(8);
+        let (doc_before, before) = (s.active().unwrap().doc.clone(), steps(&s));
+        let id = job(s.start("select.object", json!({"point": [100, 80]})).unwrap());
+        let t = Instant::now();
+        while mk.model.calls() == 0 && t.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(s.cancel_job(id));
+        assert!(s.active_job().is_none(), "the document is unlocked at once");
+        assert_eq!(wait_event(&mut s, id).outcome, JobOutcome::Cancelled);
+        gate.store(true, Ordering::SeqCst);
+        s.join_cancelled_jobs();
+        assert!(s.poll_jobs().is_empty(), "nothing arrives later");
+        assert!(Arc::ptr_eq(&s.active().unwrap().doc, &doc_before));
+        assert_eq!(steps(&s), before);
+        assert!(s.active().unwrap().doc.selection.is_none());
+    }
+
+    #[test]
+    fn a_selection_job_on_a_document_that_changed_is_discarded() {
+        let gate = Arc::new(AtomicBool::new(false));
+        let _mk = mocked(Some(gate.clone()));
+        let (mut s, _) = disc(8);
+        let id = job(s.start("select.subject", json!({})).unwrap());
+        // An edit that bypasses the command lock (a direct engine edit).
+        s.edit("paint", |doc, _| {
+            let surf = doc.layers[0].surface_mut().unwrap();
+            let n = surf.channels();
+            surf.write_region(Rect::new(0, 0, 1, 1), &vec![0.0; n]);
+            Ok(())
+        })
+        .unwrap();
+        let before = steps(&s);
+        gate.store(true, Ordering::SeqCst);
+        let e = wait_event(&mut s, id);
+        let JobOutcome::Failed(msg) = &e.outcome else { panic!("{e:?}") };
+        assert!(msg.contains("changed while it ran"), "{msg}");
+        assert!(s.active().unwrap().doc.selection.is_none());
+        assert_eq!(steps(&s), before);
+    }
+
+    #[test]
+    fn the_selection_mode_is_applied_when_the_job_finishes() {
+        let _mk = mocked(None);
+        let (mut s, _) = disc(8);
+        // Add: a left strip plus the clicked disc.
+        s.execute("select.rect", json!({"x": 0, "y": 0, "width": 30, "height": 160})).unwrap();
+        run_job(&mut s, "select.object", json!({"point": [100, 80], "mode": "add"}));
+        assert!(cov(&s, 10, 10) >= 0.5 && cov(&s, 100, 80) >= 0.5 && cov(&s, 180, 10) < 0.5);
+        // Intersect with the right half.
+        s.execute("select.rect", json!({"x": 100, "y": 0, "width": 100, "height": 160})).unwrap();
+        run_job(&mut s, "select.object", json!({"point": [100, 80], "mode": "intersect"}));
+        assert!(cov(&s, 120, 80) >= 0.5 && cov(&s, 80, 80) < 0.5 && cov(&s, 180, 10) < 0.5);
+        // Subtract from everything.
+        s.execute("select.all", json!({})).unwrap();
+        run_job(&mut s, "select.subject", json!({"mode": "subtract"}));
+        assert!(cov(&s, 100, 80) < 0.5 && cov(&s, 5, 5) >= 0.5);
+        // A click off the subject finds nothing: Add leaves the selection (and history) alone.
+        let before = steps(&s);
+        let r = run_job(&mut s, "select.object", json!({"point": [5, 5], "mode": "add"}));
+        assert_eq!(r["changed"], false);
+        assert_eq!(steps(&s), before);
+    }
+
+    #[test]
+    fn repeated_object_clicks_reuse_the_model_map() {
+        let mk = mocked(None);
+        let (mut s, inside) = disc(8);
+        run_job(&mut s, "select.object", json!({"point": [100, 80]}));
+        assert_eq!(mk.model.calls(), 1);
+        assert!(sel_iou(&s, 200, 160, &inside) > 0.9);
+        // A selection change doesn't touch the pixels: the next clicks and Select Subject reuse it.
+        run_job(&mut s, "select.object", json!({"point": [110, 90], "mode": "add"}));
+        run_job(&mut s, "select.subject", json!({"sampleAllLayers": false}));
+        assert_eq!(mk.model.calls(), 1, "cache hit");
+        // Sample All Layers reads other pixels (the composite): its own map.
+        run_job(&mut s, "select.object", json!({"point": [100, 80], "sampleAllLayers": true}));
+        assert_eq!(mk.model.calls(), 2);
+        run_job(&mut s, "select.subject", json!({}));
+        assert_eq!(mk.model.calls(), 2);
+        // New pixels: the model runs again.
+        s.edit("paint", |doc, _| {
+            let surf = doc.layers[0].surface_mut().unwrap();
+            let n = surf.channels();
+            surf.write_region(Rect::new(0, 0, 1, 1), &vec![0.0; n]);
+            Ok(())
+        })
+        .unwrap();
+        run_job(&mut s, "select.object", json!({"point": [100, 80], "sampleAllLayers": true}));
+        assert_eq!(mk.model.calls(), 3);
+    }
+
+    #[test]
+    fn quick_selection_backgrounds_only_the_stroke_that_runs_the_model() {
+        let mk = mocked(None);
+        let (mut s, _) = disc(8);
+        let id = job(s.start("select.quick", json!({"points": [[100, 80]], "size": 10})).unwrap());
+        assert!(matches!(wait_event(&mut s, id).outcome, JobOutcome::Done(_)));
+        assert!(cov(&s, 100, 80) >= 0.5);
+        // The next stroke reuses the prior: immediate, as before.
+        let r = s.start("select.quick", json!({"points": [[110, 70]], "size": 10})).unwrap();
+        assert!(matches!(r, Started::Done(_)), "{r:?}");
+        assert_eq!(mk.model.calls(), 1);
+        // Without Subject Assist nothing is backgrounded either.
+        let r = s.start("select.quick", json!({"points": [[10, 10]], "size": 10, "subjectAssist": false})).unwrap();
+        assert!(matches!(r, Started::Done(_)), "{r:?}");
+    }
+
+    #[test]
+    fn automation_still_gets_the_result_synchronously() {
+        let _mk = mocked(None);
+        let (mut s, inside) = disc(8);
+        // `Session::execute` (scripts, the CLI, actions) runs the job inline and returns its result.
+        let r = s.execute("select.subject", json!({})).unwrap();
+        assert_eq!((r["selected"].clone(), r["changed"].clone()), (json!(true), json!(true)));
+        assert!(r["bounds"].is_array());
+        assert!(!s.has_jobs());
+        assert!(sel_iou(&s, 200, 160, &inside) > 0.9);
+        let r = s.execute("select.object", json!({"point": [100, 80], "mode": "subtract"})).unwrap();
+        assert_eq!(r["selected"], false);
+        assert!(s.active().unwrap().doc.selection.is_none());
+        let r = s.execute("select.subject", json!({"engine": "classic"})).unwrap();
+        assert_eq!(r["selected"], true);
     }
 }

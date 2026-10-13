@@ -4,6 +4,8 @@
 //! keep PhotoCraft's classical saliency + GrabCut.
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use photocraft_algo::selection::{self as sel, Region};
 use photocraft_doc::{Document, LayerId};
@@ -24,9 +26,9 @@ pub fn installed() -> Option<li_seg::InUse> {
 pub fn wanted(p: &Value) -> std::result::Result<bool, String> {
     match p.get("engine").and_then(Value::as_str).unwrap_or("auto") {
         "classic" => Ok(false),
-        "learned" if installed().is_none() => Err("no selection model is installed (Help › AI Models & GPU…)".into()),
+        "learned" if SubjectModel::current().is_none() => Err("no selection model is installed (Help › AI Models & GPU…)".into()),
         "learned" => Ok(true),
-        _ => Ok(installed().is_some()),
+        _ => Ok(SubjectModel::current().is_some()),
     }
 }
 
@@ -43,13 +45,96 @@ fn rgba8(doc: &Document, layer: Option<LayerId>, all_layers: bool) -> (Rect, Vec
     (area, px.into_iter().flatten().collect())
 }
 
+/// The subject model a command uses. It is resolved on the caller's thread when the command
+/// starts (so a test's [`mock_subject_model_on_thread`] reaches the job's worker) and moved into
+/// the job; the worker loads the model itself.
+#[derive(Clone)]
+pub struct SubjectModel(ModelKind);
+
+#[derive(Clone)]
+enum ModelKind {
+    Installed(li_seg::InUse),
+    Mock(Arc<MockModel>),
+}
+
+impl PartialEq for SubjectModel {
+    fn eq(&self, other: &Self) -> bool {
+        match (&self.0, &other.0) {
+            (ModelKind::Installed(a), ModelKind::Installed(b)) => a == b,
+            (ModelKind::Mock(a), ModelKind::Mock(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
+impl SubjectModel {
+    /// The model the commands would use now (a test's mock on this thread first), if any.
+    pub fn current() -> Option<Self> {
+        if let Some(m) = MOCK.with(|m| m.borrow().clone()) {
+            return Some(Self(ModelKind::Mock(m)));
+        }
+        installed().map(|u| Self(ModelKind::Installed(u)))
+    }
+
+    /// Foreground probability (0–1) at the image's size, or `None` (no clear subject).
+    fn predict(&self, rgba: &[u8], w: usize, h: usize) -> Option<Vec<f32>> {
+        match &self.0 {
+            ModelKind::Installed(_) => li_seg::shared(&models_dir())?.predict(rgba, w, h).ok()?,
+            ModelKind::Mock(m) => m.predict(rgba, w, h),
+        }
+    }
+}
+
+/// Headless-test stand-in for the subject model: counts its runs and can hold each run until a
+/// gate opens (so a test can see the job pending, cancel it or edit the document meanwhile).
+#[doc(hidden)]
+pub struct MockModel {
+    calls: AtomicUsize,
+    gate: Option<Arc<AtomicBool>>,
+    #[allow(clippy::type_complexity)]
+    map: Box<dyn Fn(usize, usize) -> Option<Vec<f32>> + Send + Sync>,
+}
+
+impl MockModel {
+    /// A model whose map for a `w`×`h` image is `map(w, h)` (row-major, 0–1; `None`: no clear
+    /// subject); `gate` (if any) holds every run until it is set.
+    pub fn new(gate: Option<Arc<AtomicBool>>, map: impl Fn(usize, usize) -> Option<Vec<f32>> + Send + Sync + 'static) -> Arc<Self> {
+        Arc::new(Self { calls: AtomicUsize::new(0), gate, map: Box::new(map) })
+    }
+
+    /// How many times the model ran.
+    pub fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+
+    fn predict(&self, _rgba: &[u8], w: usize, h: usize) -> Option<Vec<f32>> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(gate) = &self.gate {
+            // Bounded, so a failed test can't leave a worker spinning forever.
+            let t = std::time::Instant::now();
+            while !gate.load(Ordering::SeqCst) && t.elapsed() < std::time::Duration::from_secs(60) {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+        (self.map)(w, h)
+    }
+}
+
+thread_local! {
+    static MOCK: std::cell::RefCell<Option<Arc<MockModel>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Headless-test hook: commands started on this thread use `model` as the subject model
+/// (`None` restores the installed one). Other threads (other tests) are unaffected.
+#[doc(hidden)]
+pub fn mock_subject_model_on_thread(model: Option<Arc<MockModel>>) {
+    MOCK.with(|m| *m.borrow_mut() = model);
+}
+
 /// Foreground probability over the canvas, or `None` (no model, or no clear subject).
 pub fn probability(doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<(Rect, Vec<f32>)> {
-    let seg = li_seg::shared(&models_dir())?;
-    let (area, rgba) = rgba8(doc, layer, all_layers);
-    let (w, h) = (area.width() as usize, area.height() as usize);
-    let prob = seg.predict(&rgba, w, h).ok()??;
-    Some((area, prob))
+    let p = probability_with(&SubjectModel::current()?, doc, layer, all_layers)?;
+    Some((*p).clone())
 }
 
 /// The tight region of the non-zero coverage in `prob` (over `area`).
@@ -75,53 +160,90 @@ pub fn region(area: Rect, prob: &[f32]) -> Option<Region> {
 
 /// Select Subject with the learned model.
 pub fn subject(doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<Region> {
-    let (area, prob) = probability(doc, layer, all_layers)?;
-    region(area, &prob)
+    subject_with(&SubjectModel::current()?, doc, layer, all_layers)
+}
+
+/// Select Subject with `model`.
+pub fn subject_with(model: &SubjectModel, doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<Region> {
+    let p = probability_with(model, doc, layer, all_layers)?;
+    region(p.0, &p.1)
 }
 
 /// The object under document point `(x, y)` (Object Selection click mode): the connected part of
 /// the salient map around the click.
 pub fn object_at(doc: &Document, layer: Option<LayerId>, all_layers: bool, x: i32, y: i32) -> Option<Region> {
-    let (area, prob) = probability(doc, layer, all_layers)?;
-    if !area.contains(x, y) {
+    object_at_with(&SubjectModel::current()?, doc, layer, all_layers, x, y)
+}
+
+/// [`object_at`] with `model`. Repeated clicks on the same pixels reuse the model's map.
+pub fn object_at_with(model: &SubjectModel, doc: &Document, layer: Option<LayerId>, all_layers: bool, x: i32, y: i32) -> Option<Region> {
+    if !doc.bounds().contains(x, y) {
         return None;
     }
+    let p = probability_with(model, doc, layer, all_layers)?;
+    let (area, prob) = (p.0, &p.1);
     let (w, h) = (area.width() as usize, area.height() as usize);
-    let obj = li_seg::object_at(&prob, w, h, (x - area.x0) as usize, (y - area.y0) as usize)?;
+    let obj = li_seg::object_at(prob, w, h, (x - area.x0) as usize, (y - area.y0) as usize)?;
     region(area, &obj)
 }
 
-/// What a Quick Selection prior was computed from: the canvas and the sampled pixels (the layer,
-/// or every layer for the composite). Compared by value; unchanged pixels share their tiles, so
-/// the comparison is cheap.
+/// What a subject probability map was computed from: the model, the canvas and the sampled
+/// pixels (the layer, or every layer for the composite). Compared by value; unchanged pixels
+/// share their tiles, so the comparison is cheap. Selection and view changes don't touch it, so
+/// an Object Selection click in Add mode doesn't invalidate the map for the next click.
 #[derive(PartialEq)]
-struct PriorKey {
+struct ProbKey {
+    model: SubjectModel,
     area: Rect,
     layer: Option<photocraft_raster::Surface>,
     layers: Option<Vec<photocraft_doc::Layer>>,
 }
 
-type PriorCache = std::sync::Mutex<Option<(PriorKey, std::sync::Arc<(Rect, Vec<f32>)>)>>;
-static QUICK_PRIOR: PriorCache = std::sync::Mutex::new(None);
+impl ProbKey {
+    fn new(model: &SubjectModel, doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Self {
+        let surf = layer.and_then(|id| doc.layer(id)).and_then(|l| l.surface()).filter(|_| !all_layers);
+        Self { model: model.clone(), area: doc.bounds(), layer: surf.cloned(), layers: surf.is_none().then(|| doc.layers.clone()) }
+    }
+}
+
+/// A computed map (or "no clear subject"), shared by Quick Selection's prior, Object Selection's
+/// clicks, Select Subject and Remove Background. One entry: a 24 MP map is about 96 MB.
+type SubjectMap = Option<Arc<(Rect, Vec<f32>)>>;
+type ProbCache = Mutex<Option<(ProbKey, SubjectMap)>>;
+static PROBABILITY: ProbCache = Mutex::new(None);
+
+/// The cached map for these pixels: `Some(map)` on a hit (the map itself may be `None`: the model
+/// found no clear subject), `None` when the model would have to run.
+pub fn cached_probability(model: &SubjectModel, doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<SubjectMap> {
+    let key = ProbKey::new(model, doc, layer, all_layers);
+    lookup(&key)
+}
+
+fn lookup(key: &ProbKey) -> Option<SubjectMap> {
+    let cache = PROBABILITY.lock().unwrap_or_else(PoisonError::into_inner);
+    cache.as_ref().filter(|(k, _)| k == key).map(|(_, v)| v.clone())
+}
+
+/// Foreground probability over the canvas from `model`: once per pixel state, later calls on the
+/// same pixels reuse it. Runs the model on the calling thread (a job's worker).
+pub fn probability_with(model: &SubjectModel, doc: &Document, layer: Option<LayerId>, all_layers: bool) -> SubjectMap {
+    let key = ProbKey::new(model, doc, layer, all_layers);
+    if let Some(hit) = lookup(&key) {
+        return hit;
+    }
+    let (area, rgba) = rgba8(doc, layer, all_layers);
+    let (w, h) = (area.width() as usize, area.height() as usize);
+    let map = model.predict(&rgba, w, h).map(|prob| Arc::new((area, prob)));
+    // The lock is not held while the model runs.
+    *PROBABILITY.lock().unwrap_or_else(PoisonError::into_inner) = Some((key, map.clone()));
+    map
+}
 
 /// local-image: the subject probability Quick Selection uses as a weak prior (see
 /// `photocraft_algo::segment::quick`), when a model is installed. The model runs once per pixel
 /// state: later strokes on the same pixels reuse it.
-pub fn quick_prior(doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<std::sync::Arc<(Rect, Vec<f32>)>> {
-    installed()?;
-    let surf = layer.and_then(|id| doc.layer(id)).and_then(|l| l.surface()).filter(|_| !all_layers);
-    let key = PriorKey { area: doc.bounds(), layer: surf.cloned(), layers: surf.is_none().then(|| doc.layers.clone()) };
-    if let Ok(cache) = QUICK_PRIOR.lock()
-        && let Some((k, v)) = cache.as_ref()
-        && *k == key
-    {
-        return Some(v.clone());
-    }
-    let prior = std::sync::Arc::new(probability(doc, layer, all_layers)?);
-    if let Ok(mut cache) = QUICK_PRIOR.lock() {
-        *cache = Some((key, prior.clone()));
-    }
-    Some(prior)
+pub fn quick_prior(doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<Arc<(Rect, Vec<f32>)>> {
+    probability_with(&SubjectModel::current()?, doc, layer, all_layers)
 }
 
 /// The installed sky model, if any.

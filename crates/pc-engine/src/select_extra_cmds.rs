@@ -46,13 +46,13 @@ impl Sampler for CompositeSampler<'_> {
 
 // ---------------------------------------------------------------- Sky
 
+/// Select › Sky: a background job (the sky model or the classical detector on the whole
+/// composite); the selection mode is applied to the selection when it finishes.
 fn select_sky(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
-    let doc = d.doc.clone();
-    let canvas = doc.bounds();
+    let (doc, active) = (d.doc.clone(), d.active_layer);
     let params = SkyParams { threshold: f(p, "threshold", 50.0) as f32, softness: f(p, "softness", 50.0) as f32 };
     let all = p.get("sampleAllLayers").and_then(Value::as_bool).unwrap_or(true);
-    let layer = d.active_layer.and_then(|id| doc.layer(id)).and_then(|l| l.surface());
     // local-image: the quick sky model when installed (`"engine": "auto|learned|classic"`), else
     // PhotoCraft's classical sky detector.
     let learned = match p.get("engine").and_then(Value::as_str).unwrap_or("auto") {
@@ -62,31 +62,47 @@ fn select_sky(s: &mut Session, p: &Value) -> Result<Value> {
         }
         _ => crate::seg::sky_installed().is_some(),
     };
-    let region = if learned {
-        crate::seg::sky_probability(&doc, d.active_layer, all || layer.is_none()).and_then(|(area, mut prob)| {
-            crate::seg::shape(&mut prob, params.threshold, params.softness);
-            crate::seg::region(area, &prob)
-        })
-    } else {
-        match (all, layer) {
-            (false, Some(surf)) => sky::select_sky(&SurfaceSampler(surf), canvas, params),
-            _ => sky::select_sky(&CompositeSampler(&doc), canvas, params),
-        }
-    };
     let m = p.get("mode").and_then(Value::as_str).unwrap_or("replace");
     let m = SelectionMode::parse(if m == "new" { "replace" } else { m });
-    let Some(region) = region else {
-        // Photoshop reports "No sky was detected" and leaves the selection alone.
-        return Ok(json!({ "selected": doc.selection.is_some(), "changed": false, "coverage": 0.0, "message": "No sky was detected" }));
-    };
-    let total: f64 = region.mask.iter().map(|v| f64::from(*v) / 255.0).sum();
-    let coverage = total / (canvas.width() as f64 * canvas.height() as f64).max(1.0);
-    let b = region.bbox;
-    let selected = s.edit("Select Sky", |doc, _| {
-        doc.selection = combine_region(doc.selection.as_ref(), Some(&region), m);
-        Ok(doc.selection.is_some())
-    })?;
-    Ok(json!({ "selected": selected, "changed": true, "coverage": coverage, "bounds": [b.x0, b.y0, b.width() as i32, b.height() as i32] }))
+    crate::jobs::run(
+        s,
+        "Select Sky",
+        true,
+        move |ctx| {
+            ctx.progress(0.0, "Selecting sky");
+            let canvas = doc.bounds();
+            let layer = active.and_then(|id| doc.layer(id)).and_then(|l| l.surface());
+            let region = if learned {
+                crate::seg::sky_probability(&doc, active, all || layer.is_none()).and_then(|(area, mut prob)| {
+                    crate::seg::shape(&mut prob, params.threshold, params.softness);
+                    crate::seg::region(area, &prob)
+                })
+            } else {
+                match (all, layer) {
+                    (false, Some(surf)) => sky::select_sky(&SurfaceSampler(surf), canvas, params),
+                    _ => sky::select_sky(&CompositeSampler(&doc), canvas, params),
+                }
+            };
+            ctx.check()?;
+            Ok(region)
+        },
+        move |s, region| {
+            let Some(region) = region else {
+                // Photoshop reports "No sky was detected" and leaves the selection alone.
+                let selected = s.active().ok_or(EngineError::NoDocument)?.doc.selection.is_some();
+                return Ok(json!({ "selected": selected, "changed": false, "coverage": 0.0, "message": "No sky was detected" }));
+            };
+            let canvas = s.active().ok_or(EngineError::NoDocument)?.doc.bounds();
+            let total: f64 = region.mask.iter().map(|v| f64::from(*v) / 255.0).sum();
+            let coverage = total / (canvas.width() as f64 * canvas.height() as f64).max(1.0);
+            let b = region.bbox;
+            let selected = s.edit("Select Sky", |doc, _| {
+                doc.selection = combine_region(doc.selection.as_ref(), Some(&region), m);
+                Ok(doc.selection.is_some())
+            })?;
+            Ok(json!({ "selected": selected, "changed": true, "coverage": coverage, "bounds": [b.x0, b.y0, b.width() as i32, b.height() as i32] }))
+        },
+    )
 }
 
 // ---------------------------------------------------------------- Isolate Layers
@@ -324,6 +340,27 @@ mod tests {
             s.undo();
             assert!(s.active().unwrap().doc.selection.is_none());
         }
+    }
+
+    /// Audit F13: Select › Sky is a background job for the UI (`Session::start`); its selection
+    /// mode is applied when it finishes, as one undo step.
+    #[test]
+    fn sky_runs_as_a_background_job_and_adds_on_completion() {
+        let mut s = landscape(8);
+        s.execute("select.rect", json!({"x": 0, "y": 80, "width": 20, "height": 20})).unwrap();
+        let steps = s.active().unwrap().history.past_len();
+        let id = match s.start("select.sky", json!({"engine": "classic", "mode": "add"})).unwrap() {
+            crate::jobs::Started::Job(id) => id,
+            crate::jobs::Started::Done(v) => panic!("ran inline: {v}"),
+        };
+        let r = s.wait_job(id).unwrap();
+        assert_eq!(r["changed"], json!(true));
+        let sel = s.active().unwrap().doc.selection.clone().unwrap();
+        assert!(sel.sample_channel(10, 10, 0) > 0.9, "sky added");
+        assert!(sel.sample_channel(10, 90, 0) > 0.9, "the earlier selection kept");
+        assert!(sel.sample_channel(100, 90, 0) < 0.1);
+        assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
+        assert_eq!(s.active().unwrap().history.undo_label(), Some("Select Sky"));
     }
 
     #[test]
