@@ -277,3 +277,11 @@ fn dropping_a_pool_waits_for_running_jobs() {
     assert_eq!(finished.load(Ordering::SeqCst), 1, "the running job finished before the pool was gone");
     assert_eq!(ran_queued.load(Ordering::SeqCst), 0, "queued jobs are discarded");
 }
+
+#[test]
+fn pool_size_follows_the_compute_budget() {
+    // 2-core laptop, 4c/8t laptop (C = 3), 9800X3D (C = 7), M4 Max (C = 15), Threadripper (C = 31)
+    for (compute, workers) in [(0, 2), (1, 2), (2, 2), (3, 3), (7, 7), (15, 8), (31, 8)] {
+        assert_eq!(JobPool::<u8, u8>::threads_for(compute), workers, "C = {compute}");
+    }
+}

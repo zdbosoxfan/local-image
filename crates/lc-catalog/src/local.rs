@@ -244,13 +244,35 @@ fn is_old(at: &str, now_s: Option<i64>, days: u32, max_age: i64) -> bool {
     days > 0 && matches!((now_s, crate::stacks::iso_seconds(at)), (Some(n), Some(a)) if n - a >= max_age)
 }
 
+/// The compute threads of the app's compute profile (`lightcraft-sysmem`), set once at start-up
+/// with [`set_compute_threads`]; 0 until then.
+static COMPUTE_THREADS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Size the catalog's own parallel checks from the app's compute profile (its `threads`, the
+/// compute budget `C`). This crate has no dependency on the profile, so the app passes it in;
+/// until it does, the logical CPU count is used.
+pub fn set_compute_threads(threads: usize) {
+    COMPUTE_THREADS.store(threads, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Threads for a parallel check: the compute budget when the app set it, else the logical CPUs;
+/// at most 8 (the checks are short).
+#[cfg(not(target_arch = "wasm32"))]
+fn check_threads() -> usize {
+    match COMPUTE_THREADS.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => std::thread::available_parallelism().map_or(1, |n| n.get()),
+        n => n,
+    }
+    .clamp(1, 8)
+}
+
 /// The untouched ones among `photos` ([`Photo::untouched_local`]), checked on several threads
 /// where there are many.
 fn untouched_of(photos: &[&Photo]) -> HashSet<PhotoId> {
     let check = |chunk: &[&Photo]| chunk.iter().filter(|p| p.untouched_local()).map(|p| p.id).collect::<Vec<_>>();
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(8);
+        let threads = check_threads();
         if threads > 1 && photos.len() >= 256 {
             let size = photos.len().div_ceil(threads);
             return std::thread::scope(|sc| {
@@ -300,5 +322,21 @@ impl Op {
             | Op::SetLabelName { .. }
             | Op::SetBrowsed { .. } => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod pool_tests {
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn checks_use_the_compute_budget_once_set() {
+        let unset = super::check_threads();
+        assert!((1..=8).contains(&unset));
+        super::set_compute_threads(3);
+        assert_eq!(super::check_threads(), 3);
+        super::set_compute_threads(31);
+        assert_eq!(super::check_threads(), 8, "short checks: at most 8");
+        super::set_compute_threads(0);
+        assert_eq!(super::check_threads(), unset);
     }
 }
