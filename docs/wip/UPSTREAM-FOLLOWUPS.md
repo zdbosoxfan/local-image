@@ -55,3 +55,4 @@ Collected while integrating the up-* batches into `claude/v2-continue`. Per-batc
 - **Exports aren't byte-reproducible:** the ICC profile header embeds the current time (moxcms encoder via `lc-codecs::icc::write_named`). Set a fixed or derived creation date so identical exports give identical files.
 - **Preferences:** add "Concurrent exports/previews/imports: Auto / 1", mapping to `pipeline::Shape::serial()` and `ImportJob::copy_workers`. Serial helps card readers and spinning disks.
 - **Match Look review check:** no cap on the number of saved looks (owner). Only per-file safety bounds on imported look files are allowed.
+- Vector object context menu: add Unlock All / Show All rows once cx-vectorws's commands merge (cx-reasons skipped them because they weren't registered yet).
