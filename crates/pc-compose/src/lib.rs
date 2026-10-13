@@ -87,6 +87,11 @@ pub fn render(doc: &Document, rect: Rect) -> Buffer {
     render_tiled(doc, rect, RENDER_TILE)
 }
 
+/// Most pixels one [`render`] call will produce (2^30, a 16 GiB buffer; 32768² px). Larger rects
+/// (a hostile canvas size is up to 300000 px a side) return an empty buffer instead of aborting
+/// on allocation; callers wanting more render in pieces (upstream 2842973d).
+pub const MAX_RENDER_PIXELS: u64 = 1 << 30;
+
 /// [`render`] with an explicit tile size (tests check tile independence).
 pub fn render_tiled(doc: &Document, rect: Rect, tile: i32) -> Buffer {
     let patterns = pattern::PreparedPatterns::new(&doc.patterns, pattern::PREPARED_PATTERN_BYTES);
@@ -104,29 +109,25 @@ fn render_tiled_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> Buffer 
     if rect.is_empty() {
         return Buffer::transparent(rect);
     }
-    if rect.width() as i32 <= tile && rect.height() as i32 <= tile {
+    // Refuse rects too large to hold: an empty buffer, not an allocation failure.
+    if u64::from(rect.width()) * u64::from(rect.height()) > MAX_RENDER_PIXELS {
+        return Buffer::transparent(Rect::EMPTY);
+    }
+    if i64::from(rect.width()) <= i64::from(tile) && i64::from(rect.height()) <= i64::from(tile) {
         return photocraft_color::convert::with_cmyk_space(cmyk, || {
             let mut buf = multichannel::backdrop(doc, rect);
-            psblend::LAB_MIX.with(|l| l.set(lab));
-            composite_stack(&doc.layers, &mut buf, cx);
-            psblend::LAB_MIX.with(|l| l.set(false));
+            psblend::with_lab_mix(lab, || composite_stack(&doc.layers, &mut buf, cx));
             buf
         });
     }
     // Effect maps are built once, here, before any tile needs them (#276).
     prepare_effects(&doc.layers, rect, cx, |f| {
-        photocraft_color::convert::with_cmyk_space(cmyk, || {
-            psblend::LAB_MIX.with(|l| l.set(lab));
-            f();
-            psblend::LAB_MIX.with(|l| l.set(false));
-        });
+        photocraft_color::convert::with_cmyk_space(cmyk, || psblend::with_lab_mix(lab, f));
     });
     let run = |t: Rect| {
         photocraft_color::convert::with_cmyk_space(cmyk, || {
             let mut b = multichannel::backdrop(doc, t);
-            psblend::LAB_MIX.with(|l| l.set(lab));
-            composite_stack(&doc.layers, &mut b, cx);
-            psblend::LAB_MIX.with(|l| l.set(false));
+            psblend::with_lab_mix(lab, || composite_stack(&doc.layers, &mut b, cx));
             b
         })
     };
@@ -422,18 +423,28 @@ fn render_reduced_in_bands(doc: &Document, w: u32, h: u32, damage: Option<Rect>,
     Buffer { rect: out, px: acc }
 }
 
+type VectorMaskSlot = std::sync::Arc<std::sync::OnceLock<photocraft_vector::CompiledVectorMask>>;
+
 #[derive(Default)]
 struct RenderVectorMasks {
-    masks: std::sync::Mutex<std::collections::HashMap<usize, std::sync::Arc<std::sync::OnceLock<photocraft_vector::CompiledVectorMask>>>>,
+    /// Compiled masks by content (upstream f586e713, #4426). A caller passing a temporary clone
+    /// would make an address useless as a key: a dropped clone's address is reused by the next
+    /// one, and a later layer would receive an earlier layer's compiled mask.
+    masks: std::sync::Mutex<Vec<(photocraft_doc::VectorMask, VectorMaskSlot)>>,
 }
 
 impl RenderVectorMasks {
     fn values(&self, mask: &photocraft_doc::VectorMask, rect: Rect) -> Vec<f32> {
-        // Addresses identify immutable mask instances only for this render's lifetime.
-        let key = std::ptr::from_ref(mask) as usize;
         let slot = {
             let mut masks = self.masks.lock().unwrap_or_else(|e| e.into_inner());
-            masks.entry(key).or_default().clone()
+            match masks.iter().find(|(m, _)| m == mask) {
+                Some((_, slot)) => slot.clone(),
+                None => {
+                    let slot = VectorMaskSlot::default();
+                    masks.push((mask.clone(), slot.clone()));
+                    slot
+                }
+            }
         };
         // Compilation is sequential. Rendering can enter Rayon and must happen after
         // initialization, so waiting tiles cannot re-enter a slot still being built.
@@ -704,6 +715,27 @@ fn dissolve_noise(x: i32, y: i32) -> f32 {
     h = h.wrapping_mul(0x2c1b_3c6d);
     h ^= h >> 12;
     (h & 0xffff) as f32 / 65536.0
+}
+
+/// Where a layer's effects take their shape from: [`layer_bounds`], except that a group's
+/// children count with their own effects (a child's outside stroke shapes the group's drop
+/// shadow and must not be cut off at the child's pixels; upstream 980cf05b, #3274).
+pub fn effect_source_bounds(layer: &Layer, canvas: Rect) -> Rect {
+    match &layer.content {
+        LayerContent::Group(g) if g.artboard.is_none() => g.children.iter().filter(|c| c.visible).fold(Rect::EMPTY, |acc, c| {
+            let m = if effects::has_effects(c) { effects::margin(c) } else { 0 };
+            let b = effect_source_bounds(c, canvas);
+            let b = if b.is_empty() { b } else { b.inflate(m) };
+            if b.is_empty() {
+                acc
+            } else if acc.is_empty() {
+                b
+            } else {
+                acc.union(&b)
+            }
+        }),
+        _ => layer_bounds(layer, canvas),
+    }
 }
 
 /// Bounds of a layer's own pixels (union over group children; the canvas
@@ -1066,9 +1098,10 @@ fn render_fill(f: &Fill, rect: Rect, canvas: Rect, patterns: &pattern::PreparedP
 fn empty_in(layer: &Layer, rect: Rect) -> bool {
     if effects::has_effects(layer) {
         // Effects reach at most `margin` beyond the layer's pixels (when it is transparent
-        // outside them): render tiles away from a small text layer skip it entirely.
+        // outside them; a group's from its children with their effects): render tiles away from a
+        // small text layer skip it entirely.
         let canvas = Rect::new(i32::MIN / 4, i32::MIN / 4, i32::MAX / 4, i32::MAX / 4);
-        return transparent_outside(layer) && layer_bounds(layer, canvas).inflate(effects::margin(layer)).intersect(&rect).is_empty();
+        return transparent_outside(layer) && effect_source_bounds(layer, canvas).inflate(effects::margin(layer)).intersect(&rect).is_empty();
     }
     match &layer.content {
         LayerContent::Raster(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_) | LayerContent::Symbol(_) => match layer.surface() {
@@ -1715,7 +1748,7 @@ fn fx_cache() -> &'static std::sync::Mutex<FxCache> {
 fn effect_maps(layer: &Layer, cx: &Ctx) -> std::sync::Arc<effects::FxMaps> {
     use std::hash::{Hash, Hasher};
     let m = effects::margin(layer);
-    let region = layer_bounds(layer, cx.canvas).inflate(m).intersect(&cx.canvas.inflate(m));
+    let region = effect_source_bounds(layer, cx.canvas).inflate(m).intersect(&cx.canvas.inflate(m));
     if std::env::var_os("PHOTOCRAFT_FX_NOCACHE").is_some() {
         let shape = if region.is_empty() { Vec::new() } else { effect_shape(layer, region, cx) };
         return std::sync::Arc::new(effects::build_maps_prepared(layer, shape, region, &cx.light, &texture_ctx(layer, region, cx), cx.patterns));

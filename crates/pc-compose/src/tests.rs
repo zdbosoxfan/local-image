@@ -485,6 +485,22 @@ fn drop_shadow_falls_away_from_light() {
 }
 
 #[test]
+fn group_effects_reach_past_children_effects() {
+    // Upstream 980cf05b (#3274): a child's outside stroke reaches further than its group's drop
+    // shadow: the group's shadow follows the stroke, not the child's pixels alone.
+    let mut d = doc_white(48, 48);
+    let mut sq = solid_layer("sq", Rect::new(14, 14, 34, 34), [1.0, 0.0, 0.0, 1.0]);
+    sq.effects.items = vec![stroke(6.0, StrokePosition::Outside)];
+    let mut grp = Layer::group("g", vec![sq]);
+    grp.effects.items = vec![Effect::DropShadow(shadow(2.0, 90.0))];
+    d.layers.push(grp);
+    assert!(close4(px(&d, 9, 24), [0.0, 0.0, 1.0, 1.0]), "stroke left of the pixels: {:?}", px(&d, 9, 24));
+    assert!(close4(px(&d, 24, 38), [0.0, 0.0, 1.0, 1.0]), "stroke below the pixels: {:?}", px(&d, 24, 38));
+    assert!(close4(px(&d, 24, 41), [0.0, 0.0, 0.0, 1.0]), "shadow below the stroke: {:?}", px(&d, 24, 41));
+    assert!(close4(px(&d, 24, 43), [1.0; 4]), "nothing past the shadow: {:?}", px(&d, 24, 43));
+}
+
+#[test]
 fn drop_shadow_uses_global_light_and_knockout() {
     let mut d = fx_doc(vec![Effect::DropShadow(Shadow { use_global_light: true, ..shadow(5.0, 0.0) })]);
     d.global_light.angle = 90.0;
@@ -1541,4 +1557,58 @@ fn photo_filter_matches_photoshop() {
         let got = filter(warming32, SampleType::F32, v);
         assert!(got.iter().zip(ps).all(|(g, p)| (g - p).abs() <= 2.5), "F32 {v:?}: got {got:?} want {ps:?}");
     }
+}
+
+#[test]
+fn render_refuses_rects_beyond_the_pixel_cap() {
+    // Upstream 2842973d: 2^32 - 1 px wide: the width wraps negative as an i32, which once took the
+    // single-tile path.
+    let doc = Document::new("c", Size::new(4, 4), ColorMode::Rgb, SampleType::U8);
+    for tile in [crate::RENDER_TILE, 1 << 20] {
+        let b = crate::render_tiled(&doc, Rect::new(i32::MIN, 0, i32::MAX, 1), tile);
+        assert!(b.px.is_empty() && b.rect.is_empty());
+    }
+}
+
+#[test]
+fn rendering_restores_the_lab_mix_flag_it_found() {
+    // Upstream f1433f4a (#1112): a render set LAB_MIX for its document, then cleared it. A nested
+    // rayon job can let a thread render another tile in the middle of an outer Lab tile, and
+    // clearing the flag made the rest of that outer tile mix in sRGB.
+    for mode in [ColorMode::Lab, ColorMode::Rgb] {
+        let doc = Document::with_background("t", Size::new(8, 8), mode, SampleType::U8, Color::WHITE);
+        // Single-tile and multi-tile paths (the latter also prepares effect maps under the flag).
+        for tile in [RENDER_TILE, 4] {
+            for outer in [true, false] {
+                psblend::LAB_MIX.with(|l| l.set(outer));
+                let _ = render_tiled(&doc, doc.bounds(), tile);
+                let after = psblend::LAB_MIX.with(|l| l.get());
+                psblend::LAB_MIX.with(|l| l.set(false));
+                assert_eq!(after, outer, "{mode:?} with tile {tile} inside a tile that had LAB_MIX = {outer}");
+            }
+        }
+    }
+}
+
+#[test]
+fn vector_mask_cache_is_keyed_by_content_not_address() {
+    // Upstream f586e713 (#4426): the per-render cache keyed compiled masks by the address of the
+    // mask it was given; a temporary clone's address is reused by the next one, so a later layer
+    // received an earlier layer's compiled mask. Here a loop-local clone reuses one stack slot.
+    use photocraft_doc::{Path, Subpath, VectorMask};
+    let rect = Rect::new(0, 0, 16, 8);
+    let masks: Vec<VectorMask> = [(0.0, 6.0), (8.0, 14.0)]
+        .iter()
+        .map(|&(x0, x1)| VectorMask::new(Path::new(vec![Subpath::polygon(&[(x0, -2.0), (x1, -2.0), (x1, 10.0), (x0, 10.0)])])))
+        .collect();
+    let cache = RenderVectorMasks::default();
+    for m in &masks {
+        let tmp = m.clone();
+        let got = cache.values(&tmp, rect);
+        assert_eq!(got, photocraft_vector::CompiledVectorMask::new(m).render(rect));
+    }
+    // Equal content shares one compiled mask.
+    let again = masks[0].clone();
+    assert_eq!(cache.values(&again, rect), photocraft_vector::CompiledVectorMask::new(&masks[0]).render(rect));
+    assert_eq!(cache.masks.lock().unwrap().len(), 2);
 }

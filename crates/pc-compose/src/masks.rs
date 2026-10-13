@@ -16,8 +16,16 @@ use photocraft_raster::Surface;
 const FORMAT: PixelFormat = PixelFormat { mode: ColorMode::Grayscale, sample: SampleType::F32, alpha: false };
 
 struct Cache {
-    map: HashMap<u64, (Surface, u64)>,
+    map: HashMap<u64, CacheEntry>,
     tick: u64,
+}
+
+struct CacheEntry {
+    surface: Surface,
+    tick: u64,
+    // The key contains input tile addresses. Keep those tiles alive until eviction: edits must
+    // copy them, and the allocator cannot reuse their addresses for new tiles (upstream 57681126).
+    _pixel_input: Option<Surface>,
 }
 
 fn cache() -> &'static Mutex<Cache> {
@@ -121,8 +129,8 @@ pub fn combined_mask(layer: &Layer, canvas: Rect) -> Option<Surface> {
         c.tick += 1;
         let tick = c.tick;
         if let Some(e) = c.map.get_mut(&k) {
-            e.1 = tick;
-            return Some(e.0.clone());
+            e.tick = tick;
+            return Some(e.surface.clone());
         }
     }
     #[cfg(test)]
@@ -142,7 +150,16 @@ pub fn combined_mask(layer: &Layer, canvas: Rect) -> Option<Surface> {
     // mask's painted tiles when the vector mask lets them through outside the path, each grown
     // by its feather.
     let mut area = match vm.and_then(|vm| vm.path.control_bounds()) {
-        Some((x0, y0, x1, y1)) => grow(Rect::new(x0.floor() as i32 - 2, y0.floor() as i32 - 2, x1.ceil() as i32 + 2, y1.ceil() as i32 + 2), sv),
+        // Upstream 2842973d: hostile path coordinates saturate the casts; don't overflow past them.
+        Some((x0, y0, x1, y1)) => grow(
+            Rect::new(
+                (x0.floor() as i32).saturating_sub(2),
+                (y0.floor() as i32).saturating_sub(2),
+                (x1.ceil() as i32).saturating_add(2),
+                (y1.ceil() as i32).saturating_add(2),
+            ),
+            sv,
+        ),
         None => Rect::EMPTY,
     };
     if let Some(m) = pixel
@@ -178,12 +195,12 @@ pub fn combined_mask(layer: &Layer, canvas: Rect) -> Option<Surface> {
     }
     let mut c = cache().lock().unwrap_or_else(|e| e.into_inner());
     let tick = c.tick;
-    c.map.insert(k, (s.clone(), tick));
-    let mut bytes: usize = c.map.values().map(|e| surface_bytes(&e.0)).sum();
+    c.map.insert(k, CacheEntry { surface: s.clone(), tick, _pixel_input: layer.mask.as_ref().map(|m| m.surface.clone()) });
+    let mut bytes: usize = c.map.values().map(|e| surface_bytes(&e.surface)).sum();
     while c.map.len() > 1 && (c.map.len() > CAPACITY || bytes > BUDGET_BYTES) {
-        let Some(old) = c.map.iter().filter(|e| *e.0 != k).min_by_key(|e| e.1.1).map(|e| *e.0) else { break };
+        let Some(old) = c.map.iter().filter(|e| *e.0 != k).min_by_key(|e| e.1.tick).map(|e| *e.0) else { break };
         if let Some(e) = c.map.remove(&old) {
-            bytes -= surface_bytes(&e.0);
+            bytes -= surface_bytes(&e.surface);
         }
     }
     Some(s)
@@ -192,7 +209,37 @@ pub fn combined_mask(layer: &Layer, canvas: Rect) -> Option<Surface> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use photocraft_doc::LayerMask;
     use photocraft_doc::vector::{Knot, Path, Subpath, VectorMask};
+
+    #[test]
+    fn pixel_edits_refresh_cached_masks_at_every_depth() {
+        // Upstream 57681126 (#1645).
+        let canvas = Rect::new(0, 0, 64, 64);
+        for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let mut layer = Layer::raster("edited mask", PixelFormat::RGBA8);
+            let mut mask = LayerMask::hide_all();
+            mask.surface = Surface::new(PixelFormat { sample, ..FORMAT });
+            mask.surface.fill_rect(canvas, &[1.0]);
+            mask.feather = 4.0;
+            layer.mask = Some(mask);
+
+            let first = combined_mask(&layer, canvas).unwrap();
+            assert!((first.sample_channel(32, 32, 0) - 1.0).abs() < 1e-6);
+            drop(first);
+            // No document/undo snapshot shares the input. Previously this write could reuse the
+            // original tile address and return the old cached white mask.
+            layer.mask.as_mut().unwrap().surface.fill_rect(canvas, &[0.0]);
+            let edited = combined_mask(&layer, canvas).unwrap();
+            assert_eq!(edited.sample_channel(32, 32, 0), 0.0, "{sample:?}");
+
+            layer.mask.as_mut().unwrap().surface.fill_rect(canvas, &[0.5]);
+            let repainted = combined_mask(&layer, canvas).unwrap();
+            assert!((repainted.sample_channel(32, 32, 0) - 0.5).abs() < 0.005, "{sample:?}");
+            let warm = combined_mask(&layer, canvas).unwrap();
+            assert!(repainted.tiles().zip(warm.tiles()).all(|((_, a), (_, b))| Arc::ptr_eq(a, b)));
+        }
+    }
 
     /// More vector-masked layers than the old 64 entries: the next plan rebuild rasterises none.
     #[test]
@@ -243,5 +290,16 @@ mod tests {
         assert!(s.tiles().zip(again.tiles()).all(|(a, b)| Arc::ptr_eq(a.1, b.1)));
         l.vector_mask = None;
         assert!(combined_mask(&l, canvas).is_none());
+    }
+
+    #[test]
+    fn hostile_path_coordinates_do_not_overflow() {
+        // Upstream 2842973d.
+        let mut l = Layer::raster("l", PixelFormat::RGBA8);
+        let knots = [(-1.0e30, -1.0e30), (1.0e30, 0.0), (0.0, 1.0e30)].iter().map(|&(x, y)| Knot::corner(x, y)).collect();
+        let mut path = Path::default();
+        path.subpaths.push(Subpath { knots, closed: true, ..Default::default() });
+        l.vector_mask = Some(VectorMask::new(path));
+        let _ = combined_mask(&l, Rect::new(0, 0, 8, 8));
     }
 }

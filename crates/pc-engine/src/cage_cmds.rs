@@ -67,7 +67,15 @@ fn cage(s: &mut Session, p: &Value) -> Result<Value> {
         let id = p.get("layer").and_then(Value::as_u64).or_else(|| s.active().and_then(|d| d.active_layer).map(|l| l.0));
         return Ok(json!({"layer": id, "changed": false}));
     }
-    crate::distort_cmds::run_on_layer(s, CAGE, "Cage", p, true, &|surf, _, _| cage_warp_surface(surf, &map, interp), Some(&|m| cage_warp_gray(m, &map, interp)))
+    crate::distort_cmds::run_on_layer(
+        s,
+        CAGE,
+        "Cage",
+        p,
+        true,
+        &|surf, _, _| Ok(cage_warp_surface(surf, &map, interp)),
+        Some(&|m| cage_warp_gray(m, &map, interp)),
+    )
 }
 
 /// Cage transform command specs.

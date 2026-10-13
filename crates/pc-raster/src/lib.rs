@@ -558,8 +558,22 @@ impl Surface {
         let mut enc = vec![0u8; self.format.bytes_per_pixel()];
         encode_pixel(&self.format, &px[..n], &mut enc);
         let bpp = enc.len();
+        if r.is_empty() {
+            return;
+        }
+        // Fully covered tiles share one Arc: a solid fill costs one tile however large `r` is,
+        // and copy-on-write splits a tile off when it is edited (upstream 87486746, #705).
+        *self.revision.get_mut() = 0;
+        self.content_bounds.take();
+        let mut full: Option<Arc<Tile>> = None;
         for tc in r.tiles() {
             let tr = tc.rect().intersect(&r);
+            if tr == tc.rect() {
+                let fmt = self.format;
+                let t = full.get_or_insert_with(|| Arc::new(Tile::filled(&fmt, &enc)));
+                self.tiles.insert(tc, t.clone());
+                continue;
+            }
             let t = self.tile_mut(tc);
             for y in tr.y0..tr.y1 {
                 let ly = (y - tc.ty * TILE_SIZE) as usize;
@@ -799,6 +813,31 @@ mod tests {
             assert!(s.has_tiles_in(Rect::new(0, 0, 1, 1)));
             assert!(!s.has_tiles_in(Rect::new(1000, 1000, 1001, 1001)));
         }
+    }
+
+    #[test]
+    fn fill_rect_shares_covered_tiles_and_edits_stay_local() {
+        // Upstream 87486746 (#705): a 300000² background used to materialize ~360 GB of tiles.
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        s.fill_rect(Rect::new(0, 0, 300_000, 300_000), &[1.0, 0.5, 0.0, 1.0]);
+        let t = |s: &Surface, x, y| s.tile(TileCoord::new(x, y)).unwrap().clone();
+        assert!(Arc::ptr_eq(&t(&s, 0, 0), &t(&s, 1000, 900)));
+        // 300000 is not a multiple of 256: the edge tile is partial and stays its own.
+        let edge = 300_000 / TILE_SIZE;
+        assert!(!Arc::ptr_eq(&t(&s, 0, 0), &t(&s, edge, 0)));
+        assert_eq!(s.pixel(299_999, 299_999), vec![1.0, 128.0 / 255.0, 0.0, 1.0]);
+        assert_eq!(s.pixel(300_000, 0), vec![0.0; 4]);
+        s.write_pixel(5, 5, &[0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(s.pixel(5, 5), vec![0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(s.pixel(300, 5), vec![1.0, 128.0 / 255.0, 0.0, 1.0]);
+        assert!(!Arc::ptr_eq(&t(&s, 0, 0), &t(&s, 1, 0)));
+        // A fill changes the pixel identity and the cached bounds.
+        let mut u = Surface::new(PixelFormat::RGBA8);
+        let (rev, bounds) = (u.revision(), u.content_bounds());
+        u.fill_rect(Rect::new(0, 0, 512, 512), &[1.0, 1.0, 1.0, 1.0]);
+        assert_ne!(u.revision(), rev);
+        assert_ne!(u.content_bounds(), bounds);
+        assert_eq!(u.content_bounds(), Rect::new(0, 0, 512, 512));
     }
 
     #[test]
