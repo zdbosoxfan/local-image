@@ -198,6 +198,7 @@ fn info_plist(version: &str) -> String {
 <key>LSArchitecturePriority</key><array><string>arm64</string></array>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>
+<key>NSLocalNetworkUsageDescription</key><string>Local Image finds and connects to your ComfyUI server on the local network. Photos are transferred only when you run an AI operation.</string>
 <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
 <key>CFBundleDocumentTypes</key><array><dict>
 <key>CFBundleTypeName</key><string>Image document</string>
@@ -219,7 +220,7 @@ mod tests {
     #[test]
     fn metadata_identifies_native_app_and_document_handler() {
         let plist = super::info_plist("2.0.0-alpha.1");
-        for field in [super::ID, "local-image", "13.0", "arm64", "CFBundleDocumentTypes", "heic", "2.0.0-alpha.1"] {
+        for field in [super::ID, "local-image", "13.0", "arm64", "CFBundleDocumentTypes", "NSLocalNetworkUsageDescription", "heic", "2.0.0-alpha.1"] {
             assert!(plist.contains(field), "missing {field}");
         }
     }

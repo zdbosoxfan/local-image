@@ -9,6 +9,7 @@ pub mod catalog;
 pub mod cloud;
 pub mod comfy;
 pub mod custom;
+pub mod discovery;
 pub mod download;
 pub mod enhance;
 pub mod family;

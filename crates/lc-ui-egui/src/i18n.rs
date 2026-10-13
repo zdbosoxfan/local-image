@@ -386,6 +386,7 @@ pub const PENDING_SAVE_TRANSLATIONS: &[&str] = &[
 
 /// Library final-review polish: tracked English fallback until translated.
 pub const PENDING_LIBRARY_UX_TRANSLATIONS: &[&str] = &[
+    "AI…",
     "Back",
     "Photo Grid",
     "Square Grid",

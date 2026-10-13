@@ -303,12 +303,12 @@ fn background_ui_readiness_and_collapsing_are_clickable() {
     assert!(h.query_all_by_label("Remove Background").find(|n| n.rect().contains(at)).unwrap().accesskit_node().is_disabled());
     let at = in_rect(&h, "Set up AI…", area);
     click(&mut h, at);
-    // The setup window is egui-only; this does not start ComfyUI or a native window.
-    assert!(h.query_by_label("Local AI").is_some());
+    // Setup now opens the shared Preferences connection page without starting ComfyUI.
+    assert!(h.query_by_label("Preferences").is_some());
+    assert_eq!(h.state().ui.dialogs.last().unwrap().fields["section"], "ai.connection");
     h.key_press(egui::Key::Escape);
-    let at = h.get_by_label("Close window").rect().center();
-    click(&mut h, at);
     h.run_steps(4);
+    assert!(h.state().ui.dialogs.is_empty());
     let header = crate::props_layout::sections_drawn(&h.ctx).into_iter().find(|(n, _)| n == "Remove Background").unwrap().1;
     click(&mut h, header.center());
     assert_eq!(h.ctx.data(|d| d.get_temp::<bool>(egui::Id::new(("props-section", "remove-background")))), Some(false));
