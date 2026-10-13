@@ -92,10 +92,6 @@
     "Cmd+Alt+Shift+V"
   ],
   [
-    "edit.search",
-    "Cmd+K"
-  ],
-  [
     "edit.fill",
     "Shift+F5"
   ],
@@ -122,6 +118,10 @@
   [
     "edit.menus",
     "Cmd+Alt+Shift+M"
+  ],
+  [
+    "edit.preferences.general",
+    "Cmd+K"
   ],
   [
     "image.adjustments.levels",

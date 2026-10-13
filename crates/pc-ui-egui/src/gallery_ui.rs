@@ -902,7 +902,9 @@ mod tests {
         for literal in ["#336699", "#aBcD01"] {
             let mut app = app();
             open(&mut app).unwrap();
-            control(&mut app, &json!({"filter":"neonGlow","params":{"glowColor":literal,"glowSize":3}})).unwrap();
+            // Gallery sliders are f64, so a repaint/recommit stores 3.0; give the fixture the same
+            // JSON number form (3 and 3.0 are the same size, but serde_json compares them unequal).
+            control(&mut app, &json!({"filter":"neonGlow","params":{"glowColor":literal,"glowSize":3.0}})).unwrap();
             let effect = photocraft_engine::gallery_cmds::effect_from_json(GalleryFilter::NeonGlow, &json!({"glowColor":literal}), &Value::Null);
             assert_eq!(glow_color(&json!(literal)), Some(effect.color), "same interpretation as the engine");
             commit(&mut app).unwrap();

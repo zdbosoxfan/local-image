@@ -190,12 +190,14 @@ fn rotate_view_default_r_saved_overrides_and_vector_object_rotate_are_distinct()
     key(&mut h, Key::R);
     assert_eq!(h.state().ui.tool, Tool::AiRemove);
     assert_eq!(h.state().session.prefs().shortcuts["tools.select.AiRemove"], "R");
-    assert_eq!(crate::shortcuts::tool_shortcut_id(Tool::AiRemove), "tools.select.AiRemove");
+    // AI Remove is a J healing-group member (Photoshop), but its own saved key still shows and wins.
+    assert_eq!(crate::shortcuts::tool_shortcut_id(Tool::AiRemove), "tools.select.SpotHealing");
     assert_eq!(crate::shortcuts::tool_shortcut(&h.state().session, Tool::AiRemove), Some("R".into()));
     h.state_mut().session.edit_prefs(|p| {
         p.shortcuts.remove("tools.select.AiRemove");
         p.shortcuts.insert("tools.select.RotateView".into(), String::new());
     });
+    assert_eq!(crate::shortcuts::tool_shortcut(&h.state().session, Tool::AiRemove), Some("J".into()));
     key(&mut h, Key::V);
     key(&mut h, Key::R);
     assert_eq!(h.state().ui.tool, Tool::Move, "explicit disable remains authoritative");
@@ -424,6 +426,25 @@ fn rotate_view_mask_retention_and_compact_controls_remain_reachable() {
 }
 
 #[test]
+fn rotate_view_owns_r_and_ai_remove_cycles_in_the_j_healing_group() {
+    let mut h = harness(ThemeKind::ProMedium, vec2(1200.0, 850.0), 1.0);
+    key(&mut h, Key::R);
+    assert_eq!(h.state().ui.tool, Tool::RotateView);
+    key(&mut h, Key::J);
+    assert_eq!(h.state().ui.tool, Tool::SpotHealing);
+    let mut seen = vec![h.state().ui.tool];
+    for _ in 0..6 {
+        h.key_press_modifiers(Modifiers::SHIFT, Key::J);
+        h.run_steps(3);
+        seen.push(h.state().ui.tool);
+    }
+    assert!(seen.contains(&Tool::AiRemove), "Shift+J reaches AI Remove: {seen:?}");
+    assert!(seen.iter().all(|t| t.key() == 'J'), "{seen:?}");
+    assert_eq!(crate::shortcuts::tool_shortcut(&h.state().session, Tool::AiRemove), Some("J".into()));
+    assert_eq!(crate::shortcuts::tool_shortcut(&h.state().session, Tool::RotateView), Some("R".into()));
+}
+
+#[test]
 fn rotate_view_extra_window_controls_and_text_focus_are_local() {
     let main = View { rotation: 0.5, ..Default::default() };
     let extra = View { rotation: 1.0, ..Default::default() };
@@ -439,6 +460,9 @@ fn rotate_view_extra_window_controls_and_text_focus_are_local() {
     assert_eq!(controls.state().0.rotation, 0.5);
     assert_eq!(controls.state().1.rotation, 0.0);
     let mut h = harness(ThemeKind::ProMedium, vec2(1200.0, 850.0), 1.0);
+    // A normal layer: like Photoshop, the Background layer's Opacity/Fill fields are disabled.
+    h.state_mut().run("layer.new.layer", json!({})).unwrap();
+    h.run_steps(2);
     key(&mut h, Key::B);
     let layers = crate::dock::last_rects(&h.ctx).into_iter().find(|(g, _)| *g == crate::dock::Group::Layers).unwrap().1;
     let field =

@@ -117,6 +117,14 @@ pub fn tool_shortcut(session: &photocraft_engine::Session, tool: Tool) -> Option
         return session.prefs().shortcut(&id, default).map(str::to_string);
     }
     let id = tool_shortcut_id(tool);
+    // A group member's own saved binding (e.g. an older AI Remove key) is honoured by `handle`
+    // before the group keys, so it is also the key to show.
+    let own = format!("tools.select.{tool:?}");
+    if own != id
+        && let Some(saved) = session.prefs().shortcuts.get(&own).filter(|s| !s.is_empty())
+    {
+        return Some(saved.clone());
+    }
     let default = default_shortcut(&id);
     session.prefs().shortcut(&id, default.as_deref()).map(str::to_string)
 }

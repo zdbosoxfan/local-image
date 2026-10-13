@@ -92,6 +92,12 @@ pub const ICONS: &[(&str, &str, &[u8], &[u8])] = &[
     ("Eyedropper", "pipette", include_bytes!("../../../../../assets/icons/color/pipette.svg"), include_bytes!("../../../../../assets/icons/tools/pipette.svg")),
     ("Measure", "ruler", include_bytes!("../../../../../assets/icons/color/ruler.svg"), include_bytes!("../../../../../assets/icons/tools/ruler.svg")),
     ("Hand", "hand", include_bytes!("../../../../../assets/icons/color/hand.svg"), include_bytes!("../../../../../assets/icons/tools/hand.svg")),
+    (
+        "RotateView",
+        "vector-rotate",
+        include_bytes!("../../../../../assets/icons/color/vector-rotate.svg"),
+        include_bytes!("../../../../../assets/icons/tools/vector-rotate.svg"),
+    ),
     ("Zoom", "zoom-in", include_bytes!("../../../../../assets/icons/color/zoom-in.svg"), include_bytes!("../../../../../assets/icons/tools/zoom-in.svg")),
     (
         "GroupSelection",
@@ -575,6 +581,7 @@ pub const LABELS: &[(&str, &str)] = &[
     ("Repeat", "Repeat"),
     ("Reshape", "Reshape"),
     ("Rotate", "Rotate"),
+    ("RotateView", "Rotate View"),
     ("RoundedRectangle", "Rounded Rectangle"),
     ("Scale", "Scale"),
     ("Scallop", "Scallop"),

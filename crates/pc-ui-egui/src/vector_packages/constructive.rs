@@ -445,7 +445,11 @@ impl State {
                 self.error = Some(e);
                 self.cancel();
             }
-            if self.control_dirty && (r.lost_focus() || r.drag_stopped()) {
+            // Escape leaves the field (egui hands focus back) but never commits: discard the typed
+            // value and its preview, as Escape does on the canvas.
+            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.cancel();
+            } else if self.control_dirty && (r.lost_focus() || r.drag_stopped()) {
                 if let Some(g) = self.controls.take() {
                     self.error = g.commit(session, action).err().map(|e| e.to_string());
                 }
