@@ -105,7 +105,7 @@ pub fn run_timeout(test: &str, id: &str, p: &Value, timeout: Duration) -> Result
 pub fn child(run: impl FnOnce(&str, &Value, &Path)) {
     let Ok(id) = std::env::var("LOCAL_IMAGE_PANIC_HUNT_ID") else { return };
     let p: Value = serde_json::from_str(&std::env::var("LOCAL_IMAGE_PANIC_HUNT_PARAMS").unwrap()).unwrap();
-    let root = std::env::current_dir().unwrap();
+    let root = std::env::current_dir().unwrap().canonicalize().unwrap();
     // macOS resolves /var to /private/var for cwd while environment paths retain /var.
     assert_eq!(std::env::temp_dir().canonicalize().unwrap(), root);
     for (key, sub) in [("LOCAL_IMAGE_SEG_MODELS", "models"), ("XDG_CACHE_HOME", "cache"), ("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data")] {
