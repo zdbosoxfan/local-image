@@ -50,3 +50,5 @@ Collected while integrating the up-* batches into `claude/v2-continue`. Per-batc
 - UX polish batch:
   - Swatches panel: replace the stacked text buttons with Photoshop-style footer icons plus panel menu items
   - Develop layer bar: Background as a list row, mask thumbnails, and collapse the repeated "applies to the whole image" notes into one line
+- **Large soft brushes are slow (real UX problem):** a 2500 px soft round brush on a 24 MP doc takes about 430 ms per UI frame (p95 626 ms); 1000 px takes about 79 ms. The cost is in live-tail reconstruction, original-surface restoration and compositing in `pc-engine/src/brush_cmds.rs` (cx-brush report §4). Needs a dedicated perf job: GPU dab compositing, or incremental tail and restore.
+- Wayland pen: compatibility mode re-execs without WAYLAND_DISPLAY when a pen is detected. Verify it on the owner's KDE Wayland with a real tablet.
