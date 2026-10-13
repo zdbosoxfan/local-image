@@ -13,6 +13,11 @@ fn click(h: &mut Harness<'_, PhotocraftApp>, label: &str) {
     h.get_by_label(label).click();
     h.run();
 }
+/// A command in the panel ☰ menu (was a stacked button before the UX polish).
+fn menu(h: &mut Harness<'_, PhotocraftApp>, label: &str) {
+    click(h, "Swatches panel menu");
+    click(h, label);
+}
 fn drag(h: &mut Harness<'_, PhotocraftApp>, from: egui::Pos2, to: egui::Pos2) {
     h.hover_at(from);
     h.run_steps(1);
@@ -30,10 +35,10 @@ fn shared_swatches_click_add_rename_search_library_and_restart() {
     let mut h = harness(app());
     h.run();
     let n = h.state().session.prefs().user_swatches.palette.swatches.len();
-    click(&mut h, "Add Current Colour");
+    click(&mut h, "New Swatch");
     assert_eq!(h.state().session.prefs().user_swatches.palette.swatches.len(), n + 1);
     click(&mut h, "Colour");
-    click(&mut h, "Swatch Options…");
+    menu(&mut h, "Swatch Options…");
     let field = h.get_by_label("Swatch name");
     field.click();
     h.event(egui::Event::Key { key: egui::Key::A, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND });
@@ -46,12 +51,12 @@ fn shared_swatches_click_add_rename_search_library_and_restart() {
     h.run();
     assert!(h.query_by_label("Ocean Brand").is_some());
     assert!(h.query_by_label("Starter 1").is_none());
-    click(&mut h, "Swatches menu");
+    click(&mut h, "Swatches panel menu");
     click(&mut h, "Swatch Libraries ⏵");
     click(&mut h, "Open Color");
     assert!(h.state().session.prefs().user_swatches.palette.groups.iter().any(|g| g.name == "Open Color"));
-    click(&mut h, "Swatches menu");
-    click(&mut h, "List with names");
+    menu(&mut h, "List View");
+    assert!(h.state().session.prefs().user_swatches.list_view);
     let json = h.state().session.prefs_to_json();
     let before = h.state().session.prefs().user_swatches.clone();
     let mut fresh = app();
@@ -70,7 +75,7 @@ fn shared_swatches_drag_reorders_within_and_between_folders() {
     drag(&mut h, a, b);
     let names: Vec<_> = h.state().session.prefs().user_swatches.palette.swatches.iter().take(3).map(|w| w.name.as_str()).collect();
     assert_eq!(names, ["Starter 2", "Starter 1", "Starter 3"]);
-    click(&mut h, "New Folder");
+    click(&mut h, "New Group");
     let a = h.get_by_label("Starter 1").rect().center();
     let folder = h.get_by_label("Colour Group").rect().center();
     drag(&mut h, a, folder);
@@ -96,14 +101,14 @@ fn shared_swatches_personas_same_panel_alt_secondary_and_document_visibility() {
     assert!(h.query_by_label("Stroke").is_some());
     assert!(h.query_by_label("Foreground").is_none());
     assert!(h.query_by_label("Background").is_none());
-    for label in ["Add Current Colour", "Search swatches", "New Folder", "User Swatches", "Document Swatches", "Starter 3"] {
+    for label in ["New Swatch", "Search swatches", "New Group", "User Swatches", "Document Swatches", "Starter 3"] {
         assert!(h.query_by_label(label).is_some(), "{label}");
     }
     assert_eq!(h.state().session.prefs().user_swatches, before);
     h.state_mut().session.edit_prefs(|p| p.toolbar.persona = Persona::Pixel);
     h.run();
     click(&mut h, "Document Swatches");
-    click(&mut h, "Add Current Colour");
+    click(&mut h, "New Swatch");
     assert_eq!(h.state().session.active().unwrap().doc.swatches.swatches.len(), 1);
 }
 #[test]
@@ -125,8 +130,7 @@ fn shared_swatches_import_menu_each_format_and_export_container() {
         let mut h = harness(app);
         h.run();
         click(&mut h, "Document Swatches");
-        click(&mut h, "Swatches menu");
-        click(&mut h, "Import Swatches…");
+        menu(&mut h, "Import Swatches…");
         let b = &h.state().session.active().unwrap().doc.swatches;
         assert_eq!(b.swatches.len(), 4);
         assert_eq!(b.groups.len(), 1);
@@ -169,7 +173,7 @@ fn shared_swatches_live_edit_shape_in_pixel_mode_undo_and_stale_editor() {
     h.run();
     click(&mut h, "Document Swatches");
     click(&mut h, "Live Red");
-    click(&mut h, "Swatch Options…");
+    menu(&mut h, "Swatch Options…");
     h.get_by_label("Swatch hex colour").click();
     h.event(egui::Event::Key { key: egui::Key::A, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND });
     h.get_by_label("Swatch hex colour").type_text("#00FF00");
@@ -184,7 +188,7 @@ fn shared_swatches_live_edit_shape_in_pixel_mode_undo_and_stale_editor() {
     h.run();
     let LayerContent::Shape(sh) = &h.state().session.active().unwrap().doc.layer(id).unwrap().content else { panic!("shape") };
     assert_eq!(sh.fill, Some(w.paint));
-    click(&mut h, "Swatch Options…");
+    menu(&mut h, "Swatch Options…");
     h.state_mut()
         .session
         .edit("Change", |d, _| {
@@ -230,7 +234,7 @@ fn shared_swatches_gpu_screenshots_dark_light_narrow_normal() {
         }
     }
     let start = std::time::Instant::now();
-    h.get_by_label("Add Current Colour").click();
+    h.get_by_label("New Swatch").click();
     h.run();
     let _ = h.render().unwrap();
     let ms = start.elapsed().as_secs_f64() * 1000.;
@@ -360,7 +364,7 @@ fn shared_swatches_pixel_foreground_explicit_apply_and_vector_selected_fill() {
     let target = PaintTarget { symbol: None, layer: id, paint: PaintSlot::Fill, stop: None };
     assert_eq!(photocraft_engine::vector_packages::colours::color(&h.state().session.active().unwrap().doc, &target).unwrap(), Color::rgb(1., 0., 0.));
     assert_eq!(h.state().session.tools.foreground, [0., 0., 1., 1.]);
-    click(&mut h, "Apply to Selected Objects");
+    menu(&mut h, "Apply to Selected Objects");
     assert_eq!(h.state().session.active().unwrap().doc.swatches.links.len(), 1);
     assert_eq!(photocraft_engine::vector_packages::colours::color(&h.state().session.active().unwrap().doc, &target).unwrap(), Color::rgb(0., 0., 1.));
     assert!(h.state_mut().session.undo());
@@ -371,4 +375,225 @@ fn shared_swatches_pixel_foreground_explicit_apply_and_vector_selected_fill() {
     click(&mut h, "Live Blue");
     assert_eq!(h.state().session.active().unwrap().doc.swatches.links.len(), 1);
     assert_eq!(photocraft_engine::vector_packages::colours::color(&h.state().session.active().unwrap().doc, &target).unwrap(), Color::rgb(0., 0., 1.));
+}
+
+/// UX-polish screenshots: 250/400 pt docks, dark/light, 1×/1.5×, into `target/ux-polish/`.
+/// `UX_POLISH_PHASE` names the set (before/after). Real RTX 5090 renderer, no window.
+#[test]
+fn ux_polish_swatches_screens() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew};
+    use eframe::wgpu;
+    let phase = std::env::var("UX_POLISH_PHASE").unwrap_or_else(|_| "after".into());
+    let output = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ux-polish");
+    std::fs::create_dir_all(&output).unwrap();
+    for ppp in [1.0f32, 1.5] {
+        let mut setup = WgpuSetupCreateNew::without_display_handle();
+        setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
+        setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
+            let a = adapters
+                .iter()
+                .find(|a| a.get_info().device_type == wgpu::DeviceType::DiscreteGpu && a.get_info().name.contains("5090"))
+                .ok_or("RTX 5090 required")?;
+            Ok(a.clone())
+        }));
+        let renderer = egui_kittest::wgpu::WgpuTestRenderer::from_setup(WgpuSetup::CreateNew(setup));
+        let mut h = Harness::builder().with_size(egui::vec2(250., 900.)).with_pixels_per_point(ppp).renderer(renderer).build_ui_state(
+            |ui, app| {
+                egui_extras::install_image_loaders(ui.ctx());
+                ui.set_min_height(ui.available_height());
+                panel(app, ui);
+            },
+            app(),
+        );
+        for (theme, name) in [(crate::theme::ThemeKind::Studio, "dark"), (crate::theme::ThemeKind::StudioLight, "light")] {
+            crate::theme::apply(&h.ctx, theme);
+            for width in [250., 400.] {
+                h.set_size(egui::vec2(width, 900.));
+                h.run();
+                h.render().unwrap().save(output.join(format!("{phase}-swatches-{name}-{}-{ppp}x.png", width as u32))).unwrap();
+            }
+        }
+        // After-only states: the panel menu and a swatch context menu (dark, 250 pt).
+        crate::theme::apply(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.set_size(egui::vec2(250., 900.));
+        h.run();
+        if h.query_by_label("Swatches panel menu").is_some() {
+            h.get_by_label("Swatches panel menu").click();
+            h.run();
+            h.render().unwrap().save(output.join(format!("{phase}-swatches-menu-dark-250-{ppp}x.png"))).unwrap();
+            h.key_press(egui::Key::Escape);
+            h.run();
+            h.get_by_label("Starter 2").click_secondary();
+            h.run();
+            h.render().unwrap().save(output.join(format!("{phase}-swatches-context-dark-250-{ppp}x.png"))).unwrap();
+        }
+    }
+}
+
+fn disabled(h: &Harness<'_, PhotocraftApp>, label: &str) -> bool {
+    use egui_kittest::kittest::NodeT;
+    h.get_by_label(label).accesskit_node().is_disabled()
+}
+fn user_book(h: &Harness<'_, PhotocraftApp>) -> SwatchBook {
+    h.state().session.prefs().user_swatches.palette.clone()
+}
+#[test]
+fn ux_swatches_footer_icons_disable_until_selection_and_act() {
+    let mut h = harness(app());
+    h.run();
+    // Old stacked buttons and hint lines are gone; the footer and ☰ carry the commands.
+    for gone in ["Add Current Colour", "New Folder", "Delete Selected", "Move Selected", "Swatches menu", "Click: primary · Alt/right-click: secondary"] {
+        assert!(h.query_by_label(gone).is_none(), "{gone}");
+    }
+    assert!(disabled(&h, "Delete Selected Swatch"), "nothing selected yet");
+    assert!(!disabled(&h, "New Swatch"));
+    assert!(!disabled(&h, "New Group"));
+    let n = user_book(&h).swatches.len();
+    // Disabled: a click does nothing.
+    click(&mut h, "Delete Selected Swatch");
+    assert_eq!(user_book(&h).swatches.len(), n);
+    click(&mut h, "Starter 4");
+    assert!(!disabled(&h, "Delete Selected Swatch"));
+    click(&mut h, "New Swatch");
+    let b = user_book(&h);
+    assert_eq!(b.swatches.len(), n + 1);
+    let added = b.swatches.iter().find(|w| w.name == "Colour").unwrap();
+    assert_eq!(added.group, Some(1), "+ adds into the selected swatch's folder");
+    click(&mut h, "Delete Selected Swatch");
+    assert!(user_book(&h).swatches.iter().all(|w| w.name != "Colour"), "deletes the new (selected) swatch");
+    click(&mut h, "Starter 4");
+    click(&mut h, "New Group");
+    let b = user_book(&h);
+    let g = b.groups.iter().find(|g| g.name == "Colour Group").unwrap().id;
+    assert_eq!(b.swatches.iter().find(|w| w.name == "Starter 4").unwrap().group, Some(g), "the selected swatch moves into the new group");
+    // Keyboard: focus a footer icon, Enter activates it.
+    h.get_by_label("New Swatch").focus();
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert_eq!(user_book(&h).swatches.len(), n + 1);
+}
+#[test]
+fn ux_swatches_panel_menu_items() {
+    let mut h = harness(app());
+    h.run();
+    click(&mut h, "Swatches panel menu");
+    for label in ["Grid View", "List View", "Swatch Libraries ⏵", "Import Swatches…", "Export Swatches ⏵", "New Swatch from Current Colour", "New Swatch Group"]
+    {
+        assert!(h.query_by_label(label).is_some(), "{label}");
+    }
+    for label in ["Swatch Options…", "Move to… ⏵", "Delete Swatch", "Apply to Selected Objects", "Folder Options…"] {
+        assert!(disabled(&h, label), "{label} waits for a selection");
+    }
+    h.key_press(egui::Key::Escape);
+    h.run();
+    menu(&mut h, "List View");
+    assert!(h.state().session.prefs().user_swatches.list_view);
+    menu(&mut h, "Grid View");
+    assert!(!h.state().session.prefs().user_swatches.list_view);
+    let n = user_book(&h).swatches.len();
+    menu(&mut h, "New Swatch from Current Colour");
+    assert_eq!(user_book(&h).swatches.len(), n + 1);
+    menu(&mut h, "New Swatch Group");
+    assert!(user_book(&h).groups.iter().any(|g| g.name == "Colour Group"));
+    // Folder Options… on the selected folder (its header was selected by New Group).
+    menu(&mut h, "Folder Options…");
+    assert!(h.query_by_label("Save Folder").is_some());
+    click(&mut h, "Cancel");
+    click(&mut h, "Starter 2");
+    click(&mut h, "Swatches panel menu");
+    click(&mut h, "Move to… ⏵");
+    click(&mut h, "Move Later");
+    let names: Vec<_> = user_book(&h).swatches.iter().filter(|w| w.group == Some(1)).take(3).map(|w| w.name.clone()).collect();
+    assert_eq!(names, ["Starter 1", "Starter 3", "Starter 2"]);
+    menu(&mut h, "Delete Swatch");
+    assert!(user_book(&h).swatches.iter().all(|w| w.name != "Starter 2"));
+}
+#[test]
+fn ux_swatches_context_menus_on_swatch_and_group() {
+    let mut h = harness(app());
+    h.run();
+    let fg = h.state().session.tools.foreground;
+    h.get_by_label("Starter 5").click_secondary();
+    h.run();
+    assert_eq!(h.state().session.tools.foreground, fg, "right-click opens the menu without recolouring");
+    for label in ["Use as Foreground", "Use as Background", "Swatch Options…", "Move to Folder ⏵", "Move Earlier", "Move Later", "Delete Swatch"] {
+        assert!(h.query_by_label(label).is_some(), "{label}");
+    }
+    click(&mut h, "Use as Background");
+    let c = super::super::SWATCHES[4];
+    assert_eq!(h.state().session.tools.background, [c[0] as f32 / 255., c[1] as f32 / 255., c[2] as f32 / 255., 1.]);
+    h.get_by_label("Starter 5").click_secondary();
+    h.run();
+    click(&mut h, "Move Earlier");
+    let names: Vec<_> = user_book(&h).swatches.iter().take(5).map(|w| w.name.clone()).collect();
+    assert_eq!(names[3], "Starter 5");
+    h.get_by_label("Starter 5").click_secondary();
+    h.run();
+    click(&mut h, "Delete Swatch");
+    assert!(user_book(&h).swatches.iter().all(|w| w.name != "Starter 5"));
+    // Group header menu.
+    h.get_by_label("Starter Colours").click_secondary();
+    h.run();
+    for label in ["New Swatch in Folder", "Rename Folder…", "Delete Folder and Swatches"] {
+        assert!(h.query_by_label(label).is_some(), "{label}");
+    }
+    let n = user_book(&h).swatches.len();
+    click(&mut h, "New Swatch in Folder");
+    assert_eq!(user_book(&h).swatches.iter().filter(|w| w.group == Some(1)).count(), n + 1);
+    h.get_by_label("Starter Colours").click_secondary();
+    h.run();
+    click(&mut h, "Rename Folder…");
+    assert!(h.query_by_label("Save Folder").is_some());
+    click(&mut h, "Cancel");
+    h.get_by_label("Starter Colours").click_secondary();
+    h.run();
+    click(&mut h, "Delete Folder and Swatches");
+    assert!(user_book(&h).groups.is_empty());
+}
+#[test]
+fn ux_swatches_segmented_scope_search_clear_and_hints_in_tooltips() {
+    let mut h = harness(app());
+    h.run();
+    click(&mut h, "Document Swatches");
+    click(&mut h, "New Swatch");
+    assert_eq!(h.state().session.active().unwrap().doc.swatches.swatches.len(), 1);
+    click(&mut h, "User Swatches");
+    h.get_by_label("Search swatches").click();
+    h.get_by_label("Search swatches").type_text("Starter 1");
+    h.run();
+    assert!(h.query_by_label("Starter 2").is_none());
+    click(&mut h, "Clear search");
+    assert!(h.query_by_label("Starter 2").is_some());
+    assert!(h.query_by_label("Clear search").is_none());
+    // The old hint line lives in the swatch tooltip now.
+    h.get_by_label("Starter 2").hover();
+    h.run_steps(30);
+    assert!(h.query_by_label_contains("Alt-click: background").is_some());
+}
+#[test]
+fn ux_swatches_empty_ungrouped_appears_last_while_dragging() {
+    let mut h = harness(app());
+    h.run();
+    assert!(h.query_by_label("Ungrouped").is_none(), "hidden while empty");
+    let from = h.get_by_label("Starter 1").rect().center();
+    h.hover_at(from);
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+    h.run_steps(1);
+    for i in 1..=4 {
+        h.event(egui::Event::PointerMoved(from + egui::vec2(3. * i as f32, 3. * i as f32)));
+        h.run_steps(1);
+    }
+    assert_eq!(h.get_by_label("Starter 1").rect().center(), from, "nothing above moves when the drop zone appears");
+    let to = h.get_by_label("Ungrouped").rect().center();
+    assert!(to.y > h.get_by_label("Starter 37").rect().bottom(), "drop zone sits after the folders");
+    for i in 1..=6 {
+        h.event(egui::Event::PointerMoved(from + (to - from) * (i as f32 / 6.)));
+        h.run_steps(1);
+    }
+    h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+    h.run_steps(3);
+    assert_eq!(user_book(&h).swatches.iter().find(|w| w.name == "Starter 1").unwrap().group, None);
 }

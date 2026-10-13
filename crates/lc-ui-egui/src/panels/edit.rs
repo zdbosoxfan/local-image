@@ -433,15 +433,18 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         let view = m.tools.view(lightcraft_engine::pipeline::local::effective_wb(&info, &d));
         tool_sections(app, ui, id, &view, raw, target, app.ui.layer_used_only);
         super::masking::local_section(app, ui, m);
-        for (key, label) in [
-            ("profile", "Profile & RAW"),
-            ("negative", "Negative"),
-            ("toneEq", "Tone Equalizer"),
-            ("optics", "Optics"),
-            ("calibration", "Calibration"),
-        ] {
-            super::layer_bar::global_only(app, ui, key, label);
-        }
+        // one collapsed line instead of five repeated "whole image" blocks
+        super::layer_bar::global_group(
+            app,
+            ui,
+            &[
+                ("profile", "Profile & RAW"),
+                ("negative", "Negative"),
+                ("toneEq", "Tone Equalizer"),
+                ("optics", "Optics"),
+                ("calibration", "Calibration"),
+            ],
+        );
         return;
     }
     // header: Edit + Auto / B&W / HDR
