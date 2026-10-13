@@ -9,7 +9,8 @@
 //!   sRGB-encoded ([`CanvasDisplay::encode_srgb`]) so shadows keep their precision; the display
 //!   source profile is then the same primaries with the sRGB curve.
 //! * The monitor profile comes from Edit › Color Settings › Monitor Profile: `auto` (the
-//!   platform's main display profile when the app supplied one, else sRGB), a built-in id or
+//!   compositor-tagged P3 on macOS, sRGB on managed Wayland outputs, or the detected ICC
+//!   on X11/Windows, else sRGB), a built-in id or
 //!   an `.icc` path.
 //! * When the source and the monitor match (sRGB documents on an sRGB display, the common
 //!   case) the transform is the identity and nothing is applied on either path.
@@ -19,7 +20,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use photocraft_cms::{Builtin, ColorSpace, Curve, Intent, Profile, Transform};
 use photocraft_compose::Buffer;
@@ -33,6 +34,34 @@ use crate::{EngineError, Result};
 pub const DISPLAY_INTENT: Intent = Intent::RelativeColorimetric;
 pub const DISPLAY_BPC: bool = true;
 
+/// Actual window backend, supplied by the native host rather than guessed from environment.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OutputEnvironment {
+    #[default]
+    AppManaged,
+    MacOs,
+    Wayland,
+}
+
+/// Destination of automatic display rendering. An explicit profile always belongs to the app.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DisplayMode {
+    AppManaged,
+    CompositorSrgb,
+    CompositorP3,
+}
+
+pub fn display_mode(environment: OutputEnvironment, managed_output: bool, explicit: bool) -> DisplayMode {
+    if explicit {
+        return DisplayMode::AppManaged;
+    }
+    match environment {
+        OutputEnvironment::MacOs => DisplayMode::CompositorP3,
+        OutputEnvironment::Wayland if managed_output => DisplayMode::CompositorSrgb,
+        _ => DisplayMode::AppManaged,
+    }
+}
+
 /// How the canvas shows one document.
 #[derive(Debug)]
 pub struct CanvasDisplay {
@@ -44,7 +73,7 @@ pub struct CanvasDisplay {
     pub source: Arc<Profile>,
     /// The monitor profile.
     pub monitor: Arc<Profile>,
-    /// Texture values → monitor; `None` when that is the identity (within half an 8-bit step).
+    /// Texture values → monitor; `None` when that is the identity (within half a 10-bit step).
     pub transform: Option<Arc<Transform>>,
     /// Changes whenever any of the above changes (for UI caches).
     pub key: u64,
@@ -62,11 +91,47 @@ impl CanvasDisplay {
 
     /// CPU canvas: a straight-alpha composite → RGBA8 monitor values.
     pub fn to_rgba8(&self, buf: &Buffer) -> Rgba8Image {
-        let mut img = if self.encode_srgb { encode_rgba8(buf) } else { buf.to_rgba8() };
-        if let Some(t) = &self.transform {
-            apply_u8(t, &mut img.pixels);
+        let mut img = Rgba8Image::new(buf.rect.width(), buf.rect.height());
+        let mut input = [0.0; 3];
+        let mut output = [0.0; 3];
+        for (i, (dst, src)) in img.pixels.as_chunks_mut::<4>().0.iter_mut().zip(&buf.px).enumerate() {
+            for c in 0..3 {
+                input[c] = if self.encode_srgb { photocraft_color::convert::linear_to_srgb(src[c]) } else { src[c] };
+            }
+            if let Some(t) = &self.transform {
+                t.eval(&input, &mut output);
+            } else {
+                output = input;
+            }
+            for c in 0..3 {
+                dst[c] = quantize_display(
+                    output[c],
+                    (i % img.width as usize).wrapping_add(buf.rect.x0 as usize),
+                    (i / img.width as usize).wrapping_add(buf.rect.y0 as usize),
+                );
+            }
+            dst[3] = (src[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
         }
         img
+    }
+
+    /// Library's already sRGB-encoded preview (including its existing soft proof) → display.
+    /// Float evaluation preserves fractional destination codes until the display-only dither.
+    pub fn srgb8_to_display(&self, width: usize, bytes: &[u8]) -> Vec<u8> {
+        if self.is_identity() {
+            return bytes.to_vec();
+        }
+        let mut dst = bytes.to_vec();
+        if let Some(t) = &self.transform {
+            let mut out = [0.0f32; 3];
+            for (i, (src, dst)) in bytes.as_chunks::<4>().0.iter().zip(dst.as_chunks_mut::<4>().0).enumerate() {
+                t.eval(&[f32::from(src[0]) / 255.0, f32::from(src[1]) / 255.0, f32::from(src[2]) / 255.0], &mut out);
+                for c in 0..3 {
+                    dst[c] = quantize_display(out[c], i % width, i / width);
+                }
+            }
+        }
+        dst
     }
 
     /// GPU canvas: a CPU composite as the texture stores it (sRGB-encoded for linear
@@ -87,31 +152,21 @@ impl CanvasDisplay {
     }
 }
 
-/// Linear → sRGB-encoded 8-bit codes, indexed by the linear value in 1/65535 steps.
-fn encode_table() -> &'static [u8] {
-    static T: OnceLock<Vec<u8>> = OnceLock::new();
-    T.get_or_init(|| (0..=65535u32).map(|i| (photocraft_color::convert::linear_to_srgb(i as f32 / 65535.0) * 255.0 + 0.5) as u8).collect())
+/// Bayer's 8×8 ordered thresholds, centred on zero. The same integer construction is used
+/// in the GPU final pass. No frame seed: stationary pixels and tests are deterministic.
+pub fn display_noise(x: usize, y: usize) -> f32 {
+    let mut rank = 0;
+    for bit in 0..3 {
+        let xb = (x >> bit) & 1;
+        let yb = (y >> bit) & 1;
+        rank = rank * 4 + ((xb ^ yb) * 2 + yb);
+    }
+    (rank as f32 + 0.5) / 64.0 - 0.5
 }
 
-fn encode_rgba8(buf: &Buffer) -> Rgba8Image {
-    let t = encode_table();
-    let mut img = Rgba8Image::new(buf.rect.width(), buf.rect.height());
-    let code = |v: f32| t.get((v.clamp(0.0, 1.0) * 65535.0 + 0.5) as usize).copied().unwrap_or(255);
-    for (o, p) in img.pixels.as_chunks_mut::<4>().0.iter_mut().zip(&buf.px) {
-        *o = [code(p[0]), code(p[1]), code(p[2]), (p[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8];
-    }
-    img
-}
-
-/// In-place 8-bit RGBA transform (alpha kept), in blocks so the scratch copy stays small.
-fn apply_u8(t: &Transform, px: &mut [u8]) {
-    const BLOCK: usize = 1 << 20;
-    let mut src = Vec::new();
-    for chunk in px.chunks_mut(BLOCK * 4) {
-        src.clear();
-        src.extend_from_slice(chunk);
-        t.convert_u8(&src, 4, chunk, 4, true);
-    }
+/// Display-only quantisation. Exact byte codes remain exact; never used for exports.
+pub fn quantize_display(value: f32, x: usize, y: usize) -> u8 {
+    (value.clamp(0.0, 1.0) * 255.0 + 0.5 + display_noise(x, y)).floor().clamp(0.0, 255.0) as u8
 }
 
 /// Is `p` an RGB matrix/TRC profile with linear curves?
@@ -129,14 +184,14 @@ fn srgb_curve_twin(p: &Profile) -> Profile {
 }
 
 /// Does `t` map every lattice point (the neutral axis only for gray documents) to itself
-/// within half an 8-bit step?
+/// within half a 10-bit step?
 fn is_identity(t: &Transform, neutral_only: bool) -> bool {
     const N: usize = 9;
     let s = (N - 1) as f32;
     let mut out = [0.0f32; 16];
     let mut check = |v: [f32; 3]| {
         t.eval(&v, &mut out);
-        (0..3).all(|i| (out[i] - v[i]).abs() <= 0.5 / 255.0)
+        (0..3).all(|i| (out[i] - v[i]).abs() <= 0.5 / 1023.0)
     };
     if neutral_only {
         return (0..=32).all(|i| check([i as f32 / 32.0; 3]));
@@ -155,7 +210,7 @@ fn hash_of(v: impl std::hash::Hash) -> u64 {
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum MonitorDetection {
-    /// No platform reader (web, Linux, Windows, tests).
+    /// No platform reader (web, Windows until its safe hook is implemented, tests).
     #[default]
     Unsupported,
     /// Being read (the first time; a re-read keeps the previous displays meanwhile).
@@ -184,6 +239,8 @@ pub struct Display {
     /// The display's ICC profile; `None` when the OS gave none.
     #[serde(skip)]
     pub icc: Option<Arc<Vec<u8>>>,
+    /// A native Wayland compositor has a managed standard-space output.
+    pub compositor_managed: bool,
 }
 
 /// The display showing most of a window whose frame (OS points, as [`Display::frame`]) is
@@ -230,6 +287,10 @@ impl MonitorStatus {
             (Some(n), "auto") => n.as_str(),
             _ => self.profile.as_str(),
         };
+        if self.source == "compositor" {
+            let detected = self.profile_name.as_deref().unwrap_or("unknown");
+            return format!("{} (compositor; detected panel profile: {detected})", self.profile);
+        }
         match &self.reason {
             Some(r) => format!("{name} ({}: {r})", self.source),
             None => format!("{name} ({})", self.source),
@@ -240,6 +301,7 @@ impl MonitorStatus {
 /// A resolved monitor profile and what it was resolved from (setting, display, profile bytes,
 /// detection state).
 struct MonitorEntry {
+    mode: DisplayMode,
     spec: String,
     display: Option<u32>,
     icc: Option<Arc<Vec<u8>>>,
@@ -252,10 +314,30 @@ struct MonitorEntry {
 #[derive(Default)]
 pub struct DisplayCaches {
     monitor: Mutex<HashMap<Option<u32>, MonitorEntry>>,
+    preview: Mutex<HashMap<u64, Arc<CanvasDisplay>>>,
     canvas: Mutex<HashMap<(ColorSpace, u64, u64), Arc<CanvasDisplay>>>,
 }
 
 impl ColorState {
+    /// The shared display transform for Library/Develop's sRGB output. Soft proofing has
+    /// already run in the Develop pipeline; applying only the monitor stage avoids proofing twice.
+    pub fn srgb_preview_display(&self) -> Result<Arc<CanvasDisplay>> {
+        let monitor = self.monitor();
+        let key = monitor.content_hash();
+        let mut cache = self.display.preview.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(d) = cache.get(&key) {
+            return Ok(d.clone());
+        }
+        let source = Arc::new(Builtin::Srgb.profile().clone());
+        let t = Transform::new(&source, &monitor, DISPLAY_INTENT, DISPLAY_BPC).map_err(|e| EngineError::Other(format!("colour management: {e}")))?;
+        let transform = (!is_identity(&t, false)).then(|| Arc::new(t));
+        let d = Arc::new(CanvasDisplay { encode_srgb: false, texture_key: source.content_hash(), key, source, monitor, transform });
+        if cache.len() >= 16 {
+            cache.clear();
+        }
+        cache.insert(key, d.clone());
+        Ok(d)
+    }
     /// The monitor profile of the main window's display ([`ColorState::main_display`]); see
     /// [`ColorState::monitor_for`].
     pub fn monitor(&self) -> Arc<Profile> {
@@ -324,9 +406,11 @@ impl ColorState {
         let spec = self.settings.monitor_profile.as_str();
         let auto = spec.is_empty() || spec == "auto";
         let shown = self.display_or_primary(display);
+        let mode = display_mode(self.output_environment, shown.is_some_and(|d| d.compositor_managed), !auto);
         let icc = if auto { shown.and_then(|d| d.icc.clone()) } else { None };
         let mut cache = self.display.monitor.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(e) = cache.get(&display)
+            && e.mode == mode
             && e.spec == spec
             && e.display == shown.map(|d| d.id)
             && e.detection == self.monitor_detection
@@ -338,7 +422,20 @@ impl ColorState {
         {
             return (e.profile.clone(), e.status.clone());
         }
-        let found = if auto {
+        let found = if mode != DisplayMode::AppManaged {
+            Ok(Arc::new(
+                match mode {
+                    DisplayMode::CompositorP3 => Builtin::DisplayP3,
+                    _ => Builtin::Srgb,
+                }
+                .profile()
+                .clone(),
+            ))
+        } else if auto && self.output_environment == OutputEnvironment::Wayland {
+            // An unconfirmed Wayland compositor/output gets standard sRGB. Applying a colord
+            // ICC here could double-correct a managed surface; an explicit selection overrides it.
+            Err("native Wayland output management is unknown; using tagged sRGB".into())
+        } else if auto {
             match (shown, &icc, &self.monitor_detection) {
                 (_, Some(b), _) => profile_from_bytes(b).map_err(|e| format!("the display profile can't be read: {e}")),
                 (Some(d), None, _) => Err(format!("{} has no ICC profile", d.name)),
@@ -360,7 +457,17 @@ impl ColorState {
             Ok(p)
         });
         let (p, source, reason) = match usable {
-            Ok(p) => (p, if auto { "auto" } else { "manual" }, None),
+            Ok(p) => (
+                p,
+                if mode != DisplayMode::AppManaged {
+                    "compositor"
+                } else if auto {
+                    "auto"
+                } else {
+                    "manual"
+                },
+                (mode != DisplayMode::AppManaged).then(|| "the OS converts the tagged surface to the panel profile".into()),
+            ),
             Err(r) => (Arc::new(Builtin::Srgb.profile().clone()), "fallback", Some(r)),
         };
         let status = MonitorStatus {
@@ -377,6 +484,7 @@ impl ColorState {
             cache.clear();
         }
         let entry = MonitorEntry {
+            mode,
             spec: spec.to_string(),
             display: shown.map(|d| d.id),
             icc,

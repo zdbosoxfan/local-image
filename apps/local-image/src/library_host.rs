@@ -1242,6 +1242,7 @@ impl eframe::App for Host {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        crate::monitor_profile::configure_surface(frame, &self.editor.session.color);
         self.shared_shell(ui.ctx());
         if self.mode == Module::Compositing || self.library.is_none() {
             self.editor.ui(ui, frame);
@@ -1279,7 +1280,12 @@ impl eframe::App for Host {
                 self.round_trip_notice = None;
             }
         }
+        photocraft_ui_egui::monitor_status::poll(&mut self.editor, ui.ctx());
         if let Some(lib) = self.library.as_mut() {
+            match self.editor.session.color.srgb_preview_display() {
+                Ok(display) => lib.renderer.set_display(display),
+                Err(e) => log::warn!("Library display transform: {e}"),
+            }
             ui.add_enabled_ui(!lib.host_modal, |ui| lib.ui(ui));
         }
         self.shared_shell(ui.ctx());

@@ -1376,7 +1376,7 @@ fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>
                 }
                 Value::String(s) if path == "tools.tabletCompatibilityMode" => {
                     ui.label(tl!("Pen tablet: use compatibility mode (XWayland)"))
-                        .on_hover_text("Auto detects an attached pen and uses XWayland for pressure, tilt and eraser. On forces compatibility; Off keeps native Wayland. XWayland can look softer at fractional display scaling. Restart to apply. LOCAL_IMAGE_NATIVE_WAYLAND=1 keeps native Wayland.");
+                        .on_hover_text("Auto detects an attached pen and uses XWayland for pressure, tilt and eraser. On forces compatibility; Off keeps native Wayland. XWayland forces 8-bit display output (dithered); native Wayland can use 10-bit. XWayland can look softer at fractional display scaling. Restart to apply. LOCAL_IMAGE_NATIVE_WAYLAND=1 keeps native Wayland.");
                     let mut cur = s.clone();
                     crate::widgets::dropdown(ui, "pref-tools.tabletCompatibilityMode", &mut cur, &[("auto".into(), "Auto"), ("on".into(), "On"), ("off".into(), "Off")], 220.0);
                     obj.insert(k, json!(cur));
@@ -2972,3 +2972,37 @@ mod keymap_tests;
 #[cfg(test)]
 #[path = "design_system_shots.rs"]
 mod design_system_shots;
+
+#[cfg(test)]
+mod display_info_tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+    #[test]
+    fn display_info_is_read_only_and_visible_after_graphics_interaction() {
+        let info = crate::gpu_canvas::GpuInfo {
+            output_depth: 10,
+            output_note: "native Wayland; panel depth is controlled by the compositor".into(),
+            ..Default::default()
+        };
+        let lines = json!(info.lines());
+        let mut h = Harness::builder().with_size(egui::vec2(400.0, 600.0)).build_ui_state(
+            move |ui, values: &mut Map<String, Value>| {
+                if super::design_system_shots::fonts_ready(ui) {
+                    gpu_status_rows(ui, Some(&lines), None, values);
+                }
+            },
+            Map::new(),
+        );
+        h.run_steps(2);
+        h.get_by_label_contains("Display output: 10-bit client surface");
+        h.get_by_label("Advanced").click();
+        h.run_steps(2);
+        h.get_by_value("Auto").click();
+        h.run_steps(2);
+        h.get_by_label("Vulkan").click();
+        h.run_steps(2);
+        assert_eq!(h.state()["gpuBackend"], "vulkan");
+        assert!(!h.state().contains_key("outputDepth"));
+        h.get_by_label_contains("Display output: 10-bit client surface");
+    }
+}

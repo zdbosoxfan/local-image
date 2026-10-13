@@ -1,6 +1,7 @@
 //! Colour-managed display (#46): non-sRGB documents show their colours on an sRGB (or other)
 //! monitor. Fixtures are built-in (CC0) or synthesized profiles only.
 
+use photocraft_compose::Buffer;
 use std::sync::Arc;
 
 use photocraft_cms::synth::{CmykParams, cmyk_profile};
@@ -220,7 +221,7 @@ fn monitor_profile_setting() {
 }
 
 fn display(id: u32, frame: [f64; 4], icc: Option<Vec<u8>>) -> crate::display_color::Display {
-    crate::display_color::Display { id, name: format!("Display {id}"), frame, profile_name: None, icc: icc.map(Arc::new) }
+    crate::display_color::Display { compositor_managed: false, id, name: format!("Display {id}"), frame, profile_name: None, icc: icc.map(Arc::new) }
 }
 
 fn p3() -> Option<Vec<u8>> {
@@ -373,4 +374,80 @@ fn proof_colors_still_apply_on_top() {
     let sig = s.color.display_signature(&d);
     s.execute("view.gamutWarning", json!({"on": true})).unwrap();
     assert_ne!(sig, s.color.display_signature(&d));
+}
+
+#[test]
+fn ordered_display_dither_preserves_mean_and_exact_bytes() {
+    use super::{display_noise, quantize_display};
+    let sum: f32 = (0..8).flat_map(|y| (0..8).map(move |x| display_noise(x, y))).sum();
+    assert_eq!(sum, 0.0);
+    for byte in 0..=255u8 {
+        for y in 0..8 {
+            for x in 0..8 {
+                assert_eq!(quantize_display(f32::from(byte) / 255.0, x, y), byte);
+            }
+        }
+    }
+    let mut error = 0.0;
+    let mut longest = 0;
+    // Statistics cover the full ordered tile; a single row contains only eight thresholds.
+    for y in 0..8 {
+        let mut run = 0;
+        let mut last = 255;
+        for x in 0..8192 {
+            let v = x as f32 / 8191.0;
+            let q = quantize_display(v, x, y);
+            error += f32::from(q) / 255.0 - v;
+            run = if q == last { run + 1 } else { 1 };
+            longest = longest.max(run);
+            last = q;
+        }
+    }
+    assert!(error.abs() / (8192.0 * 8.0) < 1e-5, "mean error {error}");
+    assert!(longest < 33, "undithered ramp has 33-pixel bands: {longest}");
+}
+
+#[test]
+fn compositor_mode_decision_table_and_cache_invalidation() {
+    use super::{DisplayMode as M, OutputEnvironment as E, display_mode};
+    for explicit in [false, true] {
+        for managed in [false, true] {
+            assert_eq!(display_mode(E::AppManaged, managed, explicit), M::AppManaged);
+            assert_eq!(display_mode(E::MacOs, managed, explicit), if explicit { M::AppManaged } else { M::CompositorP3 });
+            assert_eq!(display_mode(E::Wayland, managed, explicit), if !explicit && managed { M::CompositorSrgb } else { M::AppManaged });
+        }
+    }
+    let mut c = Session::new().color;
+    c.output_environment = E::MacOs;
+    assert_eq!(c.monitor().content_hash(), Builtin::DisplayP3.profile().content_hash());
+    c.settings.monitor_profile = "srgb".into();
+    assert_eq!(c.monitor().content_hash(), Builtin::Srgb.profile().content_hash());
+    c.settings.monitor_profile = "auto".into();
+    c.output_environment = E::AppManaged;
+    assert_eq!(c.monitor().content_hash(), Builtin::Srgb.profile().content_hash());
+}
+
+#[test]
+fn preview_display_matches_editor_and_float_lut_keeps_sub_byte_values() {
+    let mut c = crate::color_cmds::ColorState::default();
+    c.settings.monitor_profile = "display-p3".into();
+    let preview = c.srgb_preview_display().unwrap();
+    let bytes: Vec<u8> = (0..64).flat_map(|i| [i * 4, 128, 32, 255]).collect();
+    let mut buf = Buffer::transparent(Rect::new(0, 0, 8, 8));
+    for (p, b) in buf.px.iter_mut().zip(bytes.as_chunks::<4>().0) {
+        *p = b.map(|v| f32::from(v) / 255.0);
+    }
+    let doc = rgb_doc(None, [0.5; 3], SampleType::U8);
+    let editor = c.canvas_display(&doc).unwrap();
+    assert_eq!(preview.srgb8_to_display(8, &bytes), editor.to_rgba8(&buf).pixels);
+    assert_ne!(preview.srgb8_to_display(8, &bytes), bytes);
+    let lut8 = c.gpu_canvas_lut_for(&doc, 9, None).unwrap().unwrap();
+    let lut16 = c.gpu_canvas_lut16f_for(&doc, 9, None).unwrap().unwrap();
+    assert_eq!(lut16.len(), lut8.len() * 2);
+    let t = preview.transform.as_ref().unwrap();
+    let expected = photocraft_cms::Lut3d::from_transform(t, 9);
+    assert_eq!(lut16, expected.to_rgba16f_bytes());
+    assert!(expected.data.iter().any(|p| p[..3].iter().any(|v| (v * 255.0 - (v * 255.0).round()).abs() > 0.1)));
+    c.settings.monitor_profile = "srgb".into();
+    assert_eq!(c.srgb_preview_display().unwrap().srgb8_to_display(8, &bytes), bytes);
 }
