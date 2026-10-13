@@ -206,6 +206,7 @@ pub struct ColorState {
     /// The display showing the main window (set by the UI each frame; `None` = unknown, the
     /// primary display). Other windows pass their own display to the `*_for` methods.
     pub main_display: Option<u32>,
+    pub output_environment: crate::display_color::OutputEnvironment,
     display_cache: Mutex<HashMap<DisplayKey, Arc<Transform>>>,
     pub(crate) display: crate::display_color::DisplayCaches,
     /// View › 32-bit Preview Options per document.
@@ -419,21 +420,29 @@ impl ColorState {
     }
 
     fn canvas_lut_with(&self, doc: &Document, size: usize, hdr: bool, on: Option<u32>) -> Result<Option<Vec<u8>>> {
+        Ok(self.canvas_lut_float_with(doc, size, hdr, on)?.map(|l| l.to_rgba8()))
+    }
+
+    /// Float-evaluated display/proof LUT, quantised only to half-float at upload for 10-bit.
+    pub fn gpu_canvas_lut16f_for(&self, doc: &Document, size: usize, on: Option<u32>) -> Result<Option<Vec<u8>>> {
+        Ok(self.canvas_lut_float_with(doc, size, false, on)?.map(|l| l.to_rgba16f_bytes()))
+    }
+
+    fn canvas_lut_float_with(&self, doc: &Document, size: usize, hdr: bool, on: Option<u32>) -> Result<Option<Lut3d>> {
         let size = size.max(2);
         let pv = self.proof(doc.id);
         let display = self.canvas_display_for(doc, on)?;
         if !pv.enabled && !pv.gamut_warning && !(hdr && crate::proof_sim::hdr_active(self, doc)) {
-            return Ok(display.transform.as_ref().map(|t| Lut3d::from_transform(t, size).to_rgba8()));
+            return Ok(display.transform.as_ref().map(|t| Lut3d::from_transform(t, size)));
         }
-        let lut = self.display_lut_with(doc, size, hdr, on)?;
-        let mut bytes = lut.to_rgba8();
+        let mut lut = self.display_lut_with(doc, size, hdr, on)?;
         let check = if pv.gamut_warning { Some(GamutCheck::new(&display.source, &pv.setup.profile, pv.gamut_threshold).map_err(cms_err)?) } else { None };
         let s = (size - 1) as f32;
-        for (i, px) in bytes.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        for (i, px) in lut.data.iter_mut().enumerate() {
             let rgb = [(i % size) as f32 / s, ((i / size) % size) as f32 / s, (i / (size * size)) as f32 / s];
-            px[3] = if check.as_ref().is_some_and(|c| c.out_of_gamut(&rgb)) { 255 } else { 0 };
+            px[3] = if check.as_ref().is_some_and(|c| c.out_of_gamut(&rgb)) { 1.0 } else { 0.0 };
         }
-        Ok(Some(bytes))
+        Ok(Some(lut))
     }
 }
 

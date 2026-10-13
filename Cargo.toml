@@ -161,3 +161,6 @@ debug = false
 lto = "thin"
 codegen-units = 1
 debug = "line-tables-only"
+
+[patch.crates-io]
+egui-wgpu = { path = "vendor/egui-wgpu" }

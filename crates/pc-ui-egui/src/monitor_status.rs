@@ -35,6 +35,7 @@ pub const REREAD_SECS: f64 = 30.0;
 /// The shell's reading state (`PhotocraftApp::monitors`).
 #[derive(Default)]
 pub struct State {
+    topology: Option<u64>,
     pending: Option<Receiver<Detection>>,
     /// Another reading is wanted once the pending one is done or the interval has passed.
     again: bool,
@@ -88,7 +89,10 @@ pub fn poll(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let focused = ctx.input(|i| i.focused) || std::mem::take(&mut app.monitors.window_focused);
     let regained = focused && app.monitors.focused == Some(false);
     app.monitors.focused = Some(focused);
-    if regained || displays_changed(app, ctx) {
+    let topology = app.services.display_topology.as_ref().map(|read| read());
+    let topology_changed = app.monitors.topology.is_some() && topology != app.monitors.topology;
+    app.monitors.topology = topology;
+    if regained || topology_changed || displays_changed(app, ctx) {
         app.monitors.again = true;
     }
     if (app.monitors.again || app.monitors.now) && app.monitors.pending.is_none() {
@@ -203,6 +207,12 @@ fn window_frame(ctx: &egui::Context) -> Option<[f64; 4]> {
 /// The display showing most of the window `ctx` draws (`None`: unknown, e.g. no displays read
 /// or no window position, as on Wayland).
 pub fn view_display(app: &PhotocraftApp, ctx: &egui::Context) -> Option<u32> {
+    if ctx.viewport_id() == egui::ViewportId::ROOT
+        && let Some(name) = app.services.current_display_name.as_ref().and_then(|read| read())
+        && let Some(d) = app.session.color.displays.iter().find(|d| d.name == name)
+    {
+        return Some(d.id);
+    }
     display_at(&app.session.color.displays, window_frame(ctx)?)
 }
 
@@ -211,6 +221,12 @@ fn displays_changed(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
     let c = &app.session.color;
     if c.displays.is_empty() || !matches!(c.monitor_detection, MonitorDetection::Found | MonitorDetection::Retained { .. }) {
         return false;
+    }
+    if ctx.viewport_id() == egui::ViewportId::ROOT
+        && let Some(name) = app.services.current_display_name.as_ref().and_then(|read| read())
+        && !c.displays.iter().any(|d| d.name == name)
+    {
+        return true;
     }
     let Some(frame) = window_frame(ctx) else { return false };
     let Some(d) = display_at(&c.displays, frame).and_then(|id| c.displays.iter().find(|d| d.id == id)) else { return true };
@@ -254,6 +270,20 @@ mod tests {
         PhotocraftApp::new(Session::new(), Default::default())
     }
 
+    #[test]
+    fn display_output_name_handles_wayland_without_window_coordinates() {
+        let mut app = app();
+        app.session.color.set_displays(Ok(displays(p3())));
+        let which = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let value = which.clone();
+        app.services.current_display_name =
+            Some(Arc::new(move || Some(if value.load(std::sync::atomic::Ordering::SeqCst) { "ROG PG32UQX" } else { "Built-in Retina Display" }.into())));
+        let ctx = egui::Context::default();
+        assert_eq!(view_display(&app, &ctx), Some(1));
+        which.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(view_display(&app, &ctx), Some(4));
+    }
+
     fn p3() -> Option<Arc<Vec<u8>>> {
         Some(photocraft_engine::color_cmds::resolve_profile("display-p3", None, None).unwrap().to_bytes())
     }
@@ -262,8 +292,22 @@ mod tests {
     /// right and higher up.
     fn displays(builtin: Option<Arc<Vec<u8>>>) -> Vec<Display> {
         vec![
-            Display { id: 1, name: "Built-in Retina Display".into(), frame: [0.0, 0.0, 1728.0, 1117.0], profile_name: Some("Color LCD".into()), icc: builtin },
-            Display { id: 4, name: "ROG PG32UQX".into(), frame: [1728.0, -667.0, 3008.0, 1692.0], profile_name: Some("Apple_Display".into()), icc: p3() },
+            Display {
+                compositor_managed: false,
+                id: 1,
+                name: "Built-in Retina Display".into(),
+                frame: [0.0, 0.0, 1728.0, 1117.0],
+                profile_name: Some("Color LCD".into()),
+                icc: builtin,
+            },
+            Display {
+                compositor_managed: false,
+                id: 4,
+                name: "ROG PG32UQX".into(),
+                frame: [1728.0, -667.0, 3008.0, 1692.0],
+                profile_name: Some("Apple_Display".into()),
+                icc: p3(),
+            },
         ]
     }
 

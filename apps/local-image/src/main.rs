@@ -259,10 +259,16 @@ fn main() -> eframe::Result {
 
     // Read the displays' ICC profiles while the window opens (colour-managed canvas; `None`
     // where the platform has no reader).
-    let monitor = monitor_profile::detect_async();
+
     // Brush presets load in the background; the app attaches them when they arrive.
     let presets = services::presets_dir().map(photocraft_engine::preset_store::open_dir_async);
     let mut options = native_options();
+    if std::env::var("LOCAL_IMAGE_OUTPUT_DEPTH").ok().as_deref() != Some("8") {
+        options.wgpu_options.preferred_formats = vec![eframe::wgpu::TextureFormat::Rgb10a2Unorm];
+    }
+    if cfg!(target_os = "macos") {
+        options.wgpu_options.surface.color_space = eframe::wgpu::SurfaceColorSpace::DisplayP3;
+    }
     // eframe restores the saved window layout before our code runs; drop values that would crash it.
     ui_state::sanitize(options.persistence_path.as_deref());
     // Crash-safe GPU startup (#4): pick the backend (a marker left by a start that died in the
@@ -352,6 +358,17 @@ fn main() -> eframe::Result {
                 file_dialog_probe::start();
             }
             let mut app = PhotocraftApp::new(Session::new(), services);
+            #[cfg(target_os = "linux")]
+            let wayland = display == Some(tablet::DisplayKind::Wayland);
+            #[cfg(not(target_os = "linux"))]
+            let wayland = false;
+            app.session.color.output_environment = if cfg!(target_os = "macos") {
+                photocraft_engine::display_color::OutputEnvironment::MacOs
+            } else if wayland {
+                photocraft_engine::display_color::OutputEnvironment::Wayland
+            } else {
+                photocraft_engine::display_color::OutputEnvironment::AppManaged
+            };
             app.integrated_titlebar = cfg!(target_os = "macos");
             app.custom_titlebar = CUSTOM_TITLEBAR;
             // Only the title bar's free gap drags the window, never the menus (mac_window.rs).
@@ -359,19 +376,48 @@ fn main() -> eframe::Result {
             mac_window::disable_native_title_drag();
             // Long commands and file opens run as background jobs with progress and Cancel (#210).
             app.background_jobs = std::env::var_os("LOCAL_IMAGE_INLINE_JOBS").is_none();
-            // Displays and their profiles (#569): wait briefly so the first frames already use
-            // the right profile; a slower reading is applied when it arrives, and the shell reads
-            // again when the displays may have changed.
-            if let Some(rx) = monitor {
-                app.services.read_displays = Some(std::sync::Arc::new(monitor_profile::detect_async));
-                match rx.recv_timeout(std::time::Duration::from_secs(2)) {
-                    Ok(r) => photocraft_ui_egui::monitor_status::apply(&mut app, r),
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => photocraft_ui_egui::monitor_status::pending(&mut app, rx),
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                        photocraft_ui_egui::monitor_status::apply(&mut app, Err("the display profile reader stopped without an answer".into()));
-                    }
-                }
+            // Snapshot monitor geometry, then read profiles entirely off the UI thread.
+            // The shell re-reads on focus, topology changes and Color Settings.
+            let window = cc.winit_window().cloned();
+            let monitor_window = window.clone();
+            let reader: photocraft_ui_egui::monitor_status::ReadDisplaysFn = std::sync::Arc::new(move || {
+                let outputs = monitor_window
+                    .as_ref()
+                    .map(|w| {
+                        w.available_monitors()
+                            .map(|m| {
+                                let p = m.position();
+                                let size = m.size();
+                                let scale = m.scale_factor();
+                                monitor_profile::Output {
+                                    name: m.name().unwrap_or_default(),
+                                    frame: [f64::from(p.x) / scale, f64::from(p.y) / scale, f64::from(size.width) / scale, f64::from(size.height) / scale],
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                #[cfg(target_os = "linux")]
+                let x11 = display == Some(tablet::DisplayKind::X11);
+                #[cfg(not(target_os = "linux"))]
+                let x11 = false;
+                monitor_profile::detect_async_with(outputs, x11)
+            });
+            if let Some(rx) = reader() {
+                app.services.read_displays = Some(reader);
+                photocraft_ui_egui::monitor_status::pending(&mut app, rx);
             }
+            app.services.display_topology = window.clone().map(|w| {
+                std::sync::Arc::new(move || {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    for m in w.available_monitors() {
+                        (m.name(), m.position(), m.size(), m.scale_factor().to_bits()).hash(&mut h);
+                    }
+                    h.finish()
+                }) as _
+            });
+            app.services.current_display_name = window.map(|w| std::sync::Arc::new(move || w.current_monitor().and_then(|m| m.name())) as _);
             // Preferences › Performance › Use Graphics Processor (and the GPU backend: `cpu`
             // composites on the CPU).
             let info = &mut app.perf.gpu_info;
@@ -384,6 +430,13 @@ fn main() -> eframe::Result {
             info.canvas = "cpu".into();
             if let Some(rs) = cc.wgpu_render_state.clone() {
                 app.perf.gpu_info.set_adapter(&rs.adapter.get_info());
+                app.perf.gpu_info.output_depth = if rs.target_format == eframe::wgpu::TextureFormat::Rgb10a2Unorm { 10 } else { 8 };
+                app.perf.gpu_info.output_note = if cfg!(target_os = "linux") && !wayland {
+                    "X11 / XWayland uses 8-bit output; pen tablet compatibility mode forces this backend"
+                } else {
+                    "panel depth is controlled by the OS/compositor"
+                }
+                .into();
                 let software_window = rs.adapter.get_info().device_type == eframe::wgpu::DeviceType::Cpu;
                 if software_window && mode != photocraft_engine::prefs::RenderingMode::Cpu {
                     app.perf.gpu_info.fallback = Some("No compatible hardware graphics adapter; using software graphics.".into());

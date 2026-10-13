@@ -85,6 +85,29 @@ pub trait RenderOffload {
     fn finished(&mut self) -> Vec<(Slot, RenderResult, f64)>;
 }
 
+/// Existing native preview workers do the display conversion too. Browser inline/offload
+/// collection never changes the UI thread's priority.
+fn display_worker_priority() {
+    #[cfg(not(target_arch = "wasm32"))]
+    lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
+}
+
+struct DisplayResult {
+    result: RenderResult,
+    color: Option<Arc<egui::ColorImage>>,
+    display_key: u64,
+}
+
+fn display_result(result: RenderResult, display: Option<&photocraft_engine::display_color::CanvasDisplay>) -> DisplayResult {
+    let color = result.rendered.as_ref().ok().map(|r| {
+        let img = &r.image;
+        let bytes = img.as_bytes();
+        let bytes = if let Some(d) = display.filter(|d| !d.is_identity()) { d.srgb8_to_display(img.width, &bytes) } else { bytes };
+        Arc::new(egui::ColorImage::from_rgba_unmultiplied([img.width, img.height], &bytes))
+    });
+    DisplayResult { result, color, display_key: display.map_or(0, |d| d.key) }
+}
+
 struct Queued {
     slot: Slot,
     priority: u32,
@@ -114,7 +137,8 @@ pub struct Renderer {
     /// Last thumbnail inputs; weak identities do not retain photo histories or force deep clones.
     /// (photo, size bucket, job key, whether the request went through an embedded stand-in)
     thumb_inputs: HashMap<PhotoId, (std::sync::Weak<lightcraft_catalog::Photo>, usize, u64, bool)>,
-    pool: JobPool<Slot, RenderResult>,
+    pool: JobPool<Slot, DisplayResult>,
+    display: Option<Arc<photocraft_engine::display_color::CanvasDisplay>>,
     /// Jobs run elsewhere (see [`RenderOffload`]); `queue` holds the ones not started yet.
     offload: Option<Box<dyn RenderOffload>>,
     queue: Vec<Queued>,
@@ -177,6 +201,7 @@ impl Renderer {
             epoch: 0,
             preview_generation: None,
             pool: JobPool::new(threads),
+            display: None,
             thumb_inputs: HashMap::new(),
             offload: None,
             queue: Vec::new(),
@@ -200,6 +225,18 @@ impl Renderer {
 }
 
 impl Renderer {
+    /// Change monitor transform and invalidate display textures, retaining processing stage caches.
+    /// New uploads run on the existing bounded workers; old in-flight monitor results are discarded.
+    pub fn set_display(&mut self, display: Arc<photocraft_engine::display_color::CanvasDisplay>) {
+        if self.display.as_ref().is_some_and(|d| d.key == display.key) {
+            return;
+        }
+        let stages = std::mem::take(&mut self.stages);
+        self.forget_all();
+        self.stages = stages;
+        self.display = Some(display);
+    }
+
     /// Would asking for this thumbnail again (at `priority`) change nothing?
     pub fn thumb_current(&self, photo: &Arc<lightcraft_catalog::Photo>, bucket: usize, priority: u32) -> bool {
         let Some(&(ref old, size, key, quick)) = self.thumb_inputs.get(&photo.id) else { return false };
@@ -279,12 +316,17 @@ impl Renderer {
             return;
         }
         let key = job.key;
+        let display = self.display.clone();
         let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_));
         self.pool.submit(
             slot,
             key,
             priority,
-            Box::new(move || if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() }),
+            Box::new(move || {
+                display_worker_priority();
+                let result = if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
+                display_result(result, display.as_deref())
+            }),
         );
     }
 
@@ -298,7 +340,16 @@ impl Renderer {
         job.request_id = lightcraft_preview::next_tick();
         self.request_ids.insert(slot, job.request_id);
         let key = job.key;
-        self.pool.submit(slot, key, priority, Box::new(move || job.run()));
+        let display = self.display.clone();
+        self.pool.submit(
+            slot,
+            key,
+            priority,
+            Box::new(move || {
+                display_worker_priority();
+                display_result(job.run(), display.as_deref())
+            }),
+        );
     }
 
     /// Prepare a photo in the background (a [`Slot::Prefetch`] job runs once per key; a newer one
@@ -312,7 +363,20 @@ impl Renderer {
         job.request_id = lightcraft_preview::next_tick();
         self.request_ids.insert(slot, job.request_id);
         let key = job.key;
-        self.pool.submit(slot, key, priority, Box::new(move || lightcraft_engine::memory::in_background(|| job.run())));
+        let display = self.display.clone();
+        self.pool.submit(
+            slot,
+            key,
+            priority,
+            Box::new(move || {
+                display_worker_priority();
+                DisplayResult {
+                    result: lightcraft_engine::memory::in_background(|| job.run()),
+                    color: None,
+                    display_key: display.as_ref().map_or(0, |d| d.key),
+                }
+            }),
+        );
     }
 
     /// Is a request for `slot` queued or running?
@@ -472,11 +536,15 @@ impl Renderer {
             finished.push((done.slot, done.result, if done.ms > 0.0 { done.ms } else { inline_ms }));
         }
         if let Some(off) = self.offload.as_mut() {
-            finished.extend(off.finished());
+            finished.extend(off.finished().into_iter().map(|(slot, result, ms)| (slot, display_result(result, self.display.as_deref()), ms)));
         }
         self.dispatch();
         let mut changed = false;
-        for (mut slot, r, ms) in finished {
+        for (mut slot, done, ms) in finished {
+            if done.display_key != self.display.as_ref().map_or(0, |d| d.key) {
+                continue;
+            }
+            let DisplayResult { result: r, color, .. } = done;
             self.completed += 1;
             // Ignore obsolete pixels, failures and decoded sources, even for the same render key;
             // an interactive view still takes a superseded draft that is newer than what it shows.
@@ -532,7 +600,7 @@ impl Renderer {
                 self.textures.remove(&Slot::ThumbQuick(id));
             }
             let img = &rendered.image;
-            let color = std::sync::Arc::new(egui::ColorImage::from_rgba_unmultiplied([img.width, img.height], &img.as_bytes()));
+            let Some(color) = color else { continue };
             let pixels = self.keep_pixels.then(|| color.clone());
             let name = format!("{slot:?}");
             match self.textures.get_mut(&slot) {
@@ -837,6 +905,35 @@ mod thumbnail_tests {
         }
         assert_eq!(app.renderer.thumb_jobs_built, 1);
         assert_eq!(app.renderer.queue.len(), 1);
+    }
+
+    #[test]
+    fn display_textures_match_shared_editor_transform_and_rebuild_on_monitor_change() {
+        let (mut app, work, ctx) = fixture();
+        let mut color = photocraft_engine::color_cmds::ColorState::default();
+        color.settings.monitor_profile = "display-p3".into();
+        let display = color.srgb_preview_display().unwrap();
+        app.renderer.set_display(display.clone());
+        request(&mut app);
+        let (slot, job) = take_job(&work);
+        let result = job.run();
+        let img = &result.rendered.as_ref().unwrap().image;
+        let expected = display.srgb8_to_display(img.width, &img.as_bytes());
+        finish(&mut app, &work, &ctx, slot, result);
+        let pixels = app.renderer.thumb(PhotoId(1)).unwrap().pixels.as_ref().unwrap();
+        assert_eq!(pixels.pixels.iter().flat_map(|p| p.to_array()).collect::<Vec<_>>(), expected);
+        color.settings.monitor_profile = "srgb".into();
+        app.renderer.set_display(color.srgb_preview_display().unwrap());
+        assert!(app.renderer.thumb(PhotoId(1)).is_none());
+        request(&mut app);
+        let (slot, job) = take_job(&work);
+        let result = job.run();
+        let original = result.rendered.as_ref().unwrap().image.as_bytes();
+        finish(&mut app, &work, &ctx, slot, result);
+        assert_eq!(
+            app.renderer.thumb(PhotoId(1)).unwrap().pixels.as_ref().unwrap().pixels.iter().flat_map(|p| p.to_array()).collect::<Vec<_>>(),
+            original
+        );
     }
 
     #[test]

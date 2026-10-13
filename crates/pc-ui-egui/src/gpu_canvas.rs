@@ -45,8 +45,8 @@ const FORMAT_HIGH: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// documents (a 14000² one would need 2.1 GB) use `Rgba8Unorm`, so they stay on the GPU like
 /// 8-bit ones. `PHOTOCRAFT_CANVAS_F16=0` turns the float canvas off, `=1` ignores this budget.
 pub const F16_BUDGET_PX: u64 = 100_000_000;
-const VIEW_UNIFORM_SIZE: u64 = 128;
-const VIEW_FLOATS: usize = 32;
+const VIEW_UNIFORM_SIZE: u64 = 144;
+const VIEW_FLOATS: usize = 36;
 const TILE_UNIFORM_SIZE: u64 = 32;
 
 /// Parameters for drawing one document view. Positions are in egui points.
@@ -817,6 +817,15 @@ impl GpuCanvas {
     /// `size`³ RGBA8 texels, red fastest. RGB is the display colour for each lattice input;
     /// alpha 255 marks out-of-gamut colours for the gamut warning.
     pub fn set_display_lut(&self, doc: u64, output: u32, size: u32, rgba: Option<&[u8]>) {
+        self.set_display_lut_format(doc, output, size, rgba, FORMAT);
+    }
+
+    /// Actual client surface depth, independent of the panel/scanout depth.
+    pub fn output_depth(&self) -> u8 {
+        if self.rs.target_format == wgpu::TextureFormat::Rgb10a2Unorm { 10 } else { 8 }
+    }
+
+    pub fn set_display_lut_format(&self, doc: u64, output: u32, size: u32, rgba: Option<&[u8]>, format: wgpu::TextureFormat) {
         if !self.health.is_ok() {
             return;
         }
@@ -829,11 +838,11 @@ impl GpuCanvas {
                 res.luts.remove(&(doc, output));
             }
             Some(bytes) => {
-                if size < 2 || bytes.len() as u64 != (size as u64).pow(3) * 4 {
+                if size < 2 || bytes.len() as u64 != (size as u64).pow(3) * texel_bytes(format) {
                     log::warn!("set_display_lut: {} bytes for a {size}³ LUT; ignored", bytes.len());
                     return;
                 }
-                let bg = lut_bind_group(device, queue, &res.lut_bgl, size, bytes);
+                let bg = lut_bind_group(device, queue, &res.lut_bgl, size, bytes, format);
                 res.luts.insert((doc, output), bg);
             }
         }
@@ -1016,6 +1025,8 @@ pub struct Perf {
 pub struct GpuInfo {
     /// Adapter name ("" before the window opens).
     pub adapter: String,
+    pub output_depth: u8,
+    pub output_note: String,
     /// wgpu backend of the window's device ("vulkan", "dx12", "metal", "gl", …).
     pub backend: String,
     /// Device type ("discreteGpu", "integratedGpu", "cpu", …).
@@ -1058,6 +1069,11 @@ impl GpuInfo {
     pub fn lines(&self) -> Vec<String> {
         let or = |s: &str, d: &str| if s.is_empty() { d.to_string() } else { s.to_string() };
         let mut v = vec![
+            format!(
+                "Display output: {} client surface{}",
+                if self.output_depth == 0 { "unknown".to_string() } else { format!("{}-bit", self.output_depth) },
+                if self.output_note.is_empty() { String::new() } else { format!(" — {}", self.output_note) }
+            ),
             format!("Graphics adapter: {}", or(&self.adapter, "unknown")),
             format!("Backend: {} ({})", or(&self.backend, "unknown"), or(&self.device_type, "unknown type")),
             format!("Driver: {}", or(&self.driver, "unknown")),
@@ -1366,6 +1382,7 @@ struct Resources {
     docs: HashMap<u64, DocTextures>,
     views: HashMap<u64, ViewGpu>,
     out_linear: bool,
+    depth_levels: f32,
     /// The wgpu layer compositor (created on first use).
     compositor: Option<photocraft_gpu::Compositor>,
     /// Why the wgpu compositor couldn't be created (then the CPU compositor is used).
@@ -1425,7 +1442,14 @@ impl Default for CanvasStyle {
 }
 
 /// A `size`³ RGBA8 3D texture bound for the canvas shader.
-fn lut_bind_group(device: &wgpu::Device, queue: &wgpu::Queue, bgl: &wgpu::BindGroupLayout, size: u32, bytes: &[u8]) -> wgpu::BindGroup {
+fn lut_bind_group(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    bgl: &wgpu::BindGroupLayout,
+    size: u32,
+    bytes: &[u8],
+    format: wgpu::TextureFormat,
+) -> wgpu::BindGroup {
     let extent = wgpu::Extent3d { width: size, height: size, depth_or_array_layers: size };
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("pc_display_lut"),
@@ -1433,14 +1457,14 @@ fn lut_bind_group(device: &wgpu::Device, queue: &wgpu::Queue, bgl: &wgpu::BindGr
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D3,
-        format: FORMAT,
+        format,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
     queue.write_texture(
         wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
         bytes,
-        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size * 4), rows_per_image: Some(size) },
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size * texel_bytes(format) as u32), rows_per_image: Some(size) },
         extent,
     );
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1637,7 +1661,7 @@ impl Resources {
         });
         let encode_pipeline = pipeline(device, "pc_encode", &encode_layout, &encode_module, ("vs", "fs"), FORMAT, None);
         let encode_pipeline_high = high.then(|| pipeline(device, "pc_encode_16f", &encode_layout, &encode_module, ("vs", "fs"), FORMAT_HIGH, None));
-        let identity_lut = lut_bind_group(device, queue, &lut_bgl, 2, &identity_lut_bytes());
+        let identity_lut = lut_bind_group(device, queue, &lut_bgl, 2, &identity_lut_bytes(), FORMAT);
         Self {
             pixel_previews: Default::default(),
             scaled_sources: HashMap::new(),
@@ -1671,6 +1695,7 @@ impl Resources {
             docs: HashMap::new(),
             views: HashMap::new(),
             out_linear: target.is_srgb(),
+            depth_levels: if target == wgpu::TextureFormat::Rgb10a2Unorm { 1023.0 } else { 255.0 },
             compositor: None,
             compositor_failed: None,
             health: photocraft_gpu::DeviceHealth::new(),
@@ -2362,6 +2387,10 @@ impl CanvasCallback {
             1.0,
             sin,
             cos,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
         ]
     }
 }
@@ -2382,6 +2411,8 @@ impl CallbackTrait for CanvasCallback {
         let scaled = self.prepare_scaled(device, queue, screen, res);
         let mut data = self.uniforms(screen.size_in_pixels, screen.pixels_per_point, res.out_linear, &res.style);
         data[29] = scaled as f32;
+        let high = res.docs.get(&self.params.doc).is_some_and(|d| d.format == FORMAT_HIGH);
+        data[32] = if high || self.params.display > 0 || self.params.hdr.is_some() { res.depth_levels } else { 0.0 };
         let (mode, lod) = filter_mode(data[2] / data[29]);
         // Buckets oversample by at most a quarter octave. Sample level zero with its
         // shared gutter instead of mixing independently generated per-tile mip edges.
@@ -2470,6 +2501,7 @@ struct View {
     f: vec4<f32>, // checker dark rgb, 32-bit preview gain (2^exposure; 0 = off)
     g: vec4<f32>, // gamut warning rgb, 32-bit preview 1 / gamma
     h: vec4<f32>, // x direction (1, or -1 for View › Flip Horizontal), raster scale, rotation sine, cosine
+    i: vec4<f32>, // output quantisation levels (0 disables dither), padding
 };
 struct Tile { r: vec4<f32>, s: vec4<f32> }; // core and sampling rect: x, y, w, h
 
@@ -2650,6 +2682,16 @@ fn display_color(input: vec4<f32>, p: vec2<f32>) -> vec4<f32> {
             rgb = mix(rgb, select(vec3(1.0), vec3(0.0), l > 0.55), grid);
         }
     }
+    if (view.i.x > 0.0) {
+        let xy = vec2<u32>(p);
+        var rank = 0u;
+        for (var bit = 0u; bit < 3u; bit++) {
+            let xb = (xy.x >> bit) & 1u;
+            let yb = (xy.y >> bit) & 1u;
+            rank = rank * 4u + ((xb ^ yb) * 2u + yb);
+        }
+        rgb = clamp(rgb + vec3((f32(rank) + 0.5) / 64.0 - 0.5) / view.i.x, vec3(0.0), vec3(1.0));
+    }
     if (view.d.w > 0.5) {
         rgb = srgb_to_linear(rgb);
     }
@@ -2803,3 +2845,7 @@ mod tests {
 #[cfg(test)]
 #[path = "gpu_canvas_view_tests.rs"]
 mod view_tests;
+
+#[cfg(test)]
+#[path = "display_output_tests.rs"]
+mod display_output_tests;
