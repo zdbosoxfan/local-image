@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use egui::{Event, Modifiers, PointerButton, Pos2};
-use egui_kittest::{Harness, kittest::Queryable};
+use egui_kittest::{
+    Harness,
+    kittest::{NodeT, Queryable},
+};
 use photocraft_engine::Session;
 
 use super::*;

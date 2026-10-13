@@ -3888,3 +3888,16 @@ ai	New	新着
 @id	path.finishCompound	複合パスを確定
 	Autosave failed	自動保存に失敗しました
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	クラッシュ復旧用に未保存の変更のコピーを保持できません。作業内容を保存してください。
+# Stroke Path brush tool dialog (PhotoCraft 55c1847f)
+	Simulate Pressure	筆圧をシミュレート
+	Stroke Path…	パスのストローク…
+	Background Eraser	背景消しゴム
+	Healing Brush	修復ブラシ
+	Spot Healing Brush	スポット修復ブラシ
+	Smudge	指先
+# Tablet compatibility and shared colour controls
+	Pen tablet: use compatibility mode (XWayland)	ペンタブレット：互換モード（XWayland）を使用
+	On	オン
+	Colour hue	描画色の色相
+	Colour saturation	描画色の彩度
+	Colour brightness	描画色の明るさ

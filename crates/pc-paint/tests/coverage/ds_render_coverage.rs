@@ -154,7 +154,7 @@ fn coverage_map_accumulate_updates_bounds_and_coverage() {
     ctx.rasterize(&dab, false, rect, &mut vals);
 
     let mut cm = CoverageMap::new(0);
-    cm.accumulate(rect, &vals, 1.0, false, None);
+    cm.accumulate(rect, &vals, 1.0, None, None);
 
     assert!(!cm.bounds().is_empty());
     let cx = dab.center.x.floor() as i32;
@@ -174,12 +174,12 @@ fn coverage_map_accumulate_flow_ceiling_builds_up() {
     let full = vec![1.0; area];
 
     let mut cm = CoverageMap::new(0);
-    cm.accumulate(rect, &half, 1.0, false, None);
+    cm.accumulate(rect, &half, 1.0, None, None);
     let px = rect.x0;
     let py = rect.y0;
     assert!((cm.get(px, py) - 0.5).abs() < 1e-6);
 
-    cm.accumulate(rect, &full, 1.0, false, None);
+    cm.accumulate(rect, &full, 1.0, None, None);
     assert!((cm.get(px, py) - 1.0).abs() < 1e-6);
 }
 

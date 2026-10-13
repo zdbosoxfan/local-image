@@ -3895,3 +3895,16 @@ ai	New	Novos
 	testing…	testando…
 	Autosave failed	Falha no salvamento automático
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	A recuperação de falhas não consegue manter uma cópia das alterações não salvas. Salve seu trabalho para mantê-lo.
+# Stroke Path brush tool dialog (PhotoCraft 55c1847f)
+	Simulate Pressure	Simular pressão
+	Stroke Path…	Traçar demarcador…
+	Background Eraser	Borracha de plano de fundo
+	Healing Brush	Pincel de recuperação
+	Spot Healing Brush	Pincel de recuperação para manchas
+	Smudge	Borrar
+# Tablet compatibility and shared colour controls
+	Pen tablet: use compatibility mode (XWayland)	Mesa digitalizadora: usar modo de compatibilidade (XWayland)
+	On	Ativado
+	Colour hue	Matiz da cor
+	Colour saturation	Saturação da cor
+	Colour brightness	Brilho da cor

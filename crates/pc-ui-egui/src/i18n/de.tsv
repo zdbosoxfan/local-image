@@ -3865,3 +3865,16 @@ ai	New	Neu
 	testing…	Test läuft…
 	Autosave failed	Automatisches Speichern fehlgeschlagen
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Die Absturzwiederherstellung kann keine Kopie Ihrer ungespeicherten Änderungen behalten. Speichern Sie Ihre Arbeit, um sie zu behalten.
+# Stroke Path brush tool dialog (PhotoCraft 55c1847f)
+	Simulate Pressure	Druck simulieren
+	Stroke Path…	Pfad nachziehen…
+	Background Eraser	Hintergrund-Radiergummi
+	Healing Brush	Korrektur-Pinsel
+	Spot Healing Brush	Punktkorrektur-Pinsel
+	Smudge	Wischfinger
+# Tablet compatibility and shared colour controls
+	Pen tablet: use compatibility mode (XWayland)	Stifttablet: Kompatibilitätsmodus verwenden (XWayland)
+	On	Ein
+	Colour hue	Farbton der Zeichenfarbe
+	Colour saturation	Farbsättigung
+	Colour brightness	Farbhelligkeit

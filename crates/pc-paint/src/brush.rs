@@ -373,6 +373,12 @@ pub enum PaintMode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BrushSettings {
+    /// Notes about approximate mapping from another brush engine (shown in preset tooltips).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub import_notes: Vec<String>,
+    /// Original shape/grain PNGs, losslessly retained by pack import (base64 encoded bytes).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub imported_images: Vec<ImportedBrushImage>,
     /// Diameter in pixels.
     pub size: f32,
     /// 0 (soft) ..1 (hard). Computed tips only.
@@ -447,6 +453,8 @@ pub struct BrushSettings {
 impl Default for BrushSettings {
     fn default() -> Self {
         Self {
+            import_notes: Vec::new(),
+            imported_images: Vec::new(),
             size: 20.0,
             hardness: 1.0,
             spacing: 0.1,
@@ -603,4 +611,11 @@ pub struct BrushPreset {
     /// Preset group (folder) in the Brushes panel, e.g. "General" or an imported file's name.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub group: String,
+}
+
+/// Lossless source artwork, retained alongside the paint-engine mask.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ImportedBrushImage {
+    pub name: String,
+    pub png: String,
 }

@@ -1105,9 +1105,119 @@ fn paint_coverage(surf: &mut photocraft_raster::Surface, area: Rect, cov: &[f32]
     surf.prune();
 }
 
+/// Stroke Path's brush-based tools besides the Brush, Pencil and Eraser it renders itself: each
+/// paints the path with its own `paint.*` command (Photoshop's Stroke Path dialog Tool list).
+pub const STROKE_PATH_TOOLS: &[(&str, &str)] = &[
+    ("backgroundEraser", "paint.backgroundEraser"),
+    ("cloneStamp", "paint.cloneStamp"),
+    ("patternStamp", "paint.patternStamp"),
+    ("healingBrush", "paint.healingBrush"),
+    ("spotHealingBrush", "paint.spotHealing"),
+    ("historyBrush", "paint.historyBrush"),
+    ("blur", "paint.blur"),
+    ("sharpen", "paint.sharpen"),
+    ("smudge", "paint.smudge"),
+    ("dodge", "paint.dodge"),
+    ("burn", "paint.burn"),
+    ("sponge", "paint.sponge"),
+    ("colorReplacement", "paint.colorReplacement"),
+    ("mixerBrush", "paint.mixerBrush"),
+];
+
+/// At most this many points per subpath when Simulate Pressure resamples it.
+const MAX_PRESSURE_POINTS: f64 = 200_000.0;
+
+/// The stroke points along one flattened subpath. With `simulate` (Stroke Path's Simulate
+/// Pressure) the subpath is resampled about every pixel and the pressure rises from 0 at its start
+/// to full at the middle and falls back to 0 at its end, so a brush whose size or opacity follows
+/// pen pressure tapers at both ends, as in Photoshop. Otherwise every point has full pressure.
+fn stroke_points(pts: &[(f64, f64)], closed: bool, simulate: bool) -> Vec<photocraft_paint::StrokePoint> {
+    use photocraft_paint::StrokePoint;
+    let mut line = pts.to_vec();
+    if closed && let Some(&first) = pts.first() {
+        line.push(first);
+    }
+    let full = |line: Vec<(f64, f64)>| line.into_iter().map(|(x, y)| StrokePoint::new(x, y, 1.0)).collect();
+    if !simulate {
+        return full(line);
+    }
+    let seg = |a: &(f64, f64), b: &(f64, f64)| (b.0 - a.0).hypot(b.1 - a.1);
+    let total: f64 = line.iter().zip(line.iter().skip(1)).map(|(a, b)| seg(a, b)).sum();
+    if !(total.is_finite() && total > 0.0) {
+        return full(line);
+    }
+    let step = (total / MAX_PRESSURE_POINTS).max(1.0);
+    let pressure = |d: f64| (d / total * std::f64::consts::PI).sin().clamp(0.0, 1.0) as f32;
+    let mut out = Vec::new();
+    let mut walked = 0.0;
+    for (a, b) in line.iter().zip(line.iter().skip(1)) {
+        let len = seg(a, b);
+        let n = (len / step).ceil().clamp(1.0, MAX_PRESSURE_POINTS) as usize;
+        for i in 0..n {
+            let t = i as f64 / n as f64;
+            out.push(StrokePoint::new(a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t, pressure(walked + len * t)));
+        }
+        walked += len;
+    }
+    if let Some(&(x, y)) = line.last() {
+        out.push(StrokePoint::new(x, y, 0.0));
+    }
+    out
+}
+
+/// Stroke Path with a tool that has its own `paint.*` command: the command runs once per subpath,
+/// with the caller's params (size, opacity, the tool's options) and the path's points, all in one
+/// history step. Only `path.stroke` itself is journalled, so a recorded action replays it once.
+fn stroke_with_command(s: &mut Session, p: &Value, cmd: &str, lines: &[vector::Polyline], simulate: bool) -> Result<Value> {
+    let mut params = p.as_object().cloned().unwrap_or_default();
+    for k in ["name", "tool", "simulatePressure", "coalesce"] {
+        params.remove(k);
+    }
+    let journal = s.journal.len();
+    let r = stroke_compound(s, "Stroke Path", |s| {
+        // The union of what each subpath's command changed; None when one of them didn't say.
+        let mut dmg = Some(Rect::EMPTY);
+        for pl in lines {
+            let pts = stroke_points(&pl.pts, pl.closed, simulate);
+            if pts.is_empty() {
+                continue;
+            }
+            let mut call = params.clone();
+            call.insert("points".into(), Value::Array(pts.iter().map(|q| json!([q.x, q.y, q.pressure])).collect()));
+            s.execute(cmd, Value::Object(call))?;
+            let r = s.active().and_then(|d| d.last_damage);
+            dmg = dmg.zip(r).map(|(a, b)| {
+                if a.is_empty() {
+                    b
+                } else if b.is_empty() {
+                    a
+                } else {
+                    a.union(&b)
+                }
+            });
+        }
+        Ok(dmg)
+    });
+    s.journal.truncate(journal);
+    let dmg = r?;
+    if let Some(st) = s.active_mut() {
+        st.last_damage = dmg;
+    }
+    let dmg = dmg.unwrap_or_else(|| s.active().map_or(Rect::EMPTY, |d| d.doc.bounds()));
+    Ok(json!({ "damage": [dmg.x0, dmg.y0, dmg.width(), dmg.height()] }))
+}
+
 fn path_stroke(s: &mut Session, p: &Value) -> Result<Value> {
     let path = resolve_path(s, p.get("name").and_then(Value::as_str))?;
     let tool = p.get("tool").and_then(Value::as_str).unwrap_or("brush");
+    let simulate = match p.get("simulatePressure") {
+        None | Some(Value::Null) => false,
+        Some(v) => v.as_bool().ok_or_else(|| bad("path.stroke", "`simulatePressure` must be true or false"))?,
+    };
+    if let Some(&(_, cmd)) = STROKE_PATH_TOOLS.iter().find(|(t, _)| *t == tool && *t != "patternStamp") {
+        let lines = vector::flatten_path(&path, 0.1);
+        return stroke_with_command(s, p, cmd, &lines, simulate);
+    }
     let base = s.tools.brush.clone();
     let fg = s.tools.foreground;
     let mut brush = photocraft_paint::BrushSettings {
@@ -1125,14 +1235,28 @@ fn path_stroke(s: &mut Session, p: &Value) -> Result<Value> {
     brush.smoothing.amount = 0.0;
     match tool {
         "pencil" => brush.hardness = 1.0,
-        "brush" | "eraser" => {}
-        o => return Err(bad("path.stroke", format!("unknown tool `{o}` (brush|pencil|eraser)"))),
+        "brush" | "eraser" | "patternStamp" => {}
+        o => {
+            let tools: Vec<&str> = ["brush", "pencil", "eraser"].into_iter().chain(STROKE_PATH_TOOLS.iter().map(|(t, _)| *t)).collect();
+            return Err(bad("path.stroke", format!("unknown tool `{o}` ({})", tools.join("|"))));
+        }
     }
     crate::brush_cmds::validate_brush(&brush, "path.stroke")?;
+    // This fork predates the standalone Pattern Stamp command. Use its existing pattern
+    // compositor with brush coverage, rather than forwarding to an absent command.
+    let pattern = if tool == "patternStamp" {
+        let pat = crate::pattern_cmds::resolve_param(s, "path.stroke", p)?;
+        let tile = photocraft_compose::pattern::Tile::new(&pat).ok_or_else(|| bad("path.stroke", "pattern is empty or too large"))?;
+        let (scale, angle, _, phase) = crate::pattern_cmds::placement(p);
+        Some((tile, photocraft_compose::pattern::Placement::new(Rect::EMPTY, false, phase, scale, angle)))
+    } else {
+        None
+    };
     let lines = vector::flatten_path(&path, 0.1);
     let id = layer_id(s, p)?;
     let bg = s.tools.background;
     let dmg = s.edit("Stroke Path", |doc, _| {
+        let canvas = doc.bounds();
         let sel = doc.selection.clone();
         let lock = doc.effective_locks(id).transparency;
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
@@ -1145,16 +1269,15 @@ fn path_stroke(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let mut dmg = Rect::EMPTY;
         for pl in &lines {
-            let mut pts: Vec<photocraft_paint::StrokePoint> = pl.pts.iter().map(|&(x, y)| photocraft_paint::StrokePoint::new(x, y, 1.0)).collect();
-            if pl.closed
-                && let Some(first) = pts.first().copied()
-            {
-                pts.push(first);
-            }
+            let pts = stroke_points(&pl.pts, pl.closed, simulate);
             if pts.is_empty() {
                 continue;
             }
-            let r = photocraft_paint::apply_stroke(surf, &photocraft_paint::Stroke { brush: brush.clone(), points: pts }, sel.as_ref(), lock);
+            let r = if let Some((tile, place)) = &pattern {
+                pattern_path_stroke(surf, canvas, &brush, &pts, tile, place, sel.as_ref(), lock)
+            } else {
+                photocraft_paint::apply_stroke(surf, &photocraft_paint::Stroke { brush: brush.clone(), points: pts }, sel.as_ref(), lock)
+            };
             dmg = if dmg.is_empty() { r } else { dmg.union(&r) };
         }
         Ok(dmg)
@@ -1504,7 +1627,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "path.stroke",
             "Stroke Path",
             [],
-            r##"{"name":str|"work"|"layer"="work","layer":id? (pixel layer),"tool":"brush|pencil|eraser"="brush","size":0.5..5000 px?,"hardness":0..1?,"opacity":0..100?,"color":"#rrggbb"=foreground} (current brush settings otherwise)"##,
+            r##"{"name":str|"work"|"layer"="work","layer":id? (pixel layer),"tool":"brush|pencil|eraser|backgroundEraser|cloneStamp|patternStamp|healingBrush|spotHealingBrush|historyBrush|blur|sharpen|smudge|dodge|burn|sponge|colorReplacement|mixerBrush"="brush","simulatePressure":bool=false (taper both ends when the brush follows pen pressure),"size":0.5..5000 px?,"hardness":0..1?,"opacity":0..100?,"color":"#rrggbb"=foreground} (current brush settings otherwise; tools past the Eraser run their paint.* command along the path and take its params)"##,
             has_layer,
             path_stroke
         ),
@@ -1615,3 +1738,79 @@ pub fn specs() -> Vec<CommandSpec> {
 
 #[cfg(test)]
 mod tests;
+
+fn stroke_compound<R>(s: &mut Session, label: &str, f: impl FnOnce(&mut Session) -> Result<R>) -> Result<R> {
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    let (before, history) = (st.doc.clone(), st.history.clone());
+    let r = f(s);
+    let st = s.active_mut().ok_or(EngineError::NoDocument)?;
+    st.history = history;
+    match r {
+        Ok(v) => {
+            st.history.record(label, before, st.layer_target());
+            st.history.trim(&st.doc);
+            st.coalesce = None;
+            Ok(v)
+        }
+        Err(e) => {
+            st.doc = before;
+            st.revision += 1;
+            st.last_damage = None;
+            Err(e)
+        }
+    }
+}
+
+/// Pattern Stamp uses ordinary brush coverage and the app's existing pattern placement.
+/// Work in small tiles so a long or disjoint path never allocates a dense bounding rectangle.
+#[allow(clippy::too_many_arguments)]
+fn pattern_path_stroke(
+    surf: &mut photocraft_raster::Surface,
+    canvas: Rect,
+    brush: &photocraft_paint::BrushSettings,
+    points: &[photocraft_paint::StrokePoint],
+    tile: &photocraft_compose::pattern::Tile,
+    place: &photocraft_compose::pattern::Placement,
+    selection: Option<&photocraft_raster::Surface>,
+    lock: bool,
+) -> Rect {
+    let mut renderer = photocraft_paint::render::StrokeRenderer::new(brush, Some(surf.format()), 1.0);
+    renderer.push(points);
+    renderer.finish();
+    let bounds = renderer.bounds().intersect(&canvas);
+    if bounds.is_empty() {
+        return bounds;
+    }
+    let fmt = surf.format();
+    let channels = fmt.channels();
+    let mut selection_pixel = [0.0];
+    for y0 in (bounds.y0..bounds.y1).step_by(128) {
+        for x0 in (bounds.x0..bounds.x1).step_by(128) {
+            let rect = Rect::new(x0, y0, (x0 + 128).min(bounds.x1), (y0 + 128).min(bounds.y1));
+            let mut pixels = surf.read_region(rect);
+            for (i, px) in pixels.chunks_exact_mut(channels).enumerate() {
+                let x = x0 + (i % rect.width() as usize) as i32;
+                let y = y0 + (i / rect.width() as usize) as i32;
+                let mut cov = renderer.coverage_at(x, y);
+                if let Some(sel) = selection {
+                    sel.read_pixel(x, y, &mut selection_pixel);
+                    cov *= selection_pixel[0];
+                }
+                if cov <= 0.0 {
+                    continue;
+                }
+                let (u, v) = place.map(f64::from(x) + 0.5, f64::from(y) + 0.5);
+                let mut src = tile.sample(u, v);
+                src[3] *= cov;
+                let dst = photocraft_raster::to_rgba(&fmt, px);
+                let mut out = photocraft_compose::psblend::composite(brush.mode, dst, src, brush.opacity);
+                if lock {
+                    out[3] = dst[3];
+                }
+                photocraft_raster::from_rgba_into(&fmt, out, px);
+            }
+            surf.write_region(rect, &pixels);
+        }
+    }
+    bounds
+}

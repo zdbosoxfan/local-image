@@ -1026,7 +1026,7 @@ fn path_context_actions(entry: &PathEntry, doc: &Document) -> Vec<(&'static str,
     let mut actions = vec![
         ("Make Selection", "path.toSelection", json!({"name": key})),
         ("Fill Path", "path.fill", json!({"name": key})),
-        ("Stroke Path", "path.stroke", json!({"name": key, "tool": "brush"})),
+        ("Stroke Path…", "path.stroke", json!({"name": key})),
     ];
     if entry.kind == PathRow::Work {
         let mut n = doc.paths.len().saturating_add(1);
@@ -1066,6 +1066,7 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let rows = path_rows(&doc, st.active_layer);
     let has_layer_path = rows.iter().any(|r| r.kind == PathRow::Layer);
     let mut action: Option<(&str, Value)> = None;
+    let mut stroke_dialog: Option<String> = None;
     // The buttons sit in a footer at the panel's bottom, like Photoshop's.
     let footer = 34.0;
     let fill = ui.available_height() > footer + 60.0;
@@ -1118,7 +1119,12 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         for (label, cmd, params) in path_context_actions(&entry, &doc) {
                             let enabled = !matches!(cmd, "path.fill" | "path.stroke") || can_paint;
                             if ui.add_enabled(enabled, egui::Button::new(tl!(label))).clicked() {
-                                action = Some((cmd, params));
+                                if cmd == "path.stroke" {
+                                    // Stroke Path… asks for the tool first, as in Photoshop (#2978).
+                                    stroke_dialog = Some(params.get("name").and_then(Value::as_str).unwrap_or("work").to_string());
+                                } else {
+                                    action = Some((cmd, params));
+                                }
                                 ui.close();
                             }
                         }
@@ -1157,11 +1163,18 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         for (icon, tip, cmd, p) in items {
             let icon = if crate::icons::exists(icon) { icon } else { "square" };
             if crate::icons::button(ui, icon, 24.0, false, tip).clicked() {
-                action = Some((cmd, p));
+                if cmd == "path.stroke" && ui.input(|i| i.modifiers.alt) {
+                    stroke_dialog = Some(sel.clone());
+                } else {
+                    action = Some((cmd, p));
+                }
             }
         }
     });
     ctx_data_footer(ui.ctx(), footer_rect.response.rect);
+    if let Some(name) = stroke_dialog {
+        crate::canvas_tool_menu::stroke_path_dialog(app, &name);
+    }
     if let Some((cmd, p)) = action
         && let Err(e) = app.run(cmd, p)
     {

@@ -1047,6 +1047,9 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
 }
 
 fn humanize(key: &str) -> String {
+    if key == "tabletCompatibilityMode" {
+        return "Pen tablet: use compatibility mode (XWayland)".into();
+    }
     let mut s = String::new();
     for (i, ch) in key.chars().enumerate() {
         if i == 0 {
@@ -1356,6 +1359,13 @@ fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>
                     let mut b = *b;
                     crate::widgets::checkbox(ui, &mut b, &label);
                     obj.insert(k, json!(b));
+                }
+                Value::String(s) if path == "tools.tabletCompatibilityMode" => {
+                    ui.label(tl!("Pen tablet: use compatibility mode (XWayland)"))
+                        .on_hover_text("Auto detects an attached pen and uses XWayland for pressure, tilt and eraser. On forces compatibility; Off keeps native Wayland. XWayland can look softer at fractional display scaling. Restart to apply. LOCAL_IMAGE_NATIVE_WAYLAND=1 keeps native Wayland.");
+                    let mut cur = s.clone();
+                    crate::widgets::dropdown(ui, "pref-tools.tabletCompatibilityMode", &mut cur, &[("auto".into(), "Auto"), ("on".into(), "On"), ("off".into(), "Off")], 220.0);
+                    obj.insert(k, json!(cur));
                 }
                 Value::String(s) if path == "interface.language" => {
                     ui.label(RichText::new(tl!(&label)).color(t.text_dim));
@@ -2726,3 +2736,30 @@ mod bugfix_save_tests {
 #[cfg(test)]
 #[path = "shared_library_shortcut_tests.rs"]
 mod shared_library_shortcut_tests;
+
+#[cfg(test)]
+mod tablet_compatibility_tests {
+    use super::*;
+    #[test]
+    fn brush_batch_tablet_compatibility_dropdown_clicks_auto_on_off() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let values = json!({"tabletCompatibilityMode":"auto"}).as_object().unwrap().clone();
+        let mut h = Harness::builder().with_size(egui::vec2(900.0, 200.0)).build_ui_state(
+            |ui, values: &mut Map<String, Value>| {
+                section_fields(ui, "tools", values, &["tabletCompatibilityMode".into()], crate::i18n::Lang::EN);
+            },
+            values,
+        );
+        h.run_steps(2);
+        h.get_by_value("Auto").click();
+        h.run_steps(2);
+        h.get_by_label("On").click();
+        h.run_steps(2);
+        assert_eq!(h.state()["tabletCompatibilityMode"], "on");
+        h.get_by_value("On").click();
+        h.run_steps(2);
+        h.get_by_label("Off").click();
+        h.run_steps(2);
+        assert_eq!(h.state()["tabletCompatibilityMode"], "off");
+    }
+}

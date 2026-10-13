@@ -3888,3 +3888,16 @@ ai	New	Nouveautés
 	testing…	test en cours…
 	Autosave failed	Échec de l’enregistrement automatique
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	La récupération après plantage ne peut pas conserver une copie de vos modifications non enregistrées. Enregistrez votre travail pour le conserver.
+# Stroke Path brush tool dialog (PhotoCraft 55c1847f)
+	Simulate Pressure	Simuler la pression
+	Stroke Path…	Contourner le tracé…
+	Background Eraser	Gomme d'arrière-plan
+	Healing Brush	Pinceau correcteur
+	Spot Healing Brush	Correcteur localisé
+	Smudge	Doigt
+# Tablet compatibility and shared colour controls
+	Pen tablet: use compatibility mode (XWayland)	Tablette graphique : utiliser le mode de compatibilité (XWayland)
+	On	Activé
+	Colour hue	Teinte de la couleur
+	Colour saturation	Saturation de la couleur
+	Colour brightness	Luminosité de la couleur

@@ -46,7 +46,8 @@ pub const TIPS_DIR: &str = "tips";
 /// Group order and deleted built-ins.
 pub const INDEX_FILE: &str = "index.json";
 /// Largest group file read or written.
-pub const MAX_GROUP_BYTES: u64 = 16 << 20;
+// Imported packs retain up to 256 MiB of artwork, plus bounded preset metadata.
+pub const MAX_GROUP_BYTES: u64 = 272 << 20;
 /// Largest tip file read or written.
 pub const MAX_TIP_BYTES: u64 = 64 << 20;
 /// Largest index file read.
