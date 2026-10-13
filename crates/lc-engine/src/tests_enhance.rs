@@ -337,7 +337,8 @@ fn final_review_paste_sync_auto_sync_and_presets_recompute_ai_masks() {
     let mut modified = source.clone();
     modified.masks[0].components[0].shape = MaskShape::Sky { seg: Some(SegMask::from_logits(2, &[8.0; 4])) };
     s.set_develop(a, modified, "AI mask edit").unwrap();
-    assert!(matches!(s.develop_of(b).unwrap().masks[0].components[0].shape, MaskShape::Sky { seg: None }));
+    // Auto Sync never carries layers (TEST-CHANGED: B used to get A's Sky mask); B keeps its own
+    check(&s);
     s.auto_sync = false;
     // Imported old presets can still contain a source photo's cached selections.
     s.presets.push(lightcraft_develop::Preset {

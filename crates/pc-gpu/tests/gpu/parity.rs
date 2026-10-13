@@ -830,6 +830,20 @@ fn fx_check(g: &mut Gpu, doc: &Document, what: &str) -> photocraft_gpu::Stats {
     fx_diff(g, doc, what).unwrap_or_else(|e| panic!("{e}"))
 }
 
+/// Upstream 980cf05b (#3274): a child's outside stroke reaching past the group's own effect
+/// reach is part of the group's effect source, so the canvas matches the CPU.
+#[test]
+fn group_effects_follow_a_childs_stroke() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = fx_doc(100, 80, SampleType::U8);
+    let mut a = blob("a", d.pixel_format(), 45.0, 40.0, 16.0, [0.6, 0.6, 0.6]);
+    a.effects.items = vec![Effect::Stroke(stroke(8.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.0, 0.0, 0.0))))];
+    let mut grp = Layer::group("g", vec![a]);
+    grp.effects.items = vec![Effect::DropShadow(shadow(BlendMode::Multiply, 0.8, 120.0, 3.0, 2.0, 0.0))];
+    d.layers.push(grp);
+    fx_check(&mut g, &d, "group effects around a child's stroke");
+}
+
 #[test]
 fn layer_effects_every_kind() {
     let Some(mut g) = gpu() else { return };
@@ -2014,8 +2028,12 @@ fn former_fallbacks_combined_damage_and_pages() {
     }
 }
 
+// TEST-CHANGED (was `blur_lut_spans_multiple_rows`): PhotoCraft f82a55f0 clamps box widths to
+// MAX_REACH, so no blur kernel spans more than one 4096-wide LUT row any more (the multi-row
+// effect-map LUT upload was removed; `fx::tests::every_effect_map_lut_fits_one_row`). A size far
+// past the clamp still matches the CPU, through the clamped kernel and the clipped apron.
 #[test]
-fn blur_lut_spans_multiple_rows() {
+fn oversized_blur_is_clamped_like_the_cpu() {
     let Some(mut g) = gpu() else { return };
     let mut d = fx_doc(270, 16, SampleType::U16);
     let mut l = blob("wide blur", d.pixel_format(), 250.0, 8.0, 4.0, [0.5, 0.2, 0.1]);
@@ -2023,8 +2041,10 @@ fn blur_lut_spans_multiple_rows() {
     s.noise = 0.25;
     l.effects.items = vec![Effect::DropShadow(s)];
     d.layers.push(l);
-    assert!(photocraft_compose::effects::tent_kernel(2051.0).1.len() > 4096);
-    fx_check(&mut g, &d, "multirow blur LUT and clipped apron");
+    let max = photocraft_compose::effects::MAX_REACH;
+    assert_eq!(photocraft_compose::effects::tent_kernel(2051.0), photocraft_compose::effects::tent_kernel(max));
+    assert!(photocraft_compose::effects::tent_kernel(2051.0).1.len() <= 4096);
+    fx_check(&mut g, &d, "clamped blur LUT and clipped apron");
 }
 
 #[test]

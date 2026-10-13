@@ -68,16 +68,25 @@ pub struct Timeline {
 impl Timeline {
     pub fn new(duration: usize, fps: f32) -> Self {
         let d = duration.max(1);
-        Timeline { fps: if fps > 0.0 { fps } else { 30.0 }, duration: d, current: 0, work_start: 0, work_end: d }
+        Timeline { fps: valid_fps(fps), duration: d, current: 0, work_start: 0, work_end: d }
     }
 
     /// Keep every index inside `0..duration` and the work area non-empty.
     pub fn clamp(&mut self) {
         self.duration = self.duration.max(1);
-        self.fps = if self.fps > 0.0 { self.fps } else { 30.0 };
+        self.fps = valid_fps(self.fps);
         self.current = self.current.min(self.duration - 1);
         self.work_start = self.work_start.min(self.duration - 1);
         self.work_end = self.work_end.clamp(self.work_start + 1, self.duration);
+    }
+
+    /// Move the playhead `delta` frames, stopping at the first and last frame. Saturating, so it's
+    /// safe on any stored timeline, even one loaded with `duration` 0 or `usize::MAX` (upstream
+    /// e1a874d9, #1009).
+    pub fn step(&mut self, delta: i64) {
+        let n = usize::try_from(delta.unsigned_abs()).unwrap_or(usize::MAX);
+        let moved = if delta < 0 { self.current.saturating_sub(n) } else { self.current.saturating_add(n) };
+        self.current = moved.min(self.duration.saturating_sub(1));
     }
 
     /// Playhead time in seconds.
@@ -86,9 +95,39 @@ impl Timeline {
     }
 }
 
+/// A usable frame rate: positive and finite, else the 30 fps default (upstream e1a874d9).
+fn valid_fps(fps: f32) -> f32 {
+    if fps.is_finite() && fps > 0.0 { fps } else { 30.0 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1009: stepping never panics or leaves the timeline, whatever was stored; a non-finite
+    /// stored frame rate falls back to 30 like a non-positive one.
+    #[test]
+    fn step_saturates_and_non_finite_fps_is_30() {
+        let mut t = Timeline::new(3, 24.0);
+        t.step(-1);
+        assert_eq!(t.current, 0);
+        t.step(1);
+        t.step(i64::MAX);
+        assert_eq!(t.current, 2);
+        t.step(i64::MIN);
+        assert_eq!(t.current, 0);
+        for duration in [0, usize::MAX] {
+            let mut t = Timeline { fps: f32::INFINITY, duration, current: usize::MAX, work_start: 0, work_end: 0 };
+            t.step(1);
+            assert_eq!(t.current, duration.saturating_sub(1));
+            t.clamp();
+            assert_eq!(t.fps, 30.0);
+            assert!(t.current < t.duration);
+        }
+        for fps in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0] {
+            assert_eq!(Timeline::new(10, fps).fps, 30.0, "{fps}");
+        }
+    }
 
     #[test]
     fn new_and_clamp() {

@@ -488,3 +488,23 @@ fn tool_switch_defaults_use_shift_but_explicit_saved_false_is_preserved() {
     reopened.load_prefs_json(&saved).unwrap();
     assert!(!reopened.prefs().tools.use_shift_key_for_tool_switch);
 }
+
+/// Photoshop's defaults: R is Rotate View; AI Remove has no key of its own (it sits in the
+/// healing / remove group on J, so it must never take R back). No two tool groups may share a
+/// default key, or one of them is unreachable.
+#[test]
+fn tool_group_default_keys_are_unique_and_r_is_rotate_view() {
+    let mut seen = std::collections::BTreeMap::new();
+    for (id, _, key) in TOOL_SHORTCUTS {
+        if let Some(key) = key {
+            assert!(seen.insert(normalize_shortcut(key).unwrap(), *id).is_none(), "{id} shares {key} with {:?}", seen.get(*key));
+        }
+    }
+    assert_eq!(seen.get("R"), Some(&"tools.select.RotateView"));
+    assert_eq!(seen.get("J"), Some(&"tools.select.SpotHealing"));
+    assert_eq!(TOOL_SHORTCUTS.iter().find(|t| t.0 == "tools.select.AiRemove").unwrap().2, None);
+    let mut s = session();
+    let r = s.execute("edit.keyboardShortcuts", json!({})).unwrap();
+    let tool_conflicts: Vec<_> = r["conflicts"].as_array().unwrap().iter().filter(|c| c["commands"].to_string().contains("tools.select.")).collect();
+    assert!(tool_conflicts.is_empty(), "default tool keys conflict: {tool_conflicts:?}");
+}

@@ -348,15 +348,14 @@ impl Kit {
         let bg0 = uniform_group(device, &self.bgl0, &ubuf);
         for (i, d) in draws.iter().enumerate() {
             let lut = d.lut.as_ref().map(|l| {
-                let rows: Vec<_> = l
-                    .chunks(4096)
-                    .map(|chunk| {
-                        let mut row = [0.0f32; 4096];
-                        row[..chunk.len()].copy_from_slice(chunk);
-                        row
-                    })
-                    .collect();
-                lut_texture(device, queue, &rows)
+                // Every effect-map LUT fits one row (`fx::FX_LUT_ROW`): blur kernels are tents of
+                // boxes clamped to MAX_REACH (at most 1025 taps) and contour LUTs have 4096
+                // entries (`fx::tests::every_effect_map_lut_fits_one_row`).
+                debug_assert!(l.len() <= fx::FX_LUT_ROW, "effect-map LUT of {} entries", l.len());
+                let mut row = [0.0f32; fx::FX_LUT_ROW];
+                let n = l.len().min(fx::FX_LUT_ROW);
+                row[..n].copy_from_slice(&l[..n]);
+                lut_texture(device, queue, &[row])
             });
             let mut views: Vec<&wgpu::TextureView> = d.views.iter().map(|v| v.as_ref().unwrap_or(&self.dummy)).collect();
             if let Some((_, lv)) = &lut {

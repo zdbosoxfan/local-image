@@ -5,6 +5,13 @@
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
 
+/// Largest pattern edge a file may declare (the PSD reader's limit; Define Pattern stops at 4000).
+pub const MAX_EDGE: u32 = 30_000;
+
+/// Most pixels a pattern may have to be painted. Renderers expand a pattern into a 16-byte-per-pixel
+/// working copy, so this keeps that copy at 1 GiB; larger patterns paint nothing (upstream fd21e734).
+pub const MAX_PAINT_PIXELS: u64 = 1 << 26;
+
 /// One pattern tile. Pixels cover `0..width × 0..height` of `surface`, in any pixel format
 /// (depth and colour model are the pattern's own, as in Photoshop).
 #[derive(Clone, Debug, PartialEq)]
@@ -57,6 +64,16 @@ impl Pattern {
     pub fn is_empty(&self) -> bool {
         self.width == 0 || self.height == 0
     }
+
+    /// Pixels in the tile (`width × height`, never overflowing).
+    pub fn pixel_count(&self) -> u64 {
+        u64::from(self.width) * u64::from(self.height)
+    }
+
+    /// Whether the tile has pixels and is small enough to paint (see [`MAX_PAINT_PIXELS`]).
+    pub fn is_paintable(&self) -> bool {
+        !self.is_empty() && self.pixel_count() <= MAX_PAINT_PIXELS
+    }
 }
 
 /// Display form of a stored pattern name (see [`Pattern::display_name`]).
@@ -85,6 +102,18 @@ pub fn find<'a>(patterns: &'a [Pattern], id: &str, name: &str) -> Option<&'a Pat
 mod tests {
     use super::*;
     use photocraft_color::PixelFormat;
+
+    /// Upstream fd21e734: size checks never overflow, and paintable means non-empty and bounded.
+    #[test]
+    fn paintable_patterns_are_non_empty_and_bounded() {
+        let p = |width, height| Pattern { id: "p".into(), name: "P".into(), width, height, surface: Surface::new(PixelFormat::RGBA8) };
+        assert_eq!(p(u32::MAX, u32::MAX).pixel_count(), u64::from(u32::MAX) * u64::from(u32::MAX));
+        assert!(!p(u32::MAX, u32::MAX).is_paintable());
+        assert!(!p(0, 10).is_paintable() && !p(10, 0).is_paintable());
+        assert!(p(8192, 8192).is_paintable());
+        assert!(!p(8192, 8193).is_paintable());
+        assert!(p(1, 1).is_paintable() && p(MAX_EDGE, 1).is_paintable());
+    }
 
     #[test]
     fn ids_are_deterministic_and_lookup_falls_back_to_names() {

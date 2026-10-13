@@ -1,5 +1,5 @@
 //! Develop layers: `mask.setTools`, `mask.setOpacity`, `mask.resetTools`, a layer's Point Color,
-//! and copy / paste / presets / Auto Sync carrying layer tools.
+//! and copy / paste / presets carrying layer tools (Auto Sync never carries layers).
 
 use lightcraft_catalog::PhotoId;
 use serde_json::json;
@@ -117,12 +117,56 @@ fn copy_paste_presets_and_auto_sync_carry_layers() {
     s.execute("preset.apply", &json!({"id": p, "amount": 100})).unwrap();
     let m = &s.develop_of(vis[3]).unwrap().masks[0];
     assert_eq!((&m.tools, m.opacity), (&src[0].tools, 60.0));
-    // Auto Sync carries a layer tool change
+    // Auto Sync never carries a layer tool change: layers sync only through Sync / Copy, so the
+    // other photo keeps its own layers (TEST-CHANGED: used to expect the change to sync)
     let ids = [vis[0].0, vis[1].0];
     s.execute("library.select", &json!({"ids": ids})).unwrap();
     s.selection.active = Some(PhotoId(ids[0]));
     s.active_mask = Some(src[0].id);
     s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    let other = s.develop_of(PhotoId(ids[1])).unwrap().masks.clone();
     s.execute("mask.setTools", &json!({"values": {"effects.dehaze": 25}})).unwrap();
-    assert_eq!(s.develop_of(PhotoId(ids[1])).unwrap().masks[0].tools.effects.unwrap().dehaze, 25.0);
+    assert_eq!(s.develop_of(PhotoId(ids[0])).unwrap().masks[0].tools.effects.unwrap().dehaze, 25.0);
+    assert_eq!(s.develop_of(PhotoId(ids[1])).unwrap().masks, other);
+}
+
+/// Data-loss regression: with Auto Sync on, a layer / mask edit on the active photo used to
+/// replace the whole layer stack of every other selected photo (`json_delta` takes arrays whole).
+#[test]
+fn auto_sync_keeps_each_photos_own_layers() {
+    let mut s = Session::with_demo();
+    let vis = s.visible_cloned();
+    let (a, b) = (vis[0], vis[1]);
+    // B has two layers of its own
+    s.execute("library.select", &json!({"ids": [b.0], "active": b.0})).unwrap();
+    s.execute("mask.add", &json!({"kind": "radial", "center": [0.2, 0.2]})).unwrap();
+    s.execute("mask.setTools", &json!({"values": {"light.exposure": -0.8}})).unwrap();
+    s.execute("mask.add", &json!({"kind": "radial", "center": [0.8, 0.8]})).unwrap();
+    let b_masks = s.develop_of(b).unwrap().masks.clone();
+    assert_eq!(b_masks.len(), 2);
+    // A has one layer; both are selected with A active and Auto Sync on
+    s.execute("library.select", &json!({"ids": [a.0], "active": a.0})).unwrap();
+    s.execute("mask.add", &json!({"kind": "radial", "center": [0.5, 0.5]})).unwrap();
+    s.execute("library.select", &json!({"ids": [a.0, b.0], "active": a.0})).unwrap();
+    assert_eq!(s.active(), Some(a));
+    s.active_mask = Some(s.develop_of(a).unwrap().masks[0].id);
+    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    // a global slider still syncs, and B keeps its layers
+    s.execute("develop.set", &json!({"control": "light.exposure", "value": 0.6})).unwrap();
+    assert_eq!(s.develop_of(b).unwrap().light.exposure, 0.6, "global settings still auto sync");
+    assert_eq!(s.develop_of(b).unwrap().masks, b_masks);
+    // layer edits on A: tools, opacity, a new layer, a deleted layer
+    s.execute("mask.setTools", &json!({"values": {"effects.dehaze": 25}})).unwrap();
+    s.execute("mask.setOpacity", &json!({"value": 40})).unwrap();
+    s.execute("mask.add", &json!({"kind": "radial", "center": [0.3, 0.7]})).unwrap();
+    assert_eq!(s.develop_of(a).unwrap().masks.len(), 2);
+    assert_eq!(s.develop_of(b).unwrap().masks, b_masks, "B keeps its own layers");
+    let first = s.develop_of(a).unwrap().masks[0].id;
+    s.execute("mask.delete", &json!({"id": first})).unwrap();
+    assert_eq!(s.develop_of(a).unwrap().masks.len(), 1);
+    assert_eq!(s.develop_of(b).unwrap().masks, b_masks, "B keeps its own layers");
+    // and a global change after the layer edits still reaches B
+    s.execute("develop.set", &json!({"control": "light.contrast", "value": 15})).unwrap();
+    assert_eq!(s.develop_of(b).unwrap().light.contrast, 15.0);
+    assert_eq!(s.develop_of(b).unwrap().masks, b_masks);
 }

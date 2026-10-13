@@ -27,6 +27,14 @@ pub struct CommandSpec {
     pub journal: bool,
 }
 
+/// The largest canvas side `file.new` creates (Photoshop's PSB limit).
+pub(crate) const MAX_NEW_DIMENSION: u32 = 300_000;
+// What `file.new` creates must reopen: the `.pcraft` loader's default canvas budget covers it
+// (upstream 6e9ba651, #2935).
+const _: () = assert!(
+    photocraft_format::MAX_CANVAS_SIDE >= MAX_NEW_DIMENSION && photocraft_format::MAX_CANVAS_PIXELS >= MAX_NEW_DIMENSION as u64 * MAX_NEW_DIMENSION as u64
+);
+
 pub(crate) fn always(_: &Session) -> std::result::Result<(), String> {
     Ok(())
 }
@@ -256,8 +264,8 @@ fn build() -> Vec<CommandSpec> {
                 let px = |k: &str, d: u32| match p.get(k) {
                     Some(v) => v
                         .as_u64()
-                        .map(|n| n.clamp(1, 300_000) as u32)
-                        .or_else(|| v.as_f64().filter(|f| f.is_finite()).map(|f| f.round().clamp(1.0, 300_000.0) as u32))
+                        .map(|n| n.clamp(1, u64::from(MAX_NEW_DIMENSION)) as u32)
+                        .or_else(|| v.as_f64().filter(|f| f.is_finite()).map(|f| f.round().clamp(1.0, f64::from(MAX_NEW_DIMENSION)) as u32))
                         .unwrap_or(d),
                     None => d,
                 };

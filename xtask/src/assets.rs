@@ -110,6 +110,11 @@ fn licence_paths(column: &str) -> Vec<&str> {
     paths
 }
 
+/// A path inside a `target/` directory at any depth (Cargo build and test output).
+fn build_output(path: &str) -> bool {
+    path.split('/').rev().skip(1).any(|c| c == "target")
+}
+
 pub fn run(root: &Path) -> Result<()> {
     let mut patterns = Vec::new();
     for (table, lightcraft) in [("assets/ATTRIBUTION-lightcraft.md", true), ("licenses/photocraft-ATTRIBUTION.md", false)] {
@@ -132,15 +137,21 @@ pub fn run(root: &Path) -> Result<()> {
             }
         }
     }
-    // Git's inventory includes new assets and respects ignored build/reference outputs.
-    let output = Command::new("git").current_dir(root).args(["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).output()?;
-    if !output.status.success() {
-        bail!("git ls-files failed");
-    }
-    let files = String::from_utf8(output.stdout)?;
+    // Git's inventory includes new assets and respects ignored build/reference outputs. Tracked
+    // files are always audited; untracked files under a `target/` directory anywhere are build or
+    // test output (e.g. UI-test screenshots in `apps/local-image/target/`), not assets.
+    let list = |args: &[&str]| -> Result<String> {
+        let output = Command::new("git").current_dir(root).arg("ls-files").args(args).arg("-z").output()?;
+        if !output.status.success() {
+            bail!("git ls-files failed");
+        }
+        Ok(String::from_utf8(output.stdout)?)
+    };
+    let (tracked, untracked) = (list(&["--cached"])?, list(&["--others", "--exclude-standard"])?);
+    let files = tracked.split('\0').chain(untracked.split('\0').filter(|p| !build_output(p)));
     let mut missing = Vec::new();
     let mut count = 0;
-    for path in files.split('\0').filter(|p| asset(p)) {
+    for path in files.filter(|p| asset(p)) {
         count += 1;
         if !patterns.iter().any(|p| matches(p, path)) {
             missing.push(PathBuf::from(path));
@@ -169,6 +180,16 @@ mod tests {
         assert!(matches("assets/icons/color/", "assets/icons/color/brush.svg"));
         assert!(matches("a/{x,y}.svg", "a/y.svg"));
         assert!(!matches("a/{x,y}.svg", "a/z.svg"));
+    }
+
+    #[test]
+    fn untracked_build_output_is_not_an_asset_source() {
+        assert!(build_output("apps/local-image/target/library-workflow-ux/grid.png"));
+        assert!(build_output("target/debug/x.png"));
+        assert!(build_output("crates/pc-pdf/target/refvec/pdf21/ellipse.png"));
+        assert!(!build_output("assets/icons/target.svg"));
+        assert!(!build_output("assets/targets/brush.png"));
+        assert!(!build_output("target"));
     }
 
     #[test]

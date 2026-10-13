@@ -44,6 +44,10 @@
     "H"
   ],
   [
+    "tools.select.RotateView",
+    "R"
+  ],
+  [
     "tools.select.Zoom",
     "Z"
   ],
@@ -81,7 +85,7 @@
   ],
   [
     "tools.select.AiRemove",
-    "R"
+    null
   ],
   [
     "tools.select.AiCutout",

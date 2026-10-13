@@ -800,7 +800,7 @@ impl<'a> Planner<'a> {
                 // compose::render_fill: the pattern tiled from the layer's frame (transparent
                 // when missing), then the layer's masks.
                 let empty = self.clear();
-                let Some(pat) = photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| !p.is_empty()) else { return Ok(empty) };
+                let Some(pat) = photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| p.is_paintable()) else { return Ok(empty) };
                 let frame = photocraft_compose::fill_frame(layer, self.cx.canvas);
                 let anchor = if frame.is_empty() { (0.0, 0.0) } else { (f64::from(frame.x0), f64::from(frame.y0)) };
                 let paint = Paint::Pattern(pat, placement(anchor, *link, *phase, *scale, *angle));
@@ -1055,7 +1055,7 @@ impl<'a> Planner<'a> {
         };
         for &(_, e) in &rev {
             if let Effect::PatternOverlay { common, name, id, scale, angle, link, phase } = e
-                && let Some(pat) = photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| !p.is_empty())
+                && let Some(pat) = photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| p.is_paintable())
             {
                 let paint = Paint::Pattern(pat, placement(anchor, *link, *phase, *scale, *angle));
                 l = self.paint(l, content, Cov::One, &paint, common.blend, common.opacity, F_GATE, clip, sb);
@@ -1269,7 +1269,7 @@ impl<'a> Planner<'a> {
         match p {
             FxPaint::Color(c) => Paint::Color(c.to_rgb()),
             FxPaint::Gradient(g) => Paint::Gradient(g),
-            FxPaint::Pattern { name, id, scale } => match photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| !p.is_empty()) {
+            FxPaint::Pattern { name, id, scale } => match photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| p.is_paintable()) {
                 Some(pat) => Paint::Pattern(pat, placement(anchor, true, (0.0, 0.0), *scale, 0.0)),
                 None => Paint::None,
             },
@@ -1656,11 +1656,13 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             }
             (15, p, Some(vec![row]))
         }
-        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if *size >= 2 && table.len() >= (*size as usize).pow(3) * 3 => {
+        // Upstream 5049a1d0: a stored size is untrusted; `lut3d_len` is the checked n³ × 3.
+        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if adjust::lut3d_len(*size).is_some_and(|len| table.len() >= len) => {
             // The flattened table (n³ RGB triplets) spans as many 4096-wide rows as it needs.
             let n = *size as usize;
-            let len = n * n * n * 3;
-            let rows = table[..len]
+            let rows = adjust::lut3d_len(*size)
+                .and_then(|len| table.get(..len))
+                .unwrap_or_default()
                 .chunks(4096)
                 .map(|c| {
                     let mut row = [0.0f32; 4096];
@@ -1727,6 +1729,19 @@ mod tests {
     use super::*;
     use photocraft_color::{Color, ColorMode, SampleType};
     use photocraft_geom::Size;
+
+    /// Upstream 5049a1d0: an overflowing stored LUT size uploads no table (and does not panic).
+    #[test]
+    fn color_lookup_with_an_overflowing_stored_size_uploads_no_table() {
+        for size in [1 << 22, u32::MAX] {
+            let a = Adjustment::ColorLookup { name: "x".into(), lut: Some(std::sync::Arc::new(vec![0.5; 24])), size, tetrahedral: false, dither: false };
+            let (kind, _, rows) = adjustment_program(&a, Transfer::Srgb, SampleType::U8);
+            assert_eq!((kind, rows.is_none()), (0, true), "size {size}");
+        }
+        let a = Adjustment::ColorLookup { name: "x".into(), lut: Some(std::sync::Arc::new(vec![0.5; 24])), size: 2, tetrahedral: false, dither: false };
+        let (kind, p, rows) = adjustment_program(&a, Transfer::Srgb, SampleType::U8);
+        assert_eq!((kind, p[0][0], rows.map(|r| r.len())), (16, 2.0, Some(1)));
+    }
 
     #[test]
     fn independent_nonisolated_group_requires_whole_render_cpu_fallback() {
