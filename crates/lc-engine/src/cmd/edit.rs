@@ -12,7 +12,9 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         cmd!("edit.redo", "Redo", ["Edit"], Some("Cmd+Shift+Z"), "{}", can_redo, |s, _| {
             s.end_interaction()?;
-            Ok(json!({"redone": s.redo_step()?}))
+            let redone = s.redo_step()?;
+            crate::cmd::match_look::restore_applied(s);
+            Ok(json!({"redone": redone}))
         }),
     ]
 }

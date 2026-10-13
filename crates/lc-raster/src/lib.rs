@@ -14,9 +14,30 @@ pub mod resample;
 
 pub use histogram::Histogram;
 
+std::thread_local! {
+    static SEQUENTIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+/// Run raster kernels sequentially on this calling thread. A batch that already parallelizes
+/// images can avoid nested tiny row tasks without creating another pool or changing pixels.
+/// The previous mode is restored on normal return and on unwind; other threads are unaffected.
+pub fn sequential<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SEQUENTIAL.set(self.0);
+        }
+    }
+    let _restore = Restore(SEQUENTIAL.replace(true));
+    f()
+}
+
 /// Run `f` over row chunks, in parallel when the `parallel` feature is on.
 pub fn par_rows<T: Send>(data: &mut [T], row_len: usize, f: impl Fn(usize, &mut [T]) + Sync + Send) {
     if row_len == 0 {
+        return;
+    }
+    if SEQUENTIAL.get() {
+        data.chunks_mut(row_len).enumerate().for_each(|(y, row)| f(y, row));
         return;
     }
     #[cfg(feature = "parallel")]
@@ -33,6 +54,9 @@ pub fn par_rows<T: Send>(data: &mut [T], row_len: usize, f: impl Fn(usize, &mut 
 /// Run `a` and `b` potentially in parallel (sequentially without the `parallel` feature). For
 /// independent passes that each scale poorly on their own (small images, short rows).
 pub fn par_join<A: Send, B: Send>(a: impl FnOnce() -> A + Send, b: impl FnOnce() -> B + Send) -> (A, B) {
+    if SEQUENTIAL.get() {
+        return (a(), b());
+    }
     #[cfg(feature = "parallel")]
     {
         rayon::join(a, b)
@@ -258,6 +282,27 @@ mod tests {
     use super::*;
     use lightcraft_geom::Orientation;
 
+    #[test]
+    fn sequential_batch_scope_keeps_pixels_and_restores_thread_mode() {
+        let img = Rgb32f::from_fn(128, 96, |x, y| [x as f32 / 128.0, y as f32 / 96.0, 0.25]);
+        let render = || {
+            let plane = img.map(|p| p[0] + p[1] * 0.25);
+            blur::gaussian(&plane, 3.0)
+        };
+        let expected = render();
+        let actual = sequential(|| {
+            assert!(SEQUENTIAL.get());
+            sequential(|| assert!(SEQUENTIAL.get()));
+            par_join(|| assert!(SEQUENTIAL.get()), || assert!(SEQUENTIAL.get()));
+            render()
+        });
+        assert_eq!(actual.data, expected.data);
+        assert!(!SEQUENTIAL.get());
+        let fail = || false;
+        let failed = std::panic::catch_unwind(|| sequential(|| assert!(fail(), "exercise unwind restoration")));
+        assert!(failed.is_err());
+        assert!(!SEQUENTIAL.get());
+    }
     #[test]
     fn crop_and_rotate() {
         let img = Image::<u32>::from_fn(4, 3, |x, y| (y * 10 + x) as u32);

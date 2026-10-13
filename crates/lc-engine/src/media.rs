@@ -389,7 +389,7 @@ impl MediaCache {
         self.insert_source(id, level, DecodedSource::new(img, None));
     }
 
-    fn insert_source(&mut self, id: PhotoId, level: SourceLevel, img: DecodedSource) {
+    pub(crate) fn insert_source(&mut self, id: PhotoId, level: SourceLevel, img: DecodedSource) {
         let tick = lightcraft_preview::next_tick();
         match level {
             SourceLevel::Thumb => {

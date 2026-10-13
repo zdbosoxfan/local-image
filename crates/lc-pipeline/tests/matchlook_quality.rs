@@ -120,8 +120,9 @@ fn matchlook_quality() {
     let req = RenderRequest::fit(512, 512);
     let perturbations = [(-1.2, [1.25, 1.0, 0.75]), (0.7, [0.8, 1.0, 1.3]), (-3.0, [1.0; 3]), (-0.5, [0.7, 1.0, 1.45])];
     let mut csv = String::from(
-        "look,consistent,target,deltaE,before_deltaE,sync_deltaE,dL5,dL50,dL95,dChroma,dCCT,solve_ms,renders,temp,contrast,saturation\n",
+        "look,consistent,target,deltaE,before_deltaE,sync_deltaE,dL5,dL50,dL95,dChroma,dCCT,solve_ms,renders,temp,contrast,saturation,median_shift,l50,wb_ratio,fit,reach,reference_deltaE\n",
     );
+    let mut absolute_total = 0.0;
     let (mut total, mut before, mut synced, mut n, mut rails) = (0.0, 0.0, 0.0, 0, 0);
     let mut invalid_temperatures = 0;
     for (name, edited) in looks() {
@@ -137,7 +138,7 @@ fn matchlook_quality() {
                 let r0 = stats(&render(&images[0], &info, &edited, &req).image);
                 let r1 = stats(&render(&images[1], &info, &edited, &req).image);
                 let w = &result.weights;
-                let goal = Stats {
+                let reference_goal = Stats {
                     l5: r0.l5 * w[0] + r1.l5 * w[1],
                     l50: r0.l50 * w[0] + r1.l50 * w[1],
                     l95: r0.l95 * w[0] + r1.l95 * w[1],
@@ -149,6 +150,39 @@ fn matchlook_quality() {
                 let after = stats(&render(&src, &info, &result.settings, &req).image);
                 let original = stats(&render(&src, &info, &base, &req).image);
                 let sync = stats(&render(&src, &info, &edited, &req).image);
+                let goal = Stats {
+                    l5: result.goal.features[0] * 100.0,
+                    l50: result.goal.features[2] * 100.0,
+                    l95: result.goal.features[4] * 100.0,
+                    a: result.goal.features[25] * 100.0,
+                    b: result.goal.features[26] * 100.0,
+                    ..reference_goal
+                };
+                absolute_total += de(after, reference_goal);
+                let ratio = lightcraft_pipeline::auto::current_wb(&info, &result.settings).0 / lightcraft_pipeline::auto::current_wb(&info, &base).0;
+                assert!(((-1.0f64).exp() - 1e-6..=1.0f64.exp() + 1e-6).contains(&ratio));
+                if name == "cool" && !consistent && NAMES[index + 2] == "glass" {
+                    assert!(after.l50 >= 55.0, "high-key glass L50 {}", after.l50);
+                }
+                assert!(result.renders <= 50, "{} {} renders {}", name, NAMES[index + 2], result.renders);
+                let sheet_name = format!("jpeg-{name}-{consistent}-{}", NAMES[index + 2]);
+                let sheet_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/matchlook-final-sheets/data").join(&sheet_name);
+                std::fs::create_dir_all(&sheet_dir).unwrap();
+                let picture_request = RenderRequest::fit(1024, 1024);
+                let parts = [
+                    ("ref-0.png", render(&images[0], &info, &edited, &picture_request).image),
+                    ("ref-1.png", render(&images[1], &info, &edited, &picture_request).image),
+                    ("before.png", render(&src, &info, &base, &picture_request).image),
+                    ("after.png", render(&src, &info, &result.settings, &picture_request).image),
+                ];
+                for (file, picture) in parts {
+                    image::RgbaImage::from_raw(picture.width as u32, picture.height as u32, picture.data.iter().flatten().copied().collect())
+                        .unwrap()
+                        .save(sheet_dir.join(file))
+                        .unwrap();
+                }
+                let metadata = serde_json::json!({"name":sheet_name,"kind":"JPEG looks","camera":NAMES[index+2],"mode":format!("{name} · {}",if consistent {"Consistent"} else {"Similarity"}),"fit":result.fit,"reach":result.reach,"errorBefore":de(original,goal),"errorAfter":de(after,goal),"references":[{"label":"Analyzed reference 1 · Portrait","file":"ref-0.png"},{"label":"Analyzed reference 2 · Street","file":"ref-1.png"}],"before":"before.png","after":"after.png"});
+                std::fs::write(sheet_dir.join("sheet.json"), serde_json::to_vec_pretty(&metadata).unwrap()).unwrap();
                 total += de(after, goal);
                 before += de(original, goal);
                 synced += de(sync, goal);
@@ -157,7 +191,7 @@ fn matchlook_quality() {
                 invalid_temperatures += usize::from(result.settings.wb.temp <= 2040.0 || result.settings.wb.temp >= 49000.0);
                 writeln!(
                     csv,
-                    "{name},{consistent},{},{:.4},{:.4},{:.4},{:.3},{:.3},{:.3},{:.3},{:.1},{solve_ms:.2},{},{:.1},{:.2},{:.2}",
+                    "{name},{consistent},{},{:.4},{:.4},{:.4},{:.3},{:.3},{:.3},{:.3},{:.1},{solve_ms:.2},{},{:.1},{:.2},{:.2},{:.4},{:.4},{ratio:.4},{:.4},{:.4},{:.4}",
                     NAMES[index + 2],
                     de(after, goal),
                     de(original, goal),
@@ -170,7 +204,8 @@ fn matchlook_quality() {
                     result.renders,
                     result.settings.wb.temp,
                     result.settings.light.contrast,
-                    result.settings.color.saturation
+                    result.settings.color.saturation,
+                    after.l50-original.l50,after.l50,result.fit,result.reach,de(after,reference_goal)
                 )
                 .unwrap();
             }
@@ -178,7 +213,8 @@ fn matchlook_quality() {
     }
     let mean = total / n as f64;
     let summary = format!(
-        "samples={n} mean_deltaE={mean:.4} before={:.4} sync={:.4} contrast_rails={rails} temperature_rails={invalid_temperatures}\n",
+        "samples={n} mean_deltaE={mean:.4} reference_mean_deltaE={:.4} before={:.4} sync={:.4} contrast_rails={rails} temperature_rails={invalid_temperatures}\n",
+        absolute_total / n as f64,
         before / n as f64,
         synced / n as f64
     );

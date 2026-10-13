@@ -154,7 +154,8 @@ Also in `pc-ui-egui/src/icons.rs`: `icons::button` (`:235`, square icon button),
 | `register` / `take_registry` | Record a widget's automation id and rect for the control protocol and tests | 17 / 22 |
 | `checkbox` | Named, translated checkbox for Library dialogs; `checkbox(ui, id, &mut on, label)` registers `check:{id}`; Match Look options; Library | 874 |
 | `text_action` | Enabled/disabled text button with reason, accessible disabled state and no disabled focus/click; `text_action(ui, id, label, reason)`; Match Look actions; Library | 881 |
-| `reference_tray` | Removable thumbnail grid that wraps to panel width; `reference_tray(ui, &[(id, name, texture)])` returns removed id; bucketed 2×slider-row tiles with hover/focus remove overlay and keyboard focus retention; Match Look references; Library | 888 |
+| `menu_action` | Plain translated popup action with disabled explanation and automation; Saved Look overflow; Library | widgets.rs |
+| `reference_tray` | Removable thumbnail grid that wraps to panel width; `reference_tray(ui, &[(id, name, texture)], pinned_ids)` returns Remove/Compare/Pin; bucketed 2×slider-row tiles, with a three-column fit for 7–10 references (four rows at 250 pt), with hover/focus remove overlay and keyboard focus retention; Match Look references; Library | 888 |
 | `summary_chips` | Quiet token-styled labels that wrap; `summary_chips(ui, &[String])`; Match Look measurements | 948 |
 | `image_preview` | Reserved aspect-preserving image area and accessible empty state, keeping dialog footer stationary while workers load; `image_preview(ui, id, texture, empty)`; Optional Match Look preview; Library | 968 |
 | `text_button_translated` | `text_button` variant for translated labels or user data; retains full accessible name while eliding long names; Saved Look names; Library | 430 |

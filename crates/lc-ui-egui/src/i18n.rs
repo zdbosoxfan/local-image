@@ -332,6 +332,21 @@ pub const PENDING_FILE_INPUT_TRANSLATIONS: &[&str] = &[
 
 /// Library/Develop final-review additions awaiting translation.
 pub const PENDING_DEVELOP_TRANSLATIONS: &[&str] = &[
+    "Use the same reference blend for every target. Otherwise references are weighted by each target's scene similarity.",
+    "{count} references on embedded previews",
+    "Fit {value:.0}%",
+    "Tonal range {value:.0}%",
+    "WB shift {value:.2}×",
+    "Ref {number}",
+    "{weak} photos matched weakly; {embedded} on embedded previews",
+    "References have a wider tonal range than this photo can reach — Light & Contrast was limited",
+    "Decoded photo",
+    "Embedded preview",
+    "Review weak matches",
+    "Weight this reference 2×",
+    "Match supported regions (experimental)",
+    "Exposure follows the references fully for similar scenes and partially for different ones; Consistent batch always matches fully. Strength changes the style groups only.",
+    "Unknown reference",
     "Match Look applied: {changed}",
     "Match Look applied: {changed}; {skipped} photos edited during the job were skipped",
     "{count} skipped (videos/offline)",

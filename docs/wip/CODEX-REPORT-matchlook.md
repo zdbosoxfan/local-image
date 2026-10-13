@@ -175,3 +175,71 @@ patterns, and the pinned upstream source files. Added three PORTS rows and GPL n
 All three are GPL-3.0-or-later. The slope projection, weighted-median aggregation, bounded
 LM / IRLS solver and product orchestration are original Rust adaptations, not claims about
 Capture One's internal algorithm. No upstream C/C++ is compiled or shipped.
+
+## Revision 2 + 3
+
+Continued `c68e1d82` / the inherited revision-2 implementation. No commit was made.
+Validation logs and CC0 artifacts are retained in `target/matchlook-revision3/`;
+new JPEG sheets are in `target/matchlook-quality/sheets/`, UI captures in
+`target/matchlook-ux/`. The owner's modified task file and pre-existing untracked
+`apps/local-image/target/` were preserved. No Desktop files, private photographs,
+running desktop app, dependencies, queue tools or installed scripts were changed.
+
+The task is implemented in the existing engine/pipeline/UI path. Final acceptance
+numbers and complete changed-crate validation results are recorded below when finished.
+
+| Item | Re-check, fix and test |
+|---|---|
+| R0 | Fixed both invalid `HeadlessView::paint` arguments. The reported keymap failure did not reproduce: Lightroom / Capture One commands remain unbound. Eight inherited click tests passed initially; the ninth covers the new UI. |
+| R1 | Analyze at native size up to 512; acceptance at 256 with one 512 calibration of tone/chroma/endpoints/local contrast. Jacobian stays 60. Never upscale tiny sources. The new 1-pixel-line fixture explicitly proves the former 128 measurement loses structure and checks a solved 512 render. |
+| R2 | Project adapted tonal quantiles through the existing slope cone; optimize and report against that reachable goal. Reference spread is centered on the reference blend, not the adapted/projected target (otherwise adaptation incorrectly lowers tonal weights). Store Fit / Reach, show the limitation and count weak matches. Flat synthetic and real carpet gates measure reachable tone progress. |
+| R3 | Full and Thumb metrics use their own decoded metadata; print sensor scales and actual bin factors, retain CR3 exclusion, record per-photo timings and use the specified cold normalized batch timing gate. Every raw mode and the engine batch test compare serial/parallel settings exactly. |
+| R4 | Scene similarity adapts the median, retaining reference tone shape; Consistent batch follows the reference fully. New endpoints and skin lightness follow the same adapted median; per-band/region lightness is relative. Palette luminance directions have zero occupied-band mean and a final verified exposure correction prevents style fitting from undoing normalization. High-key, consistent and self-similar tests plus the glass JPEG gate cover it. |
+| R5 | Analyze / Preview / Apply retain decoded sources with their decoder facts after generation/source checks. Insertions use the existing bounded Thumb LRU. Counting-loader test proves 8 loads rather than 16. Decode and analysis fan-out run on the existing background pool; a Linux callback checks its lower priority. |
+| R6 | Added L1/L99 and exact box-5 local contrast. Clarity is bounded to ±40 with the requested prior, fitted as a final verified direction to avoid activating the expensive filter throughout all trials. Local contrast uses a relative residual. Matte endpoint, doubled texture, identity, layer amount/reset coverage. |
+| R7 | Retain finished B&W intent for balanced split toning; statistical toned detection also checks chroma variation to avoid misclassifying lightly colored portraits. Fit global/zone toning while preserving Color Adjust; skin color constraints do not apply to B&W. Sepia with a cached-face region and balanced split-tone tests. |
+| R8 | Global temperature shift ≤ e either way, tint ±40 around effective WB; dissimilar scenes reduce neutral/global WB weights. Tests check bounds and warmth in grading; raw Fuji and every JPEG ratio are audited. |
+| R9 | Reuse small-step Jacobian columns and refresh the largest changed axes within a 50-render budget. Preview probes parallelize with independent caches; batches parallelize photos and use a reversible thread-local sequential raster scope. Reuse initial/final measurements, omit unused display conversion for float probes, use summed-area box means and algebraic circular moments. Deep pixels and all settings/errors remain identical across ordinary/statistics and 1/4-thread/batch paths. |
+| R10 | Per-photo Fit, Reach, Similarity, WB ratio (including local-layer shifts) and embedded-preview flag; count weak / embedded targets and embedded references. Applied/Preview chips, batch summary, weak-message formatting and a real embedded CR3 batch are tested. |
+| R11 | Circular hue offsets plus per-band relative luminance; joint saturation/hue/luminance directions accepted only after a real fine render improves the objective. All mixer axes fade/reset and appear in What changed. Teal/orange test reaches orange/blue hue within 8 and improves error by >60%. |
+| R12 | Removed nested tray scroll; 7–10 tiles fit three columns/four rows at 250 pt. Click test checks all ten on screen; dark/light screenshots verify it. |
+| R13 | Keep removed amount records in a catalog-local side map; Redo restores the exact matching record/source. Counting-loader/Undo/Redo regression covers it. |
+| R14 | Shared `menu_action` follows the existing Presets popup entries, preserving IDs, translations and disabled explanations. Menu click tests and screenshots. |
+| R15 | One Before / Ref 1… segmented choice, plus direct tray selection. Removed compare-toggle/Next-reference pair; click test selects Ref 2. |
+| R16 | `Arc<[Look]>` shared by work items; exact serial/parallel row equality in synthetic and RAW cases. |
+| R17 | Optional supported-regions prototype uses existing Sky/Subject mask evaluation, stored quick-model masks and cached faces; matches sky/subject/rest moments only with support on both sides. No model loads/downloads. Region/legacy-look test and option click cover it. |
+| R18 | Review weak matches applies the existing grid's `only` filter from successful result rows (`fit < .5 || reach < .6`). Real click verifies the resulting grid. |
+| R19 | Shared star action pins a reference at 2×; catalog preference weights apply before normalization and survive saving a look. UI pin click, normalized-weight and persistence tests. |
+| P1 partial | Replaced the tautological equal-size proxy check with independent 128/512 thin structure. Sensor RAW gates remain distinct from embedded CR3 matching. |
+| P15 partial | Shared text buttons elide at one row when the panel is narrow while keeping the full accessible label. This is app-wide behavior, not a Match Look special case. Develop and Match Look screenshots are regenerated at 250/400 pt in dark/light. |
+
+The two small shared APIs added for R9 are `RenderRequest.statistics_only`
+(float deep pixels are unchanged; only unused 8-bit/histogram conversion is omitted)
+and `lightcraft_raster::sequential` (calling-thread-only, restores on unwind).
+These extend outside the Match Look files because they avoid duplicated rendering
+code and nested raster work queues. Both have regression tests; normal rendering
+keeps its existing defaults. No new pool or dependency was introduced.
+
+**TEST-CHANGED:** The old clipped synthetic's required negative Whites slider was
+replaced by a stronger reachable-error improvement check: the same look can be
+produced by multiple editable slider decompositions, and matching never copies
+reference controls. Its independent native-size measurement remains. The new thin
+line fixture proves the old 128 path is biased by >.04 and requires the solved dark
+quantile within .015. RAW endpoint/proxy/sync thresholds remain unchanged; the distribution gate retains its original 30-feature domain and the expanded texture/palette error is logged separately; the new
+50% reachable-tone movement gate applies to limited tonal scenes, not unrelated
+color residuals. The machine-specific 160 ms per-photo timing assertion was replaced
+as R3 specifies. Comparison click IDs changed to the single segmented control.
+
+Saved-look file version is 2; version 1 imports remain accepted, with missing new
+features unsupported. Existing analysis/prefs version 1 still loads and migrates.
+Older statistics retain their old resolution bias until Update from current
+references re-analyzes them. Amount metadata uses serde defaults.
+
+Provenance: followed the existing GPL ports and pinned sources in `docs/PORTS.md`,
+`docs/wip/REVIEW-matchlook-fable-3.md` section 5, the existing `colorops::band_hues` /
+`colorequal` control scaling, `masks::shape_alpha` and `quickseg.rs`, Presets popup,
+media LRU, undo and design-system widgets. The reachable/adaptive objective, bounded
+refresh policy, circular moment algebra, box integral and region prototype are
+original Rust adaptations, not claims about another product's internals.
+
+Final verification, contact-sheet observations and timing results follow below.

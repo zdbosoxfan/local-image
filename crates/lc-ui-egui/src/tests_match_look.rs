@@ -232,7 +232,7 @@ fn match_look_ui_screenshots() {
             wait(&mut h);
             assert!(h.app.widgets.iter().any(|(id, _)| id == "matchLook:preview"), "Preview must be visible in screenshots");
             save(&h, &format!("dialog-{tag}"), rect(&h, "dialog:window"));
-            click(&mut h, "check:matchCompareReference");
+            click(&mut h, "button:matchCompare-1");
             save(&h, &format!("reference-{tag}"), rect(&h, "dialog:window"));
             request(&mut h, "ui.hoverWidget", json!({"id":"matchLook:preview"}));
             request(&mut h, "ui.scroll", json!({"dy":-1200.0}));
@@ -361,7 +361,12 @@ fn match_look_ui_500_photo_app_path_benchmark() {
         solve * 1000.0 / count as f64,
         frames.len()
     );
-    eprintln!("MATCH_LOOK_PHASES {:?}", h.app.match_look.last_result);
+    let metrics = h.app.match_look.last_result.as_ref().unwrap();
+    println!("MATCH_LOOK_PHASES load_ms={} solve_ms={} renders={}", metrics["loadMs"], metrics["solveMs"], metrics["renders"]);
+    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/matchlook-revision3");
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(out.join(format!("benchmark-{count}-{}.json", lightcraft_sysmem::profile().threads)), serde_json::to_vec_pretty(metrics).unwrap())
+        .unwrap();
     assert!(p95 < 16.7, "CPU job must leave interactive frames responsive: {p95}");
     assert!(h.settle(T));
     let texture_seconds = start.elapsed().as_secs_f64();
@@ -550,8 +555,8 @@ fn match_look_ui_revision2_debounced_preview_reopen_and_reference_cycle() {
     click(&mut h, "button:matchLook");
     click(&mut h, "button:matchLookPreview");
     wait(&mut h);
-    click(&mut h, "check:matchCompareReference");
-    click(&mut h, "button:matchNextReference");
+    click(&mut h, "button:matchCompare-1");
+    click(&mut h, "button:matchCompare-2");
     assert_eq!(h.app.match_look.reference_index, 1);
     click(&mut h, "check:matchContrastGuard");
     let start = Instant::now();
@@ -587,4 +592,171 @@ fn match_look_ui_revision2_debounced_preview_reopen_and_reference_cycle() {
     click(&mut h, "button:dialogOk");
     wait(&mut h);
     assert!(h.app.ui.dialog.is_none(), "Apply cancels its optional preview instead of waiting for it");
+}
+
+#[test]
+fn match_look_ui_revision3_quality_pin_wrap_and_weak_review() {
+    let mut h = setup(250.0, true, 1.0);
+    analyze(&mut h, 10);
+    for id in h.app.session.match_look.references.clone() {
+        let tile = rect(&h, &format!("reference:{}", id.0));
+        assert!(tile.bottom() <= h.size.y, "all ten reference tiles must be on screen: {tile:?}");
+    }
+    let first = h.app.session.match_look.references[0];
+    click(&mut h, &format!("icon:matchReferencePin-{}", first.0));
+    assert_eq!(h.app.session.match_look.reference_weights[&first], 2.0);
+    click(&mut h, &format!("reference:{}", first.0));
+    assert!(h.app.match_look.compare_reference);
+    let id = target(&mut h);
+    click(&mut h, "button:matchLook");
+    click(&mut h, "check:matchRegions");
+    click(&mut h, "button:matchLookPreview");
+    wait(&mut h);
+    click(&mut h, "button:matchCompare-2");
+    assert_eq!(h.app.match_look.reference_index, 1);
+    click(&mut h, "button:dialogOk");
+    wait(&mut h);
+    assert!(h.app.widgets.iter().any(|(name, _)| name == "matchLook:quality"));
+    let text = h
+        .view
+        .shapes()
+        .iter()
+        .filter_map(|s| match &s.shape {
+            egui::Shape::Text(t) => Some(t.galley.text()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    for chip in ["Fit ", "Tonal range ", "WB shift ", "Decoded photo"] {
+        assert!(text.contains(chip), "missing {chip}: {text}");
+    }
+    assert_eq!(h.app.match_look.last_result.as_ref().unwrap()["perPhoto"][0]["id"], json!(id));
+    // Stub the result metrics only; clicking runs the real grid-filter command.
+    h.app.match_look.last_result = Some(json!({"weak":1,"previewOnly":1,"perPhoto":[{"id":id,"fit":0.2,"reach":0.4}]}));
+    assert_eq!(crate::match_look::batch_details(h.app.match_look.last_result.as_ref().unwrap()), "1 photos matched weakly; 1 on embedded previews");
+    h.step();
+    click(&mut h, "button:matchWeak");
+    assert_eq!(h.app.session.filter.only, vec![id]);
+    assert_eq!(h.app.session.visible().len(), 1);
+}
+
+#[test]
+#[ignore = "compose the final labelled reference/before/after proof sheets after RAW and JPEG audits"]
+fn match_look_final_contact_sheets() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/matchlook-final-sheets");
+    let mut directories =
+        std::fs::read_dir(root.join("data")).unwrap().map(|e| e.unwrap().path()).filter(|p| p.join("sheet.json").is_file()).collect::<Vec<_>>();
+    directories.sort();
+    assert!(directories.len() >= 46, "22 RAW + 24 JPEG rows required");
+    let escape = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
+    let mut html = String::from(
+        "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>Match Look final proof sheets</title><style>body{margin:2rem;background:#202020;color:#eee;font:16px system-ui}h1{font-size:1.6rem}a{color:#b9d8ff}figure{margin:2rem 0;border-top:1px solid #555;padding-top:1rem}img{display:block;width:100%;height:auto}figcaption{margin:0.5rem 0}nav{display:flex;flex-wrap:wrap;gap:1rem}</style><h1>Match Look — final photographer proof sheets</h1><p>Every row includes all finished analyzed references, the target before, and the target after. Click a sheet for full resolution. RAW all-camera rows use the expanded error; RAW mode gates retain the original 30-feature distribution error. JPEG rows use distribution ΔE against the adapted reachable goal.</p><nav><a href=\"#RAW-all-cameras\">All RAW cameras</a><a href=\"#RAW-modes\">RAW modes</a><a href=\"#JPEG-looks\">JPEG looks</a></nav>",
+    );
+    let mut records = Vec::new();
+    for dir in directories {
+        let metadata: Value = serde_json::from_slice(&std::fs::read(dir.join("sheet.json")).unwrap()).unwrap();
+        let name = metadata["name"].as_str().unwrap();
+        let mut view = crate::headless::HeadlessView::new();
+        let t = Tokens::get(&view.ctx);
+        let load = |path: &std::path::Path| {
+            let pixels = lightcraft_codecs::decode(&std::fs::read(path).unwrap(), Default::default()).unwrap().to_srgb8();
+            egui::ColorImage::from_rgba_unmultiplied([pixels.width, pixels.height], &pixels.data.iter().flatten().copied().collect::<Vec<_>>())
+        };
+        let mut references = Vec::new();
+        for r in metadata["references"].as_array().unwrap() {
+            let texture = view.ctx.load_texture(
+                format!("{name}-{}", r["file"].as_str().unwrap()),
+                load(&dir.join(r["file"].as_str().unwrap())),
+                egui::TextureOptions::LINEAR,
+            );
+            references.push((r["label"].as_str().unwrap().to_string(), texture));
+        }
+        let before =
+            view.ctx.load_texture(format!("{name}-before"), load(&dir.join(metadata["before"].as_str().unwrap())), egui::TextureOptions::LINEAR);
+        let after =
+            view.ctx.load_texture(format!("{name}-after"), load(&dir.join(metadata["after"].as_str().unwrap())), egui::TextureOptions::LINEAR);
+        let reference_width = t.panel_w;
+        let target_width = t.panel_w * 3.0;
+        let width = (t.panel_w * 7.0 + 64.0).ceil();
+        let bottom = std::cell::Cell::new(0.0);
+        let title = format!("{} · {}", metadata["camera"].as_str().unwrap(), metadata["mode"].as_str().unwrap());
+        let caption = format!(
+            "Fit {:.0}% · Reach {:.0}% · error {:.6} → {:.6}{}",
+            metadata["fit"].as_f64().unwrap() * 100.0,
+            metadata["reach"].as_f64().unwrap() * 100.0,
+            metadata["errorBefore"].as_f64().unwrap(),
+            metadata["errorAfter"].as_f64().unwrap(),
+            if metadata["alreadyClose"] == true { " · already close (protected)" } else { "" }
+        );
+        let mut draw = |ui: &mut egui::Ui| {
+            ui.label(egui::RichText::new(&title).font(t.semibold(16.0)).color(t.text));
+            ui.label(egui::RichText::new(&caption).font(t.font(14.0)).color(t.text_label));
+            ui.separator();
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(reference_width);
+                    ui.label(egui::RichText::new("Analyzed references").font(t.semibold(14.0)));
+                    for (label, texture) in &references {
+                        ui.label(egui::RichText::new(label).font(t.font(12.0)).color(t.text_label));
+                        let size = texture.size_vec2() * (reference_width / texture.size_vec2().x);
+                        ui.add(egui::Image::new((texture.id(), size)).fit_to_exact_size(size));
+                    }
+                });
+                for (label, texture) in [("Target BEFORE", &before), ("Target AFTER", &after)] {
+                    ui.vertical(|ui| {
+                        ui.set_width(target_width);
+                        ui.label(egui::RichText::new(label).font(t.semibold(14.0)));
+                        let size = texture.size_vec2() * (target_width / texture.size_vec2().x);
+                        ui.add(egui::Image::new((texture.id(), size)).fit_to_exact_size(size));
+                    });
+                }
+            });
+            ui.separator();
+            ui.label(
+                egui::RichText::new("CC0 evaluation photographs · all references are rendered with their complete analyzed edits")
+                    .font(t.font(11.5))
+                    .color(t.text_dim),
+            );
+            bottom.set(ui.cursor().top() + ui.spacing().item_spacing.y);
+        };
+        for frame in 0..2 {
+            view.run(crate::headless::HeadlessView::raw_input(egui::vec2(width, 2400.0), 1.0, frame as f64 / 60.0, vec![]), &mut draw);
+        }
+        let height = bottom.get().ceil();
+        view.run(crate::headless::HeadlessView::raw_input(egui::vec2(width, height), 1.0, 0.05, vec![]), &mut draw);
+        let pixels = view.paint(&Default::default());
+        assert!(pixels.size[0] >= 1600);
+        let image =
+            lightcraft_raster::Rgba8 { width: pixels.size[0], height: pixels.size[1], data: pixels.pixels.iter().map(|p| p.to_array()).collect() };
+        let file = format!("{name}.png");
+        std::fs::write(root.join(&file), lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap())
+            .unwrap();
+        if name.starts_with("raw-") {
+            std::fs::copy(root.join(&file), root.parent().unwrap().join("matchlook-revision3").join(&file)).unwrap();
+        }
+        if let Some(legacy) = name.strip_prefix("jpeg-") {
+            let dir = root.parent().unwrap().join("matchlook-quality/sheets");
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::copy(root.join(&file), dir.join(format!("{legacy}.png"))).unwrap();
+        }
+        let kind = metadata["kind"].as_str().unwrap();
+        records.push((kind.to_string(), title, caption, file));
+    }
+    for kind in ["RAW all cameras", "RAW modes", "JPEG looks"] {
+        html.push_str(&format!("<section id=\"{}\"><h2>{}</h2>", escape(&kind.replace(' ', "-")), escape(kind)));
+        for (_, title, caption, file) in records.iter().filter(|r| r.0 == kind) {
+            html.push_str(&format!(
+                "<figure><figcaption><strong>{}</strong><br>{}</figcaption><a href=\"{}\"><img loading=\"lazy\" src=\"{}\" alt=\"{}\"></a></figure>",
+                escape(title),
+                escape(caption),
+                escape(file),
+                escape(file),
+                escape(title)
+            ));
+        }
+        html.push_str("</section>");
+    }
+    html.push_str("</html>");
+    std::fs::write(root.join("index.html"), html).unwrap();
+    println!("MATCH_LOOK_FINAL_SHEETS count={} index={}", records.len(), root.join("index.html").display());
 }

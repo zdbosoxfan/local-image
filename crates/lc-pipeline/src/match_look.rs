@@ -17,7 +17,12 @@ use std::sync::Arc;
 pub const MAX_REFERENCES: usize = 10;
 pub const PROXY_EDGE: usize = 60;
 const SOURCE_EDGE: usize = PROXY_EDGE;
-const FEATURES: usize = 30;
+pub const FINE_EDGE: usize = 256;
+pub const CALIBRATION_EDGE: usize = 512;
+const FEATURES: usize = 59;
+// Match the existing robust color-statistic floor: sub-code-value texture is not reliable
+// evidence. An additive floor keeps flat scenes / 8-bit quantization from dominating fit.
+const LOCAL_CONTRAST_FLOOR: f64 = 0.005;
 const PALETTE_CONTROLS: [&str; 8] = [
     "mixer.red.sat",
     "mixer.orange.sat",
@@ -43,6 +48,7 @@ pub struct Options {
     pub keep_white_balance: bool,
     pub keep_exposure: bool,
     pub contrast_guard: bool,
+    pub region_aware: bool,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -58,6 +64,7 @@ impl Default for Options {
             keep_white_balance: false,
             keep_exposure: false,
             contrast_guard: true,
+            region_aware: false,
         }
     }
 }
@@ -73,12 +80,24 @@ pub struct Look {
     pub support: [f64; FEATURES],
     pub signature: [f64; 10],
     #[serde(default)]
+    pub hue_distribution: [f64; 8],
+    #[serde(default)]
     pub clusters: Vec<ColorCluster>,
+    #[serde(default = "reference_importance")]
+    pub importance: f64,
+    /// Finished references explicitly rendered as B&W remain monochrome even with split toning.
+    #[serde(default)]
+    pub monochrome: bool,
+    #[serde(default)]
+    pub band_mass: [f64; 8],
 }
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ColorCluster {
     pub ab: [f64; 2],
     pub weight: f64,
+}
+fn reference_importance() -> f64 {
+    1.0
 }
 // Preserve existing v1 saved looks (the two added global color moments default unsupported).
 mod feature_array {
@@ -89,7 +108,14 @@ mod feature_array {
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[f64; FEATURES], D::Error> {
         let values = Vec::<f64>::deserialize(d)?;
-        if values.len() != 25 && values.len() != 27 && values.len() != FEATURES {
+        if values.len() != 25
+            && values.len() != 27
+            && values.len() != 30
+            && values.len() != 33
+            && values.len() != 41
+            && values.len() != 49
+            && values.len() != FEATURES
+        {
             return Err(serde::de::Error::custom("Invalid look feature count"));
         }
         let mut out = [0.0; FEATURES];
@@ -99,7 +125,9 @@ mod feature_array {
 }
 impl Look {
     pub fn valid(&self) -> bool {
-        self.features.iter().chain(&self.support).chain(&self.signature).all(|v| v.is_finite())
+        self.importance.is_finite()
+            && (1.0..=2.0).contains(&self.importance)
+            && self.features.iter().chain(&self.support).chain(&self.signature).chain(&self.hue_distribution).all(|v| v.is_finite())
             && self.clusters.len() <= 3
             && self
                 .clusters
@@ -108,12 +136,17 @@ impl Look {
             && self.features[..5].windows(2).all(|p| p[0] <= p[1] + 1e-8)
             && self.support.iter().all(|v| *v >= 0.0 && *v <= 1.0)
             && self.features.iter().enumerate().all(|(i, v)| {
-                if [0, 1, 2, 3, 4, 7, 14].contains(&i) || (17..25).contains(&i) || i >= 27 {
+                if [0, 1, 2, 3, 4, 7, 14].contains(&i) || (17..25).contains(&i) || (27..=32).contains(&i) {
                     (-0.001..=1.01).contains(v)
+                } else if i == 49 {
+                    (0.0..=10.0).contains(v)
+                } else if (41..49).contains(&i) || i >= 50 && (i - 50) % 3 == 0 {
+                    (-1.01..=1.01).contains(v)
                 } else {
                     (-0.5..=0.5).contains(v)
                 }
             })
+            && self.hue_distribution.iter().chain(&self.band_mass).all(|v| v.is_finite() && (0.0..=1.0).contains(v))
             && self.signature.iter().enumerate().all(|(i, v)| if i < 9 { (-0.001..=1.01).contains(v) } else { (-1.01..=1.01).contains(v) })
     }
 }
@@ -174,6 +207,8 @@ fn measure_samples(width: usize, height: usize, pixels: impl Iterator<Item = [f6
     let mut sums = [0.0; FEATURES];
     let mut mass = [0.0; FEATURES];
     let mut hue = [0.0; 8];
+    let mut hue_vector = [[0.0; 2]; 8];
+    let centers = crate::colorops::band_hues().map(|h| f64::from(h).sin_cos());
     let mut labs = Vec::with_capacity(width * height);
     for (index, lab) in pixels.enumerate() {
         let [ll, a, b] = lab;
@@ -223,8 +258,16 @@ fn measure_samples(width: usize, height: usize, pixels: impl Iterator<Item = [f6
             let angle = b.atan2(a);
             for (band, weight) in crate::colorops::band_weights(angle as f32).iter().enumerate() {
                 let weight = f64::from(*weight);
+                if weight == 0.0 {
+                    continue;
+                }
                 sums[17 + band] += c * weight;
                 mass[17 + band] += weight;
+                sums[41 + band] += ll * c * weight;
+                mass[41 + band] += c * weight;
+                let (sin, cos) = centers[band];
+                hue_vector[band][0] += (a * cos + b * sin) * weight;
+                hue_vector[band][1] += (b * cos - a * sin) * weight;
             }
             if descriptor {
                 let h = angle.rem_euclid(std::f64::consts::TAU);
@@ -232,6 +275,9 @@ fn measure_samples(width: usize, height: usize, pixels: impl Iterator<Item = [f6
             }
         }
     }
+    let mean_chroma = labs.iter().map(|p| p[1].hypot(p[2])).sum::<f64>() / labs.len().max(1) as f64;
+    let chroma_variation =
+        (labs.iter().map(|p| (p[1].hypot(p[2]) - mean_chroma).powi(2)).sum::<f64>() / labs.len().max(1) as f64).sqrt() / mean_chroma.max(1e-9);
     l.sort_by(f64::total_cmp);
     let mut features = [0.0; FEATURES];
     let mut support = [0.0; FEATURES];
@@ -247,6 +293,39 @@ fn measure_samples(width: usize, height: usize, pixels: impl Iterator<Item = [f6
             }
         }
     }
+    if !l.is_empty() {
+        for (i, q) in [(30, 0.01), (31, 0.99)] {
+            features[i] = l[((l.len() - 1) as f64 * q) as usize];
+            support[i] = 1.0;
+        }
+        // Summed-area box mean: same clipped 5×5 support, linear work in pixel count.
+        let stride = width + 1;
+        let mut integral = vec![0.0; (height + 1) * stride];
+        for y in 0..height {
+            let mut row = 0.0;
+            for x in 0..width {
+                row += labs[y * width + x][0];
+                integral[(y + 1) * stride + x + 1] = integral[y * stride + x + 1] + row;
+            }
+        }
+        let mut local = 0.0;
+        for y in 0..height {
+            for x in 0..width {
+                let (x0, x1, y0, y1) = (x.saturating_sub(2), (x + 3).min(width), y.saturating_sub(2), (y + 3).min(height));
+                let sum = integral[y1 * stride + x1] - integral[y0 * stride + x1] - integral[y1 * stride + x0] + integral[y0 * stride + x0];
+                local += (labs[y * width + x][0] - sum / ((x1 - x0) * (y1 - y0)) as f64).abs();
+            }
+        }
+        features[32] = local / l.len() as f64;
+        support[32] = 1.0;
+        for band in 0..8 {
+            features[33 + band] = hue_vector[band][1].atan2(hue_vector[band][0]) / std::f64::consts::TAU;
+            support[33 + band] = support[17 + band];
+            features[41 + band] -= features[2];
+        }
+    }
+    features[49] = chroma_variation.min(10.0);
+    support[49] = f64::from(!labs.is_empty());
     // Relative luminance zones remove exposure/content-area bias. Robust Shepard weights
     // around each zone's neutral core keep an isolated saturated object from defining its cast.
     let span = (features[4] - features[0]).max(0.05);
@@ -283,7 +362,16 @@ fn measure_samples(width: usize, height: usize, pixels: impl Iterator<Item = [f6
     }
     signature[8] = features[4] - features[0];
     signature[9] = (features[3] - features[2]) - (features[2] - features[1]);
-    Look { features, support, signature, clusters }
+    Look {
+        features,
+        support,
+        hue_distribution: std::array::from_fn(|i| signature[i]),
+        signature,
+        clusters,
+        importance: 1.0,
+        monochrome: false,
+        band_mass: std::array::from_fn(|i| mass[17 + i] / labs.len().max(1) as f64),
+    }
 }
 
 /// Interpolated weighted median (sample-center CDF), with 3-MAD outlier rejection.
@@ -359,23 +447,23 @@ fn color_clusters(labs: &[[f64; 3]]) -> Vec<ColorCluster> {
 }
 /// Sparse equal-CDF quantile map, excluding unpopulated/clipped tails and bounding slope.
 /// Port/adaptation of RawTherapee getCdf/findMatch/mappingToCurve to stored quantile knots.
-fn cdf_curve(source: &Look, goal: &Look) -> [f64; 5] {
+pub fn cdf_curve(source: &Look, goal: &Look) -> [f64; 5] {
     let x = &source.features;
     let mut y = std::array::from_fn(|i| goal.features[i]);
     for i in (0..2).rev() {
         let gap = x[i + 1] - x[i];
-        if gap > 0.002 && x[i] > 0.002 {
+        if gap > 0.002 {
             y[i] = y[i].clamp(y[i + 1] - 2.0 * gap, y[i + 1] - 0.5 * gap);
         } else {
-            y[i] = x[i];
+            y[i] = y[i + 1] - gap;
         }
     }
     for i in 3..5 {
         let gap = x[i] - x[i - 1];
-        if gap > 0.002 && x[i] < 0.998 {
+        if gap > 0.002 {
             y[i] = y[i].clamp(y[i - 1] + 0.5 * gap, y[i - 1] + 2.0 * gap);
         } else {
-            y[i] = x[i];
+            y[i] = y[i - 1] + gap;
         }
     }
     y
@@ -445,12 +533,81 @@ pub fn analyze(src: &Arc<Rgb32f>, info: &SourceInfo, settings: &DevelopSettings)
 }
 pub fn analyze_with_faces(src: &Arc<Rgb32f>, info: &SourceInfo, settings: &DevelopSettings, faces: &[[f32; 4]]) -> Look {
     let faces = framed_faces(src, info, settings, faces);
-    let (src, info) = measurement_source(src, info, 128);
-    let mut req = RenderRequest::fit(128, 128);
+    let (signature_src, signature_info) = measurement_source(src, info, 128);
+    let (src, info) = measurement_source(src, info, CALIBRATION_EDGE);
+    let edge = CALIBRATION_EDGE.min(src.width.max(src.height));
+    let mut req = RenderRequest::fit(edge, edge);
     req.depth = crate::OutputDepth::F32Linear;
-    let mut look = measure_rendered(&crate::render(&src, &info, settings, &req), &faces, true);
-    look.signature = measure(&crate::render(&src, &info, &DevelopSettings::default(), &req).image).signature;
+    let rendered = crate::render(&src, &info, settings, &req);
+    let masks = region_masks(&rendered, &src, &info, settings, &faces);
+    let mut look = measure_rendered(&rendered, &faces, true);
+    measure_regions(&mut look, &rendered, &masks);
+    look.monochrome = settings.treatment == Treatment::Bw;
+    look.signature =
+        measure(&crate::render(&signature_src, &signature_info, &DevelopSettings::default(), &RenderRequest::fit(128, 128)).image).signature;
     look
+}
+
+/// Reuse the pipeline's quick Sky/Subject selection (including stored model masks) and cached
+/// face rectangles. This optional prototype requires support on both images; no model is loaded.
+fn region_masks(
+    image: &crate::Rendered,
+    src: &Rgb32f,
+    info: &SourceInfo,
+    settings: &DevelopSettings,
+    faces: &[[f32; 4]],
+) -> [lightcraft_raster::Plane; 3] {
+    let convert = SRGB.to_space(&REC2020);
+    let rgb = Rgb32f::from_fn(image.image.width, image.image.height, |x, y| {
+        let p = image.image.get(x, y);
+        convert.apply_f32(std::array::from_fn(|i| SRGB_DECODE[p[i] as usize]))
+    });
+    let log = lightcraft_raster::Plane::from_fn(rgb.width, rgb.height, |x, y| {
+        let p = rgb.get(x, y);
+        (0.2627 * p[0] + 0.678 * p[1] + 0.0593 * p[2]).max(1e-6).log2()
+    });
+    let frame = crate::frame_for(src, info, settings, true);
+    let stored = |sky: bool| {
+        settings.masks.iter().flat_map(|m| &m.components).find_map(|c| match &c.shape {
+            MaskShape::Sky { seg: Some(_) } if sky => Some(c.shape.clone()),
+            MaskShape::Subject { seg: Some(_) } if !sky => Some(c.shape.clone()),
+            _ => None,
+        })
+    };
+    let sky = crate::masks::shape_alpha(&stored(true).unwrap_or(MaskShape::Sky { seg: None }), &frame, rgb.width, rgb.height, &rgb, &log, 0.0);
+    let mut subject =
+        crate::masks::shape_alpha(&stored(false).unwrap_or(MaskShape::Subject { seg: None }), &frame, rgb.width, rgb.height, &rgb, &log, 0.0);
+    for (i, p) in subject.data.iter_mut().enumerate() {
+        let x = (i % rgb.width) as f32 / rgb.width as f32;
+        let y = (i / rgb.width) as f32 / rgb.height as f32;
+        if faces.iter().any(|r| x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3]) {
+            *p = 1.0;
+        }
+        *p *= 1.0 - sky.data[i];
+    }
+    let rest = lightcraft_raster::Plane::from_fn(rgb.width, rgb.height, |x, y| (1.0 - sky.get(x, y) - subject.get(x, y)).max(0.0));
+    [sky, subject, rest]
+}
+fn measure_regions(look: &mut Look, image: &crate::Rendered, masks: &[lightcraft_raster::Plane; 3]) {
+    let convert = SRGB.to_space(&REC2020);
+    let labs = image
+        .image
+        .data
+        .iter()
+        .map(|p| oklab_from_2020(convert.apply_f32(std::array::from_fn(|i| SRGB_DECODE[p[i] as usize]))).map(f64::from))
+        .collect::<Vec<_>>();
+    for (region, mask) in masks.iter().enumerate() {
+        let total = mask.data.iter().map(|v| f64::from(*v)).sum::<f64>();
+        if total < labs.len() as f64 * 0.05 {
+            continue;
+        }
+        for axis in 0..3 {
+            let i = 50 + region * 3 + axis;
+            look.features[i] = labs.iter().zip(&mask.data).map(|(p, w)| p[axis] * f64::from(*w)).sum::<f64>() / total
+                - if axis == 0 { look.features[2] } else { 0.0 };
+            look.support[i] = (total / labs.len().max(1) as f64).min(1.0);
+        }
+    }
 }
 
 /// Normalized soft similarity weights; every reference contributes, even with dissimilar scenes.
@@ -458,12 +615,13 @@ pub fn weights(references: &[Look], signature: &[f64; 10], consistent: bool) -> 
     let mut w: Vec<f64> = references
         .iter()
         .map(|r| {
-            if consistent {
-                1.0
-            } else {
-                let distance: f64 = r.signature.iter().zip(signature).map(|(a, b)| (a - b).powi(2)).sum();
-                (-8.0 * distance).exp().max(0.001)
-            }
+            r.importance
+                * if consistent {
+                    1.0
+                } else {
+                    let distance: f64 = r.signature.iter().zip(signature).map(|(a, b)| (a - b).powi(2)).sum();
+                    (-8.0 * distance).exp().max(0.001)
+                }
         })
         .collect();
     let sum = w.iter().sum::<f64>().max(1e-9);
@@ -473,7 +631,16 @@ pub fn weights(references: &[Look], signature: &[f64; 10], consistent: bool) -> 
     w
 }
 pub fn blend(references: &[Look], w: &[f64]) -> Look {
-    let mut out = Look { features: [0.0; FEATURES], support: [0.0; FEATURES], signature: [0.0; 10], clusters: Vec::new() };
+    let mut out = Look {
+        features: [0.0; FEATURES],
+        support: [0.0; FEATURES],
+        signature: [0.0; 10],
+        hue_distribution: [0.0; 8],
+        clusters: Vec::new(),
+        importance: 1.0,
+        monochrome: references.iter().all(is_monochrome),
+        band_mass: std::array::from_fn(|i| references.iter().zip(w).map(|(r, w)| r.band_mass[i] * w).sum()),
+    };
     for i in 0..FEATURES {
         let samples: Vec<_> = references.iter().zip(w).filter(|(r, _)| r.support[i] > 0.0).map(|(r, w)| (r.features[i], w * r.support[i])).collect();
         out.features[i] = weighted_median_floor(&samples, if i < 5 || i == 14 { 0.03 } else { 0.005 });
@@ -482,6 +649,9 @@ pub fn blend(references: &[Look], w: &[f64]) -> Look {
     for i in 0..10 {
         out.signature[i] = references.iter().zip(w).map(|(r, w)| r.signature[i] * w).sum();
     }
+    for i in 0..8 {
+        out.hue_distribution[i] = references.iter().zip(w).map(|(r, w)| r.hue_distribution[i] * w).sum();
+    }
     // Prototypes remain per-reference in saved looks; choose the strongest reference's
     // prototypes here rather than averaging unrelated hues into a fictitious cluster.
     if let Some((r, _)) = references.iter().zip(w).max_by(|a, b| a.1.total_cmp(b.1)) {
@@ -489,6 +659,31 @@ pub fn blend(references: &[Look], w: &[f64]) -> Look {
     }
     out
 }
+/// Adapt scene brightness, then project tone shape into the editable curve's slope cone.
+/// Shared by the solver and independent full-resolution acceptance harness.
+pub fn reachable_goal(initial: &Look, reference: &Look, opts: Options, similarity: f64) -> (Look, f64) {
+    let mut adapted = reference.clone();
+    let s = if opts.consistent_batch { 1.0 } else { similarity.sqrt().clamp(0.35, 1.0) };
+    let median = initial.features[2] + (reference.features[2] - initial.features[2]) * s;
+    for i in [0, 1, 2, 3, 4, 14, 30, 31] {
+        adapted.features[i] += median - reference.features[2];
+    }
+    let mut reachable = adapted.clone();
+    reachable.features[..5].copy_from_slice(&cdf_curve(initial, &adapted));
+    if initial.support[30] > 0.0 && adapted.support[30] > 0.0 {
+        let gap = (initial.features[0] - initial.features[30]).max(0.0);
+        reachable.features[30] = adapted.features[30].clamp(reachable.features[0] - gap * 2.0, reachable.features[0] - gap * 0.5);
+    }
+    if initial.support[31] > 0.0 && adapted.support[31] > 0.0 {
+        let gap = (initial.features[31] - initial.features[4]).max(0.0);
+        reachable.features[31] = adapted.features[31].clamp(reachable.features[4] + gap * 0.5, reachable.features[4] + gap * 2.0);
+    }
+    let w = [4.0, 1.0, 5.0, 1.0, 4.0];
+    let gap: f64 = (0..5).map(|i| (initial.features[i] - adapted.features[i]).abs() * w[i]).sum();
+    let limited: f64 = (0..5).map(|i| (reachable.features[i] - adapted.features[i]).abs() * w[i]).sum();
+    (reachable, if gap < 1e-10 { 1.0 } else { (1.0 - limited / gap).clamp(0.0, 1.0) })
+}
+
 fn metric_weights(a: &Look, b: &Look, opts: Options) -> [f64; FEATURES] {
     std::array::from_fn(|i| {
         let enabled = match i {
@@ -496,9 +691,12 @@ fn metric_weights(a: &Look, b: &Look, opts: Options) -> [f64; FEATURES] {
             5..=6 => opts.normalize,
             7 => opts.color_adjust,
             8..=13 => opts.color_tone,
-            14..=16 => opts.normalize || opts.color_adjust || opts.color_tone,
+            14..=16 => !is_monochrome(b) && (opts.normalize || opts.color_adjust || opts.color_tone),
             17..=24 => opts.color_adjust,
-            27..=29 => opts.color_adjust,
+            27..=29 | 33..=48 => opts.color_adjust,
+            30..=32 => opts.light_contrast,
+            49 => false,
+            50..=58 => opts.region_aware && (opts.color_tone || opts.normalize),
             _ => opts.normalize || opts.color_tone,
         };
         f64::from(enabled)
@@ -507,6 +705,8 @@ fn metric_weights(a: &Look, b: &Look, opts: Options) -> [f64; FEATURES] {
                 0 | 4 => 4.0,
                 2 => 5.0,
                 25 | 26 => 3.0,
+                30..=32 => 2.0,
+                33..=48 => 3.0,
                 14..=16 => {
                     if opts.protect_skin {
                         1.0
@@ -521,7 +721,19 @@ fn metric_weights(a: &Look, b: &Look, opts: Options) -> [f64; FEATURES] {
 }
 pub fn distance(a: &Look, b: &Look, opts: Options) -> f64 {
     let w = metric_weights(a, b, opts);
-    (0..FEATURES).map(|i| (a.features[i] - b.features[i]).powi(2) * w[i]).sum()
+    (0..FEATURES)
+        .map(|i| {
+            let delta = a.features[i] - b.features[i];
+            let delta = if i == 32 {
+                0.06 * ((a.features[i].max(0.0) + LOCAL_CONTRAST_FLOOR) / (b.features[i].max(0.0) + LOCAL_CONTRAST_FLOOR)).ln()
+            } else if (33..41).contains(&i) {
+                (delta + 0.5).rem_euclid(1.0) - 0.5
+            } else {
+                delta
+            };
+            delta.powi(2) * w[i]
+        })
+        .sum()
 }
 
 #[derive(Clone)]
@@ -563,7 +775,7 @@ impl Parameter {
             Self::Temperature => 0.00004,
             Self::Slider("light.exposure", _) => 0.000015,
             Self::Slider("light.contrast", _) => 0.0008,
-            Self::Slider("color.saturation" | "color.vibrance", _) => 0.0005,
+            Self::Slider("color.saturation" | "color.vibrance" | "effects.clarity", _) => 0.0005,
             Self::Grade(..) => 0.0003,
             _ => 0.00015,
         }
@@ -571,10 +783,11 @@ impl Parameter {
     fn bounds(&self, start: &DevelopSettings, wb: (f64, f64), layer: bool) -> (f64, f64) {
         let (lo, hi) = match self {
             Self::Temperature if layer => ((wb.0 * (-0.6f64).exp()).max(2000.0).log2(), (wb.0 * 0.6f64.exp()).min(50000.0).log2()),
-            Self::Temperature => (2000f64.log2(), 50000f64.log2()),
+            Self::Temperature => ((wb.0 * (-1.0f64).exp()).max(2000.0).log2(), (wb.0 * 1.0f64.exp()).min(50000.0).log2()),
             Self::Slider("light.exposure", _) => (-5.0, 5.0),
             Self::Slider("wb.tint", _) if layer => (wb.1 - 40.0, wb.1 + 40.0),
-            Self::Slider("wb.tint", _) => (-80.0, 80.0),
+            Self::Slider("wb.tint", _) => ((wb.1 - 40.0).max(-150.0), (wb.1 + 40.0).min(150.0)),
+            Self::Slider("effects.clarity", _) => (-40.0, 40.0),
             Self::Slider("light.contrast", _) => (-60.0, 60.0),
             Self::Slider("color.saturation", _) => (-55.0, 55.0),
             Self::Slider("color.vibrance", _) => (-65.0, 65.0),
@@ -645,6 +858,7 @@ fn parameters(opts: Options) -> Vec<Parameter> {
             "curve.darks",
             "curve.lights",
             "curve.highlights",
+            "effects.clarity",
         ] {
             v.push(Parameter::Slider(id, 6.0));
         }
@@ -757,6 +971,7 @@ fn layer_settings(base: &DevelopSettings, edits: &DevelopSettings, opts: Options
         tools: LayerTools {
             treatment: (opts.color_adjust && edits.treatment != base.treatment).then_some(edits.treatment),
             curve: opts.light_contrast.then_some(edits.curve.clone()),
+            effects: opts.light_contrast.then_some(edits.effects),
             light: (opts.normalize || opts.light_contrast).then_some(edits.light),
             color: opts.color_adjust.then_some(edits.color),
             mixer: opts.color_adjust.then_some(edits.mixer),
@@ -791,9 +1006,21 @@ pub fn fade_controls(start: &DevelopSettings, full: &DevelopSettings, opts: Opti
     }
     if opts.color_adjust {
         for id in PALETTE_CONTROLS {
-            let from = controls::get(start, id).unwrap_or(0.0);
-            controls::set(&mut d, id, from + (controls::get(full, id).unwrap_or(0.0) - from) * amount);
+            for axis in ["sat", "hue", "lum"] {
+                let id = id.replace("sat", axis);
+                let id = id.as_str();
+                let from = controls::get(start, id).unwrap_or(0.0);
+                controls::set(&mut d, id, from + (controls::get(full, id).unwrap_or(0.0) - from) * amount);
+            }
         }
+    }
+    if opts.color_tone {
+        let x = Parameter::Grade("global", false);
+        let y = Parameter::Grade("global", true);
+        let a = x.value(start) + (x.value(full) - x.value(start)) * amount;
+        let b = y.value(start) + (y.value(full) - y.value(start)) * amount;
+        x.set(&mut d, a);
+        y.set(&mut d, b);
     }
     // Preserve a disabled normalization group's original preset mode.
     if !opts.normalize || opts.keep_white_balance {
@@ -815,6 +1042,9 @@ pub fn amount_settings(before: &DevelopSettings, full: &DevelopSettings, opts: O
             if let Some(x) = layer.tools.curve.clone() {
                 end.curve = x;
             }
+            if let Some(x) = layer.tools.effects {
+                end.effects = x;
+            }
             if let Some(x) = layer.tools.color {
                 end.color = x;
             }
@@ -830,6 +1060,9 @@ pub fn amount_settings(before: &DevelopSettings, full: &DevelopSettings, opts: O
             }
             if layer.tools.curve.is_some() {
                 layer.tools.curve = Some(faded.curve);
+            }
+            if layer.tools.effects.is_some() {
+                layer.tools.effects = Some(faded.effects);
             }
             if layer.tools.color.is_some() {
                 layer.tools.color = Some(faded.color);
@@ -861,6 +1094,7 @@ pub fn reset_group(before: &DevelopSettings, full: &DevelopSettings, opts: Optio
             }
             "light" => {
                 layer.tools.curve = None;
+                layer.tools.effects = None;
                 if let Some(l) = &mut layer.tools.light {
                     let exposure = l.exposure;
                     *l = Default::default();
@@ -886,6 +1120,7 @@ pub fn reset_group(before: &DevelopSettings, full: &DevelopSettings, opts: Optio
                 d.light = before.light;
                 d.light.exposure = exposure;
                 d.curve = before.curve.clone();
+                d.effects.clarity = before.effects.clarity;
             }
             "color" => {
                 d.treatment = before.treatment;
@@ -900,11 +1135,19 @@ pub fn reset_group(before: &DevelopSettings, full: &DevelopSettings, opts: Optio
 }
 
 pub fn is_monochrome(look: &Look) -> bool {
-    look.features[7] < 0.012 && (17..25).all(|i| look.support[i] < 0.05)
+    look.monochrome
+        || (look.features[7] < 0.012 && (17..25).all(|i| look.support[i] < 0.05))
+        || (look.features[7] < 0.045
+            && look.features[49] < 0.9
+            && (17..25).filter(|i| look.support[*i] > 0.05).count() <= 2
+            && look.hue_distribution.iter().copied().fold(0.0, f64::max) >= 0.8)
 }
 
 pub struct Solved {
     pub monochrome: bool,
+    pub reach: f64,
+    pub fit: f64,
+    pub goal: Look,
     pub settings: DevelopSettings,
     pub full_settings: DevelopSettings,
     pub before_error: f64,
@@ -931,10 +1174,11 @@ pub struct Techniques {
     pub warm_start: bool,
     pub tone_projection: bool,
     pub joint_refine: bool,
+    pub parallel_probes: bool,
 }
 impl Default for Techniques {
     fn default() -> Self {
-        Self { warm_start: true, tone_projection: true, joint_refine: true }
+        Self { warm_start: true, tone_projection: true, joint_refine: true, parallel_probes: true }
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -961,6 +1205,22 @@ pub fn solve_with_faces(
 ) -> Option<Solved> {
     solve_impl(src, info, base, refs, opts, faces, Techniques::default(), cancel)
 }
+/// Batches already parallelize independent photos. Keep the small Jacobian probes in each
+/// photo sequential to avoid competing nested probe queues; the render kernels share the pool.
+#[allow(clippy::too_many_arguments)]
+pub fn solve_batch_with_faces(
+    src: &Arc<Rgb32f>,
+    info: &SourceInfo,
+    base: &DevelopSettings,
+    refs: &[Look],
+    opts: Options,
+    faces: &[[f32; 4]],
+    cancel: &dyn Fn() -> bool,
+) -> Option<Solved> {
+    lightcraft_raster::sequential(|| {
+        solve_impl(src, info, base, refs, opts, faces, Techniques { parallel_probes: false, ..Default::default() }, cancel)
+    })
+}
 #[allow(clippy::too_many_arguments)]
 fn solve_impl(
     src: &Arc<Rgb32f>,
@@ -982,30 +1242,72 @@ fn solve_impl(
         return None;
     }
     let faces = framed_faces(src, info, base, faces);
-    let (fine_src, fine_info) = measurement_source(src, info, 128);
+    let (cal_src, cal_info) = measurement_source(src, info, CALIBRATION_EDGE);
+    let (fine_src, fine_info) = measurement_source(src, info, FINE_EDGE);
     let (src, info) = measurement_source(src, info, SOURCE_EDGE);
-    let mut req = RenderRequest::fit(PROXY_EDGE, PROXY_EDGE);
+    let edge = PROXY_EDGE.min(src.width.max(src.height));
+    let mut req = RenderRequest::fit(edge, edge);
     req.depth = crate::OutputDepth::F32Linear;
-    let mut fine_req = RenderRequest::fit(128, 128);
+    req.statistics_only = !opts.region_aware;
+    let fine_edge = FINE_EDGE.min(fine_src.width.max(fine_src.height));
+    let mut fine_req = RenderRequest::fit(fine_edge, fine_edge);
     fine_req.depth = crate::OutputDepth::F32Linear;
+    fine_req.statistics_only = !opts.region_aware;
     let cache = StageCache::default();
     let fine_cache = StageCache::default();
-    let mut renders = 0;
-    let mut evaluate = |d: &DevelopSettings, fine: bool| {
-        renders += 1;
+    let cal_edge = CALIBRATION_EDGE.min(cal_src.width.max(cal_src.height));
+    let mut cal_req = RenderRequest::fit(cal_edge, cal_edge);
+    cal_req.depth = crate::OutputDepth::F32Linear;
+    cal_req.statistics_only = !opts.region_aware;
+    let cal_render = crate::render(&cal_src, &cal_info, base, &cal_req);
+    let mut calibrated = measure_rendered(&cal_render, &faces, false);
+    let fine_render = crate::render_cached(&fine_src, &fine_info, base, &fine_req, &fine_cache);
+    let fine_initial = measure_rendered(&fine_render, &faces, false);
+    let offset: [f64; FEATURES] =
+        std::array::from_fn(|i| if i < 5 || i == 7 || (27..=32).contains(&i) { calibrated.features[i] - fine_initial.features[i] } else { 0.0 });
+    let fine_regions = opts.region_aware.then(|| region_masks(&fine_render, &fine_src, &fine_info, base, &faces));
+    if opts.region_aware {
+        let masks = region_masks(&cal_render, &cal_src, &cal_info, base, &faces);
+        measure_regions(&mut calibrated, &cal_render, &masks);
+    }
+    let coarse_regions = opts.region_aware.then(|| region_masks(&crate::render(&src, &info, base, &req), &src, &info, base, &faces));
+    let renders = std::cell::Cell::new(3 + usize::from(opts.region_aware));
+    let evaluate = |d: &DevelopSettings, fine: bool| {
+        renders.set(renders.get() + 1);
         let image = if fine {
             crate::render_cached(&fine_src, &fine_info, d, &fine_req, &fine_cache)
         } else {
             crate::render_cached(&src, &info, d, &req, &cache)
         };
-        measure_rendered(&image, &faces, false)
+        let mut look = measure_rendered(&image, &faces, false);
+        if let Some(masks) = if fine { fine_regions.as_ref() } else { coarse_regions.as_ref() } {
+            measure_regions(&mut look, &image, masks);
+        }
+        if fine {
+            for (f, delta) in look.features.iter_mut().zip(offset) {
+                *f += delta;
+            }
+        }
+        look
     };
-    let initial = evaluate(base, true);
-    let signature = measure(&crate::render(&src, &info, &DevelopSettings::default(), &req).image).signature;
+    let mut initial = fine_initial.clone();
+    for (f, delta) in initial.features.iter_mut().zip(offset) {
+        *f += delta;
+    }
+    if let Some(masks) = &fine_regions {
+        measure_regions(&mut initial, &fine_render, masks);
+    }
+    let mut signature_req = req;
+    signature_req.statistics_only = false;
+    let signature = measure(&crate::render(&src, &info, &DevelopSettings::default(), &signature_req).image).signature;
     let similarity =
         refs.iter().map(|r| (-2.0 * r.signature.iter().zip(signature).map(|(a, b)| (a - b).powi(2)).sum::<f64>()).exp()).fold(0.0, f64::max);
     let w = weights(refs, &signature, opts.consistent_batch);
-    let mut goal = blend(refs, &w);
+    let reference_goal = blend(refs, &w);
+    let goal = reference_goal.clone();
+    let adaptation = if opts.consistent_batch { 1.0 } else { similarity.sqrt().clamp(0.35, 1.0) };
+    let (goal, reach) = reachable_goal(&initial, &goal, opts, similarity);
+    let mut goal = goal;
     // A neutral cluster is an illuminant fallback only when the neutral mask has no support.
     for look in [&mut goal] {
         if look.support[5] < 0.05
@@ -1022,21 +1324,27 @@ fn solve_impl(
     let solver_opts = Options {
         color_adjust: opts.color_adjust && !monochrome && !target_bw,
         color_tone: opts.color_tone && !target_bw,
-        protect_skin: opts.protect_skin,
+        protect_skin: opts.protect_skin && !monochrome && !target_bw,
         ..opts
     };
     let before_error = distance(&initial, &goal, opts);
     // Pixel-identical/self matches and zero Impact are exactly no-ops, including layer mode.
-    if before_error < 1e-10 || (opts.strength <= 0.0 && (!opts.normalize || (opts.keep_white_balance && opts.keep_exposure))) {
+    if distance(&calibrated, &reference_goal, opts) < 1e-10
+        || before_error < 1e-7
+        || (opts.strength <= 0.0 && (!opts.normalize || (opts.keep_white_balance && opts.keep_exposure)))
+    {
         return Some(Solved {
             monochrome,
+            reach,
+            fit: 1.0,
+            goal: goal.clone(),
             settings: base.clone(),
             full_settings: base.clone(),
-            before_error,
-            after_error: before_error,
+            before_error: 0.0,
+            after_error: 0.0,
             weights: w,
             similarity,
-            renders,
+            renders: renders.get(),
         });
     }
     let wb = crate::auto::current_wb(&info, base);
@@ -1053,20 +1361,35 @@ fn solve_impl(
     let mut edits = start.clone();
     if monochrome {
         edits.treatment = Treatment::Bw;
+        if goal.features[7] >= 0.012 && opts.color_tone && goal.hue_distribution.iter().copied().fold(0.0, f64::max) >= 0.8 {
+            let dominant = goal.hue_distribution.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)).map_or(0, |(i, _)| i);
+            edits.grading.midtones.hue = (dominant as f64 + 0.5) * 45.0;
+            edits.grading.midtones.sat = 0.0;
+            edits.grading.global.hue = goal.features[26].atan2(goal.features[25]).to_degrees().rem_euclid(360.0);
+            edits.grading.global.sat = (100.0 * goal.features[7] / 0.1).min(45.0);
+        }
     }
     let layer_opts = Options { color_adjust: opts.color_adjust && !target_bw, color_tone: opts.color_tone && !target_bw, ..opts };
     let materialize = |e: &DevelopSettings| if opts.new_layer { layer_settings(base, e, layer_opts, wb) } else { e.clone() };
     let mut current = if monochrome { evaluate(&materialize(&edits), true) } else { initial.clone() };
 
-    let params = parameters(solver_opts);
+    // Clarity activates a costly local-Laplacian stage. Fit its single direction last so
+    // tonal/WB/palette probes do not pay for that stage on every trial render.
+    let mut params = parameters(solver_opts).into_iter().filter(|p| !matches!(p, Parameter::Slider("effects.clarity", _))).collect::<Vec<_>>();
+    if monochrome && solver_opts.color_tone {
+        params.extend([Parameter::Grade("global", false), Parameter::Grade("global", true)]);
+    }
     let mut mw = metric_weights(&initial, &goal, solver_opts);
-    if !faces.is_empty() && opts.protect_skin {
+    for i in [5, 6, 25, 26] {
+        mw[i] *= 0.5 + 0.5 * adaptation;
+    }
+    if !faces.is_empty() && solver_opts.protect_skin {
         for weight in &mut mw[14..=16] {
             *weight *= 3.0;
         }
     }
     let spread: [f64; FEATURES] = std::array::from_fn(|i| {
-        let deviations: Vec<_> = refs.iter().zip(&w).map(|(r, w)| ((r.features[i] - goal.features[i]).abs(), *w)).collect();
+        let deviations: Vec<_> = refs.iter().zip(&w).map(|(r, w)| ((r.features[i] - reference_goal.features[i]).abs(), *w)).collect();
         weighted_median(&deviations).max(if i < 5 { 0.06 } else { 0.025 })
     });
     for i in 0..FEATURES {
@@ -1087,6 +1410,14 @@ fn solve_impl(
         if faces.is_empty() && (14..=16).contains(&i) {
             let confidence = (look.support[i] / initial.support[i].max(1e-12)).min(1.0).sqrt();
             goal.features[i] + (look.features[i] - goal.features[i]) * confidence
+        } else if i == 32 {
+            // Local contrast has a much smaller physical range than lightness. A log-ratio
+            // residual measures relative texture strength while preserving the stored statistic.
+            goal.features[i] + 0.06 * ((look.features[i].max(0.0) + LOCAL_CONTRAST_FLOOR) / (goal.features[i].max(0.0) + LOCAL_CONTRAST_FLOOR)).ln()
+        } else if (33..41).contains(&i) {
+            let delta = (look.features[i] - goal.features[i] + 0.5).rem_euclid(1.0) - 0.5;
+            let confidence = (look.support[i] / initial.support[i].max(1e-12)).min(1.0).sqrt();
+            goal.features[i] + delta * confidence
         } else {
             look.features[i]
         }
@@ -1130,15 +1461,41 @@ fn solve_impl(
             current = rendered;
         }
     }
+    let mut probe_renders = 0;
+    let mut previous_columns = vec![[0.0; FEATURES]; params.len()];
+    let mut previous_values = params.iter().map(|p| p.value(&edits)).collect::<Vec<_>>();
     for pass in 0..3 {
         let penalty = [1.6, 1.0, 0.6][pass];
         score = objective(&current, &edits, penalty);
         let pass_start_score = score;
         let coarse_current = evaluate(&materialize(&edits), false);
-        let mut jac = Vec::new();
-        for p in &params {
-            if cancel() {
-                return None;
+        if cancel() {
+            return None;
+        }
+        // Probe renders are independent. Each owns its cache; indexed collection fixes reduction
+        // order regardless of the background pool's width. Small moves reuse the last basis.
+        let mut refresh = vec![pass == 0; params.len()];
+        if pass > 0 {
+            // Keep a bounded render budget, refreshing the most changed axes first. The
+            // remaining columns are still valid secant approximations for the line search.
+            let mut changed = params
+                .iter()
+                .enumerate()
+                .filter_map(|(j, p)| {
+                    let step = (p.value(&edits) - previous_values[j]).abs() / p.scale();
+                    (step > 0.2).then_some((j, step))
+                })
+                .collect::<Vec<_>>();
+            changed.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+            let reserve = (3 - pass) * 3 + 12;
+            let budget = 50usize.saturating_sub(renders.get() + probe_renders + reserve);
+            for (j, _) in changed.into_iter().take(budget) {
+                refresh[j] = true;
+            }
+        }
+        let probe_column = |(j, p): (usize, &Parameter)| {
+            if !refresh[j] {
+                return (previous_columns[j], false);
             }
             let x = p.value(&edits);
             let mut probe = edits.clone();
@@ -1151,11 +1508,28 @@ fn solve_impl(
                 h = (p.value(&probe) - x) / p.scale();
             }
             if h.abs() < 1e-8 {
-                jac.push([0.0; FEATURES]);
-                continue;
+                return ([0.0; FEATURES], false);
             }
-            let measured = evaluate(&materialize(&probe), false);
-            jac.push(std::array::from_fn::<_, FEATURES, _>(|i| (observation(&measured, i) - observation(&coarse_current, i)) / h));
+            let image = crate::render_cached(&src, &info, &materialize(&probe), &req, &StageCache::default());
+            let mut measured = measure_rendered(&image, &faces, false);
+            if let Some(masks) = &coarse_regions {
+                measure_regions(&mut measured, &image, masks);
+            }
+            (std::array::from_fn(|i| (observation(&measured, i) - observation(&coarse_current, i)) / h), true)
+        };
+        let columns: Vec<_> = if !techniques.parallel_probes || rayon::current_num_threads() == 1 {
+            params.iter().enumerate().map(probe_column).collect()
+        } else {
+            use rayon::prelude::*;
+            params.par_iter().enumerate().map(probe_column).collect()
+        };
+        // evaluate owns the render counter; count independent probes at the end via a side total.
+        probe_renders += columns.iter().filter(|(_, rendered)| *rendered).count();
+        let jac = columns.into_iter().map(|(column, _)| column).collect::<Vec<_>>();
+        previous_columns.clone_from(&jac);
+        previous_values = params.iter().map(|p| p.value(&edits)).collect();
+        if cancel() {
+            return None;
         }
         if techniques.warm_start && pass == 0 && opts.normalize && !opts.keep_white_balance {
             let axes: Vec<_> =
@@ -1277,19 +1651,47 @@ fn solve_impl(
     // and RBF tables. Band-chroma errors supply one joint direction; a real render supplies
     // its derivative and verifies the bounded step. The output is eight editable sliders.
     if solver_opts.color_adjust {
-        let delta: [f64; 8] = std::array::from_fn(|i| {
-            if current.support[17 + i].min(goal.support[17 + i]) < 0.05 || current.features[17 + i] < 1e-5 {
-                return 0.0;
+        for axis in ["sat", "hue", "lum"] {
+            let mut delta: [f64; 8] = std::array::from_fn(|i| {
+                let feature = match axis {
+                    "hue" => 33 + i,
+                    "lum" => 41 + i,
+                    _ => 17 + i,
+                };
+                if current.support[feature].min(goal.support[feature]) < 0.05 {
+                    return 0.0;
+                }
+                match axis {
+                    "hue" => (((goal.features[feature] - current.features[feature] + 0.5).rem_euclid(1.0) - 0.5) * 200.0 * std::f64::consts::TAU)
+                        .clamp(-40.0, 40.0),
+                    "lum" => ((goal.features[feature] - current.features[feature]) * 100.0).clamp(-30.0, 30.0),
+                    _ => ((goal.features[feature] / current.features[feature].max(1e-5) - 1.0) * 200.0).clamp(-40.0, 40.0),
+                }
+            });
+            if axis == "lum" {
+                let enabled = std::array::from_fn::<_, 8, _>(|i| current.support[41 + i].min(goal.support[41 + i]) >= 0.05);
+                let total = (0..8).filter(|i| enabled[*i]).map(|i| current.band_mass[i]).sum::<f64>();
+                let mean = (0..8).filter(|i| enabled[*i]).map(|i| delta[i] * current.band_mass[i]).sum::<f64>() / total.max(1e-9);
+                for i in 0..8 {
+                    if enabled[i] {
+                        delta[i] -= mean;
+                    }
+                }
             }
-            // Equalizer saturation nodes are 1 + sat / 200 (colorequal::apply).
-            ((goal.features[17 + i] / current.features[17 + i] - 1.0) * 200.0).clamp(-40.0, 40.0)
-        });
-        if delta.iter().any(|d| d.abs() > 1.0) {
+            if !delta.iter().any(|d| d.abs() > 0.5) {
+                continue;
+            }
             let candidate = |scale: f64| {
                 let mut d = edits.clone();
                 for (id, delta) in PALETTE_CONTROLS.iter().zip(delta) {
-                    let value = controls::get(&edits, id).unwrap_or(0.0);
-                    controls::set(&mut d, id, (value + delta * scale).clamp((-55.0f64).min(value), 55.0f64.max(value)));
+                    let id = id.replace("sat", axis);
+                    let value = controls::get(&edits, &id).unwrap_or(0.0);
+                    let bound: f64 = match axis {
+                        "hue" => 40.0,
+                        "lum" => 30.0,
+                        _ => 55.0,
+                    };
+                    controls::set(&mut d, &id, (value + delta * scale).clamp((-bound).min(value), bound.max(value)));
                 }
                 d
             };
@@ -1297,12 +1699,12 @@ fn solve_impl(
                 return None;
             }
             let probe = candidate(1.0);
-            let measured = evaluate(&materialize(&probe), true);
-            let mw = metric_weights(&current, &goal, opts);
+            let coarse = evaluate(&materialize(&edits), false);
+            let measured = evaluate(&materialize(&probe), false);
             let (mut numerator, mut denominator) = (0.0, 0.0);
             for (i, weight) in mw.iter().enumerate() {
-                let response = measured.features[i] - current.features[i];
-                numerator += weight * response * (goal.features[i] - current.features[i]);
+                let response = observation(&measured, i) - observation(&coarse, i);
+                numerator += weight * response * (goal.features[i] - observation(&current, i));
                 denominator += weight * response * response;
             }
             let next_edits = candidate(if denominator > 1e-12 { (numerator / denominator).clamp(-1.0, 2.0) } else { 0.0 });
@@ -1310,21 +1712,49 @@ fn solve_impl(
                 return None;
             }
             let next = evaluate(&materialize(&next_edits), true);
-            let palette_penalty = |d: &DevelopSettings| {
-                PALETTE_CONTROLS
-                    .iter()
-                    .map(|id| 0.00015 * ((controls::get(d, id).unwrap_or(0.0) - controls::get(&start, id).unwrap_or(0.0)) / 30.0).powi(2))
-                    .sum::<f64>()
-            };
-            let next_error = objective(&next, &next_edits, 1.0) + palette_penalty(&next_edits);
-            let probe_error = objective(&measured, &probe, 1.0) + palette_penalty(&probe);
-            if next_error < score && next_error <= probe_error {
+            let next_score = objective(&next, &next_edits, 1.0);
+            if next_score < score {
                 edits = next_edits;
-                best_error = distance(&next, &goal, opts);
-            } else if probe_error < score {
-                edits = probe;
-                best_error = distance(&measured, &goal, opts);
+                current = next;
+                score = next_score;
             }
+        }
+        best_error = distance(&current, &goal, opts);
+    }
+    if solver_opts.light_contrast
+        && initial.support[32].min(goal.support[32]) > 0.0
+        && ((initial.features[32].max(0.0) + LOCAL_CONTRAST_FLOOR) / (goal.features[32].max(0.0) + LOCAL_CONTRAST_FLOOR)).ln().abs() > 0.05
+    {
+        let p = Parameter::Slider("effects.clarity", 6.0);
+        let mut candidate = edits.clone();
+        let step = 10.0 * ((goal.features[32].max(0.0) + LOCAL_CONTRAST_FLOOR) / (current.features[32].max(0.0) + LOCAL_CONTRAST_FLOOR)).ln();
+        p.set(&mut candidate, p.bounded(p.value(&edits) + step, &start, wb, opts.new_layer));
+        if cancel() {
+            return None;
+        }
+        let measured = evaluate(&materialize(&candidate), true);
+        let next_score = objective(&measured, &candidate, 1.0) + p.prior() * ((p.value(&candidate) - p.value(&start)) / p.scale()).powi(2);
+        if next_score < score {
+            edits = candidate;
+            current = measured;
+            best_error = distance(&current, &goal, opts);
+        }
+    }
+    // Palette / grading adjustments can move brightness as a side effect. Refit the
+    // normalized median once, against the same adapted reachable goal, after the style fit.
+    if opts.normalize && !opts.keep_exposure && (current.features[2] - goal.features[2]).abs() > 0.005 {
+        let p = Parameter::Slider("light.exposure", 0.15);
+        let mut candidate = edits.clone();
+        let correction = 3.0 * (goal.features[2].max(0.01) / current.features[2].max(0.01)).log2();
+        p.set(&mut candidate, p.bounded(p.value(&edits) + correction, &start, wb, opts.new_layer));
+        if cancel() {
+            return None;
+        }
+        let measured = evaluate(&materialize(&candidate), true);
+        if objective(&measured, &candidate, 1.0) < objective(&current, &edits, 1.0) {
+            edits = candidate;
+            current = measured;
+            best_error = distance(&current, &goal, opts);
         }
     }
     let full_settings = materialize(&edits);
@@ -1332,19 +1762,42 @@ fn solve_impl(
     let strength = opts.strength.clamp(0.0, 125.0) / 100.0;
     // Cartesian grade components must be interpolated together (polar hue wrap is not linear).
     if solver_opts.color_tone {
-        for band in ["shadows", "midtones", "highlights"] {
+        for band in ["shadows", "midtones", "highlights", "global"] {
             let x = Parameter::Grade(band, false);
             let y = Parameter::Grade(band, true);
             x.set(&mut faded, x.value(&start) + (x.value(&edits) - x.value(&start)) * strength);
             y.set(&mut faded, y.value(&start) + (y.value(&edits) - y.value(&start)) * strength);
         }
     }
-    let settings = if best_error + 1e-10 < before_error { materialize(&faded) } else { base.clone() };
+    let settings = if best_error + 1e-10 < before_error {
+        if opts.strength == 100.0 { full_settings.clone() } else { materialize(&faded) }
+    } else {
+        base.clone()
+    };
     if cancel() {
         return None;
     }
-    let after_error = distance(&evaluate(&settings, true), &goal, opts);
-    Some(Solved { monochrome, settings, full_settings, before_error, after_error, weights: w, similarity, renders })
+    let after_error = if settings == full_settings {
+        distance(&current, &goal, opts)
+    } else if settings == *base {
+        before_error
+    } else {
+        distance(&evaluate(&settings, true), &goal, opts)
+    };
+    renders.set(renders.get() + probe_renders);
+    Some(Solved {
+        monochrome,
+        reach,
+        fit: (1.0 - after_error / before_error.max(1e-12)).clamp(0.0, 1.0),
+        goal,
+        settings,
+        full_settings,
+        before_error,
+        after_error,
+        weights: w,
+        similarity,
+        renders: renders.get(),
+    })
 }
 
 #[cfg(test)]
@@ -1390,14 +1843,22 @@ mod tests {
             }
             assert!(result.after_error < result.before_error * 0.3, "{} {}", result.after_error, result.before_error);
         }
-        for new_layer in [false,true] {
-            let result=solve(&src,&SourceInfo::default(),&reference,&[analyze(&src,&SourceInfo::default(),&base)],Options {new_layer,..Default::default()},&||false).unwrap();
-            assert_eq!(result.settings.treatment,Treatment::Bw);
-            assert_eq!(result.settings.color,reference.color);
-            assert_eq!(result.settings.grading,reference.grading);
+        for new_layer in [false, true] {
+            let result = solve(
+                &src,
+                &SourceInfo::default(),
+                &reference,
+                &[analyze(&src, &SourceInfo::default(), &base)],
+                Options { new_layer, ..Default::default() },
+                &|| false,
+            )
+            .unwrap();
+            assert_eq!(result.settings.treatment, Treatment::Bw);
+            assert_eq!(result.settings.color, reference.color);
+            assert_eq!(result.settings.grading, reference.grading);
             assert!(result.after_error.is_finite());
-            if new_layer && result.settings.masks.len()>reference.masks.len() {
-                let tools=&result.settings.masks.last().unwrap().tools;
+            if new_layer && result.settings.masks.len() > reference.masks.len() {
+                let tools = &result.settings.masks.last().unwrap().tools;
                 assert!(tools.treatment.is_none() && tools.color.is_none() && tools.grading.is_none());
             }
         }
@@ -1499,12 +1960,15 @@ mod tests {
             &|| false,
         )
         .unwrap();
-        assert!(result.settings.light.whites < 0.0);
-        let full = measure(&crate::render(&src, &info, &result.settings, &RenderRequest::fit(128, 128)).image);
-        let (proxy, pi) = measurement_source(&src, &info, 128);
-        let small = measure(&crate::render(&proxy, &pi, &result.settings, &RenderRequest::fit(128, 128)).image);
+        assert!(result.after_error < result.before_error * 0.5, "clipped highlights must improve against the reachable goal");
+        let full = measure_rendered(
+            &crate::render(&src, &info, &result.settings, &RenderRequest { depth: crate::OutputDepth::F32Linear, ..RenderRequest::fit(512, 512) }),
+            &[],
+            true,
+        );
+        let small = analyze(&src, &info, &result.settings);
         for i in [0, 2, 4] {
-            assert!((small.features[i] - full.features[i]).abs() < 0.03, "feature {i}: {:?}", small.features[i] - full.features[i]);
+            assert!((small.features[i] - full.features[i]).abs() < 0.01, "feature {i}");
         }
     }
 
@@ -1592,6 +2056,7 @@ mod tests {
             "curve.darks",
             "curve.lights",
             "curve.highlights",
+            "effects.clarity",
         ] {
             let from = controls::get(&base, id).unwrap();
             let to = controls::get(&full.settings, id).unwrap();
@@ -1649,6 +2114,11 @@ mod tests {
         assert_eq!(one.settings, four.settings);
         assert_eq!(one.after_error, four.after_error);
         assert_eq!(one.weights, four.weights);
+        let batch = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap().install(|| {
+            solve_batch_with_faces(&src, &SourceInfo::default(), &DevelopSettings::default(), &refs, Options::default(), &[], &|| false).unwrap()
+        });
+        assert_eq!(one.settings, batch.settings);
+        assert_eq!(one.after_error, batch.after_error);
     }
     #[test]
     fn match_look_cancel_and_invalid_analysis_never_produce_edits() {
@@ -1939,6 +2409,329 @@ mod v2_tests {
                 let slope = (pair[1] - pair[0]) * (values.len() - 1) as f32;
                 assert!(slope > 0.45 && slope < 2.05, "Unsafe fitted slope {slope}");
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod revision3_tests {
+    use super::*;
+    fn mono(lo: f32, hi: f32, edge: usize) -> Arc<Rgb32f> {
+        Arc::new(Rgb32f::from_fn(edge, edge * 3 / 4, |x, _| [lo + (hi - lo) * x as f32 / (edge - 1) as f32; 3]))
+    }
+    #[test]
+    fn match_look_revision3_statistics_render_preserves_complete_deep_pipeline() {
+        let src = mono(0.005, 1.4, 128);
+        let info = SourceInfo { raw: true, raw_clip_level: Some(1.0), ..Default::default() };
+        let mut base = DevelopSettings::default();
+        base.light.exposure = 0.2;
+        base.grading.shadows.hue = 35.0;
+        base.grading.shadows.sat = 12.0;
+        base.crop.geometry.rect = lightcraft_geom::Rect::from_xywh(0.1, 0.1, 0.8, 0.8);
+        let wb = crate::auto::current_wb(&info, &base);
+        for settings in [
+            base.clone(),
+            layer_settings(
+                &base,
+                &DevelopSettings { light: lightcraft_develop::Light { contrast: 10.0, ..Default::default() }, ..Default::default() },
+                Options::default(),
+                wb,
+            ),
+        ] {
+            let request = RenderRequest { depth: crate::OutputDepth::F32Linear, ..RenderRequest::fit(128, 128) };
+            let full = crate::render_cached(&src, &info, &settings, &request, &StageCache::default());
+            let stats = crate::render_cached(&src, &info, &settings, &RenderRequest { statistics_only: true, ..request }, &StageCache::default());
+            assert_eq!(full.deep, stats.deep);
+            assert!(stats.image.data.is_empty());
+            assert_eq!(stats.histogram.total, 0);
+            assert_eq!(measure_rendered(&full, &[], false), measure_rendered(&stats, &[], false));
+        }
+    }
+    #[test]
+    fn match_look_revision3_thin_structure_native_quantiles() {
+        let src = Arc::new(Rgb32f::from_fn(512, 384, |x, _| {
+            if x % 16 == 0 {
+                [0.02; 3]
+            } else if x > 508 {
+                [2.0; 3]
+            } else {
+                [0.3; 3]
+            }
+        }));
+        let info = SourceInfo::default();
+        let base = DevelopSettings::default();
+        let full = measure_rendered(
+            &crate::render(&src, &info, &base, &RenderRequest { depth: crate::OutputDepth::F32Linear, ..RenderRequest::fit(512, 512) }),
+            &[],
+            true,
+        );
+        let analyzed = analyze(&src, &info, &base);
+        assert!((analyzed.features[0] - full.features[0]).abs() < 0.01);
+        let (small, si) = measurement_source(&src, &info, 128);
+        let biased = measure_rendered(
+            &crate::render(&small, &si, &base, &RenderRequest { depth: crate::OutputDepth::F32Linear, ..RenderRequest::fit(128, 128) }),
+            &[],
+            true,
+        );
+        assert!((biased.features[0] - full.features[0]).abs() > 0.04, "fixture must catch the former resolution defect");
+        let mut target = base.clone();
+        target.light.exposure = 0.2;
+        let reference = analyze(&src, &info, &target);
+        let solved = solve(
+            &src,
+            &info,
+            &base,
+            std::slice::from_ref(&reference),
+            Options { color_adjust: false, color_tone: false, ..Default::default() },
+            &|| false,
+        )
+        .unwrap();
+        let after = analyze(&src, &info, &solved.settings);
+        assert!((after.features[0] - solved.goal.features[0]).abs() < 0.015, "{} vs {}", after.features[0], solved.goal.features[0]);
+    }
+    #[test]
+    fn match_look_revision3_reachable_flat_scene() {
+        let src = mono(0.09, 0.15, 128);
+        let wide = mono(0.01, 0.8, 128);
+        let info = SourceInfo::default();
+        let base = DevelopSettings::default();
+        let reference = analyze(&wide, &info, &base);
+        let result = solve(
+            &src,
+            &info,
+            &base,
+            &[reference],
+            Options { consistent_batch: true, color_adjust: false, color_tone: false, ..Default::default() },
+            &|| false,
+        )
+        .unwrap();
+        println!(
+            "FLAT reach={} fit={} error={} before={} contrast={}",
+            result.reach, result.fit, result.after_error, result.before_error, result.settings.light.contrast
+        );
+        assert!(result.reach < 0.6);
+        assert!(result.after_error < result.before_error * 0.5);
+        assert!(result.settings.light.contrast.abs() < 59.0);
+        for id in ["curve.shadows", "curve.darks", "curve.lights", "curve.highlights"] {
+            assert!(controls::get(&result.settings, id).unwrap().abs() < 54.0);
+        }
+    }
+    #[test]
+    fn match_look_revision3_scene_adaptive_median_and_wb_bounds() {
+        let src = Arc::new(Rgb32f::from_fn(128, 96, |x, _| {
+            let v = 0.5 + x as f32 / 512.0;
+            [v * 0.1, v, v]
+        }));
+        let reference = Arc::new(Rgb32f::from_fn(128, 96, |x, _| {
+            let v = 0.015 + x as f32 / 4096.0;
+            [v, v * 0.05, v * 0.05]
+        }));
+        let info = SourceInfo::default();
+        let base = DevelopSettings::default();
+        let refs = [analyze(&reference, &info, &base)];
+        let initial = analyze(&src, &info, &base);
+        let result = solve(&src, &info, &base, &refs, Options::default(), &|| false).unwrap();
+        let full = solve(&src, &info, &base, &refs, Options { consistent_batch: true, ..Default::default() }, &|| false).unwrap();
+        let after = analyze(&src, &info, &result.settings);
+        let consistent = analyze(&src, &info, &full.settings);
+        println!(
+            "ADAPT_GOAL {:?} actual {:?} light {:?} error={} before={}",
+            &result.goal.features[..5],
+            &after.features[..5],
+            result.settings.light,
+            result.after_error,
+            result.before_error
+        );
+        println!(
+            "ADAPT similarity={} initial={} goal={} after={} consistent={} wb={}",
+            result.similarity, initial.features[2], refs[0].features[2], after.features[2], consistent.features[2], result.settings.wb.temp
+        );
+        assert!(result.similarity < 0.3);
+        assert!((0.55..0.75).contains(&after.features[2]));
+        assert!((consistent.features[2] - refs[0].features[2]).abs() < 0.04);
+        assert!(result.settings.wb.temp / base.wb.temp <= 1.0f64.exp() + 1e-6);
+        assert!(
+            result.settings.grading.shadows.sat.max(result.settings.grading.midtones.sat) > 8.0,
+            "bounded WB leaves warmth to the grading wheels"
+        );
+        let mut similar_style = base.clone();
+        similar_style.light.exposure = 0.3;
+        let similar = solve(&src, &info, &base, &[analyze(&src, &info, &similar_style)], Options::default(), &|| false).unwrap();
+        assert!(similar.similarity > 0.9);
+        assert!((analyze(&src, &info, &similar.settings).features[2] - analyze(&src, &info, &similar_style).features[2]).abs() < 0.04);
+
+        assert!((result.settings.wb.tint - base.wb.tint).abs() <= 40.0 + 1e-6);
+        let reference_span = result.goal.features[4] - result.goal.features[0];
+        assert!(((after.features[4] - after.features[0]) - reference_span).abs() < 0.03);
+    }
+    #[test]
+    fn match_look_revision3_toned_bw_preserves_color_controls() {
+        let src = mono(0.01, 0.7, 128);
+        let info = SourceInfo::default();
+        let base = DevelopSettings::default();
+        let mut edited = base.clone();
+        edited.treatment = Treatment::Bw;
+        edited.grading.global.hue = 35.0;
+        edited.grading.global.sat = 20.0;
+        let reference = analyze(&src, &info, &edited);
+        println!(
+            "SEPIA c={} variation={} bands={:?} sig={:?}",
+            reference.features[7],
+            reference.features[49],
+            &reference.support[17..25],
+            &reference.signature[..8]
+        );
+        assert!(is_monochrome(&reference));
+        let result = solve_with_faces(&src, &info, &base, &[reference], Options::default(), &[[0.0, 0.0, 1.0, 1.0]], &|| false).unwrap();
+        assert_eq!(result.settings.treatment, Treatment::Bw);
+        assert_eq!(result.settings.color, base.color);
+        let hue = result.settings.grading.global.hue;
+        assert!((hue - 35.0).abs() < 25.0, "toning hue {hue}");
+        assert!(result.after_error < result.before_error * 0.3, "{} -> {}", result.before_error, result.after_error);
+    }
+    #[test]
+    fn match_look_revision3_balanced_split_tone_keeps_bw_treatment() {
+        let src = mono(0.01, 0.7, 128);
+        let info = SourceInfo::default();
+        let base = DevelopSettings::default();
+        let mut desired = base.clone();
+        desired.treatment = Treatment::Bw;
+        desired.grading.shadows = lightcraft_develop::Wheel { hue: 220.0, sat: 20.0, lum: 0.0 };
+        desired.grading.highlights = lightcraft_develop::Wheel { hue: 35.0, sat: 20.0, lum: 0.0 };
+        let reference = analyze(&src, &info, &desired);
+        assert!(is_monochrome(&reference));
+        let result = solve(&src, &info, &base, &[reference], Options::default(), &|| false).unwrap();
+        assert_eq!(result.settings.treatment, Treatment::Bw);
+        assert_eq!(result.settings.color, base.color);
+        assert!(result.after_error < result.before_error * 0.5);
+    }
+    #[test]
+    fn match_look_revision3_endpoints_and_local_contrast_are_editable() {
+        let src = Arc::new(Rgb32f::from_fn(128, 96, |x, y| {
+            let v = if x < 16 { 0.001 } else { 0.05 + x as f32 / 200.0 };
+            [v + if x >= 16 && (x / 4 + y / 4) % 2 == 0 { 0.01 } else { 0.0 }; 3]
+        }));
+        let info = SourceInfo::default();
+        let mut base = DevelopSettings::default();
+        base.light.blacks = 15.0;
+        let mut desired = base.clone();
+        desired.light.blacks = -15.0;
+        let reference = analyze(&src, &info, &desired);
+        let result = solve(
+            &src,
+            &info,
+            &base,
+            std::slice::from_ref(&reference),
+            Options { normalize: false, color_adjust: false, color_tone: false, ..Default::default() },
+            &|| false,
+        )
+        .unwrap();
+        let after = analyze(&src, &info, &result.settings);
+        println!(
+            "SHAPE black={} clarity={} L1={} goal={} fit={}",
+            result.settings.light.blacks, result.settings.effects.clarity, after.features[30], result.goal.features[30], result.fit
+        );
+        assert!(result.settings.light.blacks < base.light.blacks);
+        assert!((after.features[30] - result.goal.features[30]).abs() < 0.03);
+        let texture = |amplitude: f32| {
+            Arc::new(Rgb32f::from_fn(128, 96, |x, y| {
+                let v = 0.04 + x as f32 / 180.0;
+                [v + if (x / 4 + y / 4) % 2 == 0 { amplitude } else { -amplitude }; 3]
+            }))
+        };
+        let textured = texture(0.008);
+        let double = texture(0.016);
+        let original = analyze(&textured, &info, &DevelopSettings::default());
+        let reference = analyze(&double, &info, &DevelopSettings::default());
+        assert!(reference.features[32] > original.features[32] * 1.8, "texture fixture must nearly double local contrast");
+        let detail = solve(
+            &textured,
+            &info,
+            &DevelopSettings::default(),
+            &[reference],
+            Options { normalize: false, color_adjust: false, color_tone: false, ..Default::default() },
+            &|| false,
+        )
+        .unwrap();
+        println!("CLARITY doubled texture result={}", detail.settings.effects.clarity);
+        assert!(detail.settings.effects.clarity > 0.0);
+        let same = solve(&src, &info, &base, &[analyze(&src, &info, &base)], Options::default(), &|| false).unwrap();
+        assert_eq!(same.settings.effects.clarity, 0.0);
+    }
+    #[test]
+    fn match_look_revision3_palette_hue_and_luminance_joint_directions() {
+        use lightcraft_color::perceptual::hsv_to_rgb;
+        let matrix = SRGB.to_space(&REC2020);
+        let src = Arc::new(Rgb32f::from_fn(256, 128, |x, y| {
+            let hue = lightcraft_develop::MIXER_HUES[(x / 32).min(7)] as f32;
+            matrix.apply_f32(hsv_to_rgb(hue, 0.65, 0.3 + y as f32 / 200.0).map(srgb_to_linear))
+        }));
+        let info = SourceInfo::default();
+        let base = DevelopSettings::default();
+        let mut desired = base.clone();
+        controls::set(&mut desired, "mixer.orange.hue", 15.0);
+        controls::set(&mut desired, "mixer.blue.hue", -15.0);
+        controls::set(&mut desired, "mixer.orange.lum", 10.0);
+        controls::set(&mut desired, "mixer.blue.lum", -10.0);
+        let reference = analyze(&src, &info, &desired);
+        let result = solve(
+            &src,
+            &info,
+            &base,
+            &[reference],
+            Options { normalize: false, light_contrast: false, color_tone: false, ..Default::default() },
+            &|| false,
+        )
+        .unwrap();
+        println!(
+            "PALETTE orange={} blue={} orangeLum={} blueLum={} error={} before={} renders={}",
+            result.settings.mixer.orange.hue,
+            result.settings.mixer.blue.hue,
+            result.settings.mixer.orange.lum,
+            result.settings.mixer.blue.lum,
+            result.after_error,
+            result.before_error,
+            result.renders
+        );
+        assert!((result.settings.mixer.orange.hue - 15.0).abs() < 8.0);
+        assert!((result.settings.mixer.blue.hue + 15.0).abs() < 8.0);
+        assert!(result.settings.mixer.orange.lum > 0.0);
+        assert!(result.settings.mixer.blue.lum < 0.0);
+        assert!(result.after_error < result.before_error * 0.4);
+        assert!(result.renders <= 50);
+    }
+    #[test]
+    fn match_look_revision3_region_support_pin_and_legacy_looks() {
+        let src = Arc::new(Rgb32f::from_fn(128, 96, |x, y| {
+            if y < 40 {
+                [0.15, 0.3, 0.6]
+            } else if x > 40 && x < 85 {
+                [0.25, 0.12, 0.07]
+            } else {
+                [0.08, 0.1, 0.04]
+            }
+        }));
+        let info = SourceInfo::default();
+        let base = DevelopSettings::default();
+        let look = analyze(&src, &info, &base);
+        assert!(look.support[50..].chunks(3).all(|region| region[0] > 0.05));
+        let mut pinned = look.clone();
+        pinned.importance = 2.0;
+        let w = weights(&[look.clone(), pinned], &look.signature, false);
+        assert!((w[1] - 2.0 / 3.0).abs() < 1e-12);
+        let mut reference = base.clone();
+        reference.grading.highlights.hue = 220.0;
+        reference.grading.highlights.sat = 12.0;
+        let result =
+            solve(&src, &info, &base, &[analyze(&src, &info, &reference)], Options { region_aware: true, ..Default::default() }, &|| false).unwrap();
+        assert!(result.after_error < result.before_error);
+        let mut value = serde_json::to_value(&look).unwrap();
+        for count in [25, 27, 30, 33, 41, 49] {
+            value["features"] = serde_json::json!(&look.features[..count]);
+            value["support"] = serde_json::json!(&look.support[..count]);
+            let old: Look = serde_json::from_value(value.clone()).unwrap();
+            assert!(old.support[count..].iter().all(|v| *v == 0.0));
+            assert!(old.valid());
         }
     }
 }

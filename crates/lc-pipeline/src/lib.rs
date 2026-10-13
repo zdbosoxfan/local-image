@@ -220,6 +220,9 @@ pub struct RenderRequest {
     pub depth: OutputDepth,
     /// Soft proofing (CPU only; see [`Proof`]).
     pub proof: Option<Proof>,
+    /// Float measurement jobs can omit the unused display image and histogram. The complete
+    /// linear pipeline still runs; deep pixels are identical to a normal float render.
+    pub statistics_only: bool,
 }
 
 impl RenderRequest {
@@ -233,6 +236,7 @@ impl RenderRequest {
             space: OutputSpace::Srgb,
             depth: OutputDepth::U8,
             proof: None,
+            statistics_only: false,
         }
     }
 }
@@ -756,7 +760,7 @@ fn finish_stack(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &Rende
         .then(|| finish::finish_deep_mode(prep, &neutral, &plan.frame, info, req.space, req.depth, req.proof, finish::FinishMode::Output));
     let mut image = deep.as_ref().map_or_else(
         || finish::finish_mode(prep, &neutral, &plan.frame, info, req.space, req.proof, finish::FinishMode::Output),
-        DeepImage::to_rgba8,
+        |deep| if req.statistics_only && req.depth == OutputDepth::F32Linear { Rgba8::new(0, 0) } else { deep.to_rgba8() },
     );
     let histogram = Histogram::of_srgb8(&image);
     if req.depth == OutputDepth::U8 {
@@ -781,7 +785,7 @@ fn finish_prepared(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &Re
     let frame = &plan.frame;
     if req.depth != OutputDepth::U8 {
         let deep = finish::finish_deep(prep, s, frame, info, req.space, req.depth, req.proof);
-        let image = deep.to_rgba8();
+        let image = if req.statistics_only && req.depth == OutputDepth::F32Linear { Rgba8::new(0, 0) } else { deep.to_rgba8() };
         let histogram = Histogram::of_srgb8(&image);
         return Rendered { image, histogram, deep: Some(deep) };
     }
