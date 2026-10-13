@@ -806,6 +806,9 @@ pub struct ToolbarCustomization {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Preferences {
+    /// Shared application palette; old preferences start with an empty book.
+    #[serde(default)]
+    pub user_swatches: photocraft_doc::vector_design::swatches::UserSwatches,
     pub general: General,
     pub interface: Interface,
     pub workspace: Workspace,

@@ -46,6 +46,9 @@ impl Capture {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Action {
+    SetColor { targets: Vec<PaintTarget>, color: photocraft_doc::Color },
+    Move { id: SwatchId, group: Option<u64>, before: Option<SwatchId> },
+    RenameGroup { id: u64, name: String },
     Add { swatch: Swatch },
     Edit { swatch: Swatch },
     Delete { ids: Vec<SwatchId> },
@@ -126,7 +129,10 @@ fn locked(layers: &[Layer], id: LayerId, inherited: bool) -> Option<bool> {
 pub fn layer<'a>(doc: &'a Document, t: &PaintTarget) -> Result<&'a Layer> {
     find(tree(doc, t.symbol)?, t.layer).ok_or(EngineError::NoLayer(t.layer))
 }
-fn paint<'a>(l: &'a Layer, slot: &PaintSlot) -> Result<&'a Fill> {
+fn paint<'a>(l: &'a Layer, slot: &PaintSlot) -> Result<std::borrow::Cow<'a, Fill>> {
+    if let (LayerContent::Text(t), PaintSlot::Fill) = (&l.content, slot) {
+        return Ok(std::borrow::Cow::Owned(Fill::Solid(t.color)));
+    }
     match slot {
         PaintSlot::Fill => match &l.content {
             LayerContent::Shape(sh) => sh.fill.as_ref(),
@@ -143,6 +149,7 @@ fn paint<'a>(l: &'a Layer, slot: &PaintSlot) -> Result<&'a Fill> {
             AppearanceItem::Mesh(_) => None,
         }),
     }
+    .map(std::borrow::Cow::Borrowed)
     .ok_or_else(|| bad("missing paint slot"))
 }
 fn paint_mut<'a>(l: &'a mut Layer, slot: &PaintSlot) -> Result<&'a mut Fill> {
@@ -164,8 +171,23 @@ fn paint_mut<'a>(l: &'a mut Layer, slot: &PaintSlot) -> Result<&'a mut Fill> {
     }
     .ok_or_else(|| bad("missing paint slot"))
 }
+fn set_paint(l: &mut Layer, slot: &PaintSlot, paint: Fill) -> Result<()> {
+    if let (LayerContent::Text(text), PaintSlot::Fill) = (&mut l.content, slot) {
+        let Fill::Solid(color) = paint else {
+            return Err(bad("Text swatches require a solid colour"));
+        };
+        text.color = color;
+        for run in &mut text.runs {
+            run.style.color = color;
+        }
+        text.psd_raw = None;
+        return Ok(());
+    }
+    *paint_mut(l, slot)? = paint;
+    Ok(())
+}
 pub fn color(doc: &Document, t: &PaintTarget) -> Result<photocraft_doc::Color> {
-    match (paint(layer(doc, t)?, &t.paint)?, t.stop) {
+    match (paint(layer(doc, t)?, &t.paint)?.as_ref(), t.stop) {
         (Fill::Solid(c), None) => Ok(*c),
         (Fill::Gradient { stops, .. }, Some(i)) => stops.get(i).map(|s| s.1).ok_or_else(|| bad("missing gradient stop")),
         _ => Err(bad("target must be a solid paint or gradient stop")),
@@ -181,6 +203,14 @@ pub fn validate_target(doc: &Document, t: &PaintTarget) -> Result<()> {
 pub(super) fn set_color(doc: &mut Document, t: &PaintTarget, value: photocraft_doc::Color) -> Result<()> {
     validate_color(value).map_err(bad)?;
     let l = find_mut(tree_mut(doc, t.symbol)?, t.layer).ok_or(EngineError::NoLayer(t.layer))?;
+    if let (LayerContent::Text(text), PaintSlot::Fill, None) = (&mut l.content, &t.paint, t.stop) {
+        text.color = value;
+        for run in &mut text.runs {
+            run.style.color = value;
+        }
+        text.psd_raw = None;
+        return Ok(());
+    }
     match (paint_mut(l, &t.paint)?, t.stop) {
         (Fill::Solid(c), None) => {
             *c = value;
@@ -237,16 +267,15 @@ pub fn used_colors(
                 walk(doc, book, c, Some(s.symbol), out, warnings, seen)?;
             }
         }
-        let slots = if let Some(a) = &l.vector.appearance {
+        let slots = if matches!(l.content, LayerContent::Text(_)) {
+            vec![PaintSlot::Fill]
+        } else if let Some(a) = &l.vector.appearance {
             (0..a.items.len()).map(PaintSlot::Appearance).collect::<Vec<_>>()
         } else {
             match &l.content {
                 LayerContent::Shape(sh) => sh.fill.iter().map(|_| PaintSlot::Fill).chain(sh.stroke.iter().map(|_| PaintSlot::Stroke)).collect(),
                 LayerContent::Fill(_) => vec![PaintSlot::Fill],
-                LayerContent::Text(_) => {
-                    warnings.push(warning("recolor-text", "Text paints require the text colour adapter"));
-                    Vec::new()
-                }
+                LayerContent::Text(_) => vec![PaintSlot::Fill],
                 LayerContent::Raster(_) | LayerContent::Smart(_) => {
                     warnings.push(warning("recolor-raster", "Raster pixels are not recoloured"));
                     Vec::new()
@@ -256,7 +285,7 @@ pub fn used_colors(
         };
         for slot in slots {
             let p = paint(l, &slot)?;
-            let colors = match p {
+            let colors = match p.as_ref() {
                 Fill::Solid(c) => vec![(None, *c)],
                 Fill::Gradient { stops, .. } => stops.iter().enumerate().map(|(i, s)| (Some(i), s.1)).collect(),
                 Fill::Pattern { .. } => {
@@ -342,10 +371,14 @@ pub fn finish(mut document: Document, mut book: SwatchBook, changed: &[PaintTarg
         let LayerContent::Shape(sh) = &l.content else {
             return Ok(None);
         };
-        if l.vector.clip.is_some() || l.vector.live.is_some() || l.vector.on_path.is_some() {
-            return Err(bad("colour edits require the integrated clip/live/text projection for this shape"));
+        // Keep the authoritative vector envelope (including clipping) on the
+        // layer. The display/export projection applies it to this refreshed
+        // base paint cache; swatch edits must not bake or discard that envelope.
+        let mut shape = sh.clone();
+        if let Some(live) = &l.vector.live_shape {
+            shape.path = photocraft_vector::design_shapes::generate(live).map_err(|e| bad(e.to_string()))?;
         }
-        Ok(Some(super::corners::project_shape(sh, &l.vector.corners)?))
+        Ok(Some(super::corners::project_shape(&shape, &l.vector.corners)?))
     };
     let mut bytes = 0u128;
     for t in &targets {
@@ -370,6 +403,9 @@ pub fn finish(mut document: Document, mut book: SwatchBook, changed: &[PaintTarg
                 photocraft_vector::appearance::mirror_legacy(sh, a);
             }
             sh.cache = Some(cache);
+        }
+        if let LayerContent::Text(text) = &mut l.content {
+            crate::vector_integration::refresh_text(&document, text, &l.vector)?;
         }
         *find_mut(tree_mut(&mut document, t.symbol)?, t.layer).ok_or(EngineError::NoLayer(t.layer))? = l;
     }
@@ -422,6 +458,39 @@ pub fn prepare_with_projection(s: &Session, access: Access, r: &Request, project
     resolve_swatches(&mut book)?;
     let mut warnings = Vec::new();
     match &r.action {
+        Action::SetColor { targets, color } => {
+            validate_color(*color).map_err(bad)?;
+            if targets.is_empty() || targets.len() > MAX_LINKS {
+                return Err(bad("colour assignment needs bounded targets"));
+            }
+            let mut unique = HashSet::new();
+            for t in targets {
+                if !unique.insert(t) || locked(tree(&document, t.symbol)?, t.layer, false) != Some(false) {
+                    return Err(bad("colour target is duplicate, missing or locked"));
+                }
+                if t.stop.is_some() {
+                    validate_target(&document, t)?;
+                } else {
+                    paint(layer(&document, t)?, &t.paint)?;
+                }
+            }
+            for t in targets {
+                if t.stop.is_some() {
+                    set_color(&mut document, t, *color)?;
+                    book.links.retain(|l| l.target != *t);
+                } else {
+                    let l = find_mut(tree_mut(&mut document, t.symbol)?, t.layer).ok_or(EngineError::NoLayer(t.layer))?;
+                    set_paint(l, &t.paint, Fill::Solid(*color))?;
+                    set_color(&mut document, t, *color)?;
+                    book.links.retain(|l| !(l.target.layer == t.layer && l.target.symbol == t.symbol && l.target.paint == t.paint));
+                }
+                changed.push(t.clone());
+            }
+        }
+        Action::Move { id, group, before } => move_swatch(&mut book, *id, *group, *before).map_err(bad)?,
+        Action::RenameGroup { id, name } => {
+            book.groups.iter_mut().find(|g| g.id == *id).ok_or_else(|| bad("missing group"))?.name = name.clone();
+        }
         Action::Add { swatch } => {
             book.swatches.push(swatch.clone());
         }
@@ -553,7 +622,7 @@ pub fn prepare_with_projection(s: &Session, access: Access, r: &Request, project
             for t in targets {
                 if t.stop.is_none() {
                     let l = find_mut(tree_mut(&mut document, t.symbol)?, t.layer).ok_or(EngineError::NoLayer(t.layer))?;
-                    *paint_mut(l, &t.paint)? = Fill::Solid(c);
+                    set_paint(l, &t.paint, Fill::Solid(c))?;
                     book.links.retain(|l| !(l.target.layer == t.layer && l.target.symbol == t.symbol && l.target.paint == t.paint));
                 }
                 set_color(&mut document, t, c)?;
@@ -591,7 +660,7 @@ pub fn prepare_with_projection(s: &Session, access: Access, r: &Request, project
                     continue;
                 }
                 let l = find_mut(tree_mut(&mut document, t.symbol)?, t.layer).ok_or(EngineError::NoLayer(t.layer))?;
-                *paint_mut(l, &t.paint)? = w.paint.clone();
+                set_paint(l, &t.paint, w.paint.clone())?;
                 if let LayerContent::Shape(sh) = &mut l.content {
                     sh.psd_raw = None;
                 }
@@ -728,3 +797,7 @@ pub(crate) mod tests;
 #[cfg(test)]
 #[path = "colours/native.rs"]
 mod native;
+
+#[cfg(test)]
+#[path = "colours/shared_swatches_tests.rs"]
+mod shared_swatches_tests;

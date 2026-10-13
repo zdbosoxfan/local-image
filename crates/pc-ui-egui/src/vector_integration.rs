@@ -1503,106 +1503,11 @@ fn owned_preview(runtime: &mut State, doc: &Document, key: u64) -> Arc<Document>
 }
 /// Native document palette alongside the unchanged application swatches.
 pub fn palette(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    use photocraft_doc::vector_design::{
-        appearance::AppearanceItem,
-        swatches::{PaintSlot, PaintTarget},
-    };
-    let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
-    let fill = app.ui.fill_stroke_proxy.active == crate::fill_stroke_proxy::ActivePaint::Fill;
-    let mut targets = Vec::new();
-    let mut paint = photocraft_doc::Fill::Solid(photocraft_doc::Color::BLACK);
-    if let Some(st) = app.session.active() {
-        for id in &ids {
-            if let Some(layer) = st.doc.layer(*id) {
-                let selected = layer
-                    .vector
-                    .appearance
-                    .as_ref()
-                    .and_then(|a| {
-                        a.items
-                            .get(app.shared_tools.paint.options.item)
-                            .filter(|_| app.shared_tools.paint.options.selected_stop.is_some())
-                            .and_then(|item| match item {
-                                AppearanceItem::Fill(f) if fill && f.visible => Some((PaintSlot::Appearance(app.shared_tools.paint.options.item), &f.paint)),
-                                AppearanceItem::Stroke(s) if !fill && s.visible => {
-                                    Some((PaintSlot::Appearance(app.shared_tools.paint.options.item), &s.base.paint))
-                                }
-                                _ => None,
-                            })
-                            .or_else(|| {
-                                a.items.iter().enumerate().rev().find_map(|(i, item)| match item {
-                                    AppearanceItem::Fill(f) if fill && f.visible => Some((PaintSlot::Appearance(i), &f.paint)),
-                                    AppearanceItem::Stroke(s) if !fill && s.visible => Some((PaintSlot::Appearance(i), &s.base.paint)),
-                                    _ => None,
-                                })
-                            })
-                    })
-                    .or_else(|| match &layer.content {
-                        LayerContent::Shape(s) if fill => s.fill.as_ref().map(|p| (PaintSlot::Fill, p)),
-                        LayerContent::Shape(s) => s.stroke.as_ref().map(|p| (PaintSlot::Stroke, &p.paint)),
-                        LayerContent::Fill(p) if fill => Some((PaintSlot::Fill, p)),
-                        _ => None,
-                    });
-                if let Some((slot, p)) = selected {
-                    paint = p.clone();
-                    targets.push(PaintTarget {
-                        symbol: None,
-                        layer: *id,
-                        stop: app
-                            .shared_tools
-                            .paint
-                            .options
-                            .selected_stop
-                            .filter(|_| matches!(slot,PaintSlot::Appearance(i) if i==app.shared_tools.paint.options.item)),
-                        paint: slot,
-                    });
-                }
-            }
-        }
-    }
-    let mut state = std::mem::take(&mut app.vector_runtime.swatches);
-    let result = photocraft_engine::vector_packages::colours::access()
-        .and_then(|access| crate::swatches_doc::panel(ui, &app.session, access, &paint, &targets, &mut state));
-    app.vector_runtime.swatches = state;
-    match result {
-        Ok(Some(crate::swatches_doc::Event::Commit(r))) => {
-            let result = app.session.execute("swatch.document.edit", serde_json::json!(r));
-            app.vector_runtime.swatches.cancel();
-            match result {
-                Ok(_) => app.vector_runtime.swatches.error = None,
-                Err(e) => {
-                    app.vector_runtime.swatches.error = Some(e.to_string());
-                    report(app, e);
-                }
-            }
-        }
-        Ok(Some(crate::swatches_doc::Event::Recolor)) => {
-            if let Some(Err(e)) = menu(app, ui.ctx(), "ui.vector.recolor", &serde_json::Value::Null) {
-                report(app, e);
-            }
-        }
-        Ok(Some(crate::swatches_doc::Event::ImportAse(capture))) => begin_ase(app, capture),
-        Ok(Some(crate::swatches_doc::Event::ExportAse(book))) => {
-            let output = photocraft_doc::vector_design::swatches::export_ase(&book);
-            match output {
-                Ok(output) => {
-                    if let Some(path) = app.services.pick_save.as_mut().and_then(|pick| pick("Palette.ase")) {
-                        let result =
-                            app.services.write.as_mut().ok_or_else(|| "File writer unavailable".to_string()).and_then(|write| write(&path, &output.bytes));
-                        if let Err(e) = result {
-                            report(app, e);
-                        } else if !output.warnings.is_empty() {
-                            app.ui.status = output.warnings.into_iter().map(|w| w.message).collect::<Vec<_>>().join("; ");
-                        }
-                    }
-                }
-                Err(e) => report(app, e),
-            }
-        }
-        Err(e) => report(app, e),
-        _ => {}
-    }
+    // The legacy ASE worker remains outside this task's function ownership.
+    let _ = begin_ase;
+    crate::panels::swatches_panel::panel(app, ui);
 }
+
 type AseResult = (
     photocraft_engine::vector_packages::colours::Capture,
     Result<(photocraft_doc::vector_design::swatches::SwatchBook, Vec<photocraft_doc::vector_design::exchange::VectorWarning>), String>,

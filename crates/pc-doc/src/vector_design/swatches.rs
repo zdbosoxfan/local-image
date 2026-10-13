@@ -80,6 +80,16 @@ pub struct SwatchBook {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<PaintLink>,
 }
+/// Application preferences wrap the same palette model plus panel choices.
+/// Document palettes continue to use SwatchBook directly.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct UserSwatches {
+    pub palette: SwatchBook,
+    pub recent: Vec<Color>,
+    pub list_view: bool,
+    pub initialized: bool,
+}
 impl SwatchBook {
     pub fn is_empty(&self) -> bool {
         self.swatches.is_empty() && self.groups.is_empty() && self.links.is_empty()
@@ -277,6 +287,36 @@ pub fn import_ase(bytes: &[u8], limits: ImportLimits) -> Result<(SwatchBook, Vec
     book.validate()?;
     Ok((book, read.warnings.into_iter().map(|m| warning("ase-unsupported", m)).collect()))
 }
+/// Adapt all exchange codecs through the established stable-ID swatch model.
+pub fn from_palette(palette: photocraft_color::ase::Palette) -> Result<SwatchBook, String> {
+    let bytes = photocraft_color::ase::write(&palette)?;
+    import_ase(&bytes, ImportLimits::default()).map(|v| v.0)
+}
+pub fn to_palette(book: &SwatchBook) -> Result<photocraft_color::ase::ReadResult, String> {
+    let output = export_ase(book)?;
+    let mut result = photocraft_color::ase::read(&output.bytes)?;
+    result.warnings.extend(output.warnings.into_iter().map(|w| w.message));
+    Ok(result)
+}
+/// Move a stable ID before another swatch, or to the end of a folder.
+/// Paint references survive because only order and folder membership change.
+pub fn move_swatch(book: &mut SwatchBook, id: SwatchId, group: Option<u64>, before: Option<SwatchId>) -> Result<(), String> {
+    if group.is_some_and(|g| !book.groups.iter().any(|v| v.id == g)) {
+        return Err("missing destination group".into());
+    }
+    if before == Some(id) {
+        return Ok(());
+    }
+    if before.is_some_and(|b| !book.swatches.iter().any(|w| w.id == b && w.group == group)) {
+        return Err("missing destination swatch".into());
+    }
+    let index = book.swatches.iter().position(|w| w.id == id).ok_or("missing swatch")?;
+    let mut w = book.swatches.remove(index);
+    w.group = group;
+    let at = before.and_then(|b| book.swatches.iter().position(|w| w.id == b)).unwrap_or(book.swatches.len());
+    book.swatches.insert(at, w);
+    Ok(())
+}
 pub fn export_ase(book: &SwatchBook) -> Result<ExportedVector, String> {
     book.validate()?;
     let mut palette = photocraft_color::ase::Palette::default();
@@ -367,5 +407,29 @@ mod dsfix_tests {
             book.groups.push(SwatchGroup { id: 2, name: fresh });
             book.validate().unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod shared_swatches_tests {
+    use super::*;
+    #[test]
+    fn shared_swatches_reorder_keeps_ids_links_and_native_serialization() {
+        let p = photocraft_color::gpl::read(b"GIMP Palette\nName: Test\n1 2 3 One\n4 5 6 Two\n7 8 9 Three\n").unwrap().palette;
+        let mut b = from_palette(p).unwrap();
+        let first = b.swatches[0].id;
+        let third = b.swatches[2].id;
+        let group = b.groups[0].id;
+        move_swatch(&mut b, first, Some(group), Some(third)).unwrap();
+        assert_eq!(b.swatches.iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), ["Two", "One", "Three"]);
+        move_swatch(&mut b, first, None, None).unwrap();
+        assert_eq!(b.swatches[2].id, first);
+        assert_eq!(b.swatches[2].group, None);
+        let before = b.clone();
+        assert!(move_swatch(&mut b, first, Some(u64::MAX), None).is_err());
+        assert_eq!(b, before);
+        assert_eq!(b, serde_json::from_str(&serde_json::to_string(&b).unwrap()).unwrap());
+        b.validate().unwrap();
     }
 }

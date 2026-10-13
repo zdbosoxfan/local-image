@@ -1,5 +1,5 @@
 {
-  "_comment": "Hand-written input of `cargo xtask attributions`, which merges it with docs/PORTS.md, li-seg's MODELS, SAM 3, the li-ai family profiles and Cargo.lock into assets/attributions.json (the file the app shows in Settings / Preferences / About › Attributions). Edit this file for assets, data and projects that have no machine-readable source; never edit assets/attributions.json by hand. Sections appear in this order; generated entries come before the ones listed here. licence_files are paths from the repository root and are built into the app.",
+  "_comment": "Hand-written input of `cargo xtask attributions`, which merges it with docs/PORTS.md, li-seg's MODELS, SAM 3, the li-ai family profiles and Cargo.lock into assets/attributions.json (the file the app shows in Settings / Preferences / About \u203a Attributions). Edit this file for assets, data and projects that have no machine-readable source; never edit assets/attributions.json by hand. Sections appear in this order; generated entries come before the ones listed here. licence_files are paths from the repository root and are built into the app.",
   "app": {
     "name": "Local Image",
     "used_for": "A layered raster editor, photo library and raw developer with local AI, written in Rust.",
@@ -92,7 +92,7 @@
         {
           "name": "LensFun database",
           "author": "The LensFun community (Andrew Zabolotny, Klaus Post and contributors)",
-          "used_for": "Lens calibrations for Develop › Optics › Lens Profile (built into the app through the lensfun crate).",
+          "used_for": "Lens calibrations for Develop \u203a Optics \u203a Lens Profile (built into the app through the lensfun crate).",
           "licence": "CC-BY-SA-3.0",
           "licence_files": [
             "licenses/lensfun-NOTICE.md"
@@ -102,7 +102,7 @@
         {
           "name": "Camera colour profile ILCE-7M4",
           "author": "Harald Hoyer",
-          "used_for": "Colour matrix and hue/saturation/value table for the Sony α7 IV, fitted to the contributor's own photos (assets/camera-profiles).",
+          "used_for": "Colour matrix and hue/saturation/value table for the Sony \u03b17 IV, fitted to the contributor's own photos (assets/camera-profiles).",
           "licence": "MIT OR Apache-2.0",
           "licence_files": [
             "assets/ATTRIBUTION-lightcraft.md"
@@ -136,8 +136,8 @@
       "intro": "Downloaded only when you ask for them, never shipped with Local Image. Each model keeps its own licence.",
       "entries": [
         {
-          "name": "FBCNN · JPEG cleanup",
-          "used_for": "FBCNN · JPEG cleanup at original resolution; applies on a new layer. Automatic quality-factor prediction; the core node has no quality-factor input.",
+          "name": "FBCNN \u00b7 JPEG cleanup",
+          "used_for": "FBCNN \u00b7 JPEG cleanup at original resolution; applies on a new layer. Automatic quality-factor prediction; the core node has no quality-factor input.",
           "licence": "Apache-2.0",
           "licence_files": [
             "licenses/restoration-fbcnn-LICENSE.txt"
@@ -146,8 +146,8 @@
           "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
         },
         {
-          "name": "SCUNet-real · Scan cleanup",
-          "used_for": "SCUNet-real · Scan cleanup at original resolution; applies on a new layer. PSNR-trained real-image cleanup; no GAN weights.",
+          "name": "SCUNet-real \u00b7 Scan cleanup",
+          "used_for": "SCUNet-real \u00b7 Scan cleanup at original resolution; applies on a new layer. PSNR-trained real-image cleanup; no GAN weights.",
           "licence": "Apache-2.0",
           "licence_files": [
             "licenses/restoration-scunet-LICENSE.txt"
@@ -156,8 +156,8 @@
           "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
         },
         {
-          "name": "NAFNet-SIDD · Denoise",
-          "used_for": "NAFNet-SIDD · Denoise at original resolution; applies on a new layer. SIDD real smartphone denoising, width 64.",
+          "name": "NAFNet-SIDD \u00b7 Denoise",
+          "used_for": "NAFNet-SIDD \u00b7 Denoise at original resolution; applies on a new layer. SIDD real smartphone denoising, width 64.",
           "licence": "MIT",
           "licence_files": [
             "licenses/restoration-nafnet-LICENSE.txt"
@@ -166,7 +166,7 @@
           "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
         },
         {
-          "name": "DDColor · Colourise",
+          "name": "DDColor \u00b7 Colourise",
           "used_for": "Apache-2.0 relicensed Hugging Face tiny weights only, pinned revision e9e7b527709c8aeb2f5e1bf701e72fd468a13baa. Verified FP32 ONNX export runs on-device in Rust through tract; original Lab luminance and alpha are preserved.",
           "licence": "Apache-2.0",
           "licence_files": [
@@ -176,7 +176,7 @@
           "ours": "crates/li-seg/src/restoration.rs; crates/pc-ui-egui/src/restoration_ui.rs; scripts/export_restore_models.py"
         },
         {
-          "name": "Microsoft scratch detector · Repair old photo",
+          "name": "Microsoft scratch detector \u00b7 Repair old photo",
           "used_for": "MIT one-channel UNet from the official v1.0 release; verified FP32 ONNX export. Scratch mask reviewed in AI Remove before filling; optional DDColor preview after a successful repair. No dlib or face stage.",
           "licence": "MIT",
           "licence_files": [
@@ -220,7 +220,7 @@
         {
           "name": "Krita sourced tool glyphs",
           "version": "v5.2.6",
-          "author": "Andrei Rudenko; Timothée Giet",
+          "author": "Andrei Rudenko; Timoth\u00e9e Giet",
           "used_for": "Only the reviewed glyphs listed here are imported. Native path data and transforms are retained; fills, gradient paint, outline widths and highlights adapt them to the approved Glossy Duotone style. Modifications by Local Image contributors, GPL-3.0-or-later. See assets/icons/SOURCES.md.",
           "upstream": "krita/pics/tools/SVG/16/dark_krita_tool_gradient.svg; krita/pics/tools/SVG/16/dark_krita_tool_freehand.svg; krita/pics/tools/SVG/16/dark_tool_elliptical_selection.svg; krita/pics/misc-dark/dark_draw-eraser.svg; krita/pics/tools/SVG/16/dark_tool_rect_selection.svg",
           "commit": "ab3502b67a5b07771d3127aeaf9cc522af5d626a",
@@ -399,6 +399,52 @@
       "title": "Rust crates",
       "intro": "Every crate compiled into Local Image on any platform, from Cargo.lock.",
       "entries": []
+    },
+    {
+      "id": "swatch-libraries",
+      "title": "Swatch Libraries",
+      "entries": [
+        {
+          "name": "Open Color",
+          "author": "yeun/open-color",
+          "licence": "MIT",
+          "licence_files": [
+            "assets/palettes/open-color-LICENSE.txt"
+          ],
+          "url": "https://github.com/yeun/open-color",
+          "commit": "3a716ee1f5ff5456db33cb8a6e964afdca1e7bc3",
+          "upstream": "open-color.json",
+          "ours": "assets/palettes/open-color.gpl",
+          "used_for": "Bundled swatch library; original source and licence retained."
+        },
+        {
+          "name": "CSS Named Colours",
+          "author": "colorjs/color-name",
+          "licence": "MIT",
+          "licence_files": [
+            "assets/palettes/color-name-LICENSE.txt"
+          ],
+          "url": "https://github.com/colorjs/color-name",
+          "commit": "9ec3195524951f58bc1d33797fccc0f8ecfe070c",
+          "upstream": "index.js",
+          "ours": "assets/palettes/color-name.gpl",
+          "used_for": "Bundled swatch library; original source and licence retained."
+        },
+        {
+          "name": "Tailwind CSS colours",
+          "author": "Tailwind Labs",
+          "licence": "MIT",
+          "licence_files": [
+            "assets/palettes/tailwind-LICENSE.txt"
+          ],
+          "url": "https://github.com/tailwindlabs/tailwindcss",
+          "commit": "4f9f603e12b51cc53b8a09c7739b8f88c8eb87eb",
+          "upstream": "src/public/colors.js (v3.4.17)",
+          "ours": "assets/palettes/tailwind.gpl",
+          "used_for": "Bundled swatch library; original source and licence retained."
+        }
+      ],
+      "intro": "Open-source colour libraries. Starter and web-safe sets are generated by Local Image (GPL-3.0-or-later)."
     }
   ]
 }
