@@ -16,6 +16,7 @@ pub use clip::{Clip, Crops, shared_clip};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, bail};
 use tract_onnx::prelude::*;
@@ -478,7 +479,47 @@ pub fn spec(id: &str) -> Option<&'static ModelSpec> {
     MODELS.iter().find(|m| m.id == id)
 }
 
-type Runner = dyn Fn(Tensor) -> TractResult<TVec<TValue>> + Send + Sync;
+/// Runs the model; `stop()` is asked before every graph node and `true` ends the run with
+/// [`Cancelled`].
+type Runner = dyn Fn(Tensor, &dyn Fn() -> bool) -> TractResult<TVec<TValue>> + Send + Sync;
+
+/// The error of a run stopped through its cancel flag (see [`is_cancelled`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cancelled;
+
+impl fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
+/// Did `e` come from a cancelled run?
+pub fn is_cancelled(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| c.is::<Cancelled>())
+}
+
+/// Run `plan`, asking `stop()` before each node (model stage): a cancel stops the work within one
+/// stage instead of after the whole network. API: tract-core 0.23.8 `SimpleState::run_plan_with_eval`.
+fn run_checked(plan: &Arc<TypedRunnableModel>, inputs: TVec<TValue>, stop: &dyn Fn() -> bool) -> TractResult<TVec<TValue>> {
+    let mut state = plan.spawn()?;
+    state.run_plan_with_eval(inputs, |ctx, op_state, node, input| {
+        if stop() {
+            return Err(anyhow::Error::new(Cancelled));
+        }
+        tract_onnx::tract_core::plan::eval(ctx, op_state, node, input)
+    })
+}
+
+/// `Err(Cancelled)` once `stop()` says so.
+fn check(stop: &dyn Fn() -> bool) -> Result<()> {
+    if stop() { Err(anyhow::Error::new(Cancelled)) } else { Ok(()) }
+}
+
+fn never() -> bool {
+    false
+}
 
 /// Subject output contract. Legacy IS-Net/U²-Net and custom models use min–max;
 /// the two background-removal tiers already output probabilities.
@@ -553,7 +594,7 @@ impl Segmenter {
             .with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, s, s)))?
             .into_optimized()?
             .into_runnable()?;
-        Ok(Self { cfg, run: Arc::new(move |t: Tensor| plan.run(tvec!(t.into()))) })
+        Ok(Self { cfg, run: Arc::new(move |t: Tensor, stop: &dyn Fn() -> bool| run_checked(&plan, tvec!(t.into()), stop)) })
     }
 
     /// The model's id (an official id, or `custom:<file>`).
@@ -564,7 +605,7 @@ impl Segmenter {
     /// The shape of the model's first output for a blank input.
     fn output_shape(&self) -> Result<Vec<usize>> {
         let s = self.cfg.size;
-        let out = (self.run)(tract_ndarray::Array4::<f32>::zeros((1, 3, s, s)).into())?;
+        let out = (self.run)(tract_ndarray::Array4::<f32>::zeros((1, 3, s, s)).into(), &never)?;
         Ok(out[0].shape().to_vec())
     }
 
@@ -583,8 +624,20 @@ impl Segmenter {
     /// Foreground probability (0–1) for an RGBA8 image, at the image's size. `None` when the model
     /// sees no clear subject.
     pub fn predict(&self, rgba: &[u8], w: usize, h: usize) -> Result<Option<Vec<f32>>> {
+        self.predict_checked(rgba, w, h, &never)
+    }
+
+    /// [`Segmenter::predict`] that stops within one model stage once `cancel` is set, with an
+    /// error for which [`is_cancelled`] is true.
+    pub fn predict_with_cancel(&self, rgba: &[u8], w: usize, h: usize, cancel: &AtomicBool) -> Result<Option<Vec<f32>>> {
+        self.predict_checked(rgba, w, h, &|| cancel.load(Ordering::Relaxed))
+    }
+
+    fn predict_checked(&self, rgba: &[u8], w: usize, h: usize, stop: &dyn Fn() -> bool) -> Result<Option<Vec<f32>>> {
+        check(stop)?;
         let input = self.input(rgba, w, h, self.cfg.post == Post::MinMax)?;
-        let out = (self.run)(input.into())?;
+        let out = (self.run)(input.into(), stop)?;
+        check(stop)?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("The model's output {:?} isn't a single map", map.shape()) };
         let vals: Vec<f32> = map.iter().copied().collect();
@@ -611,10 +664,22 @@ impl Segmenter {
     /// Sky probability (0–1) for an RGBA8 image, at the image's size (a sky model). Raw
     /// probabilities, not stretched: a photo without sky stays near zero.
     pub fn predict_sky(&self, rgba: &[u8], w: usize, h: usize) -> Result<Vec<f32>> {
+        self.predict_sky_checked(rgba, w, h, &never)
+    }
+
+    /// [`Segmenter::predict_sky`] that stops within one model stage once `cancel` is set (see
+    /// [`Segmenter::predict_with_cancel`]).
+    pub fn predict_sky_with_cancel(&self, rgba: &[u8], w: usize, h: usize, cancel: &AtomicBool) -> Result<Vec<f32>> {
+        self.predict_sky_checked(rgba, w, h, &|| cancel.load(Ordering::Relaxed))
+    }
+
+    fn predict_sky_checked(&self, rgba: &[u8], w: usize, h: usize, stop: &dyn Fn() -> bool) -> Result<Vec<f32>> {
         let Task::Sky { classes, class, margin } = self.cfg.task else { bail!("not a sky model") };
         anyhow::ensure!(classes > 0 && class < classes, "sky class is outside the model output");
+        check(stop)?;
         let input = self.input(rgba, w, h, false)?;
-        let out = (self.run)(input.into())?;
+        let out = (self.run)(input.into(), stop)?;
+        check(stop)?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let shape = map.shape().to_vec();
         let (oh, ow) = match shape.as_slice() {
@@ -646,7 +711,7 @@ impl Segmenter {
             bail!("not a depth model");
         }
         let input = self.input(rgba, w, h, false)?;
-        let out = (self.run)(input.into())?;
+        let out = (self.run)(input.into(), &never)?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("unexpected depth model output {:?}", map.shape()) };
         let vals: Vec<f32> = map.iter().copied().collect();
@@ -1353,21 +1418,35 @@ fn forget_group(group: Group) {
     *g = None;
 }
 
-/// Configure tract once before the first segmentation load. Keep two logical CPUs
-/// for the UI and cap the pool at eight to avoid contention with other app work.
+/// Configure tract once, before the first model runs (every loader calls this; the app also calls
+/// it at start-up). tract's matrix kernels run on rayon: on whichever pool the calling thread belongs
+/// to, i.e. the app's one sized compute pool (`lightcraft_sysmem::init`), or the background pool for
+/// indexing. Tile-level `par_iter`s and tract's own parallelism then share one set of threads
+/// instead of multiplying (threading rules 1-2: never `Executor::multithread`, which adds a second
+/// pool). `LOCAL_IMAGE_SEG_THREADS` is for measurement only: `1` runs tract single-threaded, `n > 1`
+/// on a private `n`-thread pool.
 /// API: tract-linalg 0.23.8 src/multithread.rs (Executor and set_default_executor).
 pub fn init_executor() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let cores = std::thread::available_parallelism().map_or(1, usize::from);
-            let threads = std::env::var("LOCAL_IMAGE_SEG_THREADS")
-                .ok()
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or_else(|| cores.saturating_sub(2).clamp(1, 8))
-                .clamp(1, 8);
-            tract_linalg::multithread::set_default_executor(tract_linalg::multithread::Executor::multithread(threads));
+            use tract_linalg::multithread::{Executor, set_default_executor};
+            let measured = std::env::var("LOCAL_IMAGE_SEG_THREADS").ok().and_then(|v| v.trim().parse::<usize>().ok());
+            let executor = match measured {
+                Some(1) => Executor::SingleThread,
+                Some(n) if n > 1 => Executor::multithread(n.min(256)),
+                _ => Executor::RayonGlobal,
+            };
+            log::info!(
+                "tract executor: {}",
+                match measured {
+                    Some(1) => "single thread (LOCAL_IMAGE_SEG_THREADS=1)".to_string(),
+                    Some(n) if n > 1 => format!("private {n}-thread pool (LOCAL_IMAGE_SEG_THREADS, measurement only)"),
+                    _ => format!("shared rayon pool ({} threads)", rayon::current_num_threads()),
+                }
+            );
+            set_default_executor(executor);
         }
     });
 }

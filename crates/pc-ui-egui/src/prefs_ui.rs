@@ -1175,6 +1175,7 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                     section_fields(ui, &section, obj, &order, lang);
                     if section == "performance" {
                         gpu_status_rows(ui, f.get("__gpuInfo"), f.get("__gpuFailure").and_then(Value::as_str), obj);
+                        processing_rows(ui, obj);
                     }
                     ui.add_space(8.0);
                 }
@@ -1225,6 +1226,62 @@ fn gpu_status_rows(ui: &mut egui::Ui, info: Option<&Value>, failure: Option<&str
             obj.insert("gpuBackend".into(), json!(current));
         });
     });
+}
+
+/// local-image: new Processing labels, shown in English until the next translation pass (owner:
+/// translations last); listed for the i18n owner in docs/wip/BUILD-threads-a.md.
+const PROCESSING: &str = "Processing";
+const PROCESSING_THREADS: &str = "Processing threads";
+const BACKGROUND_PRIORITY: &str = "Background work priority";
+const PROCESSING_MEMORY: &str = "Memory for processing";
+const DETECTED: &str = "Detected: {logical} logical / {physical} physical cores{hybrid}, {ram} GB RAM";
+
+/// local-image: Preferences › Performance › Processing: optional overrides over the values the app
+/// derives from the hardware at start-up (`lightcraft_sysmem::profile`; threading policy rules 1, 6
+/// and 7). Every row defaults to Automatic and shows the automatic value. The compute pool is built
+/// at launch, so changes apply then.
+fn processing_rows(ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
+    let t = Tokens::get(ui.ctx());
+    let p = lightcraft_sysmem::profile();
+    let hw = &p.hardware;
+    let mut c: prefs::SystemResources = obj.get("system").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+    ui.add_space(10.0);
+    ui.label(RichText::new(tl!(PROCESSING)).font(crate::theme::semibold(12.5)).color(t.text));
+    let auto = |v: String| format!("{} ({v})", tl!("Automatic"));
+    let threads: Vec<(u32, String)> =
+        std::iter::once((0, auto(p.threads_auto.to_string()))).chain((1..=hw.logical.clamp(1, 1024) as u32).map(|n| (n, n.to_string()))).collect();
+    let memory: Vec<(u32, String)> = std::iter::once((0, auto(format!("{} %", lightcraft_sysmem::profile::AUTO_MEMORY_PERCENT))))
+        .chain((1..=9).map(|n| (n * 10, format!("{} %", n * 10))))
+        .collect();
+    let priority = [(prefs::BackgroundPriority::Low, tl!("Low").to_string()), (prefs::BackgroundPriority::Normal, tl!("Normal").to_string())];
+    egui::Grid::new("prefs-processing").num_columns(2).spacing([14.0, 7.0]).show(ui, |ui| {
+        ui.label(RichText::new(tl!(PROCESSING_THREADS)).color(t.text_dim));
+        let opts: Vec<(u32, &str)> = threads.iter().map(|(n, l)| (*n, l.as_str())).collect();
+        crate::widgets::dropdown(ui, "pref-processing-threads", &mut c.threads, &opts, 220.0);
+        ui.end_row();
+        ui.label(RichText::new(tl!(BACKGROUND_PRIORITY)).color(t.text_dim));
+        let opts: Vec<(prefs::BackgroundPriority, &str)> = priority.iter().map(|(v, l)| (*v, l.as_str())).collect();
+        crate::widgets::dropdown(ui, "pref-background-priority", &mut c.background_priority, &opts, 220.0);
+        ui.end_row();
+        ui.label(RichText::new(tl!(PROCESSING_MEMORY)).color(t.text_dim));
+        let opts: Vec<(u32, &str)> = memory.iter().map(|(n, l)| (*n, l.as_str())).collect();
+        crate::widgets::dropdown(ui, "pref-processing-memory", &mut c.memory_percent, &opts, 220.0);
+        ui.end_row();
+    });
+    let hybrid = match (hw.perf_cores, hw.eff_cores) {
+        (Some(pc), Some(ec)) => format!(" ({pc}P + {ec}E)"),
+        _ => String::new(),
+    };
+    let detected = tl!(DETECTED)
+        .replace("{logical}", &hw.logical.to_string())
+        .replace("{physical}", &hw.physical.to_string())
+        .replace("{hybrid}", &hybrid)
+        .replace("{ram}", &format!("{:.0}", hw.ram_total as f64 / (1u64 << 30) as f64));
+    ui.label(RichText::new(detected).color(t.text_dim));
+    ui.label(RichText::new(tl!("Applies at next launch.")).color(t.text_faint));
+    if let Ok(v) = serde_json::to_value(&c) {
+        obj.insert("system".into(), v);
+    }
 }
 
 /// One user-facing choice; legacy flags remain compatible with older settings.
@@ -2333,6 +2390,39 @@ mod tests {
         app.ui.dialog_mut(id).unwrap().fields.insert("values".into(), values);
         assert!(crate::dialogs::confirm(&mut app, id).is_err());
         assert_eq!(app.session.prefs().performance.history_states, 50);
+    }
+
+    /// local-image: Performance › Processing shows the automatic values and stores the optional
+    /// overrides (thread count, background priority, memory share); out-of-range values set by path
+    /// are refused.
+    #[test]
+    fn processing_overrides_show_auto_values_and_round_trip() {
+        use egui_kittest::{Harness, kittest::Queryable};
+
+        let (mut app, _store) = app_with_store();
+        assert_eq!(app.session.prefs().performance.system, prefs::SystemResources::default());
+        let id = open_preferences(&mut app, "performance");
+        let mut h = Harness::builder().with_size(vec2(1280.0, 900.0)).build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            app
+        });
+        h.run_steps(4);
+        let auto = format!("Automatic ({})", lightcraft_sysmem::profile().threads_auto);
+        assert!(h.query_by_label(PROCESSING_THREADS).is_some());
+        // The dropdown shows its choice as the combo box's value (a label in some egui versions).
+        assert!(h.query_by_value(&auto).is_some() || h.query_by_label(&auto).is_some(), "the automatic thread count is shown");
+        assert!(h.query_by_label_contains("physical cores").is_some(), "the detected hardware is shown");
+        let values = h.state_mut().ui.dialog_mut(id).unwrap().fields.get_mut("values").unwrap();
+        values["performance"]["system"] = json!({"threads": 3, "backgroundPriority": "normal", "memoryPercent": 60});
+        h.run_steps(2);
+        let app = h.state_mut();
+        crate::dialogs::confirm(app, id).unwrap();
+        let c = &app.session.prefs().performance.system;
+        assert_eq!((c.threads, c.background_priority, c.memory_percent), (3, prefs::BackgroundPriority::Normal, 60));
+        assert!(app.run("prefs.set", json!({"values": {"performance.system.memoryPercent": 95}})).is_err());
+        assert!(app.run("prefs.set", json!({"values": {"performance.system.backgroundPriority": "idle"}})).is_err());
+        app.run("prefs.set", json!({"values": {"performance.system.threads": 0}})).unwrap();
+        assert_eq!((app.session.prefs().performance.system.threads, app.session.prefs().performance.system.memory_percent), (0, 60));
     }
 
     #[test]

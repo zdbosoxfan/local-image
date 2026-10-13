@@ -112,7 +112,7 @@ fn quick_selection(s: &mut Session, p: &Value) -> Result<Value> {
         if needs_model {
             ctx.progress(0.0, "Selecting");
         }
-        let prior = model.as_ref().and_then(|m| crate::seg::probability_with(m, &doc, layer, all));
+        let prior = model.as_ref().and_then(|m| crate::seg::probability_with(m, &doc, layer, all, ctx.cancellation_flag()));
         ctx.check()?;
         Ok(with_doc_sampler(&doc, layer, all, |smp, doc| {
             let canvas = doc.bounds();
@@ -165,8 +165,10 @@ fn learned(
     ctx: &JobCtx,
     find: impl FnOnce(&Document, Option<LayerId>) -> Option<Region>,
 ) -> Result<Option<Region>> {
-    let Some(r) = find(doc, layer) else { return Ok(None) };
+    // A cancelled model run also finds nothing: report the cancel, not "no subject".
+    let found = find(doc, layer);
     ctx.check()?;
+    let Some(r) = found else { return Ok(None) };
     ctx.progress(0.7, "Refining edge");
     Ok(Some(with_doc_sampler(doc, layer, all_layers, |smp, doc| {
         let canvas = doc.bounds();
@@ -194,7 +196,7 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
             true,
             move |ctx| {
                 ctx.progress(0.0, "Selecting object");
-                learned(&doc, layer, all, ctx, |doc, layer| crate::seg::object_at_with(&model, doc, layer, all, x, y))
+                learned(&doc, layer, all, ctx, |doc, layer| crate::seg::object_at_with(&model, doc, layer, all, x, y, ctx.cancellation_flag()))
             },
             move |s, region| apply(s, "Object Selection", region, m),
         );
@@ -219,7 +221,7 @@ fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
         move |ctx| {
             ctx.progress(0.0, "Selecting subject");
             if let Some(model) = model
-                && let Some(r) = learned(&doc, layer, all, ctx, |doc, layer| crate::seg::subject_with(&model, doc, layer, all))?
+                && let Some(r) = learned(&doc, layer, all, ctx, |doc, layer| crate::seg::subject_with(&model, doc, layer, all, ctx.cancellation_flag()))?
             {
                 return Ok(Some(r));
             }
@@ -752,6 +754,33 @@ mod tests {
         assert!(Arc::ptr_eq(&s.active().unwrap().doc, &doc_before));
         assert_eq!(steps(&s), before);
         assert!(s.active().unwrap().doc.selection.is_none());
+    }
+
+    /// Cancel stops the model itself (its stage check sees the job's flag), not only the result:
+    /// the worker ends without the gate ever opening, nothing is cached for those pixels, and the
+    /// next request runs the model again.
+    #[test]
+    fn cancelling_a_selection_stops_the_model_run_promptly() {
+        let gate = Arc::new(AtomicBool::new(false));
+        let mk = mocked(Some(gate.clone()));
+        let (mut s, _) = disc(8);
+        let id = job(s.start("select.subject", json!({})).unwrap());
+        let t = Instant::now();
+        while mk.model.calls() == 0 && t.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(s.cancel_job(id));
+        let t = Instant::now();
+        s.join_cancelled_jobs();
+        assert!(t.elapsed() < Duration::from_secs(5), "the worker kept running for {:?} after the cancel", t.elapsed());
+        assert!(!gate.load(Ordering::SeqCst));
+        let (doc, layer) = snapshot(&s).unwrap();
+        let model = crate::seg::SubjectModel::current().unwrap();
+        assert!(crate::seg::cached_probability(&model, &doc, layer, true).is_none(), "a cancelled run caches nothing");
+        gate.store(true, Ordering::SeqCst);
+        let v = run_job(&mut s, "select.subject", json!({}));
+        assert_eq!(v["selected"], true);
+        assert_eq!(mk.model.calls(), 2);
     }
 
     #[test]

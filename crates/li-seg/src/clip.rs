@@ -9,7 +9,9 @@ use image::imageops::FilterType;
 use tract_onnx::prelude::*;
 use tract_onnx::tract_hir::infer::Factoid;
 
-use crate::{ModelSpec, Runner, Task, bpe::Bpe, companion_path, installed_bytes, model_path, spec};
+use crate::{ModelSpec, Task, bpe::Bpe, companion_path, installed_bytes, model_path, spec};
+
+type Runner = dyn Fn(Tensor) -> TractResult<TVec<TValue>> + Send + Sync;
 
 const SIDE: usize = 224;
 const DIM: usize = 512;
@@ -32,6 +34,7 @@ pub struct Clip {
 
 impl Clip {
     pub fn load(models_dir: &Path, spec: &ModelSpec) -> Result<Self> {
+        crate::init_executor();
         if spec.task != Task::ImageText || spec.companions.len() != 3 {
             bail!("not a CLIP bundle");
         }

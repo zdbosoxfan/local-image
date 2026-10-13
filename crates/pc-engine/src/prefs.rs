@@ -105,6 +105,11 @@ choice!(
     RenderingMode { Auto = "auto", Gpu = "gpu", Cpu = "cpu" } default Auto
 );
 choice!(
+    /// local-image: OS priority of batch work (export, previews, indexing). `low` lets the UI win
+    /// contested CPU time; `normal` runs it at full speed alongside the UI.
+    BackgroundPriority { Low = "low", Normal = "normal" } default Low
+);
+choice!(
     /// Toolbar hover tips: `rich` (name, shortcut, what it does and how to use it), `simple` (name and
     /// shortcut) or `off`.
     ToolTips { Rich = "rich", Simple = "simple", Off = "off" } default Rich
@@ -462,6 +467,20 @@ pub struct Performance {
     /// Memory budget of the layer-effect cache, in MB.
     pub effect_cache_mb: u32,
     pub legacy_compositing: bool,
+    /// local-image: processing overrides over the values detected at start-up (applies at next launch).
+    pub system: SystemResources,
+}
+
+/// local-image: Performance › Processing. Every value is an optional override; Automatic (0, `low`)
+/// uses what the app derives from the hardware (`lightcraft_sysmem::profile`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SystemResources {
+    /// Processing threads; 0 = Automatic.
+    pub threads: u32,
+    pub background_priority: BackgroundPriority,
+    /// Memory heavy work may plan for, in percent of RAM; 0 = Automatic.
+    pub memory_percent: u32,
 }
 
 impl Performance {
@@ -489,6 +508,7 @@ impl Default for Performance {
             gpu_backend: GpuBackend::Auto,
             effect_cache_mb: 768,
             legacy_compositing: false,
+            system: SystemResources::default(),
         }
     }
 }
@@ -981,6 +1001,7 @@ pub fn choices(path: &str) -> Option<&'static [&'static str]> {
         "rawDefaults.sharpenFor" => RawSharpen::NAMES,
         "performance.gpuBackend" => GpuBackend::NAMES,
         "performance.renderingMode" => RenderingMode::NAMES,
+        "performance.system.backgroundPriority" => BackgroundPriority::NAMES,
         _ => return None,
     })
 }
@@ -996,6 +1017,8 @@ pub fn range(path: &str) -> Option<(f64, f64)> {
         "performance.cacheLevels" => (1.0, 8.0),
         "performance.cacheTileSize" => (256.0, 16384.0),
         "performance.effectCacheMb" => (16.0, 65536.0),
+        "performance.system.threads" => (0.0, 1024.0),
+        "performance.system.memoryPercent" => (0.0, 90.0),
         "transparencyAndGamut.gamutWarningOpacity" => (1.0, 100.0),
         "unitsAndRulers.columnWidth" | "unitsAndRulers.gutter" => (0.0, 10_000.0),
         "unitsAndRulers.printResolution" | "unitsAndRulers.screenResolution" | "rawDefaults.resolution" => (1.0, 10_000.0),

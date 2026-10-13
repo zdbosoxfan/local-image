@@ -231,6 +231,7 @@ impl FaceModels {
     }
 
     pub fn load_files(detector: &Path, embedder: &Path) -> Result<Self> {
+        crate::init_executor();
         let mut detector =
             tract_onnx::onnx().with_ignore_output_shapes(true).with_ignore_value_info(true).model_for_path(detector).context("Could not load YuNet")?;
         ensure!(detector.input_outlets()?.len() == 1 && detector.output_outlets()?.len() == 12, "YuNet must have one input and twelve outputs");

@@ -224,8 +224,8 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
         }
         todo.push(*id);
     }
-    let threads = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1));
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().map_err(|e| crate::EngineError::Other(e.to_string()))?;
+    // Indexing work: the shared low-priority background pool (threading rules 2 and 7), not a
+    // private pool of its own.
     for batch in todo.chunks(32) {
         if cancel.load(Ordering::Relaxed) {
             break;
@@ -237,7 +237,7 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
                 result.failed.push((*id, "could not prepare photo".into()));
             }
         }
-        let rows: Vec<_> = pool.install(|| {
+        let rows: Vec<_> = lightcraft_sysmem::in_background_pool(|| {
             inputs
                 .into_par_iter()
                 .map(|input| {
@@ -281,9 +281,8 @@ pub fn run_inputs(
     result: &(dyn Fn(PhotoId, String, InputResult) + Send + Sync),
 ) -> Result<(), String> {
     use rayon::prelude::*;
-    let threads = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1));
-    let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().map_err(|e| e.to_string())?;
-    pool.install(|| {
+    // The shared low-priority background pool (threading rules 2 and 7).
+    lightcraft_sysmem::in_background_pool(|| {
         inputs.into_par_iter().for_each(|input| {
             if !cancel.load(std::sync::atomic::Ordering::Relaxed) {
                 let (id, key) = (input.id, input.key.clone());

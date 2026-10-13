@@ -22,6 +22,8 @@ pc-trace.workspace = true
 # local-image: AI services (ComfyUI client, workflows) and the image buffers they use.
 li-ai = { workspace = true }
 li-seg = { workspace = true }
+# local-image: thread priority classes for job workers (jobs.rs).
+lightcraft-sysmem = { workspace = true }
 image = { workspace = true }
 anyhow = "1"
 photocraft-geom = { workspace = true }

@@ -101,9 +101,8 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId], headshots: Option<String>
                     }
                 }
                 use rayon::prelude::*;
-                let threads = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1));
-                let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().map_err(|e| e.to_string())?;
-                pool.install(|| {
+                // Face indexing: the shared low-priority background pool (threading rules 2 and 7).
+                lightcraft_sysmem::in_background_pool(|| {
                     inputs.into_par_iter().for_each(|input| {
                         if c.load(Ordering::Relaxed) {
                             return;
@@ -122,7 +121,14 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId], headshots: Option<String>
         let _ = tx.send(Event::Done(result));
     };
     #[cfg(not(target_arch = "wasm32"))]
-    std::thread::Builder::new().name("smart-sort-faces".into()).spawn(work).map_err(|e| e.to_string())?;
+    std::thread::Builder::new()
+        .name("smart-sort-faces".into())
+        .spawn(move || {
+            // Indexing: background priority (threading rule 7).
+            lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
+            work()
+        })
+        .map_err(|e| e.to_string())?;
     #[cfg(target_arch = "wasm32")]
     work();
     app.people_task = Some(PeopleTask { cancel, progress, rx, model, seed, failed: false });

@@ -23,6 +23,8 @@ lightcraft-preview = { workspace = true }
 lightcraft-codecs = { workspace = true }
 lightcraft-raw = { workspace = true }
 li-seg = { workspace = true }
+# Thread priority classes and the shared background pool (smart sort, previews, AI jobs).
+lightcraft-sysmem = { workspace = true }
 lensfun = { workspace = true }
 lightcraft-meta = { workspace = true }
 miniz_oxide = { workspace = true }

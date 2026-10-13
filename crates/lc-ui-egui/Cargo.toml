@@ -19,6 +19,8 @@ lightcraft-pipeline = { workspace = true }
 lightcraft-catalog = { workspace = true }
 web-time = { workspace = true }
 lightcraft-engine = { workspace = true }
+# The shared background pool and thread priority classes (people_task.rs).
+lightcraft-sysmem = { workspace = true }
 lightcraft-preview = { workspace = true }
 egui = { workspace = true }
 # Reuse the workspace's existing pure-Rust usvg/resvg renderer (no new packages).

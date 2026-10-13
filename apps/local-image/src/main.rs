@@ -25,6 +25,7 @@ mod app_icon;
 mod app_log;
 #[cfg(target_os = "macos")]
 mod apple_events;
+mod compute_policy;
 mod control_server;
 mod crash_guard;
 mod cursor;
@@ -194,6 +195,8 @@ fn main() -> eframe::Result {
         app_dirs::config_dir(),
         log_path
     );
+    // One compute pool sized from the hardware, built before anything uses rayon (threading rules 1-2).
+    compute_policy::init(services::prefs_file().as_deref());
 
     // A malformed control port must not silently drop the control server (issue #701): name the
     // bad value and fail the launch, like `local-image-cli serve --port` does for the same typo.

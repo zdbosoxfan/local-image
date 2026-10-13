@@ -165,26 +165,20 @@ pub fn unmatte(m: f32, a: f32, white: f32) -> f32 {
     if a <= 0.0 { white } else { (m - white * (1.0 - a)) / a }
 }
 
-/// `items.map(f)` on scoped threads (one per item; callers pass a handful of channels or
-/// bands), in order; sequential on wasm or for a single item.
-pub fn par_map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> R + Sync) -> Vec<R> {
+/// `items.map(f)` on the shared compute pool (threading rule 2; callers pass a handful of channels
+/// or bands), in order; sequential on wasm or for a single item. A panic in `f` reaches the caller
+/// as in the sequential path (rayon re-raises it on the calling thread once every item is done).
+pub fn par_map<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> R + Sync + Send) -> Vec<R> {
     if cfg!(target_arch = "wasm32") || items.len() < 2 {
         return items.into_iter().map(f).collect();
     }
-    std::thread::scope(|sc| {
-        let f = &f;
-        let hs: Vec<_> = items.into_iter().map(|t| sc.spawn(move || f(t))).collect();
-        // Join every worker first (an unjoined panicked thread would make the scope panic),
-        // then hand a worker's panic to the caller exactly as the sequential path would, so
-        // the shell's last-resort guard reports it instead of the scope aborting the join.
-        let joined: Vec<_> = hs.into_iter().map(|h| h.join()).collect();
-        joined.into_iter().map(|r| r.unwrap_or_else(|p| std::panic::resume_unwind(p))).collect()
-    })
+    use rayon::prelude::*;
+    items.into_par_iter().map(f).collect()
 }
 
-/// `0..n` split into about one band per core.
+/// `0..n` split into about one band per compute thread.
 pub fn bands(n: usize) -> Vec<std::ops::Range<usize>> {
-    let k = if cfg!(target_arch = "wasm32") { 1 } else { std::thread::available_parallelism().map_or(1, |v| v.get()).clamp(1, 32) };
+    let k = if cfg!(target_arch = "wasm32") { 1 } else { rayon::current_num_threads().clamp(1, 32) };
     let step = n.div_ceil(k).max(1);
     (0..n).step_by(step).map(|a| a..(a + step).min(n)).collect()
 }

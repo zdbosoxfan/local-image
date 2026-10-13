@@ -744,11 +744,7 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &AtomicBool, progress: 
             todo.push(*id);
         }
     }
-    let threads = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1));
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(threads)
-        .build()
-        .map_err(|_| EngineError::Other("could not start face analysis workers".into()))?;
+    // Face indexing: the shared low-priority background pool (threading rules 2 and 7).
     for batch in todo.chunks(32) {
         if cancel.load(Ordering::Relaxed) {
             break;
@@ -761,7 +757,7 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &AtomicBool, progress: 
             }
         }
         let sizes: BTreeMap<_, _> = batch.iter().filter_map(|id| s.catalog.photo(*id).map(|p| (*id, (p.width, p.height)))).collect();
-        let rows: Vec<_> = pool.install(|| {
+        let rows: Vec<_> = lightcraft_sysmem::in_background_pool(|| {
             inputs
                 .into_par_iter()
                 .map(|input| {
