@@ -402,7 +402,8 @@ fn probe_all(probe: Option<&crate::media::FileProbe>, paths: &[String], progress
     };
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 8).min(paths.len().max(1));
+        // reading headers and hashing whole files: the compute budget, at most 8 at once
+        let n = lightcraft_sysmem::profile().threads.clamp(1, 8).min(paths.len().max(1));
         if n > 1 {
             let mut results: Vec<Option<Result<ProbeInfo, String>>> = vec![None; paths.len()];
             let next = std::sync::atomic::AtomicUsize::new(0);
@@ -624,6 +625,8 @@ pub struct ImportJob {
     /// Files found so far (folders expanded) and handled so far, for progress.
     pub total: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     pub done: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// Copies run at once (`None`: as many as the heavy-job permits allow); tests compare 1 and N.
+    pub(crate) copy_workers: Option<usize>,
 }
 
 /// The outcome of [`ImportJob::prepare`] for one batch, in file order.
@@ -728,6 +731,7 @@ impl ImportJob {
             now: (s.clock)(),
             total: Default::default(),
             done: Default::default(),
+            copy_workers: None,
         })
     }
 
@@ -793,117 +797,407 @@ impl ImportJob {
         let probed: Vec<Result<ProbeInfo, String>> =
             cached.into_iter().map(|c| c.map(Ok).unwrap_or_else(|| fresh.next().unwrap_or_else(|| Err("not probed".into())))).collect();
         crate::memory::release();
-        for (path, info) in todo.into_iter().zip(probed) {
-            if cancel.load(Relaxed) {
-                break;
-            }
-            self.done.fetch_add(1, Relaxed);
-            let mut info = match info {
-                Ok(i) => i,
-                Err(e) => {
-                    log::warn!("import {path}: {e}");
-                    out.items.push(PreparedItem::Failed(path, e));
+        // Copies (copy, sync, verify; optional DNG conversion) run on a bounded group of threads
+        // while this loop goes on in file order; everything that decides names, folders, sequence
+        // numbers and duplicates stays here, in order (threading rules 6, 10, 11).
+        // never more copy threads than files (a single file is copied right here)
+        let workers = if cfg!(target_arch = "wasm32") {
+            1
+        } else {
+            self.copy_workers.unwrap_or_else(|| lightcraft_sysmem::heavy_jobs().max_jobs()).min(todo.len())
+        };
+        let copies = Copies::new(workers, self.file_bytes.clone(), self.done.clone());
+        let mut entries: Vec<Entry> = Vec::new();
+        // content hash → the copy (task) of an earlier file in this batch that had it, until known
+        let mut pending_hash: HashMap<String, usize> = HashMap::new();
+        copies.run(cancel, |copies| {
+            for (path, info) in todo.into_iter().zip(probed) {
+                if cancel.load(Relaxed) {
+                    break;
+                }
+                let mut info = match info {
+                    Ok(i) => i,
+                    Err(e) => {
+                        self.done.fetch_add(1, Relaxed);
+                        log::warn!("import {path}: {e}");
+                        entries.push(Entry::Done(PreparedItem::Failed(path, e)));
+                        continue;
+                    }
+                };
+                // a file earlier in this batch with the same bytes: a duplicate once its copy is
+                // known to have worked (a failed copy imported nothing)
+                if let Some(h) = &info.content_hash
+                    && !opts.local
+                    && let Some(task) = pending_hash.remove(h)
+                    && copies.outcome(task).is_copied()
+                {
+                    self.by_hash.insert(h.clone(), None);
+                }
+                if let Some(h) = &info.content_hash
+                    && !opts.local
+                    && let Some(existing) = self.by_hash.get(h)
+                {
+                    self.done.fetch_add(1, Relaxed);
+                    entries.push(Entry::Done(PreparedItem::Duplicate { path, existing: *existing, reason: "content", hash: Some(h.clone()) }));
                     continue;
                 }
-            };
-            if let Some(h) = &info.content_hash
-                && !opts.local
-                && let Some(existing) = self.by_hash.get(h)
-            {
-                out.items.push(PreparedItem::Duplicate { path, existing: *existing, reason: "content", hash: Some(h.clone()) });
-                continue;
-            }
-            // the XMP sidecar (or a raw's embedded XMP), read before copying: its capture time files
-            // and names the copy when the file itself has none
-            let raw = info.kind == MediaKind::Raw;
-            let packet = crate::sidecar::find_sidecar(&path, self.naming)
-                .and_then(|f| std::fs::read_to_string(f).ok())
-                .or_else(|| info.xmp.clone().filter(|_| raw));
-            let sidecar = packet.and_then(|x| match crate::sidecar::parse_sidecar(&x, raw) {
-                Ok(sc) => Some(sc),
-                Err(e) => {
-                    log::warn!("import {path}: XMP: {e}");
-                    None
+                // the XMP sidecar (or a raw's embedded XMP), read before copying: its capture time files
+                // and names the copy when the file itself has none
+                let raw = info.kind == MediaKind::Raw;
+                let packet = crate::sidecar::find_sidecar(&path, self.naming)
+                    .and_then(|f| std::fs::read_to_string(f).ok())
+                    .or_else(|| info.xmp.clone().filter(|_| raw));
+                let sidecar = packet.and_then(|x| match crate::sidecar::parse_sidecar(&x, raw) {
+                    Ok(sc) => Some(sc),
+                    Err(e) => {
+                        log::warn!("import {path}: XMP: {e}");
+                        None
+                    }
+                });
+                if info.captured.is_none() {
+                    info.captured = sidecar.as_ref().and_then(|sc| sc.captured.clone());
                 }
-            });
-            if info.captured.is_none() {
-                info.captured = sidecar.as_ref().and_then(|sc| sc.captured.clone());
-            }
-            let mut placed = None;
-            let stored = match (mode, &self.copy_root) {
-                (ImportMode::Copy | ImportMode::Move, Some(root))
-                    if !crate::import_move::inside(Path::new(&path), root)
-                        && !self.lib_dir.as_ref().is_some_and(|l| crate::import_move::inside(Path::new(&path), l)) =>
-                {
-                    // the templates see the photo as it will be catalogued (undated: the import time)
-                    let own = Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                    let mut q = Photo::new(PhotoId(0), Source::File { path: path.clone() }, &own, &info.format, 0, 0, &self.now);
-                    q.captured = info.captured.clone();
-                    q.meta = info.meta.clone();
-                    let name = opts.rename.as_deref().filter(|t| !t.trim().is_empty()).map(|t| {
-                        let n = crate::rename::expand(t, &q, self.seq);
-                        self.seq += 1;
-                        n
-                    });
-                    let folders = opts.organize.folders(&q);
-                    if mode == ImportMode::Move && !crate::import_move::is_symlink(Path::new(&path)) {
-                        let dir = folders.iter().fold(root.to_path_buf(), |d, f| d.join(f));
-                        let name = name.unwrap_or(own);
-                        match crate::import_move::place(Path::new(&path), &dir, &name) {
-                            Ok(pl) => {
-                                let dst = pl.dst.to_string_lossy().to_string();
-                                placed = Some(pl);
-                                dst
+                let mut placed = None;
+                let stored = match (mode, &self.copy_root) {
+                    (ImportMode::Copy | ImportMode::Move, Some(root))
+                        if !crate::import_move::inside(Path::new(&path), root)
+                            && !self.lib_dir.as_ref().is_some_and(|l| crate::import_move::inside(Path::new(&path), l)) =>
+                    {
+                        // the templates see the photo as it will be catalogued (undated: the import time)
+                        let own = Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        let mut q = Photo::new(PhotoId(0), Source::File { path: path.clone() }, &own, &info.format, 0, 0, &self.now);
+                        q.captured = info.captured.clone();
+                        q.meta = info.meta.clone();
+                        let name = opts.rename.as_deref().filter(|t| !t.trim().is_empty()).map(|t| {
+                            let n = crate::rename::expand(t, &q, self.seq);
+                            self.seq += 1;
+                            n
+                        });
+                        let folders = opts.organize.folders(&q);
+                        if mode == ImportMode::Move && !crate::import_move::is_symlink(Path::new(&path)) {
+                            self.done.fetch_add(1, Relaxed);
+                            let dir = folders.iter().fold(root.to_path_buf(), |d, f| d.join(f));
+                            let name = name.unwrap_or(own);
+                            // a copy queued before it that could take the same name goes first
+                            copies.wait_for_name(&name_key(&dir, &name));
+                            match crate::import_move::place(Path::new(&path), &dir, &name) {
+                                Ok(pl) => {
+                                    let dst = pl.dst.to_string_lossy().to_string();
+                                    placed = Some(pl);
+                                    dst
+                                }
+                                Err(e) => {
+                                    entries.push(Entry::Done(PreparedItem::Failed(path, e)));
+                                    continue;
+                                }
                             }
-                            Err(e) => {
-                                out.items.push(PreparedItem::Failed(path, e));
-                                continue;
+                        } else {
+                            if mode == ImportMode::Move {
+                                let reason = "a symbolic link: the file it points to was copied, the link and its target stay";
+                                entries.push(Entry::Done(PreparedItem::Kept(Kept { path: path.clone(), reason: reason.into() })));
                             }
-                        }
-                    } else {
-                        if mode == ImportMode::Move {
-                            let reason = "a symbolic link: the file it points to was copied, the link and its target stay";
-                            out.items.push(PreparedItem::Kept(Kept { path: path.clone(), reason: reason.into() }));
-                        }
-                        match copy_into(root, &path, &folders, name.as_deref(), info.content_hash.as_deref()) {
-                            Ok(p) => p,
-                            Err(e) => {
-                                out.items.push(PreparedItem::Failed(path, e));
-                                continue;
+                            // Copy as DNG: the copied raw becomes a DNG (the copy is ours to replace)
+                            let dng = opts.convert_dng
+                                && mode == ImportMode::Copy
+                                && info.kind == MediaKind::Raw
+                                && !info.format.eq_ignore_ascii_case("DNG");
+                            let task = copies.submit(CopyTask {
+                                root: root.clone(),
+                                src: path.clone(),
+                                folders,
+                                name,
+                                hash: info.content_hash.clone(),
+                                dng,
+                                cost: copy_cost(info.file_size, dng),
+                            });
+                            if let Some(h) = &info.content_hash {
+                                pending_hash.insert(h.clone(), task);
                             }
+                            entries.push(Entry::Copy(Box::new(PendingCopy { task, path, info, sidecar })));
+                            continue;
                         }
                     }
-                }
-                (ImportMode::Move, _) => {
-                    let reason = "already inside the destination or the library: added where it is";
-                    out.items.push(PreparedItem::Kept(Kept { path: path.clone(), reason: reason.into() }));
-                    path.clone()
-                }
-                _ => path.clone(),
-            };
-            if let Some(h) = &info.content_hash {
-                self.by_hash.insert(h.clone(), None);
-            }
-            // Copy as DNG: the copied raw becomes a DNG (the copy is ours to replace)
-            let mut stored = stored;
-            if opts.convert_dng
-                && mode == ImportMode::Copy
-                && stored != path
-                && info.kind == MediaKind::Raw
-                && !info.format.eq_ignore_ascii_case("DNG")
-            {
-                match crate::cmd::convert::write_dng_with(self.file_bytes.as_ref(), &stored, String::new()) {
-                    Ok(dng) => {
-                        let _ = std::fs::remove_file(&stored);
-                        stored = dng;
-                        info.format = "DNG".into();
+                    (ImportMode::Move, _) => {
+                        self.done.fetch_add(1, Relaxed);
+                        let reason = "already inside the destination or the library: added where it is";
+                        entries.push(Entry::Done(PreparedItem::Kept(Kept { path: path.clone(), reason: reason.into() })));
+                        path.clone()
                     }
-                    Err(e) => log::warn!("import {path}: copy as DNG: {e}"),
+                    _ => {
+                        self.done.fetch_add(1, Relaxed);
+                        path.clone()
+                    }
+                };
+                if let Some(h) = &info.content_hash {
+                    self.by_hash.insert(h.clone(), None);
+                }
+                entries.push(Entry::Done(PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed }))));
+            }
+        });
+        // In file order. A copy skipped by a cancel ends the batch there, as the one-at-a-time
+        // import stopped before that file: what came after it is left out (a Move placed after
+        // it is taken back; copies are a prefix, so none of them was made).
+        let outcomes = copies.into_outcomes();
+        let mut entries = entries.into_iter();
+        for entry in entries.by_ref() {
+            match entry {
+                Entry::Done(item) => out.items.push(item),
+                Entry::Copy(pending) => {
+                    let PendingCopy { task, path, mut info, sidecar } = *pending;
+                    match outcomes.get(task).cloned().unwrap_or(CopyOutcome::Skipped) {
+                        CopyOutcome::Copied { stored, dng } => {
+                            if let Some(h) = &info.content_hash {
+                                self.by_hash.insert(h.clone(), None);
+                            }
+                            if dng {
+                                info.format = "DNG".into();
+                            }
+                            out.items.push(PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed: None })));
+                        }
+                        CopyOutcome::Failed(e) => out.items.push(PreparedItem::Failed(path, e)),
+                        CopyOutcome::Skipped => break,
+                    }
                 }
             }
-            out.items.push(PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed })));
+        }
+        for entry in entries {
+            if let Entry::Done(PreparedItem::Ready(r)) = entry
+                && let Some(pl) = &r.placed
+            {
+                crate::import_move::rollback(pl);
+            }
         }
         out
+    }
+}
+
+/// One file of [`ImportJob::prepare_files`] in file order: decided, or waiting for its copy.
+enum Entry {
+    Done(PreparedItem),
+    Copy(Box<PendingCopy>),
+}
+
+/// A file whose copy is queued ([`Copies`]) and what it becomes once copied.
+struct PendingCopy {
+    task: usize,
+    path: String,
+    info: ProbeInfo,
+    sidecar: Option<crate::sidecar::SidecarData>,
+}
+
+/// One file to copy into the library (and, with Copy as DNG, convert).
+struct CopyTask {
+    root: PathBuf,
+    src: String,
+    folders: Vec<String>,
+    name: Option<String>,
+    hash: Option<String>,
+    dng: bool,
+    /// Working memory (heavy-job permit).
+    cost: u64,
+}
+
+impl CopyTask {
+    /// Files whose copies could take each other's names (`IMG.jpg`, `img-1.JPG`, `IMG.CR2` → a
+    /// DNG) share a key: they are copied one after the other, in file order, so the names they get
+    /// don't depend on which thread is faster.
+    fn name_key(&self) -> String {
+        let dir = self.folders.iter().fold(self.root.clone(), |d, f| d.join(f));
+        let name = self.name.clone().unwrap_or_else(|| Path::new(&self.src).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
+        name_key(&dir, &name)
+    }
+
+    fn run(self, file_bytes: Option<&crate::merge::ByteReader>) -> CopyOutcome {
+        let stored = match copy_into(&self.root, &self.src, &self.folders, self.name.as_deref(), self.hash.as_deref()) {
+            Ok(p) => p,
+            Err(e) => return CopyOutcome::Failed(e),
+        };
+        if self.dng {
+            match crate::cmd::convert::write_dng_with(file_bytes, &stored, String::new()) {
+                Ok(dng) => {
+                    let _ = std::fs::remove_file(&stored);
+                    return CopyOutcome::Copied { stored: dng, dng: true };
+                }
+                Err(e) => log::warn!("import {}: copy as DNG: {e}", self.src),
+            }
+        }
+        CopyOutcome::Copied { stored, dng: false }
+    }
+}
+
+/// The key of [`CopyTask::name_key`] for file `name` in `dir`: the folder and the name without
+/// extension, case or a `-N` suffix (names made unique, DNGs named after the raw).
+fn name_key(dir: &Path, name: &str) -> String {
+    let stem = name.rsplit_once('.').map_or(name, |(s, _)| if s.is_empty() { name } else { s }).to_lowercase();
+    let base = match stem.rsplit_once('-') {
+        Some((b, n)) if !b.is_empty() && !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) => b.to_string(),
+        _ => stem,
+    };
+    format!("{}/{base}", dir.to_string_lossy().to_lowercase())
+}
+
+/// Working memory of one import copy: the copy and verify buffers, plus for Copy as DNG the raw
+/// decoded twice and the DNG written (about 6× the file).
+fn copy_cost(file_size: u64, dng: bool) -> u64 {
+    (16 << 20) + if dng { file_size.saturating_mul(6) } else { 0 }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum CopyOutcome {
+    Copied {
+        stored: String,
+        dng: bool,
+    },
+    Failed(String),
+    /// Not started: the import was cancelled first.
+    Skipped,
+}
+
+impl CopyOutcome {
+    fn is_copied(&self) -> bool {
+        matches!(self, CopyOutcome::Copied { .. })
+    }
+}
+
+/// The copies of one import batch: submitted in file order, run by up to `workers` threads (one:
+/// right away on the submitting thread), each admitted with a heavy-job permit, files that could
+/// take each other's names one after the other ([`CopyTask::name_key`]). Copies are only skipped
+/// when a cancel comes before they are taken up, and they are taken up in order, so the copies
+/// made are always the first ones.
+struct Copies {
+    workers: usize,
+    file_bytes: Option<crate::merge::ByteReader>,
+    done: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    outcomes: std::sync::Mutex<Vec<Option<CopyOutcome>>>,
+    finished: std::sync::Condvar,
+    queue: std::sync::Mutex<Option<std::sync::mpsc::SyncSender<(usize, Option<usize>, CopyTask)>>>,
+    last_by_key: std::sync::Mutex<HashMap<String, usize>>,
+}
+
+impl Copies {
+    fn new(workers: usize, file_bytes: Option<crate::merge::ByteReader>, done: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Copies {
+        Copies {
+            workers: workers.max(1),
+            file_bytes,
+            done,
+            outcomes: Default::default(),
+            finished: Default::default(),
+            queue: Default::default(),
+            last_by_key: Default::default(),
+        }
+    }
+
+    fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+        m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn set(&self, task: usize, outcome: CopyOutcome) {
+        if outcome != CopyOutcome::Skipped {
+            self.done.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        if let Some(slot) = Self::lock(&self.outcomes).get_mut(task) {
+            *slot = Some(outcome);
+        }
+        self.finished.notify_all();
+    }
+
+    /// Wait for copy `task`'s outcome.
+    fn outcome(&self, task: usize) -> CopyOutcome {
+        let mut all = Self::lock(&self.outcomes);
+        loop {
+            match all.get(task) {
+                Some(Some(o)) => return o.clone(),
+                Some(None) => all = self.finished.wait(all).unwrap_or_else(std::sync::PoisonError::into_inner),
+                None => return CopyOutcome::Skipped,
+            }
+        }
+    }
+
+    /// Wait for the last copy queued under name key `key` ([`name_key`]), if any.
+    fn wait_for_name(&self, key: &str) {
+        let last = Self::lock(&self.last_by_key).get(key).copied();
+        if let Some(task) = last {
+            let _ = self.outcome(task);
+        }
+    }
+
+    /// Queue `task` (or, with one worker, copy it now); returns its number.
+    fn submit(&self, task: CopyTask) -> usize {
+        let n = {
+            let mut all = Self::lock(&self.outcomes);
+            all.push(None);
+            all.len() - 1
+        };
+        let after = Self::lock(&self.last_by_key).insert(task.name_key(), n);
+        let queue = Self::lock(&self.queue).clone();
+        match queue {
+            Some(tx) => {
+                if let Err(e) = tx.send((n, after, task)) {
+                    // no worker left (can't happen while `run` is active): copy it here
+                    let (_, _, task) = e.0;
+                    self.set(n, task.run(self.file_bytes.as_ref()));
+                }
+            }
+            None => {
+                let permit = lightcraft_sysmem::heavy_jobs().admit(task.cost, &|| false);
+                self.set(n, task.run(self.file_bytes.as_ref()));
+                drop(permit);
+            }
+        }
+        n
+    }
+
+    /// Run `plan` (which submits copies) with the worker threads going; returns once every copy
+    /// has an outcome.
+    fn run(&self, cancel: &std::sync::atomic::AtomicBool, plan: impl FnOnce(&Copies)) {
+        if self.workers <= 1 {
+            return plan(self);
+        }
+        let (tx, rx) = std::sync::mpsc::sync_channel::<(usize, Option<usize>, CopyTask)>(self.workers);
+        let rx = std::sync::Mutex::new(rx);
+        std::thread::scope(|sc| {
+            let mut started = 0;
+            for n in 0..self.workers {
+                let spawned = std::thread::Builder::new().name(format!("lc-import-copy-{n}")).spawn_scoped(sc, || {
+                    lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
+                    loop {
+                        // taken in order; a cancel skips the copies not taken up yet
+                        let (next, cancelled) = {
+                            let rx = Self::lock(&rx);
+                            (rx.recv(), cancel.load(std::sync::atomic::Ordering::Relaxed))
+                        };
+                        let Ok((task_n, after, task)) = next else { break };
+                        if cancelled {
+                            self.set(task_n, CopyOutcome::Skipped);
+                            continue;
+                        }
+                        // a file that could take the same name waits for the one before it
+                        // (taken up earlier, so never waiting on a later copy); then a permit
+                        if let Some(a) = after {
+                            let _ = self.outcome(a);
+                        }
+                        let permit = lightcraft_sysmem::heavy_jobs().admit(task.cost, &|| false);
+                        self.set(task_n, task.run(self.file_bytes.as_ref()));
+                        drop(permit);
+                    }
+                });
+                match spawned {
+                    Ok(_) => started += 1,
+                    Err(e) => log::warn!("import: could not start a copy thread ({e})"),
+                }
+            }
+            // without any copy thread the copies are made one at a time as they are submitted
+            if started > 0 {
+                *Self::lock(&self.queue) = Some(tx);
+            }
+            plan(self);
+            // no more copies: the workers finish what is queued and stop
+            Self::lock(&self.queue).take();
+        });
+    }
+
+    fn into_outcomes(self) -> Vec<CopyOutcome> {
+        self.outcomes.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner).into_iter().map(|o| o.unwrap_or(CopyOutcome::Skipped)).collect()
     }
 }
 

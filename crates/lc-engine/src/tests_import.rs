@@ -1054,3 +1054,117 @@ fn a_file_gone_since_the_import_review_is_not_imported() {
     assert_eq!(s.catalog.len(), 1, "no photo for a file that isn't there");
     let _ = std::fs::remove_dir_all(&src);
 }
+
+/// One copy import of the parallel-copy fixture with `workers` copies at once; returns the report
+/// and the catalog with the library and source folders replaced by placeholders.
+fn copy_import_with_workers(workers: usize, cancel_after: Option<usize>) -> (Value, Vec<Value>) {
+    let src = temp_dir(&format!("par-src-{workers}-{}", cancel_after.is_some()));
+    let lib = temp_dir(&format!("par-lib-{workers}-{}", cancel_after.is_some()));
+    let mut s = Session::new().with_fs();
+    s.open_library(&lib, false).unwrap();
+    // a photo already in Recently Deleted: the same bytes in the batch restore it
+    write_png(&src.join("trash/gone.png"), 90);
+    let r = s.execute("library.import", &json!({"paths": [src.join("trash/gone.png").to_string_lossy()], "mode": "copy"})).unwrap();
+    let gone = r["imported"][0].as_u64().unwrap();
+    s.execute("photo.delete", &json!({"ids": [gone]})).unwrap();
+    // names that collide once copied into one dated folder, duplicates within the batch (by
+    // content, the second after the first's copy) and a dozen ordinary files
+    write_png(&src.join("a/IMG.png"), 1);
+    write_png(&src.join("b/IMG.png"), 2);
+    write_png(&src.join("c/img-1.png"), 3);
+    write_png(&src.join("d/IMG.png"), 1); // same bytes as a/IMG.png
+    write_png(&src.join("e/again.png"), 90); // same bytes as the deleted photo
+    write_png(&src.join("f/IMG-1.PNG"), 4);
+    for i in 0..12u8 {
+        write_png(&src.join(format!("g/p{i:02}.png")), 10 + i);
+    }
+    let opts = crate::import::ImportOptions { mode: crate::import::ImportMode::Copy, ..Default::default() };
+    let mut job = crate::import::ImportJob::new(&mut s, opts).unwrap();
+    job.copy_workers = Some(workers);
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    let files = job.expand(&[src.to_string_lossy().to_string()]);
+    let prepared = match cancel_after {
+        // cancel once that many files are handled, while later copies are queued or running
+        Some(n) => {
+            let done = job.done.clone();
+            std::thread::scope(|sc| {
+                sc.spawn(|| {
+                    while done.load(std::sync::atomic::Ordering::SeqCst) < n {
+                        std::thread::yield_now();
+                    }
+                    cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                });
+                job.prepare_files(files, &cancel)
+            })
+        }
+        None => job.prepare_files(files, &cancel),
+    };
+    let report = crate::import::commit_prepared(&mut s, &job.opts, job.now(), prepared).unwrap();
+    let clean = |v: Value| -> Value {
+        let text = v.to_string().replace(&*lib.to_string_lossy(), "<lib>").replace(&*src.to_string_lossy(), "<src>");
+        serde_json::from_str(&text).unwrap()
+    };
+    let report = clean(serde_json::to_value(&report).unwrap());
+    let photos = s
+        .catalog
+        .photos()
+        .map(|p| clean(json!({"id": p.id.0, "name": p.file_name, "source": p.source, "hash": p.content_hash, "deleted": p.deleted})))
+        .collect();
+    // every catalogued copy is there and whole; nothing else was left in the library's originals
+    let mut on_disk = Vec::new();
+    for e in walk(&lib.join("Originals")) {
+        on_disk.push(e.to_string_lossy().to_string());
+    }
+    let catalogued: std::collections::HashSet<String> = s
+        .catalog
+        .photos()
+        .filter_map(|p| match &p.source {
+            lightcraft_catalog::Source::File { path } => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    for f in &on_disk {
+        assert!(catalogued.contains(f), "{f} copied but not in the catalog");
+    }
+    let _ = std::fs::remove_dir_all(&src);
+    let _ = std::fs::remove_dir_all(&lib);
+    (report, photos)
+}
+
+fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = e.path();
+        if p.is_dir() { out.extend(walk(&p)) } else { out.push(p) }
+    }
+    out
+}
+
+/// Threading rule 11: an import copying several files at once catalogues exactly what the
+/// one-at-a-time import did — same names for colliding files, same duplicates (within the batch
+/// and with Recently Deleted, which is restored), same order.
+#[test]
+fn parallel_import_copies_give_the_same_catalog_as_one_at_a_time() {
+    let (report1, photos1) = copy_import_with_workers(1, None);
+    let (report4, photos4) = copy_import_with_workers(4, None);
+    assert_eq!(report1, report4);
+    assert_eq!(photos1, photos4);
+    assert_eq!(report1["restored"].as_array().map(Vec::len), Some(1), "{report1}");
+    assert_eq!(ids(&report1, "imported"), 16, "{report1}");
+    assert_eq!(ids(&report1, "duplicates"), 1, "{report1}");
+    let names: Vec<&str> = photos1.iter().filter_map(|p| p["source"]["path"].as_str()).filter(|p| p.contains("IMG") || p.contains("img")).collect();
+    assert_eq!(names.len(), 4, "{names:?}");
+    let unique: std::collections::HashSet<_> = names.iter().collect();
+    assert_eq!(unique.len(), 4, "colliding names made unique: {names:?}");
+    assert!(names[1].ends_with("IMG-1.png"), "the second IMG.png in file order gets -1: {names:?}");
+}
+
+/// Cancelling a parallel import keeps the files before the stop point catalogued, leaves no
+/// uncatalogued copies, and reports nothing after it.
+#[test]
+fn cancelling_a_parallel_import_keeps_only_what_was_finished() {
+    let (report, photos) = copy_import_with_workers(3, Some(6));
+    let imported = ids(&report, "imported");
+    assert!((1..19).contains(&imported), "{report}");
+    assert!(photos.iter().filter(|p| p["deleted"] == false).count() >= imported);
+}

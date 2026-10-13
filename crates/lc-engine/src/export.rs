@@ -1151,6 +1151,8 @@ struct RenderWork {
     upscale: Option<(std::sync::Arc<dyn crate::enhance::AiHost>, (usize, usize))>,
     meta: Option<Metadata>,
     opts: ExportOptions,
+    /// Estimated working memory ([`render_cost`]).
+    cost: u64,
 }
 
 enum Work {
@@ -1220,6 +1222,7 @@ pub(crate) fn prepare_guarded(
             if o.source_encoding.is_some() { (OutputSpace::Rec2020, OutputDepth::F32Linear) } else { (o.effective_space(), o.effective_depth()) };
         let (nw, nh) = lightcraft_pipeline::native_output_size(p.width.max(1) as usize, p.height.max(1) as usize, &p.develop);
         let native = (nw.round().max(1.0) as usize, nh.round().max(1.0) as usize);
+        let cost = render_cost((p.width as usize, p.height as usize), (w, h), depth);
         let upscale = if o.enhance.is_some() && w > native.0 && h > native.1 {
             Some((session.enhance.host.clone().ok_or("AI enlargement is not available in this host")?, (w, h)))
         } else {
@@ -1230,7 +1233,7 @@ pub(crate) fn prepare_guarded(
         } else {
             session.export_job(id, w, h, space, depth)?
         };
-        Work::Render(Box::new(RenderWork { job, upscale, meta, opts: o.clone() }))
+        Work::Render(Box::new(RenderWork { job, upscale, meta, opts: o.clone(), cost }))
     } else {
         let lightcraft_catalog::Source::File { path } = &p.source else {
             return Err(format!("{} is a generated demo photo: it has no original file to export", p.file_name));
@@ -1248,20 +1251,102 @@ pub(crate) fn prepare_guarded(
     Ok(PreparedExport { photo: id, file_name, subfolder: None, work, guard, source_dir })
 }
 
+/// One export after its render stage ([`PreparedExport::develop`]), before encoding.
+pub(crate) enum Developed {
+    /// Rendered pixels, to encode in the requested format.
+    Image(Box<RenderedExport>),
+    /// The raw data of a DNG export, to write as a DNG.
+    Raw { raw: Box<lightcraft_raw::RawImage>, packet: String, compression: lightcraft_raw::DngCompression },
+    /// Nothing left to encode (an `Original` export: the file's own bytes).
+    Done(Exported),
+}
+
+/// A rendered export waiting for its encoder.
+pub(crate) struct RenderedExport {
+    r: lightcraft_pipeline::Rendered,
+    meta: Option<Metadata>,
+    opts: ExportOptions,
+}
+
+impl Developed {
+    /// Bytes it holds while it waits for the encoder, plus the encoder's working copy (what a
+    /// pipeline keeps reserved for it after the render, [`lightcraft_sysmem::Permit::finish_heavy`]).
+    pub(crate) fn reserved_bytes(&self) -> u64 {
+        let held = match self {
+            Developed::Image(img) => {
+                let r = &img.r;
+                let deep = r.deep.as_ref().map_or(0, |d| match &d.samples {
+                    DeepSamples::U16(v) => v.len() * 2,
+                    DeepSamples::F32(v) => v.len() * 4,
+                });
+                r.image.data.len() * 4 + deep
+            }
+            Developed::Raw { raw, .. } => raw.width * raw.height * raw.cpp.max(1) * 2,
+            Developed::Done(e) => e.bytes.len() + e.sidecars.iter().map(|(_, b)| b.len()).sum::<usize>(),
+        } as u64;
+        match self {
+            Developed::Done(_) => held,
+            _ => held * 2,
+        }
+    }
+}
+
+/// Pixels assumed for a photo whose size the catalog doesn't know (a 24 MP camera).
+const UNKNOWN_PIXELS: u64 = 24_000_000;
+
+fn pixels((w, h): (usize, usize)) -> u64 {
+    if w == 0 || h == 0 { UNKNOWN_PIXELS } else { w as u64 * h as u64 }
+}
+
+/// Working memory of one rendered export (threading rule 6), from its pixel counts: the decoded
+/// source in f32 RGB (12 B/px) plus about two working copies in the develop pipeline (36 B/px of
+/// the source), and at the output size the RGBA8 result, the encoder's copy and the encoded file
+/// (about 12 B/px) plus the high-bit-depth samples when the format keeps them.
+pub(crate) fn render_cost(source: (usize, usize), out: (usize, usize), depth: OutputDepth) -> u64 {
+    let deep = match depth {
+        OutputDepth::U8 => 0,
+        OutputDepth::U16 => 6,
+        OutputDepth::F32Linear => 12,
+    };
+    pixels(source) * 36 + pixels(out) * (12 + deep)
+}
+
+/// Working memory of an `Original` (the file's bytes, about 2 B/px for a raw) or `Dng` export
+/// (the file's bytes, the decoded 16-bit raw data and the DNG written from it: about 8 B/px).
+fn file_cost(size: (usize, usize), dng: bool) -> u64 {
+    pixels(size) * if dng { 8 } else { 2 }
+}
+
 impl PreparedExport {
     pub fn run(self) -> Result<Exported, String> {
         self.run_with_ctl(&crate::enhance::JobCtl::new())
     }
 
     pub fn run_with_ctl(self, ctl: &crate::enhance::JobCtl) -> Result<Exported, String> {
+        let (file_name, developed) = self.develop(ctl)?;
+        encode_developed(file_name, developed, ctl)
+    }
+
+    /// The working memory this export is expected to need (for its heavy-job permit).
+    pub fn estimated_bytes(&self) -> u64 {
+        match &self.work {
+            Work::Render(w) => w.cost,
+            Work::File { size, dng, .. } => file_cost(*size, dng.is_some()),
+        }
+    }
+
+    /// The render stage: read and decode the original, develop it (the GPU one batch item at a
+    /// time, [`pipeline::run_render_job`]), enlarge it with AI if asked; or read the original /
+    /// decode the raw data of an `Original` / `Dng` export. Encoding is [`encode_developed`].
+    pub(crate) fn develop(self, ctl: &crate::enhance::JobCtl) -> Result<(String, Developed), String> {
         if ctl.cancelled() {
             return Err(crate::enhance::CANCELLED.to_owned());
         }
         let file_name = self.file_name;
         match self.work {
             Work::Render(w) => {
-                let RenderWork { job, upscale, meta, opts } = *w;
-                let mut r = job.run().rendered?;
+                let RenderWork { job, upscale, meta, opts, cost: _ } = *w;
+                let mut r = pipeline::run_render_job(job).rendered?;
                 if let Some((host, target)) = upscale {
                     let request = crate::enhance::UpscaleRequest {
                         width: r.image.width,
@@ -1270,18 +1355,18 @@ impl PreparedExport {
                         target,
                         method: opts.enhance.ok_or("missing enhancement method")?.key().into(),
                     };
-                    let pixels = host.upscale(&request, ctl)?;
+                    // AI enlargement (CPU inference or the ComfyUI GPU queue): one at a time
+                    let pixels = {
+                        let _one = pipeline::AI_GATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        host.upscale(&request, ctl)?
+                    };
                     if pixels.len() != target.0 * target.1 {
                         return Err("AI enlargement returned an unexpected size".into());
                     }
                     r.image = Rgba8 { width: target.0, height: target.1, data: pixels };
                     r.deep = enhanced_samples(&mut r.image, &opts);
                 }
-                if ctl.cancelled() {
-                    return Err(crate::enhance::CANCELLED.to_owned());
-                }
-                let bytes = encode_rendered(&r, &opts, meta.as_ref())?;
-                Ok(Exported { file_name, bytes, width: r.image.width, height: r.image.height, sidecars: Vec::new() })
+                Ok((file_name, Developed::Image(Box::new(RenderedExport { r, meta, opts }))))
             }
             Work::File { path, read, packet, dng, remove_location, label, size } => {
                 let bytes = match &read {
@@ -1295,7 +1380,9 @@ impl PreparedExport {
                             "{label}: can't remove the location from an original file that embeds GPS; export as JPEG, TIFF or DNG instead"
                         ));
                     }
-                    return Ok(Exported { file_name, bytes, width: size.0, height: size.1, sidecars: vec![("xmp", packet.into_bytes())] });
+                    let e =
+                        Exported { file_name: file_name.clone(), bytes, width: size.0, height: size.1, sidecars: vec![("xmp", packet.into_bytes())] };
+                    return Ok((file_name, Developed::Done(e)));
                 };
                 if lightcraft_raw::probe(&bytes).is_none() {
                     return Err(format!("{label}: DNG export needs a raw photo"));
@@ -1307,11 +1394,29 @@ impl PreparedExport {
                     DngCompression::Deflate => lightcraft_raw::DngCompression::Deflate { tile: 256, half: false },
                     DngCompression::Uncompressed => lightcraft_raw::DngCompression::Uncompressed,
                 };
-                let dng = lightcraft_raw::write_dng(&raw, &lightcraft_raw::DngWriteOptions { xmp: Some(packet), compression, ..Default::default() })
-                    .map_err(|e| e.to_string())?;
-                Ok(Exported { file_name, bytes: dng, width: raw.width, height: raw.height, sidecars: Vec::new() })
+                Ok((file_name, Developed::Raw { raw: Box::new(raw), packet, compression }))
             }
         }
+    }
+}
+
+/// The encode stage of one export: the file's bytes from its [`Developed`] result.
+pub(crate) fn encode_developed(file_name: String, developed: Developed, ctl: &crate::enhance::JobCtl) -> Result<Exported, String> {
+    match developed {
+        Developed::Image(img) => {
+            let RenderedExport { r, meta, opts } = *img;
+            if ctl.cancelled() {
+                return Err(crate::enhance::CANCELLED.to_owned());
+            }
+            let bytes = encode_rendered(&r, &opts, meta.as_ref())?;
+            Ok(Exported { file_name, bytes, width: r.image.width, height: r.image.height, sidecars: Vec::new() })
+        }
+        Developed::Raw { raw, packet, compression } => {
+            let dng = lightcraft_raw::write_dng(&raw, &lightcraft_raw::DngWriteOptions { xmp: Some(packet), compression, ..Default::default() })
+                .map_err(|e| e.to_string())?;
+            Ok(Exported { file_name, bytes: dng, width: raw.width, height: raw.height, sidecars: Vec::new() })
+        }
+        Developed::Done(e) => Ok(e),
     }
 }
 
@@ -1456,6 +1561,15 @@ pub fn run_batch(
 }
 
 /// The background export uses this control for cancellation within a restoration tile/job.
+///
+/// The batch runs as an ordered pipeline (threading rules 3, 5, 6, 10): a feeder admits photos in
+/// order, each with a heavy-job permit sized from its pixels ([`lightcraft_sysmem::heavy_jobs`]),
+/// render threads develop them (the GPU one at a time), encode threads encode them, and this
+/// thread names, checks and writes them strictly in input order (`progress`, conflict handling,
+/// the originals guard and `write` stay here). Stage threads are plain OS threads in the Utility
+/// class joined by bounded channels; rayon is only used inside a stage. How many photos are in
+/// flight comes from the compute profile and the free memory, never a constant.
+#[allow(clippy::too_many_arguments)]
 pub fn run_batch_with_ctl(
     items: Vec<PreparedExport>,
     o: &ExportOptions,
@@ -1466,41 +1580,159 @@ pub fn run_batch_with_ctl(
     progress: &mut dyn FnMut(usize, &str) -> bool,
     ctl: &crate::enhance::JobCtl,
 ) -> Result<Vec<serde_json::Value>, String> {
-    use serde_json::json;
+    let permits = lightcraft_sysmem::heavy_jobs();
+    let shape = pipeline::Shape::auto(items.len(), permits.max_jobs(), lightcraft_sysmem::profile().threads);
+    run_batch_shaped(items, o, to, write, exists, stop_on_error, progress, ctl, permits, shape)
+}
+
+/// What the write stage does at one position of a batch.
+enum Slot {
+    /// Rendered by the pipeline, written into `dir`.
+    Run { dir: String, has_subfolder: bool },
+    /// Reported as this photo's error (or ends the batch with `stop_on_error`).
+    Fail(String),
+    /// Ends the batch with this error when reached.
+    Abort(String),
+}
+
+/// [`run_batch_with_ctl`] with explicit permits and pipeline shape (tests compare shapes).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run_batch_shaped(
+    items: Vec<PreparedExport>,
+    o: &ExportOptions,
+    to: &Destination,
+    write: &mut dyn FnMut(&str, &[u8]) -> Result<(), String>,
+    exists: &dyn Fn(&str) -> bool,
+    stop_on_error: bool,
+    progress: &mut dyn FnMut(usize, &str) -> bool,
+    ctl: &crate::enhance::JobCtl,
+    permits: &lightcraft_sysmem::HeavyJobs,
+    shape: pipeline::Shape,
+) -> Result<Vec<serde_json::Value>, String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
     let join = |a: &str, b: &str| if a.is_empty() { b.to_string() } else { format!("{}/{b}", a.trim_end_matches('/')) };
     let in_sub = |d: &str| if o.subfolder.is_empty() { d.to_string() } else { join(d, &o.subfolder) };
     let batch_dir = in_sub(&to.dir);
     let single = items.len() == 1;
+
+    // Each photo's folder first (pure, in order); an error is reported when the batch reaches it,
+    // as before, and nothing after a batch-ending error is rendered.
+    let mut slots = Vec::with_capacity(items.len());
+    let mut heads = Vec::with_capacity(items.len());
+    let mut work = Vec::new();
+    for (i, item) in items.into_iter().enumerate() {
+        let name = item.file_name.clone();
+        let has_subfolder = item.subfolder.is_some();
+        let dir = match (o.same_folder && !has_subfolder, &item.source_dir) {
+            (false, _) => Ok(batch_dir.clone()),
+            (true, Some(d)) => Ok(in_sub(d)),
+            (true, None) => Err(format!("{name}: a generated demo photo has no folder of its own; choose a specific folder")),
+        };
+        let slot = match (dir, &item.subfolder) {
+            (Err(e), _) => Slot::Fail(e),
+            (Ok(dir), None) => Slot::Run { dir, has_subfolder },
+            (Ok(dir), Some(sub)) => match crate::smart_sort::plan::sanitize(sub) {
+                Ok(sub) => Slot::Run { dir: join(&dir, &sub), has_subfolder },
+                Err(e) => Slot::Abort(e),
+            },
+        };
+        heads.push((item.photo, name, item.guard.clone()));
+        let abort = matches!(slot, Slot::Abort(_));
+        if matches!(slot, Slot::Run { .. }) {
+            work.push((i, item));
+        }
+        slots.push(slot);
+        if abort {
+            break; // the batch ends here: later photos are never rendered
+        }
+    }
+
+    let flow = pipeline::Flow::default();
+    if cfg!(target_arch = "wasm32") {
+        // no threads in the browser: each photo is rendered and encoded when the writer reaches it
+        let mut work: std::collections::HashMap<usize, PreparedExport> = work.into_iter().collect();
+        let mut next = |i: usize| work.remove(&i).map(|item| item.run_with_ctl(ctl));
+        return write_stage(&mut next, &slots, &heads, o, to, single, write, exists, stop_on_error, progress, ctl, &flow, &join);
+    }
+    let stop = AtomicBool::new(false);
+    let stopped = || stop.load(Ordering::Relaxed) || ctl.cancelled();
+    std::thread::scope(|sc| {
+        let outputs = pipeline::spawn(sc, work, shape, permits, &flow, &stopped, ctl);
+        let r = {
+            // this photo's result, keeping those that finish before it (with their permits) until
+            // their turn; `None` once the pipeline ended without it
+            let mut early = std::collections::BTreeMap::new();
+            let mut next = move |i: usize| loop {
+                if let Some((r, _permit)) = early.remove(&i) {
+                    return Some(r);
+                }
+                match outputs.recv() {
+                    Ok((seq, r, permit)) => {
+                        early.insert(seq, (r, permit));
+                    }
+                    Err(_) if stopped() => return None,
+                    Err(_) => return Some(Err("the export stopped unexpectedly: its worker threads could not run".to_string())),
+                }
+            };
+            write_stage(&mut next, &slots, &heads, o, to, single, write, exists, stop_on_error, progress, ctl, &flow, &join)
+            // `next` goes here with the receiver and the results held back: an encoder waiting
+            // to hand over a photo sees the channel closed
+        };
+        // whatever ended the batch (done, cancelled, an error): the other stages stop now
+        stop.store(true, Ordering::Relaxed);
+        flow.wake();
+        r
+    })
+}
+
+type Head = (lightcraft_catalog::PhotoId, String, std::sync::Arc<crate::originals::OriginalGuard>);
+
+/// The write stage of [`run_batch_shaped`], on the caller's thread: takes each photo's result in
+/// input order (`next(position)`) and names, checks and writes it.
+#[allow(clippy::too_many_arguments)]
+fn write_stage(
+    next: &mut dyn FnMut(usize) -> Option<Result<Exported, String>>,
+    slots: &[Slot],
+    heads: &[Head],
+    o: &ExportOptions,
+    to: &Destination,
+    single: bool,
+    write: &mut dyn FnMut(&str, &[u8]) -> Result<(), String>,
+    exists: &dyn Fn(&str) -> bool,
+    stop_on_error: bool,
+    progress: &mut dyn FnMut(usize, &str) -> bool,
+    ctl: &crate::enhance::JobCtl,
+    flow: &pipeline::Flow,
+    join: &dyn Fn(&str, &str) -> String,
+) -> Result<Vec<serde_json::Value>, String> {
+    use serde_json::json;
     let mut taken = std::collections::HashSet::new();
     let mut out = Vec::new();
-    for (i, item) in items.into_iter().enumerate() {
-        if ctl.cancelled() || !progress(i, &item.file_name) {
+    for (i, (slot, (photo, name, guard))) in slots.iter().zip(heads).enumerate() {
+        if ctl.cancelled() || !progress(i, name) {
             break;
         }
-        let (photo, name, guard) = (item.photo, item.file_name.clone(), item.guard.clone());
-        // the batch's folder, or (Same folder as original photo) the photo's own
-        let has_subfolder = item.subfolder.is_some();
-        let mut dir = match (o.same_folder && !has_subfolder, &item.source_dir) {
-            (false, _) => batch_dir.clone(),
-            (true, Some(d)) => in_sub(d),
-            (true, None) => {
-                let err = format!("{name}: a generated demo photo has no folder of its own; choose a specific folder");
+        let photo = *photo;
+        let (dir, has_subfolder) = match slot {
+            Slot::Run { dir, has_subfolder } => (dir, *has_subfolder),
+            Slot::Fail(err) => {
                 if stop_on_error {
-                    return Err(err);
+                    return Err(err.clone());
                 }
                 out.push(json!({"photo": photo.0, "file": name, "error": err}));
+                flow.written(i + 1);
                 continue;
             }
+            Slot::Abort(err) => return Err(err.clone()),
         };
-        if let Some(sub) = &item.subfolder {
-            let sub = crate::smart_sort::plan::sanitize(sub)?;
-            dir = join(&dir, &sub);
-        }
-        let e = match item.run_with_ctl(ctl) {
+        // the pipeline ended without it: cancelled
+        let Some(result) = next(i) else { break };
+        let e = match result {
             Ok(e) => e,
             Err(err) if stop_on_error => return Err(err),
             Err(err) => {
                 out.push(json!({"photo": photo.0, "file": name, "error": err}));
+                flow.written(i + 1);
                 continue;
             }
         };
@@ -1509,7 +1741,7 @@ pub fn run_batch_with_ctl(
         let path = match to.exact.as_deref().filter(|_| single && !has_subfolder) {
             Some(p) => Ok(p.to_string()),
             None => {
-                let path = join(&dir, &e.file_name);
+                let path = join(dir, &e.file_name);
                 let busy = |main: &str| group(main).iter().any(|p| taken.contains(p) || exists(p));
                 if !busy(&path) {
                     Ok(path)
@@ -1518,11 +1750,12 @@ pub fn run_batch_with_ctl(
                         Conflict::Overwrite if !group(&path).iter().any(|p| taken.contains(p)) => Ok(path),
                         Conflict::Skip => {
                             out.push(json!({"skipped": path}));
+                            flow.written(i + 1);
                             continue;
                         }
                         Conflict::Unique | Conflict::Overwrite => {
                             let (stem, ext) = e.file_name.rsplit_once('.').map_or((e.file_name.as_str(), None), |(a, b)| (a, Some(b)));
-                            let name = |n: usize| join(&dir, &ext.map_or(format!("{stem}-{n}"), |x| format!("{stem}-{n}.{x}")));
+                            let name = |n: usize| join(dir, &ext.map_or(format!("{stem}-{n}"), |x| format!("{stem}-{n}.{x}")));
                             (2..1_000_000).map(name).find(|p| !busy(p)).ok_or_else(|| format!("{path}: no free file name"))
                         }
                     }
@@ -1555,8 +1788,206 @@ pub fn run_batch_with_ctl(
             Err(err) if stop_on_error => return Err(err),
             Err(err) => out.push(json!({"photo": photo.0, "file": file, "error": err})),
         }
+        flow.written(i + 1);
     }
     Ok(out)
+}
+
+/// The bounded, ordered batch pipeline behind exports (and the GPU gate Build Previews shares).
+pub mod pipeline {
+    use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+    use std::sync::{Arc, Condvar, Mutex, PoisonError};
+    use std::time::Duration;
+
+    use lightcraft_sysmem::{HeavyJobs, Permit, ThreadClass};
+
+    use super::{Exported, PreparedExport};
+
+    /// Batch renders that would use the GPU take this one at a time: concurrent full-size GPU
+    /// renders could exhaust video memory, and a failed GPU render turns the GPU off for the
+    /// process. Their decoding runs in parallel outside it. Interactive renders (loupe, grid)
+    /// never take it.
+    pub static GPU_GATE: Mutex<()> = Mutex::new(());
+    /// AI enlargement (CPU inference or the ComfyUI GPU queue) in an export: one at a time.
+    pub static AI_GATE: Mutex<()> = Mutex::new(());
+
+    /// How many stage threads a batch uses and how far ahead of the writer it may run.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Shape {
+        /// Render threads (each develops one photo at a time).
+        pub renderers: usize,
+        /// Encode threads.
+        pub encoders: usize,
+        /// Photos admitted but not yet written, at most.
+        pub window: usize,
+    }
+
+    impl Shape {
+        /// One photo at a time, render → encode → write: the old serial loop (for tests and the
+        /// "concurrent exports: 1" choice).
+        pub fn serial() -> Shape {
+            Shape { renderers: 1, encoders: 1, window: 1 }
+        }
+
+        /// From the heavy-job slots (`max_jobs`, memory still limits admission) and the compute
+        /// threads `C`: one render thread per slot, one encode thread more (encoders are mostly
+        /// single-threaded per image) within `C`, never more threads than photos; the window lets
+        /// every stage hold a photo plus one waiting between stages.
+        pub fn auto(items: usize, max_jobs: usize, threads: usize) -> Shape {
+            let items = items.max(1);
+            let renderers = max_jobs.clamp(1, items);
+            let encoders = (max_jobs + 1).min(threads).clamp(1, items);
+            Shape { renderers, encoders, window: renderers + encoders + 2 }
+        }
+    }
+
+    /// One photo out of the pipeline: its position, its file (or error) and its permit (released
+    /// once written).
+    pub(crate) type Output<'p> = (usize, Result<Exported, String>, Permit<'p>);
+
+    /// How far the writer got, so the feeder never runs more than [`Shape::window`] photos ahead.
+    #[derive(Default)]
+    pub(crate) struct Flow {
+        written: Mutex<usize>,
+        cv: Condvar,
+    }
+
+    impl Flow {
+        /// Positions before `n` are done.
+        pub(crate) fn written(&self, n: usize) {
+            *self.written.lock().unwrap_or_else(PoisonError::into_inner) = n;
+            self.cv.notify_all();
+        }
+
+        /// Wake the feeder (the batch is ending).
+        pub(crate) fn wake(&self) {
+            self.cv.notify_all();
+        }
+
+        /// Wait until position `seq` is within `window` of the writer; false once `stopped`.
+        fn admit(&self, seq: usize, window: usize, stopped: &dyn Fn() -> bool) -> bool {
+            let mut w = self.written.lock().unwrap_or_else(PoisonError::into_inner);
+            loop {
+                if stopped() {
+                    return false;
+                }
+                if seq < *w + window.max(1) {
+                    return true;
+                }
+                w = self.cv.wait_timeout(w, Duration::from_millis(50)).unwrap_or_else(PoisonError::into_inner).0;
+            }
+        }
+    }
+
+    /// Run a batch's render job: decode first, then develop. When the develop may use the GPU it
+    /// takes [`GPU_GATE`] (the decode before it does not), so batch items share the GPU one at a
+    /// time while their decoding and the CPU work around it overlap.
+    pub fn run_render_job(mut job: crate::media::RenderJob) -> crate::media::RenderResult {
+        // the same request-level conditions under which `lightcraft_gpu::render` declines; with
+        // no usable GPU (or GPU off) batch renders run side by side on the CPU
+        let gpu = job.cache.is_none()
+            && job.request.proof.is_none()
+            && job.request.depth != lightcraft_pipeline::OutputDepth::F32Linear
+            && lightcraft_gpu::available();
+        if !gpu {
+            return job.run();
+        }
+        if !matches!(job.source, crate::media::SourceRef::Loaded(_)) {
+            match crate::guard::catch("Preview render", || job.source.load_source()) {
+                Ok(Ok(src)) => job.source = crate::media::SourceRef::Loaded(Box::new(src)),
+                // the job reports the failure as it always has
+                _ => return job.run(),
+            }
+        }
+        let _gpu = GPU_GATE.lock().unwrap_or_else(PoisonError::into_inner);
+        job.run()
+    }
+
+    /// A receiver shared by a stage's threads (dropped with the last of them, so the stage before
+    /// sees the channel close).
+    type Shared<T> = Arc<Mutex<Receiver<T>>>;
+
+    fn next<T>(rx: &Shared<T>) -> Option<T> {
+        rx.lock().unwrap_or_else(PoisonError::into_inner).recv().ok()
+    }
+
+    fn named<'s, F: FnOnce() + Send + 's>(sc: &'s std::thread::Scope<'s, '_>, name: String, f: F) {
+        let started = std::thread::Builder::new().name(name).spawn_scoped(sc, move || {
+            lightcraft_sysmem::set_current_thread_class(ThreadClass::Utility);
+            f()
+        });
+        if let Err(e) = started {
+            log::warn!("export: could not start a pipeline thread ({e})");
+        }
+    }
+
+    /// Start the feeder, render and encode threads for `work` (position, photo) in scope `sc`;
+    /// returns the channel the finished photos arrive on (in any order, each with its position).
+    /// Every stage stops at its next item once `stopped` says so; dropping the receiver also ends
+    /// them.
+    pub(crate) fn spawn<'s, 'e: 's>(
+        sc: &'s std::thread::Scope<'s, 'e>,
+        work: Vec<(usize, PreparedExport)>,
+        shape: Shape,
+        permits: &'e HeavyJobs,
+        flow: &'e Flow,
+        stopped: &'e (dyn Fn() -> bool + Sync),
+        ctl: &'e crate::enhance::JobCtl,
+    ) -> Receiver<Output<'e>> {
+        type Admitted<'p> = (usize, PreparedExport, Permit<'p>);
+        type Developed<'p> = (usize, Result<(String, super::Developed), String>, Permit<'p>);
+        let (adm_tx, adm_rx): (SyncSender<Admitted<'e>>, _) = sync_channel(1);
+        let (dev_tx, dev_rx): (SyncSender<Developed<'e>>, _) = sync_channel(1);
+        let (out_tx, out_rx) = sync_channel::<Output<'e>>(1);
+
+        // feeder: admit in order, within the window, each with a permit sized from its pixels
+        named(sc, "export-feed".into(), move || {
+            for (seq, item) in work {
+                if !flow.admit(seq, shape.window, stopped) {
+                    break;
+                }
+                let Some(permit) = permits.admit(item.estimated_bytes(), stopped) else { break };
+                if adm_tx.send((seq, item, permit)).is_err() {
+                    break;
+                }
+            }
+        });
+        let adm_rx: Shared<Admitted<'e>> = Arc::new(Mutex::new(adm_rx));
+        for n in 0..shape.renderers.max(1) {
+            let (rx, tx) = (adm_rx.clone(), dev_tx.clone());
+            named(sc, format!("export-render-{n}"), move || {
+                while let Some((seq, item, mut permit)) = next(&rx) {
+                    if stopped() {
+                        continue; // dropped: its permit is released
+                    }
+                    let r = crate::guard::catch("Export", || item.develop(ctl)).and_then(|r| r);
+                    // the render's working memory is free now; the result waits for an encoder
+                    permit.finish_heavy(r.as_ref().map_or(0, |(_, d)| d.reserved_bytes()));
+                    if tx.send((seq, r, permit)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop((adm_rx, dev_tx));
+        let dev_rx: Shared<Developed<'e>> = Arc::new(Mutex::new(dev_rx));
+        for n in 0..shape.encoders.max(1) {
+            let (rx, tx) = (dev_rx.clone(), out_tx.clone());
+            named(sc, format!("export-encode-{n}"), move || {
+                while let Some((seq, r, mut permit)) = next(&rx) {
+                    if stopped() {
+                        continue;
+                    }
+                    let r = r.and_then(|(name, d)| crate::guard::catch("Export", || super::encode_developed(name, d, ctl)).and_then(|r| r));
+                    permit.shrink(r.as_ref().map_or(0, |e| (e.bytes.len() + e.sidecars.iter().map(|(_, b)| b.len()).sum::<usize>()) as u64));
+                    if tx.send((seq, r, permit)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        out_rx
+    }
 }
 
 #[cfg(test)]
@@ -1632,6 +2063,256 @@ mod tests {
         )
         .unwrap();
         assert_eq!(paths, ["/exports/pair.nef", "/exports/pair.xmp", "/exports/pair-2.jpg", "/exports/pair-2.xmp"]);
+    }
+
+    // ---- the ordered batch pipeline (threading rules 6, 9, 10, 11)
+
+    fn wide_open() -> lightcraft_sysmem::HeavyJobs {
+        lightcraft_sysmem::HeavyJobs::new(4, 64 << 30, || lightcraft_sysmem::MemoryNow { available: 64 << 30, rss: None })
+    }
+
+    fn parallel() -> pipeline::Shape {
+        pipeline::Shape { renderers: 3, encoders: 3, window: 8 }
+    }
+
+    /// Demo photos as rendered exports, `n` of them (the demo has a few; repeated as needed).
+    fn rendered_batch(session: &mut crate::Session, n: usize, o: &ExportOptions) -> Vec<PreparedExport> {
+        let ids: Vec<_> = session.catalog.photos().map(|p| p.id).collect();
+        let ids: Vec<_> = (0..n).map(|i| ids[i % ids.len()]).collect();
+        prepare_batch(session, &ids, o).unwrap()
+    }
+
+    /// `bytes` with the creation time of each embedded ICC profile (the 12 bytes before its `acsp`
+    /// signature) blanked: the profile writer stamps the current time, so two runs a second apart
+    /// differ there and nowhere else.
+    fn without_icc_dates(bytes: &[u8]) -> Vec<u8> {
+        let mut b = bytes.to_vec();
+        let at: Vec<usize> = b.windows(4).enumerate().filter(|(i, w)| *w == b"acsp" && *i >= 12).map(|(i, _)| i).collect();
+        for i in at {
+            b[i - 12..i].fill(0);
+        }
+        b
+    }
+
+    /// `(path, bytes)` in write order and the progress calls of one shaped run (ICC creation times
+    /// blanked, [`without_icc_dates`]).
+    #[allow(clippy::type_complexity)]
+    fn shaped_run(
+        items: Vec<PreparedExport>,
+        o: &ExportOptions,
+        permits: &lightcraft_sysmem::HeavyJobs,
+        shape: pipeline::Shape,
+    ) -> (Vec<serde_json::Value>, Vec<(String, Vec<u8>)>, Vec<usize>) {
+        let (mut written, mut calls) = (Vec::new(), Vec::new());
+        let to = Destination { dir: "/exports".into(), exact: None };
+        let files = run_batch_shaped(
+            items,
+            o,
+            &to,
+            &mut |p, b| {
+                written.push((p.to_string(), without_icc_dates(b)));
+                Ok(())
+            },
+            &|_| false,
+            false,
+            &mut |done, _| {
+                calls.push(done);
+                true
+            },
+            &crate::enhance::JobCtl::new(),
+            permits,
+            shape,
+        )
+        .unwrap();
+        (files, written, calls)
+    }
+
+    #[test]
+    fn pipeline_depth_does_not_change_the_exported_files_or_their_order() {
+        let _gpu = crate::tests_gpu::gpu_state(); // no other test switches the GPU off mid-way
+        let mut session = crate::Session::with_demo();
+        for o in [
+            ExportOptions::from_json(&json!({"format": "jpeg", "width": 96, "height": 96, "naming": "{name}"})),
+            ExportOptions::from_json(&json!({"format": "tiff", "width": 64, "height": 64, "bitDepth": 16, "naming": "{name}"})),
+        ] {
+            let permits = wide_open();
+            let serial = shaped_run(rendered_batch(&mut session, 7, &o), &o, &permits, pipeline::Shape::serial());
+            let deep = shaped_run(rendered_batch(&mut session, 7, &o), &o, &permits, parallel());
+            let auto = shaped_run(rendered_batch(&mut session, 7, &o), &o, &permits, pipeline::Shape::auto(7, 4, 8));
+            assert_eq!(serial.1.len(), 7, "every photo written (repeated names made unique)");
+            assert!(serial.1 == deep.1, "same bytes, same paths, same order at depth 1 and N");
+            assert!(serial.1 == auto.1);
+            assert_eq!(serial.0, deep.0);
+            assert_eq!(serial.2, (0..7).collect::<Vec<_>>(), "progress in input order");
+            assert_eq!(deep.2, serial.2);
+            assert_eq!(permits.in_flight(), (0, 0), "every permit released");
+        }
+    }
+
+    /// File-format items whose reads go through `read` (no disk): `{name}.bin` with bytes `name`.
+    fn file_items(session: &crate::Session, names: &[&str], read: crate::merge::ByteReader) -> Vec<PreparedExport> {
+        let guard = std::sync::Arc::new(session.original_guard());
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| PreparedExport {
+                photo: lightcraft_catalog::PhotoId(i as u64 + 1),
+                file_name: format!("{name}.bin"),
+                subfolder: None,
+                source_dir: None,
+                guard: guard.clone(),
+                work: Work::File {
+                    path: format!("/input/{name}"),
+                    read: Some(read.clone()),
+                    packet: "<xmp/>".into(),
+                    dng: None,
+                    remove_location: false,
+                    label: name.to_string(),
+                    size: (8, 6),
+                },
+            })
+            .collect()
+    }
+
+    #[test]
+    fn one_failed_photo_does_not_stop_the_others_and_is_reported_in_place() {
+        let session = crate::Session::with_demo();
+        let read: crate::merge::ByteReader =
+            std::sync::Arc::new(|p: &str| if p.ends_with("bad") { Err(format!("{p}: unreadable")) } else { Ok(p.as_bytes().to_vec()) });
+        let o = ExportOptions { format: ExportFormat::Original, ..Default::default() };
+        let names = ["a", "b", "bad", "c", "d"];
+        for shape in [pipeline::Shape::serial(), parallel()] {
+            let (files, written, _) = shaped_run(file_items(&session, &names, read.clone()), &o, &wide_open(), shape);
+            assert_eq!(files.len(), 5);
+            assert_eq!(files[2]["error"], "/input/bad: unreadable");
+            assert_eq!(files[2]["photo"], 3);
+            let paths: Vec<_> = written.iter().map(|(p, _)| p.as_str()).collect();
+            assert_eq!(
+                paths,
+                [
+                    "/exports/a.bin",
+                    "/exports/a.xmp",
+                    "/exports/b.bin",
+                    "/exports/b.xmp",
+                    "/exports/c.bin",
+                    "/exports/c.xmp",
+                    "/exports/d.bin",
+                    "/exports/d.xmp"
+                ]
+            );
+            assert_eq!(written[4].1, b"/input/c");
+        }
+        // stop_on_error still ends the batch at the failed photo, after the ones before it
+        let mut written = Vec::new();
+        let err = run_batch_shaped(
+            file_items(&session, &names, read),
+            &o,
+            &Destination { dir: "/exports".into(), exact: None },
+            &mut |p, _| {
+                written.push(p.to_string());
+                Ok(())
+            },
+            &|_| false,
+            true,
+            &mut |_, _| true,
+            &crate::enhance::JobCtl::new(),
+            &wide_open(),
+            parallel(),
+        )
+        .unwrap_err();
+        assert_eq!(err, "/input/bad: unreadable");
+        assert_eq!(written, ["/exports/a.bin", "/exports/a.xmp", "/exports/b.bin", "/exports/b.xmp"]);
+    }
+
+    #[test]
+    fn cancelling_mid_batch_leaves_only_whole_files() {
+        let _gpu = crate::tests_gpu::gpu_state();
+        let mut session = crate::Session::with_demo();
+        let dir = std::env::temp_dir().join(format!("lc-export-cancel-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let o = ExportOptions::from_json(&json!({"format": "jpeg", "width": 120, "height": 120}));
+        let reference = shaped_run(rendered_batch(&mut session, 8, &o), &o, &wide_open(), pipeline::Shape::serial()).1;
+        for cancel_by_ctl in [false, true] {
+            let _ = std::fs::remove_dir_all(&dir);
+            let ctl = crate::enhance::JobCtl::new();
+            let mut count = 0;
+            let files = run_batch_shaped(
+                rendered_batch(&mut session, 8, &o),
+                &o,
+                &Destination { dir: dir.to_string_lossy().to_string(), exact: None },
+                &mut |p, b| {
+                    write_file(p, b)?;
+                    count += 1;
+                    if count == 3 && cancel_by_ctl {
+                        ctl.cancel(); // the export dialog's Cancel, while later photos are in flight
+                    }
+                    Ok(())
+                },
+                &|p| std::path::Path::new(p).exists(),
+                false,
+                &mut |done, _| cancel_by_ctl || done < 3,
+                &ctl,
+                &wide_open(),
+                parallel(),
+            )
+            .unwrap();
+            assert_eq!(files.len(), 3, "{files:?}");
+            let mut on_disk: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
+            on_disk.sort();
+            let expected: Vec<_> = reference[..3].iter().map(|(p, _)| p.rsplit('/').next().unwrap().to_string()).collect();
+            let mut sorted = expected.clone();
+            sorted.sort();
+            assert_eq!(on_disk, sorted, "no partial or temporary files");
+            for (name, (_, bytes)) in expected.iter().zip(&reference) {
+                assert!(without_icc_dates(&std::fs::read(dir.join(name)).unwrap()) == *bytes, "{name} is whole");
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn memory_admission_bounds_the_photos_in_flight() {
+        let _gpu = crate::tests_gpu::gpu_state();
+        let mut session = crate::Session::with_demo();
+        let o = ExportOptions::from_json(&json!({"format": "jpeg", "width": 64, "height": 64}));
+        // a machine with no headroom at all: one photo at a time, and the batch still completes
+        let tight = lightcraft_sysmem::HeavyJobs::new(4, 0, || lightcraft_sysmem::MemoryNow { available: 0, rss: None });
+        let peak = std::sync::atomic::AtomicUsize::new(0);
+        let to = Destination { dir: "/exports".into(), exact: None };
+        let files = run_batch_shaped(
+            rendered_batch(&mut session, 6, &o),
+            &o,
+            &to,
+            &mut |_, _| {
+                peak.fetch_max(tight.in_flight().0, std::sync::atomic::Ordering::Relaxed);
+                Ok(())
+            },
+            &|_| false,
+            false,
+            &mut |_, _| true,
+            &crate::enhance::JobCtl::new(),
+            &tight,
+            parallel(),
+        )
+        .unwrap();
+        assert_eq!(files.iter().filter(|f| f.get("path").is_some()).count(), 6);
+        assert!(peak.load(std::sync::atomic::Ordering::Relaxed) <= 1, "never two renders at once");
+        assert_eq!(tight.in_flight(), (0, 0));
+        // estimates grow with the pixels, and a 16-bit output costs more than an 8-bit one
+        assert!(render_cost((6000, 4000), (6000, 4000), OutputDepth::U8) > 1 << 30);
+        assert!(render_cost((6000, 4000), (2048, 1365), OutputDepth::U8) < render_cost((6000, 4000), (6000, 4000), OutputDepth::U8));
+        assert!(render_cost((6000, 4000), (6000, 4000), OutputDepth::U16) > render_cost((6000, 4000), (6000, 4000), OutputDepth::U8));
+        assert_eq!(render_cost((0, 0), (0, 0), OutputDepth::U8), UNKNOWN_PIXELS * 48);
+    }
+
+    #[test]
+    fn pipeline_shape_follows_the_permits_and_cores() {
+        use pipeline::Shape;
+        assert_eq!(Shape::auto(20, 1, 2), Shape { renderers: 1, encoders: 2, window: 5 }, "2-core laptop: render overlaps encode");
+        assert_eq!(Shape::auto(20, 2, 7), Shape { renderers: 2, encoders: 3, window: 7 });
+        assert_eq!(Shape::auto(20, 4, 15), Shape { renderers: 4, encoders: 5, window: 11 });
+        assert_eq!(Shape::auto(1, 4, 15), Shape { renderers: 1, encoders: 1, window: 4 }, "never more threads than photos");
+        assert_eq!(Shape::auto(0, 0, 0), Shape { renderers: 1, encoders: 1, window: 4 });
     }
 
     fn test_image() -> Rgba8 {

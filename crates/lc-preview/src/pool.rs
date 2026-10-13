@@ -93,7 +93,16 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
         }
     }
 
-    /// Workers for this machine: cores − 1, between 2 and 8.
+    /// Workers for an app's compute budget `C` (the compute profile's threads, `lightcraft-sysmem`):
+    /// one per compute thread, between 2 (decode overlaps develop even on a 2-core machine) and 8.
+    /// Each worker runs one render at a time and fans out on the shared compute pool, so more
+    /// workers than compute threads would only queue on it.
+    pub fn threads_for(compute_threads: usize) -> usize {
+        if cfg!(target_arch = "wasm32") { 1 } else { compute_threads.clamp(2, 8) }
+    }
+
+    /// Workers for this machine when no compute profile is at hand: cores − 1, between 2 and 8.
+    /// Apps size their pools with [`JobPool::threads_for`] instead.
     pub fn default_threads() -> usize {
         #[cfg(not(target_arch = "wasm32"))]
         {
