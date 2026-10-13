@@ -78,6 +78,43 @@ fn albums_and_folders() {
 }
 
 #[test]
+fn deleting_several_photos_of_one_album_and_stack_permanently_leaves_nothing_dangling() {
+    // Upstream LightCraft 0a474cc: per-photo op lists built against the unchanged catalog re-added the
+    // first photo to the shared album and failed on the shared stack.
+    let mut c = Catalog::new();
+    let a = photo(&mut c, "a.jpg", "2026-04-01");
+    let b = photo(&mut c, "b.jpg", "2026-04-02");
+    let d = photo(&mut c, "d.jpg", "2026-04-03");
+    let e = photo(&mut c, "e.jpg", "2026-04-04");
+    let f = photo(&mut c, "f.jpg", "2026-04-05");
+    let al = c.alloc_album_id();
+    c.apply(Op::AddAlbum {
+        album: Album { id: al, name: "Trip".into(), parent: None, folder: false, photos: vec![a, b, e], cover: None, smart: None, quick: false },
+    })
+    .unwrap();
+    let st = c.alloc_stack_id();
+    c.apply(Op::AddStack { stack: Stack { id: st, photos: vec![a, b], collapsed: false } }).unwrap();
+    let st2 = c.alloc_stack_id();
+    c.apply(Op::AddStack { stack: Stack { id: st2, photos: vec![d, e, f], collapsed: true } }).unwrap();
+    let before = c.to_snapshot();
+    // a duplicate id is harmless
+    let inv = c.apply(c.delete_photos_permanently_ops(&[a, b, a])).unwrap();
+    assert!(c.photo(a).is_none() && c.photo(b).is_none());
+    assert_eq!(c.album(al).unwrap().photos, vec![e], "album keeps only the surviving photo");
+    assert!(c.stack(st).is_none(), "the two-photo stack of deleted photos is gone");
+    assert_eq!(c.stack(st2).unwrap().photos, vec![d, e, f], "an unrelated stack is untouched");
+    c.apply(inv).unwrap();
+    assert_eq!(c.to_snapshot(), before, "one undo restores photos, album and stack");
+    // a three-photo stack loses two members at once: it dissolves instead of failing
+    let inv = c.apply(c.delete_photos_permanently_ops(&[d, e])).unwrap();
+    assert!(c.stack_of(f).is_none());
+    assert!(c.stack(st2).is_none());
+    assert_eq!(c.album(al).unwrap().photos, vec![a, b]);
+    c.apply(inv).unwrap();
+    assert_eq!(c.to_snapshot(), before);
+}
+
+#[test]
 fn filter_search_sort() {
     let mut c = Catalog::new();
     let a = photo(&mut c, "beach.jpg", "2026-05-01T10:00:00");

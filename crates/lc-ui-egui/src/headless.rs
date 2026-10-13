@@ -1647,9 +1647,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Adding a file again that is in Recently Deleted shows it there (side panel opened, photo
-    /// selected) instead of only saying "duplicate skipped"; its menus offer Restore, and once
-    /// restored a re-add selects it in All Photos.
+    /// Adding a file again (dropped, no review) whose photo is in Recently Deleted brings the photo
+    /// back, selected in All Photos, and says so (upstream LightCraft 3285e02, issue #706) — it is
+    /// not skipped as a duplicate; one undo puts it back, where the trash view's menus offer Restore
+    /// and Delete Permanently; a re-add of a photo that is in the library selects it in All Photos.
     #[test]
     fn readding_a_deleted_photo_shows_it_in_recently_deleted() {
         let dir = std::env::temp_dir().join(format!("lc-ui-readd-{}", std::process::id()));
@@ -1685,14 +1686,23 @@ mod tests {
         };
         assert!(!photo_items(&h.app).contains(&"photo.restore".to_string()), "Restore only for deleted photos");
 
-        h.app.ui.left_panel = false;
+        let n0 = h.app.session.catalog.len();
         crate::import::start_paths(&mut h.app, paths.clone()).unwrap();
         finish_import(&mut h);
-        assert_eq!(h.app.session.source, lightcraft_engine::LibrarySource::RecentlyDeleted);
-        assert_eq!(h.app.session.selection.ids, vec![id]);
-        assert!(h.app.ui.left_panel, "the side panel listing Recently Deleted is opened");
+        assert!(!h.app.session.catalog.photo(id).unwrap().deleted, "re-adding the file restores the photo");
+        assert_eq!(h.app.session.catalog.len(), n0, "no second record");
+        assert_eq!(h.app.session.source, lightcraft_engine::LibrarySource::All);
+        assert_eq!(h.app.session.selection.ids, vec![id], "the restored photo is selected");
         let toast = h.app.ui.toast.clone().expect("toast").0;
-        assert!(toast.contains("Recently Deleted") && toast.contains("Restore"), "{toast}");
+        assert!(toast.contains("Restored 1 photo from Recently Deleted"), "{toast}");
+        assert!(!photo_items(&h.app).contains(&"photo.restore".to_string()));
+        // undo of the re-add puts it back in Recently Deleted; the trash view's menus offer Restore
+        h.request("engine.execute", json!({"command": "edit.undo"}), t);
+        assert!(h.app.session.catalog.photo(id).unwrap().deleted, "one undo step");
+        h.request("engine.execute", json!({"command": "library.source", "params": {"kind": "recentlyDeleted"}}), t);
+        h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [id.0]}}), t);
+        h.settle(SETTLE);
+        assert_eq!(h.app.session.source, lightcraft_engine::LibrarySource::RecentlyDeleted);
         let items = photo_items(&h.app);
         assert!(items.contains(&"photo.restore".to_string()) && items.contains(&"photo.deletePermanently".to_string()), "{items:?}");
         assert!(!items.contains(&"photo.delete".to_string()), "{items:?}");

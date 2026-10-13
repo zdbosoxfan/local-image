@@ -1162,6 +1162,8 @@ enum Work {
         read: Option<crate::merge::ByteReader>,
         packet: String,
         dng: Option<DngCompression>,
+        /// "Remove location info": the original must not carry a location (upstream LightCraft db7e378).
+        remove_location: bool,
         label: String,
         size: (usize, usize),
     },
@@ -1236,8 +1238,9 @@ pub(crate) fn prepare_guarded(
         Work::File {
             path: path.clone(),
             read: session.media.file_bytes.clone(),
-            packet: { crate::sidecar::sidecar_packet(&photo_for_sidecar(p, o.include_people_names), &session.catalog) },
+            packet: { crate::sidecar::sidecar_packet(&photo_for_sidecar(p, o.include_people_names, o.remove_location), &session.catalog) },
             dng: (o.format == ExportFormat::Dng).then_some(o.dng_compression),
+            remove_location: o.remove_location,
             label: p.file_name.clone(),
             size: (p.width as usize, p.height as usize),
         }
@@ -1280,12 +1283,18 @@ impl PreparedExport {
                 let bytes = encode_rendered(&r, &opts, meta.as_ref())?;
                 Ok(Exported { file_name, bytes, width: r.image.width, height: r.image.height, sidecars: Vec::new() })
             }
-            Work::File { path, read, packet, dng, label, size } => {
+            Work::File { path, read, packet, dng, remove_location, label, size } => {
                 let bytes = match &read {
                     Some(r) => r(&path)?,
                     None => std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?,
                 };
                 let Some(dng) = dng else {
+                    // the file is copied byte for byte: refuse rather than leak a location it embeds
+                    if remove_location && lightcraft_meta::extract(&bytes).gps.is_some() {
+                        return Err(format!(
+                            "{label}: can't remove the location from an original file that embeds GPS; export as JPEG, TIFF or DNG instead"
+                        ));
+                    }
                     return Ok(Exported { file_name, bytes, width: size.0, height: size.1, sidecars: vec![("xmp", packet.into_bytes())] });
                 };
                 if lightcraft_raw::probe(&bytes).is_none() {
@@ -1602,6 +1611,7 @@ mod tests {
                     read: Some(std::sync::Arc::new(|_| Ok(b"original".to_vec()))),
                     packet: "<xmp/>".into(),
                     dng: None,
+                    remove_location: false,
                     label: name.into(),
                     size: (8, 6),
                 },
@@ -2139,11 +2149,27 @@ mod tests {
     }
 }
 
-fn photo_for_sidecar(photo: &lightcraft_catalog::Photo, include_people_names: bool) -> std::borrow::Cow<'_, lightcraft_catalog::Photo> {
+/// The photo whose sidecar packet an Original/DNG export writes: with people names as keywords when
+/// asked, and without any location (GPS, sublocation, city, state, country) under "Remove location
+/// info" (upstream LightCraft db7e378). Borrowed when nothing changes.
+fn photo_for_sidecar(
+    photo: &lightcraft_catalog::Photo,
+    include_people_names: bool,
+    remove_location: bool,
+) -> std::borrow::Cow<'_, lightcraft_catalog::Photo> {
     let mut photo = std::borrow::Cow::Borrowed(photo);
     if include_people_names {
         let copy = photo.to_mut();
         add_people_keywords(&mut copy.meta.keywords, &copy.meta.regions);
+    }
+    let m = &photo.meta;
+    if remove_location && (m.gps.is_some() || [&m.location, &m.city, &m.state, &m.country].iter().any(|s| !s.trim().is_empty())) {
+        let m = &mut photo.to_mut().meta;
+        m.gps = None;
+        m.location.clear();
+        m.city.clear();
+        m.state.clear();
+        m.country.clear();
     }
     photo
 }
@@ -2160,10 +2186,10 @@ fn ds2_original_export_borrows_photo_unless_people_keywords_are_requested() {
         8,
         "2026-10-10",
     );
-    let borrowed = photo_for_sidecar(&photo, false);
+    let borrowed = photo_for_sidecar(&photo, false, false);
     assert!(matches!(borrowed, std::borrow::Cow::Borrowed(_)));
     assert!(std::ptr::eq(borrowed.as_ref(), &photo));
-    let augmented = photo_for_sidecar(&photo, true);
+    let augmented = photo_for_sidecar(&photo, true, false);
     assert!(matches!(augmented, std::borrow::Cow::Owned(_)));
     assert_eq!(augmented.meta.keywords, photo.meta.keywords);
 }

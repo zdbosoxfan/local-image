@@ -322,7 +322,8 @@ fn import_defaults_serde_round_trip() {
 fn import_report_serialization_shape() {
     let r = ImportReport {
         imported: vec![1, 2],
-        duplicates: vec![Duplicate { path: "/a.jpg".to_string(), existing: Some(3), reason: "path" }],
+        restored: vec![],
+        duplicates: vec![Duplicate { path: "/a.jpg".to_string(), existing: Some(3), reason: "path", existing_deleted: false }],
         moved: vec![Moved { from: "/src/a.jpg".to_string(), to: "/dst/a.jpg".to_string(), sidecars: vec!["/dst/a.xmp".to_string()] }],
         kept: vec![Kept { path: "/kept.jpg".to_string(), reason: "kept reason".to_string() }],
         failed: vec![("/fail.jpg".to_string(), "bad read".to_string())],

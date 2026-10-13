@@ -458,3 +458,55 @@ fn people_names_export_opt_in_metadata_and_original_sidecar() {
     assert!(!old.include_people_names);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// Upstream LightCraft db7e378: "Remove location info" holds for the file-copying formats too: the
+/// sidecar and the DNG's packet carry no location, and an original that embeds GPS is refused
+/// rather than copied.
+#[test]
+fn remove_location_holds_for_original_and_dng_exports() {
+    let dir = temp_dir("export-noloc");
+    let gps =
+        lightcraft_meta::Metadata { gps: Some(lightcraft_meta::Gps { latitude: 48.85, longitude: 2.35, altitude: None }), ..Default::default() };
+    // a raw with no embedded GPS, located in the catalog
+    let raw = dir.join("Raw.dng");
+    std::fs::write(&raw, synthetic_dng_with(None, Default::default())).unwrap();
+    // a JPEG with GPS in its EXIF
+    let jpg = dir.join("Geo.jpg");
+    let img = lightcraft_raster::Rgba8::from_fn(32, 24, |x, y| [(x * 8) as u8, (y * 10) as u8, 90, 255]);
+    let exif = lightcraft_meta::write_exif(&gps);
+    let meta = lightcraft_codecs::EncodeMeta { exif: Some(&exif), ..Default::default() };
+    std::fs::write(&jpg, lightcraft_codecs::encode_jpeg(&lightcraft_codecs::EncodeImage::rgba8(&img), 90, Default::default(), &meta).unwrap())
+        .unwrap();
+    let mut s = Session::new().with_fs();
+    s.execute("library.import", &json!({"paths": [raw.to_string_lossy(), jpg.to_string_lossy()]})).unwrap();
+    let id = |s: &Session, n: &str| s.catalog.photos().find(|p| p.file_name == n).unwrap().id;
+    let (rid, jid) = (id(&s, "Raw.dng"), id(&s, "Geo.jpg"));
+    s.execute("photo.setMeta", &json!({"ids": [rid.0, jid.0], "gps": [48.85, 2.35], "city": "Paris", "location": "Louvre"})).unwrap();
+    let opts = |f: &str, remove: bool| ExportOptions::from_json(&json!({"format": f, "removeLocation": remove}));
+
+    // original raw: the sidecar keeps the location unless it is removed
+    let side = |e: &crate::export::Exported| std::str::from_utf8(&e.sidecars[0].1).unwrap().to_string();
+    let kept = side(&export_photo(&mut s, rid, &opts("original", false), 1).unwrap());
+    let kept_meta = lightcraft_meta::parse_xmp(&kept).unwrap().metadata;
+    assert!(kept_meta.gps.is_some() && kept_meta.city.is_some() && kept.contains("Louvre"));
+    let gone = side(&export_photo(&mut s, rid, &opts("original", true), 1).unwrap());
+    let gone_meta = lightcraft_meta::parse_xmp(&gone).unwrap().metadata;
+    assert!(gone_meta.gps.is_none() && gone_meta.city.is_none() && gone_meta.sublocation.is_none(), "{gone_meta:?}");
+    assert!(!gone.contains("Louvre") && !gone.contains("Paris"), "{gone}");
+    // the catalog keeps its location
+    assert!(s.catalog.photo(rid).unwrap().meta.gps.is_some());
+
+    // dng: the embedded packet
+    let e = export_photo(&mut s, rid, &opts("dng", false), 1).unwrap();
+    assert!(lightcraft_meta::extract(&e.bytes).gps.is_some());
+    let e = export_photo(&mut s, rid, &opts("dng", true), 1).unwrap();
+    let m = lightcraft_meta::extract(&e.bytes);
+    assert!(m.gps.is_none() && m.city.is_none(), "{m:?}");
+
+    // original JPEG embedding GPS: copied as is normally, refused when the location must go
+    let e = export_photo(&mut s, jid, &opts("original", false), 1).unwrap();
+    assert!(lightcraft_meta::extract(&e.bytes).gps.is_some());
+    let err = export_photo(&mut s, jid, &opts("original", true), 1).err().unwrap();
+    assert!(err.contains("can't remove the location") && err.contains("export as JPEG"), "{err}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

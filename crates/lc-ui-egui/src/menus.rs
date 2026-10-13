@@ -1539,12 +1539,9 @@ pub fn remove_photos(app: &mut LightcraftApp, ids: &[u64], disk: bool) -> Result
     if !removed.is_empty() {
         app.session
             .execute_fn("photo.deletePermanently", |s| {
-                let undo0 = s.undo.len();
-                for id in &removed {
-                    let op = s.catalog.delete_permanently_ops(*id);
-                    s.commit("Remove from Library", op)?;
-                }
-                s.merge_undo(s.undo.len().saturating_sub(undo0), "Remove from Library");
+                // one op list for all of them: shared albums and stacks are updated once
+                let op = s.catalog.delete_photos_permanently_ops(&removed);
+                s.commit("Remove from Library", op)?;
                 s.selection.ids.retain(|id| !removed.contains(id));
                 if s.selection.active.is_some_and(|id| removed.contains(&id)) {
                     s.selection.active = s.selection.ids.first().copied();

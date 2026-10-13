@@ -133,7 +133,9 @@ pub fn hint_in(ctx: &egui::Context, label: &str, command: &str) -> String {
 pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     if app.host_modal
         || egui::Popup::is_any_open(ctx)
-        || matches!(app.ui.dialog, Some(crate::state::Dialog::SmartSort { .. }))
+        // application dialogs are modal: they own their keys (text editing, Esc), and photo
+        // shortcuts must not act on the grid behind them (upstream LightCraft e1267a7)
+        || app.ui.dialog.is_some()
         || app.ui.people.queue.is_some()
         || app.ui.people.finder.is_some()
         || app.ui.people.merge.is_some()

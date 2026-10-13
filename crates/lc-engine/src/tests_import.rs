@@ -929,3 +929,128 @@ fn bugfix_develop_smart_preview_alias_keeps_proxy() {
     drop(s);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Upstream LightCraft 790a341 (issue #374): a folder import is bounded — a tree deeper or larger
+/// than the limits is not walked to the end (it stops and says so), and what it found is still returned.
+#[test]
+fn expand_stops_at_the_walk_limits() {
+    let d = temp_dir("bounded");
+    let mut deep = d.clone();
+    for i in 0..8 {
+        deep = deep.join(format!("d{i}"));
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join(format!("p{i}.jpg")), b"x").unwrap();
+    }
+    let top = [d.to_string_lossy().to_string()];
+    let (all, cut) = crate::import::expand_within(&top, None, crate::walk::Limits::default());
+    assert_eq!((all.len(), cut), (8, false));
+    let (some, cut) = crate::import::expand_within(&top, None, crate::walk::Limits { max_depth: 3, max_entries: 1000 });
+    assert_eq!((some.len(), cut), (2, true), "{some:?}");
+    let (few, cut) = crate::import::expand_within(&top, None, crate::walk::Limits { max_depth: 32, max_entries: 5 });
+    assert!(cut && few.len() < 8, "{few:?}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Two links back up the tree used to multiply paths (2^depth before ELOOP) and hang the import;
+/// each linked folder is now entered once, and the photo is found.
+#[cfg(unix)]
+#[test]
+fn expand_ends_on_symlink_loops() {
+    let d = temp_dir("link-loop");
+    std::fs::create_dir_all(d.join("a/b")).unwrap();
+    std::fs::write(d.join("a/b/p.jpg"), b"x").unwrap();
+    std::os::unix::fs::symlink(&d, d.join("a/b/up1")).unwrap();
+    std::os::unix::fs::symlink(&d, d.join("a/b/up2")).unwrap();
+    let top = [d.to_string_lossy().to_string()];
+    let (files, cut) = crate::import::expand_within(&top, None, crate::walk::Limits::default());
+    assert!(!cut, "{files:?}");
+    assert_eq!(files, vec![d.join("a/b/p.jpg").to_string_lossy().to_string()]);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A photo imported, rated, then moved to Recently Deleted.
+fn trashed_photo(tag: &str) -> (Session, std::path::PathBuf, u64) {
+    let src = temp_dir(tag);
+    write_png(&src.join("a.png"), 1);
+    let mut s = Session::new().with_fs();
+    let r = s.execute("library.import", &json!({"paths": [src.to_string_lossy()]})).unwrap();
+    let id = r["imported"][0].as_u64().unwrap();
+    s.execute("photo.rate", &json!({"ids": [id], "rating": 4})).unwrap();
+    s.execute("photo.delete", &json!({"ids": [id]})).unwrap();
+    (s, src, id)
+}
+
+/// Upstream LightCraft 3285e02 (issue #706): import a photo, delete it, import the same file again.
+/// Before, the import skipped it as "already in the library" (a duplicate by path) while the grid
+/// showed it deleted, and the user was stuck. Now the photo is restored, with its edits and into the
+/// album the import names; one undo puts it back in Recently Deleted.
+#[test]
+fn importing_a_deleted_photo_again_brings_it_back() {
+    let (mut s, src, id) = trashed_photo("trash-reimport");
+    assert_eq!(s.visible_cloned().len(), 0, "deleted: not in All Photos");
+    let r = s.execute("library.import", &json!({"paths": [src.join("a.png").to_string_lossy()], "albumName": "Back"})).unwrap();
+    assert_eq!(r["restored"], json!([id]), "{r}");
+    assert_eq!(ids(&r, "duplicates"), 0, "not reported as a duplicate: {r}");
+    let p = s.catalog.photo(lightcraft_catalog::PhotoId(id)).unwrap();
+    assert!(!p.deleted && p.rating == 4, "back with its edits");
+    assert_eq!(s.catalog.len(), 1, "no second record");
+    assert_eq!(s.visible_cloned(), vec![lightcraft_catalog::PhotoId(id)], "shown again in All Photos");
+    assert_eq!(s.selection.active, Some(lightcraft_catalog::PhotoId(id)), "the restored photo is selected");
+    let album = r["album"].as_u64().expect("album created for the restored photo");
+    assert_eq!(s.catalog.album(lightcraft_catalog::AlbumId(album)).unwrap().photos, vec![lightcraft_catalog::PhotoId(id)]);
+    assert_eq!(s.undo.last().unwrap().label, "Restore 1 Photo");
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert!(s.catalog.photo(lightcraft_catalog::PhotoId(id)).unwrap().deleted, "one undo step");
+    let _ = std::fs::remove_dir_all(&src);
+}
+
+/// A deleted photo whose file was moved meanwhile: importing the file from its new place restores
+/// the photo and points it at the file (matched by content).
+#[test]
+fn importing_a_deleted_photo_from_its_new_place_restores_and_relinks_it() {
+    let (mut s, src, id) = trashed_photo("trash-reimport-moved");
+    std::fs::create_dir_all(src.join("moved")).unwrap();
+    std::fs::rename(src.join("a.png"), src.join("moved/b.png")).unwrap();
+    let r = s.execute("library.import", &json!({"paths": [src.join("moved/b.png").to_string_lossy()]})).unwrap();
+    assert_eq!(r["restored"], json!([id]), "{r}");
+    let p = s.catalog.photo(lightcraft_catalog::PhotoId(id)).unwrap();
+    assert!(!p.deleted && p.rating == 4);
+    assert_eq!(p.source, lightcraft_catalog::Source::File { path: src.join("moved/b.png").to_string_lossy().to_string() });
+    assert_eq!(p.file_name, "b.png");
+    assert_eq!(s.catalog.len(), 1);
+    let _ = std::fs::remove_dir_all(&src);
+}
+
+/// Only an import the user asked for brings a deleted photo back: browsing its folder leaves it in
+/// Recently Deleted, and `onDeleted: skip` (Auto Import) reports the duplicate with `existingDeleted`.
+#[test]
+fn browsing_and_skip_never_restore_a_deleted_photo() {
+    let (mut s, src, id) = trashed_photo("trash-no-silent-restore");
+    let r = s.execute("library.browse", &json!({"path": src.to_string_lossy()})).unwrap();
+    assert_eq!(r["new"], 0, "{r}");
+    assert!(s.catalog.photo(lightcraft_catalog::PhotoId(id)).unwrap().deleted, "browsing only looks");
+    assert_eq!(s.catalog.len(), 1);
+    let r = s.execute("library.import", &json!({"paths": [src.join("a.png").to_string_lossy()], "onDeleted": "skip"})).unwrap();
+    assert_eq!(ids(&r, "imported"), 0, "{r}");
+    assert_eq!(r["duplicates"][0]["existing"], id, "{r}");
+    assert_eq!(r["duplicates"][0]["existingDeleted"], true, "{r}");
+    assert!(s.catalog.photo(lightcraft_catalog::PhotoId(id)).unwrap().deleted, "skip: left in the trash");
+    assert!(s.execute("library.import", &json!({"paths": [src.to_string_lossy()], "onDeleted": "fresh"})).is_err(), "unknown mode");
+    let _ = std::fs::remove_dir_all(&src);
+}
+
+/// Upstream LightCraft 5a21fc9: the import reused the review's probe for a file deleted since the
+/// review and added a photo of a file that isn't there. A gone (or resized) file is probed again.
+#[test]
+fn a_file_gone_since_the_import_review_is_not_imported() {
+    let src = temp_dir("gone-since-review");
+    write_png(&src.join("a.png"), 1);
+    write_png(&src.join("b.png"), 2);
+    let mut s = Session::new().with_fs();
+    s.execute("library.importPreview", &json!({"paths": [src.to_string_lossy()]})).unwrap();
+    std::fs::remove_file(src.join("b.png")).unwrap();
+    let r = s.execute("library.import", &json!({"paths": [src.join("a.png").to_string_lossy(), src.join("b.png").to_string_lossy()]})).unwrap();
+    assert_eq!((ids(&r, "imported"), ids(&r, "failed")), (1, 1), "{r}");
+    assert_eq!(s.catalog.len(), 1, "no photo for a file that isn't there");
+    let _ = std::fs::remove_dir_all(&src);
+}

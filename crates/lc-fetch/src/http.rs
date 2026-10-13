@@ -60,7 +60,11 @@ pub struct Url {
 
 impl Url {
     pub fn parse(s: &str) -> Result<Url, HttpError> {
-        let bad = |why: &str| HttpError::BadUrl(format!("{s}: {why}"));
+        // (the URL itself is not repeated: its query string may hold a token or signature)
+        let bad = |why: &str| HttpError::BadUrl(why.to_string());
+        if s.len() > 16 * 1024 {
+            return Err(bad("URL exceeds 16 KiB"));
+        }
         let s = s.trim();
         if s.chars().any(|c| c.is_control() || c == ' ') {
             return Err(bad("contains spaces or control characters"));
@@ -508,6 +512,14 @@ pub fn get(url: &Url, headers: &[(&str, String)], limits: &Limits) -> Result<Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Upstream LightCraft 8dd3afc (URL part).
+    #[test]
+    fn rejects_oversized_and_control_character_urls() {
+        assert!(Url::parse(&format!("https://example.com/{}", "x".repeat(16 * 1024))).is_err());
+        let e = Url::parse("https://example.com/x?secret=abc\r\nInjected: 1").unwrap_err();
+        assert!(!format!("{e:?}").contains("secret"), "{e:?}");
+    }
 
     #[test]
     fn parses_urls() {

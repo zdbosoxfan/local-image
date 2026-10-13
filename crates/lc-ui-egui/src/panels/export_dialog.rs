@@ -258,7 +258,13 @@ pub fn summary(app: &mut LightcraftApp, dlg: &Dialog, key: &str) -> String {
             crate::i18n::tr(label_of(&SHARPEN_FOR, opts.sharpen)),
             crate::i18n::tr(label_of(&AMOUNTS, opts.sharpen_amount))
         ),
-        "metadata" if !rendered => crate::i18n::tr("Kept in the file").to_string(),
+        "metadata" if !rendered => {
+            let mut s = crate::i18n::tr("Kept in the file").to_string();
+            if opts.remove_location {
+                s += &format!(", {}", crate::i18n::tr("Remove Location Info"));
+            }
+            s
+        }
         "metadata" => {
             let mut s = crate::i18n::tr(label_of(&METADATA, opts.metadata)).to_string();
             if opts.remove_location && !matches!(opts.metadata, M::None | M::Copyright) {
@@ -872,6 +878,11 @@ fn metadata(ui: &mut Ui, dlg: &mut Dialog) {
     let Dialog::Export { opts, .. } = dlg else { return };
     if !opts.format.is_rendered() {
         dim(ui, "The file's own metadata is kept; the edits travel as XMP.");
+        // the XMP (sidecar or DNG packet) leaves the location out; an original that embeds GPS is
+        // refused rather than copied with it
+        row(ui, "", |ui| {
+            check(ui, "exportRemoveLocation", &mut opts.remove_location, "Remove Location Info");
+        });
         return;
     }
     row(ui, "Include:", |ui| {
