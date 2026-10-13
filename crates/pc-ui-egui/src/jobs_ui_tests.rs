@@ -431,3 +431,74 @@ fn photo_completion_requires_admission_id_instead_of_falling_back_to_an_index() 
     assert!(app.ui.photo_admission.is_none());
     assert!(app.ui.status_error);
 }
+
+/// Audit F13: a subject model stand-in (a centred disc) held by `gate`, installed for this test
+/// thread (the harness runs the app on it).
+fn mock_subject(gate: Option<Arc<AtomicBool>>) -> Arc<photocraft_engine::seg::MockModel> {
+    let model = photocraft_engine::seg::MockModel::new(gate, |w, h| {
+        let (cx, cy, r) = (w as f32 / 2.0, h as f32 / 2.0, w.min(h) as f32 * 0.3);
+        Some((0..w * h).map(|i| (((i % w) as f32 + 0.5 - cx).hypot((i / w) as f32 + 0.5 - cy) <= r) as u8 as f32).collect())
+    });
+    photocraft_engine::seg::mock_subject_model_on_thread(Some(model.clone()));
+    model
+}
+
+/// Audit F13: Select › Subject runs on a worker. The frame that starts it returns at once, frames
+/// keep coming, the status bar says "Selecting subject…" with Cancel (no modal dialog, so the
+/// view still zooms), other selections are refused with the job's name, and Esc cancels.
+#[test]
+fn select_subject_keeps_the_canvas_responsive_and_esc_cancels_it() {
+    let gate = Arc::new(AtomicBool::new(false));
+    let model = mock_subject(Some(gate.clone()));
+    let mut h = app_harness();
+    let ctx = h.ctx.clone();
+    let doc_before = h.state().session.active().unwrap().doc.clone();
+    let t = Instant::now();
+    let r = crate::menus::invoke(h.state_mut(), &ctx, "select.subject", json!({})).unwrap();
+    assert_eq!(r["pending"], true, "{r}");
+    assert!(t.elapsed() < Duration::from_secs(2), "the UI thread did not wait for the model");
+    let frame0 = h.state().frame;
+    let (n, worst) = frames_for(&mut h, 400);
+    assert!(h.state().frame - frame0 >= 10, "the UI kept rendering ({n} frames, slowest {worst:.1} ms)");
+    assert_eq!(model.calls(), 1, "the model is running on the worker");
+    assert!(h.query_by_label("Selecting subject…").is_some(), "status-bar readout");
+    assert!(h.query_by_label("Esc to cancel").is_none(), "no modal progress dialog over the canvas");
+    // The view still zooms while the selection runs.
+    let zoom = h.state().ui.views[0].zoom;
+    crate::menus::invoke(h.state_mut(), &ctx, "view.zoomIn", json!({})).unwrap();
+    assert!(h.state().ui.views[0].zoom > zoom);
+    // Another selection on the busy document is refused with a clear reason.
+    let err = h.state_mut().run("select.object", json!({"point": [160, 120]})).unwrap_err();
+    assert!(err.contains("Select Subject"), "{err}");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(!h.state().session.has_jobs());
+    assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc_before));
+    assert!(h.state().ui.status.contains("Cancelled Select Subject"), "{}", h.state().ui.status);
+    gate.store(true, Ordering::SeqCst);
+    h.state_mut().session.join_cancelled_jobs();
+    h.run_steps(2);
+    assert!(h.state().session.active().unwrap().doc.selection.is_none(), "the cancelled result never lands");
+    photocraft_engine::seg::mock_subject_model_on_thread(None);
+}
+
+/// Audit F13: the finished selection lands as one undo step named after the command.
+#[test]
+fn a_finished_select_subject_job_is_one_undo_step() {
+    let _model = mock_subject(None);
+    let mut h = app_harness();
+    let steps = h.state().session.active().unwrap().history.past_len();
+    let r = h.state_mut().run("select.subject", json!({})).unwrap();
+    assert_eq!(r["pending"], true, "{r}");
+    let t = Instant::now();
+    while h.state().session.has_jobs() && t.elapsed() < Duration::from_secs(30) {
+        h.step();
+    }
+    h.run_steps(2);
+    let st = h.state().session.active().unwrap();
+    assert!(st.doc.selection.as_ref().is_some_and(|m| m.sample_channel(160, 120, 0) > 0.5 && m.sample_channel(5, 5, 0) < 0.5));
+    assert_eq!(st.history.past_len(), steps + 1);
+    assert_eq!(st.history.undo_label(), Some("Select Subject"));
+    assert_eq!(h.state().ui.status, "Select Subject");
+    photocraft_engine::seg::mock_subject_model_on_thread(None);
+}

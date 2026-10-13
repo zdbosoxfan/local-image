@@ -7,7 +7,8 @@
 //!   waiting on a job, finishes background opens and keeps frames coming while anything runs.
 //! - [`status_progress`] draws the status-bar progress with a Cancel button; [`dialog`] the modal
 //!   progress window for jobs that lock the active document (filters, Content-Aware Fill, …),
-//!   shown after a short delay so quick jobs don't flash it. Esc cancels.
+//!   shown after a short delay so quick jobs don't flash it. Esc cancels. AI selections
+//!   ([`non_modal_text`]) show only the status-bar readout so the canvas stays usable.
 //! - Files opening in the background get a document tab at once ([`OpenTab`]); its canvas area
 //!   shows the progress, and closing the tab cancels the open.
 //!
@@ -25,6 +26,17 @@ use crate::{ControlResponse, PhotocraftApp, notices};
 
 /// Delay before the modal progress dialog appears (quick jobs finish without it).
 pub const DIALOG_DELAY_MS: f64 = 250.0;
+
+/// Jobs that keep the canvas usable while they run: no modal dialog, only the status bar's
+/// "Selecting subject…" readout with its Cancel (×) and Esc, as Photoshop's AI selections do.
+/// Pan and zoom keep working; edits to the document are refused with the job's name until it
+/// ends. Returns the status text.
+pub fn non_modal_text(command: &str) -> Option<&'static str> {
+    // Kept as data (not `tl!` literals) so they wait for the next translation pass.
+    const TEXTS: &[(&str, &str)] =
+        &[("select.subject", "Selecting subject…"), ("select.object", "Selecting object…"), ("select.sky", "Selecting sky…"), ("select.quick", "Selecting…")];
+    TEXTS.iter().find(|(c, _)| *c == command).map(|(_, t)| *t)
+}
 
 /// A file opening in the background: shown as a document tab with progress.
 #[derive(Clone, Debug)]
@@ -309,9 +321,10 @@ fn on_event(app: &mut PhotocraftApp, mut e: JobEvent, previous: Option<photocraf
             app.ui.panels.brush_settings = true;
             app.ui.brush_tab = 1;
         }
-        JobOutcome::Done(_) => {
+        JobOutcome::Done(v) => {
             app.sync_views();
-            app.ui.status = e.label;
+            // A selection job that found nothing says so ("No sky was detected").
+            app.ui.status = v.get("message").and_then(Value::as_str).filter(|_| non_modal_text(&e.command).is_some()).map_or(e.label, str::to_string);
             app.ui.status_error = false;
         }
         JobOutcome::Failed(err) => {
@@ -436,7 +449,8 @@ pub fn status_progress(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.label(RichText::new(percent(&j)).color(t.text_dim).size(11.5).monospace());
     let (br, _) = ui.allocate_exact_size(vec2(bar_w, bar_h), Sense::hover());
     bar(ui, br, shown_fraction(&j), &t);
-    let label = if more > 0 { format!("{} (+{more})", tl!(&j.label)) } else { tl!(&j.label).to_owned() };
+    let name = non_modal_text(&j.command).unwrap_or(&j.label);
+    let label = if more > 0 { format!("{} (+{more})", tl!(name)) } else { tl!(name).to_owned() };
     ui.label(RichText::new(label).color(t.text_dim).size(12.0));
     if xresp.clicked() {
         cancel(app, j.id);
@@ -448,7 +462,7 @@ pub fn status_progress(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 /// [`DIALOG_DELAY_MS`]; Esc cancels (see [`tick`]).
 pub fn dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(j) = app.session.active_job() else { return };
-    if j.elapsed_ms < DIALOG_DELAY_MS {
+    if j.elapsed_ms < DIALOG_DELAY_MS || non_modal_text(&j.command).is_some() {
         return;
     }
     let t = Tokens::get(ctx);
