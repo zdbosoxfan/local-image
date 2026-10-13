@@ -281,7 +281,7 @@ impl Default for Interface {
     fn default() -> Self {
         Self {
             theme: Theme::ProMedium,
-            tool_icons: "colour".into(),
+            tool_icons: "monochrome".into(),
             canvas_color: CanvasColor::Default,
             canvas_custom_color: "#282828".into(),
             canvas_border: CanvasBorder::DropShadow,

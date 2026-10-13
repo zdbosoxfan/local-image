@@ -1073,8 +1073,8 @@ fn humanize(key: &str) -> String {
 
 fn choice_label(v: &str) -> String {
     match v {
-        "colour" => "Colour (default)".into(),
-        "monochrome" => "Monochrome".into(),
+        "colour" => "Colour".into(),
+        "monochrome" => "Monochrome (default)".into(),
         "cm" => "Centimeters".into(),
         "editedFolder" => "A copy in the Edited folder (originals untouched)".into(),
         "original" => "The original file".into(),
@@ -1342,7 +1342,7 @@ fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>
         let mut current = obj.get("toolIcons").and_then(Value::as_str).unwrap_or("colour").to_string();
         ui.horizontal(|ui| {
             ui.label(tl!("Tool icons"));
-            let choices = [("colour".to_string(), tl!("Colour (default)")), ("monochrome".to_string(), tl!("Monochrome"))];
+            let choices = [("monochrome".to_string(), tl!("Monochrome (default)")), ("colour".to_string(), tl!("Colour"))];
             crate::widgets::dropdown(ui, "pref-interface.toolIcons", &mut current, &choices, 220.0);
         });
         obj.insert("toolIcons".into(), json!(current));

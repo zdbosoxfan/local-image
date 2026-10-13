@@ -1584,5 +1584,7 @@
   "Only in session": "僅限工作階段",
   "Split into sessions when there is a gap of more than": "當間隔超過",
   "All sessions": "所有工作階段",
-  "Export sessions as folders": "將工作階段匯出為資料夾"
+  "Export sessions as folders": "將工作階段匯出為資料夾",
+  "Colour": "彩色",
+  "Monochrome (default)": "單色（預設）"
 }

@@ -1584,5 +1584,7 @@
   "Only in session": "Pouze v relaci",
   "Split into sessions when there is a gap of more than": "Rozdělit na relace, pokud je mezera větší než",
   "All sessions": "Všechny relace",
-  "Export sessions as folders": "Exportovat relace jako složky"
+  "Export sessions as folders": "Exportovat relace jako složky",
+  "Colour": "Barva",
+  "Monochrome (default)": "Černobílý (výchozí)"
 }

@@ -274,7 +274,7 @@ vector_tools![
     ("Crop", "Crop Tool", "crop", None, 17),
     ("Eyedropper", "Eyedropper Tool", "pipette", None, 18),
     ("Hand", "Hand Tool", "hand", None, 19),
-    ("RotateView", "Rotate View Tool", "vector-rotate", None, 19),
+    ("RotateView", "Rotate View Tool", "rotate-view", None, 19),
     ("Zoom", "Zoom Tool", "zoom-in", None, 20),
     ("GroupSelection", "Group Selection Tool", "vector-group-select", Some(32), 1),
     ("VectorMagicWand", "Vector Magic Wand Tool", "wand-sparkles", Some(32), 2),

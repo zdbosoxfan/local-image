@@ -114,6 +114,8 @@ fn settings_click_switches_tool_strip_pixels_and_round_trips_at_both_scales() {
     for scale in [1.0, 2.0] {
         let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
         app.ui.language = crate::i18n::Locale::En;
+        // Start in Colour; the fresh default is Monochrome (asserted below).
+        app.ui.settings.color_tool_icons = true;
         let mut h = Headless::new(app, [1300.0, 820.0], scale);
         let timeout = Duration::from_secs(10);
         for _ in 0..4 {
@@ -127,7 +129,7 @@ fn settings_click_switches_tool_strip_pixels_and_round_trips_at_both_scales() {
         assert!(count > (50.0 * scale * scale) as usize, "no colour crop pixels: {count}");
         h.request("ui.key", json!({"key":",", "cmd":true}), timeout);
         h.request("ui.clickWidget", json!({"id":"button:settingsTab-interface"}), timeout);
-        let click = h.request("ui.clickWidget", json!({"id":"button:settingsToolIcons-1"}), timeout);
+        let click = h.request("ui.clickWidget", json!({"id":"button:settingsToolIcons-0"}), timeout);
         assert_eq!(click["ok"], true, "{click}");
         assert!(!h.app.ui.settings.color_tool_icons);
         h.request("ui.key", json!({"key":"Escape"}), timeout);
@@ -139,10 +141,10 @@ fn settings_click_switches_tool_strip_pixels_and_round_trips_at_both_scales() {
         let restored: crate::state::AppSettings = serde_json::from_str(&saved).unwrap();
         assert!(!restored.color_tool_icons);
         let old: crate::state::AppSettings = serde_json::from_str("{}").unwrap();
-        assert!(old.color_tool_icons);
+        assert!(!old.color_tool_icons, "fresh default is Monochrome");
         h.request("ui.key", json!({"key":",", "cmd":true}), timeout);
         h.request("ui.clickWidget", json!({"id":"button:settingsTab-interface"}), timeout);
-        h.request("ui.clickWidget", json!({"id":"button:settingsToolIcons-0"}), timeout);
+        h.request("ui.clickWidget", json!({"id":"button:settingsToolIcons-1"}), timeout);
         h.request("ui.key", json!({"key":"Escape"}), timeout);
         for _ in 0..3 {
             h.step();

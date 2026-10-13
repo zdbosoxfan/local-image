@@ -177,7 +177,10 @@ fn clicking_preferences_switches_the_real_toolbar_pixels_and_saves() {
     app.session.prefs.edit(|p| {
         p.interface.theme = photocraft_engine::prefs::Theme::Studio;
         p.interface.language = "en".into();
+        // Start in Colour; the fresh default is Monochrome (asserted below).
+        p.interface.tool_icons = "colour".into();
     });
+    assert_eq!(photocraft_engine::prefs::Preferences::default().interface.tool_icons, "monochrome");
     let mut h = Harness::builder().with_size(vec2(1280.0, 1000.0)).build_eframe(move |cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, crate::theme::ThemeKind::Studio);
         app
@@ -193,9 +196,9 @@ fn clicking_preferences_switches_the_real_toolbar_pixels_and_saves() {
     let dialog = crate::menus::invoke(h.state_mut(), &ctx, "edit.preferences.interface", json!({})).unwrap()["dialog"].as_u64().unwrap();
     h.state_mut().ui.dialog_mut(dialog).unwrap().fields.insert("section".into(), json!("interface"));
     h.run_steps(3);
-    h.get_by_value("Colour (default)").click();
+    h.get_by_value("Colour").click();
     h.run_steps(2);
-    h.get_by_label("Monochrome").click();
+    h.get_by_label("Monochrome (default)").click();
     h.run_steps(2);
     h.get_by_label("Apply").click();
     h.run_steps(3);
@@ -206,9 +209,9 @@ fn clicking_preferences_switches_the_real_toolbar_pixels_and_saves() {
     let mut restored = photocraft_engine::Session::new();
     restored.load_prefs_json(&h.state().session.prefs_to_json()).unwrap();
     assert_eq!(restored.prefs().interface.tool_icons, "monochrome");
-    h.get_by_value("Monochrome").click();
+    h.get_by_value("Monochrome (default)").click();
     h.run_steps(2);
-    h.get_by_label("Colour (default)").click();
+    h.get_by_label("Colour").click();
     h.run_steps(2);
     h.get_by_label("OK").click();
     h.run_steps(3);

@@ -1584,5 +1584,7 @@
   "Only in session": "Hanya dalam sesi",
   "Split into sessions when there is a gap of more than": "Pisahkan menjadi sesi ketika ada jeda lebih dari",
   "All sessions": "Semua sesi",
-  "Export sessions as folders": "Ekspor sesi sebagai folder"
+  "Export sessions as folders": "Ekspor sesi sebagai folder",
+  "Colour": "Warna",
+  "Monochrome (default)": "Monokrom (default)"
 }
