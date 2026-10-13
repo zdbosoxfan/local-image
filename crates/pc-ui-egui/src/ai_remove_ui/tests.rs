@@ -405,7 +405,8 @@ fn fresh_remove_submits_only_on_release_and_keeps_unavailable_or_failed_work_for
         }))
     });
     let _reset = RemoveMockReset;
-    let mut h = harness_mode(crate::ai_ui::AiOptions::default().remove_immediately);
+    // Opt-in apply-on-release mode (the default is brush, adjust, confirm).
+    let mut h = harness_mode(true);
     assert!(h.state().ui.ai.remove_immediately);
     let doc = h.state().session.active().unwrap().doc.clone();
     let history = h.state().session.active().unwrap().history.past_len();
@@ -422,7 +423,7 @@ fn fresh_remove_submits_only_on_release_and_keeps_unavailable_or_failed_work_for
     assert_eq!(calls.get(), 0, "down and movement cannot submit");
     h.event(Event::PointerButton { pos: b, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
     h.run_steps(3);
-    assert_eq!(calls.get(), 1, "fresh default submits at release");
+    assert_eq!(calls.get(), 1, "apply-on-release mode submits at release");
     let mask = h.state().ai_remove.as_ref().unwrap().mask.clone();
     h.run_steps(4);
     assert_eq!(calls.get(), 1, "repaint cannot retry");

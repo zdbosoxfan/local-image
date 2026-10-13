@@ -38,7 +38,8 @@ use crate::widgets;
 pub struct AiOptions {
     /// AI Remove engine: `klein`, `qwen-int8` or `qwen-bf16`.
     pub remove_engine: String,
-    /// Apply a painted removal stroke on release; saved manual choices remain explicit.
+    /// Apply a painted removal stroke on release. Off by default (owner decision): the user brushes,
+    /// adjusts the mask, then confirms with Remove.
     pub remove_immediately: bool,
     /// Shared single/batch cutout engine: `fast`, `better`, `qwen-int8` or `qwen-bf16`.
     /// Saved `quick` values deserialize as Fast.
@@ -70,7 +71,7 @@ impl Default for AiOptions {
     fn default() -> Self {
         Self {
             remove_engine: "klein".into(),
-            remove_immediately: true,
+            remove_immediately: false,
             cutout_engine: "fast".into(),
             cutout_refine: true,
             cutout_decontaminate: false,
@@ -1861,12 +1862,13 @@ mod tests {
     use egui_kittest::kittest::{NodeT, Queryable};
 
     #[test]
-    fn remove_release_default_preserves_explicit_saved_manual_choice() {
-        assert!(AiOptions::default().remove_immediately);
-        assert!(serde_json::from_value::<AiOptions>(json!({})).unwrap().remove_immediately);
-        let manual: AiOptions = serde_json::from_value(json!({"remove_immediately": false})).unwrap();
-        assert!(!manual.remove_immediately);
-        assert!(!serde_json::from_value::<AiOptions>(serde_json::to_value(manual).unwrap()).unwrap().remove_immediately);
+    fn remove_confirm_default_preserves_explicit_saved_immediate_choice() {
+        // Owner decision: brush, adjust, then confirm. Apply-on-release is an opt-in.
+        assert!(!AiOptions::default().remove_immediately);
+        assert!(!serde_json::from_value::<AiOptions>(json!({})).unwrap().remove_immediately);
+        let immediate: AiOptions = serde_json::from_value(json!({"remove_immediately": true})).unwrap();
+        assert!(immediate.remove_immediately);
+        assert!(serde_json::from_value::<AiOptions>(serde_json::to_value(immediate).unwrap()).unwrap().remove_immediately);
     }
 
     #[test]
