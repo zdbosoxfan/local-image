@@ -76,7 +76,13 @@ pub fn start(
         let _ = tx.send(r);
     };
     #[cfg(not(target_arch = "wasm32"))]
-    std::thread::Builder::new().name("export".into()).spawn(work).map_err(|e| e.to_string())?;
+    std::thread::Builder::new()
+        .name("export".into())
+        .spawn(move || {
+            lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
+            work()
+        })
+        .map_err(|e| e.to_string())?;
     #[cfg(target_arch = "wasm32")]
     work();
     app.export = Some(ExportTask { library_generation: app.session.library_generation, total, progress, cancel, enhance_ctl, rx, after });

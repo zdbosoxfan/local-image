@@ -303,6 +303,7 @@ pub fn start_download(preset_id: &str) {
     }
     let id = preset_id.to_owned();
     let _ = std::thread::Builder::new().name("model-download".into()).spawn(move || {
+        lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
         let dir = AiSettings::load().model_dir();
         let id2 = id.clone();
         let r = li_ai::download::download_preset(&dir, preset, &ctl, &|p| {
@@ -336,6 +337,7 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
         d.insert(key.clone(), Download { total: spec.download_bytes(), file: spec.file.to_owned(), ctl: ctl.clone(), ..Default::default() });
     }
     let _ = std::thread::Builder::new().name("seg-download".into()).spawn(move || {
+        lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
         let r = download_seg_files(spec, &photocraft_engine::seg::models_dir(), &ctl, &|done| {
             if let Ok(mut d) = shared().downloads.lock()
                 && let Some(x) = d.get_mut(&key)

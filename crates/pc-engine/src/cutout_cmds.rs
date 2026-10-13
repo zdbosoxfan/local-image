@@ -178,14 +178,20 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let sample_all = p.get("sampleAllLayers").and_then(Value::as_bool).unwrap_or(false);
     let refine = p.get("refine").and_then(Value::as_bool).unwrap_or(true);
     let require_learned = p.get("engine").and_then(Value::as_str) == Some("learned");
+    // Resolved here, on the thread that started the job (a test's mock model is per thread).
     let learned = crate::seg::wanted(p).map_err(|msg| EngineError::BadParams { cmd: CMD.into(), msg })?;
+    let model = if learned { crate::seg::SubjectModel::current() } else { None };
     crate::jobs::edit_job(
         s,
         "Remove Background",
         move |doc, active, ctx| {
             ctx.progress(0.1, "Finding subject");
             // local-image: the learned model first (when installed), the classical heuristic otherwise.
-            let learned = learned.then(|| crate::seg::subject(doc, Some(id), sample_all)).flatten();
+            let learned = model.as_ref().and_then(|m| crate::seg::subject_with(m, doc, Some(id), sample_all, ctx.cancellation_flag()));
+            // A cancelled model run returns nothing: don't fall back to the classical heuristic.
+            if ctx.cancelled() {
+                return Err(EngineError::Cancelled);
+            }
             if require_learned && learned.is_none() {
                 return Err(EngineError::Other("no subject found".into()));
             }
@@ -322,6 +328,39 @@ mod tests {
             s.undo();
             assert_eq!(s.active().unwrap().doc, before);
         }
+    }
+
+    /// Cancelling Remove Background stops the subject model itself (it sees the job's flag) and does
+    /// not fall back to the classical heuristic: the worker ends without the model's gate opening,
+    /// and the document is untouched.
+    #[test]
+    fn cancelling_remove_background_stops_the_model_run_promptly() {
+        use crate::seg::{MockModel, mock_subject_model_on_thread};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+        let gate = Arc::new(AtomicBool::new(false));
+        let model = MockModel::new(Some(gate.clone()), |w, h| Some(vec![1.0; w * h]));
+        mock_subject_model_on_thread(Some(model.clone()));
+        let (mut s, _) = disc(8);
+        let before = s.active().unwrap().doc.clone();
+        let started = s.start(CMD, json!({"engine": "learned"}));
+        mock_subject_model_on_thread(None);
+        let id = match started.unwrap() {
+            crate::jobs::Started::Job(id) => id,
+            crate::jobs::Started::Done(v) => panic!("ran inline: {v}"),
+        };
+        let t = Instant::now();
+        while model.calls() == 0 && t.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(model.calls(), 1, "the job reached the subject model");
+        assert!(s.cancel_job(id));
+        let t = Instant::now();
+        s.join_cancelled_jobs();
+        assert!(t.elapsed() < Duration::from_secs(5), "the worker kept running for {:?} after the cancel", t.elapsed());
+        assert!(!gate.load(Ordering::SeqCst), "the model was stopped, not released");
+        assert_eq!(s.active().unwrap().doc, before);
     }
 
     #[test]

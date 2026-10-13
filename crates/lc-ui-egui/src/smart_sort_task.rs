@@ -91,7 +91,10 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
         crate::people_task::start(app, ids, None)?;
     }
     #[cfg(not(target_arch = "wasm32"))]
-    if let Err(e) = std::thread::Builder::new().name("smart-sort".into()).spawn(work) {
+    if let Err(e) = std::thread::Builder::new().name("smart-sort".into()).spawn(move || {
+        lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
+        work()
+    }) {
         if faces {
             app.people_task = None;
         } // Drop cancels the worker we just started.

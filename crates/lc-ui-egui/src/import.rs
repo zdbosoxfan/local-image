@@ -296,6 +296,7 @@ impl ImportRun {
         let (tx, rx) = std::sync::mpsc::channel();
         let ctx = ctx.clone();
         let work = move || {
+            lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
             let files = job.expand(&queue);
             for chunk in files.chunks(BATCH) {
                 if cancel.load(Ordering::Relaxed) {

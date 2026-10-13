@@ -191,6 +191,7 @@ fn start(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let control = ctl.clone();
     let ctx = ctx.clone();
     let worker = std::thread::Builder::new().name("photo-restoration".into()).spawn(move || {
+        lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
         let result = if let Some(model) = byo_model {
             byo::restore(&client, &settings, &model, &acks, &source, &checkpoint, &control).map(Preview::Image)
         } else if task == Task::Colourise {

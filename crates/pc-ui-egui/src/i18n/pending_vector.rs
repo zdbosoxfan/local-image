@@ -1276,4 +1276,19 @@
     "Select the vector objects you want to edit.",
     "Use the tool's controls in the context bar.",
     "No recent documents yet.",
+    // Swatches panel (c5849aa5): HSB slider names in the Color panel; English until translations resume.
+    "Colour hue",
+    "Colour saturation",
+    "Colour brightness",
+    // Preferences > Performance > Processing (docs/wip/BUILD-threads-a.md); English until translations resume.
+    "Processing",
+    "Processing threads",
+    "Background work priority",
+    "Memory for processing",
+    "Detected: {logical} logical / {physical} physical cores{hybrid}, {ram} GB RAM",
+    // Status-bar readouts of the selection jobs (jobs_ui::non_modal_text); English until translations resume.
+    "Selecting subject…",
+    "Selecting object…",
+    "Selecting sky…",
+    "Selecting…",
 ]

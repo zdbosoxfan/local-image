@@ -1184,13 +1184,10 @@ fn texels_into(format: wgpu::TextureFormat, px: &[[f32; 4]], out: &mut Vec<u8>) 
     out.resize(px.len() * bpp, 0);
     #[cfg(not(target_arch = "wasm32"))]
     if px.len() > 1 << 18 {
-        let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(16);
-        let chunk = px.len().div_ceil(threads);
-        std::thread::scope(|s| {
-            for (src, dst) in px.chunks(chunk).zip(out.chunks_mut(chunk * bpp)) {
-                s.spawn(move || convert(src, dst));
-            }
-        });
+        // Rayon's shared compute pool (one pool for the whole app), not a thread per chunk.
+        use rayon::prelude::*;
+        let chunk = px.len().div_ceil(rayon::current_num_threads().min(16));
+        px.par_chunks(chunk).zip(out.par_chunks_mut(chunk * bpp)).for_each(|(src, dst)| convert(src, dst));
         return;
     }
     convert(px, out);
