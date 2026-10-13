@@ -1324,4 +1324,6 @@
     "This PDF was selected for placement in its captured document",
     "Use image fallback",
     "Image fallback requires system Poppler, bubblewrap, util-linux and a systemd user session.",
+    // Compact editor menu bar (U021); English until translations resume.
+    "Menu",
 ]
