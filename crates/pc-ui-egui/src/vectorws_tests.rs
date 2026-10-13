@@ -72,9 +72,14 @@ fn vectorws_unlock_show_shortcuts_profile_override_and_undo() {
         p.shortcut_profiles.editor.active = "Photoshop".into();
         p.toolbar.vector_keyboard.preset = photocraft_engine::vector_toolbar_layout::Preset::Affinity;
     });
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT | egui::Modifiers::SHIFT, egui::Key::L);
+    let restore = if cfg!(target_os = "macos") {
+        egui::Modifiers::CTRL | egui::Modifiers::COMMAND
+    } else {
+        egui::Modifiers::COMMAND | egui::Modifiers::ALT | egui::Modifiers::SHIFT
+    };
+    h.key_press_modifiers(restore, egui::Key::L);
     h.run_steps(3);
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT | egui::Modifiers::SHIFT, egui::Key::H);
+    h.key_press_modifiers(restore, egui::Key::H);
     h.run_steps(3);
     assert!(!h.state().session.active().unwrap().doc.layer(id).unwrap().locks.all);
     assert!(h.state().session.active().unwrap().doc.layer(id).unwrap().visible);

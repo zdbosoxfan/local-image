@@ -40,6 +40,8 @@ fn enter(app: &mut PhotocraftApp, show: fn(&mut PhotocraftApp, &egui::Context)) 
     press(app, show, egui::Key::Enter);
 }
 fn press(app: &mut PhotocraftApp, show: fn(&mut PhotocraftApp, &egui::Context), key: egui::Key) {
+    // macOS's discard dialog says Don't Save (D); other platforms say No (N).
+    let key = if cfg!(target_os = "macos") && key == egui::Key::N { egui::Key::D } else { key };
     let ctx = egui::Context::default();
     PhotocraftApp::setup_context(&ctx, Default::default());
     let mut output = ctx.run_ui(egui::RawInput::default(), |ui| show(app, ui.ctx()));

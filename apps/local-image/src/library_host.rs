@@ -1127,6 +1127,10 @@ impl eframe::App for Host {
             self.editor.logic(ctx, frame);
         } else {
             self.editor.background_tick(ctx);
+            // Native menus belong to the host, including while the Library owns the canvas.
+            // The editor's normal logic/UI are dormant here, so drain clicks and sync explicitly.
+            photocraft_ui_egui::native_menu::run(&mut self.editor, ctx);
+            photocraft_ui_egui::native_menu::sync(&mut self.editor, ctx);
             // Started in the Library or Develop: the editor's frames (which run the started hook)
             // don't happen, so the GPU start-up marker stayed for the whole session and any later
             // exit that wasn't clean (out-of-memory killer, logout, a crash elsewhere) read as a
@@ -1236,7 +1240,12 @@ impl eframe::App for Host {
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         match (self.mode, self.library.as_mut()) {
-            (Module::Library | Module::Develop, Some(lib)) => lib.raw_input_hook(raw),
+            (Module::Library | Module::Develop, Some(lib)) => {
+                if let Some(menu) = self.editor.services.native_menu.as_mut() {
+                    menu.raw_input(raw);
+                }
+                lib.raw_input_hook(raw);
+            }
             _ => self.editor.raw_input_hook(ctx, raw),
         }
     }
@@ -2361,6 +2370,34 @@ mod tests {
             let img = self.view.paint(&self.host.library.as_ref().unwrap().renderer.cpu_textures());
             img.pixels[pos.y as usize * img.size[0] + pos.x as usize]
         }
+    }
+
+    #[test]
+    fn native_menu_keys_and_quit_click_reach_the_library_after_startup() {
+        use photocraft_ui_egui::native_menu::{Backend, Chord, Event, MenuBar, NativeMenu};
+        struct Queue(Arc<Mutex<Vec<Event>>>);
+        impl Backend for Queue {
+            fn sync(&mut self, _: &MenuBar) {}
+            fn drain(&mut self) -> Vec<Event> {
+                std::mem::take(&mut *self.0.lock().unwrap())
+            }
+        }
+        let (dir, mut host) = workflow_host("native-library-menu");
+        host.mode = Module::Library;
+        let events = Arc::new(Mutex::new(Vec::new()));
+        host.editor.services.native_menu = Some(NativeMenu::new(Box::new(Queue(events.clone()))));
+        let mut h = RoundTripUi::new(host);
+        h.step(vec![]);
+        h.step(vec![]); // The editor's startup logic no longer runs in this workspace.
+        events.lock().unwrap().push(Event::Key(Chord::parse("Cmd+Q").unwrap()));
+        let mut raw = egui::RawInput::default();
+        eframe::App::raw_input_hook(&mut h.host, &h.view.ctx, &mut raw);
+        assert!(raw.events.iter().any(|event| matches!(event, egui::Event::Key { key: egui::Key::Q, pressed: true, modifiers, .. } if modifiers.command)));
+        events.lock().unwrap().push(Event::Click("file.exit".into()));
+        let commands = h.step_at(egui::vec2(1200., 900.), vec![]);
+        assert!(commands.contains(&egui::ViewportCommand::Close), "native Quit was lost in Library: {commands:?}");
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn click_overwrite(h: &mut RoundTripUi, id: &str) {

@@ -130,7 +130,7 @@ fn reasons_ux_disabled_main_panel_context_clicks_and_tooltips() {
     let mut h = harness(empty, Surface::Main);
     h.get_by_label("Edit").click();
     h.run_steps(4);
-    hover_reason(&mut h, "Fill… Shift+F5", "Open a photo first.");
+    hover_reason(&mut h, if cfg!(target_os = "macos") { "Fill… ⇧F5" } else { "Fill… Shift+F5" }, "Open a photo first.");
     let mut a = app();
     a.run("layer.setProps", json!({"locked":true})).unwrap();
     let mut h = harness(a, Surface::Panel);
@@ -162,7 +162,7 @@ fn reasons_ux_every_disabled_main_row_has_a_reason_and_profile_labels_match() {
         }
     }
     a.session.edit_prefs(|p| p.set("shortcuts.select.deselect", json!("Ctrl+Alt+D")).unwrap());
-    assert_eq!(crate::shortcuts::shortcut_label(&a, "select.deselect").as_deref(), Some("Ctrl+Alt+D"));
+    assert_eq!(crate::shortcuts::shortcut_label(&a, "select.deselect").as_deref(), Some(if cfg!(target_os = "macos") { "Ctrl⌥D" } else { "Ctrl+Alt+D" }));
     a.session.edit_prefs(|p| p.set("shortcuts.select.deselect", json!("")).unwrap());
     assert!(crate::shortcuts::shortcut_label(&a, "select.deselect").is_none());
 }
@@ -312,7 +312,7 @@ fn reasons_ux_rtx5090_menu_and_tooltip_screenshots() {
         h.run_steps(4);
         h.get_by_label("Edit").click();
         h.run_steps(4);
-        h.get_by_label_contains("Fill… Shift+F5").hover();
+        h.get_by_label_contains(if cfg!(target_os = "macos") { "Fill… ⇧F5" } else { "Fill… Shift+F5" }).hover();
         h.run_steps(6);
         assert!(h.query_by_label("Open a photo first.").is_some());
         h.render().unwrap().save(dir.join(format!("main-{theme_name}-reason.png"))).unwrap();

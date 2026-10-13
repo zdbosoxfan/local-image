@@ -799,6 +799,13 @@ mod tests {
             "Refine steps",
             "Refine guidance",
             "ComfyUI denoise: 1 regenerates the image, lower values keep more of it",
+            // Remote ComfyUI controls stay in English under the owner's translation pause.
+            "Use a remote ComfyUI server",
+            "Connect / Check Server",
+            "Install on server",
+            "Install generative models on the remote ComfyUI server, then check the connection again.",
+            "Models and generation run on the server; images and results transfer automatically. Use its LAN or Tailscale address, or 127.0.0.1 with an SSH tunnel.",
+            "Start ComfyUI and install generative models on the server. Local AI models below still run on this Mac.",
         ];
         // docs/wip/CODEX-TASK.md explicitly defers translation of the new background
         // controls. Keep this exception scoped to their keys; remove it when translated.
