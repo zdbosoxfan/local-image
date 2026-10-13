@@ -1154,7 +1154,8 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                     section = id.to_string();
                 }
             }
-            if ui.button("Keyboard Shortcuts…").clicked() {
+            ui.add_space(6.0);
+            if crate::widgets::secondary_button(ui, "Keyboard Shortcuts…", 0.0).clicked() {
                 f.insert("openShortcuts".into(), json!(true));
             }
             crate::attributions::prefs_nav(ui, &mut section);
@@ -1510,18 +1511,9 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     profiles.migrate(&overrides);
     if tab == 0 {
         ui.horizontal(|ui| {
-            ui.label(tl!("Scope"));
-            egui::ComboBox::from_id_salt("shortcut-module")
-                .selected_text(match scope.as_str() {
-                    "library" => tl!("Library + Develop"),
-                    "editor" => tl!("Editor"),
-                    _ => tl!("Global"),
-                })
-                .show_ui(ui, |ui| {
-                    for (id, label) in [("global", tl!("Global")), ("library", tl!("Library + Develop")), ("editor", tl!("Editor"))] {
-                        ui.selectable_value(&mut scope, id.to_string(), label);
-                    }
-                });
+            ui.label(RichText::new(tl!("Scope")).color(t.text_dim));
+            let scopes = [("global".to_string(), "Global"), ("library".to_string(), "Library + Develop"), ("editor".to_string(), "Editor")];
+            crate::widgets::dropdown(ui, "shortcut-module", &mut scope, &scopes, 180.0);
         });
         if scope != previous_scope {
             capture = false;
@@ -1530,7 +1522,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         }
         f.insert("shortcutScope".into(), json!(scope));
         if scope == "global" {
-            ui.label("Global shortcuts are fixed and take precedence in every workspace.");
+            ui.label(RichText::new("Global shortcuts are fixed and take precedence in every workspace.").color(t.text_dim));
             for (_, label, key) in prefs::GLOBAL_SHORTCUTS {
                 ui.horizontal(|ui| {
                     ui.label(*label);
@@ -1548,17 +1540,22 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         let mut names: Vec<String> = builtins.iter().map(|name| (*name).into()).collect();
         names.extend(workspace.custom.keys().cloned());
         ui.horizontal_wrapped(|ui| {
-            ui.label("Profile");
-            egui::ComboBox::from_id_salt("shortcut-profile").selected_text(&workspace.active).show_ui(ui, |ui| {
+            ui.label(RichText::new("Profile").color(t.text_dim));
+            // Profile names are the user's own words: shown as typed, never looked up.
+            let active = workspace.active.clone();
+            crate::widgets::dropdown_menu(ui, "shortcut-profile", &active, 180.0, |ui| {
                 for name in names {
                     ui.selectable_value(&mut workspace.active, name.clone(), &name);
                 }
             });
+        });
+        // The profile commands on their own row, so the buttons keep their size in a narrow dialog.
+        ui.horizontal_wrapped(|ui| {
             let mut name = f.get("profileName").and_then(Value::as_str).unwrap_or("").to_string();
             let name_field = ui.add(egui::TextEdit::singleline(&mut name).desired_width(120.0).hint_text("Profile name"));
             name_field.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Profile name"));
             f.insert("profileName".into(), json!(name));
-            if ui.button("Duplicate").clicked() {
+            if crate::widgets::secondary_button(ui, "Duplicate", 0.0).clicked() {
                 if let Err(error) = workspace.duplicate(&name) {
                     message = error;
                 } else {
@@ -1566,12 +1563,12 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                 }
             }
             let custom = workspace.custom.contains_key(&workspace.active);
-            if ui.add_enabled(custom, egui::Button::new("Rename")).clicked()
+            if ui.add_enabled_ui(custom, |ui| crate::widgets::secondary_button(ui, "Rename", 0.0)).inner.clicked()
                 && let Err(error) = workspace.rename(&name)
             {
                 message = error;
             }
-            if ui.add_enabled(custom, egui::Button::new("Delete Profile")).clicked() {
+            if ui.add_enabled_ui(custom, |ui| crate::widgets::secondary_button(ui, "Delete Profile", 0.0)).inner.clicked() {
                 workspace.delete_active();
             }
         });
@@ -1585,10 +1582,10 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
             message.clear();
         }
         if workspace.parent() == "Affinity Photo" {
-            ui.label("Supported Affinity equivalents only; gaps are unassigned. R: Rotate View; J: Healing / AI Remove.");
+            ui.label(RichText::new("Supported Affinity equivalents only; gaps are unassigned. R: Rotate View; J: Healing / AI Remove.").color(t.text_dim));
         }
         if workspace.parent() == "Capture One" {
-            ui.label("B / E / G / M apply with Develop Edit or Mask active. L also selects Linear Gradient.");
+            ui.label(RichText::new("B / E / G / M apply with Develop Edit or Mask active. L also selects Linear Gradient.").color(t.text_dim));
         }
         let mut working = app.session.prefs().clone();
         working.shortcut_profiles = profiles.clone();
@@ -1789,26 +1786,26 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     if tab == 0 {
         ui.horizontal(|ui| {
             let has_sel = !selected.is_empty();
-            let action = ui.add_enabled(has_sel, egui::Button::new(tl!("Use Default")));
+            let action = ui.add_enabled_ui(has_sel, |ui| crate::widgets::secondary_button(ui, tl!("Use Default"), 0.0)).inner;
             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("shortcut-action", "default")), action.rect));
             if action.clicked() {
                 overrides.remove(&selected);
                 message = tl!("Default restored.").into();
             }
-            let action = ui.add_enabled(has_sel, egui::Button::new(tl!("Delete Shortcut")));
+            let action = ui.add_enabled_ui(has_sel, |ui| crate::widgets::secondary_button(ui, tl!("Delete Shortcut"), 0.0)).inner;
             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("shortcut-action", "delete")), action.rect));
             if action.clicked() {
                 overrides.insert(selected.clone(), String::new());
                 message = tl!("Shortcut removed.").into();
             }
-            let action = ui.button(tl!("Reset All to Defaults"));
+            let action = crate::widgets::secondary_button(ui, tl!("Reset All to Defaults"), 0.0);
             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("shortcut-action", "reset")), action.rect));
             if action.clicked() {
                 overrides.retain(|id, _| id.starts_with("library::") != (scope == "library"));
                 message = tl!("All shortcuts in this profile reset to defaults.").into();
             }
         });
-    } else if ui.button(tl!("Show All Menu Items")).clicked() {
+    } else if crate::widgets::secondary_button(ui, tl!("Show All Menu Items"), 0.0).clicked() {
         hidden.clear();
         colors.clear();
     }
@@ -2964,3 +2961,7 @@ mod tablet_compatibility_tests {
 #[cfg(test)]
 #[path = "keymap_tests.rs"]
 mod keymap_tests;
+
+#[cfg(test)]
+#[path = "design_system_shots.rs"]
+mod design_system_shots;

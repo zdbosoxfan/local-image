@@ -682,10 +682,7 @@ fn negative_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSetti
             };
             let srgb = lightcraft_color::REC2020.to_space(&lightcraft_color::SRGB).apply(base);
             let enc = srgb.map(|v| lightcraft_color::transfer::encode_srgb8(v.clamp(0.0, 1.0) as f32));
-            let (r, _) = ui.allocate_exact_size(vec2(40.0, 24.0), Sense::hover());
-            register(ui.ctx(), "negative:filmBase", r);
-            ui.painter().rect_filled(r, 3.0, Color32::from_rgb(enc[0], enc[1], enc[2]));
-            ui.painter().rect_stroke(r, 3.0, Stroke::new(1.0, t.button_border), egui::StrokeKind::Inside);
+            crate::widgets::color_swatch(ui, "negative:filmBase", Color32::from_rgb(enc[0], enc[1], enc[2]), vec2(40.0, 24.0), None, "Film base");
             let picking = app.ui.tool == "negDmin";
             let (icon_rect, icon_response) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
             crate::icons::paint_tool(ui, icon_rect, "pipette", Icon::Picker, t.icon, true);
@@ -1031,10 +1028,12 @@ fn skin_color(reference: [f64; 3]) -> Color32 {
 }
 fn skin_tone_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, target: Target) {
     let t = Tokens::get(ui.ctx());
+    // the panel's row inset, as Point Color and every slider row
+    let inset = egui::Margin { left: 24, right: 22, top: 4, bottom: 4 };
     ui.scope(|ui| {
         ui.set_width(ui.available_width().min(app.ui.right_width - 2.0));
         let picking = app.ui.tool == "skinTone";
-        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 4)).show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(inset).show(ui, |ui| {
             ui.horizontal(|ui| {
                 let pick = crate::widgets::tool_button(
                     ui,
@@ -1055,10 +1054,7 @@ fn skin_tone_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSett
             });
             if let Some(reference) = d.skin_tone.reference {
                 ui.horizontal(|ui| {
-                    let (r, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
-                    register(ui.ctx(), target.key("skinToneSwatch"), r);
-                    ui.painter().rect_filled(r, 4.0, skin_color(reference));
-                    ui.painter().rect_stroke(r, 4.0, Stroke::new(1.0, t.button_border), egui::StrokeKind::Inside);
+                    crate::widgets::color_swatch(ui, &target.key("skinToneSwatch"), skin_color(reference), vec2(32.0, 32.0), None, "Skin reference");
                     ui.vertical(|ui| {
                         ui.label(
                             RichText::new(format!("J {:.0} · C {:.0} · h {:.0}°", reference[0] * 100.0, reference[1] * 100.0, reference[2]))
@@ -1084,49 +1080,42 @@ fn skin_tone_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSett
                 (1, "Saturation", 0.04 + d.skin_tone.chroma_range / 100.0 * 0.4, 1.0),
                 (0, "Lightness", 0.05 + d.skin_tone.lightness_range / 100.0 * 0.5, 1.0),
             ] {
-                egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 2)).show(ui, |ui| {
-                    ui.label(RichText::new(label).font(t.font(11.0)).color(t.text_label));
-                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 14.0), Sense::hover());
-                    register(ui.ctx(), target.key(&format!("skinToneRange:{label}")), r);
-                    for i in 0..64 {
-                        let mut c = reference;
-                        c[axis] = (i as f64 + 0.5) / 64.0 * domain;
-                        let tile = Rect::from_min_max(
-                            pos2(r.left() + r.width() * i as f32 / 64.0, r.top()),
-                            pos2(r.left() + r.width() * (i + 1) as f32 / 64.0, r.bottom()),
-                        );
-                        ui.painter().rect_filled(tile, 0.0, skin_color(c));
-                    }
-                    // Mark the selected window, wrapping hue at 0/360.
-                    for shift in if axis == 2 { vec![-domain, 0.0, domain] } else { vec![0.0] } {
+                // The selected window, wrapping hue at 0/360.
+                let shifts: &[f64] = if axis == 2 { &[-domain, 0.0, domain] } else { &[0.0] };
+                let windows: Vec<(f32, f32)> = shifts
+                    .iter()
+                    .map(|shift| {
                         let lo = (reference[axis] - extent + shift).clamp(0.0, domain) / domain;
                         let hi = (reference[axis] + extent + shift).clamp(0.0, domain) / domain;
-                        if hi > lo {
-                            let selected = Rect::from_min_max(
-                                pos2(r.left() + r.width() * lo as f32, r.top()),
-                                pos2(r.left() + r.width() * hi as f32, r.bottom()),
-                            );
-                            ui.painter().rect_stroke(selected, 0.0, Stroke::new(3.0, Color32::BLACK), egui::StrokeKind::Inside);
-                            ui.painter().rect_stroke(selected.shrink(1.0), 0.0, Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Inside);
-                        }
-                    }
+                        (lo as f32, hi as f32)
+                    })
+                    .collect();
+                egui::Frame::NONE.inner_margin(egui::Margin { top: 2, bottom: 2, ..inset }).show(ui, |ui| {
+                    let sample = |f: f32| {
+                        let mut c = reference;
+                        c[axis] = f as f64 * domain;
+                        skin_color(c)
+                    };
+                    crate::widgets::range_strip(ui, &target.key(&format!("skinToneRange:{label}")), label, sample, &windows);
                 });
             }
         }
-        ui.add_enabled_ui(d.skin_tone.reference.is_some(), |ui| {
-            let mut visible = app.ui.skin_tone_visualize && app.ui.skin_tone_mask == target.mask_id();
-            let r = ui.checkbox(&mut visible, "View selected range");
-            register(ui.ctx(), target.key("skinToneViewRange"), r.rect);
-            if r.changed() {
-                app.ui.skin_tone_visualize = visible;
-                app.ui.skin_tone_mask = target.mask_id();
-            }
-            let mut protect = d.skin_tone.protect_lips;
-            let r = ui.checkbox(&mut protect, "Protect Lips");
-            register(ui.ctx(), target.key("skinProtectLips"), r.rect);
-            if r.changed() {
-                let _ = target.merge(app, json!({"skin_tone":{"protect_lips":protect}}), "Skin Tone");
-            }
+        egui::Frame::NONE.inner_margin(inset).show(ui, |ui| {
+            ui.add_enabled_ui(d.skin_tone.reference.is_some(), |ui| {
+                let mut visible = app.ui.skin_tone_visualize && app.ui.skin_tone_mask == target.mask_id();
+                let r = ui.checkbox(&mut visible, "View selected range");
+                register(ui.ctx(), target.key("skinToneViewRange"), r.rect);
+                if r.changed() {
+                    app.ui.skin_tone_visualize = visible;
+                    app.ui.skin_tone_mask = target.mask_id();
+                }
+                let mut protect = d.skin_tone.protect_lips;
+                let r = ui.checkbox(&mut protect, "Protect Lips");
+                register(ui.ctx(), target.key("skinProtectLips"), r.rect);
+                if r.changed() {
+                    let _ = target.merge(app, json!({"skin_tone":{"protect_lips":protect}}), "Skin Tone");
+                }
+            });
         });
     });
 }
@@ -1661,12 +1650,15 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, 
                 app.ui.point_color_mask = layer;
             }
             for (i, p) in d.point_colors.iter().enumerate() {
-                let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
-                register(ui.ctx(), format!("pointColor:{i}"), r);
-                ui.painter().rect_filled(r.shrink(2.0), 3.0, oklch_color(p.lum, p.chroma, p.hue));
-                if i == sel {
-                    ui.painter().rect_stroke(r, 4.0, Stroke::new(1.5, t.text), egui::StrokeKind::Inside);
-                }
+                let label = format!("Point color sample {}", i + 1);
+                let resp = crate::widgets::color_swatch(
+                    ui,
+                    &format!("pointColor:{i}"),
+                    oklch_color(p.lum, p.chroma, p.hue),
+                    vec2(22.0, 22.0),
+                    Some(i == sel),
+                    &label,
+                );
                 if resp.clicked() {
                     app.ui.point_color = i;
                 }

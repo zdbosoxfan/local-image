@@ -299,10 +299,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         && let Some(tex) = app.renderer.textures.get(&Slot::Hover).filter(|t| t.photo == id)
     {
         p.image(tex.tex.id(), img_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
-        let g = p.layout_no_wrap(label.clone(), t.font(12.0), Color32::WHITE);
-        let bg = Rect::from_min_size(img_rect.left_top() + vec2(8.0, 8.0), g.size() + vec2(16.0, 8.0));
-        p.rect_filled(bg, 4.0, Color32::from_black_alpha(160));
-        p.galley(bg.min + vec2(8.0, 4.0), g, Color32::WHITE);
+        crate::widgets::image_badge(&p, img_rect.left_top() + vec2(8.0, 8.0), None, Some(label), img_rect.width() - 16.0);
         shown = "hover";
     } else {
         shown = draw(Slot::Main, img_rect);
@@ -806,10 +803,9 @@ pub(crate) fn picker_glyph(tool: &str) -> Option<Icon> {
 fn picker_cursor(ui: &egui::Ui, resp: &egui::Response, icon: Icon) {
     if let Some(q) = resp.hover_pos() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::None);
-        let r = Rect::from_min_size(q + vec2(2.0, 2.0), vec2(26.0, 26.0));
-        ui.painter().rect_filled(r, 4.0, Color32::from_black_alpha(200));
-        crate::icons::paint(ui.painter(), r.shrink(3.0), icon, Color32::WHITE);
-        ui.painter().circle_stroke(q, 2.0, Stroke::new(1.0, Color32::WHITE));
+        crate::widgets::image_badge(ui.painter(), q + vec2(2.0, 2.0), Some(icon), None, crate::widgets::BADGE_H);
+        // the hot spot, in the badge's foreground so it shows on any photo
+        ui.painter().circle_stroke(q, 2.0, Stroke::new(1.0, Tokens::get(ui.ctx()).overlay_fg));
     }
 }
 

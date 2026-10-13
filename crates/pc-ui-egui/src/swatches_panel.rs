@@ -354,7 +354,7 @@ fn targets_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui, s: &mut State) {
             let r = ui.add_sized([112., 30.], egui::Button::new(format!("     {label}")).selected(s.secondary == secondary));
             r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
             let rect = egui::Rect::from_min_size(r.rect.left_top() + egui::vec2(5., 6.), egui::vec2(18., 18.));
-            ui.painter().rect_filled(rect, 0., Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]));
+            crate::widgets::color_tile(ui, rect, Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]));
             if r.clicked() {
                 s.secondary = secondary;
                 app.ui.fill_stroke_proxy.active = if secondary { ActivePaint::Stroke } else { ActivePaint::Fill };
@@ -729,12 +729,12 @@ fn chip(ui: &mut egui::Ui, w: &Swatch, list: bool, selected: bool, color: Option
     let label = if list { format!("      {}", w.name) } else { String::new() };
     let response = ui.add_sized(
         if list { egui::vec2(ui.available_width(), 26.) } else { egui::vec2(24., 24.) },
-        egui::Button::new(label).sense(egui::Sense::click_and_drag()).fill(if list { crate::theme::Tokens::get(ui.ctx()).field } else { c }).selected(selected),
+        egui::Button::new(label).sense(egui::Sense::click_and_drag()).fill(crate::theme::Tokens::get(ui.ctx()).field).selected(selected),
     );
-    if list {
-        let rect = egui::Rect::from_min_size(response.rect.left_top() + egui::vec2(4., 4.), egui::vec2(18., 18.));
-        ui.painter().rect_filled(rect, 2., c);
-    }
+    // The colour as the shared tile: inside the list row's left edge, or filling the grid chip
+    // inside its frame (which keeps the hover, focus and selected outline).
+    let tile = if list { egui::Rect::from_min_size(response.rect.left_top() + egui::vec2(4., 4.), egui::vec2(18., 18.)) } else { response.rect.shrink(2.) };
+    crate::widgets::color_tile(ui, tile, c);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &w.name));
     if w.global {
         let p = response.rect.right_bottom();
@@ -751,31 +751,19 @@ fn chip(ui: &mut egui::Ui, w: &Swatch, list: bool, selected: bool, color: Option
         if w.spot { " · Spot" } else { "" }
     ))
 }
-/// A small square icon button (footer, panel menu). Disabled buttons don't take clicks or focus
-/// and explain why in their tooltip; screen readers get `label` and the enabled state.
-fn icon_button(ui: &mut egui::Ui, icon: &str, label: &str, tip: &str, enabled: bool, why: &str) -> egui::Response {
-    let t = crate::theme::Tokens::get(ui.ctx());
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(24., 24.), if enabled { egui::Sense::click() } else { egui::Sense::hover() });
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
-    let tint = if enabled { crate::icons::button_chrome(ui, rect, false, resp.hovered() || resp.has_focus()) } else { t.text_faint.gamma_multiply(0.6) };
-    crate::icons::paint(ui, rect, icon, 16., tint);
-    resp.on_hover_text(if enabled { tip } else { why })
-}
-/// "User | Document": one compact segmented control.
+/// "User | Document": the same segmented switch as the options bar's Pixel | Vector persona
+/// switcher (`vector_packages::persona::switcher`): selectable buttons in the theme's style.
 fn scope_toggle(ui: &mut egui::Ui, s: &mut State, has_document: bool) {
     ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.;
-        let r = egui::CornerRadius { nw: 4, sw: 4, ne: 0, se: 0 };
-        let user = ui
-            .add(egui::Button::new("User").selected(s.scope == Scope::User).corner_radius(r).min_size(egui::vec2(0., 22.)))
-            .on_hover_text("User Swatches: yours in every document");
+        ui.spacing_mut().item_spacing.x = 1.;
+        let user = ui.add(egui::Button::selectable(s.scope == Scope::User, "User")).on_hover_text("User Swatches: yours in every document");
+        // Screen readers (and tests) get the full names.
         user.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, s.scope == Scope::User, "User Swatches"));
         if user.clicked() {
             s.scope = Scope::User;
         }
-        let r = egui::CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 };
         let doc = ui
-            .add_enabled(has_document, egui::Button::new("Document").selected(s.scope == Scope::Document).corner_radius(r).min_size(egui::vec2(0., 22.)))
+            .add_enabled(has_document, egui::Button::selectable(s.scope == Scope::Document, "Document"))
             .on_hover_text("Document Swatches: saved with this document. Live colours update linked shapes, text and vector layers in both modes; already-painted pixels do not change.")
             .on_disabled_hover_text("Open a document to use its swatches");
         doc.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, has_document, s.scope == Scope::Document, "Document Swatches"));
@@ -1005,8 +993,14 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         scope_toggle(ui, &mut s, app.session.active().is_some());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let menu =
-                icon_button(ui, "align-justify", "Swatches panel menu", "Swatches panel menu: view, libraries, import, export and swatch commands", true, "");
+            let menu = crate::widgets::icon_action(
+                ui,
+                "align-justify",
+                24.,
+                "Swatches panel menu",
+                "Swatches panel menu: view, libraries, import, export and swatch commands",
+                None,
+            );
             egui::Popup::menu(&menu).show(|ui| panel_menu(app, ui, &mut s, &book_now, &mut action, &mut req));
         });
     });
@@ -1035,7 +1029,7 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let search = ui.add(egui::TextEdit::singleline(&mut s.search).hint_text("Search").desired_width(width.max(40.)).id_salt("swatch-search"));
         search.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Search swatches"));
         let search = search.on_hover_text("Search swatches by name");
-        if clear && icon_button(ui, "x", "Clear search", "Clear search", true, "").clicked() {
+        if clear && crate::widgets::icon_action(ui, "x", 24., "Clear search", "Clear search", None).clicked() {
             s.search.clear();
             search.request_focus();
         }
@@ -1199,30 +1193,21 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
     });
     // Footer: Photoshop's New Group, New Swatch and Delete icons.
-    let t = crate::theme::Tokens::get(ui.ctx());
-    let (line, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.), egui::Sense::hover());
-    ui.painter().rect_filled(line, 0., t.separator);
+    crate::widgets::hairline(ui);
+    let palette_full = full(&b).then_some("Palette is full (4096 entries)");
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 2.;
-            if icon_button(ui, "trash", "Delete Selected Swatch", "Delete Swatch (Delete)", s.selected.is_some(), "Delete Swatch: select a swatch first")
-                .clicked()
-            {
+            let nothing_selected = s.selected.is_none().then_some("Delete Swatch: select a swatch first");
+            if crate::widgets::icon_action(ui, "trash", 24., "Delete Selected Swatch", "Delete Swatch (Delete)", nothing_selected).clicked() {
                 action = Some(Action::Delete { ids: s.selected.into_iter().collect() });
             }
-            if icon_button(ui, "plus", "New Swatch", "New Swatch from the current colour", !full(&b), "Palette is full (4096 entries)").clicked() {
+            if crate::widgets::icon_action(ui, "plus", 24., "New Swatch", "New Swatch from the current colour", palette_full).clicked() {
                 let group = s.group;
                 action = new_swatch(app, &mut s, &b, group);
             }
-            if icon_button(
-                ui,
-                "folder-plus",
-                "New Group",
-                "New Group: a folder (the selected swatch moves into it)",
-                !full(&b),
-                "Palette is full (4096 entries)",
-            )
-            .clicked()
+            if crate::widgets::icon_action(ui, "folder-plus", 24., "New Group", "New Group: a folder (the selected swatch moves into it)", palette_full)
+                .clicked()
             {
                 action = new_group(&mut s, &b);
             }

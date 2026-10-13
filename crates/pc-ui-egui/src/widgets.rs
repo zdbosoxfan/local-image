@@ -651,6 +651,41 @@ pub fn dropdown_with_tooltips<T: PartialEq + Clone>(ui: &mut Ui, id: &str, curre
     changed
 }
 
+/// A compact square icon button for panel footers and headers (the Swatches panel's New Group,
+/// New Swatch, Delete and ☰): the same chrome as [`crate::icons::button`] (transparent until
+/// hovered or focused by Tab) with an accessible `label` separate from its tooltip `tip`, and a
+/// disabled state that explains itself: with `disabled = Some(why)` it takes no clicks or focus,
+/// its icon fades to `text_faint`, `why` becomes the tooltip and screen readers see it disabled.
+/// `label` and `tip` are shown as given (translate them first).
+pub fn icon_action(ui: &mut Ui, icon: &str, box_size: f32, label: &str, tip: &str, disabled: Option<&str>) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let enabled = disabled.is_none() && ui.is_enabled();
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(box_size), if enabled { Sense::click() } else { Sense::hover() });
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    let tint = if enabled { crate::icons::button_chrome(ui, rect, false, resp.hovered() || resp.has_focus()) } else { t.text_faint.gamma_multiply(0.6) };
+    crate::icons::paint(ui, rect, icon, (box_size * ICON_ACTION_GLYPH).round(), tint);
+    resp.on_hover_text(disabled.unwrap_or(tip))
+}
+
+/// Glyph size of an [`icon_action`] relative to its box (16 pt in the 24 pt footer box).
+const ICON_ACTION_GLYPH: f32 = 2.0 / 3.0;
+
+/// A colour sample tile: a swatch, the Fill/Stroke or Foreground/Background target, any place a
+/// colour value is shown as a colour. Paints `color` over the transparency [`checker`] (so a
+/// translucent colour reads as one) in `rect`, rounded `radius_sm` and outlined in `field_border`
+/// so it holds its edge on the panel in light and dark themes. Paints only: wrap it in the
+/// control that owns the click (a button, a chip) and give that control the accessible name.
+/// The colour is document data, not a token.
+pub fn color_tile(ui: &Ui, rect: Rect, color: Color32) {
+    let t = Tokens::get(ui.ctx());
+    let p = ui.painter();
+    if color.a() < 255 {
+        checker(&p.with_clip_rect(rect.intersect(p.clip_rect())), rect, (rect.height() / 3.0).clamp(3.0, 6.0));
+    }
+    p.rect_filled(rect, t.radius_sm, color);
+    p.rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
+}
+
 /// Paint a small checkerboard (transparency) in `rect`.
 pub fn checker(painter: &egui::Painter, rect: Rect, cell: f32) {
     painter.rect_filled(rect, 0.0, Color32::from_gray(250));
@@ -895,6 +930,45 @@ mod tests {
         // `5/2` alone would round to 3 under the caller; the whole expression still applies.
         assert_eq!(type_and_press(1.0, "5/2*2", Tab, true), 5.0);
         assert_eq!(type_and_press(1.0, "1280/3*2", Enter, true), 853.0);
+    }
+
+    /// The footer icon button names itself apart from its tooltip, and a disabled one is
+    /// disabled for screen readers, ignores clicks and explains why in its tooltip.
+    #[test]
+    fn icon_action_names_itself_and_disables_with_a_reason() {
+        use egui_kittest::{Harness, kittest::NodeT as _, kittest::Queryable};
+        let mut h = Harness::builder().with_size(egui::vec2(200.0, 80.0)).build_ui_state(
+            |ui, (on, clicks): &mut (bool, u32)| {
+                ui.horizontal(|ui| {
+                    if super::icon_action(ui, "plus", 24.0, "New Swatch", "New Swatch from the current colour", None).clicked() {
+                        *clicks += 1;
+                    }
+                    let why = (!*on).then_some("Select a swatch first");
+                    if super::icon_action(ui, "trash", 24.0, "Delete Swatch", "Delete Swatch (Delete)", why).clicked() {
+                        *clicks += 10;
+                    }
+                });
+            },
+            (false, 0),
+        );
+        h.run();
+        assert!(!h.get_by_label("New Swatch").accesskit_node().is_disabled());
+        assert!(h.get_by_label("Delete Swatch").accesskit_node().is_disabled());
+        h.get_by_label("Delete Swatch").click();
+        h.run();
+        assert_eq!(h.state().1, 0, "a disabled button takes no click");
+        h.get_by_label("Delete Swatch").hover();
+        h.run_steps(30);
+        assert!(h.query_by_label("Select a swatch first").is_some(), "the reason is the tooltip");
+        h.get_by_label("New Swatch").click();
+        h.run();
+        assert_eq!(h.state().1, 1);
+        h.state_mut().0 = true;
+        h.run();
+        assert!(!h.get_by_label("Delete Swatch").accesskit_node().is_disabled());
+        h.get_by_label("Delete Swatch").click();
+        h.run();
+        assert_eq!(h.state().1, 11);
     }
 
     #[test]
