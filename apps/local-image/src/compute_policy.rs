@@ -32,6 +32,7 @@ pub fn saved_overrides(prefs_file: Option<&Path>) -> lightcraft_sysmem::Override
 /// Build the compute pool and point tract at it. Call before anything uses rayon.
 pub fn init(prefs_file: Option<&Path>) {
     lightcraft_sysmem::init(saved_overrides(prefs_file));
+    lightcraft_catalog::local::set_compute_threads(lightcraft_sysmem::profile().threads);
     li_seg::init_executor();
 }
 
