@@ -19,7 +19,7 @@
 //!   is anchored at raw pixel (0, 0) — verified on X-Trans I and III samples by minimising the difference
 //!   between horizontally / vertically adjacent "green" samples over all 72 orientations/phases, and by colour
 //!   renders. Bayer bodies (X-A series) use RGGB at (0, 0), verified by colour renders.
-//! - Fujifilm's compressed RAF variants are reported as unsupported (their embedded preview still works).
+//! - Compressed RAF variants return Unsupported here and are handled by the central rawler adapter.
 
 use super::white_from_data;
 use crate::unpack::{unpack_lsb, unpack_words32_msb};
@@ -316,7 +316,8 @@ mod tests {
         assert_eq!(crate::decode(&bytes).unwrap().cfa.unwrap().name(), "RGGB");
         // too little data for the size: compressed
         let bytes = raf(w, h, 14, vec![0; 20], None, b"");
-        assert!(matches!(crate::decode(&bytes), Err(RawError::Unsupported(_))));
+        assert!(matches!(decode(&bytes, Mode::Full), Err(RawError::Unsupported(_))));
+        assert!(crate::decode(&bytes).is_err());
     }
 
     /// Raw IFD flag `0xf006` selects the 32-bit-word packing at 12 bits; without it 12 bits are an LSB-first stream.

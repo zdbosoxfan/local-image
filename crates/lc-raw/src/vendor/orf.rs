@@ -28,8 +28,7 @@
 //!   layout (it matches the embedded thumbnails), the maker note's entries `0x1017`/`0x1018` hold the red and
 //!   blue gain (first value, 256 = 1.0; checked against neutral areas of the thumbnail), and nothing states a
 //!   black level or an active area.
-//! - Olympus's compressed ORF (most interchangeable-lens bodies since ~2008) is not decoded: no permissively
-//!   licensed description exists. It reports [`RawError::Unsupported`]; the embedded preview still works.
+//! - Compressed ORF reports [`RawError::Unsupported`] here; the central rawler adapter decodes it.
 //! - The colour-filter layout is the file's Exif `CFAPattern`: GRBG on the E-1 and E-400, RGGB on the XZ-2, where
 //!   the colours of the decoded mosaic follow the embedded JPEG best with exactly that layout
 //!   (`corpus_orf_cfa_patterns`). The samples' active areas start at even offsets, so they can't tell whether the
@@ -539,7 +538,10 @@ mod tests {
         assert_eq!(r.cfa.as_ref().unwrap().name(), "BGGR");
         assert_eq!(crate::probe_info(&bytes).unwrap(), r.info());
         // the table without the gap: sizes no longer add up
-        let e = crate::decode(&two_field(false)).map(|_| ());
+        let bad = two_field(false);
+        assert!(crate::decode(&bad).is_err());
+        // Classification of this native layout; the public entry point now tries rawler too.
+        let e = decode(&bad, Mode::Full).map(|_| ());
         assert!(matches!(e, Err(RawError::Unsupported(_))), "{e:?}");
     }
 
@@ -583,7 +585,8 @@ mod tests {
         let bytes = orf(w as u32, h as u32, 12, le);
         assert_eq!(crate::decode(&bytes).unwrap().data, RawData::U16(px));
         let bytes = orf(w as u32, h as u32, 16, vec![0; 40]);
-        assert!(matches!(crate::decode(&bytes), Err(RawError::Unsupported(_))));
+        assert!(matches!(decode(&bytes, Mode::Full), Err(RawError::Unsupported(_))));
+        assert!(crate::decode(&bytes).is_err());
     }
 
     /// Pack samples into 16-byte blocks: ten little-endian 12-bit fields, then a zero pad byte.

@@ -15,12 +15,13 @@
 //!
 //! Formats: DNG (uncompressed, lossless JPEG, lossy JPEG (Smart Previews), Deflate incl. floating point, tiled/stripped, CFA and LinearRaw),
 //! Canon CR2, Nikon NEF/NRW (uncompressed, Huffman lossless / lossy compressed), Sony ARW (uncompressed, ARW2, lossless), Fujifilm RAF (uncompressed Bayer
-//! and X-Trans), Panasonic RW2 / Leica RWL / Panasonic RAW (every raw format: compressed 4 and 6, the prefix-coded strips of 8,
-//! packed 2/5/7, the 16-bit words of the oldest bodies), Pentax PEF (uncompressed, Huffman), Olympus ORF (uncompressed: 16-bit words, 12-bit XZ-2 words, 12-bit 16-byte blocks of the E-300/E-330/E-500).
-//! [`embedded_preview`] covers all of them plus CR3. Variants we can't decode yet (Nikon "lossy after split" NEF,
-//! compressed ORF/RAF, CR3) return [`RawError::Unsupported`]; each vendor module documents its sources
-//! (public specifications, tag-name documentation, black-box analysis of CC0 samples) and gaps. Non-DNG files carry no
-//! colour matrix: [`color`] falls back to a documented neutral model. The decoders never panic on malformed input.
+//! and X-Trans, plus compressed Bayer/X-Trans through rawler), Panasonic RW2 / Leica RWL / Panasonic RAW (every raw format: compressed 4 and 6, the prefix-coded strips of 8,
+//! packed 2/5/7, the 16-bit words of the oldest bodies), Pentax PEF (uncompressed, Huffman), Olympus ORF (compressed through rawler; uncompressed: 16-bit words, 12-bit XZ-2 words, 12-bit 16-byte blocks of the E-300/E-330/E-500).
+//! Canon CR3 (RAW/C-RAW, including dual-pixel files) and any variant our native decoders report as
+//! unsupported are attempted by the unmodified pure-Rust rawler engine. See `docs/RAW-DECODERS.md`
+//! for its update contract and limits. Camera calibration prefers the bundled matrix table and then
+//! rawler's runtime camera data. [`embedded_preview`] covers the recognized containers. Malformed
+//! inputs return errors; the adapter bounds container allocations before entering the codec engine.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -39,6 +40,7 @@ pub mod profile;
 #[cfg(test)]
 #[path = "../examples/quality_support/mod.rs"]
 mod quality_support;
+mod rawler_adapter;
 mod saturation;
 
 #[cfg(test)]
@@ -101,10 +103,9 @@ pub enum RawFormat {
 impl RawFormat {
     /// Whether [`decode`] supports this container (possibly not every compression inside it).
     pub fn is_supported(self) -> bool {
-        matches!(
-            self,
-            RawFormat::Dng | RawFormat::Cr2 | RawFormat::Nef | RawFormat::Nrw | RawFormat::Arw | RawFormat::Raf | RawFormat::Rw2 | RawFormat::Pef
-        )
+        // Every recognized container is attempted by the native decoder or rawler. Unknown bodies
+        // and codec variants still return Unsupported from decode/probe_info.
+        true
     }
 }
 
@@ -188,7 +189,8 @@ pub(crate) enum Mode {
 }
 
 fn decode_with(bytes: &[u8], mode: Mode) -> Result<RawImage> {
-    match probe(bytes).ok_or(RawError::NotRaw)? {
+    let format = probe(bytes).ok_or(RawError::NotRaw)?;
+    let native = match format {
         RawFormat::Dng => dng::decode(bytes, mode).map(lift_clipped),
         RawFormat::Cr2 => vendor::cr2::decode(bytes, mode),
         RawFormat::Nef | RawFormat::Nrw => vendor::nef::decode(bytes),
@@ -198,6 +200,17 @@ fn decode_with(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         RawFormat::Pef => vendor::pef::decode(bytes, mode),
         RawFormat::Orf => vendor::orf::decode(bytes, mode),
         other => Err(RawError::Unsupported(format!("{other:?} files are not decoded yet"))),
+    };
+    match native {
+        Err(RawError::Unsupported(_)) => rawler_adapter::decode(bytes, format, mode),
+        result => result.map(|mut image| {
+            rawler_adapter::fill_color(
+                &mut image.color,
+                image.metadata.make.as_deref().unwrap_or_default(),
+                image.metadata.model.as_deref().unwrap_or_default(),
+            );
+            image
+        }),
     }
 }
 

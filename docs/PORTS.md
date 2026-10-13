@@ -614,3 +614,12 @@ ports of that commit (our code had diverged), not claims that the files match. L
 | `crates/pc-text/src/tests.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/text/src/tests.rs` | `6f1c4481bfe158eccd5ed9b0bae344145f74e165` | MIT OR Apache-2.0 | 2026-10-13 |
 | `crates/pc-text/tests/coverage/ds_psd_coverage.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/text/src/tests.rs` | `6f1c4481bfe158eccd5ed9b0bae344145f74e165` | MIT OR Apache-2.0 | 2026-10-13 |
 | `crates/pc-io/tests/it/psd_type_bounds.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/io/tests/psd_type_bounds.rs` | `6f1c4481bfe158eccd5ed9b0bae344145f74e165` | MIT OR Apache-2.0 | 2026-10-13 |
+
+## Unmodified RAW engine dependency
+
+This row records delegation and licence provenance, **not copied or patched decoder source**.
+All glue is in one adapter; rawler remains an ordinary crates.io dependency.
+
+| Our file | Upstream project | Upstream path | Upstream commit | Licence | Date | Used for |
+|---|---|---|---|---|---|---|
+| `crates/lc-raw/src/rawler_adapter.rs` | [rawler](https://github.com/dnglab/dnglab) | `rawler/Cargo.toml` | `ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7` | LGPL-2.1-only | 2026-10-13 | Unmodified crates.io 0.8.0 dependency for Canon CR3 RAW/C-RAW/dual-pixel, compressed Fujifilm RAF and Olympus/OM ORF; fallback for any native Unsupported variant, and runtime camera calibration missing from our first-choice table. |
