@@ -3563,7 +3563,7 @@
         {
           "name": "Local Image approved Glossy Duotone artwork and source adaptations",
           "author": "Local Image contributors",
-          "used_for": "Owner-approved Glossy Duotone base: 88 original glyphs retained exactly. Six reviewed replacements (Crop, Brush, Gradient, Eraser, Ellipse and Rectangle Marquee) use pinned upstream geometry with filled family/metal gradients, dark outlines and highlights. Colour/mono SVGs and review sheets; selection in assets/icons/SOURCES.md.",
+          "used_for": "Owner-approved Glossy Duotone base: 88 original glyphs retained exactly. Six reviewed replacements (Crop, Brush, Gradient, Eraser, Ellipse and Rectangle Marquee) use pinned upstream geometry with filled family/metal gradients, dark outlines and highlights. Colour/mono SVGs and review sheets; selection in assets/icons/SOURCES.md. Three Develop picker variants (White Balance, Skin Tone and Defringe) adapt the original Local Image pipette with original semantic badges; colour and mono silhouettes match.",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
             "LICENSE",

@@ -492,3 +492,61 @@ fn ds_finding_zero_skin_hue_range_is_finite_on_gpu() {
     s.skin_tone.reference = Some([j[0] as f64, j[1] as f64, j[2].to_degrees() as f64]);
     compare(g, &src, &SourceInfo::default(), &s, &RenderRequest::fit(97, 73), &GpuStages::default());
 }
+
+#[test]
+fn develop_c_full_scalar_opacity_mixed_masks_and_skin_overlay_match() {
+    use lightcraft_develop::{Effects, LayerTools, Light, MaskOp, SkinTone};
+    let gpu_device = device().expect("develop-c acceptance requires a hardware Vulkan adapter");
+    let g = &*gpu_device;
+    eprintln!("develop-c GPU: {} {:?}", g.info.name, g.info.device_type);
+    let _scope = crate::ctx::RenderScope::new(g);
+    let src = input(47, 33);
+    let info = SourceInfo::default();
+    let req = RenderRequest::fit(47, 33);
+    let stages = GpuStages::default();
+    let mut s = DevelopSettings::default();
+    let full = Mask {
+        id: 1,
+        opacity: 50.0,
+        components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Full }],
+        tools: LayerTools { light: Some(Light { exposure: 1.0, ..Default::default() }), ..Default::default() },
+        ..Default::default()
+    };
+    s.masks.push(full.clone());
+    assert_eq!(crate::render::alpha_layout(&s, 47 * 33), vec![(u32::MAX, 0.5)]);
+    compare(g, &src, &info, &s, &req, &stages);
+    s.masks[0].tools.effects = Some(Effects { clarity: 20.0, ..Default::default() });
+    compare(g, &src, &info, &s, &req, &stages); // primary's scalar mix
+    let mut spatial = mask();
+    spatial.id = 2;
+    spatial.adjust.moire = 25.0;
+    s.masks.push(spatial);
+    s.masks.push(Mask { id: 3, ..full });
+    assert_eq!(crate::render::alpha_layout(&s, 47 * 33), vec![(u32::MAX, 0.5), (0, 0.0), (u32::MAX, 0.5)]);
+    compare(g, &src, &info, &s, &req, &stages); // packed chromaticity / spatial mask indexing
+    s.tone_eq.enabled = true;
+    s.tone_eq.ev4 = 0.5;
+    compare(g, &src, &info, &s, &req, &stages);
+    let overlay = lightcraft_pipeline::Overlay::Mask { id: 1, view: lightcraft_pipeline::MaskView::WhiteOnBlack, color: [255, 0, 0], opacity: 50 };
+    compare(g, &src, &info, &s, &RenderRequest { overlay, ..req }, &stages);
+    s.masks[0].components.push(MaskComponent {
+        name: None,
+        op: MaskOp::Subtract,
+        invert: false,
+        shape: MaskShape::Radial { center: Point::new(0.5, 0.5), rx: 0.2, ry: 0.2, angle: 0.0, feather: 30.0, invert: false },
+    });
+    compare(g, &src, &info, &s, &req, &stages); // Full kernel in a spatial mask
+    s = DevelopSettings::default();
+    let reference = lightcraft_pipeline::skin_reference_sample(&src, &info, &s, &req, Point::new(0.2, 0.5)).unwrap();
+    s.skin_tone = SkinTone { reference: Some(reference), uniformity: 75.0, lightness: 20.0, ..Default::default() };
+    s.color.saturation = 10.0; // range reference survives remaining primary settings
+    compare(g, &src, &info, &s, &RenderRequest { overlay: lightcraft_pipeline::Overlay::SkinToneRange(None), ..req }, &stages);
+    s.masks = vec![Mask {
+        id: 7,
+        components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Full }],
+        tools: LayerTools { skin_tone: Some(s.skin_tone), ..Default::default() },
+        ..Default::default()
+    }];
+    s.skin_tone = Default::default();
+    compare(g, &src, &info, &s, &RenderRequest { overlay: lightcraft_pipeline::Overlay::SkinToneRange(Some(7)), ..req }, &stages);
+}

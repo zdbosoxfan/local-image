@@ -21,7 +21,7 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
 }
 
 /// Parametric region curve (encoded domain) composed with the master point curve.
-pub(crate) fn curve_luts(c: &ToneCurve) -> Option<CurveTables> {
+pub fn curve_luts(c: &ToneCurve) -> Option<CurveTables> {
     let parametric = c.highlights != 0.0 || c.lights != 0.0 || c.darks != 0.0 || c.shadows != 0.0;
     let master = !ToneCurve::point_curve_is_identity(&c.master);
     let chans = [&c.red, &c.green, &c.blue].map(|p| !ToneCurve::point_curve_is_identity(p));
@@ -439,7 +439,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             let mut raw = p.img.data[i];
             // develop layers' noise reduction (see `crate::layers`)
             for (k, im) in &p.layer_nr {
-                let a = p.masks[*k].alpha.data[i];
+                let a = p.masks[*k].alpha.at(i);
                 if a > 0.0 {
                     raw = mix3(raw, im.data[i], a);
                 }
@@ -452,7 +452,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             let mut l = [0.0f32; MASK_SUMS];
             let mut tint_col: Option<([f32; 3], f32)> = None;
             for (m, t) in p.masks.iter().zip(&terms) {
-                let a = m.alpha.data[i];
+                let a = m.alpha.at(i);
                 if a <= 0.0 {
                     continue;
                 }
@@ -496,7 +496,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             // layers: their dehaze, then (below) their white balance and exposure
             let mut layer_scene = false;
             for l in fp.layers.iter().filter(|l| l.scene()) {
-                let a = p.masks[l.mask].alpha.data[i];
+                let a = p.masks[l.mask].alpha.at(i);
                 if a <= 0.0 {
                     continue;
                 }
@@ -521,7 +521,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             }
             if layer_scene {
                 for l in fp.layers.iter().filter(|l| l.wb.is_some() || l.gain.is_some()) {
-                    let a = p.masks[l.mask].alpha.data[i];
+                    let a = p.masks[l.mask].alpha.at(i);
                     if a <= 0.0 {
                         continue;
                     }
@@ -602,7 +602,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             }
             for l in &fp.layers {
                 let Some(lt) = &l.local else { continue };
-                let a = p.masks[l.mask].alpha.data[i];
+                let a = p.masks[l.mask].alpha.at(i);
                 if a <= 0.0 {
                     continue;
                 }
@@ -630,7 +630,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             let mut d = tone_px(tone, c);
             for l in &fp.layers {
                 if let Some(t) = &l.tone {
-                    let a = p.masks[l.mask].alpha.data[i];
+                    let a = p.masks[l.mask].alpha.at(i);
                     if a > 0.0 {
                         d = mix3(d, tone_px(t, c), a);
                     }
@@ -645,7 +645,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             }
             for l in &fp.layers {
                 if let Some(o) = &l.ops {
-                    let a = p.masks[l.mask].alpha.data[i];
+                    let a = p.masks[l.mask].alpha.at(i);
                     if a > 0.0 {
                         d = mix3(d, o.apply(d, 0.0, 0.0), a);
                     }
@@ -658,7 +658,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             }
             for l in &fp.layers {
                 if let Some(v) = &l.vig {
-                    let a = p.masks[l.mask].alpha.data[i];
+                    let a = p.masks[l.mask].alpha.at(i);
                     if a > 0.0 {
                         d = mix3(d, vignette_px(v, d, x, y, w, h, aspect), a);
                     }
@@ -670,7 +670,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             }
             for l in &fp.layers {
                 if let Some((lut, refine)) = &l.curves {
-                    let a = p.masks[l.mask].alpha.data[i];
+                    let a = p.masks[l.mask].alpha.at(i);
                     if a > 0.0 {
                         d = mix3(d, lut.apply(d, *refine), a);
                     }
@@ -709,7 +709,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             }
             for l in &fp.layers {
                 if let Some(g) = l.grain {
-                    let a = p.masks[l.mask].alpha.data[i];
+                    let a = p.masks[l.mask].alpha.at(i);
                     if a > 0.0 {
                         e = mix3(e, grain_px(e, g, n_at(), fp, long), a);
                     }
@@ -996,9 +996,11 @@ mod colour_tone_tests {
             prep.masks = crate::masks::evaluate(&s.masks, &plan.frame, plan.w, plan.h, &img, &log_l, 0.0);
             assert!(
                 alpha
+                    .plane()
+                    .unwrap()
                     .data
                     .iter()
-                    .zip(&prep.masks[0].alpha.data)
+                    .zip(&prep.masks[0].alpha.plane().unwrap().data)
                     .zip(&img.data)
                     .any(|((a, b), c)| { (*a > 0.0) != (*b > 0.0) && a.abs().max(b.abs()) < 1e-8 && c.iter().any(|v| *v < 0.0) }),
                 "fixture must flip tiny alpha residues on negative scene colours"

@@ -316,3 +316,62 @@ fn cached_renders_with_layers_match_uncached() {
     assert!(!crate::layers_need_cpu(&s));
     assert!(!crate::layers_need_cpu(&left_layer(json!({}), 50.0)));
 }
+
+#[test]
+fn filled_layer_exposure_matches_global_and_empty_is_inert() {
+    use lightcraft_develop::{LayerTools, Light, Mask, MaskComponent, MaskShape};
+    let src = Rgb32f::from_fn(32, 16, |_, _| [0.08, 0.04, 0.02]);
+    let info = SourceInfo::default();
+    let req = RenderRequest::fit(32, 16);
+    let mut global = DevelopSettings::default();
+    global.light.exposure = 1.0;
+    let mut layer = DevelopSettings::default();
+    layer.masks.push(Mask {
+        components: vec![MaskComponent { name: None, op: Default::default(), invert: false, shape: MaskShape::Full }],
+        tools: LayerTools { light: Some(Light { exposure: 1.0, ..Default::default() }), ..Default::default() },
+        ..Default::default()
+    });
+    assert_eq!(render(&src, &info, &global, &req).image, render(&src, &info, &layer, &req).image);
+    layer.masks[0].opacity = 50.0;
+    // A full exposure layer mixes in scene-linear space: 50% of 1x and 2x is 1.5x.
+    global.light.exposure = 1.5f64.log2();
+    assert_eq!(render(&src, &info, &global, &req).image, render(&src, &info, &layer, &req).image);
+    layer.masks[0].components.clear();
+    assert_eq!(render(&src, &info, &DevelopSettings::default(), &req).image, render(&src, &info, &layer, &req).image);
+}
+
+#[test]
+fn filled_alpha_is_scalar_until_a_spatial_component_is_added() {
+    use lightcraft_develop::{Mask, MaskComponent, MaskOp, MaskShape};
+    let mut m = Mask {
+        opacity: 50.0,
+        refine: 90.0,
+        components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Full }],
+        ..Default::default()
+    };
+    assert_eq!(crate::masks::scalar_alpha(&m), Some(0.5));
+    m.invert = true;
+    assert_eq!(crate::masks::scalar_alpha(&m), Some(0.0));
+    m.invert = false;
+    m.components.push(MaskComponent {
+        name: None,
+        op: MaskOp::Subtract,
+        invert: false,
+        shape: MaskShape::Brush {
+            strokes: vec![lightcraft_develop::BrushStroke {
+                points: vec![lightcraft_geom::Point::new(0.5, 0.5)],
+                size: 0.2,
+                feather: 0.0,
+                ..Default::default()
+            }],
+        },
+    });
+    m.refine = 0.0;
+    assert_eq!(crate::masks::scalar_alpha(&m), None);
+    let src = Rgb32f::from_fn(32, 16, |_, _| [0.1; 3]);
+    let frame = crate::geometry::Frame::new(32, 16, &DevelopSettings::default(), true);
+    let alpha = crate::masks::evaluate(&[m], &frame, 32, 16, &src, &src.map(crate::local::log_lum), 0.0);
+    assert!(alpha[0].alpha.plane().is_some());
+    assert!(alpha[0].alpha.get(16, 8) < 0.01);
+    assert_eq!(alpha[0].alpha.get(0, 0), 0.5);
+}

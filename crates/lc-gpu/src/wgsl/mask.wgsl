@@ -36,7 +36,7 @@ fn shape(@builtin(global_invocation_id) g: vec3<u32>) {
     let i = g.y * w + g.x;
     let kind = pu(2u);
     var v = 0.0;
-    if (kind == 0u) {
+    if (kind == 6u) { v = 1.0; } else if (kind == 0u) {
         let p = pos(g.x, g.y);
         let a = vec2<f32>(pf(10u), pf(11u));
         let d = vec2<f32>(pf(12u), pf(13u));

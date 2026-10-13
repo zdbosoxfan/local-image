@@ -23,6 +23,8 @@ const FIELDS: &[(&str, usize)] = &[
     ("H", 1),
     ("NMASK", 1),
     ("MASK_OFF", 1),
+    ("ALPHA_OFF", 1),
+    ("CHROMA_PLANE", 1),
     ("SRGB_OFF", 1),
     ("CURVE_OFF", 1),
     ("CURVES", 1),

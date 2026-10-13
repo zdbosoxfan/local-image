@@ -101,3 +101,15 @@ fn p_skin_finish(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgr
     var hh=0.0; if(newa!=0.0 || newb!=0.0) {hh=atan2(newb,newa);} let j=vec3<f32>(max(cc+v*(refc.x-c[i]),0.0),sqrt(newa*newa+newb*newb),hh);
     put_rgb(i,hsb_rgb(gamut_hsb(jch_hsb(j),y_ls(1.0)),y_ls(1.0)));
 }
+
+// Diagnostic selection on exposed scene RGB, before output encoding (CPU: visualize::skin_alpha).
+@compute @workgroup_size(256)
+fn p_skin_range(@builtin(global_invocation_id) g:vec3<u32>,@builtin(num_workgroups) ng:vec3<u32>) {
+    let i=lin_index(g,ng); if(i>=pu(0u)){return;}
+    let j=xyy_jch(xyz_xyy(mul3(UCS_RGB_XYZ,rgb_a(i)*pf(7u))),y_ls(1.0));
+    let r=par3(1u); let wh=pf(4u); let wc=pf(5u); let wl=pf(6u);
+    var weight=(1.0-sstep(wh*0.5,wh,abs(wrap_angle(j.z-r.z))))
+        *(1.0-sstep(wc*0.5,wc,abs(j.y-r.y)))*(1.0-sstep(wl*0.5,wl,abs(j.x-r.x)))*sstep(0.005,0.03,j.y);
+    if(pu(8u)!=0u){weight*=1.0-sstep(0.12,0.3,-wrap_angle(j.z-r.z));}
+    out[i]=weight;
+}
