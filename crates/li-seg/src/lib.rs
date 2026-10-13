@@ -1,14 +1,13 @@
-//! Local segmentation on the CPU: one small ONNX model per function (IS-Net for the subject,
-//! PP-MobileSeg for the sky, Depth Anything V2 Small for depth), run with `tract` (pure Rust, no
+//! Local segmentation on the CPU: BRIA RMBG-1.4 (Fast) or InSPyReNet (Better Quality) for the subject,
+//! PP-MobileSeg for the sky, Depth Anything V2 Small for depth, run with `tract` (pure Rust, no
 //! GPU, no external runtime), or a custom `.onnx` file the user picks for a function. Powers
-//! Select › Subject and Sky, Remove Background (Quick), the Object Selection tool's click mode,
+//! Select › Subject and Sky, Remove Background (Fast / Better Quality), the Object Selection tool's click mode,
 //! and the Library's Subject / Sky / Background / Depth masks — small, quick models that need no
 //! AI server. Smart Sort uses a paired CLIP image/text bundle through [`Clip`].
 //!
-//! Pre- and post-processing follow the rembg conventions the models were trained for (and
-//! OmaPhoto's port of Compositor): premultiplied resize to the model size, normalisation by the
-//! image's peak value then mean 0.5 / std 1 (IS-Net) or ImageNet mean/std (U²-Net style), the
-//! first output map, min–max stretch, bilinear upscale.
+//! Pre-processing uses premultiplied square resize and the model's RGB mean/std. The new
+//! subject tiers use x/255 and clamped probabilities; legacy/custom IS-Net and U²-Net
+//! models retain peak scaling and min–max output. Maps are bilinearly resized to the photo.
 
 pub mod bpe;
 pub mod clip;
@@ -61,7 +60,7 @@ pub struct ModelSpec {
 /// A function the on-device models serve (Settings › Local AI lists one row per function).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Group {
-    /// The salient subject: Select Subject, Remove Background (Quick), Object Selection.
+    /// The salient subject: Select Subject, Remove Background (Fast / Better Quality), Object Selection.
     Subject,
     Sky,
     Depth,
@@ -108,7 +107,7 @@ impl Group {
     pub fn about(self) -> &'static str {
         match self {
             Group::Subject => {
-                "Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks."
+                "Finds the main subject of a photo. Used by Select › Subject, Remove Background (Fast / Better Quality), the Object Selection tool's click mode, and the Library's Subject and Background masks."
             }
             Group::Sky => "Finds the sky. Used by Select › Sky and the Library's sky masks.",
             Group::Tagging => {
@@ -130,7 +129,7 @@ impl Group {
     /// The official model of this function.
     pub fn official(self) -> &'static ModelSpec {
         let id = match self {
-            Group::Subject => "isnet",
+            Group::Subject => "rmbg-1.4",
             Group::Sky => "sky-mobileseg",
             Group::Depth => "depth-anything-v2-small",
             Group::Tagging => "clip-b32-laion",
@@ -225,19 +224,34 @@ pub enum Task {
 
 pub const MODELS: &[ModelSpec] = &[
     ModelSpec {
-        id: "isnet",
-        label: "IS-Net general",
-        file: "isnet-general-use.onnx",
+        id: "rmbg-1.4",
+        label: "Fast · BRIA RMBG-1.4",
+        file: "rmbg-1.4.onnx",
         companions: &[],
-        bytes: 178648008,
-        sha256: "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
-        url: "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx",
+        bytes: 176153355,
+        sha256: "8cafcf770b06757c4eaced21b1a88e57fd2b66de01b8045f35f01535ba742e0f",
+        url: "https://huggingface.co/briaai/RMBG-1.4/resolve/2ceba5a5efaec153162aedea169f76caf9b46cf8/onnx/model.onnx",
         size: 1024,
         isnet: true,
-        licence: "Apache-2.0 (DIS / IS-Net, Qin et al. 2022)",
+        licence: "BRIA RMBG-1.4 licence · non-commercial (BRIA AI; commercial use requires a BRIA agreement)",
         task: Task::Subject,
         group: Some(Group::Subject),
-        about: "Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.",
+        about: "Fast subject masks, with clean hair, fur and glass. About 3 s per photo on CPU; no GPU or AI server needed.",
+    },
+    ModelSpec {
+        id: "inspyrenet",
+        label: "Better Quality · InSPyReNet SwinB Plus-Ultra",
+        file: "inspyrenet-swinb-plus-ultra.onnx",
+        companions: &[],
+        bytes: 395316574,
+        sha256: "c108dd92b3ddfe3a2d9e9ac2b74730cc5acbb2ddc7ea863330c43f56ae832aa3",
+        url: "https://huggingface.co/OS-Software/InSPyReNet-SwinB-Plus-Ultra-ONNX/resolve/fe628d2d1465f775c707368a80248a2d5b5ad71f/onnx/model.onnx",
+        size: 1024,
+        isnet: false,
+        licence: "MIT (InSPyReNet, plemeri; community ONNX conversion by OS-Software)",
+        task: Task::Subject,
+        group: Some(Group::Subject),
+        about: "Fine hair, fur and branch detail. About 15 s per photo on CPU, including model load; no GPU or AI server needed.",
     },
     // Sky: PaddleSeg's PP-MobileSeg-Base trained on ADE20K (sky = class 2), ONNX opset 13.
     ModelSpec {
@@ -453,6 +467,7 @@ pub const MODELS: &[ModelSpec] = &[
 /// Files of models the app used to offer (U²-Net small and full, TinySkyNet, MiDaS small): no
 /// longer used, left on disk until the user removes them. (file name, label)
 pub const LEGACY: &[(&str, &str)] = &[
+    ("isnet-general-use.onnx", "IS-Net general"),
     ("u2netp.onnx", "U²-Net small"),
     ("u2net.onnx", "U²-Net"),
     ("tinyskynet_skyseg_256.onnx", "TinySkyNet"),
@@ -465,6 +480,14 @@ pub fn spec(id: &str) -> Option<&'static ModelSpec> {
 
 type Runner = dyn Fn(Tensor) -> TractResult<TVec<TValue>> + Send + Sync;
 
+/// Subject output contract. Legacy IS-Net/U²-Net and custom models use min–max;
+/// the two background-removal tiers already output probabilities.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Post {
+    MinMax,
+    Probability,
+}
+
 /// How to run a model: official or custom.
 #[derive(Clone, Debug)]
 struct Config {
@@ -472,11 +495,18 @@ struct Config {
     size: usize,
     norm: Norm,
     task: Task,
+    post: Post,
 }
 
 impl Config {
     fn of_spec(spec: &ModelSpec) -> Self {
-        Self { id: spec.id.to_owned(), size: spec.size, norm: if spec.isnet { Norm::IsNet } else { Norm::ImageNet }, task: spec.task }
+        Self {
+            id: spec.id.to_owned(),
+            size: spec.size,
+            norm: if spec.isnet { Norm::IsNet } else { Norm::ImageNet },
+            task: spec.task,
+            post: if matches!(spec.id, "rmbg-1.4" | "inspyrenet") { Post::Probability } else { Post::MinMax },
+        }
     }
 }
 
@@ -510,13 +540,14 @@ impl Segmenter {
         if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed | Task::Upscale | Task::Denoise { .. }) {
             bail!("use the dedicated embedding or face inference API");
         }
+        init_executor();
         let s = cfg.size;
         // the dynamic-shape depth export declares symbolic intermediate shapes that conflict
         // with the fixed input: let tract infer them
         let depth = cfg.task == Task::Depth;
         let plan = tract_onnx::onnx()
             .with_ignore_value_info(depth)
-            .with_ignore_output_shapes(depth)
+            .with_ignore_output_shapes(depth || cfg.task == Task::Subject)
             .model_for_path(path)
             .with_context(|| format!("Could not read the segmentation model {}", path.display()))?
             .with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, s, s)))?
@@ -552,7 +583,7 @@ impl Segmenter {
     /// Foreground probability (0–1) for an RGBA8 image, at the image's size. `None` when the model
     /// sees no clear subject.
     pub fn predict(&self, rgba: &[u8], w: usize, h: usize) -> Result<Option<Vec<f32>>> {
-        let input = self.input(rgba, w, h, true)?;
+        let input = self.input(rgba, w, h, self.cfg.post == Post::MinMax)?;
         let out = (self.run)(input.into())?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("The model's output {:?} isn't a single map", map.shape()) };
@@ -566,7 +597,14 @@ impl Segmenter {
             return Ok(None);
         }
         let span = (hi - lo).max(1e-6);
-        let norm: Vec<f32> = vals.iter().map(|v| (v - lo) / span).collect();
+        anyhow::ensure!(vals.iter().all(|v| v.is_finite()), "non-finite subject probability");
+        let norm: Vec<f32> = vals
+            .iter()
+            .map(|v| match self.cfg.post {
+                Post::MinMax => (v - lo) / span,
+                Post::Probability => v.clamp(0.0, 1.0),
+            })
+            .collect();
         Ok(Some(upscale(&norm, ow, oh, w, h)))
     }
 
@@ -754,7 +792,7 @@ impl Custom {
             Group::Faces => Task::FaceEmbed,
             Group::RawDenoise | Group::RgbDenoise => self.group.official().task,
         };
-        Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task }
+        Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task, post: Post::MinMax }
     }
 }
 
@@ -1138,7 +1176,7 @@ fn active(group: Group, models_dir: &Path) -> Option<Active> {
         let key = format!("custom:{}:{}:{}:{}:{}:{len}", c.file, c.size, c.norm.key(), c.classes, c.class);
         return Some(Active { key, path: c.path(models_dir), cfg: c.config(), in_use: InUse::Custom(c) });
     }
-    let spec = group.official();
+    let spec = if group == Group::Subject && subject_quality(models_dir) { spec("inspyrenet").unwrap() } else { group.official() };
     let path = model_path(models_dir, spec);
     installed_bytes(models_dir, spec).map(|_| Active { key: spec.id.to_owned(), path, cfg: Config::of_spec(spec), in_use: InUse::Official(spec) })
 }
@@ -1153,9 +1191,26 @@ pub fn shared_depth(models_dir: &Path) -> Option<Segmenter> {
     cached(active(Group::Depth, models_dir)?, &DEPTH)
 }
 
+/// The last CPU tier chosen in the shared cutout widget also serves Select Subject,
+/// Object Selection and Library subject masks. Fast is the startup default.
+static SUBJECT_QUALITY: std::sync::Mutex<Vec<(PathBuf, bool)>> = std::sync::Mutex::new(Vec::new());
+pub fn set_subject_quality(models_dir: &Path, better: bool) {
+    let mut choices = SUBJECT_QUALITY.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, choice)) = choices.iter_mut().find(|(dir, _)| dir == models_dir) {
+        *choice = better;
+    } else {
+        choices.push((models_dir.to_owned(), better));
+    }
+}
+fn subject_quality(models_dir: &Path) -> bool {
+    SUBJECT_QUALITY.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().find(|(dir, _)| dir == models_dir).is_some_and(|(_, better)| *better)
+}
+
 /// A process-wide cache of the loaded subject model (loading takes a moment).
 pub fn shared(models_dir: &Path) -> Option<Segmenter> {
-    cached(active(Group::Subject, models_dir)?, &SUBJECT)
+    let active = active(Group::Subject, models_dir)?;
+    let slot = if active.cfg.id == "inspyrenet" { &BETTER } else { &SUBJECT };
+    cached(active, slot)
 }
 
 /// A process-wide cache of the loaded sky model.
@@ -1279,7 +1334,7 @@ fn forget(spec: &ModelSpec) {
     if matches!(spec.task, Task::ImageText) {
         clip::forget();
     }
-    for slot in [&SUBJECT, &SKY, &DEPTH] {
+    for slot in [&SUBJECT, &BETTER, &SKY, &DEPTH] {
         let mut g = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if g.as_ref().is_some_and(|(key, _)| key == spec.id) {
             *g = None;
@@ -1297,6 +1352,38 @@ fn forget_group(group: Group) {
     let mut g = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     *g = None;
 }
+
+/// Configure tract once before the first segmentation load. Keep two logical CPUs
+/// for the UI and cap the pool at eight to avoid contention with other app work.
+/// API: tract-linalg 0.23.8 src/multithread.rs (Executor and set_default_executor).
+pub fn init_executor() {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let cores = std::thread::available_parallelism().map_or(1, usize::from);
+            let threads = std::env::var("LOCAL_IMAGE_SEG_THREADS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or_else(|| cores.saturating_sub(2).clamp(1, 8))
+                .clamp(1, 8);
+            tract_linalg::multithread::set_default_executor(tract_linalg::multithread::Executor::multithread(threads));
+        }
+    });
+}
+
+/// Verified, cached tier model, also used by the single and batch cutout paths.
+pub fn shared_tier(models_dir: &Path, better: bool) -> Option<Segmenter> {
+    let spec = spec(if better { "inspyrenet" } else { "rmbg-1.4" })?;
+    if !spec.files().all(|file| file_installed(models_dir, file)) {
+        return None;
+    }
+    cached(
+        Active { key: spec.id.into(), path: model_path(models_dir, spec), cfg: Config::of_spec(spec), in_use: InUse::Official(spec) },
+        if better { &BETTER } else { &SUBJECT },
+    )
+}
+static BETTER: Slot = std::sync::Mutex::new(None);
 
 type Slot = std::sync::Mutex<Option<(String, Segmenter)>>;
 static SUBJECT: Slot = std::sync::Mutex::new(None);

@@ -6,7 +6,37 @@ use serde_json::{Value, json};
 
 use crate::{PhotocraftApp, widgets};
 
-const MODELS: [(&str, &str); 3] = [("quick", "Standard (on-device)"), ("qwen-int8", "Qwen AI · Compact"), ("qwen-bf16", "Qwen AI · Full")];
+pub(crate) const MODELS: [(&str, &str); 4] =
+    [("fast", "Fast"), ("better", "Better Quality"), ("qwen-int8", "Qwen AI · Compact"), ("qwen-bf16", "Qwen AI · Full")];
+
+pub(crate) fn deserialize_engine<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let value = <String as serde::Deserialize>::deserialize(d)?;
+    Ok(if value == "quick" { "fast".into() } else { value })
+}
+
+fn cpu(engine: &str) -> bool {
+    matches!(engine, "fast" | "better" | "quick")
+}
+
+fn tier(ai: &crate::ai_ui::AiOptions) -> Option<&'static li_seg::ModelSpec> {
+    if cpu(&ai.cutout_engine) { li_seg::spec(if ai.cutout_engine == "better" { "inspyrenet" } else { "rmbg-1.4" }) } else { None }
+}
+
+fn tooltip(engine: &str) -> String {
+    if cpu(engine) {
+        let better = engine == "better";
+        let seconds = li_ai::ops::cutout_seconds(better).unwrap_or(if better { 15.0 } else { 3.0 });
+        format!("About {seconds:.1} s per photo on this computer. Runs locally on CPU, including on Apple Silicon.")
+    } else {
+        "Needs a capable NVIDIA GPU and ComfyUI; does not run on a Mac. About 30–120 s per photo, depending on GPU and image size.".into()
+    }
+}
+// Shared option metadata follows the model catalogue's dynamic help-text pattern.
+// Reuse translated field names; new explanatory prose keeps the English fallback
+// while the repository's language work is paused.
+const EDGE_REFINEMENT: (&str, &str) = ("Refine", "Resolve soft hair and fur edges against the original photo. Adds processing time.");
+const COLOUR_CLEANUP: (&str, &str) = ("Color Decontaminate", "Replace background colour spill along the subject edge with nearby foreground colours.");
+
 const OUTPUTS: [(&str, &str); 6] = [
     ("mask", "Layer mask"),
     ("transparent", "Transparent"),
@@ -18,10 +48,14 @@ const OUTPUTS: [(&str, &str); 6] = [
 
 /// Build the same command request regardless of which surface initiated removal.
 pub(crate) fn request(ai: &crate::ai_ui::AiOptions, layer: Option<u64>) -> (&'static str, Value) {
-    let standard = ai.cutout_engine == "quick";
+    let standard = cpu(&ai.cutout_engine);
     let mut p = json!({
         "engine": if standard { "learned" } else { &ai.cutout_engine },
         "output": ai.cutout_output,
+        "refine": ai.cutout_refine,
+        "refineEdges": ai.cutout_refine,
+        "decontaminate": ai.cutout_decontaminate,
+        "tier": ai.cutout_engine,
     });
     if let Some(layer) = layer {
         p["layer"] = json!(layer);
@@ -38,40 +72,79 @@ pub(crate) fn request(ai: &crate::ai_ui::AiOptions, layer: Option<u64>) -> (&'st
 }
 
 pub(crate) fn run(app: &mut PhotocraftApp, layer: Option<u64>) -> Result<Value, String> {
-    let (cmd, p) = request(&app.ui.ai, layer);
     #[cfg(test)]
-    if let Some(result) = tests::injected_result(app, cmd, &p) {
-        return result;
+    {
+        let (cmd, p) = request(&app.ui.ai, layer);
+        if let Some(result) = tests::injected_result(app, cmd, &p) {
+            return result;
+        }
     }
-    app.run(cmd, p)
+    if !can_remove(app) {
+        return Err("Select an unlocked pixel layer and install the selected model first.".into());
+    }
+    if cpu(&app.ui.ai.cutout_engine) {
+        li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), app.ui.ai.cutout_engine == "better");
+    }
+    let options = app.ui.ai.clone();
+    let state = app.session.active().ok_or("No document open")?;
+    let id = layer.map(photocraft_doc::LayerId).or(state.active_layer).ok_or("No layer selected")?;
+    photocraft_engine::jobs::edit_job(
+        &mut app.session,
+        "Remove Background",
+        move |doc, active, ctx| {
+            let result = apply_cutout(doc, id, &options, ctx)?;
+            *active = Some(result);
+            Ok(result)
+        },
+        |id| json!({"layer": id.0}),
+    )
+    .map_err(|e| e.to_string())
 }
 
-fn model_ready(ai: &crate::ai_ui::AiOptions) -> bool {
-    if ai.cutout_engine == "quick" {
-        photocraft_engine::seg::installed().is_some()
+pub(crate) fn model_ready(ai: &crate::ai_ui::AiOptions) -> bool {
+    if let Some(spec) = tier(ai) {
+        li_seg::installed_bytes(&photocraft_engine::seg::models_dir(), spec) == Some(spec.bytes)
     } else {
         crate::ai_ui::status().ready(ModelId::Qwen, if ai.cutout_engine == "qwen-bf16" { "bf16" } else { "int8" }).is_ok()
     }
 }
 
 pub(crate) fn can_remove(app: &PhotocraftApp) -> bool {
-    let cmd = if app.ui.ai.cutout_engine == "quick" { "layer.removeBackground" } else { "ai.removeBackground" };
+    let cmd = if cpu(&app.ui.ai.cutout_engine) { "layer.removeBackground" } else { "ai.removeBackground" };
     model_ready(&app.ui.ai)
         && app.session.is_enabled(cmd)
         && app.session.active().and_then(|d| d.active_layer.map(|id| d.doc.effective_locks(id))).is_some_and(|locks| !locks.pixels && !locks.all)
 }
 
-pub(crate) fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    if app.ui.ai.cutout_engine == "quick" {
-        match photocraft_engine::seg::installed() {
-            Some(li_seg::InUse::Custom(c)) => {
-                ui.label(crate::i18n::fmt(tl!("Subject & Background model: {model}"), &[("model", &c.name)]));
+/// The existing verified download flow, inline at first use and in Local AI.
+pub(crate) fn tier_download(ui: &mut egui::Ui, spec: &'static li_seg::ModelSpec) {
+    let dir = photocraft_engine::seg::models_dir();
+    ui.label(format!("{} · CPU · {} · {}", spec.label, li_ai::download::human_bytes(spec.bytes), spec.licence));
+    if li_seg::installed_bytes(&dir, spec) == Some(spec.bytes) {
+        return;
+    }
+    let downloads = crate::ai_ui::downloads();
+    if let Some(d) = downloads.get(&format!("seg:{}", spec.id)) {
+        if !d.finished {
+            ui.add(egui::ProgressBar::new(d.done as f32 / d.total.max(1) as f32));
+            if ui.button(tl!("Cancel")).clicked() {
+                d.ctl.cancel();
             }
-            Some(_) => {
-                ui.label(tl!("IS-Net · CPU"));
-            }
-            None => crate::ai_ui::readiness_warning(app, ui, tl!("Install a Subject & Background model to use Standard."), true),
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+            return;
         }
+        if let Some(error) = &d.error {
+            ui.label(error);
+        }
+    }
+    if ui.button(format!("Download {} ({})", spec.label, li_ai::download::human_bytes(spec.bytes))).clicked() {
+        crate::ai_ui::start_seg_download(spec);
+    }
+}
+
+pub(crate) fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    if let Some(spec) = tier(&app.ui.ai) {
+        tier_download(ui, spec);
     } else {
         let variant = if app.ui.ai.cutout_engine == "qwen-bf16" { "bf16" } else { "int8" };
         crate::ai_ui::readiness(app, ui, ModelId::Qwen, variant);
@@ -80,13 +153,20 @@ pub(crate) fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
 /// Inline controls for the options bar; field rows for Properties and the task-bar popup.
 pub(crate) fn settings(app: &mut PhotocraftApp, ui: &mut egui::Ui, inline: bool) {
-    let models: Vec<_> = MODELS.iter().map(|(k, l)| ((*k).to_owned(), *l)).collect();
+    if app.ui.ai.cutout_engine == "quick" {
+        app.ui.ai.cutout_engine = "fast".into();
+    }
+    let tips: Vec<_> = MODELS.iter().map(|(k, _)| tooltip(k)).collect();
+    let models: Vec<_> = MODELS.iter().zip(&tips).map(|((k, l), tip)| ((*k).to_owned(), *l, tip.as_str())).collect();
     let outputs: Vec<_> = OUTPUTS.iter().map(|(k, l)| ((*k).to_owned(), *l)).collect();
     let mut fields = |ui: &mut egui::Ui| {
         row(ui, inline, tl!("Model"), |ui, width| {
-            widgets::dropdown(ui, "cutout-model", &mut app.ui.ai.cutout_engine, &models, width);
+            widgets::dropdown_with_tooltips(ui, "cutout-model", &mut app.ui.ai.cutout_engine, &models, width);
+            if cpu(&app.ui.ai.cutout_engine) {
+                li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), app.ui.ai.cutout_engine == "better");
+            }
         });
-        if app.ui.ai.cutout_engine != "quick" {
+        if !cpu(&app.ui.ai.cutout_engine) {
             row(ui, inline, tl!("Keep…"), |ui, width| {
                 let r = ui.add(egui::TextEdit::singleline(&mut app.ui.ai.cutout_hint).hint_text(tl!("Keep… (optional)")).desired_width(width));
                 r.widget_info(|| {
@@ -96,6 +176,8 @@ pub(crate) fn settings(app: &mut PhotocraftApp, ui: &mut egui::Ui, inline: bool)
                 });
             });
         }
+        ui.checkbox(&mut app.ui.ai.cutout_refine, tl!(EDGE_REFINEMENT.0)).on_hover_text(tl!(EDGE_REFINEMENT.1));
+        ui.checkbox(&mut app.ui.ai.cutout_decontaminate, tl!(COLOUR_CLEANUP.0)).on_hover_text(tl!(COLOUR_CLEANUP.1));
         row(ui, inline, tl!("Output"), |ui, width| {
             widgets::dropdown(ui, "cutout-output", &mut app.ui.ai.cutout_output, &outputs, width);
         });
@@ -126,8 +208,11 @@ pub(crate) fn settings(app: &mut PhotocraftApp, ui: &mut egui::Ui, inline: bool)
 pub(crate) fn menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     widgets::section_label(ui, tl!("Model"));
     for (key, label) in MODELS {
-        if ui.selectable_label(app.ui.ai.cutout_engine == key, tl!(label)).clicked() {
+        if ui.selectable_label(app.ui.ai.cutout_engine == key, tl!(label)).on_hover_text(tooltip(key)).clicked() {
             app.ui.ai.cutout_engine = key.into();
+            if cpu(key) {
+                li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), key == "better");
+            }
             ui.close();
         }
     }
@@ -179,3 +264,80 @@ pub(crate) fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: u64)
 #[cfg(test)]
 #[path = "background_ui_tests.rs"]
 mod tests;
+
+/// Shared single/batch processing. Uses the editor's profile-aware sampler, closed-form
+/// matting and output implementation, keeping document changes in one undoable job.
+pub(crate) fn apply_cutout(
+    doc: &mut photocraft_doc::Document,
+    id: photocraft_doc::LayerId,
+    options: &crate::ai_ui::AiOptions,
+    ctx: &photocraft_engine::jobs::JobCtx,
+) -> photocraft_engine::Result<photocraft_doc::LayerId> {
+    use photocraft_engine::{EngineError, ai_cmds, cutout_cmds};
+    let bounds = doc.bounds();
+    let mut layer = doc.layer(id).ok_or(EngineError::NoLayer(id))?.clone();
+    let locks = doc.effective_locks(id);
+    if locks.pixels || locks.all || layer.surface().is_none() {
+        return Err(EngineError::Other("Select an unlocked pixel layer".into()));
+    }
+    layer.mask = None;
+    layer.visible = true;
+    layer.opacity = 1.0;
+    let img = ai_cmds::selected_layer_rgba(doc, &layer, bounds)?;
+    let variant = match options.cutout_engine.as_str() {
+        "qwen-bf16" => "bf16",
+        "qwen-int8" => "int8",
+        "better" => "better",
+        _ => "fast",
+    };
+    let hint = options.cutout_hint.chars().take(500).collect::<String>();
+    let mut alpha = ai_cmds::bridged(ctx, |ctl| li_ai::service().cutout(&img, variant, &hint, li_ai::ops::new_seed(), ctl))?;
+    ctx.check()?;
+    if options.cutout_refine {
+        ctx.progress(0.9, "Refining edges");
+        alpha = refine_matte(&img, &alpha);
+        ctx.check()?;
+    }
+    let values: Vec<f32> = alpha.pixels().map(|p| p[0] as f32 / 255.0).collect();
+    let mut mask = photocraft_raster::Surface::new(photocraft_color::PixelFormat::GRAY8);
+    mask.write_region(bounds, &values);
+    let pixel_error = || EngineError::Other("Remove Background needs a pixel layer".into());
+    let original_surface = if options.cutout_decontaminate && options.cutout_output == "newLayer" {
+        Some(doc.layer(id).ok_or(EngineError::NoLayer(id))?.surface().ok_or_else(pixel_error)?.clone())
+    } else {
+        None
+    };
+    if options.cutout_decontaminate {
+        let region = photocraft_algo::selection::Region { bbox: bounds, mask: alpha.into_raw() };
+        let source = doc.layer(id).ok_or(EngineError::NoLayer(id))?.surface().ok_or_else(pixel_error)?;
+        let clean = photocraft_algo::matting::decontaminate(source, &region, 3.0, 100.0);
+        *doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.surface_mut().ok_or_else(pixel_error)? = clean;
+        ctx.check()?;
+    }
+    let (_, params) = request(options, Some(id.0));
+    let output = cutout_cmds::BackgroundOutput::from_params(&params, "layer.removeBackground")?;
+    let result = cutout_cmds::apply_output(doc, id, mask, &output, ctx)?;
+    if let Some(source) = original_surface {
+        *doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.surface_mut().ok_or_else(pixel_error)? = source;
+    }
+    Ok(result)
+}
+
+fn refine_matte(img: &image::RgbaImage, alpha: &image::GrayImage) -> image::GrayImage {
+    use photocraft_algo::cf_matting::{MattingParams, closed_form_matting_tiled, trimap_from_mask};
+    let (w, h) = (img.width() as usize, img.height() as usize);
+    let m: Vec<f32> = alpha.pixels().map(|p| p[0] as f32 / 255.0).collect();
+    let band = ((w.min(h) as f32 / 160.0).round() as usize).clamp(3, 24);
+    let mut tri = trimap_from_mask(&m, w, h, band);
+    for (t, v) in tri.iter_mut().zip(&m) {
+        if (0.1..0.9).contains(v) {
+            *t = 0.5;
+        }
+    }
+    let rgb = photocraft_algo::segment::RgbImage::from_fn(w, h, |x, y| {
+        let p = img.get_pixel(x as u32, y as u32);
+        [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0]
+    });
+    let a = closed_form_matting_tiled(&rgb, &tri, &MattingParams::default(), 384, 24);
+    image::GrayImage::from_fn(w as u32, h as u32, |x, y| image::Luma([(a[y as usize * w + x as usize] * 255.0).round() as u8]))
+}

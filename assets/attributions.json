@@ -3265,11 +3265,18 @@
       "intro": "Downloaded only when you ask for them, never shipped with Local Image. Each model keeps its own licence.",
       "entries": [
         {
-          "name": "IS-Net general",
-          "author": "DIS / IS-Net, Qin et al. 2022",
+          "name": "Fast · BRIA RMBG-1.4",
+          "author": "BRIA AI; commercial use requires a BRIA agreement",
           "used_for": "Subject masks: Select Subject and Remove Background.",
-          "licence": "Apache-2.0",
-          "url": "https://github.com/danielgatis/rembg"
+          "licence": "BRIA RMBG-1.4 licence · non-commercial",
+          "url": "https://huggingface.co/briaai/RMBG-1.4"
+        },
+        {
+          "name": "Better Quality · InSPyReNet SwinB Plus-Ultra",
+          "author": "InSPyReNet, plemeri; community ONNX conversion by OS-Software",
+          "used_for": "Subject masks: Select Subject and Remove Background.",
+          "licence": "MIT",
+          "url": "https://huggingface.co/OS-Software/InSPyReNet-SwinB-Plus-Ultra-ONNX"
         },
         {
           "name": "PP-MobileSeg",

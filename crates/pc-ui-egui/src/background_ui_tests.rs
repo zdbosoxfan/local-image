@@ -367,11 +367,11 @@ fn background_ui_requests_keep_model_hint_and_output_parameters() {
         for (output, _) in OUTPUTS {
             ai.cutout_output = output.into();
             let (cmd, p) = request(&ai, Some(7));
-            assert_eq!(cmd, if model == "quick" { "layer.removeBackground" } else { "ai.removeBackground" });
-            assert_eq!(p["engine"], if model == "quick" { "learned" } else { model });
+            assert_eq!(cmd, if cpu(model) { "layer.removeBackground" } else { "ai.removeBackground" });
+            assert_eq!(p["engine"], if cpu(model) { "learned" } else { model });
             assert_eq!(p["output"], output);
             assert_eq!(p["layer"], 7);
-            assert_eq!(p.get("hint").cloned(), if model == "quick" { None } else { Some(json!(ai.cutout_hint)) });
+            assert_eq!(p.get("hint").cloned(), if cpu(model) { None } else { Some(json!(ai.cutout_hint)) });
             assert_eq!(p.get("color").cloned(), if output == "color" { Some(json!(ai.cutout_color)) } else { None });
             assert_eq!(p.get("amount").cloned(), if output == "blur" { Some(json!(ai.cutout_blur)) } else { None });
         }
@@ -387,4 +387,89 @@ fn background_ui_old_settings_load_and_new_settings_roundtrip() {
     assert_eq!(ai.cutout_hint, "dog");
     let ai = crate::ai_ui::AiOptions { cutout_output: "color".into(), cutout_color: [0.1, 0.2, 0.3], ..ai };
     assert_eq!(serde_json::from_value::<crate::ai_ui::AiOptions>(serde_json::to_value(&ai).unwrap()).unwrap(), ai);
+}
+
+#[test]
+fn background_ui_quick_migration_and_defaults() {
+    let options: crate::ai_ui::AiOptions = serde_json::from_value(json!({"cutout_engine":"quick"})).unwrap();
+    assert_eq!(options.cutout_engine, "fast");
+    assert!(options.cutout_refine);
+    assert!(!options.cutout_decontaminate);
+    assert_eq!(crate::ai_ui::AiOptions::default().cutout_engine, "fast");
+}
+
+#[test]
+fn background_ui_single_and_batch_click_all_four_shared_engines() {
+    let _ready = Ready::new();
+    let mut h = harness();
+    for (key, label) in MODELS {
+        let old = MODELS.iter().find(|(k, _)| *k == h.state().ui.ai.cutout_engine).unwrap().1;
+        let area = properties_rect(&h);
+        choose(&mut h, old, label, area);
+        assert_eq!(h.state().ui.ai.cutout_engine, key);
+    }
+    crate::generate_ui::open_batch();
+    h.run_steps(6);
+    // Batch and Properties both bind to exactly the same saved AiOptions.
+    let batch_area =
+        h.query_all_by_label("Remove Backgrounds").map(|n| n.rect()).max_by(|a, b| (a.width() * a.height()).total_cmp(&(b.width() * b.height()))).unwrap();
+    for (key, label) in MODELS {
+        let old = MODELS.iter().find(|(k, _)| *k == h.state().ui.ai.cutout_engine).unwrap().1;
+        // Find the foreground batch window's control (Properties is behind it).
+        let control = h.query_all_by_label(old).chain(h.query_all_by_value(old)).map(|n| n.rect()).find(|r| batch_area.contains(r.center()));
+        let at = control
+            .unwrap_or_else(|| h.query_all_by_label(old).chain(h.query_all_by_value(old)).map(|n| n.rect()).find(|r| r.center().x < 1100.0).unwrap())
+            .center();
+        click(&mut h, at);
+        let at = h
+            .query_all_by_label(label)
+            .map(|n| n.rect())
+            .find(|r| h.ctx.layer_id_at(r.center()).is_some_and(|l| l.order == egui::Order::Foreground))
+            .unwrap()
+            .center();
+        click(&mut h, at);
+        assert_eq!(h.state().ui.ai.cutout_engine, key);
+    }
+    let at = h.query_all_by_label(EDGE_REFINEMENT.0).map(|n| n.rect()).find(|r| batch_area.contains(r.center())).unwrap().center();
+    click(&mut h, at);
+    assert!(!h.state().ui.ai.cutout_refine);
+    let at = h.query_all_by_label(COLOUR_CLEANUP.0).map(|n| n.rect()).find(|r| batch_area.contains(r.center())).unwrap().center();
+    click(&mut h, at);
+    assert!(h.state().ui.ai.cutout_decontaminate);
+    let at = h.get_by_label("Close window").rect().center();
+    click(&mut h, at);
+    assert!(!h.state().ui.ai.cutout_refine && h.state().ui.ai.cutout_decontaminate);
+    let options = h.state().ui.ai.clone();
+    let roundtrip: crate::ai_ui::AiOptions = serde_json::from_value(serde_json::to_value(&options).unwrap()).unwrap();
+    assert_eq!(roundtrip, options);
+}
+
+#[test]
+#[ignore = "opt-in real app cutout timing, LOCAL_IMAGE_SEG_MODELS and BGREMOVE_PHOTO"]
+fn background_ui_real_app_tier_timing() {
+    let path = std::path::PathBuf::from(std::env::var_os("BGREMOVE_PHOTO").expect("BGREMOVE_PHOTO"));
+    let image = photocraft_engine::ai_cmds::file_rgba_srgb(&path).unwrap();
+    for engine in ["fast", "better"] {
+        let mut times = Vec::new();
+        for _ in 0..3 {
+            let mut doc = Document::new("Timing", Size::new(image.width(), image.height()), ColorMode::Rgb, SampleType::U8);
+            let layer = photocraft_engine::ai_cmds::layer_from_rgba(&doc, "Photo", &image, 0, 0).unwrap();
+            let id = doc.insert_above(None, layer);
+            let options = crate::ai_ui::AiOptions { cutout_engine: engine.into(), ..Default::default() };
+            let start = std::time::Instant::now();
+            apply_cutout(&mut doc, id, &options, &JobCtx::new()).unwrap();
+            times.push(start.elapsed().as_secs_f64());
+            assert!(doc.layer(id).unwrap().mask.is_some());
+        }
+        println!("REAL_APP {engine} threads={:?} seconds={times:?}", std::env::var("LOCAL_IMAGE_SEG_THREADS"));
+    }
+}
+
+#[test]
+fn background_ui_shared_field_labels_have_existing_translations() {
+    for language in crate::i18n::Lang::all().filter(|l| l.complete_menus()) {
+        for label in [EDGE_REFINEMENT.0, COLOUR_CLEANUP.0] {
+            assert!(crate::i18n::has(language, label), "{}: {label}", language.code());
+        }
+    }
 }

@@ -2644,11 +2644,9 @@ pub fn open_folder_path(app: &mut PhotocraftApp, dir: &std::path::Path) -> Resul
 pub struct BatchState {
     files: Vec<PathBuf>,
     output: Option<PathBuf>,
-    /// `transparent`, `white`, `color`.
-    background: String,
-    color: [u8; 3],
-    variant: String,
-    items: Vec<(String, String)>,
+    template: String,
+    format: String,
+    conflict: String,
     run: Option<std::sync::Arc<std::sync::Mutex<BatchRun>>>,
 }
 
@@ -2657,7 +2655,7 @@ struct BatchRun {
     done: usize,
     status: Vec<(String, String)>,
     finished: bool,
-    ctl: li_ai::JobControl,
+    ctl: photocraft_engine::jobs::JobCtx,
 }
 
 fn batch<R>(f: impl FnOnce(&mut Option<BatchState>) -> R) -> R {
@@ -2668,7 +2666,7 @@ fn batch<R>(f: impl FnOnce(&mut Option<BatchState>) -> R) -> R {
 pub fn open_batch() {
     batch(|b| {
         if b.is_none() {
-            *b = Some(BatchState { background: "transparent".into(), color: [255, 255, 255], variant: "int8".into(), ..Default::default() });
+            *b = Some(BatchState { template: "{name}-cutout".into(), format: "png".into(), conflict: "rename".into(), ..Default::default() });
         }
     });
 }
@@ -2679,7 +2677,6 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     let t = Tokens::get(ctx);
     let mut open = true;
-    let st = crate::ai_ui::status();
     egui::Window::new(tl!("Remove Backgrounds"))
         .collapsible(false)
         .resizable(true)
@@ -2690,9 +2687,6 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             batch(|b| {
                 let Some(b) = b.as_mut() else { return };
-                ui.label(
-                    RichText::new(tl!("Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.")).color(t.text_dim),
-                );
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     #[cfg(not(target_arch = "wasm32"))]
@@ -2717,16 +2711,33 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         b.files.clear();
                     }
                 });
+                crate::background_ui::settings(app, ui, false);
+                crate::background_ui::readiness(app, ui);
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(tl!("Background:")).color(t.text_dim));
-                    let opts = [("transparent".to_string(), tl!("Transparent PNG")), ("white".to_string(), tl!("White")), ("color".to_string(), tl!("Color"))];
-                    widgets::dropdown(ui, "batch-bg", &mut b.background, &opts, 150.0);
-                    if b.background == "color" {
-                        ui.color_edit_button_srgb(&mut b.color);
+                    ui.label(tl!("File Naming"));
+                    ui.text_edit_singleline(&mut b.template).on_hover_text(format!("{}: {{name}}, {{counter}}", tl!("File Naming")));
+                });
+                let example = b.files.first().cloned().unwrap_or_else(|| PathBuf::from("photo.jpg"));
+                match batch_name(&b.template, &example, 1, &b.format) {
+                    Ok(name) => {
+                        ui.label(format!("Example: {name}"));
                     }
-                    ui.label(RichText::new(tl!("Model:")).color(t.text_dim));
-                    let opts = [("int8".to_string(), tl!("Qwen Compact")), ("bf16".to_string(), tl!("Qwen Full"))];
-                    widgets::dropdown(ui, "batch-model", &mut b.variant, &opts, 130.0);
+                    Err(error) => {
+                        ui.label(RichText::new(error).color(t.warning));
+                    }
+                }
+                ui.horizontal(|ui| {
+                    ui.label(tl!("Format"));
+                    widgets::dropdown(ui, "batch-format", &mut b.format, &[("png".into(), "PNG"), ("tiff".into(), "TIFF"), ("psd".into(), "PSD")], 120.0);
+                    let conflict_help = "If an output file exists, overwrite it, skip it, or save under a new name.";
+                    ui.label(tl!("Action")).on_hover_text(tl!(conflict_help));
+                    widgets::dropdown(
+                        ui,
+                        "batch-conflict",
+                        &mut b.conflict,
+                        &[("overwrite".into(), "Overwrite"), ("skip".into(), "Skip"), ("rename".into(), "Rename")],
+                        120.0,
+                    );
                 });
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(tl!("Save to:")).color(t.text_dim));
@@ -2737,9 +2748,6 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         b.output = file_dialog().pick_folder();
                     }
                 });
-                if let Err(why) = st.ready(ModelId::Qwen, &b.variant) {
-                    ui.label(RichText::new(why).color(t.warning));
-                }
                 ui.add_space(6.0);
                 let run = b.run.clone();
                 let running = run.as_ref().is_some_and(|r| r.lock().map(|r| !r.finished).unwrap_or(false));
@@ -2769,7 +2777,7 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                                     .desired_width(240.0)
                                     .text(crate::i18n::fmt(tl!("{done} of {total}"), &[("done", &d.to_string()), ("total", &n.to_string())])),
                             );
-                            if widgets::secondary_button(ui, tl!("Stop"), 0.0).clicked()
+                            if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked()
                                 && let Ok(r) = r.lock()
                             {
                                 r.ctl.cancel();
@@ -2777,13 +2785,13 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         }
                         ui.ctx().request_repaint_after(Duration::from_millis(250));
                     } else {
-                        let ok = !b.files.is_empty() && st.ready(ModelId::Qwen, &b.variant).is_ok();
+                        let ok =
+                            !b.files.is_empty() && crate::background_ui::model_ready(&app.ui.ai) && batch_name(&b.template, &example, 1, &b.format).is_ok();
                         if ui.add_enabled_ui(ok, |ui| widgets::primary_button(ui, tl!("Remove Backgrounds"), 0.0)).inner.clicked() {
-                            b.run = Some(start_batch(b));
+                            b.run = Some(start_batch(b, &app.ui.ai));
                         }
                     }
                 });
-                let _ = &b.items;
             });
         });
     if !open {
@@ -2796,22 +2804,96 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
             *b = None;
         });
     }
-    let _ = app;
 }
 
-fn start_batch(b: &BatchState) -> std::sync::Arc<std::sync::Mutex<BatchRun>> {
-    let run = std::sync::Arc::new(std::sync::Mutex::new(BatchRun {
+/// Validate a basename before joining it to the output folder. Never interpret paths.
+fn batch_name(template: &str, input: &std::path::Path, counter: usize, format: &str) -> Result<String, String> {
+    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
+    let name = template.replace("{name}", stem).replace("{counter}", &counter.to_string());
+    if name.trim().is_empty() || matches!(name.as_str(), "." | "..") || name.contains(['/', '\\', '{', '}', ':']) || name.chars().any(char::is_control) {
+        return Err("Use a file name with {name} and/or {counter}, without folders or unknown tokens.".into());
+    }
+    if !["png", "tiff", "psd"].contains(&format) {
+        return Err("Choose PNG, TIFF or PSD".into());
+    }
+    Ok(format!("{name}.{format}"))
+}
+
+fn batch_destination(dir: &std::path::Path, name: &str, conflict: &str) -> Option<PathBuf> {
+    let dest = dir.join(name);
+    if !dest.exists() || conflict == "overwrite" {
+        return Some(dest);
+    }
+    if conflict == "skip" {
+        return None;
+    }
+    let stem = dest.file_stem()?.to_string_lossy();
+    let ext = dest.extension()?.to_string_lossy();
+    (2..).map(|n| dir.join(format!("{stem}-{n}.{ext}"))).find(|p| !p.exists())
+}
+
+fn batch_export(
+    input: &std::path::Path,
+    dest: &std::path::Path,
+    format: &str,
+    options: &crate::ai_ui::AiOptions,
+    ctl: &photocraft_engine::jobs::JobCtx,
+) -> anyhow::Result<()> {
+    use std::io::{Read, Write};
+    ctl.check()?;
+    let limit = photocraft_format::read::MAX_FILE_BYTES;
+    let mut bytes = Vec::new();
+    std::fs::File::open(input)?.take(limit + 1).read_to_end(&mut bytes)?;
+    anyhow::ensure!(bytes.len() as u64 <= limit, "Image exceeds the file memory limit");
+    let mut doc = photocraft_io::import(&input.to_string_lossy(), &bytes)?.document;
+    // Export a cutout of the visible photograph, retaining its document colour profile.
+    let img = photocraft_engine::ai_cmds::flatten_rgba(&doc)?;
+    let layer = photocraft_engine::ai_cmds::layer_from_rgba(&doc, "Cutout", &img, 0, 0)?;
+    doc.layers.clear();
+    let id = doc.insert_above(None, layer);
+    crate::background_ui::apply_cutout(&mut doc, id, options, ctl)?;
+    ctl.check()?;
+    let encoded = photocraft_io::export(&doc, format, &Default::default())?.bytes;
+    ctl.check()?;
+    // Stage beside the destination so cancellation never leaves a partial output.
+    let temp = dest.with_file_name(format!(".bgremove-{}.tmp", li_ai::ops::new_seed()));
+    let result = (|| -> anyhow::Result<()> {
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+        file.write_all(&encoded)?;
+        file.sync_all()?;
+        ctl.check()?;
+        std::fs::rename(&temp, dest)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
+}
+
+fn start_batch(b: &BatchState, options: &crate::ai_ui::AiOptions) -> Arc<std::sync::Mutex<BatchRun>> {
+    start_batch_with(b, options, &batch_export)
+}
+
+// Inject the work operation in deterministic cancellation tests; the worker loop is real.
+fn start_batch_with(
+    b: &BatchState,
+    options: &crate::ai_ui::AiOptions,
+    process: &'static (
+                 dyn Fn(&std::path::Path, &std::path::Path, &str, &crate::ai_ui::AiOptions, &photocraft_engine::jobs::JobCtx) -> anyhow::Result<()> + Sync
+             ),
+) -> Arc<std::sync::Mutex<BatchRun>> {
+    let run = Arc::new(std::sync::Mutex::new(BatchRun {
         status: b.files.iter().map(|p| (p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), tl!("Waiting").into())).collect(),
         ..Default::default()
     }));
-    let (files, output, bg, color, variant) = (b.files.clone(), b.output.clone(), b.background.clone(), b.color, b.variant.clone());
+    let (files, output, template, format, conflict, options) =
+        (b.files.clone(), b.output.clone(), b.template.clone(), b.format.clone(), b.conflict.clone(), options.clone());
     let r2 = run.clone();
-    let (working, saved, stopped) = (tl!("Working…"), tl!("Saved {name}"), tl!("Stopped"));
-    let _ = std::thread::Builder::new().name("batch-cutout".into()).spawn(move || {
-        let ai = li_ai::service();
+    let worker = std::thread::Builder::new().name("batch-cutout".into()).spawn(move || {
         let ctl = r2.lock().map(|r| r.ctl.clone()).unwrap_or_default();
         for (i, path) in files.iter().enumerate() {
-            if ctl.is_cancelled() {
+            if ctl.cancelled() {
                 break;
             }
             let set = |s: String| {
@@ -2819,48 +2901,229 @@ fn start_batch(b: &BatchState) -> std::sync::Arc<std::sync::Mutex<BatchRun>> {
                     r.status[i].1 = s;
                 }
             };
-            set(working.into());
-            let res = (|| -> anyhow::Result<PathBuf> {
-                let img = photocraft_engine::ai_cmds::file_rgba_srgb(path)?;
-                let alpha = ai.cutout(&img, &variant, "", li_ai::ops::new_seed(), &ctl)?;
-                let out = image::RgbaImage::from_fn(img.width(), img.height(), |x, y| {
-                    let p = img.get_pixel(x, y);
-                    let a = alpha.get_pixel(x, y)[0] as f32 / 255.0 * p[3] as f32 / 255.0;
-                    match bg.as_str() {
-                        "transparent" => image::Rgba([p[0], p[1], p[2], (a * 255.0).round() as u8]),
-                        _ => {
-                            let c = if bg == "white" { [255, 255, 255] } else { color };
-                            let m = |k: usize| (p[k] as f32 * a + c[k] as f32 * (1.0 - a)).round() as u8;
-                            image::Rgba([m(0), m(1), m(2), 255])
-                        }
-                    }
-                });
-                let dir = output.clone().unwrap_or_else(|| path.parent().map(|p| p.join("cutouts")).unwrap_or_default());
-                std::fs::create_dir_all(&dir)?;
-                let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "image".into());
-                let mut dest = dir.join(format!("{stem}-cutout.png"));
-                let mut n = 2;
-                while dest.exists() {
-                    dest = dir.join(format!("{stem}-cutout-{n}.png"));
-                    n += 1;
-                }
-                out.save(&dest)?;
-                Ok(dest)
-            })();
+            set(tl!("Working…").into());
+            let res =
+                (|| -> anyhow::Result<Option<PathBuf>> {
+                    let dir = output.clone().unwrap_or_else(|| path.parent().unwrap_or_else(|| std::path::Path::new(".")).join("cutouts"));
+                    let name = batch_name(&template, path, i + 1, &format).map_err(anyhow::Error::msg)?;
+                    std::fs::create_dir_all(&dir)?;
+                    let Some(dest) = batch_destination(&dir, &name, &conflict) else {
+                        return Ok(None);
+                    };
+                    // A template can target a different photo later in the same list.
+                    let canonical_dest = dest.exists().then(|| std::fs::canonicalize(&dest)).transpose()?;
+                    anyhow::ensure!(
+                        !files.iter().any(|source| source == &dest
+                            || canonical_dest.as_ref().is_some_and(|target| std::fs::canonicalize(source).ok().as_ref() == Some(target))),
+                        "Output would overwrite an input photo"
+                    );
+                    process(path, &dest, &format, &options, &ctl)?;
+                    Ok(Some(dest))
+                })();
+            let cancelled = ctl.cancelled();
             match res {
-                Ok(dest) => set(crate::i18n::fmt(saved, &[("name", &dest.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default())])),
-                Err(e) if e.is::<li_ai::Cancelled>() => set(stopped.into()),
+                Ok(Some(dest)) => set(format!("Saved {}", dest.file_name().map(|n| n.to_string_lossy()).unwrap_or_default())),
+                Ok(None) => {
+                    let skipped = "Skip";
+                    set(tl!(skipped).into());
+                }
+                Err(_) if cancelled => set(tl!("Cancelled").into()),
                 Err(e) => set(format!("{e:#}")),
             }
             if let Ok(mut r) = r2.lock() {
                 r.done = i + 1;
             }
+            if cancelled {
+                break;
+            }
         }
         if let Ok(mut r) = r2.lock() {
+            if ctl.cancelled() {
+                for (_, s) in &mut r.status {
+                    if s == tl!("Waiting") {
+                        *s = tl!("Cancelled").into();
+                    }
+                }
+            }
             r.finished = true;
         }
     });
+    if let Err(error) = worker
+        && let Ok(mut r) = run.lock()
+    {
+        r.finished = true;
+        for (_, s) in &mut r.status {
+            *s = error.to_string();
+        }
+    }
     run
+}
+
+#[cfg(test)]
+mod bg_batch_tests {
+    use super::*;
+
+    fn directory() -> PathBuf {
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/bgremove-tests").join(li_ai::ops::new_seed().to_string());
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn bg_batch_template_preview_and_conflicts() {
+        let dir = directory();
+        let name = batch_name("prefix-{name}-{counter}-suffix", std::path::Path::new("cat.photo.jpg"), 12, "psd").unwrap();
+        assert_eq!(name, "prefix-cat.photo-12-suffix.psd");
+        for invalid in ["", "../{name}", "{unknown}", "foo/bar", "foo\\bar"] {
+            assert!(batch_name(invalid, std::path::Path::new("cat.jpg"), 1, "png").is_err());
+        }
+        let dest = dir.join(&name);
+        std::fs::write(&dest, b"existing").unwrap();
+        assert_eq!(batch_destination(&dir, &name, "overwrite"), Some(dest.clone()));
+        assert_eq!(batch_destination(&dir, &name, "skip"), None);
+        let renamed = batch_destination(&dir, &name, "rename").unwrap();
+        assert!(renamed.ends_with("prefix-cat.photo-12-suffix-2.psd"));
+        std::fs::write(renamed, b"existing").unwrap();
+        assert!(batch_destination(&dir, &name, "rename").unwrap().ends_with("prefix-cat.photo-12-suffix-3.psd"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn bg_batch_cancel_mid_batch_publishes_only_completed_photo() {
+        fn process(
+            _: &std::path::Path,
+            dest: &std::path::Path,
+            _: &str,
+            _: &crate::ai_ui::AiOptions,
+            ctl: &photocraft_engine::jobs::JobCtx,
+        ) -> anyhow::Result<()> {
+            std::fs::write(dest, b"completed")?;
+            ctl.cancel();
+            Ok(())
+        }
+        let dir = directory();
+        let files: Vec<_> = (0..3).map(|n| dir.join(format!("photo{n}.png"))).collect();
+        for file in &files {
+            std::fs::write(file, b"original").unwrap();
+        }
+        let b = BatchState {
+            files,
+            output: Some(dir.join("outputs")),
+            template: "{name}-{counter}".into(),
+            format: "png".into(),
+            conflict: "rename".into(),
+            ..Default::default()
+        };
+        let run = start_batch_with(&b, &Default::default(), &process);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !run.lock().unwrap().finished {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let r = run.lock().unwrap();
+        assert_eq!(r.done, 1);
+        assert!(r.ctl.cancelled());
+        assert_eq!(r.status[1].1, "Cancelled");
+        assert_eq!(r.status[2].1, "Cancelled");
+        assert_eq!(std::fs::read_dir(dir.join("outputs")).unwrap().count(), 1);
+        for file in &b.files {
+            assert_eq!(std::fs::read(file).unwrap(), b"original");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn bg_batch_overwrite_never_changes_another_input_photo() {
+        fn process(
+            _: &std::path::Path,
+            dest: &std::path::Path,
+            _: &str,
+            _: &crate::ai_ui::AiOptions,
+            _: &photocraft_engine::jobs::JobCtx,
+        ) -> anyhow::Result<()> {
+            std::fs::write(dest, b"cutout")?;
+            Ok(())
+        }
+        let dir = directory();
+        let files = vec![dir.join("source.png"), dir.join("1.png")];
+        for input in &files {
+            std::fs::write(input, b"original").unwrap();
+        }
+        let b = BatchState {
+            files,
+            output: Some(dir.clone()),
+            template: "{counter}".into(),
+            format: "png".into(),
+            conflict: "overwrite".into(),
+            ..Default::default()
+        };
+        let run = start_batch_with(&b, &Default::default(), &process);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !run.lock().unwrap().finished {
+            assert!(Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(run.lock().unwrap().status[0].1.contains("overwrite an input"));
+        for input in &b.files {
+            assert_eq!(std::fs::read(input).unwrap(), b"original");
+        }
+        assert_eq!(std::fs::read(dir.join("2.png")).unwrap(), b"cutout");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn bg_batch_formats_preserve_alpha_and_psd_layer_mask() {
+        use photocraft_doc::{ColorMode, Document, LayerMask, SampleType, Size};
+        let mut doc = Document::new("Photo", Size::new(2, 1), ColorMode::Rgb, SampleType::U8);
+        let img = RgbaImage::from_fn(2, 1, |_, _| image::Rgba([200, 30, 20, 255]));
+        let layer = photocraft_engine::ai_cmds::layer_from_rgba(&doc, "Photo", &img, 0, 0).unwrap();
+        let id = doc.insert_above(None, layer);
+        let mut mask = photocraft_raster::Surface::new(photocraft_color::PixelFormat::GRAY8);
+        mask.write_region(doc.bounds(), &[0.0, 0.5]);
+        doc.layer_mut(id).unwrap().mask = Some(LayerMask { surface: mask, ..LayerMask::reveal_all() });
+        for format in ["png", "tiff", "psd"] {
+            let encoded = photocraft_io::export(&doc, format, &Default::default()).unwrap();
+            let loaded = photocraft_io::import(&format!("photo.{format}"), &encoded.bytes).unwrap().document;
+            let image = photocraft_engine::ai_cmds::flatten_rgba(&loaded).unwrap();
+            assert_eq!(image.get_pixel(0, 0)[3], 0, "{format}");
+            assert!((127..=129).contains(&image.get_pixel(1, 0)[3]), "{format}: {:?}", image.get_pixel(1, 0));
+            if format == "psd" {
+                assert!(loaded.layers[0].mask.is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn bg_batch_actual_cancel_and_format_controls() {
+        use egui_kittest::kittest::Queryable;
+        batch(|b| *b = None);
+        open_batch();
+        let control = photocraft_engine::jobs::JobCtx::new();
+        let ctl = control.clone();
+        batch(|b| {
+            b.as_mut().unwrap().run =
+                Some(Arc::new(std::sync::Mutex::new(BatchRun { ctl, status: vec![("photo.jpg".into(), "Working…".into())], ..Default::default() })))
+        });
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1100.0, 1100.0)).build_ui_state(
+            |ui, app| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    batch_window(app, ui.ctx());
+                }
+            },
+            crate::PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default()),
+        );
+        crate::PhotocraftApp::setup_context(&h.ctx, Default::default());
+        h.run_steps(4);
+        h.get_by_label("Cancel").click();
+        h.run_steps(4);
+        assert!(control.cancelled());
+        h.get_by_value("PNG").click();
+        h.run_steps(4);
+        h.get_by_label("TIFF").click();
+        h.run_steps(4);
+        assert_eq!(batch(|b| b.as_ref().unwrap().format.clone()), "tiff");
+        batch(|b| *b = None);
+    }
 }
 
 #[cfg(test)]
