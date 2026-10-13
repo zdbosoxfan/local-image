@@ -1,6 +1,6 @@
 //! Thread priority classes (threading rule 7): batch and indexing work runs at a lower OS priority,
 //! so the UI thread wins contested time slices instead of a core being left idle. On Apple silicon
-//! the class is also what moves work to the efficiency cores (there is no affinity API).
+//! QoS lets the scheduler choose performance/efficiency cores (there is no affinity API).
 //!
 //! | Class | Linux | macOS | Windows |
 //! |---|---|---|---|
@@ -93,7 +93,7 @@ fn apply(_class: ThreadClass) -> crate::sys::PriorityResult {
 
 /// The shared low-priority rayon pool for Background-class fan-out (smart sort, face indexing):
 /// the compute budget's size (the global pool's, once [`crate::init`] built it), its workers in
-/// [`ThreadClass::Background`]. Under load the OS
+/// [`ThreadClass::Background`] (Utility on macOS, see below). Under load the OS
 /// gives the global (interactive) pool most of the CPU; when the machine is idle background work
 /// still gets every core. One pool for the whole process (replacing per-task private pools); `None`
 /// if it couldn't be started.
@@ -105,6 +105,14 @@ pub fn background_pool() -> Option<&'static rayon::ThreadPool> {
             .num_threads(threads)
             .thread_name(|i| format!("li-background-{i}"))
             .start_handler(|_| {
+                // Utility is Apple's class for long-running, user-visible CPU work. On macOS
+                // 27 Apple Silicon, lowering Rayon fan-out workers to Background can stall
+                // pthread_set_qos_class_self_np during pool startup. Utility keeps this shared
+                // CPU pool below foreground work, allows both core types, and avoids that stall.
+                // Dedicated housekeeping/download threads can still use Background normally.
+                #[cfg(target_os = "macos")]
+                set_current_thread_class(ThreadClass::Utility);
+                #[cfg(not(target_os = "macos"))]
                 set_current_thread_class(ThreadClass::Background);
             })
             .build()
@@ -139,11 +147,17 @@ mod tests {
 
     #[test]
     fn priority_classes_apply_to_the_calling_thread_only() {
+        #[cfg(target_os = "macos")]
+        let caller_qos = crate::sys::macos::current_qos();
         let worker = std::thread::spawn(|| {
             let utility = set_current_thread_class(ThreadClass::Utility);
+            #[cfg(target_os = "macos")]
+            assert_eq!(crate::sys::macos::current_qos(), crate::sys::macos::QOS_CLASS_UTILITY);
             #[cfg(target_os = "linux")]
             let after_utility = nice_and_policy();
             let background = set_current_thread_class(ThreadClass::Background);
+            #[cfg(target_os = "macos")]
+            assert_eq!(crate::sys::macos::current_qos(), crate::sys::macos::QOS_CLASS_BACKGROUND);
             #[cfg(target_os = "linux")]
             {
                 assert!(utility && background);
@@ -155,9 +169,13 @@ mod tests {
             // Asking for Interactive afterwards may be refused (Linux needs privileges to lower
             // nice); it must not panic either way.
             let _ = set_current_thread_class(ThreadClass::Interactive);
+            #[cfg(target_os = "macos")]
+            assert_eq!(crate::sys::macos::current_qos(), crate::sys::macos::QOS_CLASS_DEFAULT);
             (utility, background)
         });
         let (utility, background) = worker.join().unwrap();
+        #[cfg(target_os = "macos")]
+        assert_eq!(crate::sys::macos::current_qos(), caller_qos, "worker priority must not change the caller");
         if cfg!(any(target_os = "linux", target_os = "macos", target_os = "windows")) {
             assert!(utility && background);
         }
@@ -169,6 +187,16 @@ mod tests {
     fn background_pool_workers_run_at_background_priority() {
         let pool = background_pool().expect("background pool");
         assert_eq!(pool.current_num_threads(), crate::profile().threads);
+        #[cfg(target_os = "macos")]
+        {
+            let classes = pool.broadcast(|_| crate::sys::macos::current_qos());
+            assert!(classes.iter().all(|&qos| qos == crate::sys::macos::QOS_CLASS_UTILITY), "{classes:?}");
+            let classes = rayon::broadcast(|_| crate::sys::macos::current_qos());
+            assert!(
+                classes.iter().all(|&qos| qos != crate::sys::macos::QOS_CLASS_BACKGROUND),
+                "global workers inherited background QoS: {classes:?}"
+            );
+        }
         #[cfg(target_os = "linux")]
         {
             let (nice, policy) = in_background_pool(nice_and_policy);

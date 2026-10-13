@@ -28,6 +28,12 @@ validate it using `xcrun stapler staple <package>` and `spctl -a -t install -vv 
 * SAM 3 Object/Describe masks use Candle Metal with the `sam` feature in packaged builds.
   Download/licence acceptance is required before using the actual checkpoint.
 * The small ONNX models use tract's native ARM64 CPU kernels. They do not use the Neural Engine.
+* CPU processing detects both performance and efficiency cores. Auto reserves one core of
+  headroom (15 compute workers on a 16-core M4 Max); Preferences > Performance can override it.
+  tract inference reuses the caller's shared compute/background pool instead of creating a pool
+  per model or tile. The shared background CPU pool uses macOS Utility QoS: lower priority than
+  foreground work, with both core types available. Background QoS can stall Rayon worker startup
+  on macOS 27; dedicated housekeeping/download threads still use Background QoS.
 * Local ComfyUI can use PyTorch MPS. The app never forces CUDA or CPU mode on a Mac; unsupported
   PyTorch operators can fall back to CPU. Large generative models should run on a remote GPU
   server. Model-specific MPS support varies; the package does not claim that every model runs
@@ -75,6 +81,8 @@ Set `MACOS_SIGN_IDENTITY` and `MACOS_INSTALLER_SIGN_IDENTITY` for Developer ID s
 WGPU_BACKEND=metal LOCAL_IMAGE_REQUIRE_GPU=1 cargo test -p photocraft-gpu --test gpu --test vector_geometry
 LC_REQUIRE_GPU=1 cargo test -p lightcraft-gpu --lib ds_finding_native_haze_selection_matches_sorted_quantile -- --ignored --nocapture
 cargo test -p li-ai
+cargo test -p lightcraft-sysmem -- --nocapture
+cargo test -p li-seg --test threading -- --nocapture
 cargo test -p local-image --features heif,sam
 cargo test -p xtask
 ```
