@@ -209,6 +209,8 @@ pub struct LightcraftApp {
     pub hosted_menus: bool,
     pub shared_shortcuts: bool,
     pub open_shared_shortcuts: bool,
+    /// Open the host's shared AI resource preferences from Library or Develop.
+    pub open_shared_ai: bool,
     pub host_modal: bool,
     /// Runtime mirror of the host's single persisted shortcut authority.
     pub shortcut_overrides: std::collections::BTreeMap<String, String>,
@@ -327,6 +329,7 @@ impl LightcraftApp {
             hosted_menus: false,
             shared_shortcuts: false,
             open_shared_shortcuts: false,
+            open_shared_ai: false,
             host_modal: false,
             shortcut_overrides: Default::default(),
             native_shortcuts: Default::default(),

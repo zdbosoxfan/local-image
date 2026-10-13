@@ -792,6 +792,31 @@ mod tests {
         // English until the next translation pass (GPU start-up recovery, October 2026).
         // English until translations resume (owner, 2026-10-09: language work paused).
         const KEEP_AS_IS: &[&str] = &[
+            // Approved AI Preferences controls remain English during the owner's translation pause.
+            "Cancel {function} download",
+            "Cancel LAN search",
+            "Custom model selected",
+            "Download the tools you need. Models and technical options are under Manage.",
+            "Generative enhancement settings",
+            "Installed only",
+            "Manage",
+            "Manage {function}",
+            "Managed model storage: {size}",
+            "Manage…",
+            "Needs setup",
+            "No models match. Connect to your server or show all models.",
+            "Non-commercial licence",
+            "On-device tools work without a ComfyUI server.",
+            "Repair",
+            "Search model families…",
+            "Server offline",
+            "Server selected. Click Connect or Apply to use it.",
+            "Storage and GPU requirements",
+            "Storage and cleanup",
+            "This computer · CPU",
+            "This computer · GPU with CPU fallback",
+            "ready",
+            "{action} {function}",
             "CPU",
             "GPU",
             "Denoise",
@@ -811,7 +836,8 @@ mod tests {
             "Install on server",
             "Install generative models on the remote ComfyUI server, then check the connection again.",
             "Models and generation run on the server; images and results transfer automatically. Use its LAN or Tailscale address, or 127.0.0.1 with an SSH tunnel.",
-            "Start ComfyUI and install generative models on the server. Local AI models below still run on this Mac.",
+            "Start ComfyUI and install generative models on the server. On-device tools still run on this computer.",
+            "Other installed models",
         ];
         // docs/wip/CODEX-TASK.md explicitly defers translation of the new background
         // controls. Keep this exception scoped to their keys; remove it when translated.

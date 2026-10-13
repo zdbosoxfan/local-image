@@ -18,7 +18,9 @@ pub(super) fn row(ui: &mut egui::Ui, settings: &mut AiSettings) {
         }
         if running {
             ui.spinner();
-            if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
+            let cancel = widgets::secondary_button(ui, tl!("Cancel"), 0.0);
+            cancel.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Cancel LAN search")));
+            if cancel.clicked() {
                 dialogs_mut(|d| {
                     if let Some(scan) = &d.lan {
                         scan.cancel();
@@ -43,7 +45,10 @@ pub(super) fn row(ui: &mut egui::Ui, settings: &mut AiSettings) {
             let label = format!("{}:{} · {}", server.address, server.port, server.device.chars().take(80).collect::<String>());
             if widgets::secondary_button(ui, &label, 0.0).on_hover_text(tl!("Use this ComfyUI server")).clicked() {
                 choose(settings, server);
-                dialogs_mut(|d| d.lan = None);
+                dialogs_mut(|d| {
+                    d.lan = None;
+                    d.message = tl!("Server selected. Click Connect or Apply to use it.").into();
+                });
             }
         }
         if let Some(error) = &snapshot.error {

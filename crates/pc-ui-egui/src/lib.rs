@@ -1533,8 +1533,6 @@ impl eframe::App for PhotocraftApp {
             brush_panel::window(self, &ctx);
             preset_panels::windows(self, &ctx);
         }
-        // local-image: Local AI window and the AI prompt dialogs.
-        ai_ui::windows(self, &ctx);
         ai_remove_ui::show(self, &ctx);
         restoration_ui::show(self, &ctx);
         context_bar::show(self, &ctx);
@@ -1544,6 +1542,8 @@ impl eframe::App for PhotocraftApp {
         workspace_ui::windows(self, &ctx);
         palette::show(self, &ctx);
         dialogs::show(self, &ctx);
+        // AI resource browsers/confirmations are children of Preferences and Restore.
+        ai_ui::windows(self, &ctx);
         jobs_ui::dialog(self, &ctx);
         discard_ui::show(self, &ctx);
         tiff_options_ui::show(self, &ctx);

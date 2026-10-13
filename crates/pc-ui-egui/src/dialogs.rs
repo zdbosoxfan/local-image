@@ -95,7 +95,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let modal = egui::Modal::new(id).area(area).backdrop_color(egui::Color32::TRANSPARENT).show(ctx, |ui| {
             sizing = ui.is_sizing_pass();
             ui.set_min_width(380.0);
-            let wide = crate::prefs_ui::width(&d.fields);
+            let wide = crate::prefs_ui::width(&d.fields)
+                .map(|width| if crate::prefs_ui::is_preferences(&d.fields) { width.min((ctx.content_rect().width() - 48.0).max(460.0)) } else { width });
             if let Some(w) = wide {
                 ui.set_min_width(w.min(460.0));
             }
