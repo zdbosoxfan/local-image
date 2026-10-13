@@ -3922,7 +3922,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Undeveloped sensor data and the shared strip/tile reader.",
           "upstream": "crates/raw/src/sensor.rs",
           "commit": "308ef6329471259e096e1ede1a92ab91f0f8d6e1",
           "ours": "crates/pc-raw/src/sensor.rs",
@@ -3937,7 +3936,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Truncated and corrupted raw files must fail cleanly, never panic, and never allocate beyond the limits.",
           "upstream": "crates/raw/tests/hostile.rs",
           "commit": "308ef6329471259e096e1ede1a92ab91f0f8d6e1",
           "ours": "crates/pc-raw/tests/it/hostile.rs",
@@ -4327,7 +4325,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Canon CR2.",
           "upstream": "crates/raw/src/cr2.rs",
           "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
           "ours": "crates/pc-raw/src/cr2.rs",
@@ -4342,7 +4339,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Digital Negative (Adobe DNG Specification 1.7): raw IFD selection, CFA description, linearization, black/white levels, active area, default crop, colour calibration and white balance.",
           "upstream": "crates/raw/src/dng.rs",
           "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
           "ours": "crates/pc-raw/src/dng.rs",
@@ -4357,7 +4353,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Olympus ORF with uncompressed sensor data (older Four Thirds bodies such as the E-1 and E-400).",
           "upstream": "crates/raw/src/orf.rs",
           "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
           "ours": "crates/pc-raw/src/orf.rs",
@@ -4372,7 +4367,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Panasonic / Leica RW2 with the bit-packed sensor layout (PanasonicRaw RawFormat 5, written by recent Lumix bodies).",
           "upstream": "crates/raw/src/rw2.rs",
           "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
           "ours": "crates/pc-raw/src/rw2.rs",
@@ -4387,7 +4381,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "A small, bounds-checked TIFF 6.0 / TIFF-EP structure reader.",
           "upstream": "crates/raw/src/tiff.rs",
           "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
           "ours": "crates/pc-raw/src/tiff.rs",
@@ -4402,7 +4395,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "TIFF/EP-structured raws (NEF, ARW, PEF and others) whose sensor data is stored uncompressed or as lossless JPEG in a standard CFA IFD (TIFF/EP, ISO 12234-2: PhotometricInterpretation 32803, CFARepeatPatternDim and CFAPattern), plus Sony's compressed ARW (see [crate::sony]).",
           "upstream": "crates/raw/src/tiffep.rs",
           "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
           "ours": "crates/pc-raw/src/tiffep.rs",
@@ -4417,7 +4409,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Synthetic DNG files: every storage layout decodes to the exact sensor samples, and development reproduces known colours.",
           "upstream": "crates/raw/tests/dng.rs",
           "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
           "ours": "crates/pc-raw/tests/it/dng.rs",
@@ -4432,7 +4423,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Olympus ORF with uncompressed sensor data (older Four Thirds bodies such as the E-1 and E-400).",
           "upstream": "crates/raw/src/orf.rs",
           "commit": "9d9e512d40a25a29dc51eebec4396e80220019a1",
           "ours": "crates/pc-raw/src/orf.rs",
@@ -4447,7 +4437,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Vendor raw codecs, round-tripped through the in-test synthetic encoders: Sony compressed ARW (cRAW), Panasonic RW2 (RawFormat 5) and uncompressed Olympus ORF (with its maker-note preview).",
           "upstream": "crates/raw/tests/vendor_codecs.rs",
           "commit": "9d9e512d40a25a29dc51eebec4396e80220019a1",
           "ours": "crates/pc-raw/tests/it/vendor_codecs.rs",
@@ -4462,7 +4451,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Digital Negative (Adobe DNG Specification 1.7): raw IFD selection, CFA description, linearization, black/white levels, active area, default crop, colour calibration and white balance.",
           "upstream": "crates/raw/src/dng.rs",
           "commit": "0bb46df63859714cf1c0ea90fd6f2e990da63d2a",
           "ours": "crates/pc-raw/src/dng.rs",
@@ -4477,7 +4465,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Synthetic raw-file generators for tests and fuzz seeds: a lossless-JPEG (T.81 process 14) encoder, a small TIFF writer, and DNG / CR2 / TIFF-EP builders.",
           "upstream": "crates/raw/src/testgen.rs",
           "commit": "0bb46df63859714cf1c0ea90fd6f2e990da63d2a",
           "ours": "crates/pc-raw/src/testgen.rs",
@@ -4492,7 +4479,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Synthetic DNG files: every storage layout decodes to the exact sensor samples, and development reproduces known colours.",
           "upstream": "crates/raw/tests/dng.rs",
           "commit": "0bb46df63859714cf1c0ea90fd6f2e990da63d2a",
           "ours": "crates/pc-raw/tests/it/dng.rs",
@@ -4507,7 +4493,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "photocraft-raw: a clean-room, pure-Rust camera raw decoder and developer.",
           "upstream": "crates/raw/src/lib.rs",
           "commit": "88f84aab59b2bf4b2acd959129600bedddbb1a77",
           "ours": "crates/pc-raw/src/lib.rs",
@@ -4522,7 +4507,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Sensors that clip below the stated white level.",
           "upstream": "crates/raw/src/saturation.rs",
           "commit": "88f84aab59b2bf4b2acd959129600bedddbb1a77",
           "ours": "crates/pc-raw/src/saturation.rs",
@@ -4537,7 +4521,6 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Synthetic DNG files: every storage layout decodes to the exact sensor samples, and development reproduces known colours.",
           "upstream": "crates/raw/tests/dng.rs",
           "commit": "88f84aab59b2bf4b2acd959129600bedddbb1a77",
           "ours": "crates/pc-raw/tests/it/dng.rs",
@@ -9596,13 +9579,6 @@
         },
         {
           "name": "jpeg-encoder",
-          "version": "0.6.1",
-          "used_for": "JPEG encoder",
-          "licence": "(MIT OR Apache-2.0) AND IJG",
-          "url": "https://github.com/vstroebel/jpeg-encoder"
-        },
-        {
-          "name": "jpeg-encoder",
           "version": "0.7.1",
           "used_for": "JPEG encoder",
           "licence": "(MIT OR Apache-2.0) AND IJG",
@@ -9954,13 +9930,6 @@
         {
           "name": "moxcms",
           "version": "0.8.1",
-          "used_for": "Simple Color Management in Rust",
-          "licence": "BSD-3-Clause OR Apache-2.0",
-          "url": "https://github.com/awxkee/moxcms.git"
-        },
-        {
-          "name": "moxcms",
-          "version": "0.9.1",
           "used_for": "Simple Color Management in Rust",
           "licence": "BSD-3-Clause OR Apache-2.0",
           "url": "https://github.com/awxkee/moxcms.git"
