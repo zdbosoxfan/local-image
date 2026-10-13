@@ -696,7 +696,11 @@ fn draft_refine_shared_aspect_presets_lock_and_model_grid() {
     assert_ne!((s.width, s.height), before);
     assert_eq!((s.width % grid, s.height % grid), (0, 0));
     assert!((s.width as f32 / s.height as f32 - 16.0 / 9.0).abs() < 0.03);
-    h.get_by_label("Link width and height").click();
+    // The Properties panel behind the window has its own link button: use the one beside Width.
+    h.query_all_by_label("Link width and height")
+        .min_by(|a, b| a.rect().center().distance(width.center()).total_cmp(&b.rect().center().distance(width.center())))
+        .unwrap()
+        .click();
     h.run_steps(2);
     let height_before = h.state().ui.ai.draft_refine.refinement.height;
     drag(&mut h, width.center(), vec2(60.0, 0.0));

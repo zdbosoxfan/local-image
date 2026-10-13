@@ -1,0 +1,84 @@
+diff --git a/crates/pc-io/tests/vector_fallback/app_gpu.rs b/crates/pc-io/tests/vector_fallback/app_gpu.rs
+index 23114ba6..0034c25a 100644
+--- a/crates/pc-io/tests/vector_fallback/app_gpu.rs
++++ b/crates/pc-io/tests/vector_fallback/app_gpu.rs
+@@ -175,15 +175,25 @@ pub fn verify_projected_fixture(doc: Document, expected_losses: &[&str], project
+     h.run_steps(3);
+     assert_eq!(written.lock().unwrap().len(), 1);
+     assert_eq!(h.state().ui.notices.len(), 1);
+-    assert_eq!(h.state().ui.notices[0].lines.len(), 1);
+-    let warning = h.state().ui.notices[0].lines[0].clone();
++    // Save results (f0558183) list the path, the encoder warnings and the completion line; the
++    // compact row shows the title and warning count, the lines appear under Details / History.
++    let notice = h.state().ui.notices[0].clone();
++    assert_eq!(notice.warning_count, 1, "{:?}", notice.lines);
++    assert_eq!(notice.lines.len(), 3, "{:?}", notice.lines);
++    assert_eq!((notice.lines[0].as_str(), notice.lines[2].as_str()), ("fixture.psd", "Saved fixture.psd"));
++    let warning = notice.lines[1].clone();
+     for &feature in expected_losses {
+         assert_eq!(warning.matches(feature).count(), 1);
+     }
+-    let _ = h.get_by_label(&format!("• {warning}"));
+-    h.get_by_label("×").click();
++    h.get_by_label("Details / History").click();
++    h.run_steps(2);
++    let _ = h.get_by_label(&warning);
++    h.get_by_label("Dismiss notice").click();
+     h.run_steps(2);
+     assert!(h.state().ui.notices.is_empty());
++    h.get_by_label("Close window").click();
++    h.run_steps(2);
++    assert!(!h.state().ui.notice_history_open);
+     let bytes = written.lock().unwrap()[0].clone();
+     let back = import("fixture.psd", &bytes).unwrap().document;
+     let (a, b) = (photocraft_compose::flatten(&displayed), photocraft_compose::flatten(&back));
+@@ -239,7 +249,12 @@ pub fn verify_projected_fixture(doc: Document, expected_losses: &[&str], project
+     h.get_by_label_contains("Save As…").click();
+     h.run_steps(3);
+     assert_eq!(written.lock().unwrap().len(), 2);
+-    assert!(h.state().ui.notices.is_empty(), "losses are reported once when editability is first lost");
++    // The save shows its ordinary result card, without the loss warning again.
++    let notices = &h.state().ui.notices;
++    assert!(
++        notices.iter().all(|n| n.warning_count == 0 && !n.lines.iter().any(|line| line.contains("editability lost"))),
++        "losses are reported once when editability is first lost: {notices:?}"
++    );
+     let moved_back = import("moved.psd", &written.lock().unwrap()[1]).unwrap().document;
+     let moved_back = photocraft_compose::flatten(&moved_back);
+     let diff = released
+diff --git a/crates/pc-pdf/tests/export/app_gpu.rs b/crates/pc-pdf/tests/export/app_gpu.rs
+index c63a69aa..1d56347d 100644
+--- a/crates/pc-pdf/tests/export/app_gpu.rs
++++ b/crates/pc-pdf/tests/export/app_gpu.rs
+@@ -150,11 +150,18 @@ fn pdf_export_app_real_gpu_preview_release_and_menu_dialog() {
+         record.lock().unwrap().push(bytes.to_vec());
+         Ok(())
+     }));
++    // Export As is enabled where the app has its raster exporter; PDF itself goes through pick_save/write.
++    h.state_mut().services.export = Some(Box::new(|_, _, _| Err("raster export is not used by this PDF test".into())));
+     h.get_by_label("File").click();
+     h.run_steps(2);
+     h.get_by_label("Export ⏵").hover();
+     h.run_steps(3);
+-    h.get_by_label("PDF…").click();
++    // The visible PDF… item became a format of the unified Export As dialog (3b4604a1).
++    h.get_by_label_contains("Export As…").click();
++    h.run_steps(3);
++    h.get(egui_kittest::kittest::By::new().role(egui::accesskit::Role::ComboBox).value("PNG")).click();
++    h.run_steps(2);
++    h.get_by_label("PDF").click();
+     h.run_steps(3);
+     h.get_by_label("Text as curves").click();
+     h.run_steps(2);
+@@ -186,7 +193,10 @@ fn pdf_export_app_real_gpu_preview_release_and_menu_dialog() {
+     assert!(!h.state().ui.notices.is_empty());
+     assert!(h.state().ui.notices.iter().any(|n| n.lines.iter().any(|line| line.contains("embedded"))));
+     let warning = h.state().ui.notices.iter().flat_map(|n| &n.lines).find(|line| line.contains("embedded")).unwrap().clone();
+-    let _ = h.get_by_label(&format!("• {warning}"));
++    // Notice lines are shown under Details / History since the compact notice row (f0558183).
++    h.get_by_label("Details / History").click();
++    h.run_steps(2);
++    let _ = h.get_by_label(&warning);
+ 
+     #[cfg(feature = "pdf-import-integrated")]
+     roundtrip(&mut h, &gpu, &original, &bytes);

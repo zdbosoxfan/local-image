@@ -265,10 +265,9 @@ fn options_bar_edits_are_one_set_brush_per_gesture() {
     let (id, p) = j.last().unwrap();
     assert_eq!(id, "tools.setBrush");
     assert_eq!(p["brush"]["opacity"].as_f64().map(|v| v as f32), Some(opacity));
-    // A click is its own gesture: the Pressure for Size switch sits left of its label.
-    let label = h.get_by_label("Pressure for Size").rect();
+    // A click is its own gesture: Photoshop's "Always use pressure for size" icon toggle.
     let was = h.state().session.tools.brush.pressure_size;
-    let at = egui::pos2(label.left() - 18.0, label.center().y);
+    let at = h.get_by_label("Always use pressure for size").rect().center();
     h.hover_at(at);
     h.run();
     h.drag_at(at);
@@ -452,6 +451,8 @@ fn app_harness() -> Harness<'static, PhotocraftApp> {
 fn app_harness_with_language(lang: crate::i18n::Lang) -> Harness<'static, PhotocraftApp> {
     let mut app = app();
     app.ui.tool = crate::state::Tool::Brush;
+    // As in the app, the canvas (which places the Brush Settings window) sits below the options bar.
+    app.last_canvas_rect = egui::Rect::from_min_size(egui::pos2(0.0, 60.0), vec2(1400.0, 840.0));
     let mut h = Harness::builder().with_size(vec2(1400.0, 900.0)).build_ui_state(
         move |ui, app: &mut PhotocraftApp| {
             let ctx = ui.ctx().clone();

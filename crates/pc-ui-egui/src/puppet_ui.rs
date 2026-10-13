@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use egui::{Color32, Stroke, TextureHandle, pos2, vec2};
-use photocraft_algo::puppet::{ITERATIONS, PuppetDensity, PuppetMesh, PuppetMode, PuppetPin, PuppetSolver, PuppetWarp, build_mesh};
+use photocraft_algo::puppet::{ITERATIONS, MAX_WARP_PIXELS, PuppetDensity, PuppetMesh, PuppetMode, PuppetPin, PuppetSolver, PuppetWarp, build_mesh};
 use photocraft_doc::{Document, LayerId};
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
@@ -56,6 +56,50 @@ impl PuppetSession {
     fn rebuild_mesh(&mut self) {
         self.mesh = build_mesh(&self.surface, self.bounds, self.warp.density, self.warp.expansion);
         self.rebind();
+    }
+
+    /// Remeshes for a new density or expansion. One that leaves no triangles is refused, as `begin`
+    /// refuses a layer without opaque pixels: the previous `density` and `expansion` and their mesh
+    /// come back (upstream PhotoCraft 64db46f5, #951).
+    fn remesh_or_restore(&mut self, density: PuppetDensity, expansion: f64) -> Result<(), String> {
+        self.rebuild_mesh();
+        if self.mesh.tris.is_empty() {
+            self.warp.density = density;
+            self.warp.expansion = expansion;
+            self.rebuild_mesh();
+            return Err(tl!("Could not use Puppet Warp: no opaque pixels at this density and expansion").into());
+        }
+        Ok(())
+    }
+
+    /// Whether the deformed mesh stays within what `edit.puppetWarp` will render: a finite box of
+    /// at most [`MAX_WARP_PIXELS`] (the engine refuses anything larger, upstream 3f7d8afc).
+    fn within_render_budget(&self) -> bool {
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for p in &self.deformed {
+            (x0, y0, x1, y1) = (x0.min(p[0]), y0.min(p[1]), x1.max(p[0]), y1.max(p[1]));
+        }
+        let area = (x1 - x0 + 1.0) * (y1 - y0 + 1.0);
+        self.deformed.is_empty() || (area.is_finite() && area <= MAX_WARP_PIXELS)
+    }
+
+    /// Moves pin `i` to `dst` and re-solves (`exact` as in [`Self::solve`]). A position that
+    /// would stretch the result past [`MAX_WARP_PIXELS`] is refused: the pin and the live preview
+    /// stay where they were, so the preview never shows a warp Commit can't render.
+    fn move_pin(&mut self, i: usize, dst: [f64; 2], exact: bool) -> bool {
+        let Some(previous) = self.warp.pins.get(i).map(|p| p.dst) else { return false };
+        let (deformed, order) = (self.deformed.clone(), self.order.clone());
+        self.warp.pins[i].dst = dst;
+        self.solve(exact);
+        if self.within_render_budget() {
+            return true;
+        }
+        self.warp.pins[i].dst = previous;
+        (self.deformed, self.order) = (deformed, order);
+        if exact {
+            self.solve(true);
+        }
+        false
     }
 
     /// New solver for the current pin set (pins added/removed, rotation fixed or freed).
@@ -179,6 +223,7 @@ pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
     }
     let s = app.distort.puppet.as_mut().ok_or(tl!("Puppet Warp is not active"))?;
     let mut remesh = false;
+    let (density, expansion) = (s.warp.density, s.warp.expansion);
     if let Some(m) = ui.get("mode").and_then(Value::as_str) {
         s.warp.mode = PuppetMode::parse(m).ok_or("mode: rigid|normal|distort")?;
     }
@@ -194,7 +239,7 @@ pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
         s.show_mesh = v;
     }
     if remesh {
-        s.rebuild_mesh();
+        s.remesh_or_restore(density, expansion)?;
     } else {
         s.solve(true);
     }
@@ -227,19 +272,14 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
         }
         ToolEvent::Move { x, y, .. } => {
             if let Some(i) = s.drag
-                && let Some(pin) = s.warp.pins.get_mut(i)
-                && pin.dst != [x, y]
+                && s.warp.pins.get(i).is_some_and(|pin| pin.dst != [x, y])
             {
-                pin.dst = [x, y];
-                s.solve(false);
+                s.move_pin(i, [x, y], false);
             }
         }
         ToolEvent::Up { x, y } => {
             if let Some(i) = s.drag.take() {
-                if let Some(pin) = s.warp.pins.get_mut(i) {
-                    pin.dst = [x, y];
-                }
-                s.solve(true);
+                s.move_pin(i, [x, y], true);
             }
         }
     }
@@ -314,6 +354,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     );
     remesh |= density != s.warp.density;
     ui.label(tl!("Expansion:"));
+    let expansion = s.warp.expansion;
     let mut e = s.warp.expansion as f32;
     if crate::widgets::value_field(ui, &mut e, -50.0..=100.0, "px", 56.0).changed() {
         s.warp.expansion = f64::from(e);
@@ -354,7 +395,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         rebind = true;
     }
     if remesh {
-        s.rebuild_mesh();
+        // A refused value snaps the fields back to the previous settings.
+        let _ = s.remesh_or_restore(density, expansion);
     } else if rebind {
         s.rebind();
     } else if resolve {
@@ -417,5 +459,70 @@ mod tests {
         let st = app.session.active().unwrap();
         let b = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().content_bounds();
         assert!(b.y0 < 25, "the right end went up: {b:?}");
+    }
+
+    fn bar_session(ctx: &egui::Context) -> PhotocraftApp {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.session.execute("file.new", json!({"width": 100, "height": 80, "depth": 8})).unwrap();
+        app.session.execute("layer.new.layer", json!({})).unwrap();
+        app.session
+            .edit("paint", |doc, active| {
+                doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap().fill_rect(Rect::new(20, 30, 80, 50), &[1.0, 0.0, 0.0, 1.0]);
+                Ok(())
+            })
+            .unwrap();
+        app.sync_views();
+        crate::distort_ui::menu(&mut app, ctx, "edit.puppetWarp", &json!({})).unwrap().unwrap();
+        app
+    }
+
+    #[test]
+    fn an_expansion_that_empties_the_mesh_is_refused() {
+        // Upstream PhotoCraft 64db46f5 (#951): remeshing to no vertices rebound the pins to a vertex
+        // that doesn't exist and panicked. -50 is the options bar's minimum and also empties this
+        // 20 px tall bar.
+        let ctx = egui::Context::default();
+        let mut app = bar_session(&ctx);
+        crate::distort_ui::pointer(&mut app, ToolEvent::Down { x: 50.0, y: 40.0, pressure: 1.0 }, egui::Modifiers::NONE);
+        crate::distort_ui::pointer(&mut app, ToolEvent::Up { x: 50.0, y: 40.0 }, egui::Modifiers::NONE);
+        let before = app.distort.puppet.as_ref().unwrap().describe();
+        for e in [-200, -50] {
+            assert!(control(&mut app, &json!({"expansion": e})).is_err(), "{e}");
+            assert_eq!(app.distort.puppet.as_ref().unwrap().describe(), before, "{e}: the previous settings and mesh stay");
+        }
+        // A smaller shrink still remeshes.
+        let v = control(&mut app, &json!({"expansion": -2})).unwrap();
+        assert_eq!(v["expansion"], -2.0);
+        assert!(v["triangles"].as_u64().unwrap() > 0);
+    }
+
+    #[test]
+    fn a_pin_dragged_past_the_render_budget_keeps_the_last_good_preview() {
+        // Upstream 3f7d8afc: edit.puppetWarp refuses a result wider than MAX_WARP_PIXELS. The live
+        // preview must not show (or commit) such a warp: the pin stays at its last good position.
+        let ctx = egui::Context::default();
+        let mut app = bar_session(&ctx);
+        let ev = |app: &mut PhotocraftApp, e| crate::distort_ui::pointer(app, e, egui::Modifiers::NONE);
+        ev(&mut app, ToolEvent::Down { x: 25.0, y: 40.0, pressure: 1.0 });
+        ev(&mut app, ToolEvent::Up { x: 25.0, y: 40.0 });
+        ev(&mut app, ToolEvent::Down { x: 75.0, y: 40.0, pressure: 1.0 });
+        ev(&mut app, ToolEvent::Move { x: 90.0, y: 40.0, pressure: 1.0 });
+        let good = app.distort.puppet.as_ref().unwrap().deformed.clone();
+        let far = f64::from(1u32 << 20);
+        ev(&mut app, ToolEvent::Move { x: far, y: far, pressure: 1.0 });
+        let s = app.distort.puppet.as_ref().unwrap();
+        assert_eq!(s.warp.pins[1].dst, [90.0, 40.0], "the far move is refused");
+        assert_eq!(s.deformed, good, "the preview keeps the last good mesh");
+        ev(&mut app, ToolEvent::Up { x: far, y: far });
+        let s = app.distort.puppet.as_ref().unwrap();
+        assert_eq!(s.warp.pins[1].dst, [90.0, 40.0]);
+        assert!(s.within_render_budget());
+        // A reachable drag still works, and Commit renders it.
+        ev(&mut app, ToolEvent::Down { x: 90.0, y: 40.0, pressure: 1.0 });
+        ev(&mut app, ToolEvent::Up { x: 85.0, y: 25.0 });
+        assert_eq!(app.distort.puppet.as_ref().unwrap().warp.pins[1].dst, [85.0, 25.0]);
+        let revision = app.session.active().unwrap().revision;
+        commit(&mut app);
+        assert!(app.session.active().unwrap().revision > revision, "the warp committed");
     }
 }

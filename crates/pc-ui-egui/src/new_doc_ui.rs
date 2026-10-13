@@ -750,7 +750,12 @@ mod remembered_tests {
         assert_eq!(h.state_mut().ui.dialog_mut(id).unwrap().fields["width"], 24);
         let saved = h.state().session.prefs().dialogs[REMEMBERED].clone();
         assert_eq!(saved["recent"].as_array().unwrap().len(), 2);
-        h.get_by_label("Close").click();
+        // The dialog's own Close (beside Create), not the window title bar's Close.
+        let create = h.get_by_label("Create").rect();
+        h.query_all_by_label("Close")
+            .min_by(|a, b| a.rect().center().distance(create.center()).total_cmp(&b.rect().center().distance(create.center())))
+            .unwrap()
+            .click();
         h.run_steps(3);
         assert_eq!(h.state().session.documents().len(), 2);
         assert_eq!(h.state().session.prefs().dialogs[REMEMBERED], saved);

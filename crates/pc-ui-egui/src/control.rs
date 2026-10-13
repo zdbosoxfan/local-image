@@ -773,6 +773,8 @@ mod tests {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let ctx = egui::Context::default();
         app.set_theme(&ctx, ThemeKind::StudioLight);
+        // Start away from Move (the default tool since 0857b9b7) so `"tool": "move"` would show.
+        app.ui.tool = Tool::Brush;
         // `dark` was advertised to MCP clients but never read; a typo looked like success too.
         for params in [json!({"dark": true}), json!({"thme": "classic"}), json!({"tool": "move", "dark": true})] {
             let r = call(&mut app, &ctx, "ui.set", params.clone());

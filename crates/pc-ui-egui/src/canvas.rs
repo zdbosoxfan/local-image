@@ -2379,7 +2379,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 {
                     egui::CursorIcon::Crosshair
                 }
-                Tool::Move => egui::CursorIcon::Move,
+                // Photoshop's Move tool uses the normal arrow; only Hand / Space-pan show a hand
+                // (several Linux cursor themes draw `CursorIcon::Move` as a large hand).
+                Tool::Move => egui::CursorIcon::Default,
                 Tool::Hand => {
                     if response.dragged() {
                         egui::CursorIcon::Grabbing
@@ -2411,7 +2413,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             crate::stroke_constraint::draw_line_preview(app, &painter, &xf, p, tool, held.shift);
         }
         if crate::move_input::captured(&ctx) && app.drag.as_ref().is_some_and(|d| d.tool == Tool::Move) {
-            ctx.set_cursor_icon(egui::CursorIcon::Move);
+            ctx.set_cursor_icon(egui::CursorIcon::Default);
         }
     }
     // Scrollbars (scrollbars.rs): drawn over the canvas edges, they take the pointer there.

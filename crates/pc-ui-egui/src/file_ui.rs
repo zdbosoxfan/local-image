@@ -763,6 +763,34 @@ mod tests {
     }
 
     #[test]
+    fn save_for_web_dialog_escapes_slice_html_cells_and_never_remembers_trust() {
+        // Engine (upstream 61b6276c): "Text is HTML" slice cells are escaped unless a caller passes
+        // `trustedSliceHtml: true`. The dialog offers no such option; it must keep working and keep
+        // the escaped output, even after a scripted export that did pass the flag.
+        let (mut app, ctx) = app();
+        app.run(
+            "slice.new",
+            json!({"rect": [0, 0, 24, 20], "kind": "noImage", "name": "text", "cellTextIsHtml": true,
+            "cellText": "<script>alert(1)</script><b>Label</b>"}),
+        )
+        .unwrap();
+        let base = std::env::temp_dir().join(format!("pc-webui-html-{}", std::process::id()));
+        let scripted = base.join("scripted").to_string_lossy().into_owned();
+        app.run("file.export.saveForWebLegacy", json!({"format": "png24", "dir": scripted, "html": true, "trustedSliceHtml": true})).unwrap();
+        let r = crate::menus::invoke(&mut app, &ctx, "file.export.saveForWebLegacy", json!({})).unwrap();
+        let id = r["dialog"].as_u64().unwrap();
+        let d = app.ui.dialog_mut(id).unwrap();
+        assert!(!d.fields.contains_key("trustedSliceHtml"), "the dialog never starts trusted");
+        let dir = base.join("dialog").to_string_lossy().into_owned();
+        d.fields.insert("dir".into(), json!(dir));
+        let r = crate::dialogs::confirm(&mut app, id).unwrap();
+        let page = std::fs::read_to_string(r["html"].as_str().unwrap()).unwrap();
+        assert!(page.contains("&lt;script&gt;alert(1)&lt;/script&gt;&lt;b&gt;Label&lt;/b&gt;"), "{page}");
+        assert!(!page.contains("<script>"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn print_dialog_and_toggles() {
         let (mut app, ctx) = app();
         let r = crate::menus::invoke(&mut app, &ctx, "file.print", json!({})).unwrap();

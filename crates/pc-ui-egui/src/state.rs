@@ -499,9 +499,9 @@ impl Tool {
             Tool::Hand => 'H',
             Tool::RotateView => 'R',
             Tool::Zoom => 'Z',
-            Tool::SpotHealing | Tool::Healing | Tool::Patch | Tool::ContentAwareMove | Tool::RedEye => 'J',
-            // Rotate View owns the fresh Pixel R default; saved Remove bindings still win.
-            Tool::AiRemove => '\0',
+            // Photoshop: Remove sits in the J healing group and R is Rotate View. A saved
+            // `tools.select.AiRemove` binding still selects AI Remove directly.
+            Tool::SpotHealing | Tool::Healing | Tool::Patch | Tool::ContentAwareMove | Tool::RedEye | Tool::AiRemove => 'J',
             Tool::AiCutout => 'K',
             Tool::CloneStamp => 'S',
             Tool::HistoryBrush => 'Y',

@@ -287,11 +287,13 @@ fn move_input_escape_and_focus_loss_cancel_and_allow_the_next_drag() {
 fn move_input_native_move_and_temporary_hand_cursors() {
     let (mut h, _, _) = harness();
     let p = screen(&h, 100.0, 120.0);
+    // Photoshop's Move tool keeps the normal arrow while hovering and dragging; only the Hand
+    // (here Space) shows a hand.
     pointer(&mut h, p, Modifiers::NONE);
-    assert_eq!(h.output().platform_output.cursor_icon, CursorIcon::Move);
+    assert_eq!(h.output().platform_output.cursor_icon, CursorIcon::Default);
     button(&mut h, p, true, Modifiers::NONE);
     pointer(&mut h, p + vec2(10.0, 0.0), Modifiers::NONE);
-    assert_eq!(h.output().platform_output.cursor_icon, CursorIcon::Move);
+    assert_eq!(h.output().platform_output.cursor_icon, CursorIcon::Default);
     button(&mut h, p + vec2(10.0, 0.0), false, Modifiers::NONE);
     h.key_down(Key::Space);
     h.step();

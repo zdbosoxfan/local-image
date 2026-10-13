@@ -192,7 +192,10 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     fire.retain(|id| {
         id != "view.showOriginal"
             && !id.starts_with("grid.")
+            // The grid's own row-aware navigation owns the arrows, except in the full-screen
+            // preview, which hides the grid (Lightroom: arrows step photos there too).
             && !(matches!(app.ui.view, crate::state::ViewMode::PhotoGrid | crate::state::ViewMode::SquareGrid)
+                && !app.ui.fullscreen
                 && matches!(id.as_str(), "library.next" | "library.previous"))
     });
     for (id, params) in aliased {

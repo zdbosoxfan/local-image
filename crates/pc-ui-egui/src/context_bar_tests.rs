@@ -695,6 +695,9 @@ fn a_new_shape_reveals_properties() {
 
 #[test]
 fn generation_metadata_saved_layers_regenerate_from_context_bar() {
+    // The service override is process-wide: hold the AI lock (dropped last) so this test can't
+    // repoint or clear another AI test's mock server mid-run, and vice versa.
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     struct Reset;
     impl Drop for Reset {
         fn drop(&mut self) {
