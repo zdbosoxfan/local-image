@@ -8,7 +8,7 @@ struct Photo {
 }
 impl Photo {
     fn new(tag: &str) -> Self {
-        use photocraft_raw::testgen::{DngSpec, mosaic, scene};
+        use lightcraft_raw::testgen::{DngSpec, mosaic, scene};
         let bytes = DngSpec::cfa(64, 40, mosaic(&scene(64, 40), 64, [0, 1, 1, 2], 0, 65535)).build();
         let path = std::env::temp_dir().join(format!("develop-job-{tag}-{}.dng", std::process::id()));
         std::fs::write(&path, &bytes).unwrap();

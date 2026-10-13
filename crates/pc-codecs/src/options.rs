@@ -117,6 +117,15 @@ pub enum ExrCompression {
     Piz,
 }
 
+/// JPEG sampling shared by Library and Compositing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChromaSubsampling {
+    #[default]
+    S444,
+    S422,
+    S420,
+}
+
 /// Options for [`crate::encode`].
 #[derive(Debug, Clone)]
 pub struct EncodeOptions {
@@ -141,6 +150,9 @@ pub struct EncodeOptions {
     pub embed_icc: bool,
     /// Embed EXIF/XMP/DPI/text when the format supports it.
     pub embed_metadata: bool,
+    /// Preserve EXIF/XMP orientation when samples are still in stored camera order.
+    /// Editor exports default to upright metadata; Library's low-level API preserves it.
+    pub keep_orientation: bool,
 }
 
 impl Default for EncodeOptions {
@@ -157,6 +169,7 @@ impl Default for EncodeOptions {
             exr_compression: ExrCompression::Zip16,
             embed_icc: true,
             embed_metadata: true,
+            keep_orientation: false,
         }
     }
 }

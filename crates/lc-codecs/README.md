@@ -56,7 +56,7 @@ or CMYK profile converted by the CMS straight to linear Rec.2020), `Container` (
 EXIF `R03` Adobe RGB hint), `Untagged` (assumed sRGB; untagged float data assumed linear),
 `IccUnsupported` (profile present but unusable → **sRGB fallback**), `Naive` (CMYK without profile).
 
-ICC profiles are parsed with `moxcms` (v2/v4, `curv`/`para` TRCs, `chad`); sRGB, Display P3,
+ICC profiles are parsed with the shared `photocraft-cms` (v2/v4, `curv`/`para` TRCs, `chad`); sRGB, Display P3,
 Adobe RGB (1998), ProPhoto (ROMM) and Rec.2020 are recognised by colorants. `icc::write_matrix_trc`
 emits v4 display profiles (D50 PCS, Bradford `chad`) for export embedding.
 
@@ -73,7 +73,7 @@ All pure Rust, verified with `cargo info` / `cargo tree`:
 | tiff | MIT | TIFF |
 | image-webp | MIT OR Apache-2.0 | WebP |
 | image (gif, bmp only) | MIT OR Apache-2.0 | GIF/BMP |
-| moxcms | BSD-3-Clause OR Apache-2.0 | ICC parse/write, CMS |
+| photocraft-cms | GPL-3.0-or-later (workspace) | shared ICC parse/write, CMS |
 | jxl-oxide | MIT OR Apache-2.0 | JPEG XL decode |
 | ravif (+ rav1e, avif-serialize) | BSD-3-Clause / BSD-2-Clause | AVIF encode (native only; heavy to compile) |
 
@@ -108,3 +108,5 @@ Run `cargo test --release -p lightcraft-codecs --test bench -- --ignored --nocap
 - PSD: only the merged composite (no layers); ZIP-compressed composites unsupported.
 - Panics inside third-party decoders are caught (`catch_unwind`) on unwinding targets; on wasm32
   (`panic = abort`) we rely on the property tests of our own code plus the decoders' own hardening.
+
+Library encoding delegates to `photocraft-codecs`, shared with Compositing. Parallel JPEG/PNG, metadata embedding and native 10-bit AVIF have one implementation. Standard named profiles and the linear Rec.2020 CMS target also come from `photocraft-cms`; the Library public image/settings API stays compatible.

@@ -50,7 +50,7 @@ fn close_all_and_close_others() {
 
 #[test]
 fn camera_raw_opens_as_16_bit_with_notes() {
-    use photocraft_raw::testgen::{DngSpec, mosaic, scene};
+    use lightcraft_raw::testgen::{DngSpec, mosaic, scene};
     let (w, h) = (24, 16);
     let mut spec = DngSpec::cfa(w, h, mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535));
     spec.as_shot_neutral = Some([0.5, 1.0, 0.7]);
@@ -583,4 +583,64 @@ fn batch_reports_inputs_that_share_an_output_name() {
     let kept = photocraft_io::import("a.png", &std::fs::read(join(&out, "a.png")).unwrap()).unwrap().document;
     let px = photocraft_compose::render(&kept, Rect::new(1, 1, 2, 2)).px[0];
     assert!(px[0] > 0.99 && px[1] < 0.01, "the first input's result is kept: {px:?}");
+}
+
+/// The editor's open, canvas-drop/Place and linked-source refresh routes all use pc-io's
+/// shared Library developer. No Library host or catalog is required.
+#[test]
+fn raw_open_place_and_link_refresh_share_the_developer() {
+    use lightcraft_raw::testgen::{mosaic, scene, tiff_ep};
+    let (w, h) = (64, 40);
+    let bytes = tiff_ep("NIKON CORPORATION", w, h, &mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535), [0, 1, 1, 2], 16, vec![]);
+    raw_routes(&bytes, "shared.nef");
+}
+
+fn raw_routes(bytes: &[u8], name: &str) {
+    let t = std::time::Instant::now();
+    let expected = photocraft_io::import(name, bytes).unwrap().document;
+    assert_eq!(expected.depth, photocraft_color::SampleType::U16, "must develop sensor data");
+    eprintln!("raw initial import {}x{}: {:.2} ms", expected.size.width, expected.size.height, t.elapsed().as_secs_f64() * 1000.0);
+    let expected_px = expected.layers[0].surface().unwrap().read_region(expected.bounds());
+    let t = std::time::Instant::now();
+    let mut opened = Session::new();
+    open_bytes_as(&mut opened, name, bytes, None, None).unwrap();
+    eprintln!("raw file open {}x{}: {:.2} ms", expected.size.width, expected.size.height, t.elapsed().as_secs_f64() * 1000.0);
+    assert_eq!(doc(&opened).layers[0].surface().unwrap().read_region(expected.bounds()), expected_px);
+    // Place starts from the same colour-managed document, to avoid conflating CMS conversion
+    // with raw development; no scale or translation is applied.
+    let mut placed = Session::new();
+    placed.add_document(expected.clone(), None);
+    let dir = tmp("shared-raw-routes");
+    let path = join(&dir, name);
+    std::fs::write(&path, bytes).unwrap();
+    for linked in [None, Some(path.clone())] {
+        let t = std::time::Instant::now();
+        let r = place_bytes(&mut placed, name, bytes.to_vec(), linked, &json!({"fit":false})).unwrap();
+        eprintln!("raw Place (canvas-drop backend): {:.2} ms", t.elapsed().as_secs_f64() * 1000.0);
+        let id = LayerId(r["layer"].as_u64().unwrap());
+        let layer = doc(&placed).layer(id).unwrap();
+        let LayerContent::Smart(smart) = &layer.content else { panic!("raw stays a smart object") };
+        assert!(smart.cache.is_some());
+        let cached = smart.cache.as_ref().unwrap().read_region(expected.bounds());
+        let maximum = cached.iter().zip(&expected_px).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
+        assert!(maximum <= 3.0 / 65535.0, "Place differs by {maximum}");
+        let mut fresh = layer.clone();
+        assert!(crate::smart_cmds::refresh_layer(doc(&placed), &mut fresh).unwrap());
+        let LayerContent::Smart(refreshed) = &fresh.content else { panic!("smart source retained") };
+        assert_eq!(refreshed.source, smart.source, "embedded raw bytes / live linked path kept");
+        let reloaded = refreshed.cache.as_ref().unwrap().read_region(expected.bounds());
+        let maximum = cached.iter().zip(reloaded).map(|(a, b)| (a - b).abs()).fold(0.0, f32::max);
+        assert!(maximum <= 3.0 / 65535.0, "refresh differs by {maximum}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Optional CC0 camera-file verification and timings in the actual editor command path.
+#[test]
+#[ignore = "set SHARED_CORE_NEF to a CC0 sample under target/; run explicitly"]
+fn raw_cc0_nef_editor_routes() {
+    let path = std::env::var("SHARED_CORE_NEF").expect("CC0 sample path");
+    let bytes = std::fs::read(path).unwrap();
+    assert_eq!(lightcraft_raw::probe(&bytes), Some(lightcraft_raw::RawFormat::Nef));
+    raw_routes(&bytes, "CC0.nef");
 }

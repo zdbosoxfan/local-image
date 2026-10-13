@@ -2,9 +2,9 @@
 //! (stored landscape, Orientation = 6) opens as an upright portrait document,
 //! and every export writes Orientation = 1 so it is never rotated twice.
 
+use lightcraft_raw::testgen::{TiffBuilder, Val};
 use photocraft_codecs::{ChannelLayout, EncodeOptions, Format, Image, SampleType, decode, exif_orientation};
 use photocraft_io::{ExportOptions, export, import};
-use photocraft_raw::testgen::{TiffBuilder, Val};
 
 /// EXIF block with only an Orientation tag.
 fn exif(o: u16) -> Vec<u8> {
@@ -116,7 +116,7 @@ fn stale_orientation_in_document_metadata_is_never_exported() {
     assert!(String::from_utf8_lossy(&x.data).contains(r#"tiff:Orientation="1""#));
 }
 
-/// A NEF-like raw that `photocraft-raw` can't develop yet, with IFD0 Orientation and a
+/// A NEF-like raw that the shared raw engine can't develop, with IFD0 Orientation and a
 /// baseline JPEG preview stored as the sensor reads out.
 fn nef(ifd0_orientation: u16, preview: Vec<u8>) -> Vec<u8> {
     let mut t = TiffBuilder::default();

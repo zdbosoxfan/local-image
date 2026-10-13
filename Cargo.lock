@@ -3000,7 +3000,7 @@ dependencies = [
  "hayro-cmap",
  "hayro-syntax",
  "kurbo 0.13.1",
- "moxcms 0.8.1",
+ "moxcms",
  "phf",
  "rustc-hash 2.1.3",
  "siphasher",
@@ -3307,12 +3307,10 @@ dependencies = [
  "color_quant",
  "gif",
  "image-webp",
- "moxcms 0.8.1",
+ "moxcms",
  "num-traits",
  "png 0.18.1",
  "qoi",
- "ravif",
- "rgb",
  "tiff",
  "zune-core",
  "zune-jpeg",
@@ -3554,12 +3552,6 @@ checksum = "00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07"
 dependencies = [
  "rayon",
 ]
-
-[[package]]
-name = "jpeg-encoder"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b454d911ac55068f53495488d8ccd0646eaa540c033a28ee15b07838afafb01f"
 
 [[package]]
 name = "jpeg-encoder"
@@ -3992,15 +3984,15 @@ dependencies = [
  "image",
  "image-webp",
  "jpeg-decoder",
- "jpeg-encoder 0.7.1",
+ "jpeg-encoder",
  "jxl-oxide",
  "lightcraft-color",
  "lightcraft-geom",
  "lightcraft-raster",
- "moxcms 0.9.1",
+ "photocraft-cms",
+ "photocraft-codecs",
  "png 0.18.1",
  "proptest",
- "ravif",
  "rayon",
  "serde",
  "thiserror 2.0.21",
@@ -4160,7 +4152,7 @@ dependencies = [
 name = "lightcraft-preview"
 version = "2.0.0-alpha.1"
 dependencies = [
- "jpeg-encoder 0.7.1",
+ "jpeg-encoder",
  "lightcraft-raster",
  "log",
  "siphasher",
@@ -4184,7 +4176,7 @@ dependencies = [
 name = "lightcraft-raw"
 version = "2.0.0-alpha.1"
 dependencies = [
- "jpeg-encoder 0.7.1",
+ "jpeg-encoder",
  "lightcraft-color",
  "lightcraft-geom",
  "lightcraft-meta",
@@ -4538,16 +4530,6 @@ name = "moxcms"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb85c154ba489f01b25c0d36ae69a87e4a1c73a72631fc6c0eb6dde34a73e44b"
-dependencies = [
- "num-traits",
- "pxfm",
-]
-
-[[package]]
-name = "moxcms"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "396077b717181ce3f9a6b66739b269b82d756be5ec0f76be0bc40a7c51775830"
 dependencies = [
  "num-traits",
  "pxfm",
@@ -5518,7 +5500,7 @@ dependencies = [
 name = "photocraft-cms"
 version = "2.0.0-alpha.1"
 dependencies = [
- "moxcms 0.8.1",
+ "moxcms",
  "rayon",
 ]
 
@@ -5531,10 +5513,12 @@ dependencies = [
  "half",
  "image",
  "image-webp",
- "jpeg-encoder 0.6.1",
+ "jpeg-decoder",
+ "jpeg-encoder",
  "photocraft-heif",
  "png 0.18.1",
  "proptest",
+ "ravif",
  "rayon",
  "thiserror 2.0.21",
  "tiff",
@@ -5586,6 +5570,7 @@ dependencies = [
  "image",
  "li-ai",
  "li-seg",
+ "lightcraft-raw",
  "lightcraft-sysmem",
  "pc-trace",
  "photocraft-affinity",
@@ -5606,7 +5591,6 @@ dependencies = [
  "photocraft-plugins",
  "photocraft-psd",
  "photocraft-raster",
- "photocraft-raw",
  "photocraft-svg",
  "photocraft-text",
  "photocraft-vecfx",
@@ -5682,6 +5666,7 @@ dependencies = [
  "lightcraft-develop",
  "lightcraft-engine",
  "lightcraft-geom",
+ "lightcraft-gpu",
  "lightcraft-meta",
  "lightcraft-pipeline",
  "lightcraft-raster",
@@ -5697,7 +5682,6 @@ dependencies = [
  "photocraft-paint",
  "photocraft-psd",
  "photocraft-raster",
- "photocraft-raw",
  "photocraft-text",
  "photocraft-vector",
  "proptest",
@@ -5800,15 +5784,6 @@ dependencies = [
  "photocraft-geom",
  "proptest",
  "serde",
-]
-
-[[package]]
-name = "photocraft-raw"
-version = "2.0.0-alpha.1"
-dependencies = [
- "photocraft-raw",
- "png 0.18.1",
- "rayon",
 ]
 
 [[package]]
