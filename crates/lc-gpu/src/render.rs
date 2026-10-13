@@ -100,7 +100,7 @@ impl GpuStages {
             return buf.clone();
         }
         source.capture = None;
-        let buf = Arc::new(crate::capture::sharpen(cx, &source.uploaded, src.width, src.height, &p));
+        let buf = Arc::new(crate::capture::sharpen(cx, &source.uploaded, src, &p));
         // Publish only after submission: another render thread may reuse this result immediately.
         cx.flush();
         source.capture = Some((p, buf.clone()));
@@ -1034,7 +1034,7 @@ fn source_buffer(cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CapturePara
         None => {
             let uploaded = cx.gpu.upload(rgb_words(src));
             Arc::new(match capture {
-                Some(p) => crate::capture::sharpen(cx, &uploaded, src.width, src.height, &p),
+                Some(p) => crate::capture::sharpen(cx, &uploaded, src, &p),
                 None => uploaded,
             })
         }

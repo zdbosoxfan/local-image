@@ -22,8 +22,9 @@ validate it using `xcrun stapler staple <package>` and `spctl -a -t install -vv 
 * The window and compositing engine use wgpu's Metal backend. Automatic rendering selects
   the Apple GPU; Performance preferences and System Info report the active adapter.
 * Develop uses Metal compute for its supported raw/development kernels and AI denoise graphs.
-  Unsupported operations keep their existing CPU paths. ARM64 SIMD and the shared Rayon
-  thread pool accelerate CPU processing; the application respects the unified memory budget.
+  Capture sharpening uses reference CPU control planes to preserve zero-mask decisions, while
+  its deconvolution iterations run on Metal. Unsupported operations keep their existing CPU paths.
+  ARM64 SIMD and the shared Rayon thread pool accelerate CPU processing; the application respects the unified memory budget.
 * SAM 3 Object/Describe masks use Candle Metal with the `sam` feature in packaged builds.
   Download/licence acceptance is required before using the actual checkpoint.
 * The small ONNX models use tract's native ARM64 CPU kernels. They do not use the Neural Engine.

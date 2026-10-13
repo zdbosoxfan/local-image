@@ -230,7 +230,7 @@ fn gpu_capture_intermediate_planes_match_cpu() {
         let p = CaptureParams { sigma: 0.7, threshold: 0.25, corner_boost: 0.6, clip, ..Default::default() };
         let mut cx = Cx::new(gpu);
         let uploaded = gpu.upload(crate::render::rgb_words(&src));
-        let prep = prepare(&mut cx, &uploaded, w, h, &p);
+        let prep = prepare(&mut cx, &uploaded, &src, &p);
         let (cpu_blend, cpu_lum) = lightcraft_pipeline::capture::blend_mask(&src, &p);
         assert!(max_delta(&cx.read::<f32>(&prep.lum, w * h), &cpu_lum.data) <= 3e-7);
         assert!(max_delta(&cx.read::<f32>(&prep.blend, w * h), &cpu_blend.data) <= 5e-5);
@@ -258,4 +258,30 @@ fn gpu_capture_intermediate_planes_match_cpu() {
     }
     assert!(errors.pop().is_none());
     assert!(!crate::ctx::failed());
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn metal_high_iteration_capture_preserves_mask_participation() {
+    let Some(gpu_device) = crate::test_device() else {
+        assert!(std::env::var_os("LC_REQUIRE_GPU").is_none(), "hardware GPU required");
+        return;
+    };
+    let gpu = &*gpu_device;
+    let _scope = crate::ctx::RenderScope::new(gpu);
+    let (w, h) = (900, 600);
+    let src = lightcraft_scenes::demo_library()[3].render(w, h);
+    let p = CaptureParams { sigma: 1.4, threshold: 0.6, iterations: 50, ..Default::default() };
+    let mut cpu = src.clone();
+    let start = std::time::Instant::now();
+    lightcraft_pipeline::capture::sharpen(&mut cpu, &p);
+    let cpu_time = start.elapsed();
+    let expected: Vec<f32> = cpu.data.iter().flatten().copied().collect();
+    let start = std::time::Instant::now();
+    let mut cx = Cx::new(gpu);
+    let uploaded = gpu.upload(crate::render::rgb_words(&src));
+    let output = sharpen(&mut cx, &uploaded, &src, &p);
+    let actual = cx.read::<f32>(&output, w * h * 3);
+    eprintln!("capture 50 iterations: CPU {cpu_time:?}, GPU {:?}, max difference {}", start.elapsed(), max_delta(&actual, &expected));
+    assert!(max_delta(&actual, &expected) < 3e-5);
 }

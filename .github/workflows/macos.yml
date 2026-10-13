@@ -4,6 +4,9 @@ on:
     branches: [v2]
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
 env:
   CARGO_BUILD_JOBS: 2
   CARGO_INCREMENTAL: 0

@@ -5,7 +5,10 @@
 //! RawTherapee algorithm. See `licenses/darktable-NOTICE.md`.
 //!
 //! The 256 tiny Gaussian kernels are calculated once on the host in the CPU's exact f32
-//! order. All image-sized work (indices, mask, RL, RGB gain) runs on the device. The
+//! order. Richardson–Lucy deconvolution and RGB gain run on the device. Metal uses
+//! the CPU reference control planes: tiny mask-rounding differences can flip the
+//! `blend > 0` participation test and accumulate visible errors over 50 iterations.
+//! Other backends also prepare their indices and masks on the device. The
 //! disc-truncated 5x5/9x9 PSFs are not separable. Small sigma uses sampled exponentials,
 //! not the variance-adjusted taps used by Detail sharpening. Mask smoothing alone uses
 //! the existing three-box kernels: whole-row horizontal sums and 32-row vertical bands
@@ -73,7 +76,17 @@ struct Prepared {
     indices: Buf,
 }
 
-fn prepare(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, p: &CaptureParams) -> Prepared {
+fn prepare(cx: &mut Cx<'_>, src: &Buf, host: &lightcraft_raster::Rgb32f, p: &CaptureParams) -> Prepared {
+    let (w, h) = (host.width, host.height);
+    if cx.gpu.info.backend == wgpu::Backend::Metal {
+        // The mask is both a continuous final blend and a discrete participation decision.
+        // Even a positive residual of one ulp changes the ratio plane seen by neighbours.
+        // Reuse the unchanged CPU preparation once per cached source, then do every expensive
+        // deconvolution iteration on Metal. Exact indices also preserve corner-radius bins.
+        let (blend, lum) = lightcraft_pipeline::capture::blend_mask(host, p);
+        let indices: Vec<u32> = lightcraft_pipeline::capture::sigma_index(w, h, p).into_iter().map(u32::from).collect();
+        return Prepared { lum: cx.gpu.upload(&lum.data), blend: cx.gpu.upload(&blend.data), indices: cx.gpu.upload(&indices) };
+    }
     let n = w * h;
     let k = params(w, h, p);
     let groups = groups2(w, h, [16, 16]);
@@ -118,11 +131,12 @@ fn iteration(cx: &mut Cx<'_>, est: &Buf, next: &Buf, ratio: &Buf, prep: &Prepare
     cx.run("capture_mul", &k, &[None, Some(ratio), Some(est), Some(&prep.blend), Some(&prep.indices), Some(table), Some(next)], groups);
 }
 
-pub(crate) fn sharpen(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, p: &CaptureParams) -> Buf {
+pub(crate) fn sharpen(cx: &mut Cx<'_>, src: &Buf, host: &lightcraft_raster::Rgb32f, p: &CaptureParams) -> Buf {
+    let (w, h) = (host.width, host.height);
     if p.sigma <= 0.2 || p.iterations == 0 || w < 9 || h < 9 {
         return cx.copy(src);
     }
-    let prep = prepare(cx, src, w, h, p);
+    let prep = prepare(cx, src, host, p);
     let table = cx.gpu.upload(kernels());
     let mut est = cx.copy(&prep.lum);
     let mut next = cx.gpu.buffer(w * h);
