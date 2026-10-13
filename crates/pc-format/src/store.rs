@@ -30,14 +30,24 @@ fn compress(data: &[u8]) -> Vec<u8> {
     ruzstd::encoding::compress_to_vec(data, ruzstd::encoding::CompressionLevel::Fastest)
 }
 
-fn decompress(data: &[u8], expected: usize, what: &str) -> Result<Vec<u8>> {
-    let mut dec = ruzstd::decoding::StreamingDecoder::new(data).map_err(|e| FormatError::corrupt(format!("{what}: zstd: {e}")))?;
-    let mut out = Vec::with_capacity(expected.min(64 << 20));
-    (&mut dec).take(expected as u64 + 1).read_to_end(&mut out).map_err(|e| FormatError::corrupt(format!("{what}: zstd: {e}")))?;
-    if out.len() != expected {
-        return Err(FormatError::corrupt(format!("{what}: expected {expected} bytes, got {}", out.len())));
+/// Decodes a zstd frame of at most `max` bytes (`LimitExceeded` beyond). With `exact`, the
+/// decoded length must be exactly that (`Corrupt` otherwise).
+fn decompress_bounded(data: &[u8], max: usize, exact: Option<usize>, what: &str) -> Result<Vec<u8>> {
+    let zstd = |e: &dyn std::fmt::Display| FormatError::corrupt(format!("{what}: zstd: {e}"));
+    let mut dec = ruzstd::decoding::StreamingDecoder::new(data).map_err(|e| zstd(&e))?;
+    let mut out = Vec::with_capacity(exact.unwrap_or(0).min(max).min(64 << 20));
+    // `max` may be `usize::MAX`: one byte past it must not overflow.
+    let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
+    (&mut dec).take(limit).read_to_end(&mut out).map_err(|e| zstd(&e))?;
+    match exact {
+        Some(n) if out.len() != n => Err(FormatError::corrupt(format!("{what}: expected {n} bytes, got {}", out.len()))),
+        None if out.len() > max => Err(FormatError::LimitExceeded(format!("{what} exceeds {max} bytes"))),
+        _ => Ok(out),
     }
-    Ok(out)
+}
+
+fn decompress(data: &[u8], expected: usize, what: &str) -> Result<Vec<u8>> {
+    decompress_bounded(data, expected, Some(expected), what)
 }
 
 fn hash_bytes(b: &[u8]) -> Hash {
@@ -221,12 +231,7 @@ impl Fetch for LoadFetch<'_> {
         let z = self.src.get(&path, self.opts.max_blob_bytes)?;
         // Blob length is not in the manifest; the frame header bounds it and
         // we cap at max_blob_bytes.
-        let mut dec = ruzstd::decoding::StreamingDecoder::new(&z[..]).map_err(|e| FormatError::corrupt(format!("{path}: zstd: {e}")))?;
-        let mut data = Vec::new();
-        (&mut dec).take(self.opts.max_blob_bytes as u64 + 1).read_to_end(&mut data).map_err(|e| FormatError::corrupt(format!("{path}: zstd: {e}")))?;
-        if data.len() > self.opts.max_blob_bytes {
-            return Err(FormatError::LimitExceeded(format!("{path} exceeds max_blob_bytes")));
-        }
+        let data = decompress_bounded(&z, self.opts.max_blob_bytes, None, &path)?;
         self.account(data.len())?;
         if hash_bytes(&data) != hash {
             return Err(FormatError::corrupt(format!("{path}: content does not match its hash")));
@@ -237,8 +242,24 @@ impl Fetch for LoadFetch<'_> {
     }
 }
 
+/// Refuses a declared canvas outside `opts`' budget before anything is decoded for it (upstream #2935).
+fn admit_canvas(size: photocraft_geom::Size, opts: &LoadOptions) -> Result<()> {
+    let (w, h) = (size.width, size.height);
+    if w == 0 || h == 0 {
+        return Err(FormatError::corrupt(format!("canvas size {w}x{h} is empty")));
+    }
+    if w > opts.max_canvas_side || h > opts.max_canvas_side {
+        return Err(FormatError::LimitExceeded(format!("canvas {w}x{h} exceeds {} pixels per side", opts.max_canvas_side)));
+    }
+    if size.area() > opts.max_canvas_pixels {
+        return Err(FormatError::LimitExceeded(format!("canvas {w}x{h} exceeds {} pixels", opts.max_canvas_pixels)));
+    }
+    Ok(())
+}
+
 pub(crate) fn load(src: &dyn Source, opts: &LoadOptions) -> Result<Document> {
     let m = read_manifest(src, opts)?;
+    admit_canvas(m.document.size, opts)?;
     let mut fetch = LoadFetch { src, opts: *opts, total: 0, blobs: HashMap::new() };
     let mut loader = Loader { fetch: &mut fetch, preserve_ids: opts.preserve_ids, max_id: 0, id_map: HashMap::new() };
     let doc = loader.document(&m.document)?;
@@ -533,6 +554,12 @@ impl PcraftWriter {
             thumbnail: opts.thumbnail.as_ref().map(|_| THUMB.to_owned()),
             composite: opts.composite.as_ref().map(|_| COMPOSITE.to_owned()),
         };
+        // serde_json writes NaN and the infinities as `null`, which the manifest's float fields
+        // refuse on load (upstream issue #1101): refuse the save instead, naming the value.
+        crate::finite::check(&manifest).map_err(|e| match e {
+            crate::finite::Problem::NonFinite { path } => FormatError::NonFinite { path },
+            crate::finite::Problem::Other(m) => FormatError::Unsupported(format!("manifest: {m}")),
+        })?;
         let manifest = serde_json::to_vec_pretty(&manifest)?;
         check_manifest_depth(&manifest)?;
         let stats = SaveStats { tiles_total: c.tiles.len(), blobs_total: c.blobs.len(), manifest_bytes: manifest.len(), ..Default::default() };

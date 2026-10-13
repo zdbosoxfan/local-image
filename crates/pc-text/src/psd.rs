@@ -197,7 +197,11 @@ pub fn text_layer_from_tysh(data: &[u8], dpi: f32) -> Option<TextLayer> {
         Some("AnSt" | "antiAliasStrong") => AntiAlias::Strong,
         Some("antiAliasPlatformGray") => AntiAlias::Windows,
         Some("antiAliasPlatformLCD") => AntiAlias::WindowsLcd,
-        _ => AntiAlias::Smooth,
+        Some(_) => AntiAlias::Smooth,
+        // No `AntA`: the engine data's mode says it.
+        None => {
+            engine_data(&t.text).and_then(|e| e.path(&["EngineDict", "AntiAlias"]).and_then(E::as_f64)).and_then(engine_antialias).unwrap_or(AntiAlias::Smooth)
+        }
     };
     if let Some(w) = &t.warp {
         let style = enum_value(w, "warpStyle").unwrap_or_else(|| "warpNone".into());
@@ -714,12 +718,13 @@ pub fn build_engine_data(layer: &TextLayer, template: Option<E>, dpi: f32) -> E 
         "AntiAlias",
         E::Int(match layer.antialias {
             AntiAlias::None => 0,
-            AntiAlias::Sharp => 1,
-            AntiAlias::Crisp => 2,
-            AntiAlias::Strong => 3,
-            AntiAlias::Smooth => 4,
-            // EngineData has no platform modes; the `AntA` descriptor carries the exact value.
-            AntiAlias::Windows | AntiAlias::WindowsLcd => 1,
+            AntiAlias::Crisp => 1,
+            AntiAlias::Strong => 2,
+            AntiAlias::Smooth => 3,
+            AntiAlias::Sharp => 4,
+            // No Photoshop file confirms the platform modes' numbers here; the `AntA` descriptor
+            // carries the exact mode, and Smooth is the closest.
+            AntiAlias::Windows | AntiAlias::WindowsLcd => 3,
         }),
     );
     if dict.get("UseFractionalGlyphWidths").is_none() {
@@ -792,6 +797,19 @@ pub fn build_engine_data(layer: &TextLayer, template: Option<E>, dpi: f32) -> E 
         }
     }
     e
+}
+
+/// The anti-aliasing mode for EngineData's `AntiAlias` number, as Photoshop writes it: 0 None,
+/// 1 Crisp, 2 Strong, 3 Smooth, 4 Sharp. Other numbers (platform modes) are left to `AntA`.
+fn engine_antialias(n: f64) -> Option<AntiAlias> {
+    Some(match n as i64 {
+        0 => AntiAlias::None,
+        1 => AntiAlias::Crisp,
+        2 => AntiAlias::Strong,
+        3 => AntiAlias::Smooth,
+        4 => AntiAlias::Sharp,
+        _ => return None,
+    })
 }
 
 /// Builds the `TySh` block for `layer`, patching its current `psd_raw` when present.
@@ -878,5 +896,26 @@ mod run_length_tests {
         assert_eq!(utf16_to_byte_lengths("😀a", &[1.0, 1.0, 10.0]), [4, 1, 0]);
         assert_eq!(utf16_to_byte_lengths("a", &[f64::NAN, -1.0, 0.0, f64::INFINITY]), [0, 0, 0, 1]);
         assert_eq!(utf16_to_byte_lengths("", &[f64::INFINITY]), [0]);
+    }
+}
+
+#[cfg(test)]
+mod antialias_number_tests {
+    use super::*;
+
+    /// EngineData's `AntiAlias` numbers as Photoshop writes them, beside the `AntA` descriptor
+    /// (upstream 6f1c4481): 0 None, 1 Crisp, 2 Strong, 3 Smooth, 4 Sharp. Read back from
+    /// EngineData alone (no `AntA`), every mode survives.
+    #[test]
+    fn engine_data_antialias_numbers_match_photoshop() {
+        for (mode, n) in [(AntiAlias::None, 0), (AntiAlias::Crisp, 1), (AntiAlias::Strong, 2), (AntiAlias::Smooth, 3), (AntiAlias::Sharp, 4)] {
+            let t = TextLayer { antialias: mode, ..Default::default() };
+            let mut tysh = parse_tysh(&build_tysh(&t, 72.0, None)).unwrap();
+            let e = engine_data(&tysh.text).unwrap();
+            assert_eq!(e.path(&["EngineDict", "AntiAlias"]).and_then(E::as_f64), Some(f64::from(n)), "{mode:?}");
+            tysh.text.items.retain(|(k, _)| !k.is("AntA"));
+            let back = text_layer_from_tysh(&write_tysh(&tysh), 72.0).unwrap();
+            assert_eq!(back.antialias, mode, "{n}");
+        }
     }
 }

@@ -63,3 +63,36 @@ fn measurement_scale_roundtrips_through_psd() {
         assert_eq!(again.resources.iter().filter(|r| r.id == MEASUREMENT_SCALE).count(), 1);
     }
 }
+
+/// A PSD holding `anno` as its global `Anno` block.
+fn psd_with_anno(anno: Vec<u8>) -> Vec<u8> {
+    let mut doc = Document::new("notes", Size::new(16, 16), ColorMode::Rgb, SampleType::U8);
+    doc.layers.push(photocraft_doc::Layer::raster("Background", doc.pixel_format()));
+    let mut file = PsdFile::from_bytes(&to_psd(&doc)).unwrap();
+    let mut tb = photocraft_psd::TaggedBlock::new(*b"Anno", anno.clone());
+    tb.padding = Some(vec![0; (4 - anno.len() % 4) % 4]);
+    file.global_blocks.push(tb);
+    file.to_bytes().unwrap()
+}
+
+/// Upstream issue #944: an `Anno` block the reader rejects opened as "no notes" without a word,
+/// and the next save deleted it. It now opens with a warning and is written back byte for byte.
+#[test]
+fn an_unreadable_anno_block_warns_and_survives_a_save() {
+    // Two annotations declared, one truncated entry present.
+    let broken = vec![0, 2, 0, 1, 0, 0, 0, 9];
+    let imp = import("notes.psd", &psd_with_anno(broken.clone())).expect("import");
+    assert!(imp.document.notes.is_empty());
+    assert!(imp.warnings.iter().any(|w| w.contains("Anno")), "{:?}", imp.warnings);
+    let f = PsdFile::from_bytes(&to_psd(&imp.document)).unwrap();
+    assert_eq!(f.global_block(b"Anno").expect("Anno block kept").data, broken);
+    // Control: a document with no Anno block reads with no warning.
+    let none = import("none.psd", &psd_with_anno_free()).expect("import");
+    assert!(!none.warnings.iter().any(|w| w.contains("Anno")));
+}
+
+fn psd_with_anno_free() -> Vec<u8> {
+    let mut doc = Document::new("plain", Size::new(16, 16), ColorMode::Rgb, SampleType::U8);
+    doc.layers.push(photocraft_doc::Layer::raster("Background", doc.pixel_format()));
+    to_psd(&doc)
+}

@@ -114,10 +114,25 @@ fn huge_declared_dimensions_small_data() {
     f.header.height = 300_000;
     let b = f.to_bytes().unwrap();
     assert!(PsdFile::from_bytes(&b).is_err());
+    // ZIP over `MAX_DECODED_BYTES` is not inflated at parse time (upstream #2926); decoding refuses it.
     f.image_data.compression = Compression::Zip;
     f.image_data.data = compression::zip_compress(&[0; 100]);
     let b = f.to_bytes().unwrap();
-    assert!(PsdFile::from_bytes(&b).is_err());
+    assert!(matches!(PsdFile::from_bytes(&b).and_then(|f| f.decode_merged()), Err(PsdError::LimitExceeded(_))));
+}
+
+/// Upstream #2926: a PSB whose ZIP merged image declares more than `MAX_DECODED_BYTES` opens
+/// without inflating that stream (its layers are still usable); decoding the composite reports
+/// the limit.
+#[test]
+fn over_budget_zip_merged_image_opens_without_inflating() {
+    let mut bytes = testgen::small(Version::Psb, Compression::Zip).to_bytes().unwrap();
+    // Header: height at 14, width at 18 (big-endian u32).
+    bytes[14..18].copy_from_slice(&300_000u32.to_be_bytes());
+    bytes[18..22].copy_from_slice(&300_000u32.to_be_bytes());
+    let file = PsdFile::from_bytes(&bytes).unwrap();
+    assert!(!file.layers().is_empty());
+    assert!(matches!(file.decode_merged(), Err(PsdError::LimitExceeded(_))));
 }
 
 #[test]

@@ -593,6 +593,18 @@ mod tests {
         assert_eq!(placed, [0, 0b0010_1010, 0b0001_0100, 0]);
     }
 
+    /// Upstream 16341720: tiny channels in a huge pattern rectangle must not be zero-padded
+    /// without bound (ours is stopped by the padding ratio and the import byte budget).
+    #[test]
+    fn tiny_channels_in_a_huge_pattern_rect_are_not_zero_padded_without_bound() {
+        let p = pat(8, false);
+        let mut global = write_pattern_block(std::slice::from_ref(&p)).unwrap();
+        let vma = pattern_vma_rect_offset(4, &p);
+        set_i32(&mut global, vma + 8, 30_000);
+        set_i32(&mut global, vma + 12, 30_000);
+        assert!(matches!(parse_pattern_block(&global), Err(PsdError::LimitExceeded(_))));
+    }
+
     #[test]
     fn zero_size_pattern_rectangles_are_rejected() {
         let p = pat(8, false);

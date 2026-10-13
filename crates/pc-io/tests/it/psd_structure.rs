@@ -541,3 +541,22 @@ fn every_blend_mode_maps_both_ways() {
         assert_eq!(photocraft_color::BlendMode::from_psd_key(k.key()), Some(m));
     }
 }
+
+#[test]
+fn layer_bounds_without_channel_data_allocate_nothing() {
+    // A record can declare a 300000x300000 rectangle in a few bytes. With no colour or alpha
+    // channel data to back it (none at all, or only a mask channel), import must not build a
+    // ~360 GB interleave buffer or paint a rectangle-sized black layer (upstream #755).
+    use photocraft_psd::{ChannelData, LayerRecord};
+    let rect = photocraft_psd::Rect::from_xywh(0, 0, 300_000, 300_000);
+    let mut f = testgen::small(Version::Psd, Compression::Raw);
+    f.layers_mut().push(LayerRecord { rect, name: b"huge".to_vec(), ..Default::default() });
+    let mask_only = ChannelData { id: -2, compression: Some(Compression::Raw), data: Vec::new() };
+    f.layers_mut().push(LayerRecord { rect, channels: vec![mask_only], name: b"masked".to_vec(), ..Default::default() });
+    let (d, warnings) = psd_to_document(&f);
+    for name in ["huge", "masked"] {
+        let l = d.layers.iter().find(|l| l.name == name).unwrap();
+        assert!(matches!(&l.content, LayerContent::Raster(s) if s.tile_count() == 0), "{name}");
+    }
+    assert!(warnings.iter().any(|w| w.contains("\"masked\"") && w.contains("no channel data")), "{warnings:?}");
+}
