@@ -681,6 +681,7 @@ impl Writer<'_, '_, '_> {
                                 || l.vector_mask.as_ref().is_some_and(|m| m.enabled)
                                 || l.vector.clip.is_some()
                                 || photocraft_compose::effects::has_effects(l))
+                            && !pass_through_matches_isolated(&g.children)
                 }
                 _ => unsupported,
             }
@@ -1381,4 +1382,25 @@ mod mask_halo_tests {
         layer.mask = Some(mask);
         assert!(soft_mask_sampling_canvas(&layer, Rect::new(i32::MIN, 0, 0, 10), Rect::new(0, 0, 20, 20)).is_err());
     }
+}
+
+fn pass_through_matches_isolated(children: &[Layer]) -> bool {
+    children.iter().filter(|l| l.visible).all(|l| {
+        l.excluded_channels == 0
+            && l.blend_if.is_default()
+            && !photocraft_compose::effects::has_effects(l)
+            && photocraft_compose::text_gamma(l) == 1.0
+            && match &l.content {
+                LayerContent::Adjustment(_) => false,
+                LayerContent::Group(g) => {
+                    g.isolation != photocraft_doc::GroupIsolation::NonIsolated
+                        && match l.blend {
+                            BlendMode::Normal => true,
+                            BlendMode::PassThrough => pass_through_matches_isolated(&g.children),
+                            _ => false,
+                        }
+                }
+                _ => l.blend == BlendMode::Normal,
+            }
+    })
 }
