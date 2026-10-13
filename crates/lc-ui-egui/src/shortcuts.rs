@@ -131,7 +131,7 @@ pub fn hint_in(ctx: &egui::Context, label: &str, command: &str) -> String {
 }
 
 pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
-    if app.host_modal
+    if !ctx.input(|input| input.focused) || app.host_modal
         || egui::Popup::is_any_open(ctx)
         // application dialogs are modal: they own their keys (text editing, Esc), and photo
         // shortcuts must not act on the grid behind them (upstream LightCraft e1267a7)
@@ -251,6 +251,15 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
                 _ => app.toast(ctx, "Unflagged"),
             }
         } else {
+            if f == "tool.erase" {
+                if app.run("tool.brush", json!({})).is_ok() {
+                    app.ui.brush_erase = true;
+                }
+                continue;
+            }
+            if f == "tool.brush" {
+                app.ui.brush_erase = false;
+            }
             // in the full-screen preview (no panels) I cycles the info overlay instead
             if f == "panel.info" && app.ui.fullscreen {
                 let _ = app.run("view.infoOverlay", json!({}));

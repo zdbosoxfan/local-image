@@ -3895,3 +3895,12 @@ ai	New	Novos
 	testing…	testando…
 	Autosave failed	Falha no salvamento automático
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	A recuperação de falhas não consegue manter uma cópia das alterações não salvas. Salve seu trabalho para mantê-lo.
+
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Todos os atalhos deste perfil foram redefinidos para os valores padrão.
+	Colour brightness	Brilho da cor
+	Colour hue	Matiz da cor
+	Colour saturation	Saturação da cor
+	Editor	Editor
+	Library + Develop	Biblioteca + Revelação
+	Scope	Escopo

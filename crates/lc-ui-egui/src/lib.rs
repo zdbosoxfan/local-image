@@ -24,6 +24,9 @@ pub mod merge;
 #[rustfmt::skip] // Keep shared artwork code under Compositing's rustfmt configuration.
 #[path = "../../pc-ui-egui/src/mono_tool_icons.rs"]
 mod mono_tool_icons;
+#[cfg(test)]
+mod keymap_tests;
+pub mod keymaps;
 pub mod panels;
 pub mod people_task;
 pub mod render;

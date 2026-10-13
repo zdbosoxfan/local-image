@@ -50,19 +50,19 @@ pub const SECONDARY: &[(&str, &str)] = &[("edit.fill", "Shift+Backspace")];
 /// their overrides apply. Held temporary tools (Space…) are not here: see [`crate::hold_keys`].
 pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
     let prefs = app.session.prefs();
-    let ui = crate::menus::UI_COMMANDS.iter().map(|(id, _, _, sc)| (*id, prefs.shortcut(id, *sc)));
-    let engine = photocraft_engine::command_specs().iter().map(|c| (c.id, prefs.shortcut(c.id, c.shortcut)));
+    let ui = crate::menus::UI_COMMANDS.iter().map(|(id, _, _, sc)| (*id, crate::keymaps::effective(prefs, id, *sc)));
+    let engine = photocraft_engine::command_specs().iter().map(|c| (c.id, crate::keymaps::effective(prefs, c.id, c.shortcut)));
     let own: std::collections::HashSet<&str> = crate::menus::UI_COMMANDS
         .iter()
         .map(|c| c.0)
-        .chain(photocraft_engine::command_specs().iter().filter(|c| c.shortcut.is_some() || prefs.shortcuts.contains_key(c.id)).map(|c| c.id))
+        .chain(photocraft_engine::command_specs().iter().filter(|c| c.shortcut.is_some() || prefs.shortcut_overrides(false).contains_key(c.id)).map(|c| c.id))
         .collect();
     let catalog = crate::menu_catalog::CATALOG
         .iter()
         .filter(|(_, _, sc, id)| sc.is_some() && !own.contains(id) && crate::menus::is_live(id))
-        .map(|&(_, _, sc, id)| (id, prefs.shortcut(id, sc)));
+        .map(|&(_, _, sc, id)| (id, crate::keymaps::effective(prefs, id, sc)));
     let overrides = prefs
-        .shortcuts
+        .shortcut_overrides(false)
         .iter()
         .filter(|(id, sc)| {
             !id.starts_with("library::")
@@ -76,18 +76,18 @@ pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
         })
         .map(|(id, sc)| (id.as_str(), Some(sc.as_str())));
     // Photoshop's second shortcuts, kept while the command's main one is the default.
-    let secondary = SECONDARY.iter().filter(|(id, _)| !prefs.shortcuts.contains_key(*id)).map(|&(id, sc)| (id, Some(sc)));
+    let secondary = SECONDARY.iter().filter(|(id, _)| !prefs.shortcut_overrides(false).contains_key(*id)).map(|&(id, sc)| (id, Some(sc)));
     let pixel: Vec<_> =
         ui.chain(engine).chain(catalog).chain(overrides).chain(secondary).filter_map(|(id, sc)| sc.map(|sc| (id.to_owned(), sc.to_owned()))).collect();
     let mut result = photocraft_engine::vector_toolbar_layout::command_bindings_for(prefs.toolbar.persona, prefs.toolbar.vector_keyboard.preset, &pixel);
     let custom: Vec<_> = prefs
-        .shortcuts
+        .shortcut_overrides(false)
         .iter()
         .filter(|(id, _)| !id.starts_with("library::") && !id.starts_with("tools.select.") && !crate::hold_keys::is_temporary(id))
         .collect();
     result.retain(|(id, key)| {
-        !prefs.shortcuts.contains_key(id)
-            && !prefs.shortcuts.iter().any(|(id, binding)| {
+        !prefs.shortcut_overrides(false).contains_key(id)
+            && !prefs.shortcut_overrides(false).iter().any(|(id, binding)| {
                 crate::shortcuts::override_applies_in_persona(prefs.toolbar.persona, id)
                     && !binding.is_empty()
                     && crate::fill_stroke_proxy::shortcut(binding) == crate::fill_stroke_proxy::shortcut(key)
@@ -95,6 +95,13 @@ pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
     });
     let mut explicit: Vec<_> = custom.into_iter().filter(|(_, key)| !key.is_empty()).map(|(id, key)| (id.clone(), key.clone())).collect();
     explicit.extend(result);
+    explicit.retain(|(id, key)| crate::keymaps::is_global(id) || crate::keymaps::global_conflict(key).is_none());
+    for (id, _, key) in photocraft_engine::prefs::GLOBAL_SHORTCUTS {
+        if !id.starts_with("host.") {
+            explicit.retain(|(command, _)| command != id);
+            explicit.insert(0, ((*id).into(), (*key).into()));
+        }
+    }
     let mut seen = Vec::new();
     explicit.retain(|(_, key)| {
         let Some(shortcut) = crate::fill_stroke_proxy::shortcut(key) else {
@@ -306,6 +313,10 @@ fn label(id: &str) -> String {
 
 /// Run a shortcut's command like its menu item (dialogs included), or say why it can't run.
 pub fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str) {
+    if id == "global.fullscreen" {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!ctx.input(|i| i.viewport().fullscreen.unwrap_or(false))));
+        return;
+    }
     let outcome = if !crate::menus::is_enabled(app, id) {
         let why = disabled_reason(app, id);
         app.ui.status = format!("{} is not available: {why}", label(id));

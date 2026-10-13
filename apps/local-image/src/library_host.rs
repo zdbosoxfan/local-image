@@ -183,8 +183,16 @@ impl Host {
             lib.hosted_menus = true;
             lib.shared_shortcuts = true;
             lib.host_modal = !self.editor.ui.dialogs.is_empty();
-            lib.shortcut_overrides =
-                self.editor.session.prefs().shortcuts.iter().filter(|(id, _)| id.starts_with("library::")).map(|(k, v)| (k.clone(), v.clone())).collect();
+            lib.shortcut_overrides = self
+                .editor
+                .session
+                .prefs()
+                .shortcut_overrides(true)
+                .iter()
+                .filter(|(id, _)| id.starts_with("library::"))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            lib.shortcut_overrides.insert("library::__profile".into(), self.editor.session.prefs().shortcut_profiles.library.parent().into());
         }
     }
 
@@ -207,11 +215,12 @@ impl Host {
             .editor
             .session
             .prefs()
-            .shortcuts
+            .shortcut_overrides(true)
             .iter()
             .filter(|(id, _)| id.starts_with("library::"))
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
+        library.shortcut_overrides.insert("library::__profile".into(), self.editor.session.prefs().shortcut_profiles.library.parent().into());
         library
     }
 
@@ -1098,6 +1107,18 @@ impl eframe::App for Host {
             }
         }
         if self.editor.ui.dialogs.is_empty() {
+            let library_keys_available = self
+                .library
+                .as_ref()
+                .is_none_or(|lib| lib.ui.dialog.is_none() && lib.ui.people.queue.is_none() && lib.ui.people.finder.is_none() && lib.ui.people.merge.is_none());
+            if self.mode != Module::Compositing
+                && ctx.input(|input| input.focused)
+                && !egui::Popup::is_any_open(ctx)
+                && library_keys_available
+                && consume_host_chord(ctx, egui::Modifiers::COMMAND, egui::Key::K)
+            {
+                photocraft_ui_egui::prefs_ui::open_preferences(&mut self.editor, "general");
+            }
             self.module_keys(ctx);
             self.preview_save_key(ctx);
         }
@@ -3920,6 +3941,54 @@ mod tests {
             std::fs::remove_dir_all(dir).unwrap();
         }
     }
+    #[test]
+    fn keys_profiles_g5_host_focus_routes_only_visible_workspace() {
+        let (dir, host) = workflow_host("keys-profile-focus");
+        let mut h = RoundTripUi::new(host);
+        h.host.editor.session.edit_prefs(|p| {
+            p.shortcut_profiles.migrate(&p.shortcuts);
+            p.shortcut_profiles.library.active = "Capture One".into();
+        });
+        let ctx = h.view.ctx.clone();
+        h.host.switch(&ctx, Module::Library);
+        for _ in 0..4 {
+            h.step(vec![]);
+        }
+        h.key(egui::Key::Num2, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert_eq!(h.host.mode, Module::Develop);
+        let tool = h.host.editor.ui.tool;
+        h.key(egui::Key::B, egui::Modifiers::NONE);
+        assert_eq!(h.host.library.as_ref().unwrap().ui.tool, "brush");
+        assert_eq!(h.host.editor.ui.tool, tool);
+        h.key(egui::Key::E, egui::Modifiers::NONE);
+        assert!(h.host.library.as_ref().unwrap().ui.brush_erase);
+        h.host.editor.host_modes = true;
+        h.key(egui::Key::Num3, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert_eq!(h.host.mode, Module::Compositing);
+        let overlay = h.host.library.as_ref().unwrap().ui.mask_overlay;
+        h.key(egui::Key::M, egui::Modifiers::NONE);
+        assert_eq!(h.host.editor.ui.tool, photocraft_ui_egui::state::Tool::RectMarquee);
+        assert_eq!(h.host.library.as_ref().unwrap().ui.mask_overlay, overlay);
+        h.key(egui::Key::B, egui::Modifiers::NONE);
+        assert_eq!(h.host.editor.ui.tool, photocraft_ui_egui::state::Tool::Brush);
+        assert!(h.host.library.as_ref().unwrap().ui.brush_erase);
+        h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        h.key(egui::Key::Num2, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+        assert_eq!(h.host.mode, Module::Develop);
+        h.host.library.as_mut().unwrap().run("app.settings", json!({})).unwrap();
+        h.step(vec![]);
+        h.key(egui::Key::K, egui::Modifiers::COMMAND);
+        assert!(h.host.editor.ui.dialogs.is_empty(), "Library's modal owns its keyboard input");
+        h.key(egui::Key::Escape, egui::Modifiers::NONE);
+        assert!(h.host.library.as_ref().unwrap().ui.dialog.is_none());
+        h.key(egui::Key::K, egui::Modifiers::COMMAND);
+        assert_eq!(h.host.editor.ui.dialogs.last().unwrap().fields["__prefsui"], "prefs");
+        let id = h.host.editor.ui.dialogs.last().unwrap().id;
+        photocraft_ui_egui::dialogs::cancel(&mut h.host.editor, id).unwrap();
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn shared_shell_host_shortcut_editor_capture_cancel_and_library_dispatch() {
         let (dir, host) = workflow_host("shared-shell-shortcuts");

@@ -802,6 +802,132 @@ pub struct ToolbarCustomization {
     pub vector_tool: String,
 }
 
+/// Immutable application bindings. Undo/redo route to the focused workspace.
+pub const GLOBAL_SHORTCUTS: &[(&str, &str, &str)] = &[
+    ("file.exit", "Quit", "Cmd+Q"),
+    ("edit.preferences.general", "Preferences", "Cmd+K"),
+    ("edit.undo", "Undo", "Cmd+Z"),
+    ("edit.redo", "Redo", "Cmd+Shift+Z"),
+    ("view.screenMode.cycle", "Screen mode", "F"),
+    ("global.fullscreen", "Full screen", "Cmd+Shift+F"),
+    ("host.library", "Library workspace", "Cmd+Alt+1"),
+    ("host.develop", "Develop workspace", "Cmd+Alt+2"),
+    ("host.editor", "Editor workspace", "Cmd+Alt+3"),
+];
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShortcutWorkspace {
+    pub active: String,
+    pub custom: BTreeMap<String, ShortcutProfile>,
+}
+impl Default for ShortcutWorkspace {
+    fn default() -> Self {
+        Self { active: "Photoshop".into(), custom: BTreeMap::new() }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ShortcutProfile {
+    pub parent: String,
+    pub overrides: BTreeMap<String, String>,
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShortcutProfiles {
+    pub library: ShortcutWorkspace,
+    pub editor: ShortcutWorkspace,
+    /// Distinguishes first-run migration from a deliberately selected built-in.
+    pub migrated: bool,
+}
+impl Default for ShortcutProfiles {
+    fn default() -> Self {
+        Self { library: ShortcutWorkspace { active: "Lightroom".into(), ..Default::default() }, editor: ShortcutWorkspace::default(), migrated: false }
+    }
+}
+impl ShortcutWorkspace {
+    pub fn parent(&self) -> &str {
+        self.custom.get(&self.active).map_or(self.active.as_str(), |p| p.parent.as_str())
+    }
+    pub fn duplicate(&mut self, name: &str) -> std::result::Result<(), String> {
+        if name.trim().is_empty() || self.custom.contains_key(name) || ["Lightroom", "Capture One", "Photoshop", "Affinity Photo"].contains(&name) {
+            return Err("Choose a unique profile name".into());
+        }
+        let profile =
+            ShortcutProfile { parent: self.parent().into(), overrides: self.custom.get(&self.active).map(|p| p.overrides.clone()).unwrap_or_default() };
+        self.custom.insert(name.into(), profile);
+        self.active = name.into();
+        Ok(())
+    }
+    pub fn rename(&mut self, name: &str) -> std::result::Result<(), String> {
+        if name == self.active {
+            return Ok(());
+        }
+        if name.trim().is_empty() || self.custom.contains_key(name) || ["Lightroom", "Capture One", "Photoshop", "Affinity Photo"].contains(&name) {
+            return Err("Choose a unique profile name".into());
+        }
+        let profile = self.custom.remove(&self.active).ok_or("Duplicate a built-in before editing it")?;
+        self.custom.insert(name.into(), profile);
+        self.active = name.into();
+        Ok(())
+    }
+    pub fn delete_active(&mut self) {
+        if let Some(profile) = self.custom.remove(&self.active) {
+            self.active = profile.parent;
+        }
+    }
+}
+impl ShortcutProfiles {
+    pub fn workspace(&self, library: bool) -> &ShortcutWorkspace {
+        if library { &self.library } else { &self.editor }
+    }
+    pub fn workspace_mut(&mut self, library: bool) -> &mut ShortcutWorkspace {
+        if library { &mut self.library } else { &mut self.editor }
+    }
+    pub fn migrate(&mut self, legacy: &BTreeMap<String, String>) {
+        if self.migrated || legacy.is_empty() {
+            return;
+        }
+        for library in [false, true] {
+            let overrides: BTreeMap<_, _> =
+                legacy.iter().filter(|(id, _)| id.starts_with("library::") == library).map(|(k, v)| (k.clone(), v.clone())).collect();
+            let workspace = self.workspace_mut(library);
+            if !overrides.is_empty() && workspace.custom.is_empty() {
+                workspace.custom.insert("Custom (migrated)".into(), ShortcutProfile { parent: workspace.parent().into(), overrides });
+                workspace.active = "Custom (migrated)".into();
+            }
+        }
+        self.migrated = true;
+    }
+    fn validate(&self, previous: &Self) -> std::result::Result<(), String> {
+        for library in [false, true] {
+            let workspace = self.workspace(library);
+            let builtins = if library { ["Lightroom", "Capture One"] } else { ["Photoshop", "Affinity Photo"] };
+            if !builtins.contains(&workspace.active.as_str()) && !workspace.custom.contains_key(&workspace.active) {
+                return Err("Unknown active shortcut profile".into());
+            }
+            for (name, profile) in &workspace.custom {
+                if name.trim().is_empty() || builtins.contains(&name.as_str()) || !builtins.contains(&profile.parent.as_str()) {
+                    return Err("Invalid shortcut profile name or parent".into());
+                }
+                for (id, chord) in &profile.overrides {
+                    if id.is_empty() || id.starts_with("library::") != library {
+                        return Err("Shortcut belongs to another workspace".into());
+                    }
+                    let old = previous.workspace(library).custom.get(name).and_then(|p| p.overrides.get(id));
+                    checked_shortcut(&Value::String(chord.clone()), old)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn get_path_mut_profile<'a>(root: &'a mut Value, path: &str) -> std::result::Result<&'a mut Value, String> {
+    let (scope, rest) = path.split_once(".custom.").ok_or("Unknown profile path")?;
+    let (name, field) = rest.rsplit_once('.').ok_or("Missing profile field")?;
+    root.get_mut(scope).and_then(|v| v.get_mut("custom")).and_then(|v| v.get_mut(name)).and_then(|v| v.get_mut(field)).ok_or_else(|| "Unknown profile".into())
+}
+
 /// All preferences. JSON keys are the `edit.preferences.<section>` ids.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -831,6 +957,7 @@ pub struct Preferences {
     /// Edit › Keyboard Shortcuts: command id → shortcut (`Cmd+Shift+N` notation); an empty
     /// string removes the default shortcut.
     pub shortcuts: BTreeMap<String, String>,
+    pub shortcut_profiles: ShortcutProfiles,
     pub menus: MenuCustomization,
     pub toolbar: ToolbarCustomization,
     /// Edit › Check Spelling: words added to the dictionary ("Add").
@@ -1126,17 +1253,76 @@ impl Preferences {
 
     /// Read a value by dotted path (`""` = everything).
     pub fn get(&self, path: &str) -> Option<Value> {
-        get_path(&self.to_json(), path).cloned()
+        let root = self.to_json();
+        if let Some(rest) = path.strip_prefix("shortcutProfiles.") {
+            if let Some((prefix, command)) = rest.split_once(".overrides.") {
+                let mut profiles = root.get("shortcutProfiles")?.clone();
+                return get_path_mut_profile(&mut profiles, &format!("{prefix}.overrides")).ok()?.get(command).cloned();
+            }
+            if let Some((scope, name)) = rest.split_once(".custom.") {
+                let custom = root.get("shortcutProfiles")?.get(scope)?.get("custom")?;
+                if let Some(profile) = custom.get(name) {
+                    return Some(profile.clone());
+                }
+                let (profile, field) = name.rsplit_once('.')?;
+                return custom.get(profile)?.get(field).cloned();
+            }
+        }
+        get_path(&root, path).cloned()
     }
 
     /// Set a value by dotted path, validating it. Unknown paths and wrong types are errors.
     pub fn set(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
+        let previous = self.shortcuts.clone();
         self.set_unmigrated(path, value)?;
+        self.adopt_legacy_changes(&previous);
         self.toolbar.migrate();
         Ok(())
     }
 
     fn set_unmigrated(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
+        if path == "shortcutProfiles" || path.starts_with("shortcutProfiles.") {
+            let mut root = serde_json::to_value(&self.shortcut_profiles).map_err(|e| e.to_string())?;
+            if path == "shortcutProfiles" {
+                root = value;
+            } else {
+                let rest = path.trim_start_matches("shortcutProfiles.");
+                if let Some((prefix, command)) = rest.split_once(".overrides.") {
+                    let map = get_path_mut_profile(&mut root, &format!("{prefix}.overrides"))?.as_object_mut().ok_or("Profile overrides must be an object")?;
+                    if value.is_null() {
+                        map.remove(command);
+                    } else {
+                        map.insert(command.into(), value);
+                    }
+                } else if let Some((scope, name)) = rest.split_once(".custom.") {
+                    let map = root.get_mut(scope).and_then(|v| v.get_mut("custom")).and_then(Value::as_object_mut).ok_or("Unknown shortcut scope")?;
+                    if let Some((profile, field)) = name.rsplit_once('.').filter(|(_, field)| ["parent", "overrides"].contains(field)) {
+                        let profile = map.get_mut(profile).and_then(Value::as_object_mut).ok_or("Unknown profile")?;
+                        profile.insert(field.into(), value);
+                    } else if value.is_null() {
+                        map.remove(name);
+                    } else {
+                        map.insert(name.into(), value);
+                    }
+                } else {
+                    set_path(&mut root, rest, value)?;
+                }
+            }
+            let mut next: ShortcutProfiles = serde_json::from_value(root).map_err(|e| e.to_string())?;
+            next.validate(&self.shortcut_profiles)?;
+            next.migrated = true;
+            for workspace in [&mut next.library, &mut next.editor] {
+                for profile in workspace.custom.values_mut() {
+                    for chord in profile.overrides.values_mut() {
+                        if let Some(normalized) = normalize_shortcut(chord) {
+                            *chord = normalized;
+                        }
+                    }
+                }
+            }
+            self.shortcut_profiles = next;
+            return Ok(());
+        }
         if let Some(id) = path.strip_prefix("shortcuts.") {
             if id.is_empty() {
                 return Err("missing shortcut command id".into());
@@ -1184,7 +1370,9 @@ impl Preferences {
             }
             match section {
                 "shortcuts" => {
+                    let previous = self.shortcuts.clone();
                     self.shortcuts.remove(id);
+                    self.adopt_legacy_changes(&previous);
                 }
                 "menus.colors" => {
                     self.menus.colors.remove(id);
@@ -1195,7 +1383,9 @@ impl Preferences {
         }
         let def = Preferences::default().get(path).ok_or_else(|| format!("unknown preference `{path}`"))?;
         if path == "shortcuts" {
+            let previous = self.shortcuts.clone();
             self.shortcuts.clear();
+            self.adopt_legacy_changes(&previous);
             return Ok(());
         }
         let mut root = self.to_json();
@@ -1204,17 +1394,73 @@ impl Preferences {
         Ok(())
     }
 
+    /// Keep older automation and workspace-layout writes useful after migration.
+    /// The legacy map remains serializable; only workspaces changed by that write move.
+    fn adopt_legacy_changes(&mut self, previous: &BTreeMap<String, String>) {
+        if !self.shortcut_profiles.migrated {
+            self.shortcut_profiles.migrate(&self.shortcuts);
+            return;
+        }
+        for library in [false, true] {
+            let scoped = |map: &BTreeMap<String, String>| -> BTreeMap<String, String> {
+                map.iter().filter(|(id, _)| id.starts_with("library::") == library).map(|(id, key)| (id.clone(), key.clone())).collect()
+            };
+            let overrides = scoped(&self.shortcuts);
+            if overrides == scoped(previous) {
+                continue;
+            }
+            let workspace = self.shortcut_profiles.workspace_mut(library);
+            if !workspace.custom.contains_key(&workspace.active) && !overrides.is_empty() {
+                let mut name = format!("Custom ({})", workspace.active);
+                while workspace.custom.contains_key(&name) {
+                    name.push('2');
+                }
+                let _ = workspace.duplicate(&name);
+            }
+            if let Some(profile) = workspace.custom.get_mut(&workspace.active) {
+                profile.overrides = overrides;
+            }
+        }
+    }
+
+    /// Active custom bindings, with the legacy map readable until migration.
+    pub fn shortcut_overrides(&self, library: bool) -> &BTreeMap<String, String> {
+        let workspace = self.shortcut_profiles.workspace(library);
+        if let Some(profile) = workspace.custom.get(&workspace.active) {
+            &profile.overrides
+        } else if !self.shortcut_profiles.migrated {
+            &self.shortcuts
+        } else {
+            static EMPTY: std::sync::LazyLock<BTreeMap<String, String>> = std::sync::LazyLock::new(BTreeMap::new);
+            &EMPTY
+        }
+    }
+
     /// The shortcut in effect for a command: the user's override, else its default.
     pub fn shortcut<'a>(&'a self, id: &str, default: Option<&'a str>) -> Option<&'a str> {
-        match self.shortcuts.get(id) {
+        if let Some((_, _, chord)) = GLOBAL_SHORTCUTS.iter().find(|(command, _, _)| *command == id) {
+            return Some(chord);
+        }
+        match self.shortcut_overrides(id.starts_with("library::")).get(id) {
             Some(s) if s.is_empty() => None,
-            Some(s) => Some(s.as_str()),
+            Some(s) => (!global_shortcut_conflict(s)).then_some(s.as_str()),
             None => default,
         }
     }
 }
 
 // ------------------------------------------------------------------ shortcuts
+
+/// Fixed Global chords also protect spring-loaded tools resolved by the engine.
+pub fn global_shortcut_conflict(chord: &str) -> bool {
+    global_shortcut_owner(chord).is_some()
+}
+fn global_shortcut_owner(chord: &str) -> Option<&'static str> {
+    let canonical =
+        |s: &str| normalize_shortcut(s).map(|s| if cfg!(target_os = "macos") { s } else { s.replace("Cmd+Ctrl+", "Cmd+").replace("Ctrl+", "Cmd+") });
+    let key = canonical(chord)?;
+    GLOBAL_SHORTCUTS.iter().find(|(_, _, chord)| canonical(chord).as_ref() == Some(&key)).map(|(id, _, _)| *id)
+}
 
 // Unchanged legacy spellings may survive a full dialog round trip; newly introduced
 // invalid keys are refused. Null means remove the override, empty means disable it.
@@ -1509,6 +1755,24 @@ impl Session {
                 *shortcut = normalized;
             }
         }
+        prefs.shortcut_profiles.migrate(&prefs.shortcuts);
+        for library in [false, true] {
+            let builtins = if library { ["Lightroom", "Capture One"] } else { ["Photoshop", "Affinity Photo"] };
+            let workspace = prefs.shortcut_profiles.workspace_mut(library);
+            for profile in workspace.custom.values_mut() {
+                if !builtins.contains(&profile.parent.as_str()) {
+                    profile.parent = builtins[0].into();
+                }
+                for chord in profile.overrides.values_mut() {
+                    if let Some(normalized) = normalize_shortcut(chord) {
+                        *chord = normalized;
+                    }
+                }
+            }
+            if !builtins.contains(&workspace.active.as_str()) && !workspace.custom.contains_key(&workspace.active) {
+                workspace.active = builtins[0].into();
+            }
+        }
         if let Some(c) = color {
             let (settings, bad) = lenient(c).map_err(|e| format!("colour settings: {e}"))?;
             self.color.settings = settings;
@@ -1560,7 +1824,12 @@ impl Session {
                     self.set_pref("colorSettings", v.clone())?;
                     continue;
                 }
-                if v.is_object() && !p.starts_with("shortcuts") && !p.ends_with(".colors") && next.get(&p).is_some_and(|c| c.is_object()) {
+                if v.is_object()
+                    && p != "shortcutProfiles"
+                    && !p.starts_with("shortcuts")
+                    && !p.ends_with(".colors")
+                    && next.get(&p).is_some_and(|c| c.is_object())
+                {
                     for (k2, v2) in v.as_object().into_iter().flatten() {
                         next.set_unmigrated(&format!("{p}.{k2}"), v2.clone())?;
                     }
@@ -1571,6 +1840,7 @@ impl Session {
         } else {
             next.set_unmigrated(path, value)?;
         }
+        next.adopt_legacy_changes(&self.prefs().shortcuts);
         self.prefs.edit(|p| *p = next);
         Ok(())
     }
@@ -1589,7 +1859,7 @@ fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
 fn prefs_get(s: &mut Session, p: &Value) -> Result<Value> {
     let path = p.get("path").and_then(Value::as_str).unwrap_or("");
     let v = s.prefs_view();
-    get_path(&v, path).cloned().ok_or_else(|| bad("prefs.get", format!("unknown preference `{path}`")))
+    s.prefs().get(path).or_else(|| get_path(&v, path).cloned()).ok_or_else(|| bad("prefs.get", format!("unknown preference `{path}`")))
 }
 
 fn prefs_set(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1639,6 +1909,7 @@ fn prefs_reset(s: &mut Session, p: &Value) -> Result<Value> {
         Some(path) => {
             let mut next = s.prefs().clone();
             next.reset(Some(path)).map_err(|e| bad("prefs.reset", e))?;
+            next.adopt_legacy_changes(&s.prefs().shortcuts);
             s.edit_prefs(|p| *p = next);
         }
     }
@@ -1700,12 +1971,15 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
         if p.get("removeConflicts").and_then(Value::as_bool).unwrap_or(true) {
             for (id, v) in m {
                 let Some(sc) = v.as_str().and_then(normalize_shortcut) else { continue };
+                if global_shortcut_conflict(&sc) {
+                    continue;
+                }
                 for (c, def) in bindable() {
                     // Never strip a command that this same call is assigning:
                     // two entries for one key are a clash inside the call, which
                     // the returned conflicts list reports (#719). Stripping
                     // each other here unbound both silently.
-                    if c == id || m.contains_key(c) {
+                    if c == id || m.contains_key(c) || GLOBAL_SHORTCUTS.iter().any(|(global, _, _)| *global == c) {
                         continue;
                     }
                     if next.shortcut(c, def).and_then(normalize_shortcut).as_deref() == Some(sc.as_str()) {
@@ -1716,6 +1990,7 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
         }
     }
     if changed {
+        next.adopt_legacy_changes(&before.shortcuts);
         s.edit_prefs(|p| *p = next);
     }
     let prefs = s.prefs();
@@ -1737,7 +2012,17 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
         })
         .collect();
     let bindings: Vec<(&str, &str)> = bindable().filter_map(|(id, def)| Some((id, prefs.shortcut(id, def)?))).collect();
-    let conflicts: Vec<Value> = conflicts(bindings).into_iter().map(|(sc, ids)| json!({"shortcut": sc, "commands": ids})).collect();
+    let mut conflicts: Vec<Value> = conflicts(bindings).into_iter().map(|(sc, ids)| json!({"shortcut": sc, "commands": ids})).collect();
+    for library in [false, true] {
+        for (id, key) in prefs.shortcut_overrides(library).iter().filter(|(id, _)| id.starts_with("library::") == library) {
+            if let Some(global) = global_shortcut_owner(key)
+                && id != global
+            {
+                conflicts
+                    .push(json!({"shortcut": key, "commands":[id,global], "scope":if library { "library" } else { "editor" }, "global":true,"ignored":true}));
+            }
+        }
+    }
     Ok(json!({"overrides": prefs.shortcuts, "commands": list, "conflicts": conflicts}))
 }
 
@@ -1920,3 +2205,82 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 #[path = "prefs/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod shortcut_profile_tests {
+    use super::*;
+
+    #[test]
+    fn keys_profiles_migrate_legacy_and_downgrade_read() {
+        let file = r#"{"shortcuts":{"library::view.develop":"F6","tools.select.Brush":"Shift+B","future.command":"Alt+FutureKey"}}"#;
+        let mut session = Session::new();
+        session.load_prefs_json(file).unwrap();
+        let prefs = session.prefs();
+        assert_eq!(prefs.shortcut_profiles.library.active, "Custom (migrated)");
+        assert_eq!(prefs.shortcut_profiles.editor.active, "Custom (migrated)");
+        assert_eq!(
+            prefs.shortcuts,
+            serde_json::from_str::<Value>(file).unwrap()["shortcuts"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap().into()))
+                .collect()
+        );
+        assert_eq!(prefs.shortcut("tools.select.Brush", Some("B")), Some("Shift+B"));
+        // Frozen pre-profile shape: serde's old reader ignores the new field and still
+        // sees the exact legacy command map. This does not depend on the new resolver.
+        #[derive(Deserialize)]
+        struct OldPreferences {
+            shortcuts: BTreeMap<String, String>,
+        }
+        let saved = session.prefs_to_json();
+        let old: OldPreferences = serde_json::from_str(&saved).unwrap();
+        assert_eq!(old.shortcuts, prefs.shortcuts);
+        session.edit_prefs(|p| p.shortcut_profiles.editor.delete_active());
+        let saved = session.prefs_to_json();
+        session.load_prefs_json(&saved).unwrap();
+        assert_eq!(session.prefs().shortcut_profiles.editor.active, "Photoshop", "stale legacy map must not re-migrate");
+        assert_eq!(session.prefs().shortcuts, old.shortcuts);
+    }
+
+    #[test]
+    fn keys_profiles_validation_paths_names_and_atomicity() {
+        let mut session = Session::new();
+        let mut profiles = ShortcutProfiles::default();
+        profiles.migrate(&BTreeMap::new());
+        profiles.library.active = "Capture One".into();
+        profiles.library.duplicate("My C1.2").unwrap();
+        session.execute("prefs.set", serde_json::json!({"path":"shortcutProfiles", "value":profiles})).unwrap();
+        let path = "shortcutProfiles.library.custom.My C1.2.overrides.library::view.maskOverlay";
+        session.execute("prefs.set", serde_json::json!({"path":path,"value":"shift+o"})).unwrap();
+        assert_eq!(session.prefs().get(path), Some(serde_json::json!("Shift+O")));
+        let before = session.prefs().clone();
+        assert!(
+            session
+                .execute("prefs.set", serde_json::json!({"values": {"shortcutProfiles.editor.active":"Capture One","shortcuts":{"file.new":"F6"}}}))
+                .is_err()
+        );
+        assert_eq!(session.prefs(), &before);
+        assert!(session.execute("prefs.set", serde_json::json!({"path":path,"value":"Cmd+Banana"})).is_err());
+        assert_eq!(session.prefs(), &before);
+        session.edit_prefs(|p| {
+            p.shortcut_profiles.library.rename("Sky").unwrap();
+            p.shortcut_profiles.library.delete_active();
+        });
+        assert_eq!(session.prefs().shortcut_profiles.library.active, "Capture One");
+        assert_eq!(session.prefs().shortcut_profiles.editor.active, "Photoshop");
+    }
+
+    #[test]
+    fn keys_profiles_global_cannot_be_rebound_even_by_hold_keys() {
+        let mut prefs = Preferences::default();
+        prefs.shortcuts.insert("edit.undo".into(), "F6".into());
+        prefs.shortcuts.insert("tools.temporary.hand".into(), "Cmd+Q".into());
+        assert_eq!(prefs.shortcut("edit.undo", None), Some("Cmd+Z"));
+        assert_eq!(prefs.shortcut("tools.temporary.hand", Some("Space")), None);
+        assert!(global_shortcut_conflict("Cmd+Alt+1"));
+        assert!(global_shortcut_conflict("Cmd+K"));
+        assert!(!global_shortcut_conflict("Cmd+,"), "Library Settings and Photoshop layer visibility are workspace keys");
+    }
+}

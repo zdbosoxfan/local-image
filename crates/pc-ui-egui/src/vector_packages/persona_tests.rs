@@ -100,7 +100,9 @@ fn persona_clicks_and_shortcuts_keep_document_dock_selection_and_history() {
     let history = st.history.past_len();
     let selected = st.selected_layers();
     let dock = serde_json::to_value(&h.state().ui.dock).unwrap();
-    let rows = h.get_all_by_label("Background").count();
+    // The shared Color panel also has a Background paint button in Pixel.
+    // Count the actual recorded Layers rows rather than unrelated labels.
+    let rows = crate::layer_row_ui::recorded(&h.ctx).len();
     assert_eq!(rows, 1, "one actual Layers row");
     h.get_by_label("Brush Tool");
     h.get_by_label("Vector persona").click();
@@ -121,7 +123,7 @@ fn persona_clicks_and_shortcuts_keep_document_dock_selection_and_history() {
     assert!(Arc::ptr_eq(&st.doc, &doc), "switching must not publish a document edit");
     assert_eq!((st.selected_layers(), st.history.past_len()), (selected, history));
     assert_eq!(serde_json::to_value(&h.state().ui.dock).unwrap(), dock);
-    assert_eq!(h.get_all_by_label("Background").count(), rows);
+    assert_eq!(crate::layer_row_ui::recorded(&h.ctx).len(), rows);
 }
 
 #[test]

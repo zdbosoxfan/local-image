@@ -3865,3 +3865,12 @@ ai	New	Neu
 	testing…	Test läuft…
 	Autosave failed	Automatisches Speichern fehlgeschlagen
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Die Absturzwiederherstellung kann keine Kopie Ihrer ungespeicherten Änderungen behalten. Speichern Sie Ihre Arbeit, um sie zu behalten.
+
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Alle Tastenkürzel in diesem Profil wurden auf die Standardwerte zurückgesetzt.
+	Colour brightness	Farbhelligkeit
+	Colour hue	Farbton der Farbe
+	Colour saturation	Farbsättigung
+	Editor	Editor
+	Library + Develop	Bibliothek + Entwickeln
+	Scope	Geltungsbereich

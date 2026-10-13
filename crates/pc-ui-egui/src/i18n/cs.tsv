@@ -3905,3 +3905,12 @@ ai	New	Nové
 	testing…	testování…
 	Autosave failed	Automatické ukládání selhalo
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Obnova po pádu nemůže uchovat kopii neuložených změn. Uložte svou práci, abyste o ni nepřišli.
+
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Všechny klávesové zkratky v tomto profilu byly obnoveny na výchozí hodnoty.
+	Colour brightness	Jas barvy
+	Colour hue	Odstín barvy
+	Colour saturation	Sytost barvy
+	Editor	Editor
+	Library + Develop	Knihovna + Vyvolání
+	Scope	Rozsah

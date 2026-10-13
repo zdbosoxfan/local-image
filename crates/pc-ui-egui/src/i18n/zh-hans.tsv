@@ -3876,3 +3876,12 @@ ai	New	最新
 @id	path.finishCompound	完成复合路径
 	Autosave failed	自动保存失败
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	崩溃恢复无法保留未保存更改的副本。请保存您的工作。
+
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	已将此配置中的所有快捷键重置为默认值。
+	Colour brightness	颜色亮度
+	Colour hue	颜色色相
+	Colour saturation	色彩饱和度
+	Editor	编辑器
+	Library + Develop	图库 + 显影
+	Scope	范围

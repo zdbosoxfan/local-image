@@ -3876,3 +3876,12 @@ ai	New	Baru
 @id	path.finishCompound	Selesaikan Jalur Gabungan
 	Autosave failed	Simpan otomatis gagal
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Pemulihan crash tidak dapat menyimpan salinan perubahan yang belum disimpan. Simpan pekerjaan Anda agar tidak hilang.
+
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Semua pintasan dalam profil ini telah diatur ulang ke nilai default.
+	Colour brightness	Kecerahan warna
+	Colour hue	Rona warna
+	Colour saturation	Saturasi warna
+	Editor	Editor
+	Library + Develop	Pustaka + Pengembangan
+	Scope	Cakupan

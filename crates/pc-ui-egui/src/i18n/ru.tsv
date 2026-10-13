@@ -3988,3 +3988,12 @@ ai	New	Новые
 @id	path.finishCompound	Завершить составной контур
 	Autosave failed	Ошибка автосохранения
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Восстановление после сбоя не может сохранить копию несохранённых изменений. Сохраните работу, чтобы не потерять её.
+
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Все сочетания клавиш этого профиля сброшены к значениям по умолчанию.
+	Colour brightness	Яркость цвета
+	Colour hue	Тон цвета
+	Colour saturation	Насыщенность цвета
+	Editor	Редактор
+	Library + Develop	Библиотека + Проявка
+	Scope	Область

@@ -3888,3 +3888,12 @@ ai	New	Nouveautés
 	testing…	test en cours…
 	Autosave failed	Échec de l’enregistrement automatique
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	La récupération après plantage ne peut pas conserver une copie de vos modifications non enregistrées. Enregistrez votre travail pour le conserver.
+
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Tous les raccourcis de ce profil ont été réinitialisés aux valeurs par défaut.
+	Colour brightness	Luminosité de la couleur
+	Colour hue	Teinte de la couleur
+	Colour saturation	Saturation de la couleur
+	Editor	Éditeur
+	Library + Develop	Bibliothèque + Développement
+	Scope	Portée

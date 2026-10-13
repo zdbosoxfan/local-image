@@ -3888,3 +3888,12 @@ ai	New	新着
 @id	path.finishCompound	複合パスを確定
 	Autosave failed	自動保存に失敗しました
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	クラッシュ復旧用に未保存の変更のコピーを保持できません。作業内容を保存してください。
+
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	このプロファイルのすべてのショートカットを初期設定に戻しました。
+	Colour brightness	色の明るさ
+	Colour hue	色の色相
+	Colour saturation	色の彩度
+	Editor	エディター
+	Library + Develop	ライブラリ + 現像
+	Scope	適用範囲

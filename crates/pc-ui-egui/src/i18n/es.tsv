@@ -3896,3 +3896,12 @@ ai	New	Nuevos
 	testing…	probando…
 	Autosave failed	Error al guardar automáticamente
 	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	La recuperación tras bloqueo no puede guardar una copia de los cambios sin guardar. Guarda tu trabajo para conservarlo.
+
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Se han restablecido los atajos de este perfil a sus valores predeterminados.
+	Colour brightness	Brillo del color
+	Colour hue	Tono del color
+	Colour saturation	Saturación del color
+	Editor	Editor
+	Library + Develop	Biblioteca + Revelado
+	Scope	Ámbito

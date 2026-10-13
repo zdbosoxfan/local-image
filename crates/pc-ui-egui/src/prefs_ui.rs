@@ -946,13 +946,9 @@ fn reserved_message(action: &str) -> String {
     format!("This shortcut is reserved for {action}. Choose another shortcut; the existing binding is unchanged.")
 }
 
-fn same_chord_in_scope(id: &str, a: &str, b: &str) -> bool {
-    if !id.starts_with("library::") {
-        return prefs::normalize_shortcut(a).is_some_and(|a| Some(a) == prefs::normalize_shortcut(b));
-    }
+fn same_chord_in_scope(_id: &str, a: &str, b: &str) -> bool {
     let identity = |value: &str| {
         let mut shortcut = crate::shortcuts::parse(value)?;
-        // Library's longstanding Delete binding accepts both backward/forward delete.
         if shortcut.logical_key == egui::Key::Delete {
             shortcut.logical_key = egui::Key::Backspace;
         }
@@ -964,6 +960,7 @@ fn same_chord_in_scope(id: &str, a: &str, b: &str) -> bool {
     };
     identity(a).is_some_and(|a| Some(a) == identity(b))
 }
+
 fn same_shortcut_scope(a: &str, b: &str) -> bool {
     a.starts_with("library::") == b.starts_with("library::")
 }
@@ -971,10 +968,13 @@ fn same_shortcut_scope(a: &str, b: &str) -> bool {
 /// Open Keyboard Shortcuts and Menus on a tab (0 shortcuts, 1 menus, 2 toolbar).
 pub fn open_shortcuts(app: &mut PhotocraftApp, tab: u64) -> u64 {
     let p = app.session.prefs();
+    let mut overrides = p.shortcut_overrides(false).clone();
+    overrides.extend(p.shortcut_overrides(true).iter().map(|(id, key)| (id.clone(), key.clone())));
     let fields = json!({
         "tab": tab,
         "filter": "",
-        "overrides": p.shortcuts,
+        "overrides": overrides,
+        "profiles": p.shortcut_profiles,
         "hidden": p.menus.hidden,
         "colors": p.menus.colors,
         "toolbarOriginal": p.toolbar,
@@ -1035,6 +1035,9 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
             f.insert("__gpuInfo".into(), json!(app.perf.gpu_info.lines()));
             f.insert("__gpuFailure".into(), json!(app.perf.gpu_info.failure()));
             prefs_body(ui, f);
+            if f.remove("openShortcuts").and_then(|v| v.as_bool()).unwrap_or(false) {
+                open_shortcuts(app, 0);
+            }
             crate::attributions::open_pending(app, ui.ctx(), f);
         }
         "shortcuts" => shortcuts_body(app, ui, f),
@@ -1147,6 +1150,9 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                 if resp.clicked() {
                     section = id.to_string();
                 }
+            }
+            if ui.button("Keyboard Shortcuts…").clicked() {
+                f.insert("openShortcuts".into(), json!(true));
             }
             crate::attributions::prefs_nav(ui, &mut section);
         });
@@ -1426,24 +1432,108 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         f.insert("__hostShortcuts".into(), json!(host));
         items.extend(host);
     }
-    let mut scope = f.get("shortcutScope").and_then(Value::as_str).unwrap_or("all").to_string();
+    let mut scope = f.get("shortcutScope").and_then(Value::as_str).unwrap_or("editor").to_string();
+    let previous_scope = scope.clone();
+    let parsed_profiles = f.get("profiles").cloned().map(serde_json::from_value::<prefs::ShortcutProfiles>);
+    if parsed_profiles.as_ref().is_some_and(Result::is_err) {
+        ui.label("Invalid shortcut profiles. Cancel to keep your saved profiles.");
+        return;
+    }
+    let mut profiles = parsed_profiles.and_then(Result::ok).unwrap_or_default();
+    profiles.migrate(&overrides);
     if tab == 0 {
         ui.horizontal(|ui| {
-            ui.label(tl!("Module"));
+            ui.label(tl!("Scope"));
             egui::ComboBox::from_id_salt("shortcut-module")
                 .selected_text(match scope.as_str() {
-                    "library" => tl!("Library / Develop"),
-                    "editor" => tl!("Compositing"),
-                    _ => tl!("All modules"),
+                    "library" => tl!("Library + Develop"),
+                    "editor" => tl!("Editor"),
+                    _ => tl!("Global"),
                 })
                 .show_ui(ui, |ui| {
-                    for (id, label) in [("all", tl!("All modules")), ("editor", tl!("Compositing")), ("library", tl!("Library / Develop"))] {
+                    for (id, label) in [("global", tl!("Global")), ("library", tl!("Library + Develop")), ("editor", tl!("Editor"))] {
                         ui.selectable_value(&mut scope, id.to_string(), label);
                     }
                 });
         });
+        if scope != previous_scope {
+            capture = false;
+            selected.clear();
+            message.clear();
+        }
         f.insert("shortcutScope".into(), json!(scope));
+        if scope == "global" {
+            ui.label("Global shortcuts are fixed and take precedence in every workspace.");
+            for (_, label, key) in prefs::GLOBAL_SHORTCUTS {
+                ui.horizontal(|ui| {
+                    ui.label(*label);
+                    ui.label(crate::shortcuts::pretty(key));
+                });
+            }
+            f.insert("capture".into(), json!(false));
+            f.insert("profiles".into(), json!(profiles));
+            return;
+        }
+        let library = scope == "library";
+        let workspace = profiles.workspace_mut(library);
+        let previous = workspace.active.clone();
+        let builtins = if library { ["Lightroom", "Capture One"] } else { ["Photoshop", "Affinity Photo"] };
+        let mut names: Vec<String> = builtins.iter().map(|name| (*name).into()).collect();
+        names.extend(workspace.custom.keys().cloned());
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Profile");
+            egui::ComboBox::from_id_salt("shortcut-profile").selected_text(&workspace.active).show_ui(ui, |ui| {
+                for name in names {
+                    ui.selectable_value(&mut workspace.active, name.clone(), &name);
+                }
+            });
+            let mut name = f.get("profileName").and_then(Value::as_str).unwrap_or("").to_string();
+            let name_field = ui.add(egui::TextEdit::singleline(&mut name).desired_width(120.0).hint_text("Profile name"));
+            name_field.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Profile name"));
+            f.insert("profileName".into(), json!(name));
+            if ui.button("Duplicate").clicked() {
+                if let Err(error) = workspace.duplicate(&name) {
+                    message = error;
+                } else {
+                    message.clear();
+                }
+            }
+            let custom = workspace.custom.contains_key(&workspace.active);
+            if ui.add_enabled(custom, egui::Button::new("Rename")).clicked()
+                && let Err(error) = workspace.rename(&name)
+            {
+                message = error;
+            }
+            if ui.add_enabled(custom, egui::Button::new("Delete Profile")).clicked() {
+                workspace.delete_active();
+            }
+        });
+        if previous != workspace.active {
+            overrides.retain(|id, _| id.starts_with("library::") != library);
+            if let Some(profile) = workspace.custom.get(&workspace.active) {
+                overrides.extend(profile.overrides.clone());
+            }
+            capture = false;
+            selected.clear();
+            message.clear();
+        }
+        if workspace.parent() == "Affinity Photo" {
+            ui.label("Supported Affinity equivalents only; gaps are unassigned. R: Rotate View; J: Healing / AI Remove.");
+        }
+        if workspace.parent() == "Capture One" {
+            ui.label("B / E / G / M apply with Develop Edit or Mask active. L also selects Linear Gradient.");
+        }
+        let mut working = app.session.prefs().clone();
+        working.shortcut_profiles = profiles.clone();
+        for (id, _, _, def) in &mut items {
+            *def = if id.starts_with("library::") {
+                crate::keymaps::library::default(profiles.library.parent(), id, true, def.as_deref()).map(str::to_string)
+            } else {
+                crate::keymaps::default(&working, id, def.as_deref()).map(str::to_string)
+            };
+        }
     }
+    let original_overrides = overrides.clone();
     // Menu path and command label as shown in the menus, in the UI language.
     let shown = |id: &str, label: &str, path: &[String]| -> (Vec<String>, String) {
         let lang = crate::i18n::current();
@@ -1475,7 +1565,11 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                 capture = false;
                 message = tl!("Shortcut removed.").into();
             } else if let Some(sc) = shortcut_text(key, m) {
-                if let Some(action) = reserved_library_chord(&selected, &sc) {
+                if let Some(action) = crate::keymaps::global_conflict(&sc) {
+                    overrides.insert(selected.clone(), sc.clone());
+                    message = format!("Conflict with Global: {action}. This binding is ignored.");
+                    capture = false;
+                } else if let Some(action) = reserved_library_chord(&selected, &sc) {
                     message = reserved_message(action);
                     capture = false;
                 } else {
@@ -1523,10 +1617,14 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         message = format!("Saved binding retained. {}", reserved_message(action));
     }
     let needle = filter.to_ascii_lowercase();
-    egui::ScrollArea::vertical().max_height(420.0).id_salt("shortcuts-scroll").show(ui, |ui| {
+    let name_width = (ui.available_width() - 250.0).clamp(110.0, 440.0);
+    egui::ScrollArea::both().max_height(360.0).id_salt("shortcuts-scroll").show(ui, |ui| {
         let mut last_top = String::new();
         egui::Grid::new("shortcut-grid").num_columns(3).spacing([12.0, 3.0]).striped(true).show(ui, |ui| {
             for (id, label, path, def) in &items {
+                if tab == 0 && crate::keymaps::is_global(id) {
+                    continue;
+                }
                 if tab == 0 && ((scope == "library" && !id.starts_with("library::")) || (scope == "editor" && id.starts_with("library::"))) {
                     continue;
                 }
@@ -1553,7 +1651,14 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                     _ => shown_label,
                 };
                 let sel = selected == *id;
-                if ui.selectable_label(sel, RichText::new(format!("   {name}")).color(t.text_dim)).clicked() {
+                if ui
+                    .add_sized(
+                        [name_width, 20.0],
+                        egui::Button::selectable(sel, RichText::new(format!("   {name}")).color(t.text_dim)).wrap_mode(egui::TextWrapMode::Truncate),
+                    )
+                    .on_hover_text(&name)
+                    .clicked()
+                {
                     selected = id.clone();
                 }
                 if tab == 0 {
@@ -1568,7 +1673,29 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                         capture = true;
                         message.clear();
                     }
-                    ui.label(if changed { RichText::new(tl!("modified")).color(t.text_faint).size(10.5) } else { RichText::new("") });
+                    let conflict = cur.as_deref().and_then(crate::keymaps::global_conflict).map(|action| format!("Global: {action}")).or_else(|| {
+                        cur.as_deref().and_then(|chord| {
+                            items
+                                .iter()
+                                .find(|(other, _, _, default)| {
+                                    *other != *id
+                                        && same_shortcut_scope(other, id)
+                                        && !crate::keymaps::is_global(other)
+                                        && eff(&overrides, other, default).as_deref().is_some_and(|key| same_chord_in_scope(id, key, chord))
+                                })
+                                .map(|(_, label, _, _)| format!("Conflict: {label}"))
+                        })
+                    });
+                    ui.add_sized(
+                        [100.0, 20.0],
+                        egui::Label::new(
+                            RichText::new(conflict.as_deref().unwrap_or(if changed { "modified" } else { "" }))
+                                .color(if conflict.is_some() { t.warning } else { t.text_faint })
+                                .size(10.5),
+                        )
+                        .wrap(),
+                    )
+                    .on_hover_text(conflict.as_deref().unwrap_or(""));
                 } else {
                     let mut visible = !hidden.contains(id);
                     crate::widgets::checkbox(ui, &mut visible, tl!("Visible"));
@@ -1610,8 +1737,8 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
             let action = ui.button(tl!("Reset All to Defaults"));
             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("shortcut-action", "reset")), action.rect));
             if action.clicked() {
-                overrides.clear();
-                message = tl!("All shortcuts reset to defaults.").into();
+                overrides.retain(|id, _| id.starts_with("library::") != (scope == "library"));
+                message = tl!("All shortcuts in this profile reset to defaults.").into();
             }
         });
     } else if ui.button(tl!("Show All Menu Items")).clicked() {
@@ -1619,9 +1746,29 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         colors.clear();
     }
     if !message.is_empty() {
-        ui.label(RichText::new(&message).color(if message.contains("already in use") || message.contains("reserved") { t.warning } else { t.text_dim }));
+        ui.label(RichText::new(&message).color(if message.contains("already in use") || message.contains("reserved") || message.contains("Conflict") {
+            t.warning
+        } else {
+            t.text_dim
+        }));
     }
     if overrides_ok {
+        if tab == 0 && overrides != original_overrides {
+            let library = scope == "library";
+            let workspace = profiles.workspace_mut(library);
+            if !workspace.custom.contains_key(&workspace.active) {
+                let mut name = format!("Custom ({})", workspace.active);
+                while workspace.custom.contains_key(&name) {
+                    name.push('2');
+                }
+                let _ = workspace.duplicate(&name);
+            }
+            if let Some(profile) = workspace.custom.get_mut(&workspace.active) {
+                profile.overrides =
+                    overrides.iter().filter(|(id, _)| id.starts_with("library::") == library).map(|(id, key)| (id.clone(), key.clone())).collect();
+            }
+        }
+        f.insert("profiles".into(), json!(profiles));
         f.insert("overrides".into(), json!(overrides));
     }
     f.insert("hidden".into(), json!(hidden));
@@ -1735,6 +1882,56 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             // The map replaces every stored override, so a malformed one is an error, not "none".
             let mut ov: BTreeMap<String, String> =
                 serde_json::from_value(overrides).map_err(|e| format!("overrides must map command IDs to shortcut strings: {e}"))?;
+            if let Some(value) = f.get("profiles") {
+                let mut profiles: prefs::ShortcutProfiles = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+                profiles.migrate(&ov);
+                let mut defaults = shortcut_items(app);
+                defaults.extend(f.get("__hostShortcuts").and_then(|v| serde_json::from_value::<Vec<HostShortcutItem>>(v.clone()).ok()).unwrap_or_default());
+                let changed: Vec<_> = ov.iter().filter(|(_, key)| !key.is_empty()).map(|(id, key)| (id.clone(), key.clone())).collect();
+                for (id, key) in changed {
+                    if crate::keymaps::global_conflict(&key).is_some() {
+                        continue;
+                    }
+                    let unchanged_library = id.starts_with("library::")
+                        && app.session.prefs().shortcuts.get(&id).and_then(|old| prefs::normalize_shortcut(old)).as_deref()
+                            == prefs::normalize_shortcut(&key).as_deref();
+                    if let Some(action) = reserved_library_chord(&id, &key)
+                        && !unchanged_library
+                    {
+                        return Err(reserved_message(action));
+                    }
+                    if unchanged_library {
+                        continue;
+                    }
+                    for (other, _, _, default) in &defaults {
+                        if *other != id
+                            && !crate::keymaps::is_global(other)
+                            && same_shortcut_scope(&id, other)
+                            && !ov.contains_key(other)
+                            && default.as_deref().is_some_and(|old| same_chord_in_scope(&id, old, &key))
+                        {
+                            ov.insert(other.clone(), String::new());
+                        }
+                    }
+                }
+                for library in [false, true] {
+                    let workspace = profiles.workspace_mut(library);
+                    let current: BTreeMap<_, _> =
+                        ov.iter().filter(|(id, _)| id.starts_with("library::") == library).map(|(k, v)| (k.clone(), v.clone())).collect();
+                    let old = workspace.custom.get(&workspace.active).map(|p| p.overrides.clone()).unwrap_or_default();
+                    if current != old {
+                        if !workspace.custom.contains_key(&workspace.active) {
+                            let name = format!("Custom ({})", workspace.active);
+                            workspace.duplicate(&name)?;
+                        }
+                        if let Some(profile) = workspace.custom.get_mut(&workspace.active) {
+                            profile.overrides = current;
+                        }
+                    }
+                }
+                // Apply through a single prefs transaction: invalid profiles cannot partially save.
+                return app.run("prefs.set", json!({"values": {"shortcutProfiles": profiles, "shortcuts": ov, "menus": {"hidden": f.get("hidden").cloned().unwrap_or(json!([])), "colors": f.get("colors").cloned().unwrap_or(json!({}))}}}));
+            }
             let mut items = shortcut_items(app);
             items.extend(f.get("__hostShortcuts").and_then(|v| serde_json::from_value::<Vec<HostShortcutItem>>(v.clone()).ok()).unwrap_or_default());
             let changed: Vec<(String, String)> = ov.iter().filter(|(_, s)| !s.is_empty()).map(|(k, s)| (k.clone(), s.clone())).collect();
@@ -2636,3 +2833,7 @@ mod bugfix_save_tests {
 #[cfg(test)]
 #[path = "shared_library_shortcut_tests.rs"]
 mod shared_library_shortcut_tests;
+
+#[cfg(test)]
+#[path = "keymap_tests.rs"]
+mod keymap_tests;
