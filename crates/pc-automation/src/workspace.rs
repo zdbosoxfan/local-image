@@ -593,6 +593,7 @@ mod tests {
                 | "shape.presets.list"
                 | "shape.presets.new"
                 | "path.list"
+                | "path.stroke"
                 | "path.info"
                 | "path.set"
                 | "path.transform"
