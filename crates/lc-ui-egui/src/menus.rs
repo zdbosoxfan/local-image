@@ -263,9 +263,14 @@ fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str
             app.ui.view = ViewMode::Detail;
         }
     }
-    if !matches!(p, RightPanel::Masking | RightPanel::Edit) && app.ui.tool != "wbPicker" {
+    let edit_tool =
+        matches!(app.ui.tool.as_str(), "brush" | "linear" | "radial" | "object" | "wbPicker" | "pointColor" | "skinTone" | "colorRange" | "negDmin")
+            || app.ui.tool.starts_with("tat:");
+    if (p == RightPanel::Edit && !edit_tool) || (!matches!(p, RightPanel::Masking | RightPanel::Edit) && app.ui.tool != "wbPicker") {
         app.ui.tool.clear();
     }
+    app.ui.pending_mask_shape = None;
+    app.ui.pending_mask_origin = None;
     let _ = app.session.end_interaction();
 }
 
@@ -441,6 +446,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 app.ui.fullscreen = false;
                 app.ui.slideshow = None;
             } else if !app.ui.tool.is_empty() {
+                app.ui.pending_mask_shape = None;
+                app.ui.pending_mask_origin = None;
+                let _ = app.session.end_interaction();
                 app.ui.tool.clear();
             } else if matches!(app.ui.view, ViewMode::Compare | ViewMode::Survey) {
                 app.ui.view = ViewMode::Detail;
@@ -824,12 +832,17 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "tool.done" => {
-            // Return commits a tool panel (crop, remove, red eye, masking): back to Edit
+            // Return finishes both tool panels and the mask tools hosted in Edit.
             use RightPanel::*;
-            if app.ui.dialog.is_none() && matches!(app.ui.right, Crop | Remove | RedEye | Masking) {
+            if app.ui.dialog.is_none()
+                && (matches!(app.ui.right, Crop | Remove | RedEye | Masking)
+                    || (app.ui.right == Edit && matches!(app.ui.tool.as_str(), "brush" | "linear" | "radial")))
+            {
                 let _ = app.session.end_interaction();
                 app.ui.tool.clear();
                 app.ui.right = Edit;
+                app.ui.pending_mask_shape = std::option::Option::None;
+                app.ui.pending_mask_origin = std::option::Option::None;
             }
             Ok(Value::Null)
         }
@@ -848,6 +861,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         s if s.starts_with("tool.") => {
             let tool = &s["tool.".len()..];
+            app.ui.pending_mask_shape = None;
+            app.ui.pending_mask_origin = None;
+            let _ = app.session.end_interaction();
             match tool {
                 "none" => app.ui.tool.clear(),
                 "guidedUpright" => {

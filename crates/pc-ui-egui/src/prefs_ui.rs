@@ -1621,15 +1621,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         if workspace.parent() == "Capture One" {
             ui.label(RichText::new("B / E / G / M apply with Develop Edit or Mask active. L also selects Linear Gradient.").color(t.text_dim));
         }
-        let mut working = app.session.prefs().clone();
-        working.shortcut_profiles = profiles.clone();
-        for (id, _, _, def) in &mut items {
-            *def = if id.starts_with("library::") {
-                crate::keymaps::library::default(profiles.library.parent(), id, true, def.as_deref()).map(str::to_string)
-            } else {
-                crate::keymaps::default(&working, id, def.as_deref()).map(str::to_string)
-            };
-        }
+        profile_defaults(app.session.prefs(), &profiles, &mut items);
     }
     let original_overrides = overrides.clone();
     // Menu path and command label as shown in the menus, in the UI language.
@@ -1990,6 +1982,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
                 profiles.migrate(&ov);
                 let mut defaults = shortcut_items(app);
                 defaults.extend(f.get("__hostShortcuts").and_then(|v| serde_json::from_value::<Vec<HostShortcutItem>>(v.clone()).ok()).unwrap_or_default());
+                profile_defaults(app.session.prefs(), &profiles, &mut defaults);
                 let changed: Vec<_> = ov.iter().filter(|(_, key)| !key.is_empty()).map(|(id, key)| (id.clone(), key.clone())).collect();
                 for (id, key) in changed {
                     if crate::keymaps::global_conflict(&key).is_some() {
@@ -2003,7 +1996,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
                     {
                         return Err(reserved_message(action));
                     }
-                    if unchanged_library {
+                    if unchanged_library && profiles.library.parent() == app.session.prefs().shortcut_profiles.library.parent() {
                         continue;
                     }
                     for (other, _, _, default) in &defaults {
@@ -3036,5 +3029,18 @@ mod display_info_tests {
         assert_eq!(h.state()["gpuBackend"], "vulkan");
         assert!(!h.state().contains_key("outputDepth"));
         h.get_by_label_contains("Display output: 10-bit client surface");
+    }
+}
+
+/// Both the dialog and OK resolve defaults against the profile being edited.
+fn profile_defaults(prefs: &prefs::Preferences, profiles: &prefs::ShortcutProfiles, items: &mut [HostShortcutItem]) {
+    let mut working = prefs.clone();
+    working.shortcut_profiles = profiles.clone();
+    for (id, _, _, def) in items {
+        *def = if id.starts_with("library::") {
+            crate::keymaps::library::default(profiles.library.parent(), id, true, def.as_deref()).map(str::to_string)
+        } else {
+            crate::keymaps::default(&working, id, def.as_deref()).map(str::to_string)
+        };
     }
 }

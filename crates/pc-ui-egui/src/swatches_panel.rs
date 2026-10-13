@@ -1318,6 +1318,9 @@ pub(crate) fn route_drops(
     let mut state: State = ctx.data(|d| d.get_temp(state_id()).unwrap_or_default());
     let already = state.last_drop_frame == Some(frame);
     let mut remaining = Vec::new();
+    let mut errors = Vec::new();
+    let mut warnings_all = Vec::new();
+    let mut imported = false;
     for file in files {
         let name = file.path().to_string_lossy().into_owned();
         let ext = file.path().extension().and_then(|v| v.to_str()).unwrap_or("").to_ascii_lowercase();
@@ -1330,16 +1333,21 @@ pub(crate) fn route_drops(
         }
         match read_palette_drop(&file).and_then(|bytes| import(app, region.scope, &name, &bytes)) {
             Ok(warnings) => {
-                app.ui.status = warnings.join("; ");
-                app.ui.status_error = false;
-                state.error = None;
+                imported = true;
+                warnings_all.extend(warnings);
             }
-            Err(error) => {
-                app.ui.status_error = true;
-                app.ui.status = error.clone();
-                state.error = Some(error);
-            }
+            Err(error) => errors.push(error),
         }
+    }
+    if !errors.is_empty() {
+        errors.extend(warnings_all);
+        app.ui.status = errors.join("; ");
+        app.ui.status_error = true;
+        state.error = Some(app.ui.status.clone());
+    } else if imported {
+        app.ui.status = warnings_all.join("; ");
+        app.ui.status_error = false;
+        state.error = None;
     }
     state.last_drop_frame = Some(frame);
     ctx.data_mut(|d| d.insert_temp(state_id(), state));

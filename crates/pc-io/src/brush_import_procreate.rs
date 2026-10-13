@@ -51,7 +51,7 @@ pub(crate) fn read(bytes: &[u8], group: &str, ctl: &Interrupt<'_>) -> Result<Bru
             }
             if n("shapeRotation", 0.0) != 0.0 || flag("oriented") {
                 b.shape_dynamics.enabled = true;
-                b.shape_dynamics.angle = Dynamic::controlled(Control::Direction);
+                b.shape_dynamics.angle = Dynamic { jitter: b.shape_dynamics.angle.jitter, ..Dynamic::controlled(Control::Direction) };
             }
             let jitter = n("plotJitter", 0.0).clamp(0.0, 1.0);
             if jitter > 0.0 {

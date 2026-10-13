@@ -291,13 +291,19 @@ pub fn duplicated_for_move(doc: &Document, roots: &[LayerId], active: Option<Lay
     let mut copies = Vec::new();
     let mut next_active = None;
     let mut links = std::collections::BTreeMap::new();
-    let mut next_link = doc.walk().iter().filter_map(|(_, _, l)| l.link_group).max().unwrap_or(0);
-    fn remap(l: &mut Layer, links: &mut std::collections::BTreeMap<u64, u64>, next: &mut u64) -> Result<()> {
+    let mut used_links: std::collections::BTreeSet<u64> = doc.walk().iter().filter_map(|(_, _, l)| l.link_group).collect();
+    let mut next_link = 0;
+    fn remap(l: &mut Layer, links: &mut std::collections::BTreeMap<u64, u64>, next: &mut u64, used: &mut std::collections::BTreeSet<u64>) -> Result<()> {
         if let Some(g) = l.link_group {
             let mapped = match links.get(&g) {
                 Some(mapped) => *mapped,
                 None => {
-                    *next = next.checked_add(1).ok_or_else(|| EngineError::Other("too many layer link groups".into()))?;
+                    loop {
+                        *next = next.checked_add(1).ok_or_else(|| EngineError::Other("too many layer link groups".into()))?;
+                        if used.insert(*next) {
+                            break;
+                        }
+                    }
                     links.insert(g, *next);
                     *next
                 }
@@ -306,7 +312,7 @@ pub fn duplicated_for_move(doc: &Document, roots: &[LayerId], active: Option<Lay
         }
         if let Some(children) = l.children_mut() {
             for c in children {
-                remap(c, links, next)?;
+                remap(c, links, next, used)?;
             }
         }
         Ok(())
@@ -314,7 +320,7 @@ pub fn duplicated_for_move(doc: &Document, roots: &[LayerId], active: Option<Lay
     for id in ids {
         let mut l = doc.layer(id).ok_or(EngineError::NoLayer(id))?.duplicate();
         l.name = format!("{} copy", l.name);
-        remap(&mut l, &mut links, &mut next_link)?;
+        remap(&mut l, &mut links, &mut next_link, &mut used_links)?;
         let new_id = out.insert_above(Some(id), l);
         if Some(id) == active {
             next_active = Some(new_id);
@@ -1404,6 +1410,7 @@ mod tests {
     }
 
     #[test]
+    // TEST-CHANGED F098: the Alt-drag preview also handles stored u64::MAX link groups.
     fn move_copy_linked_layers_is_atomic_and_has_one_journal_and_undo_step() {
         let mut s = session(8);
         let a = rect_layer(&mut s, Rect::new(10, 10, 20, 20));
@@ -1411,7 +1418,10 @@ mod tests {
         select_all(&mut s, &[a, b]);
         s.execute("layer.linkLayers", json!({})).unwrap();
         s.execute("layer.select", json!({"layer": a.0})).unwrap();
-        let before = doc(&s).clone();
+        let mut before = doc(&s).clone();
+        for id in [a, b] {
+            before.layer_mut(id).unwrap().link_group = Some(u64::MAX);
+        }
         let past = s.active().unwrap().history.past_len();
         let journal = s.journal.len();
         let (preview, copies, _) = duplicated_for_move(&before, &[a], Some(a)).unwrap();

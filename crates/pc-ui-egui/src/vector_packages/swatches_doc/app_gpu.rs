@@ -25,7 +25,9 @@ fn harness(objects: usize) -> Harness<'static, PhotocraftApp> {
                 }
             })
             .cloned()
-            .ok_or_else(|| "colour gate requires RTX 5090/Vulkan/discrete".into())
+            .ok_or_else(|| {
+                (if cfg!(target_os = "macos") { "hardware Metal non-CPU adapter required" } else { "colour gate requires RTX 5090/Vulkan/discrete" }).into()
+            })
     }));
     let mut setup = egui_wgpu::WgpuSetup::CreateNew(create);
     crate::gpu_canvas::use_adapter_limits_with(&mut setup, |a| {

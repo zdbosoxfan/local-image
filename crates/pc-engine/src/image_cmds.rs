@@ -348,12 +348,12 @@ fn crop(s: &mut Session, p: &Value) -> Result<Value> {
         let mut out = r;
         s.edit("Crop", |doc, _| {
             let (_, a) = crate::mode_cmds::rotate_doc(doc, -angle, interp, bg)?;
-            let (cx, cy) = (f64::from(r.x0 + r.x1) / 2.0, f64::from(r.y0 + r.y1) / 2.0);
+            let (cx, cy) = ((f64::from(r.x0) + f64::from(r.x1)) / 2.0, (f64::from(r.y0) + f64::from(r.y1)) / 2.0);
             let (nx, ny) = (a.m[0] * cx + a.m[2] * cy + a.m[4], a.m[1] * cx + a.m[3] * cy + a.m[5]);
             let (w, h) = (r.width(), r.height());
             let x0 = (nx - f64::from(w) / 2.0).round() as i32;
             let y0 = (ny - f64::from(h) / 2.0).round() as i32;
-            out = Rect::new(x0, y0, x0 + w as i32, y0 + h as i32);
+            out = Rect::new(x0, y0, x0.saturating_add(w as i32), y0.saturating_add(h as i32));
             crop_doc(doc, "image.crop", out, delete)?;
             doc.selection = None;
             Ok(())
@@ -552,6 +552,16 @@ mod tests {
         let d = &s.active().unwrap().doc;
         assert_eq!((d.size.width, d.size.height), (200, 100));
         assert!(s.execute("image.crop", json!({"x": 0, "y": 0, "width": 10, "height": 10, "angle": 60})).is_err());
+    }
+
+    #[test]
+    fn dsfix_rotated_crop_has_large_positive_center_without_overflow() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width":2,"height":2})).unwrap();
+        let out = s.execute("image.crop", json!({"x":1_100_000_000,"y":1_100_000_000,"width":2,"height":2,"angle":1})).unwrap();
+        assert!(out["x"].as_i64().unwrap() > 1_000_000_000);
+        assert!(out["y"].as_i64().unwrap() > 1_000_000_000);
+        assert_eq!(s.active().unwrap().doc.size.width, 2);
     }
 
     #[test]

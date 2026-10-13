@@ -1,5 +1,8 @@
 // Translations paused by docs/wip/CODEX-TASK.md; vector package 00–47 English keys.
 &[
+    "{label} colour swatch",
+    "Use a file name with {name} and/or {counter}, without folders, unknown tokens, reserved names or invalid filename characters.",
+    "Select a shape with a stroke first.",
     "Rotate View Tool",
     "Rotate View",
     "View angle",

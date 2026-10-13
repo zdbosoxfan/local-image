@@ -145,7 +145,7 @@ pub(crate) fn kpp(bytes: &[u8], group: &str, resources: &BTreeMap<String, Vec<u8
             b.spacing = common::finite(def.attr("spacing"), "spacing")?.clamp(0.01, 10.0);
         }
         if !def.attr("angle").is_empty() {
-            b.angle = common::finite(def.attr("angle"), "rotation")?.to_degrees();
+            b.angle = ((f64::from(common::finite(def.attr("angle"), "rotation")?).to_degrees().rem_euclid(360.0)) as f32).rem_euclid(360.0);
         }
         match def.attr("type") {
             "auto_brush" => auto(def, &defs, &mut b)?,

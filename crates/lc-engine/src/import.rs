@@ -419,7 +419,7 @@ fn probe_all(probe: Option<&crate::media::FileProbe>, paths: &[String], progress
                             if progress.cancel.load(Relaxed) {
                                 break;
                             }
-                            let r = probe(&paths[i]);
+                            let r = probe_file(&probe, &paths[i]);
                             progress.done.fetch_add(1, Relaxed);
                             out.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
                         }
@@ -435,7 +435,7 @@ fn probe_all(probe: Option<&crate::media::FileProbe>, paths: &[String], progress
             if progress.cancel.load(Relaxed) {
                 return Err("cancelled".into());
             }
-            let r = probe(p);
+            let r = probe_file(&probe, p);
             progress.done.fetch_add(1, Relaxed);
             r
         })
@@ -529,13 +529,15 @@ pub fn scan_with(mut input: ScanInput, paths: &[String], progress: &ScanProgress
     let files = expand(paths, input.skip.as_deref());
     let todo: Vec<String> = files.iter().filter(|f| !input.by_path.contains_key(Path::new(f))).cloned().collect();
     progress.total.store(todo.len(), Relaxed);
-    // probes from a preceding `scan` are reused when the file is unchanged (same size)
+    // Reuse only files with the same size and timestamp as the preceding probe.
     let cached: Vec<Option<ProbeInfo>> = todo
         .iter()
         .map(|f| {
             let info = input.cache.remove(f)?;
-            let size = std::fs::metadata(f).map(|m| m.len()).ok();
-            (size.is_none() || size == Some(info.file_size)).then_some(info)
+            (cfg!(target_arch = "wasm32")
+                || std::fs::metadata(f)
+                    .is_ok_and(|m| m.is_file() && m.len() == info.file_size && info.modified.is_some() && m.modified().ok() == info.modified))
+            .then_some(info)
         })
         .collect();
     let missing: Vec<String> = todo.iter().zip(&cached).filter(|(_, c)| c.is_none()).map(|(f, _)| f.clone()).collect();
@@ -782,13 +784,22 @@ impl ImportJob {
         // files a preceding scan already probed are not read again (a network share is slow to read),
         // as long as they are still there, as they were: a file gone or changed since is probed again
         // (upstream LightCraft 5a21fc9)
+        // Copy/move still transfer the version the user reviewed, even when a timestamp
+        // mismatch makes us refresh its metadata. Do not silently accept changed contents.
+        let reviewed_hashes: HashMap<String, String> = if matches!(self.mode, ImportMode::Copy | ImportMode::Move) {
+            todo.iter().filter_map(|path| Some((path.clone(), self.cache.get(path)?.content_hash.clone()?))).collect()
+        } else {
+            HashMap::new()
+        };
         let cached: Vec<Option<ProbeInfo>> = todo
             .iter()
             .map(|f| {
                 // (the web's files are not std::fs files: kept as probed)
-                self.cache
-                    .remove(f)
-                    .filter(|info| cfg!(target_arch = "wasm32") || std::fs::metadata(f).is_ok_and(|m| m.is_file() && m.len() == info.file_size))
+                self.cache.remove(f).filter(|info| {
+                    cfg!(target_arch = "wasm32")
+                        || std::fs::metadata(f)
+                            .is_ok_and(|m| m.is_file() && m.len() == info.file_size && info.modified.is_some() && m.modified().ok() == info.modified)
+                })
             })
             .collect();
         let missing: Vec<String> = todo.iter().zip(&cached).filter(|(_, c)| c.is_none()).map(|(f, _)| f.clone()).collect();
@@ -824,6 +835,16 @@ impl ImportJob {
                         continue;
                     }
                 };
+                if let Some(reviewed) = reviewed_hashes.get(&path)
+                    && info.content_hash.as_ref() != Some(reviewed)
+                {
+                    self.done.fetch_add(1, Relaxed);
+                    entries.push(Entry::Done(PreparedItem::Failed(
+                        path,
+                        "the file changed meanwhile after import review; review it again before copying or moving".into(),
+                    )));
+                    continue;
+                }
                 // a file earlier in this batch with the same bytes: a duplicate once its copy is
                 // known to have worked (a failed copy imported nothing)
                 if let Some(h) = &info.content_hash
@@ -1319,7 +1340,7 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
     let (verb, n) = if report.imported.is_empty() && !report.restored.is_empty() {
         ("Restore", report.restored.len())
     } else {
-        ("Add", report.imported.len().max(1))
+        ("Add", (report.imported.len() + report.restored.len()).max(1))
     };
     if !ops.is_empty()
         && let Err(e) = s.commit(&format!("{verb} {n} Photo{}", if n == 1 { "" } else { "s" }), Op::Batch { ops })
@@ -1438,4 +1459,12 @@ impl Session {
         self.clock = Box::new(system_clock);
         self
     }
+}
+
+fn probe_file(probe: &crate::media::FileProbe, path: &str) -> Result<ProbeInfo, String> {
+    let before = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    let mut info = probe(path)?;
+    let after = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+    info.modified = before.filter(|t| Some(*t) == after);
+    Ok(info)
 }

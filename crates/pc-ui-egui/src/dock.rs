@@ -880,6 +880,7 @@ fn activate(app: &mut PhotocraftApp, tab: Tab, prev: &DockTabs) {
 
 /// The user chose `tab` (its strip, a drop): show it and record it in `dockTabs`.
 pub fn select(app: &mut PhotocraftApp, tab: Tab) {
+    app.ui.dock.hidden_tabs.retain(|hidden| *hidden != tab);
     let prev = app.ui.dock_tabs;
     activate(app, tab, &prev);
     let idx = tab.home_index(is_pro(app));
@@ -921,6 +922,9 @@ pub fn sync(app: &mut PhotocraftApp) {
 pub fn tab_checked(app: &PhotocraftApp, g: Group, idx: usize) -> bool {
     let pro = is_pro(app);
     let Some(tab) = Tab::of(g, idx, pro) else { return false };
+    if app.ui.dock.hidden_tabs.contains(&tab) {
+        return false;
+    }
     match app.ui.dock.locate(tab, pro) {
         Place::Docked(c) => c.shown(&app.ui.panels) && active_tab(app, Place::Docked(c)) == Some(tab),
         Place::Floating(id) => app.ui.dock.floating(id).is_some_and(|f| !f.hidden && f.shown_tab() == Some(tab)),
@@ -1247,10 +1251,6 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, groups: &[(Group, Vec<Ta
             Action::ToggleCollapse(g) => {
                 let on = !app.ui.dock.is_collapsed(g);
                 app.ui.dock.set_collapsed(g, on);
-            }
-            Action::Close(g) if g.is_custom() => {
-                let list = app.ui.dock.group_tabs(g, pro);
-                app.ui.dock.take(&list, pro);
             }
             Action::Close(g) if g.is_custom() => {
                 for tab in app.ui.dock.group_tabs(g, pro) {

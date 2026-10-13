@@ -24,7 +24,10 @@ fn harness() -> H {
                     i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu && i.name.contains("RTX 5090")
                 }
             })
-            .ok_or_else(|| "path effects require RTX 5090 Vulkan discrete GPU".to_string())?;
+            .ok_or_else(|| {
+                (if cfg!(target_os = "macos") { "hardware Metal non-CPU adapter required" } else { "path effects require RTX 5090 Vulkan discrete GPU" })
+                    .to_string()
+            })?;
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(a), wgpu::TextureFormat::Rgba32Float);
         assert!(crate::gpu_canvas::supports_f16_canvas(a));
         eprintln!("path effects app adapter: {:?}", a.get_info());

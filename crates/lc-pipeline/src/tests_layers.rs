@@ -531,3 +531,32 @@ fn layer_whites_and_blacks_respond_in_the_developed_display_range() {
         assert!(image.data.iter().all(|c| c[0] == c[1] && c[1] == c[2]));
     }
 }
+
+#[test]
+fn dsfix_scene_finish_retains_background_range_overlay_after_stack() {
+    use lightcraft_develop::{Mask, MaskComponent, MaskShape};
+    use std::sync::Arc;
+    let src = Rgb32f::from_fn(32, 16, |x, _| [0.01 + x as f32 / 64.0; 3]);
+    let info = SourceInfo::default();
+    let mut settings = full_layer(json!({"light":{"exposure":3.0}}));
+    settings.masks.push(Mask {
+        id: 42,
+        components: vec![MaskComponent {
+            shape: MaskShape::LuminanceRange { lo: 0.0, hi: 0.4, lo_feather: 0.01, hi_feather: 0.01 },
+            name: None,
+            op: Default::default(),
+            invert: false,
+        }],
+        adjust: lightcraft_develop::LocalAdjustments { exposure: 0.5, ..Default::default() },
+        ..Default::default()
+    });
+    let req = RenderRequest {
+        overlay: crate::Overlay::Mask { id: 42, view: crate::MaskView::WhiteOnBlack, color: [255, 0, 0], opacity: 100 },
+        ..RenderRequest::fit(32, 16)
+    };
+    let plan = crate::plan(&src, &info, &settings, &req);
+    let sampled = Arc::new(plan.frame.sample(&src, plan.w, plan.h));
+    let gpu_finish = crate::finish_scene_stage(sampled, &plan, &info, &req).image;
+    let cpu = crate::render(&src, &info, &settings, &req).image;
+    assert_eq!(gpu_finish, cpu, "the scene-stage finishing path must reuse the Background mask evaluated before the bright layer");
+}

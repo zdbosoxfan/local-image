@@ -2238,7 +2238,8 @@ mod tests {
     fn strip_tool_tips_icon_pixels_follow_colour_preference_and_keep_text() {
         use crate::panels::tool_tips::{ICON, ToolTipMode, shown};
         let mut h = demo([1400.0, 900.0]);
-        // V2 defaults to Monochrome. Start explicitly in Colour before testing the toggle.
+        // TEST-CHANGED: monochrome is the intentional default; explicitly enable the colour phase.
+        assert!(!h.app.ui.settings.color_tool_icons, "tool icons default to monochrome");
         h.app.ui.settings.color_tool_icons = true;
         let timeout = Duration::from_secs(10);
         h.request("ui.set", json!({"view": "detail"}), timeout);

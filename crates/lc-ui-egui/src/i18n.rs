@@ -317,6 +317,8 @@ pub const PENDING_AI_DENOISE_TRANSLATIONS: &[&str] = &[
 
 /// File-input robustness English messages awaiting translations.
 pub const PENDING_FILE_INPUT_TRANSLATIONS: &[&str] = &[
+    "the file changed meanwhile after import review; review it again before copying or moving",
+    "{label}: can't remove the location from an original file that embeds location info; export as JPEG, TIFF or DNG instead",
     "Preview decoder failed unexpectedly",
     "file preview failed unexpectedly",
     "decoded PSD exceeds memory limit",
