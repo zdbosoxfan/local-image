@@ -3903,3 +3903,5 @@ ai	New	Nové
 	Cancel test	Zrušit test
 	Re-test	Otestovat znovu
 	testing…	testování…
+	Autosave failed	Automatické ukládání selhalo
+	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Obnova po pádu nemůže uchovat kopii neuložených změn. Uložte svou práci, abyste o ni nepřišli.

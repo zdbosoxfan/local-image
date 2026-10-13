@@ -3986,3 +3986,5 @@ ai	New	Новые
 	Re-test	Проверить снова
 	testing…	проверка…
 @id	path.finishCompound	Завершить составной контур
+	Autosave failed	Ошибка автосохранения
+	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Восстановление после сбоя не может сохранить копию несохранённых изменений. Сохраните работу, чтобы не потерять её.

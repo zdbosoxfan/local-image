@@ -37,6 +37,10 @@ pub struct Runtime {
     // Resource preservation can replace a snapshot without advancing its edit revision.
     // Weak identity detects those changes without retaining another large document.
     autosaved: HashMap<DocId, (u64, std::sync::Weak<photocraft_doc::Document>)>,
+    /// Autosaves queued on a background writer that hasn't reported yet. A queued write is not a
+    /// durable snapshot: it moves to `autosaved` only once the write succeeded (upstream
+    /// PhotoCraft 83d5c543).
+    autosave_pending: HashMap<DocId, (u64, std::sync::Weak<photocraft_doc::Document>)>,
     log_len: usize,
     /// Snapping state of the drag in progress (see `snap_ui`).
     pub(crate) snap: Option<crate::snap_ui::ActiveSnap>,
@@ -454,7 +458,7 @@ pub(crate) fn save_preferences(app: &mut PhotocraftApp) -> Result<(), String> {
 /// If shutdown happens without consent, dirty documents retain their recovery copies.
 pub(crate) fn cleanup_on_exit(app: &mut PhotocraftApp) {
     let live: HashMap<DocId, bool> = app.session.documents().iter().map(|d| (d.doc.id, d.is_dirty())).collect();
-    let mut ids: Vec<DocId> = app.prefs_rt.autosaved.keys().chain(live.keys()).copied().collect();
+    let mut ids: Vec<DocId> = app.prefs_rt.autosaved.keys().chain(app.prefs_rt.autosave_pending.keys()).chain(live.keys()).copied().collect();
     ids.sort_by_key(|id| id.0);
     ids.dedup();
     for id in ids {
@@ -463,6 +467,7 @@ pub(crate) fn cleanup_on_exit(app: &mut PhotocraftApp) {
                 discard(id.0);
             }
             app.prefs_rt.autosaved.remove(&id);
+            app.prefs_rt.autosave_pending.remove(&id);
         }
     }
     if let Some(finish) = app.services.finish_autosave_cleanup.as_mut() {
@@ -481,11 +486,30 @@ fn autosave(app: &mut PhotocraftApp) {
         return;
     }
     let now = crate::gpu_canvas::now_ms();
+    // A queued autosave is not a written one. Poll every frame, including frames before the
+    // next autosave interval, so failures are visible and the same revision is retried.
+    if let Some(results) = app.services.autosave_results.as_mut() {
+        for (raw_id, revision, result) in results() {
+            let id = DocId(raw_id);
+            if app.prefs_rt.autosave_pending.get(&id).is_none_or(|(pending, _)| *pending != revision) {
+                continue;
+            }
+            let Some(written) = app.prefs_rt.autosave_pending.remove(&id) else { continue };
+            match result {
+                Ok(()) => {
+                    app.prefs_rt.autosaved.insert(id, written);
+                }
+                Err(e) => autosave_failed(app, &e),
+            }
+        }
+    }
     // Saved or closed documents drop their recovery data.
     let live: HashMap<DocId, bool> = app.session.documents().iter().map(|d| (d.doc.id, d.is_dirty())).collect();
-    let stale: Vec<DocId> = app.prefs_rt.autosaved.keys().filter(|id| live.get(id) != Some(&true)).copied().collect();
+    let mut stale: Vec<DocId> = app.prefs_rt.autosaved.keys().filter(|id| live.get(id) != Some(&true)).copied().collect();
+    stale.extend(app.prefs_rt.autosave_pending.keys().filter(|id| live.get(*id) != Some(&true) && !app.prefs_rt.autosaved.contains_key(*id)).copied());
     for id in stale {
         app.prefs_rt.autosaved.remove(&id);
+        app.prefs_rt.autosave_pending.remove(&id);
         if let Some(d) = app.services.discard_autosave.as_mut() {
             d(id.0);
         }
@@ -508,6 +532,7 @@ fn autosave(app: &mut PhotocraftApp) {
         .iter()
         .filter(|d| {
             d.is_dirty()
+                && !app.prefs_rt.autosave_pending.contains_key(&d.doc.id)
                 && !app
                     .prefs_rt
                     .autosaved
@@ -519,12 +544,33 @@ fn autosave(app: &mut PhotocraftApp) {
     for (doc, rev, path) in jobs {
         if let Some(save) = app.services.autosave.as_mut() {
             match save(&doc, rev, path.as_deref()) {
+                Ok(()) if app.services.autosave_results.is_some() => {
+                    app.prefs_rt.autosave_pending.insert(doc.id, (rev, std::sync::Arc::downgrade(&doc)));
+                }
+                // Synchronous or mocked services report completion on return.
                 Ok(()) => {
                     app.prefs_rt.autosaved.insert(doc.id, (rev, std::sync::Arc::downgrade(&doc)));
                 }
-                Err(e) => app.ui.status = format!("Autosave failed: {e}"),
+                Err(e) => autosave_failed(app, &e),
             }
         }
+    }
+}
+
+/// An autosave couldn't be queued or written: say so in the status bar, and keep one notice up
+/// (not one per document or interval) until the user dismisses it, since crash recovery is off.
+fn autosave_failed(app: &mut PhotocraftApp, error: &str) {
+    app.ui.status = format!("Autosave failed: {error}");
+    app.ui.status_error = true;
+    let title = tl!("Autosave failed");
+    if !app.ui.notices.iter().any(|n| n.title == title) {
+        crate::notices::post(
+            app,
+            title,
+            vec![error.to_string(), tl!("Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.").to_string()],
+            true,
+            None,
+        );
     }
 }
 
@@ -1364,7 +1410,11 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         ui.add(egui::TextEdit::singleline(&mut filter).desired_width(260.0).hint_text(tl!("command or shortcut")));
     });
     f.insert("filter".into(), json!(filter));
-    let mut overrides: BTreeMap<String, String> = f.get("overrides").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+    // A malformed map (set over automation) is left as it is, so OK rejects it instead of saving
+    // the empty map drawn in its place (upstream PhotoCraft 57be0f58, #956).
+    let parsed = f.get("overrides").map(|v| serde_json::from_value::<BTreeMap<String, String>>(v.clone()));
+    let overrides_ok = parsed.as_ref().is_none_or(Result::is_ok);
+    let mut overrides = parsed.and_then(Result::ok).unwrap_or_default();
     let mut hidden: Vec<String> = f.get("hidden").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
     let mut colors: BTreeMap<String, String> = f.get("colors").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
     let mut selected = f.get("selected").and_then(Value::as_str).unwrap_or("").to_string();
@@ -1571,7 +1621,9 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     if !message.is_empty() {
         ui.label(RichText::new(&message).color(if message.contains("already in use") || message.contains("reserved") { t.warning } else { t.text_dim }));
     }
-    f.insert("overrides".into(), json!(overrides));
+    if overrides_ok {
+        f.insert("overrides".into(), json!(overrides));
+    }
     f.insert("hidden".into(), json!(hidden));
     f.insert("colors".into(), json!(colors));
     f.insert("selected".into(), json!(selected));
@@ -1680,7 +1732,9 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             let overrides = f.get("overrides").cloned().unwrap_or(json!({}));
             // Shortcuts moved to another command are taken from their old owner (shell
             // commands included, which the engine doesn't know).
-            let mut ov: BTreeMap<String, String> = serde_json::from_value(overrides).unwrap_or_default();
+            // The map replaces every stored override, so a malformed one is an error, not "none".
+            let mut ov: BTreeMap<String, String> =
+                serde_json::from_value(overrides).map_err(|e| format!("overrides must map command IDs to shortcut strings: {e}"))?;
             let mut items = shortcut_items(app);
             items.extend(f.get("__hostShortcuts").and_then(|v| serde_json::from_value::<Vec<HostShortcutItem>>(v.clone()).ok()).unwrap_or_default());
             let changed: Vec<(String, String)> = ov.iter().filter(|(_, s)| !s.is_empty()).map(|(k, s)| (k.clone(), s.clone())).collect();
@@ -2388,6 +2442,35 @@ mod tests {
         assert!(apply(&mut app, id).is_err());
         assert!(app.ui.dialog_mut(id).is_some());
         assert_eq!(app.session.prefs().to_json(), before);
+    }
+
+    /// Upstream 57be0f58 (#956): a non-map `overrides` was read as "no overrides" and wiped every
+    /// custom shortcut.
+    #[test]
+    fn shortcut_dialog_rejects_malformed_overrides() {
+        let (mut app, _) = app_with_store();
+        let ctx = egui::Context::default();
+        app.run("edit.keyboardShortcuts", json!({"set": {"file.new": "Ctrl+Shift+N"}})).unwrap();
+        let before = app.session.prefs().shortcuts.clone();
+        assert!(!before.is_empty());
+        for bad in [json!("bogus"), json!(["file.new"]), json!({"file.new": 5})] {
+            let id = crate::menus::invoke(&mut app, &ctx, "edit.keyboardShortcuts", json!({})).unwrap()["dialog"].as_u64().unwrap();
+            app.ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), bad.clone());
+            assert!(crate::dialogs::confirm(&mut app, id).is_err(), "{bad} accepted");
+            assert_eq!(app.session.prefs().shortcuts, before, "{bad} changed the shortcuts");
+        }
+        // Drawing the open dialog keeps the malformed value for OK to reject, instead of
+        // replacing it with the empty map it shows.
+        let id = crate::menus::invoke(&mut app, &ctx, "edit.keyboardShortcuts", json!({})).unwrap()["dialog"].as_u64().unwrap();
+        app.ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!("bogus"));
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1280.0, 800.0)).build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            app
+        });
+        h.run_steps(4);
+        assert_eq!(h.state().ui.dialogs.iter().find(|d| d.id == id).unwrap().fields["overrides"], json!("bogus"));
+        assert!(crate::dialogs::confirm(h.state_mut(), id).is_err());
+        assert_eq!(h.state().session.prefs().shortcuts, before);
     }
 
     #[test]

@@ -3874,3 +3874,5 @@ ai	New	最新
 	Re-test	重新测试
 	testing…	测试中…
 @id	path.finishCompound	完成复合路径
+	Autosave failed	自动保存失败
+	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	崩溃恢复无法保留未保存更改的副本。请保存您的工作。

@@ -5,6 +5,7 @@ use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::{Document, Layer, Size};
 use photocraft_format::RecoveryStore;
 use photocraft_geom::Rect;
+use photocraft_ui_egui::dialog_filter::{FileDialogExt as _, file_dialog};
 use photocraft_ui_egui::{Recovered, Services};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,12 @@ const OPEN_EXTS: &[&str] = &[
     "pcraft", "psd", "psb", "psdt", "svg", "svgz", "pdf", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm",
     "pgm", "ppm", "pam", "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd",
 ];
+
+/// The File › Open dialog with its filters. On Linux each extension also matches upper and mixed
+/// case (`IMG_0001.JPG`, `DSC_0001.NEF`): see [`photocraft_ui_egui::dialog_filter`].
+fn open_dialog() -> rfd::FileDialog {
+    file_dialog().add_filter_nocase("All Formats", OPEN_EXTS).add_filter_nocase("Local Image", &["pcraft"])
+}
 
 /// File › Save As formats: (filter name, extensions). The filter matching the suggested name's
 /// extension comes first, so a .pcraft document saves as .pcraft by default and everything else
@@ -32,20 +39,27 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
     ("OpenEXR", &["exr"]),
 ];
 
-/// [`SAVE_FILTERS`] with the one for `suggested`'s extension first.
-fn save_filters(suggested: &str) -> Vec<(&'static str, &'static [&'static str])> {
+/// The save dialog's file types with the one for `suggested`'s extension first, added if
+/// unlisted (.jpeg, .gif, .bmp, .csv, .html …): a dialog that appends the first type's extension
+/// then keeps the file's own instead of writing "photo.gif.psd" (upstream PhotoCraft 3952fcef).
+fn save_filters(suggested: &str) -> Vec<(String, Vec<String>)> {
     let ext = Path::new(suggested).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let owned = |name: &str, exts: &[&str]| (name.to_string(), exts.iter().map(|e| e.to_string()).collect::<Vec<_>>());
     // Dedicated vector-export dialogs must not append a Photoshop extension.
     // Keep these formats out of ordinary Save As: its writer is the raster/native IO path.
     match ext.as_str() {
-        "svg" => return vec![("Scalable Vector Graphics", &["svg"])],
-        "pdf" => return vec![("PDF document", &["pdf"])],
+        "svg" => return vec![owned("Scalable Vector Graphics", &["svg"])],
+        "pdf" => return vec![owned("PDF document", &["pdf"])],
         _ => {}
     }
-    let mut v = SAVE_FILTERS.to_vec();
-    if let Some(i) = v.iter().position(|(_, exts)| exts.contains(&ext.as_str())) {
-        let f = v.remove(i);
-        v.insert(0, f);
+    let mut v: Vec<(String, Vec<String>)> = SAVE_FILTERS.iter().map(|(name, exts)| owned(name, exts)).collect();
+    match v.iter().position(|(_, exts)| exts.contains(&ext)) {
+        Some(i) => {
+            let f = v.remove(i);
+            v.insert(0, f);
+        }
+        None if !ext.is_empty() => v.insert(0, (ext.to_ascii_uppercase(), vec![ext])),
+        None => {}
     }
     v
 }
@@ -346,13 +360,15 @@ fn with_store<R>(store: &SharedRecovery, f: impl FnOnce(&mut RecoveryStore) -> R
 /// until a newer autosave replaces them or they're saved or closed (see [`RecoveryStore`]).
 fn recovery_services(dir: Option<PathBuf>) -> Services {
     let store: SharedRecovery = Rc::new(RefCell::new(dir.map(RecoveryStore::new)));
-    let (s1, s2, s3) = (store.clone(), store.clone(), store.clone());
+    let (s1, s2, s3, s4) = (store.clone(), store.clone(), store.clone(), store.clone());
     let cleanup: Rc<RefCell<Vec<photocraft_format::autosave::Discard>>> = Rc::default();
     let finish = cleanup.clone();
     Services {
         autosave: Some(Box::new(move |doc: &Arc<Document>, revision: u64, path: Option<&str>| {
-            with_store(&s1, |s| s.autosave(doc, revision, path.map(str::to_string)))
+            with_store(&s1, |s| s.autosave_checked(doc, revision, path.map(str::to_string)))?
         })),
+        // Background write outcomes reach the UI, so a failing autosave is reported and retried.
+        autosave_results: Some(Box::new(move || with_store(&s4, |s| s.take_completed()).unwrap_or_default())),
         discard_autosave: Some(Box::new(move |id: u64| match with_store(&s2, |s| s.discard(id)) {
             Ok(Ok(receipt)) => {
                 let mut pending = cleanup.borrow_mut();
@@ -454,23 +470,21 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                 as photocraft_ui_egui::OverwriteFn
         }),
         pick_open: Some(Box::new(|| {
-            let path = rfd::FileDialog::new().add_filter("All Formats", OPEN_EXTS).add_filter("Local Image", &["pcraft"]).pick_file()?;
+            let path = crate::file_dialog_probe::explain_empty(open_dialog().pick_file())?;
             // A read failure goes back to the app, which reports it like any other open failure.
             let bytes = photocraft_format::read_file(&path).map_err(|e| e.to_string());
             Some((path.to_string_lossy().to_string(), bytes))
         })),
         pick_open_paths: Some(Box::new(|| {
-            rfd::FileDialog::new()
-                .add_filter("All Formats", OPEN_EXTS)
-                .add_filter("Local Image", &["pcraft"])
-                .pick_files()
+            crate::file_dialog_probe::explain_empty(open_dialog().pick_files())
                 .map(|paths| paths.into_iter().map(|path| path.to_string_lossy().into_owned()).collect())
         })),
         pick_save: Some(Box::new(|suggested: &str| {
             let p = std::path::Path::new(suggested);
-            let mut d = rfd::FileDialog::new();
+            let mut d = file_dialog();
             for (name, exts) in save_filters(suggested) {
-                d = d.add_filter(name, exts);
+                let exts: Vec<&str> = exts.iter().map(String::as_str).collect();
+                d = d.add_filter_nocase(name, &exts);
             }
             // A suggestion with a folder (a photo from the Library: beside its original) opens there.
             if let Some(dir) = p.parent().filter(|d| d.is_absolute() && d.is_dir()) {
@@ -479,7 +493,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             if let Some(name) = p.file_name() {
                 d = d.set_file_name(name.to_string_lossy());
             }
-            Some(d.save_file()?.to_string_lossy().to_string())
+            Some(crate::file_dialog_probe::explain_empty(d.save_file())?.to_string_lossy().to_string())
         })),
         write: Some(Box::new(|path: &str, bytes: &[u8]| write_atomic(Path::new(path), bytes))),
         stage_write: Some(Arc::new(|path, bytes, interrupt| {
@@ -623,6 +637,39 @@ mod tests {
     use photocraft_ui_egui::{PhotocraftApp, prefs_ui};
     use serde_json::json;
 
+    /// Upstream 9b4562f2 / LightCraft e2d35de: File › Open shows IMG_0001.JPG, DSC_0001.NEF and
+    /// .CR3 on Linux, where the portal matches rfd's `*.ext` globs case-sensitively.
+    #[test]
+    fn open_filters_cover_uppercase_and_mixed_case_extensions() {
+        use photocraft_ui_egui::dialog_filter::{dialog_extensions_for, glob_ext};
+        let globs = dialog_extensions_for(OPEN_EXTS, true);
+        for ext in OPEN_EXTS {
+            let alternating = |upper_first: bool| -> String {
+                ext.chars().enumerate().map(|(i, c)| if (i % 2 == 0) == upper_first { c.to_ascii_uppercase() } else { c }).collect()
+            };
+            for name in [ext.to_string(), ext.to_ascii_uppercase(), alternating(true), alternating(false)] {
+                assert!(globs.iter().any(|g| glob_ext(g, &name)), "File › Open hides .{name}");
+            }
+            assert!(!globs.iter().any(|g| glob_ext(g, &format!("{ext}x"))), "{ext}");
+        }
+        for name in ["JPG", "NEF", "CR3", "Jpeg"] {
+            assert!(globs.iter().any(|g| glob_ext(g, name)), "{name}");
+        }
+        assert!(!globs.iter().any(|g| glob_ext(g, "txt")));
+        // Windows and macOS keep plain extensions.
+        assert_eq!(dialog_extensions_for(OPEN_EXTS, false), OPEN_EXTS);
+    }
+
+    /// Every native dialog of the app goes through the case-insensitive helper.
+    #[test]
+    fn no_app_dialog_bypasses_the_nocase_filter_helper() {
+        for (file, src) in [("services.rs", include_str!("services.rs")), ("library_host.rs", include_str!("library_host.rs"))] {
+            assert!(!src.contains(concat!(".add_filter", "(")), "{file} calls rfd's add_filter; use add_filter_nocase");
+            assert!(src.contains(".add_filter_nocase("), "{file}");
+            assert!(!src.contains(concat!("rfd::FileDialog::", "new()")), "{file} opens an unparented dialog; use file_dialog()");
+        }
+    }
+
     #[test]
     fn hotfix_native_roundtrip_export_supports_placed_vector_crop() {
         let mut s = Session::new();
@@ -674,14 +721,29 @@ mod tests {
     #[test]
     fn save_filters_lead_with_every_export_format() {
         for ext in ["png", "jpg", "webp", "tif", "tga", "svg", "pdf"] {
-            assert!(save_filters(&format!("photo.{ext}"))[0].1.contains(&ext), "{ext}");
+            assert!(save_filters(&format!("photo.{ext}"))[0].1.iter().any(|e| e == ext), "{ext}");
         }
         assert!(
-            save_filters("drawing.psd").iter().all(|(_, extensions)| !extensions.contains(&"svg") && !extensions.contains(&"pdf")),
+            save_filters("drawing.psd").iter().all(|(_, extensions)| !extensions.iter().any(|e| e == "svg" || e == "pdf")),
             "ordinary Save As must not offer unsupported writer formats"
         );
-        assert_eq!(save_filters("drawing.SVG"), vec![("Scalable Vector Graphics", ["svg"].as_slice())]);
-        assert_eq!(save_filters("drawing.pdf"), vec![("PDF document", ["pdf"].as_slice())]);
+        let owned = |name: &str, ext: &str| vec![(name.to_string(), vec![ext.to_string()])];
+        assert_eq!(save_filters("drawing.SVG"), owned("Scalable Vector Graphics", "svg"));
+        assert_eq!(save_filters("drawing.pdf"), owned("PDF document", "pdf"));
+    }
+
+    /// Upstream 3952fcef (#1178): a name whose extension has no listed type (.jpeg, .gif, .bmp,
+    /// Save for Web's .html, the Measurement Log's .csv) leads with its own type, or the dialog
+    /// appends the first one's (`photo.gif.psd`). No extension keeps the Photoshop default.
+    #[test]
+    fn save_filters_lead_with_the_files_own_extension() {
+        for ext in ["jpeg", "gif", "bmp", "wbmp", "html", "csv", "pcpresets", "pcraft", "psb"] {
+            let first = &save_filters(&format!("cat.{ext}"))[0];
+            assert!(first.1.iter().any(|e| e == ext), "{ext}: {first:?}");
+        }
+        assert_eq!(save_filters("cat.GIF")[0], ("GIF".to_string(), vec!["gif".to_string()]));
+        assert_eq!(save_filters("Untitled")[0].0, "Photoshop", "no extension keeps the default");
+        assert_eq!(save_filters("Untitled").len(), SAVE_FILTERS.len());
     }
 
     const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
@@ -711,6 +773,55 @@ mod tests {
     fn autosave(app: &mut PhotocraftApp, ctx: &egui::Context) {
         prefs_ui::autosave_now(app);
         prefs_ui::tick(app, ctx);
+    }
+
+    /// Upstream 83d5c543 (#1577): a background autosave write that fails reaches the user (status
+    /// bar and one notice), and the same revision is retried without another edit.
+    #[test]
+    fn failed_background_autosave_is_reported_and_retried_without_another_edit() {
+        let dir = temp("autosave-retry");
+        let recovery = dir.join("Recovery");
+        // A regular file prevents creation of the recovery bundle directory.
+        std::fs::write(&recovery, b"blocked").unwrap();
+        let ctx = egui::Context::default();
+        let mut app = launch(&recovery);
+        new_doc(&mut app, "#ff0000");
+        let revision = app.session.active().unwrap().revision;
+        autosave(&mut app, &ctx);
+        let mut failed = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while std::time::Instant::now() < deadline {
+            prefs_ui::tick(&mut app, &ctx);
+            if app.ui.status.starts_with("Autosave failed:") {
+                failed = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(failed, "background write failures must reach the UI");
+        assert!(app.ui.status_error);
+        assert_eq!(app.ui.notices.iter().filter(|n| n.title == "Autosave failed" && n.error).count(), 1);
+        assert!(list_recovery(&recovery).is_empty());
+        // No edit occurs: retrying this very same revision must still work.
+        std::fs::remove_file(&recovery).unwrap();
+        std::fs::create_dir(&recovery).unwrap();
+        autosave(&mut app, &ctx);
+        let mut recovered = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while std::time::Instant::now() < deadline {
+            prefs_ui::tick(&mut app, &ctx);
+            recovered = list_recovery(&recovery);
+            if !recovered.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(recovered.len(), 1, "unchanged revision should retry after failure");
+        assert_eq!(recovered[0].info.revision, revision);
+        let restored = photocraft_format::recover(&recovered[0]).unwrap();
+        assert_eq!(photocraft_compose::flatten(&restored).px.first().copied(), Some(RED));
+        drop(app);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     fn wait_for_recovery_count(dir: &Path, expected: usize) {

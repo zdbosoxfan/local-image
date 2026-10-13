@@ -125,6 +125,8 @@ pub mod credits;
 pub mod crop_ui;
 pub mod develop_filter_ui;
 pub mod develop_layer;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod dialog_filter;
 pub mod dialogs;
 pub mod direct_select;
 pub mod discard_ui;
@@ -360,6 +362,8 @@ pub struct PrefsRecoveryNotice {
 pub type SaveTextFn = Box<dyn FnMut(&str) -> Result<(), String>>;
 /// Autosave a document snapshot for crash recovery: (snapshot, revision, original path).
 pub type AutosaveFn = Box<dyn FnMut(&std::sync::Arc<Document>, u64, Option<&str>) -> Result<(), String>>;
+/// Poll finished background autosave writes: (document id, revision, result).
+pub type AutosaveResultsFn = Box<dyn FnMut() -> Vec<(u64, u64, Result<(), String>)>>;
 /// Drop the recovery data of a document (by `DocId` value) once it is saved or closed.
 pub type DiscardAutosaveFn = Box<dyn FnMut(u64)>;
 /// Load recoverable documents left by a previous session. Their recovery data stays until the
@@ -437,6 +441,9 @@ pub struct Services {
     pub is_wayland: bool,
     /// Crash-recovery autosave (Preferences › File Handling) and recovery at launch.
     pub autosave: Option<AutosaveFn>,
+    /// Write outcomes of queued autosaves. `None` for services whose `autosave` reports
+    /// completion on return (tests, the web).
+    pub autosave_results: Option<AutosaveResultsFn>,
     pub discard_autosave: Option<DiscardAutosaveFn>,
     /// At native shutdown, finish requested recovery deletion after any in-flight writer.
     /// Interactive closes remain asynchronous.
@@ -1538,6 +1545,9 @@ impl eframe::App for PhotocraftApp {
                 let _ = w.send(serde_json::json!({"ok": true, "result": null}));
             }
         }
+        // A menu or dialog can start a filter after `jobs_ui::tick` ran in this frame. Keep
+        // polling it even when the platform would otherwise put the event loop to sleep.
+        jobs_ui::keep_polling(self, &ctx);
     }
 }
 

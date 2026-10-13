@@ -3,7 +3,7 @@
 //! dialog, and Esc / Cancel leave the document unchanged.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use egui::vec2;
@@ -97,6 +97,25 @@ fn the_frame_loop_keeps_running_during_a_slow_job_and_esc_cancels_it() {
     assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc_before));
     assert!(h.state().ui.status.contains("Cancelled"), "{}", h.state().ui.status);
     assert!(h.query_by_label("Esc to cancel").is_none(), "the dialog closed");
+}
+
+/// Upstream be877c27 (#3961): a job started from a menu or dialog after the frame's initial
+/// `jobs_ui::tick` must still schedule a poll, or an idle Wayland event loop leaves the document
+/// locked after the worker finishes and blocks Edit › Undo / Redo until the mouse moves.
+#[test]
+fn a_job_started_while_drawing_requests_the_follow_up_poll() {
+    let mut h = app_harness();
+    let gate = Arc::new(AtomicBool::new(false));
+    let job = slow_job(h.state_mut(), &gate);
+    let repaints = Arc::new(AtomicUsize::new(0));
+    let seen = repaints.clone();
+    h.ctx.set_request_repaint_callback(move |_| {
+        seen.fetch_add(1, Ordering::Relaxed);
+    });
+    assert!(crate::jobs_ui::keep_polling(h.state(), &h.ctx));
+    assert_eq!(repaints.load(Ordering::Relaxed), 1);
+    crate::jobs_ui::cancel(h.state_mut(), job);
+    h.run_steps(2);
 }
 
 #[test]

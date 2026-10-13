@@ -361,10 +361,28 @@ pub fn install_fonts_with(ctx: &egui::Context, cjk: crate::cjk_fonts::Sources) {
         size_ui_font(ctx, name, Arc::make_mut(data));
     }
     ctx.set_fonts(fonts);
-    ctx.add_plugin(UiFontSizePlugin { applied: size });
+    // egui keeps the first plugin of a type, so a re-install (language change) resets the
+    // existing one. The new definitions land next pass: the plugin must not rescale before then
+    // (upstream PhotoCraft 9cdcfbb1, #1467).
+    if ctx
+        .with_plugin::<UiFontSizePlugin, _>(|plugin| {
+            plugin.applied = size;
+            plugin.defer_after_install = true;
+        })
+        .is_none()
+    {
+        ctx.add_plugin(UiFontSizePlugin { applied: size, defer_after_install: true });
+    }
     // Japanese / Chinese / Korean fallback fonts (manifest-declared craft fonts if built in, then
     // the system's) are registered on demand (cjk_fonts.rs).
     crate::cjk_fonts::install_with(ctx, cjk);
+}
+
+/// Has [`install_fonts`]'s stack reached the active fonts? Before that (the first pass, when
+/// the desktop app installs fonts and loads preferences in the same frame) the active fonts
+/// are egui's defaults, and rescaling a copy of those would overwrite the queued stack.
+fn ui_fonts_active(ctx: &egui::Context) -> bool {
+    ctx.fonts(|f| f.definitions().families.contains_key(&FontFamily::Name("medium".into())))
 }
 
 fn ui_fonts_id() -> egui::Id {
@@ -405,6 +423,9 @@ pub(crate) fn set_ui_font_size(ctx: &egui::Context, size: UiFontSize) {
 /// Keep only the original multipliers, not a second copy of large system font files.
 struct UiFontSizePlugin {
     applied: UiFontSize,
+    /// `set_fonts` takes effect next pass: skip one hook so the rescale starts from that stack
+    /// and not from the one it replaces.
+    defer_after_install: bool,
 }
 
 impl egui::Plugin for UiFontSizePlugin {
@@ -414,7 +435,14 @@ impl egui::Plugin for UiFontSizePlugin {
 
     fn output_hook(&mut self, ctx: &egui::Context, _output: &mut egui::FullOutput) {
         let size = ui_font_size(ctx);
+        let deferred = std::mem::take(&mut self.defer_after_install);
         if size == self.applied {
+            return;
+        }
+        if deferred || !ui_fonts_active(ctx) {
+            // Cloning the active definitions now would discard the queued stack (the desktop
+            // app installs fonts and loads the saved size in its first frame).
+            ctx.request_repaint();
             return;
         }
         // Start from the current stack so lazily registered fallback faces are retained.
@@ -525,6 +553,53 @@ pub fn canvas_bg(t: &Tokens) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Upstream 9cdcfbb1 (#1467): the desktop app installs fonts and loads the saved UI Font Size
+    /// in its first frame, while egui's default fonts are still active. Any size but Small then
+    /// panicked on the next pass ("FontFamily::Name("medium") is not bound to any fonts") because
+    /// the plugin rescaled a copy of the defaults and that replaced the queued Inter stack.
+    #[test]
+    fn saved_ui_font_size_survives_first_frame_install() {
+        let ctx = egui::Context::default();
+        let medium_bound = |ctx: &egui::Context| ctx.fonts(|f| f.families().contains(&FontFamily::Name("medium".into())));
+        ctx.run_ui(Default::default(), |ui| {
+            assert!(!medium_bound(ui.ctx()), "egui's defaults are active in the first frame");
+            install_fonts(ui.ctx());
+            apply(ui.ctx(), ThemeKind::Pro);
+            set_ui_font_size(ui.ctx(), UiFontSize::Medium);
+        })
+        .textures_delta
+        .clear();
+        let mut width = 0.0;
+        ctx.run_ui(Default::default(), |ui| {
+            assert!(medium_bound(ui.ctx()), "the installed stack reaches the second pass");
+            width = ui.painter().layout_no_wrap("Local Image".into(), medium(13.0), Color32::WHITE).size().x;
+        })
+        .textures_delta
+        .clear();
+        assert!(width > 0.0);
+        // The saved size applies one pass later, from the installed stack.
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let mut scaled = 0.0;
+        ctx.run_ui(Default::default(), |ui| {
+            assert!(medium_bound(ui.ctx()));
+            scaled = ui.painter().layout_no_wrap("Local Image".into(), medium(13.0), Color32::WHITE).size().x;
+        })
+        .textures_delta
+        .clear();
+        assert!((scaled - width * font_scale(UiFontSize::Medium)).abs() < 1.0, "{scaled} vs {width} × 14/12");
+        // Re-installing (a language change) keeps the size and the named families.
+        ctx.run_ui(Default::default(), |ui| install_fonts(ui.ctx())).textures_delta.clear();
+        for _ in 0..2 {
+            ctx.run_ui(Default::default(), |ui| {
+                assert!(medium_bound(ui.ctx()));
+                let w = ui.painter().layout_no_wrap("Local Image".into(), medium(13.0), Color32::WHITE).size().x;
+                assert!((w - scaled).abs() < 1.0, "{w} vs {scaled}");
+            })
+            .textures_delta
+            .clear();
+        }
+    }
 
     fn text_sizes(ctx: &egui::Context) -> Vec<egui::Vec2> {
         let mut sizes = Vec::new();

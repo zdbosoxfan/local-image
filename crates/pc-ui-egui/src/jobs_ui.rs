@@ -134,11 +134,9 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if app.jobs.focus.is_some_and(|j| !app.jobs.opens.iter().any(|o| o.job == j)) {
         app.jobs.focus = app.jobs.opens.last().map(|o| o.job);
     }
-    if !app.session.has_jobs() {
+    if !keep_polling(app, ctx) {
         return;
     }
-    // Animate progress and poll for results at display rate; the UI thread only draws.
-    ctx.request_repaint_after(std::time::Duration::from_millis(16));
     if let Some(job) = job_in_view(app)
         && !ctx.text_edit_focused()
         && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
@@ -148,6 +146,21 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 /// local-image: [`tick`] while the editor is hidden: apply finished jobs, no key handling.
+/// Keep the event loop awake while a background document job exists.
+///
+/// Jobs can be started by a menu or dialog while the current frame is being drawn, after
+/// [`tick`] has already run. Calling this from the shell after drawing avoids leaving such a job
+/// unapplied on an otherwise idle event loop (notably Wayland): its document would stay locked,
+/// making Undo and Redo look unavailable until the mouse moves (upstream PhotoCraft be877c27).
+pub fn keep_polling(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
+    if !app.session.has_jobs() {
+        return false;
+    }
+    // Animate progress and poll for results at display rate; the UI thread only draws.
+    ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    true
+}
+
 pub fn tick_background(app: &mut PhotocraftApp, ctx: &egui::Context) {
     crate::save_worker::tick(app, ctx);
     dispatch_batch(app);

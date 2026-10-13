@@ -23,6 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::dialog_filter::{FileDialogExt as _, file_dialog};
 use crate::theme::Tokens;
 use crate::widgets;
 
@@ -1628,7 +1630,7 @@ fn save_preset(s: &mut GenerateState, name: &str) {
 pub fn import_workflow(app: &mut PhotocraftApp) {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let Some(path) = rfd::FileDialog::new().set_title(tl!("Import ComfyUI Workflow")).add_filter(tl!("ComfyUI workflow"), &["json"]).pick_file() else {
+        let Some(path) = file_dialog().set_title(tl!("Import ComfyUI Workflow")).add_filter_nocase(tl!("ComfyUI workflow"), &["json"]).pick_file() else {
             return;
         };
         match import_workflow_path(&path) {
@@ -1673,7 +1675,7 @@ fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_im
             ui.add_enabled_ui(!full, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
                 if crate::icons::button(ui, "folder-open", 22.0, false, tl!("Add an image file")).clicked()
-                    && let Some(path) = rfd::FileDialog::new().add_filter(tl!("Images"), &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_file()
+                    && let Some(path) = file_dialog().add_filter_nocase(tl!("Images"), &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_file()
                 {
                     match photocraft_engine::ai_cmds::file_rgba_srgb(&path) {
                         Ok(img) => {
@@ -2552,7 +2554,7 @@ pub fn library_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 pub fn open_folder(app: &mut PhotocraftApp) -> Result<Value, String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let Some(dir) = rfd::FileDialog::new().set_title(tl!("Open Folder")).pick_folder() else { return Ok(Value::Null) };
+        let Some(dir) = file_dialog().set_title(tl!("Open Folder")).pick_folder() else { return Ok(Value::Null) };
         open_folder_path(app, &dir)
     }
     #[cfg(target_arch = "wasm32")]
@@ -2696,12 +2698,12 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         if widgets::secondary_button(ui, tl!("Add Images…"), 0.0).clicked()
-                            && let Some(paths) = rfd::FileDialog::new().add_filter(tl!("Images"), &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_files()
+                            && let Some(paths) = file_dialog().add_filter_nocase(tl!("Images"), &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_files()
                         {
                             b.files.extend(paths);
                         }
                         if widgets::secondary_button(ui, tl!("Add Folder…"), 0.0).clicked()
-                            && let Some(dir) = rfd::FileDialog::new().pick_folder()
+                            && let Some(dir) = file_dialog().pick_folder()
                         {
                             b.files.extend(folder_images(&dir).into_iter().filter(|p| {
                                 p.extension()
@@ -2732,7 +2734,7 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     ui.label(out);
                     #[cfg(not(target_arch = "wasm32"))]
                     if widgets::secondary_button(ui, tl!("Choose…"), 0.0).clicked() {
-                        b.output = rfd::FileDialog::new().pick_folder();
+                        b.output = file_dialog().pick_folder();
                     }
                 });
                 if let Err(why) = st.ready(ModelId::Qwen, &b.variant) {

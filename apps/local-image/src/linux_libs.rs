@@ -9,8 +9,9 @@
 //!
 //! No `dlopen` here (that needs `unsafe`): we read the dynamic linker's cache (`ldconfig -p`) and
 //! look in `LD_LIBRARY_PATH` and the usual library directories. Only the cache is conclusive: if
-//! it can't be read (NixOS, some containers) and a library isn't found in the directories, we
-//! warn and start anyway. `LOCAL_IMAGE_SKIP_LIB_CHECK=1` skips the check.
+//! it can't be read (musl, NixOS, some containers) and a library isn't found in the directories,
+//! that proves nothing, so we start silently (upstream PhotoCraft d29d81d5, #1144).
+//! `LOCAL_IMAGE_SKIP_LIB_CHECK=1` skips the check.
 //!
 //! The parsing and decision logic is pure and tested on every platform; only [`preflight`]
 //! touches the system, and it is only called on Linux.
@@ -111,9 +112,11 @@ pub fn ldconfig_has(output: &str, soname: &str, arch_tag: Option<&str>) -> bool 
     })
 }
 
-/// A real `ldconfig -p` listing starts with "N libs found in cache".
+/// A real `ldconfig -p` listing starts with "N libs found in cache" (translated on a system whose
+/// locale `LC_ALL=C` doesn't reach): a count, then the cache's name (upstream PhotoCraft
+/// b3993e89, #3397).
 fn ldconfig_output_is_valid(output: &str) -> bool {
-    output.lines().next().is_some_and(|l| l.contains("libs found in cache"))
+    output.lines().next().is_some_and(|l| l.split_whitespace().next().is_some_and(|n| n.parse::<u32>().is_ok()))
 }
 
 /// Where we look for libraries, and what we found there.
@@ -200,7 +203,7 @@ fn install_command(packages: &[&str], distro: Distro) -> String {
 }
 
 /// The message for missing libraries: what's missing, and the command that installs it.
-pub fn missing_message(session: DisplaySession, missing: &[AnyOf], distro: Distro, conclusive: bool) -> String {
+pub fn missing_message(session: DisplaySession, missing: &[AnyOf], distro: Distro) -> String {
     let session_name = match session {
         DisplaySession::Wayland => "Wayland",
         DisplaySession::X11 => "X11",
@@ -214,19 +217,13 @@ pub fn missing_message(session: DisplaySession, missing: &[AnyOf], distro: Distr
             packages.push(p);
         }
     }
-    let mut msg = if conclusive {
-        format!("local-image: cannot start: the {session_name} session needs libraries that are not installed: {}.\n", names.join(", "))
-    } else {
-        format!("local-image: warning: could not find these libraries the {session_name} session needs: {}. Starting anyway.\n", names.join(", "))
-    };
+    let mut msg = format!("local-image: cannot start: the {session_name} session needs libraries that are not installed: {}.\n", names.join(", "));
     msg.push_str(&format!("Install them with:\n  {}\n", install_command(&packages, distro)));
     if distro == Distro::Unknown {
         let fedora: Vec<&str> = missing.iter().filter_map(|any| any.first()).map(|l| l.fedora).collect();
         msg.push_str(&format!("  Fedora: sudo dnf install {}\n", fedora.join(" ")));
     }
-    if conclusive {
-        msg.push_str("(Set LOCAL_IMAGE_SKIP_LIB_CHECK=1 to start anyway.)\n");
-    }
+    msg.push_str("(Set LOCAL_IMAGE_SKIP_LIB_CHECK=1 to start anyway.)\n");
     msg
 }
 
@@ -245,7 +242,9 @@ fn search_dirs(ld_library_path: Option<&str>) -> Vec<PathBuf> {
 /// `ldconfig -p`, from the usual locations (`/sbin` isn't on a normal user's PATH on Debian).
 fn read_ldconfig() -> Option<String> {
     for cmd in ["/sbin/ldconfig", "/usr/sbin/ldconfig", "ldconfig"] {
-        if let Ok(out) = std::process::Command::new(cmd).arg("-p").output()
+        // The listing is parsed, so it must be the untranslated one: a German system prints
+        // "5522 Bibliotheken im Cache", which used to be taken for no cache at all.
+        if let Ok(out) = std::process::Command::new(cmd).arg("-p").env("LC_ALL", "C").output()
             && out.status.success()
         {
             let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -257,8 +256,14 @@ fn read_ldconfig() -> Option<String> {
     None
 }
 
+/// Whether the linker cache lists `soname`; `None` when the cache can't be read, which proves
+/// nothing (musl, NixOS, some containers).
+pub fn cached(soname: &str) -> Option<bool> {
+    read_ldconfig().map(|text| ldconfig_has(&text, soname, ldconfig_arch_tag()))
+}
+
 /// Run the check against this system. `Err` carries the message to print before exiting with a
-/// non-zero status; a warning is printed here and the app starts.
+/// non-zero status.
 pub fn preflight() -> Result<(), String> {
     if std::env::var_os("LOCAL_IMAGE_SKIP_LIB_CHECK").is_some_and(|v| !v.is_empty() && v != "0") {
         return Ok(());
@@ -268,18 +273,17 @@ pub fn preflight() -> Result<(), String> {
         return Ok(());
     }
     let probe = Probe { ldconfig: read_ldconfig(), dirs: search_dirs(std::env::var("LD_LIBRARY_PATH").ok().as_deref()) };
-    match check(session, &probe, |p| p.exists()) {
-        Verdict::Ok => Ok(()),
-        Verdict::Missing { missing, conclusive } => {
-            let distro = std::fs::read_to_string("/etc/os-release").map(|t| distro_from_os_release(&t)).unwrap_or(Distro::Unknown);
-            let msg = missing_message(session, &missing, distro, conclusive);
-            if conclusive {
-                Err(msg)
-            } else {
-                eprint!("{msg}");
-                Ok(())
-            }
-        }
+    let verdict = check(session, &probe, |p| p.exists());
+    decide(session, verdict, || std::fs::read_to_string("/etc/os-release").map(|t| distro_from_os_release(&t)).unwrap_or(Distro::Unknown))
+}
+
+/// `Err` with the message to print only when the linker cache was read and the libraries are
+/// really absent. Without the cache (musl has no `ldconfig -p`; NixOS, AppImages that ship their
+/// own libraries) not finding a file proves nothing, so we start without a misleading warning.
+fn decide(session: DisplaySession, verdict: Verdict, distro: impl FnOnce() -> Distro) -> Result<(), String> {
+    match verdict {
+        Verdict::Missing { missing, conclusive: true } => Err(missing_message(session, &missing, distro())),
+        Verdict::Missing { conclusive: false, .. } | Verdict::Ok => Ok(()),
     }
 }
 
@@ -352,7 +356,7 @@ mod tests {
         assert!(conclusive);
         assert_eq!(missing.len(), 1);
         assert_eq!(missing[0][0].soname, "libxkbcommon-x11.so.0");
-        let msg = missing_message(DisplaySession::X11, &missing, Distro::Debian, conclusive);
+        let msg = missing_message(DisplaySession::X11, &missing, Distro::Debian);
         assert!(msg.contains("libxkbcommon-x11.so.0"), "{msg}");
         assert!(msg.contains("sudo apt install libxkbcommon-x11-0"), "{msg}");
         assert!(msg.contains("LOCAL_IMAGE_SKIP_LIB_CHECK"), "{msg}");
@@ -374,13 +378,13 @@ mod tests {
         let probe = Probe { ldconfig: Some(cache_for_this_arch(&["libwayland-client.so.0", "libxkbcommon.so.0"])), dirs: vec![] };
         let Verdict::Missing { missing, .. } = check(DisplaySession::Wayland, &probe, |_| false) else { panic!("expected missing") };
         assert_eq!(missing.len(), 1);
-        let msg = missing_message(DisplaySession::Wayland, &missing, Distro::Fedora, true);
+        let msg = missing_message(DisplaySession::Wayland, &missing, Distro::Fedora);
         assert!(msg.contains("libvulkan.so.1 or libEGL.so.1"), "{msg}");
         assert!(msg.contains("sudo dnf install vulkan-loader"), "{msg}");
     }
 
     #[test]
-    fn library_dirs_count_and_unread_cache_only_warns() {
+    fn library_dirs_count_and_unread_cache_is_inconclusive() {
         let dirs = search_dirs(Some("/opt/x/lib::/nix/store/abc/lib"));
         assert_eq!(dirs[0], PathBuf::from("/opt/x/lib"));
         assert_eq!(dirs[1], PathBuf::from("/nix/store/abc/lib"));
@@ -388,14 +392,37 @@ mod tests {
         let probe = Probe { ldconfig: None, dirs: vec![PathBuf::from("/nix/lib")] };
         let present = ["/nix/lib/libwayland-client.so.0", "/nix/lib/libxkbcommon.so.0", "/nix/lib/libEGL.so.1"];
         assert_eq!(check(DisplaySession::Wayland, &probe, |p| present.iter().any(|q| Path::new(q) == p)), Verdict::Ok);
-        // Not found and no cache to confirm it: inconclusive, so a warning rather than an exit.
+        // Not found and no cache to confirm it: inconclusive (the app starts, see #1144).
         let v = check(DisplaySession::Wayland, &probe, |_| false);
         let Verdict::Missing { missing, conclusive } = v else { panic!("expected missing") };
         assert!(!conclusive);
-        let msg = missing_message(DisplaySession::Wayland, &missing, Distro::Unknown, conclusive);
-        assert!(msg.contains("Starting anyway"), "{msg}");
+        let msg = missing_message(DisplaySession::Wayland, &missing, Distro::Unknown);
         assert!(msg.contains("apt install libwayland-client0 libxkbcommon0 libvulkan1"), "{msg}");
         assert!(msg.contains("dnf install libwayland-client libxkbcommon vulkan-loader"), "{msg}");
+    }
+
+    /// Upstream d29d81d5 (#1144): Alpine (musl) has no `ldconfig -p`, so a library that exists was
+    /// reported missing.
+    #[test]
+    fn unreadable_cache_never_warns_or_fails() {
+        let probe = Probe { ldconfig: None, dirs: vec![] };
+        let verdict = check(DisplaySession::X11, &probe, |_| false);
+        assert_eq!(decide(DisplaySession::X11, verdict, || Distro::Debian), Ok(()));
+        // A readable cache that lacks a library is still an error.
+        let names: Vec<&str> = ALL_X11.iter().copied().filter(|n| *n != "libxkbcommon-x11.so.0").collect();
+        let probe = Probe { ldconfig: Some(cache_for_this_arch(&names)), dirs: vec![] };
+        let verdict = check(DisplaySession::X11, &probe, |_| false);
+        let Err(msg) = decide(DisplaySession::X11, verdict, || Distro::Debian) else { panic!("expected an error") };
+        assert!(msg.contains("libxkbcommon-x11.so.0"), "{msg}");
+    }
+
+    /// Upstream b3993e89 (#3397): a translated `ldconfig -p` header is still a listing.
+    #[test]
+    fn translated_ldconfig_listing_is_valid() {
+        assert!(ldconfig_output_is_valid(CACHE));
+        assert!(ldconfig_output_is_valid("5522 Bibliotheken im Cache »/etc/ld.so.cache« gefunden\n\tlibz.so.1 (libc6,x86-64) => /usr/lib/libz.so.1\n"));
+        assert!(!ldconfig_output_is_valid("Error: kein Cache\n"));
+        assert!(!ldconfig_output_is_valid("ldconfig: command not found"));
     }
 
     #[test]

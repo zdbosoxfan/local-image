@@ -336,6 +336,13 @@ fn ime_update(app: &mut PhotocraftApp, s: &str, commit: bool) {
     let Some(text) = current_text(app, LayerId(ed.layer)) else { return };
     let n = text.chars().count();
     let s = s.replace("\r\n", "\n").replace('\r', "\n");
+    // An empty preedit or commit while nothing is being composed changes nothing. Wayland input
+    // methods send one on every state change (the caret rectangle moving as a selection grows,
+    // ⌘A, ⇧-arrows, a drag), and it used to replace the selection, deleting the text as it was
+    // selected (upstream PhotoCraft c1cb455c, #1381).
+    if s.is_empty() && ed.preedit.is_none() {
+        return;
+    }
     let (start, end) = match ed.preedit {
         Some((p, l)) if p.saturating_add(l) <= n => (p, p + l),
         _ => (ed.caret.min(ed.anchor).min(n), ed.caret.max(ed.anchor).min(n)),
@@ -1562,6 +1569,32 @@ mod tests {
         app.ui.text_edit.as_mut().unwrap().preedit = Some((10, 5));
         ime_update(&mut app, "x", true);
         assert_eq!(layer_text(&app), "日本語x");
+    }
+
+    /// Upstream c1cb455c (#1381): on Wayland the input method sends an empty preedit (and
+    /// sometimes an empty commit) whenever the caret rectangle moves, e.g. while ⌘A, ⇧-arrows or
+    /// a drag select text. With nothing being composed that must leave the text and the selection
+    /// alone; a real composition still replaces the selection, and cancelling it removes only the
+    /// composed text.
+    #[test]
+    fn empty_ime_events_never_delete_the_selection() {
+        let mut app = app();
+        pointer_up(&mut app, [50.0, 100.0], [50.0, 100.0]);
+        ime_update(&mut app, "Hello", true);
+        assert_eq!(layer_text(&app), "Hello");
+        if let Some(e) = app.ui.text_edit.as_mut() {
+            (e.caret, e.anchor) = (5, 0);
+        }
+        ime_update(&mut app, "", false);
+        ime_update(&mut app, "", true);
+        assert_eq!(layer_text(&app), "Hello", "empty IME events keep the text");
+        let ed = app.ui.text_edit.clone().unwrap();
+        assert_eq!((ed.caret, ed.anchor, ed.preedit), (5, 0, None), "and the selection");
+        // Composing replaces the selection; cancelling the composition leaves the rest.
+        ime_update(&mut app, "か", false);
+        assert_eq!(layer_text(&app), "か");
+        ime_update(&mut app, "", false);
+        assert_eq!(layer_text(&app), "");
     }
 
     #[test]

@@ -3886,3 +3886,5 @@ ai	New	Nouveautés
 	Cancel test	Annuler le test
 	Re-test	Relancer le test
 	testing…	test en cours…
+	Autosave failed	Échec de l’enregistrement automatique
+	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	La récupération après plantage ne peut pas conserver une copie de vos modifications non enregistrées. Enregistrez votre travail pour le conserver.

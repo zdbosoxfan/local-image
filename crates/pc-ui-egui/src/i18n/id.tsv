@@ -3874,3 +3874,5 @@ ai	New	Baru
 	Re-test	Uji ulang
 	testing…	menguji…
 @id	path.finishCompound	Selesaikan Jalur Gabungan
+	Autosave failed	Simpan otomatis gagal
+	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Pemulihan crash tidak dapat menyimpan salinan perubahan yang belum disimpan. Simpan pekerjaan Anda agar tidak hilang.

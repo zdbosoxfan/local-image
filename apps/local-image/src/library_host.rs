@@ -38,6 +38,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use lightcraft_ui_egui::{LightcraftApp, Services, UiState};
+use photocraft_ui_egui::dialog_filter::{FileDialogExt as _, file_dialog};
 use photocraft_ui_egui::{Module, PhotocraftApp};
 
 /// Files the Library asked the editor to open (Edit in External Editor with no other editor set).
@@ -1087,6 +1088,15 @@ impl eframe::App for Host {
         self.frames += 1;
         self.editor.current_module = self.mode;
         self.shared_shell(ctx);
+        // A file dialog that couldn't open on this system (no desktop portal, no zenity) is
+        // explained where the user asked for it, not taken for Cancel.
+        if let Some(why) = photocraft_ui_egui::dialog_filter::take_unavailable() {
+            log::warn!("{why}");
+            match self.library.as_mut() {
+                Some(lib) if self.mode != Module::Compositing => lib.toast_error(ctx, why),
+                _ => photocraft_ui_egui::notices::error(&mut self.editor, why),
+            }
+        }
         if self.editor.ui.dialogs.is_empty() {
             self.module_keys(ctx);
             self.preview_save_key(ctx);
@@ -1482,15 +1492,20 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter) -> LightcraftA
     app
 }
 
+/// Library › Add Photos dialog extensions: everything the folder scan imports
+/// ([`lightcraft_engine::import::EXTENSIONS`]) plus `heif`. On Linux they also match upper and
+/// mixed case (`DSC_0001.NEF`, `IMG_0001.JPG`): see [`photocraft_ui_egui::dialog_filter`].
+const ADD_PHOTOS_EXTS: &[&str] = &[
+    "jpg", "jpeg", "png", "tif", "tiff", "webp", "dng", "cr2", "cr3", "nef", "nrw", "arw", "raf", "orf", "rw2", "rwl", "raw", "pef", "psd", "jxl", "gif",
+    "bmp", "heic", "heif", "avif",
+];
+
 fn services(opens: Opens) -> Services {
     Services {
         trash_file: li_ai::trash::available()
             .then(|| Box::new(|path: &str| li_ai::trash::move_to_trash(std::path::Path::new(path)).map(|_| ()).map_err(|e| e.to_string())) as _),
         save_denoise_file: Some(Box::new(|name| {
-            rfd::FileDialog::new()
-                .set_file_name(name)
-                .add_filter("Denoised image", &["tiff", "tif", "dng"])
-                .save_file()
+            crate::file_dialog_probe::explain_empty(file_dialog().set_file_name(name).add_filter_nocase("Denoised image", &["tiff", "tif", "dng"]).save_file())
                 .map(|p| p.to_string_lossy().into_owned())
         })),
         download_models: Some(Box::new(|id, cancel| {
@@ -1516,9 +1531,12 @@ fn services(opens: Opens) -> Services {
                 .map(|dl| lightcraft_ui_egui::ModelDownloadStatus { running: !dl.finished, done: dl.done, total: dl.total, error: dl.error.clone() })
                 .unwrap_or_default()
         })),
-        pick_folder: Some(Box::new(|| rfd::FileDialog::new().set_title("Choose Folder").pick_folder().map(|p| p.to_string_lossy().to_string()))),
+        pick_folder: Some(Box::new(|| {
+            crate::file_dialog_probe::explain_empty(file_dialog().set_title("Choose Folder").pick_folder()).map(|p| p.to_string_lossy().to_string())
+        })),
         pick_folder_titled: Some(Box::new(|title| {
-            rfd::FileDialog::new().set_title(lightcraft_ui_egui::i18n::tr(title)).pick_folder().map(|p| p.to_string_lossy().to_string())
+            crate::file_dialog_probe::explain_empty(file_dialog().set_title(lightcraft_ui_egui::i18n::tr(title)).pick_folder())
+                .map(|p| p.to_string_lossy().to_string())
         })),
         open_with: Some(Box::new(move |path: &str, app: &str| {
             let app = app.trim();
@@ -1548,63 +1566,49 @@ fn services(opens: Opens) -> Services {
             open::that(target).map_err(|e| e.to_string())
         })),
         pick_files: Some(Box::new(|| {
-            rfd::FileDialog::new()
-                .add_filter(
-                    "Photos",
-                    &[
-                        "jpg", "jpeg", "png", "tif", "tiff", "webp", "dng", "cr2", "cr3", "nef", "nrw", "arw", "raf", "orf", "rw2", "rwl", "raw", "pef", "psd",
-                        "jxl", "gif", "bmp", "heic", "heif", "avif",
-                    ],
-                )
-                .pick_files()
+            crate::file_dialog_probe::explain_empty(file_dialog().add_filter_nocase("Photos", ADD_PHOTOS_EXTS).pick_files())
                 .unwrap_or_default()
                 .into_iter()
                 .map(|p| p.to_string_lossy().to_string())
                 .collect()
         })),
         pick_preset_files: Some(Box::new(|| {
-            rfd::FileDialog::new()
-                .set_title("Import Presets")
-                .add_filter("Presets & Profiles", &["lcpreset", "xmp", "lrtemplate", "zip", "dng", "lmp", "mplumpack", "cube"])
-                .pick_files()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|p| p.to_string_lossy().to_string())
-                .collect()
+            crate::file_dialog_probe::explain_empty(
+                file_dialog()
+                    .set_title("Import Presets")
+                    .add_filter_nocase("Presets & Profiles", &["lcpreset", "xmp", "lrtemplate", "zip", "dng", "lmp", "mplumpack", "cube"])
+                    .pick_files(),
+            )
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect()
         })),
         pick_tracklog: Some(Box::new(|| {
-            rfd::FileDialog::new()
-                .set_title("Auto-Tag from Tracklog")
-                .add_filter("GPS Track Log", &["gpx"])
-                .pick_file()
+            crate::file_dialog_probe::explain_empty(file_dialog().set_title("Auto-Tag from Tracklog").add_filter_nocase("GPS Track Log", &["gpx"]).pick_file())
                 .map(|p| vec![p.to_string_lossy().to_string()])
                 .unwrap_or_default()
         })),
         save_preset_file: Some(Box::new(|name: &str| {
-            rfd::FileDialog::new()
-                .set_title("Export Presets")
-                .add_filter("Preset", &["lcpreset"])
-                .set_file_name(name)
-                .save_file()
-                .map(|p| p.to_string_lossy().to_string())
+            crate::file_dialog_probe::explain_empty(
+                file_dialog().set_title("Export Presets").add_filter_nocase("Preset", &["lcpreset"]).set_file_name(name).save_file(),
+            )
+            .map(|p| p.to_string_lossy().to_string())
         })),
         pick_curve_preset_files: Some(Box::new(|| {
-            rfd::FileDialog::new()
-                .set_title("Import Point Curve Presets")
-                .add_filter("Point Curve Presets", &["lccurve", "json"])
-                .pick_files()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|p| p.to_string_lossy().to_string())
-                .collect()
+            crate::file_dialog_probe::explain_empty(
+                file_dialog().set_title("Import Point Curve Presets").add_filter_nocase("Point Curve Presets", &["lccurve", "json"]).pick_files(),
+            )
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect()
         })),
         save_curve_preset_file: Some(Box::new(|name: &str| {
-            rfd::FileDialog::new()
-                .set_title("Export Point Curve Presets")
-                .add_filter("Point Curve Presets", &["lccurve"])
-                .set_file_name(name)
-                .save_file()
-                .map(|p| p.to_string_lossy().to_string())
+            crate::file_dialog_probe::explain_empty(
+                file_dialog().set_title("Export Point Curve Presets").add_filter_nocase("Point Curve Presets", &["lccurve"]).set_file_name(name).save_file(),
+            )
+            .map(|p| p.to_string_lossy().to_string())
         })),
         write_shared: Some(Arc::new(lightcraft_engine::export::write_file)),
         write: Some(Box::new(lightcraft_engine::export::write_file)),
@@ -1627,6 +1631,24 @@ mod tests {
         assert_eq!(super::module_preference(Some("unknown")), super::Module::Library);
     }
     use super::*;
+
+    /// LightCraft e2d35de: Library › Add Photos offers everything the folder scan imports and
+    /// shows DSC_0001.NEF / IMG_0001.JPG / .CR3 on Linux.
+    #[test]
+    fn add_photos_filter_covers_import_extensions_in_any_case() {
+        use photocraft_ui_egui::dialog_filter::{dialog_extensions_for, glob_ext};
+        let pats = dialog_extensions_for(ADD_PHOTOS_EXTS, true);
+        for e in lightcraft_engine::import::EXTENSIONS {
+            assert!(ADD_PHOTOS_EXTS.contains(e), "Add Photos is missing .{e}");
+        }
+        for e in ADD_PHOTOS_EXTS {
+            assert!(pats.iter().any(|p| p == e), "{e}");
+            assert!(pats.iter().any(|p| glob_ext(p, &e.to_uppercase())), "{e}");
+        }
+        for name in ["NEF", "JPG", "CR3", "Nef", "jPg"] {
+            assert!(pats.iter().any(|p| glob_ext(p, name)), "{name}");
+        }
+    }
 
     #[test]
     fn bugfix_save_o009_overwrite_resets_master_virtual_copy_and_its_develop_link() {

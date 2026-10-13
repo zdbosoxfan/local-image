@@ -3881,3 +3881,5 @@ ai	New	最新
 	Re-test	重新測試
 	testing…	測試中…
 @id	path.finishCompound	完成複合路徑
+	Autosave failed	自動儲存失敗
+	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	當機復原無法保留未儲存變更的副本。請儲存您的工作。
