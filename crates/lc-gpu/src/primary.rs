@@ -814,6 +814,7 @@ pub(crate) fn process(
     img = next;
     let (next, mut ik) = colour(cx, img, s, plan, cache, ik, "global");
     img = next;
+    let layout = crate::render::alpha_layout(s, n);
     for (mi, m) in s.masks.iter().filter(|m| m.visible && !m.components.is_empty()).enumerate() {
         let scope = format!("layer/{mi}");
         let mut d = m.tools.view(lightcraft_pipeline::local::effective_wb(info, s));
@@ -840,7 +841,7 @@ pub(crate) fn process(
         if wb.is_some() || flags.tone || flags.clarity || flags.texture || flags.structure {
             let (q, k) = tone_detail(cx, q, &d, plan, info, pp, clip, method, cache, qkey, base_key, &scope);
             if let Some(alpha) = alpha {
-                img = Arc::new(run(cx, "p_mix", n, &[(mi * n) as u32], [Some(&img), Some(&q), Some(alpha), None, None], n * 3));
+                img = Arc::new(run(cx, "p_mix", n, &[layout[mi].0, layout[mi].1.to_bits()], [Some(&img), Some(&q), Some(alpha), None, None], n * 3));
                 ik = key((
                     ik,
                     k,
@@ -853,7 +854,7 @@ pub(crate) fn process(
         if flags.equalizer || flags.balance || flags.skin {
             let (q, k) = colour(cx, img.clone(), &d, plan, cache, ik, &scope);
             if let Some(alpha) = alpha {
-                img = Arc::new(run(cx, "p_mix", n, &[(mi * n) as u32], [Some(&img), Some(&q), Some(alpha), None, None], n * 3));
+                img = Arc::new(run(cx, "p_mix", n, &[layout[mi].0, layout[mi].1.to_bits()], [Some(&img), Some(&q), Some(alpha), None, None], n * 3));
                 ik = key((
                     ik,
                     k,

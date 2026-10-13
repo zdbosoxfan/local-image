@@ -403,14 +403,14 @@ pub fn process(img: &Rgb32f, proxy: &Rgb32f, info: &SourceInfo, plan: &Plan<'_>,
                 crate::detail::out_per_orig(plan.px_per_long, plan.src_long, info.sensor_scale),
             );
             for i in 0..out.len() {
-                out.data[i] = crate::layers::mix3(out.data[i], q.data[i], alpha.alpha.data[i]);
+                out.data[i] = crate::layers::mix3(out.data[i], q.data[i], alpha.alpha.at(i));
             }
         }
         if flags.equalizer || flags.balance || flags.skin {
             let mut q = out.clone();
             apply_colour(&mut q, &d, plan.px_per_long);
             for i in 0..out.len() {
-                out.data[i] = crate::layers::mix3(out.data[i], q.data[i], alpha.alpha.data[i]);
+                out.data[i] = crate::layers::mix3(out.data[i], q.data[i], alpha.alpha.at(i));
             }
         }
     }
@@ -527,6 +527,25 @@ fn apply_colour(img: &mut Rgb32f, s: &DevelopSettings, ppl: f64) {
     }
 }
 
+/// The Skin Tone selection window, including neutral/lip protection (UCS22 JCh, radians).
+pub fn skin_weight(c: [f32; 3], s: &SkinTone) -> f32 {
+    let Some(reference) = s.reference else { return 0.0 };
+    let refc = [reference[0] as f32, reference[1] as f32, (reference[2] as f32).to_radians()];
+    let wrap = |v: f32| (v + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+    let dh = wrap(c[2] - refc[2]).abs();
+    let wh = (s.hue_range as f32).to_radians().max(1e-3);
+    let wc = 0.04 + s.chroma_range as f32 / 100. * 0.4;
+    let wl = 0.05 + s.lightness_range as f32 / 100. * 0.5;
+    let mut w = (1. - smooth(wh * 0.5, wh, dh))
+        * (1. - smooth(wc * 0.5, wc, (c[1] - refc[1]).abs()))
+        * (1. - smooth(wl * 0.5, wl, (c[0] - refc[0]).abs()))
+        * smooth(0.005, 0.03, c[1]);
+    if s.protect_lips {
+        w *= 1. - smooth(0.12, 0.3, -wrap(c[2] - refc[2]));
+    }
+    w
+}
+
 /// Skin uniformity edits only low-frequency chroma; original pore/texture residual survives.
 pub fn skin(img: &mut Rgb32f, s: &SkinTone, ppl: f64) {
     let Some(reference) = s.reference else {
@@ -556,21 +575,9 @@ pub fn skin(img: &mut Rgb32f, s: &SkinTone, ppl: f64) {
     });
     let guide = img.map(|c| norm(c).max(1e-6));
     let low: [Plane; 3] = std::array::from_fn(|k| cross_eigf(&guide, &planes[k], (ppl as f32 * 0.0075).max(1.), 0.05));
-    let wrap = |v: f32| (v + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
     for i in 0..img.len() {
         let c = jch[i];
-        let dh = wrap(c[2] - refc[2]).abs();
-        let wh = (s.hue_range as f32).to_radians().max(1e-3);
-        let wc = 0.04 + s.chroma_range as f32 / 100. * 0.4;
-        let wl = 0.05 + s.lightness_range as f32 / 100. * 0.5;
-        let mut w = (1. - smooth(wh * 0.5, wh, dh))
-            * (1. - smooth(wc * 0.5, wc, (c[1] - refc[1]).abs()))
-            * (1. - smooth(wl * 0.5, wl, (c[0] - refc[0]).abs()))
-            * smooth(0.005, 0.03, c[1]);
-        // Redder colours than the selected skin: soft lip protection, independent of image lightness.
-        if s.protect_lips {
-            w *= 1. - smooth(0.12, 0.3, -wrap(c[2] - refc[2]));
-        }
+        let w = skin_weight(c, s);
         if w <= 0. {
             continue;
         }

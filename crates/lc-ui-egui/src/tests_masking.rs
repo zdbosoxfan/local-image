@@ -740,6 +740,12 @@ fn a_selected_mask_shows_its_layer_tools() {
     h.settle(Duration::from_secs(5));
     assert!(has(&mut h, "section:layer-light"));
     assert!(!has(&mut h, "section:layer-effects"));
+    // Creation now includes Filled/Empty actions; scroll the actual panel to reach Reset.
+    let r = h.request("ui.hoverWidget", json!({"id":"panel:right_panel"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    let r = h.request("ui.scroll", json!({"dy":-300.0}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(Duration::from_secs(5));
     // Reset Layer
     let r = h.request("ui.clickWidget", json!({"id": "button:layerReset"}), T);
     assert_eq!(r["ok"], true, "{r}");

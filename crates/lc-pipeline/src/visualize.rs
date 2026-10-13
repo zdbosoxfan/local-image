@@ -28,6 +28,8 @@ pub enum Overlay {
     None,
     /// Point Color sample `i`: its range in colour, everything else grey.
     PointColorRange(u8),
+    /// Skin Tone range: global, or the tools of a layer id.
+    SkinToneRange(Option<u32>),
     /// Visualize Spots with a threshold 0..100 (higher = more sensitive).
     Spots(u8),
     /// The evaluated alpha of mask `id` (a [`lightcraft_develop::Mask`] id), drawn as `view` in
@@ -118,6 +120,7 @@ impl Overlay {
         match self {
             Overlay::None => (0, 0.0),
             Overlay::PointColorRange(i) => (1, i as f64),
+            Overlay::SkinToneRange(id) => (6, id.map_or(0.0, |id| id as f64 + 1.0)),
             Overlay::Spots(t) => (2, t as f64),
             Overlay::Mask { id, view, color, opacity } => (3, pack_mask(id, view, color, opacity) as f64),
             Overlay::ToneEqMask => (4, 0.0),
@@ -133,6 +136,7 @@ impl Overlay {
             3 if v.is_finite() && v >= 0.0 => unpack_mask(v as u64),
             4 => Overlay::ToneEqMask,
             5 => Overlay::SharpenMask,
+            6 => Overlay::SkinToneRange(if v < 1.0 { None } else { Some((v - 1.0) as u32) }),
             _ => Overlay::None,
         }
     }
@@ -146,6 +150,16 @@ impl Overlay {
             Overlay::Mask { id, view, color, opacity } => 3 << 60 | pack_mask(id, view, color, opacity),
             Overlay::ToneEqMask => 0x4000,
             Overlay::SharpenMask => 0x5000,
+            Overlay::SkinToneRange(id) => 6 << 60 | id.map_or(0, |id| id as u64 + 1),
+        }
+    }
+
+    /// The Skin Tone tool this overlay targets.
+    pub fn skin(self, s: &DevelopSettings) -> Option<&lightcraft_develop::SkinTone> {
+        match self {
+            Overlay::SkinToneRange(None) => Some(&s.skin_tone),
+            Overlay::SkinToneRange(Some(id)) => s.masks.iter().find(|m| m.id == id)?.tools.skin_tone.as_ref(),
+            _ => None,
         }
     }
 
@@ -168,10 +182,49 @@ pub fn adjust_settings(o: Overlay, s: &mut Cow<'_, DevelopSettings>) {
         let p = &mut s.to_mut().point_colors[i as usize];
         (p.hue_shift, p.sat_shift, p.lum_shift, p.variance) = (0.0, 0.0, 0.0, 0.0);
     }
+    if let Overlay::SkinToneRange(id) = o
+        && o.skin(s).is_some_and(|skin| skin.uniformity != 0.0 || skin.lightness != 0.0)
+    {
+        let settings = s.to_mut();
+        let skin = match id {
+            None => Some(&mut settings.skin_tone),
+            Some(id) => settings.masks.iter_mut().find(|m| m.id == id).and_then(|m| m.tools.skin_tone.as_mut()),
+        };
+        if let Some(skin) = skin {
+            skin.uniformity = 0.0;
+            skin.lightness = 0.0;
+        }
+    }
     // the sharpening mask shows even at Amount 0 (its planes are made only while sharpening)
     if o == Overlay::SharpenMask && s.detail.sharpen_amount == 0.0 {
         s.to_mut().detail.sharpen_amount = 1.0;
     }
+}
+
+/// Primary tools have already run, but a range diagnostic still needs its selection reference.
+pub fn remaining_for_overlay(o: Overlay, s: &DevelopSettings) -> DevelopSettings {
+    let mut remaining = crate::primary::remaining(s);
+    if let Some(skin) = o.skin(s).copied() {
+        match o {
+            Overlay::SkinToneRange(None) => remaining.skin_tone = skin,
+            Overlay::SkinToneRange(Some(id)) => {
+                if let Some(m) = remaining.masks.iter_mut().find(|m| m.id == id) {
+                    m.tools.skin_tone = Some(skin);
+                }
+            }
+            _ => {}
+        }
+    }
+    remaining
+}
+
+/// Skin coverage on exposed scene-linear values, matching the picker's UCS22 reference.
+pub fn skin_alpha(img: &lightcraft_raster::Rgb32f, skin: &lightcraft_develop::SkinTone, gain: f32) -> Plane {
+    let lw = crate::ucs::y_to_l_star(1.0);
+    img.map(|rgb| {
+        let xyz = crate::ucs::mul(&crate::ucs::mats().rgb_to_xyz, rgb.map(|v| v * gain));
+        crate::primary::skin_weight(crate::ucs::xyy_to_jch(crate::ucs::xyz_to_xyy(xyz), lw), skin)
+    })
 }
 
 /// Draw overlay `o` over `img` (rendered with `plan`). `mask` is the evaluated alpha of the mask
@@ -184,9 +237,16 @@ pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, mask: Option<&Plane>)
                 point_color_range(img, &PointK::new(p));
             }
         }
+        Overlay::SkinToneRange(_) => {
+            if let Some(a) = mask {
+                selected_range(img, a);
+            }
+        }
         Overlay::Spots(t) => spots(img, t, plan.px_per_long),
         Overlay::Mask { view, color, opacity, .. } => {
-            if let Some(a) = mask.filter(|a| (a.width, a.height) == (img.width, img.height)) {
+            if let Some(a) = o.mask(&plan.settings).and_then(crate::masks::scalar_alpha) {
+                mask_view_with(img, view, color, opacity, |_| a);
+            } else if let Some(a) = mask.filter(|a| (a.width, a.height) == (img.width, img.height)) {
                 mask_view(img, a, view, color, opacity);
             }
         }
@@ -208,12 +268,16 @@ pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, mask: Option<&Plane>)
 
 /// Draw mask alpha `a` over `img` as `view`.
 pub fn mask_view(img: &mut Rgba8, a: &Plane, view: MaskView, color: [u8; 3], opacity: u8) {
+    mask_view_with(img, view, color, opacity, |i| a.data[i]);
+}
+// Scalar Full overlays use the same drawing without materialising an alpha plane.
+fn mask_view_with(img: &mut Rgba8, view: MaskView, color: [u8; 3], opacity: u8, alpha: impl Fn(usize) -> f32 + Sync + Send) {
     let op = opacity.min(100) as f32 / 100.0;
     let col = color.map(|c| c as f32);
     let w = img.width;
     for_rows(&mut img.data, w, |y, row| {
         for (x, px) in row.iter_mut().enumerate() {
-            let a = a.data[y * w + x].clamp(0.0, 1.0);
+            let a = alpha(y * w + x).clamp(0.0, 1.0);
             let p = [px[0] as f32, px[1] as f32, px[2] as f32];
             let grey = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
             let out: [f32; 3] = match view {
@@ -254,6 +318,23 @@ fn spots(img: &mut Rgba8, t: u8, ppl: f64) {
         let v = if (l.data[i] - b.data[i]).abs() > thr { 255 } else { 0 };
         *px = [v, v, v, 255];
     }
+}
+
+/// Keep selected pixels in colour, fade the rest to grey using the tool's feathered window.
+fn selected_range(img: &mut Rgba8, alpha: &Plane) {
+    if (img.width, img.height) != (alpha.width, alpha.height) {
+        return;
+    }
+    let w = img.width;
+    for_rows(&mut img.data, w, |y, row| {
+        for (x, px) in row.iter_mut().enumerate() {
+            let a = alpha.data[y * w + x];
+            let grey = 0.2126 * px[0] as f32 + 0.7152 * px[1] as f32 + 0.0722 * px[2] as f32;
+            for value in &mut px[..3] {
+                *value = (grey + (*value as f32 - grey) * a).round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    });
 }
 
 fn point_color_range(img: &mut Rgba8, k: &PointK) {
@@ -371,4 +452,42 @@ mod tests {
         assert_eq!(MaskView::WhiteOnBlack.next(), MaskView::Color);
         assert_eq!(MaskView::parse("colorOnBw"), Some(MaskView::ColorOnBw));
     }
+}
+
+#[cfg(test)]
+#[test]
+fn develop_c_skin_range_uses_scene_reference_and_preserves_targeted_layer() {
+    use crate::{RenderRequest, SourceInfo, render};
+    use lightcraft_develop::{LayerTools, Mask, MaskComponent, MaskShape, SkinTone};
+    use lightcraft_geom::Point;
+    use lightcraft_raster::Rgb32f;
+    let src = Rgb32f::from_fn(40, 20, |x, _| if x < 20 { [0.3, 0.12, 0.05] } else { [0.03, 0.07, 0.3] });
+    let info = SourceInfo::default();
+    let req = RenderRequest::fit(40, 20);
+    let reference = crate::skin_reference_sample(&src, &info, &DevelopSettings::default(), &req, Point::new(0.2, 0.5)).unwrap();
+    let mut s = DevelopSettings {
+        skin_tone: SkinTone { reference: Some(reference), uniformity: 80.0, lightness: 30.0, ..Default::default() },
+        ..Default::default()
+    };
+    let plain = render(&src, &info, &DevelopSettings::default(), &req).image;
+    let overlay = Overlay::SkinToneRange(None);
+    let view = render(&src, &info, &s, &RenderRequest { overlay, ..req }).image;
+    assert_eq!(view.data[10 * 40 + 5], plain.data[10 * 40 + 5], "selected skin stays in colour without its own edit");
+    let blue = view.data[10 * 40 + 35];
+    assert_eq!(blue[0], blue[1]);
+    assert_eq!(blue[1], blue[2]);
+    let mask = Mask {
+        id: 9,
+        components: vec![MaskComponent { name: None, op: Default::default(), invert: false, shape: MaskShape::Full }],
+        tools: LayerTools { skin_tone: Some(s.skin_tone), ..Default::default() },
+        ..Default::default()
+    };
+    s.skin_tone = Default::default();
+    s.masks.push(mask);
+    assert_eq!(render(&src, &info, &s, &RenderRequest { overlay: Overlay::SkinToneRange(Some(9)), ..req }).image, view);
+    for overlay in [Overlay::SkinToneRange(None), Overlay::SkinToneRange(Some(0)), Overlay::SkinToneRange(Some(u32::MAX))] {
+        let (kind, value) = overlay.to_parts();
+        assert_eq!(Overlay::from_parts(kind, value), overlay);
+    }
+    assert_ne!(Overlay::SkinToneRange(None).key(), Overlay::SkinToneRange(Some(0)).key());
 }

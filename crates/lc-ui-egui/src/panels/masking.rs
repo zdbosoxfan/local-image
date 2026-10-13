@@ -43,6 +43,7 @@ pub fn local_get(a: &LocalAdjustments, key: &str) -> f64 {
 
 fn kind_label(s: &MaskShape) -> (&'static str, Icon) {
     match s {
+        MaskShape::Full => ("Filled Layer", Icon::Mask),
         MaskShape::Brush { .. } => ("Brush", Icon::Brush),
         MaskShape::Linear { .. } => ("Linear Gradient", Icon::Linear),
         MaskShape::Radial { .. } => ("Radial Gradient", Icon::Radial),
@@ -76,6 +77,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 10 }).show(ui, |ui| {
         ui.label(egui::RichText::new(crate::i18n::tr("Create New Mask")).color(t.text_dim));
         ui.add_space(6.0);
+        for (kind, label) in [("full", "New Filled Layer"), ("empty", "New Empty Layer")] {
+            if text_button(ui, &format!("maskNew:{kind}"), label, false).clicked() {
+                let _ = app.run("mask.add", json!({"kind":kind}));
+            }
+        }
         let tiles: [(&str, &str, Icon); 11] = [
             ("object", "Object", Icon::Subject),
             ("prompt", "Describe", Icon::Subject),

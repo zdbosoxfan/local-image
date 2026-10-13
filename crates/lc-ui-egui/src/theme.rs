@@ -112,6 +112,17 @@ impl Tokens {
     pub fn get(ctx: &egui::Context) -> Tokens {
         ctx.data(|d| d.get_temp::<Tokens>(egui::Id::NULL)).unwrap_or_default()
     }
+    /// Curve channels retain their hue with an AA-readable stroke on the current plot fill.
+    /// Derive this from host tokens so light palettes never inherit dark-theme grey strokes.
+    pub fn curve_color(&self, channel: &str) -> Color32 {
+        let color = match channel {
+            "red" => Color32::from_rgb(0xdd, 0x33, 0x33),
+            "green" => Color32::from_rgb(0x33, 0xbb, 0x55),
+            "blue" => Color32::from_rgb(0x33, 0x77, 0xee),
+            _ => self.text,
+        };
+        readable_text(color, self.grid_bg)
+    }
     pub fn font(&self, size: f32) -> FontId {
         FontId::proportional(size)
     }

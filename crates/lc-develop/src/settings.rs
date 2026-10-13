@@ -1026,6 +1026,8 @@ impl Default for BrushStroke {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum MaskShape {
+    /// Whole-image selection. Documents store this as a compatible empty brush plus `full`.
+    Full,
     Brush {
         strokes: Vec<BrushStroke>,
     },
@@ -1125,7 +1127,30 @@ pub struct MaskComponent {
     pub op: MaskOp,
     #[serde(default)]
     pub invert: bool,
+    #[serde(with = "compatible_mask_shape")]
     pub shape: MaskShape,
+}
+
+// Older readers ignore unknown brush fields, so Full never introduces an unknown enum tag in
+// a DevelopSettings document. A downgrade loses this component's coverage, but keeps all edits.
+mod compatible_mask_shape {
+    use super::MaskShape;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    pub fn serialize<S: Serializer>(shape: &MaskShape, serializer: S) -> Result<S::Ok, S::Error> {
+        if matches!(shape, MaskShape::Full) {
+            serde_json::json!({"kind":"brush", "strokes":[], "full":true}).serialize(serializer)
+        } else {
+            shape.serialize(serializer)
+        }
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<MaskShape, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        if value["kind"] == "brush" && value["full"] == true && value["strokes"].as_array().is_some_and(Vec::is_empty) {
+            Ok(MaskShape::Full)
+        } else {
+            serde_json::from_value(value).map_err(serde::de::Error::custom)
+        }
+    }
 }
 
 /// A mask is a develop *layer* (Capture One-style): its components select where, and it holds
@@ -1242,12 +1267,13 @@ impl LayerTools {
         *self == LayerTools::default()
     }
 
-    /// Whether the layer holds section `key` (one of [`LAYER_KEYS`]).
+    /// Whether the layer holds an editable UI section `key` (one of [`LAYER_KEYS`]).
     pub fn is_set(&self, key: &str) -> bool {
         self.used_keys().contains(&key)
     }
 
-    /// The sections the layer holds, in [`LAYER_KEYS`] order.
+    /// Editable sections the layer holds, in [`LAYER_KEYS`] order. Legacy global-only
+    /// fields remain loadable/renderable but do not advertise a layer tool in the UI.
     pub fn used_keys(&self) -> Vec<&'static str> {
         let set = [
             self.wb.is_some(),
@@ -1256,12 +1282,12 @@ impl LayerTools {
             self.color.is_some(),
             self.mixer.is_some(),
             self.point_colors.is_some(),
-            self.treatment.is_some(),
-            self.bw_mix.is_some(),
+            false, // Treatment and B&W mix are global-only in the UI.
+            false,
             self.grading.is_some(),
             self.effects.is_some(),
-            self.vignette.is_some(),
-            self.grain.is_some(),
+            false, // Vignette and Grain are global-only in the UI.
+            false,
             self.detail.is_some(),
             self.skin_tone.is_some(),
         ];
@@ -1610,4 +1636,64 @@ fn ds2_denoise_references_reject_invalid_non_null_values() {
 
 fn is_normal_orientation(value: &Orientation) -> bool {
     *value == Orientation::Normal
+}
+
+#[cfg(test)]
+mod filled_compat_tests {
+    use super::*;
+    #[test]
+    fn full_document_loads_when_new_marker_is_unknown() {
+        let d = DevelopSettings {
+            masks: vec![Mask {
+                components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Full }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut json = serde_json::to_value(&d).unwrap();
+        let shape = json["masks"][0]["components"][0]["shape"].clone();
+        assert_eq!(shape["kind"], "brush");
+        // This is the exact pre-Full variant schema: unknown fields are ignored by serde.
+        #[derive(Deserialize)]
+        #[serde(tag = "kind", rename_all = "camelCase")]
+        enum OlderShape {
+            Brush { strokes: Vec<BrushStroke> },
+        }
+        #[derive(Deserialize)]
+        struct OlderComponent {
+            shape: OlderShape,
+        }
+        #[derive(Deserialize)]
+        struct OlderMask {
+            components: Vec<OlderComponent>,
+        }
+        #[derive(Deserialize)]
+        struct OlderDevelop {
+            masks: Vec<OlderMask>,
+            light: Light,
+        }
+        let legacy: OlderDevelop = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(legacy.light, d.light);
+        assert!(matches!(&legacy.masks[0].components[0].shape,OlderShape::Brush { strokes } if strokes.is_empty()));
+        let OlderShape::Brush { strokes } = serde_json::from_value(shape.clone()).unwrap();
+        assert!(strokes.is_empty());
+        assert_eq!(serde_json::from_value::<DevelopSettings>(json.clone()).unwrap(), d);
+        // Simulate the downgrade writing its known fields back. The complete document still
+        // loads, retains settings, and safely maps coverage to an empty brush.
+        json["masks"][0]["components"][0]["shape"].as_object_mut().unwrap().remove("full");
+        let old = serde_json::from_value::<DevelopSettings>(json).unwrap();
+        assert!(matches!(&old.masks[0].components[0].shape,MaskShape::Brush { strokes } if strokes.is_empty()));
+    }
+    #[test]
+    fn layer_used_set_excludes_global_only_tools() {
+        let tools = LayerTools {
+            vignette: Some(Default::default()),
+            grain: Some(Default::default()),
+            treatment: Some(Treatment::Bw),
+            bw_mix: Some(Default::default()),
+            light: Some(Default::default()),
+            ..Default::default()
+        };
+        assert_eq!(tools.used_keys(), vec!["light"]);
+    }
 }

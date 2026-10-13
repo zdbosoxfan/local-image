@@ -755,7 +755,7 @@ pub fn render(
     }
     lap("primary", &mut t, &mut cx);
     if primary.is_some() {
-        plan.settings = std::borrow::Cow::Owned(lightcraft_pipeline::primary::remaining(&plan.settings));
+        plan.settings = std::borrow::Cow::Owned(lightcraft_pipeline::visualize::remaining_for_overlay(req.overlay, &plan.settings));
     }
     let s = &*plan.settings;
     let prepared_lin = primary.as_ref().map_or_else(|| lin.clone(), |p| p.1.clone());
@@ -773,7 +773,7 @@ pub fn render(
 
     // 4. masks
     let (masks, terms) = masks(&mut cx, &prepared_lin, &prep, &plan, &mut host, info);
-    let teq_plane = n * terms.len() + if prep.chroma.is_some() { 3 * n } else { 0 };
+    let teq_plane = alpha_len(s, n) + if prep.chroma.is_some() { 3 * n } else { 0 };
     let masks = if let Some(teq) = &prep.tone_eq {
         let joined = cx.zeroed(teq_plane + n);
         if let Some(m) = masks {
@@ -809,6 +809,13 @@ pub fn render(
     };
     let resolved_layers = std::mem::take(&mut fp.layers);
     let (mut p, mut aux) = finish_block(&fp, &terms, &present);
+    if let Some(i) = crate::params::index("ALPHA_OFF") {
+        p[i] = aux.len() as u32;
+    }
+    aux.extend(alpha_layout(s, n).into_iter().flat_map(|(offset, scalar)| [f32::from_bits(offset), scalar]));
+    if let Some(i) = crate::params::index("CHROMA_PLANE") {
+        p[i] = alpha_len(s, n) as u32;
+    }
     let air_plane = masks.as_ref().map_or(0, |m| m.len);
     let masks = if let Some((_, air)) = &prep.haze {
         let joined = cx.gpu.buffer(air_plane + 4);
@@ -861,7 +868,25 @@ pub fn render(
         );
     }
     // the alpha a mask overlay shows: copied out before the readback below submits
-    let overlay_mask = if req.overlay == lightcraft_pipeline::Overlay::ToneEqMask {
+    let overlay_mask = if let Some((skin, reference)) = req.overlay.skin(s).and_then(|skin| skin.reference.map(|reference| (skin, reference))) {
+        let mut p = vec![n as u32];
+        p.extend(
+            [
+                reference[0] as f32,
+                reference[1] as f32,
+                (reference[2] as f32).to_radians(),
+                (skin.hue_range as f32).to_radians().max(1e-3),
+                0.04 + skin.chroma_range as f32 / 100.0 * 0.4,
+                0.05 + skin.lightness_range as f32 / 100.0 * 0.5,
+                (s.light.exposure as f32).exp2(),
+            ]
+            .map(f32::to_bits),
+        );
+        p.push(skin.protect_lips as u32);
+        let buf = gpu.buffer(n);
+        cx.run("p_skin_range", &p, &[Some(&prepared_lin), None, None, None, None, Some(&buf)], groups1(n));
+        Some(Ok(buf))
+    } else if req.overlay == lightcraft_pipeline::Overlay::ToneEqMask {
         prep.tone_eq.as_ref().map(|teq| {
             let out = gpu.buffer(n);
             map(&mut cx, "toneeq_preview", n, &[], [Some(teq), None, None], &out);
@@ -874,10 +899,13 @@ pub fn render(
         map(&mut cx, "sharp_preview", n, &[w as u32, h as u32, k.mask_t.to_bits(), k.edge_k.to_bits()], [Some(b2), None, None], &buf);
         Some(Ok(buf))
     } else {
-        req.overlay.mask(s).map(|m| {
+        req.overlay.mask(s).filter(|m| lightcraft_pipeline::masks::scalar_alpha(m).is_none()).map(|m| {
             let list = s.masks.iter().filter(|m| m.visible && !m.components.is_empty());
             match (list.map(|m| m.id).position(|id| id == m.id), masks.as_ref()) {
-                (Some(mi), Some(all)) => Ok(cx.slice(all, mi * n, n)),
+                (Some(mi), Some(all)) => {
+                    let (offset, _) = alpha_layout(s, n)[mi];
+                    Ok(cx.slice(all, offset as usize, n))
+                }
                 _ => Err(m),
             }
         })
@@ -1208,6 +1236,27 @@ fn guided_cross_max(cx: &mut Cx<'_>, guide: &Buf, p: &Buf, w: usize, h: usize, s
     q
 }
 
+/// Spatial masks are packed densely; Full-only masks live in scalar parameters, not planes.
+pub(crate) fn alpha_layout(s: &DevelopSettings, n: usize) -> Vec<(u32, f32)> {
+    let mut offset = 0;
+    s.masks
+        .iter()
+        .filter(|m| m.visible && !m.components.is_empty())
+        .map(|m| {
+            if let Some(a) = lightcraft_pipeline::masks::scalar_alpha(m) {
+                (u32::MAX, a)
+            } else {
+                let o = offset;
+                offset += n;
+                (o as u32, 0.0)
+            }
+        })
+        .collect()
+}
+fn alpha_len(s: &DevelopSettings, n: usize) -> usize {
+    alpha_layout(s, n).iter().filter(|(o, _)| *o != u32::MAX).count() * n
+}
+
 /// Evaluate the masks (`lightcraft_pipeline::masks::evaluate`): their alpha planes (concatenated,
 /// followed by the blurred chromaticity when local Moiré / Noise need it) and their adjustment
 /// terms. Shapes without a kernel (Sky, Subject, …) run on the CPU.
@@ -1226,13 +1275,20 @@ fn masks(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &mut Ho
     let [a, b, c, d, e, f] = frame.out_to_norm(w, h).0;
     let (kx, ky) = (frame.ow / long, frame.oh / long);
     let aff = [a * kx, b * ky, c * kx, d * ky, e * kx, f * ky].map(|v| (v as f32).to_bits());
-    let alpha = cx.zeroed(n * list.len() + if prep.chroma.is_some() { 3 * n } else { 0 });
+    let layout = alpha_layout(s, n);
+    let spatial_len = alpha_len(s, n);
+    let alpha = cx.zeroed((spatial_len + if prep.chroma.is_some() { 3 * n } else { 0 }).max(1));
     if let Some(ch) = &prep.chroma {
-        cx.copy_into(ch, &alpha, n * list.len());
+        cx.copy_into(ch, &alpha, spatial_len);
     }
-    let comp_plane = cx.gpu.buffer(n);
+    let comp_plane = cx.gpu.buffer(if spatial_len == 0 { 1 } else { n });
     let mut selection: Option<Buf> = None;
     for (mi, m) in list.iter().enumerate() {
+        let (offset, _) = layout[mi];
+        if offset == u32::MAX {
+            continue;
+        }
+        let plane_index = offset as usize / n;
         let mut first = true;
         for comp in &m.components {
             let op = match comp.op {
@@ -1248,6 +1304,7 @@ fn masks(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &mut Ho
             let mut aux: Vec<f32> = Vec::new();
             let mut own: Option<Buf> = None;
             let kind = match &comp.shape {
+                MaskShape::Full => Some(6),
                 MaskShape::Linear { start, end } => {
                     let (a, b) = (frame.norm_to_long(*start), frame.norm_to_long(*end));
                     let d = b - a;
@@ -1377,12 +1434,12 @@ fn masks(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &mut Ho
                 }
             };
             let cbuf = plane.as_ref().unwrap_or(&comp_plane);
-            let k = [n as u32, 0, mi as u32, op];
+            let k = [n as u32, 0, plane_index as u32, op];
             cx.run("combine", &k, &[None, None, None, Some(cbuf), Some(&alpha)], groups1(n));
         }
         if m.refine > 0. {
             let k = (m.refine as f32 / 100.).clamp(0., 1.);
-            let input = cx.slice(&alpha, mi * n, n);
+            let input = cx.slice(&alpha, offset as usize, n);
             let sigma = (0.04 * w.max(h) as f32 * k).max(1.);
             let (m0, m1) = (cx.gpu.buffer(n * 2), cx.gpu.buffer(n * 2));
             map(cx, "xguided_pre", n, &[0], [Some(&prep.log_l), Some(&input), None], &m0);
@@ -1394,12 +1451,12 @@ fn masks(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &mut Ho
             let ab = gaussian(cx, &ab, w, h, 2, sigma);
             let refined = cx.gpu.buffer(n);
             map(cx, "xguided_refine", n, &[k.sqrt().to_bits()], [Some(&prep.log_l), Some(&ab), Some(&input)], &refined);
-            cx.copy_into(&refined, &alpha, mi * n);
+            cx.copy_into(&refined, &alpha, offset as usize);
         }
         let amt = lightcraft_pipeline::masks::mask_scale(m);
         cx.run(
             "finalize",
-            &[n as u32, 0, mi as u32, m.invert as u32, amt.to_bits()],
+            &[n as u32, 0, plane_index as u32, m.invert as u32, amt.to_bits()],
             &[None, None, None, Some(&comp_plane), Some(&alpha)],
             groups1(n),
         );

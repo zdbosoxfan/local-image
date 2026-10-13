@@ -114,7 +114,10 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
         Target::Layer(mid) => app.session.develop_of(id).and_then(|dd| dd.masks.iter().find(|m| m.id == mid).map(|m| m.tools.clone())),
     };
     // a part of a section is shown unless the layer filter hides what it doesn't set
-    let shows = |key: &str| !used_only || tools.as_ref().is_none_or(|tl| tl.is_set(key));
+    let shows = |key: &str| {
+        !(target.is_layer() && ["vignette", "grain", "treatment", "bw_mix"].contains(&key))
+            && (!used_only || tools.as_ref().is_none_or(|tl| tl.is_set(key)))
+    };
     let tl = tools.as_ref();
     tool_section(app, ui, d, target, tl, used_only, "light", "Light", &["light", "curve"], |app, ui, d| {
         if shows("light") {
@@ -125,7 +128,7 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
         }
         if shows("curve") {
             let open = app.ui.flyout_open(&target.key("curve"));
-            if flyout_row(ui, &target.key("curve"), crate::i18n::tr("Curve"), Icon::Curve, open).clicked() {
+            if narrow_flyout(ui, app.ui.right_width, &target.key("curve"), &curve_title(app, target), Icon::Curve, open).clicked() {
                 app.ui.toggle_flyout(&target.key("curve"));
             }
             if open {
@@ -145,20 +148,6 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
         "Color",
         &["wb", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading", "skin_tone"],
         |app, ui, d| {
-            if target.is_layer() {
-                // a layer can turn its area black & white
-                egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        let bw = crate::is_bw(d);
-                        if text_button(ui, "layerBw", crate::i18n::tr("B&W"), bw)
-                            .on_hover_text(crate::i18n::tr("Black & white in this layer"))
-                            .clicked()
-                        {
-                            let _ = target.merge(app, json!({"treatment": if bw { "color" } else { "bw" }}), "Treatment");
-                        }
-                    });
-                });
-            }
             if shows("wb") {
                 if !target.is_layer() {
                     // White balance row
@@ -179,7 +168,7 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
                             });
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 let active = app.ui.tool == "wbPicker";
-                                let resp = crate::widgets::tool_button(ui, "wbPicker", Icon::Picker, vec2(28.0, 28.0), active, true, "");
+                                let resp = crate::widgets::tool_button(ui, "wbPicker", Icon::WhiteBalance, vec2(28.0, 28.0), active, true, "");
                                 super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::WbPicker);
                                 if resp.clicked() {
                                     app.ui.tool = if active { String::new() } else { "wbPicker".into() };
@@ -240,27 +229,11 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
             if shows("skin_tone") && !crate::is_bw(d) {
                 let key = target.key("skinTone");
                 let open = app.ui.flyout_open(&key);
-                if flyout_row(ui, &key, "Skin Tone", Icon::Picker, open).clicked() {
+                if narrow_flyout(ui, app.ui.right_width, &key, "Skin Tone", Icon::SkinTone, open).clicked() {
                     app.ui.toggle_flyout(&key);
                 }
                 if open {
-                    let picking = app.ui.tool == "skinTone";
-                    if text_button(ui, &target.key("skinTonePick"), "Pick Skin Reference", picking).clicked() {
-                        app.ui.tool = if picking { String::new() } else { "skinTone".into() };
-                        app.ui.point_color_mask = match target {
-                            Target::Global => None,
-                            Target::Layer(id) => Some(id),
-                        };
-                    }
-                    for c in ["skinTone.uniformity", "skinTone.lightness", "skinTone.hueRange", "skinTone.chromaRange", "skinTone.lightnessRange"] {
-                        control_t(app, ui, d, c, d.skin_tone.reference.is_some(), target);
-                    }
-                    let mut protect = d.skin_tone.protect_lips;
-                    let r = ui.checkbox(&mut protect, "Protect Lips");
-                    register(ui.ctx(), target.key("skinProtectLips"), r.rect);
-                    if r.changed() {
-                        let _ = target.merge(app, json!({"skin_tone":{"protect_lips":protect}}), "Skin Tone");
-                    }
+                    skin_tone_section(app, ui, d, target);
                 }
             }
             if shows("grading") {
@@ -565,7 +538,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         control(app, ui, d, "optics.vignettingMidpoint", d.optics.vignetting != 0.0);
         ui.add_space(6.0);
         let open = app.ui.flyout_open("defringe");
-        if flyout_row(ui, "defringe", crate::i18n::tr("Defringe"), Icon::Picker, open).clicked() {
+        if flyout_row(ui, "defringe", crate::i18n::tr("Defringe"), Icon::Defringe, open).clicked() {
             app.ui.toggle_flyout("defringe");
         }
         if open {
@@ -992,6 +965,135 @@ fn soft_proofing(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     divider(ui);
 }
 
+/// Skin selection shown in the same UCS22 coordinates and ranges as the tool.
+fn skin_color(reference: [f64; 3]) -> Color32 {
+    use lightcraft_pipeline::ucs;
+    let c = [reference[0] as f32, reference[1] as f32, (reference[2] as f32).to_radians()];
+    let to_rgb = |c| {
+        let xyz = ucs::xyy_to_xyz(ucs::jch_to_xyy(c, ucs::y_to_l_star(1.0)));
+        lightcraft_color::SRGB.from_xyz().apply_f32(xyz)
+    };
+    let mut rgb = to_rgb(c);
+    // Range strips deliberately include out-of-display-gamut samples. Reduce chroma at the
+    // same J/h for their UI swatches rather than clipping channels into a different hue.
+    if !rgb.iter().all(|v| (0.0..=1.0).contains(v)) {
+        let (mut lo, mut hi) = (0.0, c[1]);
+        for _ in 0..10 {
+            let mid = (lo + hi) * 0.5;
+            let candidate = to_rgb([c[0], mid, c[2]]);
+            if candidate.iter().all(|v| (0.0..=1.0).contains(v)) {
+                lo = mid;
+                rgb = candidate;
+            } else {
+                hi = mid;
+            }
+        }
+    }
+    let c = rgb.map(|v| (lightcraft_color::transfer::linear_to_srgb(v.max(0.0)).clamp(0.0, 1.0) * 255.0).round() as u8);
+    Color32::from_rgb(c[0], c[1], c[2])
+}
+fn skin_tone_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, target: Target) {
+    let t = Tokens::get(ui.ctx());
+    ui.scope(|ui| {
+        ui.set_width(ui.available_width().min(app.ui.right_width - 2.0));
+        let picking = app.ui.tool == "skinTone";
+        egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 4)).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let pick = crate::widgets::tool_button(
+                    ui,
+                    "skinTone",
+                    Icon::SkinTone,
+                    vec2(28.0, 28.0),
+                    picking,
+                    true,
+                    "Pick a skin reference on the photo",
+                );
+                // Preserve the control-channel id used before this button gained its glyph.
+                register(ui.ctx(), format!("button:{}", target.key("skinTonePick")), pick.rect);
+                if pick.clicked() {
+                    app.ui.tool = if picking { String::new() } else { "skinTone".into() };
+                    app.ui.point_color_mask = target.mask_id();
+                }
+                ui.label("Pick Skin Reference");
+            });
+            if let Some(reference) = d.skin_tone.reference {
+                ui.horizontal(|ui| {
+                    let (r, _) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::hover());
+                    register(ui.ctx(), target.key("skinToneSwatch"), r);
+                    ui.painter().rect_filled(r, 4.0, skin_color(reference));
+                    ui.painter().rect_stroke(r, 4.0, Stroke::new(1.0, t.button_border), egui::StrokeKind::Inside);
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new(format!("J {:.0} · C {:.0} · h {:.0}°", reference[0] * 100.0, reference[1] * 100.0, reference[2]))
+                                .font(t.font(11.0))
+                                .color(t.text_label),
+                        );
+                        if text_button(ui, &target.key("skinToneClear"), "Clear", false).clicked() {
+                            let _ = target.merge(app, json!({"skin_tone":{"reference":null}}), "Clear Skin Tone");
+                            app.ui.skin_tone_visualize = false;
+                        }
+                    });
+                });
+            } else {
+                ui.label(RichText::new("Pick a skin tone on the photo to enable").font(t.font(11.0)).color(t.text_label));
+            }
+        });
+        for id in ["skinTone.uniformity", "skinTone.lightness", "skinTone.hueRange", "skinTone.chromaRange", "skinTone.lightnessRange"] {
+            control_t(app, ui, d, id, d.skin_tone.reference.is_some(), target);
+        }
+        if let Some(reference) = d.skin_tone.reference {
+            for (axis, label, extent, domain) in [
+                (2, "Hue", d.skin_tone.hue_range, 360.0),
+                (1, "Saturation", 0.04 + d.skin_tone.chroma_range / 100.0 * 0.4, 1.0),
+                (0, "Lightness", 0.05 + d.skin_tone.lightness_range / 100.0 * 0.5, 1.0),
+            ] {
+                egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 2)).show(ui, |ui| {
+                    ui.label(RichText::new(label).font(t.font(11.0)).color(t.text_label));
+                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 14.0), Sense::hover());
+                    register(ui.ctx(), target.key(&format!("skinToneRange:{label}")), r);
+                    for i in 0..64 {
+                        let mut c = reference;
+                        c[axis] = (i as f64 + 0.5) / 64.0 * domain;
+                        let tile = Rect::from_min_max(
+                            pos2(r.left() + r.width() * i as f32 / 64.0, r.top()),
+                            pos2(r.left() + r.width() * (i + 1) as f32 / 64.0, r.bottom()),
+                        );
+                        ui.painter().rect_filled(tile, 0.0, skin_color(c));
+                    }
+                    // Mark the selected window, wrapping hue at 0/360.
+                    for shift in if axis == 2 { vec![-domain, 0.0, domain] } else { vec![0.0] } {
+                        let lo = (reference[axis] - extent + shift).clamp(0.0, domain) / domain;
+                        let hi = (reference[axis] + extent + shift).clamp(0.0, domain) / domain;
+                        if hi > lo {
+                            let selected = Rect::from_min_max(
+                                pos2(r.left() + r.width() * lo as f32, r.top()),
+                                pos2(r.left() + r.width() * hi as f32, r.bottom()),
+                            );
+                            ui.painter().rect_stroke(selected, 0.0, Stroke::new(3.0, Color32::BLACK), egui::StrokeKind::Inside);
+                            ui.painter().rect_stroke(selected.shrink(1.0), 0.0, Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Inside);
+                        }
+                    }
+                });
+            }
+        }
+        ui.add_enabled_ui(d.skin_tone.reference.is_some(), |ui| {
+            let mut visible = app.ui.skin_tone_visualize && app.ui.skin_tone_mask == target.mask_id();
+            let r = ui.checkbox(&mut visible, "View selected range");
+            register(ui.ctx(), target.key("skinToneViewRange"), r.rect);
+            if r.changed() {
+                app.ui.skin_tone_visualize = visible;
+                app.ui.skin_tone_mask = target.mask_id();
+            }
+            let mut protect = d.skin_tone.protect_lips;
+            let r = ui.checkbox(&mut protect, "Protect Lips");
+            register(ui.ctx(), target.key("skinProtectLips"), r.rect);
+            if r.changed() {
+                let _ = target.merge(app, json!({"skin_tone":{"protect_lips":protect}}), "Skin Tone");
+            }
+        });
+    });
+}
+
 // ------------------------------------------------------------------------------ tone curve
 
 /// Reset tone curve channel `ch` (`parametric`, `master`, `red`, `green`, `blue` or `all`) of
@@ -1011,240 +1113,297 @@ fn reset_curve(app: &mut LightcraftApp, target: Target, ch: &str) {
     let _ = target.merge(app, partial, "Reset Tone Curve");
 }
 
+// Some existing RAW controls request more space than the narrow panel. These tools retain
+// the user's panel width even if a preceding row has grown egui's available rectangle.
+fn narrow_flyout(ui: &mut egui::Ui, width: f32, id: &str, title: &str, icon: Icon, open: bool) -> egui::Response {
+    ui.scope(|ui| {
+        ui.set_width(ui.available_width().min(width - 2.0));
+        flyout_row(ui, id, title, icon, open)
+    })
+    .inner
+}
+
+fn curve_title(app: &LightcraftApp, target: Target) -> String {
+    if let Target::Layer(mid) = target
+        && let Some(d) = app.session.active().and_then(|id| app.session.develop_of(id))
+        && let Some(m) = d.masks.iter().find(|m| m.id == mid)
+    {
+        return format!("Curve - {}", m.name);
+    }
+    crate::i18n::tr("Curve").to_string()
+}
+
+fn curve_line(p: &egui::Painter, line: Vec<Pos2>, color: Color32, t: Tokens) {
+    p.add(egui::Shape::line(line.clone(), Stroke::new(5.0, t.grid_bg)));
+    p.add(egui::Shape::line(line, Stroke::new(2.75, color)));
+}
+
 fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &DevelopSettings, target: Target) {
     let t = Tokens::get(ui.ctx());
-    // channel selector
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 4 }).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            for (ch, c) in [
-                ("parametric", Color32::from_gray(200)),
-                ("master", Color32::WHITE),
-                ("red", hex("#dd3333")),
-                ("green", hex("#33bb55")),
-                ("blue", hex("#3377ee")),
-            ] {
-                let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
-                register(ui.ctx(), format!("curveChannel:{ch}"), r);
-                let sel = app.ui.curve_channel == ch;
-                if ch == "parametric" {
-                    paint(ui.painter(), r.shrink(4.0), Icon::Curve, if sel { t.text } else { t.icon });
-                } else {
-                    ui.painter().circle_stroke(r.center(), 7.0, Stroke::new(2.0, c));
+    ui.scope(|ui| {
+        ui.set_width(ui.available_width().min(app.ui.right_width - 2.0));
+        // channel selector
+        egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 4 }).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                for (ch, c) in [
+                    ("parametric", t.text),
+                    ("master", t.curve_color("master")),
+                    ("red", t.curve_color("red")),
+                    ("green", t.curve_color("green")),
+                    ("blue", t.curve_color("blue")),
+                ] {
+                    let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
+                    register(ui.ctx(), format!("curveChannel:{ch}"), r);
+                    let sel = app.ui.curve_channel == ch;
                     if sel {
-                        ui.painter().circle_filled(r.center(), 3.5, c);
+                        ui.painter().rect_filled(r, 3.0, t.tool_active);
+                    }
+                    if ch == "parametric" {
+                        paint(ui.painter(), r.shrink(4.0), Icon::Curve, if sel { t.text } else { t.icon });
+                    } else {
+                        ui.painter().circle_stroke(r.center(), 7.0, Stroke::new(2.0, c));
+                        if sel {
+                            ui.painter().circle_filled(r.center(), 3.5, c);
+                        }
+                    }
+                    if sel {
+                        ui.painter().line_segment([r.left_bottom() + vec2(4.0, 1.0), r.right_bottom() + vec2(-4.0, 1.0)], Stroke::new(2.0, t.text));
+                    }
+                    let name = match ch {
+                        "parametric" => "Parametric curve",
+                        "master" => "Point curve",
+                        "red" => "Red channel",
+                        "green" => "Green channel",
+                        _ => "Blue channel",
+                    };
+                    let resp = resp.on_hover_text(crate::i18n::tr_format!("{name} — double-click to reset it", name = name));
+                    if resp.double_clicked() {
+                        app.ui.curve_channel = ch.into();
+                        reset_curve(app, target, ch);
+                    } else if resp.clicked() {
+                        app.ui.curve_channel = ch.into();
                     }
                 }
-                if sel {
-                    ui.painter().line_segment([r.left_bottom() + vec2(4.0, 1.0), r.right_bottom() + vec2(-4.0, 1.0)], Stroke::new(2.0, t.text));
+                if !target.is_layer() {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        tat_button(app, ui, "tat:curve", "Targeted adjustment: drag up/down on the photo to adjust the curve there");
+                    });
                 }
-                let name = match ch {
-                    "parametric" => "Parametric curve",
-                    "master" => "Point curve",
-                    "red" => "Red channel",
-                    "green" => "Green channel",
-                    _ => "Blue channel",
-                };
-                let resp = resp.on_hover_text(crate::i18n::tr_format!("{name} — double-click to reset it", name = name));
-                if resp.double_clicked() {
-                    app.ui.curve_channel = ch.into();
-                    reset_curve(app, target, ch);
-                } else if resp.clicked() {
-                    app.ui.curve_channel = ch.into();
-                }
-            }
-            if !target.is_layer() {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    tat_button(app, ui, "tat:curve", "Targeted adjustment: drag up/down on the photo to adjust the curve there");
-                });
-            }
+            });
         });
-    });
-    let ch = app.ui.curve_channel.clone();
-    let w = ui.available_width();
-    let side = (w - 48.0).max(80.0);
-    let (outer, _) = ui.allocate_exact_size(vec2(w, side + 12.0), Sense::hover());
-    let r = Rect::from_min_size(pos2(outer.left() + 24.0, outer.top() + 6.0), vec2(side, side));
-    let resp = ui.interact(r, egui::Id::new(("curve", &ch)), Sense::click_and_drag());
-    register(ui.ctx(), "curve", r);
-    resp.context_menu(|ui| curve_reset_menu(app, ui, &ch, target));
-    let p = ui.painter();
-    p.rect_filled(r, 2.0, t.canvas);
-    for i in 1..4 {
-        let f = i as f32 / 4.0;
-        p.line_segment(
-            [pos2(r.left() + r.width() * f, r.top()), pos2(r.left() + r.width() * f, r.bottom())],
-            Stroke::new(1.0, Color32::from_gray(52)),
-        );
-        p.line_segment(
-            [pos2(r.left(), r.top() + r.height() * f), pos2(r.right(), r.top() + r.height() * f)],
-            Stroke::new(1.0, Color32::from_gray(52)),
-        );
-    }
-    p.line_segment([r.left_bottom(), r.right_top()], Stroke::new(1.0, Color32::from_gray(70)));
-    let to_screen = |x: f64, y: f64| pos2(r.left() + x as f32 * r.width(), r.bottom() - y as f32 * r.height());
-    let from_screen = |q: Pos2| (((q.x - r.left()) / r.width()).clamp(0.0, 1.0) as f64, ((r.bottom() - q.y) / r.height()).clamp(0.0, 1.0) as f64);
-    if ch == "parametric" {
-        // draw the effective parametric curve by sampling the pipeline's region curve approximation
-        let c = &d.curve;
-        let regions = [
-            (0.0, c.split_shadows / 100.0, c.shadows),
-            (c.split_shadows / 100.0, c.split_mid / 100.0, c.darks),
-            (c.split_mid / 100.0, c.split_highlights / 100.0, c.lights),
-            (c.split_highlights / 100.0, 1.0, c.highlights),
-        ];
-        let pts: Vec<Pos2> = (0..=64)
-            .map(|i| {
-                let x = i as f64 / 64.0;
-                let mut dd = 0.0;
-                for (a, b, amt) in regions {
-                    let (ctr, half) = ((a + b) / 2.0, (b - a) * 0.75 + 0.05);
-                    let tt = ((x - ctr) / half).clamp(-1.0, 1.0);
-                    dd += amt / 100.0 * 0.22 * (0.5 + 0.5 * (tt * std::f64::consts::PI).cos());
-                }
-                to_screen(x, (x + dd * 4.0 * x * (1.0 - x)).clamp(0.0, 1.0))
-            })
-            .collect();
-        p.add(egui::Shape::line(pts, Stroke::new(2.0, Color32::from_gray(220))));
-        ui.horizontal(|ui| {
-            let mut mode = d.curve.mode;
-            ui.selectable_value(&mut mode, lightcraft_develop::CurveMode::Luminance, crate::i18n::tr("Luminance"));
-            ui.selectable_value(&mut mode, lightcraft_develop::CurveMode::Rgb, "RGB");
-            if mode != d.curve.mode {
-                let _ = target.merge(app, json!({"curve":{"mode":mode}}), "Curve Mode");
+        let ch = app.ui.curve_channel.clone();
+        let w = ui.available_width();
+        // Keep the preferred 240 pt plot where it fits; narrow panels reduce margins first.
+        let side = (w - 48.0).max(240.0).min((w - 16.0).max(80.0));
+        let (outer, _) = ui.allocate_exact_size(vec2(w, side + 12.0), Sense::hover());
+        let r = Rect::from_min_size(pos2(outer.left() + (w - side) / 2.0, outer.top() + 6.0), vec2(side, side));
+        let resp = ui.interact(r, egui::Id::new(("curve", &ch)), Sense::click_and_drag());
+        register(ui.ctx(), "curve", r);
+        resp.context_menu(|ui| curve_reset_menu(app, ui, &ch, target));
+        let p = ui.painter();
+        p.rect_filled(r, 2.0, t.grid_bg);
+        p.rect_stroke(r, 2.0, Stroke::new(1.0, t.button_border), egui::StrokeKind::Inside);
+        if let Some(h) = app
+            .renderer
+            .textures
+            .get(&Slot::Main)
+            .filter(|t| t.photo == id)
+            .and_then(|t| t.histogram.as_ref())
+            .or_else(|| app.renderer.textures.get(&Slot::Thumb(id)).and_then(|t| t.histogram.as_ref()))
+        {
+            let values = match ch.as_str() {
+                "red" => &h.r,
+                "green" => &h.g,
+                "blue" => &h.b,
+                _ => &h.luma,
+            };
+            let peak = values.iter().skip(2).take(252).copied().max().unwrap_or(1).max(1) as f32;
+            let color = t.text_dim.gamma_multiply(0.18);
+            for (i, value) in values.iter().enumerate() {
+                let x = r.left() + r.width() * i as f32 / 255.0;
+                let y = r.bottom() - r.height() * (*value as f32 / peak).sqrt().min(1.0);
+                p.line_segment([pos2(x, r.bottom()), pos2(x, y)], Stroke::new(r.width() / 255.0 + 0.2, color));
             }
-        });
-        curve_footer(app, ui, d, target);
-        for c in ["curve.highlights", "curve.lights", "curve.darks", "curve.shadows"] {
-            control_t(app, ui, d, c, true, target);
         }
-        control_t(app, ui, d, "curve.refineSaturation", true, target);
-        return;
-    }
-    let pts_of = |d: &DevelopSettings| -> Vec<Point> {
-        let v = match ch.as_str() {
-            "red" => &d.curve.red,
-            "green" => &d.curve.green,
-            "blue" => &d.curve.blue,
-            _ => &d.curve.master,
+        for i in 1..4 {
+            let f = i as f32 / 4.0;
+            p.line_segment([pos2(r.left() + r.width() * f, r.top()), pos2(r.left() + r.width() * f, r.bottom())], Stroke::new(1.0, t.field_border));
+            p.line_segment([pos2(r.left(), r.top() + r.height() * f), pos2(r.right(), r.top() + r.height() * f)], Stroke::new(1.0, t.field_border));
+        }
+        p.add(egui::Shape::dashed_line(&[r.left_bottom(), r.right_top()], Stroke::new(1.0, t.text_dim.gamma_multiply(0.35)), 5.0, 4.0));
+        let to_screen = |x: f64, y: f64| pos2(r.left() + x as f32 * r.width(), r.bottom() - y as f32 * r.height());
+        let from_screen = |q: Pos2| (((q.x - r.left()) / r.width()).clamp(0.0, 1.0) as f64, ((r.bottom() - q.y) / r.height()).clamp(0.0, 1.0) as f64);
+        if ch == "parametric" {
+            let tables = lightcraft_pipeline::finish::curve_luts(&d.curve);
+            let line = (0..=256)
+                .map(|i| {
+                    let x = i as f32 / 256.0;
+                    to_screen(x as f64, tables.as_ref().map_or(x, |c| c.tables[0].eval(x)) as f64)
+                })
+                .collect();
+            // Region dividers use the actual pipeline split positions.
+            let splits = [d.curve.split_shadows, d.curve.split_mid, d.curve.split_highlights];
+            for (i, split) in splits.into_iter().enumerate() {
+                let x = r.left() + r.width() * split as f32 / 100.0;
+                p.line_segment([pos2(x, r.top()), pos2(x, r.bottom())], Stroke::new(1.0, t.text_dim.gamma_multiply(0.5)));
+                let handle = Rect::from_center_size(pos2(x, r.bottom() - 5.0), vec2(12.0, 12.0));
+                let response = ui.interact(handle, egui::Id::new(("curve-split", target.key("curve"), i)), Sense::drag());
+                register(ui.ctx(), format!("curveSplit:{i}"), handle);
+                p.circle_filled(handle.center(), if response.hovered() { 5.0 } else { 4.0 }, t.text_label);
+                p.circle_stroke(handle.center(), 4.0, Stroke::new(1.0, t.grid_bg));
+                if response.drag_started() {
+                    let _ = app.run("develop.beginInteraction", json!({"label":"Curve Regions"}));
+                }
+                if response.dragged()
+                    && let Some(q) = response.interact_pointer_pos()
+                {
+                    let lo = if i == 0 { 1.0 } else { splits[i - 1] + 1.0 };
+                    let hi = if i == 2 { 99.0 } else { splits[i + 1] - 1.0 };
+                    let value = ((q.x - r.left()) / r.width() * 100.0) as f64;
+                    let key = ["split_shadows", "split_mid", "split_highlights"][i];
+                    let _ = target.merge(app, json!({"curve":{key:value.clamp(lo,hi)}}), "Curve Regions");
+                }
+                if response.drag_stopped() {
+                    let _ = app.run("develop.endInteraction", json!({}));
+                }
+            }
+            curve_line(p, line, t.curve_color("master"), t);
+            ui.horizontal(|ui| {
+                let mut mode = d.curve.mode;
+                ui.selectable_value(&mut mode, lightcraft_develop::CurveMode::Luminance, crate::i18n::tr("Luminance"));
+                ui.selectable_value(&mut mode, lightcraft_develop::CurveMode::Rgb, "RGB");
+                if mode != d.curve.mode {
+                    let _ = target.merge(app, json!({"curve":{"mode":mode}}), "Curve Mode");
+                }
+            });
+            curve_footer(app, ui, d, target);
+            for c in ["curve.highlights", "curve.lights", "curve.darks", "curve.shadows"] {
+                control_t(app, ui, d, c, true, target);
+            }
+            control_t(app, ui, d, "curve.refineSaturation", true, target);
+            return;
+        }
+        let pts_of = |d: &DevelopSettings| -> Vec<Point> {
+            let v = match ch.as_str() {
+                "red" => &d.curve.red,
+                "green" => &d.curve.green,
+                "blue" => &d.curve.blue,
+                _ => &d.curve.master,
+            };
+            if v.is_empty() { vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)] } else { v.clone() }
         };
-        if v.is_empty() { vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)] } else { v.clone() }
-    };
-    let pts = pts_of(d);
-    let curve = lightcraft_color::spline::MonotoneCurve::new(&pts.iter().map(|q| (q.x, q.y)).collect::<Vec<_>>());
-    let color = match ch.as_str() {
-        "red" => hex("#dd3333"),
-        "green" => hex("#33bb55"),
-        "blue" => hex("#3377ee"),
-        _ => Color32::from_gray(225),
-    };
-    let line: Vec<Pos2> = (0..=96).map(|i| to_screen(i as f64 / 96.0, curve.eval(i as f64 / 96.0).clamp(0.0, 1.0))).collect();
-    p.add(egui::Shape::line(line, Stroke::new(2.0, color)));
-    // interaction: drag a point (both axes, between its neighbours), drag empty space to add and
-    // drag a new point, click empty space to add, double-click a point to delete it
-    let drag_id = egui::Id::new(("curve-drag", &ch));
-    // the point being dragged (stored as `Option<usize>` so a stale value can be cleared)
-    let mut dragging: Option<usize> = ui.data(|dd| dd.get_temp::<Option<usize>>(drag_id)).flatten();
-    let nearest = |q: Pos2| pts.iter().enumerate().map(|(i, p)| (i, to_screen(p.x, p.y).distance(q))).min_by(|a, b| a.1.total_cmp(&b.1));
-    let hovered = resp.hover_pos().and_then(nearest).filter(|(_, dist)| *dist < 10.0).map(|(i, _)| i);
-    if dragging.is_some() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-    } else if hovered.is_some() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-    }
-    for (i, q) in pts.iter().enumerate() {
-        let c = to_screen(q.x, q.y);
-        if dragging == Some(i) || (dragging.is_none() && hovered == Some(i)) {
-            p.circle_filled(c, 5.5, color);
-            p.circle_stroke(c, 5.5, Stroke::new(1.0, t.canvas));
-        } else {
-            p.circle_filled(c, 4.0, color);
+        let pts = pts_of(d);
+        let curve = lightcraft_color::spline::MonotoneCurve::new(&pts.iter().map(|q| (q.x, q.y)).collect::<Vec<_>>());
+        let color = t.curve_color(&ch);
+        let line: Vec<Pos2> = (0..=256).map(|i| to_screen(i as f64 / 256.0, curve.eval(i as f64 / 256.0).clamp(0.0, 1.0))).collect();
+        curve_line(p, line, color, t);
+        // interaction: drag a point (both axes, between its neighbours), drag empty space to add and
+        // drag a new point, click empty space to add, double-click a point to delete it
+        let drag_id = egui::Id::new(("curve-drag", &ch));
+        // the point being dragged (stored as `Option<usize>` so a stale value can be cleared)
+        let mut dragging: Option<usize> = ui.data(|dd| dd.get_temp::<Option<usize>>(drag_id)).flatten();
+        let nearest = |q: Pos2| pts.iter().enumerate().map(|(i, p)| (i, to_screen(p.x, p.y).distance(q))).min_by(|a, b| a.1.total_cmp(&b.1));
+        let hovered = resp.hover_pos().and_then(nearest).filter(|(_, dist)| *dist < 10.0).map(|(i, _)| i);
+        if dragging.is_some() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if hovered.is_some() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
         }
-    }
-    // input / output readout of the point being dragged (0–255 like the histogram)
-    if let Some(q) = dragging.and_then(|i| pts.get(i)) {
-        p.text(
-            r.left_top() + vec2(6.0, 4.0),
-            egui::Align2::LEFT_TOP,
-            format!("{} / {}", (q.x * 255.0).round(), (q.y * 255.0).round()),
-            t.font(11.0),
-            t.text_dim,
-        );
-    }
-    let mut new_pts = None;
-    if resp.double_clicked()
-        && let Some(q) = resp.interact_pointer_pos()
-        && let Some((i, dist)) = nearest(q)
-        && dist < 10.0
-        && i != 0
-        && i != pts.len() - 1
-    {
-        let mut v = pts.clone();
-        v.remove(i);
-        new_pts = Some(v);
-    } else if resp.drag_started()
-        && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
-    {
-        // pick the point under the press, not where the pointer is once the drag threshold passed
-        let _ = app.run("develop.beginInteraction", json!({"label": "Tone Curve"}));
-        match nearest(q) {
-            Some((i, dist)) if dist < 10.0 => dragging = Some(i),
-            _ => {
-                let (x, y) = from_screen(q);
-                let mut v = pts.clone();
-                let i = v.iter().position(|p| p.x > x).unwrap_or(v.len());
-                v.insert(i, Point::new(x, y));
-                dragging = Some(i);
+        for (i, q) in pts.iter().enumerate() {
+            let c = to_screen(q.x, q.y);
+            let radius = if dragging == Some(i) || (dragging.is_none() && hovered == Some(i)) { 8.0 } else { 6.0 };
+            p.circle_filled(c, radius, color);
+            p.circle_stroke(c, radius, Stroke::new(1.5, t.grid_bg));
+            if i == 0 || i + 1 == pts.len() {
+                p.circle_filled(c, 2.5, t.grid_bg);
+            }
+        }
+        // input / output readout of the point being dragged (0–255 like the histogram)
+        if let Some(q) = dragging.and_then(|i| pts.get(i)) {
+            p.text(
+                r.left_top() + vec2(6.0, 4.0),
+                egui::Align2::LEFT_TOP,
+                format!("{} / {}", (q.x * 255.0).round(), (q.y * 255.0).round()),
+                t.font(11.0),
+                t.text_dim,
+            );
+        }
+        let mut new_pts = None;
+        if resp.double_clicked()
+            && let Some(q) = resp.interact_pointer_pos()
+            && let Some((i, dist)) = nearest(q)
+            && dist < 10.0
+            && i != 0
+            && i != pts.len() - 1
+        {
+            let mut v = pts.clone();
+            v.remove(i);
+            new_pts = Some(v);
+        } else if resp.drag_started()
+            && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
+        {
+            // pick the point under the press, not where the pointer is once the drag threshold passed
+            let _ = app.run("develop.beginInteraction", json!({"label": "Tone Curve"}));
+            match nearest(q) {
+                Some((i, dist)) if dist < 10.0 => dragging = Some(i),
+                _ => {
+                    let (x, y) = from_screen(q);
+                    let mut v = pts.clone();
+                    let i = v.iter().position(|p| p.x > x).unwrap_or(v.len());
+                    v.insert(i, Point::new(x, y));
+                    dragging = Some(i);
+                    new_pts = Some(v);
+                }
+            }
+        } else if resp.dragged()
+            && let (Some(i), Some(q)) = (dragging, resp.interact_pointer_pos())
+        {
+            let (mut x, y) = from_screen(q);
+            let mut v = pts.clone();
+            if i < v.len() {
+                let lo = if i == 0 { 0.0 } else { v[i - 1].x + 0.01 };
+                let hi = if i + 1 >= v.len() { 1.0 } else { v[i + 1].x - 0.01 };
+                if i == 0 {
+                    x = x.min(hi);
+                } else if i + 1 == v.len() {
+                    x = x.max(lo);
+                } else {
+                    x = x.clamp(lo, hi);
+                }
+                v[i] = Point::new(x, y);
                 new_pts = Some(v);
             }
-        }
-    } else if resp.dragged()
-        && let (Some(i), Some(q)) = (dragging, resp.interact_pointer_pos())
-    {
-        let (mut x, y) = from_screen(q);
-        let mut v = pts.clone();
-        if i < v.len() {
-            let lo = if i == 0 { 0.0 } else { v[i - 1].x + 0.01 };
-            let hi = if i + 1 >= v.len() { 1.0 } else { v[i + 1].x - 0.01 };
-            if i == 0 {
-                x = x.min(hi);
-            } else if i + 1 == v.len() {
-                x = x.max(lo);
-            } else {
-                x = x.clamp(lo, hi);
-            }
-            v[i] = Point::new(x, y);
+        } else if resp.clicked()
+            && let Some(q) = resp.interact_pointer_pos()
+            && nearest(q).is_none_or(|(_, dist)| dist >= 10.0)
+        {
+            let (x, y) = from_screen(q);
+            let mut v = pts.clone();
+            let i = v.iter().position(|p| p.x > x).unwrap_or(v.len());
+            v.insert(i, Point::new(x, y));
             new_pts = Some(v);
         }
-    } else if resp.clicked()
-        && let Some(q) = resp.interact_pointer_pos()
-        && nearest(q).is_none_or(|(_, dist)| dist >= 10.0)
-    {
-        let (x, y) = from_screen(q);
-        let mut v = pts.clone();
-        let i = v.iter().position(|p| p.x > x).unwrap_or(v.len());
-        v.insert(i, Point::new(x, y));
-        new_pts = Some(v);
-    }
-    if let Some(v) = new_pts {
-        match target {
-            Target::Global => {
-                let arr: Vec<[f64; 2]> = v.iter().map(|p| [p.x, p.y]).collect();
-                let _ = app.run("develop.curve", json!({"channel": ch, "points": arr}));
-            }
-            Target::Layer(_) => {
-                let key = if ["red", "green", "blue"].contains(&ch.as_str()) { ch.as_str() } else { "master" };
-                let _ = target.merge(app, json!({"curve": {key: v}}), "Tone Curve");
+        if let Some(v) = new_pts {
+            match target {
+                Target::Global => {
+                    let arr: Vec<[f64; 2]> = v.iter().map(|p| [p.x, p.y]).collect();
+                    let _ = app.run("develop.curve", json!({"channel": ch, "points": arr}));
+                }
+                Target::Layer(_) => {
+                    let key = if ["red", "green", "blue"].contains(&ch.as_str()) { ch.as_str() } else { "master" };
+                    let _ = target.merge(app, json!({"curve": {key: v}}), "Tone Curve");
+                }
             }
         }
-    }
-    if resp.drag_stopped() {
-        dragging = None;
-        let _ = app.run("develop.endInteraction", json!({}));
-    }
-    ui.data_mut(|dd| dd.insert_temp(drag_id, dragging));
-    curve_footer(app, ui, d, target);
-    control_t(app, ui, d, "curve.refineSaturation", true, target);
-    let _ = id;
+        if resp.drag_stopped() {
+            dragging = None;
+            let _ = app.run("develop.endInteraction", json!({}));
+        }
+        ui.data_mut(|dd| dd.insert_temp(drag_id, dragging));
+        curve_footer(app, ui, d, target);
+        control_t(app, ui, d, "curve.refineSaturation", true, target);
+        let _ = id;
+    });
 }
 
 /// The row under the curve graph: point-curve presets and reset every curve.

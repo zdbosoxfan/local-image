@@ -658,7 +658,7 @@ fn render_impl(
     };
     let prepared_lin = primary.as_ref().map_or_else(|| lin.clone(), |p| p.1.clone());
     if primary.is_some() {
-        plan.settings = Cow::Owned(primary::remaining(&plan.settings));
+        plan.settings = Cow::Owned(visualize::remaining_for_overlay(req.overlay, &plan.settings));
     }
     let s = &*plan.settings;
     let planes_key = if primary.is_some() { primary_key } else { lin_key };
@@ -769,8 +769,11 @@ pub fn skin_reference_sample(
 }
 
 /// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) a
-/// fresh evaluation.
+/// fresh evaluation. Full coverage is drawn scalarly and needs no diagnostic plane either.
 fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> {
+    if let Some(skin) = o.skin(&plan.settings).filter(|s| s.reference.is_some()) {
+        return Some(visualize::skin_alpha(&prep.img, skin, (plan.settings.light.exposure as f32).exp2()));
+    }
     if o == Overlay::SharpenMask {
         // At very small preview scales the Gaussian is effectively identity, but
         // Alt Masking still shows the edge mask rather than the photograph.
@@ -784,8 +787,14 @@ fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> 
         return Some(m.map(toneeq::preview_grey));
     }
     let m = o.mask(&plan.settings)?;
+    if masks::scalar_alpha(m).is_some() {
+        return None;
+    }
     if let Some(e) = prep.masks.iter().find(|e| e.id == m.id) {
-        return Some(e.alpha.clone());
+        return Some(match &e.alpha {
+            masks::Alpha::Spatial(p) => p.clone(),
+            masks::Alpha::Scalar(_) => return None,
+        });
     }
     let ev = plan.settings.light.exposure as f32;
     Some(masks::evaluate_one(m, &plan.frame, plan.w, plan.h, &prep.img, &prep.log_l, ev))
@@ -844,3 +853,31 @@ mod tests_toolset;
 
 mod base_curve_data;
 pub mod basecurves;
+
+#[cfg(test)]
+#[test]
+fn develop_c_full_overlay_keeps_scalar_alpha_even_when_hidden() {
+    use lightcraft_develop::{Mask, MaskComponent, MaskShape};
+    let src = Rgb32f::from_fn(32, 16, |_, _| [0.1; 3]);
+    let info = SourceInfo::default();
+    let mut s = DevelopSettings {
+        masks: vec![Mask {
+            id: 1,
+            opacity: 50.0,
+            components: vec![MaskComponent { name: None, op: Default::default(), invert: false, shape: MaskShape::Full }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let req = RenderRequest {
+        overlay: Overlay::Mask { id: 1, view: MaskView::WhiteOnBlack, color: [255, 0, 0], opacity: 100 },
+        ..RenderRequest::fit(32, 16)
+    };
+    let plan = plan(&src, &info, &s, &req);
+    let img = Arc::new(plan.frame.sample(&src, plan.w, plan.h));
+    let prep = local::prepare(img, &s, &info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
+    assert!(overlay_alpha(req.overlay, &plan, &prep).is_none(), "Full diagnostics must not expand scalar coverage into a plane");
+    assert!(render(&src, &info, &s, &req).image.data.iter().all(|p| *p == [128, 128, 128, 255]));
+    s.masks[0].visible = false;
+    assert!(render(&src, &info, &s, &req).image.data.iter().all(|p| *p == [128, 128, 128, 255]));
+}

@@ -67,6 +67,9 @@ pub enum Icon {
     Sky,
     Subject,
     Picker,
+    WhiteBalance,
+    SkinTone,
+    Defringe,
     Rotate,
     Flip,
     Invert,
@@ -421,6 +424,27 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
             pen.circle(10.0, 8.5, 2.4);
             pen.arc(10.0, 16.0, 4.5, 215.0, 325.0);
         }
+        WhiteBalance | SkinTone | Defringe => {
+            pen.line(&[(3.0, 17.0), (10.0, 10.0)]);
+            pen.closed(&[(9.0, 6.0), (13.0, 10.0), (16.0, 7.0), (12.0, 3.0)]);
+            match icon {
+                WhiteBalance => {
+                    pen.circle(15.0, 15.0, 3.5);
+                    pen.line(&[(15.0, 11.5), (15.0, 18.5)]);
+                }
+                SkinTone => {
+                    pen.circle(15.0, 15.0, 3.5);
+                    pen.line(&[(13.5, 14.0), (13.5, 14.5)]);
+                    pen.line(&[(16.5, 14.0), (16.5, 14.5)]);
+                    pen.arc(15.0, 15.0, 1.8, 20.0, 160.0);
+                }
+                _ => {
+                    pen.line(&[(13.0, 12.0), (13.0, 18.0)]);
+                    pen.line(&[(16.0, 12.0), (16.0, 18.0)]);
+                    pen.line(&[(11.0, 15.0), (18.0, 15.0)]);
+                }
+            }
+        }
         Picker => {
             pen.line(&[(4.0, 16.0), (11.5, 8.5)]);
             pen.closed(&[(11.0, 5.0), (15.0, 9.0), (17.0, 7.0), (13.0, 3.0)]);
@@ -526,6 +550,7 @@ pub fn tool_name(tool: &str) -> Option<&'static str> {
 pub fn mask_name(shape: &lightcraft_develop::MaskShape) -> &'static str {
     use lightcraft_develop::MaskShape::*;
     match shape {
+        Full => "mask",
         Brush { .. } => "brush",
         Linear { .. } => "linear-mask",
         Radial { .. } => "radial-mask",

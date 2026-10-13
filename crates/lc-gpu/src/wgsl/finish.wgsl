@@ -5,7 +5,11 @@ var<private> layer_sharp2:u32;
 fn fu(i:u32)->u32 {if(parameter_offset==0u){return P[i];}return bitcast<u32>(aux[parameter_offset+i]);}
 fn ff(i:u32)->f32 {return bitcast<f32>(fu(i));}
 fn descriptor(layer:u32,field:u32)->u32 {return bitcast<u32>(aux[P[F_LAYER_OFF]+layer*6u+field]);}
-fn alpha_at(layer:u32,i:u32,n:u32)->f32 {return masks[descriptor(layer,0u)*n+i];}
+fn mask_alpha(m:u32,i:u32)->f32 {
+    let k=P[F_ALPHA_OFF]+2u*m; let offset=bitcast<u32>(aux[k]);
+    if(offset==0xffffffffu){return aux[k+1u];} return masks[offset+i];
+}
+fn alpha_at(layer:u32,i:u32,n:u32)->f32 {return mask_alpha(descriptor(layer,0u),i);}
 fn layer_context(layer:u32){parameter_offset=descriptor(layer,1u);layer_sharp1=descriptor(layer,4u);layer_sharp2=descriptor(layer,5u);}
 fn clear_context(){parameter_offset=0u;layer_sharp1=0u;layer_sharp2=0u;}
 // The per-pixel stage: a straight port of `lightcraft_pipeline::finish` (keep in step with it).
@@ -442,7 +446,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var tint_amt = 0.0;
     let nm = fu(F_NMASK);
     for (var m = 0u; m < nm; m++) {
-        let a = masks[m * n + i];
+        let a = mask_alpha(m,i);
         if (a <= 0.0) {
             continue;
         }
@@ -466,7 +470,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (mt != 0.0 && fu(F_HAS_CHROMA) != 0u) {
         let y = lum2020(c);
         let ch0 = raw / max(lum2020(raw), 1e-6);
-        let o = nm * n + 3u * i;
+        let o = P[F_CHROMA_PLANE] + 3u * i;
         let cb = vec3<f32>(masks[o], masks[o + 1u], masks[o + 2u]);
         c = max((ch0 + (cb - ch0) * mt) * y, vec3<f32>(0.0));
     }

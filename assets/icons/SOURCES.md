@@ -139,3 +139,7 @@ The existing generic icon inventory keeps its separate original notices.
 | `vertical-type` | Approved Local Image base | Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better. |
 | `wand-sparkles` | Approved Local Image base | Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better. |
 | `zoom-in` | Approved Local Image base | Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better. |
+
+## Develop picker variants
+
+`wb-picker`, `skin-picker` and `defringe-picker` in `color/` and `tools/` use the original Local Image `pipette` artwork above with original disc/face/fringe badges. GPL-3.0-or-later, Local Image contributors. Existing gradient, outline and highlight paint is retained in both styles. No additional upstream assets.

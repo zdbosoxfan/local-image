@@ -13,8 +13,46 @@ use crate::geometry::Frame;
 pub struct Evaluated {
     /// The mask's id ([`Mask::id`]).
     pub id: u32,
-    pub alpha: Plane,
+    pub alpha: Alpha,
     pub adjust: LocalAdjustments,
+}
+
+/// Full-only masks keep one scalar; other masks keep their spatial alpha plane.
+#[derive(Clone)]
+pub enum Alpha {
+    Scalar(f32),
+    Spatial(Plane),
+}
+impl Alpha {
+    #[inline]
+    pub fn at(&self, i: usize) -> f32 {
+        match self {
+            Self::Scalar(a) => *a,
+            Self::Spatial(p) => p.data[i],
+        }
+    }
+    pub fn get(&self, x: usize, y: usize) -> f32 {
+        match self {
+            Self::Scalar(a) => *a,
+            Self::Spatial(p) => p.get(x, y),
+        }
+    }
+    pub fn plane(&self) -> Option<&Plane> {
+        match self {
+            Self::Spatial(p) => Some(p),
+            Self::Scalar(_) => None,
+        }
+    }
+}
+/// Constant coverage after component/layer inversion, amount and opacity. Refining a constant
+/// cannot change its edges, so it also needs no plane.
+pub fn scalar_alpha(m: &Mask) -> Option<f32> {
+    let [c] = m.components.as_slice() else { return None };
+    if !matches!(c.shape, MaskShape::Full) {
+        return None;
+    }
+    let a = if c.op == MaskOp::Intersect || c.invert { 0.0 } else { 1.0 };
+    Some((if m.invert { 1.0 - a } else { a }) * mask_scale(m))
 }
 
 #[inline]
@@ -28,7 +66,11 @@ pub fn evaluate(masks: &[Mask], frame: &Frame, w: usize, h: usize, img: &Rgb32f,
     masks
         .iter()
         .filter(|m| m.visible && !m.components.is_empty())
-        .map(|m| Evaluated { id: m.id, alpha: evaluate_one(m, frame, w, h, img, log_l, ev), adjust: m.adjust })
+        .map(|m| Evaluated {
+            id: m.id,
+            alpha: scalar_alpha(m).map(Alpha::Scalar).unwrap_or_else(|| Alpha::Spatial(evaluate_one(m, frame, w, h, img, log_l, ev))),
+            adjust: m.adjust,
+        })
         .collect()
 }
 
@@ -47,7 +89,13 @@ pub fn evaluate_with_tone(
     masks
         .iter()
         .filter(|m| m.visible && !m.components.is_empty())
-        .map(|m| Evaluated { id: m.id, alpha: evaluate_one_tone(m, frame, w, h, img, log_l, ev, Some(tone)), adjust: m.adjust })
+        .map(|m| Evaluated {
+            id: m.id,
+            alpha: scalar_alpha(m)
+                .map(Alpha::Scalar)
+                .unwrap_or_else(|| Alpha::Spatial(evaluate_one_tone(m, frame, w, h, img, log_l, ev, Some(tone)))),
+            adjust: m.adjust,
+        })
         .collect()
 }
 
@@ -58,6 +106,9 @@ pub fn evaluate_one(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb32f, l
 }
 #[allow(clippy::too_many_arguments)]
 pub fn evaluate_one_tone(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb32f, log_l: &Plane, ev: f32, tone: Option<&crate::ToneMap>) -> Plane {
+    if let Some(a) = scalar_alpha(m) {
+        return Plane::from_fn(w, h, |_, _| a);
+    }
     let mut alpha = Plane::new(w, h);
     let mut first = true;
     for comp in &m.components {
@@ -136,6 +187,7 @@ pub fn shape_alpha_tone(
     // `img`/`log_l` are before exposure: range masks select on the exposed values.
     let gain = ev.exp2();
     match shape {
+        MaskShape::Full => out.data.fill(1.0),
         MaskShape::Linear { start, end } => {
             let (a, b) = (to_long(*start), to_long(*end));
             let d = b - a;

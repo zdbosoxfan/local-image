@@ -9,6 +9,7 @@ use lightcraft_pipeline::geometry::Frame;
 use serde_json::json;
 
 use crate::LightcraftApp;
+use crate::icons::Icon;
 use crate::render::Slot;
 use crate::state::{BeforeAfter, RightPanel, Zoom};
 use crate::theme::Tokens;
@@ -377,6 +378,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     match right {
         RightPanel::Crop => crop_overlay(app, ui, &resp, &map, &frame, &d, id),
+        // Skin picking is a layer tool in this existing panel too. Let it receive the click
+        // before the mask handles; the wider mask-tool decoupling belongs to A4.
+        RightPanel::Masking if app.ui.tool == "skinTone" => general_interaction(app, ui, &resp, &map, img_rect, canvas, native, aspect),
         RightPanel::Masking => mask_overlay(app, ui, &resp, &map, &d),
         RightPanel::Remove => remove_overlay(app, ui, &resp, &map, &d),
         RightPanel::RedEye => eye_overlay(app, ui, &resp, &map, &d),
@@ -723,6 +727,16 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
     if app.ui.fullscreen {
         return Overlay::None;
     }
+    let skin_key = if app.ui.skin_tone_mask.is_some() { "layer-skinTone" } else { "skinTone" };
+    let skin_overlay = Overlay::SkinToneRange(app.ui.skin_tone_mask);
+    if (app.ui.right == RightPanel::Edit || app.ui.right == RightPanel::Masking)
+        && app.ui.skin_tone_visualize
+        && app.ui.skin_tone_mask.is_none_or(|id| app.session.active_mask == Some(id))
+        && app.ui.flyout_open(skin_key)
+        && skin_overlay.skin(d).is_some_and(|s| s.reference.is_some())
+    {
+        return skin_overlay;
+    }
     if app.ui.right == RightPanel::Masking
         && app.ui.mask_overlay
         && let Some(m) = app.session.active_mask.and_then(|id| d.masks.iter().find(|m| m.id == id))
@@ -770,6 +784,27 @@ fn clipping_overlay(app: &LightcraftApp, p: &egui::Painter, r: Rect) {
     }
 }
 
+/// Matching canvas badges for the three distinct Develop selectors.
+pub(crate) fn picker_glyph(tool: &str) -> Option<Icon> {
+    match tool {
+        "wbPicker" => Some(Icon::WhiteBalance),
+        "skinTone" => Some(Icon::SkinTone),
+        "defringe" | "defringePicker" => Some(Icon::Defringe),
+        "pointColor" => Some(Icon::Picker),
+        _ => None,
+    }
+}
+
+fn picker_cursor(ui: &egui::Ui, resp: &egui::Response, icon: Icon) {
+    if let Some(q) = resp.hover_pos() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+        let r = Rect::from_min_size(q + vec2(2.0, 2.0), vec2(26.0, 26.0));
+        ui.painter().rect_filled(r, 4.0, Color32::from_black_alpha(200));
+        crate::icons::paint(ui.painter(), r.shrink(3.0), icon, Color32::WHITE);
+        ui.painter().circle_stroke(q, 2.0, Stroke::new(1.0, Color32::WHITE));
+    }
+}
+
 fn general_interaction(
     app: &mut LightcraftApp,
     ui: &mut egui::Ui,
@@ -780,8 +815,10 @@ fn general_interaction(
     native: [usize; 2],
     aspect: f32,
 ) {
+    if let Some(icon) = picker_glyph(&app.ui.tool) {
+        picker_cursor(ui, resp, icon);
+    }
     if app.ui.tool == "wbPicker" {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         if resp.clicked()
             && let Some(q) = resp.interact_pointer_pos()
         {
@@ -814,7 +851,6 @@ fn general_interaction(
         return;
     }
     if app.ui.tool == "skinTone" {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         if resp.clicked()
             && let Some(q) = resp.interact_pointer_pos()
         {
@@ -831,7 +867,6 @@ fn general_interaction(
         return;
     }
     if app.ui.tool == "pointColor" {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
         if resp.clicked()
             && let Some(q) = resp.interact_pointer_pos()
         {

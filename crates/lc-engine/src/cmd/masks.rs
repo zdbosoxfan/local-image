@@ -10,7 +10,8 @@ use crate::{Result, Session};
 
 fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
     Ok(match kind {
-        "brush" => MaskShape::Brush { strokes: vec![] },
+        "full" => MaskShape::Full,
+        "brush" | "empty" => MaskShape::Brush { strokes: vec![] },
         "linear" => {
             MaskShape::Linear { start: point(p, "start").unwrap_or(Point::new(0.5, 0.25)), end: point(p, "end").unwrap_or(Point::new(0.5, 0.6)) }
         }
@@ -169,7 +170,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Create New Mask",
             [],
             None,
-            "{kind: brush|linear|radial|sky|subject|background|depth|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; object/prompt: seg? a stored segmentation, no model needed), name?} — AI kinds need the SAM 3 model; in the app a prompt returns {pending} and the mask appears when found",
+            "{kind: full|empty|brush|linear|radial|sky|subject|background|depth|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; object/prompt: seg? a stored segmentation, no model needed), name?} — AI kinds need the SAM 3 model; in the app a prompt returns {pending} and the mask appears when found",
             has_active,
             |s, p| {
                 let kind = str_param(p, "kind").unwrap_or("radial").to_string();
@@ -179,18 +180,37 @@ pub fn specs() -> Vec<CommandSpec> {
                     s.quick_segment(id, &mut shape);
                 }
                 let later = resolve_ai(s, &mut shape, "mask.add")?;
-                let name = str_param(p, "name").map(str::to_string);
+                let (prefix, label) = match kind.as_str() {
+                    "full" => ("Filled Layer", "New Filled Layer"),
+                    "empty" => ("Empty Layer", "New Empty Layer"),
+                    "brush" => ("Brush", "Add Mask"),
+                    "linear" => ("Linear Gradient", "Add Mask"),
+                    "radial" => ("Radial Gradient", "Add Mask"),
+                    "sky" => ("Sky", "Add Mask"),
+                    "subject" => ("Subject", "Add Mask"),
+                    "background" => ("Background", "Add Mask"),
+                    "depth" | "depthRange" => ("Depth Range", "Add Mask"),
+                    "luminanceRange" => ("Luminance Range", "Add Mask"),
+                    "colorRange" => ("Color Range", "Add Mask"),
+                    "object" => ("Object", "Add Mask"),
+                    _ => ("Describe", "Add Mask"),
+                };
+                let name = str_param(p, "name").map(str::to_string).unwrap_or_else(|| {
+                    let d = s.active().and_then(|id| s.develop_of(id));
+                    let number = (1..).find(|n| d.as_ref().is_none_or(|d| !d.masks.iter().any(|m| m.name == format!("{prefix} {n}")))).unwrap();
+                    format!("{prefix} {number}")
+                });
                 if let Later::Text(text) = &later {
                     let id = s.active().ok_or_else(|| bad("mask.add", "no active photo"))?;
-                    s.segment_text_later(id, None, "add", name, text).map_err(ai_err)?;
+                    s.segment_text_later(id, None, "add", Some(name), text).map_err(ai_err)?;
                     return Ok(json!({"pending": true}));
                 }
                 let next = s.active().and_then(|id| s.develop_of(id)).map(|d| d.next_mask_id()).unwrap_or(1);
-                let out = masks_edit(s, "mask.add", "Add Mask", |masks, active| {
+                let out = masks_edit(s, "mask.add", label, |masks, active| {
                     masks.push(Mask {
                         id: next,
-                        name: name.unwrap_or_else(|| format!("Mask {next}")),
-                        components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }],
+                        name,
+                        components: if kind == "empty" { vec![] } else { vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }] },
                         ..Default::default()
                     });
                     *active = Some(next);
@@ -603,6 +623,9 @@ pub fn specs() -> Vec<CommandSpec> {
                     let m = &mut masks[i];
                     match &section {
                         Some(k) => {
+                            if ["vignette", "grain", "treatment", "bw_mix"].contains(&k.as_str()) {
+                                return Err(bad(c, "this tool applies to Background only"));
+                            }
                             if !m.tools.clear(k) {
                                 return Err(bad(c, format!("`{k}` is not a layer tool")));
                             }
@@ -1103,4 +1126,28 @@ fn ds_finding_dust_source_settings_filter_foreign_once() {
     assert_eq!(filtered.spots[0].patch.as_ref().unwrap().source, "own");
     assert_eq!(d.spots.len(), 2);
     assert!(matches!(settings_for_source(&filtered, Some("own")), std::borrow::Cow::Borrowed(_)));
+}
+
+#[cfg(test)]
+#[test]
+fn filled_empty_names_history_reset_and_undo() {
+    let mut s = Session::with_demo();
+    for kind in ["full", "full", "empty", "brush", "brush"] {
+        s.execute("mask.add", &json!({"kind":kind})).unwrap();
+    }
+    let id = s.active().unwrap();
+    let d = s.develop_of(id).unwrap();
+    assert_eq!(
+        d.masks.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+        vec!["Filled Layer 1", "Filled Layer 2", "Empty Layer 1", "Brush 1", "Brush 2"]
+    );
+    assert!(matches!(d.masks[0].components[0].shape, MaskShape::Full));
+    assert!(d.masks[2].components.is_empty());
+    s.execute("mask.setTools", &json!({"id":1,"tools":{"light":{"exposure":1.0},"vignette":{"amount":-25.0},"treatment":"bw"}})).unwrap();
+    assert_eq!(s.develop_of(id).unwrap().masks[0].tools.used_keys(), vec!["light"]);
+    assert!(s.execute("mask.resetTools", &json!({"id":1,"section":"vignette"})).is_err());
+    s.execute("mask.resetTools", &json!({"id":1})).unwrap();
+    assert!(s.develop_of(id).unwrap().masks[0].tools.is_empty());
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.develop_of(id).unwrap().masks[0].tools.light.unwrap().exposure, 1.0);
 }

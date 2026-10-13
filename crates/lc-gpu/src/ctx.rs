@@ -105,6 +105,7 @@ const MODULES: &[Module] = &[
             "p_equal_corr",
             "p_equal_finish",
             "p_skin_pre",
+            "p_skin_range",
             "p_skin_finish",
         ],
     },

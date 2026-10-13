@@ -398,6 +398,8 @@ pub struct UiState {
     pub point_color: usize,
     /// Point Color "Visualize range": the selected sample's range in colour, the rest grey.
     pub point_color_visualize: bool,
+    pub skin_tone_visualize: bool,
+    pub skin_tone_mask: Option<u32>,
     /// The develop layer (mask id) the Point Color eyedropper samples for; `None`: the photo.
     pub point_color_mask: Option<u32>,
     /// Masking panel: show only the tool sections the selected layer uses.
@@ -725,6 +727,8 @@ impl Default for UiState {
             remove_overlay_remembered: None,
             point_color: 0,
             point_color_visualize: false,
+            skin_tone_visualize: false,
+            skin_tone_mask: None,
             point_color_mask: None,
             layer_used_only: false,
             eye: 0,

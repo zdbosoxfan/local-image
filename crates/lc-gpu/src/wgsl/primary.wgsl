@@ -278,7 +278,7 @@ fn p_detail_apply(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workg
 }
 @compute @workgroup_size(256)
 fn p_mix(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
-    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let t=c[pu(1u)+i]; let v=rgb_a(i); let q=vec3<f32>(b[3u*i],b[3u*i+1u],b[3u*i+2u]); put_rgb(i,v+(q-v)*t);
+    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} var t=pf(2u); if(pu(1u)!=0xffffffffu){t=c[pu(1u)+i];} let v=rgb_a(i); let q=vec3<f32>(b[3u*i],b[3u*i+1u],b[3u*i+2u]); put_rgb(i,v+(q-v)*t);
 }
 
 @compute @workgroup_size(256)
