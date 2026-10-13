@@ -8,7 +8,7 @@ use crate::{
     LightcraftApp,
     icons::Icon,
     theme::Tokens,
-    widgets::{icon_button, register, text_button},
+    widgets::{icon_button, icon_button_as, register, text_button},
 };
 use egui::{Align2, Color32, Rect, Sense, pos2, vec2};
 use lightcraft_catalog::PhotoId;
@@ -71,8 +71,7 @@ pub fn global_group(app: &mut LightcraftApp, ui: &mut egui::Ui, tools: &[(&str, 
     let tip = format!("{names}: these apply to the whole image. Select Background to edit them.");
     egui::Frame::NONE.inner_margin(egui::Margin { left: 16, right: 22, top: 8, bottom: 8 }).show(ui, |ui| {
         let title = format!("{} whole-image tools", tools.len());
-        let font = t.semibold(12.5);
-        let title_w = ui.painter().layout_no_wrap(title.clone(), font.clone(), t.text).size().x + 22.0;
+        let title_w = ui.painter().layout_no_wrap(title.clone(), t.semibold(12.5), t.text).size().x + crate::widgets::DISCLOSURE_INDENT + 4.0;
         let link_w = ui.painter().layout_no_wrap(crate::i18n::tr("Select Background").to_string(), t.font(12.0), t.text).size().x + 8.0;
         // one line where it fits; a narrow dock puts the link under the title instead of overlapping
         let one_line = ui.available_width() >= title_w + link_w;
@@ -84,17 +83,7 @@ pub fn global_group(app: &mut LightcraftApp, ui: &mut egui::Ui, tools: &[(&str, 
             }
         };
         ui.horizontal(|ui| {
-            let (r, resp) = ui.allocate_exact_size(vec2(title_w.min(ui.available_width()), 22.0), Sense::click());
-            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, &title));
-            register(ui.ctx(), "layerGlobalGroup", r);
-            let c = if resp.hovered() { t.text } else { t.text_dim };
-            crate::icons::paint(
-                ui.painter(),
-                Rect::from_center_size(pos2(r.left() + 7.0, r.center().y), vec2(11.0, 11.0)),
-                if open { Icon::ChevronDown } else { Icon::ChevronRight },
-                c,
-            );
-            ui.painter().with_clip_rect(r).text(pos2(r.left() + 18.0, r.center().y), Align2::LEFT_CENTER, &title, font.clone(), c);
+            let resp = crate::widgets::disclosure(ui, "layerGlobalGroup", &title, open, title_w.min(ui.available_width()), true);
             if resp.on_hover_text(&tip).clicked() {
                 ui.data_mut(|d| d.insert_temp(open_id, !open));
             }
@@ -104,14 +93,14 @@ pub fn global_group(app: &mut LightcraftApp, ui: &mut egui::Ui, tools: &[(&str, 
         });
         if !one_line {
             ui.horizontal(|ui| {
-                ui.add_space(18.0);
+                ui.add_space(crate::widgets::DISCLOSURE_INDENT);
                 link(app, ui);
             });
         }
         if open {
             for (key, label) in tools {
                 ui.horizontal(|ui| {
-                    ui.add_space(18.0);
+                    ui.add_space(crate::widgets::DISCLOSURE_INDENT);
                     let r = ui
                         .link(egui::RichText::new(crate::i18n::tr(label)).size(12.0).color(t.text_dim))
                         .on_hover_text(format!("{label} applies to the whole image. Click to select Background."));
@@ -185,22 +174,6 @@ fn menu(app: &mut LightcraftApp, ui: &mut egui::Ui, m: &lightcraft_develop::Mask
         app.ui.renaming_mask = Some((m.id, m.name.clone()));
         ui.close();
     }
-}
-
-/// A borderless icon button registered under `reg` (keeps the automation ids the old text
-/// buttons had, e.g. `button:layerNew`).
-fn small_button(ui: &mut egui::Ui, reg: &str, icon: Icon, size: egui::Vec2, tooltip: &str) -> egui::Response {
-    let t = Tokens::get(ui.ctx());
-    let tooltip = crate::i18n::tr(tooltip);
-    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tooltip));
-    register(ui.ctx(), reg.to_string(), r);
-    if resp.hovered() || resp.has_focus() {
-        ui.painter().rect_filled(r, 4.0, t.hover.gamma_multiply(0.8));
-    }
-    let g = (size.x.min(size.y) * 0.6).min(16.0);
-    crate::icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(g, g)), icon, if resp.hovered() { t.text } else { t.text_label });
-    resp.on_hover_text(tooltip)
 }
 
 /// What a mask is, for the thumbnail tooltip.
@@ -312,9 +285,10 @@ fn mask_thumb(ui: &egui::Ui, r: Rect, m: Option<&Mask>, aspect: f64, visible: bo
     }
     let probe = coverage(m, lightcraft_geom::Point::new(0.5, 0.5), aspect);
     if probe.is_none() {
-        p.rect_filled(r, 2.0, Color32::from_gray(40).gamma_multiply(fade));
+        // image-dependent: the kind's icon on the badge pair (content, not chrome)
+        p.rect_filled(r, 2.0, t.overlay_bg.gamma_multiply(fade));
         let shape = &m.components[0].shape;
-        crate::icons::paint_tool(ui, r.shrink(3.0), crate::icons::mask_name(shape), Icon::Mask, Color32::from_gray(225), visible);
+        crate::icons::paint_tool(ui, r.shrink(3.0), crate::icons::mask_name(shape), Icon::Mask, t.overlay_fg, visible);
         p.rect_stroke(r, 2.0, frame_stroke, egui::StrokeKind::Inside);
         return;
     }
@@ -372,7 +346,7 @@ fn background_row(app: &mut LightcraftApp, ui: &mut egui::Ui, aspect: f64, trail
             select_background(app);
         }
         if trailing_plus {
-            let plus = small_button(ui, "button:layerNew", Icon::Plus, vec2(24.0, 24.0), "New layer");
+            let plus = icon_button_as(ui, "button:layerNew", Icon::Plus, vec2(24.0, 24.0), "New layer");
             egui::Popup::menu(&plus).show(|ui| new_menu(app, ui));
         }
     });
@@ -396,16 +370,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             ui.horizontal(|ui| {
                 let collapsed = app.ui.layer_bar_collapsed;
                 ui.spacing_mut().item_spacing.x = 3.0;
-                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 27.0, 24.0), Sense::click());
-                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, !collapsed, crate::i18n::tr("Layers")));
-                register(ui.ctx(), "button:layerCollapse", r);
-                let c = if resp.hovered() { t.text } else { t.text_label };
-                crate::icons::paint(
-                    ui.painter(),
-                    Rect::from_center_size(pos2(r.left() + 8.0, r.center().y), vec2(11.0, 11.0)),
-                    if collapsed { Icon::ChevronRight } else { Icon::ChevronDown },
-                    c,
-                );
                 let title = if collapsed {
                     // one line: which layer is being edited
                     let active = d.masks.iter().find(|m| Some(m.id) == app.session.active_mask).map(|m| m.name.as_str()).unwrap_or("Background");
@@ -413,12 +377,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 } else {
                     format!("{} ({})", crate::i18n::tr("Layers"), d.masks.len())
                 };
-                let galley = ui.painter().layout(title, t.semibold(12.5), c, r.width() - 22.0);
-                ui.painter().with_clip_rect(r).galley(pos2(r.left() + 20.0, r.center().y - galley.size().y / 2.0), galley, c);
+                let resp = crate::widgets::disclosure(ui, "button:layerCollapse", &title, !collapsed, ui.available_width() - 27.0, false);
+                // screen readers keep the header's plain name
+                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, !collapsed, crate::i18n::tr("Layers")));
                 if resp.on_hover_text(if collapsed { "Show the layer list" } else { "Hide the layer list" }).clicked() {
                     app.ui.layer_bar_collapsed = !collapsed;
                 }
-                let plus = small_button(ui, "button:layerNew", Icon::Plus, vec2(24.0, 24.0), "New layer");
+                let plus = icon_button_as(ui, "button:layerNew", Icon::Plus, vec2(24.0, 24.0), "New layer");
                 egui::Popup::menu(&plus).show(|ui| new_menu(app, ui));
             });
         }
@@ -553,7 +518,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                             if r.drag_stopped() {
                                 let _ = app.run("develop.endInteraction", json!({}));
                             }
-                            let more = small_button(ui, &format!("button:layerMenu:{}", m.id), Icon::Dots, vec2(18.0, 24.0), "Layer options");
+                            let more = icon_button_as(ui, &format!("button:layerMenu:{}", m.id), Icon::Dots, vec2(18.0, 24.0), "Layer options");
                             egui::Popup::menu(&more).show(|ui| menu(app, ui, m));
                         });
                     });
@@ -637,17 +602,7 @@ pub fn canvas_pill(app: &LightcraftApp, ui: &mut egui::Ui, canvas: Rect) {
         .and_then(|id| app.session.develop_of(id))
         .and_then(|d| d.masks.iter().find(|m| Some(m.id) == app.session.active_mask).map(|m| m.name.clone()))
     {
-        let t = Tokens::get(ui.ctx());
-        let galley = ui.painter().layout_no_wrap(name, t.font(12.0), t.text);
-        let r = Rect::from_min_size(canvas.min + vec2(12.0, 12.0), vec2((galley.size().x + 20.0).min(canvas.width() - 24.0), 26.0));
-        ui.painter().rect_filled(r, 13.0, t.chrome);
-        ui.painter().with_clip_rect(r.shrink(5.0)).text(
-            pos2(r.left() + 10.0, r.center().y),
-            Align2::LEFT_CENTER,
-            galley.job.text.clone(),
-            t.font(12.0),
-            t.text,
-        );
+        let r = crate::widgets::image_badge(ui.painter(), canvas.min + vec2(12.0, 12.0), None, Some(&name), canvas.width() - 24.0);
         register(ui.ctx(), "activeLayerPill", r);
     }
 }

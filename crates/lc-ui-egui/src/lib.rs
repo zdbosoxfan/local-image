@@ -51,6 +51,8 @@ mod tests_ai;
 #[cfg(test)]
 mod tests_curve;
 #[cfg(test)]
+mod tests_design_system;
+#[cfg(test)]
 mod tests_develop_a;
 #[cfg(test)]
 mod tests_develop_c;

@@ -118,26 +118,33 @@ pub(crate) fn can_remove(app: &PhotocraftApp) -> bool {
 
 /// The existing verified download flow, inline at first use and in Local AI.
 pub(crate) fn tier_download(ui: &mut egui::Ui, spec: &'static li_seg::ModelSpec) {
+    // Styled as Local AI's model rows (`ai_ui::model_function_row`).
+    let t = crate::theme::Tokens::get(ui.ctx());
     let dir = photocraft_engine::seg::models_dir();
-    ui.label(format!("{} · CPU · {} · {}", spec.label, li_ai::download::human_bytes(spec.bytes), spec.licence));
+    ui.label(
+        egui::RichText::new(format!("{} · CPU · {} · {}", spec.label, li_ai::download::human_bytes(spec.bytes), spec.licence)).color(t.text_faint).size(11.0),
+    );
     if li_seg::installed_bytes(&dir, spec) == Some(spec.bytes) {
         return;
     }
     let downloads = crate::ai_ui::downloads();
     if let Some(d) = downloads.get(&format!("seg:{}", spec.id)) {
         if !d.finished {
-            ui.add(egui::ProgressBar::new(d.done as f32 / d.total.max(1) as f32));
-            if ui.button(tl!("Cancel")).clicked() {
-                d.ctl.cancel();
-            }
+            ui.horizontal(|ui| {
+                let frac = d.done as f32 / d.total.max(1) as f32;
+                ui.add(egui::ProgressBar::new(frac).desired_width(140.0).text(format!("{:.0}%", frac * 100.0)));
+                if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
+                    d.ctl.cancel();
+                }
+            });
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
             return;
         }
         if let Some(error) = &d.error {
-            ui.label(error);
+            ui.label(egui::RichText::new(error).color(t.danger).size(11.5));
         }
     }
-    if ui.button(format!("Download {} ({})", spec.label, li_ai::download::human_bytes(spec.bytes))).clicked() {
+    if widgets::secondary_button(ui, &format!("Download {} ({})", spec.label, li_ai::download::human_bytes(spec.bytes)), 0.0).clicked() {
         crate::ai_ui::start_seg_download(spec);
     }
 }
@@ -176,8 +183,8 @@ pub(crate) fn settings(app: &mut PhotocraftApp, ui: &mut egui::Ui, inline: bool)
                 });
             });
         }
-        ui.checkbox(&mut app.ui.ai.cutout_refine, tl!(EDGE_REFINEMENT.0)).on_hover_text(tl!(EDGE_REFINEMENT.1));
-        ui.checkbox(&mut app.ui.ai.cutout_decontaminate, tl!(COLOUR_CLEANUP.0)).on_hover_text(tl!(COLOUR_CLEANUP.1));
+        widgets::checkbox(ui, &mut app.ui.ai.cutout_refine, EDGE_REFINEMENT.0).on_hover_text(tl!(EDGE_REFINEMENT.1));
+        widgets::checkbox(ui, &mut app.ui.ai.cutout_decontaminate, COLOUR_CLEANUP.0).on_hover_text(tl!(COLOUR_CLEANUP.1));
         row(ui, inline, tl!("Output"), |ui, width| {
             widgets::dropdown(ui, "cutout-output", &mut app.ui.ai.cutout_output, &outputs, width);
         });

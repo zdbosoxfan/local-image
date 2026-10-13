@@ -2,7 +2,7 @@
 //! flyout rows, bordered buttons. Every interactive widget registers an automation id + rect
 //! ([`register`]) so the control channel can find and click it by name.
 
-use egui::{Align2, Color32, CornerRadius, Rect, Response, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use egui::{Align2, Color32, CornerRadius, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
 use lightcraft_develop::{ControlSpec, Track};
 
 use crate::icons::{Icon, paint};
@@ -478,18 +478,24 @@ pub fn segmented(ui: &mut Ui, id: &str, items: &[(&str, &str)], active: Option<u
 
 /// An icon-only button. `active` draws the selected background (tool strip).
 pub fn icon_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: bool, enabled: bool, tooltip: &str) -> Response {
-    icon_button_inner(ui, id, icon, None, size, active, enabled, tooltip)
+    icon_button_inner(ui, &format!("icon:{id}"), icon, None, size, active, enabled, tooltip)
+}
+
+/// [`icon_button`] registered under a full automation id (e.g. `button:layerNew`) instead of
+/// `icon:{id}`: for icon buttons that replaced text buttons and keep their old ids.
+pub fn icon_button_as(ui: &mut Ui, automation_id: &str, icon: Icon, size: egui::Vec2, tooltip: &str) -> Response {
+    icon_button_inner(ui, automation_id, icon, None, size, false, true, tooltip)
 }
 
 pub fn tool_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: bool, enabled: bool, tooltip: &str) -> Response {
     let tool = id.strip_prefix("removeMode-").unwrap_or(id);
     let name = crate::icons::tool_name(if tool.starts_with("tat-") { "target" } else { tool });
-    icon_button_inner(ui, id, icon, name, size, active, enabled, tooltip)
+    icon_button_inner(ui, &format!("icon:{id}"), icon, name, size, active, enabled, tooltip)
 }
 
 fn icon_button_inner(
     ui: &mut Ui,
-    id: &str,
+    automation_id: &str,
     icon: Icon,
     tool: Option<&str>,
     size: egui::Vec2,
@@ -501,19 +507,21 @@ fn icon_button_inner(
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, tooltip));
-    register(ui.ctx(), format!("icon:{id}"), r);
+    register(ui.ctx(), automation_id, r);
     let p = ui.painter();
     let sq = Rect::from_center_size(r.center(), vec2(32.0f32.min(size.x), 32.0f32.min(size.y)));
+    // keyboard focus (Tab) shows like hover
+    let lit = (resp.hovered() || resp.has_focus()) && enabled;
     if active {
         p.rect_filled(sq, 4.0, t.tool_active);
-    } else if resp.hovered() && enabled {
+    } else if lit {
         p.rect_filled(sq, 4.0, t.hover.gamma_multiply(0.7));
     }
     let c = if !enabled {
         t.text_disabled
     } else if active {
         t.pick
-    } else if resp.hovered() {
+    } else if lit {
         t.text
     } else {
         t.icon
@@ -528,6 +536,150 @@ fn icon_button_inner(
     }
     if !tooltip.is_empty() { resp.on_hover_text(tooltip) } else { resp }
 }
+
+// ------------------------------------------------------------------ disclosure rows
+
+/// A compact disclosure row inside a panel: a chevron and a semibold title that open and close
+/// what follows (the Develop layer list, a layer's whole-image tools). [`section_header`] is the
+/// full-width 52 pt section header; this is the one-line version. `width` is the row's width;
+/// a long title is cut short with "…". `secondary` draws the title dimmed (a folded group that is
+/// not the panel's main content). Registered under the full automation id `id`; screen readers
+/// get a collapsing header with `title` and its open state. Click toggles (the caller flips it).
+pub fn disclosure(ui: &mut Ui, id: &str, title: &str, open: bool, width: f32, secondary: bool) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(vec2(width.max(24.0), DISCLOSURE_H), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, title));
+    register(ui.ctx(), id, r);
+    let c = if resp.hovered() || resp.has_focus() {
+        t.text
+    } else if secondary {
+        t.text_dim
+    } else {
+        t.text_label
+    };
+    let p = ui.painter();
+    paint(
+        p,
+        Rect::from_center_size(pos2(r.left() + 7.0, r.center().y), vec2(11.0, 11.0)),
+        if open { Icon::ChevronDown } else { Icon::ChevronRight },
+        c,
+    );
+    let mut job = egui::text::LayoutJob::simple_singleline(title.to_string(), t.semibold(12.5), c);
+    job.wrap = egui::text::TextWrapping::truncate_at_width((r.width() - DISCLOSURE_INDENT).max(0.0));
+    let galley = ui.painter().layout_job(job);
+    ui.painter().galley(pos2(r.left() + DISCLOSURE_INDENT, r.center().y - galley.size().y / 2.0), galley, c);
+    resp
+}
+
+/// Height of a [`disclosure`] row.
+pub const DISCLOSURE_H: f32 = 24.0;
+/// Where a [`disclosure`] row's title starts; rows it opens indent their content by this much.
+pub const DISCLOSURE_INDENT: f32 = 18.0;
+
+// ------------------------------------------------------------------ colour samples
+
+/// A colour sample tile: a picked skin reference, the negative's film base, a Point Color sample.
+/// The colour fills the tile, rounded like the buttons and outlined in `button_border` so a colour
+/// close to the panel still reads as a tile in light and dark palettes. With `selected: Some(_)`
+/// the tile is a clickable choice: the colour is inset 2 pt and the selected one gets a `text`
+/// ring (hover a `text_dim` one). Registered under the full automation id `id`; screen readers
+/// get `label` (a button when selectable). The colour itself is document data, not a token.
+pub fn color_swatch(ui: &mut Ui, id: &str, color: Color32, size: Vec2, selected: Option<bool>, label: &str) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(size, if selected.is_some() { Sense::click() } else { Sense::hover() });
+    resp.widget_info(|| match selected {
+        Some(on) => egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), on, label),
+        None => egui::WidgetInfo::labeled(egui::WidgetType::Other, true, label),
+    });
+    register(ui.ctx(), id, r);
+    let p = ui.painter();
+    let tile = if selected.is_some() { r.shrink(2.0) } else { r };
+    p.rect_filled(tile, SWATCH_RADIUS, color);
+    p.rect_stroke(tile, SWATCH_RADIUS, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
+    match selected {
+        Some(true) => {
+            p.rect_stroke(r, SWATCH_RADIUS + 1.0, Stroke::new(1.5, t.text), StrokeKind::Inside);
+        }
+        Some(false) if resp.hovered() || resp.has_focus() => {
+            p.rect_stroke(r, SWATCH_RADIUS + 1.0, Stroke::new(1.0, t.text_dim), StrokeKind::Inside);
+        }
+        _ => {}
+    }
+    resp
+}
+
+/// Corner radius of a [`color_swatch`] tile (one less than the 4 pt buttons, which it sits beside).
+pub const SWATCH_RADIUS: f32 = 3.0;
+
+/// A range readout: `label` (small, `text_label`) over a full-width strip of colour samples with
+/// the selected window(s) outlined, as Skin Tone shows its hue, saturation and lightness ranges.
+/// `sample(f)` is the colour at `f` in 0..1 (sampled at each step's centre); `windows` are
+/// `(lo, hi)` fractions in 0..1 (two windows for a range that wraps, like hue). The outline is the
+/// overlay pair (`overlay_bg` outside, `overlay_fg` inside) so it shows on any colour. The strip
+/// is registered under the full automation id `id` and named "`label` range".
+pub fn range_strip(ui: &mut Ui, id: &str, label: &str, sample: impl Fn(f32) -> Color32, windows: &[(f32, f32)]) -> Response {
+    let t = Tokens::get(ui.ctx());
+    ui.label(egui::RichText::new(label).font(t.font(11.0)).color(t.text_label));
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), RANGE_STRIP_H), Sense::hover());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, format!("{label} range")));
+    register(ui.ctx(), id, r);
+    let p = ui.painter();
+    for i in 0..RANGE_STRIP_STEPS {
+        let (a, b) = (i as f32 / RANGE_STRIP_STEPS as f32, (i + 1) as f32 / RANGE_STRIP_STEPS as f32);
+        let step = Rect::from_min_max(pos2(r.left() + r.width() * a, r.top()), pos2(r.left() + r.width() * b, r.bottom()));
+        p.rect_filled(step, 0.0, sample((a + b) * 0.5));
+    }
+    for &(lo, hi) in windows {
+        let (lo, hi) = (lo.clamp(0.0, 1.0), hi.clamp(0.0, 1.0));
+        if hi > lo {
+            let w = Rect::from_min_max(pos2(r.left() + r.width() * lo, r.top()), pos2(r.left() + r.width() * hi, r.bottom()));
+            p.rect_stroke(w, 0.0, Stroke::new(3.0, t.overlay_bg), StrokeKind::Inside);
+            p.rect_stroke(w.shrink(1.0), 0.0, Stroke::new(1.0, t.overlay_fg), StrokeKind::Inside);
+        }
+    }
+    resp
+}
+
+/// Height of a [`range_strip`]'s strip.
+pub const RANGE_STRIP_H: f32 = 14.0;
+const RANGE_STRIP_STEPS: usize = 64;
+
+// ------------------------------------------------------------------ badges over the photo
+
+/// A badge over photo pixels: the canvas's active-layer pill, a picker's cursor badge, a preset's
+/// name while its preview shows. `overlay_fg` text and/or icon on an `overlay_bg` scrim, which
+/// read the same over any photo and in light or dark chrome (the Library grid's badges use the
+/// same pair). `at` is the badge's top-left; text longer than `max_width` is cut short with "…".
+/// Paints only (the canvas under it keeps the pointer); returns the badge's rect.
+pub fn image_badge(painter: &egui::Painter, at: Pos2, icon: Option<Icon>, text: Option<&str>, max_width: f32) -> Rect {
+    let t = Tokens::get(painter.ctx());
+    // an icon sits 3 pt from the edge; text keeps BADGE_PAD on its open sides
+    let icon_w = if icon.is_some() { BADGE_H - 6.0 } else { 0.0 };
+    let lead = if icon.is_some() { 3.0 + icon_w + if text.is_some() { 4.0 } else { 3.0 } } else { BADGE_PAD };
+    let max_width = max_width.max(BADGE_H);
+    let galley = text.map(|text| {
+        let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), t.font(12.0), t.overlay_fg);
+        job.wrap = egui::text::TextWrapping::truncate_at_width((max_width - lead - BADGE_PAD).max(8.0));
+        painter.layout_job(job)
+    });
+    let width = galley.as_ref().map_or(lead, |g| lead + g.size().x + BADGE_PAD);
+    let r = Rect::from_min_size(at, vec2(width.min(max_width), BADGE_H));
+    painter.rect_filled(r, BADGE_RADIUS, t.overlay_bg.gamma_multiply(BADGE_SCRIM));
+    if let Some(icon) = icon {
+        paint(painter, Rect::from_min_size(pos2(r.left() + 3.0, r.top() + 3.0), vec2(icon_w, icon_w)), icon, t.overlay_fg);
+    }
+    if let Some(g) = galley {
+        painter.with_clip_rect(r).galley(pos2(r.left() + lead, r.center().y - g.size().y / 2.0), g, t.overlay_fg);
+    }
+    r
+}
+
+/// Height and corner radius of an [`image_badge`].
+pub const BADGE_H: f32 = 24.0;
+pub const BADGE_RADIUS: f32 = 6.0;
+const BADGE_PAD: f32 = 10.0;
+/// Opacity of an [`image_badge`]'s scrim over the photo.
+const BADGE_SCRIM: f32 = 0.85;
 
 /// Star rating row (5 stars); returns a new rating when clicked (clicking the current rating clears).
 pub fn stars(ui: &mut Ui, id: &str, rating: u8, size: f32) -> Option<u8> {
@@ -627,6 +779,40 @@ mod access_tests {
         assert!(has("Button", "Auto"), "{found:?}");
         assert!(has("Button", "Delete mask"), "{found:?}");
     }
+    /// The design-system widgets added for Develop's new UI describe themselves and keep their
+    /// automation ids: colour samples, range strips, disclosure rows, `icon_button_as`.
+    #[test]
+    fn design_system_widgets_describe_themselves_and_register() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        ctx.enable_accesskit();
+        let mut found = Vec::new();
+        let mut ids = Vec::new();
+        for _ in 0..3 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let _ = color_swatch(ui, "pointColor:0", Color32::RED, vec2(22.0, 22.0), Some(true), "Point color sample 1");
+                let _ = color_swatch(ui, "skinToneSwatch", Color32::from_rgb(220, 180, 160), vec2(32.0, 32.0), None, "Skin reference");
+                let _ = range_strip(ui, "skinToneRange:Hue", "Hue", |f| Color32::from_gray((f * 255.0) as u8), &[(0.2, 0.4)]);
+                let _ = disclosure(ui, "layerGlobalGroup", "5 whole-image tools", false, 200.0, true);
+                let _ = icon_button_as(ui, "button:layerNew", Icon::Plus, vec2(24.0, 24.0), "New layer");
+                ids = take_registry(ui.ctx()).into_iter().map(|(id, _)| id).collect();
+            });
+            out.textures_delta.clear();
+            if let Some(update) = out.platform_output.accesskit_update.take() {
+                found = update.nodes.iter().map(|(_, n)| (format!("{:?}", n.role()), n.label().unwrap_or_default().to_string())).collect();
+            }
+        }
+        let has = |role: &str, label: &str| found.iter().any(|(r, l)| r == role && l == label);
+        assert!(has("Button", "Point color sample 1"), "{found:?}");
+        assert!(found.iter().any(|(_, l)| l == "Skin reference"), "{found:?}");
+        assert!(found.iter().any(|(_, l)| l == "Hue range"), "{found:?}");
+        assert!(found.iter().any(|(_, l)| l == "5 whole-image tools"), "{found:?}");
+        assert!(has("Button", "New layer"), "{found:?}");
+        for id in ["pointColor:0", "skinToneSwatch", "skinToneRange:Hue", "layerGlobalGroup", "button:layerNew"] {
+            assert!(ids.iter().any(|i| i == id), "{id} registered: {ids:?}");
+        }
+    }
+
     #[test]
     fn library_navigation_numeric_editor_exposes_control_name_and_text() {
         let ctx = egui::Context::default();

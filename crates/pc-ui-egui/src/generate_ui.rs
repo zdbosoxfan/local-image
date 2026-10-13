@@ -2714,23 +2714,23 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 crate::background_ui::settings(app, ui, false);
                 crate::background_ui::readiness(app, ui);
                 ui.horizontal(|ui| {
-                    ui.label(tl!("File Naming"));
+                    ui.label(RichText::new(tl!("File Naming")).color(t.text_dim));
                     ui.text_edit_singleline(&mut b.template).on_hover_text(format!("{}: {{name}}, {{counter}}", tl!("File Naming")));
                 });
                 let example = b.files.first().cloned().unwrap_or_else(|| PathBuf::from("photo.jpg"));
                 match batch_name(&b.template, &example, 1, &b.format) {
                     Ok(name) => {
-                        ui.label(format!("Example: {name}"));
+                        ui.label(RichText::new(format!("Example: {name}")).color(t.text_faint));
                     }
                     Err(error) => {
                         ui.label(RichText::new(error).color(t.warning));
                     }
                 }
                 ui.horizontal(|ui| {
-                    ui.label(tl!("Format"));
+                    ui.label(RichText::new(tl!("Format")).color(t.text_dim));
                     widgets::dropdown(ui, "batch-format", &mut b.format, &[("png".into(), "PNG"), ("tiff".into(), "TIFF"), ("psd".into(), "PSD")], 120.0);
                     let conflict_help = "If an output file exists, overwrite it, skip it, or save under a new name.";
-                    ui.label(tl!("Action")).on_hover_text(tl!(conflict_help));
+                    ui.label(RichText::new(tl!("Action")).color(t.text_dim)).on_hover_text(tl!(conflict_help));
                     widgets::dropdown(
                         ui,
                         "batch-conflict",
