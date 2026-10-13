@@ -1102,7 +1102,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             let mut section = |ui: &mut egui::Ui, title: &str, prefix: &str| {
                                 ui.label(egui::RichText::new(tl!(&title)).small().color(t.text_dim));
                                 for c in photocraft_engine::command_specs().iter().filter(|c| c.id.starts_with(prefix)) {
-                                    if ui.add_enabled(app.session.is_enabled(c.id), egui::Button::new(tl!(c.label))).clicked() {
+                                    let reason = (!crate::menus::is_enabled(app, c.id)).then(|| crate::command_feedback::disabled_reason(app, c.id));
+                                    let shortcut = crate::shortcuts::shortcut_label(app, c.id);
+                                    if widgets::command_menu_item(ui, tl!(c.label), shortcut.as_deref(), None, reason.as_deref()).clicked() {
                                         let _ = app.run(c.id, json!({}));
                                         ui.close();
                                     }
@@ -1241,6 +1243,11 @@ fn hint(ui: &mut egui::Ui, s: &str) {
 // ----------------------------------------------------------------------------- status bar
 
 pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    // A caller may forward a raw error returned by `run`; normalize at the last report
+    // sink too, retaining its original detail through the same bounded notice history.
+    if app.ui.status_error && crate::command_feedback::message(&app.ui.status) != app.ui.status {
+        crate::command_feedback::report(app, app.ui.status.clone());
+    }
     let t = Tokens::get(ui.ctx());
     egui::Panel::bottom("status_bar")
         .exact_size(if t.pro { 24.0 } else { 30.0 })
@@ -1249,8 +1256,17 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let r = ui.max_rect();
             ui.painter().line_segment([r.left_top(), r.right_top()], Stroke::new(1.0, t.separator));
             ui.horizontal_centered(|ui| {
+                if crate::notices::status_history_only(app) {
+                    crate::notices::history_button(app, ui);
+                }
                 if t.pro {
-                    crate::chrome_ui::status_bar_pro(app, ui);
+                    if app.session.active().is_none() && !app.ui.status.is_empty() {
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(&app.ui.status).color(if app.ui.status_error { t.warning } else { t.text_dim })).truncate(),
+                        );
+                    } else {
+                        crate::chrome_ui::status_bar_pro(app, ui);
+                    }
                     // Background job progress with Cancel, at the right end (#210).
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // local-image: the AI engine status pill.

@@ -44,8 +44,7 @@ pub(crate) fn retain_documents(app: &mut PhotocraftApp) {
     }
 }
 fn report(app: &mut PhotocraftApp, result: impl ToString) {
-    app.ui.status = result.to_string();
-    app.ui.status_error = true;
+    crate::command_feedback::report(app, result.to_string());
 }
 pub fn cancel(app: &mut PhotocraftApp) {
     let mut shared = std::mem::take(&mut app.shared_tools);
@@ -1383,6 +1382,160 @@ fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 /// Shared menu/catalog entries, with captured feature adapters above.
+/// Move's Auto-Select uses vector geometry/scope, including empty raster caches.
+/// The resulting object selection is the same engine path as Select and vector tools.
+pub(crate) fn pick_object(app: &mut PhotocraftApp, point: [f64; 2], add: bool, group: bool) {
+    use photocraft_engine::vector_packages::selection::{self as engine, Mode, Query, Request};
+    let result = (|| {
+        let st = app.session.active().ok_or(photocraft_engine::EngineError::NoDocument)?;
+        let scope = engine::session_scope(&app.session)?;
+        let hit = engine::hit(&st.doc, &scope, point, 6. / f64::from(app.current_zoom()).max(0.01), engine::installed_readers())?;
+        let query = match hit {
+            Some(leaf) if group => Query::Group { leaf, previous: None },
+            Some(id) => Query::Reselect { ids: vec![id] },
+            None => Query::Deselect,
+        };
+        let request = Request { document: st.doc.id, revision: st.revision, scope, mode: if add { Mode::Add } else { Mode::Replace }, query };
+        let preview = engine::preview(&st.doc, st.revision, &st.selected_layers(), &request, engine::installed_readers())?;
+        engine::apply(&mut app.session, &preview)
+    })();
+    if let Err(e) = result {
+        report(app, e);
+    }
+}
+
+/// Preconditions shared by Object main-menu rows and the canvas object menu.
+/// Query-only: disabled clicks never call a command or create a preview.
+pub fn disabled_reason(app: &PhotocraftApp, id: &str) -> Option<String> {
+    use photocraft_engine::vector_packages::{clip_compound, transform_tools};
+    let vector_layer_action = app.session.prefs().toolbar.persona == Persona::Vector
+        && (matches!(id, "layer.groupLayers" | "layer.ungroupLayers" | "type.convertToShape") || id.starts_with("layer.arrange."));
+    if !handles(id) && !vector_layer_action {
+        return None;
+    }
+    let st = match app.session.active() {
+        Some(st) => st,
+        None => return Some(tl!("Open a photo first.").into()),
+    };
+    let object = id.starts_with("ui.vector.transform.")
+        || id.starts_with("ui.vector.path.")
+        || id.starts_with("ui.vector.effect.")
+        || id.starts_with("vector.object.")
+        || id.starts_with("object.clippingMask.")
+        || id.starts_with("object.compoundPath.")
+        || matches!(id, "object.path.join" | "vector.transform.again")
+        || (app.session.prefs().toolbar.persona == Persona::Vector
+            && (matches!(id, "layer.groupLayers" | "layer.ungroupLayers" | "type.convertToShape") || id.starts_with("layer.arrange.")));
+    if object && app.session.prefs().toolbar.persona != Persona::Vector {
+        return Some(tl!("Switch to the Vector persona first.").into());
+    }
+    let ids = st.selected_layers();
+    if matches!(id, "layer.vectorize" | "ui.vectorize") {
+        return app.session.disabled_reason("layer.vectorize").map(|raw| crate::command_feedback::message(&raw));
+    }
+    if matches!(id, "ui.pdf.export" | "file.export.pdf") && (app.services.pick_save.is_none() || app.services.write.is_none()) {
+        return Some(tl!("Saving is unavailable in this session.").into());
+    }
+    if object && ids.is_empty() {
+        return Some(tl!("Select a vector object first.").into());
+    }
+    if object
+        && ids.iter().any(|id| {
+            let locks = st.doc.effective_locks(*id);
+            locks.all || locks.pixels || locks.position
+        })
+    {
+        return Some(tl!("This layer is locked.").into());
+    }
+    if id.starts_with("ui.vector.path.") || id == "object.path.join" {
+        if !matches!(id, "ui.vector.path.cleanup" | "ui.vector.path.expand" | "ui.vector.path.expandAppearance")
+            && !ids.iter().all(|id| st.doc.layer(*id).is_some_and(|l| matches!(l.content, LayerContent::Shape(_))))
+        {
+            return Some(tl!("Select a shape first.").into());
+        }
+        if let Err(e) = photocraft_engine::vector_packages::path_commands::Capture::begin(&app.session, &ids) {
+            return Some(crate::command_feedback::message(&e.to_string()));
+        }
+    }
+    if matches!(id, "ui.vector.path.expand" | "ui.vector.path.expandAppearance") {
+        use photocraft_engine::vector_packages::{expand, path_commands};
+        return match path_commands::Capture::begin(&app.session, &ids) {
+            Ok(capture) => {
+                expand::disabled_reason(&app.session, &expand::Request { capture, options: Default::default(), appearance: id.ends_with("expandAppearance") })
+            }
+            Err(e) => Some(crate::command_feedback::message(&e.to_string())),
+        };
+    }
+    if id.starts_with("ui.vector.effect.")
+        && !ids.iter().all(|id| st.doc.layer(*id).is_some_and(|l| matches!(l.content, LayerContent::Shape(_) | LayerContent::Text(_))))
+    {
+        return Some(tl!("Select a shape or text object first.").into());
+    }
+    if id.starts_with("ui.vector.transform.") {
+        return transform_tools::preflight(&st.doc, &ids).err().map(|e| crate::command_feedback::message(&e.to_string()));
+    }
+    if id == "vector.transform.again" {
+        return transform_tools::again_request(&app.session, &ids).err().map(|e| crate::command_feedback::message(&e.to_string()));
+    }
+    if id.starts_with("object.clippingMask.") || id.starts_with("object.compoundPath.") {
+        if let Err(e) = clip_compound::Capture::selected(&app.session) {
+            return Some(crate::command_feedback::message(&e.to_string()));
+        }
+        let layer = ids.first().and_then(|id| st.doc.layer(*id));
+        let why = match id {
+            "object.clippingMask.make" if ids.len() < 2 => Some(tl!("Select a clipping path and at least one content object.")),
+            "object.clippingMask.make"
+                if !ids.last().and_then(|id| st.doc.layer(*id)).is_some_and(|l| matches!(l.content, LayerContent::Shape(_) | LayerContent::Text(_))) =>
+            {
+                Some(tl!("Select a shape or text object above the objects to clip."))
+            }
+            "object.clippingMask.release" if ids.len() != 1 || !ids.first().is_some_and(|id| clip_compound::clip_parent(&st.doc, *id).is_some()) => {
+                Some(tl!("Select a clipping group first."))
+            }
+            "object.compoundPath.make"
+                if ids.len() < 2 || !ids.iter().all(|id| st.doc.layer(*id).is_some_and(|l| matches!(l.content, LayerContent::Shape(_)))) =>
+            {
+                Some(tl!("Select shapes to make a compound path."))
+            }
+            "object.compoundPath.release"
+                if ids.len() != 1
+                    || !layer.is_some_and(|l| matches!(&l.content, LayerContent::Shape(sh) if sh.path.subpaths.len() >= 2 && !sh.path.inverted)) =>
+            {
+                Some(tl!("Select a compound path first."))
+            }
+            _ => None,
+        };
+        if let Some(why) = why {
+            return Some(why.into());
+        }
+        if id.ends_with(".make") {
+            let paths: Vec<_> = ids.iter().filter_map(|id| st.doc.path_of(*id)).collect();
+            if paths.first().is_some_and(|first| paths.iter().any(|p| p[..p.len() - 1] != first[..first.len() - 1])) {
+                return Some(tl!("Select objects in the same group first.").into());
+            }
+        }
+    }
+    if id.starts_with("vector.object.")
+        && !ids.iter().all(|id| {
+            st.doc
+                .layer(*id)
+                .is_some_and(|l| matches!(l.content, LayerContent::Shape(_) | LayerContent::Text(_) | LayerContent::Group(_) | LayerContent::Symbol(_)))
+        })
+    {
+        return Some(tl!("Select a vector object first.").into());
+    }
+    if id == "object.path.join"
+        && !ids.iter().any(|id| {
+            st.doc
+                .layer(*id)
+                .is_some_and(|l| matches!(&l.content, LayerContent::Shape(sh) if sh.path.subpaths.iter().any(|sp| !sp.closed && sp.knots.len() >= 2)))
+        })
+    {
+        return Some(tl!("Select an open path first.").into());
+    }
+    None
+}
+
 pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
     let mut rows: Vec<(&str, &str, Vec<&str>)> = vec![
         ("path.outlineStroke", "Outline Stroke", vec!["Layer", "Geometry"]),
@@ -1430,13 +1583,13 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
         } else {
             crate::menus::checked(app, &id)
         },
+        enabled: disabled_reason(app, &id).is_none(),
+        tooltip: disabled_reason(app, &id),
         id,
         label,
         path,
         shortcut: None,
-        enabled: app.session.active().is_some(),
         color: None,
-        tooltip: None,
     };
     let mut out: Vec<_> = rows
         .into_iter()
@@ -1489,6 +1642,8 @@ pub fn handles(id: &str) -> bool {
         || matches!(id, "object.pasteFront" | "object.pasteBack")
         || id.starts_with("ui.vector.")
         || id.starts_with("window.vector.")
+        || id.starts_with("object.clippingMask.")
+        || id.starts_with("object.compoundPath.")
         || matches!(
             id,
             "object.path.join"

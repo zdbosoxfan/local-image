@@ -22,6 +22,9 @@ pub struct Notice {
     /// An error (warning colour) rather than an informational notice.
     #[serde(default)]
     pub error: bool,
+    /// Command errors use the existing status bar instead of adding a layout-changing row.
+    #[serde(default)]
+    pub status_only: bool,
     #[serde(default)]
     pub warning_count: usize,
     /// Preference key to set when this notice is dismissed.
@@ -32,11 +35,32 @@ pub struct Notice {
 /// Show a notice (newest last); returns its id.
 pub fn post(app: &mut PhotocraftApp, title: impl Into<String>, lines: Vec<String>, error: bool, dismiss_pref: Option<&str>) -> u64 {
     let id = app.ui.alloc_id();
-    let notice = Notice { id, title: title.into(), lines, error, warning_count: 0, dismiss_pref: dismiss_pref.map(str::to_owned) };
+    let notice = Notice { id, title: title.into(), lines, error, warning_count: 0, dismiss_pref: dismiss_pref.map(str::to_owned), status_only: false };
     app.ui.notices.push(notice.clone());
     remember(app, notice);
     cap_notices(app);
     id
+}
+
+/// Retain a command failure in the existing details log without moving canvas or docks.
+pub(crate) fn command_error(app: &mut PhotocraftApp, title: String, detail: String) {
+    let notice = Notice { id: app.ui.alloc_id(), title, lines: vec![detail], error: true, status_only: true, ..Default::default() };
+    remember(app, notice);
+}
+
+/// No file-result row is needed for command-only history; its button lives in the status bar.
+pub(crate) fn status_history_only(app: &PhotocraftApp) -> bool {
+    app.ui.notices.is_empty() && !app.ui.notice_history.is_empty() && app.ui.notice_history.iter().all(|notice| notice.status_only)
+}
+
+/// Compact Details / History action for the status bar, using the shared icon widget.
+pub(crate) fn history_button(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let label = tl!("Details / History");
+    let response = crate::widgets::icon_action(ui, "info", ui.spacing().interact_size.y, label, label, None);
+    record(ui, "details", &response);
+    if response.clicked() {
+        app.ui.notice_history_open = true;
+    }
 }
 
 fn remember(app: &mut PhotocraftApp, notice: Notice) {
@@ -142,9 +166,10 @@ pub fn io_warnings(app: &mut PhotocraftApp, what: &str, warnings: &[String]) {
 /// Report a failed file operation: the status bar shows it as an error and a notice keeps it on
 /// screen until dismissed.
 pub fn error(app: &mut PhotocraftApp, message: String) {
-    app.ui.status = message.clone();
+    let title = crate::command_feedback::message(&message);
+    app.ui.status = title.clone();
     app.ui.status_error = true;
-    post(app, message, Vec::new(), true, None);
+    post(app, title, vec![message], true, None);
 }
 
 /// Last visible control rectangle, intersected with its actual clip region.
@@ -157,6 +182,10 @@ fn record(ui: &egui::Ui, name: &str, response: &egui::Response) {
 
 /// Reserve one row before canvas/docks are laid out. Returns whether a notice was dismissed.
 pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
+    if status_history_only(app) {
+        ui.ctx().data_mut(|data| data.remove::<egui::Rect>(egui::Id::new(("notice-control", "dismiss"))));
+        return false;
+    }
     ui.ctx().data_mut(|data| {
         for name in ["details", "dismiss"] {
             data.remove::<egui::Rect>(egui::Id::new(("notice-control", name)));

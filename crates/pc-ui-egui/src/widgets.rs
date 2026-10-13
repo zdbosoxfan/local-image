@@ -1042,3 +1042,28 @@ pub fn menu_row_check(ui: &Ui, response: &Response, label: &str, checked: Option
         }
     }
 }
+
+/// A canvas/panel command row. Uses egui's themed menu button and the disabled-hover
+/// API so unavailable commands remain discoverable without focus or activation.
+/// The caller supplies a translated label with its active-profile shortcut.
+pub fn command_menu_item(ui: &mut Ui, label: &str, shortcut: Option<&str>, checked: Option<bool>, reason: Option<&str>) -> egui::Response {
+    egui::containers::menu::MenuConfig::find(ui).style.apply(ui.style_mut());
+    let mut button = menu_row_button(ui, label).truncate();
+    if let Some(shortcut) = shortcut {
+        button = button.shortcut_text(shortcut);
+    }
+    let response = ui.add_enabled(reason.is_none(), button);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, response.enabled(), label));
+    menu_row_check(ui, &response, label, checked);
+    if let Some(reason) = reason { disabled_reason_tooltip(response, reason) } else { response }
+}
+
+/// A disabled-command tooltip that wraps within the current viewport, including narrow
+/// context menus. Uses egui’s tooltip popup; sizes come from the active spacing tokens.
+pub fn disabled_reason_tooltip(response: Response, reason: &str) -> Response {
+    response.on_disabled_hover_ui(|ui| {
+        let room = ui.ctx().content_rect().width() - ui.spacing().window_margin.sum().x;
+        ui.set_max_width(ui.spacing().tooltip_width.min(room.max(ui.spacing().interact_size.x)));
+        ui.add(egui::Label::new(reason).wrap());
+    })
+}

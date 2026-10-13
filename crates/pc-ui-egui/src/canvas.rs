@@ -2482,9 +2482,18 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             crate::lasso_ui::canvas_input(app, &ctx, &xf, &response);
             (buttons.started, buttons.dragged, buttons.stopped, buttons.clicked) = (false, false, false, false);
         }
+        let vector_object_menu = crate::canvas_tool_menu::vector_object_tool(app, tool);
+        if response.secondary_clicked()
+            && !transforming
+            && vector_object_menu
+            && let Some(p) = response.interact_pointer_pos()
+        {
+            crate::canvas_tool_menu::open(app, tool, [p.x, p.y]);
+        }
         // Right-click with the Move tool, or ⌘/Ctrl+right-click: the layers under the pointer.
         if response.secondary_clicked()
             && !transforming
+            && !vector_object_menu
             && crate::layer_pick_ui::is_gesture(tool, mods)
             && let Some(p) = response.interact_pointer_pos()
         {
@@ -2494,6 +2503,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         }
         if response.secondary_clicked()
             && !transforming
+            && !vector_object_menu
             && !crate::layer_pick_ui::is_gesture(tool, mods)
             && let Some(p) = response.interact_pointer_pos()
         {
@@ -3286,7 +3296,11 @@ fn tool_event_with_pose(
     {
         let target = app.ui.tool_options.move_target.clone();
         let mode = if mods.shift { "add" } else { "replace" };
-        let _ = app.run("layer.pickAt", json!({"x": x, "y": y, "target": target, "mode": mode}));
+        if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+            crate::vector_integration::pick_object(app, [x, y], mods.shift, target == "group");
+        } else {
+            let _ = app.run("layer.pickAt", json!({"x": x, "y": y, "target": target, "mode": mode}));
+        }
     }
     // A press anywhere but on the floating piece (or with ⇧ / ⌥, to draw) drops it first.
     if let ToolEvent::Down { x, y, .. } = raw

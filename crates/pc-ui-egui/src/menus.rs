@@ -539,6 +539,9 @@ fn open_path(app: &mut PhotocraftApp, path: &str) -> Result<Value, String> {
 }
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
+    if crate::command_feedback::locked_edit(app, id) {
+        return false;
+    }
     if id == "select.deselect" && app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
         return app.session.active().is_some();
     }
@@ -546,7 +549,10 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         return app.session.active().is_some() && app.services.pick_save.is_some() && app.services.write.is_some();
     }
     if crate::vector_integration::handles(id) {
-        return app.session.active().is_some();
+        return crate::vector_integration::disabled_reason(app, id).is_none();
+    }
+    if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector && crate::vector_integration::disabled_reason(app, id).is_some() {
+        return false;
     }
     // Photoshop greys these for the Background layer, other layer kinds or single-layer documents.
     if crate::enable_rules::disabled(app, id) {
@@ -949,6 +955,11 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             it.color = prefs.menus.colors.get(&it.id).cloned();
         }
     }
+    for item in &mut items {
+        if !item.enabled && item.id != "---" {
+            item.tooltip = Some(crate::command_feedback::disabled_reason(app, &item.id));
+        }
+    }
     items
 }
 
@@ -1080,7 +1091,7 @@ pub(crate) fn menu_bar_with_width(app: &mut PhotocraftApp, ui: &mut egui::Ui, wi
         let ctx = ui.ctx().clone();
         let id = alt_click(id, ctx.input(|i| i.modifiers.alt));
         if let Err(e) = invoke(app, &ctx, &id, json!({})) {
-            app.ui.status = e;
+            crate::command_feedback::report(app, e);
         }
     }
     right
@@ -1225,7 +1236,7 @@ fn help_search(ui: &mut egui::Ui, items: &[MenuItem], clicked: &mut Option<Strin
             let hit = nav.row(ui, depth - 1, it.enabled, Some(&it.id), |ui, _| {
                 let r = ui.add_enabled(it.enabled, b);
                 crate::widgets::menu_row_check(ui, &r, &label, it.checked);
-                let r = if let Some(tip) = &it.tooltip { r.on_disabled_hover_text(tip).on_hover_text(tip) } else { r };
+                let r = if let Some(tip) = &it.tooltip { crate::widgets::disabled_reason_tooltip(r, tip).on_hover_text(tip) } else { r };
                 let hit = r.clicked() || released_on(ui, &r);
                 (r, hit)
             });
@@ -1293,7 +1304,7 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
                     "image.mode.bits32" => r.on_hover_text(crate::i18n::tr(lang, "Floating point")),
                     _ => r,
                 };
-                let r = if let Some(tip) = &it.tooltip { r.on_disabled_hover_text(tip).on_hover_text(tip) } else { r };
+                let r = if let Some(tip) = &it.tooltip { crate::widgets::disabled_reason_tooltip(r, tip).on_hover_text(tip) } else { r };
                 let hit = r.clicked() || released_on(ui, &r);
                 (r, hit)
             });
