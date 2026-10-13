@@ -3921,6 +3921,7 @@ dependencies = [
  "rayon",
  "serde_json",
  "sha2",
+ "tract-linalg",
  "tract-onnx",
 ]
 
@@ -8003,6 +8004,7 @@ dependencies = [
  "minijinja",
  "num-traits",
  "pastey 0.2.3",
+ "rayon",
  "tract-data",
  "walkdir",
 ]

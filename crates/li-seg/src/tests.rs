@@ -164,19 +164,24 @@ fn object_flood_keeps_the_clicked_region_only() {
 /// One official model per function, each explained in plain language.
 #[test]
 fn one_official_model_per_function() {
-    assert_eq!(MODELS.iter().filter(|m| m.group.is_some()).count(), 8);
+    assert_eq!(MODELS.iter().filter(|m| m.group.is_some()).count(), 9);
     assert_eq!(MODELS.iter().filter(|m| m.task == Task::Upscale).count(), 4);
     assert!(MODELS.iter().filter(|m| m.task == Task::Upscale).all(|m| m.group.is_none()));
     for g in Group::ALL {
         let m = g.official();
         assert_eq!(m.group, Some(g));
-        assert_eq!(MODELS.iter().filter(|x| x.group == Some(g)).count(), if matches!(g, Group::Faces) { 2 } else { 1 }, "{g:?}");
+        assert_eq!(MODELS.iter().filter(|x| x.group == Some(g)).count(), if matches!(g, Group::Faces | Group::Subject) { 2 } else { 1 }, "{g:?}");
         assert!(m.about.len() > 60 && !g.about().is_empty() && !g.label().is_empty());
-        assert!(!m.label.contains("MB"), "{}", m.label);
+        // Match size units, not the letters inside the RMBG model's name.
+        let size_label = m
+            .label
+            .split_whitespace()
+            .any(|word| matches!(word, "MB" | "MiB") || ((word.ends_with("MB") || word.ends_with("MiB")) && word.starts_with(|c: char| c.is_ascii_digit())));
+        assert!(!size_label, "{}", m.label);
         assert!(g.in_use(Path::new("/nonexistent")).is_none());
         assert!(!available(g, Path::new("/nonexistent")));
     }
-    assert_eq!(Group::Subject.official().id, "isnet");
+    assert_eq!(Group::Subject.official().id, "rmbg-1.4");
     assert_eq!(Group::Sky.official().id, "sky-mobileseg");
     assert_eq!(Group::Depth.official().id, "depth-anything-v2-small");
     assert_eq!(Group::Subject.official().task, Task::Subject);
@@ -197,7 +202,7 @@ fn one_official_model_per_function() {
 #[test]
 fn remove_deletes_only_that_model_and_reports_the_size() {
     let dir = temp_models();
-    let (isnet, sky) = (spec("isnet").unwrap(), spec("sky-mobileseg").unwrap());
+    let (isnet, sky) = (spec("rmbg-1.4").unwrap(), spec("sky-mobileseg").unwrap());
     std::fs::write(model_path(&dir, sky), vec![1u8; 1234]).unwrap();
     std::fs::write(model_path(&dir, isnet), vec![2u8; 99]).unwrap();
     assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(isnet)));
@@ -415,7 +420,7 @@ fn the_custom_list_survives_odd_names_and_bad_lines() {
 #[test]
 fn isnet_finds_a_centred_subject() {
     let Some(dir) = std::env::var_os("LI_SEG_TEST_MODELS") else { return };
-    let spec = spec("isnet").unwrap();
+    let spec = spec("rmbg-1.4").unwrap();
     let path = Path::new(&dir).join(spec.file);
     if !path.is_file() {
         return;
@@ -641,5 +646,65 @@ fn ai_denoise_custom_model_and_use_default() {
         clear_custom(&dir, group, &|p| std::fs::remove_file(p)).unwrap();
         assert!(custom(&dir, group).is_none());
     }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn bg_tier_tiny_smoke_preserves_probabilities_and_no_subject() {
+    let dir = temp_models();
+    let path = picked(&dir, "sigmoid.onnx", Some((8, 8)), Out::Map);
+    for id in ["rmbg-1.4", "inspyrenet"] {
+        let model = ModelSpec { size: 8, ..*spec(id).unwrap() };
+        let seg = Segmenter::load(&model, &path).unwrap();
+        let bright = vec![255u8; 4 * 4 * 4];
+        let p = seg.predict(&bright, 4, 4).unwrap().expect("bright subject");
+        assert!(p.iter().all(|v| *v > 0.5 && *v < 1.0), "constant probabilities must not become zero via min–max");
+        let dark: Vec<_> = (0..16).flat_map(|_| [0, 0, 0, 255]).collect();
+        assert!(seg.predict(&dark, 4, 4).unwrap().is_none());
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn bg_tier_input_uses_255_not_image_peak() {
+    let dir = temp_models();
+    let path = picked(&dir, "sigmoid.onnx", Some((8, 8)), Out::Map);
+    let model = ModelSpec { size: 8, ..*spec("rmbg-1.4").unwrap() };
+    let seg = Segmenter::load(&model, &path).unwrap();
+    let rgba: Vec<_> = (0..16).flat_map(|_| [64, 64, 64, 255]).collect();
+    assert!(seg.predict(&rgba, 4, 4).unwrap().is_none(), "dark image must not be peak-scaled to white");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+#[ignore = "opt-in real ONNX compatibility, LI_SEG_TEST_MODELS"]
+fn bg_real_model_compatibility() {
+    let dir = PathBuf::from(std::env::var_os("LI_SEG_TEST_MODELS").expect("LI_SEG_TEST_MODELS"));
+    for (file, size, isnet, task) in [
+        ("isnet-general-use.onnx", 1024, true, Task::Subject),
+        ("u2netp.onnx", 320, false, Task::Subject),
+        ("modnet.onnx", 512, false, Task::Subject),
+        ("rmbg-1.4.onnx", 1024, true, Task::Subject),
+        ("inspyrenet-swinb-plus-ultra.onnx", 1024, false, Task::Subject),
+        ("pp_mobileseg_base_ade20k_512.onnx", 512, false, spec("sky-mobileseg").unwrap().task),
+        ("depth_anything_v2_vits_dynamic.onnx", 518, false, Task::Depth),
+    ] {
+        let model = ModelSpec { id: file, file, size, isnet, task, ..*spec("rmbg-1.4").unwrap() };
+        Segmenter::load(&model, &dir.join(file)).unwrap_or_else(|e| panic!("{file}: {e:#}"));
+    }
+}
+
+#[test]
+fn bg_subject_group_uses_chosen_tier_for_all_callers() {
+    let dir = temp_models();
+    for id in ["rmbg-1.4", "inspyrenet"] {
+        let model = spec(id).unwrap();
+        std::fs::write(model_path(&dir, model), b"installed").unwrap();
+    }
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("rmbg-1.4").unwrap())));
+    set_subject_quality(&dir, true);
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("inspyrenet").unwrap())));
+    set_subject_quality(&dir, false);
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("rmbg-1.4").unwrap())));
     let _ = std::fs::remove_dir_all(dir);
 }

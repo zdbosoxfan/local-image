@@ -417,6 +417,11 @@ impl Ai {
     /// Background removal with Qwen: returns an alpha matte the size of `image`. Callers apply it
     /// as a layer mask so the subject keeps its original pixels.
     pub fn cutout(&self, image: &RgbaImage, variant: &str, hint: &str, seed: u64, ctl: &JobControl) -> Result<GrayImage> {
+        ctl.check()?;
+        if matches!(variant, "fast" | "quick" | "better") {
+            let dir = std::env::var_os("LOCAL_IMAGE_SEG_MODELS").map(std::path::PathBuf::from).unwrap_or_else(|| crate::AiSettings::load().model_dir());
+            return cpu_cutout(image, variant == "better", &dir, ctl);
+        }
         ctl.set_stage(Stage::Preparing);
         let info = self.inventory()?;
         let prompt = format!(
@@ -1050,4 +1055,63 @@ fn final_review_qwen_remove_blends_the_boundary_and_preserves_unmasked_pixels() 
         }
     }
     assert_eq!(out.dimensions(), src.dimensions());
+}
+
+/// CPU cutout on the real service path. No ComfyUI inventory or GPU is involved.
+pub fn cpu_cutout(image: &RgbaImage, better: bool, dir: &std::path::Path, ctl: &JobControl) -> Result<GrayImage> {
+    ctl.check()?;
+    ctl.set_stage(Stage::Preparing);
+    let start = std::time::Instant::now();
+    let seg = li_seg::shared_tier(dir, better).context("Install the selected background-removal model in Local AI")?;
+    ctl.check()?;
+    let p = seg.predict(image.as_raw(), image.width() as usize, image.height() as usize)?.context("No subject found")?;
+    ctl.check()?;
+    let elapsed = start.elapsed().as_secs_f32();
+    CUTOUT_SECONDS[usize::from(better)].store(elapsed.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    Ok(GrayImage::from_fn(image.width(), image.height(), |x, y| Luma([(p[(y * image.width() + x) as usize] * 255.0).round() as u8])))
+}
+
+static CUTOUT_SECONDS: [std::sync::atomic::AtomicU32; 2] = [std::sync::atomic::AtomicU32::new(0), std::sync::atomic::AtomicU32::new(0)];
+pub fn cutout_seconds(better: bool) -> Option<f32> {
+    let v = f32::from_bits(CUTOUT_SECONDS[usize::from(better)].load(std::sync::atomic::Ordering::Relaxed));
+    (v > 0.0).then_some(v)
+}
+
+#[cfg(test)]
+mod cutout_tier_tests {
+    use super::*;
+    #[test]
+    fn bg_cutout_cancelled_tiers_never_contact_comfy_or_load_models() {
+        let ai = Ai::new("127.0.0.1:1");
+        let ctl = JobControl::new();
+        ctl.cancel();
+        for variant in ["fast", "quick", "better", "int8", "bf16"] {
+            let error = ai.cutout(&RgbaImage::new(4, 4), variant, "", 1, &ctl).unwrap_err();
+            assert!(error.is::<crate::Cancelled>());
+        }
+    }
+    #[test]
+    #[ignore = "opt-in real NVIDIA GPU and idle ComfyUI, BGREMOVE_PHOTO"]
+    fn bg_cutout_real_qwen_gpu() {
+        let ai = crate::service();
+        let stats = ai.client.system_stats().expect("live ComfyUI");
+        assert!(stats["devices"].as_array().unwrap().iter().any(|d| d["type"] == "cuda" && d["name"].as_str().is_some_and(|n| n.contains("NVIDIA"))));
+        let queue = ai.client.queue_state().unwrap();
+        assert!(queue["queue_running"].as_array().unwrap().is_empty() && queue["queue_pending"].as_array().unwrap().is_empty(), "shared queue must be idle");
+        let image = image::open(std::env::var_os("BGREMOVE_PHOTO").expect("CC0 photo path")).unwrap().to_rgba8();
+        // Use a small, grid-aligned photograph at the model's usable spatial scale.
+        // A 128-pixel probe produced an almost-zero matte (alpha 0..3) on the real GPU.
+        let image = imageops::resize(&image, 512, 320, imageops::FilterType::Lanczos3);
+        let alpha = ai.cutout(&image, "int8", "", 1, &JobControl::new()).unwrap();
+        assert_eq!(alpha.dimensions(), image.dimensions());
+        assert!(alpha.pixels().any(|p| p[0] < 128) && alpha.pixels().any(|p| p[0] > 128));
+    }
+    #[test]
+    fn bg_cutout_cpu_missing_model_is_local_error() {
+        let dir = std::path::Path::new("/not-a-local-image-model-directory");
+        for better in [false, true] {
+            let error = cpu_cutout(&RgbaImage::new(4, 4), better, dir, &JobControl::new()).unwrap_err();
+            assert!(error.to_string().contains("Install the selected"));
+        }
+    }
 }

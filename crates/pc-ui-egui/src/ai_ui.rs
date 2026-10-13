@@ -40,8 +40,12 @@ pub struct AiOptions {
     pub remove_engine: String,
     /// Opt in to the original release-to-remove behavior.
     pub remove_immediately: bool,
-    /// AI Cutout engine: `qwen-int8`, `qwen-bf16` or `quick` (on-device Subject & Background model).
+    /// Shared single/batch cutout engine: `fast`, `better`, `qwen-int8` or `qwen-bf16`.
+    /// Saved `quick` values deserialize as Fast.
+    #[serde(deserialize_with = "crate::background_ui::deserialize_engine")]
     pub cutout_engine: String,
+    pub cutout_refine: bool,
+    pub cutout_decontaminate: bool,
     /// What to keep, passed to the cutout model ("the red car").
     pub cutout_hint: String,
     /// Shared output for Properties, the AI Cutout options bar and the contextual task bar.
@@ -67,7 +71,9 @@ impl Default for AiOptions {
         Self {
             remove_engine: "klein".into(),
             remove_immediately: false,
-            cutout_engine: "qwen-int8".into(),
+            cutout_engine: "fast".into(),
+            cutout_refine: true,
+            cutout_decontaminate: false,
             cutout_hint: String::new(),
             cutout_output: "mask".into(),
             cutout_color: [1.0; 3],
@@ -535,6 +541,9 @@ fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir
     for method in li_ai::enhance::Method::ALL {
         enhance_settings::row(ui, t, dls, dir, method);
     }
+    if let Some(spec) = li_seg::spec("inspyrenet") {
+        model_function_row(ui, t, dls, dir, li_seg::Group::Subject, spec, false);
+    }
     let old = li_seg::legacy_installed(dir);
     if !old.is_empty() {
         let size = li_ai::download::human_bytes(old.iter().map(|(_, b)| b).sum());
@@ -557,17 +566,31 @@ fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir
 
 /// One function: its name and what it does, the model in use, and the custom-model controls.
 fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path, group: li_seg::Group) {
-    let spec = group.official();
+    model_function_row(ui, t, dls, dir, group, group.official(), true);
+}
+
+fn model_function_row(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    dls: &BTreeMap<String, Download>,
+    dir: &std::path::Path,
+    group: li_seg::Group,
+    spec: &'static li_seg::ModelSpec,
+    custom_controls_enabled: bool,
+) {
     let key = format!("seg:{}", spec.id);
     let dl = dls.get(&key);
     let installed = li_seg::installed_bytes(dir, spec);
-    let custom = li_seg::custom(dir, group);
-    let official_in_use = custom.is_none() && installed.is_some();
+    let custom = if custom_controls_enabled { li_seg::custom(dir, group) } else { None };
+    let official_in_use = matches!(group.in_use(dir), Some(li_seg::InUse::Official(active)) if active.id == spec.id);
     let frame = egui::Frame::NONE.fill(t.field).corner_radius(t.radius).inner_margin(egui::Margin::symmetric(10, 8));
     frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.label(RichText::new(tl!(group.label())).size(13.0).strong().color(t.text));
-        ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
+        let title = if custom_controls_enabled { group.label() } else { crate::background_ui::MODELS[1].1 };
+        ui.label(RichText::new(tl!(title)).size(13.0).strong().color(t.text));
+        if custom_controls_enabled {
+            ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
+        }
         ui.add_space(4.0);
         if let Some(c) = &custom {
             ui.horizontal(|ui| {
@@ -654,7 +677,7 @@ fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>,
         if let Some(err) = dl.and_then(|d| d.error.as_ref()) {
             ui.label(RichText::new(err).color(t.danger).size(11.5));
         }
-        if group.supports_custom() {
+        if custom_controls_enabled && group.supports_custom() {
             ui.add_space(4.0);
             custom_controls(ui, t, dir, group);
         }
@@ -1246,6 +1269,10 @@ pub fn open_local_ai(_app: &mut PhotocraftApp) {
 
 /// Floating windows: Local AI, Generate Background, Generative Fill, AI Enhance, batch.
 pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    li_seg::init_executor();
+    if matches!(app.ui.ai.cutout_engine.as_str(), "fast" | "quick" | "better") {
+        li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), app.ui.ai.cutout_engine == "better");
+    }
     if dialogs_mut(|d| d.local_ai) {
         local_ai_window(app, ctx);
     }
@@ -1965,14 +1992,21 @@ mod tests {
         for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)", "Faces", "Raw Denoise", "RGB Denoise"] {
             h.get_by_label(title);
         }
-        for model in ["IS-Net general", "PP-MobileSeg", "Depth Anything V2 Small", "CLIP ViT-B-32 LAION", "YuNet + SFace"] {
+        for model in [
+            "Fast · BRIA RMBG-1.4",
+            "Better Quality · InSPyReNet SwinB Plus-Ultra",
+            "PP-MobileSeg",
+            "Depth Anything V2 Small",
+            "CLIP ViT-B-32 LAION",
+            "YuNet + SFace",
+        ] {
             h.get_by_label(model);
         }
-        for gone in ["U²-Net small", "U²-Net", "TinySkyNet", "MiDaS v2.1 small"] {
+        for gone in ["IS-Net general", "U²-Net small", "U²-Net", "TinySkyNet", "MiDaS v2.1 small"] {
             assert!(h.query_by_label(gone).is_none(), "{gone} is still listed");
         }
         assert_eq!(h.get_all_by_label("Custom model…").count(), 3);
-        assert_eq!(h.get_all_by_label("Download").count(), 7);
+        assert_eq!(h.get_all_by_label("Download").count(), 8);
         for title in ["Upscale Faithful", "Upscale Rescue", "Generative"] {
             h.get_by_label(title);
         }
