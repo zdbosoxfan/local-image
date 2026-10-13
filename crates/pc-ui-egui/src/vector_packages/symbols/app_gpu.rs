@@ -114,17 +114,13 @@ fn symbols_full_app_rtx_preview_release_master_edit_zoom_detach_undo_and_cancel(
     // Change the actual master with typed input, then render each logical zoom using live app caches.
     h.get_by_label("Edit Master").click();
     h.run_steps(2);
-    let pos = h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Master red").rect().center();
-    for _ in 0..2 {
-        h.event(Event::PointerMoved(pos));
-        h.event(Event::PointerButton { pos, pressed: true, button: PointerButton::Primary, modifiers: Modifiers::NONE });
-        h.step();
-        h.event(Event::PointerButton { pos, pressed: false, button: PointerButton::Primary, modifiers: Modifiers::NONE });
-        h.step();
-    }
+    h.get_by_label("Master colour").click();
+    h.run_steps(2);
+    h.get_by_label("Hex colour").click();
     h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
-    h.event(egui::Event::Text("0.3".to_owned()));
-    h.key_press(egui::Key::Enter);
+    h.event(egui::Event::Text("4d331a".to_owned()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
     h.run_steps(2);
     let preview = h.state().ui.symbols.preview.clone().expect("master edit preview").0;
     present(&mut h, &gpu, &preview);
@@ -139,6 +135,8 @@ fn symbols_full_app_rtx_preview_release_master_edit_zoom_detach_undo_and_cancel(
         h.state_mut().ui.views[0].zoom = zoom;
         present(&mut h, &gpu, &edited);
     }
+    h.get_by_label("Detach Symbols").scroll_to_me();
+    h.run_steps(3);
     h.get_by_label("Detach Symbols").click();
     h.run_steps(2);
     let detached = h.state().session.active().unwrap().doc.clone();

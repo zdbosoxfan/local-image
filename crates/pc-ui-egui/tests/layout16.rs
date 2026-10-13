@@ -1,4 +1,5 @@
 //! Package-owned real egui input tests. No desktop window or test-only edit path.
+use photocraft_ui_egui::{dock, widgets};
 #[path = "../src/vector_packages/layout.rs"]
 #[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod layout_ui;
@@ -28,6 +29,9 @@ fn host() -> Host {
     Host { s, state: Default::default(), rect: egui::Rect::NOTHING, error: None, enabled: true }
 }
 fn draw(ui: &mut egui::Ui, h: &mut Host) {
+    if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+        return;
+    }
     if let Err(e) = layout_ui::panel(ui, &mut h.state, &mut h.s, str::to_string) {
         h.error = Some(e.to_string());
     }
@@ -47,7 +51,10 @@ fn draw(ui: &mut egui::Ui, h: &mut Host) {
     layout_ui::overlay(&h.state, &h.s, ui.painter(), |p| rect.min + egui::vec2(p.x as f32, p.y as f32));
 }
 fn harness() -> Harness<'static, Host> {
-    Harness::builder().with_size(egui::vec2(1100., 1100.)).build_ui_state(draw, host())
+    let mut h = Harness::builder().with_size(egui::vec2(1100., 1100.)).build_ui_state(draw, host());
+    photocraft_ui_egui::PhotocraftApp::setup_context(&h.ctx, Default::default());
+    h.run_steps(3);
+    h
 }
 fn pointer(h: &mut Harness<'_, Host>, x: f32, y: f32, pressed: Option<bool>, mods: Modifiers) {
     let pos = h.state().rect.min + egui::vec2(x, y);

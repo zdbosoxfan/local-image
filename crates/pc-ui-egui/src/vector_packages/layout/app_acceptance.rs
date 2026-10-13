@@ -64,7 +64,7 @@ fn harness(zoom: f32, ppp: f32) -> H {
     // The actual selection context button opens the production Transform panel.
     h.get_by_label("Transform and Layout").click();
     h.run_steps(3);
-    assert!(h.state().shared_tools.layout.open);
+    assert!(photocraft_ui_egui::dock::feature_visible(h.state(), photocraft_ui_egui::dock::Tab::Transform));
     h.state_mut().shared_tools.layout.snapping.enabled = false;
     assert!(h.state().gpu_active());
     h

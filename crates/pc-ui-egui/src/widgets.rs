@@ -328,10 +328,18 @@ pub fn slider_row_translated(
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).color(t.text_dim));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            changed_resp = Some(value_field(ui, value, range.clone(), suffix, 74.0));
+            let field = value_field(ui, value, range.clone(), suffix, 74.0);
+            field.widget_info(|| {
+                let mut info = egui::WidgetInfo::drag_value(ui.is_enabled(), f64::from(*value));
+                info.label = Some(crate::i18n::fmt(tl!("{name} value"), &[("name", label)]));
+                info
+            });
+            changed_resp = Some(field);
         });
     });
     let s = slider(ui, value, range, gradient);
+    let accessible = crate::i18n::fmt(tl!("{name} slider"), &[("name", label)]);
+    s.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), f64::from(*value), &accessible));
     let mut r = s.clone();
     if let Some(v) = changed_resp
         && v.changed()
@@ -684,6 +692,57 @@ pub fn color_tile(ui: &Ui, rect: Rect, color: Color32) {
     }
     p.rect_filled(rect, t.radius_sm, color);
     p.rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
+}
+
+/// Named colour swatch opening the ordinary Color Picker in a shared popup.
+/// Used by Symbols master editing; preserves HDR/channel values until the user changes paint.
+pub fn color_control(ui: &mut Ui, color: &mut photocraft_doc::Color, label: &str) -> bool {
+    use serde_json::{Map, Value, json};
+    let rgb = color.to_rgb();
+    let response = ui
+        .horizontal(|ui| {
+            let side = ui.spacing().interact_size.y;
+            let tile = ui.allocate_exact_size(Vec2::splat(side), Sense::hover()).0;
+            color_tile(
+                ui,
+                tile,
+                Color32::from_rgba_unmultiplied(
+                    (rgb[0].clamp(0.0, 1.0) * 255.0) as u8,
+                    (rgb[1].clamp(0.0, 1.0) * 255.0) as u8,
+                    (rgb[2].clamp(0.0, 1.0) * 255.0) as u8,
+                    (color.alpha.clamp(0.0, 1.0) * 255.0) as u8,
+                ),
+            );
+            secondary_button(ui, label, 0.0)
+        })
+        .inner;
+    let key = response.id.with("color-fields");
+    if response.clicked() {
+        let hex = crate::color_picker_ui::hex(rgb);
+        let fields: Map<String, Value> = serde_json::from_value(json!({"color":hex,"__orig":hex})).unwrap_or_default();
+        ui.data_mut(|d| d.insert_temp(key, fields));
+    }
+    let mut changed = false;
+    swatch_popup(&response).show(|ui| {
+        let mut fields = ui.data(|d| d.get_temp::<Map<String, Value>>(key)).unwrap_or_default();
+        let before = fields.get("color").cloned();
+        crate::color_picker_ui::body(ui, &mut fields);
+        if fields.get("color") != before.as_ref()
+            && let Some(rgb) = fields.get("color").and_then(Value::as_str).and_then(crate::color_picker_ui::parse_hex)
+        {
+            let alpha = color.alpha;
+            *color = photocraft_doc::Color::rgb(rgb[0], rgb[1], rgb[2]);
+            color.alpha = alpha;
+            changed = true;
+        }
+        let mut alpha = color.alpha;
+        if slider_row_translated(ui, tl!("Opacity"), &mut alpha, 0.0..=1.0, "", None).changed() {
+            color.alpha = alpha;
+            changed = true;
+        }
+        ui.data_mut(|d| d.insert_temp(key, fields));
+    });
+    changed
 }
 
 /// Paint a small checkerboard (transparency) in `rect`.

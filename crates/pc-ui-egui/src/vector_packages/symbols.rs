@@ -98,16 +98,20 @@ pub fn panel(ui: &mut Ui, session: &mut Session, state: &mut State, targets: &[L
     }
     let label = ui.label(tr("Symbol name"));
     ui.add(egui::TextEdit::singleline(&mut state.name)).labelled_by(label.id);
-    if ui.add_enabled(!targets.is_empty() && !state.name.trim().is_empty(), egui::Button::new(tr("Create Symbol"))).clicked() {
+    if ui.add_enabled(!targets.is_empty(), |ui: &mut Ui| crate::widgets::secondary_button(ui, &tr("Create Symbol"), 0.0)).clicked() {
         let result = Capture::new(session).and_then(|c| {
             let mut p = c.params();
             p["layers"] = json!(targets.iter().map(|id| id.0).collect::<Vec<_>>());
-            p["name"] = json!(state.name);
             session.execute("symbol.create", p)
         });
         match result {
             Ok(v) => {
                 state.selected = v["symbol"].as_u64().map(SymbolId);
+                state.name = session
+                    .active()
+                    .and_then(|st| st.doc.symbols.iter().find(|def| Some(def.id) == state.selected))
+                    .map(|def| def.name.clone())
+                    .unwrap_or_default();
                 state.cancel();
                 state.error = None;
             }
@@ -122,7 +126,7 @@ pub fn panel(ui: &mut Ui, session: &mut Session, state: &mut State, targets: &[L
         }
     }
     ui.horizontal_wrapped(|ui| {
-        if ui.add_enabled(state.selected.is_some(), egui::Button::new(tr("Place Symbol"))).clicked() {
+        if ui.add_enabled(state.selected.is_some(), |ui: &mut Ui| crate::widgets::secondary_button(ui, &tr("Place Symbol"), 0.0)).clicked() {
             match Capture::new(session) {
                 Ok(c) => {
                     state.cancel();
@@ -139,7 +143,7 @@ pub fn panel(ui: &mut Ui, session: &mut Session, state: &mut State, targets: &[L
                 Err(e) => state.error = Some(e.to_string()),
             }
         }
-        if ui.add_enabled(state.selected.is_some(), egui::Button::new(tr("Edit Master"))).clicked() {
+        if ui.add_enabled(state.selected.is_some(), |ui: &mut Ui| crate::widgets::secondary_button(ui, &tr("Edit Master"), 0.0)).clicked() {
             match Capture::new(session) {
                 Ok(c) => {
                     if let (Some(id), Some(st)) = (state.selected, session.active())
@@ -155,43 +159,34 @@ pub fn panel(ui: &mut Ui, session: &mut Session, state: &mut State, targets: &[L
         let can_detach = session
             .active()
             .is_some_and(|st| !targets.is_empty() && targets.iter().all(|id| st.doc.layer(*id).is_some_and(|l| matches!(l.content, LayerContent::Symbol(_)))));
-        if ui.add_enabled(can_detach, egui::Button::new(tr("Detach Symbols"))).clicked() {
+        if ui.add_enabled(can_detach, |ui: &mut Ui| crate::widgets::secondary_button(ui, &tr("Detach Symbols"), 0.0)).clicked() {
             command(session, state, "symbol.detach", targets);
         }
-        if ui.add_enabled(state.selected.is_some() && !state.name.trim().is_empty(), egui::Button::new(tr("Rename Symbol"))).clicked() {
+        if ui
+            .add_enabled_ui(state.selected.is_some() && !state.name.trim().is_empty(), |ui: &mut Ui| {
+                crate::widgets::secondary_button(ui, &tr("Rename Symbol"), 0.0)
+            })
+            .inner
+            .clicked()
+        {
             command(session, state, "symbol.rename", targets);
         }
-        if ui.add_enabled(state.selected.is_some(), egui::Button::new(tr("Delete Symbol"))).clicked() {
+        if ui.add_enabled(state.selected.is_some(), |ui: &mut Ui| crate::widgets::secondary_button(ui, &tr("Delete Symbol"), 0.0)).clicked() {
             command(session, state, "symbol.delete", targets);
         }
     });
     if let Some(draft) = &mut state.draft {
-        ui.separator();
+        crate::widgets::hairline(ui);
         ui.label(tr("Edit Master"));
         fn controls(ui: &mut Ui, layers: &mut [Layer], tr: &impl Fn(&'static str) -> String) -> bool {
             let mut changed = false;
             for l in layers {
                 ui.push_id(l.id.0, |ui| {
-                    changed |= ui.checkbox(&mut l.visible, &l.name).changed();
+                    changed |= crate::widgets::checkbox(ui, &mut l.visible, &l.name).changed();
                     match &mut l.content {
                         LayerContent::Shape(sh) => {
                             if let Some(Fill::Solid(c)) = &mut sh.fill {
-                                let rgb = c.to_rgb();
-                                let mut rgba = [rgb[0], rgb[1], rgb[2], c.alpha];
-                                let mut paint_changed = false;
-                                for (i, label) in ["Master red", "Master green", "Master blue", "Master alpha"].iter().enumerate() {
-                                    ui.horizontal(|ui| {
-                                        let label = ui.label(tr(label));
-                                        paint_changed |= ui
-                                            .add(egui::DragValue::new(&mut rgba[i]).range(0.0..=1.0).clamp_existing_to_range(false).speed(0.01))
-                                            .labelled_by(label.id)
-                                            .changed();
-                                    });
-                                }
-                                if paint_changed {
-                                    *c = photocraft_doc::Color::rgba(rgba[0], rgba[1], rgba[2], rgba[3]);
-                                    changed = true;
-                                }
+                                changed |= crate::widgets::color_control(ui, c, &tr("Master colour"));
                             }
                         }
                         LayerContent::Text(t) => {
@@ -215,7 +210,7 @@ pub fn panel(ui: &mut Ui, session: &mut Session, state: &mut State, targets: &[L
             state.show(preview);
         }
         ui.horizontal(|ui| {
-            if ui.button(tr("Apply Master")).clicked()
+            if crate::widgets::secondary_button(ui, &tr("Apply Master"), 0.0).clicked()
                 && let Some(d) = &state.draft
             {
                 let mut p = d.capture.params();
@@ -254,7 +249,7 @@ pub fn panel(ui: &mut Ui, session: &mut Session, state: &mut State, targets: &[L
                     Err(e) => state.error = Some(e.to_string()),
                 }
             }
-            if ui.button(tr("Cancel")).clicked() {
+            if crate::widgets::secondary_button(ui, &tr("Cancel"), 0.0).clicked() {
                 state.cancel();
             }
         });
@@ -263,7 +258,7 @@ pub fn panel(ui: &mut Ui, session: &mut Session, state: &mut State, targets: &[L
         ui.label(tr("Drag on the canvas to place the symbol"));
     }
     if let Some(e) = &state.error {
-        ui.colored_label(egui::Color32::LIGHT_RED, e);
+        ui.colored_label(crate::theme::Tokens::get(ui.ctx()).danger, e);
     }
 }
 fn command(s: &mut Session, state: &mut State, id: &str, targets: &[LayerId]) {
@@ -405,14 +400,7 @@ pub fn canvas_input(app: &mut crate::PhotocraftApp, response: &egui::Response, x
 /// Symbols is initially hidden. Opening it materializes the existing dock layout and adds
 /// this ordinary movable tab, preserving older default layouts and tab indices.
 pub fn open_panel(app: &mut crate::PhotocraftApp) {
-    let pro = crate::dock::is_pro(app);
-    let group = crate::dock::Group::Layers;
-    if !app.ui.dock.group_tabs(group, pro).contains(&crate::dock::Tab::Symbols) {
-        let at = app.ui.dock.group_tabs(group, pro).len();
-        app.ui.dock.insert(&[crate::dock::Tab::Symbols], group, at, pro);
-    }
-    app.ui.dock.active.insert(group, crate::dock::Tab::Symbols);
-    app.ui.panels.layers = true;
+    crate::dock::reveal_feature(app, crate::dock::Tab::Symbols);
 }
 /// Frame guard runs even when the Symbols tab is hidden.
 pub fn frame(app: &mut crate::PhotocraftApp, ctx: &egui::Context) {

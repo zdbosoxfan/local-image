@@ -17,6 +17,7 @@ pub mod drawing;
 pub mod envelope;
 pub mod layout;
 pub mod node;
+pub mod objects;
 pub mod path_text;
 pub mod pdf_export;
 pub mod pdf_import;
@@ -37,6 +38,7 @@ pub mod width;
 
 pub(crate) fn specs() -> Vec<CommandSpec> {
     let mut out = Vec::new();
+    out.extend(objects::specs());
     out.extend(drawing::specs());
     out.extend(node::specs());
     out.extend(pen::specs());

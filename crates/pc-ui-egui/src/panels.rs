@@ -1425,6 +1425,7 @@ fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate::dock::Tab) 
         }
         Tab::Generate => crate::generate_ui::panel(app, ui),
         Tab::Library => crate::generate_ui::library_panel(app, ui),
+        tab => crate::vector_integration::dock_panel(app, ui, tab),
     }
 }
 

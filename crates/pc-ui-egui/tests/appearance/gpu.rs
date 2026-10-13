@@ -21,6 +21,8 @@ pub fn setup() -> egui_wgpu::WgpuSetup {
 #[test]
 fn appearance_ui_gpu_actual_drags_preview_release_cancel() {
     let mut h = Harness::builder().with_size(egui::vec2(760., 1200.)).wgpu_setup(setup()).build_ui_state(draw, host());
+    photocraft_ui_egui::PhotocraftApp::setup_context(&h.ctx, Default::default());
+    h.run_steps(3);
     let before = h.render().unwrap();
     button(&mut h, 28., 60., true);
     motion(&mut h, 96., 60.);

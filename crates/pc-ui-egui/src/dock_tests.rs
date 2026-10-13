@@ -328,6 +328,12 @@ fn clicking_around_the_ui_keeps_the_panels_put() {
         points.push(Pos2::new(x as f32, 50.0));
     }
     for p in points {
+        // Intentional persona switches now restore a different studio; this probe exercises
+        // surrounding options, not the explicit switcher tested in persona_tests.
+        use egui_kittest::kittest::Queryable;
+        if ["Pixel persona", "Vector persona", "Transform and Layout"].iter().any(|label| h.query_by_label(label).is_some_and(|node| node.rect().contains(p))) {
+            continue;
+        }
         h.hover_at(p);
         h.run_steps(1);
         h.drag_at(p);
@@ -938,4 +944,77 @@ fn ds_finding_floating_drop_targets_follow_raise_and_close_in_same_frame() {
     h.run_steps(1);
     assert!(!last_floats(&h.ctx).iter().any(|r| r.id == a));
     assert!(last_floats(&h.ctx).iter().any(|r| r.id == b));
+}
+
+#[test]
+fn vectorws_panel_drag_dock_restart_restore_and_hidden_placement() {
+    use photocraft_engine::toolsets::Persona;
+    let (mut app, _, _) = app_with_layers();
+    app.session.edit_prefs(|p| p.toolbar.persona = Persona::Vector);
+    crate::workspace_ui::apply_vector(&mut app);
+    let mut h = float_harness(app, vec2(1200., 800.), ThemeKind::ProMedium);
+    let from = tab_rect(&h, Group::Custom(201), Tab::Appearance).center();
+    drag(&mut h, from, Pos2::new(400., 300.));
+    let float = last_floats(&h.ctx)[0].clone();
+    assert_eq!(float.tab_ids, vec![Tab::Appearance]);
+    let color = strip_of(&h, Group::Color);
+    drag(&mut h, float.grip.center(), Pos2::new(color.menu.left() - 4., color.strip.center().y));
+    assert_eq!(h.state().ui.dock.locate(Tab::Appearance, true), Place::Docked(Group::Color));
+    assert!(h.state().ui.dock.floating.is_empty());
+    crate::vector_integration::set_panel_open(h.state_mut(), "Appearance", false);
+    h.run_steps(3);
+    assert!(!strip_of(&h, Group::Color).tab_ids.contains(&Tab::Appearance));
+    let ctx = h.ctx.clone();
+    persist(h.state_mut(), &ctx);
+    let prefs = h.state().session.prefs_to_json();
+    let mut s = photocraft_engine::Session::new();
+    s.load_prefs_json(&prefs).unwrap();
+    let mut app = PhotocraftApp::new(s, Default::default());
+    restore(&mut app);
+    assert_eq!(app.ui.dock.locate(Tab::Appearance, true), Place::Docked(Group::Color));
+    assert!(!feature_visible(&app, Tab::Appearance));
+    crate::vector_integration::set_panel_open(&mut app, "Appearance", true);
+    assert!(feature_visible(&app, Tab::Appearance));
+    assert_eq!(active_tab(&app, Place::Docked(Group::Color)), Some(Tab::Appearance));
+}
+
+#[test]
+fn vectorws_workspace_and_personas_restore_custom_layouts_after_restart() {
+    use photocraft_engine::toolsets::Persona;
+    let (mut app, _, _) = app_with_layers();
+    let ctx = egui::Context::default();
+    crate::toolsets_ui::persona::frame(&mut app, &ctx);
+    app.ui.dock.heights.insert(Group::Color, 173.);
+    app.ui.dock.move_group(Group::Layers, Some(Group::Color));
+    crate::menus::invoke(&mut app, &ctx, "window.workspace.newWorkspace", json!({"name":"Pixel custom", "toolbar":true})).unwrap();
+    let pixel = snapshot(&app);
+    crate::menus::invoke(&mut app, &ctx, "window.workspace.vector", json!({})).unwrap();
+    assert_eq!(app.session.prefs().toolbar.persona, Persona::Vector);
+    assert_eq!(app.ui.workspace, "Vector");
+    crate::vector_integration::set_panel_open(&mut app, "Brushes", true);
+    assert_eq!(active_tab(&app, Place::Docked(Group::Custom(201))), Some(Tab::Brushes));
+    app.ui.dock.heights.insert(Group::Custom(201), 281.);
+    let vector = snapshot(&app);
+    crate::toolsets_ui::persona::select(&mut app, &ctx, Persona::Pixel);
+    assert_eq!(snapshot(&app), pixel);
+    crate::toolsets_ui::persona::select(&mut app, &ctx, Persona::Vector);
+    assert_eq!(snapshot(&app), vector);
+    persist(&mut app, &ctx);
+    let mut s = photocraft_engine::Session::new();
+    s.load_prefs_json(&app.session.prefs_to_json()).unwrap();
+    let mut app = PhotocraftApp::new(s, Default::default());
+    restore(&mut app);
+    assert_eq!(snapshot(&app), vector);
+    crate::toolsets_ui::persona::select(&mut app, &egui::Context::default(), Persona::Pixel);
+    assert_eq!(snapshot(&app), pixel);
+    crate::toolsets_ui::persona::select(&mut app, &ctx, Persona::Vector);
+    crate::menus::invoke(&mut app, &ctx, "window.workspace.select", json!({"name":"Pixel custom"})).unwrap();
+    assert_eq!(app.session.prefs().toolbar.persona, Persona::Pixel);
+    assert_eq!(snapshot(&app), pixel);
+    crate::toolsets_ui::persona::select(&mut app, &ctx, Persona::Vector);
+    assert_eq!(snapshot(&app), vector);
+    // Old preferences have no persona layouts and still load.
+    let mut prefs = app.session.prefs_value();
+    prefs.as_object_mut().unwrap().remove("personaLayouts");
+    app.session.load_prefs_json(&prefs.to_string()).unwrap();
 }

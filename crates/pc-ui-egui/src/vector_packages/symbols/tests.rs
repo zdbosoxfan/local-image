@@ -21,8 +21,11 @@ fn host() -> Host {
     Host { session, state: State::default(), targets: vec![id], rect: egui::Rect::NOTHING }
 }
 fn harness() -> Harness<'static, Host> {
-    Harness::builder().with_size(egui::vec2(680., 650.)).build_ui_state(
+    let mut h = Harness::builder().with_size(egui::vec2(680., 650.)).build_ui_state(
         |ui, h| {
+            if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                return;
+            }
             h.targets = h.session.active().map(|s| s.selected_layers()).unwrap_or_default();
             panel(ui, &mut h.session, &mut h.state, &h.targets, str::to_owned);
             h.rect = ui.allocate_exact_size(egui::vec2(300., 120.), egui::Sense::drag()).0;
@@ -46,7 +49,10 @@ fn harness() -> Harness<'static, Host> {
             }
         },
         host(),
-    )
+    );
+    crate::PhotocraftApp::setup_context(&h.ctx, Default::default());
+    h.run_steps(3);
+    h
 }
 fn press(h: &mut Harness<'_, Host>, x: f32, y: f32, button: Option<bool>) {
     let pos = h.state().rect.min + egui::vec2(x, y);
@@ -84,19 +90,14 @@ fn symbols_kittest_create_place_master_edit_detach_and_undo() {
     assert_eq!(h.state().session.journal.len(), 2);
     h.get_by_label("Edit Master").click();
     h.run();
-    // Real typing in egui's DragValue text editor, discovered by its neighbouring label.
-    let input = h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Master red").rect();
-    let pos = input.center();
-    h.event(egui::Event::PointerMoved(pos));
-    for _ in 0..2 {
-        h.event(egui::Event::PointerButton { pos, pressed: true, button: egui::PointerButton::Primary, modifiers: egui::Modifiers::NONE });
-        h.step();
-        h.event(egui::Event::PointerButton { pos, pressed: false, button: egui::PointerButton::Primary, modifiers: egui::Modifiers::NONE });
-        h.step();
-    }
-    h.event(egui::Event::Key { key: egui::Key::A, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND });
-    h.event(egui::Event::Text("0.3".to_owned()));
-    h.key_press(egui::Key::Enter);
+    // The ordinary shared Color Picker, reached through the master swatch.
+    h.get_by_label("Master colour").click();
+    h.run();
+    h.get_by_label("Hex colour").click();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("4d331a".to_owned()));
+    h.run();
+    h.key_press(egui::Key::Escape);
     h.run();
     h.get_by_label("Apply Master").click();
     h.run();
@@ -104,7 +105,7 @@ fn symbols_kittest_create_place_master_edit_detach_and_undo() {
     let edited = h.state().session.active().unwrap().doc.clone();
     let LayerContent::Shape(sh) = &edited.symbols[0].layers[0].content else { panic!() };
     let Some(Fill::Solid(c)) = &sh.fill else { panic!() };
-    assert!((c.c[0] - 0.3).abs() < 1e-5);
+    assert!((c.c[0] - 77.0 / 255.0).abs() < 1e-5);
     h.get_by_label("Detach Symbols").click();
     h.run();
     assert!(matches!(h.state().session.active().unwrap().doc.layers[1].content, LayerContent::Group(_)));
@@ -166,4 +167,24 @@ fn symbols_old_settings_default_and_transient_captures_are_not_saved() {
     assert!(json.get("placement").is_none());
     assert!(json.get("draft").is_none());
     assert!(json.get("source_document").is_none());
+}
+
+#[test]
+fn vectorws_symbols_auto_name_then_rename_with_real_controls() {
+    let mut h = harness();
+    h.get_by_label("Create Symbol").click();
+    h.run();
+    assert_eq!(h.state().session.active().unwrap().doc.symbols[0].name, "Symbol 1");
+    h.get_by_role_and_label(egui::accesskit::Role::TextInput, "Symbol name").click();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("Reusable badge".into()));
+    h.run();
+    h.get_by_label("Rename Symbol").click();
+    h.run();
+    assert_eq!(h.state().session.active().unwrap().doc.symbols[0].name, "Reusable badge");
+    assert!(h.state_mut().session.undo());
+    assert_eq!(h.state().session.active().unwrap().doc.symbols[0].name, "Symbol 1");
+    h.get_by_label("Create Symbol").click();
+    h.run();
+    assert_eq!(h.state().session.active().unwrap().doc.symbols[1].name, "Symbol 2");
 }

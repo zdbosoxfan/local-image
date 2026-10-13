@@ -1366,4 +1366,14 @@
     "Create Outlines",
     "Generative Fill…",
     "AI Remove…",
+    // Vector studio U028; new English keys appended for later translation.
+    "Master colour",
+    "Hex colour",
+    "Unlock All",
+    "Show All",
+    "Layout",
+    "Brushes",
+    "{name} panel tab",
+    "{name} value",
+    "{name} slider",
 ]

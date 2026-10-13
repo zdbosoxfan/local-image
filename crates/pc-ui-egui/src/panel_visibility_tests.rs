@@ -112,15 +112,21 @@ fn tab_restores_floating_and_vector_panels_without_closing_or_moving_them() {
         "Graphic Styles",
         "Frame Composition",
         "Snapping Manager",
-        "Transform and Layout",
+        "Transform",
     ];
+    for name in ["Appearance", "Document Palette", "Graphic Styles", "Frame Composition", "Snapping Manager", "Transform"] {
+        let tab = crate::dock::Tab::from_label(name).unwrap();
+        let pro = crate::dock::is_pro(h.state());
+        h.state_mut().ui.dock.new_group(&[tab], tab, None, pro);
+    }
+    h.run_steps(4);
     let text = painted(&h);
     for title in titles {
         assert!(text.iter().any(|s| s == title), "fixture must paint {title}");
     }
     let snapshot = |app: &PhotocraftApp| json!({"dock":app.ui.dock,"panels":app.ui.panels,"presets":app.ui.presets_ui,"type":app.ui.type_panels,"analysis":app.ui.analysis,"timeline":app.ui.timeline,"shell":app.ui.shell,"vector":crate::vector_integration::open_panels_for_test(app),"layout":app.shared_tools.layout.open});
     let before = snapshot(h.state());
-    let positions: Vec<_> = ["type-styles-window", "glyphs-window", "measurement-log", "timeline", "modifier-keys", "vector layout panel"]
+    let positions: Vec<_> = ["type-styles-window", "glyphs-window", "measurement-log", "timeline", "modifier-keys"]
         .into_iter()
         .map(|id| (id, h.ctx.memory(|m| m.area_rect(egui::Id::new(id))).expect("floating panel has a real area")))
         .collect();
