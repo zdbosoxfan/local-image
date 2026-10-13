@@ -3899,3 +3899,5 @@ ai	New	Nuovi
 	Cancel test	Annulla test
 	Re-test	Ripeti test
 	testing…	test in corso…
+	Autosave failed	Salvataggio automatico non riuscito
+	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Il ripristino dopo un arresto anomalo non può conservare una copia delle modifiche non salvate. Salva il lavoro per non perderlo.

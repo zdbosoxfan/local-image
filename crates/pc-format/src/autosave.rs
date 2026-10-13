@@ -22,7 +22,7 @@ use photocraft_doc::Document;
 use serde::{Deserialize, Serialize};
 
 use crate::store::write_atomic;
-use crate::{PcraftWriter, Result, SaveOptions, SaveStats};
+use crate::{FormatError, PcraftWriter, Result, SaveOptions, SaveStats};
 
 /// Sidecar describing an autosave.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -49,6 +49,10 @@ struct Job {
     opts: SaveOptions,
 }
 
+/// One completed revision's disk-write outcome (distinct from enqueue success).
+type SaveOutcome = (u64, std::result::Result<(), String>);
+type CompletedWrites = Arc<Mutex<Vec<SaveOutcome>>>;
+
 /// Background autosaver for one document. Requests are coalesced: if saves
 /// arrive faster than they complete, only the newest snapshot is written.
 pub struct Autosaver {
@@ -57,6 +61,8 @@ pub struct Autosaver {
     tx: Option<Sender<Job>>,
     handle: Option<JoinHandle<()>>,
     last: Arc<Mutex<Option<Result<SaveStats>>>>,
+    /// Per-request write outcomes, delivered to the app without blocking its frame.
+    completed: CompletedWrites,
     discard: Arc<AtomicBool>,
 }
 
@@ -77,16 +83,35 @@ impl Autosaver {
         let last2 = last.clone();
         let discard = Arc::new(AtomicBool::new(false));
         let discarded = discard.clone();
-        let handle = std::thread::Builder::new().name(format!("autosave-{key}")).spawn(move || worker(rx, bundle, sidecar, last2, discarded)).ok();
-        Autosaver { dir, key, tx: Some(tx), handle, last, discard }
+        let completed: CompletedWrites = Arc::new(Mutex::new(Vec::new()));
+        let completed2 = completed.clone();
+        // A thread that never started must not look like a working autosave: record the failure
+        // where `last_result`/`flush` report it, so recovery health checks see it (upstream
+        // PhotoCraft 3ef63161).
+        let spawned = std::thread::Builder::new().name(format!("autosave-{key}")).spawn(move || worker(rx, bundle, sidecar, last2, completed2, discarded));
+        let handle = match spawned {
+            Ok(h) => Some(h),
+            Err(e) => {
+                note(&last, Err(FormatError::Io(std::io::Error::other(format!("the autosave thread could not start: {e}")))));
+                None
+            }
+        };
+        Autosaver { dir, key, tx: Some(tx), handle, last, completed, discard }
     }
 
     pub fn bundle_path(&self) -> PathBuf {
         self.dir.join(format!("{}.pcraft", self.key))
     }
 
-    /// Queue a snapshot for saving (returns immediately).
+    /// Queue a snapshot for saving (returns immediately). Callers that only need best-effort
+    /// autosaving can use this; the app uses [`request_checked`](Self::request_checked).
     pub fn request(&self, snapshot: Arc<Document>, revision: u64, original_path: Option<String>, opts: SaveOptions) {
+        let _ = self.request_checked(snapshot, revision, original_path, opts);
+    }
+
+    /// Queue a snapshot, reporting a worker that could not start or has stopped. Success here
+    /// means queued, not written: [`take_completed`](Self::take_completed) has the write outcomes.
+    pub fn request_checked(&self, snapshot: Arc<Document>, revision: u64, original_path: Option<String>, opts: SaveOptions) -> std::result::Result<(), String> {
         let info = RecoveryInfo {
             key: self.key.clone(),
             document_name: snapshot.name.clone(),
@@ -94,9 +119,16 @@ impl Autosaver {
             saved_at: SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
             revision,
         };
-        if let Some(tx) = &self.tx {
-            let _ = tx.send(Job { snapshot, info, opts });
-        }
+        self.tx
+            .as_ref()
+            .ok_or_else(|| "the autosave worker is stopped".to_string())?
+            .send(Job { snapshot, info, opts })
+            .map_err(|_| self.last_result().and_then(std::result::Result::err).unwrap_or_else(|| "the autosave worker is unavailable".to_string()))
+    }
+
+    /// Drain completed write outcomes (revision, result) without waiting for the worker.
+    pub fn take_completed(&self) -> Vec<(u64, std::result::Result<(), String>)> {
+        self.completed.lock().map(|mut results| std::mem::take(&mut *results)).unwrap_or_default()
     }
 
     /// Result of the most recent completed save.
@@ -134,7 +166,14 @@ impl Drop for Autosaver {
     }
 }
 
-fn worker(rx: Receiver<Job>, bundle: PathBuf, sidecar: PathBuf, last: Arc<Mutex<Option<Result<SaveStats>>>>, discard: Arc<AtomicBool>) {
+fn worker(
+    rx: Receiver<Job>,
+    bundle: PathBuf,
+    sidecar: PathBuf,
+    last: Arc<Mutex<Option<Result<SaveStats>>>>,
+    completed: CompletedWrites,
+    discard: Arc<AtomicBool>,
+) {
     let mut writer = PcraftWriter::new();
     while let Ok(mut job) = rx.recv() {
         // Coalesce: skip to the newest queued snapshot.
@@ -150,9 +189,10 @@ fn worker(rx: Receiver<Job>, bundle: PathBuf, sidecar: PathBuf, last: Arc<Mutex<
             write_atomic(&sidecar, &serde_json::to_vec_pretty(&job.info)?)?;
             Ok(stats)
         })();
-        if let Ok(mut g) = last.lock() {
-            *g = Some(r);
+        if let Ok(mut results) = completed.lock() {
+            results.push((job.info.revision, r.as_ref().map(|_| ()).map_err(ToString::to_string)));
         }
+        note(&last, r);
     }
     if discard.load(Ordering::SeqCst) {
         let dir = bundle.parent().unwrap_or_else(|| Path::new("."));
@@ -221,7 +261,9 @@ impl RecoveryStore {
         static STORES: AtomicU64 = AtomicU64::new(0);
         let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let session = format!("{t:x}_{:x}_{:x}", std::process::id(), STORES.fetch_add(1, Ordering::Relaxed));
-        RecoveryStore { dir: recovery_dir.into(), session, savers: HashMap::new(), adopted: HashMap::new() }
+        let dir = recovery_dir.into();
+        sweep_orphans(&dir, ORPHAN_AGE);
+        RecoveryStore { dir, session, savers: HashMap::new(), adopted: HashMap::new() }
     }
 
     /// Load every recoverable document, newest first, with the entry it came from. Nothing is
@@ -239,12 +281,23 @@ impl RecoveryStore {
 
     /// Queue an autosave of `doc` (returns immediately; see [`Autosaver::request`]).
     pub fn autosave(&mut self, doc: &Arc<Document>, revision: u64, original_path: Option<String>) {
+        let _ = self.autosave_checked(doc, revision, original_path);
+    }
+
+    /// Queue an autosave of `doc`, reporting enqueue failures (a worker that never started or
+    /// stopped). Write outcomes arrive later through [`take_completed`](Self::take_completed).
+    pub fn autosave_checked(&mut self, doc: &Arc<Document>, revision: u64, original_path: Option<String>) -> std::result::Result<(), String> {
         let id = doc.id.0;
         let saver = self.savers.entry(id).or_insert_with(|| {
             let key = self.adopted.get(&id).cloned().unwrap_or_else(|| format!("doc-{}-{id}", self.session));
             Autosaver::new(&self.dir, &key)
         });
-        saver.request(doc.clone(), revision, original_path, SaveOptions::default());
+        saver.request_checked(doc.clone(), revision, original_path, SaveOptions::default())
+    }
+
+    /// Completed write outcomes as (document id, revision, result), without blocking.
+    pub fn take_completed(&mut self) -> Vec<(u64, u64, std::result::Result<(), String>)> {
+        self.savers.iter().flat_map(|(&id, saver)| saver.take_completed().into_iter().map(move |(revision, result)| (id, revision, result))).collect()
     }
 
     /// Document `doc_id` was saved or closed: remove its recovery data, both its own autosaves
@@ -283,6 +336,90 @@ fn discard_entry_async(dir: PathBuf, key: String) -> Result<Discard> {
     Ok(Discard { handle: Some(handle) })
 }
 
+/// How long recovery data must have been left untouched before [`sweep_orphans`] may remove
+/// it. Far longer than any save takes, so another running instance's in-progress first
+/// autosave (bundle written, sidecar not yet) is never mistaken for an orphan.
+#[cfg(not(target_arch = "wasm32"))]
+const ORPHAN_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Best-effort removal of recovery data nothing can ever load or clean up (upstream PhotoCraft
+/// c20b81b2):
+/// - `<key>.pcraft` bundle folders with no `<key>.json` sidecar (a crash during a document's
+///   first autosave: the sidecar is written after the bundle, and `list_recovery` skips them);
+/// - `*.pcsave.tmp` files left by an interrupted atomic write (see [`crate::atomic::temp_name`])
+///   that another process created.
+///
+/// Only entries untouched for at least `min_age` are removed. Bundles with a sidecar, symlinks,
+/// and anything outside `recovery_dir` are never touched; errors are ignored.
+#[cfg(not(target_arch = "wasm32"))]
+fn sweep_orphans(recovery_dir: &Path, min_age: std::time::Duration) {
+    let Ok(rd) = std::fs::read_dir(recovery_dir) else { return };
+    let mut bundles = Vec::new();
+    for e in rd.flatten() {
+        let Ok(ft) = e.file_type() else { continue };
+        let path = e.path();
+        if ft.is_file() {
+            sweep_temp_file(&path, min_age);
+            continue;
+        }
+        if !ft.is_dir() {
+            continue;
+        }
+        let name = e.file_name();
+        let Some(key) = name.to_str().and_then(|n| n.strip_suffix(".pcraft")) else { continue };
+        if key.is_empty() || sanitize(key) != key {
+            continue;
+        }
+        // Anything at the sidecar's path (even a broken one) keeps the bundle.
+        let has_sidecar = std::fs::symlink_metadata(recovery_dir.join(format!("{key}.json"))).is_ok();
+        let parts = [path.clone(), path.join("tiles"), path.join("blobs")];
+        if !has_sidecar && parts.iter().all(|p| untouched_for(p, min_age, true)) {
+            let _ = std::fs::remove_dir_all(&path);
+        } else {
+            bundles.extend(parts);
+        }
+    }
+    for dir in bundles {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            if e.file_type().is_ok_and(|ft| ft.is_file()) {
+                sweep_temp_file(&e.path(), min_age);
+            }
+        }
+    }
+}
+
+/// Remove `path` if it is an atomic-write temp file of another process, untouched for `min_age`.
+#[cfg(not(target_arch = "wasm32"))]
+fn sweep_temp_file(path: &Path, min_age: std::time::Duration) {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else { return };
+    // `.{stem}.{pid}-{n}.pcsave.tmp`
+    let Some(rest) = name.strip_prefix('.').and_then(|n| n.strip_suffix(".pcsave.tmp")) else { return };
+    let Some((_, owner)) = rest.rsplit_once('.') else { return };
+    let Some(pid) = owner.split_once('-').and_then(|(pid, _)| pid.parse::<u32>().ok()) else { return };
+    if pid != std::process::id() && untouched_for(path, min_age, false) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Whether `path` was last modified at least `min_age` ago. Unreadable times count as recent;
+/// a missing path counts as untouched only when `missing_ok`.
+#[cfg(not(target_arch = "wasm32"))]
+fn untouched_for(path: &Path, min_age: std::time::Duration, missing_ok: bool) -> bool {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) => m.modified().ok().and_then(|t| SystemTime::now().duration_since(t).ok()).is_some_and(|age| age >= min_age),
+        Err(e) => missing_ok && e.kind() == std::io::ErrorKind::NotFound,
+    }
+}
+
+/// Record the outcome of the last save attempt where `last_result`/`flush` report it. A
+/// poisoned lock keeps the previous result rather than panicking in a crash-recovery path.
+fn note(last: &Arc<Mutex<Option<Result<SaveStats>>>>, r: Result<SaveStats>) {
+    if let Ok(mut g) = last.lock() {
+        *g = Some(r);
+    }
+}
+
 fn remove_entry(dir: &Path, key: &str) -> Result<()> {
     let bundle = dir.join(format!("{key}.pcraft"));
     if bundle.exists() {
@@ -305,7 +442,8 @@ mod tests {
         let handle = std::thread::spawn(move || {
             wait.recv().unwrap();
         });
-        let saver = Autosaver { dir, key: "busy".into(), tx: None, handle: Some(handle), last: Arc::default(), discard: Arc::default() };
+        let saver =
+            Autosaver { dir, key: "busy".into(), tx: None, handle: Some(handle), last: Arc::default(), completed: Arc::default(), discard: Arc::default() };
         let (returned, completed) = mpsc::channel();
         let caller = std::thread::spawn(move || {
             returned.send(saver.discard()).unwrap();
@@ -315,5 +453,113 @@ mod tests {
         caller.join().unwrap();
         assert!(early.is_ok(), "discard blocked on the busy writer");
         early.unwrap().unwrap();
+    }
+
+    fn temp(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "li-autosave-{name}-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+        ))
+    }
+
+    fn small_doc(name: &str) -> Arc<Document> {
+        Arc::new(Document::new(name, photocraft_doc::Size { width: 4, height: 4 }, photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8))
+    }
+
+    /// Upstream 3ef63161 (#1124): what the spawn-failure arm of `Autosaver::new` records.
+    /// Recovery health checks read this through `last_result`/`flush` instead of seeing a
+    /// working autosave.
+    #[test]
+    fn autosave_spawn_failure_is_reported_not_silent() {
+        let last = Arc::new(Mutex::new(None));
+        note(&last, Err(FormatError::Io(std::io::Error::other("the autosave thread could not start: resources"))));
+        let g = last.lock().unwrap();
+        let err = g.as_ref().and_then(|r| r.as_ref().err()).expect("the failure is recorded");
+        assert!(err.to_string().contains("could not start"), "{err}");
+        // A saver without a worker reports the enqueue failure instead of dropping the snapshot.
+        let saver = Autosaver {
+            dir: temp("no-worker"),
+            key: "k".into(),
+            tx: None,
+            handle: None,
+            last: Arc::new(Mutex::new(None)),
+            completed: Arc::default(),
+            discard: Arc::default(),
+        };
+        assert!(saver.request_checked(small_doc("k"), 1, None, SaveOptions::default()).is_err());
+    }
+
+    /// Upstream 83d5c543 (#1577): a queued snapshot can fail later; callers must observe the
+    /// failure and be able to retry that same revision.
+    #[test]
+    fn autosave_background_outcomes_report_failure_then_recovery() {
+        let root = temp("retry-failed-write");
+        std::fs::create_dir_all(&root).unwrap();
+        let blocked = root.join("recovery");
+        std::fs::write(&blocked, b"not a directory").unwrap();
+        let saver = Autosaver::new(&blocked, "doc");
+        let doc = small_doc("Retry");
+        saver.request_checked(doc.clone(), 7, None, SaveOptions::default()).unwrap();
+        let receive = |saver: &Autosaver| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while std::time::Instant::now() < deadline {
+                if let Some(outcome) = saver.take_completed().into_iter().next() {
+                    return outcome;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            panic!("autosave worker did not report its completed write within 30 seconds");
+        };
+        let (revision, result) = receive(&saver);
+        assert_eq!(revision, 7);
+        assert!(result.is_err(), "the recovery location is not a directory");
+        std::fs::remove_file(&blocked).unwrap();
+        std::fs::create_dir(&blocked).unwrap();
+        saver.request_checked(doc.clone(), 7, None, SaveOptions::default()).unwrap();
+        let (revision, result) = receive(&saver);
+        assert_eq!(revision, 7);
+        result.unwrap();
+        assert_eq!(list_recovery(&blocked).len(), 1);
+        assert_eq!(recover(&list_recovery(&blocked)[0]).unwrap(), *doc);
+        drop(saver);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Upstream c20b81b2 (#3489): bundles without a sidecar and other processes' stale temp
+    /// files are swept; complete entries, this process's temp files and unrelated files stay.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn autosave_sweep_removes_orphaned_bundles_and_foreign_temp_files_only() {
+        let dir = temp("sweep");
+        let doc = small_doc("Kept");
+        let saver = Autosaver::new(&dir, "kept");
+        saver.request(doc.clone(), 1, None, SaveOptions::default());
+        assert!(saver.flush().is_some_and(|r| r.is_ok()));
+        // A first autosave that crashed before its sidecar was written.
+        let orphan = dir.join("doc-crashed-1.pcraft");
+        std::fs::create_dir_all(orphan.join("tiles")).unwrap();
+        std::fs::write(orphan.join("tiles/abc.zst"), b"partial").unwrap();
+        // Stale temp files: another process's (swept) and this process's (kept, may be in flight).
+        let foreign = [dir.join(".kept.json.4294967294-3.pcsave.tmp"), dir.join("kept.pcraft/.manifest.json.4294967294-0.pcsave.tmp")];
+        let own = dir.join(format!(".kept.json.{}-9.pcsave.tmp", std::process::id()));
+        for p in foreign.iter().chain([&own]) {
+            std::fs::write(p, b"tmp").unwrap();
+        }
+        // Not ours to judge: unrelated files.
+        let other = dir.join("notes.txt");
+        std::fs::write(&other, b"user file").unwrap();
+        // Fresh data is never swept.
+        sweep_orphans(&dir, std::time::Duration::from_secs(3600));
+        assert!(orphan.is_dir() && foreign.iter().all(|p| p.is_file()));
+        sweep_orphans(&dir, std::time::Duration::ZERO);
+        assert!(!orphan.exists(), "a bundle without a sidecar is swept");
+        assert!(foreign.iter().all(|p| !p.exists()), "another process's temp files are swept");
+        assert!(own.is_file(), "this process's temp files are kept");
+        assert!(other.is_file());
+        let entries = list_recovery(&dir);
+        assert_eq!(entries.len(), 1, "the complete entry survives");
+        assert_eq!(recover(&entries[0]).unwrap(), *doc);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

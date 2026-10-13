@@ -3886,3 +3886,5 @@ ai	New	新着
 	Re-test	再テスト
 	testing…	テスト中…
 @id	path.finishCompound	複合パスを確定
+	Autosave failed	自動保存に失敗しました
+	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	クラッシュ復旧用に未保存の変更のコピーを保持できません。作業内容を保存してください。

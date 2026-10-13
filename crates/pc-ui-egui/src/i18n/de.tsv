@@ -3863,3 +3863,5 @@ ai	New	Neu
 	Cancel test	Test abbrechen
 	Re-test	Erneut testen
 	testing…	Test läuft…
+	Autosave failed	Automatisches Speichern fehlgeschlagen
+	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Die Absturzwiederherstellung kann keine Kopie Ihrer ungespeicherten Änderungen behalten. Speichern Sie Ihre Arbeit, um sie zu behalten.

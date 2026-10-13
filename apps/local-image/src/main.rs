@@ -32,6 +32,7 @@ mod cursor;
 mod desktop_install;
 mod develop_ai;
 mod doc_layers;
+mod file_dialog_probe;
 mod gpu_startup;
 mod library_host;
 #[cfg(target_os = "macos")]
@@ -332,6 +333,10 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             created_in_callback.store(true, std::sync::atomic::Ordering::Relaxed);
+            // File dialogs are children of this window, so the portal picker on Wayland isn't a
+            // stray top-level hidden behind a fullscreen window (upstream LightCraft 9c2bad1).
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+            photocraft_ui_egui::dialog_filter::set_dialog_parent(rfd::FileDialog::new().set_parent(cc));
             let automation = control.as_ref().map(|(_, _, workspace)| workspace.clone());
             let mut services = services::native(automation);
             services.preset_store = presets;
@@ -340,6 +345,8 @@ fn main() -> eframe::Result {
             #[cfg(target_os = "linux")]
             {
                 services.is_wayland = display == Some(tablet::DisplayKind::Wayland);
+                // Explains a file dialog that can't open (no portal, no zenity) instead of silence.
+                file_dialog_probe::start();
             }
             let mut app = PhotocraftApp::new(Session::new(), services);
             app.integrated_titlebar = cfg!(target_os = "macos");

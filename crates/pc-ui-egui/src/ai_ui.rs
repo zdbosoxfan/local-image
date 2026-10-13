@@ -461,7 +461,8 @@ thread_local! {
 /// The native file dialog for an `.onnx` model (tests inject the pick instead of opening it).
 #[cfg(not(test))]
 pub(crate) fn pick_onnx() -> Option<std::path::PathBuf> {
-    rfd::FileDialog::new().set_title(tl!("Choose an ONNX model")).add_filter(tl!("ONNX model"), &["onnx"]).pick_file()
+    use crate::dialog_filter::FileDialogExt as _;
+    crate::dialog_filter::file_dialog().set_title(tl!("Choose an ONNX model")).add_filter_nocase(tl!("ONNX model"), &["onnx"]).pick_file()
 }
 
 #[cfg(test)]
@@ -1505,7 +1506,7 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     }
                     #[cfg(not(target_arch = "wasm32"))]
                     if widgets::secondary_button(ui, tl!("Choose Folder…"), 0.0).clicked()
-                        && let Some(dir) = rfd::FileDialog::new().set_title(tl!("Choose your ComfyUI folder")).pick_folder()
+                        && let Some(dir) = crate::dialog_filter::file_dialog().set_title(tl!("Choose your ComfyUI folder")).pick_folder()
                     {
                         if li_ai::setup::installation(&dir, None).is_some() {
                             settings.comfy_directory = dir.display().to_string();
@@ -1556,7 +1557,7 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     ui.label(RichText::new(settings.model_dir().display().to_string()).color(t.text_dim));
                     #[cfg(not(target_arch = "wasm32"))]
                     if widgets::secondary_button(ui, tl!("Change…"), 0.0).clicked()
-                        && let Some(dir) = rfd::FileDialog::new().set_title(tl!("Choose the model folder")).pick_folder()
+                        && let Some(dir) = crate::dialog_filter::file_dialog().set_title(tl!("Choose the model folder")).pick_folder()
                     {
                         settings.model_directory = dir.display().to_string();
                     }

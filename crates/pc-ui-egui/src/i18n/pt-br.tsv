@@ -3893,3 +3893,5 @@ ai	New	Novos
 	Cancel test	Cancelar teste
 	Re-test	Testar novamente
 	testing…	testando…
+	Autosave failed	Falha no salvamento automático
+	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	A recuperação de falhas não consegue manter uma cópia das alterações não salvas. Salve seu trabalho para mantê-lo.
