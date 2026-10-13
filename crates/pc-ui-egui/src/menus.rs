@@ -8,6 +8,29 @@ use crate::state::DialogKind;
 /// Top-level menus in Photoshop order.
 pub const TOP_MENUS: [&str; 10] = ["File", "Edit", "Image", "Layer", "Type", "Select", "Filter", "View", "Window", "Help"];
 
+// Vector editing follows the familiar Object / Type / Select / Effect sequence.
+const VECTOR_TOP_MENUS: [&str; 12] = ["File", "Edit", "Object", "Type", "Select", "Effect", "Image", "Layer", "Filter", "View", "Window", "Help"];
+
+fn persona_menus(app: &PhotocraftApp) -> &'static [&'static str] {
+    if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector { &VECTOR_TOP_MENUS } else { &TOP_MENUS }
+}
+
+// Verified shell aliases: only the canonical ID has a visible menu location. Keep
+// these IDs live for saved shortcuts/automation, and show their effective shortcut
+// on the surviving row. The Type/Window pairs are the very same panel toggles;
+// the setup pairs call open_local_ai; both project links open links::GITHUB.
+const MENU_ALIASES: &[(&str, &str)] = &[
+    ("type.panels.character", "window.panel.character"),
+    ("type.panels.paragraph", "window.panel.paragraph"),
+    ("type.panels.glyphs", "window.panel.glyphs"),
+    ("type.panels.characterStyles", "window.panel.characterStyles"),
+    ("type.panels.paragraphStyles", "window.panel.paragraphStyles"),
+    ("li.aiModels", "li.localAi"),
+    ("edit.preferences.integrations", "li.localAi"),
+    ("help.website", "help.github"),
+    ("window.newWindowForDocument", "window.arrange.newWindowForDocument"),
+];
+
 /// UI-level commands (handled by the shell rather than the engine): id, label, menu, shortcut.
 pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("file.open", "Open…", &["File"], Some("Cmd+O")),
@@ -36,6 +59,9 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("view.togglePanels", "Hide Panels", &["View"], Some("Tab")),
     ("view.rotateView", "Rotate View", &["View"], None),
     ("view.resetRotation", "Reset View", &["View"], None),
+    ("ui.vector.view.vector", "Vector View", &[], None),
+    ("ui.vector.view.xray", "X-ray", &[], None),
+    ("ui.vector.view.pixels", "Pixel Preview", &[], None),
     ("view.rotation", "View angle", &[], None),
     ("view.show.targetPath", "Target Path", &["View", "Show"], Some("Cmd+Shift+H")),
     ("view.screenMode.cycle", "Cycle Screen Mode", &[], Some("F")),
@@ -45,7 +71,7 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("view.zoomOut", "Zoom Out", &["View"], Some("Cmd+-")),
     ("view.fitOnScreen", "Fit on Screen", &["View"], Some("Cmd+0")),
     ("view.actualPixels", "100%", &["View"], Some("Cmd+1")),
-    ("window.newWindowForDocument", "New Window for Document", &["Window", "Arrange"], None),
+    ("window.newWindowForDocument", "New Window for Document", &[], None),
     ("window.toggle.layers", "Layers", &["Window"], Some("F7")),
     ("window.toggle.history", "History", &["Window"], None),
     ("window.toggle.properties", "Properties", &["Window"], None),
@@ -61,11 +87,12 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("window.theme.studioLight", "Studio Light Theme", &["Window", "Theme"], None),
     ("window.theme.classic", "Classic Theme", &["Window", "Theme"], None),
     ("edit.search", "Search…", &["Edit"], None),
+    ("edit.preferences.integrations", "AI Integrations…", &[], None),
     // local-image: AI setup, and credit to the projects Local Image is built on.
-    ("li.aiModels", "AI Models & GPU…", &["Help"], None),
+    ("li.aiModels", "AI Models & GPU…", &[], None),
     ("help.website", "Local Image Website", &["Help"], None),
-    ("help.artcraftWebsite", "PhotoCraft and LightCraft (ArtCraft)", &["Help"], None),
     ("help.github", "Local Image on GitHub", &["Help"], None),
+    ("help.artcraftWebsite", "PhotoCraft and LightCraft (ArtCraft)", &["Help"], None),
     ("help.reportIssue", "Report an Issue…", &["Help"], None),
     ("help.systemInfo", "System Info…", &["Help"], None),
     ("help.about", "About Local Image", &["Help"], None),
@@ -123,6 +150,17 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Va
 
 /// [`invoke`] without the unsaved-changes prompt, for once the user has already answered it.
 pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    if let Some(mode) = match id {
+        "ui.vector.view.vector" => Some(crate::view_modes::Mode::Vector),
+        "ui.vector.view.xray" => Some(crate::view_modes::Mode::Xray),
+        "ui.vector.view.pixels" => Some(crate::view_modes::Mode::PixelPreview),
+        _ => None,
+    } {
+        let mut bridge = crate::isolation::bridge(ctx);
+        bridge.views.set_mode(mode);
+        crate::isolation::store_session(&mut app.session, ctx, bridge);
+        return Ok(Value::Null);
+    }
     if let Some(result) = crate::vector_integration::menu(app, ctx, id, &params) {
         return result;
     }
@@ -501,6 +539,9 @@ fn open_path(app: &mut PhotocraftApp, path: &str) -> Result<Value, String> {
 }
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
+    if crate::command_feedback::locked_edit(app, id) {
+        return false;
+    }
     if id == "select.deselect" && app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
         return app.session.active().is_some();
     }
@@ -508,7 +549,10 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         return app.session.active().is_some() && app.services.pick_save.is_some() && app.services.write.is_some();
     }
     if crate::vector_integration::handles(id) {
-        return app.session.active().is_some();
+        return crate::vector_integration::disabled_reason(app, id).is_none();
+    }
+    if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector && crate::vector_integration::disabled_reason(app, id).is_some() {
+        return false;
     }
     // Photoshop greys these for the Background layer, other layer kinds or single-layer documents.
     if crate::enable_rules::disabled(app, id) {
@@ -590,7 +634,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
 const MODE_CHECKS: [&str; 11] = ["rgb", "grayscale", "cmyk", "lab", "multichannel", "indexedColor", "bitmap", "duotone", "bits8", "bits16", "bits32"];
 
 /// Is a UI-level panel toggle currently on (for checkmarks)?
-fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
+pub(crate) fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     use photocraft_doc::{ColorMode, SampleType};
     if id == "window.panel.symbols" {
         return Some(
@@ -655,6 +699,19 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
             _ => None,
         };
     }
+    if id.starts_with("ui.vector.view.") || id == "vector.view.outline" {
+        let mode = photocraft_engine::vector_packages::isolation::authoritative_view(&app.session).unwrap_or_default().mode;
+        return Some(match id {
+            "ui.vector.view.vector" => mode == crate::view_modes::Mode::Vector,
+            "ui.vector.view.xray" => mode == crate::view_modes::Mode::Xray,
+            "ui.vector.view.pixels" => mode == crate::view_modes::Mode::PixelPreview,
+            "vector.view.outline" => mode == crate::view_modes::Mode::Outline,
+            _ => return None,
+        });
+    }
+    if id == "vector.snap.smartGuides" {
+        return Some(app.shared_tools.snapping.alignment);
+    }
     let e = &app.ui.extras;
     match id {
         "view.rulers" => return Some(e.rulers),
@@ -666,6 +723,10 @@ fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     }
     let p = &app.ui.panels;
     Some(match id {
+        "li.filmstrip" => crate::filmstrip_ui::is_open(),
+        "li.panel.generate" => p.generate,
+        "li.draftRefine" => app.draft_refine.open,
+        "li.browseModels" => crate::model_browser::is_open(),
         "window.toggle.layers" => p.layers,
         "window.toggle.history" => p.history,
         "window.toggle.properties" => p.properties,
@@ -777,7 +838,8 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
         });
     }
     for e in extra {
-        let dup = items.iter().any(|i| i.id == e.id || (i.path == e.path && i.label.trim_end_matches('…') == e.label.trim_end_matches('…')));
+        let dup =
+            items.iter().any(|i| i.id == e.id || (panel_alias(&i.id) == Some(e.id.as_str()) && i.label.trim_end_matches('…') == e.label.trim_end_matches('…')));
         if !dup {
             // Insert after the item it belongs next to, else after the last item of the same
             // top-level menu, keeping menus contiguous.
@@ -862,12 +924,27 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     }
     // Legacy export aliases remain invokable; Export As owns the visible format chooser.
     items.retain(|item| !matches!(item.id.as_str(), "ui.svg.export" | "ui.pdf.export" | "file.export.pdf"));
+    // Explicit, verified aliases only: keep every command ID invokable. Brushes opens
+    // presets, Brush Settings opens settings; the panel tabs are separate functions.
+    items.retain(|item| !item.path.is_empty() && !MENU_ALIASES.iter().any(|(alias, _)| *alias == item.id));
+    let mut seen = std::collections::HashSet::new();
+    items.retain(|item| item.id == "---" || seen.insert(item.id.clone()));
+    let tops = persona_menus(app);
+    items.sort_by_key(|item| {
+        let top = item.path.first().map(String::as_str).unwrap_or_default();
+        if top == "Help" { usize::MAX } else { tops.iter().position(|name| *name == top).unwrap_or(tops.len()) }
+    });
     // Edit › Keyboard Shortcuts overrides, Edit › Menus hidden items and colours.
     let prefs = app.session.prefs();
     let bindings = crate::shortcut_dispatch::binding_strings(app);
     for item in &mut items {
         if is_live(&item.id) {
-            item.shortcut = bindings.iter().find(|(id, _)| id == &item.id).map(|(_, key)| key.clone());
+            item.shortcut = bindings
+                .iter()
+                .filter(|(id, _)| id == &item.id || MENU_ALIASES.iter().any(|(alias, canonical)| *alias == id && *canonical == item.id))
+                // Prefer an explicit profile override, then the visible row's own binding.
+                .min_by_key(|(id, _)| (!prefs.shortcut_overrides(false).contains_key(id), id != &item.id))
+                .map(|(_, key)| key.clone());
         }
     }
     if !prefs.menus.hidden.is_empty() {
@@ -876,6 +953,11 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     if prefs.interface.show_menu_colors {
         for it in &mut items {
             it.color = prefs.menus.colors.get(&it.id).cloned();
+        }
+    }
+    for item in &mut items {
+        if !item.enabled && item.id != "---" {
+            item.tooltip = Some(crate::command_feedback::disabled_reason(app, &item.id));
         }
     }
     items
@@ -897,10 +979,22 @@ fn menu_tint(name: &str) -> Option<egui::Color32> {
 
 /// Draws the menu bar; returns the right edge of the last menu title (the bar itself fills the row).
 pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
+    menu_bar_with_width(app, ui, ui.available_width())
+}
+
+/// The host reserves room for its module/workspace/caption controls before drawing menus.
+pub(crate) fn menu_bar_with_width(app: &mut PhotocraftApp, ui: &mut egui::Ui, width: f32) -> f32 {
     // Built only while a menu is open: every item's enabled/checked state scales with the
     // document (layer lookups), which cost milliseconds per frame on large layouts (#125).
     let items: std::cell::OnceCell<Vec<MenuItem>> = std::cell::OnceCell::new();
     let app_ref: &PhotocraftApp = app;
+    let tops = persona_menus(app_ref);
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let padding = ui.spacing().item_spacing.y; // compact menu-bar inset, derived from theme
+    let full_width: f32 =
+        tops.iter().map(|top| ui.painter().layout_no_wrap(crate::i18n::t(top).into(), font.clone(), ui.visuals().text_color()).size().x + 2.0 * padding).sum();
+    let compact = full_width > width;
+    let titles: &[&str] = if compact { &["Menu"] } else { tops };
     let mut right = ui.cursor().left();
     let lang = crate::i18n::current();
     let mut clicked: Option<String> = None;
@@ -914,11 +1008,10 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
         v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, t.text_dim);
         v.widgets.hovered.bg_stroke = egui::Stroke::NONE;
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
+            ui.spacing_mut().button_padding.x = padding;
             nav.bar_bottom = Some(ui.max_rect().bottom());
-            let mut buttons = Vec::with_capacity(TOP_MENUS.len());
-            let vector = app_ref.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector;
-            for top in TOP_MENUS.into_iter().chain(vector.then_some("Object")).chain(vector.then_some("Effect")) {
+            let mut buttons = Vec::with_capacity(titles.len());
+            for &top in titles {
                 // egui's menu_button toggles on release; these titles open on the press (one
                 // gesture can press, drag to an item and release), so each drives its popup.
                 let title = ui.add(egui::Button::new(egui::RichText::new(crate::i18n::tr(lang, top)).color(t.text_dim)));
@@ -937,7 +1030,17 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
                     .style(config.style.clone())
                     .info(egui::UiStackInfo::new(egui::UiKind::Menu).with_tag_value(egui::containers::menu::MenuConfig::MENU_CONFIG_TAG, config))
                     .show(|ui| {
-                        let items = items.get_or_init(|| menu_items(app_ref));
+                        let items = items.get_or_init(|| {
+                            let mut items = menu_items(app_ref);
+                            // The same menu tree, scrolling and press-drag path handles overflow.
+                            if compact {
+                                items.retain(|item| item.path.first().is_some_and(|top| tops.contains(&top.as_str())));
+                                for item in &mut items {
+                                    item.path.insert(0, "Menu".into());
+                                }
+                            }
+                            items
+                        });
                         let mine: Vec<&MenuItem> = items.iter().filter(|i| i.path.first().map(String::as_str) == Some(top)).collect();
                         ui.set_min_width(220.0);
                         if mine.is_empty() {
@@ -946,7 +1049,7 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
                         if top == "Help" {
                             // The search field scrolls with the rows, as part of the menu's content.
                             crate::menu_nav::level(ui, 1, &mut nav, |ui, nav| {
-                                help_search(ui, items, &mut clicked, nav);
+                                help_search(ui, items, &mut clicked, nav, 1);
                                 render_level_rows(ui, &mine, 1, &mut clicked, nav);
                             });
                         } else {
@@ -958,10 +1061,27 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
             right = buttons.iter().map(|b| b.rect.right()).fold(right, f32::max);
             switch_on_hover(ui.ctx(), &buttons);
             let tops: Vec<egui::Id> = buttons.iter().map(egui::Popup::default_response_id).collect();
+            if crate::shortcuts::canvas_keyboard_available(ui.ctx())
+                && app_ref.ui.dialogs.is_empty()
+                && app_ref.camera_raw.is_none()
+                && !crate::restoration_ui::is_open(app_ref)
+                && !app_ref.develop_filter.prompting()
+                && !app_ref.draft_refine.open
+                && app_ref.distort.liquify.is_none()
+                && ui.input(|i| i.key_pressed(egui::Key::F10))
+                // Explicit profile bindings keep ownership of F10. Build bindings only on
+                // that key press, retaining the menu bar's cheap idle-frame path.
+                && !crate::shortcut_dispatch::binding_strings(app_ref).iter().any(|(_, key)| {
+                    crate::shortcuts::parse(key).is_some_and(|shortcut| crate::shortcuts::key_matches(&shortcut, egui::Key::F10, egui::Modifiers::NONE))
+                })
+                && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F10))
+                && let Some(first) = tops.first()
+            {
+                egui::Popup::open_id(ui.ctx(), *first);
+            }
             nav.keys(ui.ctx(), &tops, &mut clicked);
         });
     });
-    crate::vector_integration::menus(app, ui);
     nav.store(ui.ctx());
     // The press-drag gesture ends with the button (its release was handled by the rows above).
     if ui.input(|i| i.pointer.primary_released() || !i.pointer.primary_down()) {
@@ -971,7 +1091,7 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
         let ctx = ui.ctx().clone();
         let id = alt_click(id, ctx.input(|i| i.modifiers.alt));
         if let Err(e) = invoke(app, &ctx, &id, json!({})) {
-            app.ui.status = e;
+            crate::command_feedback::report(app, e);
         }
     }
     right
@@ -987,7 +1107,9 @@ fn press_gesture_id() -> egui::Id {
 fn title_press(ctx: &egui::Context, title: &egui::Response) -> Option<egui::SetOpenCommand> {
     // A press this frame on the title (still down, or a whole click within one frame).
     let pressed = ctx.input(|i| i.pointer.primary_pressed()) && (title.is_pointer_button_down_on() || title.clicked());
-    if !pressed {
+    let keyboard = title.has_focus()
+        && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter) || i.consume_key(egui::Modifiers::NONE, egui::Key::Space));
+    if !pressed && !keyboard {
         return None;
     }
     let open = egui::Popup::is_id_open(ctx, egui::Popup::default_response_id(title));
@@ -1076,7 +1198,7 @@ pub fn search_items<'a>(items: &'a [MenuItem], query: &str, lang: crate::i18n::L
 
 /// Help › Search : a field at the top of the Help menu that finds any menu command
 /// by name. Results show their menu path; click, ↓ then ↩, or ↩ in the field runs one.
-fn help_search(ui: &mut egui::Ui, items: &[MenuItem], clicked: &mut Option<String>, nav: &mut crate::menu_nav::Nav) {
+fn help_search(ui: &mut egui::Ui, items: &[MenuItem], clicked: &mut Option<String>, nav: &mut crate::menu_nav::Nav, depth: usize) {
     let ctx = ui.ctx().clone();
     let lang = crate::i18n::current();
     let text_id = egui::Id::new("help-menu-search");
@@ -1106,13 +1228,15 @@ fn help_search(ui: &mut egui::Ui, items: &[MenuItem], clicked: &mut Option<Strin
         for it in results {
             let mut trail: Vec<&str> = it.path.iter().map(|p| crate::i18n::tr(lang, p)).collect();
             trail.push(crate::i18n::tr_id(lang, &it.id, &it.label));
-            let mut b = egui::Button::new(trail.join(" › "));
+            let label = trail.join(" › ");
+            let mut b = crate::widgets::menu_row_button(ui, &label);
             if let Some(sc) = &it.shortcut {
                 b = b.shortcut_text(crate::shortcuts::pretty(sc));
             }
-            let hit = nav.row(ui, 0, it.enabled, Some(&it.id), |ui, _| {
+            let hit = nav.row(ui, depth - 1, it.enabled, Some(&it.id), |ui, _| {
                 let r = ui.add_enabled(it.enabled, b);
-                let r = if let Some(tip) = &it.tooltip { r.on_disabled_hover_text(tip).on_hover_text(tip) } else { r };
+                crate::widgets::menu_row_check(ui, &r, &label, it.checked);
+                let r = if let Some(tip) = &it.tooltip { crate::widgets::disabled_reason_tooltip(r, tip).on_hover_text(tip) } else { r };
                 let hit = r.clicked() || released_on(ui, &r);
                 (r, hit)
             });
@@ -1148,9 +1272,8 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
         let v = &mut ui.style_mut().visuals;
         v.widgets.hovered.weak_bg_fill = t.accent;
         v.widgets.hovered.bg_fill = t.accent;
-        v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
-        v.widgets.hovered.corner_radius = egui::CornerRadius::same(3);
-        ui.spacing_mut().button_padding = egui::vec2(10.0, 4.0);
+        v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, t.accent_text);
+        v.widgets.hovered.corner_radius = egui::CornerRadius::same(t.radius_sm as u8);
     }
     // Walk in Photoshop order: leaves and separators at this depth; a submenu appears at the position
     // of its first child.
@@ -1165,11 +1288,8 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
                 }
                 continue;
             }
-            let mut text = crate::i18n::tr_id(lang, &it.id, &it.label).to_string();
-            if let Some(c) = it.checked {
-                text = format!("{} {}", if c { "✔" } else { "  " }, text);
-            }
-            let mut b = egui::Button::new(text);
+            let text = crate::i18n::tr_id(lang, &it.id, &it.label);
+            let mut b = crate::widgets::menu_row_button(ui, text);
             if let Some(tint) = it.color.as_deref().and_then(menu_tint) {
                 b = b.fill(tint.gamma_multiply(0.55));
             }
@@ -1178,12 +1298,13 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
             }
             let hit = nav.row(ui, depth - 1, it.enabled, Some(&it.id), |ui, _| {
                 let r = ui.add_enabled(it.enabled, b);
+                crate::widgets::menu_row_check(ui, &r, text, it.checked);
                 let r = match it.id.as_str() {
                     "image.mode.bits8" | "image.mode.bits16" => r.on_hover_text(crate::i18n::tr(lang, "Integer")),
                     "image.mode.bits32" => r.on_hover_text(crate::i18n::tr(lang, "Floating point")),
                     _ => r,
                 };
-                let r = if let Some(tip) = &it.tooltip { r.on_disabled_hover_text(tip).on_hover_text(tip) } else { r };
+                let r = if let Some(tip) = &it.tooltip { crate::widgets::disabled_reason_tooltip(r, tip).on_hover_text(tip) } else { r };
                 let hit = r.clicked() || released_on(ui, &r);
                 (r, hit)
             });
@@ -1203,7 +1324,17 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
             let enabled = any_enabled || !child.is_empty();
             ui.add_enabled_ui(enabled, |ui| {
                 nav.row(ui, depth - 1, enabled, None, |ui, nav| {
-                    let r = ui.menu_button(crate::i18n::tr(lang, name), |ui| render_level(ui, &child, depth + 1, clicked, nav));
+                    let r = ui.menu_button(crate::widgets::menu_row_label(ui, crate::i18n::tr(lang, name)), |ui| {
+                        if name == "Help" && depth == 1 {
+                            crate::menu_nav::level(ui, depth + 1, nav, |ui, nav| {
+                                let search: Vec<MenuItem> = items.iter().map(|item| (*item).clone()).collect();
+                                help_search(ui, &search, clicked, nav, depth + 1);
+                                render_level_rows(ui, &child, depth + 1, clicked, nav);
+                            });
+                        } else {
+                            render_level(ui, &child, depth + 1, clicked, nav);
+                        }
+                    });
                     if r.inner.is_some() {
                         // Where the submenu hangs from, to keep it below the menu bar (#319).
                         nav.set_anchor(depth, r.response.rect);
@@ -1589,3 +1720,7 @@ mod open_recent_tests {
         let _ = std::fs::remove_file(&path);
     }
 }
+
+#[cfg(test)]
+#[path = "menus/conventions_tests.rs"]
+mod conventions_tests;

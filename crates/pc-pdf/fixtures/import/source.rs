@@ -90,3 +90,19 @@ pub fn image() -> Vec<u8> {
         )],
     )
 }
+
+/// Original lossless codec fixtures: 16×16 quadrant RGB and bi-level checker pixels.
+/// The reference pixels are defined analytically; neither fixture came from a PDF renderer.
+pub fn fallback_codec(jbig2: bool) -> Vec<u8> {
+    let (filter, space, bits, data): (&str, &str, u8, &[u8]) = if jbig2 {
+        ("JBIG2Decode", "DeviceGray", 1, include_bytes!("fallback-checker.jb2"))
+    } else {
+        ("JPXDecode", "DeviceRGB", 8, include_bytes!("fallback-quadrants.jp2"))
+    };
+    page(
+        "q 64 0 0 64 0 0 cm /I Do Q",
+        "/XObject << /I 5 0 R >>",
+        "",
+        &[stream(&format!("/Type /XObject /Subtype /Image /Width 16 /Height 16 /BitsPerComponent {bits} /ColorSpace /{space} /Filter /{filter}"), data)],
+    )
+}

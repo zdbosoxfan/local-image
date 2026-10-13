@@ -468,6 +468,9 @@ pub struct FillCache {
     pub surface: Surface,
 }
 
+// ARM alignment puts the Smart/Shape size gap just above Clippy's threshold. Keep this
+// public document API consistent across targets; avoid an Apple-only boxed variant.
+#[cfg_attr(target_arch = "aarch64", allow(clippy::large_enum_variant))]
 #[derive(Clone, Debug, PartialEq)]
 pub enum LayerContent {
     Raster(Surface),

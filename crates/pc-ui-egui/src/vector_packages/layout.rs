@@ -503,149 +503,162 @@ const ANCHORS: [&str; 9] = [
 ];
 /// English-source lookup matches existing catalog convention. Every string is in i18n/16.tsv.
 pub fn panel(ui: &mut Ui, state: &mut State, s: &mut Session, text: impl Fn(&str) -> String) -> Result<()> {
+    panel_section(ui, state, s, None, text)
+}
+
+pub fn panel_section(ui: &mut Ui, state: &mut State, s: &mut Session, section: Option<crate::dock::Tab>, text: impl Fn(&str) -> String) -> Result<()> {
     state.synchronize(s, true)?;
-    ui.horizontal(|ui| {
-        for (tool, label) in [
-            (Tool::None, "Transform"),
-            (Tool::Artboard, "Vector Artboard tool"),
-            (Tool::PointTransform, "Point Transform tool"),
-            (Tool::Crop, "Vector Crop tool"),
-        ] {
-            if ui.selectable_label(state.tool == tool, text(label)).clicked() {
-                state.switch(tool);
+    if section.is_none() || section == Some(crate::dock::Tab::Transform) {
+        ui.horizontal_wrapped(|ui| {
+            for (tool, label) in [
+                (Tool::None, "Transform"),
+                (Tool::Artboard, "Vector Artboard tool"),
+                (Tool::PointTransform, "Point Transform tool"),
+                (Tool::Crop, "Vector Crop tool"),
+            ] {
+                if ui.selectable_label(state.tool == tool, text(label)).clicked() {
+                    state.switch(tool);
+                }
             }
-        }
-    });
+        });
+    }
     let ids = selected(s);
     let editable = s.active().is_some_and(|st| engine::preflight(&st.doc, &ids).is_ok());
     let mut result = Ok(());
     ui.add_enabled_ui(editable, |ui| {
-        egui::Grid::new("layout anchors").show(ui, |ui| {
-            for (i, label) in ANCHORS.iter().enumerate() {
-                if ui.selectable_label(state.anchor == i, text(label)).clicked() {
-                    state.cancel();
-                    state.anchor = i;
-                    state.pivot = None;
+        if section.is_none() || section == Some(crate::dock::Tab::Transform) {
+            egui::Grid::new("layout anchors").show(ui, |ui| {
+                for (i, label) in ANCHORS.iter().enumerate() {
+                    if ui.selectable_label(state.anchor == i, text(label)).clicked() {
+                        state.cancel();
+                        state.anchor = i;
+                        state.pivot = None;
+                    }
+                    if i % 3 == 2 {
+                        ui.end_row();
+                    }
                 }
-                if i % 3 == 2 {
-                    ui.end_row();
-                }
+            });
+            if let Err(e) = state.synchronize(s, true) {
+                result = Err(e);
             }
-        });
-        if let Err(e) = state.synchronize(s, true) {
-            result = Err(e);
-        }
-        let mut changed = false;
-        let mut commit = false;
-        for (i, label) in ["X", "Y", "Width", "Height", "Rotation change (degrees)", "Shear change (degrees)"].iter().enumerate() {
-            ui.horizontal(|ui| {
-                let label = ui.label(text(label));
-                let response = ui
-                    .add(egui::DragValue::new(&mut state.values[i]).speed(0.1).range(if i == 5 {
+            let mut changed = false;
+            let mut commit = false;
+            for (i, label) in ["X", "Y", "Width", "Height", "Rotation change (degrees)", "Shear change (degrees)"].iter().enumerate() {
+                ui.horizontal_wrapped(|ui| {
+                    let label = ui.label(text(label));
+                    let range = if i == 5 {
                         -88.99..=88.99
                     } else if i == 2 || i == 3 {
                         math::MIN_SIZE..=math::LIMIT
                     } else {
                         -math::LIMIT..=math::LIMIT
-                    }))
-                    .labelled_by(label.id);
-                changed |= response.changed();
-                commit |= response.drag_stopped() || (response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)));
-            });
-        }
-        if changed {
-            result = state.panel_preview(s);
-        }
-        if commit && result.is_ok() {
-            result = state.panel_commit(s);
-        }
-        ui.horizontal(|ui| {
-            if ui.button(text("Apply transform")).clicked() {
+                    };
+                    let field_width = ui.spacing().interact_size.x * 3.0;
+                    let response = crate::widgets::value_field_with_precision(ui, &mut state.values[i], range, "", field_width, 2).labelled_by(label.id);
+                    changed |= response.changed();
+                    commit |= response.drag_stopped() || (response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)));
+                });
+            }
+            if changed {
+                result = state.panel_preview(s);
+            }
+            if commit && result.is_ok() {
                 result = state.panel_commit(s);
             }
-            if ui.button(text("Cancel transform")).clicked() {
-                state.cancel();
-            }
-        });
-        ui.separator();
-        ui.horizontal_wrapped(|ui| {
-            ui.label(text("Key object"));
-            if ui.selectable_label(state.key.is_none(), text("Selection bounds")).clicked() {
-                state.key = None;
-            }
-            if let Some(st) = s.active() {
-                for id in &ids {
-                    if let Some(l) = st.doc.layer(*id)
-                        && ui.selectable_label(state.key == Some(*id), &l.name).clicked()
-                    {
-                        state.key = Some(*id);
-                    }
+            ui.horizontal(|ui| {
+                if crate::widgets::secondary_button(ui, &text("Apply transform"), 0.0).clicked() {
+                    result = state.panel_commit(s);
                 }
-            }
-        });
-        ui.horizontal_wrapped(|ui| {
-            for (edge, label) in [
-                ("left", "Align left"),
-                ("centerX", "Align horizontal centers"),
-                ("right", "Align right"),
-                ("top", "Align top"),
-                ("centerY", "Align vertical centers"),
-                ("bottom", "Align bottom"),
-            ] {
-                if ui.button(text(label)).clicked() {
-                    result = run_layout(s, state, "vector.layout.align", json!({"edge":edge}));
+                if crate::widgets::secondary_button(ui, &text("Cancel transform"), 0.0).clicked() {
+                    state.cancel();
                 }
-            }
-        });
-        ui.checkbox(&mut state.automatic_spacing, text("Automatic spacing"));
-        ui.horizontal(|ui| {
-            let label = ui.label(text("Spacing"));
-            ui.add(egui::DragValue::new(&mut state.spacing).range(-math::LIMIT..=math::LIMIT)).labelled_by(label.id);
-            for (axis, label) in [("x", "Distribute horizontal spacing"), ("y", "Distribute vertical spacing")] {
-                if ui.button(text(label)).clicked() {
-                    let mut params = json!({"axis":axis});
-                    if !state.automatic_spacing {
-                        match s
-                            .active()
-                            .ok_or(EngineError::NoDocument)
-                            .and_then(|st| engine::to_pixels(state.spacing, st.doc.design_units, f64::from(st.doc.resolution_dpi)))
+            });
+        }
+        if section.is_none() || section == Some(crate::dock::Tab::Align) {
+            crate::widgets::hairline(ui);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(text("Key object"));
+                if ui.selectable_label(state.key.is_none(), text("Selection bounds")).clicked() {
+                    state.key = None;
+                }
+                if let Some(st) = s.active() {
+                    for id in &ids {
+                        if let Some(l) = st.doc.layer(*id)
+                            && ui.selectable_label(state.key == Some(*id), &l.name).clicked()
                         {
-                            Ok(gap) => params["spacing"] = json!(gap),
-                            Err(e) => {
-                                result = Err(e);
-                                continue;
-                            }
+                            state.key = Some(*id);
                         }
                     }
-                    result = run_layout(s, state, "vector.layout.spacing", params);
                 }
-            }
-        });
-        ui.separator();
-        let mut c = s.active().and_then(|st| ids.first().and_then(|id| st.doc.layer(*id))).and_then(|l| l.vector.constraints).unwrap_or_default();
-        let mut changed = false;
-        ui.horizontal_wrapped(|ui| {
-            for (label, value) in [
-                ("Pin left", &mut c.left),
-                ("Pin right", &mut c.right),
-                ("Pin top", &mut c.top),
-                ("Pin bottom", &mut c.bottom),
-                ("Fixed width", &mut c.fixed_width),
-                ("Fixed height", &mut c.fixed_height),
-            ] {
-                changed |= ui.checkbox(value, text(label)).changed();
-            }
-        });
-        if changed {
-            result = engine::Capture::begin(s, ids.clone())
-                .and_then(|capture| s.execute("vector.constraints.set", json!({"capture":capture,"constraints":c})).map(|_| ()));
-            state.cancel();
-        }
-        if ui.button(text("Clear vector crop")).clicked() {
-            result = engine::Capture::begin(s, ids.clone()).and_then(|capture| {
-                s.execute("vector.layout.apply", json!(engine::Commit { capture, operation: engine::Operation::Crop { rect: None } })).map(|_| ())
             });
-            state.cancel();
+            ui.horizontal_wrapped(|ui| {
+                for (edge, label) in [
+                    ("left", "Align left"),
+                    ("centerX", "Align horizontal centers"),
+                    ("right", "Align right"),
+                    ("top", "Align top"),
+                    ("centerY", "Align vertical centers"),
+                    ("bottom", "Align bottom"),
+                ] {
+                    if crate::widgets::secondary_button(ui, &text(label), 0.0).clicked() {
+                        result = run_layout(s, state, "vector.layout.align", json!({"edge":edge}));
+                    }
+                }
+            });
+            crate::widgets::checkbox(ui, &mut state.automatic_spacing, &text("Automatic spacing"));
+            ui.horizontal_wrapped(|ui| {
+                let label = ui.label(text("Spacing"));
+                let field_width = ui.spacing().interact_size.x * 3.0;
+                crate::widgets::value_field_with_precision(ui, &mut state.spacing, -math::LIMIT..=math::LIMIT, "", field_width, 2).labelled_by(label.id);
+                for (axis, label) in [("x", "Distribute horizontal spacing"), ("y", "Distribute vertical spacing")] {
+                    if crate::widgets::secondary_button(ui, &text(label), 0.0).clicked() {
+                        let mut params = json!({"axis":axis});
+                        if !state.automatic_spacing {
+                            match s
+                                .active()
+                                .ok_or(EngineError::NoDocument)
+                                .and_then(|st| engine::to_pixels(state.spacing, st.doc.design_units, f64::from(st.doc.resolution_dpi)))
+                            {
+                                Ok(gap) => params["spacing"] = json!(gap),
+                                Err(e) => {
+                                    result = Err(e);
+                                    continue;
+                                }
+                            }
+                        }
+                        result = run_layout(s, state, "vector.layout.spacing", params);
+                    }
+                }
+            });
+        }
+        if section.is_none() || section == Some(crate::dock::Tab::Layout) {
+            crate::widgets::hairline(ui);
+            let mut c = s.active().and_then(|st| ids.first().and_then(|id| st.doc.layer(*id))).and_then(|l| l.vector.constraints).unwrap_or_default();
+            let mut changed = false;
+            ui.horizontal_wrapped(|ui| {
+                for (label, value) in [
+                    ("Pin left", &mut c.left),
+                    ("Pin right", &mut c.right),
+                    ("Pin top", &mut c.top),
+                    ("Pin bottom", &mut c.bottom),
+                    ("Fixed width", &mut c.fixed_width),
+                    ("Fixed height", &mut c.fixed_height),
+                ] {
+                    changed |= crate::widgets::checkbox(ui, value, &text(label)).changed();
+                }
+            });
+            if changed {
+                result = engine::Capture::begin(s, ids.clone())
+                    .and_then(|capture| s.execute("vector.constraints.set", json!({"capture":capture,"constraints":c})).map(|_| ()));
+                state.cancel();
+            }
+            if crate::widgets::secondary_button(ui, &text("Clear vector crop"), 0.0).clicked() {
+                result = engine::Capture::begin(s, ids.clone()).and_then(|capture| {
+                    s.execute("vector.layout.apply", json!(engine::Commit { capture, operation: engine::Operation::Crop { rect: None } })).map(|_| ())
+                });
+                state.cancel();
+            }
         }
     });
     if ui.input(|i| i.key_pressed(Key::Escape)) {

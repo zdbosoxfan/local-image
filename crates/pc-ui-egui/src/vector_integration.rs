@@ -23,6 +23,7 @@ pub struct State {
     ase: Option<std::sync::mpsc::Receiver<AseResult>>,
     owned_preview: Option<(u64, u64, Arc<Document>)>,
     owner: Option<(Tool, Persona, crate::Module)>,
+    // Derived compatibility view for the Window menu; membership is owned by DockLayout.
     windows: std::collections::BTreeSet<String>,
     swatches: crate::swatches_doc::State,
     recolor: crate::recolor::State,
@@ -44,8 +45,7 @@ pub(crate) fn retain_documents(app: &mut PhotocraftApp) {
     }
 }
 fn report(app: &mut PhotocraftApp, result: impl ToString) {
-    app.ui.status = result.to_string();
-    app.ui.status_error = true;
+    crate::command_feedback::report(app, result.to_string());
 }
 pub fn cancel(app: &mut PhotocraftApp) {
     let mut shared = std::mem::take(&mut app.shared_tools);
@@ -1059,18 +1059,21 @@ pub(crate) fn open_panels_for_test(app: &PhotocraftApp) -> &std::collections::BT
 }
 
 pub fn set_panel_open(app: &mut PhotocraftApp, name: &str, open: bool) {
+    let Some(tab) = crate::dock::Tab::from_label(name).filter(|tab| tab.vector_panel() || *tab == crate::dock::Tab::Symbols) else { return };
     if open {
-        app.vector_runtime.windows.insert(name.into());
-    } else {
-        app.vector_runtime.windows.remove(name);
+        crate::dock::reveal_feature(app, tab);
+    } else if !app.ui.dock.hidden_tabs.contains(&tab) {
+        app.ui.dock.hidden_tabs.push(tab);
     }
+    sync_panel_checks(app);
 }
 fn open_panel(app: &mut PhotocraftApp, name: &str) {
     set_panel_open(app, name, true);
 }
 pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, _params: &serde_json::Value) -> Option<Result<serde_json::Value, String>> {
     if let Some(name) = id.strip_prefix("window.vector.") {
-        open_panel(app, name);
+        let visible = crate::dock::Tab::from_label(name).is_some_and(|tab| crate::dock::feature_visible(app, tab));
+        set_panel_open(app, name, !visible);
         return Some(Ok(serde_json::json!({"handled":true})));
     }
     let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
@@ -1190,7 +1193,7 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, _params: &se
     }
     let result = match id {
         "ui.vector.layout" => {
-            app.shared_tools.layout.open = true;
+            open_panel(app, "Transform");
             Ok(())
         }
         "ui.vector.blend" => {
@@ -1321,50 +1324,57 @@ pub(crate) fn keyboard_preset(ui: &mut egui::Ui, preset: &mut photocraft_engine:
     changed
 }
 
-fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    let names: Vec<_> = if app.ui.view.panels_visible() { app.vector_runtime.windows.iter().cloned().collect() } else { Vec::new() };
-    for name in names {
-        let mut open = true;
-        egui::Window::new(crate::i18n::t(&name)).id(egui::Id::new(("vector-panel", &name))).open(&mut open).show(ctx, |ui| {
-            let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
-            match name.as_str() {
-                "Appearance" => {
-                    let mut state = std::mem::take(&mut app.shared_tools.paint);
-                    if let Err(e) = crate::vector_packages::appearance::panel(ui, &mut state, &mut app.session, &ids) {
-                        report(app, e);
-                    }
-                    app.shared_tools.paint = state;
-                    crate::path_effects::app_hooks::panel(app, ui);
-                }
-                "SVG Import" => crate::vector_packages::svg_import::controls(ui, &mut app.svg_import, &mut app.session),
-                "Affinity Import" => crate::vector_packages::affinity::controls(ui, &mut app.affinity_import, &mut app.session),
-                "Document Palette" => palette(app, ui),
-                "Graphic Styles" => crate::graphic_styles::panel(app, ui),
-                "Frame Composition" => {
-                    if let Err(e) = crate::frame_compose::panel(ui, &mut app.ui.frame_compose, &mut app.session, &crate::frame_compose::NativeMetadata) {
-                        report(app, e);
-                    }
-                }
-                "Mesh" => {
-                    if let Err(e) =
-                        app.mesh_state.context_bar(ui, &mut app.session, &ids).and_then(|_| app.mesh_state.point_controls(ui, &mut app.session, &[]))
-                    {
-                        report(app, e);
-                    }
-                }
-                "Snapping Manager" => {
-                    let mut manager = crate::vector_packages::snapping::Manager { settings: app.shared_tools.snapping.clone() };
-                    crate::vector_packages::snapping::manager(ui, &mut manager, |s| crate::i18n::t(s).into());
-                    app.shared_tools.snapping = manager.settings.clone();
-                    app.ui.vector_snapping = manager.settings;
-                }
-                _ => {}
+fn sync_panel_checks(app: &mut PhotocraftApp) {
+    app.vector_runtime.windows = crate::dock::Tab::ALL
+        .into_iter()
+        .filter(|tab| tab.vector_panel() && crate::dock::feature_visible(app, *tab))
+        .map(|tab| tab.label().to_owned())
+        .collect();
+}
+
+/// Same content and detached preview lifecycle, whether docked or torn off.
+pub(crate) fn dock_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate::dock::Tab) {
+    let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
+    match tab.label() {
+        "Appearance" => {
+            let mut state = std::mem::take(&mut app.shared_tools.paint);
+            if let Err(e) = crate::vector_packages::appearance::panel(ui, &mut state, &mut app.session, &ids) {
+                report(app, e);
             }
-        });
-        if !open {
-            app.vector_runtime.windows.remove(&name);
+            app.shared_tools.paint = state;
+            crate::path_effects::app_hooks::panel(app, ui);
         }
+        "SVG Import" => crate::vector_packages::svg_import::controls(ui, &mut app.svg_import, &mut app.session),
+        "Affinity Import" => crate::vector_packages::affinity::controls(ui, &mut app.affinity_import, &mut app.session),
+        "Document Palette" => palette(app, ui),
+        "Graphic Styles" => crate::graphic_styles::panel(app, ui),
+        "Frame Composition" => {
+            if let Err(e) = crate::frame_compose::panel(ui, &mut app.ui.frame_compose, &mut app.session, &crate::frame_compose::NativeMetadata) {
+                report(app, e);
+            }
+        }
+        "Mesh" => {
+            if let Err(e) = app.mesh_state.context_bar(ui, &mut app.session, &ids).and_then(|_| app.mesh_state.point_controls(ui, &mut app.session, &[])) {
+                report(app, e);
+            }
+        }
+        "Snapping Manager" => {
+            let mut manager = crate::vector_packages::snapping::Manager { settings: app.shared_tools.snapping.clone() };
+            crate::vector_packages::snapping::manager(ui, &mut manager, |s| crate::i18n::t(s).into());
+            app.shared_tools.snapping = manager.settings.clone();
+            app.ui.vector_snapping = manager.settings;
+        }
+        "Transform" | "Align" | "Layout" => crate::vector_packages::layout_app_hooks::dock_panel(app, ui, tab),
+        "Pathfinder" => {
+            ui.horizontal_wrapped(|ui| crate::toolsets_ui::persona::geometry_bar(app, ui));
+        }
+        "Brushes" => crate::vector_brush::context_bar(ui, &mut app.vector_brush),
+        _ => {}
     }
+}
+
+fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    sync_panel_checks(app);
     crate::vector_packages::svg_export::frame(app, ctx);
     let mut recolor = std::mem::take(&mut app.vector_runtime.recolor);
     match photocraft_engine::vector_packages::colours::access().and_then(|access| crate::recolor::dialog(ctx, &app.session, access, &mut recolor)) {
@@ -1383,6 +1393,160 @@ fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 /// Shared menu/catalog entries, with captured feature adapters above.
+/// Move's Auto-Select uses vector geometry/scope, including empty raster caches.
+/// The resulting object selection is the same engine path as Select and vector tools.
+pub(crate) fn pick_object(app: &mut PhotocraftApp, point: [f64; 2], add: bool, group: bool) {
+    use photocraft_engine::vector_packages::selection::{self as engine, Mode, Query, Request};
+    let result = (|| {
+        let st = app.session.active().ok_or(photocraft_engine::EngineError::NoDocument)?;
+        let scope = engine::session_scope(&app.session)?;
+        let hit = engine::hit(&st.doc, &scope, point, 6. / f64::from(app.current_zoom()).max(0.01), engine::installed_readers())?;
+        let query = match hit {
+            Some(leaf) if group => Query::Group { leaf, previous: None },
+            Some(id) => Query::Reselect { ids: vec![id] },
+            None => Query::Deselect,
+        };
+        let request = Request { document: st.doc.id, revision: st.revision, scope, mode: if add { Mode::Add } else { Mode::Replace }, query };
+        let preview = engine::preview(&st.doc, st.revision, &st.selected_layers(), &request, engine::installed_readers())?;
+        engine::apply(&mut app.session, &preview)
+    })();
+    if let Err(e) = result {
+        report(app, e);
+    }
+}
+
+/// Preconditions shared by Object main-menu rows and the canvas object menu.
+/// Query-only: disabled clicks never call a command or create a preview.
+pub fn disabled_reason(app: &PhotocraftApp, id: &str) -> Option<String> {
+    use photocraft_engine::vector_packages::{clip_compound, transform_tools};
+    let vector_layer_action = app.session.prefs().toolbar.persona == Persona::Vector
+        && (matches!(id, "layer.groupLayers" | "layer.ungroupLayers" | "type.convertToShape") || id.starts_with("layer.arrange."));
+    if !handles(id) && !vector_layer_action {
+        return None;
+    }
+    let st = match app.session.active() {
+        Some(st) => st,
+        None => return Some(tl!("Open a photo first.").into()),
+    };
+    let object = id.starts_with("ui.vector.transform.")
+        || id.starts_with("ui.vector.path.")
+        || id.starts_with("ui.vector.effect.")
+        || id.starts_with("vector.object.")
+        || id.starts_with("object.clippingMask.")
+        || id.starts_with("object.compoundPath.")
+        || matches!(id, "object.path.join" | "vector.transform.again")
+        || (app.session.prefs().toolbar.persona == Persona::Vector
+            && (matches!(id, "layer.groupLayers" | "layer.ungroupLayers" | "type.convertToShape") || id.starts_with("layer.arrange.")));
+    if object && app.session.prefs().toolbar.persona != Persona::Vector {
+        return Some(tl!("Switch to the Vector persona first.").into());
+    }
+    let ids = st.selected_layers();
+    if matches!(id, "layer.vectorize" | "ui.vectorize") {
+        return app.session.disabled_reason("layer.vectorize").map(|raw| crate::command_feedback::message(&raw));
+    }
+    if matches!(id, "ui.pdf.export" | "file.export.pdf") && (app.services.pick_save.is_none() || app.services.write.is_none()) {
+        return Some(tl!("Saving is unavailable in this session.").into());
+    }
+    if object && ids.is_empty() {
+        return Some(tl!("Select a vector object first.").into());
+    }
+    if object
+        && ids.iter().any(|id| {
+            let locks = st.doc.effective_locks(*id);
+            locks.all || locks.pixels || locks.position
+        })
+    {
+        return Some(tl!("This layer is locked.").into());
+    }
+    if id.starts_with("ui.vector.path.") || id == "object.path.join" {
+        if !matches!(id, "ui.vector.path.cleanup" | "ui.vector.path.expand" | "ui.vector.path.expandAppearance")
+            && !ids.iter().all(|id| st.doc.layer(*id).is_some_and(|l| matches!(l.content, LayerContent::Shape(_))))
+        {
+            return Some(tl!("Select a shape first.").into());
+        }
+        if let Err(e) = photocraft_engine::vector_packages::path_commands::Capture::begin(&app.session, &ids) {
+            return Some(crate::command_feedback::message(&e.to_string()));
+        }
+    }
+    if matches!(id, "ui.vector.path.expand" | "ui.vector.path.expandAppearance") {
+        use photocraft_engine::vector_packages::{expand, path_commands};
+        return match path_commands::Capture::begin(&app.session, &ids) {
+            Ok(capture) => {
+                expand::disabled_reason(&app.session, &expand::Request { capture, options: Default::default(), appearance: id.ends_with("expandAppearance") })
+            }
+            Err(e) => Some(crate::command_feedback::message(&e.to_string())),
+        };
+    }
+    if id.starts_with("ui.vector.effect.")
+        && !ids.iter().all(|id| st.doc.layer(*id).is_some_and(|l| matches!(l.content, LayerContent::Shape(_) | LayerContent::Text(_))))
+    {
+        return Some(tl!("Select a shape or text object first.").into());
+    }
+    if id.starts_with("ui.vector.transform.") {
+        return transform_tools::preflight(&st.doc, &ids).err().map(|e| crate::command_feedback::message(&e.to_string()));
+    }
+    if id == "vector.transform.again" {
+        return transform_tools::again_request(&app.session, &ids).err().map(|e| crate::command_feedback::message(&e.to_string()));
+    }
+    if id.starts_with("object.clippingMask.") || id.starts_with("object.compoundPath.") {
+        if let Err(e) = clip_compound::Capture::selected(&app.session) {
+            return Some(crate::command_feedback::message(&e.to_string()));
+        }
+        let layer = ids.first().and_then(|id| st.doc.layer(*id));
+        let why = match id {
+            "object.clippingMask.make" if ids.len() < 2 => Some(tl!("Select a clipping path and at least one content object.")),
+            "object.clippingMask.make"
+                if !ids.last().and_then(|id| st.doc.layer(*id)).is_some_and(|l| matches!(l.content, LayerContent::Shape(_) | LayerContent::Text(_))) =>
+            {
+                Some(tl!("Select a shape or text object above the objects to clip."))
+            }
+            "object.clippingMask.release" if ids.len() != 1 || !ids.first().is_some_and(|id| clip_compound::clip_parent(&st.doc, *id).is_some()) => {
+                Some(tl!("Select a clipping group first."))
+            }
+            "object.compoundPath.make"
+                if ids.len() < 2 || !ids.iter().all(|id| st.doc.layer(*id).is_some_and(|l| matches!(l.content, LayerContent::Shape(_)))) =>
+            {
+                Some(tl!("Select shapes to make a compound path."))
+            }
+            "object.compoundPath.release"
+                if ids.len() != 1
+                    || !layer.is_some_and(|l| matches!(&l.content, LayerContent::Shape(sh) if sh.path.subpaths.len() >= 2 && !sh.path.inverted)) =>
+            {
+                Some(tl!("Select a compound path first."))
+            }
+            _ => None,
+        };
+        if let Some(why) = why {
+            return Some(why.into());
+        }
+        if id.ends_with(".make") {
+            let paths: Vec<_> = ids.iter().filter_map(|id| st.doc.path_of(*id)).collect();
+            if paths.first().is_some_and(|first| paths.iter().any(|p| p[..p.len() - 1] != first[..first.len() - 1])) {
+                return Some(tl!("Select objects in the same group first.").into());
+            }
+        }
+    }
+    if id.starts_with("vector.object.")
+        && !ids.iter().all(|id| {
+            st.doc
+                .layer(*id)
+                .is_some_and(|l| matches!(l.content, LayerContent::Shape(_) | LayerContent::Text(_) | LayerContent::Group(_) | LayerContent::Symbol(_)))
+        })
+    {
+        return Some(tl!("Select a vector object first.").into());
+    }
+    if id == "object.path.join"
+        && !ids.iter().any(|id| {
+            st.doc
+                .layer(*id)
+                .is_some_and(|l| matches!(&l.content, LayerContent::Shape(sh) if sh.path.subpaths.iter().any(|sp| !sp.closed && sp.knots.len() >= 2)))
+        })
+    {
+        return Some(tl!("Select an open path first.").into());
+    }
+    None
+}
+
 pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
     let mut rows: Vec<(&str, &str, Vec<&str>)> = vec![
         ("path.outlineStroke", "Outline Stroke", vec!["Layer", "Geometry"]),
@@ -1406,11 +1570,16 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
         ("vector.transform.again", "Transform Again", vec!["Object", "Transform"]),
         ("vector.object.lock", "Lock Objects", vec!["Object"]),
         ("vector.object.hide", "Hide Objects", vec!["Object"]),
+        ("vector.object.unlockAll", "Unlock All", vec!["Object"]),
+        ("vector.object.showAll", "Show All", vec!["Object"]),
         ("object.clippingMask.make", "Make Clipping Mask", vec!["Object", "Clipping Mask"]),
         ("object.clippingMask.release", "Release Clipping Mask", vec!["Object", "Clipping Mask"]),
         ("object.compoundPath.make", "Make Compound Path", vec!["Object", "Compound Path"]),
         ("object.compoundPath.release", "Release Compound Path", vec!["Object", "Compound Path"]),
+        ("ui.vector.view.vector", "Vector View", vec!["View"]),
         ("vector.view.outline", "Outline", vec!["View"]),
+        ("ui.vector.view.xray", "X-ray", vec!["View"]),
+        ("ui.vector.view.pixels", "Pixel Preview", vec!["View"]),
         ("vector.snap.smartGuides", "Smart Guides", vec!["View"]),
         ("ui.vector.select.all", "All Vector Objects", vec!["Select"]),
         ("ui.vector.select.none", "Deselect Vector Objects", vec!["Select"]),
@@ -1422,26 +1591,43 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
     let vector = app.session.prefs().toolbar.persona == Persona::Vector;
     rows.retain(|(_, _, path)| vector || matches!(path[0], "File" | "Layer" | "Window"));
     let item = |id: String, label: String, path: Vec<String>| crate::menus::MenuItem {
+        checked: if let Some(name) = id.strip_prefix("window.vector.") {
+            Some(app.vector_runtime.windows.contains(name))
+        } else {
+            crate::menus::checked(app, &id)
+        },
+        enabled: disabled_reason(app, &id).is_none(),
+        tooltip: disabled_reason(app, &id),
         id,
         label,
         path,
         shortcut: None,
-        enabled: app.session.active().is_some(),
-        checked: None,
         color: None,
-        tooltip: None,
     };
     let mut out: Vec<_> = rows
         .into_iter()
         .map(|(id, label, path)| {
             let mut row = item(id.into(), label.into(), path.into_iter().map(Into::into).collect());
+            if matches!(id, "vector.object.unlockAll" | "vector.object.showAll") {
+                row.enabled = app.session.is_enabled(id);
+                row.shortcut = crate::shortcut_dispatch::binding_strings(app).into_iter().find(|(command, _)| command == id).map(|(_, key)| key);
+                if !row.enabled && row.tooltip.is_none() {
+                    // Every disabled row explains itself (U029).
+                    row.tooltip = Some(match app.session.disabled_reason(id) {
+                        Some(raw) => crate::command_feedback::message(&raw),
+                        None if app.session.active().is_none() => tl!("Open a photo first.").into(),
+                        None if id == "vector.object.unlockAll" => tl!("Nothing in this document is locked.").into(),
+                        None => tl!("Nothing in this document is hidden.").into(),
+                    });
+                }
+            }
             if matches!(id, "ui.pdf.export" | "file.export.pdf") {
                 row.enabled &= app.services.pick_save.is_some() && app.services.write.is_some();
             }
             row
         })
         .collect();
-    for name in ["Appearance", "Graphic Styles", "Frame Composition", "Mesh", "Snapping Manager", "Document Palette", "SVG Import", "Affinity Import"] {
+    for name in ["Appearance", "Graphic Styles", "Frame Composition", "Mesh", "Snapping Manager", "Document Palette"] {
         out.push(item(format!("window.vector.{name}"), name.into(), vec!["Window".into()]));
     }
     if vector {
@@ -1482,6 +1668,8 @@ pub fn handles(id: &str) -> bool {
         || matches!(id, "object.pasteFront" | "object.pasteBack")
         || id.starts_with("ui.vector.")
         || id.starts_with("window.vector.")
+        || id.starts_with("object.clippingMask.")
+        || id.starts_with("object.compoundPath.")
         || matches!(
             id,
             "object.path.join"

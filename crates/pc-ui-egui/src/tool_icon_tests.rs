@@ -37,21 +37,13 @@ fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() 
         used.insert(name);
     }
     used.extend(["edit-toolbar", "quick-mask"]);
-    used.extend(crate::vector_tool_icon_data::ICONS.iter().map(|(_, name, _, _)| *name));
+    used.extend(crate::vector_tool_icon_data::ICONS.iter().map(|(_, name, _)| *name));
     used.extend(color_icon_data::DEVELOP_TOOL_ICONS.iter().map(|(_, name)| *name));
-    for (name, _) in color_icon_data::COLOR_ICONS {
-        assert!(used.contains(name), "unused colour icon: {name}");
+    // Colour mode tints the monochrome artwork: one family row per icon, no separate colour files.
+    for (name, _) in color_icon_data::TOOL_FAMILIES {
+        assert!(used.contains(name), "unused tool icon: {name}");
     }
-    let disk: HashSet<_> = std::fs::read_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/icons/color"))
-        .unwrap()
-        .map(|e| e.unwrap().path().file_stem().unwrap().to_str().unwrap().to_owned())
-        .collect();
-    let embedded: HashSet<_> = color_icon_data::COLOR_ICONS
-        .iter()
-        .map(|(n, _)| n.to_string())
-        .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, n, _, _)| n.to_string()))
-        .collect();
-    assert_eq!(disk, embedded, "every SVG must be embedded");
+    assert!(!std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/icons/color").exists(), "retired colour artwork is back");
     let mono_disk: HashSet<_> = std::fs::read_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/icons/tools"))
         .unwrap()
         .map(|e| e.unwrap().path().file_stem().unwrap().to_str().unwrap().to_owned())
@@ -59,9 +51,10 @@ fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() 
     let mono_embedded: HashSet<_> = crate::tool_icon_data::TOOL_ICONS
         .iter()
         .map(|(n, _)| n.to_string())
-        .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, n, _, _)| n.to_string()))
+        .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, n, _)| n.to_string()))
         .collect();
-    assert_eq!(mono_disk, embedded, "every colour icon has matching monochrome artwork");
+    let families: HashSet<_> = color_icon_data::TOOL_FAMILIES.iter().map(|(n, _)| n.to_string()).collect();
+    assert_eq!(mono_disk, families, "every tool icon has exactly one colour family");
     assert_eq!(mono_disk, mono_embedded, "every monochrome SVG is embedded");
 }
 
@@ -88,17 +81,19 @@ fn formerly_shared_glyphs_have_distinct_rendered_silhouettes() {
 }
 
 #[test]
-fn dodge_tool_icon_has_a_solid_paddle_head_in_both_styles() {
+fn dodge_tool_icon_has_the_lollipop_swirl_in_both_styles() {
     let _gpu_gate = crate::gpu_test_support::lock();
+    // Dodge is Photoshop's lollipop (a round paddle with a swirl), never a magnifier: the swirl's lower
+    // turn at (13, 13) is inked in both styles, where the Zoom magnifier's plus leaves a gap.
     for size in [16, 20, 40] {
-        let center = ((1.5 + 8.0 * 0.875) * f64::from(size) / 24.0).floor() as usize;
+        let at = |image: &egui::ColorImage| {
+            let c = (13.0 * f64::from(size) / 24.0).floor() as usize;
+            image.pixels[c * size as usize + c].a()
+        };
         for image in [color_icons::raster("dodge", size, false).unwrap(), crate::mono_tool_icons::raster("dodge", size).unwrap()] {
-            for y in center - 1..=center + 1 {
-                for x in center - 1..=center + 1 {
-                    assert_eq!(image.pixels[y * size as usize + x].a(), 255, "Dodge must have a filled paddle head at {size}px");
-                }
-            }
+            assert!(at(&image) > 128, "Dodge must show its swirl at {size}px");
         }
+        assert!(at(&crate::mono_tool_icons::raster("zoom-in", size).unwrap()) < 128, "Zoom must stay distinct at {size}px");
     }
 }
 
@@ -182,7 +177,10 @@ fn clicking_preferences_switches_the_real_toolbar_pixels_and_saves() {
     app.session.prefs.edit(|p| {
         p.interface.theme = photocraft_engine::prefs::Theme::Studio;
         p.interface.language = "en".into();
+        // Start in Colour; the fresh default is Monochrome (asserted below).
+        p.interface.tool_icons = "colour".into();
     });
+    assert_eq!(photocraft_engine::prefs::Preferences::default().interface.tool_icons, "monochrome");
     let mut h = Harness::builder().with_size(vec2(1280.0, 1000.0)).build_eframe(move |cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, crate::theme::ThemeKind::Studio);
         app
@@ -198,9 +196,9 @@ fn clicking_preferences_switches_the_real_toolbar_pixels_and_saves() {
     let dialog = crate::menus::invoke(h.state_mut(), &ctx, "edit.preferences.interface", json!({})).unwrap()["dialog"].as_u64().unwrap();
     h.state_mut().ui.dialog_mut(dialog).unwrap().fields.insert("section".into(), json!("interface"));
     h.run_steps(3);
-    h.get_by_value("Colour (default)").click();
+    h.get_by_value("Colour").click();
     h.run_steps(2);
-    h.get_by_label("Monochrome").click();
+    h.get_by_label("Monochrome (default)").click();
     h.run_steps(2);
     h.get_by_label("Apply").click();
     h.run_steps(3);
@@ -211,9 +209,9 @@ fn clicking_preferences_switches_the_real_toolbar_pixels_and_saves() {
     let mut restored = photocraft_engine::Session::new();
     restored.load_prefs_json(&h.state().session.prefs_to_json()).unwrap();
     assert_eq!(restored.prefs().interface.tool_icons, "monochrome");
-    h.get_by_value("Monochrome").click();
+    h.get_by_value("Monochrome (default)").click();
     h.run_steps(2);
-    h.get_by_label("Colour (default)").click();
+    h.get_by_label("Colour").click();
     h.run_steps(2);
     h.get_by_label("OK").click();
     h.run_steps(3);
@@ -258,7 +256,7 @@ fn gpu_tool_icons_upload_and_switch_styles_on_hardware() {
                     }
                     // A 32 px button paints a 20 px glyph: 20/40 physical px at these scales.
                     egui::Grid::new("all-tool-artwork").show(ui, |ui| {
-                        for (i, (name, _)) in color_icon_data::COLOR_ICONS.iter().enumerate() {
+                        for (i, (name, _)) in color_icon_data::TOOL_FAMILIES.iter().enumerate() {
                             if icons::tool_button(ui, name, 32.0, false, name).clicked() {
                                 *clicked = true;
                             }
@@ -351,7 +349,7 @@ fn hardware_gpu_renders_compositing_and_develop_colour_icons_at_both_scales() {
                 rects.clear();
                 // These are the same embedded SVGs, rasterizer and texture cache used by both
                 // Compositing and Develop. Exercise every enabled and disabled texture upload.
-                for row in color_icon_data::COLOR_ICONS.chunks(10) {
+                for row in color_icon_data::TOOL_FAMILIES.chunks(10) {
                     ui.horizontal(|ui| {
                         for (name, _) in row {
                             let enabled = ui.add(color_icons::image(ui, name, 20.0, false).unwrap()).rect;
@@ -377,8 +375,8 @@ fn hardware_gpu_renders_compositing_and_develop_colour_icons_at_both_scales() {
             }
             (visible, saturated)
         };
-        assert_eq!(h.state().len(), color_icon_data::COLOR_ICONS.len());
-        for ((name, _), (enabled, disabled)) in color_icon_data::COLOR_ICONS.iter().zip(h.state()) {
+        assert_eq!(h.state().len(), color_icon_data::TOOL_FAMILIES.len());
+        for ((name, _), (enabled, disabled)) in color_icon_data::TOOL_FAMILIES.iter().zip(h.state()) {
             assert!(counts(*enabled).0 > 10, "{name} vanished on the GPU at scale {scale}");
             assert_eq!(counts(*disabled).1, 0, "{name} disabled texture retained colour");
         }
@@ -391,39 +389,31 @@ fn hardware_gpu_renders_compositing_and_develop_colour_icons_at_both_scales() {
 }
 
 #[test]
-fn approved_tool_icons_are_restored_exactly_and_source_replacements_have_filled_faces() {
-    let approved: serde_json::Value = serde_json::from_str(include_str!("../../../docs/design/tool-icons-pre-sourced.json")).unwrap();
-    let approved_mono: serde_json::Value = serde_json::from_str(include_str!("../../../docs/design/tool-icons-approved-mono.json")).unwrap();
+fn tool_icons_are_the_pinned_line_set_with_recorded_provenance() {
+    // Owner decision 2026-10-13: Lucide 0.468.0 base, PhotoCraft/VectorCraft originals, Tabler fallback,
+    // Local Image originals only where nothing exists. `cargo xtask icons` checks the hashes.
     let manifest: serde_json::Value = serde_json::from_str(include_str!("../../../assets/icons/source-manifest.json")).unwrap();
-    let mut restored = 0;
-    for tool in manifest["tools"].as_array().unwrap() {
+    let tools = manifest["tools"].as_array().unwrap();
+    let mut by_set = std::collections::BTreeMap::new();
+    for tool in tools {
         let name = tool["id"].as_str().unwrap();
-        if tool["mode"] == "approved" {
-            restored += 1;
-            let colour = color_icon_data::COLOR_ICONS.iter().find(|(id, _)| *id == name).unwrap().1;
-            let mono = crate::tool_icon_data::TOOL_ICONS.iter().find(|(id, _)| *id == name).unwrap().1;
-            assert_eq!(colour, approved[name].as_str().unwrap().as_bytes(), "approved colour changed: {name}");
-            assert_eq!(mono, approved_mono[name].as_str().unwrap().as_bytes(), "approved mono changed: {name}");
+        let svg = std::str::from_utf8(crate::mono_tool_icons::svg(name).unwrap_or_else(|| panic!("{name} is not registered"))).unwrap();
+        assert!(svg.contains("viewBox=\"0 0 24 24\"") && svg.contains("stroke=\"currentColor\""), "{name} is not a 24 px currentColor line icon");
+        assert!(svg.contains("stroke-linecap=\"round\"") && svg.contains("stroke-linejoin=\"round\""), "{name} lacks round caps/joins");
+        assert!(!svg.contains("linearGradient") || name == "blend" || name == "linear-mask", "{name} carries retired gradient paint");
+        let set = tool["set"].as_str().unwrap();
+        if set == "local-image" {
+            // Our drawings follow Lucide's rules exactly: 2 px stroke and no fills.
+            assert!(svg.contains("stroke-width=\"2\"") && svg.contains("fill=\"none\"") && !svg.contains("fill=\"currentColor\""), "{name}");
+            assert!(svg.contains("Local Image original, GPL-3.0-or-later"), "{name} must record its licence");
         }
+        *by_set.entry(set.to_owned()).or_insert(0) += 1;
     }
-    assert_eq!(restored, 88);
-    for size in [20, 40] {
-        // The accepted gradient must retain an opaque face, rather than an empty outline.
-        let gradient = color_icons::raster("blend", size, false).unwrap();
-        let center = size as usize / 2;
-        assert_eq!(gradient.pixels[center * size as usize + center].a(), 255);
-        // Brush, eraser and marquee segments need substantial filled material at toolbar size.
-        for name in ["brush", "eraser", "square-dashed", "circle-dashed", "crop"] {
-            let image = color_icons::raster(name, size, false).unwrap();
-            let material = image
-                .pixels
-                .iter()
-                .filter(|pixel| {
-                    let [r, g, b, a] = pixel.to_srgba_unmultiplied();
-                    a > 200 && r.max(g).max(b) - r.min(g).min(b) > 30
-                })
-                .count();
-            assert!(material > (size * size / 20) as usize, "replacement lost its filled family material: {name}/{size}");
-        }
-    }
+    assert_eq!(
+        tools.len(),
+        crate::tool_icon_data::TOOL_ICONS.len()
+            + crate::vector_tool_icon_data::ICONS.iter().filter(|(_, n, _)| n.starts_with("vector-")).map(|(_, n, _)| *n).collect::<HashSet<_>>().len()
+    );
+    assert_eq!(by_set.get("local-image"), Some(&24), "drawn icons: {by_set:?}");
+    assert_eq!(by_set.values().sum::<usize>() - 24, 144, "sourced icons: {by_set:?}");
 }

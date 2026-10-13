@@ -6,7 +6,8 @@
 //! AppleScriptObjC) so the app needs no `unsafe` FFI. A read takes about 0.4 s on a background
 //! thread; the shell starts one at launch and again when the displays may have changed
 //! (`photocraft_ui_egui::monitor_status`), and each window then uses the profile of the display
-//! it is on. Other platforms report no displays (sRGB, or the profile chosen in Color Settings).
+//! it is on. Linux uses the KWin/KScreen → X11 ICC atom → colord chain in `linux`.
+//! Windows retains the same asynchronous Detection hook for a later lc-sysmem safe reader.
 
 use std::sync::mpsc::Receiver;
 
@@ -15,14 +16,28 @@ use photocraft_engine::display_color::Display;
 /// What the platform reader returns: the displays, or why there are none.
 pub type Detection = Result<Vec<Display>, String>;
 
-/// Starts reading the displays in the background; `None` when the platform has no reader.
-pub fn detect_async() -> Option<Receiver<Detection>> {
-    if !cfg!(target_os = "macos") {
+/// Snapshot cheap winit monitor metadata on the UI thread; all I/O happens in this worker.
+#[derive(Clone, Debug)]
+pub struct Output {
+    pub name: String,
+    pub frame: [f64; 4],
+}
+
+pub fn detect_async_with(outputs: Vec<Output>, x11: bool) -> Option<Receiver<Detection>> {
+    if !cfg!(any(target_os = "macos", target_os = "linux")) {
         return None;
     }
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::spawn(move || {
-        let _ = tx.send(detect());
+        lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
+        #[cfg(target_os = "linux")]
+        let result = linux::detect(&outputs, x11);
+        #[cfg(not(target_os = "linux"))]
+        let result = {
+            let _ = (outputs, x11);
+            detect()
+        };
+        let _ = tx.send(result);
     });
     Some(rx)
 }
@@ -109,6 +124,7 @@ fn run_helper(cmd: &mut std::process::Command, timeout: std::time::Duration) -> 
 }
 
 #[cfg(not(target_os = "macos"))]
+#[allow(dead_code)]
 fn detect() -> Detection {
     Err("this platform doesn't report display profiles".into())
 }
@@ -133,7 +149,7 @@ fn parse_reply(out: &str) -> Detection {
         // treated as no profile (the engine then says the display has none).
         let icc = (!b64.is_empty()).then(|| base64_decode(b64)).flatten().filter(|b| b.len() >= 132 && b.get(36..40) == Some(b"acsp"));
         let profile_name = Some(profile_name.trim().to_string()).filter(|n| !n.is_empty());
-        displays.push(Display { id, name, frame: [x, top, w, h], profile_name, icc: icc.map(std::sync::Arc::new) });
+        displays.push(Display { compositor_managed: false, id, name, frame: [x, top, w, h], profile_name, icc: icc.map(std::sync::Arc::new) });
     }
     if displays.is_empty() {
         let first = out.lines().next().unwrap_or("").trim();
@@ -256,5 +272,42 @@ mod tests {
                 assert_eq!(format!("{:?}", p.color_space), "Rgb", "{}: {}", d.name, p.description);
             }
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod linux;
+
+/// macOS auto targets P3; an explicit built-in sRGB override must also change the tag, so
+/// the owner's reference comparison is one conversion in either standard space.
+pub fn surface_space(macos: bool, monitor_spec: &str) -> eframe::wgpu::SurfaceColorSpace {
+    if macos {
+        if monitor_spec == "srgb" { eframe::wgpu::SurfaceColorSpace::Srgb } else { eframe::wgpu::SurfaceColorSpace::DisplayP3 }
+    } else {
+        eframe::wgpu::SurfaceColorSpace::Auto
+    }
+}
+
+pub fn configure_surface(frame: &mut eframe::Frame, color: &photocraft_engine::color_cmds::ColorState) {
+    if let Some(mut config) = frame.wgpu_surface_config() {
+        let spec = if cfg!(target_os = "macos") && color.monitor_status().source == "fallback" { "srgb" } else { &color.settings.monitor_profile };
+        let space = surface_space(cfg!(target_os = "macos"), spec);
+        if config.color_space != space {
+            config.color_space = space;
+            frame.set_wgpu_surface_config(config);
+        }
+    }
+}
+
+#[cfg(test)]
+mod surface_tests {
+    #[test]
+    fn display_output_standard_surface_tags() {
+        use eframe::wgpu::SurfaceColorSpace as S;
+        assert_eq!(super::surface_space(true, "auto"), S::DisplayP3);
+        assert_eq!(super::surface_space(true, "display-p3"), S::DisplayP3);
+        assert_eq!(super::surface_space(true, "srgb"), S::Srgb);
+        assert_eq!(super::surface_space(false, "auto"), S::Auto);
+        assert_eq!(super::surface_space(false, "/explicit.icc"), S::Auto);
     }
 }

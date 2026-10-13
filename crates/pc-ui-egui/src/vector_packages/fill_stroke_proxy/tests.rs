@@ -239,12 +239,13 @@ fn toolbar46_hold_flyout_curvature_and_preset_keyboard_switch() {
 fn toolbar46_registered_icon_alpha_and_styles_at_16_20_40() {
     let _gpu_gate = crate::gpu_test_support::lock();
     for tool in photocraft_engine::toolsets::VECTOR_TOOLS {
-        assert!(icons::ICONS.iter().any(|(id, _, _, _)| *id == tool.id), "missing {}", tool.id);
+        assert!(icons::ICONS.iter().any(|(id, _, _)| *id == tool.id), "missing {}", tool.id);
     }
-    for (_, name, colour, mono) in icons::ICONS {
+    for (_, name, mono) in icons::ICONS {
+        assert!(crate::color_icon_data::family(name).is_some(), "no colour family for {name}");
         for size in [16, 20, 40] {
             let svg = String::from_utf8_lossy(mono).replace("currentColor", "#ffffff");
-            let c = egui_extras::image::load_svg_bytes_with_size(colour, egui::load::SizeHint::Width(size), &Default::default()).unwrap();
+            let c = crate::color_icons::raster(name, size, false).unwrap();
             let m = egui_extras::image::load_svg_bytes_with_size(svg.as_bytes(), egui::load::SizeHint::Width(size), &Default::default()).unwrap();
             assert_eq!(c.size, [size as usize; 2]);
             assert!(c.pixels.iter().filter(|p| p.a() > 100).count() > (size * size / 20) as usize, "empty {name}/{size}");
@@ -256,14 +257,16 @@ fn toolbar46_registered_icon_alpha_and_styles_at_16_20_40() {
 #[test]
 fn toolbar46_contact_sheet_original_artwork() {
     let _gpu_gate = crate::gpu_test_support::lock();
-    // Actual resvg 16/20/40px output, both backgrounds/styles; no GPU or desktop window.
+    // Actual resvg 16/20/40px output on dark/light: colour (family tint), then monochrome. No GPU or window.
     let mut sheet = image::RgbaImage::from_pixel(1080, icons::ICONS.len() as u32 * 68, image::Rgba([31, 32, 35, 255]));
-    for (row, (tool, _, colour, mono)) in icons::ICONS.iter().enumerate() {
+    for (row, (tool, name, mono)) in icons::ICONS.iter().enumerate() {
         label(&mut sheet, 4, row as u32 * 68 + 26, tool, 1);
-        for (i, (size, bg, bytes)) in
-            [16, 20, 40].into_iter().flat_map(|size| [(size, 30, *colour), (size, 240, *colour), (size, 30, *mono), (size, 240, *mono)]).enumerate()
+        for (i, (size, bg, colour)) in
+            [16, 20, 40].into_iter().flat_map(|size| [(size, 30, true), (size, 240, true), (size, 30, false), (size, 240, false)]).enumerate()
         {
-            let svg = String::from_utf8_lossy(bytes).replace("currentColor", if bg < 128 { "#dedede" } else { "#343434" });
+            let icon = if bg < 128 { egui::Color32::from_gray(222) } else { egui::Color32::from_gray(52) };
+            let ink = if colour { crate::color_icons::tint(name, icon, bg < 128) } else { icon };
+            let svg = String::from_utf8_lossy(mono).replace("currentColor", &format!("#{:02x}{:02x}{:02x}", ink.r(), ink.g(), ink.b()));
             let im = egui_extras::image::load_svg_bytes_with_size(svg.as_bytes(), egui::load::SizeHint::Width(size), &Default::default()).unwrap();
             let raw: Vec<_> = im.pixels.iter().flat_map(|p| p.to_srgba_unmultiplied()).collect();
             let icon = image::RgbaImage::from_raw(size, size, raw).unwrap();
@@ -281,13 +284,17 @@ fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
     let _gpu_gate = crate::gpu_test_support::lock();
     use eframe::{egui_wgpu, wgpu};
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(Arc::new(|adapters, _| {
         adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                }
             })
             .cloned()
             .ok_or_else(|| "Requires RTX 5090 / Vulkan / discrete".into())
@@ -311,12 +318,13 @@ fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
             );
         h.run_steps(6);
         assert!(h.state().gpu_active());
+        #[cfg(not(target_os = "macos"))]
         assert!(h.state().perf.gpu_info.adapter.contains("RTX 5090"));
         // This gate intentionally fails on a widget-only branch: 00 must wire the real shell.
         h.get_by_label("Vector persona").click();
         h.run_steps(3);
         h.get_by_label("Active fill");
-        for (_, name, _, _) in icons::ICONS {
+        for (_, name, _) in icons::ICONS {
             assert!(crate::color_icons::exists(name) && crate::mono_tool_icons::exists(name), "00 must register {name} in both runtime loaders");
         }
         h.state_mut()
@@ -498,13 +506,17 @@ fn toolbar46_gpu_upload_every_vector_icon_and_switch_styles() {
     let _gpu_gate = crate::gpu_test_support::lock();
     use eframe::{egui_wgpu, wgpu};
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(Arc::new(|adapters, _| {
         adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                }
             })
             .cloned()
             .ok_or_else(|| "Requires RTX 5090 / Vulkan / discrete".into())
@@ -522,7 +534,7 @@ fn toolbar46_gpu_upload_every_vector_icon_and_switch_styles() {
                     *colour = !*colour;
                 }
                 egui::Grid::new("toolbar46-icon-gpu").show(ui, |ui| {
-                    for (i, (tool, _, _, _)) in icons::ICONS.iter().enumerate() {
+                    for (i, (tool, _, _)) in icons::ICONS.iter().enumerate() {
                         if tool_button(ui, tool, 40.).clicked() {
                             *clicked = true;
                         }

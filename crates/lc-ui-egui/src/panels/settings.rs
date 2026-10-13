@@ -576,7 +576,7 @@ fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         );
     });
     row(ui, t, "Tool icons", |ui| {
-        choices(ui, "settingsToolIcons", &[(true, "Colour (default)"), (false, "Monochrome")], &mut app.ui.settings.color_tool_icons);
+        choices(ui, "settingsToolIcons", &[(false, "Monochrome (default)"), (true, "Colour")], &mut app.ui.settings.color_tool_icons);
     });
     heading(ui, t, crate::i18n::tr("Filmstrip"));
     check(ui, "settings.filmNames", &mut app.ui.settings.film_names, "Show file names");

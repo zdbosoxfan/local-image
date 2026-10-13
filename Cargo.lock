@@ -1803,8 +1803,6 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.36.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cef1f6d1bba40b09a4d0d62cb822b81030922cfbf65c5373398c3a3caafc5bd"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -3916,6 +3914,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "anyhow",
  "image",
+ "lightcraft-sysmem",
  "log",
  "miniz_oxide 0.8.9",
  "rayon",
@@ -4260,6 +4259,7 @@ dependencies = [
  "lightcraft-raster",
  "lightcraft-sysmem",
  "log",
+ "photocraft-engine",
  "rayon",
  "serde",
  "serde_json",
@@ -4353,6 +4353,7 @@ dependencies = [
  "winresource",
  "winsafe",
  "x11rb",
+ "zbus",
 ]
 
 [[package]]

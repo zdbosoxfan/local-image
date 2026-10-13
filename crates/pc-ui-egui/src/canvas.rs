@@ -892,9 +892,13 @@ fn buffer_to_image(buf: &photocraft_compose::Buffer) -> egui::ColorImage {
 
 /// A composite as monitor pixels: document profile → monitor profile (nothing to do in the
 /// common sRGB-on-sRGB case).
-fn display_image(display: Option<&photocraft_engine::display_color::CanvasDisplay>, buf: &photocraft_compose::Buffer) -> egui::ColorImage {
+fn display_image(
+    display: Option<&photocraft_engine::display_color::CanvasDisplay>,
+    buf: &photocraft_compose::Buffer,
+    depth: photocraft_doc::SampleType,
+) -> egui::ColorImage {
     match display {
-        Some(d) if !d.is_identity() => {
+        Some(d) if !d.is_identity() || depth != photocraft_doc::SampleType::U8 => {
             let img = d.to_rgba8(buf);
             egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.pixels)
         }
@@ -1078,7 +1082,7 @@ pub fn navigator_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
         return Some(navigator_in_background(app, ctx, id, (snapshot, preview_key), doc, display, t));
     }
     let t0 = crate::gpu_canvas::now_ms();
-    let image = display_image(display.as_deref(), &photocraft_compose::thumbnail_buffer(&doc, NAVIGATOR_SIDE));
+    let image = display_image(display.as_deref(), &photocraft_compose::thumbnail_buffer(&doc, NAVIGATOR_SIDE), doc.depth);
     let tex = match cached {
         Some((_, _, mut t)) => {
             t.set(image, TextureOptions::LINEAR);
@@ -1137,7 +1141,7 @@ fn navigator_in_background(
     let slot = std::sync::Arc::new(std::sync::Mutex::new(None));
     let out = slot.clone();
     let spawned = std::thread::Builder::new().name("navigator".into()).spawn(move || {
-        let image = display_image(display.as_deref(), &photocraft_compose::thumbnail_buffer(&doc, NAVIGATOR_SIDE));
+        let image = display_image(display.as_deref(), &photocraft_compose::thumbnail_buffer(&doc, NAVIGATOR_SIDE), doc.depth);
         *out.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(image);
     });
     if spawned.is_ok() {
@@ -1191,7 +1195,7 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
             let r = buf.rect;
             if !r.is_empty() {
                 let t1 = crate::gpu_canvas::now_ms();
-                t.set_partial([r.x0 as usize, r.y0 as usize], display_image(display.as_deref(), &buf), sampling);
+                t.set_partial([r.x0 as usize, r.y0 as usize], display_image(display.as_deref(), &buf, doc.depth), sampling);
                 let px = (r.width() as u64 * r.height() as u64).saturating_mul(u64::from(factor).pow(2));
                 app.perf.record("rect", px, t1 - t0, crate::gpu_canvas::now_ms() - t1);
             }
@@ -1199,7 +1203,7 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
             // Reduced in bands straight from the compositor: no full-size composite in memory.
             let full = photocraft_compose::render_reduced(&doc, w, h);
             let t1 = crate::gpu_canvas::now_ms();
-            let (img, scale) = (display_image(display.as_deref(), &full), 1.0 / factor as f32);
+            let (img, scale) = (display_image(display.as_deref(), &full, doc.depth), 1.0 / factor as f32);
             match cache.texture.as_mut() {
                 Some(t) if t.size() == img.size => t.set(img, sampling),
                 _ => cache.texture = Some(ctx.load_texture(format!("canvas-{}-{}", id.0, cache_key(id, output).1), img, sampling)),
@@ -2102,9 +2106,18 @@ fn sync_display_lut(app: &mut PhotocraftApp, doc: &photocraft_doc::Document, key
         return mode;
     }
     let gamut = app.session.color.proof(doc.id).gamut_warning;
-    let mode = match app.session.color.gpu_canvas_lut_for(doc, DISPLAY_LUT, display) {
+    let high = gpu.output_depth() == 10;
+    let lut =
+        if high { app.session.color.gpu_canvas_lut16f_for(doc, DISPLAY_LUT, display) } else { app.session.color.gpu_canvas_lut_for(doc, DISPLAY_LUT, display) };
+    let mode = match lut {
         Ok(Some(bytes)) => {
-            gpu.set_display_lut(key, output, DISPLAY_LUT as u32, Some(&bytes));
+            gpu.set_display_lut_format(
+                key,
+                output,
+                DISPLAY_LUT as u32,
+                Some(&bytes),
+                if high { eframe::wgpu::TextureFormat::Rgba16Float } else { eframe::wgpu::TextureFormat::Rgba8Unorm },
+            );
             if gamut { 2 } else { 1 }
         }
         Ok(None) => {
@@ -2482,9 +2495,18 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             crate::lasso_ui::canvas_input(app, &ctx, &xf, &response);
             (buttons.started, buttons.dragged, buttons.stopped, buttons.clicked) = (false, false, false, false);
         }
+        let vector_object_menu = crate::canvas_tool_menu::vector_object_tool(app, tool);
+        if response.secondary_clicked()
+            && !transforming
+            && vector_object_menu
+            && let Some(p) = response.interact_pointer_pos()
+        {
+            crate::canvas_tool_menu::open(app, tool, [p.x, p.y]);
+        }
         // Right-click with the Move tool, or ⌘/Ctrl+right-click: the layers under the pointer.
         if response.secondary_clicked()
             && !transforming
+            && !vector_object_menu
             && crate::layer_pick_ui::is_gesture(tool, mods)
             && let Some(p) = response.interact_pointer_pos()
         {
@@ -2494,6 +2516,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         }
         if response.secondary_clicked()
             && !transforming
+            && !vector_object_menu
             && !crate::layer_pick_ui::is_gesture(tool, mods)
             && let Some(p) = response.interact_pointer_pos()
         {
@@ -3286,7 +3309,11 @@ fn tool_event_with_pose(
     {
         let target = app.ui.tool_options.move_target.clone();
         let mode = if mods.shift { "add" } else { "replace" };
-        let _ = app.run("layer.pickAt", json!({"x": x, "y": y, "target": target, "mode": mode}));
+        if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+            crate::vector_integration::pick_object(app, [x, y], mods.shift, target == "group");
+        } else {
+            let _ = app.run("layer.pickAt", json!({"x": x, "y": y, "target": target, "mode": mode}));
+        }
     }
     // A press anywhere but on the floating piece (or with ⇧ / ⌥, to draw) drops it first.
     if let ToolEvent::Down { x, y, .. } = raw
@@ -3868,8 +3895,8 @@ mod tests {
         app.run("edit.fill", json!({"color": "#cc8040"})).unwrap();
         let icc = |id: &str| Some(resolve_profile(id, None, None).unwrap().to_bytes());
         app.session.color.set_displays(Ok(vec![
-            Display { id: 1, name: "A".into(), frame: [0.0, 0.0, 100.0, 100.0], profile_name: None, icc: icc("srgb") },
-            Display { id: 4, name: "B".into(), frame: [100.0, 0.0, 100.0, 100.0], profile_name: None, icc: icc("display-p3") },
+            Display { compositor_managed: false, id: 1, name: "A".into(), frame: [0.0, 0.0, 100.0, 100.0], profile_name: None, icc: icc("srgb") },
+            Display { compositor_managed: false, id: 4, name: "B".into(), frame: [100.0, 0.0, 100.0, 100.0], profile_name: None, icc: icc("display-p3") },
         ]));
         app
     }
@@ -4489,3 +4516,22 @@ fn tap_at_peak_pressure(app: &mut PhotocraftApp) {
 #[cfg(test)]
 #[path = "canvas_brush_batch_tests.rs"]
 mod brush_batch_tests;
+
+#[cfg(test)]
+mod display_dither_tests {
+    #[test]
+    fn display_cpu_identity_high_depth_dithers_but_eight_bit_stays_exact() {
+        let color = photocraft_engine::color_cmds::ColorState::default();
+        let d = color.srgb_preview_display().unwrap();
+        let buf = photocraft_compose::Buffer::filled(photocraft_geom::Rect::new(0, 0, 8, 8), [0.5, 0.5, 0.5, 1.0]);
+        let high = super::display_image(Some(&d), &buf, photocraft_doc::SampleType::U16);
+        let low = super::display_image(Some(&d), &buf, photocraft_doc::SampleType::U8);
+        assert!(high.pixels.iter().any(|p| p.r() == 127));
+        assert!(high.pixels.iter().any(|p| p.r() == 128));
+        assert!(low.pixels.iter().all(|p| p.r() == 128));
+        let tile = photocraft_compose::Buffer::filled(photocraft_geom::Rect::new(3, 2, 5, 4), [0.5, 0.5, 0.5, 1.0]);
+        let part = super::display_image(Some(&d), &tile, photocraft_doc::SampleType::U16);
+        assert_eq!(part.pixels[0], high.pixels[2 * 8 + 3]);
+        assert_eq!(part.pixels[3], high.pixels[3 * 8 + 4]);
+    }
+}

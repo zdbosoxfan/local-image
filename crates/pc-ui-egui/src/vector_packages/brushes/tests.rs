@@ -13,8 +13,11 @@ struct Host {
 fn harness() -> Harness<'static, Host> {
     let mut session = Session::new();
     session.add_document(Document::new("Brush UI", Size::new(200, 200), ColorMode::Rgb, SampleType::U8), None);
-    Harness::builder().with_size(vec2(1300., 400.)).build_ui_state(
+    let mut h = Harness::builder().with_size(vec2(1300., 400.)).build_ui_state(
         |ui, h| {
+            if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                return;
+            }
             ui.horizontal_wrapped(|ui| context_bar(ui, &mut h.brush));
             let (response, _) = ui.allocate_painter(vec2(200., 200.), egui::Sense::click_and_drag());
             h.rect = response.rect;
@@ -22,7 +25,10 @@ fn harness() -> Harness<'static, Host> {
             h.error = canvas_input_with_pressure(&mut h.brush, &mut h.session, &response, &xf, h.pressure).err().map(|e| e.to_string());
         },
         Host { session, brush: State::default(), rect: egui::Rect::NOTHING, pressure: 1., error: None },
-    )
+    );
+    crate::PhotocraftApp::setup_context(&h.ctx, Default::default());
+    h.run_steps(3);
+    h
 }
 fn event(h: &mut Harness<'_, Host>, p: (f32, f32), kind: u8, pressure: f32) {
     h.state_mut().pressure = pressure;

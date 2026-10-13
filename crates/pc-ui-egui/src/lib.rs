@@ -90,6 +90,9 @@ pub mod adjust_dialog;
 pub mod adjust_editors;
 pub mod adjust_preview;
 pub mod adjust_ui;
+#[cfg(test)]
+extern crate self as photocraft_ui_egui;
+
 mod ai_remove_ui;
 pub mod ai_ui;
 pub mod analysis_ui;
@@ -118,6 +121,7 @@ pub mod chrome_ui;
 pub mod cjk_fonts;
 pub mod color_picker_ui;
 pub mod color_range_ui;
+pub mod command_feedback;
 pub mod comps_ui;
 pub mod context_bar;
 pub mod control;
@@ -393,6 +397,8 @@ pub type CursorPosFn = Box<dyn FnMut(&egui::Context) -> Option<egui::Pos2>>;
 /// I/O dependencies.
 #[derive(Default)]
 pub struct Services {
+    /// Optional contained native PDF image renderer; safe to clone into an import worker.
+    pub pdf_raster: Option<crate::pdf_raster::Service>,
     /// Decode a file's bytes into a document (PSD, PNG, JPEG, …).
     pub import: Option<ImportFn>,
     /// Encode a document for a file name (format chosen by extension).
@@ -404,6 +410,8 @@ pub struct Services {
     pub pick_open: Option<PickOpenFn>,
     /// Show File › Open's multi-file picker; returns the selected paths.
     pub pick_open_paths: Option<PickOpenPathsFn>,
+    /// Single Place picker; returns a path so bounded import reads happen on a worker.
+    pub pick_place_path: Option<Box<dyn FnMut() -> Option<String>>>,
     /// Show a "save file" dialog; returns a path/name to write.
     pub pick_save: Option<PickSaveFn>,
     /// Write bytes to a path (native) or trigger a download (web).
@@ -462,9 +470,12 @@ pub struct Services {
     /// `photocraft_engine::preset_store`). Attached to the session once it arrives; without
     /// one, brush presets are session-only (web, tests).
     pub preset_store: Option<std::sync::mpsc::Receiver<photocraft_engine::preset_store::Opened>>,
-    /// Reads the displays and their ICC profiles in the background (desktop macOS; see
+    /// Reads the displays and their ICC profiles in the background (desktop macOS/Linux; see
     /// `monitor_status`). Without one, the canvas uses the profile chosen in Color Settings, or sRGB.
     pub read_displays: Option<monitor_status::ReadDisplaysFn>,
+    /// Native Wayland does not expose window positions; winit supplies the root output name.
+    pub display_topology: Option<std::sync::Arc<dyn Fn() -> u64 + Send + Sync>>,
+    pub current_display_name: Option<std::sync::Arc<dyn Fn() -> Option<String> + Send + Sync>>,
     /// The macOS menu bar, when the desktop app installed one; the in-window menus are hidden then.
     pub native_menu: Option<native_menu::NativeMenu>,
 }
@@ -807,6 +818,19 @@ impl PhotocraftApp {
         let tile = self.session.prefs().performance.cache_tile_size;
         // Escaped driver/setup panics must leave the session and CPU canvas alive.
         self.perf.gpu_info.set_adapter(&rs.adapter.get_info());
+        self.perf.gpu_info.output_depth = if rs.target_format == eframe::wgpu::TextureFormat::Rgb10a2Unorm { 10 } else { 8 };
+        self.perf.gpu_info.output_note = if self.services.is_wayland {
+            if self.perf.gpu_info.output_depth == 10 {
+                "native Wayland; panel depth is controlled by the compositor"
+            } else {
+                "dithered 8-bit fallback; panel depth is controlled by the compositor"
+            }
+        } else if cfg!(target_os = "linux") {
+            "X11 / XWayland uses 8-bit output; pen tablet compatibility mode forces this backend"
+        } else {
+            "panel depth is controlled by the OS"
+        }
+        .into();
         let gpu = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| gpu_canvas::GpuCanvas::with_tile(&rs, Some(tile)))) {
             Ok(gpu) => gpu,
             Err(payload) => {
@@ -963,8 +987,7 @@ impl PhotocraftApp {
                 }
             }
             Err(e) => {
-                self.ui.status = e.clone();
-                self.ui.status_error = true;
+                crate::command_feedback::report(self, e.clone());
             }
         }
         if r.is_ok() && matches!(id, "edit.copy" | "edit.cut" | "edit.copyMerged") {
@@ -2225,6 +2248,7 @@ pub mod constructive;
 
 #[path = "vector_packages/pdf_import.rs"]
 pub mod pdf_import;
+pub mod pdf_raster;
 
 pub mod vector_integration;
 
@@ -2242,3 +2266,6 @@ mod deferred_colour_tests;
 
 #[cfg(test)]
 mod panel_visibility_tests;
+
+#[cfg(test)]
+mod reasons_ux_tests;

@@ -18,3 +18,6 @@ miniz_oxide = { workspace = true }
 rayon = { workspace = true }
 sha2 = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+lightcraft-sysmem = { workspace = true }

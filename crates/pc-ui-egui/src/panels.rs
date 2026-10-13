@@ -61,7 +61,7 @@ pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
     let set = app.session.prefs().toolbar.active();
     let mut ranks: std::collections::HashMap<Tool, usize> =
         set.tools.iter().enumerate().filter_map(|(i, name)| Tool::from_name(name).map(|tool| (tool, i))).collect();
-    if set.persona == photocraft_engine::toolsets::Persona::Pixel && !set.id.starts_with("custom-") {
+    if set.persona == photocraft_engine::toolsets::Persona::Pixel && set.id == photocraft_engine::toolsets::DEFAULT_ID {
         for (i, id) in photocraft_engine::shared_tools::SHARED_ADDITIONS.iter().enumerate() {
             if let Some(tool) = Tool::from_name(id) {
                 ranks.entry(tool).or_insert(set.tools.len() + i);
@@ -93,7 +93,8 @@ pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
             index += 1;
         }
     }
-    // Geometric additions use the same feature flyouts in Pixel, preserving the frozen defaults.
+    // Extra geometric flyouts belong to All Tools and explicitly saved custom sets.
+    // A shortcut-selected extra remains visible in a smaller set.
     let shared: std::collections::HashSet<_> = photocraft_engine::shared_tools::SHARED_ADDITIONS.iter().filter_map(|id| Tool::from_name(id)).collect();
     for (slot, tools) in crate::toolsets_ui::persona::vector_slots() {
         let kept: Vec<_> = tools.into_iter().filter(|t| shared.contains(t) && (rank(t) != usize::MAX || *t == current)).collect();
@@ -447,7 +448,22 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 crate::brand::paint_mark(ui, mark);
                 ui.add_space(6.0);
                 // With the macOS menu bar the menus are at the top of the screen instead.
-                menus_right = if app.services.native_menu.is_some() { ui.cursor().left() } else { crate::menus::menu_bar(app, ui) };
+                let modules = if app.host_modes {
+                    crate::Module::ALL
+                        .iter()
+                        .map(|module| {
+                            let text = RichText::new(tl!(module.label())).font(egui::TextStyle::Button.resolve(ui.style()));
+                            let galley = egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Button);
+                            (galley.size().x + 2.0 * ui.spacing().button_padding.x).max(2.0 * ui.spacing().interact_size.x + ui.spacing().button_padding.x)
+                        })
+                        .sum::<f32>()
+                        + ui.spacing().item_spacing.x
+                } else {
+                    0.0
+                };
+                let caption = if custom { crate::titlebar::WIDTH + TITLE_GAP } else { 0.0 };
+                let room = (ui.available_width() - modules - caption - WORKSPACE_MIN - TITLE_GAP).max(0.0);
+                menus_right = if app.services.native_menu.is_some() { ui.cursor().left() } else { crate::menus::menu_bar_with_width(app, ui, room) };
                 // The menu bar takes the whole row, so the right-hand group gets its own rect:
                 // from the menus to the bar's end, or to the caption buttons.
                 let right_edge = if custom { full.right() - crate::titlebar::WIDTH - 4.0 } else { full.right() };
@@ -1086,7 +1102,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             let mut section = |ui: &mut egui::Ui, title: &str, prefix: &str| {
                                 ui.label(egui::RichText::new(tl!(&title)).small().color(t.text_dim));
                                 for c in photocraft_engine::command_specs().iter().filter(|c| c.id.starts_with(prefix)) {
-                                    if ui.add_enabled(app.session.is_enabled(c.id), egui::Button::new(tl!(c.label))).clicked() {
+                                    let reason = (!crate::menus::is_enabled(app, c.id)).then(|| crate::command_feedback::disabled_reason(app, c.id));
+                                    let shortcut = crate::shortcuts::shortcut_label(app, c.id);
+                                    if widgets::command_menu_item(ui, tl!(c.label), shortcut.as_deref(), None, reason.as_deref()).clicked() {
                                         let _ = app.run(c.id, json!({}));
                                         ui.close();
                                     }
@@ -1225,6 +1243,11 @@ fn hint(ui: &mut egui::Ui, s: &str) {
 // ----------------------------------------------------------------------------- status bar
 
 pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    // A caller may forward a raw error returned by `run`; normalize at the last report
+    // sink too, retaining its original detail through the same bounded notice history.
+    if app.ui.status_error && crate::command_feedback::message(&app.ui.status) != app.ui.status {
+        crate::command_feedback::report(app, app.ui.status.clone());
+    }
     let t = Tokens::get(ui.ctx());
     egui::Panel::bottom("status_bar")
         .exact_size(if t.pro { 24.0 } else { 30.0 })
@@ -1233,8 +1256,17 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let r = ui.max_rect();
             ui.painter().line_segment([r.left_top(), r.right_top()], Stroke::new(1.0, t.separator));
             ui.horizontal_centered(|ui| {
+                if crate::notices::status_history_only(app) {
+                    crate::notices::history_button(app, ui);
+                }
                 if t.pro {
-                    crate::chrome_ui::status_bar_pro(app, ui);
+                    if app.session.active().is_none() && !app.ui.status.is_empty() {
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(&app.ui.status).color(if app.ui.status_error { t.warning } else { t.text_dim })).truncate(),
+                        );
+                    } else {
+                        crate::chrome_ui::status_bar_pro(app, ui);
+                    }
                     // Background job progress with Cancel, at the right end (#210).
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // local-image: the AI engine status pill.
@@ -1393,6 +1425,7 @@ fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate::dock::Tab) 
         }
         Tab::Generate => crate::generate_ui::panel(app, ui),
         Tab::Library => crate::generate_ui::library_panel(app, ui),
+        tab => crate::vector_integration::dock_panel(app, ui, tab),
     }
 }
 

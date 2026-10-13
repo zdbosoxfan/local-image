@@ -11,6 +11,8 @@ lives on `main` until V2 replaces it.
   sudo apt-get install libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
     libgl1-mesa-dev libgtk-3-dev mesa-vulkan-drivers
   ```
+* macOS: Apple Silicon, macOS 13+, Apple command line tools (Metal kernels compile through the system runtime).
+  See [MACOS.md](MACOS.md) for native packaging, Metal validation and remote generation.
 * Windows: the MSVC toolchain (Visual Studio Build Tools) and the Windows SDK.
 * [craft-fonts](https://github.com/storytold/craft-fonts) supplies Japanese, Simplified Chinese,
   Arabic and Thai fallback fonts. CI and release builds use commit
@@ -108,6 +110,8 @@ Derived families set `base` and override only what differs. To add or change one
 
 Packaging is Rust too (`xtask/`, run through the `cargo xtask` alias):
 
+* **macOS:** `cargo xtask package macos` creates an ARM64 `.app` and `.pkg` installer with
+  HEIF and SAM Metal enabled, plus its checksum. See [MACOS.md](MACOS.md) for signing.
 * **Linux:** `cargo xtask package linux` writes
   `dist/release/local-image-<version>-linux-<arch>.tar.gz` and its `.sha256` (app, CLI, README,
   licences and all referenced attribution texts). Run `cargo xtask attributions` after changing

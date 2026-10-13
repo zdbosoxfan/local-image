@@ -65,8 +65,12 @@ fn snapping_full_app_gpu_guide_preview_release_no_jump_and_override() {
                 let rs = cc.wgpu_render_state.as_ref().expect("real GPU required");
                 let info = rs.adapter.get_info();
                 use eframe::wgpu::{Backend, DeviceType, TextureFormat};
-                assert_eq!(info.backend, Backend::Vulkan);
+                assert_eq!(info.backend, if cfg!(target_os = "macos") { Backend::Metal } else { Backend::Vulkan });
+                #[cfg(not(target_os = "macos"))]
                 assert_eq!(info.device_type, DeviceType::DiscreteGpu);
+                #[cfg(target_os = "macos")]
+                assert_ne!(info.device_type, DeviceType::Cpu, "hardware Metal adapter required");
+                #[cfg(not(target_os = "macos"))]
                 assert!(info.name.contains("5090"), "RTX 5090 required: {info:?}");
                 assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(&rs.adapter), TextureFormat::Rgba32Float);
                 eprintln!("snapping full app GPU: {info:?}; PPP={ppp}");

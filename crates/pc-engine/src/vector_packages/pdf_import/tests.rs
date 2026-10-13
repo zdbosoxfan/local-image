@@ -100,7 +100,10 @@ fn pdf_import_open_selected_page_and_edit_glyph_undo() {
 fn pdf_import_rtx5090_vulkan_preview_edit_release_undo_cpu_parity() {
     let _gpu_gate = crate::gpu_test_support::lock();
     use photocraft_gpu::{Compositor, render_to_vec};
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
@@ -108,8 +111,12 @@ fn pdf_import_rtx5090_vulkan_preview_edit_release_undo_cpu_parity() {
     }))
     .expect("RTX 5090 Vulkan required");
     let info = adapter.get_info();
-    assert_eq!(info.backend, wgpu::Backend::Vulkan);
+    assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+    #[cfg(target_os = "macos")]
+    assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
+    #[cfg(not(target_os = "macos"))]
     assert!(info.name.contains("5090"), "{info:?}");
     assert_eq!(Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float);
     eprintln!("PDF import GPU {info:?}");

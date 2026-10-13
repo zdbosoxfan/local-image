@@ -8,13 +8,17 @@ use serde_json::json;
 
 fn setup() -> egui_wgpu::WgpuSetup {
     let mut setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    setup.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
         let a = adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
+                }
             })
             .ok_or_else(|| "RTX 5090 Vulkan discrete adapter required".to_string())?;
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(a), wgpu::TextureFormat::Rgba32Float);
@@ -152,6 +156,10 @@ fn svg_import_app_gpu_live_preview_release_editability_warning_and_undo() {
         // The real app dialog's warning button selects the imported editable shape.
         photocraft_ui_egui::vector_integration::set_panel_open(h.state_mut(), "SVG Import", true);
         h.run_steps(2);
+        // The import controls now live in a bounded dock tab. Reveal this warning by
+        // scrolling the actual panel before clicking it, rather than clicking a clipped rect.
+        h.get_by_label("gradient-projection: badge").scroll_to_me();
+        h.run_steps(3);
         h.get_by_label("gradient-projection: badge").click();
         h.run_steps(2);
         let st = h.state().session.active().unwrap();

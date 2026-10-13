@@ -1,15 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-<!-- Original Local Image tool artwork; GPL-3.0-or-later. Glossy Duotone, blue family. -->
-<defs>
-<linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="aw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="nw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient>
-</defs>
-<g transform="translate(1.5 1.5) scale(.875)" fill="none" stroke="currentColor" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round">
-<g fill="none" stroke="currentColor" stroke-width="3.5"><path d="M5 16C-1 12 3 4 12 4C23 4 23 14 14 16C8 18 3 17 4 14C5 11 8 14 7 18L5 22"/></g>
-<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M5 16C-1 12 3 4 12 4C23 4 23 14 14 16C8 18 3 17 4 14C5 11 8 14 7 18L5 22"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M5 16C-1 12 3 4 12 4C23 4 23 14 14 16C8 18 3 17 4 14C5 11 8 14 7 18L5 22"/></g>
-</g>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M7 22a5 5 0 0 1-2-4" />
+  <path d="M3.3 14A6.8 6.8 0 0 1 2 10c0-4.4 4.5-8 10-8s10 3.6 10 8-4.5 8-10 8a12 12 0 0 1-5-1" />
+  <path d="M5 18a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
 </svg>

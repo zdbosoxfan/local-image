@@ -126,8 +126,12 @@ fn brush_batch_real_gpu_large_brush_performance() {
     let mut setup = crate::gpu_canvas::wgpu_setup();
     crate::gpu_canvas::use_adapter_limits_with(&mut setup, |a| {
         let i = a.get_info();
-        assert_eq!(i.backend, eframe::wgpu::Backend::Vulkan);
+        assert_eq!(i.backend, if cfg!(target_os = "macos") { eframe::wgpu::Backend::Metal } else { eframe::wgpu::Backend::Vulkan });
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(i.device_type, eframe::wgpu::DeviceType::DiscreteGpu);
+        #[cfg(target_os = "macos")]
+        assert_ne!(i.device_type, eframe::wgpu::DeviceType::Cpu, "hardware Metal adapter required");
+        #[cfg(not(target_os = "macos"))]
         assert!(i.name.contains("RTX 5090"), "real GPU required: {i:?}");
         eprintln!("BRUSH GPU {i:?}");
     });

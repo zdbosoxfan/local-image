@@ -16,12 +16,16 @@ type H = Harness<'static, PhotocraftApp>;
 fn harness() -> (H, GpuCanvas) {
     let mut setup = photocraft_ui_egui::gpu_canvas::wgpu_setup();
     if let eframe::egui_wgpu::WgpuSetup::CreateNew(c) = &mut setup {
-        c.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN;
+        c.instance_descriptor.backends = if cfg!(target_os = "macos") { eframe::wgpu::Backends::METAL } else { eframe::wgpu::Backends::VULKAN };
     }
     photocraft_ui_egui::gpu_canvas::use_adapter_limits_with(&mut setup, |a| {
         let info = a.get_info();
-        assert_eq!(info.backend, eframe::wgpu::Backend::Vulkan);
+        assert_eq!(info.backend, if cfg!(target_os = "macos") { eframe::wgpu::Backend::Metal } else { eframe::wgpu::Backend::Vulkan });
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(info.device_type, eframe::wgpu::DeviceType::DiscreteGpu);
+        #[cfg(target_os = "macos")]
+        assert_ne!(info.device_type, eframe::wgpu::DeviceType::Cpu, "hardware Metal adapter required");
+        #[cfg(not(target_os = "macos"))]
         assert!(info.name.contains("RTX 5090"), "{info:?}");
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(a), eframe::wgpu::TextureFormat::Rgba32Float);
         eprintln!("measure44 hardware: {info:?}");

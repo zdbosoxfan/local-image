@@ -12,13 +12,17 @@ type H = Harness<'static, PhotocraftApp>;
 
 fn harness(paths: Vec<ShapeLayer>, contour: bool) -> H {
     let mut create = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { eframe::wgpu::Backends::METAL } else { eframe::wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(Arc::new(|adapters, _| {
         adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.name.contains("RTX 5090") && i.backend == eframe::wgpu::Backend::Vulkan && i.device_type == eframe::wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    i.backend == eframe::wgpu::Backend::Metal && i.device_type != eframe::wgpu::DeviceType::Cpu
+                } else {
+                    i.name.contains("RTX 5090") && i.backend == eframe::wgpu::Backend::Vulkan && i.device_type == eframe::wgpu::DeviceType::DiscreteGpu
+                }
             })
             .cloned()
             .ok_or_else(|| "geometry31 requires RTX 5090/Vulkan/discrete".into())
@@ -26,9 +30,13 @@ fn harness(paths: Vec<ShapeLayer>, contour: bool) -> H {
     let mut setup = eframe::egui_wgpu::WgpuSetup::CreateNew(create);
     gpu_canvas::use_adapter_limits_with(&mut setup, |adapter| {
         let info = adapter.get_info();
+        #[cfg(not(target_os = "macos"))]
         assert!(info.name.contains("RTX 5090"));
-        assert_eq!(info.backend, eframe::wgpu::Backend::Vulkan);
+        assert_eq!(info.backend, if cfg!(target_os = "macos") { eframe::wgpu::Backend::Metal } else { eframe::wgpu::Backend::Vulkan });
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(info.device_type, eframe::wgpu::DeviceType::DiscreteGpu);
+        #[cfg(target_os = "macos")]
+        assert_ne!(info.device_type, eframe::wgpu::DeviceType::Cpu, "hardware Metal adapter required");
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(adapter), eframe::wgpu::TextureFormat::Rgba32Float);
         assert!(gpu_canvas::supports_f16_canvas(adapter));
         eprintln!("geometry31 app hardware: {info:?}");

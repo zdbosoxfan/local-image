@@ -5,13 +5,20 @@ use super::*;
 #[ignore = "owner speed rules: integration RTX 5090 Vulkan gate"]
 fn repeat19_gpu_projection_source_edit_and_expand_parity_rtx5090() {
     let _gpu_gate = crate::gpu_test_support::lock();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { force_fallback_adapter: false, ..Default::default() }))
         .expect("real adapter required");
     let info = adapter.get_info();
+    #[cfg(not(target_os = "macos"))]
     assert!(info.name.contains("5090"));
-    assert_eq!(info.backend, wgpu::Backend::Vulkan);
+    assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+    #[cfg(target_os = "macos")]
+    assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
     assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float);
     eprintln!("repeat19 adapter {info:?}");
     let (device, queue) =

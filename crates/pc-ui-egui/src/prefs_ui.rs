@@ -740,6 +740,10 @@ pub fn invoke(app: &mut PhotocraftApp, _ctx: &egui::Context, id: &str, params: &
     if !empty {
         return None;
     }
+    // Retain the saved shortcut/automation alias, using the existing setup window.
+    if id == "edit.preferences.integrations" {
+        return crate::ai_ui::menu(app, _ctx, "li.localAi", params);
+    }
     if let Some(section) = id.strip_prefix("edit.preferences.") {
         return Some(Ok(json!({"dialog": open_preferences(app, section)})));
     }
@@ -887,7 +891,7 @@ pub fn width(fields: &Map<String, Value>) -> Option<f32> {
 /// Open Edit › Preferences on `section`.
 pub fn open_preferences(app: &mut PhotocraftApp, section: &str) -> u64 {
     let known = SECTIONS.iter().any(|(id, _)| *id == section) || section == crate::attributions::SECTION;
-    let section = if known { section } else { "general" };
+    let section = if known && section != "integrations" { section } else { "general" };
     let working = preference_values(app.session.prefs());
     let order = field_order(app.session.prefs(), &working);
     open_kind(app, "prefs", "Preferences", json!({"section": section, "values": working, "__order": order}))
@@ -1069,8 +1073,8 @@ fn humanize(key: &str) -> String {
 
 fn choice_label(v: &str) -> String {
     match v {
-        "colour" => "Colour (default)".into(),
-        "monochrome" => "Monochrome".into(),
+        "colour" => "Colour".into(),
+        "monochrome" => "Monochrome (default)".into(),
         "cm" => "Centimeters".into(),
         "editedFolder" => "A copy in the Edited folder (originals untouched)".into(),
         "original" => "The original file".into(),
@@ -1127,6 +1131,9 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
         ui.vertical(|ui| {
             ui.set_width(170.0);
             for (id, title) in SECTIONS {
+                if id == "integrations" {
+                    continue;
+                }
                 let sel = section == id;
                 let empty = !has_visible_fields(&values, id);
                 let (rect, resp) = ui.allocate_exact_size(vec2(170.0, 22.0), Sense::click());
@@ -1335,7 +1342,7 @@ fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>
         let mut current = obj.get("toolIcons").and_then(Value::as_str).unwrap_or("colour").to_string();
         ui.horizontal(|ui| {
             ui.label(tl!("Tool icons"));
-            let choices = [("colour".to_string(), tl!("Colour (default)")), ("monochrome".to_string(), tl!("Monochrome"))];
+            let choices = [("monochrome".to_string(), tl!("Monochrome (default)")), ("colour".to_string(), tl!("Colour"))];
             crate::widgets::dropdown(ui, "pref-interface.toolIcons", &mut current, &choices, 220.0);
         });
         obj.insert("toolIcons".into(), json!(current));
@@ -1369,7 +1376,7 @@ fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>
                 }
                 Value::String(s) if path == "tools.tabletCompatibilityMode" => {
                     ui.label(tl!("Pen tablet: use compatibility mode (XWayland)"))
-                        .on_hover_text("Auto detects an attached pen and uses XWayland for pressure, tilt and eraser. On forces compatibility; Off keeps native Wayland. XWayland can look softer at fractional display scaling. Restart to apply. LOCAL_IMAGE_NATIVE_WAYLAND=1 keeps native Wayland.");
+                        .on_hover_text("Auto detects an attached pen and uses XWayland for pressure, tilt and eraser. On forces compatibility; Off keeps native Wayland. XWayland forces 8-bit display output (dithered); native Wayland can use 10-bit. XWayland can look softer at fractional display scaling. Restart to apply. LOCAL_IMAGE_NATIVE_WAYLAND=1 keeps native Wayland.");
                     let mut cur = s.clone();
                     crate::widgets::dropdown(ui, "pref-tools.tabletCompatibilityMode", &mut cur, &[("auto".into(), "Auto"), ("on".into(), "On"), ("off".into(), "Off")], 220.0);
                     obj.insert(k, json!(cur));
@@ -2965,3 +2972,37 @@ mod keymap_tests;
 #[cfg(test)]
 #[path = "design_system_shots.rs"]
 mod design_system_shots;
+
+#[cfg(test)]
+mod display_info_tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+    #[test]
+    fn display_info_is_read_only_and_visible_after_graphics_interaction() {
+        let info = crate::gpu_canvas::GpuInfo {
+            output_depth: 10,
+            output_note: "native Wayland; panel depth is controlled by the compositor".into(),
+            ..Default::default()
+        };
+        let lines = json!(info.lines());
+        let mut h = Harness::builder().with_size(egui::vec2(400.0, 600.0)).build_ui_state(
+            move |ui, values: &mut Map<String, Value>| {
+                if super::design_system_shots::fonts_ready(ui) {
+                    gpu_status_rows(ui, Some(&lines), None, values);
+                }
+            },
+            Map::new(),
+        );
+        h.run_steps(2);
+        h.get_by_label_contains("Display output: 10-bit client surface");
+        h.get_by_label("Advanced").click();
+        h.run_steps(2);
+        h.get_by_value("Auto").click();
+        h.run_steps(2);
+        h.get_by_label("Vulkan").click();
+        h.run_steps(2);
+        assert_eq!(h.state()["gpuBackend"], "vulkan");
+        assert!(!h.state().contains_key("outputDepth"));
+        h.get_by_label_contains("Display output: 10-bit client surface");
+    }
+}

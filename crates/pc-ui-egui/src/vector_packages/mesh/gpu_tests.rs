@@ -5,13 +5,17 @@ use eframe::{egui_wgpu, wgpu};
 use std::sync::Arc;
 fn harness(lines: usize) -> Harness<'static, PhotocraftApp> {
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(Arc::new(|adapters, _| {
         adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                }
             })
             .cloned()
             .ok_or_else(|| "mesh app gate requires RTX 5090 Vulkan discrete".into())
@@ -54,9 +58,13 @@ fn harness(lines: usize) -> Harness<'static, PhotocraftApp> {
     h.run_steps(10);
     assert!(h.state().gpu_active());
     let info = &h.state().perf.gpu_info;
+    #[cfg(not(target_os = "macos"))]
     assert!(info.adapter.contains("RTX 5090"));
-    assert_eq!(info.backend, "vulkan");
+    assert_eq!(info.backend, if cfg!(target_os = "macos") { "metal" } else { "vulkan" });
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(info.device_type, "discreteGpu");
+    #[cfg(target_os = "macos")]
+    assert_ne!(info.device_type, "cpu");
     h
 }
 fn pointer(h: &mut Harness<'_, PhotocraftApp>, pos: Pos2, pressed: Option<bool>) {

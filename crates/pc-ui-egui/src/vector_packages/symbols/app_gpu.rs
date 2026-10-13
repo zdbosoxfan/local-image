@@ -10,13 +10,17 @@ type H = Harness<'static, PhotocraftApp>;
 fn harness() -> (H, GpuCanvas) {
     use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew, wgpu};
     let mut setup = WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    setup.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     setup.native_adapter_selector = Some(Arc::new(|adapters, _| {
         let a = adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
+                }
             })
             .ok_or_else(|| "RTX 5090 Vulkan required".to_string())?;
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(a), wgpu::TextureFormat::Rgba32Float);
@@ -114,17 +118,13 @@ fn symbols_full_app_rtx_preview_release_master_edit_zoom_detach_undo_and_cancel(
     // Change the actual master with typed input, then render each logical zoom using live app caches.
     h.get_by_label("Edit Master").click();
     h.run_steps(2);
-    let pos = h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Master red").rect().center();
-    for _ in 0..2 {
-        h.event(Event::PointerMoved(pos));
-        h.event(Event::PointerButton { pos, pressed: true, button: PointerButton::Primary, modifiers: Modifiers::NONE });
-        h.step();
-        h.event(Event::PointerButton { pos, pressed: false, button: PointerButton::Primary, modifiers: Modifiers::NONE });
-        h.step();
-    }
+    h.get_by_label("Master colour").click();
+    h.run_steps(2);
+    h.get_by_label("Hex colour").click();
     h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
-    h.event(egui::Event::Text("0.3".to_owned()));
-    h.key_press(egui::Key::Enter);
+    h.event(egui::Event::Text("4d331a".to_owned()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
     h.run_steps(2);
     let preview = h.state().ui.symbols.preview.clone().expect("master edit preview").0;
     present(&mut h, &gpu, &preview);
@@ -139,6 +139,8 @@ fn symbols_full_app_rtx_preview_release_master_edit_zoom_detach_undo_and_cancel(
         h.state_mut().ui.views[0].zoom = zoom;
         present(&mut h, &gpu, &edited);
     }
+    h.get_by_label("Detach Symbols").scroll_to_me();
+    h.run_steps(3);
     h.get_by_label("Detach Symbols").click();
     h.run_steps(2);
     let detached = h.state().session.active().unwrap().doc.clone();

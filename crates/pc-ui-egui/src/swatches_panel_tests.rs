@@ -205,12 +205,19 @@ fn shared_swatches_gpu_screenshots_dark_light_narrow_normal() {
     use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew};
     use eframe::wgpu;
     let mut setup = WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    setup.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
         let a = adapters
             .iter()
-            .find(|a| a.get_info().device_type == wgpu::DeviceType::DiscreteGpu && a.get_info().name.contains("5090"))
-            .ok_or("RTX 5090 required")?;
+            .find(|a| {
+                let info = a.get_info();
+                if cfg!(target_os = "macos") {
+                    info.backend == wgpu::Backend::Metal && info.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    info.device_type == wgpu::DeviceType::DiscreteGpu && info.name.contains("5090")
+                }
+            })
+            .ok_or("hardware Metal (macOS) or RTX 5090 required")?;
         eprintln!("Swatches renderer: {:?}", a.get_info());
         Ok(a.clone())
     }));
@@ -238,7 +245,7 @@ fn shared_swatches_gpu_screenshots_dark_light_narrow_normal() {
     h.run();
     let _ = h.render().unwrap();
     let ms = start.elapsed().as_secs_f64() * 1000.;
-    std::fs::write(output.join("runtime.txt"), format!("RTX 5090 / Vulkan\nWarm Add Current Colour click, real panel + preference update + GPU render/readback: {ms:.3} ms\nHeadless UI diagnostic, not a desktop frame-rate or compositor benchmark.\n")).unwrap();
+    std::fs::write(output.join("runtime.txt"), format!("{}\nWarm Add Current Colour click, real panel + preference update + GPU render/readback: {ms:.3} ms\nHeadless UI diagnostic, not a desktop frame-rate or compositor benchmark.\n", if cfg!(target_os = "macos") { "hardware Metal" } else { "RTX 5090 / Vulkan" })).unwrap();
     eprintln!("Swatches warm click + GPU readback: {ms:.3} ms");
 }
 
@@ -389,12 +396,19 @@ fn ux_polish_swatches_screens() {
     std::fs::create_dir_all(&output).unwrap();
     for ppp in [1.0f32, 1.5] {
         let mut setup = WgpuSetupCreateNew::without_display_handle();
-        setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
+        setup.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
         setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
             let a = adapters
                 .iter()
-                .find(|a| a.get_info().device_type == wgpu::DeviceType::DiscreteGpu && a.get_info().name.contains("5090"))
-                .ok_or("RTX 5090 required")?;
+                .find(|a| {
+                    let info = a.get_info();
+                    if cfg!(target_os = "macos") {
+                        info.backend == wgpu::Backend::Metal && info.device_type != wgpu::DeviceType::Cpu
+                    } else {
+                        info.device_type == wgpu::DeviceType::DiscreteGpu && info.name.contains("5090")
+                    }
+                })
+                .ok_or("hardware Metal (macOS) or RTX 5090 required")?;
             Ok(a.clone())
         }));
         let renderer = egui_kittest::wgpu::WgpuTestRenderer::from_setup(WgpuSetup::CreateNew(setup));

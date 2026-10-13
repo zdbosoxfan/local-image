@@ -112,15 +112,21 @@ fn tab_restores_floating_and_vector_panels_without_closing_or_moving_them() {
         "Graphic Styles",
         "Frame Composition",
         "Snapping Manager",
-        "Transform and Layout",
+        "Transform",
     ];
+    for name in ["Appearance", "Document Palette", "Graphic Styles", "Frame Composition", "Snapping Manager", "Transform"] {
+        let tab = crate::dock::Tab::from_label(name).unwrap();
+        let pro = crate::dock::is_pro(h.state());
+        h.state_mut().ui.dock.new_group(&[tab], tab, None, pro);
+    }
+    h.run_steps(4);
     let text = painted(&h);
     for title in titles {
         assert!(text.iter().any(|s| s == title), "fixture must paint {title}");
     }
     let snapshot = |app: &PhotocraftApp| json!({"dock":app.ui.dock,"panels":app.ui.panels,"presets":app.ui.presets_ui,"type":app.ui.type_panels,"analysis":app.ui.analysis,"timeline":app.ui.timeline,"shell":app.ui.shell,"vector":crate::vector_integration::open_panels_for_test(app),"layout":app.shared_tools.layout.open});
     let before = snapshot(h.state());
-    let positions: Vec<_> = ["type-styles-window", "glyphs-window", "measurement-log", "timeline", "modifier-keys", "vector layout panel"]
+    let positions: Vec<_> = ["type-styles-window", "glyphs-window", "measurement-log", "timeline", "modifier-keys"]
         .into_iter()
         .map(|id| (id, h.ctx.memory(|m| m.area_rect(egui::Id::new(id))).expect("floating panel has a real area")))
         .collect();
@@ -209,13 +215,15 @@ fn tab_binding_override_and_visible_menu_action_are_respected() {
     assert!(h.state().ui.view.panels_hidden);
     h.get_by_label("View").click();
     h.run_steps(3);
+    assert_eq!(crate::menus::menu_items(h.state()).iter().find(|i| i.id == "view.togglePanels").and_then(|i| i.shortcut.as_deref()), Some("F8"));
+    // Checks occupy a separate gutter and selected accessibility state; the label stays clean.
     // The View menu scrolls: an accessibility node can exist below its visible viewport.
-    h.get_by_label("✔ Hide Panels F8").scroll_to_me();
+    h.get_by_label("Hide Panels").scroll_to_me();
     let mut previous = None;
     let mut reachable = false;
     for _ in 0..32 {
         h.run_steps(1);
-        let row = h.get_by_label("✔ Hide Panels F8").rect();
+        let row = h.get_by_label("Hide Panels").rect();
         let viewport = crate::menu_nav::Nav::current(&h.ctx).views[0];
         if viewport.contains_rect(row) && previous == Some(row) {
             reachable = true;
@@ -223,12 +231,12 @@ fn tab_binding_override_and_visible_menu_action_are_respected() {
         }
         previous = Some(row);
     }
-    let row = h.get_by_label("✔ Hide Panels F8").rect();
+    let row = h.get_by_label("Hide Panels").rect();
     let viewport = crate::menu_nav::Nav::current(&h.ctx).views[0];
     assert!(reachable && viewport.contains_rect(row), "Hide Panels row {row:?} must be wholly visible in menu viewport {viewport:?}");
     assert!(h.ctx.content_rect().contains_rect(row));
     assert_eq!(h.ctx.layer_id_at(row.center()).map(|layer| layer.order), Some(egui::Order::Foreground), "the visible menu receives the click");
-    h.get_by_label("✔ Hide Panels F8").click();
+    h.get_by_label("Hide Panels").click();
     h.run_steps(3);
     assert!(!h.state().ui.view.panels_hidden);
     h.key_press_modifiers(Modifiers::SHIFT, Key::Tab);

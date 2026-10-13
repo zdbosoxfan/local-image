@@ -11,9 +11,13 @@ fn harness() -> H {
     let mut setup = photocraft_ui_egui::gpu_canvas::wgpu_setup();
     photocraft_ui_egui::gpu_canvas::use_adapter_limits_with(&mut setup, |adapter| {
         let info = adapter.get_info();
+        #[cfg(not(target_os = "macos"))]
         assert!(info.name.contains("RTX 5090"), "RTX 5090 required: {info:?}");
-        assert_eq!(info.backend, eframe::wgpu::Backend::Vulkan);
+        assert_eq!(info.backend, if cfg!(target_os = "macos") { eframe::wgpu::Backend::Metal } else { eframe::wgpu::Backend::Vulkan });
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(info.device_type, eframe::wgpu::DeviceType::DiscreteGpu);
+        #[cfg(target_os = "macos")]
+        assert_ne!(info.device_type, eframe::wgpu::DeviceType::Cpu, "hardware Metal adapter required");
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(adapter), eframe::wgpu::TextureFormat::Rgba32Float);
         assert!(photocraft_ui_egui::gpu_canvas::supports_f16_canvas(adapter));
         eprintln!("width full-app GPU: {info:?}");
@@ -53,8 +57,9 @@ fn harness() -> H {
     });
     h.run_steps(4);
     assert!(h.state().gpu_active());
+    #[cfg(not(target_os = "macos"))]
     assert!(h.state().perf.gpu_info.adapter.contains("RTX 5090"));
-    assert_eq!(h.state().perf.gpu_info.backend, "vulkan");
+    assert_eq!(h.state().perf.gpu_info.backend, if cfg!(target_os = "macos") { "metal" } else { "vulkan" });
     h
 }
 fn pixels(h: &mut H) -> Vec<[u8; 4]> {

@@ -34,7 +34,7 @@ fn is_code_root(p: &Path) -> bool {
 
 /// Recognises a ComfyUI folder (or its portable parent); never guesses an arbitrary executable.
 pub fn installation(path: &Path, python: Option<&Path>) -> Option<Installation> {
-    for code in [path.to_path_buf(), path.join("ComfyUI"), path.join("ComfyUI_windows_portable").join("ComfyUI")] {
+    for code in [path.to_path_buf(), path.join("ComfyUI"), path.join("ComfyUI_windows_portable").join("ComfyUI"), path.join("Contents/Resources/ComfyUI")] {
         if !is_code_root(&code) {
             continue;
         }
@@ -79,11 +79,17 @@ pub fn detect(settings: &AiSettings) -> Vec<Installation> {
         home.join("Documents").join("ComfyUI_windows_portable"),
         home.join("Downloads").join("ComfyUI_windows_portable"),
         home.join(".local/share/comfyui/ComfyUI"),
+        home.join("Library/Application Support/ComfyUI"),
+        home.join("Library/Application Support/Comfy Desktop"),
     ]);
     if let Ok(v) = std::env::var("LOCAL_IMAGE_COMFY_CANDIDATES") {
         candidates.extend(std::env::split_paths(&v));
     }
-    for parent in [home.join("ComfyUI-Installs"), dirs::data_local_dir().unwrap_or_default().join("Comfy-Desktop").join("ComfyUI-Installs")] {
+    for parent in [
+        home.join("ComfyUI-Installs"),
+        dirs::data_local_dir().unwrap_or_default().join("Comfy-Desktop").join("ComfyUI-Installs"),
+        home.join("Library/Application Support/Comfy Desktop/ComfyUI-Installs"),
+    ] {
         if let Ok(rd) = std::fs::read_dir(parent) {
             for e in rd.flatten().take(40) {
                 candidates.push(e.path());
@@ -117,6 +123,9 @@ pub fn write_model_paths(settings: &AiSettings) -> Result<PathBuf> {
 
 /// The command line that starts `inst` on loopback.
 pub fn launch_command(inst: &Installation, settings: &AiSettings) -> Result<Command> {
+    if settings.is_remote() {
+        bail!("Remote ComfyUI is managed on the server. Connect using its address, or an SSH tunnel.");
+    }
     if !is_code_root(&inst.code) || !inst.python.is_file() {
         bail!("The selected ComfyUI installation is incomplete. Choose another folder.");
     }
@@ -133,8 +142,12 @@ pub fn launch_command(inst: &Installation, settings: &AiSettings) -> Result<Comm
         std::fs::create_dir_all(&d)?;
         cmd.arg(format!("--{name}-directory")).arg(d);
     }
+    // MPS remains the primary device; unsupported PyTorch operators can fall back to CPU.
+    // Never force --cpu or CUDA flags on Apple Silicon.
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    cmd.env("PYTORCH_ENABLE_MPS_FALLBACK", "1");
     cmd.current_dir(&inst.code);
-    for var in ["LD_LIBRARY_PATH", "QT_PLUGIN_PATH", "PYTHONHOME", "PYTHONPATH"] {
+    for var in ["LD_LIBRARY_PATH", "QT_PLUGIN_PATH", "PYTHONHOME", "PYTHONPATH", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH"] {
         cmd.env_remove(var);
     }
     Ok(cmd)
@@ -225,6 +238,38 @@ mod tests {
         assert_eq!(inst.code, code);
         assert_eq!(inst.kind, "source");
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn finds_macos_app_resources_with_external_venv() {
+        let root = std::env::temp_dir().join(format!("li-comfy-app-{}", uuid::Uuid::new_v4()));
+        let app = root.join("ComfyUI.app");
+        let code = app.join("Contents/Resources/ComfyUI");
+        std::fs::create_dir_all(code.join("comfy")).unwrap();
+        std::fs::write(code.join("main.py"), "").unwrap();
+        std::fs::write(code.join("folder_paths.py"), "").unwrap();
+        let python = root.join(".venv/bin/python");
+        std::fs::create_dir_all(python.parent().unwrap()).unwrap();
+        std::fs::write(&python, "").unwrap();
+        assert_eq!(installation(&app, Some(&python)).unwrap().code, code);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn remote_launch_is_rejected_before_touching_local_files() {
+        let mut settings = AiSettings::default();
+        settings.setup_mode = "remote".into();
+        let inst = Installation { id: "remote".into(), code: PathBuf::from("missing"), python: PathBuf::from("missing"), kind: "source" };
+        let error = launch_command(&inst, &settings).unwrap_err().to_string();
+        assert!(error.contains("managed on the server"), "{error}");
+    }
+
+    #[test]
+    fn parses_apple_unified_memory_stats() {
+        let stats = serde_json::json!({"devices": [{"name": "mps", "type": "mps", "vram_total": 24000000000u64, "vram_free": 16000000000u64}]});
+        let gpu = gpus_from_stats(&stats);
+        assert_eq!(gpu.len(), 1);
+        assert_eq!(gpu[0].vram_used, Some(8000000000));
     }
 
     #[test]

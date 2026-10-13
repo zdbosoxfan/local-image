@@ -228,9 +228,10 @@ fn move_file_case_only_rename_succeeds_on_any_volume() {
     move_file(upper.to_str().unwrap(), lower.to_str().unwrap()).unwrap();
 
     // On case-insensitive volumes, lower path exists and is the same file; on case-sensitive it is
-    // the new name. Either way, the contents are accessible there and the old name is gone.
+    // the new name. Check directory entries: `upper.exists()` still resolves the new file on APFS.
     assert!(lower.exists());
-    assert!(!upper.exists());
+    let names: Vec<_> = fs::read_dir(&dir).unwrap().map(|entry| entry.unwrap().file_name()).collect();
+    assert_eq!(names, [lower.file_name().unwrap()]);
     assert_eq!(fs::read(&lower).unwrap(), b"image");
 }
 

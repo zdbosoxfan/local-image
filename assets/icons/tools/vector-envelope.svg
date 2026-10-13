@@ -1,10 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-<!-- Original Local Image vector tool artwork; GPL-3.0-or-later. Glossy Duotone, purple family. -->
-<defs><linearGradient id="a" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient><linearGradient id="w" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient><linearGradient id="h" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs>
-<g transform="translate(1.5 1.5) scale(.875)" stroke-linejoin="round" stroke-linecap="round">
-<path d="" fill="url(#a)" fill-rule="evenodd" stroke="currentColor" stroke-width="1.43" paint-order="stroke fill"/>
-<path d="" fill="none" stroke="url(#h)" stroke-width=".7"/>
-<path d="M3 3Q12 9 21 3L19 21Q12 15 5 21ZM8 6L9 19M16 6L15 19M4 11Q12 15 20 11" fill="none" stroke="currentColor" stroke-width="2.8"/>
-<path d="M3 3Q12 9 21 3L19 21Q12 15 5 21ZM8 6L9 19M16 6L15 19M4 11Q12 15 20 11" fill="none" stroke="url(#w)" stroke-width="1.6"/>
-<path d="M3 3Q12 9 21 3L19 21Q12 15 5 21ZM8 6L9 19M16 6L15 19M4 11Q12 15 20 11" fill="none" stroke="url(#h)" stroke-width=".65"/>
-</g></svg>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <!-- Local Image original, GPL-3.0-or-later: Envelope Distort: a rectangle warped to a curved mesh. Drawn on Lucide's 24 px grid, 2 px round stroke. -->
+  <path d="M3 4q9 5 18 0l-1 16q-8-5-16 0Z" />
+  <path d="M12 6.3v11.2" />
+  <path d="M3.5 12q8.5 3.5 17 0" />
+</svg>

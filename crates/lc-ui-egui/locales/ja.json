@@ -1584,5 +1584,7 @@
   "Only in session": "セッション内のみ",
   "Split into sessions when there is a gap of more than": "間隔が次の値を超える場合にセッションを分割：",
   "All sessions": "すべてのセッション",
-  "Export sessions as folders": "セッションをフォルダーに書き出し"
+  "Export sessions as folders": "セッションをフォルダーに書き出し",
+  "Colour": "カラー",
+  "Monochrome (default)": "モノクロ（既定）"
 }

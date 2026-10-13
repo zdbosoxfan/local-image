@@ -826,6 +826,13 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
         }
         "file.saveACopy" => Some(save_a_copy(app)),
         "file.placeEmbedded" | "file.placeLinked" => {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(pick) = app.services.pick_place_path.as_mut() {
+                let Some(path) = pick() else {
+                    return Some(Ok(Value::Null));
+                };
+                return Some(app.place_path(&path, id == "file.placeLinked"));
+            }
             let (name, bytes) = match app.pick_file_bytes()? {
                 Ok(picked) => picked,
                 Err(e) => return Some(Err(e)),

@@ -25,6 +25,8 @@ pub struct CustomPar {
 pub struct ShellUi {
     /// Window › Modifier Keys panel open, and its latched keys.
     pub modifier_keys: bool,
+    #[serde(skip)]
+    pub(crate) layout_persona: Option<photocraft_engine::toolsets::Persona>,
     pub sticky_shift: bool,
     pub sticky_command: bool,
     pub sticky_alt: bool,
@@ -35,12 +37,13 @@ pub struct ShellUi {
     pub dialog: Option<(String, Map<String, Value>)>,
 }
 
-const IDS: [&str; 7] = [
+const IDS: [&str; 8] = [
     "window.panel.modifierKeys",
     "window.workspace.newWorkspace",
     "window.workspace.deleteWorkspace",
     "window.workspace.lockWorkspace",
     "window.workspace.select",
+    "window.workspace.vector",
     "view.pixelAspectRatio.custom",
     "view.show.showExtrasOptions",
 ];
@@ -51,7 +54,11 @@ pub fn handles(id: &str) -> bool {
 }
 
 pub fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
+    if let Some(name) = id.strip_prefix("window.vector.") {
+        return crate::dock::Tab::from_label(name).map(|tab| crate::dock::feature_visible(app, tab));
+    }
     match id {
+        "window.workspace.vector" => Some(app.ui.workspace == "Vector"),
         "window.panel.modifierKeys" => Some(app.ui.shell.modifier_keys),
         "window.workspace.lockWorkspace" => Some(app.session.prefs().workspace_locked),
         "view.pixelAspectRatio.custom" => Some(app.ui.view.pixel_aspect.starts_with("custom:")),
@@ -98,7 +105,7 @@ fn open(app: &mut PhotocraftApp, kind: &str, f: Value) -> Result<Value, String> 
 }
 
 /// Built-in workspace names (Window › Workspace presets).
-const PRESETS: [&str; 6] = ["Essentials", "Photography", "Painting", "Pixel Art", "Graphic and Web", "Motion"];
+const PRESETS: [&str; 7] = ["Essentials", "Photography", "Painting", "Pixel Art", "Graphic and Web", "Motion", "Vector"];
 
 /// Run a shell command, or open its dialog. `None` when `id` isn't ours.
 pub fn menu(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
@@ -110,6 +117,10 @@ pub fn menu(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<
             "preview32",
             json!({"method": if h.highlight_compression { "highlightCompression" } else { "exposureGamma" }, "exposure": h.exposure, "gamma": h.gamma}),
         ));
+    }
+    if id == "window.workspace.resetWorkspace" && app.ui.workspace == "Vector" {
+        apply_vector(app);
+        return Some(Ok(json!({"workspace":"Vector"})));
     }
     if !handles(id) {
         return None;
@@ -140,6 +151,7 @@ pub fn menu(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<
         }
         "window.workspace.deleteWorkspace" => delete_workspace(app, params),
         "window.workspace.select" => select_workspace(app, params),
+        "window.workspace.vector" => select_workspace(app, &json!({"name":"Vector"})),
         "view.pixelAspectRatio.custom" if no_params(params) => open(app, "customPar", json!({"name": "", "ratio": 1.0})),
         "view.pixelAspectRatio.custom" => custom_par(app, params),
         "view.show.showExtrasOptions" if no_params(params) => {
@@ -205,6 +217,13 @@ fn delete_workspace(app: &mut PhotocraftApp, p: &Value) -> Result<Value, String>
 
 fn select_workspace(app: &mut PhotocraftApp, p: &Value) -> Result<Value, String> {
     let name = p.get("name").and_then(Value::as_str).ok_or("pass `name`")?.to_string();
+    if name == "Vector" {
+        sync_persona(app);
+        app.session.edit_prefs(|prefs| prefs.toolbar.persona = photocraft_engine::toolsets::Persona::Vector);
+        sync_persona(app);
+        apply_vector(app);
+        return Ok(json!({"workspace":name}));
+    }
     if PRESETS.contains(&name.as_str()) {
         app.ui.workspace = name.clone();
         crate::menus::apply_workspace(app);
@@ -213,6 +232,19 @@ fn select_workspace(app: &mut PhotocraftApp, p: &Value) -> Result<Value, String>
     if !app.session.prefs().workspaces.contains_key(&name) {
         return Err(format!("no workspace \"{name}\""));
     }
+    if let Some(toolbar) = app
+        .session
+        .prefs()
+        .workspaces
+        .get(&name)
+        .and_then(|saved| saved.get("toolbar"))
+        .and_then(|value| serde_json::from_value::<photocraft_engine::prefs::ToolbarCustomization>(value.clone()).ok())
+        && toolbar.persona != app.session.prefs().toolbar.persona
+    {
+        sync_persona(app);
+        app.session.edit_prefs(|prefs| prefs.toolbar.persona = toolbar.persona);
+        sync_persona(app);
+    }
     app.ui.workspace = name.clone();
     apply_custom(app);
     Ok(json!({"workspace": name}))
@@ -220,7 +252,20 @@ fn select_workspace(app: &mut PhotocraftApp, p: &Value) -> Result<Value, String>
 
 /// Apply the current workspace when it is a saved one. Returns false for the built-in presets.
 pub fn apply_custom(app: &mut PhotocraftApp) -> bool {
-    let Some(ws) = app.session.prefs().workspaces.get(&app.ui.workspace).cloned() else { return false };
+    if app.ui.workspace == "Vector" {
+        apply_vector(app);
+        return true;
+    }
+    let name = app.ui.workspace.clone();
+    let Some(ws) = app.session.prefs().workspaces.get(&name).cloned() else { return false };
+    if let Some(toolbar) = ws.get("toolbar").and_then(|value| serde_json::from_value::<photocraft_engine::prefs::ToolbarCustomization>(value.clone()).ok())
+        && toolbar.persona != app.session.prefs().toolbar.persona
+    {
+        sync_persona(app);
+        app.session.edit_prefs(|prefs| prefs.toolbar.persona = toolbar.persona);
+        sync_persona(app);
+        app.ui.workspace = name;
+    }
     // Workspaces saved before the dock layout existed get the default heights.
     app.ui.dock = Default::default();
     crate::dock::apply(app, &ws);
@@ -239,6 +284,69 @@ pub fn apply_custom(app: &mut PhotocraftApp) -> bool {
         });
     }
     true
+}
+
+pub(crate) fn persona_key(persona: photocraft_engine::toolsets::Persona) -> &'static str {
+    match persona {
+        photocraft_engine::toolsets::Persona::Pixel => "pixel",
+        photocraft_engine::toolsets::Persona::Vector => "vector",
+    }
+}
+
+/// Save the outgoing studio before restoring the incoming one, including automation changes.
+pub(crate) fn sync_persona(app: &mut PhotocraftApp) {
+    use photocraft_engine::toolsets::Persona;
+    let now = app.session.prefs().toolbar.persona;
+    if app.ui.shell.layout_persona == Some(now) {
+        return;
+    }
+    if let Some(old) = app.ui.shell.layout_persona {
+        let snapshot = crate::dock::snapshot(app);
+        app.session.prefs.edit(|p| p.persona_layouts.insert(persona_key(old).into(), snapshot));
+        if let Some(saved) = app.session.prefs().persona_layouts.get(persona_key(now)).cloned() {
+            crate::dock::apply(app, &saved);
+            if let Some(name) = saved["workspace"].as_str() {
+                app.ui.workspace = name.into();
+            }
+        } else if now == Persona::Vector {
+            apply_vector(app);
+        } else {
+            app.ui.workspace = "Essentials".into();
+            crate::menus::apply_workspace(app);
+        }
+    } else if now == Persona::Vector && app.session.prefs().panel_layout.is_null() {
+        apply_vector(app);
+    }
+    app.ui.shell.layout_persona = Some(now);
+}
+
+/// Vector studio: paint at the top, object properties in the middle, Layers below.
+/// Affinity's per-persona Studio and Illustrator Essentials use this same grouping grammar.
+pub fn apply_vector(app: &mut PhotocraftApp) {
+    use crate::dock::{DockLayout, Group, Tab};
+    app.ui.workspace = "Vector".into();
+    app.ui.panels = crate::state::Panels { color: true, properties: false, layers: true, ..Default::default() };
+    app.ui.panels.navigator = false;
+    app.ui.panels.history = false;
+    app.ui.panels.character = false;
+    app.ui.panels.generate = false;
+    app.ui.dock_tabs = Default::default();
+    let pro = crate::dock::is_pro(app);
+    let mut dock = DockLayout::default();
+    for (group, tabs) in [
+        (Group::Color, vec![Tab::Color, Tab::Swatches, Tab::DocumentPalette]),
+        (Group::Custom(201), vec![Tab::Appearance, Tab::Transform, Tab::Align, Tab::Layout, Tab::Pathfinder, Tab::Brushes, Tab::GraphicStyles]),
+        (Group::Layers, vec![Tab::Layers, Tab::Symbols]),
+    ] {
+        dock.insert(&tabs, group, 0, pro);
+        dock.active.insert(group, tabs[0]);
+    }
+    dock.order = vec![Group::Color, Group::Custom(201), Group::Layers];
+    // Vector's object controls need more of the column than Pixel's Layers-first default.
+    dock.heights.insert(Group::Color, Group::Color.compact_height());
+    dock.heights.insert(Group::Custom(201), Group::Custom(201).default_height());
+    // Optional specialized panels remain available through Window, without crowding the preset.
+    app.ui.dock = dock;
 }
 
 /// Custom Pixel Aspect Ratio: `{name, ratio}` adds (or updates) and selects; `{delete: name}`
@@ -567,3 +675,7 @@ mod tests {
         assert_eq!(app.session.color.hdr[&d].exposure, 1.5);
     }
 }
+
+#[cfg(test)]
+#[path = "vectorws_tests.rs"]
+mod vectorws_tests;

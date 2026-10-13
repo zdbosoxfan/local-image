@@ -328,10 +328,18 @@ pub fn slider_row_translated(
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).color(t.text_dim));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            changed_resp = Some(value_field(ui, value, range.clone(), suffix, 74.0));
+            let field = value_field(ui, value, range.clone(), suffix, 74.0);
+            field.widget_info(|| {
+                let mut info = egui::WidgetInfo::drag_value(ui.is_enabled(), f64::from(*value));
+                info.label = Some(crate::i18n::fmt(tl!("{name} value"), &[("name", label)]));
+                info
+            });
+            changed_resp = Some(field);
         });
     });
     let s = slider(ui, value, range, gradient);
+    let accessible = crate::i18n::fmt(tl!("{name} slider"), &[("name", label)]);
+    s.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), f64::from(*value), &accessible));
     let mut r = s.clone();
     if let Some(v) = changed_resp
         && v.changed()
@@ -686,6 +694,57 @@ pub fn color_tile(ui: &Ui, rect: Rect, color: Color32) {
     p.rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
 }
 
+/// Named colour swatch opening the ordinary Color Picker in a shared popup.
+/// Used by Symbols master editing; preserves HDR/channel values until the user changes paint.
+pub fn color_control(ui: &mut Ui, color: &mut photocraft_doc::Color, label: &str) -> bool {
+    use serde_json::{Map, Value, json};
+    let rgb = color.to_rgb();
+    let response = ui
+        .horizontal(|ui| {
+            let side = ui.spacing().interact_size.y;
+            let tile = ui.allocate_exact_size(Vec2::splat(side), Sense::hover()).0;
+            color_tile(
+                ui,
+                tile,
+                Color32::from_rgba_unmultiplied(
+                    (rgb[0].clamp(0.0, 1.0) * 255.0) as u8,
+                    (rgb[1].clamp(0.0, 1.0) * 255.0) as u8,
+                    (rgb[2].clamp(0.0, 1.0) * 255.0) as u8,
+                    (color.alpha.clamp(0.0, 1.0) * 255.0) as u8,
+                ),
+            );
+            secondary_button(ui, label, 0.0)
+        })
+        .inner;
+    let key = response.id.with("color-fields");
+    if response.clicked() {
+        let hex = crate::color_picker_ui::hex(rgb);
+        let fields: Map<String, Value> = serde_json::from_value(json!({"color":hex,"__orig":hex})).unwrap_or_default();
+        ui.data_mut(|d| d.insert_temp(key, fields));
+    }
+    let mut changed = false;
+    swatch_popup(&response).show(|ui| {
+        let mut fields = ui.data(|d| d.get_temp::<Map<String, Value>>(key)).unwrap_or_default();
+        let before = fields.get("color").cloned();
+        crate::color_picker_ui::body(ui, &mut fields);
+        if fields.get("color") != before.as_ref()
+            && let Some(rgb) = fields.get("color").and_then(Value::as_str).and_then(crate::color_picker_ui::parse_hex)
+        {
+            let alpha = color.alpha;
+            *color = photocraft_doc::Color::rgb(rgb[0], rgb[1], rgb[2]);
+            color.alpha = alpha;
+            changed = true;
+        }
+        let mut alpha = color.alpha;
+        if slider_row_translated(ui, tl!("Opacity"), &mut alpha, 0.0..=1.0, "", None).changed() {
+            color.alpha = alpha;
+            changed = true;
+        }
+        ui.data_mut(|d| d.insert_temp(key, fields));
+    });
+    changed
+}
+
 /// Paint a small checkerboard (transparency) in `rect`.
 pub fn checker(painter: &egui::Painter, rect: Rect, cell: f32) {
     painter.rect_filled(rect, 0.0, Color32::from_gray(250));
@@ -1009,4 +1068,61 @@ fn ds2_value_field_displays_requested_four_decimal_precision() {
     h.event(egui::Event::Key { key: egui::Key::Enter, physical_key: Some(egui::Key::Enter), pressed: true, repeat: false, modifiers: Default::default() });
     h.run_steps(2);
     assert!((h.state().0 - 0.5678).abs() < 1e-8);
+}
+
+/// Menu label with a reserved icon gutter. Used by command rows and submenu rows so
+/// check marks never move labels or become part of their accessible names. Metrics
+/// follow egui's themed icon spacing and button font (including UI font scaling).
+pub fn menu_row_label(ui: &Ui, label: &str) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::simple_singleline(label.into(), egui::TextStyle::Button.resolve(ui.style()), ui.visuals().text_color());
+    if let Some(section) = job.sections.first_mut() {
+        section.leading_space = ui.spacing().icon_width + ui.spacing().icon_spacing;
+    }
+    job
+}
+
+/// Standard egui menu button with the shared check gutter. Owners may add shortcut
+/// text, enabled state or a user-selected menu tint before adding it to the UI.
+pub fn menu_row_button<'a>(ui: &Ui, label: &str) -> egui::Button<'a> {
+    egui::Button::new(menu_row_label(ui, label))
+}
+
+/// Decorate a menu response with its check and accessible selected state. The
+/// shared icon painter uses the current enabled/hovered text colour from egui.
+pub fn menu_row_check(ui: &Ui, response: &Response, label: &str, checked: Option<bool>) {
+    if let Some(on) = checked {
+        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, response.enabled(), on, label));
+        if on {
+            let width = ui.spacing().icon_width;
+            let center = response.rect.left_center() + vec2(ui.spacing().button_padding.x + width / 2.0, 0.0);
+            let rect = Rect::from_center_size(center, Vec2::splat(width));
+            let color = ui.style().interact(response).fg_stroke.color;
+            crate::icons::paint(ui, rect, "check", width, color);
+        }
+    }
+}
+
+/// A canvas/panel command row. Uses egui's themed menu button and the disabled-hover
+/// API so unavailable commands remain discoverable without focus or activation.
+/// The caller supplies a translated label with its active-profile shortcut.
+pub fn command_menu_item(ui: &mut Ui, label: &str, shortcut: Option<&str>, checked: Option<bool>, reason: Option<&str>) -> egui::Response {
+    egui::containers::menu::MenuConfig::find(ui).style.apply(ui.style_mut());
+    let mut button = menu_row_button(ui, label).truncate();
+    if let Some(shortcut) = shortcut {
+        button = button.shortcut_text(shortcut);
+    }
+    let response = ui.add_enabled(reason.is_none(), button);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, response.enabled(), label));
+    menu_row_check(ui, &response, label, checked);
+    if let Some(reason) = reason { disabled_reason_tooltip(response, reason) } else { response }
+}
+
+/// A disabled-command tooltip that wraps within the current viewport, including narrow
+/// context menus. Uses egui’s tooltip popup; sizes come from the active spacing tokens.
+pub fn disabled_reason_tooltip(response: Response, reason: &str) -> Response {
+    response.on_disabled_hover_ui(|ui| {
+        let room = ui.ctx().content_rect().width() - ui.spacing().window_margin.sum().x;
+        ui.set_max_width(ui.spacing().tooltip_width.min(room.max(ui.spacing().interact_size.x)));
+        ui.add(egui::Label::new(reason).wrap());
+    })
 }

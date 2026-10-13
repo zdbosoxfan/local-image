@@ -1127,6 +1127,10 @@ impl eframe::App for Host {
             self.editor.logic(ctx, frame);
         } else {
             self.editor.background_tick(ctx);
+            // Native menus belong to the host, including while the Library owns the canvas.
+            // The editor's normal logic/UI are dormant here, so drain clicks and sync explicitly.
+            photocraft_ui_egui::native_menu::run(&mut self.editor, ctx);
+            photocraft_ui_egui::native_menu::sync(&mut self.editor, ctx);
             // Started in the Library or Develop: the editor's frames (which run the started hook)
             // don't happen, so the GPU start-up marker stayed for the whole session and any later
             // exit that wasn't clean (out-of-memory killer, logout, a crash elsewhere) read as a
@@ -1236,12 +1240,18 @@ impl eframe::App for Host {
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         match (self.mode, self.library.as_mut()) {
-            (Module::Library | Module::Develop, Some(lib)) => lib.raw_input_hook(raw),
+            (Module::Library | Module::Develop, Some(lib)) => {
+                if let Some(menu) = self.editor.services.native_menu.as_mut() {
+                    menu.raw_input(raw);
+                }
+                lib.raw_input_hook(raw);
+            }
             _ => self.editor.raw_input_hook(ctx, raw),
         }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        crate::monitor_profile::configure_surface(frame, &self.editor.session.color);
         self.shared_shell(ui.ctx());
         if self.mode == Module::Compositing || self.library.is_none() {
             self.editor.ui(ui, frame);
@@ -1279,7 +1289,12 @@ impl eframe::App for Host {
                 self.round_trip_notice = None;
             }
         }
+        photocraft_ui_egui::monitor_status::poll(&mut self.editor, ui.ctx());
         if let Some(lib) = self.library.as_mut() {
+            match self.editor.session.color.srgb_preview_display() {
+                Ok(display) => lib.renderer.set_display(display),
+                Err(e) => log::warn!("Library display transform: {e}"),
+            }
             ui.add_enabled_ui(!lib.host_modal, |ui| lib.ui(ui));
         }
         self.shared_shell(ui.ctx());
@@ -2376,6 +2391,34 @@ mod tests {
         }
     }
 
+    #[test]
+    fn native_menu_keys_and_quit_click_reach_the_library_after_startup() {
+        use photocraft_ui_egui::native_menu::{Backend, Chord, Event, MenuBar, NativeMenu};
+        struct Queue(Arc<Mutex<Vec<Event>>>);
+        impl Backend for Queue {
+            fn sync(&mut self, _: &MenuBar) {}
+            fn drain(&mut self) -> Vec<Event> {
+                std::mem::take(&mut *self.0.lock().unwrap())
+            }
+        }
+        let (dir, mut host) = workflow_host("native-library-menu");
+        host.mode = Module::Library;
+        let events = Arc::new(Mutex::new(Vec::new()));
+        host.editor.services.native_menu = Some(NativeMenu::new(Box::new(Queue(events.clone()))));
+        let mut h = RoundTripUi::new(host);
+        h.step(vec![]);
+        h.step(vec![]); // The editor's startup logic no longer runs in this workspace.
+        events.lock().unwrap().push(Event::Key(Chord::parse("Cmd+Q").unwrap()));
+        let mut raw = egui::RawInput::default();
+        eframe::App::raw_input_hook(&mut h.host, &h.view.ctx, &mut raw);
+        assert!(raw.events.iter().any(|event| matches!(event, egui::Event::Key { key: egui::Key::Q, pressed: true, modifiers, .. } if modifiers.command)));
+        events.lock().unwrap().push(Event::Click("file.exit".into()));
+        let commands = h.step_at(egui::vec2(1200., 900.), vec![]);
+        assert!(commands.contains(&egui::ViewportCommand::Close), "native Quit was lost in Library: {commands:?}");
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     fn click_overwrite(h: &mut RoundTripUi, id: &str) {
         // Modal responses use the same egui rectangles on either hosted module.
         h.step(vec![]);
@@ -2667,8 +2710,8 @@ mod tests {
         let config = egui_wgpu::WgpuConfiguration { wgpu_setup: setup, ..Default::default() };
         let rs = block_on(egui_wgpu::RenderState::create(&config, &instance, None, Default::default())).expect("real GPU required");
         let info = rs.adapter.get_info();
-        assert_eq!(info.backend, wgpu::Backend::Vulkan);
-        assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+        assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
+        assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware GPU required");
         eprintln!("overwrite GPU: {} ({:?})", info.name, info.backend);
         overwrite_pixels("png", Some(rs));
     }

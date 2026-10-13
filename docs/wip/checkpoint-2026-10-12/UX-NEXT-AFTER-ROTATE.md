@@ -78,3 +78,5 @@ Acceptance: successfully create custom dimensions/resolution/mode/depth, then re
 ## Coordinator handoff
 
 Assign Batch A's narrow ownership after the current owners freeze; no worker is launched by this report. Validate one coherent affected batch, then move to Batch B/menu work. Keep model/native validation exclusive and the installed normal-profile6acff845 session untouched. Existing acceptance evidence remains valuable but does not mark every original clause complete. Track each original ID against behavior/evidence, not an umbrella “UX done” label. No additional generic accessibility initiative, redesign, new workflow framework or feature expansion is proposed.
+
+> **Owner override (2026-10-13):** AI Remove's default is **brush, adjust, then confirm** (manual Remove). Apply-on-release is an opt-in only. This supersedes Batch A point 1 above.

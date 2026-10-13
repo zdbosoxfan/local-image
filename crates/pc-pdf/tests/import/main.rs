@@ -430,3 +430,14 @@ mod encryption;
 mod inline;
 
 mod groups;
+
+#[test]
+fn pdf_fallback_real_codecs_keep_the_typed_editable_refusal() {
+    for jbig2 in [false, true] {
+        let bytes = fixture::fallback_codec(jbig2);
+        for error in [info(&bytes, &ImportOptions::default(), &AtomicBool::new(false)).unwrap_err(), import(&bytes, &ImportOptions::default()).unwrap_err()] {
+            assert_eq!(error.raster_fallback_reason(), Some(photocraft_pdf::import::RasterFallbackReason::ImageCodec));
+            assert!(matches!(error, ImportError::Unsupported("JPEG 2000 image decoder" | "JBIG2 image decoder")));
+        }
+    }
+}

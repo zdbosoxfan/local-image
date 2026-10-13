@@ -10,13 +10,17 @@ use serde_json::json;
 type H = Harness<'static, PhotocraftApp>;
 fn gpu() -> egui_wgpu::WgpuSetup {
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
         let a = adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                }
             })
             .ok_or_else(|| "RTX 5090 Vulkan discrete required".to_string())?;
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(a), wgpu::TextureFormat::Rgba32Float);
@@ -64,7 +68,7 @@ fn harness(zoom: f32, ppp: f32) -> H {
     // The actual selection context button opens the production Transform panel.
     h.get_by_label("Transform and Layout").click();
     h.run_steps(3);
-    assert!(h.state().shared_tools.layout.open);
+    assert!(photocraft_ui_egui::dock::feature_visible(h.state(), photocraft_ui_egui::dock::Tab::Transform));
     h.state_mut().shared_tools.layout.snapping.enabled = false;
     assert!(h.state().gpu_active());
     h

@@ -114,6 +114,7 @@ fn persona_clicks_and_shortcuts_keep_document_dock_selection_and_history() {
     assert_eq!(h.state().session.prefs().toolbar.persona, Persona::Vector);
     h.get_by_label("Pen Tool");
     assert!(h.query_by_label("Brush Tool").is_none());
+    let vector_dock = serde_json::to_value(&h.state().ui.dock).unwrap();
     let vector = crate::panels::visible_sections(h.state());
     assert!(!vector.iter().flatten().any(|(_, tools)| tools.contains(&Tool::Brush)));
     let mods = Modifiers { command: true, shift: true, ..Default::default() };
@@ -126,8 +127,11 @@ fn persona_clicks_and_shortcuts_keep_document_dock_selection_and_history() {
     let st = h.state().session.active().unwrap();
     assert!(Arc::ptr_eq(&st.doc, &doc), "switching must not publish a document edit");
     assert_eq!((st.selected_layers(), st.history.past_len()), (selected, history));
-    assert_eq!(serde_json::to_value(&h.state().ui.dock).unwrap(), dock);
+    assert_eq!(serde_json::to_value(&h.state().ui.dock).unwrap(), vector_dock);
     assert_eq!(background_rows(&h), rows);
+    h.get_by_label("Pixel persona").click();
+    h.run_steps(3);
+    assert_eq!(serde_json::to_value(&h.state().ui.dock).unwrap(), dock);
 }
 
 #[test]

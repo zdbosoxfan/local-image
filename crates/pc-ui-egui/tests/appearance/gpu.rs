@@ -3,13 +3,17 @@ use super::*;
 use eframe::egui_wgpu::{self, wgpu};
 pub fn setup() -> egui_wgpu::WgpuSetup {
     let mut setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    setup.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
         let a = adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
+                }
             })
             .ok_or_else(|| "RTX 5090 Vulkan discrete adapter required".to_string())?;
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(a), wgpu::TextureFormat::Rgba32Float);
@@ -21,6 +25,8 @@ pub fn setup() -> egui_wgpu::WgpuSetup {
 #[test]
 fn appearance_ui_gpu_actual_drags_preview_release_cancel() {
     let mut h = Harness::builder().with_size(egui::vec2(760., 1200.)).wgpu_setup(setup()).build_ui_state(draw, host());
+    photocraft_ui_egui::PhotocraftApp::setup_context(&h.ctx, Default::default());
+    h.run_steps(3);
     let before = h.render().unwrap();
     button(&mut h, 28., 60., true);
     motion(&mut h, 96., 60.);

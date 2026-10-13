@@ -4,7 +4,14 @@ use photocraft_engine::color_cmds::ColorState;
 use photocraft_engine::display_color::{CanvasDisplay, Display, MonitorDetection, MonitorStatus, display_at};
 
 fn sample_display(id: u32, x: f64, y: f64, w: f64, h: f64, icc: Option<Vec<u8>>) -> Display {
-    Display { id, name: format!("Display {id}"), frame: [x, y, w, h], profile_name: Some(format!("Profile {id}")), icc: icc.map(Arc::new) }
+    Display {
+        compositor_managed: false,
+        id,
+        name: format!("Display {id}"),
+        frame: [x, y, w, h],
+        profile_name: Some(format!("Profile {id}")),
+        icc: icc.map(Arc::new),
+    }
 }
 
 fn default_color_state() -> ColorState {

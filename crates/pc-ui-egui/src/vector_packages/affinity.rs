@@ -195,7 +195,7 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
         state.cancel();
     }
     let mut action = None;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui.add_enabled(!state.source.is_empty(), egui::Button::new(tl!("Open Affinity"))).clicked() {
             action = Some(0);
         }

@@ -51,6 +51,29 @@ pub enum ImportError {
     #[error("encrypted PDF import is unavailable: save a decrypted copy first")]
     Encrypted,
 }
+
+/// A compatibility limitation with an explicit, independently contained image route.
+/// This is not admission to the editable decoder, nor proof the rest of a file is safe.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RasterFallbackReason {
+    ImageCodec,
+    CalculatorFunction,
+}
+impl ImportError {
+    pub fn raster_fallback_reason(&self) -> Option<RasterFallbackReason> {
+        match self {
+            Self::Unsupported("JPEG 2000 image decoder" | "JBIG2 image decoder") => Some(RasterFallbackReason::ImageCodec),
+            Self::Unsupported("PostScript calculator functions") => Some(RasterFallbackReason::CalculatorFunction),
+            _ => None,
+        }
+    }
+}
+
+/// The bounded header recognition shared by native Open/Place and preflight.
+pub fn header_offset(bytes: &[u8]) -> Option<usize> {
+    let offset = bytes[..bytes.len().min(1029)].windows(5).position(|s| s == b"%PDF-")?;
+    bytes.get(offset + 5..offset + 8).filter(|v| v[0].is_ascii_digit() && v[1] == b'.' && v[2].is_ascii_digit()).map(|_| offset)
+}
 pub(super) type Result<T> = std::result::Result<T, ImportError>;
 
 pub fn import(bytes: &[u8], options: &ImportOptions) -> Result<ImportedScene> {
@@ -82,5 +105,38 @@ pub(super) fn cancelled(cancel: &AtomicBool) -> Result<()> {
 pub(super) fn warn(warnings: &mut Vec<VectorWarning>, feature: &str, object: Option<&str>, message: &str) {
     if !warnings.iter().any(|w| w.feature == feature) {
         warnings.push(VectorWarning { feature: feature.into(), object: object.map(str::to_owned), message: message.into() });
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod fallback_boundary_tests {
+    use super::*;
+    #[test]
+    fn shared_header_window_and_fallback_refusals_are_explicit() {
+        for offset in [0, 1024] {
+            let mut bytes = vec![b' '; offset];
+            bytes.extend_from_slice(b"%PDF-1.7\n");
+            assert_eq!(header_offset(&bytes), Some(offset));
+        }
+        let mut late = vec![b' '; 1025];
+        late.extend_from_slice(b"%PDF-1.7\n");
+        assert_eq!(header_offset(&late), None);
+        assert_eq!(header_offset(b"%PDF-x.y"), None);
+        assert!(ImportError::Unsupported("JPEG 2000 image decoder").raster_fallback_reason().is_some());
+        assert!(ImportError::Unsupported("JBIG2 image decoder").raster_fallback_reason().is_some());
+        assert!(ImportError::Unsupported("PostScript calculator functions").raster_fallback_reason().is_some());
+        for error in [
+            ImportError::Invalid("bad xref".into()),
+            ImportError::Limit("pixel"),
+            ImportError::Cancelled,
+            ImportError::Encrypted,
+            ImportError::Unsupported("knockout transparency groups"),
+            ImportError::Unsupported("external file streams"),
+            ImportError::Unsupported("stream codec has no bounded decoder"),
+            ImportError::Unsupported("binary resource reused as page content"),
+        ] {
+            assert_eq!(error.raster_fallback_reason(), None, "{error}");
+        }
     }
 }

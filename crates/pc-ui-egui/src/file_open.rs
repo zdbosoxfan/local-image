@@ -201,10 +201,19 @@ impl PhotocraftApp {
     /// Place the next file dropped on the canvas and start Free Transform on it, once no other
     /// transform is in progress (so several files are placed and transformed one after another).
     pub(crate) fn place_next_dropped(&mut self, ctx: &egui::Context) {
-        while self.ui.transform.is_none() && self.session.active_job().is_none() {
+        if self.pdf_import.take_route_finished(&self.session)
+            && let Err(error) = crate::transform_tool::begin_placed(self, ctx)
+        {
+            self.ui.status = error;
+        }
+        while self.ui.transform.is_none() && self.session.active_job().is_none() && !self.pdf_import.placement_pending() {
             let Some(f) = self.drop_places.pop_front() else { return };
             let placed = if f.path().is_absolute() {
-                self.run("file.placeEmbedded", serde_json::json!({"path": f.path().to_string_lossy()}))
+                match crate::pdf_import::offer_place_path(self, &f.path().to_string_lossy()) {
+                    Ok(true) => Ok(serde_json::json!({"pending":true,"pdfDialog":true})),
+                    Ok(false) => self.run("file.placeEmbedded", serde_json::json!({"path": f.path().to_string_lossy()})),
+                    Err(error) => Err(error),
+                }
             } else {
                 crate::read_dropped(&*f).and_then(|bytes| self.place_bytes(&dropped_name(&f), bytes, None))
             };
@@ -222,9 +231,21 @@ impl PhotocraftApp {
         }
     }
 
+    /// The native Place picker hands off a path without reading the document on the UI thread.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn place_path(&mut self, path: &str, linked: bool) -> Result<serde_json::Value, String> {
+        if crate::pdf_import::offer_place_path_with_link(self, path, linked.then(|| path.to_owned()))? {
+            return Ok(serde_json::json!({"pending":true,"pdfDialog":true}));
+        }
+        self.run(if linked { "file.placeLinked" } else { "file.placeEmbedded" }, serde_json::json!({"path":path}))
+    }
+
     /// Place a file's bytes as a smart object layer (File › Place; `linked`: Place Linked, to that
     /// path), for files that weren't read from a path the command can read.
     pub(crate) fn place_bytes(&mut self, name: &str, bytes: Vec<u8>, linked: Option<String>) -> Result<serde_json::Value, String> {
+        if crate::pdf_import::offer_place(self, name, &bytes, linked.clone())? {
+            return Ok(serde_json::json!({"pending":true,"pdfDialog":true}));
+        }
         if self.background_jobs {
             let started = photocraft_engine::file_cmds::start_place(&mut self.session, name, crate::jobs_ui::bytes(&bytes), linked, serde_json::json!({}))
                 .map_err(|e| e.to_string())?;

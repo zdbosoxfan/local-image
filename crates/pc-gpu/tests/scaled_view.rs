@@ -14,7 +14,10 @@ use std::collections::HashMap;
 #[test]
 #[ignore = "required RTX 5090 Vulkan acceptance; see docs/GPU-VALIDATION.md"]
 fn scaled_view_rtx5090_vulkan_mixed_masks_clips_effects_tiled_parity() {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
@@ -23,9 +26,13 @@ fn scaled_view_rtx5090_vulkan_mixed_masks_clips_effects_tiled_parity() {
     }))
     .expect("RTX Vulkan adapter required");
     let info = adapter.get_info();
+    #[cfg(not(target_os = "macos"))]
     assert!(info.name.contains("RTX 5090"), "{info:?}");
-    assert_eq!(info.backend, wgpu::Backend::Vulkan);
+    assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+    #[cfg(target_os = "macos")]
+    assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
     assert_eq!(Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float);
     eprintln!("scaled compositor GPU {info:?}");
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: adapter.limits(), ..Default::default() }))

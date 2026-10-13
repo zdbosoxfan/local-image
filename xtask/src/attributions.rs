@@ -611,10 +611,16 @@ fn member_activation(m: &Member, requested: &BTreeSet<String>) -> (BTreeSet<Stri
 /// feature rules (so an optional dependency counts only when a feature the app builds with enables
 /// it); other crates through everything Cargo.lock records for them (all platforms).
 pub fn app_crates(root: &Path) -> Result<Vec<(String, String)>> {
-    let pkgs = parse_lock(&std::fs::read_to_string(root.join("Cargo.lock")).context("Cargo.lock")?)?;
+    let mut pkgs = parse_lock(&std::fs::read_to_string(root.join("Cargo.lock")).context("Cargo.lock")?)?;
     let root_toml: toml::Table = toml::from_str(&std::fs::read_to_string(root.join("Cargo.toml"))?)?;
     let workspace_deps = root_toml.get("workspace").and_then(|w| w.get("dependencies")).and_then(|d| d.as_table()).cloned().unwrap_or_default();
     let manifests = member_manifests(root);
+    // A vendored `[patch]` copy (vendor/) has no lock source but is still a third-party crate.
+    for p in &mut pkgs {
+        if p.member && !manifests.contains_key(&p.name) {
+            p.member = false;
+        }
+    }
     let mut by_name: HashMap<&str, Vec<usize>> = HashMap::new();
     for (i, p) in pkgs.iter().enumerate() {
         by_name.entry(p.name.as_str()).or_default().push(i);

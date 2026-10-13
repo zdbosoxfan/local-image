@@ -154,7 +154,7 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
         state.cancel();
     }
     let mut action = None;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui.button(tl!("Open SVG")).clicked() {
             action = Some(0);
         }

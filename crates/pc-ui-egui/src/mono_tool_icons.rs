@@ -1,9 +1,20 @@
-//! Theme-tinted version of the same approved/mixed geometry used by colour tool icons.
+//! Theme-tinted monochrome tool icons: the line SVGs in assets/icons/tools, drawn white and tinted
+//! by egui with the theme colour (the active tool keeps the accent treatment from the button).
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use crate::tool_icon_data::TOOL_ICONS;
 use egui::{Color32, Image, Vec2};
+
+/// Every tool icon by name: the Compositing tools plus the vector persona's table.
+pub fn svg(name: &str) -> Option<&'static [u8]> {
+    TOOL_ICONS
+        .iter()
+        .copied()
+        .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, name, svg)| (*name, *svg)))
+        .find(|(n, _)| *n == name)
+        .map(|(_, svg)| svg)
+}
 
 fn white_icons() -> &'static HashMap<&'static str, Arc<[u8]>> {
     static MAP: OnceLock<HashMap<&'static str, Arc<[u8]>>> = OnceLock::new();
@@ -11,7 +22,7 @@ fn white_icons() -> &'static HashMap<&'static str, Arc<[u8]>> {
         TOOL_ICONS
             .iter()
             .copied()
-            .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, name, _, mono)| (*name, *mono)))
+            .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, name, svg)| (*name, *svg)))
             .map(|(name, bytes)| {
                 let svg = String::from_utf8_lossy(bytes).replace("currentColor", "#ffffff");
                 (name, Arc::from(svg.into_bytes().into_boxed_slice()))
@@ -48,7 +59,8 @@ mod tests {
                 assert_eq!(mono.size, colour.size, "{name}");
                 // RGB is the only difference: antialiased alpha, holes and optical padding agree.
                 assert!(mono.pixels.iter().zip(&colour.pixels).all(|(a, b)| a.a().abs_diff(b.a()) <= 1), "style geometry differs: {name}/{size}");
-                assert!(mono.pixels.iter().filter(|p| p.a() > 100).count() > (size * size / 12) as usize, "empty monochrome tool: {name}/{size}");
+                // Line icons: 1/20 of the box (see color_icons' check); the filled Glossy glyphs used 1/12.
+                assert!(mono.pixels.iter().filter(|p| p.a() > 100).count() > (size * size / 20) as usize, "empty monochrome tool: {name}/{size}");
                 // Embedded SVG images need an explicit white base before egui multiplies the tint.
                 assert!(mono.pixels.iter().all(|p| p.r() == p.a() && p.g() == p.a() && p.b() == p.a()), "mono tint base is not white: {name}");
             }

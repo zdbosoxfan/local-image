@@ -369,10 +369,11 @@ pub fn show_floating(app: &mut PhotocraftApp, ctx: &egui::Context, mut body: imp
     let mut drawn: Vec<FloatRects> = Vec::with_capacity(ids.len());
     for id in ids {
         let Some(f) = app.ui.dock.floating(id).cloned() else { continue };
-        let Some(active) = f.shown_tab() else { continue };
+        let tabs: Vec<_> = f.tabs.iter().copied().filter(|tab| !app.ui.dock.hidden_tabs.contains(tab)).collect();
+        let Some(active) = f.active.filter(|tab| tabs.contains(tab)).or_else(|| tabs.first().copied()) else { continue };
         let size = vec2(f.size[0], f.size[1]).max(MIN_SIZE).min(screen.size().max(MIN_SIZE));
         let rect = keep_on_screen(Rect::from_min_size(pos2(f.pos[0], f.pos[1]), size), screen);
-        let tabs = f.tabs.clone();
+
         let before = tabs.iter().position(|x| *x == active).unwrap_or(0);
         let mut sel = before;
         let Some(out) = panel(app, ctx, id, rect, &tabs, &mut sel, locked, &t, &mut body) else { continue };

@@ -13,13 +13,17 @@ use std::time::Instant;
 
 fn harness() -> Harness<'static, PhotocraftApp> {
     let mut setup = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    setup.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     setup.native_adapter_selector = Some(Arc::new(|adapters, _| {
         let adapter = adapters
             .iter()
             .find(|a| {
                 let info = a.get_info();
-                info.backend == wgpu::Backend::Vulkan && info.device_type == wgpu::DeviceType::DiscreteGpu && info.name.contains("5090")
+                if cfg!(target_os = "macos") {
+                    info.backend == wgpu::Backend::Metal && info.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    info.backend == wgpu::Backend::Vulkan && info.device_type == wgpu::DeviceType::DiscreteGpu && info.name.contains("5090")
+                }
             })
             .ok_or_else(|| "RTX 5090 discrete Vulkan GPU required".to_owned())?;
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(adapter), wgpu::TextureFormat::Rgba32Float);

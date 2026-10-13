@@ -377,6 +377,7 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
         let typing = if ui.memory(|m| m.has_focus(id)) { ui.data(|d| d.get_temp::<String>(id)) } else { None };
         let mut h = typing.unwrap_or_else(|| hex(rgb).trim_start_matches('#').to_string());
         let r = ui.add(egui::TextEdit::singleline(&mut h).id(id).char_limit(6).desired_width(54.0).font(crate::theme::mono(12.0)));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, ui.is_enabled(), tl!("Hex colour")));
         if r.has_focus() {
             ui.data_mut(|d| d.insert_temp(id, h.clone()));
         } else {

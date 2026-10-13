@@ -31,7 +31,7 @@ fn output(name: &str) -> std::path::PathBuf {
 
 const THEMES: [(crate::theme::ThemeKind, &str); 2] = [(crate::theme::ThemeKind::Pro, "dark"), (crate::theme::ThemeKind::StudioLight, "light")];
 
-fn fonts_ready(ui: &egui::Ui) -> bool {
+pub(super) fn fonts_ready(ui: &egui::Ui) -> bool {
     let ready = egui::Id::new("design-system-fonts-ready");
     if ui.ctx().data(|d| d.get_temp::<bool>(ready)).unwrap_or(false) {
         return true;
@@ -116,6 +116,36 @@ fn design_system_editor_screens() {
             h.set_size(egui::vec2(width, 640.));
             h.run();
             h.render().unwrap().save(output(&format!("batch-bg-{name}-{}", width as u32))).unwrap();
+        }
+    }
+}
+
+#[test]
+#[ignore = "offscreen hardware visual QA, run explicitly"]
+fn display_output_preferences_shots() {
+    let info = crate::gpu_canvas::GpuInfo {
+        output_depth: 8,
+        output_note: "X11 / XWayland uses 8-bit output; pen tablet compatibility mode forces this backend".into(),
+        ..Default::default()
+    };
+    let lines = json!(info.lines());
+    let mut h = Harness::builder().with_size(egui::vec2(400.0, 600.0)).renderer(renderer()).build_ui_state(
+        move |ui, values: &mut Map<String, Value>| {
+            if fonts_ready(ui) {
+                gpu_status_rows(ui, Some(&lines), None, values);
+            }
+        },
+        Map::new(),
+    );
+    for ppp in [1.0, 1.5] {
+        h.set_pixels_per_point(ppp);
+        for (theme, name) in THEMES {
+            crate::theme::apply(&h.ctx, theme);
+            for width in [250.0, 400.0] {
+                h.set_size(egui::vec2(width, 600.0));
+                h.run_steps(3);
+                h.render().unwrap().save(output(&format!("display-output-{name}-{}-{ppp}x", width as u32))).unwrap();
+            }
         }
     }
 }

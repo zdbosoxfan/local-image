@@ -1,17 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-<!-- Original Local Image tool artwork; GPL-3.0-or-later. Glossy Duotone, grey family. -->
-<defs>
-<linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="aw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="nw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient>
-</defs>
-<g transform="translate(1.5 1.5) scale(.875)" fill="none" stroke="currentColor" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round">
-<defs><mask id="hand-fingers" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="white" stroke="none"/><path d="M10 4V11 M13 3V11 M16 5V12" fill="none" stroke="black" stroke-width="1.15" stroke-linecap="round"/>
-</mask></defs>
-<g mask="url(#hand-fingers)"><g fill="url(#a)" stroke="currentColor" stroke-width="1.43" paint-order="stroke fill"><path d="M7 21L3 14Q1 10 4 10L7 13V5Q7 2 10 4V11V3Q10 1 13 2V11V4Q13 2 16 4V12V7Q16 4 19 6V15Q19 19 16 21Z" fill-rule="evenodd"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width=".7" transform="translate(.2 .2)"><path d="M7 21L3 14Q1 10 4 10L7 13V5Q7 2 10 4V11V3Q10 1 13 2V11V4Q13 2 16 4V12V7Q16 4 19 6V15Q19 19 16 21Z" fill-rule="evenodd"/></g>
-</g>
-</g>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2" />
+  <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2" />
+  <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8" />
+  <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
 </svg>

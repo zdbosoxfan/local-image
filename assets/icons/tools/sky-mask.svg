@@ -1,17 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-<!-- Original Local Image tool artwork; GPL-3.0-or-later. Glossy Duotone, blue family. -->
-<defs>
-<linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="aw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="nw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient>
-</defs>
-<g transform="translate(1.5 1.5) scale(.875)" fill="none" stroke="currentColor" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round">
-<g fill="url(#a)" stroke="currentColor" stroke-width="1.43" paint-order="stroke fill"><path d="M5 16C-1 16 0 8 6 9C7 1 18 2 18 9C25 8 25 16 19 16Z" fill-rule="evenodd"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width=".7" transform="translate(.2 .2)"><path d="M5 16C-1 16 0 8 6 9C7 1 18 2 18 9C25 8 25 16 19 16Z" fill-rule="evenodd"/></g>
-<g fill="none" stroke="currentColor" stroke-width="3.5"><path d="M3 21H21"/></g>
-<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M3 21H21"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M3 21H21"/></g>
-</g>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12 2v2" />
+  <path d="m4.93 4.93 1.41 1.41" />
+  <path d="M20 12h2" />
+  <path d="m19.07 4.93-1.41 1.41" />
+  <path d="M15.947 12.65a4 4 0 0 0-5.925-4.128" />
+  <path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z" />
 </svg>

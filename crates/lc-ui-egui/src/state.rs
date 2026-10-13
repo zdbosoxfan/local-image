@@ -195,7 +195,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
-            color_tool_icons: true,
+            color_tool_icons: false,
             library_path: String::new(),
             startup_view: StartupView::Last,
             import_defaults: Default::default(),

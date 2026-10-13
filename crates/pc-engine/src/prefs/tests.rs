@@ -310,15 +310,15 @@ fn pen_pressure_curve_pref() {
 #[test]
 fn tool_icon_preferences_default_validate_and_round_trip() {
     let old: Preferences = serde_json::from_value(json!({"interface": {"theme": "studio"}})).unwrap();
-    assert_eq!(old.interface.tool_icons, "colour");
+    assert_eq!(old.interface.tool_icons, "monochrome", "fresh default is Monochrome");
     let mut s = session();
-    s.execute("prefs.set", json!({"path": "interface.toolIcons", "value": "monochrome"})).unwrap();
+    s.execute("prefs.set", json!({"path": "interface.toolIcons", "value": "colour"})).unwrap();
     assert!(s.execute("prefs.set", json!({"path": "interface.toolIcons", "value": "invalid"})).is_err());
     let mut restored = Session::new();
     restored.load_prefs_json(&s.prefs_to_json()).unwrap();
-    assert_eq!(restored.prefs().interface.tool_icons, "monochrome");
-    restored.execute("prefs.reset", json!({"path": "interface.toolIcons"})).unwrap();
     assert_eq!(restored.prefs().interface.tool_icons, "colour");
+    restored.execute("prefs.reset", json!({"path": "interface.toolIcons"})).unwrap();
+    assert_eq!(restored.prefs().interface.tool_icons, "monochrome", "reset returns to the default");
 }
 
 #[test]

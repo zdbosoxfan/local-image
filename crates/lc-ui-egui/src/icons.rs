@@ -1,8 +1,11 @@
-//! Generic vector icons, drawn on a 20×20 grid (1.5 px strokes, rounded caps).
-//! Tool controls use the shared approved Glossy Duotone family with reviewed source replacements.
-//! Original work (see assets/ATTRIBUTION.md) — not derived from any third-party icon set.
+//! Library/Develop interface icons: Lucide 0.468.0 line SVGs (ISC) and the shared tool icons
+//! (assets/icons, provenance in assets/icons/SOURCES.md), rasterized white at the physical pixel size
+//! and tinted per use (Smart Album: Lucide `book` with a Local Image funnel). Tool controls use the
+//! shared monochrome tool icons. The LightCraft code-painted glyphs were retired on 2026-10-13.
 
-use egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2, vec2};
+#[cfg(test)]
+use egui::vec2;
+use egui::{Color32, Painter, Rect, Vec2, pos2};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Icon {
@@ -86,432 +89,201 @@ pub enum Icon {
     FaceBox,
 }
 
-struct Pen<'a> {
-    p: &'a Painter,
-    r: Rect,
-    s: Stroke,
-    k: f32,
+/// Every icon, for coverage tests and the review sheet.
+#[cfg(test)]
+pub(crate) const ALL: &[Icon] = &[
+    Icon::Sidebar,
+    Icon::Back,
+    Icon::Forward,
+    Icon::Search,
+    Icon::Filter,
+    Icon::Bell,
+    Icon::Share,
+    Icon::Help,
+    Icon::Cloud,
+    Icon::Sliders,
+    Icon::Crop,
+    Icon::Eraser,
+    Icon::Mask,
+    Icon::Eye,
+    Icon::EyeOff,
+    Icon::Presets,
+    Icon::Versions,
+    Icon::Activity,
+    Icon::More,
+    Icon::Tag,
+    Icon::Info,
+    Icon::GridPhoto,
+    Icon::GridSquare,
+    Icon::Single,
+    Icon::Compare,
+    Icon::Survey,
+    Icon::Sort,
+    Icon::Star,
+    Icon::StarFilled,
+    Icon::Circle,
+    Icon::FlagPick,
+    Icon::FlagReject,
+    Icon::Gear,
+    Icon::Filmstrip,
+    Icon::BeforeAfter,
+    Icon::ChevronDown,
+    Icon::ChevronRight,
+    Icon::ChevronLeft,
+    Icon::TriangleLeft,
+    Icon::Plus,
+    Icon::Minus,
+    Icon::Album,
+    Icon::SmartAlbum,
+    Icon::Stack,
+    Icon::Folder,
+    Icon::Pencil,
+    Icon::Photos,
+    Icon::Clock,
+    Icon::Trash,
+    Icon::Curve,
+    Icon::ProfileGrid,
+    Icon::Close,
+    Icon::Check,
+    Icon::Brush,
+    Icon::Linear,
+    Icon::Radial,
+    Icon::Sky,
+    Icon::Subject,
+    Icon::Picker,
+    Icon::WhiteBalance,
+    Icon::SkinTone,
+    Icon::Defringe,
+    Icon::Rotate,
+    Icon::Flip,
+    Icon::Invert,
+    Icon::Dots,
+    Icon::Video,
+    Icon::Heart,
+    Icon::Edited,
+    Icon::Target,
+    Icon::Chat,
+    Icon::FaceBox,
+];
+
+/// The line SVG that draws `icon`: Lucide 0.468.0 (ISC) in `assets/icons`, or the matching tool
+/// icon in `assets/icons/tools` so a control and its tool share one glyph.
+fn svg(icon: Icon) -> &'static [u8] {
+    macro_rules! file {
+        ($path:literal) => {
+            include_bytes!(concat!("../../../assets/icons/", $path)).as_slice()
+        };
+    }
+    use Icon::*;
+    match icon {
+        Sidebar => file!("panel-left.svg"),
+        Back => file!("arrow-left.svg"),
+        Forward => file!("arrow-right.svg"),
+        Search => file!("search.svg"),
+        Filter => file!("filter.svg"),
+        Bell => file!("bell.svg"),
+        Share => file!("share.svg"),
+        Help => file!("circle-help.svg"),
+        Cloud => file!("cloud.svg"),
+        Sliders => file!("sliders-horizontal.svg"),
+        Crop => file!("tools/crop.svg"),
+        Eraser => file!("tools/eraser.svg"),
+        Mask => file!("tools/mask.svg"),
+        Eye => file!("eye.svg"),
+        EyeOff => file!("eye-off.svg"),
+        Presets => file!("tools/presets.svg"),
+        Versions | Stack => file!("tools/versions.svg"),
+        Activity => file!("tools/activity.svg"),
+        More | Dots => file!("ellipsis.svg"),
+        Tag => file!("tools/keywords.svg"),
+        Info => file!("tools/info.svg"),
+        GridPhoto => file!("layout-grid.svg"),
+        GridSquare => file!("grid-2x2.svg"),
+        Single => file!("rectangle-horizontal.svg"),
+        Compare => file!("columns-2.svg"),
+        Survey => file!("layout-dashboard.svg"),
+        Sort => file!("arrow-down-wide-narrow.svg"),
+        Star => file!("star.svg"),
+        StarFilled => file!("star-filled.svg"),
+        Circle => file!("circle.svg"),
+        FlagPick => file!("flag.svg"),
+        FlagReject => file!("flag-off.svg"),
+        Gear => file!("settings.svg"),
+        Filmstrip => file!("film.svg"),
+        BeforeAfter => file!("square-split-horizontal.svg"),
+        ChevronDown => file!("chevron-down.svg"),
+        ChevronRight => file!("chevron-right.svg"),
+        ChevronLeft | TriangleLeft => file!("chevron-left.svg"),
+        Plus => file!("plus.svg"),
+        Minus => file!("minus.svg"),
+        Album => file!("book-image.svg"),
+        SmartAlbum => file!("smart-album.svg"),
+        Folder => file!("folder.svg"),
+        Pencil | Edited => file!("pencil.svg"),
+        Photos => file!("images.svg"),
+        Clock => file!("clock.svg"),
+        Trash => file!("trash-2.svg"),
+        Curve => file!("chart-spline.svg"),
+        ProfileGrid => file!("grid-3x3.svg"),
+        Close => file!("x.svg"),
+        Check => file!("check.svg"),
+        Brush => file!("tools/brush.svg"),
+        Linear => file!("tools/linear-mask.svg"),
+        Radial => file!("tools/radial-mask.svg"),
+        Sky => file!("tools/sky-mask.svg"),
+        Subject => file!("tools/subject-mask.svg"),
+        Picker => file!("tools/pipette.svg"),
+        WhiteBalance => file!("tools/wb-picker.svg"),
+        SkinTone => file!("tools/skin-picker.svg"),
+        Defringe => file!("tools/defringe-picker.svg"),
+        Rotate => file!("rotate-cw.svg"),
+        Flip => file!("flip-horizontal-2.svg"),
+        Invert => file!("contrast.svg"),
+        Video => file!("video.svg"),
+        Heart => file!("heart.svg"),
+        Target => file!("tools/targeted-adjust.svg"),
+        Chat => file!("message-circle.svg"),
+        FaceBox => file!("scan-face.svg"),
+    }
 }
 
-impl Pen<'_> {
-    fn pt(&self, x: f32, y: f32) -> Pos2 {
-        pos2(self.r.min.x + x * self.k, self.r.min.y + y * self.k)
-    }
-    fn line(&self, pts: &[(f32, f32)]) {
-        let v: Vec<Pos2> = pts.iter().map(|(x, y)| self.pt(*x, *y)).collect();
-        self.p.add(Shape::line(v, self.s));
-    }
-    fn closed(&self, pts: &[(f32, f32)]) {
-        let v: Vec<Pos2> = pts.iter().map(|(x, y)| self.pt(*x, *y)).collect();
-        self.p.add(Shape::closed_line(v, self.s));
-    }
-    fn fill(&self, pts: &[(f32, f32)], c: Color32) {
-        let v: Vec<Pos2> = pts.iter().map(|(x, y)| self.pt(*x, *y)).collect();
-        self.p.add(Shape::convex_polygon(v, c, Stroke::NONE));
-    }
-    fn circle(&self, x: f32, y: f32, r: f32) {
-        self.p.circle_stroke(self.pt(x, y), r * self.k, self.s);
-    }
-    fn dot(&self, x: f32, y: f32, r: f32) {
-        self.p.circle_filled(self.pt(x, y), r * self.k, self.s.color);
-    }
-    fn rect(&self, x0: f32, y0: f32, x1: f32, y1: f32, round: f32) {
-        self.p.rect_stroke(Rect::from_min_max(self.pt(x0, y0), self.pt(x1, y1)), round * self.k, self.s, egui::StrokeKind::Middle);
-    }
-    fn rect_fill(&self, x0: f32, y0: f32, x1: f32, y1: f32, round: f32) {
-        self.p.rect_filled(Rect::from_min_max(self.pt(x0, y0), self.pt(x1, y1)), round * self.k, self.s.color);
-    }
-    fn arc(&self, cx: f32, cy: f32, r: f32, a0: f32, a1: f32) {
-        let n = 24;
-        let v: Vec<(f32, f32)> = (0..=n)
-            .map(|i| {
-                let a = (a0 + (a1 - a0) * i as f32 / n as f32).to_radians();
-                (cx + r * a.cos(), cy + r * a.sin())
-            })
-            .collect();
-        self.line(&v);
-    }
-}
+#[derive(Clone, Default)]
+struct SvgTextures(std::collections::HashMap<(Icon, u32), egui::TextureHandle>);
 
-fn star_pts(cx: f32, cy: f32, r: f32) -> Vec<(f32, f32)> {
-    (0..10)
-        .map(|i| {
-            let a = (-90.0 + i as f32 * 36.0f32).to_radians();
-            let rr = if i % 2 == 0 { r } else { r * 0.45 };
-            (cx + rr * a.cos(), cy + rr * a.sin())
-        })
-        .collect()
+/// White raster of `icon` at `px` physical pixels, cached per context. The source's 2 px stroke is
+/// drawn at 1.75, like the editor's generic icons (`pc-ui-egui icons.rs`).
+fn texture(ctx: &egui::Context, icon: Icon, bytes: &[u8], px: u32) -> Option<egui::TextureId> {
+    let id = egui::Id::new("lc-icon-svg-textures");
+    if let Some(t) = ctx.data_mut(|d| d.get_temp_mut_or_default::<SvgTextures>(id).0.get(&(icon, px)).map(|t| t.id())) {
+        return Some(t);
+    }
+    let svg = String::from_utf8_lossy(bytes).replace("currentColor", "#ffffff").replace("stroke-width=\"2\"", "stroke-width=\"1.75\"");
+    let image = egui_extras::image::load_svg_bytes_with_size(svg.as_bytes(), egui::load::SizeHint::Width(px), &Default::default()).ok()?;
+    let handle = ctx.load_texture(format!("lc-icon/{icon:?}/{px}"), image, egui::TextureOptions::LINEAR);
+    let tex = handle.id();
+    ctx.data_mut(|d| {
+        let cache = d.get_temp_mut_or_default::<SvgTextures>(id);
+        // Scale changes should not keep an unbounded set of sizes.
+        if cache.0.len() >= 1024 {
+            cache.0.clear();
+        }
+        cache.0.insert((icon, px), handle);
+    });
+    Some(tex)
 }
 
 /// Paint `icon` centred in `rect` (square area used) with `color`.
 pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
     let side = rect.width().min(rect.height());
-    let r = Rect::from_center_size(rect.center(), vec2(side, side));
-    let k = side / 20.0;
-    let pen = Pen { p, r, s: Stroke::new((1.5 * k).max(1.0), color), k };
-    use Icon::*;
-    match icon {
-        Sidebar => {
-            pen.rect(3.0, 4.0, 17.0, 16.0, 1.5);
-            pen.line(&[(8.0, 4.0), (8.0, 16.0)]);
-        }
-        Back => {
-            pen.line(&[(16.0, 10.0), (4.0, 10.0)]);
-            pen.line(&[(9.0, 5.0), (4.0, 10.0), (9.0, 15.0)]);
-        }
-        Forward => {
-            pen.line(&[(4.0, 10.0), (16.0, 10.0)]);
-            pen.line(&[(11.0, 5.0), (16.0, 10.0), (11.0, 15.0)]);
-        }
-        Search => {
-            pen.circle(8.5, 8.5, 5.0);
-            pen.line(&[(12.2, 12.2), (16.5, 16.5)]);
-        }
-        Filter => pen.closed(&[(3.0, 4.0), (17.0, 4.0), (11.5, 10.5), (11.5, 16.0), (8.5, 14.5), (8.5, 10.5)]),
-        Bell => {
-            pen.line(&[(5.0, 14.0), (5.0, 9.0)]);
-            pen.arc(10.0, 9.0, 5.0, 180.0, 360.0);
-            pen.line(&[(15.0, 9.0), (15.0, 14.0)]);
-            pen.line(&[(3.5, 14.0), (16.5, 14.0)]);
-            pen.arc(10.0, 15.5, 1.8, 0.0, 180.0);
-        }
-        Share => {
-            pen.line(&[(6.0, 8.0), (4.0, 8.0), (4.0, 17.0), (16.0, 17.0), (16.0, 8.0), (14.0, 8.0)]);
-            pen.line(&[(10.0, 12.0), (10.0, 2.5)]);
-            pen.line(&[(6.5, 6.0), (10.0, 2.5), (13.5, 6.0)]);
-        }
-        Help => {
-            pen.circle(10.0, 10.0, 7.5);
-            pen.arc(10.0, 8.0, 2.5, 180.0, 400.0);
-            pen.line(&[(10.0, 10.5), (10.0, 11.8)]);
-            pen.dot(10.0, 14.2, 0.9);
-        }
-        Cloud => {
-            pen.arc(7.0, 11.5, 3.5, 90.0, 270.0);
-            pen.arc(10.5, 8.5, 4.5, 190.0, 340.0);
-            pen.arc(14.0, 11.8, 3.2, 270.0, 450.0);
-            pen.line(&[(7.0, 15.0), (14.0, 15.0)]);
-        }
-        Sliders => {
-            for (y, x) in [(5.0, 12.0), (10.0, 7.0), (15.0, 13.0)] {
-                pen.line(&[(3.0, y), (x - 2.0, y)]);
-                pen.line(&[(x + 2.0, y), (17.0, y)]);
-                pen.circle(x, y, 2.0);
-            }
-        }
-        Crop => {
-            pen.line(&[(6.0, 2.5), (6.0, 14.0), (17.5, 14.0)]);
-            pen.line(&[(2.5, 6.0), (14.0, 6.0), (14.0, 17.5)]);
-            pen.line(&[(15.5, 2.0), (17.5, 4.0), (15.5, 6.0)]);
-        }
-        Eraser => {
-            pen.closed(&[(3.0, 12.0), (10.0, 5.0), (16.0, 11.0), (11.0, 16.0), (7.0, 16.0)]);
-            pen.line(&[(6.5, 8.5), (12.5, 14.5)]);
-            pen.line(&[(7.0, 17.5), (17.0, 17.5)]);
-        }
-        Mask => {
-            pen.circle(10.0, 10.0, 7.0);
-            for i in 0..5 {
-                for j in 0..5 {
-                    let (x, y) = (5.0 + i as f32 * 2.5, 5.0 + j as f32 * 2.5);
-                    if (x - 10.0).hypot(y - 10.0) < 5.8 {
-                        pen.dot(x, y, 0.6);
-                    }
-                }
-            }
-        }
-        Eye => {
-            pen.arc(10.0, 16.0, 9.0, 212.0, 328.0);
-            pen.arc(10.0, 4.0, 9.0, 32.0, 148.0);
-            pen.circle(10.0, 10.0, 2.5);
-        }
-        EyeOff => {
-            pen.arc(10.0, 16.0, 9.0, 212.0, 328.0);
-            pen.arc(10.0, 4.0, 9.0, 32.0, 148.0);
-            pen.circle(10.0, 10.0, 2.5);
-            pen.line(&[(3.5, 3.5), (16.5, 16.5)]);
-        }
-        Presets => {
-            pen.circle(8.0, 8.0, 5.0);
-            pen.circle(12.0, 12.0, 5.0);
-        }
-        Versions => {
-            pen.rect(5.0, 3.0, 17.0, 13.0, 1.5);
-            pen.line(&[(3.0, 6.0), (3.0, 16.0), (14.0, 16.0)]);
-        }
-        Activity => {
-            pen.circle(10.0, 10.0, 7.0);
-            pen.line(&[(10.0, 6.0), (10.0, 10.0), (13.0, 12.0)]);
-        }
-        More | Dots => {
-            for x in [5.0, 10.0, 15.0] {
-                pen.dot(x, 10.0, 1.3);
-            }
-        }
-        Tag => {
-            pen.closed(&[(3.0, 3.5), (10.0, 3.5), (17.0, 10.5), (10.5, 17.0), (3.0, 10.0)]);
-            pen.dot(7.0, 7.5, 1.2);
-        }
-        Info => {
-            pen.circle(10.0, 10.0, 7.5);
-            pen.line(&[(10.0, 9.0), (10.0, 14.0)]);
-            pen.dot(10.0, 6.3, 0.9);
-        }
-        GridPhoto => {
-            pen.rect_fill(3.0, 4.0, 10.0, 9.5, 0.5);
-            pen.rect_fill(11.0, 4.0, 17.0, 9.5, 0.5);
-            pen.rect_fill(3.0, 10.5, 8.0, 16.0, 0.5);
-            pen.rect_fill(9.0, 10.5, 17.0, 16.0, 0.5);
-        }
-        GridSquare => {
-            pen.rect_fill(3.5, 4.0, 9.5, 9.5, 0.5);
-            pen.rect_fill(10.5, 4.0, 16.5, 9.5, 0.5);
-            pen.rect_fill(3.5, 10.5, 9.5, 16.0, 0.5);
-            pen.rect_fill(10.5, 10.5, 16.5, 16.0, 0.5);
-        }
-        Single => pen.rect_fill(3.0, 5.0, 17.0, 15.0, 0.5),
-        Survey => {
-            pen.rect(2.5, 3.5, 9.0, 9.0, 1.0);
-            pen.rect(11.0, 3.5, 17.5, 9.0, 1.0);
-            pen.rect(2.5, 11.0, 9.0, 16.5, 1.0);
-            pen.rect(11.0, 11.0, 17.5, 16.5, 1.0);
-        }
-        Compare => {
-            pen.rect_fill(2.0, 5.0, 8.8, 15.0, 0.5);
-            pen.rect_fill(11.2, 5.0, 18.0, 15.0, 0.5);
-        }
-        Sort => {
-            pen.line(&[(3.0, 5.0), (17.0, 5.0)]);
-            pen.line(&[(3.0, 10.0), (13.0, 10.0)]);
-            pen.line(&[(3.0, 15.0), (9.0, 15.0)]);
-        }
-        Star => pen.closed(&star_pts(10.0, 10.5, 7.5)),
-        StarFilled => {
-            let pts = star_pts(10.0, 10.5, 7.5);
-            // convex fan: fill triangles from the centre
-            for i in 0..10 {
-                let a = pts[i];
-                let b = pts[(i + 1) % 10];
-                pen.fill(&[(10.0, 10.5), a, b], color);
-            }
-        }
-        Circle => pen.circle(10.0, 10.0, 6.0),
-        FlagPick => {
-            pen.line(&[(5.0, 17.0), (5.0, 3.5)]);
-            pen.closed(&[(5.0, 3.5), (15.0, 3.5), (12.5, 7.0), (15.0, 10.5), (5.0, 10.5)]);
-        }
-        FlagReject => {
-            pen.line(&[(5.0, 17.0), (5.0, 3.5)]);
-            pen.closed(&[(5.0, 3.5), (15.0, 3.5), (12.5, 7.0), (15.0, 10.5), (5.0, 10.5)]);
-            pen.line(&[(8.0, 5.0), (12.0, 9.0)]);
-            pen.line(&[(12.0, 5.0), (8.0, 9.0)]);
-        }
-        Gear => {
-            pen.circle(10.0, 10.0, 2.5);
-            for i in 0..8 {
-                let a = (i as f32 * 45.0f32).to_radians();
-                pen.line(&[(10.0 + 5.2 * a.cos(), 10.0 + 5.2 * a.sin()), (10.0 + 7.5 * a.cos(), 10.0 + 7.5 * a.sin())]);
-            }
-            pen.circle(10.0, 10.0, 5.2);
-        }
-        Filmstrip => {
-            pen.rect(2.5, 5.0, 17.5, 15.0, 1.0);
-            pen.rect_fill(5.0, 11.0, 8.5, 13.5, 0.3);
-            pen.rect_fill(9.5, 11.0, 13.0, 13.5, 0.3);
-            pen.line(&[(2.5, 9.5), (17.5, 9.5)]);
-        }
-        BeforeAfter => {
-            pen.rect(3.0, 4.0, 17.0, 16.0, 1.0);
-            pen.line(&[(10.0, 2.5), (10.0, 17.5)]);
-            pen.rect_fill(10.0, 4.0, 17.0, 16.0, 0.5);
-        }
-        ChevronDown => pen.line(&[(5.0, 7.5), (10.0, 12.5), (15.0, 7.5)]),
-        ChevronRight => pen.line(&[(7.5, 5.0), (12.5, 10.0), (7.5, 15.0)]),
-        ChevronLeft => pen.line(&[(12.5, 5.0), (7.5, 10.0), (12.5, 15.0)]),
-        TriangleLeft => pen.fill(&[(13.0, 6.0), (13.0, 14.0), (7.0, 10.0)], color),
-        Plus => {
-            pen.line(&[(10.0, 4.0), (10.0, 16.0)]);
-            pen.line(&[(4.0, 10.0), (16.0, 10.0)]);
-        }
-        Minus => pen.line(&[(4.0, 10.0), (16.0, 10.0)]),
-        Album => {
-            pen.rect(3.0, 5.0, 15.0, 17.0, 1.0);
-            pen.line(&[(6.0, 2.5), (17.5, 2.5), (17.5, 14.0)]);
-        }
-        Stack => {
-            pen.rect(2.5, 7.0, 13.5, 17.5, 1.0);
-            pen.line(&[(5.0, 4.5), (16.0, 4.5), (16.0, 14.5)]);
-            pen.line(&[(7.5, 2.0), (18.5, 2.0), (18.5, 11.5)]);
-        }
-        SmartAlbum => {
-            pen.rect(3.0, 5.0, 15.0, 17.0, 1.0);
-            pen.line(&[(6.0, 2.5), (17.5, 2.5), (17.5, 14.0)]);
-            // a small funnel: the album is a saved filter
-            pen.closed(&[(5.5, 8.5), (12.5, 8.5), (10.0, 11.5), (10.0, 14.5), (8.0, 13.5), (8.0, 11.5)]);
-        }
-        Folder => pen.closed(&[(2.5, 5.0), (8.0, 5.0), (9.5, 7.0), (17.5, 7.0), (17.5, 15.5), (2.5, 15.5)]),
-        Pencil => {
-            pen.closed(&[(4.0, 16.0), (4.5, 12.5), (13.5, 3.5), (16.5, 6.5), (7.5, 15.5)]);
-            pen.line(&[(11.5, 5.5), (14.5, 8.5)]);
-        }
-        Photos => {
-            pen.rect(2.5, 4.0, 17.5, 16.0, 1.5);
-            pen.line(&[(2.5, 13.5), (7.0, 9.5), (11.0, 13.0), (13.5, 11.0), (17.5, 14.5)]);
-            pen.dot(13.5, 7.5, 1.3);
-        }
-        Clock => {
-            pen.circle(10.0, 10.0, 7.0);
-            pen.line(&[(10.0, 5.5), (10.0, 10.0), (13.5, 11.5)]);
-        }
-        Trash => {
-            pen.line(&[(3.0, 5.5), (17.0, 5.5)]);
-            pen.line(&[(8.0, 5.5), (8.0, 3.0), (12.0, 3.0), (12.0, 5.5)]);
-            pen.closed(&[(5.0, 5.5), (15.0, 5.5), (14.0, 17.0), (6.0, 17.0)]);
-        }
-        Curve => {
-            pen.rect(3.0, 3.0, 17.0, 17.0, 1.5);
-            let pts: Vec<(f32, f32)> = (0..=12)
-                .map(|i| {
-                    let t = i as f32 / 12.0;
-                    let y = t * t * (3.0 - 2.0 * t);
-                    (4.5 + 11.0 * t, 15.5 - 11.0 * y)
-                })
-                .collect();
-            pen.line(&pts);
-        }
-        ProfileGrid => {
-            pen.rect_fill(3.5, 3.5, 9.0, 9.0, 0.5);
-            pen.rect_fill(11.0, 3.5, 16.5, 9.0, 0.5);
-            pen.rect_fill(3.5, 11.0, 9.0, 16.5, 0.5);
-            pen.circle(14.0, 14.0, 2.5);
-            pen.line(&[(15.8, 15.8), (17.5, 17.5)]);
-        }
-        Close => {
-            pen.line(&[(5.0, 5.0), (15.0, 15.0)]);
-            pen.line(&[(15.0, 5.0), (5.0, 15.0)]);
-        }
-        Check => pen.line(&[(4.0, 10.5), (8.5, 15.0), (16.0, 5.5)]),
-        Brush => {
-            pen.line(&[(16.5, 3.5), (9.0, 11.0)]);
-            pen.closed(&[(9.0, 11.0), (6.0, 11.5), (4.0, 14.5), (3.5, 17.0), (6.0, 16.5), (8.5, 14.0)]);
-        }
-        Linear => {
-            for (i, x) in [4.0, 7.5, 11.0, 14.5].iter().enumerate() {
-                let a = 1.0 - i as f32 * 0.22;
-                pen.p.line_segment([pen.pt(*x, 3.0), pen.pt(*x, 17.0)], Stroke::new(pen.s.width, color.gamma_multiply(a)));
-            }
-        }
-        Radial => {
-            pen.circle(10.0, 10.0, 7.0);
-            pen.p.circle_stroke(pen.pt(10.0, 10.0), 3.5 * k, Stroke::new(pen.s.width, color.gamma_multiply(0.5)));
-        }
-        Sky => {
-            pen.arc(8.0, 11.0, 3.2, 150.0, 300.0);
-            pen.arc(12.0, 9.5, 3.8, 210.0, 360.0);
-            pen.line(&[(5.0, 13.5), (15.5, 13.5)]);
-            pen.line(&[(2.5, 17.0), (17.5, 17.0)]);
-        }
-        Subject => {
-            pen.circle(10.0, 7.0, 3.0);
-            pen.arc(10.0, 18.0, 6.5, 200.0, 340.0);
-            pen.rect(2.5, 2.5, 17.5, 17.5, 2.0);
-        }
-        FaceBox => {
-            pen.line(&[(2.5, 7.0), (2.5, 2.5), (7.0, 2.5)]);
-            pen.line(&[(13.0, 2.5), (17.5, 2.5), (17.5, 7.0)]);
-            pen.line(&[(2.5, 13.0), (2.5, 17.5), (7.0, 17.5)]);
-            pen.line(&[(13.0, 17.5), (17.5, 17.5), (17.5, 13.0)]);
-            pen.circle(10.0, 8.5, 2.4);
-            pen.arc(10.0, 16.0, 4.5, 215.0, 325.0);
-        }
-        WhiteBalance | SkinTone | Defringe => {
-            pen.line(&[(3.0, 17.0), (10.0, 10.0)]);
-            pen.closed(&[(9.0, 6.0), (13.0, 10.0), (16.0, 7.0), (12.0, 3.0)]);
-            match icon {
-                WhiteBalance => {
-                    pen.circle(15.0, 15.0, 3.5);
-                    pen.line(&[(15.0, 11.5), (15.0, 18.5)]);
-                }
-                SkinTone => {
-                    pen.circle(15.0, 15.0, 3.5);
-                    pen.line(&[(13.5, 14.0), (13.5, 14.5)]);
-                    pen.line(&[(16.5, 14.0), (16.5, 14.5)]);
-                    pen.arc(15.0, 15.0, 1.8, 20.0, 160.0);
-                }
-                _ => {
-                    pen.line(&[(13.0, 12.0), (13.0, 18.0)]);
-                    pen.line(&[(16.0, 12.0), (16.0, 18.0)]);
-                    pen.line(&[(11.0, 15.0), (18.0, 15.0)]);
-                }
-            }
-        }
-        Picker => {
-            pen.line(&[(4.0, 16.0), (11.5, 8.5)]);
-            pen.closed(&[(11.0, 5.0), (15.0, 9.0), (17.0, 7.0), (13.0, 3.0)]);
-        }
-        Rotate => {
-            pen.arc(10.0, 10.0, 6.5, 200.0, 470.0);
-            pen.line(&[(3.0, 5.5), (4.0, 9.0), (7.5, 8.0)]);
-        }
-        Flip => {
-            pen.line(&[(10.0, 2.5), (10.0, 17.5)]);
-            pen.closed(&[(8.0, 5.0), (8.0, 15.0), (3.0, 15.0)]);
-            pen.fill(&[(12.0, 5.0), (12.0, 15.0), (17.0, 15.0)], color);
-        }
-        Invert => {
-            pen.circle(10.0, 10.0, 7.0);
-            pen.p.add(Shape::convex_polygon(
-                (0..=16)
-                    .map(|i| {
-                        pen.pt(
-                            10.0 + 7.0 * ((90.0 + i as f32 * 180.0 / 16.0f32).to_radians()).cos(),
-                            10.0 + 7.0 * ((90.0 + i as f32 * 180.0 / 16.0f32).to_radians()).sin(),
-                        )
-                    })
-                    .collect(),
-                color,
-                Stroke::NONE,
-            ));
-        }
-        Video => {
-            pen.rect(2.5, 5.0, 13.0, 15.0, 1.5);
-            pen.closed(&[(13.0, 8.5), (17.5, 6.0), (17.5, 14.0), (13.0, 11.5)]);
-        }
-        Heart => pen.closed(&[(10.0, 16.5), (3.5, 9.5), (4.0, 5.5), (7.5, 4.0), (10.0, 6.5), (12.5, 4.0), (16.0, 5.5), (16.5, 9.5)]),
-        Edited => {
-            pen.circle(10.0, 10.0, 7.0);
-            pen.line(&[(7.0, 13.0), (13.0, 7.0)]);
-        }
-        Target => {
-            pen.circle(8.0, 10.0, 5.0);
-            pen.dot(8.0, 10.0, 1.3);
-            pen.line(&[(15.5, 3.5), (15.5, 16.5)]);
-            pen.line(&[(13.5, 5.5), (15.5, 3.5), (17.5, 5.5)]);
-            pen.line(&[(13.5, 14.5), (15.5, 16.5), (17.5, 14.5)]);
-        }
-        Chat => {
-            // rounded bubble with a tail at the lower left
-            pen.closed(&[
-                (4.5, 3.5),
-                (15.5, 3.5),
-                (17.0, 5.0),
-                (17.0, 12.0),
-                (15.5, 13.5),
-                (9.0, 13.5),
-                (5.5, 16.8),
-                (5.5, 13.5),
-                (4.5, 13.5),
-                (3.0, 12.0),
-                (3.0, 5.0),
-            ]);
-            for x in [6.8, 10.0, 13.2] {
-                pen.dot(x, 8.5, 1.1);
-            }
-        }
+    let ppp = p.ctx().pixels_per_point();
+    let px = (side * ppp).round().clamp(1.0, 512.0) as u32;
+    if let Some(tex) = texture(p.ctx(), icon, svg(icon), px) {
+        let r = Rect::from_center_size(rect.center(), Vec2::splat(px as f32 / ppp));
+        p.image(tex, r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), color);
     }
 }
 
-/// Matching colour or theme-tinted Glossy Duotone tool image for rich tooltips.
+/// The tool image for rich tooltips: theme-tinted line icon, or its family tint in colour mode.
 pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> Option<egui::Image<'static>> {
     egui_extras::install_image_loaders(ui.ctx());
     if crate::color_icons::enabled(ui.ctx()) {
@@ -606,7 +378,7 @@ fn ds_finding_colored_tool_icon_is_square_in_a_wide_click_target() {
     let bounds = view
         .shapes()
         .iter()
-        .find_map(|s| if let Shape::Rect(r) = &s.shape { r.brush.as_ref().map(|_| r.rect) } else { None })
+        .find_map(|s| if let egui::Shape::Rect(r) = &s.shape { r.brush.as_ref().map(|_| r.rect) } else { None })
         .expect("loaded SVG image");
     assert_eq!(bounds, Rect::from_center_size(wide.center(), vec2(30., 30.)));
     let at = wide.center();
@@ -622,4 +394,46 @@ fn ds_finding_colored_tool_icon_is_square_in_a_wide_click_target() {
         });
     }
     assert!(clicked);
+}
+
+/// Review sheet of every Library/Develop icon at 16/20/40 px on dark and light (`target/icons-ux/`).
+/// `LI_ICON_SHEET_TAG` names the file (for example `before` and `after` around an artwork change).
+#[cfg(test)]
+#[test]
+#[ignore = "writes target/icons-ux/ui-icons-<tag>.ppm; run explicitly"]
+fn write_ui_icon_review_sheet() {
+    let tag = std::env::var("LI_ICON_SHEET_TAG").unwrap_or_else(|_| "after".into());
+    let (row_h, label_w) = (52.0, 120.0);
+    let size = vec2(label_w + 6.0 * 52.0, ALL.len() as f32 * row_h);
+    let mut view = crate::headless::HeadlessView::new();
+    for frame in 0..2 {
+        view.run(crate::headless::HeadlessView::raw_input(size, 1.0, f64::from(frame), vec![]), |ui| {
+            let p = ui.painter();
+            p.rect_filled(ui.max_rect(), 0.0, Color32::from_gray(31));
+            for (row, icon) in ALL.iter().enumerate() {
+                let y = row as f32 * row_h;
+                p.text(
+                    pos2(4.0, y + row_h / 2.0),
+                    egui::Align2::LEFT_CENTER,
+                    format!("{icon:?}"),
+                    egui::FontId::proportional(11.0),
+                    Color32::from_gray(220),
+                );
+                for (theme, (bg, fg)) in [(31, 222), (242, 52)].into_iter().enumerate() {
+                    for (k, px) in [16.0, 20.0, 40.0].into_iter().enumerate() {
+                        let cell = Rect::from_min_size(pos2(label_w + (theme * 3 + k) as f32 * 52.0, y), vec2(52.0, row_h));
+                        p.rect_filled(cell, 0.0, Color32::from_gray(bg));
+                        paint(p, Rect::from_center_size(cell.center(), vec2(px, px)), *icon, Color32::from_gray(fg));
+                    }
+                }
+            }
+        });
+    }
+    let image = view.paint(&Default::default());
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/icons-ux");
+    std::fs::create_dir_all(&dir).unwrap();
+    // Binary PPM: this crate links no image encoder; the sheet is opaque.
+    let mut ppm = format!("P6\n{} {}\n255\n", image.size[0], image.size[1]).into_bytes();
+    ppm.extend(image.pixels.iter().flat_map(|p| [p.r(), p.g(), p.b()]));
+    std::fs::write(dir.join(format!("ui-icons-{tag}.ppm")), ppm).unwrap();
 }

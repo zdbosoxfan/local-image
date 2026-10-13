@@ -159,7 +159,19 @@ pub fn create_from_selection(s: &mut Session, c: Capture, ids: &[LayerId], name:
     valid(&doc)?;
     let (art, top) = selection(&doc, ids)?;
     let id = SymbolId(doc.symbols.iter().map(|d| d.id.0).max().unwrap_or(0).checked_add(1).ok_or_else(|| bad("symbol ID space exhausted"))?);
-    if name.trim().is_empty() || name.len() > 1024 {
+    let name = if name.trim().is_empty() {
+        let mut n = 1u64;
+        loop {
+            let candidate = format!("Symbol {n}");
+            if !doc.symbols.iter().any(|def| def.name == candidate) {
+                break candidate;
+            }
+            n = n.checked_add(1).ok_or_else(|| bad("symbol name space exhausted"))?;
+        }
+    } else {
+        name
+    };
+    if name.len() > 1024 {
         return Err(bad("invalid symbol name"));
     }
     doc.symbols.push(SymbolDef { id, name: name.clone(), layers: art.iter().map(Layer::duplicate).collect() });
@@ -227,7 +239,12 @@ fn place(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"layer":id.0}))
 }
 fn create(s: &mut Session, p: &Value) -> Result<Value> {
-    let (symbol, layer) = create_from_selection(s, capture(p)?, &ids(p)?, name(p)?)?;
+    let name = match p.get("name") {
+        None => String::new(),
+        Some(Value::String(name)) => name.clone(),
+        _ => return Err(bad("symbol name must be text")),
+    };
+    let (symbol, layer) = create_from_selection(s, capture(p)?, &ids(p)?, name)?;
     Ok(json!({"symbol":symbol.0,"layer":layer.0}))
 }
 fn update(s: &mut Session, p: &Value) -> Result<Value> {

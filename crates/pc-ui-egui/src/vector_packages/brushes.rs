@@ -153,21 +153,25 @@ pub fn context_bar(ui: &mut egui::Ui, state: &mut State) {
         }
     }
     let label = ui.label(tr("Brush width"));
-    ui.add(egui::DragValue::new(&mut state.options.width).range(0.1..=1000.)).labelled_by(label.id);
-    ui.checkbox(&mut state.options.pressure, tr("Pressure"));
+    crate::widgets::value_field_with_precision(ui, &mut state.options.width, 0.1..=1000., "", ui.spacing().interact_size.x * 3.0, 2).labelled_by(label.id);
+    crate::widgets::checkbox(ui, &mut state.options.pressure, tr("Pressure"));
     let label = ui.label(tr("Brush tolerance"));
-    ui.add(egui::DragValue::new(&mut state.options.tolerance).range(0.05..=100.)).labelled_by(label.id);
+    crate::widgets::value_field_with_precision(ui, &mut state.options.tolerance, 0.05..=100., "", ui.spacing().interact_size.x * 3.0, 2).labelled_by(label.id);
     let label = ui.label(tr("Rope length"));
-    ui.add(egui::DragValue::new(&mut state.rope_length).range(0.0..=1000.)).labelled_by(label.id);
+    crate::widgets::value_field_with_precision(ui, &mut state.rope_length, 0.0..=1000., "", ui.spacing().interact_size.x * 3.0, 2).labelled_by(label.id);
     match &mut state.options.brush {
         engine::geometry::Brush::Calligraphic(c) => {
             let label = ui.label(tr("Nib angle"));
-            ui.add(egui::DragValue::new(&mut c.angle).range(-360.0..=360.0)).labelled_by(label.id);
-            ui.add(egui::Slider::new(&mut c.roundness, 0.0..=1.0).text(tr("Roundness")));
+            crate::widgets::value_field_with_precision(ui, &mut c.angle, -360.0..=360.0, "", ui.spacing().interact_size.x * 3.0, 2).labelled_by(label.id);
+            let mut roundness = c.roundness as f32;
+            if crate::widgets::slider_row_translated(ui, tr("Roundness"), &mut roundness, 0.0..=1.0, "", None).changed() {
+                c.roundness = f64::from(roundness);
+            }
         }
         engine::geometry::Brush::Scatter(_) => {
             let label = ui.label(tr("Scatter seed"));
-            ui.add(egui::DragValue::new(&mut state.options.seed)).labelled_by(label.id);
+            crate::widgets::value_field_with_precision(ui, &mut state.options.seed, 0..=u64::MAX, "", ui.spacing().interact_size.x * 3.0, 0)
+                .labelled_by(label.id);
         }
         _ => {}
     }

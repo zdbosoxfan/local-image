@@ -1584,5 +1584,7 @@
   "Only in session": "Solo en la sesión",
   "Split into sessions when there is a gap of more than": "Dividir en sesiones cuando haya un intervalo de más de",
   "All sessions": "Todas las sesiones",
-  "Export sessions as folders": "Exportar sesiones como carpetas"
+  "Export sessions as folders": "Exportar sesiones como carpetas",
+  "Colour": "Color",
+  "Monochrome (default)": "Monocromo (predeterminado)"
 }

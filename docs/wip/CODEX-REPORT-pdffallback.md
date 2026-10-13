@@ -1,0 +1,65 @@
+# PDF image fallback integration report
+
+2026-10-13. Continued the saved implementation on this branch; no commit, owner installation, GUI window, new dependency, unsafe code or bundled C/C++.
+
+## Task points
+
+1. Applied **v2 implementation.patch → v3 correction-from-v2.patch → v4 correction-from-v3.patch**, exactly once. Appended the v2 strings by hand, preserving the existing string catalogue. Did not apply equivalent split or v1 patches. The task/status files already modified when this job started are preserved.
+2. Executed and corrected the previously unrun implementation. The Linux production adapter runs the installed `/usr/bin/pdfinfo` and `/usr/bin/pdftoppm` through bubblewrap and per-job systemd cgroups. Codec and calculator fidelity, geometry, process cancellation, crash cleanup and actual import controls have executed successfully; final receipts below.
+3. Preserved explicit linked-to-embedded consent, immutable source ownership, destination/revision/selection/context checks, detached previews, one guarded publication and Undo/Redo. Cancellation wins over a ready reply on the same input pass. No sandbox failure retries unconfined. The unresolved-cleanup admission poison remains fail closed.
+4. External tools remain optional runtime prerequisites, not build dependencies. The tested installed versions were Poppler 26.01.0, bubblewrap 0.12.0 and systemd 259.9 (Fedora 44); unsupported tool versions fail closed through the same availability error. Linux: system Poppler, bubblewrap, util-linux `prlimit`, `ldd`, and a functioning systemd user session with cgroup resource-control and namespace entitlement. No install/download action. Missing tools/session/setup errors are visible and explain the dependency requirements. Other platforms retain editable import and report image fallback unavailable.
+5. Replaced the imported dialog's raw buttons/checkboxes/dropdown/numeric controls with shared design-system widgets. Progress reuses `jobs_ui::bar`; Cancel uses shared dialog buttons. Error/compatibility colours come from theme tokens. Retained the white-background/noneditable tradeoff. Kept the progress row through ready-result handling so Cancel does not move at completion. Page/DPI use an aligned grid; Preview and Place use separate rows to fit the light theme at 250 points. Produced real RTX 5090 screenshots at dark/light, 250/400-point widths and 1×/1.5× scales.
+6. Native PDF file reads, metadata and rendering run on import workers. The native Place picker now returns a single path rather than reading its document on the UI thread. Extensionless PDF recognition retains the bounded header probe and moves the full read to a worker. Worker threads use `lc-sysmem` Utility priority; rendering takes its hardware/memory-derived heavy-job permit. UI cancellation drops/signals work and never joins it.
+
+The only additional bridge outside the original patch list is the **seven-line Place arm in `view_cmds.rs`**, routing the single-path picker through `file_open::place_path`. No AI Remove/Liquify/drawing/frame-compose or editor-menu/panel/preferences owner file was edited.
+
+## Critical corrections and reference decisions
+
+The checkpoint launched a transient **service**, making systemd bubblewrap's parent. `--die-with-parent` therefore did not protect an application crash. The implementation now uses a transient **scope**: systemd-run directly execs the sandbox in the app's owned child. Bubblewrap's parent-death mechanism now covers the app, while the scope still enforces CPUQuota=100%, MemoryMax=768 MiB, MemorySwapMax=0, TasksMax=16, RuntimeMaxSec=10 s, TimeoutStopSec=1 s and whole-cgroup killing. Success also requires confirmed scope cleanup; cancellation/start races cannot create a delayed renderer after the owned scope launcher has exited. Uncertain cleanup refuses later admission.
+
+Inside the scope, prlimit imposes 512 MiB address space, 3 CPU seconds, 64 MiB per output file, 128 descriptors and zero core dumps. Parent wall limit is 8 s per metadata/render stage; diagnostics are bounded to 64 KiB. Writable renderer-created paths are private, memory-accounted tmpfs; input/config/system fonts/libraries are read-only. The 64 MiB output bound supports the explicit 16-million-pixel RGBA contract; it is not an unbounded enlargement of the old tiny probe's 4 MiB bound. PNG decode limits and exact metadata/dimension/opacity validation apply before a detached scene can publish. Geometry disagreements and renderer warnings fail closed.
+
+Pure-Rust `hayro-jbig2` 0.3.0 and `hayro-jpeg2000` 0.3.5 already exist transitively in Cargo.lock. Their cached source APIs were reviewed: output dimensions alone do not bound intermediate segment/codeblock allocations, and decode lacks the cancellation/allocation budgets required by the existing preflight. The preferred native Rust route remains enabled for already-supported codecs; these two specific refusals are retained rather than weakening preflight or adding dependencies. A future budgeted decoder API would be preferable to this optional provider.
+
+Followed existing engine `pdf_import::{capture,check,preview,publish,document}`, `import_worker::Task`, `lc-sysmem` priority/permit APIs, design-system widgets and the existing kittest RTX renderer setup. External lifecycle details were checked against [systemd-run's upstream implementation (`start_transient_scope`, direct exec)](https://github.com/systemd/systemd/blob/main/src/run/run.c), installed systemd-run/systemd.scope manuals, and [bubblewrap's upstream documentation](https://github.com/containers/bubblewrap). JBIG2 fixtures follow the cached hayro decoder's references to ITU T.88 §§7.2, 7.4.6 and 7.4.8 and the [JBIG2 specification](https://www.ics.uci.edu/~dan/class/267/papers/jbig2.pdf). Local briefs/reviews and `docs/DESIGN-SYSTEM.md` were followed throughout.
+
+## Fidelity and end-to-end evidence
+
+Original fixtures and provenance: `crates/pc-pdf/fixtures/import/FALLBACK.md`, `fallback-quadrants.jp2` (lossless RGB quadrants, 490 bytes) and `fallback-checker.jb2` (MMR bi-level checker, 71 bytes). The independent oracle is the analytically defined original pixel grid, before encoding, rather than a second invocation of the same renderer. The existing authored calculator is uniformly red; its independent oracle and the two-page geometry fixture check selected page, nonzero Media/Crop origins, orientation and off-centre marker samples for all 16 box/rotation combinations.
+
+The new native UI acceptance harness compiles the **same host provider source** into the UI test crate and drives real controls with native pointer down/release events. It exercises all six codec × Open/Place/drop routes, with the real contained renderer, confirms published/composited/exported pixels, Undo/Redo, native save/reopen and absence of a source-PDF save path. The native single-path Place picker and native absolute-path canvas drops use background reads. Separate tests click Cancel while the actual pdftoppm render scope is active and reject a real rendered reply after the captured destination changes. Missing-provider messaging is injected through the typed service boundary; real installed prerequisite discovery/rendering is separately exercised without PATH overrides.
+
+Crash test starts a private owned test process, captures only its exact random scope's PIDs, kills that process, and requires its namespace descendants and scope to disappear within 3 s, before the independent 10 s runtime deadline. No broad process kill is used. Cancellation and overflow tests likewise require terminal owned scopes. After successful acceptance, `systemctl --user list-units 'local-image-pdf-*'` shows no surviving owned unit.
+
+## Validation receipts
+
+All cargo commands sourced `~/.local/share/local-image-dev/claude-env.sh`, used the pinned Rust 1.98.1 toolchain, offline mode, CARGO_BUILD_JOBS=4 and the existing worktree target directory. No simultaneous cargo build in this job.
+
+| Check | Result |
+| --- | --- |
+| `cargo check --offline -p photocraft-pdf -p photocraft-ui-egui -p local-image` | Pass |
+| Scoped `cargo fmt --check` | Pass |
+| `cargo clippy --offline -p photocraft-pdf -p photocraft-ui-egui -p local-image --all-targets -- -D warnings` | Pass |
+| Full changed-crate suite, once: `cargo test --offline -p photocraft-pdf -p photocraft-ui-egui -p local-image --no-fail-fast` | **1,976 passed / 0 failed / 79 ignored** |
+| PDF full suite | 28 lib + 36 export + 65 import = **129 passed** |
+| UI full suite | 1,553 lib + 146 integration = **1,699 passed**, 74 ignored |
+| App full suite | **148 passed**, 5 ignored |
+| Affected UI library rerun after visual QA found narrow light-theme clipping | **1,553 passed / 0 failed / 57 ignored** |
+| Final focused PDF UI/runtime acceptance, including ignored gates except the internal crash-child helper | **23 passed / 0 failed**, including renderer fidelity, real routes/cancel/stale, crash cleanup and screenshots |
+| Existing focused full-app PDF GPU acceptance | **1 passed**, NVIDIA GeForce RTX 5090 / Vulkan |
+
+The focused GPU test was `pdf_import_app_acceptance::pdf_import_full_app_rtx_pointer_preview_release_select_edit_undo_cancel`. The new GPU test is `pdf_import::native_tests::pdf_raster_design_system_screens`; it explicitly requires RTX 5090 Vulkan and saved 16 inspected screenshots (both representations × both themes × both widths × both scales). Pixel/GPU screenshot adapter was NVIDIA driver 615.71.09, PCI 0000:01:00.0. No llvmpipe/skipped-adapter receipt is counted.
+
+All five new ignored acceptance gates were executed: contained geometry/calculator/codecs/cancel/overflow; owned parent crash; real Open/Place/drop/missing provider; real mid-render UI Cancel/stale target; design-system screenshots. The ignored `pdf_raster_owned_crash_child` is invoked only by its parent crash test, with a private scratch path. The provider's tests are intentionally also compiled into the UI crate to exercise identical host code without adding a test dependency. The complete per-test ignored-reason inventory is retained in `target/pdf-fallback-validation/ignored-tests.txt`. Other unchanged ignored GPU/release/model/platform tests retain their existing coordinator milestone disposition; they were not all enabled or counted as passing here.
+
+Real import action times on the tiny codec fixtures were **83–94 ms** in the final native-route receipt (six routes); this is an offscreen production-dialog/provider timing, not a 24/60 MP benchmark or a whole desktop-frame performance claim. Normal library/GUI source controls and descriptor/scene conversion have meaningful cancellation tests. No GPU/model performance claim is inferred from pixel equivalence.
+
+Logs, including earlier failures and corrections, are retained in `target/pdf-fallback-validation/`. Source hashes are in `target/pdf-fallback-validation/source-sha256.json`. Screenshots are in `target/design-system/pdf-fallback/`. The scope inventory is empty after acceptance. Tracked PDF reference outputs and the unrelated icon image regenerated by existing tests were restored; only this run's untracked PDF reference outputs were removed. Other generated app acceptance screenshots were retained under `target/pdf-fallback-validation/app-test-artifacts/`, without disturbing the build cache.
+
+Earlier failures were corrected rather than suppressed: a checkpoint test fixture lacked egui's required Debug; test fonts were not installed for shared widgets; picker/Restore tests invoked engine commands rather than the real UI dispatcher; kittest's synthetic click emitted a separate hover frame before cancellation; a crash-test probe briefly read the root cgroup when its owned scope was not yet available. The crash probe now requires an exact nonempty scope path. No unrelated process was killed. Native UI output explicitly clears unused offscreen texture deltas.
+
+## Limits and release handoff
+
+Image fallback eligibility is JPEG2000/JBIG2 image streams and PostScript calculator functions only. Malformed/ambiguous/external-stream/password/limit/cancel and knockout refusals do not become fallback candidates. Output is deliberately an opaque white page; text/paths are rasterized. Renderer warnings, missing dependencies, namespace/cgroup denial and metadata/dimension disagreements remain errors.
+
+No owner desktop window or installed application was disturbed. Actual workflows were exercised offscreen using production routing/provider code and the physical GPU, as required by the task's no-GUI-window rule. Replacing the owner's installed build, release packaging/distro dependency declarations and a human native picker/window sweep remain the separately scoped release-owner follow-up from the implementation brief, not actions performed by this job. A hard SIGKILL cannot execute Rust Scratch::drop; renderer processes die promptly, but private 0700/0600 scratch files can remain until OS temporary-file cleanup. Normal cancellation/failure/completion removes the owned scratch directory.
