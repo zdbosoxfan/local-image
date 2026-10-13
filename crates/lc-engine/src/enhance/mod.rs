@@ -273,6 +273,11 @@ impl Enhance {
         #[cfg(not(target_arch = "wasm32"))]
         if !wait {
             let name = format!("ai-job-{}", job.id);
+            // An AI job with a progress bar (threading rule 7); `wait` runs inline on the caller.
+            let run = move || {
+                lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
+                run()
+            };
             if let Err(e) = std::thread::Builder::new().name(name).spawn(run) {
                 job.finish(Err(format!("could not start the job: {e}")));
             }

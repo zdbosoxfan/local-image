@@ -56,6 +56,7 @@ impl Upscaler {
     }
 
     pub fn from_onnx(bytes: &[u8], tile: usize, scale: usize) -> Result<Self> {
+        crate::init_executor();
         let plan = tract_onnx::onnx()
             .with_ignore_value_info(true)
             .with_ignore_output_shapes(true)

@@ -1,4 +1,6 @@
-//! Give memory the system allocator keeps after frees back to the operating system.
+//! The platform helper crate: the compute profile (cores, RAM, the one compute budget and rayon's
+//! global pool, [`profile`]), thread priority classes ([`priority`]) and giving memory the system
+//! allocator keeps after frees back to the operating system ([`release_free_memory`]).
 //!
 //! macOS's allocator keeps freed large blocks mapped as "reusable": they no longer count in the
 //! process's memory footprint but stay in its resident size until the system runs short. After a
@@ -6,9 +8,17 @@
 //! everything ever decoded. `malloc_zone_pressure_relief` (libSystem) returns those pages now.
 //! Elsewhere (glibc, Windows) blocks this large are unmapped when freed: nothing to do.
 //!
-//! This is LightCraft's only crate allowed `unsafe` (one FFI call, in `macos`). Its API is safe,
-//! and on failure or on other platforms it simply releases nothing.
+//! This is the workspace's isolated platform helper allowed `unsafe`: one FFI call per OS query, in
+//! the `macos` module below and in `sys`, each with a SAFETY note. Its API is safe; on failure or
+//! on other platforms it falls back (see each function) instead of failing.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+
+pub mod priority;
+pub mod profile;
+mod sys;
+
+pub use priority::{ThreadClass, background_pool, in_background_pool, set_current_thread_class};
+pub use profile::{BackgroundPriority, ComputeProfile, Hardware, Overrides, ThreadSource, init, profile, ram_available};
 
 /// Return free allocator pages to the system. Returns the number of bytes released (always 0 on
 /// platforms where freed large blocks are already unmapped). Safe to call at any time, from any

@@ -4052,6 +4052,7 @@ dependencies = [
  "lightcraft-raw",
  "lightcraft-scenes",
  "lightcraft-segment",
+ "lightcraft-sysmem",
  "log",
  "miniz_oxide 0.8.9",
  "photocraft-algo",
@@ -4225,6 +4226,11 @@ dependencies = [
 [[package]]
 name = "lightcraft-sysmem"
 version = "2.0.0-alpha.1"
+dependencies = [
+ "libc",
+ "log",
+ "rayon",
+]
 
 [[package]]
 name = "lightcraft-tiff"
@@ -4252,6 +4258,7 @@ dependencies = [
  "lightcraft-pipeline",
  "lightcraft-preview",
  "lightcraft-raster",
+ "lightcraft-sysmem",
  "log",
  "rayon",
  "serde",
@@ -4319,6 +4326,7 @@ dependencies = [
  "lightcraft-engine",
  "lightcraft-gpu",
  "lightcraft-raster",
+ "lightcraft-sysmem",
  "lightcraft-ui-egui",
  "log",
  "muda",
@@ -4351,6 +4359,7 @@ dependencies = [
 name = "local-image-cli"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "lightcraft-sysmem",
  "photocraft-automation",
  "photocraft-codecs",
  "photocraft-engine",
@@ -5575,6 +5584,7 @@ dependencies = [
  "image",
  "li-ai",
  "li-seg",
+ "lightcraft-sysmem",
  "pc-trace",
  "photocraft-affinity",
  "photocraft-algo",
@@ -5621,6 +5631,7 @@ dependencies = [
  "photocraft-geom",
  "photocraft-raster",
  "proptest",
+ "rayon",
  "ruzstd",
  "serde",
  "serde_json",
@@ -5688,6 +5699,7 @@ dependencies = [
  "photocraft-text",
  "photocraft-vector",
  "proptest",
+ "rayon",
  "serde_json",
  "thiserror 2.0.21",
 ]
@@ -5883,6 +5895,7 @@ dependencies = [
  "li-seg",
  "lightcraft-codecs",
  "lightcraft-raw",
+ "lightcraft-sysmem",
  "log",
  "photocraft-affinity",
  "photocraft-algo",

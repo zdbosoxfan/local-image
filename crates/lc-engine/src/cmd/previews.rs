@@ -101,7 +101,11 @@ fn build(s: &mut Session, p: &Value) -> Result<Value> {
         let st = state.clone();
         std::thread::Builder::new()
             .name("lc-build-previews".into())
-            .spawn(move || run_all(jobs, &st))
+            .spawn(move || {
+                // A batch with a progress bar (threading rule 7).
+                lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
+                run_all(jobs, &st)
+            })
             .map_err(|e| bad(C, format!("could not start: {e}")))?;
     }
     Ok(state.json())
@@ -226,6 +230,7 @@ fn smart(s: &mut Session, p: &Value) -> Result<Value> {
         std::thread::Builder::new()
             .name("lc-smart-previews".into())
             .spawn(move || {
+                lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
                 if let Err(e) = smart_run(&dir, custom, discard, jobs, Some(&st)) {
                     log::warn!("{C}: {e}");
                     *st.error.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(e);

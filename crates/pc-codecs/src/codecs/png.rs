@@ -350,6 +350,9 @@ fn adam7_idat(data: &[u8], w: usize, h: usize, bpp: usize, level: PngCompression
 
 /// Images at least this large (bytes) are filtered and deflated on all cores.
 const PARALLEL_MIN_BYTES: usize = 4 << 20;
+/// Bands of a parallel IDAT: a property of the image, never of the thread count, so the file is
+/// byte-identical on every machine and pool size (threading rule 11); enough to keep 64 threads busy.
+const PARALLEL_BANDS: usize = 64;
 
 /// The zlib stream of a non-interlaced image, built in parallel (`None` below
 /// [`PARALLEL_MIN_BYTES`], on wasm, or without compression): rows get the adaptive filter
@@ -362,50 +365,34 @@ fn parallel_idat(data: &[u8], w: usize, h: usize, bpp: usize, level: PngCompress
     if cfg!(target_arch = "wasm32") || data.len() < PARALLEL_MIN_BYTES || level == PngCompression::None || w == 0 || h == 0 {
         return None;
     }
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 32);
-    if threads < 2 {
-        return None;
-    }
     let stride = w * bpp;
-    let band_rows = h.div_ceil(threads * 4).max(1);
+    let band_rows = h.div_ceil(PARALLEL_BANDS).max(1);
     let bands: Vec<(usize, usize)> = (0..h).step_by(band_rows).map(|y| (y, (y + band_rows).min(h))).collect();
     let lvl = match level {
         PngCompression::Fast => flate2::Compression::fast(),
         PngCompression::Best => flate2::Compression::best(),
         _ => flate2::Compression::default(),
     };
-    let next = std::sync::atomic::AtomicUsize::new(0);
-    type Band = (usize, Vec<u8>, u32, usize);
-    let mut parts: Vec<Band> = std::thread::scope(|sc| {
-        let workers: Vec<_> = (0..threads.min(bands.len()))
-            .map(|_| {
-                sc.spawn(|| {
-                    let mut out: Vec<Band> = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(&(y0, y1)) = bands.get(i) else { break };
-                        let mut filtered = Vec::with_capacity((y1 - y0) * (stride + 1));
-                        let mut scratch = vec![0u8; stride];
-                        for y in y0..y1 {
-                            let row = &data[y * stride..(y + 1) * stride];
-                            let prev = (y > 0).then(|| &data[(y - 1) * stride..y * stride]);
-                            filter_row(row, prev, bpp, &mut scratch, &mut filtered);
-                        }
-                        let adler = adler32(1, &filtered);
-                        let Some(z) = deflate_band(&filtered, lvl, y1 == h) else { return Vec::new() };
-                        out.push((i, z, adler, filtered.len()));
-                    }
-                    out
-                })
-            })
-            .collect();
-        workers.into_iter().flat_map(|w| w.join().unwrap_or_default()).collect()
-    });
-    if parts.len() != bands.len() {
-        return None;
-    }
-    parts.sort_by_key(|p| p.0);
-    let mut out = Vec::with_capacity(parts.iter().map(|p| p.1.len()).sum::<usize>() + 6);
+    // Bands on the shared compute pool (threading rule 2), collected in order.
+    use rayon::prelude::*;
+    type Band = (Vec<u8>, u32, usize);
+    let parts: Option<Vec<Band>> = bands
+        .par_iter()
+        .map(|&(y0, y1)| {
+            let mut filtered = Vec::with_capacity((y1 - y0) * (stride + 1));
+            let mut scratch = vec![0u8; stride];
+            for y in y0..y1 {
+                let row = &data[y * stride..(y + 1) * stride];
+                let prev = (y > 0).then(|| &data[(y - 1) * stride..y * stride]);
+                filter_row(row, prev, bpp, &mut scratch, &mut filtered);
+            }
+            let adler = adler32(1, &filtered);
+            let z = deflate_band(&filtered, lvl, y1 == h)?;
+            Some((z, adler, filtered.len()))
+        })
+        .collect();
+    let parts = parts?;
+    let mut out = Vec::with_capacity(parts.iter().map(|p| p.0.len()).sum::<usize>() + 6);
     // zlib header: deflate, 32 K window; FLEVEL only advertises the effort.
     out.extend_from_slice(match level {
         PngCompression::Fast => &[0x78, 0x01],
@@ -413,7 +400,7 @@ fn parallel_idat(data: &[u8], w: usize, h: usize, bpp: usize, level: PngCompress
         _ => &[0x78, 0x9C],
     });
     let mut adler = 1u32;
-    for (_, z, a, len) in &parts {
+    for (z, a, len) in &parts {
         out.extend_from_slice(z);
         adler = adler32_combine(adler, *a, *len);
     }
@@ -596,6 +583,27 @@ mod parallel_tests {
                 assert!(back == data, "k {k} len {len} last {last}: {} of {len} bytes", back.len());
             }
         }
+    }
+
+    /// Threading rule 11: the parallel encoder's bands depend on the image, not on the pool, so
+    /// the file is byte-identical on 1 and N threads (pattern: lc-raw `raw_speed.rs`).
+    #[test]
+    fn parallel_png_bytes_do_not_depend_on_the_thread_count() {
+        let (w, h) = (1200u32, 1100u32);
+        let n = w as usize * h as usize * 4;
+        let px: Vec<u8> = (0..n).map(|i| ((i / 4) as u32).wrapping_mul(2_654_435_761).rotate_left(i as u32 % 5) as u8 / 2 + (i % 61) as u8).collect();
+        let img = Image::from_raw(w, h, ChannelLayout::Rgba, SampleType::U8, px).unwrap();
+        assert!(n >= PARALLEL_MIN_BYTES);
+        let opts = EncodeOptions { png_compression: PngCompression::Fast, ..Default::default() };
+        let on = |threads: usize| {
+            let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+            pool.install(|| crate::encode(&img, Format::Png, &opts).unwrap())
+        };
+        let one = on(1);
+        for threads in [2, 5, 8] {
+            assert!(on(threads) == one, "{threads} threads");
+        }
+        assert_eq!(decode(&one, &Limits::default()).unwrap().data(), img.data());
     }
 
     #[test]

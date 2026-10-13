@@ -708,3 +708,150 @@ fn bg_subject_group_uses_chosen_tier_for_all_callers() {
     assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("rmbg-1.4").unwrap())));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+// ------------------------------------------------------------ threading: shared pool and cancel
+
+/// An ONNX `TensorProto` (float) initializer.
+fn initializer(name: &str, dims: &[u64], data: &[f32]) -> Vec<u8> {
+    bytes_of(|t| {
+        for d in dims {
+            field_varint(1, *d, t);
+        }
+        field_varint(2, 1, t);
+        field_bytes(8, name.as_bytes(), t);
+        field_bytes(9, &data.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>(), t);
+    })
+}
+
+/// A small conv net (opset 13): `layers` 3×3 convolutions of `channels` channels with ReLU, then
+/// the sigmoid of the channel mean as a `[1, 1, s, s]` map. Positive weights, so the map is a
+/// clear subject (> 0.5). Big enough for tract's matrix kernels to split across threads.
+fn conv_onnx(s: u64, channels: u64, layers: usize) -> Vec<u8> {
+    let mut nodes = Vec::new();
+    let mut inits = Vec::new();
+    let mut prev = "x".to_string();
+    for l in 0..layers {
+        let cin = if l == 0 { 3 } else { channels };
+        let n = (channels * cin * 9) as usize;
+        let scale = 1.0 / (cin * 9) as f32;
+        let w: Vec<f32> = (0..n).map(|i| ((i as u64 * 2_654_435_761 + l as u64) % 997) as f32 / 997.0 * scale).collect();
+        inits.push(initializer(&format!("w{l}"), &[channels, cin, 3, 3], &w));
+        nodes.push(node("Conv", &[&prev, &format!("w{l}")], &format!("c{l}"), &[attr_ints("kernel_shape", &[3, 3]), attr_ints("pads", &[1, 1, 1, 1])]));
+        nodes.push(node("Relu", &[&format!("c{l}")], &format!("r{l}"), &[]));
+        prev = format!("r{l}");
+    }
+    nodes.push(node("ReduceMean", &[&prev], "m", &[attr_ints("axes", &[1]), attr_int("keepdims", 1)]));
+    nodes.push(node("Sigmoid", &["m"], "y", &[]));
+    let graph = bytes_of(|g| {
+        for n in &nodes {
+            field_bytes(1, n, g);
+        }
+        field_bytes(2, b"conv", g);
+        for i in &inits {
+            field_bytes(5, i, g);
+        }
+        field_bytes(11, &value_info("x", Some(&[Some(1), Some(3), Some(s), Some(s)])), g);
+        field_bytes(12, &value_info("y", None), g);
+    });
+    bytes_of(|m| {
+        field_varint(1, 7, m);
+        field_bytes(7, &graph, m);
+        field_bytes(8, &bytes_of(|o| field_varint(2, 13, o)), m);
+    })
+}
+
+/// A Fast-tier style segmenter (probability output) over the conv net.
+fn conv_segmenter(dir: &Path, s: u64, channels: u64, layers: usize) -> Segmenter {
+    let p = dir.join("picked").join(format!("conv-{s}-{channels}-{layers}.onnx"));
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(&p, conv_onnx(s, channels, layers)).unwrap();
+    let model = ModelSpec { size: s as usize, ..*spec("rmbg-1.4").unwrap() };
+    Segmenter::load(&model, &p).unwrap()
+}
+
+fn test_photo(w: usize, h: usize) -> Vec<u8> {
+    (0..w * h).flat_map(|i| [(i * 7 % 251) as u8, (i * 13 % 241) as u8, (i * 29 % 239) as u8, 255]).collect()
+}
+
+/// Threading rule 11: tract on the shared pool gives the same bits on 1 thread and on N threads
+/// (its kernels split over output panels, never over the reduction).
+#[test]
+fn tract_output_is_identical_on_one_and_many_threads() {
+    init_executor();
+    let dir = temp_models();
+    let seg = conv_segmenter(&dir, 64, 32, 3);
+    let (w, h) = (96, 80);
+    let photo = test_photo(w, h);
+    let on = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        pool.install(|| seg.predict(&photo, w, h)).unwrap().expect("a clear subject")
+    };
+    let bits = |v: Vec<f32>| v.into_iter().map(f32::to_bits).collect::<Vec<u32>>();
+    let one = bits(on(1));
+    assert_eq!(one.len(), w * h);
+    for n in [2, 4, 7] {
+        assert_eq!(one, bits(on(n)), "{n} threads");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Cancel is checked before every model stage: the run stops at the stage where the flag goes up,
+/// with an error `is_cancelled` recognises, and does no further work.
+#[test]
+fn cancel_stops_predict_at_the_next_model_stage() {
+    init_executor();
+    let dir = temp_models();
+    let seg = conv_segmenter(&dir, 32, 8, 6);
+    let photo = test_photo(40, 40);
+    let checks = std::sync::atomic::AtomicUsize::new(0);
+    let count = || {
+        checks.fetch_add(1, Ordering::SeqCst);
+        false
+    };
+    assert!(seg.predict_checked(&photo, 40, 40, &count).unwrap().is_some());
+    let full = checks.swap(0, Ordering::SeqCst);
+    assert!(full > 8, "one check per stage plus before and after: {full}");
+    let stop_at_4th = || checks.fetch_add(1, Ordering::SeqCst) + 1 >= 4;
+    let err = seg.predict_checked(&photo, 40, 40, &stop_at_4th).unwrap_err();
+    assert!(is_cancelled(&err), "{err:#}");
+    assert_eq!(checks.load(Ordering::SeqCst), 4, "no stage ran after the cancel");
+    // The public API: a flag that is already set runs nothing, for subject and sky alike.
+    let cancelled = AtomicBool::new(true);
+    assert!(is_cancelled(&seg.predict_with_cancel(&photo, 40, 40, &cancelled).unwrap_err()));
+    let fresh = AtomicBool::new(false);
+    assert!(seg.predict_with_cancel(&photo, 40, 40, &fresh).unwrap().is_some());
+    let sky_path = picked(&dir, "sky.onnx", Some((32, 32)), Out::Map);
+    let sky = Segmenter::load(&ModelSpec { size: 32, ..*spec("sky-mobileseg").unwrap() }, &sky_path);
+    if let Ok(sky) = sky
+        && sky.predict_sky(&photo, 40, 40).is_ok()
+    {
+        assert!(is_cancelled(&sky.predict_sky_with_cancel(&photo, 40, 40, &cancelled).unwrap_err()));
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A cancel from another thread ends a long run well before it would have finished.
+#[test]
+fn cancel_from_another_thread_ends_a_long_predict_promptly() {
+    init_executor();
+    let dir = temp_models();
+    let seg = conv_segmenter(&dir, 192, 48, 12);
+    let (w, h) = (192, 192);
+    let photo = test_photo(w, h);
+    let t = std::time::Instant::now();
+    assert!(seg.predict(&photo, w, h).unwrap().is_some());
+    let full = t.elapsed();
+    let flag = AtomicBool::new(false);
+    let t = std::time::Instant::now();
+    let r = std::thread::scope(|sc| {
+        let run = sc.spawn(|| seg.predict_with_cancel(&photo, w, h, &flag));
+        std::thread::sleep(full / 5);
+        flag.store(true, Ordering::Relaxed);
+        run.join().unwrap()
+    });
+    let cancelled_after = t.elapsed();
+    assert!(is_cancelled(&r.unwrap_err()));
+    // One stage of twelve plus scheduling noise; generous for a loaded machine.
+    assert!(cancelled_after < full.mul_f32(0.8) || full < std::time::Duration::from_millis(30), "cancelled after {cancelled_after:?}, full run {full:?}");
+    let _ = std::fs::remove_dir_all(dir);
+}

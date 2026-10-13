@@ -37,6 +37,8 @@ lightcraft-gpu = { workspace = true }
 # Develop's AI Remove / AI Denoise services (develop_ai.rs).
 li-ai = { workspace = true }
 li-seg = { workspace = true }
+# The compute profile, the global compute pool and thread priorities (compute_policy.rs).
+lightcraft-sysmem = { workspace = true }
 image = { workspace = true }
 # Pen tablet pressure/tilt on macOS and X11 (the workspace's one isolated unsafe helper crate).
 photocraft-tablet = { workspace = true }

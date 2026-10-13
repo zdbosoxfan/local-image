@@ -484,36 +484,19 @@ fn existing_object_is_valid(path: &Path, object: &Object, what: &str) -> Result<
 /// A bundle path and its compressed bytes.
 type Compressed<'a> = (&'a String, Arc<Vec<u8>>);
 
-/// Compresses `objects` on scoped worker threads (sequentially on wasm).
+fn compress_one<'a>(&(p, o): &(&'a String, &'a Object)) -> Compressed<'a> {
+    (p, Arc::new(o.compressed()))
+}
+
+/// Compresses `objects` on the shared compute pool (threading rule 2), in input order
+/// (sequentially on wasm). A panicking worker becomes an error, as before.
 fn par_compress<'a>(objects: &[(&'a String, &'a Object)]) -> Result<Vec<Compressed<'a>>> {
-    let threads = if cfg!(target_arch = "wasm32") { 1 } else { std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 32) };
-    if threads < 2 || objects.len() < 2 {
-        return Ok(objects.iter().map(|(p, o)| (*p, Arc::new(o.compressed()))).collect());
+    if cfg!(target_arch = "wasm32") || objects.len() < 2 {
+        return Ok(objects.iter().map(compress_one).collect());
     }
-    let next = std::sync::atomic::AtomicUsize::new(0);
-    std::thread::scope(|sc| {
-        let hs: Vec<_> = (0..threads.min(objects.len()))
-            .map(|_| {
-                sc.spawn(|| {
-                    let mut out = Vec::new();
-                    loop {
-                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some((p, o)) = objects.get(i) else { break };
-                        out.push((*p, Arc::new(o.compressed())));
-                    }
-                    out
-                })
-            })
-            .collect();
-        // Join every worker before looking at the results, so one failure can't leave
-        // another worker unjoined (the scope would then panic).
-        let joined: Vec<_> = hs.into_iter().map(|h| h.join()).collect();
-        let mut out = Vec::with_capacity(objects.len());
-        for r in joined {
-            out.extend(r.map_err(|_| FormatError::Io(std::io::Error::other("compression worker panicked")))?);
-        }
-        Ok(out)
-    })
+    use rayon::prelude::*;
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| objects.par_iter().map(compress_one).collect()))
+        .map_err(|_| FormatError::Io(std::io::Error::other("compression worker panicked")))
 }
 
 impl PcraftWriter {

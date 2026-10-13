@@ -179,17 +179,16 @@ pub fn paint(primitives: &[ClippedPrimitive], textures: &dyn TextureSource, size
         for (i, b) in bands.into_iter().enumerate() {
             groups[i % threads].push(b);
         }
+        // One rayon task per group on the shared compute pool (threading rule 2), not OS threads.
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::scope(|s| {
-            for g in groups {
-                let prepared = &prepared;
-                s.spawn(move || {
-                    for (y0, band) in g {
-                        paint_band(prepared, band, y0, w);
-                    }
-                });
-            }
-        });
+        {
+            use rayon::prelude::*;
+            groups.into_par_iter().for_each(|g| {
+                for (y0, band) in g {
+                    paint_band(&prepared, band, y0, w);
+                }
+            });
+        }
         #[cfg(target_arch = "wasm32")]
         for g in groups {
             for (y0, band) in g {
@@ -201,7 +200,7 @@ pub fn paint(primitives: &[ClippedPrimitive], textures: &dyn TextureSource, size
 }
 
 fn thread_count() -> usize {
-    if cfg!(target_arch = "wasm32") { 1 } else { std::thread::available_parallelism().map_or(1, |n| n.get()).min(16) }
+    if cfg!(target_arch = "wasm32") { 1 } else { rayon::current_num_threads().min(16) }
 }
 
 fn paint_band(prepared: &[Prepared<'_>], band: &mut [Color32], y0: usize, w: usize) {

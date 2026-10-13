@@ -131,6 +131,7 @@ fn model(pin: Pin, dir: &Path, w: usize, h: usize) -> Result<Arc<Model>> {
     *cache = None;
     let channels = if pin.kind == Kind::Colourise { 3 } else { 1 };
     let out_channels = if pin.kind == Kind::Colourise { 2 } else { 1 };
+    crate::init_executor();
     let plan = tract_onnx::onnx()
         .model_for_path(&path)?
         .with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, channels, h, w)))?

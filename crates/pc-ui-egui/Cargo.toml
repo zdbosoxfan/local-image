@@ -14,6 +14,8 @@ photocraft-affinity.workspace = true
 # local-image: AI services and image buffers.
 li-ai = { workspace = true }
 li-seg = { workspace = true }
+# local-image: the detected compute profile shown in Preferences › Performance › Processing.
+lightcraft-sysmem = { workspace = true }
 image = { workspace = true }
 anyhow = { workspace = true }
 # local-image: LightCraft's fast thumbnails (embedded camera previews, DCT-scaled JPEG) for the filmstrip.

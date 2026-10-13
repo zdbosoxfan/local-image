@@ -831,13 +831,13 @@ fn tent_line(src: &[f32], dst: &mut [f32], bw: f32) {
 /// Rows of a `w`-wide row-major buffer, each through `f(src_row, dst_row)`, in parallel on
 /// scoped OS threads. Not rayon: maps can be built from inside a rayon tile, where a waiting
 /// worker steals other tiles. Map builds no longer block on each other (#276), but the blur
-/// keeps out of the tile pool.
+/// keeps out of the tile pool. At most one thread per compute thread (threading rule 2: the
+/// pool is sized to the machine, so this follows the same budget).
 fn rows_par(src: &[f32], dst: &mut [f32], w: usize, f: impl Fn(&[f32], &mut [f32]) + Sync) {
     if w == 0 {
         return;
     }
-    let threads =
-        if cfg!(target_arch = "wasm32") || src.len() < 1 << 16 { 1 } else { std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 16) };
+    let threads = if cfg!(target_arch = "wasm32") || src.len() < 1 << 16 { 1 } else { rayon::current_num_threads().clamp(1, 16) };
     if threads == 1 {
         dst.chunks_mut(w).zip(src.chunks(w)).for_each(|(d, s)| f(s, d));
         return;
