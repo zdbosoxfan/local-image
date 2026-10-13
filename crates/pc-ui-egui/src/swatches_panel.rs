@@ -1,7 +1,7 @@
 //! One Color/Swatches panel for both personas. User and document palettes share
 //! SwatchBook; live edits use the existing captured document transactions.
 use crate::{PhotocraftApp, fill_stroke_proxy::ActivePaint};
-use egui::{Color32, RichText};
+use egui::Color32;
 use photocraft_color::{
     Color, ColorMode,
     ase::{self, Palette},
@@ -718,7 +718,7 @@ fn editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, s: &mut State) {
         s.editor = Some(e);
     }
 }
-fn chip(ui: &mut egui::Ui, w: &Swatch, list: bool, selected: bool, color: Option<Color>) -> egui::Response {
+fn chip(ui: &mut egui::Ui, w: &Swatch, list: bool, selected: bool, color: Option<Color>, hint: &str) -> egui::Response {
     let color = color.unwrap_or_else(|| match &w.paint {
         Fill::Solid(c) => *c,
         Fill::Gradient { stops, .. } => stops.first().map_or(Color::BLACK, |s| s.1),
@@ -745,56 +745,269 @@ fn chip(ui: &mut egui::Ui, w: &Swatch, list: bool, selected: bool, color: Option
         ));
     }
     response.on_hover_text(format!(
-        "{}{}{}\nClick: primary colour · Alt/right-click: secondary colour",
+        "{}{}{}\n{hint}",
         w.name,
         if w.global { " · Live colour: linked objects update; painted pixels do not" } else { "" },
         if w.spot { " · Spot" } else { "" }
     ))
 }
+/// A small square icon button (footer, panel menu). Disabled buttons don't take clicks or focus
+/// and explain why in their tooltip; screen readers get `label` and the enabled state.
+fn icon_button(ui: &mut egui::Ui, icon: &str, label: &str, tip: &str, enabled: bool, why: &str) -> egui::Response {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(24., 24.), if enabled { egui::Sense::click() } else { egui::Sense::hover() });
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    let tint = if enabled { crate::icons::button_chrome(ui, rect, false, resp.hovered() || resp.has_focus()) } else { t.text_faint.gamma_multiply(0.6) };
+    crate::icons::paint(ui, rect, icon, 16., tint);
+    resp.on_hover_text(if enabled { tip } else { why })
+}
+/// "User | Document": one compact segmented control.
+fn scope_toggle(ui: &mut egui::Ui, s: &mut State, has_document: bool) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.;
+        let r = egui::CornerRadius { nw: 4, sw: 4, ne: 0, se: 0 };
+        let user = ui
+            .add(egui::Button::new("User").selected(s.scope == Scope::User).corner_radius(r).min_size(egui::vec2(0., 22.)))
+            .on_hover_text("User Swatches: yours in every document");
+        user.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, s.scope == Scope::User, "User Swatches"));
+        if user.clicked() {
+            s.scope = Scope::User;
+        }
+        let r = egui::CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 };
+        let doc = ui
+            .add_enabled(has_document, egui::Button::new("Document").selected(s.scope == Scope::Document).corner_radius(r).min_size(egui::vec2(0., 22.)))
+            .on_hover_text("Document Swatches: saved with this document. Live colours update linked shapes, text and vector layers in both modes; already-painted pixels do not change.")
+            .on_disabled_hover_text("Open a document to use its swatches");
+        doc.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, has_document, s.scope == Scope::Document, "Document Swatches"));
+        if doc.clicked() {
+            s.scope = Scope::Document;
+        }
+    });
+}
+fn full(b: &SwatchBook) -> bool {
+    b.swatches.len() + b.groups.len() >= swatches::MAX_SWATCHES
+}
+/// New swatch from the current colour, into the selected folder (Photoshop's +).
+fn new_swatch(app: &PhotocraftApp, s: &mut State, b: &SwatchBook, group: Option<u64>) -> Option<Action> {
+    match b.next_id() {
+        Ok(id) => Some(Action::Add {
+            swatch: Swatch {
+                id: SwatchId(id),
+                name: b.free_name("Colour"),
+                paint: Fill::Solid(native_color(&app.session, current(app, s.secondary), s.scope).unwrap_or_else(|_| current(app, s.secondary))),
+                global: false,
+                spot: false,
+                group,
+                stops: vec![],
+            },
+        }),
+        Err(e) => {
+            s.error = Some(e);
+            None
+        }
+    }
+}
+/// New folder; the selected swatch moves into it.
+fn new_group(s: &mut State, b: &SwatchBook) -> Option<Action> {
+    match b.next_id() {
+        Ok(id) => Some(Action::Group { group: SwatchGroup { id, name: b.free_name("Colour Group") }, ids: s.selected.into_iter().collect() }),
+        Err(e) => {
+            s.error = Some(e);
+            None
+        }
+    }
+}
+fn assign(w: &Swatch, ts: Vec<PaintTarget>) -> Action {
+    if w.global { Action::Assign { targets: ts, swatch: w.id, tint: 100. } } else { Action::AssignPaint { targets: ts, swatch: w.id } }
+}
+/// Move Earlier / Move Later among `members`, then every folder.
+fn move_items(ui: &mut egui::Ui, b: &SwatchBook, id: SwatchId, folder: Option<u64>, members: &[SwatchId], action: &mut Option<Action>) {
+    if let Some(at) = members.iter().position(|w| *w == id) {
+        if ui.add_enabled(at > 0, egui::Button::new("Move Earlier")).on_disabled_hover_text("Already first in this folder").clicked() {
+            *action = Some(Action::Move { id, group: folder, before: Some(members[at - 1]) });
+            ui.close();
+        }
+        if ui.add_enabled(at + 1 < members.len(), egui::Button::new("Move Later")).on_disabled_hover_text("Already last in this folder").clicked() {
+            *action = Some(Action::Move { id, group: folder, before: members.get(at + 2).copied() });
+            ui.close();
+        }
+    }
+    ui.separator();
+    for g in std::iter::once(None).chain(b.groups.iter().map(Some)) {
+        if ui.button(g.map_or("Ungrouped", |g| g.name.as_str())).clicked() {
+            *action = Some(Action::Move { id, group: g.map(|g| g.id), before: None });
+            ui.close();
+        }
+    }
+}
+#[derive(Default)]
+struct Requests {
+    library: Option<(&'static str, Option<&'static [u8]>)>,
+    import: bool,
+    export: Option<&'static str>,
+}
+/// The panel ☰ menu (Photoshop's flyout): view, libraries, import/export, then the commands
+/// for the selection. Every footer and context-menu command is reachable here by keyboard too.
+fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, s: &mut State, b: &SwatchBook, action: &mut Option<Action>, req: &mut Requests) {
+    ui.set_min_width(190.);
+    if ui.add(egui::Button::new("Grid View").selected(!s.list)).clicked() {
+        s.list = false;
+        ui.close();
+    }
+    if ui.add(egui::Button::new("List View").selected(s.list)).clicked() {
+        s.list = true;
+        ui.close();
+    }
+    ui.separator();
+    ui.menu_button("Swatch Libraries", |ui| {
+        for &(name, data) in LIBRARIES {
+            if ui.button(name).clicked() {
+                req.library = Some((name, data));
+                ui.close();
+            }
+        }
+    });
+    if ui.add_enabled(palette_picker_available(app), egui::Button::new("Import Swatches…")).on_disabled_hover_text("File picker unavailable").clicked() {
+        req.import = true;
+        ui.close();
+    }
+    ui.menu_button("Export Swatches", |ui| {
+        for ext in ["ase", "aco", "gpl", "kpl"] {
+            if ui
+                .add_enabled(
+                    (app.services.pick_save.is_some() || (cfg!(not(target_arch = "wasm32")) && app.background_jobs)) && app.services.write.is_some(),
+                    egui::Button::new(format!("{}…", ext.to_ascii_uppercase())),
+                )
+                .on_disabled_hover_text("File saving unavailable")
+                .clicked()
+            {
+                req.export = Some(ext);
+                ui.close();
+            }
+        }
+    });
+    ui.separator();
+    if ui.add_enabled(!full(b), egui::Button::new("New Swatch from Current Colour")).on_disabled_hover_text("Palette is full (4096 entries)").clicked() {
+        *action = new_swatch(app, s, b, s.group);
+        ui.close();
+    }
+    if ui.add_enabled(!full(b), egui::Button::new("New Swatch Group")).on_disabled_hover_text("Palette is full (4096 entries)").clicked() {
+        *action = new_group(s, b);
+        ui.close();
+    }
+    if ui.add_enabled(s.selected.is_some(), egui::Button::new("Swatch Options…")).on_disabled_hover_text("Select a swatch first").clicked() {
+        let w = s.selected.and_then(|id| b.swatch(id)).cloned();
+        open_editor(s, app, w, None);
+        ui.close();
+    }
+    if ui.add_enabled(s.group.is_some(), egui::Button::new("Folder Options…")).on_disabled_hover_text("Select a folder first").clicked() {
+        let g = s.group.and_then(|id| b.groups.iter().find(|g| g.id == id)).cloned();
+        open_editor(s, app, None, g);
+        ui.close();
+    }
+    ui.add_enabled_ui(s.selected.is_some(), |ui| {
+        ui.menu_button("Move to…", |ui| {
+            if let Some(id) = s.selected {
+                let folder = b.swatch(id).and_then(|w| w.group);
+                let members: Vec<_> = b.swatches.iter().filter(|w| w.group == folder).map(|w| w.id).collect();
+                move_items(ui, b, id, folder, &members, action);
+            }
+        });
+    })
+    .response
+    .on_disabled_hover_text("Select a swatch first");
+    let ts = targets(app, s.secondary);
+    if ui
+        .add_enabled(s.scope == Scope::Document && s.selected.is_some() && !ts.is_empty(), egui::Button::new("Apply to Selected Objects"))
+        .on_disabled_hover_text("Choose a document swatch and select a shape or text layer")
+        .clicked()
+    {
+        if let Some(w) = s.selected.and_then(|id| b.swatch(id)) {
+            *action = Some(assign(w, ts));
+        }
+        ui.close();
+    }
+    ui.separator();
+    if ui.add_enabled(s.selected.is_some(), egui::Button::new("Delete Swatch")).on_disabled_hover_text("Select a swatch first").clicked() {
+        *action = Some(Action::Delete { ids: s.selected.into_iter().collect() });
+        ui.close();
+    }
+}
+/// Right-click on a swatch: colour roles, options, apply, move and delete.
+#[allow(clippy::too_many_arguments)]
+fn swatch_menu(
+    app: &mut PhotocraftApp,
+    ui: &mut egui::Ui,
+    s: &mut State,
+    b: &SwatchBook,
+    w: &Swatch,
+    gid: Option<u64>,
+    members: &[SwatchId],
+    action: &mut Option<Action>,
+) {
+    let (primary, secondary) = if is_vector(app) { ("Use as Fill", "Use as Stroke") } else { ("Use as Foreground", "Use as Background") };
+    for (label, second) in [(primary, false), (secondary, true)] {
+        if ui.button(label).clicked() {
+            if let Err(e) = select(app, s, w, second) {
+                s.error = Some(e);
+            }
+            ui.close();
+        }
+    }
+    ui.separator();
+    if ui.button("Swatch Options…").clicked() {
+        open_editor(s, app, Some(w.clone()), None);
+        ui.close();
+    }
+    if s.scope == Scope::Document {
+        let ts = targets(app, s.secondary);
+        if ui.add_enabled(!ts.is_empty(), egui::Button::new("Apply to Selected Objects")).on_disabled_hover_text("Select a shape or text layer").clicked() {
+            *action = Some(assign(w, ts));
+            ui.close();
+        }
+    }
+    ui.menu_button("Move to Folder", |ui| move_items(ui, b, w.id, gid, &[], action));
+    move_items_order(ui, w.id, gid, members, action);
+    ui.separator();
+    if ui.button("Delete Swatch").clicked() {
+        *action = Some(Action::Delete { ids: vec![w.id] });
+        ui.close();
+    }
+}
+/// The context menu's Move Earlier / Move Later among the visible (search-filtered) members.
+fn move_items_order(ui: &mut egui::Ui, id: SwatchId, gid: Option<u64>, members: &[SwatchId], action: &mut Option<Action>) {
+    if ui.button("Move Earlier").clicked() {
+        if let Some(i) = members.iter().position(|v| *v == id)
+            && i > 0
+        {
+            *action = Some(Action::Move { id, group: gid, before: Some(members[i - 1]) });
+        }
+        ui.close();
+    }
+    if ui.button("Move Later").clicked() {
+        if let Some(i) = members.iter().position(|v| *v == id)
+            && i + 1 < members.len()
+        {
+            *action = Some(Action::Move { id, group: gid, before: members.get(i + 2).copied() });
+        }
+        ui.close();
+    }
+}
 pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     seed(app);
     let mut s = load(app, ui);
     let mut action = None;
-    let mut load_library = None;
-    let mut import_requested = false;
-    let mut export_requested = None;
+    let mut req = Requests::default();
     targets_picker(app, ui, &mut s);
+    ui.add_space(4.);
     let old_scope = s.scope;
-    ui.horizontal_wrapped(|ui| {
-        ui.selectable_value(&mut s.scope, Scope::User, "User Swatches");
-        ui.add_enabled_ui(app.session.active().is_some(), |ui| ui.selectable_value(&mut s.scope, Scope::Document, "Document Swatches"))
-            .response
-            .on_disabled_hover_text("Open a document to use its swatches");
-        ui.menu_button("Swatches menu", |ui| {
-            ui.checkbox(&mut s.list, "List with names");
-            ui.menu_button("Swatch Libraries", |ui| {
-                for &(name, data) in LIBRARIES {
-                    if ui.button(name).clicked() {
-                        load_library = Some((name, data));
-                        ui.close();
-                    }
-                }
-            });
-            if ui.add_enabled(palette_picker_available(app), egui::Button::new("Import Swatches…")).on_disabled_hover_text("File picker unavailable").clicked()
-            {
-                import_requested = true;
-                ui.close();
-            }
-            ui.menu_button("Export Swatches", |ui| {
-                for ext in ["ase", "aco", "gpl", "kpl"] {
-                    if ui
-                        .add_enabled(
-                            (app.services.pick_save.is_some() || (cfg!(not(target_arch = "wasm32")) && app.background_jobs)) && app.services.write.is_some(),
-                            egui::Button::new(format!("{}…", ext.to_ascii_uppercase())),
-                        )
-                        .on_disabled_hover_text("File saving unavailable")
-                        .clicked()
-                    {
-                        export_requested = Some(ext);
-                        ui.close();
-                    }
-                }
-            });
+    let book_now = book(app, s.scope);
+    ui.horizontal(|ui| {
+        scope_toggle(ui, &mut s, app.session.active().is_some());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let menu =
+                icon_button(ui, "align-justify", "Swatches panel menu", "Swatches panel menu: view, libraries, import, export and swatch commands", true, "");
+            egui::Popup::menu(&menu).show(|ui| panel_menu(app, ui, &mut s, &book_now, &mut action, &mut req));
         });
     });
     if s.scope == Scope::Document && app.session.active().is_none() {
@@ -806,106 +1019,32 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         s.group = None;
         s.editor = None;
         s.reveal = None;
+        action = None;
     }
     s.document = document;
     let reveal = s.reveal.take();
     let b = book(app, s.scope);
     s.selected = s.selected.filter(|id| b.swatch(*id).is_some());
     s.group = s.group.filter(|id| b.groups.iter().any(|g| g.id == *id));
-    let search =
-        ui.add(egui::TextEdit::singleline(&mut s.search).hint_text("Search swatches by name").desired_width(ui.available_width()).id_salt("swatch-search"));
-    search.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Search swatches"));
-    ui.horizontal_wrapped(|ui| {
-        if ui
-            .add_enabled(b.swatches.len() + b.groups.len() < swatches::MAX_SWATCHES, egui::Button::new("Add Current Colour"))
-            .on_disabled_hover_text("Palette is full (4096 entries)")
-            .clicked()
-        {
-            match b.next_id() {
-                Ok(id) => {
-                    action = Some(Action::Add {
-                        swatch: Swatch {
-                            id: SwatchId(id),
-                            name: b.free_name("Colour"),
-                            paint: Fill::Solid(native_color(&app.session, current(app, s.secondary), s.scope).unwrap_or_else(|_| current(app, s.secondary))),
-                            global: false,
-                            spot: false,
-                            group: s.group,
-                            stops: vec![],
-                        },
-                    })
-                }
-                Err(e) => s.error = Some(e),
-            }
-        }
-        if ui
-            .add_enabled(b.swatches.len() + b.groups.len() < swatches::MAX_SWATCHES, egui::Button::new("New Folder"))
-            .on_disabled_hover_text("Palette is full (4096 entries)")
-            .clicked()
-        {
-            match b.next_id() {
-                Ok(id) => action = Some(Action::Group { group: SwatchGroup { id, name: b.free_name("Colour Group") }, ids: s.selected.into_iter().collect() }),
-                Err(e) => s.error = Some(e),
-            }
-        }
-        if ui.add_enabled(s.selected.is_some(), egui::Button::new("Swatch Options…")).on_disabled_hover_text("Select a swatch first").clicked() {
-            let w = s.selected.and_then(|id| b.swatch(id)).cloned();
-            open_editor(&mut s, app, w, None);
+    ui.horizontal(|ui| {
+        let t = crate::theme::Tokens::get(ui.ctx());
+        let (r, _) = ui.allocate_exact_size(egui::vec2(18., 22.), egui::Sense::hover());
+        crate::icons::paint(ui, r, "search", 14., t.text_faint);
+        let clear = !s.search.is_empty();
+        let width = ui.available_width() - if clear { 28. } else { 0. };
+        let search = ui.add(egui::TextEdit::singleline(&mut s.search).hint_text("Search").desired_width(width.max(40.)).id_salt("swatch-search"));
+        search.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Search swatches"));
+        let search = search.on_hover_text("Search swatches by name");
+        if clear && icon_button(ui, "x", "Clear search", "Clear search", true, "").clicked() {
+            s.search.clear();
+            search.request_focus();
         }
     });
-    ui.horizontal_wrapped(|ui| {
-        let ts = targets(app, s.secondary);
-        if ui
-            .add_enabled(s.scope == Scope::Document && s.selected.is_some() && !ts.is_empty(), egui::Button::new("Apply to Selected Objects"))
-            .on_disabled_hover_text("Choose a document swatch and select a shape or text layer")
-            .clicked()
-            && let Some(w) = s.selected.and_then(|id| b.swatch(id))
-        {
-            action = Some(if w.global { Action::Assign { targets: ts, swatch: w.id, tint: 100. } } else { Action::AssignPaint { targets: ts, swatch: w.id } });
-        }
-    });
-    ui.horizontal_wrapped(|ui| {
-        if ui.add_enabled(s.selected.is_some(), egui::Button::new("Delete Selected")).on_disabled_hover_text("Select a swatch first").clicked() {
-            action = Some(Action::Delete { ids: s.selected.into_iter().collect() });
-        }
-        ui.add_enabled_ui(s.selected.is_some(), |ui| {
-            ui.menu_button("Move Selected", |ui| {
-                if let Some(id) = s.selected {
-                    let folder = b.swatch(id).and_then(|w| w.group);
-                    let members: Vec<_> = b.swatches.iter().filter(|w| w.group == folder).map(|w| w.id).collect();
-                    if let Some(at) = members.iter().position(|w| *w == id) {
-                        if ui.add_enabled(at > 0, egui::Button::new("Move Earlier")).on_disabled_hover_text("Already first in this folder").clicked() {
-                            action = Some(Action::Move { id, group: folder, before: Some(members[at - 1]) });
-                            ui.close();
-                        }
-                        if ui
-                            .add_enabled(at + 1 < members.len(), egui::Button::new("Move Later"))
-                            .on_disabled_hover_text("Already last in this folder")
-                            .clicked()
-                        {
-                            action = Some(Action::Move { id, group: folder, before: members.get(at + 2).copied() });
-                            ui.close();
-                        }
-                    }
-                }
-                ui.separator();
-                for g in std::iter::once(None).chain(b.groups.iter().map(Some)) {
-                    if ui.button(g.map_or("Ungrouped", |g| g.name.as_str())).clicked()
-                        && let Some(id) = s.selected
-                    {
-                        action = Some(Action::Move { id, group: g.map(|g| g.id), before: None });
-                        ui.close();
-                    }
-                }
-            });
-        })
-        .response
-        .on_disabled_hover_text("Select a swatch first");
-        if ui.add_enabled(s.group.is_some(), egui::Button::new("Folder Options…")).on_disabled_hover_text("Select a folder first").clicked() {
-            let g = s.group.and_then(|id| b.groups.iter().find(|g| g.id == id)).cloned();
-            open_editor(&mut s, app, None, g);
-        }
-    });
+    let hint = if is_vector(app) {
+        "Click: Fill · Alt-click: Stroke · Double-click: options · Right-click: more"
+    } else {
+        "Click: foreground · Alt-click: background · Double-click: options · Right-click: more"
+    };
     if !s.recent.is_empty() {
         egui::CollapsingHeader::new("Recent Colours").default_open(true).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
@@ -919,7 +1058,9 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         group: None,
                         stops: vec![],
                     };
-                    let r = chip(ui, &w, false, false, None);
+                    let recent_hint =
+                        if is_vector(app) { "Click: Fill · Alt/right-click: Stroke" } else { "Click: foreground · Alt/right-click: background" };
+                    let r = chip(ui, &w, false, false, None, recent_hint);
                     if r.clicked() || r.secondary_clicked() {
                         let secondary = r.secondary_clicked() || ui.input(|i| i.modifiers.alt);
                         let scope = s.scope;
@@ -938,14 +1079,24 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         });
     }
     let filter = s.search.to_lowercase();
-    let palette_height = (ui.available_height() - 48.).clamp(80., 340.);
-    egui::ScrollArea::vertical().id_salt("swatches-scroll").max_height(palette_height).show(ui, |ui| {
-        for group in std::iter::once(None).chain(b.groups.iter().map(Some)) {
+    let palette_height = (ui.available_height() - 40.).clamp(80., 560.);
+    egui::ScrollArea::vertical().id_salt("swatches-scroll").max_height(palette_height).auto_shrink([false, true]).show(ui, |ui| {
+        // An empty Ungrouped stays out of the way (as in Photoshop); while a swatch is dragged it
+        // appears last as a drop target, so nothing above the pointer moves.
+        let ungrouped_empty = !b.swatches.iter().any(|w| w.group.is_none());
+        let dragging = egui::DragAndDrop::has_payload_of_type::<Drag>(ui.ctx());
+        let order: Vec<Option<&SwatchGroup>> = if ungrouped_empty {
+            b.groups.iter().map(Some).chain(dragging.then_some(None)).collect()
+        } else {
+            std::iter::once(None).chain(b.groups.iter().map(Some)).collect()
+        };
+        for group in order {
             let gid = group.map(|g| g.id);
             let members: Vec<_> = b.swatches.iter().filter(|w| w.group == gid && w.name.to_lowercase().contains(&filter)).collect();
             if !filter.is_empty() && members.is_empty() {
                 continue;
             }
+            let ids: Vec<SwatchId> = members.iter().map(|w| w.id).collect();
             let header = egui::CollapsingHeader::new(group.map_or("Ungrouped", |g| g.name.as_str()))
                 .id_salt((s.scope as u8, gid))
                 .default_open(group.is_some() || !members.is_empty())
@@ -963,6 +1114,7 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                         Fill::Solid(c) => Some(preview_color(app, ui, s.scope, c)),
                                         _ => None,
                                     },
+                                    hint,
                                 );
                                 response.dnd_set_drag_payload(Drag {
                                     scope: s.scope,
@@ -974,49 +1126,24 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                 {
                                     *action = Some(Action::Move { id: d.id, group: gid, before: Some(w.id) });
                                 }
-                                if response.clicked() || response.secondary_clicked() {
-                                    let secondary = response.secondary_clicked() || ui.input(|i| i.modifiers.alt);
+                                if response.clicked() {
+                                    let secondary = ui.input(|i| i.modifiers.alt);
                                     if let Err(e) = select(app, s, w, secondary) {
                                         s.error = Some(e);
                                     }
                                 }
+                                if response.secondary_clicked() {
+                                    // Right-click selects for the menu without recolouring (Photoshop).
+                                    s.selected = Some(w.id);
+                                    s.group = w.group;
+                                }
                                 if response.double_clicked() {
                                     open_editor(s, app, Some((*w).clone()), None);
                                 }
-                                response.context_menu(|ui| {
-                                    if ui.button("Swatch Options…").clicked() {
-                                        open_editor(s, app, Some((*w).clone()), None);
-                                        ui.close();
-                                    }
-                                    if ui.button("Delete Swatch").clicked() {
-                                        *action = Some(Action::Delete { ids: vec![w.id] });
-                                        ui.close();
-                                    }
-                                    ui.menu_button("Move to Folder", |ui| {
-                                        for g in std::iter::once(None).chain(b.groups.iter().map(Some)) {
-                                            if ui.button(g.map_or("Ungrouped", |g| g.name.as_str())).clicked() {
-                                                *action = Some(Action::Move { id: w.id, group: g.map(|g| g.id), before: None });
-                                                ui.close();
-                                            }
-                                        }
-                                    });
-                                    if ui.button("Move Earlier").clicked() {
-                                        if let Some(i) = members.iter().position(|v| v.id == w.id)
-                                            && i > 0
-                                        {
-                                            *action = Some(Action::Move { id: w.id, group: gid, before: Some(members[i - 1].id) });
-                                        }
-                                        ui.close();
-                                    }
-                                    if ui.button("Move Later").clicked() {
-                                        if let Some(i) = members.iter().position(|v| v.id == w.id)
-                                            && i + 1 < members.len()
-                                        {
-                                            *action = Some(Action::Move { id: w.id, group: gid, before: members.get(i + 2).map(|w| w.id) });
-                                        }
-                                        ui.close();
-                                    }
-                                });
+                                if response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
+                                    *action = Some(Action::Delete { ids: vec![w.id] });
+                                }
+                                response.context_menu(|ui| swatch_menu(app, ui, s, &b, w, gid, &ids, action));
                             });
                         }
                     };
@@ -1029,7 +1156,7 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         }
                     }
                     if members.is_empty() {
-                        ui.label("Drop swatches here");
+                        ui.weak("Drop swatches here");
                     }
                 });
             if let Some(response) = &header.body_response
@@ -1041,7 +1168,7 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if reveal == Some(gid) {
                 header.header_response.scroll_to_me(Some(egui::Align::Center));
             }
-            if header.header_response.clicked() {
+            if header.header_response.clicked() || header.header_response.secondary_clicked() {
                 s.group = gid;
             }
             if let Some(d) = header.header_response.dnd_release_payload::<Drag>()
@@ -1050,11 +1177,16 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 action = Some(Action::Move { id: d.id, group: gid, before: None });
             }
             if let Some(g) = group {
-                header.header_response.context_menu(|ui| {
+                header.header_response.on_hover_text("Right-click for folder options").context_menu(|ui| {
+                    if ui.add_enabled(!full(&b), egui::Button::new("New Swatch in Folder")).on_disabled_hover_text("Palette is full (4096 entries)").clicked() {
+                        action = new_swatch(app, &mut s, &b, Some(g.id));
+                        ui.close();
+                    }
                     if ui.button("Rename Folder…").clicked() {
                         open_editor(&mut s, app, None, Some(g.clone()));
                         ui.close();
                     }
+                    ui.separator();
                     if ui.button("Delete Folder and Swatches").clicked() {
                         action = Some(Action::DeleteGroup { id: g.id });
                         ui.close();
@@ -1062,10 +1194,40 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 });
             }
         }
+        if b.swatches.is_empty() && b.groups.is_empty() {
+            ui.weak("No swatches yet. Click + below to add the current colour.");
+        }
     });
-    ui.label(RichText::new("Click: primary · Alt/right-click: secondary").small());
-    ui.label(RichText::new("Live colours update linked objects in both modes.").small())
-        .on_hover_text("Linked shapes, text and vector layers update. Already-painted pixels do not change.");
+    // Footer: Photoshop's New Group, New Swatch and Delete icons.
+    let t = crate::theme::Tokens::get(ui.ctx());
+    let (line, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.), egui::Sense::hover());
+    ui.painter().rect_filled(line, 0., t.separator);
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 2.;
+            if icon_button(ui, "trash", "Delete Selected Swatch", "Delete Swatch (Delete)", s.selected.is_some(), "Delete Swatch: select a swatch first")
+                .clicked()
+            {
+                action = Some(Action::Delete { ids: s.selected.into_iter().collect() });
+            }
+            if icon_button(ui, "plus", "New Swatch", "New Swatch from the current colour", !full(&b), "Palette is full (4096 entries)").clicked() {
+                let group = s.group;
+                action = new_swatch(app, &mut s, &b, group);
+            }
+            if icon_button(
+                ui,
+                "folder-plus",
+                "New Group",
+                "New Group: a folder (the selected swatch moves into it)",
+                !full(&b),
+                "Palette is full (4096 entries)",
+            )
+            .clicked()
+            {
+                action = new_group(&mut s, &b);
+            }
+        });
+    });
     if let Some(action) = action {
         let reveal = match &action {
             Action::Add { swatch } => Some((swatch.group, Some(swatch.id))),
@@ -1084,7 +1246,7 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             Err(e) => s.error = Some(e),
         }
     }
-    if let Some((name, data)) = load_library {
+    if let Some((name, data)) = req.library {
         match library(name, data).and_then(|palette| {
             if s.scope == Scope::Document {
                 let bytes = swatches::export_ase(&palette)?.bytes;
@@ -1099,7 +1261,9 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             Err(e) => s.error = Some(e),
         }
     }
-    if import_requested && let Some((name, bytes)) = pick_palette(app) {
+    if req.import
+        && let Some((name, bytes)) = pick_palette(app)
+    {
         match bytes.and_then(|bytes| import(app, s.scope, &name, &bytes)) {
             Ok(warnings) => {
                 s.error = None;
@@ -1108,7 +1272,7 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             Err(e) => s.error = Some(e),
         }
     }
-    if let Some(ext) = export_requested {
+    if let Some(ext) = req.export {
         match export(app, s.scope, ext) {
             Ok((bytes, warnings)) => {
                 if let Some(path) = pick_palette_save(app, ext) {

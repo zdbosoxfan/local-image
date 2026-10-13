@@ -76,7 +76,8 @@ fn develop_a_filled_background_and_global_only_links() {
     let photo = h.app.session.active().unwrap();
     let layer_pixels = h.app.session.render_now(photo, 160, 160).unwrap().image;
     click(&mut h, "section:layer-effects");
-    assert!(text(&h).contains("This tool applies to the whole image."));
+    // TEST-CHANGED (UX polish): the three-line notice is one dimmed line per tool now.
+    assert!(text(&h).contains("whole image only"));
     click(&mut h, "layerBackground:vignette");
     assert_eq!(h.app.session.active_mask, None);
     assert!(h.app.widgets.iter().any(|(id, _)| id == "slider:light.exposure"));
@@ -423,4 +424,105 @@ fn develop_a_layer_drag_interactive_gpu_budget() {
         // This idle interval is excluded from UI and change-to-texture latencies above.
         std::thread::sleep(Duration::from_millis(200));
     }
+}
+
+/// UX-polish screenshots of the right panel (layer bar and the layer view's whole-image tools):
+/// 250/400 pt, dark/light, 1×/1.5×, into `target/ux-polish/`. `UX_POLISH_PHASE` names the set.
+#[test]
+fn ux_polish_layer_bar_screens() {
+    let phase = std::env::var("UX_POLISH_PHASE").unwrap_or_else(|_| "after".into());
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/ux-polish");
+    std::fs::create_dir_all(&dir).unwrap();
+    let shot = |h: &Headless, name: &str| {
+        let image = h.paint();
+        let scale = h.pixels_per_point;
+        let panel = rect(h, "panel:right_panel");
+        let x0 = ((panel.left() * scale) as usize).min(image.size[0] - 1);
+        let y1 = ((panel.bottom().min(1500.0) * scale) as usize).min(image.size[1]);
+        let w = image.size[0] - x0;
+        let out = lightcraft_raster::Rgba8::from_fn(w, y1, |x, y| image.pixels[y * image.size[0] + x + x0].to_array());
+        let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&out), &Default::default()).unwrap();
+        std::fs::write(dir.join(format!("{phase}-layers-{name}.png")), bytes).unwrap();
+    };
+    for dark in [true, false] {
+        for width in [250.0, 400.0] {
+            for ppp in [1.0, 1.5] {
+                let theme = if dark { "dark" } else { "light" };
+                let tag = format!("{theme}-{width}-{ppp}x");
+                let mut h = setup(width, dark, ppp);
+                shot(&h, &format!("none-{tag}"));
+                new_layer(&mut h, "full");
+                new_layer(&mut h, "radial");
+                request(&mut h, "ui.key", json!({"key":"escape"}));
+                click(&mut h, "mask:1");
+                shot(&h, &format!("two-{tag}"));
+                click(&mut h, "section:layer-color");
+                click(&mut h, "section:layer-effects");
+                shot(&h, &format!("sections-{tag}"));
+                if h.app.widgets.iter().any(|(id, _)| id == "layerGlobalGroup") {
+                    click(&mut h, "layerGlobalGroup");
+                    shot(&h, &format!("group-open-{tag}"));
+                }
+            }
+        }
+    }
+}
+
+/// UX polish: no layers → one line (Background … +); with layers, Background is the first row,
+/// every layer row has a mask thumbnail; the five whole-image sections are ONE collapsed line
+/// whose link and expanded items select Background.
+#[test]
+fn ux_layer_bar_one_line_thumbnails_and_whole_image_group() {
+    let mut h = setup(250.0, true, 1.0);
+    let bar = rect(&h, "layerBar");
+    let bg = rect(&h, "button:layerBackground");
+    let plus = rect(&h, "button:layerNew");
+    assert!((bg.center().y - plus.center().y).abs() < 2.0, "Background and + share one line");
+    assert!(bar.height() < 50.0, "one line without layers: {bar:?}");
+    assert!(!h.app.widgets.iter().any(|(id, _)| id == "button:layerCollapse"));
+    new_layer(&mut h, "full");
+    new_layer(&mut h, "empty");
+    request(&mut h, "ui.key", json!({"key":"escape"}));
+    // Background is the first row, then the layers in order, each with its thumbnail.
+    let bg = rect(&h, "button:layerBackground");
+    let (m1, m2) = (rect(&h, "mask:1"), rect(&h, "mask:2"));
+    assert!(bg.bottom() <= m1.top() + 1.0 && m1.bottom() <= m2.top() + 1.0);
+    for id in [1, 2] {
+        let thumb = rect(&h, &format!("layerThumb:{id}"));
+        let row = rect(&h, &format!("mask:{id}"));
+        assert!(thumb.right() <= row.left() && (thumb.center().y - row.center().y).abs() < 3.0, "thumbnail sits before the name");
+    }
+    assert!(rect(&h, "button:layerMenu:1").right() <= rect(&h, "panel:right_panel").right());
+    // the thumbnails are painted from the mask data: Filled is white, Empty is black
+    let image = h.paint();
+    let px = |id: &str| {
+        let c = rect(&h, id).center();
+        image.pixels[c.y as usize * image.size[0] + c.x as usize]
+    };
+    assert!(px("layerThumb:1").r() > 200, "filled layer thumbnail is white: {:?}", px("layerThumb:1"));
+    assert!(px("layerThumb:2").r() < 40, "empty layer thumbnail is black: {:?}", px("layerThumb:2"));
+    // the one header "+" (no per-row "+" any more; mask components live under the list)
+    assert_eq!(h.app.widgets.iter().filter(|(id, _)| id == "button:layerNew").count(), 1);
+    assert!(h.app.widgets.iter().any(|(id, _)| id == "button:maskPlus:2"));
+    click(&mut h, "mask:1");
+    assert!(text(&h).contains("5 whole-image tools"));
+    assert!(!text(&h).contains("This tool applies to the whole image."));
+    for key in ["profile", "negative", "toneEq", "optics", "calibration"] {
+        assert!(!h.app.widgets.iter().any(|(id, _)| id == &format!("layerBackground:{key}")), "collapsed: {key}");
+    }
+    click(&mut h, "layerBackground:global");
+    assert_eq!(h.app.session.active_mask, None);
+    click(&mut h, "mask:1");
+    click(&mut h, "layerGlobalGroup");
+    for name in ["Profile & RAW", "Negative", "Tone Equalizer", "Optics", "Calibration"] {
+        assert!(text(&h).contains(name), "{name}");
+    }
+    click(&mut h, "layerBackground:optics");
+    assert_eq!(h.app.session.active_mask, None);
+    // collapsing the list keeps one line naming the edited layer
+    click(&mut h, "mask:2");
+    click(&mut h, "button:layerCollapse");
+    assert!(!h.app.widgets.iter().any(|(id, _)| id == "mask:1"));
+    let name = d(&h).masks[1].name.clone();
+    assert!(text(&h).contains(&format!("Layers · {name}")), "{}", text(&h));
 }

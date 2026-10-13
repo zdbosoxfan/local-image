@@ -120,3 +120,24 @@ Followed the accepted spec's Owner decisions/Review incorporated sections, revie
 Primary API references read locally: egui **0.36.2** source/docs in `~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/egui-0.36.2/src/{containers/popup.rs,widgets/drag_value.rs,widgets/checkbox.rs}`; NVIDIA `nvidia-smi` XML process reporting. The synthetic RAW generator follows `lc-raw/tests/it/dng.rs` and `lc-raw/src/dngwrite.rs`. The layer bar's composition of these existing widgets and its selection/drag bookkeeping are task-specific implementation choices.
 
 Keyboard profiles B1–B3 and X1 release/design-document work remain separate streams. No task work remains. No commits were made.
+
+## UX polish (Claude, 2026-10-13)
+
+The layer bar is now laid out like Capture One's Layers tool:
+
+- Background is the first row of a compact list.
+- Each layer row has an eye, a mask thumbnail (from the mask's geometry; kind icon for AI/range masks),
+  the name, opacity and a ⋮ menu.
+- There is one "+" in the header.
+- Opacity, Mask ▾ (the former per-row "+"), Overlay and "Only used tools" sit under the list for the
+  selected layer.
+- With no layers the bar is a single line.
+- The five whole-image sections are one collapsed "5 whole-image tools · Select Background" line.
+- B&W, Vignette and Grain are one dimmed line each where they normally appear.
+
+Automation ids are unchanged: `button:layerNew`, `button:layerBackground`, `mask:N`, `icon:maskVisible:N`,
+`layerOpacity:N`, `button:layerMenu:N`, `button:maskPlus:N`, `maskOverlay`, `layerUsedOnly`,
+`layerBackground:{bw,vignette,grain}`. New ids: `layerThumb:N`, `layerGlobalGroup`, `layerBackground:global`,
+and `layerBackground:{profile,negative,toneEq,optics,calibration}` while the group is expanded.
+
+Full details, tests, TEST-CHANGED notes and screenshots are in `docs/wip/BUILD-ux-polish.md`.

@@ -167,3 +167,15 @@ KPL models outside RGB/CMYK/Lab/Gray and out-of-range HDR colours are rejected
 explicitly to fit the existing bounded swatch model. External proprietary/Adobe
 or Krita application-generated corpora were not provided; codec validation uses
 independent synthetic files plus the published/reference schemas.
+
+## UX polish (Claude, 2026-10-13)
+
+The panel is now laid out like Photoshop's: the swatch grid/list is the main content with search above
+it; there is a compact User | Document segmented control; the ☰ panel menu holds views, Swatch Libraries ▸,
+Import/Export, New Swatch/Group, Swatch Options…, Folder Options…, Move to… ▸, Apply to Selected Objects
+and Delete Swatch; a footer has New Group / New Swatch / Delete Selected Swatch icons (disabled with
+reasons); swatches and folders have right-click menus; the hint lines moved into tooltips. Every earlier
+command is still reachable, and every one can be reached by keyboard through the ☰ menu and the focusable
+footer icons.
+
+Full details, tests, TEST-CHANGED notes and screenshots are in `docs/wip/BUILD-ux-polish.md`.
