@@ -1,8 +1,15 @@
 use super::*;
 use egui::{Event, PointerButton, pos2};
-use egui_kittest::{Harness, kittest::Queryable};
+use egui_kittest::{
+    Harness,
+    kittest::{NodeT, Queryable},
+};
 
 fn harness() -> Harness<'static, PhotocraftApp> {
+    harness_mode(false)
+}
+
+fn harness_mode(immediate: bool) -> Harness<'static, PhotocraftApp> {
     crate::ai_ui::TEST_STATUS.with(|s| {
         *s.borrow_mut() = Some(crate::ai_ui::EngineStatus {
             checked: true,
@@ -19,6 +26,7 @@ fn harness() -> Harness<'static, PhotocraftApp> {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
         let mut app = PhotocraftApp::new(s, crate::Services::default());
         app.ui.tool = Tool::AiRemove;
+        app.ui.ai.remove_immediately = immediate;
         app.session.tools.brush.size = 24.0;
         app.session.tools.brush.hardness = 1.0;
         app
@@ -66,9 +74,13 @@ fn remove_confirmation_strokes_merge_subtract_and_escape_without_edits() {
     h.run_steps(2);
     assert!(h.state().ai_remove.is_none());
     stroke(&mut h, 100.0, 100.0, Modifiers::NONE);
+    let painted = h.state().ai_remove.as_ref().unwrap().mask.clone();
     h.state_mut().ui.tool = Tool::Move;
     h.run_steps(2);
-    assert!(h.state().ai_remove.is_none());
+    // U030: switching tools keeps the painted mask dormant instead of discarding it.
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, painted);
+    assert_eq!(h.state().session.active().unwrap().doc, before);
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
 }
 
 #[test]
@@ -84,17 +96,33 @@ fn remove_confirmation_selection_clear_cancel_keep_painting_and_document_switch(
     h.run_steps(2);
     assert!(h.state().ai_remove.is_some());
     assert!(!h.state().ai_remove.as_ref().unwrap().show_bar, "Keep painting hides the floating bar");
+    let before_clear = h.state().ai_remove.as_ref().unwrap().mask.clone();
+    let doc = h.state().session.active().unwrap().doc.clone();
+    let history = h.state().session.active().unwrap().history.past_len();
     h.get_all_by_label("Clear").next().unwrap().click();
     h.run_steps(2);
-    assert!(h.state().ai_remove.is_none());
+    assert!(h.state().ai_remove.as_ref().unwrap().mask.iter().all(|v| *v == 0));
+    assert!(h.state().ai_remove.as_ref().unwrap().bounds.is_empty());
+    assert_eq!(h.state().ui.tool, Tool::AiRemove);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, before_clear);
+    h.get_all_by_label("Clear").next().unwrap().click();
+    h.run_steps(2);
     stroke(&mut h, 200.0, 190.0, Modifiers::NONE);
     h.get_all_by_label("Cancel").next().unwrap().click();
     h.run_steps(2);
     assert!(h.state().ai_remove.is_none());
+    assert_eq!(h.state().ui.tool, Tool::AiRemove, "Cancel ends the removal but keeps the Remove tool");
+    assert_eq!(h.state().session.active().unwrap().doc, doc);
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+    h.state_mut().ui.tool = Tool::AiRemove;
     stroke(&mut h, 200.0, 190.0, Modifiers::NONE);
+    let captured = h.state().ai_remove.as_ref().unwrap().doc;
     h.state_mut().run("file.new", json!({"width": 40, "height": 40})).unwrap();
     h.run_steps(3);
-    assert!(h.state().ai_remove.is_none());
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().doc, captured);
+    assert!(!target_active(h.state(), h.state().ai_remove.as_ref().unwrap()));
 }
 
 #[test]
@@ -356,4 +384,296 @@ fn retained_remove_mask_keys_are_dormant_in_rotate_and_resume_in_remove() {
     h.run_steps(3);
     assert_eq!(calls.borrow().as_slice(), &[expected]);
     assert!(h.state().ai_remove.is_none());
+}
+
+struct RemoveMockReset;
+impl Drop for RemoveMockReset {
+    fn drop(&mut self) {
+        TEST_REMOVE.with(|mock| *mock.borrow_mut() = None);
+        crate::ai_ui::TEST_STATUS.with(|status| *status.borrow_mut() = None);
+    }
+}
+
+#[test]
+fn fresh_remove_submits_only_on_release_and_keeps_unavailable_or_failed_work_for_manual_retry() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let seen = calls.clone();
+    TEST_REMOVE.with(|mock| {
+        *mock.borrow_mut() = Some(Box::new(move |_, _| {
+            seen.set(seen.get() + 1);
+            if seen.get() == 1 { Err("Synthetic submission failure".into()) } else { Ok(json!({})) }
+        }))
+    });
+    let _reset = RemoveMockReset;
+    let mut h = harness_mode(crate::ai_ui::AiOptions::default().remove_immediately);
+    assert!(h.state().ui.ai.remove_immediately);
+    let doc = h.state().session.active().unwrap().doc.clone();
+    let history = h.state().session.active().unwrap().history.past_len();
+    let revision = h.state().session.active().unwrap().revision;
+    let xf = ViewXform::active(h.state()).unwrap();
+    let a = xf.to_screen(60.0, 70.0);
+    let b = xf.to_screen(95.0, 70.0);
+    h.hover_at(a);
+    h.step();
+    h.event(Event::PointerButton { pos: a, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    h.step();
+    h.hover_at(b);
+    h.step();
+    assert_eq!(calls.get(), 0, "down and movement cannot submit");
+    h.event(Event::PointerButton { pos: b, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(3);
+    assert_eq!(calls.get(), 1, "fresh default submits at release");
+    let mask = h.state().ai_remove.as_ref().unwrap().mask.clone();
+    h.run_steps(4);
+    assert_eq!(calls.get(), 1, "repaint cannot retry");
+    stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
+    assert_eq!(calls.get(), 1, "refining a failed mask cannot silently retry");
+    assert!(h.state().ai_remove.as_ref().unwrap().mask.iter().zip(mask).all(|(a, b)| *a >= b));
+    h.key_press(Key::Enter);
+    h.run_steps(3);
+    assert_eq!(calls.get(), 2);
+    assert!(h.state().ai_remove.is_none());
+    crate::ai_ui::TEST_STATUS.with(|status| status.borrow_mut().as_mut().unwrap().connected = false);
+    stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
+    assert!(h.state().ai_remove.is_some());
+    assert_eq!(calls.get(), 2);
+    crate::ai_ui::TEST_STATUS.with(|status| status.borrow_mut().as_mut().unwrap().connected = true);
+    h.run_steps(3);
+    stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
+    assert_eq!(calls.get(), 2, "availability and later paint cannot auto-resubmit");
+    h.key_press(Key::Enter);
+    h.run_steps(3);
+    assert_eq!(calls.get(), 3);
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    assert_eq!(calls.get(), 3);
+    let st = h.state().session.active().unwrap();
+    assert!(std::sync::Arc::ptr_eq(&doc, &st.doc));
+    assert_eq!((st.revision, st.history.past_len()), (revision, history));
+}
+
+#[test]
+fn pending_remove_terminal_identity_failure_and_cancel_retain_the_exact_mask() {
+    use photocraft_engine::jobs::{JobEvent, JobId, JobOutcome};
+    for outcome in [JobOutcome::Failed("Synthetic worker failure".into()), JobOutcome::Cancelled] {
+        let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+        let seen = calls.clone();
+        TEST_REMOVE.with(|mock| {
+            *mock.borrow_mut() = Some(Box::new(move |_, _| {
+                seen.set(seen.get() + 1);
+                Ok(json!({"pending":true,"job":41}))
+            }))
+        });
+        let _reset = RemoveMockReset;
+        let mut h = harness_mode(true);
+        let doc = h.state().session.active().unwrap().doc.clone();
+        let revision = h.state().session.active().unwrap().revision;
+        let history = h.state().session.active().unwrap().history.past_len();
+        stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
+        let mask = h.state().ai_remove.as_ref().unwrap().mask.clone();
+        assert_eq!(h.state().ai_remove.as_ref().unwrap().job, Some(JobId(41)));
+        h.key_press(Key::Enter);
+        h.run_steps(2);
+        assert_eq!(calls.get(), 1);
+        let mut event = JobEvent { id: JobId(42), command: "ai.remove".into(), label: "AI Remove".into(), document: Some(doc.id), outcome: outcome.clone() };
+        on_job_event(h.state_mut(), &event);
+        assert_eq!(h.state().ai_remove.as_ref().unwrap().job, Some(JobId(41)));
+        event.id = JobId(41);
+        event.document = Some(photocraft_doc::DocId(doc.id.0 + 1000));
+        on_job_event(h.state_mut(), &event);
+        assert_eq!(h.state().ai_remove.as_ref().unwrap().job, Some(JobId(41)));
+        event.document = Some(doc.id);
+        on_job_event(h.state_mut(), &event);
+        h.run_steps(3);
+        assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
+        assert_eq!(h.state().ai_remove.as_ref().unwrap().job, None);
+        stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
+        assert_eq!(calls.get(), 1);
+        h.key_press(Key::Enter);
+        h.run_steps(2);
+        assert_eq!(calls.get(), 2);
+        event.outcome = JobOutcome::Done(json!({}));
+        on_job_event(h.state_mut(), &event);
+        assert!(h.state().ai_remove.is_none());
+        let st = h.state().session.active().unwrap();
+        assert!(std::sync::Arc::ptr_eq(&doc, &st.doc));
+        assert_eq!((st.revision, st.history.past_len()), (revision, history));
+    }
+}
+
+fn paints_texture(shape: &egui::Shape, texture: egui::TextureId) -> bool {
+    match shape {
+        egui::Shape::Mesh(mesh) => mesh.texture_id == texture,
+        egui::Shape::Vec(shapes) => shapes.iter().any(|shape| paints_texture(shape, texture)),
+        _ => false,
+    }
+}
+
+#[test]
+fn dormant_remove_mask_stays_visible_while_navigating_and_is_never_replaced_by_a_selection() {
+    let mut h = harness();
+    stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
+    let p = h.state().ai_remove.as_ref().unwrap();
+    let (mask, texture) = (p.mask.clone(), p.texture.as_ref().unwrap().id());
+    h.state_mut().ui.tool = Tool::Hand;
+    h.run_steps(3);
+    assert!(h.output().shapes.iter().any(|s| paints_texture(&s.shape, texture)), "navigating keeps the mask in view");
+    assert!(h.query_by_label("Keep painting").is_none(), "no Remove controls over another tool");
+    h.state_mut().run("select.rect", json!({"x": 150, "y": 120, "width": 50, "height": 30})).unwrap();
+    selection(h.state_mut());
+    h.run_steps(2);
+    assert_eq!(h.query_all_by_label("Keep painting").count(), 2, "floating and options bars");
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask, "Remove Selection cannot replace painted work");
+    assert_eq!(h.state().ui.tool, Tool::AiRemove);
+    assert_eq!(h.state().ui.status, "Finish or cancel the current removal mask first.");
+    h.get_all_by_label("Clear").next().unwrap().click();
+    h.run_steps(2);
+    assert!(!h.state().ai_remove.as_ref().unwrap().show_bar, "nothing left to confirm after Clear");
+    assert_eq!(h.query_all_by_label("Keep painting").count(), 1, "the floating bar closes; the options bar keeps the controls");
+}
+
+#[test]
+fn dormant_remove_mask_is_not_painted_or_rebound_to_another_layer_or_document() {
+    let mut h = harness();
+    stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
+    stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
+    let p = h.state().ai_remove.as_ref().unwrap();
+    let (mask, owner, layer, texture) = (p.mask.clone(), p.doc, p.layer, p.texture.as_ref().unwrap().id());
+    assert!(h.output().shapes.iter().any(|s| paints_texture(&s.shape, texture)));
+    h.key_press(Key::B);
+    h.run_steps(3);
+    assert_eq!(h.state().ui.tool, Tool::Brush);
+    assert!(!h.output().shapes.iter().any(|s| paints_texture(&s.shape, texture)));
+    assert!(h.query_by_label("Keep painting").is_none());
+    for key in [Key::Enter, Key::Escape] {
+        h.key_press(key);
+        h.run_steps(2);
+    }
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
+    h.state_mut().ui.tool = Tool::AiRemove;
+    h.run_steps(2);
+    assert!(h.output().shapes.iter().any(|s| paints_texture(&s.shape, texture)));
+    h.state_mut().run("layer.new.layer", json!({})).unwrap();
+    let other_layer_doc = h.state().session.active().unwrap().doc.clone();
+    let other_layer_history = h.state().session.active().unwrap().history.past_len();
+    stroke(&mut h, 100.0, 100.0, Modifiers::NONE);
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
+    assert_eq!(h.state().session.active().unwrap().doc, other_layer_doc);
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), other_layer_history);
+    h.state_mut().session.active_mut().unwrap().active_layer = layer;
+    h.state_mut().run("file.new", json!({"width":320,"height":240})).unwrap();
+    let other_doc = h.state().session.active().unwrap().doc.clone();
+    stroke(&mut h, 100.0, 100.0, Modifiers::NONE);
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().doc, owner);
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
+    assert_eq!(h.state().session.active().unwrap().doc, other_doc);
+    h.state_mut().session.set_active(0);
+    h.run_steps(3);
+    assert!(target_active(h.state(), h.state().ai_remove.as_ref().unwrap()));
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
+    h.state_mut().run("file.close", json!({"force":true})).unwrap();
+    h.run_steps(3);
+    assert!(h.state().ai_remove.is_none(), "closed source cannot attach to the remaining document");
+}
+
+#[test]
+fn detected_remove_mask_never_auto_submits_after_additive_refinement_or_clear_undo() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let seen = calls.clone();
+    TEST_REMOVE.with(|mock| {
+        *mock.borrow_mut() = Some(Box::new(move |_, _| {
+            seen.set(seen.get() + 1);
+            Ok(json!({}))
+        }))
+    });
+    let _reset = RemoveMockReset;
+    let mut h = harness_mode(true);
+    let doc = h.state().session.active().unwrap().doc.clone();
+    let history = h.state().session.active().unwrap().history.past_len();
+    detected(
+        h.state_mut(),
+        image::GrayImage::from_fn(320, 240, |x, y| image::Luma([if (60..65).contains(&x) && (50..120).contains(&y) { 255 } else { 0 }])),
+        false,
+    )
+    .unwrap();
+    h.run_steps(3);
+    stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
+    assert_eq!(calls.get(), 0, "detected masks require approval even after adding paint");
+    let expected = h.state().ai_remove.as_ref().unwrap().mask.clone();
+    h.get_all_by_label("Clear").next().unwrap().click();
+    h.run_steps(2);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(2);
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, expected);
+    assert_eq!(calls.get(), 0);
+    assert_eq!(h.state().session.active().unwrap().doc, doc);
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    assert_eq!(calls.get(), 1);
+    assert!(h.state().ai_remove.is_none());
+}
+
+#[test]
+fn removal_mask_changed_dimensions_cannot_rebind_on_return() {
+    let mut h = harness();
+    stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
+    h.key_press(Key::B);
+    h.run_steps(2);
+    h.state_mut().run("image.canvasSize", json!({"width":400,"height":260,"anchor":"topLeft"})).unwrap();
+    let resized = h.state().session.active().unwrap().doc.clone();
+    let history = h.state().session.active().unwrap().history.past_len();
+    h.run_steps(3);
+    assert!(h.state().ai_remove.is_none());
+    h.state_mut().ui.tool = Tool::AiRemove;
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    assert!(h.state().ai_remove.is_none());
+    assert_eq!(h.state().session.active().unwrap().doc, resized);
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+}
+
+#[test]
+fn remove_confirmation_controls_fit_compact_and_large_light_dark_frames() {
+    for theme in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::StudioLight] {
+        for size in [vec2(760.0, 480.0), vec2(1440.0, 900.0)] {
+            let mut h = harness();
+            h.set_size(size);
+            h.set_pixels_per_point(1.25);
+            h.state_mut().ui.theme = theme;
+            PhotocraftApp::setup_context(&h.ctx, theme);
+            h.run_steps(6);
+            stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
+            h.run_steps(4);
+            let area = h.ctx.memory(|m| m.area_rect(egui::Id::new("remove-confirm"))).unwrap();
+            let canvas = ViewXform::active(h.state()).unwrap().rect;
+            assert!(canvas.contains_rect(area), "{theme:?}/{size:?}: {area:?} outside {canvas:?}");
+            for label in ["Remove", "Keep painting", "Clear", "Cancel"] {
+                let node = h.get_all_by_label(label).find(|n| area.contains_rect(n.rect())).unwrap_or_else(|| panic!("{label} missing in {area:?}"));
+                assert!(canvas.contains_rect(node.rect()), "{label} clipped");
+            }
+            let doc = h.state().session.active().unwrap().doc.clone();
+            let history = h.state().session.active().unwrap().history.past_len();
+            h.get_all_by_label("Clear").find(|n| area.contains_rect(n.rect())).unwrap().click();
+            h.run_steps(3);
+            assert!(h.state().ai_remove.as_ref().unwrap().bounds.is_empty());
+            stroke(&mut h, 180.0, 150.0, Modifiers::NONE);
+            h.run_steps(3);
+            crate::ai_ui::TEST_STATUS.with(|status| status.borrow_mut().as_mut().unwrap().connected = false);
+            h.run_steps(3);
+            let area = h.ctx.memory(|m| m.area_rect(egui::Id::new("remove-confirm"))).unwrap();
+            assert!(h.get_all_by_label("Remove").find(|n| area.contains_rect(n.rect())).unwrap().accesskit_node().is_disabled());
+            h.get_all_by_label("Cancel").find(|n| area.contains_rect(n.rect())).unwrap().click();
+            h.run_steps(3);
+            assert!(h.state().ai_remove.is_none());
+            assert_eq!(h.state().ui.tool, Tool::AiRemove, "Cancel ends the removal but keeps the Remove tool");
+            assert_eq!(h.state().session.active().unwrap().doc, doc);
+            assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+        }
+    }
+    crate::ai_ui::TEST_STATUS.with(|status| *status.borrow_mut() = None);
 }

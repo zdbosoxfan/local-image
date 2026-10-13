@@ -38,7 +38,7 @@ use crate::widgets;
 pub struct AiOptions {
     /// AI Remove engine: `klein`, `qwen-int8` or `qwen-bf16`.
     pub remove_engine: String,
-    /// Opt in to the original release-to-remove behavior.
+    /// Apply a painted removal stroke on release; saved manual choices remain explicit.
     pub remove_immediately: bool,
     /// Shared single/batch cutout engine: `fast`, `better`, `qwen-int8` or `qwen-bf16`.
     /// Saved `quick` values deserialize as Fast.
@@ -70,7 +70,7 @@ impl Default for AiOptions {
     fn default() -> Self {
         Self {
             remove_engine: "klein".into(),
-            remove_immediately: false,
+            remove_immediately: true,
             cutout_engine: "fast".into(),
             cutout_refine: true,
             cutout_decontaminate: false,
@@ -1859,6 +1859,15 @@ pub fn on_job_event(app: &mut PhotocraftApp, e: &JobEvent) -> bool {
 mod tests {
     use super::*;
     use egui_kittest::kittest::{NodeT, Queryable};
+
+    #[test]
+    fn remove_release_default_preserves_explicit_saved_manual_choice() {
+        assert!(AiOptions::default().remove_immediately);
+        assert!(serde_json::from_value::<AiOptions>(json!({})).unwrap().remove_immediately);
+        let manual: AiOptions = serde_json::from_value(json!({"remove_immediately": false})).unwrap();
+        assert!(!manual.remove_immediately);
+        assert!(!serde_json::from_value::<AiOptions>(serde_json::to_value(manual).unwrap()).unwrap().remove_immediately);
+    }
 
     #[test]
     fn enhance_dialog_clicks_method_scale_and_backend() {

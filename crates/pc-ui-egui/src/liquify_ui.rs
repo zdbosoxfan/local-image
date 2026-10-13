@@ -678,11 +678,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 widgets::slider_row(ui, tl!("Opacity"), &mut d.opts.backdrop_opacity, 0.0..=100.0, "", None);
             }
             widgets::hairline(ui);
-            ui.label(
-                egui::RichText::new(format!("{} stroke(s) · field {} px/node · dab {:.2} ms", d.strokes.len(), d.cell, d.dab_ms))
-                    .color(t.text_faint)
-                    .size(11.0),
-            );
+            stroke_feedback(ui, d, diagnostics_enabled());
         });
         // Footer buttons.
         let foot = ERect::from_min_size(pos2(right.left() + 14.0, right.bottom() - 48.0), vec2(RIGHT_W - 28.0, 32.0));
@@ -879,9 +875,55 @@ fn liquify_action(ui: &mut egui::Ui, name: &str, label: &str, width: f32) -> egu
     .inner
 }
 
+/// Developer timing rows are opt-in: set `LOCAL_IMAGE_DIAGNOSTICS=1` before starting the app.
+/// The same numbers stay available to automation through the dialog state (`dabMs`).
+fn diagnostics_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("LOCAL_IMAGE_DIAGNOSTICS").is_some_and(|v| !v.is_empty() && v != "0"))
+}
+
+/// The ordinary footer line under the options, plus the developer rows when asked for.
+fn stroke_feedback(ui: &mut egui::Ui, d: &LiquifyDialog, diagnostics: bool) {
+    let t = Tokens::get(ui.ctx());
+    let faint = |text: String| egui::RichText::new(text).color(t.text_faint).size(11.0);
+    ui.label(faint(crate::i18n::fmt(tl!("Strokes: {count}"), &[("count", &d.strokes.len().to_string())])));
+    if diagnostics {
+        // Developer-only, so plain English and not part of the translation catalogue.
+        ui.label(faint(format!("Field spacing: {} px/node", d.cell)));
+        ui.label(faint(format!("Last dab: {:.2} ms", d.dab_ms)));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn normal_feedback_is_plain_and_metrics_need_the_developer_switch() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut app = app_with_layer();
+        open(&mut app, &egui::Context::default()).unwrap();
+        app.distort.liquify.as_mut().unwrap().dab_ms = 12.5;
+        let before = app.session.active().unwrap().doc.clone();
+        let field = format!("Field spacing: {} px/node", app.distort.liquify.as_ref().unwrap().cell);
+        let mut h = Harness::builder().with_size(vec2(260., 190.)).build_ui_state(
+            |ui, (app, diagnostics): &mut (PhotocraftApp, bool)| {
+                ui.set_max_width(220.);
+                stroke_feedback(ui, app.distort.liquify.as_ref().unwrap(), *diagnostics);
+            },
+            (app, false),
+        );
+        h.run_steps(2);
+        assert!(h.query_by_label("Strokes: 0").is_some());
+        assert!(h.query_by_label(&field).is_none());
+        assert!(h.query_by_label("Last dab: 12.50 ms").is_none());
+        assert!(h.query_by_label_contains("px/node").is_none() && h.query_by_label_contains(" ms").is_none());
+        h.state_mut().1 = true;
+        h.run_steps(2);
+        let bounds = h.ctx.content_rect();
+        assert!(bounds.contains_rect(h.get_by_label(&field).rect()));
+        assert!(bounds.contains_rect(h.get_by_label("Last dab: 12.50 ms").rect()));
+        assert_eq!(h.state().0.session.active().unwrap().doc, before);
+    }
 
     fn app_with_layer() -> PhotocraftApp {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
