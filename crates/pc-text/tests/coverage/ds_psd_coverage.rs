@@ -64,7 +64,7 @@ fn parse_tysh_malformed_descriptor_returns_none() {
 #[test]
 fn write_tysh_parse_roundtrip() {
     let text_desc = Descriptor::new("TxLr").with("Txt ", D::Text(UnicodeString::new_nul("Hello")));
-    let tysh = TySh { transform: identity(), text: text_desc, warp: None, bounds: [0, 0, 10, 10] };
+    let tysh = TySh { transform: identity(), text: text_desc, warp: None, bounds: [0.0, 0.0, 10.0, 10.0] };
     let bytes = write_tysh(&tysh);
     let parsed = parse_tysh(&bytes).expect("parse should succeed");
     assert_eq!(parsed.transform.m, tysh.transform.m);
@@ -85,7 +85,7 @@ fn write_tysh_parse_roundtrip() {
 #[test]
 fn write_tysh_preserves_nan_transform() {
     let text_desc = Descriptor::new("TxLr");
-    let tysh = TySh { transform: Affine { m: [f64::NAN, 0.0, 0.0, 1.0, 0.0, 0.0] }, text: text_desc, warp: None, bounds: [0; 4] };
+    let tysh = TySh { transform: Affine { m: [f64::NAN, 0.0, 0.0, 1.0, 0.0, 0.0] }, text: text_desc, warp: None, bounds: [0.0; 4] };
     let bytes = write_tysh(&tysh);
     let parsed = parse_tysh(&bytes).expect("parse with NaN transform should succeed");
     assert!(parsed.transform.m[0].is_nan());
@@ -109,7 +109,7 @@ fn parse_txt2_malformed_returns_none() {
 #[test]
 fn text_layer_from_tysh_without_engine_data() {
     let text_desc = Descriptor::new("TxLr").with("Txt ", D::Text(UnicodeString::new_nul("Hello")));
-    let tysh = TySh { transform: identity(), text: text_desc, warp: None, bounds: [0, 0, 10, 10] };
+    let tysh = TySh { transform: identity(), text: text_desc, warp: None, bounds: [0.0, 0.0, 10.0, 10.0] };
     let bytes = write_tysh(&tysh);
     let layer = text_layer_from_tysh(&bytes, 72.0).expect("parse layer");
     assert_eq!(layer.text, "Hello");
@@ -196,8 +196,9 @@ fn build_tysh_point_and_box_shape() {
 
     // Bounds from ink for point shape
     let tysh = parse_tysh(&bytes_point).expect("parse tysh");
-    // bounds are floor/ceil of ink; ink was [0,0,50,20]
-    assert_eq!(tysh.bounds, [0, 0, 50, 20]);
+    // Unwarped type: Photoshop writes four zero f32s after the warp descriptor (not the ink,
+    // which was [0,0,50,20]; that lives in the `bounds`/`boundingBox` descriptors).
+    assert_eq!(tysh.bounds, [0.0; 4]);
 }
 
 #[test]
@@ -247,7 +248,7 @@ fn apply_txt2_invalid_inputs_do_not_panic() {
 #[test]
 fn parse_tysh_warp_presence() {
     let text_desc = Descriptor::new("TxLr");
-    let tysh_no_warp = TySh { transform: identity(), text: text_desc.clone(), warp: None, bounds: [0; 4] };
+    let tysh_no_warp = TySh { transform: identity(), text: text_desc.clone(), warp: None, bounds: [0.0; 4] };
     let bytes = write_tysh(&tysh_no_warp);
     let parsed = parse_tysh(&bytes).expect("parse");
     assert!(parsed.warp.is_some());
@@ -258,7 +259,7 @@ fn parse_tysh_warp_presence() {
         .with("warpPerspective", D::Double(0.0))
         .with("warpPerspectiveOther", D::Double(0.0))
         .with("warpRotate", D::Enumerated { type_id: Id::new("Ornt"), value: Id::new("Hrzn") });
-    let tysh_some_warp = TySh { transform: identity(), text: text_desc, warp: Some(warp_desc.clone()), bounds: [1, 2, 3, 4] };
+    let tysh_some_warp = TySh { transform: identity(), text: text_desc, warp: Some(warp_desc.clone()), bounds: [1.0, 2.0, 3.0, 4.0] };
     let bytes = write_tysh(&tysh_some_warp);
     let parsed = parse_tysh(&bytes).expect("parse");
     assert!(parsed.warp.is_some());

@@ -379,14 +379,14 @@ impl Ex {
         blocks.extend(extra);
         // Layer-level blocks keep their pad byte inside the length, as Photoshop writes them:
         // readers such as psd-tools do not skip a pad after an odd length, so a regenerated
-        // odd-length `lfx2` misaligned every block after it (#200).
+        // odd-length `lfx2` misaligned every block after it (#200). This includes preserved
+        // blocks from other writers that stored the pad outside the length: the bytes on disk
+        // stay the same (payload, then that pad byte) and only the length covers the pad.
+        // Photoshop-authored blocks are already padded inside their length, so they are kept
+        // byte for byte.
         for b in &mut blocks {
             if b.data.len() % 2 == 1 && b.padding.is_none() {
-                if l.psd_blocks.iter().any(|(key, data)| key == &b.key && data.as_slice() == b.data.as_slice()) {
-                    b.padding = Some(vec![0]);
-                } else {
-                    b.data.push(0);
-                }
+                b.data.push(0);
             }
         }
         let mut record = LayerRecord {

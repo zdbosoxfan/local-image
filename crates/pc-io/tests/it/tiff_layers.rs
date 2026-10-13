@@ -344,18 +344,38 @@ fn private_layer_and_global_blocks_keep_bytes_and_source_order_over_two_tiff_sav
             layers = ImageSourceData::from_bytes(&layers).unwrap().0.to_bytes(order).unwrap().0;
         }
         let original = container(order, &layers);
+        // The source stores the odd 7-byte layer block with its pad byte outside the length.
+        // Photoshop counts a layer block's pad inside the length, so after a save the raw
+        // big-endian block is the same eight bytes on disk (payload then the source's pad) with
+        // the length covering them. The little-endian envelope keeps its own payload length, so
+        // that payload stays exactly 7 bytes.
+        let source_layer_bytes = [b"ZzLy".as_slice(), &7u32.to_be_bytes(), LAYER, &[0]].concat();
+        if order == ByteOrder::Big {
+            assert!(original.windows(source_layer_bytes.len()).any(|w| w == source_layer_bytes));
+        }
+        let expected_layer = |saves: usize| {
+            let mut bytes = LAYER.to_vec();
+            if order == ByteOrder::Big && saves > 0 {
+                bytes.push(0);
+            }
+            (u8::from(order == ByteOrder::Little), bytes)
+        };
         let mut back = import("source.tif", &original).unwrap().document;
-        for _ in 0..2 {
+        for saves in 0..2 {
             let layer = back.layers[0].psd_blocks.iter().find_map(|(key, bytes)| payload(*key, bytes, *b"ZzLy")).unwrap();
             let global = back.metadata.psd_global_blocks.iter().find_map(|(_, key, bytes)| payload(*key, bytes, *b"ZzGb")).unwrap();
-            assert_eq!(layer, (u8::from(order == ByteOrder::Little), LAYER.to_vec()));
+            assert_eq!(layer, expected_layer(saves));
             assert_eq!(global, (u8::from(order == ByteOrder::Little), GLOBAL.to_vec()));
             assert_eq!(back.layers[0].surface().unwrap().to_interleaved(doc.bounds()), doc.layers[0].surface().unwrap().to_interleaved(doc.bounds()));
             let saved = tiff(&back, true);
+            if order == ByteOrder::Big {
+                let padded_inside = [b"ZzLy".as_slice(), &8u32.to_be_bytes(), LAYER, &[0]].concat();
+                assert!(saved.bytes.windows(padded_inside.len()).any(|w| w == padded_inside), "same bytes, pad inside the length");
+            }
             back = import("saved.tif", &saved.bytes).unwrap().document;
         }
         let layer = back.layers[0].psd_blocks.iter().find_map(|(key, bytes)| payload(*key, bytes, *b"ZzLy")).unwrap();
-        assert_eq!(layer, (u8::from(order == ByteOrder::Little), LAYER.to_vec()));
+        assert_eq!(layer, expected_layer(2));
     }
 }
 

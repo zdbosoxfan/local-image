@@ -29,7 +29,18 @@ fn bugfix_save_f03_plain_shape_separate_vector_mask_psd_psb_pixels_and_loss_noti
             psd.layers()[0].block(b"vmsk").is_none() && psd.layers()[0].block(b"SoCo").is_none(),
             "the fallback must be compatible raster pixels in other PSD readers too"
         );
-        assert!(matches!(back.layers[0].content, LayerContent::Raster(_)), "fallback is explicitly pixels");
+        // Other readers get plain pixels; the record carries rendered colour channels.
+        let record = &psd.layers()[0];
+        assert!(record.channels.iter().any(|c| c.id == 0 && !c.data.is_empty()), "the fallback record has pixel channels");
+        // Local Image restores the editable shape from its private `liED` block (FC009), bound to
+        // those exact pixels and blocks, so the reopened layer is the shape with its vector mask.
+        assert!(record.block(b"liED").is_some(), "the private editable record is attached");
+        let LayerContent::Shape(reopened) = &back.layers[0].content else {
+            panic!("Local Image restores the editable shape: {}", back.layers[0].content.kind_name())
+        };
+        let LayerContent::Shape(source) = &doc.layers[0].content else { unreachable!() };
+        assert_eq!(reopened.path, source.path);
+        assert_eq!(back.layers[0].vector_mask, doc.layers[0].vector_mask);
         let second = export(&back, ext, &Default::default()).unwrap();
         let twice = import(&format!("masked.{ext}"), &second.bytes).unwrap().document;
         assert!(max_diff(&doc, &twice) <= 1. / 255.);

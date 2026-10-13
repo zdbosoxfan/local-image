@@ -133,8 +133,11 @@ pub fn place(shaped: TextLayout, curve: &impl Curve, options: &PathText, align: 
         .iter()
         .enumerate()
         .map(|(i, l)| {
-            let end = by_line[i].iter().map(|&c| shaped.clusters[c].x + shaped.clusters[c].advance).fold(l.x1, f32::max);
-            f64::from(end - l.x0)
+            // In f64, like the cluster distances below: summing the f32 metrics in f32 rounds
+            // differently, which left the last cluster of a right-aligned line a few ulps past
+            // the span and hid it as overflow.
+            let end = by_line[i].iter().map(|&c| f64::from(shaped.clusters[c].x) + f64::from(shaped.clusters[c].advance)).fold(f64::from(l.x1), f64::max);
+            end - f64::from(l.x0)
         })
         .collect();
     if widths.iter().any(|w| !finite(*w) || *w < 0.0) {
@@ -178,7 +181,7 @@ pub fn place(shaped: TextLayout, curve: &impl Curve, options: &PathText, align: 
             if !finite(f64::from(c.x)) || !finite(f64::from(c.advance)) || c.advance < 0.0 {
                 return Err(Error("invalid cluster metrics"));
             }
-            let d = offset + line_start + f64::from(c.x - line.x0);
+            let d = offset + line_start + (f64::from(c.x) - f64::from(line.x0));
             let width = f64::from(c.advance);
             let (anchor, angle) = sample(d + width * 0.5)?;
             let to_line = if shaped.vertical { Affine::rotate(-std::f64::consts::FRAC_PI_2) } else { Affine::IDENTITY };
