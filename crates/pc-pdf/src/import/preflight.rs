@@ -595,6 +595,8 @@ impl Guard<'_> {
                     self.charge(declared_pixels.max(u64::from(w) * u64::from(h)).saturating_mul(16))?;
                     return Ok(vec![]);
                 }
+                b"JPXDecode" if image => return Err(ImportError::Unsupported("JPEG 2000 image decoder")),
+                b"JBIG2Decode" if image => return Err(ImportError::Unsupported("JBIG2 image decoder")),
                 _ => return Err(ImportError::Unsupported("stream codec has no bounded decoder")),
             };
             if matches!(f, b"LZWDecode" | b"LZW" | b"FlateDecode" | b"Fl") {
@@ -738,10 +740,13 @@ fn check_plain(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool) -> Re
     if bytes.len() > options.limits.bytes {
         return Err(ImportError::Limit("input byte"));
     }
-    let header = bytes[..bytes.len().min(1029)].windows(5).position(|s| s == b"%PDF-").ok_or_else(|| invalid("missing PDF header within 1024 bytes"))?;
-    if !bytes.get(header + 5..header + 8).is_some_and(|v| v[0].is_ascii_digit() && v[1] == b'.' && v[2].is_ascii_digit()) {
-        return Err(invalid("invalid PDF header version"));
-    }
+    let header = super::header_offset(bytes).ok_or_else(|| {
+        if bytes[..bytes.len().min(1029)].windows(5).any(|s| s == b"%PDF-") {
+            invalid("invalid PDF header version")
+        } else {
+            invalid("missing PDF header within 1024 bytes")
+        }
+    })?;
     if !options.dpi.is_finite() || !(1.0..=2400.0).contains(&options.dpi) {
         return Err(invalid("DPI must be finite and between 1 and 2400"));
     }
