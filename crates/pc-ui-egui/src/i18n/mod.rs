@@ -802,6 +802,11 @@ mod tests {
             // Remote ComfyUI controls stay in English under the owner's translation pause.
             "Use a remote ComfyUI server",
             "Connect / Check Server",
+            "Find on LAN",
+            "Search nearby LAN addresses on port 8188 and the selected port. For other networks, enter the address manually.",
+            "Searching LAN… {checked}/{total}",
+            "Use this ComfyUI server",
+            "No ComfyUI server found. Start ComfyUI with --listen 0.0.0.0 on the server and allow its port through the firewall, then search again.",
             "Install on server",
             "Install generative models on the remote ComfyUI server, then check the connection again.",
             "Models and generation run on the server; images and results transfer automatically. Use its LAN or Tailscale address, or 127.0.0.1 with an SSH tunnel.",

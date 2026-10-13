@@ -43,8 +43,11 @@ validate it using `xcrun stapler staple <package>` and `spctl -a -t install -vv 
 
 1. On your GPU machine, install the models and run ComfyUI listening on an address reachable
    from your Mac, for example `python main.py --listen 0.0.0.0 --port 8188`.
-2. On the Mac open **Preferences > Local AI**, select **Use a remote ComfyUI server**, enter
-   the server's LAN IP or Tailscale hostname (without `http://`) and port, then click
+2. On the Mac open **Preferences > Local AI** and click **Find on LAN**, then select a detected
+   server. The background search checks port 8188 and the selected port, supports Cancel, and
+   reads only server status. On larger networks it searches the adjacent /24, with a 30-second
+   limit and at most two active private IPv4 networks. For another subnet or a Tailscale server,
+   select **Use a remote ComfyUI server**, enter its IP or hostname (without `http://`) and port, then click
    **Connect / Check Server**. The connected GPU and available models come from that server.
 3. Generate, fill, remove and enhance use the remote API. Source images/masks are uploaded and
    finished images are downloaded into the Mac's document/library. There is no shared folder

@@ -14,6 +14,7 @@
 //! The engine commands are in `photocraft_engine::ai_cmds`; the ComfyUI client in `li-ai`.
 
 mod enhance_settings;
+mod lan_discovery;
 mod owned_engine;
 
 use std::collections::BTreeMap;
@@ -1255,6 +1256,7 @@ struct Dialogs {
     enhance_scale: f32,
     detected: Option<Vec<li_ai::setup::Installation>>,
     settings: Option<AiSettings>,
+    lan: Option<li_ai::discovery::Scan>,
     message: String,
     remove: Option<RemoveAsk>,
     /// The custom-model options each on-device function shows.
@@ -1536,6 +1538,7 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         settings.comfy_port = port as u16;
                     }
                 });
+                lan_discovery::row(ui, &mut settings);
                 let remote = settings.is_remote();
                 if remote {
                     ui.label(RichText::new(tl!("Models and generation run on the server; images and results transfer automatically. Use its LAN or Tailscale address, or 127.0.0.1 with an SSH tunnel.")).color(t.text_dim));
@@ -1709,7 +1712,10 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
             });
         });
     if !open {
-        dialogs_mut(|d| d.local_ai = false);
+        dialogs_mut(|d| {
+            d.local_ai = false;
+            d.lan = None;
+        });
     }
     if dls_running() {
         ctx.request_repaint_after(Duration::from_millis(250));

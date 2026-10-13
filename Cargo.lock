@@ -3885,6 +3885,7 @@ dependencies = [
  "hex",
  "image",
  "li-seg",
+ "lightcraft-sysmem",
  "log",
  "rand 0.9.5",
  "rayon",
