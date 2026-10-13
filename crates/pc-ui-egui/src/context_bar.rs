@@ -239,6 +239,11 @@ pub fn layer_options(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
 /// Photoshop brings Properties forward when a shape or type layer is selected (or a shape is
 /// drawn): its controls are where that layer is edited.
 fn reveal_properties(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    // Vector has its own docked Appearance/Transform studio. Preserve its chosen panels
+    // instead of bringing Pixel's floating Properties card over the canvas.
+    if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
+        return;
+    }
     let Some(d) = app.session.active() else { return };
     let now = d.active_layer.map(|id| (d.doc.id.0, id.0));
     if with(|s| s.last_active) == now {

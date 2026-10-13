@@ -129,6 +129,9 @@ impl Group {
     pub fn preferred_fill(self) -> f32 {
         match self {
             Group::Layers => 500.0,
+            // A newly opened optional Vector group must have usable controls before Layers
+            // takes the rest of the column. Long import/warning lists scroll inside it.
+            Group::Custom(200) => self.default_height(),
             g => g.min_height(),
         }
     }
@@ -247,10 +250,23 @@ pub enum Tab {
     Symbols,
     Generate,
     Library,
+    Appearance,
+    GraphicStyles,
+    FrameComposition,
+    Mesh,
+    SnappingManager,
+    DocumentPalette,
+    Transform,
+    Align,
+    Pathfinder,
+    Brushes,
+    Layout,
+    SvgImport,
+    AffinityImport,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 20] = [
+    pub const ALL: [Tab; 33] = [
         Tab::Color,
         Tab::Swatches,
         Tab::Gradients,
@@ -271,6 +287,19 @@ impl Tab {
         Tab::Symbols,
         Tab::Generate,
         Tab::Library,
+        Tab::Appearance,
+        Tab::GraphicStyles,
+        Tab::FrameComposition,
+        Tab::Mesh,
+        Tab::SnappingManager,
+        Tab::DocumentPalette,
+        Tab::Transform,
+        Tab::Align,
+        Tab::Pathfinder,
+        Tab::Brushes,
+        Tab::Layout,
+        Tab::SvgImport,
+        Tab::AffinityImport,
     ];
 
     /// The English panel name (the tab label's translation key).
@@ -296,7 +325,44 @@ impl Tab {
             Tab::Symbols => "Symbols",
             Tab::Generate => "Generate",
             Tab::Library => "Library",
+            Tab::Appearance => "Appearance",
+            Tab::GraphicStyles => "Graphic Styles",
+            Tab::FrameComposition => "Frame Composition",
+            Tab::Mesh => "Mesh",
+            Tab::SnappingManager => "Snapping Manager",
+            Tab::DocumentPalette => "Document Palette",
+            Tab::Transform => "Transform",
+            Tab::Align => "Align",
+            Tab::Pathfinder => "Pathfinder",
+            Tab::Brushes => "Brushes",
+            Tab::Layout => "Layout",
+            Tab::SvgImport => "SVG Import",
+            Tab::AffinityImport => "Affinity Import",
         }
+    }
+
+    /// Feature panels are optional: old Pixel layouts do not gain extra tabs.
+    pub fn vector_panel(self) -> bool {
+        matches!(
+            self,
+            Tab::Appearance
+                | Tab::GraphicStyles
+                | Tab::FrameComposition
+                | Tab::Mesh
+                | Tab::SnappingManager
+                | Tab::DocumentPalette
+                | Tab::Transform
+                | Tab::Align
+                | Tab::Pathfinder
+                | Tab::Brushes
+                | Tab::Layout
+                | Tab::SvgImport
+                | Tab::AffinityImport
+        )
+    }
+
+    pub fn from_label(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|tab| tab.label() == name)
     }
 
     /// The group the tab belongs to by default; a tab found nowhere goes back there.
@@ -309,6 +375,19 @@ impl Tab {
             Tab::History | Tab::Actions | Tab::LayerComps => Group::History,
             Tab::Layers | Tab::Channels | Tab::Paths | Tab::Symbols => Group::Layers,
             Tab::Generate | Tab::Library => Group::Generate,
+            Tab::Appearance
+            | Tab::GraphicStyles
+            | Tab::FrameComposition
+            | Tab::Mesh
+            | Tab::SnappingManager
+            | Tab::DocumentPalette
+            | Tab::Transform
+            | Tab::Align
+            | Tab::Pathfinder
+            | Tab::Brushes
+            | Tab::Layout
+            | Tab::SvgImport
+            | Tab::AffinityImport => Group::Custom(200),
         }
     }
 
@@ -424,6 +503,9 @@ pub struct DockLayout {
     /// Panels torn off the dock.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub floating: Vec<Floating>,
+    /// Individually closed feature tabs keep their placement, even in a mixed group.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub hidden_tabs: Vec<Tab>,
     #[serde(skip)]
     pub(crate) live: Live,
 }
@@ -782,7 +864,7 @@ fn activate(app: &mut PhotocraftApp, tab: Tab, prev: &DockTabs) {
         }
     }
     match place {
-        Place::Docked(g) if g == home => {
+        Place::Docked(g) if g == home && !tab.vector_panel() => {
             layout.active.remove(&g);
         }
         Place::Docked(g) => {
@@ -853,6 +935,41 @@ pub fn tab_showing(app: &PhotocraftApp, g: Group, idx: usize) -> bool {
 }
 
 /// Window › <panel>: open home tab `idx` of `g` wherever it is, expanded and selected.
+pub fn feature_visible(app: &PhotocraftApp, tab: Tab) -> bool {
+    if app.ui.dock.hidden_tabs.contains(&tab) {
+        return false;
+    }
+    let pro = is_pro(app);
+    match app.ui.dock.locate(tab, pro) {
+        Place::Docked(g) => g.shown(&app.ui.panels) && app.ui.dock.group_tabs(g, pro).contains(&tab),
+        Place::Floating(id) => app.ui.dock.floating(id).is_some_and(|f| !f.hidden),
+    }
+}
+
+/// Reveal an optional feature tab at its remembered dock or floating placement.
+pub fn reveal_feature(app: &mut PhotocraftApp, tab: Tab) {
+    let pro = is_pro(app);
+    app.ui.dock.hidden_tabs.retain(|t| *t != tab);
+    if !app.ui.dock.assignment(pro).iter().any(|(_, tabs)| tabs.contains(&tab)) && !app.ui.dock.floating.iter().any(|f| f.tabs.contains(&tab)) {
+        let g = tab.home();
+        let at = app.ui.dock.group_tabs(g, pro).len();
+        app.ui.dock.insert(&[tab], g, at, pro);
+    }
+    select(app, tab);
+    match app.ui.dock.locate(tab, pro) {
+        Place::Docked(g) => {
+            g.set_shown(&mut app.ui.panels, true);
+            app.ui.dock.set_collapsed(g, false);
+        }
+        Place::Floating(id) => {
+            if let Some(f) = app.ui.dock.floating_mut(id) {
+                f.hidden = false;
+            }
+            app.ui.dock.live.raise = Some(id);
+        }
+    }
+}
+
 pub fn reveal_tab(app: &mut PhotocraftApp, g: Group, idx: usize) {
     let pro = is_pro(app);
     let Some(tab) = Tab::of(g, idx, pro) else {
@@ -931,7 +1048,16 @@ pub fn rail_click(app: &mut PhotocraftApp, g: Group, docked: bool) {
 /// The groups the dock column draws, in display order, with their tabs: open and not empty
 /// (Studio floats Properties outside the dock, so `pro` false leaves it out).
 pub fn docked(app: &PhotocraftApp, pro: bool) -> Vec<(Group, Vec<Tab>)> {
-    app.ui.dock.assignment(is_pro(app)).into_iter().filter(|(g, l)| !l.is_empty() && g.shown(&app.ui.panels) && (pro || *g != Group::Properties)).collect()
+    app.ui
+        .dock
+        .assignment(is_pro(app))
+        .into_iter()
+        .map(|(g, mut tabs)| {
+            tabs.retain(|tab| !app.ui.dock.hidden_tabs.contains(tab));
+            (g, tabs)
+        })
+        .filter(|(g, l)| !l.is_empty() && g.shown(&app.ui.panels) && (pro || *g != Group::Properties))
+        .collect()
 }
 
 // ----------------------------------------------------------------------------- drawing
@@ -1126,6 +1252,13 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, groups: &[(Group, Vec<Ta
                 let list = app.ui.dock.group_tabs(g, pro);
                 app.ui.dock.take(&list, pro);
             }
+            Action::Close(g) if g.is_custom() => {
+                for tab in app.ui.dock.group_tabs(g, pro) {
+                    if !app.ui.dock.hidden_tabs.contains(&tab) {
+                        app.ui.dock.hidden_tabs.push(tab);
+                    }
+                }
+            }
             Action::Close(g) => g.set_shown(&mut app.ui.panels, false),
             Action::Move(g, before) => {
                 if before != Some(g) {
@@ -1197,7 +1330,7 @@ fn resize(layout: &mut DockLayout, heights: &[(Group, f32)], i: usize, dy: f32) 
 // --------------------------------------------------------------------------- persistence
 
 /// What `prefs.panelLayout` holds: the live layout, open panels and floating panels.
-fn snapshot(app: &PhotocraftApp) -> Value {
+pub(crate) fn snapshot(app: &PhotocraftApp) -> Value {
     json!({"workspace": app.ui.workspace, "panels": app.ui.panels, "dockTabs": app.ui.dock_tabs, "dock": app.ui.dock})
 }
 
@@ -1205,6 +1338,7 @@ fn snapshot(app: &PhotocraftApp) -> Value {
 #[derive(Clone, PartialEq)]
 struct Persisted {
     workspace: String,
+    persona: photocraft_engine::toolsets::Persona,
     panels: Panels,
     tabs: DockTabs,
     dock: DockLayout,
@@ -1219,18 +1353,32 @@ pub fn persist(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     let id = egui::Id::new("dock-persisted");
     let unchanged = ctx.data_mut(|d| {
-        d.get_temp_mut_or_default::<Option<Persisted>>(id)
-            .as_ref()
-            .is_some_and(|p| p.workspace == app.ui.workspace && p.panels == app.ui.panels && p.tabs == app.ui.dock_tabs && p.dock == app.ui.dock)
+        d.get_temp_mut_or_default::<Option<Persisted>>(id).as_ref().is_some_and(|p| {
+            p.persona == app.session.prefs().toolbar.persona
+                && p.workspace == app.ui.workspace
+                && p.panels == app.ui.panels
+                && p.tabs == app.ui.dock_tabs
+                && p.dock == app.ui.dock
+        })
     });
     if unchanged {
         return;
     }
     let now = snapshot(app);
     if app.session.prefs().panel_layout != now {
-        app.session.prefs.edit(|p| p.panel_layout = now);
+        let key = crate::workspace_ui::persona_key(app.session.prefs().toolbar.persona);
+        app.session.prefs.edit(|p| {
+            p.panel_layout = now.clone();
+            p.persona_layouts.insert(key.into(), now);
+        });
     }
-    let written = Persisted { workspace: app.ui.workspace.clone(), panels: app.ui.panels.clone(), tabs: app.ui.dock_tabs, dock: app.ui.dock.clone() };
+    let written = Persisted {
+        persona: app.session.prefs().toolbar.persona,
+        workspace: app.ui.workspace.clone(),
+        panels: app.ui.panels.clone(),
+        tabs: app.ui.dock_tabs,
+        dock: app.ui.dock.clone(),
+    };
     ctx.data_mut(|d| d.insert_temp(id, Some(written)));
 }
 
@@ -1239,8 +1387,14 @@ pub fn restore(app: &mut PhotocraftApp) {
     if !app.session.prefs().workspace.remember_workspace_changes {
         return;
     }
-    let saved = app.session.prefs().panel_layout.clone();
-    apply(app, &saved);
+    let persona = app.session.prefs().toolbar.persona;
+    let saved = app.session.prefs().persona_layouts.get(crate::workspace_ui::persona_key(persona)).unwrap_or(&app.session.prefs().panel_layout).clone();
+    app.ui.shell.layout_persona = Some(persona);
+    if saved.is_null() && persona == photocraft_engine::toolsets::Persona::Vector {
+        crate::workspace_ui::apply_vector(app);
+    } else {
+        apply(app, &saved);
+    }
     if let Some(ws) = saved.get("workspace").and_then(Value::as_str) {
         app.ui.workspace = ws.to_string();
     }

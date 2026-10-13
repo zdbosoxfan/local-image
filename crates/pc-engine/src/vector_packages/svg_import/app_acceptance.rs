@@ -152,6 +152,10 @@ fn svg_import_app_gpu_live_preview_release_editability_warning_and_undo() {
         // The real app dialog's warning button selects the imported editable shape.
         photocraft_ui_egui::vector_integration::set_panel_open(h.state_mut(), "SVG Import", true);
         h.run_steps(2);
+        // The import controls now live in a bounded dock tab. Reveal this warning by
+        // scrolling the actual panel before clicking it, rather than clicking a clipped rect.
+        h.get_by_label("gradient-projection: badge").scroll_to_me();
+        h.run_steps(3);
         h.get_by_label("gradient-projection: badge").click();
         h.run_steps(2);
         let st = h.state().session.active().unwrap();

@@ -373,7 +373,7 @@ fn paint_editor(ui: &mut Ui, p: &mut Fill, doc: &Document, selected_stop: &mut O
                 *selected_stop = None;
             }
             for (i, (t, c)) in stops.iter_mut().enumerate() {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     if ui.selectable_label(*selected_stop == Some(i), format!("{} {}", tl!("Stop"), i + 1)).clicked() {
                         *selected_stop = Some(i);
                     }
@@ -387,28 +387,28 @@ fn paint_editor(ui: &mut Ui, p: &mut Fill, doc: &Document, selected_stop: &mut O
                     }
                 });
             }
-            if ui.button(tl!("Add color stop")).clicked() {
+            if crate::widgets::secondary_button(ui, tl!("Add color stop"), 0.0).clicked() {
                 stops.push((0.5, Color::WHITE));
                 changed = true;
             }
-            if ui.button(tl!("Remove color stop")).clicked() && !stops.is_empty() {
+            if crate::widgets::secondary_button(ui, tl!("Remove color stop"), 0.0).clicked() && !stops.is_empty() {
                 stops.pop();
                 changed = true;
             }
             for v in midpoints.iter_mut() {
                 changed |= ui.add(egui::DragValue::new(v).range(0.0..=1.0).prefix(tl!("Midpoint"))).changed();
             }
-            if ui.button(tl!("Add midpoint")).clicked() {
+            if crate::widgets::secondary_button(ui, tl!("Add midpoint"), 0.0).clicked() {
                 midpoints.push(0.5);
                 changed = true;
             }
             for (t, a) in opacity_stops.iter_mut() {
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     changed |= ui.add(egui::DragValue::new(t).range(0.0..=1.0).prefix(tl!("Opacity stop"))).changed();
                     changed |= ui.add(egui::DragValue::new(a).range(0.0..=1.0).prefix(tl!("Opacity"))).changed();
                 });
             }
-            if ui.button(tl!("Add opacity stop")).clicked() {
+            if crate::widgets::secondary_button(ui, tl!("Add opacity stop"), 0.0).clicked() {
                 opacity_stops.push((0.5, 0.5));
                 changed = true;
             }
@@ -447,11 +447,11 @@ fn stroke_editor(ui: &mut Ui, s: &mut StrokeItem) -> bool {
     for (i, d) in s.base.dashes.iter_mut().enumerate() {
         changed |= ui.add(egui::DragValue::new(d).range(0.0..=10000.).prefix(format!("{} {} ", tl!("Dash"), i + 1))).changed();
     }
-    if ui.button(tl!("Add dash pair")).clicked() {
+    if crate::widgets::secondary_button(ui, tl!("Add dash pair"), 0.0).clicked() {
         s.base.dashes.extend([2., 2.]);
         changed = true;
     }
-    if ui.button(tl!("Solid stroke")).clicked() {
+    if crate::widgets::secondary_button(ui, tl!("Solid stroke"), 0.0).clicked() {
         s.base.dashes.clear();
         changed = true;
     }
@@ -548,15 +548,15 @@ pub fn panel(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId]) -
     ui.heading(tl!("Appearance"));
     let mut immediate = false;
     let mut changes = Vec::new();
-    ui.horizontal(|ui| {
-        if ui.button(tl!("Add fill")).clicked() {
+    ui.horizontal_wrapped(|ui| {
+        if crate::widgets::secondary_button(ui, tl!("Add fill"), 0.0).clicked() {
             let item = AppearanceItem::Fill(FillItem::new(Fill::Solid(Color::BLACK)));
             changes.push(PanelChange::Add(item.clone()));
             a.items.push(item);
             state.options.item = a.items.len() - 1;
             immediate = true;
         }
-        if ui.button(tl!("Add stroke")).clicked() {
+        if crate::widgets::secondary_button(ui, tl!("Add stroke"), 0.0).clicked() {
             let item = AppearanceItem::Stroke(StrokeItem { base: ShapeStroke { width: 6., ..Default::default() }, ..Default::default() });
             changes.push(PanelChange::Add(item.clone()));
             a.items.push(item);
@@ -565,7 +565,7 @@ pub fn panel(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId]) -
         }
     });
     for (i, item) in a.items.iter_mut().enumerate().rev() {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             let (name, visible) = match item {
                 AppearanceItem::Fill(f) => (tl!("Fill"), &mut f.visible),
                 AppearanceItem::Mesh(m) => (tl!("Gradient mesh"), &mut m.visible),
@@ -574,7 +574,7 @@ pub fn panel(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId]) -
             if ui.selectable_label(state.options.item == i, format!("{name} {}", i + 1)).clicked() {
                 state.options.item = i;
             }
-            if ui.checkbox(visible, format!("{} {}", tl!("Visible"), i + 1)).changed() {
+            if crate::widgets::checkbox(ui, visible, &format!("{} {}", tl!("Visible"), i + 1)).changed() {
                 changes.push(PanelChange::Visible(i, *visible));
                 immediate = true;
             }
@@ -584,26 +584,26 @@ pub fn panel(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId]) -
     state.options.item = index;
     let mut changed = false;
     if !a.items.is_empty() {
-        ui.horizontal(|ui| {
-            if ui.button(tl!("Move up")).clicked() && index + 1 < a.items.len() {
+        ui.horizontal_wrapped(|ui| {
+            if crate::widgets::secondary_button(ui, tl!("Move up"), 0.0).clicked() && index + 1 < a.items.len() {
                 changes.push(PanelChange::Move(index, index + 1));
                 a.items.swap(index, index + 1);
                 state.options.item += 1;
                 immediate = true;
             }
-            if ui.button(tl!("Move down")).clicked() && index > 0 {
+            if crate::widgets::secondary_button(ui, tl!("Move down"), 0.0).clicked() && index > 0 {
                 changes.push(PanelChange::Move(index, index - 1));
                 a.items.swap(index, index - 1);
                 state.options.item -= 1;
                 immediate = true;
             }
-            if ui.button(tl!("Duplicate item")).clicked() {
+            if crate::widgets::secondary_button(ui, tl!("Duplicate item"), 0.0).clicked() {
                 changes.push(PanelChange::Duplicate(index));
                 a.items.insert(index + 1, a.items[index].clone());
                 state.options.item = index + 1;
                 immediate = true;
             }
-            if ui.button(tl!("Delete item")).clicked() {
+            if crate::widgets::secondary_button(ui, tl!("Delete item"), 0.0).clicked() {
                 changes.push(PanelChange::Delete(index));
                 a.items.remove(index);
                 state.options.item = index.min(a.items.len().saturating_sub(1));
@@ -613,7 +613,7 @@ pub fn panel(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId]) -
         let index = state.options.item;
         if let Some(item) = a.items.get_mut(index) {
             if let AppearanceItem::Mesh(mesh) = item {
-                changed |= ui.add(egui::Slider::new(&mut mesh.opacity, 0.0..=1.0).text(tl!("Item opacity"))).changed();
+                changed |= crate::widgets::slider_row(ui, "Item opacity", &mut mesh.opacity, 0.0..=1.0, "", None).changed();
                 let modes: Vec<_> = BlendMode::LAYER_MODES.iter().map(|b| (*b, b.label())).collect();
                 changed |= combo(ui, "Blend mode", &mut mesh.blend, &modes);
             } else if let Some((opacity, blend, paint)) = match item {
@@ -621,7 +621,7 @@ pub fn panel(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId]) -
                 AppearanceItem::Stroke(s) => Some((&mut s.base.opacity, &mut s.blend, &mut s.base.paint)),
                 AppearanceItem::Mesh(_) => None,
             } {
-                changed |= ui.add(egui::Slider::new(opacity, 0.0..=1.0).text(tl!("Item opacity"))).changed();
+                changed |= crate::widgets::slider_row(ui, "Item opacity", opacity, 0.0..=1.0, "", None).changed();
                 let modes: Vec<_> = BlendMode::LAYER_MODES.iter().map(|b| (*b, b.label())).collect();
                 changed |= combo(ui, "Blend mode", blend, &modes);
                 if let Some(st) = s.active() {

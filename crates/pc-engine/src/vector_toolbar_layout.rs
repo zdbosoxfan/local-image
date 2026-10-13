@@ -260,6 +260,9 @@ pub const ACCELERATORS: &[Binding] = &[
     b("Cmd+F", "object.pasteFront"),
     b("Cmd+2", "vector.object.lock"),
     b("Cmd+3", "vector.object.hide"),
+    // Cmd+Alt+2/3 belong to immutable Develop/Editor workspace navigation.
+    b("Cmd+Alt+Shift+2", "vector.object.unlockAll"),
+    b("Cmd+Alt+Shift+3", "vector.object.showAll"),
     b("Cmd+7", "object.clippingMask.make"),
     b("Cmd+Alt+7", "object.clippingMask.release"),
     b("Cmd+8", "object.compoundPath.make"),
@@ -300,6 +303,9 @@ pub const AFFINITY_ACCELERATORS: &[Binding] = &[
     b("Cmd+T", "window.panel.character"),
     b("Cmd+G", "layer.group"),
     b("Cmd+Shift+G", "layer.ungroup"),
+    // Affinity Designer 2's published Object control shortcuts.
+    b(if cfg!(target_os = "macos") { "Ctrl+Cmd+L" } else { "Cmd+Alt+Shift+L" }, "vector.object.unlockAll"),
+    b(if cfg!(target_os = "macos") { "Ctrl+Cmd+H" } else { "Cmd+Alt+Shift+H" }, "vector.object.showAll"),
 ];
 pub fn command_bindings_for(persona: Persona, preset: Preset, pixel: &[(String, String)]) -> Vec<(String, String)> {
     if persona == Persona::Pixel {

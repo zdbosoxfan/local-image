@@ -158,31 +158,22 @@ pub fn ruler_units(app: &PhotocraftApp) -> (photocraft_engine::prefs::Unit, f64)
 /// Package 00 places this button in the existing context/properties UI; it opens the
 /// same panel used by keyboard fields and dedicated tool selection.
 pub fn context(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    if ui.button(crate::i18n::t("Transform and Layout")).clicked() {
+    if crate::widgets::secondary_button(ui, crate::i18n::t("Transform and Layout"), 0.0).clicked() {
         app.shared_tools.layout.open = true;
     }
 }
-pub fn window(app: &mut PhotocraftApp, ctx: &Context) {
-    if !app.shared_tools.layout.open {
-        return;
+/// Legacy open requests reveal the persisted Transform tab; no independent floating window.
+pub fn window(app: &mut PhotocraftApp, _ctx: &Context) {
+    if app.shared_tools.layout.open {
+        app.shared_tools.layout.open = false;
+        crate::dock::reveal_feature(app, crate::dock::Tab::Transform);
     }
+}
+
+pub fn dock_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate::dock::Tab) {
     let mut state: State = std::mem::take(&mut app.shared_tools.layout);
-    let mut open = state.open;
     let before = state.tool;
-    let mut result = Ok(());
-    egui::Window::new(crate::i18n::t("Transform and Layout"))
-        .id(egui::Id::new("vector layout panel"))
-        .default_pos(egui::pos2(900., 70.))
-        .default_width(380.)
-        .open(&mut open)
-        .vscroll(true)
-        .show(ctx, |ui| {
-            result = super::layout::panel(ui, &mut state, &mut app.session, |s| crate::i18n::t(s).to_string());
-        });
-    state.open = open;
-    if !open {
-        state.cancel();
-    }
+    let result = super::layout::panel_section(ui, &mut state, &mut app.session, Some(tab), |s| crate::i18n::t(s).to_string());
     if state.tool != before && state.tool != LayoutTool::None {
         app.ui.tool = Tool::PathSelection;
     }

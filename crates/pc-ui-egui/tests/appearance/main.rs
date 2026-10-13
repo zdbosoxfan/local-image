@@ -1,4 +1,5 @@
 //! Package 08 widget interaction and resvg oracle host. Full-app gate is app_acceptance.rs.
+use photocraft_ui_egui::widgets;
 macro_rules! tl {
     ($s:expr) => {
         photocraft_ui_egui::i18n::t($s)
@@ -39,6 +40,9 @@ fn host() -> Host {
     Host { s, state: Default::default(), ids, rect: egui::Rect::NOTHING, texture: None, error: None, enabled: true }
 }
 fn draw(ui: &mut egui::Ui, h: &mut Host) {
+    if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+        return;
+    }
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.set_width(320.);
@@ -86,7 +90,10 @@ fn draw(ui: &mut egui::Ui, h: &mut Host) {
     });
 }
 fn harness() -> Harness<'static, Host> {
-    Harness::builder().with_size(egui::vec2(760., 1200.)).build_ui_state(draw, host())
+    let mut h = Harness::builder().with_size(egui::vec2(760., 1200.)).build_ui_state(draw, host());
+    photocraft_ui_egui::PhotocraftApp::setup_context(&h.ctx, Default::default());
+    h.run_steps(3);
+    h
 }
 fn screen(h: &Harness<'_, Host>, x: f32, y: f32) -> Pos2 {
     h.state().rect.min + egui::vec2(x, y)
@@ -175,7 +182,7 @@ fn appearance_ui_gradient_and_transparency_actual_drags_preview_release_escape_s
 fn appearance_ui_slider_actual_drag_one_history_and_old_options() {
     let mut h = harness();
     let before = h.state().s.active().unwrap().doc.clone();
-    let r = h.get_by_role_and_label(egui::accesskit::Role::Slider, "Item opacity").rect();
+    let r = h.get_by_role_and_label(egui::accesskit::Role::Slider, "Item opacity slider").rect();
     let p = egui::pos2(r.min.x + 20., r.center().y);
     h.event(Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
     h.step();

@@ -214,6 +214,7 @@ pub fn select_tool(app: &mut PhotocraftApp, ctx: &Context, tool: Tool) {
 }
 
 fn sync(app: &mut PhotocraftApp, ctx: &Context) {
+    crate::workspace_ui::sync_persona(app);
     let persona = app.session.prefs().toolbar.persona;
     let mut seen = ctx.data(|d| d.get_temp::<Observed>(memory_key()));
     let tool_changed = seen.as_ref().is_some_and(|s| s.persona == persona && s.tool != app.ui.tool);

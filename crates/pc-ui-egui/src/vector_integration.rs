@@ -23,6 +23,7 @@ pub struct State {
     ase: Option<std::sync::mpsc::Receiver<AseResult>>,
     owned_preview: Option<(u64, u64, Arc<Document>)>,
     owner: Option<(Tool, Persona, crate::Module)>,
+    // Derived compatibility view for the Window menu; membership is owned by DockLayout.
     windows: std::collections::BTreeSet<String>,
     swatches: crate::swatches_doc::State,
     recolor: crate::recolor::State,
@@ -1059,18 +1060,21 @@ pub(crate) fn open_panels_for_test(app: &PhotocraftApp) -> &std::collections::BT
 }
 
 pub fn set_panel_open(app: &mut PhotocraftApp, name: &str, open: bool) {
+    let Some(tab) = crate::dock::Tab::from_label(name).filter(|tab| tab.vector_panel() || *tab == crate::dock::Tab::Symbols) else { return };
     if open {
-        app.vector_runtime.windows.insert(name.into());
-    } else {
-        app.vector_runtime.windows.remove(name);
+        crate::dock::reveal_feature(app, tab);
+    } else if !app.ui.dock.hidden_tabs.contains(&tab) {
+        app.ui.dock.hidden_tabs.push(tab);
     }
+    sync_panel_checks(app);
 }
 fn open_panel(app: &mut PhotocraftApp, name: &str) {
     set_panel_open(app, name, true);
 }
 pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, _params: &serde_json::Value) -> Option<Result<serde_json::Value, String>> {
     if let Some(name) = id.strip_prefix("window.vector.") {
-        open_panel(app, name);
+        let visible = crate::dock::Tab::from_label(name).is_some_and(|tab| crate::dock::feature_visible(app, tab));
+        set_panel_open(app, name, !visible);
         return Some(Ok(serde_json::json!({"handled":true})));
     }
     let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
@@ -1190,7 +1194,7 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, _params: &se
     }
     let result = match id {
         "ui.vector.layout" => {
-            app.shared_tools.layout.open = true;
+            open_panel(app, "Transform");
             Ok(())
         }
         "ui.vector.blend" => {
@@ -1321,50 +1325,57 @@ pub(crate) fn keyboard_preset(ui: &mut egui::Ui, preset: &mut photocraft_engine:
     changed
 }
 
-fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    let names: Vec<_> = if app.ui.view.panels_visible() { app.vector_runtime.windows.iter().cloned().collect() } else { Vec::new() };
-    for name in names {
-        let mut open = true;
-        egui::Window::new(crate::i18n::t(&name)).id(egui::Id::new(("vector-panel", &name))).open(&mut open).show(ctx, |ui| {
-            let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
-            match name.as_str() {
-                "Appearance" => {
-                    let mut state = std::mem::take(&mut app.shared_tools.paint);
-                    if let Err(e) = crate::vector_packages::appearance::panel(ui, &mut state, &mut app.session, &ids) {
-                        report(app, e);
-                    }
-                    app.shared_tools.paint = state;
-                    crate::path_effects::app_hooks::panel(app, ui);
-                }
-                "SVG Import" => crate::vector_packages::svg_import::controls(ui, &mut app.svg_import, &mut app.session),
-                "Affinity Import" => crate::vector_packages::affinity::controls(ui, &mut app.affinity_import, &mut app.session),
-                "Document Palette" => palette(app, ui),
-                "Graphic Styles" => crate::graphic_styles::panel(app, ui),
-                "Frame Composition" => {
-                    if let Err(e) = crate::frame_compose::panel(ui, &mut app.ui.frame_compose, &mut app.session, &crate::frame_compose::NativeMetadata) {
-                        report(app, e);
-                    }
-                }
-                "Mesh" => {
-                    if let Err(e) =
-                        app.mesh_state.context_bar(ui, &mut app.session, &ids).and_then(|_| app.mesh_state.point_controls(ui, &mut app.session, &[]))
-                    {
-                        report(app, e);
-                    }
-                }
-                "Snapping Manager" => {
-                    let mut manager = crate::vector_packages::snapping::Manager { settings: app.shared_tools.snapping.clone() };
-                    crate::vector_packages::snapping::manager(ui, &mut manager, |s| crate::i18n::t(s).into());
-                    app.shared_tools.snapping = manager.settings.clone();
-                    app.ui.vector_snapping = manager.settings;
-                }
-                _ => {}
+fn sync_panel_checks(app: &mut PhotocraftApp) {
+    app.vector_runtime.windows = crate::dock::Tab::ALL
+        .into_iter()
+        .filter(|tab| tab.vector_panel() && crate::dock::feature_visible(app, *tab))
+        .map(|tab| tab.label().to_owned())
+        .collect();
+}
+
+/// Same content and detached preview lifecycle, whether docked or torn off.
+pub(crate) fn dock_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate::dock::Tab) {
+    let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
+    match tab.label() {
+        "Appearance" => {
+            let mut state = std::mem::take(&mut app.shared_tools.paint);
+            if let Err(e) = crate::vector_packages::appearance::panel(ui, &mut state, &mut app.session, &ids) {
+                report(app, e);
             }
-        });
-        if !open {
-            app.vector_runtime.windows.remove(&name);
+            app.shared_tools.paint = state;
+            crate::path_effects::app_hooks::panel(app, ui);
         }
+        "SVG Import" => crate::vector_packages::svg_import::controls(ui, &mut app.svg_import, &mut app.session),
+        "Affinity Import" => crate::vector_packages::affinity::controls(ui, &mut app.affinity_import, &mut app.session),
+        "Document Palette" => palette(app, ui),
+        "Graphic Styles" => crate::graphic_styles::panel(app, ui),
+        "Frame Composition" => {
+            if let Err(e) = crate::frame_compose::panel(ui, &mut app.ui.frame_compose, &mut app.session, &crate::frame_compose::NativeMetadata) {
+                report(app, e);
+            }
+        }
+        "Mesh" => {
+            if let Err(e) = app.mesh_state.context_bar(ui, &mut app.session, &ids).and_then(|_| app.mesh_state.point_controls(ui, &mut app.session, &[])) {
+                report(app, e);
+            }
+        }
+        "Snapping Manager" => {
+            let mut manager = crate::vector_packages::snapping::Manager { settings: app.shared_tools.snapping.clone() };
+            crate::vector_packages::snapping::manager(ui, &mut manager, |s| crate::i18n::t(s).into());
+            app.shared_tools.snapping = manager.settings.clone();
+            app.ui.vector_snapping = manager.settings;
+        }
+        "Transform" | "Align" | "Layout" => crate::vector_packages::layout_app_hooks::dock_panel(app, ui, tab),
+        "Pathfinder" => {
+            ui.horizontal_wrapped(|ui| crate::toolsets_ui::persona::geometry_bar(app, ui));
+        }
+        "Brushes" => crate::vector_brush::context_bar(ui, &mut app.vector_brush),
+        _ => {}
     }
+}
+
+fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    sync_panel_checks(app);
     crate::vector_packages::svg_export::frame(app, ctx);
     let mut recolor = std::mem::take(&mut app.vector_runtime.recolor);
     match photocraft_engine::vector_packages::colours::access().and_then(|access| crate::recolor::dialog(ctx, &app.session, access, &mut recolor)) {
@@ -1406,6 +1417,8 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
         ("vector.transform.again", "Transform Again", vec!["Object", "Transform"]),
         ("vector.object.lock", "Lock Objects", vec!["Object"]),
         ("vector.object.hide", "Hide Objects", vec!["Object"]),
+        ("vector.object.unlockAll", "Unlock All", vec!["Object"]),
+        ("vector.object.showAll", "Show All", vec!["Object"]),
         ("object.clippingMask.make", "Make Clipping Mask", vec!["Object", "Clipping Mask"]),
         ("object.clippingMask.release", "Release Clipping Mask", vec!["Object", "Clipping Mask"]),
         ("object.compoundPath.make", "Make Compound Path", vec!["Object", "Compound Path"]),
@@ -1442,6 +1455,10 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
         .into_iter()
         .map(|(id, label, path)| {
             let mut row = item(id.into(), label.into(), path.into_iter().map(Into::into).collect());
+            if matches!(id, "vector.object.unlockAll" | "vector.object.showAll") {
+                row.enabled = app.session.is_enabled(id);
+                row.shortcut = crate::shortcut_dispatch::binding_strings(app).into_iter().find(|(command, _)| command == id).map(|(_, key)| key);
+            }
             if matches!(id, "ui.pdf.export" | "file.export.pdf") {
                 row.enabled &= app.services.pick_save.is_some() && app.services.write.is_some();
             }

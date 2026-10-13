@@ -1326,4 +1326,14 @@
     "Image fallback requires system Poppler, bubblewrap, util-linux and a systemd user session.",
     // Compact editor menu bar (U021); English until translations resume.
     "Menu",
+    // Vector studio U028; new English keys appended for later translation.
+    "Master colour",
+    "Hex colour",
+    "Unlock All",
+    "Show All",
+    "Layout",
+    "Brushes",
+    "{name} panel tab",
+    "{name} value",
+    "{name} slider",
 ]

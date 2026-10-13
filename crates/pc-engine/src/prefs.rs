@@ -993,6 +993,8 @@ pub struct Preferences {
     /// as the user changes it and restored at launch when Workspace › Remember Workspace
     /// Changes is on. JSON owned by the shell.
     pub panel_layout: Value,
+    /// Independent editor studio layouts, keyed by Pixel/Vector. Missing in old settings.
+    pub persona_layouts: BTreeMap<String, Value>,
     /// The last choices of dialogs that remember them across restarts, by command id (Edit ›
     /// Fill…: `"edit.fill"` → its params). JSON owned by the shell.
     pub dialogs: BTreeMap<String, Value>,
