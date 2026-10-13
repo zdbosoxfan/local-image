@@ -90,6 +90,9 @@ pub mod adjust_dialog;
 pub mod adjust_editors;
 pub mod adjust_preview;
 pub mod adjust_ui;
+#[cfg(test)]
+extern crate self as photocraft_ui_egui;
+
 mod ai_remove_ui;
 pub mod ai_ui;
 pub mod analysis_ui;
@@ -393,6 +396,8 @@ pub type CursorPosFn = Box<dyn FnMut(&egui::Context) -> Option<egui::Pos2>>;
 /// I/O dependencies.
 #[derive(Default)]
 pub struct Services {
+    /// Optional contained native PDF image renderer; safe to clone into an import worker.
+    pub pdf_raster: Option<crate::pdf_raster::Service>,
     /// Decode a file's bytes into a document (PSD, PNG, JPEG, …).
     pub import: Option<ImportFn>,
     /// Encode a document for a file name (format chosen by extension).
@@ -404,6 +409,8 @@ pub struct Services {
     pub pick_open: Option<PickOpenFn>,
     /// Show File › Open's multi-file picker; returns the selected paths.
     pub pick_open_paths: Option<PickOpenPathsFn>,
+    /// Single Place picker; returns a path so bounded import reads happen on a worker.
+    pub pick_place_path: Option<Box<dyn FnMut() -> Option<String>>>,
     /// Show a "save file" dialog; returns a path/name to write.
     pub pick_save: Option<PickSaveFn>,
     /// Write bytes to a path (native) or trigger a download (web).
@@ -2225,6 +2232,7 @@ pub mod constructive;
 
 #[path = "vector_packages/pdf_import.rs"]
 pub mod pdf_import;
+pub mod pdf_raster;
 
 pub mod vector_integration;
 

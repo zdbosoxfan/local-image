@@ -1,5 +1,8 @@
 //! Native platform services: file dialogs (rfd), filesystem, codecs.
 
+#[cfg(target_os = "linux")]
+mod pdf_raster;
+
 use photocraft_codecs::{ChannelLayout, EncodeOptions, Image, SampleType as CS};
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::{Document, Layer, Size};
@@ -449,6 +452,8 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         import: Some(Box::new(|name: &str, bytes: &[u8]| {
             crate::crash_guard::guard("Open", || photocraft_io::import(name, bytes).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string()))
         })),
+        #[cfg(target_os = "linux")]
+        pdf_raster: Some(Arc::new(pdf_raster::run)),
         export: Some(Box::new(|doc: &Document, path: &str, settings: &photocraft_ui_egui::ExportSettings| {
             let mut opts = photocraft_io::ExportOptions::default();
             if let Some(q) = settings.jpeg_quality {
@@ -475,6 +480,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             let bytes = photocraft_format::read_file(&path).map_err(|e| e.to_string());
             Some((path.to_string_lossy().to_string(), bytes))
         })),
+        pick_place_path: Some(Box::new(|| crate::file_dialog_probe::explain_empty(open_dialog().pick_file()).map(|path| path.to_string_lossy().into_owned()))),
         pick_open_paths: Some(Box::new(|| {
             crate::file_dialog_probe::explain_empty(open_dialog().pick_files())
                 .map(|paths| paths.into_iter().map(|path| path.to_string_lossy().into_owned()).collect())
