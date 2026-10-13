@@ -78,9 +78,21 @@ pub fn package(skip_build: bool) -> Result<()> {
     }
     std::fs::create_dir_all(&payload)?;
     run("stage app payload", Command::new("ditto").arg(&app).arg(payload.join("Local Image.app")))?;
-    run("analyze app payload", Command::new("pkgbuild").arg("--analyze").arg("--root").arg(&payload).arg(&components))?;
-    run("disable installer relocation", Command::new("/usr/libexec/PlistBuddy").args(["-c", "Set :0:BundleIsRelocatable false"]).arg(&components))?;
-    run("allow replacing alpha builds", Command::new("/usr/libexec/PlistBuddy").args(["-c", "Set :0:BundleIsVersionChecked false"]).arg(&components))?;
+    // pkgbuild's --analyze omits relocation keys on newer macOS. Specify the known single
+    // bundle explicitly so upgrade behavior is identical across supported packaging hosts.
+    std::fs::write(
+        &components,
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><array><dict>
+<key>RootRelativeBundlePath</key><string>Local Image.app</string>
+<key>BundleHasStrictIdentifier</key><true/>
+<key>BundleIsRelocatable</key><false/>
+<key>BundleIsVersionChecked</key><false/>
+<key>BundleOverwriteAction</key><string>upgrade</string>
+</dict></array></plist>
+"#,
+    )?;
     let mut cmd = Command::new("pkgbuild");
     cmd.arg("--root").arg(&payload).arg("--component-plist").arg(&components).args([
         "--identifier",
