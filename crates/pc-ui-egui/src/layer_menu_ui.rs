@@ -106,7 +106,10 @@ pub fn show(app: &crate::PhotocraftApp, ui: &mut egui::Ui, l: &Layer, on_set: bo
                     // selected first when clicked, so its items stay available.
                     let is_active = app.session.active().is_some_and(|s| s.active_layer == Some(l.id));
                     let enabled = if on_set || is_active { crate::menus::is_enabled(app, id) } else { true };
-                    if ui.add_enabled(enabled, egui::Button::new(tl!(&label))).clicked() {
+                    let reason =
+                        crate::command_feedback::layer_reason(app, id, l).or_else(|| (!enabled).then(|| crate::command_feedback::disabled_reason(app, id)));
+                    let shortcut = crate::shortcuts::shortcut_label(app, id);
+                    if crate::widgets::command_menu_item(ui, tl!(label), shortcut.as_deref(), None, reason.as_deref()).clicked() {
                         if !on_set {
                             actions.push(("layer.select".into(), json!({"layer": l.id.0})));
                         }

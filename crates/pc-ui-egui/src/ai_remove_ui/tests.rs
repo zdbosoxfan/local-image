@@ -678,3 +678,42 @@ fn remove_confirmation_controls_fit_compact_and_large_light_dark_frames() {
     }
     crate::ai_ui::TEST_STATUS.with(|status| *status.borrow_mut() = None);
 }
+
+#[test]
+fn reasons_ux_selection_context_remove_adjusts_then_confirms_captured_mask() {
+    let calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::<Vec<u8>>::new()));
+    let seen = calls.clone();
+    TEST_REMOVE.with(|mock| {
+        *mock.borrow_mut() = Some(Box::new(move |_, params| {
+            seen.borrow_mut().push(serde_json::from_value(params["mask"].clone()).unwrap());
+            Ok(json!({}))
+        }))
+    });
+    let _reset = RemoveMockReset;
+    let mut h = harness_mode(true);
+    h.state_mut().ui.tool = Tool::RectMarquee;
+    h.state_mut().run("select.rect", json!({"x":50,"y":60,"width":30,"height":25})).unwrap();
+    let expected = photocraft_engine::ai_cmds::selection_gray(&h.state().session.active().unwrap().doc).unwrap().into_raw();
+    let doc = h.state().session.active().unwrap().doc.clone();
+    h.run_steps(3);
+    let p = ViewXform::active(h.state()).unwrap().to_screen(60., 70.);
+    for pressed in [true, false] {
+        h.event(Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed, modifiers: Modifiers::NONE });
+        h.run_steps(2);
+    }
+    h.get_by_label("AI Remove…").click();
+    h.run_steps(3);
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, expected);
+    assert!(h.state().ai_remove.as_ref().unwrap().require_confirmation);
+    assert_eq!(calls.borrow().len(), 0);
+    assert_eq!(h.state().session.active().unwrap().doc, doc);
+    // Refinement must also wait for confirmation when immediate mode is enabled.
+    stroke(&mut h, 180., 150., Modifiers::NONE);
+    assert_eq!(calls.borrow().len(), 0);
+    let adjusted = h.state().ai_remove.as_ref().unwrap().mask.clone();
+    assert_ne!(adjusted, expected);
+    h.get_all_by_label("Remove").next().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(calls.borrow().as_slice(), &[adjusted]);
+    assert!(h.state().ai_remove.is_none());
+}

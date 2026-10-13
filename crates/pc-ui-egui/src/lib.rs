@@ -121,6 +121,7 @@ pub mod chrome_ui;
 pub mod cjk_fonts;
 pub mod color_picker_ui;
 pub mod color_range_ui;
+pub mod command_feedback;
 pub mod comps_ui;
 pub mod context_bar;
 pub mod control;
@@ -970,8 +971,7 @@ impl PhotocraftApp {
                 }
             }
             Err(e) => {
-                self.ui.status = e.clone();
-                self.ui.status_error = true;
+                crate::command_feedback::report(self, e.clone());
             }
         }
         if r.is_ok() && matches!(id, "edit.copy" | "edit.cut" | "edit.copyMerged") {
@@ -2250,3 +2250,6 @@ mod deferred_colour_tests;
 
 #[cfg(test)]
 mod panel_visibility_tests;
+
+#[cfg(test)]
+mod reasons_ux_tests;

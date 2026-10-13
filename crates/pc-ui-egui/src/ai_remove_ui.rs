@@ -153,6 +153,7 @@ pub(crate) fn selection(app: &mut PhotocraftApp) {
     app.ai_remove = new(app);
     if let Some(p) = &mut app.ai_remove {
         p.mask = mask.into_raw();
+        p.require_confirmation = true;
         changed(p);
     }
 }

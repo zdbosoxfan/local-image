@@ -116,6 +116,7 @@ file `crates/pc-ui-egui/src/widgets.rs` (`pc`), library file `crates/lc-ui-egui/
 | `dropdown` | Compact choice list: `dropdown(ui, id, &mut cur, &[(v, "Label")], width)` | 570 |
 | `dropdown_with_tooltips` | Same, each option with a hint | 637 |
 | `dropdown_menu` | Dropdown shell for grouped or custom rows | 585 |
+| `command_menu_item` | Canvas/panel command row with the shared check gutter, active-profile shortcut text and viewport-wrapped `disabled_reason_tooltip`; caller passes translated text | widgets.rs |
 | `menu_scroll` | Body of a context menu that scrolls instead of running off screen | 594 |
 | `swatch_popup` | Colour picker popup anchored to a swatch | 612 |
 | `icon_action` | Square footer/header icon button with accessible label and disabled-with-reason: `icon_action(ui, "plus", 24.0, "New Swatch", tip, None)` | 660 |

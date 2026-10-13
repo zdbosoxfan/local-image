@@ -19,6 +19,10 @@ pub struct CanvasToolMenu {
     /// Opened over a Free Transform box: its modes instead of the tool's actions.
     #[serde(default)]
     pub transform: bool,
+    #[serde(default)]
+    pub vector: bool,
+    #[serde(skip)]
+    pub target: Option<crate::command_feedback::SelectionTarget>,
 }
 
 /// One menu row: label and command id. `None` is a separator.
@@ -35,7 +39,7 @@ pub const TRANSFORM_MENU: &[Row] = &[
 ];
 
 /// Photoshop's selection-tool context menu with an active selection, in its order. Its Generative
-/// Fill and Delete and Fill Selection rows have no Local Image command and are left out. Rows
+/// Fill and AI Remove use Local Image’s captured-selection operations. Rows
 /// stay visible and grey out exactly like their menu-bar twins.
 pub const SELECTION_MENU: &[Row] = &[
     Some(("Deselect", "select.deselect")),
@@ -58,11 +62,44 @@ pub const SELECTION_MENU: &[Row] = &[
     Some(("Fill…", "edit.fill")),
     Some(("Stroke…", "edit.stroke")),
     Some(("Content-Aware Fill…", "edit.contentAwareFill")),
+    Some(("Generative Fill…", "li.generativeFill")),
+    Some(("AI Remove…", "li.removeSelection")),
     None,
     Some(("Last Filter", "filter.lastFilter")),
     None,
     Some(("Fade…", "edit.fade")),
 ];
+
+/// Illustrator-style actions for the current vector object selection.
+pub const VECTOR_MENU: &[Row] = &[
+    Some(("Group", "layer.groupLayers")),
+    Some(("Ungroup", "layer.ungroupLayers")),
+    None,
+    Some(("Bring to Front", "layer.arrange.bringToFront")),
+    Some(("Bring Forward", "layer.arrange.bringForward")),
+    Some(("Send Backward", "layer.arrange.sendBackward")),
+    Some(("Send to Back", "layer.arrange.sendToBack")),
+    None,
+    Some(("Move…", "ui.vector.transform.move")),
+    Some(("Rotate…", "ui.vector.transform.rotate")),
+    Some(("Scale…", "ui.vector.transform.scale")),
+    Some(("Reflect…", "ui.vector.transform.reflect")),
+    Some(("Shear…", "ui.vector.transform.shear")),
+    None,
+    Some(("Make Clipping Mask", "object.clippingMask.make")),
+    Some(("Release Clipping Mask", "object.clippingMask.release")),
+    Some(("Make Compound Path", "object.compoundPath.make")),
+    Some(("Release Compound Path", "object.compoundPath.release")),
+    None,
+    Some(("Lock Objects", "vector.object.lock")),
+    Some(("Hide Objects", "vector.object.hide")),
+    Some(("Create Outlines", "type.convertToShape")),
+];
+
+pub fn vector_object_tool(app: &PhotocraftApp, tool: Tool) -> bool {
+    app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector
+        && (matches!(tool, Tool::Move | Tool::GroupSelection) || path_tool(tool))
+}
 
 /// The selection tools' context menu with nothing selected: making a selection.
 pub const NO_SELECTION_MENU: &[Row] = &[
@@ -126,7 +163,9 @@ pub fn selection_rows(has_selection: bool) -> &'static [Row] {
 
 /// The rows of an open menu.
 pub fn rows(menu: &CanvasToolMenu) -> &'static [Row] {
-    if menu.transform {
+    if menu.vector {
+        VECTOR_MENU
+    } else if menu.transform {
         TRANSFORM_MENU
     } else if path_tool(menu.tool) {
         PEN_MENU
@@ -155,11 +194,26 @@ pub fn open_transform(app: &mut PhotocraftApp, pos: [f32; 2]) -> bool {
     }
     app.ui.brush_picker = None;
     app.ui.layer_menu = None;
-    app.ui.canvas_tool_menu = Some(CanvasToolMenu { pos, tool: app.ui.tool, has_selection: false, has_path: false, path_name: None, transform: true });
+    app.ui.canvas_tool_menu = Some(CanvasToolMenu {
+        pos,
+        tool: app.ui.tool,
+        has_selection: false,
+        has_path: false,
+        path_name: None,
+        transform: true,
+        vector: false,
+        target: crate::command_feedback::SelectionTarget::capture(app),
+    });
     true
 }
 
 pub fn entry_enabled(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> bool {
+    if menu.target.as_ref().is_some_and(|t| !t.is_current(app)) {
+        return false;
+    }
+    if menu.vector {
+        return crate::menus::is_enabled(app, command) && crate::vector_integration::disabled_reason(app, command).is_none();
+    }
     if menu.transform || !path_tool(menu.tool) {
         return crate::menus::is_enabled(app, command);
     }
@@ -198,16 +252,32 @@ pub fn entry_enabled(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) 
     }
 }
 
+pub fn entry_reason(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> String {
+    if menu.target.as_ref().is_some_and(|t| !t.is_current(app)) {
+        return tl!("The document or selection changed. Open the menu again.").into();
+    }
+    crate::command_feedback::disabled_reason(app, command)
+}
+
 pub fn open(app: &mut PhotocraftApp, tool: Tool, pos: [f32; 2]) -> bool {
-    if !applies(tool) || !pos.iter().all(|v| v.is_finite()) {
+    if (!applies(tool) && !vector_object_tool(app, tool)) || !pos.iter().all(|v| v.is_finite()) {
         return false;
     }
     app.ui.brush_picker = None;
     app.ui.layer_menu = None;
-    let has_selection = app.session.active().is_some_and(|s| s.doc.selection.is_some());
+    let has_selection = crate::command_feedback::has_pixel_selection(app);
     let has_path = crate::vector_ui::active_path_name(app).is_some() || app.ui.pen.as_ref().is_some_and(|p| p.knots.len() >= 2);
     let path_name = crate::vector_ui::active_path_name(app);
-    app.ui.canvas_tool_menu = Some(CanvasToolMenu { pos, tool, has_selection, has_path, path_name, transform: false });
+    app.ui.canvas_tool_menu = Some(CanvasToolMenu {
+        pos,
+        tool,
+        has_selection,
+        has_path,
+        path_name,
+        transform: false,
+        vector: vector_object_tool(app, tool),
+        target: crate::command_feedback::SelectionTarget::capture(app),
+    });
     true
 }
 
@@ -216,7 +286,7 @@ pub fn choose(app: &mut PhotocraftApp, ctx: &Context, command: &str) {
     if !available(app, &menu, command) {
         return;
     }
-    let result = if path_tool(menu.tool) && !menu.transform {
+    let result = if path_tool(menu.tool) && !menu.transform && !menu.vector {
         choose_pen(app, ctx, &menu, command)
     } else if command == "select.toWorkPath" {
         // Photoshop's Make Work Path… asks for the tolerance first.
@@ -226,8 +296,7 @@ pub fn choose(app: &mut PhotocraftApp, ctx: &Context, command: &str) {
         crate::menus::invoke(app, ctx, command, json!({})).map(|_| ())
     };
     if let Err(e) = result {
-        app.ui.status = e;
-        app.ui.status_error = true;
+        crate::command_feedback::report(app, e);
     }
 }
 
@@ -318,33 +387,38 @@ pub fn show(app: &mut PhotocraftApp, ctx: &Context) {
     let size = ctx.memory(|m| m.area_rect(id)).map_or(egui::vec2(210.0, 140.0), |r| r.size());
     let pos = egui::pos2(menu.pos[0].min(screen.right() - size.x).max(screen.left()), menu.pos[1].min(screen.bottom() - size.y).max(screen.top()));
     let mut selected = None;
-    let area = egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
-        egui::Frame::menu(ui.style()).show(ui, |ui| {
-            let t = crate::theme::Tokens::get(ui.ctx());
-            let v = &mut ui.style_mut().visuals;
-            v.widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
-            v.widgets.inactive.bg_stroke = egui::Stroke::NONE;
-            v.widgets.hovered.weak_bg_fill = t.accent;
-            v.widgets.hovered.bg_fill = t.accent;
-            v.widgets.hovered.bg_stroke = egui::Stroke::NONE;
-            v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, egui::Color32::WHITE);
-            v.widgets.hovered.corner_radius = egui::CornerRadius::same(3);
-            ui.spacing_mut().item_spacing.y = 0.0;
-            ui.set_width(200.0);
-            crate::widgets::menu_scroll(ui, |ui| {
-                for row in rows(&menu) {
-                    let Some((label, command)) = *row else {
-                        ui.separator();
-                        continue;
-                    };
-                    let item = egui::Button::selectable(mode_checked(app, &menu, command), tl!(label)).min_size(egui::vec2(200.0, 20.0));
-                    if ui.add_enabled(entry_enabled(app, &menu, command), item).clicked() {
-                        selected = Some(command);
+    let area = egui::Area::new(id)
+        .kind(egui::UiKind::Menu)
+        .layout(egui::Layout::top_down_justified(egui::Align::Min))
+        .order(egui::Order::Foreground)
+        .fixed_pos(pos)
+        .show(ctx, |ui| {
+            egui::Frame::menu(ui.style()).show(ui, |ui| {
+                crate::widgets::menu_scroll(ui, |ui| {
+                    for row in rows(&menu) {
+                        let Some((label, command)) = *row else {
+                            ui.separator();
+                            continue;
+                        };
+                        let enabled = entry_enabled(app, &menu, command);
+                        let reason = (!enabled).then(|| entry_reason(app, &menu, command));
+                        let label = tl!(label);
+                        let shortcut = crate::shortcuts::shortcut_label(app, command);
+                        if crate::widgets::command_menu_item(
+                            ui,
+                            label,
+                            shortcut.as_deref(),
+                            menu.transform.then(|| mode_checked(app, &menu, command)),
+                            reason.as_deref(),
+                        )
+                        .clicked()
+                        {
+                            selected = Some(command);
+                        }
                     }
-                }
+                });
             });
         });
-    });
     if let Some(command) = selected {
         choose(app, ctx, command);
     } else if ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p))) {
@@ -381,7 +455,7 @@ mod tests {
         choose(app, &Context::default(), command);
     }
 
-    fn harness(mut app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
+    pub(super) fn harness(mut app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
         app.sync_views();
         let mut h = Harness::builder().with_size(vec2(1000.0, 700.0)).build_ui_state(
             |ui, app: &mut PhotocraftApp| {
@@ -398,7 +472,7 @@ mod tests {
         h
     }
 
-    fn right_click(h: &mut Harness<'static, PhotocraftApp>, p: Pos2, modifiers: Modifiers) {
+    pub(super) fn right_click(h: &mut Harness<'static, PhotocraftApp>, p: Pos2, modifiers: Modifiers) {
         h.event(egui::Event::ModifiersChanged(modifiers));
         h.event(egui::Event::PointerMoved(p));
         h.run_steps(1);
@@ -456,6 +530,8 @@ mod tests {
                 Some("Fill…"),
                 Some("Stroke…"),
                 Some("Content-Aware Fill…"),
+                Some("Generative Fill…"),
+                Some("AI Remove…"),
                 None,
                 Some("Last Filter"),
                 None,
@@ -747,5 +823,27 @@ mod tests {
             choose(&mut app, &Context::default(), "path.style.copyFill");
             assert!(app.session.path_fill_clipboard.is_some(), "{tool:?}: {}", app.ui.status);
         }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn reasons_ux_vector_canvas_right_click_reaches_object_menu_in_move_and_node_tools() {
+    use tests::{harness, right_click};
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    app.run("file.new", json!({"width":96,"height":64})).unwrap();
+    app.run("shape.create", json!({"kind":"rect","rect":[8,8,30,24],"fill":"#3070c0"})).unwrap();
+    app.session.edit_prefs(|p| p.toolbar.persona = photocraft_engine::toolsets::Persona::Vector);
+    app.ui.tool = Tool::Move;
+    let mut h = harness(app);
+    for tool in [Tool::Move, Tool::PathSelection, Tool::DirectSelection] {
+        h.state_mut().ui.tool = tool;
+        h.run_steps(3);
+        let p = crate::canvas::ViewXform::active(h.state()).unwrap().to_screen(16., 16.);
+        right_click(&mut h, p, egui::Modifiers::NONE);
+        assert!(h.state().ui.canvas_tool_menu.as_ref().is_some_and(|m| m.vector), "{tool:?}");
+        assert!(h.state().ui.layer_menu.is_none());
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
     }
 }
