@@ -73,7 +73,8 @@ fn vectorws_unlock_show_shortcuts_profile_override_and_undo() {
         p.toolbar.vector_keyboard.preset = photocraft_engine::vector_toolbar_layout::Preset::Affinity;
     });
     let restore = if cfg!(target_os = "macos") {
-        egui::Modifiers::CTRL | egui::Modifiers::COMMAND
+        // Synthetic input needs both the physical Mac key and egui's logical Command flag.
+        egui::Modifiers::CTRL | egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND
     } else {
         egui::Modifiers::COMMAND | egui::Modifiers::ALT | egui::Modifiers::SHIFT
     };
