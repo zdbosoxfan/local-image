@@ -147,6 +147,7 @@ pub(super) fn row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download
                     });
                     let worker_key = key.clone();
                     let worker = std::thread::Builder::new().name("upscale-custom".into()).spawn(move || {
+                        lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
                         let result = selection::import_custom(&dir, method, &source);
                         update(&worker_key, |s| {
                             s.busy = false;

@@ -55,12 +55,13 @@ fn select_sky(s: &mut Session, p: &Value) -> Result<Value> {
     let all = p.get("sampleAllLayers").and_then(Value::as_bool).unwrap_or(true);
     // local-image: the quick sky model when installed (`"engine": "auto|learned|classic"`), else
     // PhotoCraft's classical sky detector.
-    let learned = match p.get("engine").and_then(Value::as_str).unwrap_or("auto") {
-        "classic" => false,
-        "learned" if crate::seg::sky_installed().is_none() => {
-            return Err(EngineError::BadParams { cmd: "select.sky".into(), msg: "no sky model is installed (Help › AI Models & GPU…)".into() });
-        }
-        _ => crate::seg::sky_installed().is_some(),
+    let sky_model = match p.get("engine").and_then(Value::as_str).unwrap_or("auto") {
+        "classic" => None,
+        "learned" => Some(
+            crate::seg::SkyModel::current()
+                .ok_or_else(|| EngineError::BadParams { cmd: "select.sky".into(), msg: "no sky model is installed (Help › AI Models & GPU…)".into() })?,
+        ),
+        _ => crate::seg::SkyModel::current(),
     };
     let m = p.get("mode").and_then(Value::as_str).unwrap_or("replace");
     let m = SelectionMode::parse(if m == "new" { "replace" } else { m });
@@ -72,8 +73,8 @@ fn select_sky(s: &mut Session, p: &Value) -> Result<Value> {
             ctx.progress(0.0, "Selecting sky");
             let canvas = doc.bounds();
             let layer = active.and_then(|id| doc.layer(id)).and_then(|l| l.surface());
-            let region = if learned {
-                crate::seg::sky_probability(&doc, active, all || layer.is_none()).and_then(|(area, mut prob)| {
+            let region = if let Some(model) = &sky_model {
+                crate::seg::sky_probability_with(model, &doc, active, all || layer.is_none(), ctx.cancellation_flag()).and_then(|(area, mut prob)| {
                     crate::seg::shape(&mut prob, params.threshold, params.softness);
                     crate::seg::region(area, &prob)
                 })
@@ -361,6 +362,37 @@ mod tests {
         assert!(sel.sample_channel(100, 90, 0) < 0.1);
         assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
         assert_eq!(s.active().unwrap().history.undo_label(), Some("Select Sky"));
+    }
+
+    /// Cancelling Select Sky stops the sky model itself (it sees the job's flag), not only the
+    /// result: the worker ends without the model's gate ever opening, and nothing is selected.
+    #[test]
+    fn cancelling_select_sky_stops_the_model_run_promptly() {
+        use crate::seg::{MockModel, mock_sky_model_on_thread};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::{Duration, Instant};
+        let gate = Arc::new(AtomicBool::new(false));
+        let model = MockModel::new(Some(gate.clone()), |w, h| Some(vec![1.0; w * h]));
+        mock_sky_model_on_thread(Some(model.clone()));
+        let mut s = landscape(8);
+        let started = s.start("select.sky", json!({"engine": "learned"}));
+        mock_sky_model_on_thread(None);
+        let id = match started.unwrap() {
+            crate::jobs::Started::Job(id) => id,
+            crate::jobs::Started::Done(v) => panic!("ran inline: {v}"),
+        };
+        let t = Instant::now();
+        while model.calls() == 0 && t.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(model.calls(), 1, "the job reached the sky model");
+        assert!(s.cancel_job(id));
+        let t = Instant::now();
+        s.join_cancelled_jobs();
+        assert!(t.elapsed() < Duration::from_secs(5), "the worker kept running for {:?} after the cancel", t.elapsed());
+        assert!(!gate.load(Ordering::SeqCst), "the model was stopped, not released");
+        assert!(s.active().unwrap().doc.selection.is_none());
     }
 
     #[test]

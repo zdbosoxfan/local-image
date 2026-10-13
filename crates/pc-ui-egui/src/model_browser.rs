@@ -463,6 +463,7 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<I
     let r = run.clone();
     let lang = crate::i18n::current();
     let _ = std::thread::Builder::new().name("model-install".into()).spawn(move || {
+        lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
         crate::i18n::set_current(lang);
         let cfg = config();
         let dir = AiSettings::load().model_dir();

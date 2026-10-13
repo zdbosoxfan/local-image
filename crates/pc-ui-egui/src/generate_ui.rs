@@ -2891,6 +2891,7 @@ fn start_batch_with(
         (b.files.clone(), b.output.clone(), b.template.clone(), b.format.clone(), b.conflict.clone(), options.clone());
     let r2 = run.clone();
     let worker = std::thread::Builder::new().name("batch-cutout".into()).spawn(move || {
+        lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
         let ctl = r2.lock().map(|r| r.ctl.clone()).unwrap_or_default();
         for (i, path) in files.iter().enumerate() {
             if ctl.cancelled() {
