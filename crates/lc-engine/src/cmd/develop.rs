@@ -330,34 +330,36 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(json!({"temp": t, "tint": tint}))
             }
         ),
-        cmd!("develop.wbPick", "White Balance Selector", [], Some("W"), "{x, y} normalized image coords of a neutral point", has_active, |s, p| {
-            let (x, y) = (f64_req(p, "x", "develop.wbPick")?, f64_req(p, "y", "develop.wbPick")?);
-            let id = active(s, "develop.wbPick")?;
-            let src = s.source_now(id, SourceLevel::Thumb).map_err(|e| bad("develop.wbPick", e))?;
-            let info = s.source_info(id);
-            let d = s.develop_of(id).unwrap_or_default();
-            // Sample a small neighbourhood in the oriented source.
-            let o = src.oriented(d.orientation);
-            let (cx, cy) = ((x.clamp(0.0, 1.0) * o.width as f64) as isize, (y.clamp(0.0, 1.0) * o.height as f64) as isize);
-            let mut acc = [0.0f32; 3];
-            for dy in -2..=2 {
-                for dx in -2..=2 {
-                    let c = o.get_clamped(cx + dx, cy + dy);
-                    for i in 0..3 {
-                        acc[i] += c[i] / 25.0;
-                    }
+        cmd!(
+            "develop.wbPick",
+            "White Balance Selector",
+            [],
+            Some("W"),
+            "{x, y, mask?: layerId} normalized image coords of a neutral point",
+            has_active,
+            |s, p| {
+                let (x, y) = (f64_req(p, "x", "develop.wbPick")?, f64_req(p, "y", "develop.wbPick")?);
+                let id = active(s, "develop.wbPick")?;
+                let src = s.source_now(id, SourceLevel::Thumb).map_err(|e| bad("develop.wbPick", e))?;
+                let info = s.source_info(id);
+                let d = s.develop_of(id).unwrap_or_default();
+                let (t, tint) = crate::sample_white_balance(&src, &info, d.orientation, x, y);
+                if let Some(mid) = p.get("mask").and_then(Value::as_u64) {
+                    s.execute(
+                        "mask.setTools",
+                        &json!({"id": mid, "tools": {"wb": {"mode":"custom", "temp": t, "tint": tint}}, "label":"White Balance"}),
+                    )?;
+                } else {
+                    edit(s, "develop.wbPick", "White Balance", |d| {
+                        d.wb.mode = WbMode::Custom;
+                        d.wb.temp = t;
+                        d.wb.tint = tint;
+                        Ok(())
+                    })?;
                 }
+                Ok(json!({"temp": t, "tint": tint}))
             }
-            let patch = lightcraft_raster::Rgb32f::filled(4, 4, acc);
-            let (t, tint) = lightcraft_pipeline::auto::auto_wb(&patch, &info);
-            edit(s, "develop.wbPick", "White Balance", |d| {
-                d.wb.mode = WbMode::Custom;
-                d.wb.temp = t;
-                d.wb.tint = tint;
-                Ok(())
-            })?;
-            Ok(json!({"temp": t, "tint": tint}))
-        }),
+        ),
         cmd!("develop.treatment", "Black & White", ["Photo"], Some("V"), "{bw?: bool} (toggles when omitted)", has_active, |s, p| {
             edit(s, "develop.treatment", "Treatment", |d| {
                 let bw = p.get("bw").and_then(Value::as_bool).unwrap_or(d.treatment != Treatment::Bw);
@@ -925,7 +927,8 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         // ---- interactions (slider drags, brush strokes)
         cmd!("develop.beginInteraction", "Begin Interaction", [], None, "{label}", has_active, |s, p| {
-            s.begin_interaction(str_param(p, "label").unwrap_or("Edit"))?;
+            let label = s.layer_label(str_param(p, "label").unwrap_or("Edit"), p.get("mask").and_then(Value::as_u64).map(|v| v as u32));
+            s.begin_interaction(&label)?;
             ok()
         }),
         cmd!("develop.endInteraction", "End Interaction", [], None, "{}", always, |s, _| {

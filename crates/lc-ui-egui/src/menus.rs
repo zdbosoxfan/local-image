@@ -159,7 +159,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("panel.profiles", "Profile Browser", None, "Window"),
     ("panel.crop", "Crop & Rotate", Some("R"), "Window"),
     ("panel.remove", "Remove", Some("Q"), "Window"),
-    ("panel.masking", "Masking", Some("Shift+W"), "Window"),
+    ("panel.masking", "Mask", Some("Shift+W"), "Window"),
     ("panel.redeye", "Red Eye", None, "Window"),
     ("panel.presets", "Presets", None, "Window"),
     ("panel.info", "Info", Some("I"), "Window"),
@@ -263,7 +263,7 @@ fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str
             app.ui.view = ViewMode::Detail;
         }
     }
-    if p != RightPanel::Masking && app.ui.tool != "wbPicker" {
+    if !matches!(p, RightPanel::Masking | RightPanel::Edit) && app.ui.tool != "wbPicker" {
         app.ui.tool.clear();
     }
     let _ = app.session.end_interaction();
@@ -793,7 +793,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "panel.masking" => {
-            panel(app, &ctx, RightPanel::Masking, "Masking");
+            panel(app, &ctx, RightPanel::Masking, "Mask");
             Ok(Value::Null)
         }
         "panel.redeye" => {
@@ -865,15 +865,24 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                     app.ui.tool = "guidedUpright".into();
                 }
                 "brush" => {
-                    app.ui.right = RightPanel::Masking;
+                    app.ui.right = RightPanel::Edit;
                     app.ui.view = ViewMode::Detail;
                     app.ui.tool = "brush".into();
                 }
                 "linear" | "radial" => {
-                    app.ui.right = RightPanel::Masking;
+                    app.ui.right = RightPanel::Edit;
                     app.ui.view = ViewMode::Detail;
                     app.ui.tool = tool.into();
-                    return Some(app.session.execute("mask.add", &json!({"kind": tool})).map_err(|e| e.to_string()));
+                    let label = app.session.layer_label("Draw Mask", app.session.active_mask);
+                    let _ = app.session.begin_interaction(&label);
+                    let command = if app.session.active_mask.is_some() { "mask.addComponent" } else { "mask.add" };
+                    let result = app.session.execute(command, &json!({"kind":tool})).map_err(|e| e.to_string());
+                    app.ui.pending_mask_shape = app
+                        .session
+                        .active()
+                        .and_then(|id| app.session.develop_of(id))
+                        .and_then(|d| d.masks.iter().find(|m| Some(m.id) == app.session.active_mask).map(|m| (m.id, m.components.len() - 1)));
+                    return Some(result);
                 }
                 "wbPicker" => {
                     app.ui.right = RightPanel::Edit;

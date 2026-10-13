@@ -20,7 +20,7 @@ fn rect(h: &Headless, id: &str) -> Rect {
 fn develop(h: &Headless) -> lightcraft_develop::DevelopSettings {
     (*h.app.session.develop_of(h.app.session.active().unwrap()).unwrap()).clone()
 }
-fn light() -> Tokens {
+pub(super) fn light() -> Tokens {
     let g = Color32::from_gray;
     Tokens {
         dark: false,
@@ -59,8 +59,9 @@ fn setup(width: f32, ppp: f32, dark: bool, layer: bool, tool: &str) -> Headless 
     let r = h.request("ui.set", json!({"view":"detail"}), T);
     assert_eq!(r["ok"], true, "{r}");
     if layer {
-        h.app.ui.right = RightPanel::Masking;
+        h.app.ui.right = RightPanel::Edit;
         h.step();
+        click(&mut h, "button:layerNew");
         click(&mut h, "button:maskNew:full");
         exec(&mut h, "mask.rename", json!({"id":1,"name":"Face"}));
         exec(&mut h, "mask.setTools", json!({"id":1,"tools":{if tool=="curve" {"curve"} else {"skin_tone"}: {}}}));
@@ -94,7 +95,7 @@ fn save(h: &Headless, name: &str, r: Rect) {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join(format!("{name}.png")), bytes).unwrap();
 }
-fn texts(h: &Headless) -> String {
+pub(super) fn texts(h: &Headless) -> String {
     fn visit(s: &egui::Shape, out: &mut String) {
         match s {
             egui::Shape::Text(t) => {
@@ -265,144 +266,12 @@ fn develop_c_filled_empty_real_creation_and_opacity_exposure_drag() {
     assert_eq!(r["ok"], true, "{r}");
     h.step();
     assert!(develop(&h).masks[0].opacity < 100.0);
+    click(&mut h, "button:layerNew");
     click(&mut h, "button:maskNew:empty");
     let d = develop(&h);
     assert_eq!(d.masks[1].name, "Empty Layer 1");
     assert!(d.masks[1].components.is_empty());
     assert_eq!(h.app.session.active_mask, Some(2));
-}
-
-#[test]
-#[ignore = "RTX 5090 interactive layer benchmark, run explicitly with LC_REQUIRE_GPU=1"]
-fn develop_c_layer_drag_interactive_gpu_budget() {
-    use crate::render::Slot;
-    use lightcraft_catalog::{Op, Photo, PhotoId, Source};
-    use lightcraft_develop::{BrushStroke, Effects, LayerTools, Light, Mask, MaskComponent, MaskShape};
-    use lightcraft_geom::Point;
-    use std::sync::Arc;
-    use std::time::Instant;
-    let _guard = crate::gpu_test_support::lock();
-    let mut s = lightcraft_engine::Session::new();
-    let id = PhotoId(1);
-    let photo = Photo::new(id, Source::File { path: "develop-c-45mp-procedural.jpg".into() }, "45 MP procedural", "JPEG", 8256, 5504, "2026-10-13");
-    s.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
-    s.selection = lightcraft_engine::Selection::single(id);
-    s.media.file_loader = Some(Arc::new(|_, edge| {
-        let w = edge.min(8256);
-        let h = w * 2 / 3;
-        Ok((
-            lightcraft_raster::Rgb32f::from_fn(w, h, |x, y| {
-                let v = 0.02 + 0.3 * x as f32 / w as f32 + 0.01 * (y as f32 * 0.3).sin();
-                [v, v * 0.65, v * 0.4]
-            }),
-            Default::default(),
-        ))
-    }));
-    if let Ok(path) = std::env::var("LC_DEVELOP_C_RAW") {
-        s = lightcraft_engine::Session::new().with_fs();
-        s.execute("library.import", &json!({"paths":[path]})).unwrap();
-        let photo = s.catalog.photo(s.active().unwrap()).unwrap();
-        eprintln!("develop-c RAW source: {}x{}", photo.width, photo.height);
-    }
-    let mut app = LightcraftApp::new(s, Services { png: None, ..Default::default() });
-    app.ui.settings.gpu = true;
-    app.ui.view = crate::state::ViewMode::Detail;
-    app.ui.right = RightPanel::Masking;
-    app.ui.left_panel = false;
-    app.ui.filmstrip = false;
-    app.ui.right_width = 400.0;
-    app.ui.layer_used_only = true;
-    app.ui.open_sections = vec!["layer-light".into(), "layer-local-collapsed".into()];
-    let mut h = Headless::new(app, [1800.0, 1800.0], 1.0);
-    h.step();
-    h.step();
-    assert!(lightcraft_engine::gpu::available(), "real hardware GPU required");
-    eprintln!("develop-c interactive adapter: {}", lightcraft_engine::gpu::adapter_name().unwrap());
-    let wait = |h: &mut Headless| {
-        assert!(
-            h.step_until(T, |h| h.app.renderer.textures.get(&Slot::Main).is_some_and(|tex| Some(tex.key) == h.app.renderer.wanted(Slot::Main))
-                && !h.app.renderer.is_pending(Slot::Main)),
-            "latest preview failed: {:?}",
-            h.app.renderer.failure(Slot::Main)
-        )
-    };
-    for (count, full) in [(1, false), (4, false), (8, false), (8, true)] {
-        let masks: Vec<_> = (1..=count)
-            .map(|i| Mask {
-                id: i,
-                name: format!("Benchmark {i}"),
-                components: vec![MaskComponent {
-                    name: None,
-                    op: Default::default(),
-                    invert: false,
-                    shape: if full {
-                        MaskShape::Full
-                    } else {
-                        MaskShape::Brush {
-                            strokes: vec![BrushStroke { points: vec![Point::new(0.3, 0.5), Point::new(0.7, 0.5)], size: 0.3, ..Default::default() }],
-                        }
-                    },
-                }],
-                tools: LayerTools {
-                    light: Some(Light { exposure: 0.1, ..Default::default() }),
-                    effects: (!full).then_some(Effects { clarity: 20.0, ..Default::default() }),
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
-            .collect();
-        exec(&mut h, "develop.merge", json!({"settings":{"masks":masks}}));
-        exec(&mut h, "mask.select", json!({"id":count.min(4)}));
-        h.step();
-        wait(&mut h);
-        let slider = rect(&h, "slider:light.exposure");
-        let start = pos2(slider.left() + slider.width() * 0.5, slider.center().y);
-        h.app.synthetic.push(egui::Event::PointerMoved(start));
-        h.step();
-        h.app.synthetic.push(egui::Event::PointerButton {
-            pos: start,
-            button: egui::PointerButton::Primary,
-            pressed: true,
-            modifiers: Default::default(),
-        });
-        h.step();
-        let mut latency = vec![];
-        let mut ui_ms = vec![];
-        for step in 1..=6 {
-            let q = pos2(slider.left() + slider.width() * (0.5 + step as f32 * 0.025), slider.center().y);
-            let time = Instant::now();
-            h.app.synthetic.push(egui::Event::PointerMoved(q));
-            h.step();
-            ui_ms.push(time.elapsed().as_secs_f64() * 1000.0);
-            wait(&mut h);
-            latency.push(time.elapsed().as_secs_f64() * 1000.0);
-            let tex = &h.app.renderer.textures[&Slot::Main];
-            assert!(tex.size[0].max(tex.size[1]) <= crate::render::DRAFT_EDGE);
-        }
-        let q = pos2(slider.left() + slider.width() * 0.65, slider.center().y);
-        h.app.synthetic.push(egui::Event::PointerButton {
-            pos: q,
-            button: egui::PointerButton::Primary,
-            pressed: false,
-            modifiers: Default::default(),
-        });
-        h.step();
-        wait(&mut h);
-        latency.sort_by(f64::total_cmp);
-        ui_ms.sort_by(f64::total_cmp);
-        let memory = h.app.renderer.memory();
-        let gpu_bytes = memory["stageCaches"]["gpuBytes"].as_u64().unwrap();
-        assert!(gpu_bytes > 0, "GPU stage cache required");
-        eprintln!(
-            "develop-c {} {count} {} layers: UI p95={:.2}ms, change-to-texture p95={:.2}ms, GPU stage cache={} bytes",
-            if std::env::var_os("LC_DEVELOP_C_RAW").is_some() { "RAW" } else { "45MP procedural" },
-            if full { "Full" } else { "Brush" },
-            ui_ms[5],
-            latency[5],
-            gpu_bytes
-        );
-        assert!(ui_ms[5] < 100.0, "interactive UI frame budget");
-    }
 }
 
 #[test]

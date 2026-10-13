@@ -140,10 +140,21 @@ pub(crate) fn clicks_of(include: &[Point], exclude: &[Point]) -> Vec<Click> {
 
 fn masks_edit(s: &mut Session, c: &str, label: &str, f: impl FnOnce(&mut Vec<Mask>, &mut Option<u32>) -> Result<()>) -> Result<Value> {
     let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
-    let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
+    let original = s.develop_of(id).unwrap_or_default();
+    let mut d = (*original).clone();
     let mut active = s.active_mask;
     f(&mut d.masks, &mut active)?;
-    s.set_develop(id, d, label)?;
+    let label =
+        if matches!(c, "mask.adjust" | "mask.brushStroke" | "mask.update" | "mask.setOpacity" | "mask.refine" | "mask.visible" | "mask.invert") {
+            d.masks
+                .iter()
+                .find(|m| original.masks.iter().find(|old| old.id == m.id) != Some(*m))
+                .map(|m| format!("{label} – {}", m.name))
+                .unwrap_or_else(|| label.to_string())
+        } else {
+            label.to_string()
+        };
+    s.set_develop(id, d, &label)?;
     s.active_mask = active;
     Ok(json!({"activeMask": active}))
 }
@@ -576,6 +587,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
                 let wb = global_wb(s, id);
                 let mid = mask_id(p, s.active_mask, c)?;
+                let label = s.layer_label(&label, Some(mid));
                 let mut tools = Value::Null;
                 masks_edit(s, c, &label, |masks, _| {
                     let i = find(masks, mid, c)?;
@@ -649,7 +661,9 @@ pub fn specs() -> Vec<CommandSpec> {
             masks_edit(s, "mask.delete", "Delete Mask", |masks, active| {
                 let i = find(masks, mid, "mask.delete")?;
                 masks.remove(i);
-                *active = masks.last().map(|m| m.id);
+                if *active == Some(mid) {
+                    *active = None;
+                }
                 Ok(())
             })
         }),
@@ -751,7 +765,9 @@ pub fn specs() -> Vec<CommandSpec> {
                             comps.remove(k);
                             if comps.is_empty() {
                                 masks.remove(i);
-                                *active = masks.last().map(|m| m.id);
+                                if *active == Some(mid) {
+                                    *active = None;
+                                }
                             }
                         }
                     }

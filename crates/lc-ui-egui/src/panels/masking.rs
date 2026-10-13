@@ -73,7 +73,7 @@ fn tile_layout(width: f32) -> (usize, f32) {
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let t = Tokens::get(ui.ctx());
     let d = app.session.develop_of(id).unwrap_or_default();
-    header(ui, "Masking");
+    header(ui, "Mask");
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 10 }).show(ui, |ui| {
         ui.label(egui::RichText::new(crate::i18n::tr("Create New Mask")).color(t.text_dim));
         ui.add_space(6.0);
@@ -353,47 +353,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         brush_settings(app, ui);
     }
     divider(ui);
-    // the layer: opacity, amount, refine edges
-    let opacity = ControlSpec {
-        id: "opacity",
-        label: "Opacity",
-        section: Section::Light,
-        min: 0.0,
-        max: 100.0,
-        default: 100.0,
-        step: 1.0,
-        decimals: 0,
-        track: Track::Plain,
-    };
-    let out = crate::widgets::numeric_slider(
-        ui,
-        &opacity,
-        m.opacity,
-        true,
-        None,
-        crate::widgets::numeric_owner(app, ("mask-tools", app.session.active_mask)),
-    );
-    apply_slider_out(app, &opacity, out, |app, v| app.run("mask.setOpacity", json!({"value": v})));
-    let amt = ControlSpec {
-        id: "amount",
-        label: "Amount",
-        section: Section::Light,
-        min: 0.0,
-        max: 200.0,
-        default: 100.0,
-        step: 1.0,
-        decimals: 0,
-        track: Track::Plain,
-    };
-    let out = crate::widgets::numeric_slider(
-        ui,
-        &amt,
-        m.adjust.amount,
-        true,
-        None,
-        crate::widgets::numeric_owner(app, ("mask-tools", app.session.active_mask)),
-    );
-    apply_slider_out(app, &amt, out, |app, v| app.run("mask.adjust", json!({"values": {"amount": v}})));
     let refine = ControlSpec {
         id: "refine",
         label: "Refine Edges",
@@ -414,47 +373,22 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         crate::widgets::numeric_owner(app, ("mask-tools", app.session.active_mask)),
     );
     apply_slider_out(app, &refine, out, |app, v| app.run("mask.refine", json!({"value": v})));
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 6 }).show(ui, |ui| {
-        // (two rows: side by side they don't fit the narrowest panel)
-        let mut only = app.ui.layer_used_only;
-        let r = ui.checkbox(&mut only, crate::i18n::tr("Show only tools this layer uses"));
-        register(ui.ctx(), "layerUsedOnly", r.rect);
-        if r.changed() {
-            app.ui.layer_used_only = only;
-        }
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            if text_button(ui, "layerReset", crate::i18n::tr("Reset Layer"), false)
-                .on_hover_text(crate::i18n::tr("Remove every tool from this layer and reset its sliders and opacity"))
-                .clicked()
-            {
-                let _ = app.run("mask.resetTools", json!({"id": m.id}));
-            }
-        });
-    });
-    divider(ui);
-    local_section(app, ui, &m);
-    // the full develop tools, on this layer
-    let photo = app.session.catalog.photo(id);
-    let raw = photo.is_some_and(|p| p.develops_raw() && !p.relative_wb());
-    let info = app.session.source_info(id);
-    let view = m.tools.view(lightcraft_engine::pipeline::local::effective_wb(&info, &d));
-    let used_only = app.ui.layer_used_only;
-    super::edit::tool_sections(app, ui, id, &view, raw, super::edit::Target::Layer(m.id), used_only);
-    ui.add_space(30.0);
-    let _ = Stroke::NONE;
+    ui.add_space(20.0);
 }
 
 /// The quick local sliders (Lightroom's mask sliders: added up across masks, with local-only
 /// tools such as Hue, Sharpness, Noise, Moiré, Defringe), collapsible; a dot when any is set.
-fn local_section(app: &mut LightcraftApp, ui: &mut egui::Ui, m: &lightcraft_develop::Mask) {
-    // open unless collapsed (these were the only mask sliders before develop layers)
+pub(crate) fn local_section(app: &mut LightcraftApp, ui: &mut egui::Ui, m: &lightcraft_develop::Mask) {
+    if (LocalAdjustments { amount: m.adjust.amount, ..Default::default() }) == m.adjust {
+        return;
+    }
+    // Legacy imports retain their original local sliders.
     let open = !app.ui.section_open("layer-local-collapsed");
-    let (resp, _) = crate::widgets::section_header(ui, "layer-local", "Local Adjustments", open, None);
+    let (resp, _) = crate::widgets::section_header(ui, "layer-local", "Lightroom local adjustments", open, None);
     let set = LocalAdjustments { amount: m.adjust.amount, ..Default::default() } != m.adjust;
     if set {
         let t = Tokens::get(ui.ctx());
-        let w = ui.painter().layout_no_wrap(crate::i18n::tr("Local Adjustments").to_string(), t.semibold(14.0), t.text).size().x;
+        let w = ui.painter().layout_no_wrap(crate::i18n::tr("Lightroom local adjustments").to_string(), t.semibold(14.0), t.text).size().x;
         ui.painter().circle_filled(pos2(resp.rect.left() + 52.0 + w, resp.rect.center().y), 3.5, t.accent);
     }
     if resp.clicked() {
@@ -502,9 +436,11 @@ fn mask_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: u32, name: &str, vi
 pub const OVERLAY_COLORS: [[u8; 3]; 5] = [[230, 30, 40], [40, 200, 70], [40, 110, 240], [250, 210, 30], [255, 255, 255]];
 
 /// How the selected mask is shown: overlay mode, colour, opacity, pins.
-fn overlay_options(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+pub(crate) fn overlay_options(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     use lightcraft_pipeline::MaskView;
     let t = Tokens::get(ui.ctx());
+    let r = ui.checkbox(&mut app.ui.mask_overlay_drawing_only, "Only while drawing");
+    register(ui.ctx(), "maskOverlayDrawingOnly", r.rect);
     let view = MaskView::parse(&app.ui.mask_overlay_mode).unwrap_or_default();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(crate::i18n::tr("Overlay")).color(t.text_dim));
@@ -892,7 +828,7 @@ pub(crate) fn start_describe(app: &mut LightcraftApp, op: &str) {
 }
 
 /// The Describe field: type what to select ("sky", "the red car") and press Return.
-fn describe_field(app: &mut LightcraftApp, ui: &mut egui::Ui, new_mask: bool) {
+pub(crate) fn describe_field(app: &mut LightcraftApp, ui: &mut egui::Ui, new_mask: bool) {
     let Some((op, mut text)) = app.ui.describe.clone() else { return };
     // a new mask's field sits under the tiles; one that combines, under the selected mask
     if (op == "new") != new_mask {
@@ -939,7 +875,7 @@ fn describe_field(app: &mut LightcraftApp, ui: &mut egui::Ui, new_mask: bool) {
     }
 }
 
-fn component_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, op: &str) {
+pub(crate) fn component_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, op: &str) {
     let b = ui.button(crate::i18n::tr("Object"));
     register(ui.ctx(), format!("maskComp:{op}:object"), b.rect);
     if b.clicked() {
@@ -956,25 +892,42 @@ fn component_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, op: &str) {
         ("radial", "Radial Gradient"),
         ("sky", "Sky"),
         ("subject", "Subject"),
+        ("background", "Background"),
+        ("colorRange", "Color Range"),
         ("depth", "Depth"),
         ("luminanceRange", "Luminance Range"),
     ] {
-        // painting only adds or erases
-        if kind == "brush" && op == "intersect" {
-            continue;
-        }
-        if ui.button(label).clicked() {
+        let r = ui.button(label);
+        register(ui.ctx(), format!("maskComp:{op}:{kind}"), r.rect);
+        if r.clicked() {
+            app.ui.tool.clear();
             if kind == "brush" {
                 app.ui.tool = "brush".into();
-                app.ui.brush_erase = op == "subtract";
+                let _ = app.run("mask.addComponent", json!({"kind":"brush","op":op}));
+                app.ui.brush_erase = false;
             } else {
+                if matches!(kind, "linear" | "radial") {
+                    let _ = app.run("develop.beginInteraction", json!({"label":"Draw Mask","mask":app.session.active_mask}));
+                }
                 let _ = app.run("mask.addComponent", json!({"op": op, "kind": kind}));
+                if kind == "colorRange" {
+                    app.ui.tool = kind.into();
+                }
+                if matches!(kind, "linear" | "radial") {
+                    app.ui.tool = kind.into();
+                    app.ui.pending_mask_shape = app
+                        .session
+                        .active()
+                        .and_then(|id| app.session.develop_of(id))
+                        .and_then(|d| d.masks.iter().find(|m| Some(m.id) == app.session.active_mask).map(|m| (m.id, m.components.len() - 1)));
+                }
             }
+            ui.close();
         }
     }
 }
 
-fn brush_settings(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+pub(crate) fn brush_settings(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 0 }).show(ui, |ui| {
         ui.horizontal(|ui| {

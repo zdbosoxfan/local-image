@@ -949,6 +949,7 @@ fn group_checklist(ui: &mut egui::Ui, tag: &str, groups: &mut Vec<String>) {
             }
         }
     });
+    ui.label(crate::i18n::tr("Masking: layers are copied whole, replacing the destination layers. AI masks are recalculated for each photo."));
     ui.horizontal(|ui| {
         let all = ui.small_button("All");
         crate::widgets::register(ui.ctx(), format!("{tag}:all"), all.rect);

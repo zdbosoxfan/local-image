@@ -48,6 +48,8 @@ mod tests_ai;
 #[cfg(test)]
 mod tests_curve;
 #[cfg(test)]
+mod tests_develop_a;
+#[cfg(test)]
 mod tests_develop_c;
 #[cfg(test)]
 mod tests_dialogs;
@@ -720,6 +722,19 @@ impl LightcraftApp {
 
     /// Per-frame logic before layout (control channel, renders, shortcuts, drops).
     pub fn logic(&mut self, ctx: &egui::Context) {
+        self.session.resolve_active_mask();
+        let photo = self.session.active();
+        if self.ui.layer_ui_photo != photo {
+            self.ui.layer_ui_photo = photo;
+            self.ui.layer_bar_focus = false;
+            self.ui.renaming_mask = None;
+            self.ui.renaming_component = None;
+            self.ui.deleting_layer = None;
+            self.ui.pending_mask_shape = None;
+            self.ui.pending_mask_origin = None;
+            self.ui.dragging_layer = None;
+            self.ui.describe = None;
+        }
         if self.host_modal {
             self.background_tick(ctx);
             return;

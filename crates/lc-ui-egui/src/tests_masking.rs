@@ -710,21 +710,13 @@ fn ai_masks_without_the_model_offer_the_download() {
 fn a_selected_mask_shows_its_layer_tools() {
     let mut h = detail("panel.masking");
     exec(&mut h, "mask.add", json!({"kind": "radial"}));
+    h.app.ui.right = RightPanel::Edit;
     h.settle(SETTLE);
     let has = |h: &mut Headless, id: &str| {
         let w = h.request("ui.widgets", json!({"filter": id}), T);
         w["result"].as_array().is_some_and(|a| a.iter().any(|x| x["id"] == id))
     };
-    for w in [
-        "slider:opacity",
-        "slider:amount",
-        "layerUsedOnly",
-        "button:layerReset",
-        "section:layer-light",
-        "section:layer-color",
-        "section:layer-effects",
-        "section:layer-detail",
-    ] {
+    for w in ["slider:opacity", "layerUsedOnly", "section:layer-light", "section:layer-color", "section:layer-effects", "section:layer-detail"] {
         assert!(has(&mut h, w), "{w}");
     }
     assert!(!has(&mut h, "layerSectionSet:light"), "nothing set yet");
@@ -740,14 +732,11 @@ fn a_selected_mask_shows_its_layer_tools() {
     h.settle(Duration::from_secs(5));
     assert!(has(&mut h, "section:layer-light"));
     assert!(!has(&mut h, "section:layer-effects"));
-    // Creation now includes Filled/Empty actions; scroll the actual panel to reach Reset.
-    let r = h.request("ui.hoverWidget", json!({"id":"panel:right_panel"}), T);
+    // Layer reset is now in the layer row's menu.
+    let r = h.request("ui.clickWidget", json!({"id":"button:layerMenu:1"}), T);
     assert_eq!(r["ok"], true, "{r}");
-    let r = h.request("ui.scroll", json!({"dy":-300.0}), T);
-    assert_eq!(r["ok"], true, "{r}");
-    h.settle(Duration::from_secs(5));
-    // Reset Layer
-    let r = h.request("ui.clickWidget", json!({"id": "button:layerReset"}), T);
+    h.step();
+    let r = h.request("ui.clickWidget", json!({"id":"button:layerMenu:Reset"}), T);
     assert_eq!(r["ok"], true, "{r}");
     assert!(develop(&h).masks[0].tools.is_empty());
 }

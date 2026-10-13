@@ -55,6 +55,30 @@ use serde_json::Value;
 pub use view::{Browse, FilterChip, LibrarySource, Selection, filter_chips};
 pub use {lightcraft_catalog as catalog, lightcraft_develop as develop, lightcraft_gpu as gpu, lightcraft_pipeline as pipeline};
 
+/// The existing neutral-patch WB calculation, shared by commands and the UI picker worker.
+pub fn sample_white_balance(
+    src: &lightcraft_raster::Rgb32f,
+    info: &lightcraft_pipeline::SourceInfo,
+    orientation: lightcraft_geom::Orientation,
+    x: f64,
+    y: f64,
+) -> (f64, f64) {
+    // Sample a small neighbourhood in the oriented source.
+    let o = src.oriented(orientation);
+    let (cx, cy) = ((x.clamp(0.0, 1.0) * o.width as f64) as isize, (y.clamp(0.0, 1.0) * o.height as f64) as isize);
+    let mut acc = [0.0f32; 3];
+    for dy in -2..=2 {
+        for dx in -2..=2 {
+            let c = o.get_clamped(cx + dx, cy + dy);
+            for i in 0..3 {
+                acc[i] += c[i] / 25.0;
+            }
+        }
+    }
+    let patch = lightcraft_raster::Rgb32f::filled(4, 4, acc);
+    lightcraft_pipeline::auto::auto_wb(&patch, info)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
     #[error("unknown command `{0}`")]
@@ -502,6 +526,24 @@ impl Session {
         self.history_index(&self.redo).and_then(|i| self.redo.get(i))
     }
 
+    /// Selection is UI state: undo, sync and history can remove its layer.
+    pub fn resolve_active_mask(&mut self) {
+        if let Some(mid) = self.active_mask
+            && !self.active().and_then(|id| self.develop_of(id)).is_some_and(|d| d.masks.iter().any(|m| m.id == mid))
+        {
+            self.active_mask = None;
+        }
+    }
+
+    pub fn layer_label(&self, label: &str, mid: Option<u32>) -> String {
+        mid.and_then(|mid| {
+            self.active()
+                .and_then(|id| self.develop_of(id))
+                .and_then(|d| d.masks.iter().find(|m| m.id == mid).map(|m| format!("{label} – {}", m.name)))
+        })
+        .unwrap_or_else(|| label.to_string())
+    }
+
     pub fn undo_step(&mut self) -> Result<String> {
         let index = self.history_index(&self.undo).ok_or_else(|| EngineError::Other("nothing to undo".into()))?;
         let e = self.undo.remove(index);
@@ -514,6 +556,7 @@ impl Session {
         };
         self.pending_log.push(e.op);
         self.redo.push(UndoEntry { group: e.group, label: e.label.clone(), op: redo, folder: e.folder.as_ref().map(FolderMove::reversed), people });
+        self.resolve_active_mask();
         Ok(e.label)
     }
 
@@ -529,6 +572,7 @@ impl Session {
         };
         self.pending_log.push(e.op);
         self.undo.push(UndoEntry { group: e.group, label: e.label.clone(), op: undo, folder: e.folder.as_ref().map(FolderMove::reversed), people });
+        self.resolve_active_mask();
         Ok(e.label)
     }
 

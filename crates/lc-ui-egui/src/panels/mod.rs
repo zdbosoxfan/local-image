@@ -16,6 +16,7 @@ pub mod filterbar;
 pub mod grid;
 pub mod host_composite;
 pub mod host_session;
+pub mod layer_bar;
 pub mod left;
 pub mod library_problem;
 pub mod masking;
