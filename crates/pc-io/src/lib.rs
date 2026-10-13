@@ -11,7 +11,7 @@
 //!   smart-object layers also keep their pixels as the cached raster, and fill
 //!   layers keep Photoshop's rendering in `Layer::fill_cache`.
 //! * Camera raws (DNG, CR2, uncompressed / lossless TIFF-EP raws) via
-//!   `photocraft-raw`, developed into a 16-bit ProPhoto RGB "Background"
+//!   the shared Library/Develop raw pipeline, developed into a 16-bit ProPhoto RGB "Background"
 //!   layer; unsupported raw variants fall back to the embedded JPEG preview.
 //! * Layered TIFFs (Photoshop layer data in tags 37724 and 34377) open with their
 //!   layers through the PSD path and are written back the same way; see `tiff_layers`.
@@ -77,7 +77,7 @@ pub enum IoError {
     Pcraft(#[from] photocraft_format::FormatError),
     /// Camera raw decode failure.
     #[error("{0}")]
-    Raw(#[from] photocraft_raw::RawError),
+    Raw(#[from] lightcraft_raw::RawError),
     /// A background import was cancelled ([`import_with`]).
     #[error("cancelled")]
     Cancelled,

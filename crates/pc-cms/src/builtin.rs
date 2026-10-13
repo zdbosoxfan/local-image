@@ -127,6 +127,17 @@ pub fn srgb() -> &'static Profile {
     Builtin::Srgb.profile()
 }
 
+/// The shared scene-referred working profile used by Library and Compositing.
+pub fn linear_rec2020() -> &'static Profile {
+    static PROFILE: OnceLock<Profile> = OnceLock::new();
+    PROFILE.get_or_init(|| {
+        let mut p = Builtin::Rec2020.profile().clone();
+        p.trc = Some([Curve::Identity, Curve::Identity, Curve::Identity]);
+        p.description = "Linear Rec. 2020".into();
+        p.with_encoded_bytes()
+    })
+}
+
 /// The ICC D65 used for the RGB spaces (chromaticity 0.3127, 0.3290).
 fn d65() -> [f64; 3] {
     math::xy_to_xyz(math::D65_XY)

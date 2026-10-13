@@ -85,7 +85,7 @@ fn overwrite_original_jpeg_quality_uses_preference_and_unsupported_input_fails()
     let high = photocraft_io::export_over_original(&doc, &jpeg, 100).unwrap();
     assert_ne!(low.bytes, high.bytes);
     assert!(photocraft_io::export_over_original(&doc, b"not an image", 85).is_err());
-    let raw = photocraft_raw::testgen::DngSpec::cfa(4, 4, vec![1000; 16]).build();
+    let raw = lightcraft_raw::testgen::DngSpec::cfa(4, 4, vec![1000; 16]).build();
     let error = photocraft_io::export_over_original(&doc, &raw, 85).unwrap_err().to_string();
     assert!(error.contains("Raw files can't be overwritten"), "{error}");
 }

@@ -3,7 +3,7 @@
 //! - [`sniff`] detects the container format (and flags camera raws for `lightcraft-raw`).
 //! - [`decode`] decodes JPEG, PNG, TIFF, WebP, GIF, BMP, PSD (merged composite) and JPEG XL into
 //!   **linear-light** [`Rgb32f`] in the source's own primaries, described by [`SourceSpace`]; ICC
-//!   profiles (matrix/TRC exactly, LUT/CMYK via the `moxcms` CMS), 16-bit and float precision are
+//!   profiles (matrix/TRC exactly, LUT/CMYK via the shared `photocraft-cms` CMS), 16-bit and float precision are
 //!   preserved. EXIF/XMP/ICC blobs are passed through untouched; orientation is reported, never applied.
 //! - [`to_working`] converts a decode result to linear Rec.2020 D65 (the pipeline working space).
 //! - [`decode_thumbnail`] is the fast path for grid thumbnails (EXIF thumbnail or DCT-scaled decode).

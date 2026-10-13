@@ -12,7 +12,7 @@ corpus = []
 default = []
 # AVIF *encode* via ravif (pure Rust). Decoding AVIF needs dav1d (C), so AVIF
 # stays read-unsupported and therefore asymmetric; it is off by default.
-avif = ["image/avif"]
+avif = ["dep:ravif"]
 # HEIC/HEIF decode via the optional photocraft-heif crate (heic-rs, pure Rust). Off by default so
 # distributors choose it at build time; official builds and CI enable it (`--features heif` on the
 # apps). Without it HEIF files are still recognised and opening one is a clear "unsupported" error.
@@ -29,15 +29,17 @@ flate2.workspace = true
 image-webp = "0.2"
 zune-jpeg = "0.5"
 zune-core = "0.5"
-jpeg-encoder = "0.6"
+jpeg-encoder = { workspace = true }
 photocraft-heif = { path = "../pc-heif", optional = true }
 
 # Orientation is applied a band of rows per task on native; wasm stays single-threaded.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon.workspace = true
+ravif = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
+jpeg-decoder = { workspace = true }
 # Oracle decoders for cross-checking in tests only.
 image = { workspace = true, features = ["png", "jpeg", "tiff"] }
 

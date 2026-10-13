@@ -20,6 +20,14 @@ use std::borrow::Cow;
 use crate::error::CodecError;
 use crate::image::Image;
 
+/// One metadata policy for all shared format writers.
+pub(crate) fn encoded_exif(exif: &[u8], keep_orientation: bool) -> Cow<'_, [u8]> {
+    if keep_orientation { Cow::Borrowed(exif) } else { upright_exif(exif) }
+}
+pub(crate) fn encoded_xmp(xmp: &str, keep_orientation: bool) -> Cow<'_, str> {
+    if keep_orientation { Cow::Borrowed(xmp) } else { upright_xmp(xmp) }
+}
+
 /// The TIFF/EXIF Orientation tag.
 const TAG_ORIENTATION: u16 = 274;
 /// Field types accepted for the Orientation tag: SHORT (the spec) and LONG

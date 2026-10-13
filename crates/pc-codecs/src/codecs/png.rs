@@ -265,7 +265,7 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
     if opts.embed_metadata {
         if let Some(exif) = &img.meta.exif {
             // The pixels are written as they are shown: never let a viewer rotate them again.
-            info.exif_metadata = Some(crate::orientation::upright_exif(exif).into_owned().into());
+            info.exif_metadata = Some(crate::orientation::encoded_exif(exif, opts.keep_orientation).into_owned().into());
         }
         if let Some((x, y)) = img.meta.dpi
             && x > 0.0
@@ -298,7 +298,9 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
                 res.map_err(|e| CodecError::encode(F, e))?;
             }
             if let Some(xmp) = &img.meta.xmp {
-                encoder.add_itxt_chunk(XMP_KEYWORD.into(), crate::orientation::upright_xmp(xmp).into_owned()).map_err(|e| CodecError::encode(F, e))?;
+                encoder
+                    .add_itxt_chunk(XMP_KEYWORD.into(), crate::orientation::encoded_xmp(xmp, opts.keep_orientation).into_owned())
+                    .map_err(|e| CodecError::encode(F, e))?;
             }
         }
         let mut writer = encoder.write_header().map_err(|e| CodecError::encode(F, e))?;

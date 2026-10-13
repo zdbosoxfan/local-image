@@ -1,10 +1,10 @@
 //! Camera raw import: synthetic DNG / CR2 develop into a 16-bit ProPhoto
 //! document; unsupported raw variants fall back to the embedded preview.
 
+use lightcraft_raw::testgen::{Cr2Spec, DngSpec, TiffBuilder, Val, mosaic, scene};
 use photocraft_codecs::{ChannelLayout, EncodeOptions, Format, Image};
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_io::{IoError, import};
-use photocraft_raw::testgen::{Cr2Spec, DngSpec, TiffBuilder, Val, mosaic, scene};
 
 #[test]
 fn dng_opens_as_16_bit_prophoto() {

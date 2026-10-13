@@ -24,3 +24,6 @@ zune-core = { workspace = true }
 [dev-dependencies]
 jpeg-encoder = { workspace = true }
 proptest = { workspace = true }
+
+[features]
+testgen = []

@@ -313,15 +313,17 @@ pub fn encode_jpeg_rgb8(
     enc.set_sampling_factor(if subsampled { jpeg_encoder::SamplingFactor::R_4_2_0 } else { jpeg_encoder::SamplingFactor::R_4_4_4 });
     if let Some(d) = dpi.filter(|d| *d >= 1.0) {
         let v = d.round().min(65535.0) as u16;
-        enc.set_density(jpeg_encoder::Density::Inch { x: v, y: v });
+        enc.set_density(jpeg_encoder::PixelDensity::dpi(v));
     }
     if let Some(x) = xmp {
         let mut seg = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
         seg.extend_from_slice(x.as_bytes());
-        enc.add_app_segment(1, &seg).map_err(e)?;
+        enc.add_app_segment(1, seg).map_err(e)?;
     }
     if let Some(icc) = icc {
-        enc.add_icc_profile(icc).map_err(e)?;
+        for segment in crate::codecs::jpeg::icc_segments(icc)? {
+            enc.add_app_segment(2, segment).map_err(e)?;
+        }
     }
     enc.encode(rgb, w16, h16, jpeg_encoder::ColorType::Rgb).map_err(e)?;
     Ok(out)

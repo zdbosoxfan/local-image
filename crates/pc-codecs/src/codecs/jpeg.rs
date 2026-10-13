@@ -12,7 +12,7 @@ use crate::error::CodecError;
 use crate::fidelity::Plan;
 use crate::image::{ChannelLayout, DecodeWarning, Image, Metadata, SampleType};
 use crate::options::{EncodeOptions, Limits};
-use crate::orientation::{upright_exif, upright_xmp};
+use crate::orientation::{encoded_exif, encoded_xmp};
 
 const F: Format = Format::Jpeg;
 const EXIF_HEADER: &[u8] = b"Exif\0\0";
@@ -216,6 +216,11 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
 }
 
 pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Vec<u8>, CodecError> {
+    let sampling = if opts.jpeg_chroma_subsampling { crate::ChromaSubsampling::S420 } else { crate::ChromaSubsampling::S444 };
+    encode_with_sampling(src, plan, opts, sampling)
+}
+
+pub(crate) fn encode_with_sampling(src: &Image, plan: Plan, opts: &EncodeOptions, sampling: crate::ChromaSubsampling) -> Result<Vec<u8>, CodecError> {
     let img = src.converted(plan.layout, plan.sample);
     let (w, h) = img.dimensions();
     let (w16, h16) = match (u16::try_from(w), u16::try_from(h)) {
@@ -230,40 +235,81 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
         ChannelLayout::Cmyk => jpeg_encoder::ColorType::Cmyk,
         l => return Err(CodecError::encode(F, format!("unsupported layout {l:?}"))),
     };
+    let sampling = if img.layout() == ChannelLayout::Cmyk { crate::ChromaSubsampling::S444 } else { sampling };
+    // RGB/gray use the established parallel baseline encoder on both export routes.
+    if img.layout() != ChannelLayout::Cmyk && sampling != crate::ChromaSubsampling::S422 {
+        let mut segments = Vec::new();
+        let density = if opts.embed_metadata { img.meta.dpi } else { None };
+        let density = density.filter(|(x, y)| *x >= 1.0 && *y >= 1.0);
+        let d = density.map_or([0, 0, 1, 0, 1], |(x, y)| {
+            let [xh, xl] = (x.round().min(65535.0) as u16).to_be_bytes();
+            let [yh, yl] = (y.round().min(65535.0) as u16).to_be_bytes();
+            [1, xh, xl, yh, yl]
+        });
+        segments.push((0xE0, [&b"JFIF\0\x01\x02"[..], &d, &[0, 0]].concat()));
+        if opts.embed_metadata {
+            if let Some(seg) = img.meta.exif.as_deref().and_then(|e| exif_segment_with(e, opts.keep_orientation)) {
+                segments.push((0xE1, seg));
+            }
+            if let Some(seg) = img.meta.xmp.as_deref().and_then(|x| xmp_segment_with(x, opts.keep_orientation)) {
+                segments.push((0xE1, seg));
+            }
+        }
+        if opts.embed_icc
+            && let Some(icc) = &img.icc
+        {
+            segments.extend(icc_segments(icc)?.into_iter().map(|seg| (0xE2, seg)));
+        }
+        return Ok(crate::jpeg_par::encode(img.data(), w as usize, h as usize, img.layout().channels(), opts.jpeg_quality, sampling, &segments));
+    }
     let mut out = Vec::new();
     let mut enc = jpeg_encoder::Encoder::new(&mut out, opts.jpeg_quality.clamp(1, 100));
     // CMYK is always written 4:4:4: subsampled 4-component JPEGs are not
     // decoded consistently across implementations.
-    let sampling = if opts.jpeg_chroma_subsampling && img.layout() == ChannelLayout::Rgb {
-        jpeg_encoder::SamplingFactor::R_4_2_0
-    } else {
-        jpeg_encoder::SamplingFactor::R_4_4_4
+    let factor = match sampling {
+        crate::ChromaSubsampling::S444 => jpeg_encoder::SamplingFactor::R_4_4_4,
+        crate::ChromaSubsampling::S422 => jpeg_encoder::SamplingFactor::R_4_2_2,
+        crate::ChromaSubsampling::S420 => jpeg_encoder::SamplingFactor::R_4_2_0,
     };
-    enc.set_sampling_factor(sampling);
+    enc.set_sampling_factor(factor);
     let e = |e: jpeg_encoder::EncodingError| CodecError::encode(F, e);
     if opts.embed_metadata {
         if let Some((x, y)) = img.meta.dpi
             && x >= 1.0
             && y >= 1.0
         {
-            enc.set_density(jpeg_encoder::Density::Inch { x: x.round().min(65535.0) as u16, y: y.round().min(65535.0) as u16 });
+            enc.set_density(jpeg_encoder::PixelDensity {
+                unit: jpeg_encoder::PixelDensityUnit::Inches,
+                density: (x.round().min(65535.0) as u16, y.round().min(65535.0) as u16),
+            });
         }
         // Metadata too large for its one segment is left out (and reported by the fidelity
         // warnings) rather than failing the whole export.
-        if let Some(seg) = img.meta.exif.as_deref().and_then(exif_segment) {
-            enc.add_app_segment(1, &seg).map_err(e)?;
+        if let Some(seg) = img.meta.exif.as_deref().and_then(|e| exif_segment_with(e, opts.keep_orientation)) {
+            enc.add_app_segment(1, seg).map_err(e)?;
         }
-        if let Some(seg) = img.meta.xmp.as_deref().and_then(xmp_segment) {
-            enc.add_app_segment(1, &seg).map_err(e)?;
+        if let Some(seg) = img.meta.xmp.as_deref().and_then(|x| xmp_segment_with(x, opts.keep_orientation)) {
+            enc.add_app_segment(1, seg).map_err(e)?;
         }
     }
     if opts.embed_icc
         && let Some(icc) = &img.icc
     {
-        enc.add_icc_profile(icc).map_err(e)?;
+        for segment in icc_segments(icc)? {
+            enc.add_app_segment(2, segment).map_err(e)?;
+        }
     }
     enc.encode(img.data(), w16, h16, ct).map_err(e)?;
     Ok(out)
+}
+
+/// ICC JPEG APP2 payloads (ICC embedding technical note); used by every JPEG mode.
+pub(crate) fn icc_segments(icc: &[u8]) -> Result<Vec<Vec<u8>>, CodecError> {
+    let count = icc.len().div_ceil(65_519);
+    if count > 255 {
+        return Err(CodecError::encode(F, "ICC profile too large for JPEG"));
+    }
+    Ok(icc.chunks(65_519).enumerate().map(|(i, chunk)| [&b"ICC_PROFILE\0"[..], &[i as u8 + 1, count as u8], chunk].concat()).collect())
 }
 
 /// The most data one APP segment holds (its 16-bit length counts its own two bytes).
@@ -276,15 +322,20 @@ const LAYERED_ONLY_XMP: [&str; 2] = ["DocumentAncestors", "TextLayers"];
 
 /// The EXIF APP1 segment, or `None` when it doesn't fit in one segment.
 pub(crate) fn exif_segment(exif: &[u8]) -> Option<Vec<u8>> {
-    // The pixels are written as they are shown: never let a viewer rotate them again.
-    let seg = [EXIF_HEADER, upright_exif(exif).as_ref()].concat();
+    exif_segment_with(exif, false)
+}
+fn exif_segment_with(exif: &[u8], keep_orientation: bool) -> Option<Vec<u8>> {
+    let seg = [EXIF_HEADER, encoded_exif(exif, keep_orientation).as_ref()].concat();
     (seg.len() <= MAX_SEGMENT).then_some(seg)
 }
 
 /// The XMP APP1 segment. When the packet doesn't fit in one segment, the layered-document
 /// properties are left out; `None` when it still doesn't fit.
 pub(crate) fn xmp_segment(xmp: &str) -> Option<Vec<u8>> {
-    let xmp = upright_xmp(xmp);
+    xmp_segment_with(xmp, false)
+}
+fn xmp_segment_with(xmp: &str, keep_orientation: bool) -> Option<Vec<u8>> {
+    let xmp = encoded_xmp(xmp, keep_orientation);
     let seg = |x: &str| [XMP_HEADER, x.as_bytes()].concat();
     if XMP_HEADER.len() + xmp.len() <= MAX_SEGMENT {
         return Some(seg(&xmp));

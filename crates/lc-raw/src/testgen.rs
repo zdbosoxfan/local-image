@@ -54,7 +54,15 @@ impl BitWriter {
 /// Encodes `samples` (raster order, `components` interleaved, values below
 /// `2^precision`) as a lossless JPEG with the given predictor (1–7) and an
 /// optional restart interval in rows.
-pub fn lj92_encode(samples: &[u16], width: usize, height: usize, components: usize, precision: u8, predictor: u8, restart_rows: Option<usize>) -> Vec<u8> {
+pub fn lj92_encode(
+    samples: &[u16],
+    width: usize,
+    height: usize,
+    components: usize,
+    precision: u8,
+    predictor: u8,
+    restart_rows: Option<usize>,
+) -> Vec<u8> {
     assert_eq!(samples.len(), width * height * components);
     let row = width * components;
     let interval = restart_rows.unwrap_or(usize::MAX);
@@ -979,7 +987,10 @@ pub fn orf(width: usize, height: usize, data: &[u16]) -> Vec<u8> {
         cs_at,
     );
     let mut note = b"OLYMPUS\0II\x03\0".to_vec();
-    note.extend_from_slice(&relative_ifd(&[(0x2020, 13, 1, (cs_at as u32).to_le_bytes().to_vec()), (0x2040, 13, 1, 64u32.to_le_bytes().to_vec())], 12));
+    note.extend_from_slice(&relative_ifd(
+        &[(0x2020, 13, 1, (cs_at as u32).to_le_bytes().to_vec()), (0x2040, 13, 1, 64u32.to_le_bytes().to_vec())],
+        12,
+    ));
     note.resize(64, 0);
     note.extend_from_slice(&ip);
     note.resize(cs_at, 0);

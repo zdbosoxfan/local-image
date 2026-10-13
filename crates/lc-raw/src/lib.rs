@@ -43,6 +43,9 @@ mod saturation;
 
 #[cfg(test)]
 mod test_vectors;
+/// Synthetic camera files for regression tests; never a second decoder/developer.
+#[cfg(feature = "testgen")]
+pub mod testgen;
 mod tiffraw;
 mod unpack;
 mod vendor;
