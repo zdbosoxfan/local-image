@@ -50,8 +50,9 @@ fn shared_pen_shape_large_document_release_pointer_frames_rtx5090() {
                 |cc| {
                     let rs = cc.wgpu_render_state.as_ref().expect("RTX GPU required");
                     let info = rs.adapter.get_info();
+                    #[cfg(not(target_os = "macos"))]
                     assert!(info.name.contains("5090"));
-                    assert_eq!(info.backend, eframe::wgpu::Backend::Vulkan);
+                    assert_eq!(info.backend, if cfg!(target_os = "macos") { eframe::wgpu::Backend::Metal } else { eframe::wgpu::Backend::Vulkan });
                     PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
                     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
                     app.set_wgpu(rs.clone());

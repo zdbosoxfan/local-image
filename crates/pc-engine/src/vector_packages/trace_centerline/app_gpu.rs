@@ -11,13 +11,13 @@ use std::sync::{Arc, Mutex};
 fn centerline_full_app_rtx_dialog_mode_live_preview_trace_and_undo() {
     use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew, wgpu};
     let mut setup = WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    setup.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     setup.native_adapter_selector = Some(Arc::new(|adapters, _| {
         let adapter = adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
+                if cfg!(target_os = "macos") { i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu } else { i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu && i.name.contains("5090") }
             })
             .ok_or_else(|| "RTX 5090 Vulkan required".to_string())?;
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(adapter), wgpu::TextureFormat::Rgba32Float);

@@ -13,13 +13,17 @@ type H = Harness<'static, PhotocraftApp>;
 static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn harness(count: usize) -> H {
     let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN;
+    setup.instance_descriptor.backends = if cfg!(target_os = "macos") { eframe::wgpu::Backends::METAL } else { eframe::wgpu::Backends::VULKAN };
     setup.native_adapter_selector = Some(Arc::new(|adapters, _| {
         let adapter = adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.name.contains("RTX 5090") && i.backend == eframe::wgpu::Backend::Vulkan && i.device_type == eframe::wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    i.backend == eframe::wgpu::Backend::Metal && i.device_type != eframe::wgpu::DeviceType::Cpu
+                } else {
+                    i.name.contains("RTX 5090") && i.backend == eframe::wgpu::Backend::Vulkan && i.device_type == eframe::wgpu::DeviceType::DiscreteGpu
+                }
             })
             .ok_or_else(|| "view37 requires RTX 5090 / Vulkan / discrete adapter".to_string())?;
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(adapter), eframe::wgpu::TextureFormat::Rgba32Float);

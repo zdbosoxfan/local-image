@@ -9,9 +9,13 @@ fn harness(ppp: f32) -> H {
     let mut setup = wgpu_setup();
     use_adapter_limits_with(&mut setup, |a| {
         let i = a.get_info();
+        #[cfg(not(target_os = "macos"))]
         assert!(i.name.contains("RTX 5090"), "{i:?}");
-        assert_eq!(i.backend, wgpu::Backend::Vulkan);
+        assert_eq!(i.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(i.device_type, wgpu::DeviceType::DiscreteGpu);
+        #[cfg(target_os = "macos")]
+        assert_ne!(i.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(a), wgpu::TextureFormat::Rgba32Float);
         assert!(supports_f16_canvas(a));
         eprintln!("scaled-view gate {i:?}");
@@ -634,9 +638,13 @@ fn rotated_presentation_rtx5090_raster_proxy_and_live_move_keep_pixels_and_cover
         let mut setup = wgpu_setup();
         use_adapter_limits_with(&mut setup, |adapter| {
             let info = adapter.get_info();
+            #[cfg(not(target_os = "macos"))]
             assert!(info.name.contains("RTX 5090"), "{info:?}");
-            assert_eq!(info.backend, wgpu::Backend::Vulkan);
+            assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
+            #[cfg(not(target_os = "macos"))]
             assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+            #[cfg(target_os = "macos")]
+            assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
             eprintln!("rotated presentation gate {info:?}");
         });
         let rs = egui_kittest::wgpu::create_render_state(setup, eframe::egui_wgpu::RendererOptions::PREDICTABLE);
@@ -808,9 +816,13 @@ fn rotated_shadow_rtx5090_preserves_interior_and_screen_down_light() {
     let mut setup = wgpu_setup();
     use_adapter_limits_with(&mut setup, |adapter| {
         let info = adapter.get_info();
+        #[cfg(not(target_os = "macos"))]
         assert!(info.name.contains("RTX 5090"), "{info:?}");
-        assert_eq!(info.backend, wgpu::Backend::Vulkan);
+        assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+        #[cfg(target_os = "macos")]
+        assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
     });
     let rs = egui_kittest::wgpu::create_render_state(setup, eframe::egui_wgpu::RendererOptions::PREDICTABLE);
     let linear_target = rs.target_format.is_srgb();

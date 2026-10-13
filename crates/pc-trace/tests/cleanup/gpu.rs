@@ -9,15 +9,23 @@ use photocraft_doc::{Document, Fill, Layer, LayerContent, ShapeLayer, Size};
 
 #[test]
 fn cleanup_cleaned_shapes_rtx5090_vulkan_cpu_parity() -> TestResult {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
     let adapter = pollster::block_on(
         instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() }),
     )?;
     let info = adapter.get_info();
     eprintln!("cleanup GPU adapter: {info:?}");
-    assert_eq!(info.backend, wgpu::Backend::Vulkan);
+    assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+    #[cfg(target_os = "macos")]
+    assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(info.vendor, 0x10de);
+    #[cfg(not(target_os = "macos"))]
     assert!(info.name.contains("RTX 5090"));
     assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float);
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;

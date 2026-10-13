@@ -11,9 +11,13 @@ fn harness(tool: Tool, nodes: usize) -> H {
     let mut setup = crate::gpu_canvas::wgpu_setup();
     crate::gpu_canvas::use_adapter_limits_with(&mut setup, |a| {
         let info = a.get_info();
+        #[cfg(not(target_os = "macos"))]
         assert!(info.name.contains("RTX 5090"), "RTX 5090 required: {info:?}");
-        assert_eq!(info.backend, eframe::wgpu::Backend::Vulkan);
+        assert_eq!(info.backend, if cfg!(target_os = "macos") { eframe::wgpu::Backend::Metal } else { eframe::wgpu::Backend::Vulkan });
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(info.device_type, eframe::wgpu::DeviceType::DiscreteGpu);
+        #[cfg(target_os = "macos")]
+        assert_ne!(info.device_type, eframe::wgpu::DeviceType::Cpu, "hardware Metal adapter required");
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(a), eframe::wgpu::TextureFormat::Rgba32Float);
         assert!(crate::gpu_canvas::supports_f16_canvas(a));
         eprintln!("distort41 GPU {info:?}");

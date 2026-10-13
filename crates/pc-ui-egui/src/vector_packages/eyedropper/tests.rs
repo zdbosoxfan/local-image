@@ -234,21 +234,29 @@ fn styles38_ui_options_exclusions_escape_stale_selection_and_focus_cancel() {
 #[ignore = "owner speed rules: real GPU and offscreen release gate runs at integration"]
 fn styles38_gpu_ui_rtx5090_offscreen_pointer_preview_release() {
     let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN;
+    setup.instance_descriptor.backends = if cfg!(target_os = "macos") { eframe::wgpu::Backends::METAL } else { eframe::wgpu::Backends::VULKAN };
     setup.native_adapter_selector = Some(Arc::new(|adapters, _| {
         adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.backend == eframe::wgpu::Backend::Vulkan && i.device_type == eframe::wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
+                if cfg!(target_os = "macos") {
+                    i.backend == eframe::wgpu::Backend::Metal && i.device_type != eframe::wgpu::DeviceType::Cpu
+                } else {
+                    i.backend == eframe::wgpu::Backend::Vulkan && i.device_type == eframe::wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
+                }
             })
             .cloned()
             .ok_or_else(|| "RTX 5090 Vulkan required".into())
     }));
     let rs = egui_kittest::wgpu::create_render_state(eframe::egui_wgpu::WgpuSetup::CreateNew(setup), eframe::egui_wgpu::RendererOptions::PREDICTABLE);
     let info = rs.adapter.get_info();
-    assert_eq!(info.backend, eframe::wgpu::Backend::Vulkan);
+    assert_eq!(info.backend, if cfg!(target_os = "macos") { eframe::wgpu::Backend::Metal } else { eframe::wgpu::Backend::Vulkan });
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(info.device_type, eframe::wgpu::DeviceType::DiscreteGpu);
+    #[cfg(target_os = "macos")]
+    assert_ne!(info.device_type, eframe::wgpu::DeviceType::Cpu, "hardware Metal adapter required");
+    #[cfg(not(target_os = "macos"))]
     assert!(info.name.contains("5090"));
     assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(&rs.adapter), eframe::wgpu::TextureFormat::Rgba32Float);
     eprintln!("styles38 UI {info:?}");

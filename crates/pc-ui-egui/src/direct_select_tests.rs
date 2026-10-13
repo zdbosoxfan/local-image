@@ -385,8 +385,12 @@ fn full_app_node_gpu_harness() -> (H, u64) {
     let mut setup = crate::gpu_canvas::wgpu_setup();
     crate::gpu_canvas::use_adapter_limits_with(&mut setup, |adapter| {
         let info = adapter.get_info();
-        assert_eq!(info.backend, wgpu::Backend::Vulkan);
+        assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+        #[cfg(target_os = "macos")]
+        assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
+        #[cfg(not(target_os = "macos"))]
         assert!(info.name.contains("RTX 5090"), "{info:?}");
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(adapter), wgpu::TextureFormat::Rgba32Float);
         eprintln!("node full-app GPU adapter: {info:?}");

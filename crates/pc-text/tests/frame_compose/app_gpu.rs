@@ -17,13 +17,17 @@ type H = Harness<'static, PhotocraftApp>;
 fn harness() -> (H, GpuCanvas) {
     use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew, wgpu};
     let mut create = WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(Arc::new(|adapters, _| {
         let a = adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                }
             })
             .ok_or_else(|| "frame gate requires RTX 5090 / Vulkan / discrete".to_owned())?;
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(a), wgpu::TextureFormat::Rgba32Float);

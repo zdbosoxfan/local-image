@@ -12,13 +12,17 @@ use super::{
 
 fn harness() -> Harness<'static, PhotocraftApp> {
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(Arc::new(|adapters, _| {
         adapters
             .iter()
             .find(|a| {
                 let info = a.get_info();
-                info.name.contains("RTX 5090") && info.backend == wgpu::Backend::Vulkan && info.device_type == wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    info.backend == wgpu::Backend::Metal && info.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    info.name.contains("RTX 5090") && info.backend == wgpu::Backend::Vulkan && info.device_type == wgpu::DeviceType::DiscreteGpu
+                }
             })
             .cloned()
             .ok_or_else(|| "persona gate requires RTX 5090 / Vulkan / discrete".into())
@@ -39,9 +43,13 @@ fn harness() -> Harness<'static, PhotocraftApp> {
     });
     h.run_steps(8);
     assert!(h.state().gpu_active());
+    #[cfg(not(target_os = "macos"))]
     assert!(h.state().perf.gpu_info.adapter.contains("RTX 5090"));
-    assert_eq!(h.state().perf.gpu_info.backend, "vulkan");
+    assert_eq!(h.state().perf.gpu_info.backend, if cfg!(target_os = "macos") { "metal" } else { "vulkan" });
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(h.state().perf.gpu_info.device_type, "discreteGpu");
+    #[cfg(target_os = "macos")]
+    assert_ne!(h.state().perf.gpu_info.device_type, "cpu");
     eprintln!("persona GPU identity: {:?}", h.state().perf.gpu_info);
     h
 }

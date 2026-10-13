@@ -2654,8 +2654,8 @@ mod tests {
         let config = egui_wgpu::WgpuConfiguration { wgpu_setup: setup, ..Default::default() };
         let rs = block_on(egui_wgpu::RenderState::create(&config, &instance, None, Default::default())).expect("real GPU required");
         let info = rs.adapter.get_info();
-        assert_eq!(info.backend, wgpu::Backend::Vulkan);
-        assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+        assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
+        assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware GPU required");
         eprintln!("overwrite GPU: {} ({:?})", info.name, info.backend);
         overwrite_pixels("png", Some(rs));
     }

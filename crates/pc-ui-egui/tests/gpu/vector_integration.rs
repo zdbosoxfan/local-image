@@ -109,9 +109,13 @@ fn vector_00_gradient_app_canvas_preview_release_and_undo() {
                 let rs = cc.wgpu_render_state.as_ref().expect("real GPU render state required");
                 let info = rs.adapter.get_info();
                 eprintln!("00 app canvas adapter: {info:?}");
+                #[cfg(not(target_os = "macos"))]
                 assert!(info.name.contains("RTX 5090"), "owner's RTX 5090 is required");
-                assert_eq!(info.backend, eframe::wgpu::Backend::Vulkan);
+                assert_eq!(info.backend, if cfg!(target_os = "macos") { eframe::wgpu::Backend::Metal } else { eframe::wgpu::Backend::Vulkan });
+                #[cfg(not(target_os = "macos"))]
                 assert_eq!(info.device_type, eframe::wgpu::DeviceType::DiscreteGpu);
+                #[cfg(target_os = "macos")]
+                assert_ne!(info.device_type, eframe::wgpu::DeviceType::Cpu, "hardware Metal adapter required");
                 assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(&rs.adapter), eframe::wgpu::TextureFormat::Rgba32Float);
                 *capture.lock().unwrap() = Some(GpuCanvas::new(rs));
                 let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());

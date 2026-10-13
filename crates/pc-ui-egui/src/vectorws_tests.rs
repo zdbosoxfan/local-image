@@ -127,13 +127,17 @@ fn vectorws_rtx5090_workspace_screens_and_interactive_frames() {
     use egui_kittest::kittest::Queryable;
     let _gate = crate::gpu_test_support::lock();
     let mut create = WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
         let adapter = adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                }
             })
             .ok_or("RTX 5090 Vulkan required")?;
         eprintln!("vectorws physical GPU: {:?}", adapter.get_info());

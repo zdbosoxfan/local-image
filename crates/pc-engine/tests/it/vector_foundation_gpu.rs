@@ -6,7 +6,10 @@ use serde_json::json;
 
 #[test]
 fn vector_foundation_transaction_cache_matches_real_gpu() {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN },
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         force_fallback_adapter: false,
@@ -14,8 +17,12 @@ fn vector_foundation_transaction_cache_matches_real_gpu() {
     }))
     .expect("real Vulkan GPU required by the vector task");
     let info = adapter.get_info();
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu, "software adapters do not satisfy this gate: {info:?}");
-    assert_eq!(info.backend, wgpu::Backend::Vulkan);
+    #[cfg(target_os = "macos")]
+    assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
+    assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
+    #[cfg(not(target_os = "macos"))]
     assert!(info.name.contains("5090"), "owner RTX 5090 required: {info:?}");
     assert_eq!(Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float);
     eprintln!("vector foundation adapter: {info:?}");

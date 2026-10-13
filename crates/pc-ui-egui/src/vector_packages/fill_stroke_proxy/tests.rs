@@ -281,13 +281,17 @@ fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
     let _gpu_gate = crate::gpu_test_support::lock();
     use eframe::{egui_wgpu, wgpu};
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(Arc::new(|adapters, _| {
         adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                }
             })
             .cloned()
             .ok_or_else(|| "Requires RTX 5090 / Vulkan / discrete".into())
@@ -311,6 +315,7 @@ fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
             );
         h.run_steps(6);
         assert!(h.state().gpu_active());
+        #[cfg(not(target_os = "macos"))]
         assert!(h.state().perf.gpu_info.adapter.contains("RTX 5090"));
         // This gate intentionally fails on a widget-only branch: 00 must wire the real shell.
         h.get_by_label("Vector persona").click();
@@ -498,13 +503,17 @@ fn toolbar46_gpu_upload_every_vector_icon_and_switch_styles() {
     let _gpu_gate = crate::gpu_test_support::lock();
     use eframe::{egui_wgpu, wgpu};
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(Arc::new(|adapters, _| {
         adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                }
             })
             .cloned()
             .ok_or_else(|| "Requires RTX 5090 / Vulkan / discrete".into())
