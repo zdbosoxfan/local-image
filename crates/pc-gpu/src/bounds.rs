@@ -14,11 +14,12 @@ pub fn layer_bounds(layer: &Layer, canvas: Rect) -> Rect {
     photocraft_compose::layer_bounds(layer, canvas)
 }
 
-/// The region a layer's effect maps cover: its bounds grown by the effect reach, within the
-/// canvas grown likewise (`photocraft_compose::effect_maps`).
+/// The region a layer's effect maps cover: its effect source bounds (for a group, its children
+/// with their own effects: `photocraft_compose::effect_source_bounds`, upstream 980cf05b) grown by
+/// the effect reach, within the canvas grown likewise (`photocraft_compose::effect_maps`).
 pub fn effect_region(layer: &Layer, canvas: Rect) -> Rect {
     let m = photocraft_compose::effects::margin(layer);
-    layer_bounds(layer, canvas).inflate(m).intersect(&canvas.inflate(m))
+    photocraft_compose::effect_source_bounds(layer, canvas).inflate(m).intersect(&canvas.inflate(m))
 }
 
 /// `photocraft_compose::transparent_outside`.

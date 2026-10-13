@@ -557,7 +557,7 @@ impl Session {
                 let patch = self.segment_wait(id, kind, Some(region))?;
                 let outcome = worker::Outcome { tag, result: Ok(patch), superseded: false };
                 let mut polled = Polled::default();
-                self.apply_outcome(outcome, &mut polled);
+                self.apply_segment_outcome(outcome, &mut polled);
             }
             Ok(true)
         }
@@ -579,7 +579,7 @@ impl Session {
             let idle = !self.segmenter.busy();
             let done: Vec<worker::Outcome> = self.segmenter.results.1.try_iter().collect();
             for o in done {
-                self.apply_outcome(o, &mut polled);
+                self.apply_segment_outcome(o, &mut polled);
             }
             // clicks whose request was lost (the worker restarted) aren't pending forever
             if idle {
@@ -590,7 +590,7 @@ impl Session {
     }
 
     #[cfg(feature = "sam")]
-    fn apply_outcome(&mut self, o: worker::Outcome, polled: &mut Polled) {
+    fn apply_segment_outcome(&mut self, o: worker::Outcome, polled: &mut Polled) {
         if o.superseded {
             return;
         }

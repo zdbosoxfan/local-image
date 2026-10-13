@@ -67,15 +67,6 @@ fn fps_param(cmd: &str, p: &Value) -> Result<Option<f32>> {
         .ok_or_else(|| bad(cmd, format!("`fps` must be a number above 0 and at most {MAX_FPS}, got {v}")))
 }
 
-/// Move the playhead `delta` frames, stopping at the first and last frame. Saturating, so it's
-/// safe on any stored timeline, even one loaded with `duration` 0 or `usize::MAX` (#1009).
-/// (Upstream puts this on `Timeline::step` in pc-doc.)
-fn step_timeline(t: &mut Timeline, delta: i64) {
-    let n = usize::try_from(delta.unsigned_abs()).unwrap_or(usize::MAX);
-    let moved = if delta < 0 { t.current.saturating_sub(n) } else { t.current.saturating_add(n) };
-    t.current = moved.min(t.duration.saturating_sub(1));
-}
-
 fn create(s: &mut Session, p: &Value) -> Result<Value> {
     let duration = duration_param("timeline.create", p)?.unwrap_or(30);
     let fps = fps_param("timeline.create", p)?.unwrap_or(30.0);
@@ -99,7 +90,7 @@ fn set_frame(s: &mut Session, p: &Value) -> Result<Value> {
 fn step(s: &mut Session, delta: i64) -> Result<Value> {
     with_timeline(s, |t| {
         if let Some(t) = t {
-            step_timeline(t, delta);
+            t.step(delta);
         }
     })
 }

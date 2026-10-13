@@ -268,6 +268,9 @@ fn reach_for(w: f32) -> i32 {
     (w.max(0.0).ceil() as i32).saturating_add(2)
 }
 
+/// Width of the effect-map LUT texture: every map LUT (blur kernel or contour) fits one row.
+pub(crate) const FX_LUT_ROW: usize = 4096;
+
 /// `compose::effects::blur`'s kernel (a tent of the effect size): (radius, normalised weights),
 /// or None when it is the identity.
 pub(crate) fn blur_kernel(size: f32) -> Option<(i32, Vec<f32>)> {
@@ -391,7 +394,7 @@ pub(crate) fn program_with(e: &Effect, light: &GlobalLight, vector_shape: bool, 
                 h = b.push(st);
             }
             if let Some(t) = &bv.texture
-                && let Some(pat) = photocraft_doc::pattern::find(patterns, &t.id, &t.name).filter(|p| !p.is_empty())
+                && let Some(pat) = photocraft_doc::pattern::find(patterns, &t.id, &t.name).filter(|p| p.is_paintable())
             {
                 // Texture element (`effects::bevel_height`): luminance × depth / unit added.
                 let unit = if bv.depth.abs() > 1e-6 { (g.depth / bv.depth).abs().max(1e-3) } else { g.width.max(1.0) };
@@ -686,6 +689,33 @@ mod tests {
     use super::*;
     use photocraft_color::BlendMode;
     use photocraft_doc::FxCommon;
+
+    /// The effect-map LUT upload is a single row: no blur kernel or contour can outgrow it, at
+    /// any size (box widths are clamped to MAX_REACH since PhotoCraft f82a55f0).
+    #[test]
+    fn every_effect_map_lut_fits_one_row() {
+        use photocraft_compose::effects::{MAX_REACH, ranged_lut, tent_kernel};
+        let widest = tent_kernel(MAX_REACH).1.len();
+        assert!(widest <= FX_LUT_ROW, "{widest} taps");
+        for size in [2051.0, 1e9, f32::MAX, f32::INFINITY, f32::NAN] {
+            assert!(tent_kernel(size).1.len() <= widest, "size {size}");
+        }
+        let points = vec![photocraft_doc::adjust::CurvePoint { input: 0.0, output: 0.2 }, photocraft_doc::adjust::CurvePoint { input: 1.0, output: 0.9 }];
+        let contour = photocraft_doc::Contour::Custom { name: "c".into(), points: points.clone() };
+        assert_eq!(contour_lut(&contour).unwrap().len(), FX_LUT_ROW);
+        assert_eq!(ranged_lut(&contour, 0.4).unwrap().len(), FX_LUT_ROW);
+        let light = GlobalLight::default();
+        for size in [2051.0, 1e9, f32::INFINITY] {
+            let Effect::DropShadow(mut s) = Effect::default_drop_shadow() else { unreachable!() };
+            s.size = size;
+            s.contour = contour.clone();
+            for e in [Effect::DropShadow(s.clone()), Effect::InnerShadow(s)] {
+                for st in program(&e, &light, false).stages {
+                    assert!(st.lut.is_none_or(|l| l.len() <= FX_LUT_ROW), "size {size}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn ds_finding_extreme_field_reach_matches_whole_region() {

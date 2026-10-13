@@ -34,6 +34,19 @@ fn file_new_at_the_size_limit_does_not_fill_every_tile() {
     }
 }
 
+/// Upstream 6e9ba651 (#2935): what `file.new` can create, `.pcraft` can reopen; the loader's
+/// default canvas budget covers the largest new document, and it round-trips.
+#[test]
+fn the_largest_new_document_reopens_from_pcraft() {
+    let max = crate::commands::MAX_NEW_DIMENSION;
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": max, "height": max, "background": "transparent"})).unwrap();
+    let doc = &s.active().unwrap().doc;
+    let bytes = photocraft_format::save_to_bytes(doc, &Default::default()).unwrap();
+    let back = photocraft_format::load_from_bytes(&bytes).unwrap();
+    assert_eq!(back.size, photocraft_geom::Size::new(max, max));
+}
+
 #[test]
 fn command_ids_are_unique_and_documented() {
     let mut seen = std::collections::HashSet::new();

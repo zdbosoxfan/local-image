@@ -606,7 +606,9 @@ impl Session {
 
     /// With Auto Sync on, the ops that carry an edit of the active photo `id` (to `new`) over to the
     /// other selected photos: only the settings that changed; never spot removal or red eye (they
-    /// belong to one photo's pixels), nor history / snapshot restores.
+    /// belong to one photo's pixels), nor history / snapshot restores. Masks / layers never auto
+    /// sync either: `json_delta` takes arrays whole, so any layer edit would replace every other
+    /// photo's own layer stack. Layers go to other photos only through an explicit Sync / Copy.
     fn auto_sync_ops(&mut self, id: PhotoId, new: &DevelopSettings, label: &str) -> Vec<Op> {
         if !self.auto_sync
             || self.active() != Some(id)
@@ -619,7 +621,7 @@ impl Session {
         let Some(old) = self.develop_of(id) else { return Vec::new() };
         let Some(mut delta) = json_delta(&old.to_json_full(), &new.to_json_full()) else { return Vec::new() };
         if let Some(o) = delta.as_object_mut() {
-            for k in ["spots", "red_eye", "version"] {
+            for k in ["masks", "spots", "red_eye", "version"] {
                 o.remove(k);
             }
             lightcraft_develop::presets::strip_photo_bound(o);

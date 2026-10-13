@@ -1381,7 +1381,7 @@ pub const TOOL_SHORTCUTS: &[(&str, &str, Option<&str>)] = &[
     ("tools.select.Hand", "Hand Tool", Some("H")),
     ("tools.select.RotateView", "Rotate View Tool", Some("R")),
     ("tools.select.Zoom", "Zoom Tool", Some("Z")),
-    ("tools.select.SpotHealing", "Healing Tools", Some("J")),
+    ("tools.select.SpotHealing", "Healing and Remove Tools", Some("J")),
     ("tools.select.CloneStamp", "Clone Stamp Tool", Some("S")),
     ("tools.select.HistoryBrush", "History Brush Tool", Some("Y")),
     ("tools.select.Blur", "Blur, Sharpen and Smudge Tools", None),

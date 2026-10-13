@@ -771,6 +771,7 @@ mod tests {
                 "Corner",
                 "Eyedropper",
                 "Hand",
+                "RotateView",
                 "Zoom"
             ]
         );

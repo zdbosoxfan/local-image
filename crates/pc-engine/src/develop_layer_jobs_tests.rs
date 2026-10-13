@@ -32,6 +32,29 @@ fn job(s: &mut Session, cmd: &str, p: Value) -> JobId {
     let Started::Job(id) = s.start(cmd, p).unwrap() else { panic!("expected background job") };
     id
 }
+/// Two Develop renders of one photo can take different backends: under a parallel test run the
+/// shared GPU can be out of memory for one render, which then falls back to the CPU (not latched),
+/// and the backends agree within lc-gpu's parity bound (`tests/fallback.rs`: 3/255), not bit for
+/// bit (here they differ by 1/65535). A profile conversion moves these pixels by about 0.1.
+const RENDER_PARITY: f32 = 3.0 / 255.0;
+fn max_pixel_diff(a: &Document, b: &Document) -> f32 {
+    assert_eq!(a.bounds(), b.bounds());
+    let (pa, pb) = (a.layers[0].surface().unwrap().read_region(a.bounds()), b.layers[0].surface().unwrap().read_region(b.bounds()));
+    assert_eq!(pa.len(), pb.len());
+    pa.iter().zip(&pb).map(|(x, y)| (x - y).abs()).fold(0.0, f32::max)
+}
+/// An ICC profile without its header creation time (bytes 24..36): the Develop render's ProPhoto
+/// profile is written with the clock, so two renders either side of a second boundary differ only
+/// there (the flake in the full parallel run, where renders are slower).
+fn icc_without_date(icc: &Option<Arc<Vec<u8>>>) -> Option<Vec<u8>> {
+    icc.as_ref().map(|b| {
+        let mut b = b.to_vec();
+        if b.len() >= 36 {
+            b[24..36].fill(0);
+        }
+        b
+    })
+}
 fn sync_params(ev: f64) -> Value {
     json!({"photo": 71, "settings": {"light": {"exposure": ev}}})
 }
@@ -58,8 +81,11 @@ fn develop_open_job_matches_the_synchronous_document_and_link() {
     let existing = s.execute(OPEN_JOB, photo.params()).unwrap();
     assert_eq!(existing["documentId"], actual.id.0);
     let expected = &expected.active().unwrap().doc;
-    assert_eq!((actual.size, actual.depth, actual.mode, &actual.icc_profile), (expected.size, expected.depth, expected.mode, &expected.icc_profile));
-    assert_eq!(actual.layers[0].surface().unwrap().read_region(actual.bounds()), expected.layers[0].surface().unwrap().read_region(expected.bounds()));
+    assert_eq!(
+        (actual.size, actual.depth, actual.mode, icc_without_date(&actual.icc_profile)),
+        (expected.size, expected.depth, expected.mode, icc_without_date(&expected.icc_profile))
+    );
+    assert!(max_pixel_diff(&actual, expected) <= RENDER_PARITY);
     assert_eq!(develop_layers(&actual)[0].1, Some(71));
     let LayerContent::Smart(sm) = &actual.layers[0].content else { panic!("Develop smart object") };
     assert_eq!(sm.source, SmartSource::Linked { path: photo.path.display().to_string() });
@@ -81,10 +107,7 @@ fn develop_open_job_matches_the_synchronous_document_and_link() {
     assert_eq!(s.documents().len(), 1);
     // The worker result also agrees with the old direct IO import's pixels.
     let imported = photocraft_io::raw::develop_with_settings("camera.dng", &photo.bytes, &json!({})).unwrap();
-    assert_eq!(
-        actual.layers[0].surface().unwrap().read_region(actual.bounds()),
-        imported.document.layers[0].surface().unwrap().read_region(imported.document.bounds())
-    );
+    assert!(max_pixel_diff(&actual, &imported.document) <= RENDER_PARITY);
 }
 
 #[test]
@@ -336,8 +359,8 @@ fn internal_develop_profile_preserves_managed_pixels_despite_external_import_pol
         session.color.settings.ask_on_mismatch = true;
         let result = session.execute(OPEN_JOB, photo.params()).unwrap();
         let actual = &session.active().unwrap().doc;
-        assert_eq!(actual.icc_profile, expected.icc_profile);
-        assert_eq!(actual.layers[0].surface().unwrap().read_region(actual.bounds()), expected.layers[0].surface().unwrap().read_region(expected.bounds()));
+        assert_eq!(icc_without_date(&actual.icc_profile), icc_without_date(&expected.icc_profile));
+        assert!(max_pixel_diff(actual, &expected) <= RENDER_PARITY, "{policy:?}: the internal render keeps its pixels");
         assert_eq!(result["color"]["ask"], false);
         assert_eq!(result["color"]["action"], "kept");
         let mut external = Session::new();
@@ -353,6 +376,8 @@ fn internal_develop_profile_preserves_managed_pixels_despite_external_import_pol
         );
         if policy == Policy::Convert {
             assert!(document_profile(&external.active().unwrap().doc).same_colors(photocraft_cms::Builtin::Srgb.profile()));
+            // the tolerance above still tells a converted photo apart
+            assert!(max_pixel_diff(&external.active().unwrap().doc, &expected) > 4.0 * RENDER_PARITY);
         }
     }
     let mut session = Session::new();
@@ -361,7 +386,7 @@ fn internal_develop_profile_preserves_managed_pixels_despite_external_import_pol
     let pending = job(&mut session, OPEN_JOB, params);
     let result = session.wait_job(pending).unwrap();
     assert_eq!(result["color"]["ask"], true);
-    assert_eq!(session.active().unwrap().doc.icc_profile, expected.icc_profile);
+    assert_eq!(icc_without_date(&session.active().unwrap().doc.icc_profile), icc_without_date(&expected.icc_profile));
 }
 
 #[test]

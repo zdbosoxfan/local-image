@@ -3146,6 +3146,3764 @@
           "url": "https://github.com/LaurenzV/hayro/blob/4ad1532e1cd719170c4f4baf669f13ec0f406abb/hayro-ccitt/src/state_machine.rs"
         },
         {
+          "name": "LightCraft",
+          "used_for": "DNG opcode lists (OpcodeList1/2/3, DNG 1.7 chapter 7).",
+          "upstream": "crates/raw/src/opcodes.rs",
+          "commit": "a4436597ad94546eb5d1ef538d1ae9355c5a437a",
+          "ours": "crates/lc-raw/src/opcodes.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/a4436597ad94546eb5d1ef538d1ae9355c5a437a/crates/raw/src/opcodes.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Panasonic RW2, Leica RWL and the older Panasonic / Leica .RAW files: every raw encoding these cameras write.",
+          "upstream": "crates/raw/src/vendor/rw2.rs",
+          "commit": "1ba0421a85702bf0142bdcbd33fd2734fa923df4",
+          "ours": "crates/lc-raw/src/vendor/rw2.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/1ba0421a85702bf0142bdcbd33fd2734fa923df4/crates/raw/src/vendor/rw2.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Nikon Huffman-compressed NEF image data (TIFF compression 34713): \"lossless compressed\" and \"lossy compressed\" (type 1 and type 2) at 12 and 14 bits.",
+          "upstream": "crates/raw/src/vendor/nefc.rs",
+          "commit": "ff8d0277665304957bc2ef5d44fb07c60232bfd5",
+          "ours": "crates/lc-raw/src/vendor/nefc.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/ff8d0277665304957bc2ef5d44fb07c60232bfd5/crates/raw/src/vendor/nefc.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Canon CR2.",
+          "upstream": "crates/raw/src/vendor/cr2.rs",
+          "commit": "b5440f167ffc9d87e8c39860cf63979a2d6a46d5",
+          "ours": "crates/lc-raw/src/vendor/cr2.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/b5440f167ffc9d87e8c39860cf63979a2d6a46d5/crates/raw/src/vendor/cr2.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Pentax PEF — uncompressed and Pentax Huffman-compressed (compression 65535).",
+          "upstream": "crates/raw/src/vendor/pef.rs",
+          "commit": "1399c445ef8f4ba11e26e1fd9c9bf1272c8ea757",
+          "ours": "crates/lc-raw/src/vendor/pef.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/1399c445ef8f4ba11e26e1fd9c9bf1272c8ea757/crates/raw/src/vendor/pef.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Pentax PEF — uncompressed and Pentax Huffman-compressed (compression 65535).",
+          "upstream": "crates/raw/src/vendor/pef.rs",
+          "commit": "c7719ddcbf60882329af0eb048d3acea08f403af",
+          "ours": "crates/lc-raw/src/vendor/pef.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/c7719ddcbf60882329af0eb048d3acea08f403af/crates/raw/src/vendor/pef.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Vendor raw formats (TIFF-based) and helpers shared by them.",
+          "upstream": "crates/raw/src/vendor/mod.rs",
+          "commit": "b59ffcc4c9d920162720fded7cbb9e4bfc507920",
+          "ours": "crates/lc-raw/src/vendor/mod.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/b59ffcc4c9d920162720fded7cbb9e4bfc507920/crates/raw/src/vendor/mod.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Canon CR2.",
+          "upstream": "crates/raw/src/vendor/cr2.rs",
+          "commit": "34ecea4f2452d03d790aa6508c30db0924544fbd",
+          "ours": "crates/lc-raw/src/vendor/cr2.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/34ecea4f2452d03d790aa6508c30db0924544fbd/crates/raw/src/vendor/cr2.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "RAW decoding for LightCraft.",
+          "upstream": "crates/raw/src/lib.rs",
+          "commit": "b4c4a436cb41169122a5e1435b2d9df382b705f2",
+          "ours": "crates/lc-raw/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/b4c4a436cb41169122a5e1435b2d9df382b705f2/crates/raw/src/lib.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Sensors that clip below the stated white level.",
+          "upstream": "crates/raw/src/saturation.rs",
+          "commit": "b4c4a436cb41169122a5e1435b2d9df382b705f2",
+          "ours": "crates/lc-raw/src/saturation.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/b4c4a436cb41169122a5e1435b2d9df382b705f2/crates/raw/src/saturation.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Sensors that clip below the stated white level.",
+          "upstream": "crates/raw/src/saturation.rs",
+          "commit": "010d9bb5daac705d58bf77467f5440887df2b10f",
+          "ours": "crates/lc-raw/src/saturation.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/010d9bb5daac705d58bf77467f5440887df2b10f/crates/raw/src/saturation.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Sony ARW.",
+          "upstream": "crates/raw/src/vendor/arw.rs",
+          "commit": "3100cc1a5c72c8a5f7c9702f70d0be629d301707",
+          "ours": "crates/lc-raw/src/vendor/arw.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/3100cc1a5c72c8a5f7c9702f70d0be629d301707/crates/raw/src/vendor/arw.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Sony ARW.",
+          "upstream": "crates/raw/src/vendor/arw.rs",
+          "commit": "179910c020d0359eb549e9326c6911259b51ee34",
+          "ours": "crates/lc-raw/src/vendor/arw.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/179910c020d0359eb549e9326c6911259b51ee34/crates/raw/src/vendor/arw.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Vendor raw formats (TIFF-based) and helpers shared by them.",
+          "upstream": "crates/raw/src/vendor/mod.rs",
+          "commit": "179910c020d0359eb549e9326c6911259b51ee34",
+          "ours": "crates/lc-raw/src/vendor/mod.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/179910c020d0359eb549e9326c6911259b51ee34/crates/raw/src/vendor/mod.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Sony's encrypted SR2SubIFD.",
+          "upstream": "crates/raw/src/vendor/sr2.rs",
+          "commit": "179910c020d0359eb549e9326c6911259b51ee34",
+          "ours": "crates/lc-raw/src/vendor/sr2.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/179910c020d0359eb549e9326c6911259b51ee34/crates/raw/src/vendor/sr2.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Nikon NEF / NRW — uncompressed and Huffman-compressed (lossless, lossy) variants.",
+          "upstream": "crates/raw/src/vendor/nef.rs",
+          "commit": "5bcedbe6fc11ed9e23f47b18328a602b19dd5525",
+          "ours": "crates/lc-raw/src/vendor/nef.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/5bcedbe6fc11ed9e23f47b18328a602b19dd5525/crates/raw/src/vendor/nef.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Nikon NEF / NRW — uncompressed and Huffman-compressed (lossless, lossy) variants.",
+          "upstream": "crates/raw/src/vendor/nef.rs",
+          "commit": "3d9f8492da75d152211d071405aee9c1297b3af9",
+          "ours": "crates/lc-raw/src/vendor/nef.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/3d9f8492da75d152211d071405aee9c1297b3af9/crates/raw/src/vendor/nef.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Reading the pixel data of a TIFF IFD (strips or tiles; uncompressed, lossless JPEG, Deflate), in parallel.",
+          "upstream": "crates/raw/src/tiffraw.rs",
+          "commit": "a12f1697a162a4af2a4d8fef9c5226c097c21aee",
+          "ours": "crates/lc-raw/src/tiffraw.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/a12f1697a162a4af2a4d8fef9c5226c097c21aee/crates/raw/src/tiffraw.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Sample unpacking: bit packing, byte orders, 16/24/32-bit floats, Deflate and TIFF / DNG predictors.",
+          "upstream": "crates/raw/src/unpack.rs",
+          "commit": "a12f1697a162a4af2a4d8fef9c5226c097c21aee",
+          "ours": "crates/lc-raw/src/unpack.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/a12f1697a162a4af2a4d8fef9c5226c097c21aee/crates/raw/src/unpack.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Nikon NEF / NRW — uncompressed and Huffman-compressed (lossless, lossy) variants.",
+          "upstream": "crates/raw/src/vendor/nef.rs",
+          "commit": "a12f1697a162a4af2a4d8fef9c5226c097c21aee",
+          "ours": "crates/lc-raw/src/vendor/nef.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/a12f1697a162a4af2a4d8fef9c5226c097c21aee/crates/raw/src/vendor/nef.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Fujifilm RAF — uncompressed Bayer and X-Trans.",
+          "upstream": "crates/raw/src/vendor/raf.rs",
+          "commit": "a12f1697a162a4af2a4d8fef9c5226c097c21aee",
+          "ours": "crates/lc-raw/src/vendor/raf.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/a12f1697a162a4af2a4d8fef9c5226c097c21aee/crates/raw/src/vendor/raf.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Sony ARW.",
+          "upstream": "crates/raw/src/vendor/arw.rs",
+          "commit": "f1fa336ab13b5fb5224391e6fb50ca33041a77f3",
+          "ours": "crates/lc-raw/src/vendor/arw.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/f1fa336ab13b5fb5224391e6fb50ca33041a77f3/crates/raw/src/vendor/arw.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Sony ARW.",
+          "upstream": "crates/raw/src/vendor/arw.rs",
+          "commit": "cfca2999451e5514474ee4cbac1a4f301ebc192c",
+          "ours": "crates/lc-raw/src/vendor/arw.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/cfca2999451e5514474ee4cbac1a4f301ebc192c/crates/raw/src/vendor/arw.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Sony ARW.",
+          "upstream": "crates/raw/src/vendor/arw.rs",
+          "commit": "5ed59252e87a653741deada5155544735d337d5f",
+          "ours": "crates/lc-raw/src/vendor/arw.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/5ed59252e87a653741deada5155544735d337d5f/crates/raw/src/vendor/arw.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "RAW decoding for LightCraft.",
+          "upstream": "crates/raw/src/lib.rs",
+          "commit": "169a4ed059b2227e320c4c432654f8f7cfc41a42",
+          "ours": "crates/lc-raw/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/169a4ed059b2227e320c4c432654f8f7cfc41a42/crates/raw/src/lib.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Olympus ORF — uncompressed variants.",
+          "upstream": "crates/raw/src/vendor/orf.rs",
+          "commit": "169a4ed059b2227e320c4c432654f8f7cfc41a42",
+          "ours": "crates/lc-raw/src/vendor/orf.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/169a4ed059b2227e320c4c432654f8f7cfc41a42/crates/raw/src/vendor/orf.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Olympus ORF — uncompressed variants.",
+          "upstream": "crates/raw/src/vendor/orf.rs",
+          "commit": "37d36215056838bc705900984a5f503961a1b14d",
+          "ours": "crates/lc-raw/src/vendor/orf.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/37d36215056838bc705900984a5f503961a1b14d/crates/raw/src/vendor/orf.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "RAW decoding for LightCraft.",
+          "upstream": "crates/raw/src/lib.rs",
+          "commit": "44b126274d3a4e0e8237de3eec67a8ad1064a5f4",
+          "ours": "crates/lc-raw/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/44b126274d3a4e0e8237de3eec67a8ad1064a5f4/crates/raw/src/lib.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Olympus ORF — uncompressed variants.",
+          "upstream": "crates/raw/src/vendor/orf.rs",
+          "commit": "44b126274d3a4e0e8237de3eec67a8ad1064a5f4",
+          "ours": "crates/lc-raw/src/vendor/orf.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/44b126274d3a4e0e8237de3eec67a8ad1064a5f4/crates/raw/src/vendor/orf.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "RAW decoding for LightCraft.",
+          "upstream": "crates/raw/src/lib.rs",
+          "commit": "989422398c3044b39b640111dc10cafebf5ba92e",
+          "ours": "crates/lc-raw/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/989422398c3044b39b640111dc10cafebf5ba92e/crates/raw/src/lib.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Vendor raw formats (TIFF-based) and helpers shared by them.",
+          "upstream": "crates/raw/src/vendor/mod.rs",
+          "commit": "989422398c3044b39b640111dc10cafebf5ba92e",
+          "ours": "crates/lc-raw/src/vendor/mod.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/989422398c3044b39b640111dc10cafebf5ba92e/crates/raw/src/vendor/mod.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Olympus ORF — uncompressed variants.",
+          "upstream": "crates/raw/src/vendor/orf.rs",
+          "commit": "989422398c3044b39b640111dc10cafebf5ba92e",
+          "ours": "crates/lc-raw/src/vendor/orf.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/989422398c3044b39b640111dc10cafebf5ba92e/crates/raw/src/vendor/orf.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Pentax PEF — uncompressed and Pentax Huffman-compressed (compression 65535).",
+          "upstream": "crates/raw/src/vendor/pef.rs",
+          "commit": "989422398c3044b39b640111dc10cafebf5ba92e",
+          "ours": "crates/lc-raw/src/vendor/pef.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/989422398c3044b39b640111dc10cafebf5ba92e/crates/raw/src/vendor/pef.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Olympus ORF — uncompressed variants.",
+          "upstream": "crates/raw/src/vendor/orf.rs",
+          "commit": "82566817e6b16bd82bcdd3a60551b516394f5faf",
+          "ours": "crates/lc-raw/src/vendor/orf.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/82566817e6b16bd82bcdd3a60551b516394f5faf/crates/raw/src/vendor/orf.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Save-time check that the manifest holds only finite floats (issue #1101).",
+          "upstream": "crates/format/src/finite.rs",
+          "commit": "9e6bfdc76cde3be0ece15132fc1dfb342f8adaaa",
+          "ours": "crates/pc-format/src/finite.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/9e6bfdc76cde3be0ece15132fc1dfb342f8adaaa/crates/format/src/finite.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "# photocraft-format",
+          "upstream": "crates/format/src/lib.rs",
+          "commit": "9e6bfdc76cde3be0ece15132fc1dfb342f8adaaa",
+          "ours": "crates/pc-format/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/9e6bfdc76cde3be0ece15132fc1dfb342f8adaaa/crates/format/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Object storage (ZIP or directory), incremental writer and loader.",
+          "upstream": "crates/format/src/store.rs",
+          "commit": "9e6bfdc76cde3be0ece15132fc1dfb342f8adaaa",
+          "ours": "crates/pc-format/src/store.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/9e6bfdc76cde3be0ece15132fc1dfb342f8adaaa/crates/format/src/store.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "doc → .pcraft → doc equality, incremental saves, ids, previews.",
+          "upstream": "crates/format/tests/roundtrip.rs",
+          "commit": "9e6bfdc76cde3be0ece15132fc1dfb342f8adaaa",
+          "ours": "crates/pc-format/tests/it/roundtrip.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/9e6bfdc76cde3be0ece15132fc1dfb342f8adaaa/crates/format/tests/roundtrip.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/format/fuzz/fuzz_targets/load.rs",
+          "commit": "6e9ba6511d507dafc7809927f153d818f592f8a8",
+          "ours": "crates/pc-format/fuzz/fuzz_targets/load.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6e9ba6511d507dafc7809927f153d818f592f8a8/crates/format/fuzz/fuzz_targets/load.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "# photocraft-format",
+          "upstream": "crates/format/src/lib.rs",
+          "commit": "6e9ba6511d507dafc7809927f153d818f592f8a8",
+          "ours": "crates/pc-format/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6e9ba6511d507dafc7809927f153d818f592f8a8/crates/format/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Object storage (ZIP or directory), incremental writer and loader.",
+          "upstream": "crates/format/src/store.rs",
+          "commit": "6e9ba6511d507dafc7809927f153d818f592f8a8",
+          "ours": "crates/pc-format/src/store.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6e9ba6511d507dafc7809927f153d818f592f8a8/crates/format/src/store.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Damaged or hostile bundles must fail cleanly, never panic.",
+          "upstream": "crates/format/tests/corruption.rs",
+          "commit": "6e9ba6511d507dafc7809927f153d818f592f8a8",
+          "ours": "crates/pc-format/tests/it/corruption.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6e9ba6511d507dafc7809927f153d818f592f8a8/crates/format/tests/corruption.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Object storage (ZIP or directory), incremental writer and loader.",
+          "upstream": "crates/format/src/store.rs",
+          "commit": "73a56d76032a9d94cda7c838d110f82c3914d8be",
+          "ours": "crates/pc-format/src/store.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/73a56d76032a9d94cda7c838d110f82c3914d8be/crates/format/src/store.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Minimal ZIP container: we write STORE entries (the payloads are already zstd-compressed) and read STORE or DEFLATE entries (so a bundle that was unzipped and re-zipped by another tool still loads).",
+          "upstream": "crates/format/src/zip.rs",
+          "commit": "73a56d76032a9d94cda7c838d110f82c3914d8be",
+          "ours": "crates/pc-format/src/zip.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/73a56d76032a9d94cda7c838d110f82c3914d8be/crates/format/src/zip.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Damaged or hostile bundles must fail cleanly, never panic.",
+          "upstream": "crates/format/tests/corruption.rs",
+          "commit": "73a56d76032a9d94cda7c838d110f82c3914d8be",
+          "ours": "crates/pc-format/tests/it/corruption.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/73a56d76032a9d94cda7c838d110f82c3914d8be/crates/format/tests/corruption.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Path records: saved paths (image resources 2000–2997), the work path (resource 1025) and vector masks (vmsk / vsms layer blocks).",
+          "upstream": "crates/psd/src/path.rs",
+          "commit": "7c77143b97d2e4530dda666dbdd8677483f858e3",
+          "ours": "crates/pc-psd/src/path.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7c77143b97d2e4530dda666dbdd8677483f858e3/crates/psd/src/path.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "PNG via the png crate directly: 8/16-bit, Adam7 read (and write), iCCP, eXIf, tEXt/zTXt/iTXt (XMP in XML:com.adobe.xmp), pHYs.",
+          "upstream": "crates/codecs/src/codecs/png.rs",
+          "commit": "21f1012ce2ef3d90c2f6e867dd84c0edc13d6401",
+          "ours": "crates/pc-codecs/src/codecs/png.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/21f1012ce2ef3d90c2f6e867dd84c0edc13d6401/crates/codecs/src/codecs/png.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "WebP: decode lossy/lossless (first frame) via image-webp; encode lossless via image-webp's VP8L encoder, or lossy with our own VP8 encoder (super::vp8) wrapped in the RIFF container written here (a bare VP8 chunk, or VP8X with ALPH alpha and ICCP / EXIF / XMP chunks).",
+          "upstream": "crates/codecs/src/codecs/webp.rs",
+          "commit": "21f1012ce2ef3d90c2f6e867dd84c0edc13d6401",
+          "ours": "crates/pc-codecs/src/codecs/webp.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/21f1012ce2ef3d90c2f6e867dd84c0edc13d6401/crates/codecs/src/codecs/webp.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Decode limits and encode options.",
+          "upstream": "crates/codecs/src/options.rs",
+          "commit": "21f1012ce2ef3d90c2f6e867dd84c0edc13d6401",
+          "ours": "crates/pc-codecs/src/options.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/21f1012ce2ef3d90c2f6e867dd84c0edc13d6401/crates/codecs/src/options.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Decompression-bomb guards.",
+          "upstream": "crates/codecs/tests/limits.rs",
+          "commit": "21f1012ce2ef3d90c2f6e867dd84c0edc13d6401",
+          "ours": "crates/pc-codecs/tests/it/limits.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/21f1012ce2ef3d90c2f6e867dd84c0edc13d6401/crates/codecs/tests/limits.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "A bounds-checked reader for the TIFF directory structure: classic TIFF (version 42, 4-byte offsets) and BigTIFF (version 43, 8-byte offsets and the LONG8 / SLONG8 / IFD8 types), in either byte order.",
+          "upstream": "crates/codecs/src/codecs/tiff_ifd.rs",
+          "commit": "476f9838765f619dd3c5d93ddac8e6a5d2e10f5d",
+          "ours": "crates/pc-codecs/src/codecs/tiff_ifd.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/476f9838765f619dd3c5d93ddac8e6a5d2e10f5d/crates/codecs/src/codecs/tiff_ifd.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "PNG via the png crate directly: 8/16-bit, Adam7 read (and write), iCCP, eXIf, tEXt/zTXt/iTXt (XMP in XML:com.adobe.xmp), pHYs.",
+          "upstream": "crates/codecs/src/codecs/png.rs",
+          "commit": "7fd610741bc207b4dcc6b4dbdd78a4c23235f2ba",
+          "ours": "crates/pc-codecs/src/codecs/png.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fd610741bc207b4dcc6b4dbdd78a4c23235f2ba/crates/codecs/src/codecs/png.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Decode limits and encode options.",
+          "upstream": "crates/codecs/src/options.rs",
+          "commit": "7fd610741bc207b4dcc6b4dbdd78a4c23235f2ba",
+          "ours": "crates/pc-codecs/src/options.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fd610741bc207b4dcc6b4dbdd78a4c23235f2ba/crates/codecs/src/options.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Decompression-bomb guards.",
+          "upstream": "crates/codecs/tests/limits.rs",
+          "commit": "7fd610741bc207b4dcc6b4dbdd78a4c23235f2ba",
+          "ours": "crates/pc-codecs/tests/it/limits.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fd610741bc207b4dcc6b4dbdd78a4c23235f2ba/crates/codecs/tests/limits.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Undeveloped sensor data and the shared strip/tile reader.",
+          "upstream": "crates/raw/src/sensor.rs",
+          "commit": "308ef6329471259e096e1ede1a92ab91f0f8d6e1",
+          "ours": "crates/pc-raw/src/sensor.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/308ef6329471259e096e1ede1a92ab91f0f8d6e1/crates/raw/src/sensor.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Truncated and corrupted raw files must fail cleanly, never panic, and never allocate beyond the limits.",
+          "upstream": "crates/raw/tests/hostile.rs",
+          "commit": "308ef6329471259e096e1ede1a92ab91f0f8d6e1",
+          "ours": "crates/pc-raw/tests/it/hostile.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/308ef6329471259e096e1ede1a92ab91f0f8d6e1/crates/raw/tests/hostile.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "[Document] → PSD/PSB.",
+          "upstream": "crates/io/src/psd_export.rs",
+          "commit": "3f72158f0af959674651bfb8086ee000bf8f5157",
+          "ours": "crates/pc-io/src/psd_export.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3f72158f0af959674651bfb8086ee000bf8f5157/crates/io/src/psd_export.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Document → PSD → Document round trips.",
+          "upstream": "crates/io/tests/roundtrip.rs",
+          "commit": "3f72158f0af959674651bfb8086ee000bf8f5157",
+          "ours": "crates/pc-io/tests/it/roundtrip.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3f72158f0af959674651bfb8086ee000bf8f5157/crates/io/tests/roundtrip.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Channel image data codecs: Raw, RLE (PackBits), ZIP, and ZIP with prediction.",
+          "upstream": "crates/psd/src/compression.rs",
+          "commit": "0fb4bbf1dbf25a56bd1e11e412747bc2a07559fe",
+          "ours": "crates/pc-psd/src/compression.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/0fb4bbf1dbf25a56bd1e11e412747bc2a07559fe/crates/psd/src/compression.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Malformed input handling: every error path must return Err, never panic.",
+          "upstream": "crates/psd/tests/malformed.rs",
+          "commit": "0fb4bbf1dbf25a56bd1e11e412747bc2a07559fe",
+          "ours": "crates/pc-psd/tests/it/malformed.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/0fb4bbf1dbf25a56bd1e11e412747bc2a07559fe/crates/psd/tests/malformed.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Photoshop ActionDescriptor structures (OSType-tagged key/value trees).",
+          "upstream": "crates/psd/src/descriptor.rs",
+          "commit": "64a02107bad9281e0cebfad3afab66481d79cbb8",
+          "ours": "crates/pc-psd/src/descriptor.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/64a02107bad9281e0cebfad3afab66481d79cbb8/crates/psd/src/descriptor.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Patterns: the global Patt / Pat2 / Pat3 tagged blocks (8 / 16 / 32-bit documents) and standalone .pat files.",
+          "upstream": "crates/psd/src/patterns.rs",
+          "commit": "16341720c0166050b43b64c13f1d106577853b9c",
+          "ours": "crates/pc-psd/src/patterns.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/16341720c0166050b43b64c13f1d106577853b9c/crates/psd/src/patterns.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Sample helpers and RGBA8 convenience extraction.",
+          "upstream": "crates/psd/src/pixels.rs",
+          "commit": "04396dd85f7e234702cd09ef48b0e8b2f58b7aed",
+          "ours": "crates/pc-psd/src/pixels.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/04396dd85f7e234702cd09ef48b0e8b2f58b7aed/crates/psd/src/pixels.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "# photocraft-io",
+          "upstream": "crates/io/src/lib.rs",
+          "commit": "fd351918e52f31df3f692a063c5db959bc5c9365",
+          "ours": "crates/pc-io/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd351918e52f31df3f692a063c5db959bc5c9365/crates/io/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "PSD/PSB → [Document].",
+          "upstream": "crates/io/src/psd_import.rs",
+          "commit": "fd351918e52f31df3f692a063c5db959bc5c9365",
+          "ours": "crates/pc-io/src/psd_import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd351918e52f31df3f692a063c5db959bc5c9365/crates/io/src/psd_import.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Layered TIFF: Photoshop layer data carried in the TIFF tags 37724 (ImageSourceData) and 34377 (image resources), see [photocraft_psd::tiff].",
+          "upstream": "crates/io/src/tiff_layers.rs",
+          "commit": "fd351918e52f31df3f692a063c5db959bc5c9365",
+          "ours": "crates/pc-io/src/tiff_layers.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd351918e52f31df3f692a063c5db959bc5c9365/crates/io/src/tiff_layers.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Layered TIFF (Photoshop layer data in tags 37724 / 34377): Document → TIFF → Document round trips in every mode and depth, equivalence with the PSD path, the flat fall-backs, files written by an independent implementation (psdtags, both byte orders), and malformed input.",
+          "upstream": "crates/io/tests/tiff_layers.rs",
+          "commit": "fd351918e52f31df3f692a063c5db959bc5c9365",
+          "ours": "crates/pc-io/tests/it/tiff_layers.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd351918e52f31df3f692a063c5db959bc5c9365/crates/io/tests/tiff_layers.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Nested layer tree reconstruction from section dividers.",
+          "upstream": "crates/psd/src/tree.rs",
+          "commit": "fd351918e52f31df3f692a063c5db959bc5c9365",
+          "ours": "crates/pc-psd/src/tree.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd351918e52f31df3f692a063c5db959bc5c9365/crates/psd/src/tree.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Layer tree reconstruction.",
+          "upstream": "crates/psd/tests/tree.rs",
+          "commit": "fd351918e52f31df3f692a063c5db959bc5c9365",
+          "ours": "crates/pc-psd/tests/it/tree.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd351918e52f31df3f692a063c5db959bc5c9365/crates/psd/tests/tree.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "PSD/PSB → [Document].",
+          "upstream": "crates/io/src/psd_import.rs",
+          "commit": "dc256b8b39ddba16241c0db2ba07a0371f2a762c",
+          "ours": "crates/pc-io/src/psd_import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/dc256b8b39ddba16241c0db2ba07a0371f2a762c/crates/io/src/psd_import.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "PSD (testgen / builder) → Document → PSD structural equality.",
+          "upstream": "crates/io/tests/psd_structure.rs",
+          "commit": "dc256b8b39ddba16241c0db2ba07a0371f2a762c",
+          "ours": "crates/pc-io/tests/it/psd_structure.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/dc256b8b39ddba16241c0db2ba07a0371f2a762c/crates/io/tests/psd_structure.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Netpbm family, implemented here: P1–P6 (PBM/PGM/PPM, ASCII and binary), P7 (PAM, including the common CMYK/CMYK_ALPHA tuple types) and PFM (PF colour / Pf gray float).",
+          "upstream": "crates/codecs/src/codecs/pnm.rs",
+          "commit": "59820ecafbd74aac5d4d80258eb69b482bd1d8ce",
+          "ours": "crates/pc-codecs/src/codecs/pnm.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/59820ecafbd74aac5d4d80258eb69b482bd1d8ce/crates/codecs/src/codecs/pnm.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "#2938: Limits::max_alloc budgets the decoded pixel buffer, so the PNM decoder must not build a wider scratch copy (it used to collect one u32 per sample, four times an 8-bit image) next to it.",
+          "upstream": "crates/codecs/tests/pnm_peak_memory.rs",
+          "commit": "59820ecafbd74aac5d4d80258eb69b482bd1d8ce",
+          "ours": "crates/pc-codecs/tests/pnm_peak_memory.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/59820ecafbd74aac5d4d80258eb69b482bd1d8ce/crates/codecs/tests/pnm_peak_memory.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Netpbm family, implemented here: P1–P6 (PBM/PGM/PPM, ASCII and binary), P7 (PAM, including the common CMYK/CMYK_ALPHA tuple types) and PFM (PF colour / Pf gray float).",
+          "upstream": "crates/codecs/src/codecs/pnm.rs",
+          "commit": "9af9df82756c2f80b764400590bb957c5c3e2e48",
+          "ours": "crates/pc-codecs/src/codecs/pnm.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/9af9df82756c2f80b764400590bb957c5c3e2e48/crates/codecs/src/codecs/pnm.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Decompression-bomb guards.",
+          "upstream": "crates/codecs/tests/limits.rs",
+          "commit": "9af9df82756c2f80b764400590bb957c5c3e2e48",
+          "ours": "crates/pc-codecs/tests/it/limits.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/9af9df82756c2f80b764400590bb957c5c3e2e48/crates/codecs/tests/limits.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Document ⇄ manifest conversion.",
+          "upstream": "crates/format/src/convert.rs",
+          "commit": "b2003a4329bfd3b52ac61d0a00781a64ada38668",
+          "ours": "crates/pc-format/src/convert.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/b2003a4329bfd3b52ac61d0a00781a64ada38668/crates/format/src/convert.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Damaged or hostile bundles must fail cleanly, never panic.",
+          "upstream": "crates/format/tests/corruption.rs",
+          "commit": "b2003a4329bfd3b52ac61d0a00781a64ada38668",
+          "ours": "crates/pc-format/tests/it/corruption.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/b2003a4329bfd3b52ac61d0a00781a64ada38668/crates/format/tests/corruption.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Minimal ZIP container: we write STORE entries (the payloads are already zstd-compressed) and read STORE or DEFLATE entries (so a bundle that was unzipped and re-zipped by another tool still loads).",
+          "upstream": "crates/format/src/zip.rs",
+          "commit": "3e9359071c1cd3c8acc413def68d23e37cbfb463",
+          "ours": "crates/pc-format/src/zip.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3e9359071c1cd3c8acc413def68d23e37cbfb463/crates/format/src/zip.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Document ⇄ manifest conversion.",
+          "upstream": "crates/format/src/convert.rs",
+          "commit": "fd21e734111ef0af3f26b77e3e59d3d651c50f91",
+          "ours": "crates/pc-format/src/convert.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd21e734111ef0af3f26b77e3e59d3d651c50f91/crates/format/src/convert.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Damaged or hostile bundles must fail cleanly, never panic.",
+          "upstream": "crates/format/tests/corruption.rs",
+          "commit": "fd21e734111ef0af3f26b77e3e59d3d651c50f91",
+          "ours": "crates/pc-format/tests/it/corruption.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd21e734111ef0af3f26b77e3e59d3d651c50f91/crates/format/tests/corruption.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Document ⇄ manifest conversion.",
+          "upstream": "crates/format/src/convert.rs",
+          "commit": "0050f29a85745642ba88afc80143674e92a55b4b",
+          "ours": "crates/pc-format/src/convert.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/0050f29a85745642ba88afc80143674e92a55b4b/crates/format/src/convert.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Canon CR2.",
+          "upstream": "crates/raw/src/cr2.rs",
+          "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
+          "ours": "crates/pc-raw/src/cr2.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/86a629939a14f3886c042954c28729a20a79e1e2/crates/raw/src/cr2.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Digital Negative (Adobe DNG Specification 1.7): raw IFD selection, CFA description, linearization, black/white levels, active area, default crop, colour calibration and white balance.",
+          "upstream": "crates/raw/src/dng.rs",
+          "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
+          "ours": "crates/pc-raw/src/dng.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/86a629939a14f3886c042954c28729a20a79e1e2/crates/raw/src/dng.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Olympus ORF with uncompressed sensor data (older Four Thirds bodies such as the E-1 and E-400).",
+          "upstream": "crates/raw/src/orf.rs",
+          "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
+          "ours": "crates/pc-raw/src/orf.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/86a629939a14f3886c042954c28729a20a79e1e2/crates/raw/src/orf.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Panasonic / Leica RW2 with the bit-packed sensor layout (PanasonicRaw RawFormat 5, written by recent Lumix bodies).",
+          "upstream": "crates/raw/src/rw2.rs",
+          "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
+          "ours": "crates/pc-raw/src/rw2.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/86a629939a14f3886c042954c28729a20a79e1e2/crates/raw/src/rw2.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "A small, bounds-checked TIFF 6.0 / TIFF-EP structure reader.",
+          "upstream": "crates/raw/src/tiff.rs",
+          "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
+          "ours": "crates/pc-raw/src/tiff.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/86a629939a14f3886c042954c28729a20a79e1e2/crates/raw/src/tiff.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "TIFF/EP-structured raws (NEF, ARW, PEF and others) whose sensor data is stored uncompressed or as lossless JPEG in a standard CFA IFD (TIFF/EP, ISO 12234-2: PhotometricInterpretation 32803, CFARepeatPatternDim and CFAPattern), plus Sony's compressed ARW (see [crate::sony]).",
+          "upstream": "crates/raw/src/tiffep.rs",
+          "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
+          "ours": "crates/pc-raw/src/tiffep.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/86a629939a14f3886c042954c28729a20a79e1e2/crates/raw/src/tiffep.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Synthetic DNG files: every storage layout decodes to the exact sensor samples, and development reproduces known colours.",
+          "upstream": "crates/raw/tests/dng.rs",
+          "commit": "86a629939a14f3886c042954c28729a20a79e1e2",
+          "ours": "crates/pc-raw/tests/it/dng.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/86a629939a14f3886c042954c28729a20a79e1e2/crates/raw/tests/dng.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Olympus ORF with uncompressed sensor data (older Four Thirds bodies such as the E-1 and E-400).",
+          "upstream": "crates/raw/src/orf.rs",
+          "commit": "9d9e512d40a25a29dc51eebec4396e80220019a1",
+          "ours": "crates/pc-raw/src/orf.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/9d9e512d40a25a29dc51eebec4396e80220019a1/crates/raw/src/orf.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Vendor raw codecs, round-tripped through the in-test synthetic encoders: Sony compressed ARW (cRAW), Panasonic RW2 (RawFormat 5) and uncompressed Olympus ORF (with its maker-note preview).",
+          "upstream": "crates/raw/tests/vendor_codecs.rs",
+          "commit": "9d9e512d40a25a29dc51eebec4396e80220019a1",
+          "ours": "crates/pc-raw/tests/it/vendor_codecs.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/9d9e512d40a25a29dc51eebec4396e80220019a1/crates/raw/tests/vendor_codecs.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Digital Negative (Adobe DNG Specification 1.7): raw IFD selection, CFA description, linearization, black/white levels, active area, default crop, colour calibration and white balance.",
+          "upstream": "crates/raw/src/dng.rs",
+          "commit": "0bb46df63859714cf1c0ea90fd6f2e990da63d2a",
+          "ours": "crates/pc-raw/src/dng.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/0bb46df63859714cf1c0ea90fd6f2e990da63d2a/crates/raw/src/dng.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Synthetic raw-file generators for tests and fuzz seeds: a lossless-JPEG (T.81 process 14) encoder, a small TIFF writer, and DNG / CR2 / TIFF-EP builders.",
+          "upstream": "crates/raw/src/testgen.rs",
+          "commit": "0bb46df63859714cf1c0ea90fd6f2e990da63d2a",
+          "ours": "crates/pc-raw/src/testgen.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/0bb46df63859714cf1c0ea90fd6f2e990da63d2a/crates/raw/src/testgen.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Synthetic DNG files: every storage layout decodes to the exact sensor samples, and development reproduces known colours.",
+          "upstream": "crates/raw/tests/dng.rs",
+          "commit": "0bb46df63859714cf1c0ea90fd6f2e990da63d2a",
+          "ours": "crates/pc-raw/tests/it/dng.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/0bb46df63859714cf1c0ea90fd6f2e990da63d2a/crates/raw/tests/dng.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "photocraft-raw: a clean-room, pure-Rust camera raw decoder and developer.",
+          "upstream": "crates/raw/src/lib.rs",
+          "commit": "88f84aab59b2bf4b2acd959129600bedddbb1a77",
+          "ours": "crates/pc-raw/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/88f84aab59b2bf4b2acd959129600bedddbb1a77/crates/raw/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Sensors that clip below the stated white level.",
+          "upstream": "crates/raw/src/saturation.rs",
+          "commit": "88f84aab59b2bf4b2acd959129600bedddbb1a77",
+          "ours": "crates/pc-raw/src/saturation.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/88f84aab59b2bf4b2acd959129600bedddbb1a77/crates/raw/src/saturation.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Synthetic DNG files: every storage layout decodes to the exact sensor samples, and development reproduces known colours.",
+          "upstream": "crates/raw/tests/dng.rs",
+          "commit": "88f84aab59b2bf4b2acd959129600bedddbb1a77",
+          "ours": "crates/pc-raw/tests/it/dng.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/88f84aab59b2bf4b2acd959129600bedddbb1a77/crates/raw/tests/dng.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Notes and Image › Analysis data ⇄ PSD.",
+          "upstream": "crates/io/src/annotations_map.rs",
+          "commit": "4f33c8152485cc940785a74db81fbd6b54ac9a08",
+          "ours": "crates/pc-io/src/annotations_map.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/4f33c8152485cc940785a74db81fbd6b54ac9a08/crates/io/src/annotations_map.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "PSD/PSB → [Document].",
+          "upstream": "crates/io/src/psd_import.rs",
+          "commit": "4f33c8152485cc940785a74db81fbd6b54ac9a08",
+          "ours": "crates/pc-io/src/psd_import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/4f33c8152485cc940785a74db81fbd6b54ac9a08/crates/io/src/psd_import.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Notes (Anno) and the measurement scale (resource 1074) through PSD: verbatim while unchanged, regenerated after edits.",
+          "upstream": "crates/io/tests/annotations.rs",
+          "commit": "4f33c8152485cc940785a74db81fbd6b54ac9a08",
+          "ours": "crates/pc-io/tests/it/annotations.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/4f33c8152485cc940785a74db81fbd6b54ac9a08/crates/io/tests/annotations.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Layer comps and artboards ⇄ PSD.",
+          "upstream": "crates/io/src/comps_map.rs",
+          "commit": "f86517a029d96f887cd82ff8062a5e7759372c5e",
+          "ours": "crates/pc-io/src/comps_map.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/f86517a029d96f887cd82ff8062a5e7759372c5e/crates/io/src/comps_map.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Smart objects in PSD: the placed-layer blocks (SoLd, PlLd) and the smart filter stack (filterFX inside SoLd).",
+          "upstream": "crates/io/src/smart_map.rs",
+          "commit": "f86517a029d96f887cd82ff8062a5e7759372c5e",
+          "ours": "crates/pc-io/src/smart_map.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/f86517a029d96f887cd82ff8062a5e7759372c5e/crates/io/src/smart_map.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Photoshop ActionDescriptor structures (OSType-tagged key/value trees).",
+          "upstream": "crates/psd/src/descriptor.rs",
+          "commit": "f86517a029d96f887cd82ff8062a5e7759372c5e",
+          "ours": "crates/pc-psd/src/descriptor.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/f86517a029d96f887cd82ff8062a5e7759372c5e/crates/psd/src/descriptor.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "[Document] → PSD/PSB.",
+          "upstream": "crates/io/src/psd_export.rs",
+          "commit": "e2aa19341f73a254f901c7c8c8c2e3a7e919ea44",
+          "ours": "crates/pc-io/src/psd_export.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/e2aa19341f73a254f901c7c8c8c2e3a7e919ea44/crates/io/src/psd_export.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Every layer-level tagged block of an exported PSD/PSB is a multiple of 4 bytes long.",
+          "upstream": "crates/io/tests/psd_block_alignment.rs",
+          "commit": "e2aa19341f73a254f901c7c8c8c2e3a7e919ea44",
+          "ours": "crates/pc-io/tests/it/psd_block_alignment.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/e2aa19341f73a254f901c7c8c8c2e3a7e919ea44/crates/io/tests/psd_block_alignment.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "[Document] → PSD/PSB.",
+          "upstream": "crates/io/src/psd_export.rs",
+          "commit": "c833294e34124eb8025de91627eb5a2d3a50f422",
+          "ours": "crates/pc-io/src/psd_export.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/c833294e34124eb8025de91627eb5a2d3a50f422/crates/io/src/psd_export.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/io/tests/psd_empty_channels.rs",
+          "commit": "c833294e34124eb8025de91627eb5a2d3a50f422",
+          "ours": "crates/pc-io/tests/it/psd_empty_channels.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/c833294e34124eb8025de91627eb5a2d3a50f422/crates/io/tests/psd_empty_channels.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Mapping between PSD adjustment-layer blocks and [Adjustment].",
+          "upstream": "crates/io/src/adjust_map.rs",
+          "commit": "0d058f4c29dee846bc48635014366922ba81011e",
+          "ours": "crates/pc-io/src/adjust_map.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/0d058f4c29dee846bc48635014366922ba81011e/crates/io/src/adjust_map.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "[Document] → PSD/PSB.",
+          "upstream": "crates/io/src/psd_export.rs",
+          "commit": "0d058f4c29dee846bc48635014366922ba81011e",
+          "ours": "crates/pc-io/src/psd_export.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/0d058f4c29dee846bc48635014366922ba81011e/crates/io/src/psd_export.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Image resources section (8BIM resource blocks).",
+          "upstream": "crates/psd/src/resources.rs",
+          "commit": "6f1c4481bfe158eccd5ed9b0bae344145f74e165",
+          "ours": "crates/pc-psd/src/resources.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6f1c4481bfe158eccd5ed9b0bae344145f74e165/crates/psd/src/resources.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "PSD type layers: the TySh block (transform + text descriptor with EngineData + warp) ⇄ the typed [TextLayer] model.",
+          "upstream": "crates/text/src/psd.rs",
+          "commit": "6f1c4481bfe158eccd5ed9b0bae344145f74e165",
+          "ours": "crates/pc-text/src/psd.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6f1c4481bfe158eccd5ed9b0bae344145f74e165/crates/text/src/psd.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Multichannel documents <-> PSD colour mode 7.",
+          "upstream": "crates/io/src/multichannel_map.rs",
+          "commit": "6547ca0b8459ef37e1dfb373cc00a81740ed74a4",
+          "ours": "crates/pc-io/src/multichannel_map.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6547ca0b8459ef37e1dfb373cc00a81740ed74a4/crates/io/src/multichannel_map.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "[Document] → PSD/PSB.",
+          "upstream": "crates/io/src/psd_export.rs",
+          "commit": "6547ca0b8459ef37e1dfb373cc00a81740ed74a4",
+          "ours": "crates/pc-io/src/psd_export.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6547ca0b8459ef37e1dfb373cc00a81740ed74a4/crates/io/src/psd_export.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Retouching tools as commands: Clone Stamp, Healing Brush, Spot Healing Brush, Patch, Content-Aware Move, Dodge, Burn, Sponge, Blur, Sharpen, Smudge and History Brush.",
+          "upstream": "crates/engine/src/retouch_cmds.rs",
+          "commit": "af3c99d817609c981ec2fc0296cd81b2ba9aa450",
+          "ours": "crates/pc-engine/src/retouch_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/af3c99d817609c981ec2fc0296cd81b2ba9aa450/crates/engine/src/retouch_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/retouch_cmds/tests.rs",
+          "commit": "af3c99d817609c981ec2fc0296cd81b2ba9aa450",
+          "ours": "crates/pc-engine/src/retouch_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/af3c99d817609c981ec2fc0296cd81b2ba9aa450/crates/engine/src/retouch_cmds/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Quick Selection brush.",
+          "upstream": "crates/algo/src/segment/quick.rs",
+          "commit": "5049a1d06218211bf482e48d9070a9bd414dec3f",
+          "ours": "crates/pc-algo/src/segment/quick.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/5049a1d06218211bf482e48d9070a9bd414dec3f/crates/algo/src/segment/quick.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/algo/src/segment/tests.rs",
+          "commit": "5049a1d06218211bf482e48d9070a9bd414dec3f",
+          "ours": "crates/pc-algo/src/segment/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/5049a1d06218211bf482e48d9070a9bd414dec3f/crates/algo/src/segment/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Filter › Vanishing Point: perspective planes, pasting onto a plane and cloning in perspective.",
+          "upstream": "crates/algo/src/vanishing.rs",
+          "commit": "5049a1d06218211bf482e48d9070a9bd414dec3f",
+          "ours": "crates/pc-algo/src/vanishing.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/5049a1d06218211bf482e48d9070a9bd414dec3f/crates/algo/src/vanishing.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Evaluation of adjustment layers on a composite buffer.",
+          "upstream": "crates/compose/src/adjust.rs",
+          "commit": "5049a1d06218211bf482e48d9070a9bd414dec3f",
+          "ours": "crates/pc-compose/src/adjust.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/5049a1d06218211bf482e48d9070a9bd414dec3f/crates/compose/src/adjust.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Multi-layer selection and the commands that act on it: ⌘/⇧-click selection, Select › All / Deselect / Find Layers, Layer › Align and Distribute, Link Layers, Merge Layers, Group from Layers, Arrange › Reverse, Lock Layers and Rename Layer.",
+          "upstream": "crates/engine/src/layer_multi_cmds.rs",
+          "commit": "5049a1d06218211bf482e48d9070a9bd414dec3f",
+          "ours": "crates/pc-engine/src/layer_multi_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/5049a1d06218211bf482e48d9070a9bd414dec3f/crates/engine/src/layer_multi_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "CPU reference renderer for layer effects (layer styles).",
+          "upstream": "crates/compose/src/effects.rs",
+          "commit": "f82a55f0560122ec8a12730a6e0baf9e57039f77",
+          "ours": "crates/pc-compose/src/effects.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/f82a55f0560122ec8a12730a6e0baf9e57039f77/crates/compose/src/effects.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "layer.layerStyle.",
+          "upstream": "crates/engine/src/layer_style.rs",
+          "commit": "f82a55f0560122ec8a12730a6e0baf9e57039f77",
+          "ours": "crates/pc-engine/src/layer_style.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/f82a55f0560122ec8a12730a6e0baf9e57039f77/crates/engine/src/layer_style.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Evaluation of adjustment layers on a composite buffer.",
+          "upstream": "crates/compose/src/adjust.rs",
+          "commit": "2842973dc01c437e7318e37faf1fa90aa2e4545d",
+          "ours": "crates/pc-compose/src/adjust.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/2842973dc01c437e7318e37faf1fa90aa2e4545d/crates/compose/src/adjust.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "CPU reference renderer for layer effects (layer styles).",
+          "upstream": "crates/compose/src/effects.rs",
+          "commit": "2842973dc01c437e7318e37faf1fa90aa2e4545d",
+          "ours": "crates/pc-compose/src/effects.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/2842973dc01c437e7318e37faf1fa90aa2e4545d/crates/compose/src/effects.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "CPU reference compositor.",
+          "upstream": "crates/compose/src/lib.rs",
+          "commit": "2842973dc01c437e7318e37faf1fa90aa2e4545d",
+          "ours": "crates/pc-compose/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/2842973dc01c437e7318e37faf1fa90aa2e4545d/crates/compose/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "A layer's effective mask (pixel mask × vector mask, each feathered) as one surface, for backends that sample masks from textures (the GPU compositor) and for feathered masks on the CPU.",
+          "upstream": "crates/compose/src/masks.rs",
+          "commit": "2842973dc01c437e7318e37faf1fa90aa2e4545d",
+          "ours": "crates/pc-compose/src/masks.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/2842973dc01c437e7318e37faf1fa90aa2e4545d/crates/compose/src/masks.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Pattern paint: Pattern Overlay, pattern strokes and pattern fill layers.",
+          "upstream": "crates/compose/src/pattern.rs",
+          "commit": "2842973dc01c437e7318e37faf1fa90aa2e4545d",
+          "ours": "crates/pc-compose/src/pattern.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/2842973dc01c437e7318e37faf1fa90aa2e4545d/crates/compose/src/pattern.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Downsampled proxy documents: every pixel surface scaled down by an integer factor k, so a composite of the proxy approximates the document's composite at 1/k resolution for ~1/k² of the work.",
+          "upstream": "crates/compose/src/proxy.rs",
+          "commit": "2842973dc01c437e7318e37faf1fa90aa2e4545d",
+          "ours": "crates/pc-compose/src/proxy.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/2842973dc01c437e7318e37faf1fa90aa2e4545d/crates/compose/src/proxy.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/compose/src/tests.rs",
+          "commit": "2842973dc01c437e7318e37faf1fa90aa2e4545d",
+          "ours": "crates/pc-compose/src/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/2842973dc01c437e7318e37faf1fa90aa2e4545d/crates/compose/src/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "File › Export › Save for Web (Legacy), File › Export › Export Preferences, the Quick Export pipeline that honours them, and File › Generate › Image Assets (Photoshop's Generator).",
+          "upstream": "crates/engine/src/web_cmds.rs",
+          "commit": "61b6276c78f1df34e0967ba78e235b3b0c055ba8",
+          "ours": "crates/pc-engine/src/web_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/61b6276c78f1df34e0967ba78e235b3b0c055ba8/crates/engine/src/web_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/web_cmds/tests.rs",
+          "commit": "61b6276c78f1df34e0967ba78e235b3b0c055ba8",
+          "ours": "crates/pc-engine/src/web_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/61b6276c78f1df34e0967ba78e235b3b0c055ba8/crates/engine/src/web_cmds/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Everyday Photoshop commands that build on the core ones: Edit › Stroke, the fixed Transform presets (Rotate 180°/90°, Flip), Paste Into, Reselect, Equalize, Reveal All, Layer from Background, Copy/Paste Layer Style, Hide All Effects, layer-mask toggles, Rasterize variants, Delete Hidden / Empty Layers, Ungroup, Hide/Show Layers, Show Only This Layer (⌥-click an eye), Average and Clouds.",
+          "upstream": "crates/engine/src/extra_cmds.rs",
+          "commit": "81f974503358e57a34f920f7aa4924ad84f85a39",
+          "ours": "crates/pc-engine/src/extra_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/81f974503358e57a34f920f7aa4924ad84f85a39/crates/engine/src/extra_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "CPU reference compositor.",
+          "upstream": "crates/compose/src/lib.rs",
+          "commit": "f1433f4ab2968931905e5c4cda7e13a143572829",
+          "ours": "crates/pc-compose/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/f1433f4ab2968931905e5c4cda7e13a143572829/crates/compose/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Photoshop-exact blend functions where they differ from the generic reference in photocraft_color::blend, plus the compositing formula.",
+          "upstream": "crates/compose/src/psblend.rs",
+          "commit": "f1433f4ab2968931905e5c4cda7e13a143572829",
+          "ours": "crates/pc-compose/src/psblend.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/f1433f4ab2968931905e5c4cda7e13a143572829/crates/compose/src/psblend.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/compose/src/tests.rs",
+          "commit": "f1433f4ab2968931905e5c4cda7e13a143572829",
+          "ours": "crates/pc-compose/src/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/f1433f4ab2968931905e5c4cda7e13a143572829/crates/compose/src/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "File-menu commands beyond New/Close: Close All / Others, Revert, Save a Copy, Open As, Place Embedded / Linked, File Info, the Automate and Scripts items (Fit Image, Conditional Mode Change, Batch, Image Processor, Load Files into Stack, Flatten All Layer Effects / Masks), Export › Layers to Files and Color Lookup Tables, plus the document-level guide layouts of the View menu (New Guide Layout, New Guides From Shape, Clear Canvas Guides).",
+          "upstream": "crates/engine/src/file_cmds.rs",
+          "commit": "3cc0d48410b00d21da06a9f9b391d52a79f6a938",
+          "ours": "crates/pc-engine/src/file_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3cc0d48410b00d21da06a9f9b391d52a79f6a938/crates/engine/src/file_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/file_cmds/tests.rs",
+          "commit": "3cc0d48410b00d21da06a9f9b391d52a79f6a938",
+          "ours": "crates/pc-engine/src/file_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3cc0d48410b00d21da06a9f9b391d52a79f6a938/crates/engine/src/file_cmds/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Persistent brush preset store: user and imported (.abr) brush presets survive a restart.",
+          "upstream": "crates/engine/src/preset_store.rs",
+          "commit": "fb36a3fdc49b1a30f433339ffcd7170a67f72ffa",
+          "ours": "crates/pc-engine/src/preset_store.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fb36a3fdc49b1a30f433339ffcd7170a67f72ffa/crates/engine/src/preset_store.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/preset_store/tests.rs",
+          "commit": "fb36a3fdc49b1a30f433339ffcd7170a67f72ffa",
+          "ours": "crates/pc-engine/src/preset_store/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fb36a3fdc49b1a30f433339ffcd7170a67f72ffa/crates/engine/src/preset_store/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Channels: alpha and spot channels, Select › Save / Load Selection, Quick Mask, channel targeting and visibility (the Channels panel), Image › Apply Image / Calculations, and the Channels panel menu (Split / Merge Channels, Merge Spot Channel).",
+          "upstream": "crates/engine/src/channel_cmds.rs",
+          "commit": "278e2941315957c6860f0638ab2196fdf00f5064",
+          "ours": "crates/pc-engine/src/channel_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/278e2941315957c6860f0638ab2196fdf00f5064/crates/engine/src/channel_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/channel_cmds/tests.rs",
+          "commit": "278e2941315957c6860f0638ab2196fdf00f5064",
+          "ours": "crates/pc-engine/src/channel_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/278e2941315957c6860f0638ab2196fdf00f5064/crates/engine/src/channel_cmds/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "The command registry.",
+          "upstream": "crates/engine/src/commands.rs",
+          "commit": "2425431c78c40b12593b5e6ec79dc309de8369ff",
+          "ours": "crates/pc-engine/src/commands.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/2425431c78c40b12593b5e6ec79dc309de8369ff/crates/engine/src/commands.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Multi-layer selection and the commands that act on it: ⌘/⇧-click selection, Select › All / Deselect / Find Layers, Layer › Align and Distribute, Link Layers, Merge Layers, Group from Layers, Arrange › Reverse, Lock Layers and Rename Layer.",
+          "upstream": "crates/engine/src/layer_multi_cmds.rs",
+          "commit": "0954b8c0658f66a2c121d8df0e37e2fa0ec7bef2",
+          "ours": "crates/pc-engine/src/layer_multi_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/0954b8c0658f66a2c121d8df0e37e2fa0ec7bef2/crates/engine/src/layer_multi_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Window › Timeline: create and drive the document timeline (playhead over N frames at a frame rate).",
+          "upstream": "crates/engine/src/timeline_cmds.rs",
+          "commit": "e1a874d9e9374c94e24adaa80a00b6071068b970",
+          "ours": "crates/pc-engine/src/timeline_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/e1a874d9e9374c94e24adaa80a00b6071068b970/crates/engine/src/timeline_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Image menu: Image Size, Canvas Size, Crop, Trim, Mode (colour model and bit depth) conversions, Duplicate.",
+          "upstream": "crates/engine/src/image_cmds.rs",
+          "commit": "0c2c268c49ee29c376315b024f066bd67c56b2f0",
+          "ours": "crates/pc-engine/src/image_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/0c2c268c49ee29c376315b024f066bd67c56b2f0/crates/engine/src/image_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Image menu: Image Size, Canvas Size, Crop, Trim, Mode (colour model and bit depth) conversions, Duplicate.",
+          "upstream": "crates/engine/src/image_cmds.rs",
+          "commit": "fd74419aeb1e9a6d280678e09b2ac0c5049687c3",
+          "ours": "crates/pc-engine/src/image_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd74419aeb1e9a6d280678e09b2ac0c5049687c3/crates/engine/src/image_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "The rest of Photoshop's Edit menu: Fade, Purge, Content-Aware Fill and Scale, Define Brush Preset / Custom Shape, Find and Replace Text, the Preset Manager and preset export/import.",
+          "upstream": "crates/engine/src/edit_menu_cmds.rs",
+          "commit": "3ac39e1edefb6847de06f7174bf6c9caf570c4d6",
+          "ours": "crates/pc-engine/src/edit_menu_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3ac39e1edefb6847de06f7174bf6c9caf570c4d6/crates/engine/src/edit_menu_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/edit_menu_cmds/tests.rs",
+          "commit": "3ac39e1edefb6847de06f7174bf6c9caf570c4d6",
+          "ours": "crates/pc-engine/src/edit_menu_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3ac39e1edefb6847de06f7174bf6c9caf570c4d6/crates/engine/src/edit_menu_cmds/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Edit › Fill… (edit.fill): Photoshop's Fill dialog as one command.",
+          "upstream": "crates/engine/src/fill_cmds.rs",
+          "commit": "3ac39e1edefb6847de06f7174bf6c9caf570c4d6",
+          "ours": "crates/pc-engine/src/fill_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3ac39e1edefb6847de06f7174bf6c9caf570c4d6/crates/engine/src/fill_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "The Content-Aware Move Tool as a command: move or duplicate the selected pixels, and let content-aware fill close the gaps.",
+          "upstream": "crates/engine/src/retouch_cmds/content_aware_move.rs",
+          "commit": "3ac39e1edefb6847de06f7174bf6c9caf570c4d6",
+          "ours": "crates/pc-engine/src/retouch_cmds/content_aware_move.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3ac39e1edefb6847de06f7174bf6c9caf570c4d6/crates/engine/src/retouch_cmds/content_aware_move.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Edit › Puppet Warp: pins on a triangle mesh over the layer's opaque region, deformed as-rigidly-as-possible.",
+          "upstream": "crates/algo/src/puppet.rs",
+          "commit": "64db46f5abab516ed01ccd2efff009049274e450",
+          "ours": "crates/pc-algo/src/puppet.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/64db46f5abab516ed01ccd2efff009049274e450/crates/algo/src/puppet.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/distort_cmds/tests.rs",
+          "commit": "64db46f5abab516ed01ccd2efff009049274e450",
+          "ours": "crates/pc-engine/src/distort_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/64db46f5abab516ed01ccd2efff009049274e450/crates/engine/src/distort_cmds/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Edit › Puppet Warp: pins on a triangle mesh over the layer's opaque region, deformed as-rigidly-as-possible.",
+          "upstream": "crates/algo/src/puppet.rs",
+          "commit": "3f7d8afc7886b4732a48667959d9f291e5928ac4",
+          "ours": "crates/pc-algo/src/puppet.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3f7d8afc7886b4732a48667959d9f291e5928ac4/crates/algo/src/puppet.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Filter › Liquify, Edit › Puppet Warp and Edit › Perspective Warp (plus their Layer › Smart Objects twins).",
+          "upstream": "crates/engine/src/distort_cmds.rs",
+          "commit": "3f7d8afc7886b4732a48667959d9f291e5928ac4",
+          "ours": "crates/pc-engine/src/distort_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3f7d8afc7886b4732a48667959d9f291e5928ac4/crates/engine/src/distort_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/distort_cmds/tests.rs",
+          "commit": "3f7d8afc7886b4732a48667959d9f291e5928ac4",
+          "ours": "crates/pc-engine/src/distort_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3f7d8afc7886b4732a48667959d9f291e5928ac4/crates/engine/src/distort_cmds/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Brush engine commands: the Brush/Pencil/Mixer Brush/Color Replacement tools, brush presets and the session brush (tools.setBrush).",
+          "upstream": "crates/engine/src/brush_cmds.rs",
+          "commit": "c88dbd26cd272f14ef54afcc18d18a5d6947b7b7",
+          "ours": "crates/pc-engine/src/brush_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/c88dbd26cd272f14ef54afcc18d18a5d6947b7b7/crates/engine/src/brush_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/brush_cmds/tests.rs",
+          "commit": "c88dbd26cd272f14ef54afcc18d18a5d6947b7b7",
+          "ours": "crates/pc-engine/src/brush_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/c88dbd26cd272f14ef54afcc18d18a5d6947b7b7/crates/engine/src/brush_cmds/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Brush engine commands: the Brush/Pencil/Mixer Brush/Color Replacement tools, brush presets and the session brush (tools.setBrush).",
+          "upstream": "crates/engine/src/brush_cmds.rs",
+          "commit": "7fec6e9469cee47d0090589ec51be885c7c58b8e",
+          "ours": "crates/pc-engine/src/brush_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fec6e9469cee47d0090589ec51be885c7c58b8e/crates/engine/src/brush_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/brush_cmds/tests.rs",
+          "commit": "7fec6e9469cee47d0090589ec51be885c7c58b8e",
+          "ours": "crates/pc-engine/src/brush_cmds/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fec6e9469cee47d0090589ec51be885c7c58b8e/crates/engine/src/brush_cmds/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Retouching tools as commands: Clone Stamp, Healing Brush, Spot Healing Brush, Patch, Content-Aware Move, Dodge, Burn, Sponge, Blur, Sharpen, Smudge and History Brush.",
+          "upstream": "crates/engine/src/retouch_cmds.rs",
+          "commit": "7fec6e9469cee47d0090589ec51be885c7c58b8e",
+          "ours": "crates/pc-engine/src/retouch_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fec6e9469cee47d0090589ec51be885c7c58b8e/crates/engine/src/retouch_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Vector commands: shape layers (shape.), document paths (path., Paths panel), selection ⇄ path, and layer vector masks (layer.vectorMask.).",
+          "upstream": "crates/engine/src/vector_cmds.rs",
+          "commit": "7fec6e9469cee47d0090589ec51be885c7c58b8e",
+          "ours": "crates/pc-engine/src/vector_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fec6e9469cee47d0090589ec51be885c7c58b8e/crates/engine/src/vector_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "The brush model: tip shape plus Photoshop-style dynamics sections, all plain serde data.",
+          "upstream": "crates/paint/src/brush.rs",
+          "commit": "7fec6e9469cee47d0090589ec51be885c7c58b8e",
+          "ours": "crates/pc-paint/src/brush.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fec6e9469cee47d0090589ec51be885c7c58b8e/crates/paint/src/brush.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Brush-engine tests: tips, spacing, dynamics, masks, smoothing, determinism, formats.",
+          "upstream": "crates/paint/src/brush_tests.rs",
+          "commit": "7fec6e9469cee47d0090589ec51be885c7c58b8e",
+          "ours": "crates/pc-paint/src/brush_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fec6e9469cee47d0090589ec51be885c7c58b8e/crates/paint/src/brush_tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Brush engine: Photoshop-grade brushes (computed and sampled tips, Shape Dynamics, Scattering, Texture, Dual Brush, Color Dynamics, Transfer, Brush Pose, Noise, Wet Edges, Build-up, Smoothing) plus the dab machinery shared by the retouching tools.",
+          "upstream": "crates/paint/src/lib.rs",
+          "commit": "7fec6e9469cee47d0090589ec51be885c7c58b8e",
+          "ours": "crates/pc-paint/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fec6e9469cee47d0090589ec51be885c7c58b8e/crates/paint/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Dab rasterisation and stroke compositing.",
+          "upstream": "crates/paint/src/render.rs",
+          "commit": "7fec6e9469cee47d0090589ec51be885c7c58b8e",
+          "ours": "crates/pc-paint/src/render.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fec6e9469cee47d0090589ec51be885c7c58b8e/crates/paint/src/render.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Generic dab-driven stroke machinery for the retouching tools (Clone Stamp, Healing Brush, Spot Healing, Dodge/Burn/Sponge, Blur/Sharpen, Smudge, History Brush).",
+          "upstream": "crates/paint/src/retouch.rs",
+          "commit": "7fec6e9469cee47d0090589ec51be885c7c58b8e",
+          "ours": "crates/pc-paint/src/retouch.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/7fec6e9469cee47d0090589ec51be885c7c58b8e/crates/paint/src/retouch.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/tests.rs",
+          "commit": "874867461d8af843802f28b8522a6096cfc44e09",
+          "ours": "crates/pc-engine/src/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/874867461d8af843802f28b8522a6096cfc44e09/crates/engine/src/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Sparse, copy-on-write tiled surfaces in any [PixelFormat].",
+          "upstream": "crates/raster/src/lib.rs",
+          "commit": "874867461d8af843802f28b8522a6096cfc44e09",
+          "ours": "crates/pc-raster/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/874867461d8af843802f28b8522a6096cfc44e09/crates/raster/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "CPU reference compositor.",
+          "upstream": "crates/compose/src/lib.rs",
+          "commit": "f586e7133ef302d241b42c3eaabe1881d38d55cc",
+          "ours": "crates/pc-compose/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/f586e7133ef302d241b42c3eaabe1881d38d55cc/crates/compose/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "A layer's effective mask (pixel mask × vector mask, each feathered) as one surface, for backends that sample masks from textures (the GPU compositor) and for feathered masks on the CPU.",
+          "upstream": "crates/compose/src/masks.rs",
+          "commit": "576811263ea2d65367e3c1c09a9276780e7e13d3",
+          "ours": "crates/pc-compose/src/masks.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/576811263ea2d65367e3c1c09a9276780e7e13d3/crates/compose/src/masks.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "CPU reference compositor.",
+          "upstream": "crates/compose/src/lib.rs",
+          "commit": "980cf05be49231490a6a4687a035d5dc8cb0fa35",
+          "ours": "crates/pc-compose/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/980cf05be49231490a6a4687a035d5dc8cb0fa35/crates/compose/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/compose/src/tests.rs",
+          "commit": "980cf05be49231490a6a4687a035d5dc8cb0fa35",
+          "ours": "crates/pc-compose/src/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/980cf05be49231490a6a4687a035d5dc8cb0fa35/crates/compose/src/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Selection algorithms on coverage masks (w × h row-major f32 in 0..=1 over an area): magic wand / flood regions, colour range, modify (expand, contract, border, smooth, feather), anti-aliased lasso, and combining with an existing selection.",
+          "upstream": "crates/algo/src/selection.rs",
+          "commit": "3953d78378fd78c3680c78423267f708505a95d3",
+          "ours": "crates/pc-algo/src/selection.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3953d78378fd78c3680c78423267f708505a95d3/crates/algo/src/selection.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Binary Euclidean distance transform: nearest seeds along columns, then a lower envelope of squared-distance parabolas along rows (Felzenszwalb and Huttenlocher, 2012).",
+          "upstream": "crates/algo/src/selection/distance.rs",
+          "commit": "3953d78378fd78c3680c78423267f708505a95d3",
+          "ours": "crates/pc-algo/src/selection/distance.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3953d78378fd78c3680c78423267f708505a95d3/crates/algo/src/selection/distance.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/algo/src/selection/distance/tests.rs",
+          "commit": "3953d78378fd78c3680c78423267f708505a95d3",
+          "ours": "crates/pc-algo/src/selection/distance/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3953d78378fd78c3680c78423267f708505a95d3/crates/algo/src/selection/distance/tests.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Merging a freshly written XMP packet into an existing one (a sidecar another application wrote, e.g.",
+          "upstream": "crates/meta/src/xmp_merge.rs",
+          "commit": "87cd873d78c68de4514d2d911b98aa82ee9a9015",
+          "ours": "crates/lc-meta/src/xmp_merge.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/87cd873d78c68de4514d2d911b98aa82ee9a9015/crates/meta/src/xmp_merge.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "The LightCraft library (catalog).",
+          "upstream": "crates/catalog/src/lib.rs",
+          "commit": "0a474cc06e98778f1f7cfeb7d36ab41d1bb66a18",
+          "ours": "crates/lc-catalog/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/0a474cc06e98778f1f7cfeb7d36ab41d1bb66a18/crates/catalog/src/lib.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Library commands: view source, filter/sort, selection, ratings/flags/labels, rotate, delete, metadata, albums, import.",
+          "upstream": "crates/engine/src/cmd/library.rs",
+          "commit": "0a474cc06e98778f1f7cfeb7d36ab41d1bb66a18",
+          "ours": "crates/lc-engine/src/cmd/library.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/0a474cc06e98778f1f7cfeb7d36ab41d1bb66a18/crates/engine/src/cmd/library.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Import: files and folders (recursive) → photos.",
+          "upstream": "crates/engine/src/import.rs",
+          "commit": "790a3417765183138afd898ea0f9848a08820da1",
+          "ours": "crates/lc-engine/src/import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/790a3417765183138afd898ea0f9848a08820da1/crates/engine/src/import.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "The LightCraft engine façade.",
+          "upstream": "crates/engine/src/lib.rs",
+          "commit": "790a3417765183138afd898ea0f9848a08820da1",
+          "ours": "crates/lc-engine/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/790a3417765183138afd898ea0f9848a08820da1/crates/engine/src/lib.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Import: recursive folders, duplicate detection by content, add vs copy into the library.",
+          "upstream": "crates/engine/src/tests_import.rs",
+          "commit": "790a3417765183138afd898ea0f9848a08820da1",
+          "ours": "crates/lc-engine/src/tests_import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/790a3417765183138afd898ea0f9848a08820da1/crates/engine/src/tests_import.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Bounded folder walks, ported from upstream LightCraft 790a341 (issue #374; MIT OR Apache-2.0).",
+          "upstream": "crates/engine/src/walk.rs",
+          "commit": "790a3417765183138afd898ea0f9848a08820da1",
+          "ours": "crates/lc-engine/src/walk.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/790a3417765183138afd898ea0f9848a08820da1/crates/engine/src/walk.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Library-wide keyword operations: the keyword tree (hierarchical keywords are written parent|child|grandchild), rename / delete / merge across every photo, and suggestions.",
+          "upstream": "crates/catalog/src/keywords.rs",
+          "commit": "cdca2b9cf835816babc1b05938b3b2272c5f53ac",
+          "ours": "crates/lc-catalog/src/keywords.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/cdca2b9cf835816babc1b05938b3b2272c5f53ac/crates/catalog/src/keywords.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Library-wide keyword commands: list (tree with counts), suggestions, rename, delete, merge; keyword sets (nine keywords a keystroke away: ⌥1–⌥9) and Recent Keywords.",
+          "upstream": "crates/engine/src/cmd/keywords.rs",
+          "commit": "cdca2b9cf835816babc1b05938b3b2272c5f53ac",
+          "ours": "crates/lc-engine/src/cmd/keywords.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/cdca2b9cf835816babc1b05938b3b2272c5f53ac/crates/engine/src/cmd/keywords.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Library-wide keyword operations: the keyword tree (hierarchical keywords are written parent|child|grandchild), rename / delete / merge across every photo, and suggestions.",
+          "upstream": "crates/catalog/src/keywords.rs",
+          "commit": "cd8dfa72c262e44568c4b76f164be6f0784f950d",
+          "ours": "crates/lc-catalog/src/keywords.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/cd8dfa72c262e44568c4b76f164be6f0784f950d/crates/catalog/src/keywords.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LightCraft's egui frontend: a Lightroom-style UI over lightcraft-engine.",
+          "upstream": "crates/ui-egui/src/lib.rs",
+          "commit": "e1267a713949277e9ceac712cfc8ae18b26a578e",
+          "ours": "crates/lc-ui-egui/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/e1267a713949277e9ceac712cfc8ae18b26a578e/crates/ui-egui/src/lib.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Keyboard shortcuts: parse Cmd+Shift+X style strings and dispatch UI and engine commands.",
+          "upstream": "crates/ui-egui/src/shortcuts.rs",
+          "commit": "e1267a713949277e9ceac712cfc8ae18b26a578e",
+          "ours": "crates/lc-ui-egui/src/shortcuts.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/e1267a713949277e9ceac712cfc8ae18b26a578e/crates/ui-egui/src/shortcuts.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Modal application dialogs block background shortcuts while keeping their own keys (ported from upstream LightCraft e1267a7).",
+          "upstream": "crates/ui-egui/src/tests_dialogs.rs",
+          "commit": "e1267a713949277e9ceac712cfc8ae18b26a578e",
+          "ours": "crates/lc-ui-egui/src/tests_dialogs.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/e1267a713949277e9ceac712cfc8ae18b26a578e/crates/ui-egui/src/tests_dialogs.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "LightCraft's egui frontend: a Lightroom-style UI over lightcraft-engine.",
+          "upstream": "crates/ui-egui/src/lib.rs",
+          "commit": "2c8520371ca6c88e9f79a5cd22f02bdb09c98a81",
+          "ours": "crates/lc-ui-egui/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/2c8520371ca6c88e9f79a5cd22f02bdb09c98a81/crates/ui-egui/src/lib.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Photo management commands: batch rename, capture time, colour label names and sets.",
+          "upstream": "crates/engine/src/cmd/manage.rs",
+          "commit": "7ba1470940bc588734affb959b5c54daacfa240b",
+          "ours": "crates/lc-engine/src/cmd/manage.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/7ba1470940bc588734affb959b5c54daacfa240b/crates/engine/src/cmd/manage.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Photo management commands: batch rename, capture time, colour label names and sets.",
+          "upstream": "crates/engine/src/cmd/manage.rs",
+          "commit": "11e36bf060ce4a821b1c0d21626533101cd3483f",
+          "ours": "crates/lc-engine/src/cmd/manage.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/11e36bf060ce4a821b1c0d21626533101cd3483f/crates/engine/src/cmd/manage.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Photo management commands: batch rename, capture time, colour label names and sets.",
+          "upstream": "crates/engine/src/cmd/manage.rs",
+          "commit": "4266b0ad7f62e5c05e1d3dc0c5ea55319a0af483",
+          "ours": "crates/lc-engine/src/cmd/manage.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/4266b0ad7f62e5c05e1d3dc0c5ea55319a0af483/crates/engine/src/cmd/manage.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Library management commands: date groups, keyword rename/delete/merge, batch rename, capture time, label names, import review.",
+          "upstream": "crates/engine/src/tests_libops.rs",
+          "commit": "4266b0ad7f62e5c05e1d3dc0c5ea55319a0af483",
+          "ours": "crates/lc-engine/src/tests_libops.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/4266b0ad7f62e5c05e1d3dc0c5ea55319a0af483/crates/engine/src/tests_libops.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Calendar helpers for ISO 8601 local times (2026-09-30T14:05:00): seconds ↔ civil date, weekday and month names, shifting a time by an offset, and grouping a photo list into runs of the same day / month / year (the date headers of the photo grid).",
+          "upstream": "crates/catalog/src/dates.rs",
+          "commit": "a08d0f6b03cfee22ce8fec01088511e12d0fd663",
+          "ours": "crates/lc-catalog/src/dates.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/a08d0f6b03cfee22ce8fec01088511e12d0fd663/crates/catalog/src/dates.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Smart-album rules: a list of conditions matched all / any / none, with nested groups.",
+          "upstream": "crates/catalog/src/rules.rs",
+          "commit": "a08d0f6b03cfee22ce8fec01088511e12d0fd663",
+          "ours": "crates/lc-catalog/src/rules.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/a08d0f6b03cfee22ce8fec01088511e12d0fd663/crates/catalog/src/rules.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Export: encode a rendered image to JPEG / PNG / TIFF / WebP / AVIF (or copy the original / write a DNG, each with the edits in XMP) in sRGB, Display P3, Adobe RGB (1998) compatible, ProPhoto RGB or Rec.",
+          "upstream": "crates/engine/src/export.rs",
+          "commit": "db7e37843eb018bff358ed7623afbf910dc04d29",
+          "ours": "crates/lc-engine/src/export.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/db7e37843eb018bff358ed7623afbf910dc04d29/crates/engine/src/export.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Export end to end: output sizes, original + XMP, DNG.",
+          "upstream": "crates/engine/src/tests_export.rs",
+          "commit": "db7e37843eb018bff358ed7623afbf910dc04d29",
+          "ours": "crates/lc-engine/src/tests_export.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/db7e37843eb018bff358ed7623afbf910dc04d29/crates/engine/src/tests_export.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Local: browse a folder on disk without adding it to the library (Lightroom's Local tab).",
+          "upstream": "crates/engine/src/cmd/browse.rs",
+          "commit": "3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6",
+          "ours": "crates/lc-engine/src/cmd/browse.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6/crates/engine/src/cmd/browse.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Library commands: view source, filter/sort, selection, ratings/flags/labels, rotate, delete, metadata, albums, import.",
+          "upstream": "crates/engine/src/cmd/library.rs",
+          "commit": "3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6",
+          "ours": "crates/lc-engine/src/cmd/library.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6/crates/engine/src/cmd/library.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Import: files and folders (recursive) → photos.",
+          "upstream": "crates/engine/src/import.rs",
+          "commit": "3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6",
+          "ours": "crates/lc-engine/src/import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6/crates/engine/src/import.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Import: recursive folders, duplicate detection by content, add vs copy into the library.",
+          "upstream": "crates/engine/src/tests_import.rs",
+          "commit": "3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6",
+          "ours": "crates/lc-engine/src/tests_import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6/crates/engine/src/tests_import.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Headless UI rendering: run the app's UI in an offscreen [egui::Context] and rasterize it on the CPU ([crate::softpaint]) — no window or native compositor.",
+          "upstream": "crates/ui-egui/src/headless.rs",
+          "commit": "3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6",
+          "ours": "crates/lc-ui-egui/src/headless.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6/crates/ui-egui/src/headless.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "The import review dialog (File → Import Photos… / Import from Folder… / Import from Device): the source it scanned (a scanned folder is not added to Local), the files found under it as a grid of thumbnails with checkboxes (duplicates marked and unchecked), the destination (add in place / copy or move into the library's Originals/ or a chosen folder, filed by day, by month, into one folder or by a custom folder template, optionally renamed), an album (existing or new), a preset and keywords to apply.",
+          "upstream": "crates/ui-egui/src/import.rs",
+          "commit": "3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6",
+          "ours": "crates/lc-ui-egui/src/import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6/crates/ui-egui/src/import.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Library commands: view source, filter/sort, selection, ratings/flags/labels, rotate, delete, metadata, albums, import.",
+          "upstream": "crates/engine/src/cmd/library.rs",
+          "commit": "2928880e8120e91465a7dd4ed2c18bfbdecc6e11",
+          "ours": "crates/lc-engine/src/cmd/library.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/2928880e8120e91465a7dd4ed2c18bfbdecc6e11/crates/engine/src/cmd/library.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Import: files and folders (recursive) → photos.",
+          "upstream": "crates/engine/src/import.rs",
+          "commit": "2928880e8120e91465a7dd4ed2c18bfbdecc6e11",
+          "ours": "crates/lc-engine/src/import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/2928880e8120e91465a7dd4ed2c18bfbdecc6e11/crates/engine/src/import.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Import: recursive folders, duplicate detection by content, add vs copy into the library.",
+          "upstream": "crates/engine/src/tests_import.rs",
+          "commit": "2928880e8120e91465a7dd4ed2c18bfbdecc6e11",
+          "ours": "crates/lc-engine/src/tests_import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/2928880e8120e91465a7dd4ed2c18bfbdecc6e11/crates/engine/src/tests_import.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Import: files and folders (recursive) → photos.",
+          "upstream": "crates/engine/src/import.rs",
+          "commit": "5a21fc9d9733a58de997053fd99825f44ea69063",
+          "ours": "crates/lc-engine/src/import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/5a21fc9d9733a58de997053fd99825f44ea69063/crates/engine/src/import.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Import: recursive folders, duplicate detection by content, add vs copy into the library.",
+          "upstream": "crates/engine/src/tests_import.rs",
+          "commit": "5a21fc9d9733a58de997053fd99825f44ea69063",
+          "ours": "crates/lc-engine/src/tests_import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/5a21fc9d9733a58de997053fd99825f44ea69063/crates/engine/src/tests_import.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "AI masks: Object (clicks) and Describe (text) selections computed with SAM 3 (lightcraft-segment, cargo feature sam; the desktop app enables it).",
+          "upstream": "crates/engine/src/segment/mod.rs",
+          "commit": "4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f",
+          "ours": "crates/lc-engine/src/segment/mod.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f/crates/engine/src/segment/mod.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Downloading a model's files, only when the user asked for it: from an ordered list of mirrors (the next one when a mirror fails), resuming partial files, with connect and stall timeouts, a size cap, progress and cancellation, and checked (exact size, SHA-256 where pinned) before each file is moved into the model folder.",
+          "upstream": "crates/fetch/src/lib.rs",
+          "commit": "4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f",
+          "ours": "crates/lc-fetch/src/lib.rs",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f/crates/fetch/src/lib.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "The downloader against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, resuming, chunked bodies, stalls, hash mismatches, size caps, cancel.",
+          "upstream": "crates/fetch/src/tests.rs",
+          "commit": "4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f",
+          "ours": "crates/lc-fetch/src/tests.rs",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f/crates/fetch/src/tests.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "A small HTTP/1.1 GET client for model downloads, in pure Rust: std::net sockets and, for https://, rustls with the RustCrypto provider (rustls-rustcrypto; no ring or aws-lc-rs, so nothing is compiled from C or assembly) and the Mozilla root certificates (webpki-roots).",
+          "upstream": "crates/fetch/src/http.rs",
+          "commit": "8dd3afce51d27d2625f8e094e6dd11b713cede01",
+          "ours": "crates/lc-fetch/src/http.rs",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/8dd3afce51d27d2625f8e094e6dd11b713cede01/crates/fetch/src/http.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Downloading a model's files, only when the user asked for it: from an ordered list of mirrors (the next one when a mirror fails), resuming partial files, with connect and stall timeouts, a size cap, progress and cancellation, and checked (exact size, SHA-256 where pinned) before each file is moved into the model folder.",
+          "upstream": "crates/fetch/src/lib.rs",
+          "commit": "8dd3afce51d27d2625f8e094e6dd11b713cede01",
+          "ours": "crates/lc-fetch/src/lib.rs",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/8dd3afce51d27d2625f8e094e6dd11b713cede01/crates/fetch/src/lib.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "The downloader against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, resuming, chunked bodies, stalls, hash mismatches, size caps, cancel.",
+          "upstream": "crates/fetch/src/tests.rs",
+          "commit": "8dd3afce51d27d2625f8e094e6dd11b713cede01",
+          "ours": "crates/lc-fetch/src/tests.rs",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/8dd3afce51d27d2625f8e094e6dd11b713cede01/crates/fetch/src/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Native platform services: file dialogs (rfd), filesystem, codecs.",
+          "upstream": "apps/photocraft/src/services.rs",
+          "commit": "9b4562f2a054a104712d03c2ba11a3aa07e93614",
+          "ours": "apps/local-image/src/services.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/9b4562f2a054a104712d03c2ba11a3aa07e93614/apps/photocraft/src/services.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Type tool: click to add point text, drag to add paragraph text, edit inline with a caret.",
+          "upstream": "crates/ui-egui/src/type_tool.rs",
+          "commit": "c1cb455c7aa94d436f1cae20786ac071a0ca0c29",
+          "ours": "crates/pc-ui-egui/src/type_tool.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/c1cb455c7aa94d436f1cae20786ac071a0ca0c29/crates/ui-egui/src/type_tool.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Design system: themes, colour tokens, radii, typography.",
+          "upstream": "crates/ui-egui/src/theme.rs",
+          "commit": "9cdcfbb1b7b204b57e04bd6bc3a4a3815a0225a1",
+          "ours": "crates/pc-ui-egui/src/theme.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/9cdcfbb1b7b204b57e04bd6bc3a4a3815a0225a1/crates/ui-egui/src/theme.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Native platform services: file dialogs (rfd), filesystem, codecs.",
+          "upstream": "apps/photocraft/src/services.rs",
+          "commit": "3952fcef792651c79972a6a8c398f0570847d0d7",
+          "ours": "apps/local-image/src/services.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3952fcef792651c79972a6a8c398f0570847d0d7/apps/photocraft/src/services.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Background jobs in the shell (#210): long commands and file opens run on worker threads (see photocraft_engine::jobs) while the window keeps drawing at full frame rate.",
+          "upstream": "crates/ui-egui/src/jobs_ui.rs",
+          "commit": "be877c27d0cb9db43a11fad5c74615eec388664c",
+          "ours": "crates/pc-ui-egui/src/jobs_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/be877c27d0cb9db43a11fad5c74615eec388664c/crates/ui-egui/src/jobs_ui.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "UI tests for background jobs (#210): the whole app (eframe harness, CPU canvas) keeps rendering frames while a slow job runs, shows the status-bar progress and the modal progress dialog, and Esc / Cancel leave the document unchanged.",
+          "upstream": "crates/ui-egui/src/jobs_ui_tests.rs",
+          "commit": "be877c27d0cb9db43a11fad5c74615eec388664c",
+          "ours": "crates/pc-ui-egui/src/jobs_ui_tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/be877c27d0cb9db43a11fad5c74615eec388664c/crates/ui-egui/src/jobs_ui_tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Photocraft's first UI shell, built on egui/eframe.",
+          "upstream": "crates/ui-egui/src/lib.rs",
+          "commit": "be877c27d0cb9db43a11fad5c74615eec388664c",
+          "ours": "crates/pc-ui-egui/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/be877c27d0cb9db43a11fad5c74615eec388664c/crates/ui-egui/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Edit › Preferences, Keyboard Shortcuts and Menus, Color Settings and the rest of the Edit menu's dialogs, plus the shell side of preferences: loading and saving them through [crate::Services], applying the interface theme, autosave and crash recovery, and the history log.",
+          "upstream": "crates/ui-egui/src/prefs_ui.rs",
+          "commit": "57be0f58d8103f9f90b8252e0e4730133618bb3a",
+          "ours": "crates/pc-ui-egui/src/prefs_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/57be0f58d8103f9f90b8252e0e4730133618bb3a/crates/ui-egui/src/prefs_ui.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Autosave and crash recovery (architecture §9): the same incremental writer saves a document snapshot into a recovery directory on a background thread, so the UI never blocks.",
+          "upstream": "crates/format/src/autosave.rs",
+          "commit": "3ef631619e08607fb338b68b45455f59c230d226",
+          "ours": "crates/pc-format/src/autosave.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3ef631619e08607fb338b68b45455f59c230d226/crates/format/src/autosave.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Native platform services: file dialogs (rfd), filesystem, codecs.",
+          "upstream": "apps/photocraft/src/services.rs",
+          "commit": "83d5c5436dc11e2327747a7b67704e29aba789ba",
+          "ours": "apps/local-image/src/services.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/83d5c5436dc11e2327747a7b67704e29aba789ba/apps/photocraft/src/services.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Autosave and crash recovery (architecture §9): the same incremental writer saves a document snapshot into a recovery directory on a background thread, so the UI never blocks.",
+          "upstream": "crates/format/src/autosave.rs",
+          "commit": "83d5c5436dc11e2327747a7b67704e29aba789ba",
+          "ours": "crates/pc-format/src/autosave.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/83d5c5436dc11e2327747a7b67704e29aba789ba/crates/format/src/autosave.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Photocraft's first UI shell, built on egui/eframe.",
+          "upstream": "crates/ui-egui/src/lib.rs",
+          "commit": "83d5c5436dc11e2327747a7b67704e29aba789ba",
+          "ours": "crates/pc-ui-egui/src/lib.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/83d5c5436dc11e2327747a7b67704e29aba789ba/crates/ui-egui/src/lib.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Edit › Preferences, Keyboard Shortcuts and Menus, Color Settings and the rest of the Edit menu's dialogs, plus the shell side of preferences: loading and saving them through [crate::Services], applying the interface theme, autosave and crash recovery, and the history log.",
+          "upstream": "crates/ui-egui/src/prefs_ui.rs",
+          "commit": "83d5c5436dc11e2327747a7b67704e29aba789ba",
+          "ours": "crates/pc-ui-egui/src/prefs_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/83d5c5436dc11e2327747a7b67704e29aba789ba/crates/ui-egui/src/prefs_ui.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Autosave and crash recovery (architecture §9): the same incremental writer saves a document snapshot into a recovery directory on a background thread, so the UI never blocks.",
+          "upstream": "crates/format/src/autosave.rs",
+          "commit": "c20b81b25168057e9cbffa2f45c36ec02dacf756",
+          "ours": "crates/pc-format/src/autosave.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/c20b81b25168057e9cbffa2f45c36ec02dacf756/crates/format/src/autosave.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Linux start-up check for the shared libraries winit and wgpu load at runtime (issue #201).",
+          "upstream": "apps/photocraft/src/linux_libs.rs",
+          "commit": "d29d81d5c0be43acd8e8e1c9e3abeff119fde6db",
+          "ours": "apps/local-image/src/linux_libs.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/d29d81d5c0be43acd8e8e1c9e3abeff119fde6db/apps/photocraft/src/linux_libs.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Why a file dialog may never appear on Linux (upstream PhotoCraft b3993e89, #3354).",
+          "upstream": "apps/photocraft/src/file_dialog_probe.rs",
+          "commit": "b3993e89b351b4dda9276de9eb16a3bf6bbf5580",
+          "ours": "apps/local-image/src/file_dialog_probe.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/b3993e89b351b4dda9276de9eb16a3bf6bbf5580/apps/photocraft/src/file_dialog_probe.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Linux start-up check for the shared libraries winit and wgpu load at runtime (issue #201).",
+          "upstream": "apps/photocraft/src/linux_libs.rs",
+          "commit": "b3993e89b351b4dda9276de9eb16a3bf6bbf5580",
+          "ours": "apps/local-image/src/linux_libs.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/b3993e89b351b4dda9276de9eb16a3bf6bbf5580/apps/photocraft/src/linux_libs.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Photocraft desktop app.",
+          "upstream": "apps/photocraft/src/main.rs",
+          "commit": "b3993e89b351b4dda9276de9eb16a3bf6bbf5580",
+          "ours": "apps/local-image/src/main.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/b3993e89b351b4dda9276de9eb16a3bf6bbf5580/apps/photocraft/src/main.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Native platform services: file dialogs (rfd), filesystem, codecs.",
+          "upstream": "apps/photocraft/src/services.rs",
+          "commit": "b3993e89b351b4dda9276de9eb16a3bf6bbf5580",
+          "ours": "apps/local-image/src/services.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/b3993e89b351b4dda9276de9eb16a3bf6bbf5580/apps/photocraft/src/services.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "CJK font fallback: which installed system fonts cover Japanese, Simplified Chinese, Traditional Chinese and Korean, and in which order to try them for the user's locale.",
+          "upstream": "crates/text/src/cjk.rs",
+          "commit": "1a9a39eadf86adcadb229dd646ed9408213c9793",
+          "ours": "crates/pc-text/src/cjk.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/1a9a39eadf86adcadb229dd646ed9408213c9793/crates/text/src/cjk.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Font database: bundled fonts (always available, also on the web), the optional craft-fonts Manifest-declared fonts ([crate::craft_fonts], when built with CRAFT_FONTS_DIR), optional system fonts found by scanning platform directories (plus Fontconfig's file list on Linux, via fc-list), user-registered font data, and PostScript-name lookup for PSD import.",
+          "upstream": "crates/text/src/fonts.rs",
+          "commit": "82c58fabab60890697fc4bb492399b7f9f279618",
+          "ours": "crates/pc-text/src/fonts.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/82c58fabab60890697fc4bb492399b7f9f279618/crates/text/src/fonts.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "Photocraft desktop app.",
+          "upstream": "apps/lightcraft/src/main.rs",
+          "commit": "9c2bad114662634deb6aedd4fce4680066b66349",
+          "ours": "apps/local-image/src/main.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/9c2bad114662634deb6aedd4fce4680066b66349/apps/lightcraft/src/main.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Object storage (ZIP or directory), incremental writer and loader.",
+          "upstream": "crates/format/src/store.rs",
+          "commit": "c20b81b25168057e9cbffa2f45c36ec02dacf756",
+          "ours": "crates/pc-format/src/store.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/c20b81b25168057e9cbffa2f45c36ec02dacf756/crates/format/src/store.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Background autosave and crash recovery.",
+          "upstream": "crates/format/tests/autosave.rs",
+          "commit": "c20b81b25168057e9cbffa2f45c36ec02dacf756",
+          "ours": "crates/pc-format/tests/it/autosave.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/c20b81b25168057e9cbffa2f45c36ec02dacf756/crates/format/tests/autosave.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Planner: walks the layer tree into a linear list of GPU passes over abstract buffer slots.",
+          "upstream": "crates/gpu/src/plan.rs",
+          "commit": "5049a1d06218211bf482e48d9070a9bd414dec3f",
+          "ours": "crates/pc-gpu/src/plan.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/5049a1d06218211bf482e48d9070a9bd414dec3f/crates/gpu/src/plan.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Layer bounds exactly as photocraft-compose computes them (layer_bounds), with the per-tile content scan cached by copy-on-write tile identity, so an effect layer's region costs a hash lookup per tile instead of a pixel scan per frame.",
+          "upstream": "crates/gpu/src/bounds.rs",
+          "commit": "980cf05be49231490a6a4687a035d5dc8cb0fa35",
+          "ours": "crates/pc-gpu/src/bounds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/980cf05be49231490a6a4687a035d5dc8cb0fa35/crates/gpu/src/bounds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "GPU vs CPU parity: every blend mode, adjustment, group/clip/mask/fill combination must match the reference compositor within 1/255 (premultiplied).",
+          "upstream": "crates/gpu/tests/parity.rs",
+          "commit": "980cf05be49231490a6a4687a035d5dc8cb0fa35",
+          "ours": "crates/pc-gpu/tests/gpu/parity.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/980cf05be49231490a6a4687a035d5dc8cb0fa35/crates/gpu/tests/parity.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Window › Timeline.",
+          "upstream": "crates/doc/src/video.rs",
+          "commit": "e1a874d9e9374c94e24adaa80a00b6071068b970",
+          "ours": "crates/pc-doc/src/video.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/e1a874d9e9374c94e24adaa80a00b6071068b970/crates/doc/src/video.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Pattern paint: Pattern Overlay, pattern strokes and pattern fill layers.",
+          "upstream": "crates/compose/src/pattern.rs",
+          "commit": "fd21e734111ef0af3f26b77e3e59d3d651c50f91",
+          "ours": "crates/pc-compose/src/pattern.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd21e734111ef0af3f26b77e3e59d3d651c50f91/crates/compose/src/pattern.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Patterns: tiles used by Pattern Overlay, pattern fill layers, pattern strokes, Edit › Fill and brush textures.",
+          "upstream": "crates/doc/src/pattern.rs",
+          "commit": "fd21e734111ef0af3f26b77e3e59d3d651c50f91",
+          "ours": "crates/pc-doc/src/pattern.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd21e734111ef0af3f26b77e3e59d3d651c50f91/crates/doc/src/pattern.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Edit › Fill… (edit.fill): Photoshop's Fill dialog as one command.",
+          "upstream": "crates/engine/src/fill_cmds.rs",
+          "commit": "fd21e734111ef0af3f26b77e3e59d3d651c50f91",
+          "ours": "crates/pc-engine/src/fill_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd21e734111ef0af3f26b77e3e59d3d651c50f91/crates/engine/src/fill_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Paint helpers: Paint Bucket and Gradient tool.",
+          "upstream": "crates/engine/src/paint_cmds.rs",
+          "commit": "fd21e734111ef0af3f26b77e3e59d3d651c50f91",
+          "ours": "crates/pc-engine/src/paint_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd21e734111ef0af3f26b77e3e59d3d651c50f91/crates/engine/src/paint_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Patterns: Edit › Define Pattern, the pattern library (pattern.), Layer › New Fill Layer › Pattern, Edit › Fill with a pattern and brush textures from library patterns.",
+          "upstream": "crates/engine/src/pattern_cmds.rs",
+          "commit": "fd21e734111ef0af3f26b77e3e59d3d651c50f91",
+          "ours": "crates/pc-engine/src/pattern_cmds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd21e734111ef0af3f26b77e3e59d3d651c50f91/crates/engine/src/pattern_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Effect maps on the GPU (photocraft_compose::effects::build_maps).",
+          "upstream": "crates/gpu/src/fx.rs",
+          "commit": "fd21e734111ef0af3f26b77e3e59d3d651c50f91",
+          "ours": "crates/pc-gpu/src/fx.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd21e734111ef0af3f26b77e3e59d3d651c50f91/crates/gpu/src/fx.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Planner: walks the layer tree into a linear list of GPU passes over abstract buffer slots.",
+          "upstream": "crates/gpu/src/plan.rs",
+          "commit": "fd21e734111ef0af3f26b77e3e59d3d651c50f91",
+          "ours": "crates/pc-gpu/src/plan.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/fd21e734111ef0af3f26b77e3e59d3d651c50f91/crates/gpu/src/plan.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "File-dialog filters that match extensions whatever their letter case.",
+          "upstream": "apps/lightcraft/src/dialog_filter.rs",
+          "commit": "e2d35de867319d3b36704a3ebf7337be2f900673",
+          "ours": "crates/pc-ui-egui/src/dialog_filter.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/e2d35de867319d3b36704a3ebf7337be2f900673/apps/lightcraft/src/dialog_filter.rs"
+        },
+        {
+          "name": "LightCraft",
+          "used_for": "File-dialog filters that match extensions whatever their letter case.",
+          "upstream": "apps/lightcraft/src/main.rs",
+          "commit": "9c2bad114662634deb6aedd4fce4680066b66349",
+          "ours": "crates/pc-ui-egui/src/dialog_filter.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-LICENSE-APACHE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/lightcraft/blob/9c2bad114662634deb6aedd4fce4680066b66349/apps/lightcraft/src/main.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "The command registry.",
+          "upstream": "crates/engine/src/document_preset_cmds.rs",
+          "commit": "6e9ba6511d507dafc7809927f153d818f592f8a8",
+          "ours": "crates/pc-engine/src/commands.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6e9ba6511d507dafc7809927f153d818f592f8a8/crates/engine/src/document_preset_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/engine/src/document_preset_cmds.rs",
+          "commit": "6e9ba6511d507dafc7809927f153d818f592f8a8",
+          "ours": "crates/pc-engine/src/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6e9ba6511d507dafc7809927f153d818f592f8a8/crates/engine/src/document_preset_cmds.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Edit › Puppet Warp on the canvas: click on the mesh to add pins, drag pins to move them, ⌥-click a pin to remove it; the options bar sets mode, density, expansion, mesh visibility, the selected pin's depth and rotation.",
+          "upstream": "crates/ui-egui/src/puppet_ui.rs",
+          "commit": "64db46f5abab516ed01ccd2efff009049274e450",
+          "ours": "crates/pc-ui-egui/src/puppet_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/64db46f5abab516ed01ccd2efff009049274e450/crates/ui-egui/src/puppet_ui.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Edit › Puppet Warp on the canvas: click on the mesh to add pins, drag pins to move them, ⌥-click a pin to remove it; the options bar sets mode, density, expansion, mesh visibility, the selected pin's depth and rotation.",
+          "upstream": "crates/algo/src/puppet.rs",
+          "commit": "3f7d8afc7886b4732a48667959d9f291e5928ac4",
+          "ours": "crates/pc-ui-egui/src/puppet_ui.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/3f7d8afc7886b4732a48667959d9f291e5928ac4/crates/algo/src/puppet.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/text/src/tests.rs",
+          "commit": "6f1c4481bfe158eccd5ed9b0bae344145f74e165",
+          "ours": "crates/pc-text/src/tests.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6f1c4481bfe158eccd5ed9b0bae344145f74e165/crates/text/src/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "upstream": "crates/text/src/tests.rs",
+          "commit": "6f1c4481bfe158eccd5ed9b0bae344145f74e165",
+          "ours": "crates/pc-text/tests/coverage/ds_psd_coverage.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6f1c4481bfe158eccd5ed9b0bae344145f74e165/crates/text/src/tests.rs"
+        },
+        {
+          "name": "PhotoCraft",
+          "used_for": "Imported type-layer geometry (#148): PSD type layers built the way Photoshop writes them (a TySh with the text-space → document transform, EngineData with StyleRun/ParagraphRun sizes in text-space units, BoxBounds for paragraph text, bounds/boundingBox and the trailing integer bounds) must import with the right model, so that - the layer's pixels (Photoshop's cache) keep their full extent: nothing is clipped, - re-rendering the imported model with our engine lands on the same pixels (no transform scale applied twice or not at all, no 72-vs-document-dpi mix-up, no box height used as a clip for point text), and - the document composite matches the file's merged composite.",
+          "upstream": "crates/io/tests/psd_type_bounds.rs",
+          "commit": "6f1c4481bfe158eccd5ed9b0bae344145f74e165",
+          "ours": "crates/pc-io/tests/it/psd_type_bounds.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/photocraft/blob/6f1c4481bfe158eccd5ed9b0bae344145f74e165/crates/io/tests/psd_type_bounds.rs"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
