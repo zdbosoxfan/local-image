@@ -1,18 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-<!-- Original Local Image tool artwork; GPL-3.0-or-later. Glossy Duotone, liquify family. -->
-<defs>
-<linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="aw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="nw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient>
-</defs>
-<g transform="translate(1.5 1.5) scale(.875)" fill="none" stroke="currentColor" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round">
-<g transform="translate(24 0) scale(-1 1)"><g fill="none" stroke="currentColor" stroke-width="3.5"><path d="M20 8C18 1 7 1 4 8C0 17 9 24 17 19C23 15 18 7 12 8C7 9 8 16 12 16C16 16 15 12 13 12"/></g>
-<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M20 8C18 1 7 1 4 8C0 17 9 24 17 19C23 15 18 7 12 8C7 9 8 16 12 16C16 16 15 12 13 12"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M20 8C18 1 7 1 4 8C0 17 9 24 17 19C23 15 18 7 12 8C7 9 8 16 12 16C16 16 15 12 13 12"/></g>
-<g fill="none" stroke="currentColor" stroke-width="3.5"><path d="M20 3V8H15"/></g>
-<g fill="none" stroke="url(#aw)" stroke-width="2.2"><path d="M20 3V8H15"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width="0.5"><path d="M20 3V8H15"/></g>
-</g></g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><g transform="matrix(-1 0 0 1 24 0)"><path d="M12 12 m-1 0 a1 1 0 1 1 2 0 a3 3 0 1 1 -6 0 a5 5 0 1 1 10 0 a7 7 0 1 1 -14 0"/></g></svg>

@@ -1,10 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-<!-- Original Local Image vector tool artwork; GPL-3.0-or-later. Glossy Duotone, purple family. -->
-<defs><linearGradient id="a" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient><linearGradient id="w" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient><linearGradient id="h" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs>
-<g transform="translate(1.5 1.5) scale(.875)" stroke-linejoin="round" stroke-linecap="round">
-<path d="M3 19L6 5L14 3L17 11Z" fill="url(#a)" fill-rule="evenodd" stroke="currentColor" stroke-width="1.43" paint-order="stroke fill"/>
-<path d="M3 19L6 5L14 3L17 11Z" fill="none" stroke="url(#h)" stroke-width=".7"/>
-<path d="M6 5L11 10M11 10L3 19M16 18H23M19.5 14.5V21.5" fill="none" stroke="currentColor" stroke-width="2.8"/>
-<path d="M6 5L11 10M11 10L3 19M16 18H23M19.5 14.5V21.5" fill="none" stroke="url(#w)" stroke-width="1.6"/>
-<path d="M6 5L11 10M11 10L3 19M16 18H23M19.5 14.5V21.5" fill="none" stroke="url(#h)" stroke-width=".65"/>
-</g></svg>
+<!-- @license lucide-static v1.49.0 - ISC -->
+<!-- Lucide's pen-tool with a plus badge added for VectorCraft -->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M15.707 21.293a1 1 0 0 1-1.414 0l-1.586-1.586a1 1 0 0 1 0-1.414l5.586-5.586a1 1 0 0 1 1.414 0l1.586 1.586a1 1 0 0 1 0 1.414z" />
+  <path d="m18 13-1.375-6.874a1 1 0 0 0-.746-.776L3.235 2.028a1 1 0 0 0-1.207 1.207L5.35 15.879a1 1 0 0 0 .776.746L13 18" />
+  <path d="m2.3 2.3 7.286 7.286" />
+  <circle cx="11" cy="11" r="2" />
+  <path d="M4 18.3v4.4M1.8 20.5h4.4" />
+</svg>

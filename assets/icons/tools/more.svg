@@ -1,21 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-<!-- Original Local Image tool artwork; GPL-3.0-or-later. Glossy Duotone, grey family. -->
-<defs>
-<linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="aw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="nw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient>
-</defs>
-<g transform="translate(1.5 1.5) scale(.875)" fill="none" stroke="currentColor" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round">
-<g fill="none" stroke="currentColor" stroke-width="3.5"><circle cx="4" cy="12" r="1.8"/></g>
-<g fill="none" stroke="url(#aw)" stroke-width="2.2"><circle cx="4" cy="12" r="1.8"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width="0.5"><circle cx="4" cy="12" r="1.8"/></g>
-<g fill="none" stroke="currentColor" stroke-width="3.5"><circle cx="12" cy="12" r="1.8"/></g>
-<g fill="none" stroke="url(#aw)" stroke-width="2.2"><circle cx="12" cy="12" r="1.8"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width="0.5"><circle cx="12" cy="12" r="1.8"/></g>
-<g fill="none" stroke="currentColor" stroke-width="3.5"><circle cx="20" cy="12" r="1.8"/></g>
-<g fill="none" stroke="url(#aw)" stroke-width="2.2"><circle cx="20" cy="12" r="1.8"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width="0.5"><circle cx="20" cy="12" r="1.8"/></g>
-</g>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="1" />
+  <circle cx="19" cy="12" r="1" />
+  <circle cx="5" cy="12" r="1" />
 </svg>

@@ -1,10 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-<!-- Original Local Image vector tool artwork; GPL-3.0-or-later. Glossy Duotone, green family. -->
-<defs><linearGradient id="a" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient><linearGradient id="w" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient><linearGradient id="h" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs>
-<g transform="translate(1.5 1.5) scale(.875)" stroke-linejoin="round" stroke-linecap="round">
-<path d="M3 5L5 2L16 13L13 16ZM12 15C17 10 23 15 20 20C22 23 13 23 12 19C7 22 7 16 12 15Z" fill="url(#a)" fill-rule="evenodd" stroke="currentColor" stroke-width="1.43" paint-order="stroke fill"/>
-<path d="M3 5L5 2L16 13L13 16ZM12 15C17 10 23 15 20 20C22 23 13 23 12 19C7 22 7 16 12 15Z" fill="none" stroke="url(#h)" stroke-width=".7"/>
-<path d="" fill="none" stroke="currentColor" stroke-width="2.8"/>
-<path d="" fill="none" stroke="url(#w)" stroke-width="1.6"/>
-<path d="" fill="none" stroke="url(#h)" stroke-width=".65"/>
-</g></svg>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m9.06 11.9 8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08" />
+  <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.2 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z" />
+</svg>

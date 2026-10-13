@@ -1,21 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-<!-- Original Local Image tool artwork; GPL-3.0-or-later. Glossy Duotone, blue family. -->
-<defs>
-<linearGradient id="a" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="n" x1="0" y1="0" x2=".25" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="aw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="nw" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="6" y2="24"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor"/></linearGradient>
-<linearGradient id="shine" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="20"><stop stop-color="currentColor" stop-opacity=".28"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient>
-</defs>
-<g transform="translate(1.5 1.5) scale(.875)" fill="none" stroke="currentColor" stroke-width="1.43" stroke-linecap="round" stroke-linejoin="round">
-<g stroke-dasharray="2.2 2.5" stroke-linecap="butt"><g fill="none" stroke="currentColor" stroke-width="3.5"><circle cx="7.5" cy="16.5" r="5.5"/></g>
-<g fill="none" stroke="url(#aw)" stroke-width="2.2"><circle cx="7.5" cy="16.5" r="5.5"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width="0.5"><circle cx="7.5" cy="16.5" r="5.5"/></g>
-</g>
-<g transform="translate(0 4) scale(.72)"><g fill="url(#n)" stroke="currentColor" stroke-width="1.43" paint-order="stroke fill"><path d="M11 13L18 3Q19 1.5 20.5 3Q22 4 20 6L14 15Z" fill-rule="evenodd"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width=".7" transform="translate(.2 .2)"><path d="M11 13L18 3Q19 1.5 20.5 3Q22 4 20 6L14 15Z" fill-rule="evenodd"/></g>
-<g fill="url(#a)" stroke="currentColor" stroke-width="1.43" paint-order="stroke fill"><path d="M10 12Q15 13 14 16Q12.5 21 3 21Q6.5 18.5 7 15.5Q7.5 12.5 10 12Z" fill-rule="evenodd"/></g>
-<g fill="none" stroke="url(#shine)" stroke-width=".7" transform="translate(.2 .2)"><path d="M10 12Q15 13 14 16Q12.5 21 3 21Q6.5 18.5 7 15.5Q7.5 12.5 10 12Z" fill-rule="evenodd"/></g>
-</g>
-</g>
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <!-- Local Image original, GPL-3.0-or-later: Quick Selection: a round brush tip inside a dashed selection. Drawn on Lucide's 24 px grid, 2 px round stroke. -->
+  <path d="m21 3-7.5 7.5" />
+  <path d="M13.5 10.5c-1.4-1.4-3.6-1.4-5 0s-1.4 3.6 0 5 3.6 1.4 5 0l1.5-3.5z" />
+  <path d="M4.3 9.5A8 8 0 0 0 4 12" />
+  <path d="M4.6 16.5a8 8 0 0 0 1.8 2.3" />
+  <path d="M10 21a8 8 0 0 0 3.2-.4" />
+  <path d="M7.5 4.7a8 8 0 0 1 2.5-.6" />
+  <path d="M17.4 16.8a8 8 0 0 0 1.5-2.3" />
 </svg>

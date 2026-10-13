@@ -1,5 +1,6 @@
-//! Icon rendering. Generic SVGs (`icon_data.rs`) and Glossy Duotone tools (`tool_icon_data.rs`)
-//! are embedded, recoloured to white, rasterized by the
+//! Icon rendering. Generic SVGs (`icon_data.rs`) and the line tool icons (`tool_icon_data.rs`:
+//! Lucide, PhotoCraft, VectorCraft, Tabler and Local Image originals) are embedded, recoloured to
+//! white, rasterized by the
 //! egui_extras SVG loader at the exact on-screen pixel size (crisp at any DPI), and tinted per use.
 //!
 //! (History: the first shell used Unicode glyphs; half of them rendered as tofu boxes because the
@@ -68,7 +69,7 @@ pub fn cursor(ctx: &egui::Context, name: &str, p: egui::Pos2, hot: Vec2, size: f
 pub fn tool_icon_name_for(t: Tool, persona: photocraft_engine::toolsets::Persona) -> &'static str {
     if persona == photocraft_engine::toolsets::Persona::Vector || t.key() == '\0' {
         let id = format!("{t:?}");
-        if let Some((_, name, _, _)) = crate::fill_stroke_proxy::icons::ICONS.iter().find(|(tool, _, _, _)| *tool == id) {
+        if let Some((_, name, _)) = crate::fill_stroke_proxy::icons::ICONS.iter().find(|(tool, _, _)| *tool == id) {
             return name;
         }
     }
@@ -77,7 +78,7 @@ pub fn tool_icon_name_for(t: Tool, persona: photocraft_engine::toolsets::Persona
 pub fn tool_icon_name(t: Tool) -> &'static str {
     if t.key() == '\0' {
         let id = format!("{t:?}");
-        if let Some((_, name, _, _)) = crate::fill_stroke_proxy::icons::ICONS.iter().find(|(tool, _, _, _)| *tool == id) {
+        if let Some((_, name, _)) = crate::fill_stroke_proxy::icons::ICONS.iter().find(|(tool, _, _)| *tool == id) {
             return name;
         }
     }
@@ -182,7 +183,7 @@ pub fn tool_icon_name(t: Tool) -> &'static str {
         Tool::Type => "type",
         Tool::VerticalType => "vertical-type",
         Tool::Hand => "hand",
-        Tool::RotateView => "vector-rotate",
+        Tool::RotateView => "rotate-view",
         Tool::Zoom => "zoom-in",
         Tool::SpotHealing => "spot-healing",
         Tool::Healing => "healing",
@@ -264,8 +265,8 @@ fn monochrome_tool_image(name: &str, size: f32, tint: Color32) -> egui::Image<'s
     crate::mono_tool_icons::image(name, size, tint).unwrap_or_else(|| image(name, size, tint))
 }
 
-/// Tool image for toolbar buttons and the rich tooltip's 32 px slot. Colour keeps its SVG
-/// colours; monochrome uses matching geometry with the existing theme tint. Set from preferences each frame.
+/// Tool image for toolbar buttons and the rich tooltip's 32 px slot. Monochrome (the default) uses the
+/// theme tint; colour mode tints the same line icon by family. Set from preferences each frame.
 pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> egui::Image<'static> {
     if crate::color_icons::enabled(ui.ctx())
         && let Some(image) = crate::color_icons::image(ui, name, size, !ui.is_enabled())
