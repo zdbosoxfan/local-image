@@ -1439,6 +1439,7 @@ impl eframe::App for PhotocraftApp {
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         if !dropped.is_empty() {
             let at = self.services.cursor_pos.as_mut().and_then(|f| f(ctx));
+            let dropped = crate::panels::swatches_panel::route_drops(self, ctx, dropped, at.or_else(|| ctx.pointer_latest_pos()));
             self.open_dropped(ctx, dropped, at);
         }
         self.place_next_dropped(ctx);
