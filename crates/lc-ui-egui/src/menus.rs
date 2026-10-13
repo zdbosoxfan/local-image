@@ -968,6 +968,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if let Err(e) = lightcraft_engine::cmd::match_look::ready(&app.session) {
                 return Some(Err(e));
             }
+            crate::match_look::cancel_preview(app);
             app.ui.dialog = Some(Dialog::MatchLook { options: app.session.match_look.options });
             app.match_look.preview = None;
             Ok(Value::Null)
@@ -1272,7 +1273,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 Some(path.to_string())
             } else {
                 match app.services.save_look_file.as_mut() {
-                    Some(f) => f("Match Look.json"),
+                    Some(f) => f(&lightcraft_engine::cmd::match_look::export_name(&app.session, p["id"].as_str())),
                     None => return Some(Err("no file dialog on this platform".into())),
                 }
             };
@@ -1485,6 +1486,7 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         }),
         "photo.tagFromTracklog" => app.session.active().is_some() && app.services.pick_tracklog.is_some(),
         "app.exportPrevious" => app.session.active().is_some() && app.session.last_export.is_some(),
+        "develop.analyzeLook" => !app.session.match_look.references.is_empty() && app.match_look.control.is_none(),
         "dialog.matchLook" => lightcraft_engine::cmd::match_look::ready(&app.session).is_ok(),
         "dialog.syncSettings" => app.session.active().is_some() && app.session.selection.ids.len() > 1,
         "dialog.pasteSettings" => app.session.active().is_some() && app.session.clipboard.is_some(),

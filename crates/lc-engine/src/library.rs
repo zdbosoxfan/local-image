@@ -172,7 +172,12 @@ fn read_match_look_prefs<'de, D: serde::Deserializer<'de>>(d: D) -> std::result:
             && a.identities.len() == a.looks.len()
             && a.looks.iter().all(lightcraft_pipeline::match_look::Look::valid)
     });
-    let mut state: crate::cmd::match_look::State = serde_json::from_value(value).unwrap_or_default();
+    let mut state = crate::cmd::match_look::State {
+        references: value.get("references").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        selected: value.get("selected").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        options: value.get("options").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        ..Default::default()
+    };
     state.analysis = legacy;
     Ok(state)
 }
@@ -591,7 +596,12 @@ impl Session {
         }
         let _ = self.end_interaction();
         self.close_ephemeral();
-        self.save_match_look_applied()?;
+        if let Err(error) = self.save_match_look_applied() {
+            log::warn!("Match Look amount history could not be saved: {error}");
+            if let Some(lib) = self.library.as_mut() {
+                lib.settings_warnings.push(format!("Match Look amount history could not be saved: {error}"));
+            }
+        }
         let persisted = self.persist();
         self.save_view();
         let unlogged = if persisted.is_err() { self.pending_log.len() as u64 } else { 0 };

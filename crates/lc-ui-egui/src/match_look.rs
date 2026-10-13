@@ -35,6 +35,8 @@ pub struct Runtime {
     pub last_result: Option<Value>,
     pub wipe: f32,
     pub compare_reference: bool,
+    pub reference_index: usize,
+    auto_preview_at: Option<web_time::Instant>,
 }
 impl Default for Runtime {
     fn default() -> Self {
@@ -47,6 +49,8 @@ impl Default for Runtime {
             last_result: None,
             wipe: 0.5,
             compare_reference: false,
+            reference_index: 0,
+            auto_preview_at: None,
         }
     }
 }
@@ -95,6 +99,9 @@ pub fn analyze(app: &mut LightcraftApp, update: Option<String>) -> Result<Value,
         "Analyze Match Look",
         move || lightcraft_engine::guard::catch("Analyze Match Look", || work.run(&worker)),
         move |app, ctx, result| {
+            if app.match_look.control.as_ref().is_none_or(|current| !Arc::ptr_eq(current, &c)) {
+                return;
+            }
             app.match_look.control = None;
             if c.cancel.load(Ordering::Relaxed) {
                 app.toast(ctx, "Match Look analysis cancelled");
@@ -122,6 +129,9 @@ pub fn analyze(app: &mut LightcraftApp, update: Option<String>) -> Result<Value,
     Ok(json!({"running":true}))
 }
 pub fn start(app: &mut LightcraftApp, params: Value, preview: bool) -> Result<Value, String> {
+    if !preview {
+        cancel_preview(app);
+    }
     let mut params = params;
     if preview {
         params["ids"] = json!([app.session.active().ok_or("Select a target photo")?.0]);
@@ -140,6 +150,9 @@ pub fn start(app: &mut LightcraftApp, params: Value, preview: bool) -> Result<Va
         label,
         move || lightcraft_engine::guard::catch("Match Look", || work.run(&worker, preview)),
         move |app, ctx, result| {
+            if app.match_look.control.as_ref().is_none_or(|current| !Arc::ptr_eq(current, &c)) {
+                return;
+            }
             app.match_look.control = None;
             if c.cancel.load(Ordering::Relaxed) {
                 app.toast(ctx, "Match Look cancelled — no photos changed");
@@ -205,12 +218,20 @@ pub fn start(app: &mut LightcraftApp, params: Value, preview: bool) -> Result<Va
                                 tr("Library changed — Match Look was not applied").into()
                             } else {
                                 if skipped == 0 {
-                                    format!("{}: {changed}", tr("Match Look applied"))
+                                    crate::i18n::tr_format!("Match Look applied: {changed}", changed = changed)
                                 } else {
-                                    format!("{}: {changed}; {skipped} {}", tr("Match Look applied"), tr("photos edited during the job were skipped"))
+                                    crate::i18n::tr_format!(
+                                        "Match Look applied: {changed}; {skipped} photos edited during the job were skipped",
+                                        changed = changed,
+                                        skipped = skipped
+                                    )
                                 }
                             },
                         );
+                        let failed = value["failed"].as_array().map_or(0, Vec::len);
+                        if failed > 0 {
+                            app.toast(ctx, crate::i18n::tr_format!("{count} skipped (videos/offline)", count = failed));
+                        }
                         app.match_look.last_result = Some(value);
                     }
                     Err(e) => {
@@ -234,10 +255,11 @@ pub fn start(app: &mut LightcraftApp, params: Value, preview: bool) -> Result<Va
 
 pub fn cancel_preview(app: &mut LightcraftApp) {
     if app.match_look.label == "Preview Match Look"
-        && let Some(c) = &app.match_look.control
+        && let Some(c) = app.match_look.control.take()
     {
         c.cancel.store(true, Ordering::Relaxed);
     }
+    app.match_look.auto_preview_at = None;
 }
 pub fn preview_ready(app: &LightcraftApp, opts: Options) -> bool {
     app.match_look.preview.as_ref().is_some_and(|p| {
@@ -294,26 +316,38 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         .and_then(|id| app.session.saved_looks.file.looks.iter().find(|l| &l.id == id))
         .map(|l| l.name.clone())
         .unwrap_or_else(|| tr("Analyzed references").into());
-    let r = widgets::dropdown(ui, "matchLookPicker", &name, t.font(12.0), t.text_label);
-    egui::Popup::menu(&r).show(|ui| {
-        let mut items = vec![(None, tr("Analyzed references").to_string())];
-        items.extend(app.session.saved_looks.file.looks.iter().map(|l| (Some(l.id.clone()), l.name.clone())));
-        egui::ScrollArea::vertical().max_height(t.section_h * 8.0).show_rows(ui, ui.spacing().interact_size.y, items.len(), |ui, range| {
-            for index in range {
-                let (id, name) = &items[index];
-                if widgets::text_button_translated(ui, &format!("matchLookPick-{index}"), name, false).clicked() {
-                    let _ = app.run("develop.savedLook", json!({"action":"select","id":id}));
-                    app.match_look.preview = None;
-                    ui.close();
-                }
-            }
-        });
+    ui.horizontal(|ui| {
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width() - ui.spacing().interact_size.x - ui.spacing().item_spacing.x, ui.spacing().interact_size.y),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.set_min_width(ui.available_width());
+                let r = widgets::dropdown(ui, "matchLookPicker", &name, t.font(12.0), t.text_label);
+                egui::Popup::menu(&r).show(|ui| {
+                    let mut items = vec![(None, tr("Analyzed references").to_string())];
+                    items.extend(app.session.saved_looks.file.looks.iter().map(|l| (Some(l.id.clone()), l.name.clone())));
+                    egui::ScrollArea::vertical().max_height(t.section_h * 8.0).show_rows(ui, widgets::TEXT_BUTTON_H, items.len(), |ui, range| {
+                        for index in range {
+                            let (id, name) = &items[index];
+                            if widgets::text_button_translated(ui, &format!("matchLookPick-{index}"), name, false).clicked() {
+                                let _ = app.run("develop.savedLook", json!({"action":"select","id":id}));
+                                app.match_look.preview = None;
+                                ui.close();
+                            }
+                        }
+                    });
+                });
+            },
+        );
+        let menu = widgets::icon_button(ui, "matchLookMenu", crate::icons::Icon::More, ui.spacing().interact_size, false, true, "Look actions");
+        egui::Popup::menu(&menu).show(|ui| look_menu(app, ui, &name));
     });
     let references = app.session.match_look.references.clone();
+    let reference_bucket = lightcraft_engine::media::thumb_bucket((widgets::reference_tile_edge(ui.ctx()) * ui.ctx().pixels_per_point()).ceil() as usize);
     let items = references
         .iter()
         .map(|id| {
-            crate::panels::grid::request_thumb(app, *id, 128, 40);
+            crate::panels::grid::request_thumb(app, *id, reference_bucket, 40);
             let name = app.session.catalog.photo(*id).map(|p| p.file_name.clone()).unwrap_or_else(|| tr("Missing reference").into());
             let texture = app.renderer.thumb(*id).map(|tex| (tex.tex.id(), egui::vec2(tex.size[0] as f32, tex.size[1] as f32)));
             (id.0, name, texture)
@@ -357,9 +391,9 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     } else if let Some(saved) =
         app.session.match_look.selected.as_ref().and_then(|id| app.session.saved_looks.file.looks.iter().find(|l| &l.id == id))
     {
-        format!("{}: {} {}", tr("Saved look"), saved.reference_count, tr("references"))
+        crate::i18n::tr_format!("Saved look: {count} references", count = saved.reference_count)
     } else if ready {
-        format!("{}: {} {}", tr("Analyzed"), references.len(), tr("references"))
+        crate::i18n::tr_format!("Analyzed: {count} references", count = references.len())
     } else if app.session.match_look.analysis.is_some() {
         tr("References changed — Analyze again").into()
     } else {
@@ -369,14 +403,17 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     if let Some(looks) = engine::selected_looks(&app.session) {
         let w = vec![1.0 / looks.len() as f64; looks.len()];
         let blend = pipeline::blend(&looks, &w);
+        if pipeline::is_monochrome(&blend) {
+            widgets::summary_chips(ui, &[tr("Black & white look").into()]);
+        }
         ui.scope(|ui| widgets::summary_chips(
             ui,
             &[
-                format!("{} {:.0}/100", tr("Midtone lightness"), blend.features[2] * 100.0),
-                format!("{} {:+.1} ({})", tr("Warmth"), blend.features[6] * 100.0,tr(if blend.features[6]>=0.0 {"warm"} else {"cool"})),
-                format!("{} {:.1}/100", tr("Color intensity"), blend.features[7] * 100.0),
+                crate::i18n::tr_format!("Midtone lightness {value:.0}/100", value = blend.features[2] * 100.0),
+                crate::i18n::tr_format!("Warmth {value:+.1} ({direction})", value = blend.features[6] * 100.0, direction = tr(if blend.features[6]>=0.0 {"warm"} else {"cool"})),
+                crate::i18n::tr_format!("Color intensity {value:.1}/100", value = blend.features[7] * 100.0),
             ],
-        )).response.on_hover_text(tr("Finished-look measurements: midtone lightness (0 black, 100 white); warmth (Oklab b ×100, positive warm/yellow, negative cool/blue); colour intensity (Oklab chroma ×100, zero neutral)."));
+        )).response.on_hover_text(tr("Finished-look measurements: midtone lightness (0 black, 100 white); warmth (Oklab b ×100, positive warm/yellow, negative cool/blue); color intensity (Oklab chroma ×100, zero neutral)."));
     }
     ui.horizontal_wrapped(|ui| {
         let why = if busy {
@@ -403,48 +440,6 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             let _ = app.run("dialog.matchLook", json!({}));
         }
     });
-    if let Some(id) = app.session.match_look.selected.clone().filter(|id| app.session.saved_looks.file.looks.iter().any(|l| &l.id == id)) {
-        ui.horizontal_wrapped(|ui| {
-            if widgets::text_action(ui, "matchLookRename", "Rename…", busy.then_some("Wait for the current job")).clicked() {
-                prompt(app, "Rename Look", &name, "rename", Some(&id));
-            }
-            if widgets::text_action(ui, "matchLookDuplicate", "Duplicate", busy.then_some("Wait for the current job")).clicked() {
-                let _ = app.run("develop.savedLook", json!({"action":"duplicate","id":id}));
-            }
-            if widgets::text_action(ui, "matchLookDelete", "Delete", busy.then_some("Wait for the current job")).clicked() {
-                let _ = app.run("develop.savedLook", json!({"action":"delete","id":id}));
-            }
-            if widgets::text_action(
-                ui,
-                "matchLookUpdate",
-                "Update from current references…",
-                (busy || references.is_empty()).then_some("Add current references and wait for the current job"),
-            )
-            .clicked()
-            {
-                app.ui.dialog = Some(Dialog::UpdateMatchLook { id, name: name.clone() });
-            }
-        });
-    }
-    let menu = widgets::dropdown(ui, "matchLookMenu", tr("Look actions"), t.font(11.5), t.text_label);
-    egui::Popup::menu(&menu).show(|ui| {
-        for (id, label, command, reason) in [
-            ("matchLookImport", "Import Look…", "file.importLook", busy.then_some("Wait for the current job")),
-            (
-                "matchLookExport",
-                "Export Look…",
-                "file.exportLook",
-                (busy || engine::selected_looks(&app.session).is_none()).then_some("Analyze references or choose a saved look first"),
-            ),
-        ] {
-            if widgets::text_action(ui, id, label, reason).clicked() {
-                if let Err(error) = app.run(command, json!({})) {
-                    app.match_look.error = error;
-                }
-                ui.close();
-            }
-        }
-    });
     if let Some(error) = &app.session.saved_looks.error {
         ui.label(egui::RichText::new(error).color(t.caution));
     }
@@ -461,22 +456,24 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             egui::RichText::new(format!("{}: {}", tr("Skipped photos edited during the job"), names.join(", "))).font(t.font(11.5)).color(t.caution),
         );
     }
+    engine::reconcile_applied(&mut app.session);
     if let Some(id) = app.session.active()
         && let Some(record) = app.session.match_look.applied.get(&id).cloned()
     {
         ui.separator();
         ui.label(egui::RichText::new(tr("Applied to this photo")).font(t.font(12.0)).color(t.text_label));
+        if record.before.treatment == lightcraft_develop::Treatment::Bw {
+            widgets::summary_chips(ui, &[tr("Black & white target").into(), tr("Color groups skipped").into()]);
+        }
         similarity(ui, record.similarity, &record.weights);
         let editable = app.session.develop_of(id).as_deref() == Some(&record.last)
             && engine::identity(&app.session, id).is_some_and(|i| i.key == record.key)
             && !busy;
         let spec = strength_spec("matchLook.photoStrength");
         let out = widgets::slider(ui, &spec, record.options.strength, editable, None);
-        if let Some(strength) = out.value
-            && let Err(error) = app.run("develop.matchLookAmount", json!({"strength":strength}))
-        {
-            app.match_look.error = error;
-        }
+        crate::panels::edit::apply_slider_out(app, &lightcraft_develop::ControlSpec { label: "Match Look amount", ..spec }, out, |app, strength| {
+            app.run("develop.matchLookAmount", json!({"strength":strength}))
+        });
         let rows = changed_summary(&record.before, &record.last, record.options);
         let why = (!editable).then_some("Photo edited since Match Look; undo those edits before changing its amount");
         if let Some(group) = widgets::change_summary(ui, "matchApplied", &rows, why) {
@@ -511,35 +508,63 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
         .font(t.font(11.5))
         .color(t.text_label),
     );
+    if app.session.active().and_then(|id| app.session.develop_of(id)).is_some_and(|d| d.treatment == lightcraft_develop::Treatment::Bw) {
+        widgets::summary_chips(ui, &[tr("Black & white target").into(), tr("Color groups skipped").into()]);
+    }
     let before = *options;
-    widgets::checkbox(ui, "matchNormalize", &mut options.normalize, "Normalize")
-        .on_hover_text(tr("Match exposure and white balance at full strength. Strength changes the style groups only."));
-    widgets::checkbox(ui, "matchLight", &mut options.light_contrast, "Light & Contrast");
-    widgets::checkbox(ui, "matchColor", &mut options.color_adjust, "Color Adjust");
-    widgets::checkbox(ui, "matchTone", &mut options.color_tone, "Color Tone");
+    ui.horizontal_wrapped(|ui| {
+        widgets::checkbox(ui, "matchNormalize", &mut options.normalize, "Normalize")
+            .on_hover_text(tr("Match exposure and white balance at full strength. Strength changes the style groups only."));
+        widgets::checkbox(ui, "matchLight", &mut options.light_contrast, "Light & Contrast");
+    });
+    ui.horizontal_wrapped(|ui| {
+        widgets::checkbox(ui, "matchColor", &mut options.color_adjust, "Color Adjust");
+        widgets::checkbox(ui, "matchTone", &mut options.color_tone, "Color Tone");
+    });
     const STRENGTH: lightcraft_develop::ControlSpec = strength_spec("matchLook.strength");
 
     let out = widgets::slider(ui, &STRENGTH, options.strength, true, None);
     if let Some(value) = out.value {
         options.strength = value;
     }
-    widgets::checkbox(ui, "matchSkin", &mut options.protect_skin, "Protect skin")
-        .on_hover_text(tr("Prioritize skin colour and limit hue shifts. Uses cached People faces when available; no face model is loaded."));
-    widgets::checkbox(ui, "matchKeepWB", &mut options.keep_white_balance, "Keep white balance");
-    widgets::checkbox(ui, "matchKeepExposure", &mut options.keep_exposure, "Keep exposure");
-    widgets::checkbox(ui, "matchContrastGuard", &mut options.contrast_guard, "Contrast guard")
-        .on_hover_text(tr("Give Contrast a smaller share of the correction; prefer Whites, Blacks and the curve."));
-    if widgets::text_action(ui, "matchColourOnly", "Colour only", None).clicked() {
+    ui.horizontal_wrapped(|ui| {
+        widgets::checkbox(ui, "matchSkin", &mut options.protect_skin, "Protect skin").on_hover_text(tr(
+            "Protect skin color in cached People faces and limit hue shifts. Without faces, warm neutrals are measured without a skin constraint.",
+        ));
+        widgets::checkbox(ui, "matchKeepWB", &mut options.keep_white_balance, "Keep white balance");
+    });
+    ui.horizontal_wrapped(|ui| {
+        widgets::checkbox(ui, "matchKeepExposure", &mut options.keep_exposure, "Keep exposure");
+        widgets::checkbox(ui, "matchContrastGuard", &mut options.contrast_guard, "Contrast guard")
+            .on_hover_text(tr("Give Contrast a smaller share of the correction; prefer Whites, Blacks and the curve."));
+    });
+    if widgets::text_action(ui, "matchColourOnly", "Color only", None).clicked() {
         options.normalize = false;
         options.light_contrast = false;
         options.color_adjust = true;
         options.color_tone = true;
     }
-    widgets::checkbox(ui, "matchNewLayer", &mut options.new_layer, "Apply as new layer");
-    widgets::checkbox(ui, "matchConsistent", &mut options.consistent_batch, "Consistent batch")
-        .on_hover_text(tr("Use one equally blended look for every target. Otherwise references are weighted by each target's scene similarity."));
-    if before != *options {
-        app.match_look.preview = None;
+    ui.horizontal_wrapped(|ui| {
+        widgets::checkbox(ui, "matchNewLayer", &mut options.new_layer, "Apply as new layer");
+        widgets::checkbox(ui, "matchConsistent", &mut options.consistent_batch, "Consistent batch")
+            .on_hover_text(tr("Use one equally blended look for every target. Otherwise references are weighted by each target's scene similarity."));
+    });
+    if before != *options
+        && (app.match_look.preview.is_some()
+            || app.match_look.auto_preview_at.is_some()
+            || app.match_look.label == "Preview Match Look" && app.match_look.control.is_some())
+    {
+        cancel_preview(app);
+        app.match_look.auto_preview_at = Some(web_time::Instant::now());
+    }
+    if let Some(at) = app.match_look.auto_preview_at {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+        if at.elapsed() >= std::time::Duration::from_millis(300) && app.match_look.control.is_none() {
+            app.match_look.auto_preview_at = None;
+            if let Err(error) = start(app, json!(*options), true) {
+                app.match_look.error = error;
+            }
+        }
     }
     app.session.match_look.options = *options;
     if widgets::text_action(ui, "matchLookPreview", "Preview", app.match_look.control.as_ref().map(|_| "Wait for the current job")).clicked()
@@ -554,14 +579,27 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
             app.session
                 .match_look
                 .references
-                .first()
+                .get(app.match_look.reference_index % app.session.match_look.references.len().max(1))
                 .and_then(|id| app.renderer.thumb(*id))
                 .map(|tex| (tex.tex.id(), egui::vec2(tex.size[0] as f32, tex.size[1] as f32)))
         })
         .flatten();
-    if reference.is_some() {
-        widgets::checkbox(ui, "matchCompareReference", &mut app.match_look.compare_reference, "Compare with reference");
-    }
+    ui.horizontal_wrapped(|ui| {
+        ui.add_enabled_ui(reference.is_some(), |ui| {
+            widgets::checkbox(ui, "matchCompareReference", &mut app.match_look.compare_reference, "Compare with reference").on_disabled_hover_text(tr("Reference images are unavailable or still loading."))
+        });
+        if app.session.match_look.references.len() > 1
+            && widgets::text_action(
+                ui,
+                "matchNextReference",
+                "Next reference",
+                if reference.is_none() {Some("Reference images are unavailable or still loading.")} else {(!app.match_look.compare_reference).then_some("Select Compare with reference to cycle references.")},
+            )
+            .clicked()
+        {
+            app.match_look.reference_index = (app.match_look.reference_index + 1) % app.session.match_look.references.len();
+        }
+    });
     if let Some(p) = app.match_look.preview.as_ref().filter(|_| preview_ready(app, *options)) {
         similarity(ui, p.similarity, &p.weights);
         let original = Some((p.before_texture.id(), p.before_texture.size_vec2()));
@@ -583,7 +621,8 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
                 "Color Tone" => options.color_tone = false,
                 _ => {}
             }
-            app.match_look.preview = None;
+            cancel_preview(app);
+            app.match_look.auto_preview_at = Some(web_time::Instant::now());
         }
     } else {
         widgets::image_preview(ui, "matchLook:preview", None, "Optional preview of the active target");
@@ -613,16 +652,15 @@ const fn strength_spec(id: &'static str) -> lightcraft_develop::ControlSpec {
 }
 fn similarity(ui: &mut egui::Ui, value: f64, weights: &[f64]) {
     let t = Tokens::get(ui.ctx());
-    widgets::summary_chips(ui, &[format!("{} {:.0}%", tr("Scene similarity"), value * 100.0)]);
+    widgets::summary_chips(ui, &[crate::i18n::tr_format!("Scene similarity {value:.0}%", value = value * 100.0)]);
     if value < 0.45 {
         ui.label(egui::RichText::new(tr("Very different from the references — results may be weak")).font(t.font(11.5)).color(t.caution));
     }
     if weights.len() > 1 {
         ui.label(
-            egui::RichText::new(format!(
-                "{}: {}",
-                tr("Reference weights"),
-                weights.iter().enumerate().map(|(i, w)| format!("{}: {:.0}%", i + 1, w * 100.0)).collect::<Vec<_>>().join(" · ")
+            egui::RichText::new(crate::i18n::tr_format!(
+                "Reference weights: {weights}",
+                weights = weights.iter().enumerate().map(|(i, w)| format!("{}: {:.0}%", i + 1, w * 100.0)).collect::<Vec<_>>().join(" · ")
             ))
             .font(t.font(11.0))
             .color(t.text_dim),
@@ -645,6 +683,7 @@ fn changed_summary(
                 color: m.tools.color.unwrap_or_default(),
                 mixer: m.tools.mixer.unwrap_or_default(),
                 grading: m.tools.grading.unwrap_or_default(),
+                treatment: m.tools.treatment.unwrap_or(before.treatment),
                 wb: lightcraft_develop::WhiteBalance { temp: m.adjust.temp, tint: m.adjust.tint, ..Default::default() },
                 ..Default::default()
             })
@@ -706,7 +745,7 @@ fn changed_summary(
     groups
         .into_iter()
         .filter_map(|(group, ids)| {
-            let changed = ids
+            let mut changed = ids
                 .iter()
                 .filter_map(|id| {
                     let v = controls::get(&d, id)?;
@@ -740,7 +779,59 @@ fn changed_summary(
                     ))
                 })
                 .collect::<Vec<_>>();
-            (!changed.is_empty()).then(|| (group, format!("{}: {}", tr(group), changed.join(" · "))))
+            if group == "Color Adjust" && d.treatment != b.treatment {
+                changed.push(tr("Treatment Color → B&W").into());
+            }
+            (!changed.is_empty()).then(|| (group, crate::i18n::tr_format!("{group}: {changes}", group = tr(group), changes = changed.join(" · "))))
         })
         .collect()
+}
+
+fn look_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, name: &str) {
+    let busy = app.match_look.control.is_some();
+    let references = app.session.match_look.references.clone();
+    if let Some(id) = app.session.match_look.selected.clone().filter(|id| app.session.saved_looks.file.looks.iter().any(|l| &l.id == id)) {
+        ui.vertical(|ui| {
+            if widgets::text_action(ui, "matchLookRename", "Rename…", busy.then_some("Wait for the current job")).clicked() {
+                prompt(app, "Rename Look", name, "rename", Some(&id));
+                ui.close();
+            }
+            if widgets::text_action(ui, "matchLookDuplicate", "Duplicate", busy.then_some("Wait for the current job")).clicked() {
+                let _ = app.run("develop.savedLook", json!({"action":"duplicate","id":id}));
+                ui.close();
+            }
+            if widgets::text_action(ui, "matchLookDelete", "Delete", busy.then_some("Wait for the current job")).clicked() {
+                let _ = app.run("develop.savedLook", json!({"action":"delete","id":id}));
+                ui.close();
+            }
+            if widgets::text_action(
+                ui,
+                "matchLookUpdate",
+                "Update from current references…",
+                (busy || references.is_empty()).then_some("Add current references and wait for the current job"),
+            )
+            .clicked()
+            {
+                app.ui.dialog = Some(Dialog::UpdateMatchLook { id, name: name.into() });
+                ui.close();
+            }
+        });
+    }
+
+    for (id, label, command, reason) in [
+        ("matchLookImport", "Import Look…", "file.importLook", busy.then_some("Wait for the current job")),
+        (
+            "matchLookExport",
+            "Export Look…",
+            "file.exportLook",
+            (busy || engine::selected_looks(&app.session).is_none()).then_some("Analyze references or choose a saved look first"),
+        ),
+    ] {
+        if widgets::text_action(ui, id, label, reason).clicked() {
+            if let Err(error) = app.run(command, json!({})) {
+                app.match_look.error = error;
+            }
+            ui.close();
+        }
+    }
 }

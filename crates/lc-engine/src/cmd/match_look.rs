@@ -220,6 +220,7 @@ pub struct Control {
     pub completed: AtomicUsize,
     pub total: usize,
 }
+#[derive(Clone)]
 struct Input {
     identity: Identity,
     source: SourceRef,
@@ -230,10 +231,18 @@ struct Input {
 fn input(s: &mut Session, id: PhotoId) -> Result<Input> {
     let photo = s.catalog.photo(id).cloned().ok_or_else(|| bad(C, "Unknown photo"))?;
     if photo.kind == lightcraft_catalog::MediaKind::Video || !photo.in_library() {
-        return Err(bad(C, "Choose still photos in the catalog"));
+        return Err(bad(C, format!("Choose a still photo in the catalog: {}", photo.file_name)));
     }
     Ok(Input {
-        bytes: u64::from(photo.width).saturating_mul(u64::from(photo.height)).saturating_mul(32).saturating_add(16 << 20),
+        bytes: u64::from(photo.width.min(512))
+            .saturating_mul(u64::from(photo.height.min(512)))
+            .saturating_mul(32)
+            .saturating_add(16 << 20)
+            .saturating_add(if photo.develops_raw() {
+                u64::from(photo.width).saturating_mul(u64::from(photo.height)).saturating_mul(6).saturating_add(photo.file_size)
+            } else {
+                0
+            }),
         faces: s
             .smart
             .people
@@ -319,6 +328,7 @@ pub struct SolveWork {
     inputs: Vec<Input>,
     looks: Vec<Look>,
     opts: Options,
+    failed: Vec<Value>,
 }
 pub struct Matched {
     generation: u64,
@@ -331,6 +341,8 @@ pub struct Matched {
     pub load_ms: f64,
     pub solve_ms: f64,
     pub renders: usize,
+    pub workers: usize,
+    pub per_photo: Vec<Value>,
 }
 pub fn prepare(s: &mut Session, p: &Value) -> Result<SolveWork> {
     ready(s).map_err(|e| bad(C, e))?;
@@ -339,8 +351,23 @@ pub fn prepare(s: &mut Session, p: &Value) -> Result<SolveWork> {
         return Err(bad(C, "Strength must be 0–125"));
     }
     let mut seen = std::collections::BTreeSet::new();
-    let inputs = s.targets(p).into_iter().filter(|id| seen.insert(*id)).map(|id| input(s, id)).collect::<Result<Vec<_>>>()?;
-    Ok(SolveWork { generation: s.library_generation, inputs, looks: selected_looks(s).ok_or_else(|| bad(C, "Analyze first"))?, opts })
+    let mut failed = Vec::new();
+    let inputs = s
+        .targets(p)
+        .into_iter()
+        .filter(|id| seen.insert(*id))
+        .filter_map(|id| match input(s, id) {
+            Ok(input) => Some(input),
+            Err(error) => {
+                failed.push(json!([id.0, error.to_string()]));
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    if inputs.is_empty() {
+        return Err(bad(C, "No still photos in the selection"));
+    }
+    Ok(SolveWork { generation: s.library_generation, inputs, failed, looks: selected_looks(s).ok_or_else(|| bad(C, "Analyze first"))?, opts })
 }
 impl SolveWork {
     pub fn len(&self) -> usize {
@@ -350,6 +377,90 @@ impl SolveWork {
         self.inputs.is_empty()
     }
     pub fn run(self, c: &Control, preview: bool) -> Matched {
+        let bytes = self.inputs.iter().map(|i| i.bytes).max().unwrap_or(1);
+        let jobs = lightcraft_sysmem::heavy_jobs();
+        // OS coordinators may overlap their bounded CPU solves with heavy raw decodes.
+        // The shared permit still limits the decode slots and memory independently.
+        let workers = if preview || cfg!(target_arch = "wasm32") {
+            1
+        } else {
+            self.inputs.len().min(lightcraft_sysmem::profile().threads).min((jobs.headroom() / bytes).max(1) as usize).max(1)
+        };
+        if workers == 1 {
+            return self.run_sequential(c, preview);
+        }
+        let start = web_time::Instant::now();
+        let next = AtomicUsize::new(0);
+        let results = std::sync::Mutex::new(Vec::new());
+        let mut workers_started = 0;
+        std::thread::scope(|scope| {
+            for worker in 0..workers {
+                let work = &self;
+                let next = &next;
+                let results = &results;
+                let spawned = std::thread::Builder::new().name(format!("match-look-{worker}")).spawn_scoped(scope, move || {
+                    lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
+                    loop {
+                        if c.cancel.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let index = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(input) = work.inputs.get(index) else {
+                            break;
+                        };
+                        let result = SolveWork {
+                            generation: work.generation,
+                            inputs: vec![input.clone()],
+                            looks: work.looks.clone(),
+                            opts: work.opts,
+                            failed: Vec::new(),
+                        }
+                        .run_sequential(c, false);
+                        results.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((index, result));
+                    }
+                });
+                match spawned {
+                    Ok(_) => workers_started += 1,
+                    Err(error) => log::warn!("Could not start Match Look worker: {error}; continuing with available workers"),
+                }
+            }
+        });
+        if workers_started == 0 {
+            return self.run_sequential(c, preview);
+        }
+        let mut results = results.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+        results.sort_by_key(|(index, _)| *index);
+        let mut out = Matched {
+            generation: self.generation,
+            rows: Vec::new(),
+            applications: Default::default(),
+            failed: self.failed,
+            preview: None,
+            preview_before: None,
+            elapsed_ms: 0.0,
+            load_ms: 0.0,
+            solve_ms: 0.0,
+            renders: 0,
+            workers: workers_started,
+            per_photo: Vec::new(),
+        };
+        for (_, result) in results {
+            out.rows.extend(result.rows);
+            out.applications.extend(result.applications);
+            out.failed.extend(result.failed);
+            out.per_photo.extend(result.per_photo);
+            out.load_ms += result.load_ms;
+            out.solve_ms += result.solve_ms;
+            out.renders += result.renders;
+        }
+        out.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        out
+    }
+    #[cfg(test)]
+    pub(crate) fn run_serial(self, c: &Control) -> Matched {
+        self.run_sequential(c, false)
+    }
+    fn run_sequential(self, c: &Control, preview: bool) -> Matched {
         lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
         let start = web_time::Instant::now();
         let stop = || c.cancel.load(Ordering::Relaxed);
@@ -357,28 +468,36 @@ impl SolveWork {
             generation: self.generation,
             rows: Vec::new(),
             applications: Default::default(),
-            failed: Vec::new(),
+            failed: self.failed,
             preview: None,
             preview_before: None,
             elapsed_ms: 0.0,
             load_ms: 0.0,
             solve_ms: 0.0,
             renders: 0,
+            workers: 1,
+            per_photo: Vec::new(),
         };
         for i in self.inputs {
             if stop() {
                 break;
             }
-            let Some(_permit) = lightcraft_sysmem::heavy_jobs().admit(i.bytes, &stop) else { break };
+            let Some(mut permit) = lightcraft_sysmem::heavy_jobs().admit(i.bytes, &stop) else { break };
             let load_start = web_time::Instant::now();
             match i.source.load_source() {
                 Ok(src) => {
-                    out.load_ms += load_start.elapsed().as_secs_f64() * 1000.0;
+                    // Sensor/file buffers are gone. The bounded Thumb/probe working set is
+                    // small: release the heavy decode slot while keeping its memory reserved,
+                    // so the next raw can decode during this photo's CPU-only solve.
+                    permit.finish_heavy((src.image.data.len() as u64).saturating_mul(12).saturating_add(16 << 20));
+                    let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+                    out.load_ms += load_ms;
+                    let id = i.identity.id;
                     let solve_start = web_time::Instant::now();
                     let info = src.info_or(i.info);
-                    if let Some(solved) =
+                    if let Some(solved) = lightcraft_sysmem::in_background_pool(|| {
                         match_look::solve_with_faces(&src.image, &info, &i.identity.settings, &self.looks, self.opts, &i.faces, &stop)
-                    {
+                    }) {
                         out.renders += solved.renders;
                         let similarity = solved.similarity;
                         out.applications.insert(
@@ -410,7 +529,9 @@ impl SolveWork {
                         }
                         out.rows.push((i.identity, solved.settings));
                     }
-                    out.solve_ms += solve_start.elapsed().as_secs_f64() * 1000.0;
+                    let solve_ms = solve_start.elapsed().as_secs_f64() * 1000.0;
+                    out.solve_ms += solve_ms;
+                    out.per_photo.push(json!({"id":id,"loadMs":load_ms,"solveMs":solve_ms}));
                 }
                 Err(e) => out.failed.push(json!([i.identity.id.0, e])),
             }
@@ -449,7 +570,7 @@ pub fn apply(s: &mut Session, result: Matched) -> Result<Value> {
         }
     }
     Ok(
-        json!({"changed":n,"skipped":skipped,"failed":result.failed,"elapsedMs":result.elapsed_ms,"loadMs":result.load_ms,"solveMs":result.solve_ms,"renders":result.renders}),
+        json!({"changed":n,"skipped":skipped,"failed":result.failed,"elapsedMs":result.elapsed_ms,"loadMs":result.load_ms,"solveMs":result.solve_ms,"renders":result.renders,"workers":result.workers,"perPhoto":result.per_photo}),
     )
 }
 fn references(s: &mut Session, p: &Value) -> Result<Value> {
@@ -548,6 +669,12 @@ fn saved(s: &mut Session, p: &Value) -> Result<Value> {
         let bytes = serde_json::to_vec(&p["file"]).map_err(|e| bad(C, e.to_string()))?;
         let imported = parse_import(&bytes).map_err(|e| bad(C, e))?;
         for mut l in imported.looks {
+            if file.looks.iter().any(|existing| existing.looks == l.looks) {
+                continue;
+            }
+            if file.looks.iter().any(|existing| existing.name == l.name) {
+                l.name = format!("{} (imported)", l.name.chars().take(LOOK_NAME_MAX_CHARS - 11).collect::<String>());
+            }
             l.id = uuid::Uuid::new_v4().to_string();
             file.looks.push(l);
         }
@@ -582,7 +709,30 @@ fn saved(s: &mut Session, p: &Value) -> Result<Value> {
     s.save_prefs()?;
     status(s, p)
 }
+pub fn reconcile_applied(s: &mut Session) {
+    if s.interaction.is_some() {
+        return;
+    }
+    let undone = s
+        .match_look
+        .applied
+        .iter()
+        .filter(|(id, r)| r.last != *r.before && s.develop_of(**id).as_deref() == Some(r.before.as_ref()))
+        .map(|(id, _)| *id)
+        .collect::<Vec<_>>();
+    for id in undone {
+        s.match_look.applied.remove(&id);
+    }
+}
+pub fn export_name(s: &Session, id: Option<&str>) -> String {
+    let id = id.or(s.match_look.selected.as_deref());
+    let name = id.and_then(|id| s.saved_looks.file.looks.iter().find(|l| l.id == id)).map_or("Analyzed references", |look| look.name.as_str());
+    let name = name.chars().map(|c| if c.is_control() || "<>:\"/\\|?*".contains(c) { '_' } else { c }).collect::<String>();
+    let name = name.trim_matches([' ', '.']);
+    format!("{}.json", if name.is_empty() { "Match Look" } else { name })
+}
 fn amount(s: &mut Session, p: &Value) -> Result<Value> {
+    reconcile_applied(s);
     let id = s.active().ok_or_else(|| bad(C, "Select an applied photo"))?;
     let mut record = s.match_look.applied.get(&id).cloned().ok_or_else(|| bad(C, "No Match Look amount for this photo"))?;
     if s.develop_of(id).as_deref() != Some(&record.last) || identity(s, id).is_none_or(|i| i.key != record.key) {
@@ -603,11 +753,15 @@ fn amount(s: &mut Session, p: &Value) -> Result<Value> {
             p["strength"].as_f64().filter(|x| x.is_finite() && (0.0..=125.0).contains(x)).ok_or_else(|| bad(C, "Strength must be 0–125"))?;
         record.options.strength = strength;
     }
+    if p["interaction"] == "begin" {
+        s.begin_interaction("Match Look amount")?;
+    }
     let d = match_look::amount_settings(&record.before, &record.full, record.options);
-    if d != record.last
-        && let Some(op) = s.develop_op(id, d.clone(), "Match Look amount")
-    {
-        s.commit("Match Look amount", op)?;
+    if d != record.last {
+        s.set_develop(id, d.clone(), "Match Look amount")?;
+    }
+    if p["interaction"] == "end" {
+        s.end_interaction()?;
     }
     record.last = d;
     s.match_look.applied.insert(id, record);
@@ -620,7 +774,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Match Look amount",
             [],
             None,
-            "{strength?:0..125, resetGroup?:normalize|light|color|tone}",
+            "{strength?:0..125, resetGroup?:normalize|light|color|tone, interaction?:begin|update|end}",
             has_selection,
             amount
         ),
@@ -936,6 +1090,7 @@ mod tests {
     fn match_look_bad_analysis_and_options_cannot_discard_other_preferences() {
         let catalog = MemStore::new();
         let files = MemStore::new();
+        let global = MemStore::new();
         let open = |s: &mut Session| {
             s.open_library_in(
                 crate::library::LibraryStores {
@@ -954,18 +1109,24 @@ mod tests {
         s.last_export = Some(json!({"proof":"retained"}));
         s.execute("develop.matchLookReferences", &json!({})).unwrap();
         s.execute("develop.analyzeLook", &json!({})).unwrap();
+        s.saved_looks.open(Box::new(global.clone())).unwrap();
+        let selected = s.execute("develop.savedLook", &json!({"name":"Retained selected look"})).unwrap()["id"].as_str().unwrap().to_string();
         s.close_library().unwrap();
         let mut store = files.clone();
         let mut prefs: Value = serde_json::from_slice(&store.read("prefs.json").unwrap().unwrap()).unwrap();
         assert!(prefs["matchLook"].get("analysis").is_none());
+        let references = s.match_look.references.clone();
         prefs["matchLook"]["options"]["strength"] = Value::Null;
         store.write_atomic("prefs.json", &serde_json::to_vec(&prefs).unwrap()).unwrap();
         store.write_atomic("match-look-analysis.json", b"{broken look").unwrap();
         let mut reopened = Session::new();
+        reopened.saved_looks.open(Box::new(global)).unwrap();
         open(&mut reopened);
         assert_eq!(reopened.last_export, Some(json!({"proof":"retained"})));
         assert!(reopened.match_look.analysis.is_none());
         assert_eq!(reopened.match_look.options, Options::default());
+        assert_eq!(reopened.match_look.references, references);
+        assert_eq!(reopened.match_look.selected.as_deref(), Some(selected.as_str()));
     }
     #[test]
     fn match_look_import_bounds_unlimited_global_looks_and_dangling_selection() {
@@ -1029,6 +1190,166 @@ mod tests {
         let mut s = setup();
         assert!(s.saved_looks.open(Box::new(store.clone())).is_err());
         assert_eq!(store.read(FILE).unwrap(), original);
+    }
+    #[test]
+    fn match_look_revision2_amount_drag_undo_and_import_dedupe() {
+        let mut s = setup();
+        let id = s.catalog.photos().find(|p| p.id != s.active().unwrap()).unwrap().id;
+        s.execute("library.select", &json!({"ids":[id]})).unwrap();
+        s.execute("develop.matchLook", &json!({"colorTone":false})).unwrap();
+        let undo = s.undo.len();
+        let history = s.catalog.photo(id).unwrap().history.len();
+        for (index, value) in [90, 80, 70, 60, 50, 40].into_iter().enumerate() {
+            let interaction = if index == 0 {
+                "begin"
+            } else if index == 5 {
+                "end"
+            } else {
+                "update"
+            };
+            s.execute("develop.matchLookAmount", &json!({"strength":value,"interaction":interaction})).unwrap();
+        }
+        assert_eq!(s.undo.len(), undo + 1);
+        assert_eq!(s.catalog.photo(id).unwrap().history.len(), history + 1);
+        s.execute("develop.matchLookAmount", &json!({"strength":30})).unwrap();
+        assert_eq!(s.undo.len(), undo + 2);
+        s.execute("edit.undo", &json!({})).unwrap();
+        s.execute("edit.undo", &json!({})).unwrap();
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert!(!s.match_look.applied.contains_key(&id));
+        s.execute("develop.savedLook", &json!({"name":"Facade / evening"})).unwrap();
+        assert_eq!(export_name(&s, None), "Facade _ evening.json");
+        let file = s.saved_looks.file.clone();
+        s.execute("develop.savedLook", &json!({"action":"import","file":file})).unwrap();
+        assert_eq!(s.saved_looks.file.looks.len(), 1);
+        let mut changed = file;
+        changed.looks[0].looks[0].features[2] += 0.01;
+        s.execute("develop.savedLook", &json!({"action":"import","file":changed})).unwrap();
+        assert_eq!(s.saved_looks.file.looks[1].name, "Facade / evening (imported)");
+    }
+    #[test]
+    fn match_look_revision2_mixed_selection_parallel_order_and_cancel() {
+        use std::time::{Duration, Instant};
+        let mut s = setup();
+        let ids = s.catalog.photos().filter(|p| p.id != s.active().unwrap()).take(20).map(|p| p.id).collect::<Vec<_>>();
+        let mut video = s.catalog.photo(ids[0]).unwrap().as_ref().clone();
+        video.id = s.catalog.alloc_photo_id();
+        let video_id = video.id;
+        video.kind = lightcraft_catalog::MediaKind::Video;
+        s.apply_silent(Op::AddPhoto { photo: Box::new(video) }).unwrap();
+        let work = prepare(&mut s, &json!({"ids":[ids[1], ids[2], video_id],"colorTone":false})).unwrap();
+        assert_eq!(work.failed.len(), 1);
+        assert!(work.inputs.iter().all(|i| i.bytes <= 24 << 20));
+        let result = work.run(&Control::default(), false);
+        assert_eq!(apply(&mut s, result).unwrap()["changed"], 2);
+        let mut work = prepare(&mut s, &json!({"ids":ids[1..17],"colorTone":false})).unwrap();
+        let threads = Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
+        let source = Arc::new(lightcraft_raster::Rgb32f::from_fn(32, 24, |x, y| [0.03 + x as f32 * 0.01, 0.04 + y as f32 * 0.01, 0.07]));
+        for input in &mut work.inputs {
+            let source = source.clone();
+            let threads = threads.clone();
+            input.source = SourceRef::File {
+                path: "slow-fixture".into(),
+                max_edge: 32,
+                fallback: None,
+                loader: Some(Arc::new(move |_, _| {
+                    threads.lock().unwrap().insert(std::thread::current().id());
+                    std::thread::sleep(Duration::from_millis(30));
+                    Ok(((*source).clone(), SourceInfo::default()))
+                })),
+            };
+        }
+        let expected = work.inputs.iter().map(|i| i.identity.id).collect::<Vec<_>>();
+        let result = work.run(&Control::default(), false);
+        assert_eq!(result.rows.iter().map(|r| r.0.id).collect::<Vec<_>>(), expected);
+        assert_eq!(result.per_photo.len(), expected.len());
+        if lightcraft_sysmem::profile().threads > 1 && lightcraft_sysmem::heavy_jobs().headroom() >= 48 << 20 {
+            assert!(result.workers > 1);
+        }
+        if result.workers > 1 {
+            assert!(threads.lock().unwrap().len() > 1);
+            assert!(result.elapsed_ms < result.load_ms + result.solve_ms);
+        }
+        assert_eq!(apply(&mut s, result).unwrap()["changed"], expected.len());
+        let mut work = prepare(&mut s, &json!({"ids":ids[1..],"colorTone":false})).unwrap();
+        for input in &mut work.inputs {
+            let source = source.clone();
+            input.source = SourceRef::File {
+                path: "cancel-fixture".into(),
+                max_edge: 32,
+                fallback: None,
+                loader: Some(Arc::new(move |_, _| {
+                    std::thread::sleep(Duration::from_millis(30));
+                    Ok(((*source).clone(), SourceInfo::default()))
+                })),
+            };
+        }
+        let control = Control::default();
+        let start = Instant::now();
+        let result = std::thread::scope(|scope| {
+            let job = scope.spawn(|| work.run(&control, false));
+            while control.completed.load(Ordering::Relaxed) < 3 {
+                assert!(start.elapsed() < Duration::from_secs(10));
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            control.cancel.store(true, Ordering::Relaxed);
+            job.join().unwrap()
+        });
+        assert!(result.rows.len() < expected.len());
+        assert!(start.elapsed() < Duration::from_millis(expected.len() as u64 * 30));
+    }
+    #[derive(Clone)]
+    struct AmountWriteFailure(MemStore);
+    impl Store for AmountWriteFailure {
+        fn read(&mut self, n: &str) -> std::io::Result<Option<Vec<u8>>> {
+            self.0.read(n)
+        }
+        fn write_atomic(&mut self, n: &str, b: &[u8]) -> std::io::Result<()> {
+            if n == "match-look-applied.json" { Err(std::io::Error::other("amount disk full")) } else { self.0.write_atomic(n, b) }
+        }
+        fn append(&mut self, n: &str, b: &[u8]) -> std::io::Result<()> {
+            self.0.append(n, b)
+        }
+        fn truncate(&mut self, n: &str, l: u64) -> std::io::Result<()> {
+            self.0.truncate(n, l)
+        }
+        fn describe(&self) -> String {
+            "amount-write-failure".into()
+        }
+    }
+    #[test]
+    fn match_look_revision2_optional_amount_write_preserves_catalog() {
+        let catalog = MemStore::new();
+        let files = AmountWriteFailure(MemStore::new());
+        let open = |s: &mut Session, seed| {
+            s.open_library_in(
+                crate::library::LibraryStores {
+                    dir: "amount-failure".into(),
+                    catalog: Box::new(catalog.clone()),
+                    files: Box::new(files.clone()),
+                    on_disk: false,
+                },
+                seed,
+            )
+            .unwrap();
+        };
+        let mut s = Session::new();
+        open(&mut s, true);
+        let id = s.active().unwrap();
+        s.execute("develop.matchLookReferences", &json!({})).unwrap();
+        s.execute("develop.analyzeLook", &json!({})).unwrap();
+        s.execute("develop.matchLook", &json!({"ids":[s.catalog.photos().find(|p| p.id!=id).unwrap().id]})).unwrap();
+        s.set_develop(
+            id,
+            DevelopSettings { light: lightcraft_develop::Light { exposure: 1.25, ..Default::default() }, ..Default::default() },
+            "Last edit",
+        )
+        .unwrap();
+        s.close_library().unwrap();
+        assert!(s.library.as_ref().unwrap().settings_warnings.iter().any(|w| w.contains("amount disk full")));
+        let mut reopened = Session::new();
+        open(&mut reopened, false);
+        assert_eq!(reopened.develop_of(id).unwrap().light.exposure, 1.25);
     }
 }
 
@@ -1094,6 +1415,40 @@ mod gpu_acceptance {
                 println!("MATCH_LOOK_GPU later_global_wb mean_lsb={mean} max_lsb={max}");
                 assert!(mean < 0.5 && max <= 3.0);
             }
+        }
+    }
+
+    #[test]
+    #[ignore = "physical Vulkan GPU: monochrome treatment, per-photo amount and layer treatment"]
+    fn match_look_gpu_revision2_monochrome_amount_and_layer() {
+        use lightcraft_develop::{DevelopSettings, Treatment};
+        use lightcraft_pipeline::{
+            RenderRequest, SourceInfo,
+            match_look::{self, Options},
+        };
+        use std::sync::Arc;
+        let _gpu = crate::tests_gpu::gpu_state();
+        assert!(crate::gpu::available());
+        let adapter = crate::gpu::adapter_name().unwrap();
+        assert!(adapter.contains("RTX 5090") && adapter.contains("Vulkan"), "{adapter}");
+        let source = Arc::new(lightcraft_raster::Rgb32f::from_fn(128, 96, |x, y| [0.03 + x as f32 / 260.0, 0.02 + y as f32 / 230.0, 0.08]));
+        let info = SourceInfo::default();
+        let base = DevelopSettings::default();
+        let reference = DevelopSettings { treatment: Treatment::Bw, ..Default::default() };
+        let look = match_look::analyze(&source, &info, &reference);
+        for new_layer in [false, true] {
+            let opts = Options { new_layer, strength: 50.0, ..Default::default() };
+            let solved = match_look::solve(&source, &info, &base, std::slice::from_ref(&look), opts, &|| false).unwrap();
+            assert!(solved.monochrome);
+            let settings = match_look::amount_settings(&base, &solved.full_settings, opts);
+            let req = RenderRequest::fit(128, 128);
+            let cpu = lightcraft_pipeline::render(&source, &info, &settings, &req).image;
+            let gpu = crate::gpu::render(&source, &info, &settings, &req, None).expect("native GPU monochrome render").image;
+            let errors = cpu.data.iter().zip(&gpu.data).flat_map(|(a, b)| (0..3).map(move |i| f64::from(a[i].abs_diff(b[i])))).collect::<Vec<_>>();
+            let mean = errors.iter().sum::<f64>() / errors.len() as f64;
+            let max = errors.iter().copied().fold(0.0, f64::max);
+            println!("MATCH_LOOK_GPU_MONO adapter={adapter} layer={new_layer} mean_lsb={mean:.4} max_lsb={max}");
+            assert!(mean < 0.5 && max <= 3.0, "{mean} {max}");
         }
     }
 }

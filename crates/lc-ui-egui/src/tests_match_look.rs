@@ -213,9 +213,17 @@ fn match_look_ui_screenshots() {
             let tag = format!("{}-{}", if dark { "dark" } else { "light" }, width as u32);
             let panel = rect(&h, "panel:right_panel");
             let start = rect(&h, "section:matchLook").top();
-            let end = rect(&h, "dropdown:matchLookMenu").bottom();
+            let end = rect(&h, "button:matchLook").bottom();
+            let sections = h.app.ui.open_sections.clone();
+            h.app.ui.open_sections = vec!["light".into(), "color".into(), "effects".into()];
+            h.step();
+            h.step();
+            save(&h, &format!("develop-{tag}"), panel);
+            h.app.ui.open_sections = sections;
+            h.step();
+            h.step();
             save(&h, &format!("panel-{tag}"), egui::Rect::from_min_max(egui::pos2(panel.left(), start), egui::pos2(panel.right(), end + 8.0)));
-            click(&mut h, "dropdown:matchLookMenu");
+            click(&mut h, "icon:matchLookMenu");
             save(&h, &format!("menu-{tag}"), egui::Rect::from_min_max(egui::pos2(panel.left(), start), egui::pos2(panel.right(), end + 80.0)));
             request(&mut h, "ui.key", json!({"key":"Escape"}));
             click(&mut h, "button:matchLook");
@@ -259,19 +267,47 @@ fn match_look_ui_500_photo_app_path_benchmark() {
     assert!(lightcraft_engine::gpu::available(), "Real hardware GPU required");
     let adapter = lightcraft_engine::gpu::adapter_name().unwrap();
     assert!(!adapter.to_lowercase().contains("llvmpipe") && !adapter.to_lowercase().contains("software"), "{adapter}");
-    analyze(&mut h, 10);
-    let seed = h.app.session.catalog.photos().find(|p| !h.app.session.match_look.references.contains(&p.id)).unwrap().as_ref().clone();
-    let source = h.app.session.source_now(seed.id, lightcraft_engine::media::SourceLevel::Thumb).unwrap();
-    let info = h.app.session.source_info(seed.id);
-    h.app.session.media.file_loader = Some(std::sync::Arc::new(move |_, _| Ok(((*source).clone(), info.clone()))));
+    let raw_dir = std::env::var("LOCAL_IMAGE_TEST_RAW_DIR").ok();
+    if let Some(dir) = &raw_dir {
+        h.app.session = lightcraft_engine::Session::new().with_fs();
+        let mut paths = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| {
+                p.extension().is_some_and(|e| ["arw", "cr2", "nef", "raf", "dng", "rw2"].contains(&e.to_string_lossy().to_ascii_lowercase().as_str()))
+            })
+            .collect::<Vec<_>>();
+        paths.sort();
+        request(&mut h, "library.import", json!({"paths":paths,"mode":"add"}));
+        assert!(h.app.session.catalog.photos().all(|p| p.develops_raw()));
+        analyze(&mut h, 2);
+    } else {
+        analyze(&mut h, 10);
+    }
+    let seeds = h
+        .app
+        .session
+        .catalog
+        .photos()
+        .filter(|p| !h.app.session.match_look.references.contains(&p.id))
+        .map(|p| p.as_ref().clone())
+        .collect::<Vec<_>>();
+    let seed = &seeds[0];
+    if raw_dir.is_none() {
+        let source = h.app.session.source_now(seed.id, lightcraft_engine::media::SourceLevel::Thumb).unwrap();
+        let info = h.app.session.source_info(seed.id);
+        h.app.session.media.file_loader = Some(std::sync::Arc::new(move |_, _| Ok(((*source).clone(), info.clone()))));
+    }
     let count = std::env::var("LC_MATCH_LOOK_BENCH_COUNT").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(500);
     let mut ids = Vec::new();
     let mut ops = Vec::new();
     for n in 0..count {
-        let mut p = seed.clone();
+        let mut p = seeds[n % seeds.len()].clone();
         p.id = h.app.session.catalog.alloc_photo_id();
-        p.file_name = format!("benchmark-{n}.jpg");
-        p.source = lightcraft_catalog::Source::File { path: format!("match-look-proxy-{n}.jpg") };
+        p.file_name = format!("benchmark-{n}-{}", p.file_name);
+        if raw_dir.is_none() {
+            p.source = lightcraft_catalog::Source::File { path: format!("match-look-proxy-{n}.jpg") };
+        }
         ids.push(p.id);
         ops.push(lightcraft_catalog::Op::AddPhoto { photo: Box::new(p) });
     }
@@ -317,7 +353,9 @@ fn match_look_ui_500_photo_app_path_benchmark() {
     let p95 = frames[((frames.len() - 1) as f64 * 0.95) as usize];
     let solve = h.app.match_look.last_result.as_ref().unwrap()["elapsedMs"].as_f64().unwrap() / 1000.0;
     println!(
-        "MATCH_LOOK_BENCH adapter={adapter} profile={:?} memory_override={:?} photos={count} solve_seconds={solve:.3} wall_seconds={wall:.3} per_photo_ms={:.3} ui_frame_p95_ms={p95:.3} frames={}",
+        "MATCH_LOOK_BENCH adapter={adapter} raw={} workers={} profile={:?} memory_override={:?} photos={count} solve_seconds={solve:.3} wall_seconds={wall:.3} per_photo_ms={:.3} ui_frame_p95_ms={p95:.3} frames={}",
+        raw_dir.is_some(),
+        h.app.match_look.last_result.as_ref().unwrap()["workers"],
         lightcraft_sysmem::profile(),
         std::env::var("LOCAL_IMAGE_MEMORY_GB"),
         solve * 1000.0 / count as f64,
@@ -348,6 +386,7 @@ fn match_look_ui_context_reference_remove_and_profile_catalog() {
     click(&mut h, "button:matchLookAnalyze");
     wait(&mut h);
     assert!(engine::current_ready(&h.app.session));
+    request(&mut h, "ui.hoverWidget", json!({"id":format!("reference:{}",id.0)}));
     click(&mut h, &format!("icon:matchReferenceRemove-{}", id.0));
     assert!(h.app.session.match_look.references.is_empty());
     assert!(!engine::current_ready(&h.app.session));
@@ -378,7 +417,7 @@ fn match_look_ui_apply_direct_locks_colour_only_remember_amount_and_reset() {
         crate::state::Dialog::MatchLook { options } => *options,
         _ => panic!(),
     };
-    assert!(!opts.normalize && !opts.light_contrast && opts.color_adjust && opts.color_tone);
+    assert!(!opts.normalize && !opts.light_contrast && opts.color_adjust && opts.color_tone, "{opts:?}");
     assert!(opts.keep_white_balance && opts.keep_exposure && !opts.protect_skin);
     assert!(h.app.match_look.preview.is_none());
     click(&mut h, "button:dialogOk");
@@ -394,7 +433,9 @@ fn match_look_ui_apply_direct_locks_colour_only_remember_amount_and_reset() {
     assert_eq!(opts, remembered);
     click(&mut h, "button:dialogCancel");
     if h.app.session.match_look.applied.contains_key(&id) {
-        request(&mut h, "ui.dragWidget", json!({"id":"slider:matchLook.photoStrength","dx":-40.0,"steps":4}));
+        let undo = h.app.session.undo.len();
+        request(&mut h, "ui.dragWidget", json!({"id":"slider:matchLook.photoStrength","dx":-40.0,"steps":6}));
+        assert_eq!(h.app.session.undo.len(), undo + 1);
         assert!(h.app.session.match_look.applied[&id].options.strength < 100.0);
         if h.app.widgets.iter().any(|(id, _)| id == "button:matchAppliedReset-Color Adjust") {
             click(&mut h, "button:matchAppliedReset-Color Adjust");
@@ -414,12 +455,14 @@ fn match_look_ui_wipe_update_confirm_import_export_picker_helpers() {
     request(&mut h, "ui.text", json!({"text":"Interiors"}));
     click(&mut h, "button:dialogOk");
     let look = h.app.session.saved_looks.file.looks[0].clone();
+    click(&mut h, "icon:matchLookMenu");
     click(&mut h, "button:matchLookUpdate");
     assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::UpdateMatchLook { .. })));
     click(&mut h, "button:dialogCancel");
     assert_eq!(h.app.session.saved_looks.file.looks[0], look);
     let reference = h.app.session.match_look.references[0];
     request(&mut h, "develop.set", json!({"ids":[reference.0],"control":"light.contrast","value":-23.0}));
+    click(&mut h, "icon:matchLookMenu");
     click(&mut h, "button:matchLookUpdate");
     click(&mut h, "button:dialogOk");
     wait(&mut h);
@@ -438,14 +481,110 @@ fn match_look_ui_wipe_update_confirm_import_export_picker_helpers() {
     let path = dir.join("interiors.json");
     let export_path = path.clone();
     h.app.services.save_look_file = Some(Box::new(move |_| Some(export_path.to_string_lossy().into_owned())));
-    click(&mut h, "dropdown:matchLookMenu");
+    click(&mut h, "icon:matchLookMenu");
     click(&mut h, "button:matchLookExport");
     assert!(path.exists());
     let import_path = path.clone();
     h.app.services.pick_look_files = Some(Box::new(move || vec![import_path.to_string_lossy().into_owned()]));
-    click(&mut h, "dropdown:matchLookMenu");
+    click(&mut h, "icon:matchLookMenu");
     click(&mut h, "button:matchLookImport");
-    assert_eq!(h.app.session.saved_looks.file.looks.len(), 2);
-    assert_eq!(h.app.session.saved_looks.file.looks[1].looks, look.looks);
+    assert_eq!(h.app.session.saved_looks.file.looks.len(), 1);
+    assert_eq!(h.app.session.saved_looks.file.looks[0].looks, look.looks);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn match_look_ui_revision2_compact_dialog_overflow_picker_drag_and_undo() {
+    let mut h = setup(250.0, true, 1.0);
+    assert!(!crate::menus::ui_enabled(&h.app, "develop.analyzeLook"));
+    analyze(&mut h, 2);
+    let id = target(&mut h);
+    click(&mut h, "button:matchLook");
+    let window = rect(&h, "dialog:window");
+    assert!(window.height() < 700.0 && window.height() <= 1200.0 * 0.8, "{window:?}");
+    click(&mut h, "button:dialogOk");
+    wait(&mut h);
+    let undo = h.app.session.undo.len();
+    let history = h.app.session.catalog.photo(id).unwrap().history.len();
+    request(&mut h, "ui.dragWidget", json!({"id":"slider:matchLook.photoStrength","dx":-30.0,"steps":6}));
+    assert_eq!(h.app.session.undo.len(), undo + 1);
+    assert_eq!(h.app.session.catalog.photo(id).unwrap().history.len(), history + 1);
+    request(&mut h, "edit.undo", json!({}));
+    request(&mut h, "edit.undo", json!({}));
+    assert!(!h.app.session.match_look.applied.contains_key(&id));
+    assert!(!h.app.widgets.iter().any(|(id, _)| id == "slider:matchLook.photoStrength"));
+    click(&mut h, "button:matchLookSave");
+    click(&mut h, "field:dialogText");
+    request(&mut h, "ui.text", json!({"text":"Facade"}));
+    click(&mut h, "button:dialogOk");
+    let seed = h.app.session.saved_looks.file.looks[0].clone();
+    h.app.session.saved_looks.file.looks = (0..60)
+        .map(|index| {
+            let mut l = seed.clone();
+            l.id = format!("look-{index}");
+            l.name = format!("Saved look {index}");
+            l
+        })
+        .collect();
+    h.app.session.match_look.selected = Some("look-0".into());
+    h.step();
+    assert!(!h.app.widgets.iter().any(|(id, _)| id == "button:matchLookRename"));
+    click(&mut h, "icon:matchLookMenu");
+    click(&mut h, "button:matchLookRename");
+    assert!(h.app.ui.dialog.is_some());
+    click(&mut h, "button:dialogCancel");
+    click(&mut h, "dropdown:matchLookPicker");
+    request(&mut h, "ui.hoverWidget", json!({"id":"button:matchLookPick-1"}));
+    request(&mut h, "ui.scroll", json!({"dy":-5000.0}));
+    for _ in 0..20 {
+        h.step();
+    }
+    click(&mut h, "button:matchLookPick-60");
+    assert_eq!(h.app.session.match_look.selected.as_deref(), Some("look-59"));
+}
+#[test]
+fn match_look_ui_revision2_debounced_preview_reopen_and_reference_cycle() {
+    let mut h = setup(400.0, false, 1.5);
+    analyze(&mut h, 2);
+    let id = target(&mut h);
+    click(&mut h, "button:matchLook");
+    click(&mut h, "button:matchLookPreview");
+    wait(&mut h);
+    click(&mut h, "check:matchCompareReference");
+    click(&mut h, "button:matchNextReference");
+    assert_eq!(h.app.match_look.reference_index, 1);
+    click(&mut h, "check:matchContrastGuard");
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(350) {
+        h.step();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    wait(&mut h);
+    let options = match h.app.ui.dialog.as_ref().unwrap() {
+        crate::state::Dialog::MatchLook { options } => *options,
+        _ => panic!(),
+    };
+    assert!(crate::match_look::preview_ready(&h.app, options));
+    let source = h.app.session.source_now(id, lightcraft_engine::media::SourceLevel::Thumb).unwrap();
+    let info = h.app.session.source_info(id);
+    let mut photo = h.app.session.catalog.photo(id).unwrap().as_ref().clone();
+    photo.source = lightcraft_catalog::Source::File { path: "slow-preview-fixture".into() };
+    h.app.session.catalog.apply(lightcraft_catalog::Op::RemovePhoto { id }).unwrap();
+    h.app.session.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    h.app.session.media.forget(id);
+    h.app.session.media.file_loader = Some(std::sync::Arc::new(move |_, _| {
+        std::thread::sleep(Duration::from_millis(100));
+        Ok(((*source).clone(), info.clone()))
+    }));
+    crate::match_look::start(&mut h.app, json!(options), true).unwrap();
+    assert!(h.app.match_look.control.is_some());
+    // Reopening invalidates the previous control, so its callback cannot clear the new slot.
+    request(&mut h, "dialog.matchLook", json!({}));
+    click(&mut h, "button:matchLookPreview");
+    wait(&mut h);
+    assert!(crate::match_look::preview_ready(&h.app, options));
+    crate::match_look::start(&mut h.app, json!(options), true).unwrap();
+    click(&mut h, "button:dialogOk");
+    wait(&mut h);
+    assert!(h.app.ui.dialog.is_none(), "Apply cancels its optional preview instead of waiting for it");
 }

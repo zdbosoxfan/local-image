@@ -890,3 +890,6 @@ mod tests_toolset;
 mod tests_xmp;
 
 mod dcp_profiles;
+
+#[cfg(test)]
+mod tests_match_look_raw;

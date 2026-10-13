@@ -417,6 +417,9 @@ pub fn flyout_row(ui: &mut Ui, id: &str, title: &str, icon: Icon, open: bool) ->
     resp
 }
 
+/// Shared text-button row height, also used by virtualized preset pickers.
+pub const TEXT_BUTTON_H: f32 = 24.0;
+
 /// A small bordered text button (Auto, B&W, HDR…).
 pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response {
     let label = if id.starts_with("labelSet-") { label } else { crate::i18n::tr(label) };
@@ -435,7 +438,7 @@ fn text_button_enabled(ui: &mut Ui, id: &str, label: &str, active: bool, enabled
     let mut job = egui::text::LayoutJob::simple(label.to_string(), font, text_color, (ui.max_rect().width() - 18.0).max(1.0));
     job.wrap.max_rows = 1;
     let galley = ui.painter().layout_job(job);
-    let size = vec2((galley.size().x + 18.0).max(37.0).min(ui.max_rect().width()), 24.0);
+    let size = vec2((galley.size().x + 18.0).max(37.0).min(ui.max_rect().width()), TEXT_BUTTON_H);
     let (r, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, label));
     register(ui.ctx(), format!("button:{id}"), r);
@@ -490,19 +493,25 @@ pub fn segmented(ui: &mut Ui, id: &str, items: &[(&str, &str)], active: Option<u
 
 /// An icon-only button. `active` draws the selected background (tool strip).
 pub fn icon_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: bool, enabled: bool, tooltip: &str) -> Response {
-    icon_button_inner(ui, &format!("icon:{id}"), icon, None, size, active, enabled, tooltip)
+    icon_button_inner(ui, &format!("icon:{id}"), icon, None, size, active, enabled, tooltip, None)
+}
+
+/// An icon action revealed by parent hover, its own hover or keyboard focus. The
+/// control remains in the focus order while hidden. Used by removable reference tiles.
+pub fn hover_icon_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, revealed: bool, enabled: bool, tooltip: &str) -> Response {
+    icon_button_inner(ui, &format!("icon:{id}"), icon, None, size, false, enabled, tooltip, Some(revealed))
 }
 
 /// [`icon_button`] registered under a full automation id (e.g. `button:layerNew`) instead of
 /// `icon:{id}`: for icon buttons that replaced text buttons and keep their old ids.
 pub fn icon_button_as(ui: &mut Ui, automation_id: &str, icon: Icon, size: egui::Vec2, tooltip: &str) -> Response {
-    icon_button_inner(ui, automation_id, icon, None, size, false, true, tooltip)
+    icon_button_inner(ui, automation_id, icon, None, size, false, true, tooltip, None)
 }
 
 pub fn tool_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: bool, enabled: bool, tooltip: &str) -> Response {
     let tool = id.strip_prefix("removeMode-").unwrap_or(id);
     let name = crate::icons::tool_name(if tool.starts_with("tat-") { "target" } else { tool });
-    icon_button_inner(ui, &format!("icon:{id}"), icon, name, size, active, enabled, tooltip)
+    icon_button_inner(ui, &format!("icon:{id}"), icon, name, size, active, enabled, tooltip, None)
 }
 
 fn icon_button_inner(
@@ -514,16 +523,18 @@ fn icon_button_inner(
     active: bool,
     enabled: bool,
     tooltip: &str,
+    reveal: Option<bool>,
 ) -> Response {
     let tooltip = crate::i18n::tr(tooltip);
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, tooltip));
     register(ui.ctx(), automation_id, r);
+    let lit = (resp.hovered() || resp.has_focus()) && enabled;
+    if reveal.is_none_or(|show| show || lit) {
     let p = ui.painter();
     let sq = Rect::from_center_size(r.center(), vec2(32.0f32.min(size.x), 32.0f32.min(size.y)));
     // keyboard focus (Tab) shows like hover
-    let lit = (resp.hovered() || resp.has_focus()) && enabled;
     if active {
         p.rect_filled(sq, 4.0, t.tool_active);
     } else if lit {
@@ -545,6 +556,7 @@ fn icon_button_inner(
         crate::icons::paint_tool(ui, rect, name, icon, c, enabled);
     } else {
         paint(p, rect, icon, c);
+    }
     }
     if !tooltip.is_empty() { resp.on_hover_text(tooltip) } else { resp }
 }
@@ -739,6 +751,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn hover_icon_button_is_keyboard_reachable_and_reveals_its_pixels() {
+        let mut view=crate::headless::HeadlessView::new();
+        let mut response=None;
+        let frame=|view:&mut crate::headless::HeadlessView, events:Vec<egui::Event>, response:&mut Option<Response>| {
+            let raw=crate::headless::HeadlessView::raw_input(vec2(200.0,100.0),1.0,0.0,events);
+            view.run(raw,|ui| {*response=Some(hover_icon_button(ui,"reveal-test",Icon::Close,vec2(32.0,32.0),false,true,"Remove reference"));});
+        };
+        frame(&mut view,vec![],&mut response);frame(&mut view,vec![],&mut response);
+        let hidden=view.paint(&[]);
+        let key=|key| egui::Event::Key {key,physical_key:None,pressed:true,repeat:false,modifiers:egui::Modifiers::NONE};
+        frame(&mut view,vec![key(egui::Key::Tab)],&mut response);frame(&mut view,vec![],&mut response);
+        assert!(response.as_ref().unwrap().has_focus());
+        assert_ne!(hidden.pixels,view.paint(&[]).pixels,"keyboard focus reveals the icon and its chrome");
+        frame(&mut view,vec![key(egui::Key::Enter)],&mut response);
+        assert!(response.as_ref().unwrap().clicked());
+    }
+    #[test]
     fn nudges_are_a_sensible_step() {
         let spec = |id, min, max, step| ControlSpec {
             id,
@@ -880,52 +909,53 @@ pub fn text_action(ui: &mut Ui, id: &str, label: &str, reason: Option<&str>) -> 
     if let Some(reason) = reason { r.on_hover_text(crate::i18n::tr(reason)) } else { r }
 }
 
+/// Reference tile size in points, shared with the host's HiDPI thumbnail requests.
+pub fn reference_tile_edge(ctx: &egui::Context) -> f32 {
+    lightcraft_engine::media::thumb_bucket((Tokens::get(ctx).slider_row_h * 2.0).round() as usize) as f32
+}
+
 /// A removable reference strip, wrapped to its panel width. Photo texture is image content;
 /// surrounding chrome uses tokens. Used by the Match Look panel and reusable by reference tools.
 pub fn reference_tray(ui: &mut Ui, items: &[(u64, String, Option<(egui::TextureId, Vec2)>)]) -> Option<u64> {
     let t = Tokens::get(ui.ctx());
     let mut removed = None;
-    let edge = t.slider_row_h;
+    let edge = reference_tile_edge(ui.ctx());
     let columns = ((ui.available_width() + ui.spacing().item_spacing.x) / (edge + ui.spacing().item_spacing.x)).floor().max(1.0) as usize;
-    let tray = egui::Grid::new(ui.id().with("reference-tray")).num_columns(columns).min_col_width(edge).max_col_width(edge).show(ui, |ui| {
-        for (index, (id, label, texture)) in items.iter().enumerate() {
-            ui.push_id(id, |ui| {
-                ui.vertical(|ui| {
-                    ui.set_width(edge);
-                    let (rect, response) = ui.allocate_exact_size(vec2(edge, edge), Sense::hover());
-                    ui.painter().rect_filled(rect, SWATCH_RADIUS, t.inset);
-                    if let Some((texture, size)) = texture {
-                        let fit = (*size * (edge / size.x.max(size.y).max(1.0))).min(rect.size());
-                        ui.painter().image(
-                            *texture,
-                            Rect::from_center_size(rect.center(), fit),
-                            Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
-                            Color32::WHITE,
-                        );
-                    }
-                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, label));
-                    response.on_hover_text(label);
-                    if icon_button(
-                        ui,
-                        &format!("matchReferenceRemove-{id}"),
-                        Icon::Close,
-                        ui.spacing().interact_size,
-                        false,
-                        true,
-                        &format!("Remove reference: {label}"),
-                    )
-                    .clicked()
-                    {
-                        removed = Some(*id);
-                    }
+    let tray = egui::ScrollArea::vertical().id_salt("reference-tray-scroll").max_height(edge * 2.0 + ui.spacing().item_spacing.y).show(ui, |ui| {
+        egui::Grid::new(ui.id().with("reference-tray")).num_columns(columns).min_col_width(edge).max_col_width(edge).show(ui, |ui| {
+            for (index, (id, label, texture)) in items.iter().enumerate() {
+                ui.push_id(id, |ui| {
+                    ui.vertical(|ui| {
+                        ui.set_width(edge);
+                        let (rect, response) = ui.allocate_exact_size(vec2(edge, edge), Sense::hover());
+                        register(ui.ctx(), format!("reference:{id}"), rect);
+                        ui.painter().rect_filled(rect, SWATCH_RADIUS, t.inset);
+                        if let Some((texture, size)) = texture {
+                            let fit = (*size * (edge / size.x.max(size.y).max(1.0))).min(rect.size());
+                            ui.painter().image(
+                                *texture,
+                                Rect::from_center_size(rect.center(), fit),
+                                Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
+                                Color32::WHITE,
+                            );
+                        }
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, label));
+                        let hovered = response.hovered();
+                        response.on_hover_text(label);
+                        let size = ui.spacing().interact_size;
+                        let overlay = Rect::from_min_size(rect.right_top() - vec2(size.x, 0.0), size);
+                        ui.scope_builder(egui::UiBuilder::new().max_rect(overlay), |ui| {
+                            if hover_icon_button(ui, &format!("matchReferenceRemove-{id}"), Icon::Close, size, hovered || ui.rect_contains_pointer(rect), true, &crate::i18n::tr_format!("Remove reference: {name}", name = label)).clicked() { removed = Some(*id); }
+                        });
+                    });
                 });
-            });
-            if (index + 1) % columns == 0 {
-                ui.end_row();
+                if (index + 1) % columns == 0 {
+                    ui.end_row();
+                }
             }
-        }
+        })
     });
-    register(ui.ctx(), "matchLook:tray", tray.response.rect);
+    register(ui.ctx(), "matchLook:tray", tray.inner_rect);
     removed
 }
 
