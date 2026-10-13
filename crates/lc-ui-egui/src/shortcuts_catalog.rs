@@ -139,6 +139,7 @@ pub fn command_shortcut(app: &LightcraftApp, id: &str) -> Option<String> {
 }
 pub fn consume_grid(app: &LightcraftApp, ctx: &egui::Context) -> Option<egui::Key> {
     if app.host_modal
+        || app.ui.dialog.is_some()
         || egui::Popup::is_any_open(ctx)
         || !ctx.input(|i| i.events.iter().any(|event| matches!(event, egui::Event::Key { pressed: true, .. })))
     {

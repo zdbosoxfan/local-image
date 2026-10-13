@@ -178,6 +178,40 @@ fn stacks_group_collapse_and_replay() {
 }
 
 #[test]
+fn deleting_several_photos_of_one_album_and_stack_permanently_leaves_nothing_dangling() {
+    // Upstream LightCraft 0a474cc: per-photo op lists built against the unchanged catalog made the
+    // second photo's album write re-add the first, and the shared stack fail (NoStack).
+    let dir = temp_dir("perm-delete-refs");
+    let mut s = open(&dir);
+    let vis = s.visible_cloned();
+    let (a, b, c, d) = (vis[0], vis[1], vis[2], vis[3]);
+    let al = s.execute("album.create", &json!({"name": "Trip"})).unwrap()["id"].as_u64().unwrap();
+    s.execute("album.addPhotos", &json!({"id": al, "ids": [a.0, b.0, c.0]})).unwrap();
+    s.execute("library.select", &json!({"ids": [a.0, b.0], "active": a.0})).unwrap();
+    s.execute("stack.group", &json!({"collapsed": false})).unwrap();
+    s.execute("library.select", &json!({"ids": [c.0, d.0], "active": c.0})).unwrap();
+    s.execute("stack.group", &json!({"collapsed": false})).unwrap();
+    let before = s.catalog.to_snapshot();
+    let r = s.execute("photo.deletePermanently", &json!({"ids": [a.0, b.0]})).unwrap();
+    assert_eq!(r["deleted"], 2, "{r}");
+    assert!(s.catalog.photo(a).is_none() && s.catalog.photo(b).is_none());
+    let album = s.catalog.album(lightcraft_catalog::AlbumId(al)).unwrap();
+    assert_eq!(album.photos, vec![c], "album still lists a removed photo");
+    assert!(s.catalog.stacks().all(|st| !st.photos.contains(&a) && !st.photos.contains(&b)));
+    assert_eq!(s.catalog.stack_of(c).unwrap().photos, vec![c, d], "the other stack is untouched");
+    // the journal replays to the same state
+    let expect = s.catalog.to_snapshot();
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.catalog.to_snapshot(), before, "one undo step brings both back with album and stack");
+    s.execute("edit.redo", &json!({})).unwrap();
+    assert_eq!(s.catalog.to_snapshot(), expect);
+    drop(s);
+    let s2 = open(&dir);
+    assert_eq!(s2.catalog.to_snapshot(), expect);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn album_source_reports_in_library_state_and_persists_the_view() {
     // An album source made `library.state` panic (serde can't put an integer in an internally
     // tagged enum) and `view.json` empty, so the view was lost on the next launch.

@@ -42,6 +42,7 @@ pub mod sidecar;
 pub mod smart;
 pub mod smart_sort;
 mod view;
+pub mod walk;
 
 use std::sync::Arc;
 

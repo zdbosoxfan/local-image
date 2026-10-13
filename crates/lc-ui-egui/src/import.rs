@@ -53,6 +53,9 @@ pub struct ImportDialog {
     pub metadata_preset: String,
     /// Copy: raws are copied as DNG.
     pub dng: bool,
+    /// Per candidate: the library already has it in Recently Deleted ([`ImportDialog::set_trashed`]):
+    /// importing it restores that photo with its edits (the engine's default `onDeleted: restore`).
+    pub trashed: Vec<bool>,
 }
 
 /// Import choices remembered across reviews and launches; sources and Library ids stay per import.
@@ -107,15 +110,30 @@ impl ImportDialog {
         let checked = candidates.iter().map(|c| c.duplicate.is_none() && c.error.is_none()).collect();
         ImportDialog { candidates, checked, ..Default::default() }
     }
+    /// Mark the candidates whose photo is in Recently Deleted and check them: importing such a file
+    /// brings the photo back (upstream LightCraft 3285e02, issue #706), so a photo deleted by mistake
+    /// returns by importing its file again.
+    pub fn set_trashed(&mut self, trashed: Vec<bool>) {
+        self.trashed = trashed;
+        for i in 0..self.candidates.len() {
+            if self.is_trashed(i)
+                && let Some(c) = self.checked.get_mut(i)
+            {
+                *c = self.candidates[i].error.is_none();
+            }
+        }
+    }
+    /// A duplicate of a photo in Recently Deleted (restored by the import).
+    pub fn is_trashed(&self, i: usize) -> bool {
+        self.trashed.get(i).copied().unwrap_or(false) && self.candidates.get(i).is_some_and(|c| c.duplicate.is_some())
+    }
     pub fn importable(&self, i: usize) -> bool {
-        self.candidates.get(i).is_some_and(|c| c.duplicate.is_none() && c.error.is_none())
+        self.candidates.get(i).is_some_and(|c| c.error.is_none() && (c.duplicate.is_none() || self.is_trashed(i)))
     }
     pub fn selected_paths(&self) -> Vec<String> {
-        self.candidates
-            .iter()
-            .zip(&self.checked)
-            .filter(|(c, on)| **on && c.duplicate.is_none() && c.error.is_none())
-            .map(|(c, _)| c.path.clone())
+        (0..self.candidates.len())
+            .filter(|&i| self.checked.get(i).copied().unwrap_or(false) && self.importable(i))
+            .map(|i| self.candidates[i].path.clone())
             .collect()
     }
     /// The `organize` param of `library.import` (`None` = the default, by day); an unusable
@@ -154,6 +172,8 @@ pub struct ImportTask {
     pub done: usize,
     params: Value,
     pub imported: usize,
+    /// Photos brought back from Recently Deleted (their files were imported again).
+    pub restored: usize,
     pub duplicates: usize,
     /// The library photos the skipped duplicates match (shown when nothing new was added).
     existing: Vec<u64>,
@@ -190,6 +210,11 @@ impl ImportTask {
     /// An Auto Import (see [`ImportTask::auto`]).
     pub fn auto(mut self) -> Self {
         self.auto = true;
+        // a photo deleted from the library doesn't come back on its own because its file is still
+        // in the watched folder
+        if let Some(p) = self.params.as_object_mut() {
+            p.insert("onDeleted".into(), json!("skip"));
+        }
         self
     }
 
@@ -491,6 +516,15 @@ pub fn poll_scan(app: &mut LightcraftApp, ctx: &egui::Context) {
     let mut d = app.ui.settings.import_defaults.review(out.candidates);
     d.copy |= task.copy;
     d.sources = task.sources.clone();
+    let trashed = d
+        .candidates
+        .iter()
+        .map(|c| {
+            c.duplicate.is_some()
+                && c.existing.is_some_and(|id| app.session.catalog.photo(lightcraft_catalog::PhotoId(id)).is_some_and(|p| p.deleted))
+        })
+        .collect();
+    d.set_trashed(trashed);
     app.ui.dialog = Some(crate::state::Dialog::Import { opts: Box::new(d) });
 }
 
@@ -656,6 +690,7 @@ fn commit_batch(app: &mut LightcraftApp, task: &mut ImportTask, prepared: lightc
             }
             let len = |k: &str| v[k].as_array().map_or(0, Vec::len);
             task.imported += len("imported");
+            task.restored += len("restored");
             task.duplicates += len("duplicates");
             task.existing.extend(v["duplicates"].as_array().into_iter().flatten().filter_map(|d| d["existing"].as_u64()));
             task.failed += len("failed");
@@ -665,7 +700,8 @@ fn commit_batch(app: &mut LightcraftApp, task: &mut ImportTask, prepared: lightc
                 log::warn!("import: kept {}: {}", k["path"].as_str().unwrap_or(""), k["reason"].as_str().unwrap_or(""));
             }
             if task.first.is_none() {
-                task.first = v["imported"].as_array().and_then(|a| a.first()).and_then(Value::as_u64);
+                let first = |k: &str| v[k].as_array().and_then(|a| a.first()).and_then(Value::as_u64);
+                task.first = first("imported").or_else(|| first("restored"));
             }
         }
         Err(e) => {
@@ -701,14 +737,19 @@ fn finish(app: &mut LightcraftApp, ctx: &egui::Context, task: ImportTask) {
     let plural = |n: usize| if n == 1 { "" } else { "s" };
     // nothing new, only files the library already has: show where they are (Recently Deleted is
     // easy to miss, and the side panel that lists it starts collapsed)
-    if task.imported == 0 && task.failed == 0 && !task.cancelled && show_existing(app, ctx, &task.existing) {
+    if task.imported == 0 && task.restored == 0 && task.failed == 0 && !task.cancelled && show_existing(app, ctx, &task.existing) {
         return;
     }
     let mut msg = if task.cancelled {
         crate::i18n::tr_format!("Import cancelled · {} photo{} added", task.imported, plural(task.imported))
+    } else if task.imported == 0 && task.restored > 0 {
+        format!("Restored {} photo{} from Recently Deleted", task.restored, plural(task.restored))
     } else {
         crate::i18n::tr_format!("Imported {} photo{}", task.imported, plural(task.imported))
     };
+    if task.restored > 0 && (task.imported > 0 || task.cancelled) {
+        msg.push_str(&format!(" · {} restored from Recently Deleted", task.restored));
+    }
     if task.params["mode"] == "move" {
         msg.push_str(&crate::i18n::tr_format!(" · {} moved", task.moved));
         if task.kept > 0 {
@@ -803,12 +844,17 @@ pub fn progress(app: &mut LightcraftApp, ctx: &egui::Context) {
 pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
     let t = Tokens::get(ui.ctx());
     let n = d.candidates.len();
-    let dups = d.candidates.iter().filter(|c| c.duplicate.is_some()).count();
+    let trashed = (0..n).filter(|&i| d.is_trashed(i)).count();
+    // files of photos in Recently Deleted are not "already in the library": they are counted apart
+    let dups = d.candidates.iter().filter(|c| c.duplicate.is_some()).count().saturating_sub(trashed);
     let sel = d.selected_paths().len();
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(crate::i18n::tr_format!("{n} found · {sel} selected", n = n, sel = sel)).color(t.text));
         if dups > 0 {
             ui.label(egui::RichText::new(crate::i18n::tr_format!("· {dups} already in the library", dups = dups)).color(t.text_dim));
+        }
+        if trashed > 0 {
+            ui.label(egui::RichText::new(format!("· {trashed} in Recently Deleted (checked ones are restored)")).color(t.text_dim));
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if crate::widgets::text_button(ui, "importNone", crate::i18n::tr("Uncheck All"), false).clicked() {
@@ -1096,6 +1142,7 @@ fn candidate_cell(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDial
     }
     let in_trash = c.existing.is_some_and(|id| app.session.catalog.photo(lightcraft_catalog::PhotoId(id)).is_some_and(|p| p.deleted));
     let badge = match (&c.duplicate, &c.error) {
+        (Some(_), None) if in_trash && on => Some("Will be restored"),
         (Some(_), _) if in_trash => Some("In Recently Deleted"),
         (Some(r), _) if r == "path" => Some("In library"),
         (Some(_), _) => Some("Duplicate"),
@@ -1570,5 +1617,43 @@ mod library_origin_tests {
         assert_eq!(app.session.library_generation, generation);
         assert_eq!(serde_json::to_value(&app.session.catalog).unwrap(), before);
         assert!(app.import.is_some());
+    }
+}
+
+#[cfg(test)]
+mod trashed_review_tests {
+    use super::*;
+
+    fn candidate(path: &str, duplicate: Option<&str>, existing: Option<u64>) -> ImportCandidate {
+        ImportCandidate { path: path.into(), duplicate: duplicate.map(str::to_string), existing, ..Default::default() }
+    }
+
+    /// Upstream LightCraft 3285e02: in the import review a file whose photo is in Recently Deleted
+    /// is checked from the start (importing it restores the photo); unchecking leaves it; other
+    /// duplicates stay out.
+    #[test]
+    fn trashed_duplicates_are_checked_to_be_restored() {
+        let mut d = ImportDialog::new(vec![
+            candidate("/a/new.jpg", None, None),
+            candidate("/a/gone.jpg", Some("path"), Some(7)),
+            candidate("/a/dup.jpg", Some("content"), Some(8)),
+        ]);
+        assert_eq!(d.selected_paths(), vec!["/a/new.jpg".to_string()]);
+        d.set_trashed(vec![false, true, false]);
+        assert!(d.is_trashed(1) && !d.is_trashed(2));
+        assert_eq!(d.selected_paths(), vec!["/a/new.jpg".to_string(), "/a/gone.jpg".to_string()]);
+        assert!(d.importable(1) && !d.importable(2));
+        d.checked[1] = false;
+        assert_eq!(d.selected_paths(), vec!["/a/new.jpg".to_string()], "unchecked: left in Recently Deleted");
+        d.checked[2] = true;
+        assert_eq!(d.selected_paths().len(), 1, "a live duplicate never imports");
+    }
+
+    /// Auto Import never restores: a photo deleted from the library stays deleted although its file
+    /// is still in the watched folder.
+    #[test]
+    fn auto_import_tasks_skip_deleted_photos() {
+        let t = ImportTask::new(Vec::new(), json!({}), 0, false).auto();
+        assert_eq!(t.params["onDeleted"], "skip");
     }
 }

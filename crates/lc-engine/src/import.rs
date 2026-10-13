@@ -6,6 +6,8 @@
 //! 3. Probe the rest — dimensions, metadata, and the **content hash** of the bytes — in parallel
 //!    on native targets.
 //! 4. Skip **duplicates by content** (same bytes already in the library, or twice in this batch).
+//!    A duplicate (by path or content) of a photo in Recently Deleted is restored instead, with
+//!    its edits, unless the import says otherwise ([`OnDeleted`]).
 //! 5. *Add* in place (the photo points at the original file), *copy* into the library's
 //!    `Originals/YYYY/YYYY-MM-DD/` folder (names made unique) and point at the copy, or *move*
 //!    there: placed like a copy (with its XMP sidecars), and the original removed only once its
@@ -58,9 +60,38 @@ pub struct InheritedOrganization {
     pub keywords: Vec<String>,
 }
 
+/// What an import does with a file the library already has in Recently Deleted (ported from
+/// upstream LightCraft 2928880 + 3285e02, without the `fresh` mode).
+///
+/// Someone who imports such a file wants the photo in the library again, so the default brings
+/// it back: before, the import skipped it as "already in the library" while the grid showed it
+/// deleted. Restoring loses nothing — the edits, rating and albums come back with the photo.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OnDeleted {
+    /// Bring the trashed photo back, with its edits ([`ImportReport::restored`]); a photo matched
+    /// by content whose file is no longer where the library had it is relinked to the imported file.
+    #[default]
+    Restore,
+    /// Leave it there; the report says so ([`Duplicate::existing_deleted`]). Browsing a folder,
+    /// Auto Import and other imports the user didn't ask for keep deleted photos deleted.
+    Skip,
+}
+
+impl OnDeleted {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "restore" => Some(Self::Restore),
+            "skip" => Some(Self::Skip),
+            _ => None,
+        }
+    }
+}
+
 /// What an import does besides adding the photos.
 #[derive(Clone, Debug, Default)]
 pub struct ImportOptions {
+    /// A file whose photo is in Recently Deleted: restore it (default) or skip it.
+    pub on_deleted: OnDeleted,
     /// Internal editor-save handoff; applied only to newly added records, after
     /// sidecars/import defaults and within the same atomic AddPhoto batch.
     pub inherited_organization: Option<InheritedOrganization>,
@@ -160,12 +191,18 @@ pub struct Duplicate {
     pub existing: Option<u64>,
     /// `"path"` (already imported from there) or `"content"` (same bytes elsewhere).
     pub reason: &'static str,
+    /// That photo is in Recently Deleted (see [`OnDeleted`]).
+    #[serde(rename = "existingDeleted", skip_serializing_if = "std::ops::Not::not")]
+    pub existing_deleted: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ImportReport {
     pub imported: Vec<u64>,
     pub duplicates: Vec<Duplicate>,
+    /// [`OnDeleted::Restore`]: photos brought back from Recently Deleted instead of imported.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub restored: Vec<u64>,
     /// Move: the originals that were moved (and removed from the source).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub moved: Vec<Moved>,
@@ -306,32 +343,43 @@ pub fn is_supported(path: &Path) -> bool {
 }
 
 /// Expand files and folders (recursively) into supported files. `skip` (e.g. the library folder)
-/// is never descended into.
+/// is never descended into. Each folder's walk is bounded ([`crate::walk::Limits::default`]: 32
+/// folder levels, 1,000,000 entries, links to folders followed once so a link loop ends); a walk
+/// that stops at a bound is logged.
 pub fn expand(paths: &[String], skip: Option<&Path>) -> Vec<String> {
-    fn walk(p: &Path, skip: Option<&Path>, out: &mut Vec<String>, top: bool) {
-        let hidden = p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'));
-        if (hidden && !top) || skip.is_some_and(|s| p == s) {
-            return;
+    expand_within(paths, skip, crate::walk::Limits::default()).0
+}
+
+/// [`expand`] with the walk bounded by `limits` → (files, whether a walk stopped at a bound).
+pub fn expand_within(paths: &[String], skip: Option<&Path>, limits: crate::walk::Limits) -> (Vec<String>, bool) {
+    let mut out = Vec::new();
+    let mut truncated = false;
+    for p in paths {
+        let p = Path::new(p);
+        if skip.is_some_and(|s| p == s) {
+            continue;
         }
         if p.is_dir() {
-            let Ok(rd) = std::fs::read_dir(p) else { return };
-            let mut v: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
-            v.sort();
-            for c in v {
-                walk(&c, skip, out, false);
+            let w = crate::walk::files_in(p, skip, limits, is_supported);
+            if w.truncated {
+                log::warn!(
+                    "import: stopped looking in {} after {} entries (limits: {} entries, {} folder levels)",
+                    p.display(),
+                    w.entries,
+                    limits.max_entries,
+                    limits.max_depth
+                );
             }
-        } else if top || is_supported(p) {
+            truncated |= w.truncated;
+            out.extend(w.files.into_iter().map(|f| f.to_string_lossy().to_string()));
+        } else {
             // explicitly named files are attempted even with an unknown extension (sniffed)
             out.push(p.to_string_lossy().to_string());
         }
     }
-    let mut out = Vec::new();
-    for p in paths {
-        walk(Path::new(p), skip, &mut out, true);
-    }
     let mut seen = std::collections::HashSet::new();
     out.retain(|p| seen.insert(p.clone()));
-    out
+    (out, truncated)
 }
 
 /// Probe files (headers + content hash) as an import would.
@@ -727,8 +775,18 @@ impl ImportJob {
             }
         }
 
-        // files a preceding scan already probed are not read again (a network share is slow to read)
-        let cached: Vec<Option<ProbeInfo>> = todo.iter().map(|f| self.cache.remove(f)).collect();
+        // files a preceding scan already probed are not read again (a network share is slow to read),
+        // as long as they are still there, as they were: a file gone or changed since is probed again
+        // (upstream LightCraft 5a21fc9)
+        let cached: Vec<Option<ProbeInfo>> = todo
+            .iter()
+            .map(|f| {
+                // (the web's files are not std::fs files: kept as probed)
+                self.cache
+                    .remove(f)
+                    .filter(|info| cfg!(target_arch = "wasm32") || std::fs::metadata(f).is_ok_and(|m| m.is_file() && m.len() == info.file_size))
+            })
+            .collect();
         let missing: Vec<String> = todo.iter().zip(&cached).filter(|(_, c)| c.is_none()).map(|(f, _)| f.clone()).collect();
         let progress = ScanProgress::default();
         let mut fresh = probe_all(self.probe.as_ref(), &missing, &progress).into_iter();
@@ -849,6 +907,16 @@ impl ImportJob {
     }
 }
 
+/// A trashed photo's file is not where the library had it (never on the web, where paths are
+/// storage keys, not files).
+fn trashed_file_is_gone(cat: &lightcraft_catalog::Catalog, id: PhotoId) -> bool {
+    !cfg!(target_arch = "wasm32")
+        && match cat.photo(id).map(|p| &p.source) {
+            Some(Source::File { path }) => !Path::new(path).exists(),
+            _ => false,
+        }
+}
+
 /// The catalog half of an import: add the photos [`ImportJob::prepare`] readied (one undoable op;
 /// a Move's sources are removed once it is saved). On a failed commit a Move's placed files are
 /// taken back.
@@ -873,7 +941,22 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                     let h = hash?;
                     new_hash.get(&h).copied().or_else(|| s.catalog.photos().find(|p| p.content_hash.as_deref() == Some(h.as_str())).map(|p| p.id))
                 });
-                report.duplicates.push(Duplicate { path, existing: existing.map(|i| i.0), reason });
+                let trashed = existing.filter(|id| s.catalog.photo(*id).is_some_and(|p| p.deleted));
+                match trashed {
+                    // (browsing a folder in Local only looks: it never restores)
+                    Some(id) if opts.on_deleted == OnDeleted::Restore && !opts.local => {
+                        if !report.restored.contains(&id.0) {
+                            ops.push(Op::SetDeleted { id, deleted: false });
+                            // matched by content from another path, and the file the record points
+                            // at is gone (moved, renamed): the photo follows the file
+                            if reason == "content" && trashed_file_is_gone(&s.catalog, id) {
+                                ops.push(crate::cmd::missing::relink_op(id, &path));
+                            }
+                            report.restored.push(id.0);
+                        }
+                    }
+                    _ => report.duplicates.push(Duplicate { path, existing: existing.map(|i| i.0), reason, existing_deleted: trashed.is_some() }),
+                }
             }
             PreparedItem::Failed(path, e) => report.failed.push((path, e)),
             PreparedItem::Kept(k) => report.kept.push(k),
@@ -939,8 +1022,13 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
         }
     }
     let log0 = s.pending_log.len();
+    let (verb, n) = if report.imported.is_empty() && !report.restored.is_empty() {
+        ("Restore", report.restored.len())
+    } else {
+        ("Add", report.imported.len().max(1))
+    };
     if !ops.is_empty()
-        && let Err(e) = s.commit(&format!("Add {} Photo{}", ops.len(), if ops.len() == 1 { "" } else { "s" }), Op::Batch { ops })
+        && let Err(e) = s.commit(&format!("{verb} {n} Photo{}", if n == 1 { "" } else { "s" }), Op::Batch { ops })
     {
         // nothing was catalogued: take the moves back (their sources were never touched)
         placed.iter().for_each(crate::import_move::rollback);

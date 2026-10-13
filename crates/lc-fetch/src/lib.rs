@@ -79,11 +79,15 @@ pub struct Options {
     pub stall_timeout: Duration,
     /// Tries per mirror and file (each resumes where the last one stopped).
     pub attempts: u32,
+    /// The environment variable holding a bearer token for the first mirror's host (sent only over
+    /// https, never to a host a redirect leads to). `None`: nothing is ever sent, so one model's
+    /// token cannot leak to another's server (upstream LightCraft 4b57d5d).
+    pub token_env: Option<&'static str>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { connect_timeout: Duration::from_secs(15), stall_timeout: Duration::from_secs(30), attempts: 3 }
+        Options { connect_timeout: Duration::from_secs(15), stall_timeout: Duration::from_secs(30), attempts: 3, token_env: None }
     }
 }
 
@@ -163,7 +167,7 @@ pub fn download(
         let mut ok = false;
         'mirrors: for m in mirrors {
             let url = format!("{m}/{}", f.name);
-            for _ in 0..opts.attempts.max(1) {
+            for _ in 0..opts.attempts.clamp(1, 16) {
                 if cancel.load(Ordering::Relaxed) {
                     return Err(DownloadError::Cancelled);
                 }
@@ -201,6 +205,12 @@ pub fn download(
         before = before.saturating_add(std::fs::metadata(dir.join(f.name)).map(|m| m.len()).unwrap_or(0));
     }
     Ok(())
+}
+
+/// The bearer token to send to `url`: only a non-empty one, only over https, and only to the host
+/// the download began at (`origin`), never to the host a redirect leads to.
+fn bearer<'a>(token: Option<&'a str>, url: &Url, origin: &str) -> Option<&'a str> {
+    token.map(str::trim).filter(|t| !t.is_empty() && url.tls && url.host == origin)
 }
 
 /// A mirror for messages (no query string: it may hold a token).
@@ -268,12 +278,8 @@ fn fetch_file(f: &FileSpec, url: &str, dir: &Path, opts: &Options, cancel: &Atom
                 headers.push(("Range", format!("bytes={have}-")));
             }
             // a token for the configured host only (never sent on to a redirect's host)
-            if let Ok(t) = std::env::var("LIGHTCRAFT_SAM3_TOKEN")
-                && !t.trim().is_empty()
-                && url.tls
-                && url.host == origin
-            {
-                headers.push(("Authorization", format!("Bearer {}", t.trim())));
+            if let Some(t) = bearer(opts.token_env.and_then(|name| std::env::var(name).ok()).as_deref(), &url, &origin) {
+                headers.push(("Authorization", format!("Bearer {t}")));
             }
             let r = http::get(&url, &headers, &limits).map_err(http_fail)?;
             match r.status {

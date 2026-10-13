@@ -24,10 +24,12 @@ pub fn is_under(k: &str, parent: &str) -> bool {
     k == p || k.strip_prefix(&p).is_some_and(|rest| rest.starts_with(SEP))
 }
 
-/// Replace the `from` prefix of `k` (which [`is_under`] `from`) with `to`.
-fn reparent(k: &str, from: &str, to: &str) -> String {
-    let rest = &k[from.len().min(k.len())..];
-    if to.is_empty() { rest.trim_start_matches(SEP).to_string() } else { format!("{to}{rest}") }
+/// Replace the `from` prefix of `k` (which [`is_under`] `from`) with `to`. By levels, not bytes:
+/// `from` may be written in another case, which can change a letter's length (ẞ / ß, İ / i̇).
+pub fn reparent(k: &str, from: &str, to: &str) -> String {
+    let skip = from.split(SEP).filter(|s| !s.trim().is_empty()).count();
+    let rest: Vec<&str> = k.split(SEP).filter(|s| !s.trim().is_empty()).skip(skip).collect();
+    std::iter::once(to).filter(|t| !t.is_empty()).chain(rest).collect::<Vec<_>>().join("|")
 }
 
 /// Keep the first of case-insensitively equal keywords.
@@ -218,6 +220,26 @@ mod tests {
     }
     fn kws(c: &Catalog, id: PhotoId) -> Vec<String> {
         c.photo(id).unwrap().meta.keywords.clone()
+    }
+
+    /// Upstream LightCraft cd8dfa7: renaming matches names whatever their case, also where a letter's
+    /// case changes its length (ẞ is three bytes, ß two; İ lowercases to i + a combining dot): the
+    /// levels below are kept whole, never cut mid-letter.
+    #[test]
+    fn renaming_keeps_the_levels_below_whatever_the_case() {
+        let (mut c, ids) = lib(&[&["straße|nord"], &["ßa|ü"], &["i̇stanbul|kadıköy"]]);
+        let op = c.rename_keyword_ops("STRAẞE", "Road").unwrap();
+        c.apply(op).unwrap();
+        assert_eq!(kws(&c, ids[0]), ["Road|nord"]);
+        let op = c.rename_keyword_ops("ẞA", "Weg").unwrap();
+        c.apply(op).unwrap();
+        assert_eq!(kws(&c, ids[1]), ["Weg|ü"]);
+        let op = c.rename_keyword_ops("İstanbul", "City").unwrap();
+        c.apply(op).unwrap();
+        assert_eq!(kws(&c, ids[2]), ["City|kadıköy"]);
+        let op = c.merge_keywords_ops(&["ROAD".to_string()], "Weg").unwrap();
+        c.apply(op).unwrap();
+        assert_eq!(kws(&c, ids[0]), ["Weg|nord"]);
     }
 
     #[test]

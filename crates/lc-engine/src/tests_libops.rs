@@ -551,3 +551,70 @@ fn choosing_random_starts_a_fresh_shuffle() {
     assert_eq!(s.sort.seed, 42, "an explicit seed is honoured");
     assert!(s.sort.seed < 1 << 53);
 }
+
+/// Upstream LightCraft cdca2b9: the keyword filter follows a renamed keyword whatever the case it was
+/// typed in, also where a letter's case changes its length (ẞ / ß, İ): it used to be cut by bytes,
+/// which could land inside a letter and panic.
+#[test]
+fn keyword_filter_follows_a_rename_whatever_the_case() {
+    let mut s = Session::with_demo();
+    let id = s.visible_cloned()[0].0;
+    s.execute("photo.setMeta", &json!({"ids": [id], "keywords": ["ßßa|é"]})).unwrap();
+    s.execute("library.filter", &json!({"keyword": "ßßa|é"})).unwrap();
+    s.execute("keyword.rename", &json!({"from": "ẞẞA", "to": "Road"})).unwrap();
+    assert_eq!(s.filter.keyword.as_deref(), Some("Road|é"));
+    s.execute("keyword.merge", &json!({"from": ["ROAD"], "into": "Weg"})).unwrap();
+    assert_eq!(s.filter.keyword.as_deref(), Some("Weg|é"));
+    s.execute("photo.setMeta", &json!({"ids": [id], "keywords": ["i̇zmir|a"]})).unwrap();
+    s.execute("library.filter", &json!({"keyword": "i̇zmir|a"})).unwrap();
+    s.execute("keyword.rename", &json!({"from": "İzmir", "to": "City"})).unwrap();
+    assert_eq!(s.filter.keyword.as_deref(), Some("City|a"));
+}
+
+/// Upstream LightCraft 7ba1470 + 11e36bf: a capture-time shift from an agent can't overflow or
+/// write a date no one can read back. A shift of more than 10,000 years is refused and nothing
+/// changes; a shift that would take a photo past year 9999 says so rather than skipping it quietly.
+#[test]
+fn capture_time_shift_is_bounded() {
+    let mut s = Session::with_demo();
+    let id = s.catalog.photos().next().unwrap().id;
+    let before = s.catalog.photo(id).unwrap().captured.clone();
+    for p in [json!({"ids": [id.0], "shift": 1e30}), json!({"ids": [id.0], "hours": -1e15}), json!({"ids": [id.0], "shift": 9.3e18})] {
+        let r = s.execute("photo.setCaptureTime", &p);
+        // a real refusal, not the panic guard catching an overflow ("failed unexpectedly")
+        assert!(r.as_ref().is_err_and(|e| e.to_string().contains("10,000 years")), "{p}: {r:?}");
+        assert_eq!(s.catalog.photo(id).unwrap().captured, before, "{p} changed nothing");
+    }
+    s.execute("photo.setCaptureTime", &json!({"ids": [id.0], "hours": 1})).unwrap();
+    assert_ne!(s.catalog.photo(id).unwrap().captured, before);
+    s.execute("photo.setCaptureTime", &json!({"ids": [id.0], "time": "9999-12-31T12:00:00"})).unwrap();
+    let r = s.execute("photo.setCaptureTime", &json!({"ids": [id.0], "hours": 24}));
+    assert!(r.as_ref().is_err_and(|e| e.to_string().contains("9999")), "{r:?}");
+    assert_eq!(s.catalog.photo(id).unwrap().captured.as_deref(), Some("9999-12-31T12:00:00"), "unchanged");
+}
+
+/// Upstream LightCraft 4266b0a: an impossible calendar date on the anchor photo (2026-02-30) can't
+/// anchor a Set capture time for the others; nothing changes, undo/redo history is untouched.
+#[test]
+fn capture_time_invalid_calendar_anchor_changes_nothing() {
+    use lightcraft_catalog::{Op, Photo, PhotoId, Source};
+    for raw in ["2026-02-30T12:00:00", "2026x03x01T12:00:00"] {
+        let mut s = Session::new();
+        let mut p = Photo::new(PhotoId(1), Source::Demo { scene: 0 }, "one.jpg", "JPEG", 4, 3, "2026-04-01T00:00:00");
+        p.captured = Some(raw.to_string());
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        let peer = PhotoId(2);
+        let mut p = Photo::new(peer, Source::Demo { scene: 0 }, "peer.jpg", "JPEG", 4, 3, "2026-10-09T00:00:00");
+        p.captured = Some("2026-03-01T12:00:00.25+02:00".into());
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        s.commit("Earlier rating", Op::SetRating { id: peer, rating: 4 }).unwrap();
+        s.execute("edit.undo", &json!({})).unwrap();
+        s.selection.ids = vec![PhotoId(1), peer];
+        s.selection.active = Some(PhotoId(1));
+        let before = s.catalog.clone();
+        let (undo, redo, log) = (s.undo.len(), s.redo.len(), s.pending_log.len());
+        assert!(s.execute("photo.setCaptureTime", &json!({"time": "2026-03-03T12:00:00"})).is_err(), "{raw}");
+        assert_eq!(s.catalog, before, "{raw}");
+        assert_eq!((s.undo.len(), s.redo.len(), s.pending_log.len()), (undo, redo, log), "{raw}");
+    }
+}

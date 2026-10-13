@@ -617,6 +617,24 @@ impl Catalog {
         Op::Batch { ops }
     }
 
+    /// [`Self::delete_permanently_ops`] for several photos at once. One op list built against the
+    /// catalog as it is now: albums lose all of them in one write each, and stacks are shortened
+    /// (or dissolved) once, however many of their photos go. Per-photo lists built against the
+    /// unchanged catalog would re-add earlier photos to a shared album or fail on a shared stack.
+    pub fn delete_photos_permanently_ops(&self, ids: &[PhotoId]) -> Op {
+        let mut gone = std::collections::HashSet::new();
+        let ids: Vec<PhotoId> = ids.iter().copied().filter(|id| gone.insert(*id)).collect();
+        let mut ops: Vec<Op> = self
+            .albums
+            .values()
+            .filter(|a| a.photos.iter().any(|p| gone.contains(p)))
+            .map(|a| Op::SetAlbumPhotos { id: a.id, photos: a.photos.iter().copied().filter(|p| !gone.contains(p)).collect() })
+            .collect();
+        ops.extend(self.remove_from_stacks_ops(&ids));
+        ops.extend(ids.into_iter().map(|id| Op::RemovePhoto { id }));
+        Op::Batch { ops }
+    }
+
     // ---- persistence
 
     /// Full snapshot as JSON.
