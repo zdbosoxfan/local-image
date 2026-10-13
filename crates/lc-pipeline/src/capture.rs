@@ -99,7 +99,7 @@ fn kernel(sigma: f32) -> [f32; 25] {
 
 /// Per-pixel kernel index (σ / [`SIGMA_STEP`]): the base σ, plus the corner boost, shrinking to
 /// 0 within 8 px of the image border (darktable's `_cs_precalc_gauss_idx`).
-fn sigma_index(w: usize, h: usize, p: &CaptureParams) -> Vec<u8> {
+pub fn sigma_index(w: usize, h: usize, p: &CaptureParams) -> Vec<u8> {
     let (rw, rh) = (w as f32 / 2.0, h as f32 / 2.0);
     let mdim = rw.min(rh).max(1.0);
     let cboost = 1.0 + 8.0 * p.center * p.center;

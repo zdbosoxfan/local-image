@@ -285,6 +285,10 @@ mod tests {
 #[cfg(all(test, unix))]
 #[test]
 fn ds_finding_trash_preserves_non_utf8_names_and_symlinks() {
+    // This helper implements the freedesktop Trash, which is unavailable on macOS.
+    if !available() {
+        return;
+    }
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target").join(format!("ds-trash-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();

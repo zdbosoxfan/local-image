@@ -1273,10 +1273,10 @@ pub(crate) fn prepare_document_save(
                 // file on the UI thread. Other targets retain an exact-byte check until their
                 // native change-token implementation is available.
                 #[cfg(not(target_os = "linux"))]
-                if let Some(expected) = expected {
-                    if photocraft_format::read_file(&path).map_err(|e| e.to_string())? != *expected {
-                        return Err("Save destination changed; save again to review the current file".into());
-                    }
+                if let Some(expected) = expected
+                    && photocraft_format::read_file(&path).map_err(|e| e.to_string())? != *expected
+                {
+                    return Err("Save destination changed; save again to review the current file".into());
                 }
                 staged.commit().map_err(|e| e.to_string())
             }),

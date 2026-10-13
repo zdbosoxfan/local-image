@@ -72,9 +72,15 @@ fn vectorws_unlock_show_shortcuts_profile_override_and_undo() {
         p.shortcut_profiles.editor.active = "Photoshop".into();
         p.toolbar.vector_keyboard.preset = photocraft_engine::vector_toolbar_layout::Preset::Affinity;
     });
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT | egui::Modifiers::SHIFT, egui::Key::L);
+    let restore = if cfg!(target_os = "macos") {
+        // Synthetic input needs both the physical Mac key and egui's logical Command flag.
+        egui::Modifiers::CTRL | egui::Modifiers::MAC_CMD | egui::Modifiers::COMMAND
+    } else {
+        egui::Modifiers::COMMAND | egui::Modifiers::ALT | egui::Modifiers::SHIFT
+    };
+    h.key_press_modifiers(restore, egui::Key::L);
     h.run_steps(3);
-    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT | egui::Modifiers::SHIFT, egui::Key::H);
+    h.key_press_modifiers(restore, egui::Key::H);
     h.run_steps(3);
     assert!(!h.state().session.active().unwrap().doc.layer(id).unwrap().locks.all);
     assert!(h.state().session.active().unwrap().doc.layer(id).unwrap().visible);
@@ -127,13 +133,17 @@ fn vectorws_rtx5090_workspace_screens_and_interactive_frames() {
     use egui_kittest::kittest::Queryable;
     let _gate = crate::gpu_test_support::lock();
     let mut create = WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
         let adapter = adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    i.backend == wgpu::Backend::Metal && i.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    i.name.contains("RTX 5090") && i.backend == wgpu::Backend::Vulkan && i.device_type == wgpu::DeviceType::DiscreteGpu
+                }
             })
             .ok_or("RTX 5090 Vulkan required")?;
         eprintln!("vectorws physical GPU: {:?}", adapter.get_info());

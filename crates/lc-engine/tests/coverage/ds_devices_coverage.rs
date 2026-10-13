@@ -80,7 +80,7 @@ fn devices_in_finds_dcim_volumes_and_sorts_by_name() {
     assert!(Path::new(&eos.root).is_dir());
 
     let sd = &found[1];
-    assert!(sd.path.ends_with("dcim"), "{sd:?}");
+    assert_eq!(Path::new(&sd.path).canonicalize().unwrap(), base.0.join("SD/dcim").canonicalize().unwrap());
 }
 
 #[test]
@@ -126,7 +126,7 @@ fn devices_in_finds_case_insensitive_dcim_on_unix() {
 
     assert_eq!(found.len(), 1, "{found:?}");
     let p = Path::new(&found[0].path);
-    assert_eq!(p.file_name().unwrap().to_string_lossy(), "Dcim");
+    assert_eq!(p.canonicalize().unwrap(), base.0.join("Card/Dcim").canonicalize().unwrap());
     assert!(p.is_dir());
 }
 

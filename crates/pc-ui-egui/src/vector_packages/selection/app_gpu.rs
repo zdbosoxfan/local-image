@@ -11,13 +11,17 @@ use photocraft_doc::{Color, ColorMode, Document, Fill, Layer, LayerContent, Path
 type H = Harness<'static, PhotocraftApp>;
 fn harness(count: usize) -> H {
     let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = eframe::wgpu::Backends::VULKAN;
+    setup.instance_descriptor.backends = if cfg!(target_os = "macos") { eframe::wgpu::Backends::METAL } else { eframe::wgpu::Backends::VULKAN };
     setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
         let a = adapters
             .iter()
             .find(|a| {
                 let i = a.get_info();
-                i.backend == eframe::wgpu::Backend::Vulkan && i.device_type == eframe::wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
+                if cfg!(target_os = "macos") {
+                    i.backend == eframe::wgpu::Backend::Metal && i.device_type != eframe::wgpu::DeviceType::Cpu
+                } else {
+                    i.backend == eframe::wgpu::Backend::Vulkan && i.device_type == eframe::wgpu::DeviceType::DiscreteGpu && i.name.contains("5090")
+                }
             })
             .ok_or_else(|| "RTX 5090 Vulkan discrete adapter required".to_string())?;
         assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(a), eframe::wgpu::TextureFormat::Rgba32Float);

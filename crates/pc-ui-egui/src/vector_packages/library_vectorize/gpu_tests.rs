@@ -38,13 +38,17 @@ impl App for Host {
 fn library_vectorize_gpu_loaded_dialog_live_preview_drag_release_matches_cpu_cancel_keeps_photo() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();
-    create.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    create.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     create.native_adapter_selector = Some(Arc::new(|adapters, _| {
         adapters
             .iter()
             .find(|a| {
                 let info = a.get_info();
-                info.name.contains("RTX 5090") && info.backend == wgpu::Backend::Vulkan && info.device_type == wgpu::DeviceType::DiscreteGpu
+                if cfg!(target_os = "macos") {
+                    info.backend == wgpu::Backend::Metal && info.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    info.name.contains("RTX 5090") && info.backend == wgpu::Backend::Vulkan && info.device_type == wgpu::DeviceType::DiscreteGpu
+                }
             })
             .cloned()
             .ok_or_else(|| "package 29 requires RTX 5090 / Vulkan / discrete".into())
@@ -67,9 +71,13 @@ fn library_vectorize_gpu_loaded_dialog_live_preview_drag_release_matches_cpu_can
     });
     h.run_steps(8);
     assert!(h.state().app.gpu_active());
+    #[cfg(not(target_os = "macos"))]
     assert!(h.state().app.perf.gpu_info.adapter.contains("RTX 5090"));
-    assert_eq!(h.state().app.perf.gpu_info.backend, "vulkan");
+    assert_eq!(h.state().app.perf.gpu_info.backend, if cfg!(target_os = "macos") { "metal" } else { "vulkan" });
+    #[cfg(not(target_os = "macos"))]
     assert_eq!(h.state().app.perf.gpu_info.device_type, "discreteGpu");
+    #[cfg(target_os = "macos")]
+    assert_ne!(h.state().app.perf.gpu_info.device_type, "cpu");
     h.get_by_label("Load context photo").click();
     h.run_steps(3);
     {

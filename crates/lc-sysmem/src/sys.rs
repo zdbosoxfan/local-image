@@ -52,11 +52,14 @@ pub mod macos {
         /// libpthread (pthread/qos.h): set this thread's QoS class; `qos_class_t` is an unsigned
         /// int enum.
         fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: c_int) -> c_int;
+        #[cfg(test)]
+        fn qos_class_self() -> u32;
     }
 
     /// QoS classes (pthread/qos.h `qos_class_t`).
     pub const QOS_CLASS_DEFAULT: u32 = 0x15;
     pub const QOS_CLASS_UTILITY: u32 = 0x11;
+    #[cfg(test)]
     pub const QOS_CLASS_BACKGROUND: u32 = 0x09;
 
     /// An integer sysctl (4- or 8-byte value), `None` when the name doesn't exist.
@@ -80,6 +83,12 @@ pub mod macos {
         // SAFETY: plain integer arguments; only this thread's QoS changes.
         let r = unsafe { pthread_set_qos_class_self_np(class, 0) };
         if r == 0 { Ok(()) } else { Err(format!("pthread_set_qos_class_self_np: error {r}")) }
+    }
+
+    #[cfg(test)]
+    pub fn current_qos() -> u32 {
+        // SAFETY: sys/qos.h's query takes no arguments and reads only the calling thread.
+        unsafe { qos_class_self() }
     }
 }
 

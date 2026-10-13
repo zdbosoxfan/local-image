@@ -237,7 +237,20 @@ fn smart_sort_dialog_layout_at_both_sizes_and_no_service_download() {
 #[test]
 fn smart_sort_cancel_keeps_cache_and_resume_skips_completed_photos() {
     use lightcraft_engine::smart_sort::Tagger;
-    struct SlowTagger(std::sync::atomic::AtomicUsize);
+    type Gate = Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>;
+    struct Release(Gate);
+    impl Release {
+        fn open(&self) {
+            *self.0.0.lock().unwrap() = true;
+            self.0.1.notify_all();
+        }
+    }
+    impl Drop for Release {
+        fn drop(&mut self) {
+            self.open();
+        }
+    }
+    struct SlowTagger(std::sync::atomic::AtomicUsize, Gate);
     impl Tagger for SlowTagger {
         fn model_id(&self) -> &str {
             "mock-tags"
@@ -249,8 +262,10 @@ fn smart_sort_cancel_keeps_cache_and_resume_skips_completed_photos() {
             MockTagger.embed_text(text)
         }
         fn embed_image(&self, img: &lightcraft_raster::Rgba8) -> Result<Vec<f32>, String> {
-            if self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) > 0 {
-                std::thread::sleep(Duration::from_secs(2));
+            // The engine publishes 32-image batches. Let one batch finish, then hold later
+            // inference until the UI has requested cancellation, independent of worker count.
+            if self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 32 {
+                drop(self.1.1.wait_while(self.1.0.lock().unwrap(), |released| !*released).unwrap());
             }
             MockTagger.embed_image(img)
         }
@@ -259,7 +274,8 @@ fn smart_sort_cancel_keeps_cache_and_resume_skips_completed_photos() {
     let directory = std::env::temp_dir().join(format!("smart-sort-ui-cancel-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&directory);
     std::fs::create_dir_all(&directory).unwrap();
-    let total = std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).max(1)) + 8;
+    // Even a whole second batch in flight must leave a third batch for cancellation to skip.
+    let total = 96;
     let image = lightcraft_raster::Rgba8::filled(16, 16, [255, 0, 0, 255]);
     let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &lightcraft_codecs::EncodeMeta::default()).unwrap();
     h.app.session = std::mem::take(&mut h.app.session).with_fs();
@@ -283,7 +299,9 @@ fn smart_sort_cancel_keeps_cache_and_resume_skips_completed_photos() {
     h.app.session.execute("library.select", &json!({"ids":ids})).unwrap();
     state_mut(&mut h).source = ids;
     h.app.session.smart.store = lightcraft_engine::smart_sort::Store::new(Some(&directory));
-    h.app.session.smart.tagger = Some(Arc::new(SlowTagger(std::sync::atomic::AtomicUsize::new(0))));
+    let gate = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+    let release = Release(gate.clone()); // Also release workers if an assertion fails.
+    h.app.session.smart.tagger = Some(Arc::new(SlowTagger(std::sync::atomic::AtomicUsize::new(0), gate)));
     click(&mut h, "smartSort:preset");
     click(&mut h, "smartSort:preset:3");
     type_into(&mut h, "smartSort:tagInput:0", "red,");
@@ -292,6 +310,7 @@ fn smart_sort_cancel_keeps_cache_and_resume_skips_completed_photos() {
     assert!(h.step_until(T, |h| h.app.session.smart.store.len("mock-tags") > 0));
     assert!(h.app.smart_sort.is_some());
     click(&mut h, "smartSort:cancel");
+    release.open();
     assert!(h.step_until(T, |h| h.app.smart_sort.is_none()));
     h.step();
     h.step();

@@ -19,6 +19,7 @@ pub(crate) struct Task<T> {
     started: Option<std::time::Instant>,
 }
 impl<T: Send + 'static> Task<T> {
+    #[allow(deprecated, reason = "fetch_update is the Rust 1.95-compatible spelling of try_update")]
     pub fn start(work: impl FnOnce(&AtomicBool) -> Result<T> + Send + 'static) -> Result<Self> {
         RUNNING
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| (n < 4).then_some(n + 1))

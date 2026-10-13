@@ -312,7 +312,7 @@ fn model_dir() -> std::path::PathBuf {
 /// model's downloaded presets, or the one file of a model or LoRA ComfyUI found.
 fn removal_for(item: &Item) -> Option<crate::ai_ui::RemoveTarget> {
     use crate::ai_ui::RemoveTarget;
-    if item.source != Some(Source::Installed) {
+    if AiSettings::load().is_remote() || item.source != Some(Source::Installed) {
         return None;
     }
     let dir = model_dir();
@@ -351,6 +351,9 @@ fn installed_names() -> HashSet<String> {
     let base = |n: &str| n.rsplit('/').next().unwrap_or(n).to_ascii_lowercase();
     let mut out: HashSet<String> = li_ai::catalog::catalog().models.iter().filter_map(|m| m.id.key().split_once(':').map(|(_, n)| base(n))).collect();
     out.extend(li_ai::inventory::loras().iter().map(|l| base(&l.name)));
+    if AiSettings::load().is_remote() {
+        return out;
+    }
     let dir = model_dir();
     out.extend(
         li_ai::restoration::policy()
@@ -460,6 +463,13 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
 
 fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<InstallRun>> {
     let run = Arc::new(Mutex::new(InstallRun { total: plan.total(), ..Default::default() }));
+    if AiSettings::load().is_remote() {
+        if let Ok(mut state) = run.lock() {
+            state.finished = true;
+            state.error = Some(tl!("Install generative models on the remote ComfyUI server, then check the connection again.").into());
+        }
+        return run;
+    }
     let r = run.clone();
     let lang = crate::i18n::current();
     let _ = std::thread::Builder::new().name("model-install".into()).spawn(move || {
@@ -1053,6 +1063,9 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
                     crate::ai_ui::ask_remove(item.title.clone(), target);
                 }
             }
+        }
+        None if AiSettings::load().is_remote() && item.source != Some(Source::Installed) => {
+            ui.label(RichText::new(tl!("Install on server")).size(11.5).color(t.text_dim));
         }
         None if item.source != Some(Source::Installed)
             && widgets::primary_button(ui, if item.template.is_some() { tl!("Get Template") } else { tl!("Install") }, 0.0).clicked() =>

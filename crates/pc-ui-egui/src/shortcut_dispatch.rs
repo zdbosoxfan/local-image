@@ -124,7 +124,9 @@ pub fn bindings(app: &PhotocraftApp) -> Vec<(String, KeyboardShortcut)> {
             all.push((id, sc));
         }
     }
-    all.sort_by_key(|(_, sc)| std::cmp::Reverse(sc.modifiers.shift as u8 + sc.modifiers.alt as u8 + sc.modifiers.command as u8));
+    // Control+Command on macOS is more specific than Command alone (e.g. Affinity's
+    // Unlock All vs Levels). Count physical Control so the shorter chord cannot steal it.
+    all.sort_by_key(|(_, sc)| std::cmp::Reverse(sc.modifiers.shift as u8 + sc.modifiers.alt as u8 + sc.modifiers.command as u8 + sc.modifiers.ctrl as u8));
     all
 }
 

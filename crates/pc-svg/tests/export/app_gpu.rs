@@ -71,9 +71,13 @@ fn svg_export_app_real_gpu_preview_release_and_roundtrip() {
                 PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
                 let rs = cc.wgpu_render_state.as_ref().expect("RTX render state");
                 let info = rs.adapter.get_info();
+                #[cfg(not(target_os = "macos"))]
                 assert!(info.name.contains("RTX 5090"), "{info:?}");
-                assert_eq!(info.backend, eframe::wgpu::Backend::Vulkan);
+                assert_eq!(info.backend, if cfg!(target_os = "macos") { eframe::wgpu::Backend::Metal } else { eframe::wgpu::Backend::Vulkan });
+                #[cfg(not(target_os = "macos"))]
                 assert_eq!(info.device_type, eframe::wgpu::DeviceType::DiscreteGpu);
+                #[cfg(target_os = "macos")]
+                assert_ne!(info.device_type, eframe::wgpu::DeviceType::Cpu, "hardware Metal adapter required");
                 assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(&rs.adapter), eframe::wgpu::TextureFormat::Rgba32Float);
                 eprintln!("SVG app adapter {info:?}");
                 *capture.lock().unwrap() = Some(GpuCanvas::new(rs));

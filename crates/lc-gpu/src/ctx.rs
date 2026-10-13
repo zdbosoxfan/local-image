@@ -520,8 +520,9 @@ impl Gpu {
     pub(crate) fn numerical_test_device() -> Result<Gpu, String> {
         // The caller holds TEST_INIT_LOCK through rendering and teardown, also
         // excluding the crash-marker test's process-wide configuration.
-        let device = Self::new_inner(wgpu::Backends::VULKAN, false)
-            .or_else(|e| if std::env::var_os("LC_REQUIRE_GPU").is_some() { Err(e) } else { Self::new_inner(wgpu::Backends::VULKAN, true) })?;
+        let backends = crate::backend::default_compute_backends(std::env::consts::OS);
+        let device = Self::new_inner(backends, false)
+            .or_else(|e| if std::env::var_os("LC_REQUIRE_GPU").is_some() { Err(e) } else { Self::new_inner(backends, true) })?;
         eprintln!("numerical test device: {} ({:?})", device.info.name, device.info.backend);
         Ok(device)
     }

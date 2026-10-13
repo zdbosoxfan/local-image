@@ -182,12 +182,19 @@ fn keys_profiles_gpu_screenshots_all_scopes_dark_light_narrow_normal() {
     use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew};
     use eframe::wgpu;
     let mut setup = WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
+    setup.instance_descriptor.backends = if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN };
     setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
         let adapter = adapters
             .iter()
-            .find(|a| a.get_info().device_type == wgpu::DeviceType::DiscreteGpu && a.get_info().name.contains("5090"))
-            .ok_or("RTX 5090 required")?;
+            .find(|a| {
+                let info = a.get_info();
+                if cfg!(target_os = "macos") {
+                    info.backend == wgpu::Backend::Metal && info.device_type != wgpu::DeviceType::Cpu
+                } else {
+                    info.device_type == wgpu::DeviceType::DiscreteGpu && info.name.contains("5090")
+                }
+            })
+            .ok_or("hardware Metal (macOS) or RTX 5090 required")?;
         eprintln!("Keyboard editor renderer: {:?}", adapter.get_info());
         Ok(adapter.clone())
     }));
@@ -221,7 +228,7 @@ fn keys_profiles_gpu_screenshots_all_scopes_dark_light_narrow_normal() {
     let _ = h.render().unwrap();
     let ms = start.elapsed().as_secs_f64() * 1000.;
     assert_eq!(h.state().1["profiles"]["editor"]["active"], "Timing sample");
-    std::fs::write(output.join("runtime.txt"),format!("NVIDIA GeForce RTX 5090 / Vulkan\nWarm shortcut editor Duplicate widget click, actual editor body + profile update + GPU render/readback: {ms:.3} ms\nOne headless interaction sample; not a desktop frame-rate, compositor, or photo-pipeline benchmark.\n")).unwrap();
+    std::fs::write(output.join("runtime.txt"),format!("{}\nWarm shortcut editor Duplicate widget click, actual editor body + profile update + GPU render/readback: {ms:.3} ms\nOne headless interaction sample; not a desktop frame-rate, compositor, or photo-pipeline benchmark.\n", if cfg!(target_os = "macos") { "hardware Metal" } else { "RTX 5090 / Vulkan" })).unwrap();
     eprintln!("Keyboard profile warm Duplicate click + GPU readback: {ms:.3} ms");
 }
 
