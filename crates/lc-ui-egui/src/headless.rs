@@ -2251,7 +2251,7 @@ mod tests {
         assert!(colour > 20, "the rich tip has a colour icon: {colour}");
         h.request("ui.key", json!({"key": ",", "cmd": true}), timeout);
         h.request("ui.clickWidget", json!({"id": "button:settingsTab-interface"}), timeout);
-        assert_eq!(h.request("ui.clickWidget", json!({"id": "button:settingsToolIcons-1"}), timeout)["ok"], true);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "button:settingsToolIcons-0"}), timeout)["ok"], true);
         assert!(!h.app.ui.settings.color_tool_icons);
         assert_eq!(h.app.ui.settings.tool_tips, ToolTipMode::Rich);
         h.request("ui.key", json!({"key": "Escape"}), timeout);
