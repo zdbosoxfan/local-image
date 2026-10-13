@@ -740,6 +740,10 @@ pub fn invoke(app: &mut PhotocraftApp, _ctx: &egui::Context, id: &str, params: &
     if !empty {
         return None;
     }
+    // Retain the saved shortcut/automation alias, using the existing setup window.
+    if id == "edit.preferences.integrations" {
+        return crate::ai_ui::menu(app, _ctx, "li.localAi", params);
+    }
     if let Some(section) = id.strip_prefix("edit.preferences.") {
         return Some(Ok(json!({"dialog": open_preferences(app, section)})));
     }
@@ -887,7 +891,7 @@ pub fn width(fields: &Map<String, Value>) -> Option<f32> {
 /// Open Edit › Preferences on `section`.
 pub fn open_preferences(app: &mut PhotocraftApp, section: &str) -> u64 {
     let known = SECTIONS.iter().any(|(id, _)| *id == section) || section == crate::attributions::SECTION;
-    let section = if known { section } else { "general" };
+    let section = if known && section != "integrations" { section } else { "general" };
     let working = preference_values(app.session.prefs());
     let order = field_order(app.session.prefs(), &working);
     open_kind(app, "prefs", "Preferences", json!({"section": section, "values": working, "__order": order}))
@@ -1127,6 +1131,9 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
         ui.vertical(|ui| {
             ui.set_width(170.0);
             for (id, title) in SECTIONS {
+                if id == "integrations" {
+                    continue;
+                }
                 let sel = section == id;
                 let empty = !has_visible_fields(&values, id);
                 let (rect, resp) = ui.allocate_exact_size(vec2(170.0, 22.0), Sense::click());

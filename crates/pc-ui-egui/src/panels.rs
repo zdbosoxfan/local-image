@@ -61,7 +61,7 @@ pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
     let set = app.session.prefs().toolbar.active();
     let mut ranks: std::collections::HashMap<Tool, usize> =
         set.tools.iter().enumerate().filter_map(|(i, name)| Tool::from_name(name).map(|tool| (tool, i))).collect();
-    if set.persona == photocraft_engine::toolsets::Persona::Pixel && !set.id.starts_with("custom-") {
+    if set.persona == photocraft_engine::toolsets::Persona::Pixel && set.id == photocraft_engine::toolsets::DEFAULT_ID {
         for (i, id) in photocraft_engine::shared_tools::SHARED_ADDITIONS.iter().enumerate() {
             if let Some(tool) = Tool::from_name(id) {
                 ranks.entry(tool).or_insert(set.tools.len() + i);
@@ -93,7 +93,8 @@ pub fn visible_sections(app: &PhotocraftApp) -> Vec<Vec<(usize, Vec<Tool>)>> {
             index += 1;
         }
     }
-    // Geometric additions use the same feature flyouts in Pixel, preserving the frozen defaults.
+    // Extra geometric flyouts belong to All Tools and explicitly saved custom sets.
+    // A shortcut-selected extra remains visible in a smaller set.
     let shared: std::collections::HashSet<_> = photocraft_engine::shared_tools::SHARED_ADDITIONS.iter().filter_map(|id| Tool::from_name(id)).collect();
     for (slot, tools) in crate::toolsets_ui::persona::vector_slots() {
         let kept: Vec<_> = tools.into_iter().filter(|t| shared.contains(t) && (rank(t) != usize::MAX || *t == current)).collect();
@@ -447,7 +448,22 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 crate::brand::paint_mark(ui, mark);
                 ui.add_space(6.0);
                 // With the macOS menu bar the menus are at the top of the screen instead.
-                menus_right = if app.services.native_menu.is_some() { ui.cursor().left() } else { crate::menus::menu_bar(app, ui) };
+                let modules = if app.host_modes {
+                    crate::Module::ALL
+                        .iter()
+                        .map(|module| {
+                            let text = RichText::new(tl!(module.label())).font(egui::TextStyle::Button.resolve(ui.style()));
+                            let galley = egui::WidgetText::from(text).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Button);
+                            (galley.size().x + 2.0 * ui.spacing().button_padding.x).max(2.0 * ui.spacing().interact_size.x + ui.spacing().button_padding.x)
+                        })
+                        .sum::<f32>()
+                        + ui.spacing().item_spacing.x
+                } else {
+                    0.0
+                };
+                let caption = if custom { crate::titlebar::WIDTH + TITLE_GAP } else { 0.0 };
+                let room = (ui.available_width() - modules - caption - WORKSPACE_MIN - TITLE_GAP).max(0.0);
+                menus_right = if app.services.native_menu.is_some() { ui.cursor().left() } else { crate::menus::menu_bar_with_width(app, ui, room) };
                 // The menu bar takes the whole row, so the right-hand group gets its own rect:
                 // from the menus to the bar's end, or to the caption buttons.
                 let right_edge = if custom { full.right() - crate::titlebar::WIDTH - 4.0 } else { full.right() };

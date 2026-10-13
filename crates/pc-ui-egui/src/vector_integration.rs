@@ -1410,7 +1410,10 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
         ("object.clippingMask.release", "Release Clipping Mask", vec!["Object", "Clipping Mask"]),
         ("object.compoundPath.make", "Make Compound Path", vec!["Object", "Compound Path"]),
         ("object.compoundPath.release", "Release Compound Path", vec!["Object", "Compound Path"]),
+        ("ui.vector.view.vector", "Vector View", vec!["View"]),
         ("vector.view.outline", "Outline", vec!["View"]),
+        ("ui.vector.view.xray", "X-ray", vec!["View"]),
+        ("ui.vector.view.pixels", "Pixel Preview", vec!["View"]),
         ("vector.snap.smartGuides", "Smart Guides", vec!["View"]),
         ("ui.vector.select.all", "All Vector Objects", vec!["Select"]),
         ("ui.vector.select.none", "Deselect Vector Objects", vec!["Select"]),
@@ -1422,12 +1425,16 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
     let vector = app.session.prefs().toolbar.persona == Persona::Vector;
     rows.retain(|(_, _, path)| vector || matches!(path[0], "File" | "Layer" | "Window"));
     let item = |id: String, label: String, path: Vec<String>| crate::menus::MenuItem {
+        checked: if let Some(name) = id.strip_prefix("window.vector.") {
+            Some(app.vector_runtime.windows.contains(name))
+        } else {
+            crate::menus::checked(app, &id)
+        },
         id,
         label,
         path,
         shortcut: None,
         enabled: app.session.active().is_some(),
-        checked: None,
         color: None,
         tooltip: None,
     };
@@ -1441,7 +1448,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
             row
         })
         .collect();
-    for name in ["Appearance", "Graphic Styles", "Frame Composition", "Mesh", "Snapping Manager", "Document Palette", "SVG Import", "Affinity Import"] {
+    for name in ["Appearance", "Graphic Styles", "Frame Composition", "Mesh", "Snapping Manager", "Document Palette"] {
         out.push(item(format!("window.vector.{name}"), name.into(), vec!["Window".into()]));
     }
     if vector {

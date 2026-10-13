@@ -1291,4 +1291,6 @@
     "Selecting object…",
     "Selecting sky…",
     "Selecting…",
+    // Compact editor menu bar (U021); English until translations resume.
+    "Menu",
 ]
