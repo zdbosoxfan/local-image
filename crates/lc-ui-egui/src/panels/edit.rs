@@ -261,13 +261,18 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
             use lightcraft_develop::ClarityMode;
             let modes = [ClarityMode::Natural, ClarityMode::Punch, ClarityMode::Neutral];
             let selected = modes.iter().position(|m| *m == d.effects.clarity_mode);
-            if let Some(i) = crate::widgets::segmented(
-                ui,
-                &target.key("clarityMode"),
-                &[("Natural", "natural"), ("Punch", "punch"), ("Neutral", "neutral")],
-                selected,
-                3,
-            ) {
+            let mut chosen = None;
+            // Same inset as the Vignette style control, so the buttons fit a 250 px panel.
+            egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
+                chosen = crate::widgets::segmented(
+                    ui,
+                    &target.key("clarityMode"),
+                    &[("Natural", "natural"), ("Punch", "punch"), ("Neutral", "neutral")],
+                    selected,
+                    3,
+                );
+            });
+            if let Some(i) = chosen {
                 let _ = target.merge(app, json!({"effects":{"clarity_mode":modes[i]}}), "Clarity Mode");
             }
         }
