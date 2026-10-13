@@ -3901,3 +3901,8 @@ ai	New	新着
 	Colour hue	描画色の色相
 	Colour saturation	描画色の彩度
 	Colour brightness	描画色の明るさ
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	このプロファイルのすべてのショートカットを初期設定に戻しました。
+	Editor	エディター
+	Library + Develop	ライブラリ + 現像
+	Scope	適用範囲

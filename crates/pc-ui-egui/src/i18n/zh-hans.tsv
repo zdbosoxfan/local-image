@@ -3889,3 +3889,8 @@ ai	New	最新
 	Colour hue	颜色色相
 	Colour saturation	颜色饱和度
 	Colour brightness	颜色亮度
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	已将此配置中的所有快捷键重置为默认值。
+	Editor	编辑器
+	Library + Develop	图库 + 显影
+	Scope	范围

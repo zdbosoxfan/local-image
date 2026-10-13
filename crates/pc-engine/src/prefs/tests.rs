@@ -153,12 +153,16 @@ fn keyboard_shortcuts_reassign_and_reset() {
     let mut s = session();
     let undo = crate::commands::find("edit.undo").unwrap().shortcut;
     assert_eq!(s.prefs().shortcut("edit.undo", undo), Some("Cmd+Z"));
-    // Give ⌘Z to Fill: Undo loses it (Photoshop moves a shortcut rather than duplicating it).
+    // Global Undo cannot be stolen by a workspace profile. Retain and report the
+    // user's conflicting assignment, but ignore it in the effective key set.
     let r = s.execute("edit.keyboardShortcuts", json!({"set": {"edit.fill": "Cmd+Z"}})).unwrap();
-    assert_eq!(s.prefs().shortcut("edit.fill", None), Some("Cmd+Z"));
-    assert_eq!(s.prefs().shortcut("edit.undo", undo), None);
-    assert!(r["conflicts"].as_array().unwrap().is_empty());
-    // Keeping the duplicate reports a conflict.
+    assert_eq!(s.prefs().shortcuts["edit.fill"], "Cmd+Z");
+    assert_eq!(s.prefs().shortcut("edit.fill", None), None);
+    assert_eq!(s.prefs().shortcut("edit.undo", undo), Some("Cmd+Z"));
+    assert!(!s.prefs().shortcuts.contains_key("edit.undo"), "Global conflict must not disable Undo in the downgrade map");
+    assert_eq!(r["conflicts"][0]["global"], true);
+    assert_eq!(r["conflicts"][0]["ignored"], true);
+    // Reviewing the assignment still reports its Global conflict.
     let r = s.execute("edit.keyboardShortcuts", json!({"set": {"edit.undo": "Cmd+Z"}, "removeConflicts": false})).unwrap();
     assert_eq!(r["conflicts"][0]["shortcut"], "Cmd+Z");
     assert!(s.execute("edit.keyboardShortcuts", json!({"set": {"no.such.command": "F9"}})).is_err());

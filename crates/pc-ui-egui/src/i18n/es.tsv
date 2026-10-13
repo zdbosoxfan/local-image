@@ -3909,3 +3909,8 @@ ai	New	Nuevos
 	Colour hue	Tono del color
 	Colour saturation	Saturación del color
 	Colour brightness	Brillo del color
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Se han restablecido los atajos de este perfil a sus valores predeterminados.
+	Editor	Editor
+	Library + Develop	Biblioteca + Revelado
+	Scope	Ámbito

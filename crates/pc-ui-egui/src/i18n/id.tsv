@@ -3889,3 +3889,8 @@ ai	New	Baru
 	Colour hue	Rona warna
 	Colour saturation	Saturasi warna
 	Colour brightness	Kecerahan warna
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Semua pintasan dalam profil ini telah diatur ulang ke nilai default.
+	Editor	Editor
+	Library + Develop	Pustaka + Pengembangan
+	Scope	Cakupan

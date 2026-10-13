@@ -111,6 +111,22 @@ pub fn catalog() -> Vec<Binding> {
             params: None,
         });
     }
+    out.push(Binding {
+        key: format!("{PREFIX}tool.erase"),
+        command: "tool.erase".into(),
+        label: "Erase mask".into(),
+        menu: vec!["Library".into(), "Tools".into()],
+        default: None,
+        params: None,
+    });
+    out.push(Binding {
+        key: format!("{PREFIX}alias/tool.linear/L"),
+        command: "tool.linear".into(),
+        label: "Linear Gradient (current Capture One)".into(),
+        menu: vec!["Library".into(), "Tools".into()],
+        default: None,
+        params: Some(serde_json::json!({})),
+    });
     out
 }
 pub type HostShortcutItem = (String, String, Vec<String>, Option<String>);
@@ -119,12 +135,30 @@ pub fn host_catalog() -> Vec<HostShortcutItem> {
 }
 pub fn effective(app: &LightcraftApp) -> Vec<(Binding, String)> {
     let mut bindings = catalog();
-    bindings.sort_by_key(|b| !app.shortcut_overrides.contains_key(&b.key));
+    let parent = app.shortcut_overrides.get("library::__profile").map(String::as_str).unwrap_or("Lightroom");
+    let edit =
+        matches!(app.ui.right, crate::state::RightPanel::Edit | crate::state::RightPanel::Masking) && app.ui.view == crate::state::ViewMode::Detail;
+    for b in &mut bindings {
+        b.default = crate::keymaps::default(parent, &b.key, edit, b.default.as_deref()).map(str::to_string);
+        if parent == "Capture One" && edit && b.key == "library::alias/tool.linear/L" {
+            b.default = Some("L".into());
+        }
+    }
+    bindings.sort_by_key(|b| {
+        (
+            !matches!(b.command.as_str(), "app.quit" | "edit.undo" | "edit.redo" | "view.enterFullScreen" | "view.fullScreenPreview"),
+            !app.shortcut_overrides.contains_key(&b.key),
+        )
+    });
     let mut seen = Vec::new();
     bindings
         .into_iter()
         .filter_map(|b| {
-            let sc = app.shortcut_overrides.get(&b.key).cloned().or_else(|| b.default.clone())?;
+            let global = matches!(b.command.as_str(), "app.quit" | "edit.undo" | "edit.redo" | "view.enterFullScreen" | "view.fullScreenPreview");
+            let sc = if global { b.default.clone() } else { app.shortcut_overrides.get(&b.key).cloned().or_else(|| b.default.clone()) }?;
+            if !global && crate::keymaps::GLOBAL_CHORDS.iter().filter_map(|key| identity(key)).any(|key| Some(key) == identity(&sc)) {
+                return None;
+            }
             let key = identity(&sc)?;
             if seen.contains(&key) {
                 return None;

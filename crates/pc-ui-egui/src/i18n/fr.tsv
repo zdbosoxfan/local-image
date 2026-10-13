@@ -3901,3 +3901,8 @@ ai	New	Nouveautés
 	Colour hue	Teinte de la couleur
 	Colour saturation	Saturation de la couleur
 	Colour brightness	Luminosité de la couleur
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Tous les raccourcis de ce profil ont été réinitialisés aux valeurs par défaut.
+	Editor	Éditeur
+	Library + Develop	Bibliothèque + Développement
+	Scope	Portée

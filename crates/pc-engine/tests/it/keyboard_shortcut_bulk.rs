@@ -11,16 +11,16 @@ fn shortcut_of(v: &Value, id: &str) -> Option<String> {
 #[test]
 fn bulk_set_same_key_twice_reports_conflict_and_keeps_bindings() {
     let mut s = Session::new();
-    // edit.undo's default is already Cmd+Z; the bulk set also gives Cmd+Z to
+    // layer.new.layerViaCopy's default is already Cmd+J; the bulk set also gives Cmd+J to
     // edit.fill. On main the conflict pass made each entry blank the other:
     // both ended up unbound and conflicts was empty.
-    let r = s.execute("edit.keyboardShortcuts", json!({"set": {"edit.undo": "Cmd+Z", "edit.fill": "Cmd+Z"}, "list": true})).unwrap();
+    let r = s.execute("edit.keyboardShortcuts", json!({"set": {"layer.new.layerViaCopy": "Cmd+J", "edit.fill": "Cmd+J"}, "list": true})).unwrap();
     let fill = shortcut_of(&r, "edit.fill").unwrap_or_default();
-    let undo = shortcut_of(&r, "edit.undo").unwrap_or_default();
-    assert_eq!(fill, "Cmd+Z", "edit.fill must keep the key it was just given (empty on main)");
-    assert_eq!(undo, "Cmd+Z", "edit.undo must keep the key it was just given (empty on main)");
+    let copy = shortcut_of(&r, "layer.new.layerViaCopy").unwrap_or_default();
+    assert_eq!(fill, "Cmd+J", "edit.fill must keep the key it was just given (empty on main)");
+    assert_eq!(copy, "Cmd+J", "layer.new.layerViaCopy must keep the key it was just given (empty on main)");
     let conflicts = r["conflicts"].as_array().unwrap();
-    let clash = conflicts.iter().any(|c| c["shortcut"].as_str() == Some("Cmd+Z") && c["commands"].as_array().is_some_and(|ids| ids.len() == 2));
+    let clash = conflicts.iter().any(|c| c["shortcut"].as_str() == Some("Cmd+J") && c["commands"].as_array().is_some_and(|ids| ids.len() == 2));
     assert!(clash, "the in-call clash must appear in conflicts, got {}", r["conflicts"]);
 }
 
@@ -28,9 +28,9 @@ fn bulk_set_same_key_twice_reports_conflict_and_keeps_bindings() {
 fn single_set_still_steals_from_old_owner() {
     let mut s = Session::new();
     // Control: the documented single-assignment behaviour must be unchanged —
-    // moving Cmd+Z to edit.fill takes it away from edit.undo.
-    let r = s.execute("edit.keyboardShortcuts", json!({"set": {"edit.fill": "Cmd+Z"}, "list": true})).unwrap();
-    assert_eq!(shortcut_of(&r, "edit.fill").as_deref(), Some("Cmd+Z"));
-    let undo = shortcut_of(&r, "edit.undo").unwrap_or_default();
-    assert_ne!(undo, "Cmd+Z", "edit.undo must lose the key when it moves to edit.fill");
+    // moving Cmd+J to edit.fill takes it away from layer.new.layerViaCopy.
+    let r = s.execute("edit.keyboardShortcuts", json!({"set": {"edit.fill": "Cmd+J"}, "list": true})).unwrap();
+    assert_eq!(shortcut_of(&r, "edit.fill").as_deref(), Some("Cmd+J"));
+    let copy = shortcut_of(&r, "layer.new.layerViaCopy").unwrap_or_default();
+    assert_ne!(copy, "Cmd+J", "layer.new.layerViaCopy must lose the key when it moves to edit.fill");
 }

@@ -4001,3 +4001,8 @@ ai	New	Новые
 	Colour hue	Тон цвета
 	Colour saturation	Насыщенность цвета
 	Colour brightness	Яркость цвета
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Все сочетания клавиш этого профиля сброшены к значениям по умолчанию.
+	Editor	Редактор
+	Library + Develop	Библиотека + Проявка
+	Scope	Область

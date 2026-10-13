@@ -202,6 +202,7 @@ mod tool_icon_data;
 #[path = "vector_packages/fill_stroke_proxy/icons.rs"]
 pub mod vector_tool_icon_data;
 // local-image: Preferences › Tools › Pen pressure curve.
+pub mod keymaps;
 pub mod pressure_curve_ui;
 pub mod props_layout;
 pub mod proxy;

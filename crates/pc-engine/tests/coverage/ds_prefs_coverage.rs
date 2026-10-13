@@ -189,12 +189,16 @@ fn preferences_set_color_validation() {
 #[test]
 fn preferences_shortcut_and_reset() {
     let mut p = prefs::Preferences::default();
-    p.set("shortcuts.edit.undo", json!("cmd+shift+z")).unwrap();
-    assert_eq!(p.shortcut("edit.undo", Some("Cmd+Z")), Some("Cmd+Shift+Z"));
-    p.set("shortcuts.edit.undo", Value::Null).unwrap();
-    assert_eq!(p.shortcut("edit.undo", Some("Cmd+Z")), Some("Cmd+Z"));
+    p.set("shortcuts.edit.fill", json!("cmd+shift+f9")).unwrap();
+    assert_eq!(p.shortcut("edit.fill", Some("Shift+F5")), Some("Cmd+Shift+F9"));
+    p.set("shortcuts.edit.fill", Value::Null).unwrap();
+    assert_eq!(p.shortcut("edit.fill", Some("Shift+F5")), Some("Shift+F5"));
+    p.set("shortcuts.edit.fill", json!("")).unwrap();
+    assert_eq!(p.shortcut("edit.fill", Some("Shift+F5")), None);
+    p.reset(Some("shortcuts.edit.fill")).unwrap();
+    assert_eq!(p.shortcut("edit.fill", Some("Shift+F5")), Some("Shift+F5"));
     p.set("shortcuts.edit.undo", json!("")).unwrap();
-    assert_eq!(p.shortcut("edit.undo", Some("Cmd+Z")), None);
+    assert_eq!(p.shortcut("edit.undo", None), Some("Cmd+Z"), "Global Undo remains fixed");
 }
 
 #[test]

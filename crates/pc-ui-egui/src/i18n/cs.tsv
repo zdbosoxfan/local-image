@@ -3918,3 +3918,8 @@ ai	New	Nové
 	Colour hue	Odstín barvy
 	Colour saturation	Sytost barvy
 	Colour brightness	Jas barvy
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Všechny klávesové zkratky v tomto profilu byly obnoveny na výchozí hodnoty.
+	Editor	Editor
+	Library + Develop	Knihovna + Vyvolání
+	Scope	Rozsah

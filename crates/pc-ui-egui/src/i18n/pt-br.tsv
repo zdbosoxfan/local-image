@@ -3908,3 +3908,8 @@ ai	New	Novos
 	Colour hue	Matiz da cor
 	Colour saturation	Saturação da cor
 	Colour brightness	Brilho da cor
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Todos os atalhos deste perfil foram redefinidos para os valores padrão.
+	Editor	Editor
+	Library + Develop	Biblioteca + Revelação
+	Scope	Escopo

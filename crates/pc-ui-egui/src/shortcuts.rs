@@ -76,7 +76,7 @@ pub fn tip_label(app: &PhotocraftApp, label: &str, command: &str) -> String {
 
 /// The shortcut in effect for a command: the user's override, else `default`.
 pub fn effective_shortcut(app: &PhotocraftApp, id: &str, default: Option<&str>) -> Option<String> {
-    app.session.prefs().shortcut(id, default).map(str::to_string)
+    crate::keymaps::effective(app.session.prefs(), id, default).map(str::to_string)
 }
 
 /// One id per toolbar key group. Hidden tools use the same lookup as visible tools.
@@ -87,7 +87,7 @@ pub fn tool_shortcut_id(tool: Tool) -> String {
 
 /// Inactive Pixel-only tool assignments must not reserve Vector's command/tool keys.
 pub(crate) fn override_applies_in_persona(persona: photocraft_engine::toolsets::Persona, id: &str) -> bool {
-    if id.starts_with("library::") {
+    if id.starts_with("library::") || crate::keymaps::is_global(id) {
         return false;
     }
     persona != photocraft_engine::toolsets::Persona::Vector
@@ -105,33 +105,31 @@ pub fn tool_shortcut(session: &photocraft_engine::Session, tool: Tool) -> Option
         let preset = session.prefs().toolbar.vector_keyboard.preset;
         let name = format!("{tool:?}");
         let default = photocraft_engine::vector_toolbar_layout::tool_bindings(preset).iter().find(|b| b.target == name).map(|b| b.key);
-        if !session.prefs().shortcuts.contains_key(&id)
+        if !session.prefs().shortcut_overrides(false).contains_key(&id)
             && default.is_some_and(|key| {
-                session.prefs().shortcuts.iter().any(|(id, binding)| {
+                session.prefs().shortcut_overrides(false).iter().any(|(id, binding)| {
                     override_applies_in_persona(session.prefs().toolbar.persona, id) && !binding.is_empty() && parse(binding) == parse(key)
                 })
             })
         {
             return None;
         }
-        return session.prefs().shortcut(&id, default).map(str::to_string);
+        return crate::keymaps::effective(session.prefs(), &id, default).map(str::to_string);
     }
     let id = tool_shortcut_id(tool);
     // A group member's own saved binding (e.g. an older AI Remove key) is honoured by `handle`
     // before the group keys, so it is also the key to show.
     let own = format!("tools.select.{tool:?}");
-    if own != id
-        && let Some(saved) = session.prefs().shortcuts.get(&own).filter(|s| !s.is_empty())
-    {
-        return Some(saved.clone());
+    if own != id && session.prefs().shortcut_overrides(false).get(&own).is_some_and(|s| !s.is_empty()) {
+        return crate::keymaps::effective(session.prefs(), &own, None).map(str::to_string);
     }
     let default = default_shortcut(&id);
-    session.prefs().shortcut(&id, default.as_deref()).map(str::to_string)
+    crate::keymaps::effective(session.prefs(), &id, default.as_deref()).map(str::to_string)
 }
 
 /// Modal tool bindings also pass through the preferences lookup.
 pub(crate) fn local_tool_shortcut(session: &photocraft_engine::Session, id: &str, default: &str) -> Option<String> {
-    session.prefs().shortcut(id, (!default.is_empty()).then_some(default)).map(str::to_string)
+    crate::keymaps::effective(session.prefs(), id, (!default.is_empty()).then_some(default)).map(str::to_string)
 }
 
 /// Default (unmodified) shortcut of a command id.
@@ -207,7 +205,7 @@ pub const NAV_COMMANDS: [&str; 4] = ["view.zoomIn", "view.zoomOut", "view.fitOnS
 /// ⌘+ / ⌘- / ⌘0 / ⌘1 (or their Edit › Keyboard Shortcuts overrides). Returns true when one ran.
 fn nav_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     for id in NAV_COMMANDS {
-        let sc = crate::menus::UI_COMMANDS.iter().find(|c| c.0 == id).and_then(|c| parse(app.session.prefs().shortcut(id, c.3)?));
+        let sc = crate::menus::UI_COMMANDS.iter().find(|c| c.0 == id).and_then(|c| parse(crate::keymaps::effective(app.session.prefs(), id, c.3)?));
         if let Some(sc) = sc
             && consume(ctx, &sc)
         {
@@ -301,6 +299,9 @@ pub(crate) fn canvas_keyboard_available(ctx: &egui::Context) -> bool {
 }
 
 pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if !ctx.input(|input| input.focused) || (app.host_modes && app.current_module != crate::Module::Compositing) {
+        return;
+    }
     // Camera Raw is modal like Photoshop's filter dialog: no application shortcut (Save, Undo,
     // tools) runs beneath it, and it handles its own keys (Y, U, O, S). Unlike the other dialogs
     // below it covers the canvas, so canvas zoom keys are blocked too.
@@ -437,8 +438,9 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // Tool keys; pressing the key of the current group cycles within it. With Preferences ›
     // Tools › Use Shift Key for Tool Switch, only ⇧+key cycles and the plain key keeps the
     // group's current tool.
-    for (id, binding) in &app.session.prefs().shortcuts.clone() {
+    for (id, binding) in app.session.prefs().shortcut_overrides(false) {
         if let Some(tool) = id.strip_prefix("tools.select.").and_then(Tool::from_name)
+            && crate::keymaps::global_conflict(binding).is_none()
             && parse(binding).is_some_and(|shortcut| consume(ctx, &shortcut))
         {
             crate::toolsets_ui::persona::select_tool(app, ctx, tool);

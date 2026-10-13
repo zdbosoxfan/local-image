@@ -453,7 +453,7 @@ fn ds_finding_tool_without_default_accepts_assigned_shortcut() {
 }
 
 #[test]
-fn conventions_preferences_chord_keeps_explicit_saved_overrides() {
+fn conventions_preferences_chord_reserves_global_and_retains_saved_overrides() {
     let mut h = harness();
     press(&mut h, "Cmd+K");
     assert!(h.state().ui.dialogs.iter().any(|d| crate::prefs_ui::is_preferences(&d.fields)));
@@ -463,8 +463,9 @@ fn conventions_preferences_chord_keeps_explicit_saved_overrides() {
         p.shortcuts.insert("edit.search".into(), "Cmd+K".into());
     });
     press(&mut h, "Cmd+K");
-    assert!(h.state().ui.palette_open, "explicit saved Search binding wins over new default");
-    assert!(!h.state().ui.dialogs.iter().any(|d| crate::prefs_ui::is_preferences(&d.fields)));
+    assert_eq!(h.state().session.prefs().shortcuts["edit.search"], "Cmd+K", "legacy binding stays readable");
+    assert!(!h.state().ui.palette_open, "a workspace binding cannot steal Global Preferences");
+    assert!(h.state().ui.dialogs.iter().any(|d| crate::prefs_ui::is_preferences(&d.fields)));
 }
 
 #[test]
