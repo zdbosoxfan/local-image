@@ -16,6 +16,11 @@ use crate::tile::GrayTile;
 /// Largest brush diameter accepted by the rasterizer and brush controls.
 pub const MAX_BRUSH_SIZE: f32 = 5000.0;
 
+/// Largest Scatter amount (primary and Dual Brush): 10 = 1000 %, the Brush Settings slider's top.
+/// Beyond it a dab could land arbitrarily far away, and an unbounded amount overflowed the dab
+/// centre to infinity (upstream 7fec6e94, #977).
+pub const MAX_SCATTER: f32 = 10.0;
+
 /// What drives a dynamic parameter (Photoshop's "Control" pop-ups).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -519,9 +524,14 @@ impl BrushSettings {
         let safe_size = |size: f32| {
             if size.is_finite() { size.clamp(0.5, MAX_BRUSH_SIZE) } else { 0.5 }
         };
+        // NaN scatters nothing (as before: it never passed the `> 0` check); infinity is the maximum
+        // (upstream 7fec6e94, #977).
+        let safe_scatter = |amount: f32| if amount.is_nan() { 0.0 } else { amount.clamp(0.0, MAX_SCATTER) };
         let mut brush = self.clone();
         brush.size = safe_size(brush.size);
         brush.dual_brush.size = safe_size(brush.dual_brush.size);
+        brush.scattering.scatter.jitter = safe_scatter(brush.scattering.scatter.jitter);
+        brush.dual_brush.scatter = safe_scatter(brush.dual_brush.scatter);
         brush
     }
 

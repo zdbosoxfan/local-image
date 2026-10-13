@@ -405,6 +405,11 @@ pub struct PresetStore {
     /// [`crate::actions_cmds::ActionState::rev`] last written (or loaded).
     actions_rev: u64,
     warnings: Vec<String>,
+    /// Group files that failed to load: left on disk untouched, so a sync never writes them
+    /// (upstream fb36a3fd).
+    skipped: HashSet<String>,
+    /// `actions.json` exists but failed to load: left on disk untouched, so it is never written.
+    actions_skipped: bool,
 }
 
 /// A loaded store: the presets on disk plus what the session should hide.
@@ -457,6 +462,7 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
     // Parse the group files.
     let mut parsed: Vec<(String, u64, GroupFile)> = Vec::new();
     let mut failed = false;
+    let mut skipped = HashSet::new();
     for (name, size) in group_files {
         let r = backend.read(&name, MAX_GROUP_BYTES).and_then(|b| serde_json::from_slice::<GroupFile>(&b).map_err(|e| e.to_string())).and_then(|g| {
             if g.format != GROUP_FORMAT {
@@ -474,6 +480,7 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
             Err(e) => {
                 failed = true;
                 warnings.push(format!("brush presets: {name} skipped: {e}"));
+                skipped.insert(name);
             }
         }
     }
@@ -493,8 +500,20 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
         }
     }
 
-    let actions = load_actions(backend.as_ref(), &mut warnings);
-    let mut store = PresetStore { backend, synced_rev: None, groups: HashMap::new(), tips: HashMap::new(), index: None, actions_rev: 0, warnings: Vec::new() };
+    let loaded_actions = load_actions(backend.as_ref(), &mut warnings);
+    let actions_skipped = loaded_actions.is_none();
+    let actions = loaded_actions.unwrap_or_default();
+    let mut store = PresetStore {
+        backend,
+        synced_rev: None,
+        groups: HashMap::new(),
+        tips: HashMap::new(),
+        index: None,
+        actions_rev: 0,
+        warnings: Vec::new(),
+        skipped: HashSet::new(),
+        actions_skipped,
+    };
     let mut presets = Vec::new();
     for (file, size, g) in parsed {
         let mut items = Vec::with_capacity(g.presets.len());
@@ -513,6 +532,7 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
             // Left on disk untouched (a sync never deletes a file it did not load).
             failed = true;
             warnings.push(format!("brush presets: {file} skipped: {missing} preset(s) have missing or unreadable tips"));
+            skipped.insert(file);
             continue;
         }
         for h in &hashes {
@@ -533,28 +553,30 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
     let hidden_builtins = index.as_ref().map(|i| i.hidden_builtins.clone()).unwrap_or_default();
     let order = index.as_ref().map(|i| i.order.clone()).unwrap_or_default();
     store.index = index;
+    store.skipped = skipped;
     Opened { store, presets, hidden_builtins, order, warnings, actions }
 }
 
-/// `actions.json`: a missing file is an empty list. Anything else unreadable is a warning.
-fn load_actions(backend: &dyn PresetBackend, warnings: &mut Vec<String>) -> Vec<crate::actions_cmds::Action> {
+/// `actions.json`: a missing file is an empty list. Anything else unreadable is a warning and
+/// `None` (the file is then never overwritten, upstream fb36a3fd).
+fn load_actions(backend: &dyn PresetBackend, warnings: &mut Vec<String>) -> Option<Vec<crate::actions_cmds::Action>> {
     let bytes = match backend.read(ACTIONS_FILE, MAX_ACTIONS_BYTES) {
         Ok(b) => b,
-        Err(e) if missing_file(&e) => return Vec::new(),
+        Err(e) if missing_file(&e) => return Some(Vec::new()),
         Err(e) => {
             warnings.push(format!("actions: {ACTIONS_FILE} skipped: {e}"));
-            return Vec::new();
+            return None;
         }
     };
     match serde_json::from_slice::<crate::actions_cmds::ActionsFile>(&bytes) {
-        Ok(file) if file.version == 1 => file.actions,
+        Ok(file) if file.version == 1 => Some(file.actions),
         Ok(file) => {
             warnings.push(format!("actions: {ACTIONS_FILE} skipped: unsupported version {}", file.version));
-            Vec::new()
+            None
         }
         Err(e) => {
             warnings.push(format!("actions: {ACTIONS_FILE} skipped: {e}"));
-            Vec::new()
+            None
         }
     }
 }
@@ -632,6 +654,13 @@ impl PresetStore {
         for (group, items) in &order {
             let file = group_file_name(group);
             files.push(file.clone());
+            if self.skipped.contains(&file) {
+                self.warnings.push(format!(
+                    "Couldn't save brush presets `{}`: {file} could not be read, so it was left unchanged",
+                    if group.is_empty() { "(ungrouped)" } else { group }
+                ));
+                continue;
+            }
             let unchanged = self.groups.get(&file).is_some_and(|s| s.presets.len() == items.len() && s.presets.iter().zip(items).all(|(a, b)| a == *b));
             if unchanged {
                 continue;
@@ -740,6 +769,11 @@ impl PresetStore {
     /// on the next command.
     pub fn sync_actions(&mut self, list: &[crate::actions_cmds::Action], rev: u64) {
         if self.actions_rev == rev {
+            return;
+        }
+        if self.actions_skipped {
+            self.warnings.push(format!("Couldn't save actions: {ACTIONS_FILE} could not be read, so it was left unchanged"));
+            self.actions_rev = rev;
             return;
         }
         let file = crate::actions_cmds::ActionsFile { version: 1, actions: list.to_vec() };

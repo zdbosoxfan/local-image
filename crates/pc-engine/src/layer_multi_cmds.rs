@@ -593,16 +593,42 @@ fn distribute(s: &mut Session, kind: &str) -> Result<Value> {
 
 // ---------- structural commands ----------
 
+/// A [`Layer::link_group`] id no layer uses yet: one above the highest stored id, or, when a loaded
+/// file already holds `u64::MAX` (#961), the smallest free id from 1. Never wraps, so a new link
+/// can't join an unrelated group. `None` only if every id is taken. (Upstream 0954b8c0 keeps this
+/// as `Document::unused_link_group` in pc-doc, which is not ours to edit.)
+fn unused_link_group(doc: &Document) -> Option<u64> {
+    let mut used: Vec<u64> = doc.walk().iter().filter_map(|(_, _, l)| l.link_group).collect();
+    used.sort_unstable();
+    used.dedup();
+    if let Some(next) = used.last().map_or(Some(1), |g| g.checked_add(1)) {
+        return Some(next);
+    }
+    let mut free = 1u64;
+    for g in used {
+        if g > free {
+            break;
+        }
+        if g == free {
+            free = free.checked_add(1)?;
+        }
+    }
+    Some(free)
+}
+
 fn link_layers(s: &mut Session) -> Result<Value> {
     let sel = selected(s);
     let linked = s.edit("Link Layers", |doc, _| {
         let groups: Vec<Option<u64>> = sel.iter().map(|id| doc.layer(*id).and_then(|l| l.link_group)).collect();
         // Already one link group (or a single linked layer): unlink, like Photoshop's toggle.
-        let unlink = groups[0].is_some() && groups.iter().all(|g| *g == groups[0]);
-        let next = doc.walk().iter().filter_map(|(_, _, l)| l.link_group).max().unwrap_or(0) + 1;
+        let first = groups.first().copied().flatten();
+        let unlink = first.is_some() && groups.iter().all(|g| *g == first);
+        // Upstream 5049a1d0 / 0954b8c0 (#961): a loaded file can store any id up to u64::MAX, so
+        // the new id must not be a bare max + 1. Unlinking needs no new id at all.
+        let next = if unlink { None } else { Some(unused_link_group(doc).ok_or_else(|| bad("layer.linkLayers", "no free link group id is left"))?) };
         for id in &sel {
             let l = doc.layer_mut(*id).ok_or(EngineError::NoLayer(*id))?;
-            l.link_group = if unlink { None } else { Some(next) };
+            l.link_group = next;
         }
         // A group left with a single member is no longer a link.
         let mut counts = std::collections::HashMap::<u64, usize>::new();
@@ -611,7 +637,8 @@ fn link_layers(s: &mut Session) -> Result<Value> {
                 *counts.entry(g).or_default() += 1;
             }
         }
-        let lonely: Vec<LayerId> = doc.walk().iter().filter(|(_, _, l)| l.link_group.is_some_and(|g| counts[&g] < 2)).map(|(_, _, l)| l.id).collect();
+        let lonely: Vec<LayerId> =
+            doc.walk().iter().filter(|(_, _, l)| l.link_group.is_some_and(|g| counts.get(&g).is_some_and(|&c| c < 2))).map(|(_, _, l)| l.id).collect();
         for id in lonely {
             if let Some(l) = doc.layer_mut(id) {
                 l.link_group = None;
@@ -1429,6 +1456,162 @@ mod tests {
         assert_eq!(bounds(&s, a), Rect::new(0, 0, 5, 5), "the layer never moved");
         // Large in-range offsets still work.
         s.execute("layer.translate", json!({"dx": -200_000, "dy": 200_000})).unwrap();
+    }
+
+    /// Plain layers carrying stored link groups, as a loaded `.pcraft` or PSD can hold (upstream
+    /// 0954b8c0, #961).
+    fn stored_groups(s: &mut Session, groups: &[Option<u64>]) -> Vec<LayerId> {
+        let ids: Vec<LayerId> = groups.iter().map(|_| rect_layer(s, Rect::new(0, 0, 4, 4))).collect();
+        s.edit("load groups", |doc, _| {
+            for (id, g) in ids.iter().zip(groups) {
+                doc.layer_mut(*id).unwrap().link_group = *g;
+            }
+            Ok(())
+        })
+        .unwrap();
+        ids
+    }
+
+    fn group(s: &Session, id: LayerId) -> Option<u64> {
+        doc(s).layer(id).unwrap().link_group
+    }
+
+    /// Links `ids`, then checks they share one group no other layer uses (#961).
+    fn link_fresh(s: &mut Session, ids: &[LayerId]) -> u64 {
+        select_all(s, ids);
+        let past = s.active().unwrap().history.past_len();
+        assert_eq!(s.execute("layer.linkLayers", json!({})).unwrap()["linked"], true);
+        assert_eq!(s.active().unwrap().history.past_len(), past + 1);
+        let g = group(s, ids[0]).expect("linked");
+        assert!(ids.iter().all(|id| group(s, *id) == Some(g)));
+        let members = doc(s).walk().iter().filter(|(_, _, l)| l.link_group == Some(g)).count();
+        assert_eq!(members, ids.len(), "group {g} is shared with unselected layers");
+        g
+    }
+
+    #[test]
+    fn link_layers_beside_a_maximal_stored_group() {
+        // The issue's repro: one layer stored at u64::MAX, link it with an unlinked one.
+        let mut s = session(8);
+        let ids = stored_groups(&mut s, &[Some(u64::MAX), None]);
+        assert_ne!(link_fresh(&mut s, &ids), u64::MAX);
+        // Unlink and relink the pair: with no groups left, numbering starts over at 1.
+        assert_eq!(s.execute("layer.linkLayers", json!({})).unwrap()["linked"], false);
+        assert!(ids.iter().all(|id| group(&s, *id).is_none()));
+        assert_eq!(link_fresh(&mut s, &ids), 1);
+
+        // Two other layers linked beside an untouched maximal pair.
+        let mut s = session(8);
+        let ids = stored_groups(&mut s, &[Some(u64::MAX), Some(u64::MAX), None, None]);
+        let g = link_fresh(&mut s, &ids[2..]);
+        assert_ne!(g, u64::MAX);
+        assert_eq!((group(&s, ids[0]), group(&s, ids[1])), (Some(u64::MAX), Some(u64::MAX)));
+    }
+
+    #[test]
+    fn unlink_a_maximal_stored_group() {
+        let mut s = session(8);
+        let ids = stored_groups(&mut s, &[Some(u64::MAX), Some(u64::MAX), None]);
+        select_all(&mut s, &ids[..2]);
+        assert_eq!(s.execute("layer.linkLayers", json!({})).unwrap()["linked"], false);
+        assert!(ids.iter().all(|id| group(&s, *id).is_none()));
+        s.undo();
+        assert_eq!((group(&s, ids[0]), group(&s, ids[1])), (Some(u64::MAX), Some(u64::MAX)));
+        // Relinking all three gets a working group.
+        link_fresh(&mut s, &ids);
+    }
+
+    #[test]
+    fn link_layers_when_every_group_is_huge() {
+        // Unselected groups at the top of the range, including the 0 a wrapped id would join.
+        let top = [u64::MAX, u64::MAX - 1, u64::MAX - 2, 0, 1, 2];
+        let stored: Vec<Option<u64>> = top.iter().flat_map(|g| [Some(*g), Some(*g)]).chain([None, None, None, None]).collect();
+        let mut s = session(8);
+        let ids = stored_groups(&mut s, &stored);
+        let n = top.len() * 2;
+        let g = link_fresh(&mut s, &ids[n..n + 2]);
+        assert!(!top.contains(&g), "{g} collides with a stored group");
+        // A second link gets yet another group, and existing groups never change.
+        let h = link_fresh(&mut s, &ids[n + 2..]);
+        assert!(!top.contains(&h) && h != g);
+        for (i, t) in top.iter().enumerate() {
+            assert_eq!((group(&s, ids[2 * i]), group(&s, ids[2 * i + 1])), (Some(*t), Some(*t)));
+        }
+        // Moving a newly linked layer leaves the group-0 pair alone.
+        assert_eq!(with_links(doc(&s), &[ids[n]]), vec![ids[n], ids[n + 1]]);
+    }
+
+    #[test]
+    fn link_layers_near_the_maximum() {
+        // max + 1 still fits: the new group is u64::MAX itself.
+        let mut s = session(8);
+        let ids = stored_groups(&mut s, &[Some(u64::MAX - 1), Some(u64::MAX - 1), None, None, None, None]);
+        assert_eq!(link_fresh(&mut s, &ids[2..4]), u64::MAX);
+        // The next link no longer fits above the maximum and takes a free id instead.
+        let g = link_fresh(&mut s, &ids[4..]);
+        assert!(g != u64::MAX && g != u64::MAX - 1);
+    }
+
+    #[test]
+    fn link_layers_assigns_working_groups() {
+        // Control: ordinary documents keep getting max + 1, starting at 1.
+        let mut s = session(8);
+        let ids = stored_groups(&mut s, &[None, None, None, None]);
+        assert_eq!(link_fresh(&mut s, &ids[..2]), 1);
+        assert_eq!(link_fresh(&mut s, &ids[2..]), 2);
+        assert_eq!(s.execute("layer.linkLayers", json!({})).unwrap()["linked"], false);
+        assert_eq!((group(&s, ids[2]), group(&s, ids[3])), (None, None));
+        assert_eq!((group(&s, ids[0]), group(&s, ids[1])), (Some(1), Some(1)));
+    }
+
+    #[test]
+    fn unused_link_group_never_wraps() {
+        let mut s = session(8);
+        assert_eq!(unused_link_group(doc(&s)), Some(1));
+        let with = |s: &mut Session, groups: &[u64]| {
+            s.edit("groups", |d, _| {
+                for l in &mut d.layers {
+                    l.link_group = None;
+                }
+                for g in groups {
+                    let mut l = Layer::raster("l", d.pixel_format());
+                    l.link_group = Some(*g);
+                    d.layers.push(l);
+                }
+                Ok(())
+            })
+            .unwrap();
+        };
+        with(&mut s, &[3, 7]);
+        assert_eq!(unused_link_group(doc(&s)), Some(8));
+        with(&mut s, &[u64::MAX - 1]);
+        assert_eq!(unused_link_group(doc(&s)), Some(u64::MAX));
+        with(&mut s, &[u64::MAX]);
+        assert_eq!(unused_link_group(doc(&s)), Some(1));
+        with(&mut s, &[0, 1, 2, 4, u64::MAX]);
+        assert_eq!(unused_link_group(doc(&s)), Some(3));
+    }
+
+    #[test]
+    fn link_layers_never_reuses_a_group_when_the_largest_id_is_u64_max() {
+        // Upstream 5049a1d0: a stored document can carry any id; `max + 1` once overflowed here.
+        let mut s = session(8);
+        let a = rect_layer(&mut s, Rect::new(0, 0, 10, 10));
+        let b = rect_layer(&mut s, Rect::new(20, 20, 30, 30));
+        let c = rect_layer(&mut s, Rect::new(50, 50, 60, 60));
+        let d = rect_layer(&mut s, Rect::new(70, 70, 80, 80));
+        let st = s.active_mut().unwrap();
+        for id in [c, d] {
+            std::sync::Arc::make_mut(&mut st.doc).layer_mut(id).unwrap().link_group = Some(u64::MAX);
+        }
+        select_all(&mut s, &[a, b]);
+        assert_eq!(s.execute("layer.linkLayers", json!({})).unwrap()["linked"], true);
+        let g = doc(&s).layer(a).unwrap().link_group;
+        assert_eq!(g, Some(1));
+        assert_eq!(doc(&s).layer(b).unwrap().link_group, g);
+        for id in [c, d] {
+            assert_eq!(doc(&s).layer(id).unwrap().link_group, Some(u64::MAX), "the existing group is untouched");
+        }
     }
 
     #[test]

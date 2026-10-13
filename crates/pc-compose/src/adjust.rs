@@ -10,6 +10,16 @@ use photocraft_doc::adjust::{CurvePoint, HueRange, LevelsChannel, ToneSpace};
 
 use crate::Buffer;
 
+/// Number of values in the table of a `size`³ Color Lookup (`size³ × 3`). `None` for a size below
+/// 2 or one whose table length overflows: a stored document's size is untrusted. (Upstream
+/// 5049a1d0 keeps this in `photocraft_doc::adjust::lut3d_len`; pc-doc is not ours to edit here.)
+pub fn lut3d_len(size: u32) -> Option<usize> {
+    if size < 2 {
+        return None;
+    }
+    usize::try_from(size).ok()?.checked_pow(3)?.checked_mul(3)
+}
+
 /// The document tone curve used to linearize values for adjustments that
 /// work in linear light (Exposure). Until ICC profiles are wired in (M8) this
 /// approximates the Photoshop defaults: sRGB for colour documents and the
@@ -203,7 +213,7 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
             }
         }),
         Adjustment::SelectiveColor { relative, adjustments } => map_rgb(buf, |c| selective_color(c, *relative, adjustments)),
-        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if *size >= 2 && table.len() >= (*size as usize).pow(3) * 3 => {
+        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if lut3d_len(*size).is_some_and(|len| table.len() >= len) => {
             let (n, w, x0, y0) = (*size as usize, buf.rect.width().max(1) as usize, buf.rect.x0, buf.rect.y0);
             for (i, p) in buf.px.iter_mut().enumerate() {
                 if p[3] <= 0.0 {
@@ -360,6 +370,10 @@ pub fn bayer4(x: i32, y: i32) -> f32 {
 
 /// Samples a 3D LUT (`n`³ RGB triplets, red fastest) at `c`, trilinear or tetrahedral.
 pub fn lut3d_sample(lut: &[f32], n: usize, c: [f32; 3], tetrahedral: bool) -> [f32; 3] {
+    // Upstream 2842973d: a degenerate or short table can't be sampled: leave the colour alone.
+    if n < 2 || n.checked_pow(3).and_then(|c| c.checked_mul(3)).is_none_or(|len| lut.len() < len) {
+        return c;
+    }
     let m = (n - 1) as f32;
     let pos = c.map(|v| v.clamp(0.0, 1.0) * m);
     let i0 = pos.map(|p| (p.floor() as usize).min(n - 2));
@@ -741,6 +755,28 @@ mod tone_tests {
     }
 
     #[test]
+    fn color_lookup_with_an_overflowing_stored_size_is_the_identity() {
+        // Upstream 5049a1d0: a stored document's size is untrusted: (2²²)³ × 3 overflows, which once
+        // wrapped past the table-length guard and indexed out of bounds.
+        for size in [1 << 22, u32::MAX] {
+            let a = Adjustment::ColorLookup { name: "x".into(), lut: Some(std::sync::Arc::new(vec![0.5; 24])), size, tetrahedral: false, dither: false };
+            let mut b = ramp();
+            apply(&a, &mut b);
+            assert_eq!(b.px, ramp().px, "size {size}");
+        }
+    }
+
+    #[test]
+    fn lut3d_len_rejects_tiny_and_overflowing_sizes() {
+        assert_eq!(lut3d_len(0), None);
+        assert_eq!(lut3d_len(1), None);
+        assert_eq!(lut3d_len(2), Some(24));
+        assert_eq!(lut3d_len(33), Some(33 * 33 * 33 * 3));
+        assert_eq!(lut3d_len(1 << 22), None, "(2^22)^3 overflows a 64-bit length");
+        assert_eq!(lut3d_len(u32::MAX), None);
+    }
+
+    #[test]
     fn identity_tone_in_every_space_is_identity() {
         for space in [ToneSpace::Rgb, ToneSpace::Cmyk, ToneSpace::Lab] {
             let mut a = Adjustment::identity_curves();
@@ -816,5 +852,22 @@ mod tone_tests {
         apply(&Adjustment::GradientMap { stops, reverse: false, dither: true }, &mut b);
         assert!(a.px.iter().zip(&b.px).all(|(x, y)| (x[0] - y[0]).abs() <= 0.5 / 255.0 + 1e-6));
         assert!(a.px.iter().zip(&b.px).any(|(x, y)| x[0] != y[0]));
+    }
+}
+
+#[cfg(test)]
+mod lut3d_guard_tests {
+    use super::lut3d_sample;
+
+    #[test]
+    fn degenerate_or_short_tables_leave_the_colour_alone() {
+        // Upstream 2842973d.
+        let c = [0.2, 0.4, 0.6];
+        for tetra in [false, true] {
+            assert_eq!(lut3d_sample(&[], 0, c, tetra), c);
+            assert_eq!(lut3d_sample(&[0.0; 3], 1, c, tetra), c);
+            assert_eq!(lut3d_sample(&[0.0; 3], 2, c, tetra), c);
+            assert_eq!(lut3d_sample(&[0.0; 24], usize::MAX, c, tetra), c);
+        }
     }
 }
