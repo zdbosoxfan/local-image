@@ -209,7 +209,7 @@ fn poll_loop(s: Arc<Shared>) {
                     // Installed models (by header, metadata or name) join the catalogue first.
                     let settings = AiSettings::load();
                     let model_dir = settings.model_dir();
-                    li_ai::inventory::refresh(&info, model_dir.is_dir().then_some(model_dir.as_path()));
+                    li_ai::inventory::refresh(&info, (!settings.is_remote() && model_dir.is_dir()).then_some(model_dir.as_path()));
                     li_ai::refine::checker().invalidate_changed_files();
                     limits = info.sampler_limits();
                     presets = catalog::presets()
@@ -294,6 +294,10 @@ fn kill_child() -> bool {
 
 /// Downloads a preset's missing files in the background (progress via [`downloads`]).
 pub fn start_download(preset_id: &str) {
+    if AiSettings::load().is_remote() {
+        dialogs_mut(|d| d.message = tl!("Install generative models on the remote ComfyUI server, then check the connection again.").into());
+        return;
+    }
     let Some(preset) = catalog::presets().iter().find(|p| p.id() == preset_id) else { return };
     let ctl = JobControl::new();
     if let Ok(mut d) = shared().downloads.lock() {
@@ -1518,73 +1522,89 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 widgets::section_label(ui, tl!("AI ENGINE"));
                 let mut settings = dialogs_mut(|d| d.settings.clone()).unwrap_or_else(AiSettings::load);
                 let before = settings.clone();
+                let mut remote_mode = settings.is_remote();
+                if ui.checkbox(&mut remote_mode, tl!("Use a remote ComfyUI server")).changed() {
+                    settings.setup_mode = if remote_mode { "remote" } else { "discover" }.into();
+                    if !remote_mode { settings.comfy_host = "127.0.0.1".into(); }
+                }
                 ui.horizontal(|ui| {
                     opt(ui, tl!("Address:"));
-                    ui.add(egui::TextEdit::singleline(&mut settings.comfy_host).desired_width(120.0));
+                    ui.add(egui::TextEdit::singleline(&mut settings.comfy_host).desired_width(240.0).hint_text("192.168.1.20 / gpu.example.ts.net"));
                     opt(ui, tl!("Port:"));
                     let mut port = settings.comfy_port as f32;
                     if widgets::value_field(ui, &mut port, 1.0..=65535.0, "", 70.0).changed() {
                         settings.comfy_port = port as u16;
                     }
                 });
-                ui.horizontal(|ui| {
-                    opt(ui, tl!("Installation:"));
-                    let label =
-                        if settings.comfy_directory.is_empty() { tl!("Not chosen — detected automatically").to_owned() } else { settings.comfy_directory.clone() };
-                    ui.label(RichText::new(label).color(t.text_dim));
-                });
-                ui.horizontal(|ui| {
-                    if widgets::secondary_button(ui, tl!("Detect"), 0.0).clicked() {
-                        let found = li_ai::setup::detect(&settings);
-                        dialogs_mut(|d| {
-                            d.message = if found.is_empty() {
-                                tl!("No ComfyUI installation found in the usual places.").into()
-                            } else {
-                                crate::i18n::fmt(tl!("Found {n} installation(s)."), &[("n", &found.len().to_string())])
-                            };
-                            d.detected = Some(found);
-                        });
-                    }
-                    #[cfg(not(target_arch = "wasm32"))]
-                    if widgets::secondary_button(ui, tl!("Choose Folder…"), 0.0).clicked()
-                        && let Some(dir) = crate::dialog_filter::file_dialog().set_title(tl!("Choose your ComfyUI folder")).pick_folder()
-                    {
-                        if li_ai::setup::installation(&dir, None).is_some() {
-                            settings.comfy_directory = dir.display().to_string();
-                            dialogs_mut(|d| d.message = tl!("ComfyUI installation found.").into());
-                        } else {
-                            dialogs_mut(|d| d.message = tl!("That folder has no ComfyUI (main.py and a Python environment).").into());
-                        }
-                    }
-                    let running_ours = CHILD.is_running().unwrap_or(true);
-                    if !st.connected && !st.starting && widgets::primary_button(ui, tl!("Start AI Engine"), 0.0).clicked() {
+                let remote = settings.is_remote();
+                if remote {
+                    ui.label(RichText::new(tl!("Models and generation run on the server; images and results transfer automatically. Use its LAN or Tailscale address, or 127.0.0.1 with an SSH tunnel.")).color(t.text_dim));
+                    ui.label(RichText::new(tl!("Start ComfyUI and install generative models on the server. Local AI models below still run on this Mac.")).color(t.text_faint));
+                    if widgets::secondary_button(ui, tl!("Connect / Check Server"), 0.0).clicked() {
                         let _ = settings.save();
-                        let m = match start_engine() {
-                            Ok(l) => crate::i18n::fmt(tl!("Starting {name}…"), &[("name", &l)]),
-                            Err(e) => e,
-                        };
-                        dialogs_mut(|d| d.message = m);
+                        refresh();
                     }
-                    if running_ours && widgets::secondary_button(ui, tl!("Stop"), 0.0).clicked() {
-                        stop_engine();
-                    }
-                    if st.connected && widgets::secondary_button(ui, tl!("Free GPU Memory"), 0.0).clicked() {
-                        let m = match li_ai::service().client.free_memory() {
-                            Ok(()) => tl!("Models unloaded.").to_owned(),
-                            Err(e) => format!("{e:#}"),
-                        };
-                        dialogs_mut(|d| d.message = m);
-                    }
-                });
-                if let Some(found) = dialogs_mut(|d| d.detected.clone()) {
-                    for inst in found {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(inst.label()).color(t.text_dim));
-                            if widgets::secondary_button(ui, tl!("Use"), 0.0).clicked() {
-                                settings.comfy_directory = inst.code.display().to_string();
-                                settings.comfy_python = inst.python.display().to_string();
+                }
+                if !remote {
+                    ui.horizontal(|ui| {
+                        opt(ui, tl!("Installation:"));
+                        let label =
+                            if settings.comfy_directory.is_empty() { tl!("Not chosen — detected automatically").to_owned() } else { settings.comfy_directory.clone() };
+                        ui.label(RichText::new(label).color(t.text_dim));
+                    });
+                    ui.horizontal(|ui| {
+                        if widgets::secondary_button(ui, tl!("Detect"), 0.0).clicked() {
+                            let found = li_ai::setup::detect(&settings);
+                            dialogs_mut(|d| {
+                                d.message = if found.is_empty() {
+                                    tl!("No ComfyUI installation found in the usual places.").into()
+                                } else {
+                                    crate::i18n::fmt(tl!("Found {n} installation(s)."), &[("n", &found.len().to_string())])
+                                };
+                                d.detected = Some(found);
+                            });
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if widgets::secondary_button(ui, tl!("Choose Folder…"), 0.0).clicked()
+                            && let Some(dir) = crate::dialog_filter::file_dialog().set_title(tl!("Choose your ComfyUI folder")).pick_folder()
+                        {
+                            if li_ai::setup::installation(&dir, None).is_some() {
+                                settings.comfy_directory = dir.display().to_string();
+                                dialogs_mut(|d| d.message = tl!("ComfyUI installation found.").into());
+                            } else {
+                                dialogs_mut(|d| d.message = tl!("That folder has no ComfyUI (main.py and a Python environment).").into());
                             }
-                        });
+                        }
+                        let running_ours = CHILD.is_running().unwrap_or(true);
+                        if !st.connected && !st.starting && widgets::primary_button(ui, tl!("Start AI Engine"), 0.0).clicked() {
+                            let _ = settings.save();
+                            let m = match start_engine() {
+                                Ok(l) => crate::i18n::fmt(tl!("Starting {name}…"), &[("name", &l)]),
+                                Err(e) => e,
+                            };
+                            dialogs_mut(|d| d.message = m);
+                        }
+                        if running_ours && widgets::secondary_button(ui, tl!("Stop"), 0.0).clicked() {
+                            stop_engine();
+                        }
+                        if st.connected && widgets::secondary_button(ui, tl!("Free GPU Memory"), 0.0).clicked() {
+                            let m = match li_ai::service().client.free_memory() {
+                                Ok(()) => tl!("Models unloaded.").to_owned(),
+                                Err(e) => format!("{e:#}"),
+                            };
+                            dialogs_mut(|d| d.message = m);
+                        }
+                    });
+                    if let Some(found) = dialogs_mut(|d| d.detected.clone()) {
+                        for inst in found {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new(inst.label()).color(t.text_dim));
+                                if widgets::secondary_button(ui, tl!("Use"), 0.0).clicked() {
+                                    settings.comfy_directory = inst.code.display().to_string();
+                                    settings.comfy_python = inst.python.display().to_string();
+                                }
+                            });
+                        }
                     }
                 }
                 let msg = dialogs_mut(|d| d.message.clone());
@@ -1593,6 +1613,7 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 }
                 ui.add_space(10.0);
                 widgets::section_label(ui, tl!("MODELS"));
+                if !remote {
                 ui.horizontal(|ui| {
                     opt(ui, tl!("Model folder:"));
                     ui.label(RichText::new(settings.model_dir().display().to_string()).color(t.text_dim));
@@ -1609,6 +1630,7 @@ fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         .size(11.0),
                 );
                 ui.add_space(4.0);
+                }
                 let dls = downloads();
                 // The curated models (the Model Browser has everything else).
                 for m in ModelId::all() {
@@ -1720,7 +1742,7 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
                 let state = st.presets.get(&p.id());
                 let downloading = dl.is_some_and(|d| !d.finished);
                 // Some of its files are on disk: it can be removed (shared ones stay).
-                if !downloading && missing.len() < p.files.len() {
+                if !settings.is_remote() && !downloading && missing.len() < p.files.len() {
                     if removing(&p.id()) {
                         ui.spinner();
                     } else if remove_button(ui) {
@@ -1737,6 +1759,9 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
                     }
                     (_, Some(Ok(()))) => {
                         ui.label(RichText::new(tl!("Ready")).color(Color32::from_rgb(70, 190, 110)));
+                    }
+                    _ if settings.is_remote() => {
+                        ui.label(RichText::new(tl!("Install on server")).color(t.text_dim));
                     }
                     _ if missing.is_empty() => {
                         ui.label(RichText::new(if st.connected { tl!("Files present — restart ComfyUI") } else { tl!("Files present") }).color(t.text_dim));

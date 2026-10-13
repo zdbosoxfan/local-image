@@ -296,6 +296,7 @@ pub fn backends(plan: &Plan, os: Os) -> Option<wgpu::Backends> {
         return None;
     }
     Some(match plan.backend {
+        GpuBackend::Auto if os == Os::Mac => wgpu::Backends::METAL,
         GpuBackend::Auto => return None,
         GpuBackend::Vulkan => wgpu::Backends::VULKAN,
         GpuBackend::Dx12 => wgpu::Backends::DX12,
@@ -618,6 +619,14 @@ mod tests {
 
     fn crashed(backend: &str, adapter_backend: &str) -> Marker {
         Marker { backend: backend.into(), adapter: "Intel(R) UHD Graphics".into(), adapter_backend: adapter_backend.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn mac_automatic_uses_metal_and_honors_explicit_environment() {
+        let automatic = plan(GpuBackend::Auto, None, None, false, Os::Mac);
+        assert_eq!(backends(&automatic, Os::Mac), Some(wgpu::Backends::METAL));
+        let overridden = plan(GpuBackend::Auto, None, Some("metal"), false, Os::Mac);
+        assert_eq!(backends(&overridden, Os::Mac), None);
     }
 
     #[test]

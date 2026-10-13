@@ -2,7 +2,7 @@
 
 **A raster image editor with local AI: retouch, composite, catalogue and generate on your own PC.**
 
-Local Image 2 is a desktop image editor for Linux and Windows, written entirely in Rust. It works the
+Local Image 2 is a desktop image editor for Linux, Windows and Apple Silicon macOS, written entirely in Rust. It works the
 way Photoshop and Lightroom users expect: tools on the left, panels docked on the right, layers,
 masks, adjustment layers, PSD files, camera raw, and Library and Develop modules for cataloguing and raw development. The AI features
 run on your own GPU through [ComfyUI](https://github.com/comfyanonymous/ComfyUI): no cloud account,
@@ -65,6 +65,10 @@ Open **Window › Model Browser…** (or **Browse Models…** in Generate's mode
 Offloading to system memory works but is much slower. The Model Browser's *Works on my GPU* view
 filters by the memory ComfyUI reports.
 
+## macOS on Apple Silicon
+
+Native ARM64 installers support macOS 13+. See [macOS installation, acceleration and remote ComfyUI](docs/MACOS.md). Large generative models can run on a remote GPU server while editing and development use Metal on the Mac. Build an installer with `cargo xtask package macos`.
+
 ## Getting started
 
 1. Build and run from source: `cargo run --release -p local-image` ([details](docs/DEVELOPMENT.md)).
@@ -72,7 +76,8 @@ filters by the memory ComfyUI reports.
 3. Open a photo, a folder (**File › Open Folder…**) or the Library, or type a prompt in **Generate**.
 
 Settings, the generated library and caches live in `~/.local/share/local-image` (Linux) or
-`%LOCALAPPDATA%\Local Image` (Windows).
+`%LOCALAPPDATA%\Local Image` (Windows), or
+`~/Library/Application Support/Local Image` (macOS).
 
 ## Licences
 

@@ -210,7 +210,7 @@ fn agent(timeout: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .http_status_as_error(false)
-        // Loopback only: never route through a proxy.
+        // Direct LAN/Tailscale or loopback tunnel: do not inherit an unrelated system proxy.
         .proxy(None)
         .build()
         .into()

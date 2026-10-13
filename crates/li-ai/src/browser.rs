@@ -1511,7 +1511,11 @@ mod tests {
         let root_link = base.join("chosen-root");
         symlink(&root, &root_link).unwrap();
         let nested = PlannedFile { folder: "checkpoints/nested".into(), ..file };
-        assert_eq!(confined_destination(&root_link.canonicalize().unwrap(), &nested).unwrap(), root.join("checkpoints/nested/model.gguf"));
+        // macOS canonicalizes /var to /private/var; compare both roots in the same form.
+        assert_eq!(
+            confined_destination(&root_link.canonicalize().unwrap(), &nested).unwrap(),
+            root.canonicalize().unwrap().join("checkpoints/nested/model.gguf")
+        );
         std::fs::remove_dir_all(base).unwrap();
     }
 

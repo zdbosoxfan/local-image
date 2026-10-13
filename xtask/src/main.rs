@@ -46,6 +46,7 @@ use anyhow::{Context, Result, bail};
 
 mod assets;
 mod attributions;
+mod macos;
 mod tool_art;
 mod tool_art_vector;
 
@@ -473,6 +474,7 @@ fn find_file(dir: &Path, name: &str, under: &str) -> Option<PathBuf> {
 // ------------------------------------------------------------------------------ main
 
 const USAGE: &str = "usage: cargo xtask <task>
+  package macos [--skip-build]
   package linux [--skip-build]
   package windows [--arch x64|x86|arm64] [--skip-build]
   check-icons [file.wxs]
@@ -489,6 +491,7 @@ fn main() -> Result<()> {
     let value = |f: &str| args.iter().position(|a| a == f).and_then(|i| args.get(i + 1)).cloned();
     match args.first().map(String::as_str) {
         Some("package") => match args.get(1).map(String::as_str) {
+            Some("macos") => macos::package(flag("--skip-build")),
             Some("linux") => package_linux(flag("--skip-build")),
             Some("windows") => package_windows(&value("--arch").unwrap_or_else(|| "x64".into()), flag("--skip-build")),
             _ => bail!("{USAGE}"),

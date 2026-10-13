@@ -40,7 +40,7 @@ pub struct AiSettings {
     pub comfy_directory: String,
     pub comfy_python: String,
     pub model_directory: String,
-    /// `discover`, `portable` or `later`.
+    /// `discover`, `portable`, `later` or `remote`.
     pub setup_mode: String,
     pub hardware_guide_dismissed: bool,
     pub lora_show_adult_content: bool,
@@ -79,7 +79,15 @@ impl AiSettings {
         }
     }
     pub fn host(&self) -> String {
-        format!("{}:{}", self.comfy_host, self.comfy_port)
+        let host = self.comfy_host.trim().trim_start_matches('[').trim_end_matches(']');
+        if host.contains(':') { format!("[{host}]:{}", self.comfy_port) } else { format!("{host}:{}", self.comfy_port) }
+    }
+
+    /// Remote mode can also use loopback via an SSH tunnel. A non-loopback host is always
+    /// remote so older configs cannot accidentally start/download into a local installation.
+    pub fn is_remote(&self) -> bool {
+        let host = self.comfy_host.trim().trim_start_matches('[').trim_end_matches(']');
+        self.setup_mode == "remote" || !(host.eq_ignore_ascii_case("localhost") || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback()))
     }
 
     pub fn model_dir(&self) -> PathBuf {
@@ -155,6 +163,21 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_hosts_and_tunnels_do_not_manage_local_models() {
+        let mut settings = AiSettings::default();
+        assert!(!settings.is_remote());
+        for host in ["192.168.1.20", "gpu.example.ts.net", "100.64.0.2", "fe80::1"] {
+            settings.comfy_host = host.into();
+            assert!(settings.is_remote());
+        }
+        settings.comfy_host = " ::1 ".into();
+        assert!(!settings.is_remote());
+        assert_eq!(settings.host(), "[::1]:8188");
+        settings.setup_mode = "remote".into();
+        assert!(settings.is_remote(), "SSH tunnels must be explicitly remote");
+    }
 
     #[test]
     fn round_trip_keeps_unknown_keys_and_rejects_the_app_port() {

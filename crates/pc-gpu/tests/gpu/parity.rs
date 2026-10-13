@@ -32,14 +32,25 @@ fn gpu() -> Option<Gpu> {
     let adapter = match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) {
         Ok(a) => a,
         Err(e) => {
+            assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required GPU adapter unavailable: {e}");
             eprintln!("skipping GPU parity tests: no adapter ({e})");
             return None;
         }
     };
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
+    if std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_some() {
+        assert_ne!(adapter.get_info().device_type, wgpu::DeviceType::Cpu, "hardware GPU required");
+    }
+    let (device, queue) = match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) {
+        Ok(device) => device,
+        Err(e) => {
+            assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required GPU device unavailable: {e}");
+            return None;
+        }
+    };
     // Exact parity needs 32-bit float targets. Adapters without them (e.g. GL software
     // rasterizers) use the CPU compositor in the app, so there is nothing to compare there.
     if Compositor::preferred_acc_format(&adapter) != wgpu::TextureFormat::Rgba32Float {
+        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required Rgba32Float GPU target unavailable");
         eprintln!("skipping GPU parity tests: adapter can't render Rgba32Float");
         return None;
     }

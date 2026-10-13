@@ -8,6 +8,8 @@ description = "Local Image: layered photo editing, a photo catalog and local AI 
 build = "build.rs"
 
 [features]
+# Optional local SAM 3 masks; official Apple Silicon packages enable Candle Metal.
+sam = ["lightcraft-engine/sam"]
 # Open HEIC/HEIF photos (the optional photocraft-heif crate). Not default so distributors choose
 # it; official builds (CI, packaging/, release) build with `--features heif`.
 heif = ["photocraft-codecs/heif"]
