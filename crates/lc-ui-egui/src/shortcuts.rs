@@ -142,6 +142,7 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     {
         return;
     }
+    crate::panels::layer_bar::keyboard(app, ctx);
     // don't steal keys from text fields
     if ctx.egui_wants_keyboard_input() {
         return;
@@ -260,9 +261,13 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
             if f == "photo.delete" {
                 use crate::state::RightPanel as R;
                 match app.ui.right {
-                    R::Masking => {
+                    R::Masking | R::Edit if app.session.active_mask.is_some() => {
                         if app.session.active_mask.is_some() {
-                            let _ = app.run("mask.delete", json!({}));
+                            if app.ui.right == R::Edit {
+                                app.ui.deleting_layer = app.session.active_mask;
+                            } else {
+                                let _ = app.run("mask.delete", json!({}));
+                            }
                         }
                         continue;
                     }
@@ -293,7 +298,7 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
                 continue;
             }
             // Shift+O cycles the mask overlay colour while masking (the crop overlay elsewhere)
-            if f == "view.cropOverlay" && app.ui.right == crate::state::RightPanel::Masking {
+            if f == "view.cropOverlay" && matches!(app.ui.right, crate::state::RightPanel::Masking | crate::state::RightPanel::Edit) {
                 let _ = app.run("view.maskOverlayColor", json!({}));
                 continue;
             }

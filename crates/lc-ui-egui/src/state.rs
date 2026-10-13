@@ -300,6 +300,22 @@ pub struct UiState {
     /// Masking: show the selected mask as a rendered overlay (O), how (`MaskView` name, ⇧O cycles),
     /// in which colour and opacity (0..100, colour views), and whether pins are drawn.
     pub mask_overlay: bool,
+    pub mask_overlay_drawing_only: bool,
+    pub layer_bar_collapsed: bool,
+    #[serde(skip)]
+    pub layer_bar_focus: bool,
+    #[serde(skip)]
+    pub layer_ui_photo: Option<lightcraft_catalog::PhotoId>,
+    #[serde(skip)]
+    pub layer_components_open: bool,
+    #[serde(skip)]
+    pub dragging_layer: Option<u32>,
+    #[serde(skip)]
+    pub pending_mask_shape: Option<(u32, usize)>,
+    #[serde(skip)]
+    pub pending_mask_origin: Option<lightcraft_geom::Point>,
+    #[serde(skip)]
+    pub deleting_layer: Option<u32>,
     pub mask_overlay_mode: String,
     pub mask_overlay_color: [u8; 3],
     pub mask_overlay_opacity: f32,
@@ -682,6 +698,15 @@ impl Default for UiState {
             soft_proof: false,
             proof: lightcraft_engine::pipeline::Proof { dest_warning: false, ..Default::default() },
             mask_overlay: true,
+            mask_overlay_drawing_only: false,
+            layer_bar_collapsed: false,
+            layer_bar_focus: false,
+            layer_ui_photo: None,
+            layer_components_open: false,
+            dragging_layer: None,
+            pending_mask_shape: None,
+            pending_mask_origin: None,
+            deleting_layer: None,
             mask_overlay_mode: "color".into(),
             mask_overlay_color: [230, 30, 40],
             mask_overlay_opacity: 50.0,

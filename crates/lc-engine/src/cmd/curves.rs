@@ -74,7 +74,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Apply Point Curve Preset",
             [],
             None,
-            "{name} — sets the active photo's point curves (all four channels; the parametric curve stays)",
+            "{name, mask?: layerId} — sets the target's point curves (all four channels; the parametric curve stays)",
             has_active,
             apply_preset
         ),
@@ -83,7 +83,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Save Point Curve Preset",
             [],
             None,
-            "{name} — the active photo's point curves under a name (replaces a user preset of that name; built-in names are reserved), saved with the library",
+            "{name, mask?: layerId} — the target's point curves under a name (replaces a user preset of that name; built-in names are reserved), saved with the library",
             has_active,
             save_preset
         ),
@@ -241,8 +241,15 @@ fn apply_preset(s: &mut Session, p: &Value) -> Result<Value> {
         all_presets(s).into_iter().find(|x| x.name.eq_ignore_ascii_case(&name)).ok_or_else(|| bad(C, format!("no curve preset `{name}`")))?;
     let id = s.active().ok_or_else(|| bad(C, "no active photo"))?;
     let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
-    preset.apply(&mut d.curve);
-    s.set_develop(id, d, &format!("Point Curve: {}", preset.name))?;
+    if let Some(mid) = p.get("mask").and_then(Value::as_u64) {
+        let layer = d.masks.iter().find(|m| m.id == mid as u32).ok_or_else(|| bad(C, "no such layer"))?;
+        let mut curve = layer.tools.curve.clone().unwrap_or_default();
+        preset.apply(&mut curve);
+        s.execute("mask.setTools", &json!({"id":mid,"tools":{"curve":curve},"label":format!("Point Curve: {}", preset.name)}))?;
+    } else {
+        preset.apply(&mut d.curve);
+        s.set_develop(id, d, &format!("Point Curve: {}", preset.name))?;
+    }
     Ok(json!({"name": preset.name}))
 }
 
@@ -253,7 +260,13 @@ fn save_preset(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad(C, format!("`{name}` is a built-in preset: choose another name")));
     }
     let id = s.active().ok_or_else(|| bad(C, "no active photo"))?;
-    let preset = CurvePreset::from_curve(&name, &s.develop_of(id).unwrap_or_default().curve);
+    let d = s.develop_of(id).unwrap_or_default();
+    let curve = if let Some(mid) = p.get("mask").and_then(Value::as_u64) {
+        d.masks.iter().find(|m| m.id == mid as u32).ok_or_else(|| bad(C, "no such layer"))?.tools.curve.clone().unwrap_or_default()
+    } else {
+        d.curve.clone()
+    };
+    let preset = CurvePreset::from_curve(&name, &curve);
     if preset.is_linear() {
         return Err(bad(C, "the point curve is linear: shape it first"));
     }

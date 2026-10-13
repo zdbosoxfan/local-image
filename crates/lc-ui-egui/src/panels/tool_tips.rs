@@ -216,7 +216,7 @@ impl StripTool {
             StripTool::Edit => "Edit",
             StripTool::Crop => "Crop & Rotate",
             StripTool::Remove => "Remove (Spot Removal)",
-            StripTool::Masking => "Masking",
+            StripTool::Masking => "Mask",
             StripTool::RedEye => "Red Eye",
             StripTool::Versions => "Versions",
             StripTool::Activity => "History",
@@ -320,8 +320,8 @@ pub fn entry(tool: StripTool) -> Entry {
             ],
         },
         StripTool::Masking => Entry {
-            blurb: "Applies adjustments to just part of the photo.",
-            how: &["Choose a mask type, then edit the mask it makes.", "Use + and − on a mask to add to it or subtract from it."],
+            blurb: "Edits the selected layer’s mask components.",
+            how: &["Choose a layer in Edit to adjust it.", "Use Add, Subtract and Intersect to combine mask components."],
         },
         StripTool::RedEye => Entry {
             blurb: "Fixes red pupils in flash photos.",

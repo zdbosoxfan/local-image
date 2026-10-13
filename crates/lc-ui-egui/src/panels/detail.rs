@@ -378,13 +378,18 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     match right {
         RightPanel::Crop => crop_overlay(app, ui, &resp, &map, &frame, &d, id),
-        // Skin picking is a layer tool in this existing panel too. Let it receive the click
-        // before the mask handles; the wider mask-tool decoupling belongs to A4.
-        RightPanel::Masking if app.ui.tool == "skinTone" => general_interaction(app, ui, &resp, &map, img_rect, canvas, native, aspect),
-        RightPanel::Masking => mask_overlay(app, ui, &resp, &map, &d),
+        RightPanel::Edit | RightPanel::Masking
+            if matches!(app.ui.tool.as_str(), "brush" | "linear" | "radial" | "object")
+                || (app.session.active_mask.is_some() && app.ui.tool.is_empty()) =>
+        {
+            mask_overlay(app, ui, &resp, &map, &d)
+        }
         RightPanel::Remove => remove_overlay(app, ui, &resp, &map, &d),
         RightPanel::RedEye => eye_overlay(app, ui, &resp, &map, &d),
         _ => general_interaction(app, ui, &resp, &map, img_rect, canvas, native, aspect),
+    }
+    if matches!(right, RightPanel::Edit | RightPanel::Masking) {
+        super::layer_bar::canvas_pill(app, ui, canvas);
     }
     // drawn and hit-tested above the loupe and its tools: clicks on it pan
     navigator(app, ui, canvas, img_rect, id);
@@ -737,8 +742,11 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
     {
         return skin_overlay;
     }
-    if app.ui.right == RightPanel::Masking
+    if matches!(app.ui.right, RightPanel::Edit | RightPanel::Masking)
         && app.ui.mask_overlay
+        && (!app.ui.mask_overlay_drawing_only
+            || matches!(app.gesture, Some(Gesture::Brush { .. } | Gesture::MaskHandle { .. }))
+            || app.ui.pending_mask_origin.is_some())
         && let Some(m) = app.session.active_mask.and_then(|id| d.masks.iter().find(|m| m.id == id))
         && !m.components.is_empty()
     {
@@ -823,7 +831,43 @@ fn general_interaction(
             && let Some(q) = resp.interact_pointer_pos()
         {
             let n = map.norm(q);
-            let _ = app.run("develop.wbPick", json!({"x": n.x, "y": n.y}));
+            if let Some(id) = app.session.active()
+                && !app.tasks.is_running("White Balance Picker")
+                && let Some(photo) = app.session.catalog.photo(id).cloned()
+            {
+                let source = app.session.media.source_ref(&photo, lightcraft_engine::media::SourceLevel::Thumb);
+                let info = app.session.source_info(id);
+                let orientation = photo.develop.orientation;
+                let mask = app.session.active_mask;
+                app.ui.status = "Picking white balance…".into();
+                let _ = crate::tasks::spawn(
+                    app,
+                    "White Balance Picker",
+                    move || source.load_source().map(|loaded| lightcraft_engine::sample_white_balance(&loaded.image, &info, orientation, n.x, n.y)),
+                    move |app, ctx, result| {
+                        app.ui.status.clear();
+                        if app.session.active() != Some(id) {
+                            return;
+                        }
+                        match result {
+                            Ok((temp, tint)) => {
+                                let result = if let Some(mid) = mask {
+                                    app.run(
+                                        "mask.setTools",
+                                        json!({"id":mid,"tools":{"wb":{"mode":"custom","temp":temp,"tint":tint}},"label":"White Balance"}),
+                                    )
+                                } else {
+                                    app.run("develop.wb", json!({"mode":"custom","temp":temp,"tint":tint}))
+                                };
+                                if let Err(e) = result {
+                                    app.toast(ctx, e);
+                                }
+                            }
+                            Err(e) => app.toast(ctx, e),
+                        }
+                    },
+                );
+            }
             app.ui.tool.clear();
         }
         return;
@@ -1300,6 +1344,37 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                 }
                 Err(e) => app.ai_error(ui.ctx(), e, Some(("object", "new"))),
             }
+        }
+        return;
+    }
+    // Newly chosen gradients are drawn from the press origin before their handles take over.
+    if let Some((mid, ci)) = app.ui.pending_mask_shape {
+        if resp.drag_started() {
+            app.ui.pending_mask_origin = ui.input(|i| i.pointer.press_origin()).map(|p| map.norm(p));
+        }
+        if (resp.dragged() || resp.drag_stopped())
+            && let Some(q) = resp.interact_pointer_pos()
+        {
+            let (a, b) = (app.ui.pending_mask_origin.unwrap_or_else(|| map.norm(q)), map.norm(q));
+            let shape = if app.ui.tool == "linear" {
+                MaskShape::Linear { start: a, end: b }
+            } else {
+                let l = frame_long_norm(map);
+                MaskShape::Radial {
+                    center: a,
+                    rx: ((b.x - a.x) / l.0).abs().max(0.001),
+                    ry: ((b.y - a.y) / l.1).abs().max(0.001),
+                    angle: 0.0,
+                    feather: 50.0,
+                    invert: false,
+                }
+            };
+            let _ = app.run("mask.update", json!({"id":mid,"component":ci,"shape":shape}));
+        }
+        if resp.drag_stopped() {
+            app.ui.pending_mask_origin = None;
+            app.ui.pending_mask_shape = None;
+            let _ = app.run("develop.endInteraction", json!({}));
         }
         return;
     }

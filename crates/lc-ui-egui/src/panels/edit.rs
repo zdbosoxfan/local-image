@@ -27,7 +27,7 @@ pub fn apply_slider_out(
         return;
     }
     if out.drag_started && !out.reset {
-        let _ = app.run("develop.beginInteraction", json!({"label": spec.label}));
+        let _ = app.run("develop.beginInteraction", json!({"label": spec.label, "mask": app.session.active_mask}));
         app.ui.dragging_control = Some(spec.id.to_string());
     }
     if let Some(v) = out.value {
@@ -149,23 +149,25 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
         &["wb", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading", "skin_tone"],
         |app, ui, d| {
             if shows("wb") {
-                if !target.is_layer() {
+                {
                     // White balance row
                     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 2 }).show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(crate::i18n::tr("White Balance")).font(t.font(13.0)).color(t.text_dim));
-                            let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text_label);
-                            egui::Popup::menu(&r).show(|ui| {
-                                for m in WbMode::ALL {
-                                    if m == WbMode::Custom {
-                                        continue;
+                            if !target.is_layer() {
+                                let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text_label);
+                                egui::Popup::menu(&r).show(|ui| {
+                                    for m in WbMode::ALL {
+                                        if m == WbMode::Custom {
+                                            continue;
+                                        }
+                                        if ui.selectable_label(d.wb.mode == m, m.label()).clicked() {
+                                            let mode = serde_json::to_value(m).unwrap_or_default();
+                                            let _ = app.run("develop.wb", json!({"mode": mode}));
+                                        }
                                     }
-                                    if ui.selectable_label(d.wb.mode == m, m.label()).clicked() {
-                                        let mode = serde_json::to_value(m).unwrap_or_default();
-                                        let _ = app.run("develop.wb", json!({"mode": mode}));
-                                    }
-                                }
-                            });
+                                });
+                            }
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 let active = app.ui.tool == "wbPicker";
                                 let resp = crate::widgets::tool_button(ui, "wbPicker", Icon::WhiteBalance, vec2(28.0, 28.0), active, true, "");
@@ -176,8 +178,6 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
                             });
                         });
                     });
-                } else {
-                    sub_title(ui, crate::i18n::tr("White Balance"));
                 }
                 if raw {
                     control_t(app, ui, d, "wb.temp", true, target);
@@ -206,6 +206,9 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
             if shows("color") {
                 control_t(app, ui, d, "color.vibrance", true, target);
                 control_t(app, ui, d, "color.saturation", true, target);
+            }
+            if target.is_layer() {
+                super::layer_bar::global_only(app, ui, "bw", "B&W");
             }
             ui.add_space(6.0);
             if shows("mixer") || shows("bw_mix") || (crate::is_bw(d) && shows("treatment")) {
@@ -267,6 +270,10 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
             ) {
                 let _ = target.merge(app, json!({"effects":{"clarity_mode":modes[i]}}), "Clarity Mode");
             }
+        }
+        if target.is_layer() {
+            super::layer_bar::global_only(app, ui, "vignette", "Vignette");
+            super::layer_bar::global_only(app, ui, "grain", "Grain");
         }
         if shows("vignette") {
             sub_title(ui, crate::i18n::tr("Vignette"));
@@ -334,19 +341,22 @@ fn tool_section(
         section(app, ui, d, id, title, body);
         return;
     };
-    let set: Vec<&str> = keys.iter().copied().filter(|k| tools.is_some_and(|t| t.is_set(k))).collect();
+    let set: Vec<&str> =
+        keys.iter().copied().filter(|k| !["vignette", "grain", "treatment", "bw_mix"].contains(k) && tools.is_some_and(|t| t.is_set(k))).collect();
     if used_only && set.is_empty() {
         return;
     }
     let key = target.key(id);
     let open = app.ui.section_open(&key);
-    let (resp, _) = section_header(ui, &key, title, open, None);
+    let title_with_layer = app.session.layer_label(title, Some(mid));
+    let (resp, _) = section_header(ui, &key, &title_with_layer, open, None);
     if !set.is_empty() {
         // the layer sets tools here
         let t = Tokens::get(ui.ctx());
         let galley_w = ui.painter().layout_no_wrap(crate::i18n::tr(title).to_string(), t.semibold(14.0), t.text).size().x;
         ui.painter().circle_filled(pos2(resp.rect.left() + 52.0 + galley_w, resp.rect.center().y), 3.5, t.accent);
         register(ui.ctx(), format!("layerSectionSet:{id}"), resp.rect);
+        resp.clone().on_hover_text(format!("{} sets {title}", title_with_layer));
     }
     resp.context_menu(|ui| {
         let r = ui.add_enabled(!set.is_empty(), egui::Button::new(crate::i18n::tr("Reset Section")));
@@ -398,7 +408,9 @@ fn rel_to_k(r: f64) -> f64 {
 
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let t = Tokens::get(ui.ctx());
+    super::layer_bar::show(app, ui, id);
     let d = app.session.develop_of(id).unwrap_or_default();
+    let target = app.session.active_mask.map(Target::Layer).unwrap_or(Target::Global);
     // a raw shown from its embedded JPEG (preview only) gets the rendered-file white balance scale
     let raw = app.session.catalog.photo(id).is_some_and(|p| p.develops_raw() && !p.relative_wb());
     let mut d = d;
@@ -414,6 +426,23 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     if app.ui.soft_proof {
         soft_proofing(app, ui, id);
+    }
+    if let Target::Layer(mid) = target {
+        let Some(m) = d.masks.iter().find(|m| m.id == mid) else { return };
+        let info = app.session.source_info(id);
+        let view = m.tools.view(lightcraft_engine::pipeline::local::effective_wb(&info, &d));
+        tool_sections(app, ui, id, &view, raw, target, app.ui.layer_used_only);
+        super::masking::local_section(app, ui, m);
+        for (key, label) in [
+            ("profile", "Profile & RAW"),
+            ("negative", "Negative"),
+            ("toneEq", "Tone Equalizer"),
+            ("optics", "Optics"),
+            ("calibration", "Calibration"),
+        ] {
+            super::layer_bar::global_only(app, ui, key, label);
+        }
+        return;
     }
     // header: Edit + Auto / B&W / HDR
     let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
@@ -1252,7 +1281,7 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
                 p.circle_filled(handle.center(), if response.hovered() { 5.0 } else { 4.0 }, t.text_label);
                 p.circle_stroke(handle.center(), 4.0, Stroke::new(1.0, t.grid_bg));
                 if response.drag_started() {
-                    let _ = app.run("develop.beginInteraction", json!({"label":"Curve Regions"}));
+                    let _ = app.run("develop.beginInteraction", json!({"label":"Curve Regions","mask":target.mask_id()}));
                 }
                 if response.dragged()
                     && let Some(q) = response.interact_pointer_pos()
@@ -1343,7 +1372,7 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
             && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
         {
             // pick the point under the press, not where the pointer is once the drag threshold passed
-            let _ = app.run("develop.beginInteraction", json!({"label": "Tone Curve"}));
+            let _ = app.run("develop.beginInteraction", json!({"label": "Tone Curve","mask":target.mask_id()}));
             match nearest(q) {
                 Some((i, dist)) if dist < 10.0 => dragging = Some(i),
                 _ => {
@@ -1412,18 +1441,6 @@ fn curve_footer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings,
     let t = Tokens::get(ui.ctx());
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
         ui.horizontal(|ui| {
-            if target.is_layer() {
-                // (point-curve presets apply to the photo's curve)
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if text_button(ui, "layerCurveReset", crate::i18n::tr("Reset"), false)
-                        .on_hover_text(crate::i18n::tr("Reset all curves"))
-                        .clicked()
-                    {
-                        reset_curve(app, target, "all");
-                    }
-                });
-                return;
-            }
             ui.label(RichText::new(crate::i18n::tr("Point Curve")).font(t.font(12.0)).color(t.text_label));
             let current = matching_preset(&app.session, &d.curve);
             let builtin = current.as_ref().is_none_or(|name| all_presets(&app.session).iter().any(|p| p.builtin && &p.name == name));
@@ -1441,7 +1458,7 @@ fn curve_footer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings,
                     let r = ui.selectable_label(current.as_deref() == Some(p.name.as_str()), crate::i18n::builtin_label(&p.name, p.builtin));
                     register(ui.ctx(), format!("curvePreset:{}", p.name), r.rect);
                     if r.clicked() {
-                        let _ = app.run("curve.applyPreset", json!({"name": p.name}));
+                        let _ = app.run("curve.applyPreset", json!({"name": p.name, "mask":target.mask_id()}));
                         ui.close();
                     }
                     if !p.builtin {
@@ -1458,7 +1475,15 @@ fn curve_footer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings,
                 let r = ui.add_enabled(shaped, egui::Button::new(crate::i18n::tr("Save Point Curve…")));
                 register(ui.ctx(), "curvePresetMenu:save", r.rect);
                 if r.clicked() {
-                    crate::panels::dialogs::prompt(app, "Save Point Curve Preset", "Preset name", "", "curve.savePreset", json!({}), "name");
+                    crate::panels::dialogs::prompt(
+                        app,
+                        "Save Point Curve Preset",
+                        "Preset name",
+                        "",
+                        "curve.savePreset",
+                        json!({"mask":target.mask_id()}),
+                        "name",
+                    );
                     ui.close();
                 }
                 if ui.add_enabled(app.services.pick_curve_preset_files.is_some(), egui::Button::new(crate::i18n::tr("Import Presets…"))).clicked() {
@@ -1479,7 +1504,7 @@ fn curve_footer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings,
                     "Reset all curves: point curves (all channels) and parametric (double-click a channel to reset only that one)",
                 ));
                 if r.clicked() {
-                    let _ = app.run("curve.reset", json!({"channel": "all"}));
+                    reset_curve(app, target, "all");
                 }
             });
         });
@@ -1703,7 +1728,8 @@ fn grading(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, targ
         ui.painter().circle_stroke(dot, 5.0, Stroke::new(1.0, Color32::BLACK));
         ui.painter().text(pos2(c.x, c.y + rad + 12.0), Align2::CENTER_CENTER, crate::i18n::tr(label), t.font(12.0), t.text_label);
         if resp.drag_started() {
-            let _ = app.run("develop.beginInteraction", json!({"label": crate::i18n::tr_format!("{label} Grading", label = label)}));
+            let _ = app
+                .run("develop.beginInteraction", json!({"label": crate::i18n::tr_format!("{label} Grading", label = label),"mask":target.mask_id()}));
         }
         if (resp.dragged() || resp.clicked())
             && let Some(q) = resp.interact_pointer_pos()

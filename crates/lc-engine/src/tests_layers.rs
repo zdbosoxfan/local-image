@@ -26,7 +26,7 @@ fn set_tools_merges_values_and_partials() {
     let mut s = with_layer();
     let r = s.execute("mask.setTools", &json!({"values": {"light.exposure": 0.7}})).unwrap();
     assert_eq!(r["tools"]["light"]["exposure"], json!(0.7));
-    assert_eq!(history_labels(&s).last().map(String::as_str), Some("Exposure"));
+    assert_eq!(history_labels(&s).last().map(String::as_str), Some("Exposure – Radial Gradient 1"));
     // a partial merges with what's there (like a preset), clamped through the control specs
     s.execute("mask.setTools", &json!({"tools": {"light": {"contrast": 500}, "curve": {"master": [{"x": 0.0, "y": 0.1}, {"x": 1.0, "y": 1.0}]}}}))
         .unwrap();
@@ -35,7 +35,7 @@ fn set_tools_merges_values_and_partials() {
     assert_eq!((l.exposure, l.contrast), (0.7, 100.0));
     assert_eq!(m.tools.curve.as_ref().unwrap().master.len(), 2);
     assert_eq!(m.tools.used_keys(), ["light", "curve"]);
-    assert_eq!(history_labels(&s).last().map(String::as_str), Some("Layer Adjustment"));
+    assert_eq!(history_labels(&s).last().map(String::as_str), Some("Layer Adjustment – Radial Gradient 1"));
     // null drops a section; indexed and colour controls work
     s.execute("mask.setTools", &json!({"tools": {"curve": null}, "values": {"mixer.blue.sat": -30, "grading.shadows.sat": 40}})).unwrap();
     let t = active_dev(&s).masks[0].tools.clone();
@@ -169,4 +169,57 @@ fn auto_sync_keeps_each_photos_own_layers() {
     s.execute("develop.set", &json!({"control": "light.contrast", "value": 15})).unwrap();
     assert_eq!(s.develop_of(b).unwrap().light.contrast, 15.0);
     assert_eq!(s.develop_of(b).unwrap().masks, b_masks);
+}
+
+#[test]
+fn develop_a_layer_wb_curve_target_and_undo_selection() {
+    let mut s = Session::with_demo();
+    s.execute("mask.add", &json!({"kind":"full"})).unwrap();
+    s.execute("mask.rename", &json!({"name":"Face"})).unwrap();
+    let global = active_dev(&s);
+    s.execute("develop.wbPick", &json!({"x":0.4,"y":0.5,"mask":1})).unwrap();
+    assert_eq!(active_dev(&s).wb, global.wb);
+    assert!(active_dev(&s).masks[0].tools.wb.is_some());
+    assert_eq!(history_labels(&s).last().unwrap(), "White Balance – Face");
+    s.execute("curve.applyPreset", &json!({"name":"Medium Contrast","mask":1})).unwrap();
+    assert_eq!(active_dev(&s).curve, global.curve);
+    assert!(active_dev(&s).masks[0].tools.curve.is_some());
+    assert!(s.execute("curve.applyPreset", &json!({"name":"Medium Contrast","mask":99})).is_err());
+    assert!(s.execute("develop.wbPick", &json!({"x":0.4,"y":0.5,"mask":99})).is_err());
+    while !active_dev(&s).masks.is_empty() {
+        s.undo_step().unwrap();
+    }
+    assert_eq!(s.active_mask, None);
+    s.redo_step().unwrap();
+    assert_eq!(s.active_mask, None); // selection itself stays UI state
+    s.active_mask = Some(99);
+    s.resolve_active_mask();
+    assert_eq!(s.active_mask, None);
+}
+
+#[test]
+fn develop_a_sync_copy_layers_whole_and_strip_ai_caches() {
+    let mut s = Session::with_demo();
+    let a = s.active().unwrap();
+    let b = PhotoId(2);
+    s.execute("mask.add", &json!({"kind":"full"})).unwrap();
+    s.execute("mask.rename", &json!({"name":"Sky"})).unwrap();
+    s.execute("mask.setTools", &json!({"values":{"light.exposure":1.0}})).unwrap();
+    s.selection = crate::Selection { ids: vec![a, b], active: Some(a) };
+    s.execute("develop.sync", &json!({"groups":["masks"]})).unwrap();
+    assert_eq!(s.develop_of(b).unwrap().masks, active_dev(&s).masks);
+    assert_eq!(s.catalog.photo(b).unwrap().history.last().unwrap().label, "Sync Settings");
+    s.execute("develop.copy", &json!({"groups":["light"]})).unwrap();
+    s.selection = crate::Selection::single(b);
+    let masks = active_dev(&s).masks.clone();
+    s.execute("develop.paste", &json!({})).unwrap();
+    assert_eq!(active_dev(&s).masks, masks);
+    s.selection = crate::Selection::single(a);
+    s.execute("mask.add", &json!({"kind":"sky"})).unwrap();
+    let mut settings = active_dev(&s);
+    settings.masks[1].components[0].shape =
+        lightcraft_develop::MaskShape::Sky { seg: Some(lightcraft_develop::SegMask::from_logits(2, &[1.0, -1.0, 1.0, -1.0])) };
+    s.set_develop(a, settings, "AI fixture").unwrap();
+    s.execute("develop.copy", &json!({"groups":["masks"]})).unwrap();
+    assert!(s.clipboard.as_ref().unwrap()["masks"][1]["components"][0]["shape"].get("seg").is_none());
 }

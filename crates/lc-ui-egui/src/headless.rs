@@ -2227,8 +2227,8 @@ mod tests {
         assert!(!h.app.session.develop_of(h.app.session.active().unwrap()).unwrap().masks.is_empty());
         assert!(shown(&h.view.ctx).is_none(), "no tip remains after a canvas drag");
         h.request("ui.clickWidget", json!({"id": "icon:edit"}), t);
-        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:light"}), t)["ok"], true);
-        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:color"}), t)["ok"], true);
+        assert!(h.app.widgets.iter().any(|(id, _)| id == "slider:ui.brushSize"), "brush settings remain available in Edit");
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:layer-color"}), t)["ok"], true);
         assert_eq!(h.request("ui.hoverWidget", json!({"id": "icon:wbPicker"}), t)["ok"], true);
         assert!(h.step_until(t, |h| shown(&h.view.ctx).is_some_and(|s| s.tool == "wbPicker")));
         assert!(shown(&h.view.ctx).unwrap().text.starts_with("White Balance Selector (W)"));
@@ -2367,7 +2367,7 @@ mod tests {
             ("d", crate::state::RightPanel::Edit),
             ("r", crate::state::RightPanel::Crop),
             ("q", crate::state::RightPanel::Remove),
-            ("k", crate::state::RightPanel::Masking),
+            ("k", crate::state::RightPanel::Edit),
         ] {
             h.request("ui.key", json!({"key":key}), t);
             assert_eq!(h.app.ui.view, crate::state::ViewMode::Detail);
