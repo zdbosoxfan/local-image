@@ -59,6 +59,7 @@ pub mod macos {
     /// QoS classes (pthread/qos.h `qos_class_t`).
     pub const QOS_CLASS_DEFAULT: u32 = 0x15;
     pub const QOS_CLASS_UTILITY: u32 = 0x11;
+    #[cfg(test)]
     pub const QOS_CLASS_BACKGROUND: u32 = 0x09;
 
     /// An integer sysctl (4- or 8-byte value), `None` when the name doesn't exist.

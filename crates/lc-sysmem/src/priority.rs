@@ -6,7 +6,7 @@
 //! |---|---|---|---|
 //! | Interactive | nice 0, SCHED_OTHER | QoS default | normal priority |
 //! | Utility | nice +5 | QoS utility | below normal |
-//! | Background | nice +10, SCHED_BATCH | QoS background | background mode |
+//! | Background | nice +10, SCHED_BATCH | QoS utility (see `apply`) | background mode |
 //!
 //! Set it on a job's own thread right after it starts, never on a shared thread that later does
 //! interactive work (Linux can't take a nice value back without privileges). Failing to set it is
@@ -68,11 +68,14 @@ fn apply(class: ThreadClass) -> crate::sys::PriorityResult {
 
 #[cfg(target_os = "macos")]
 fn apply(class: ThreadClass) -> crate::sys::PriorityResult {
-    use crate::sys::macos::{QOS_CLASS_BACKGROUND, QOS_CLASS_DEFAULT, QOS_CLASS_UTILITY, set_qos};
+    use crate::sys::macos::{QOS_CLASS_DEFAULT, QOS_CLASS_UTILITY, set_qos};
     set_qos(match class {
         ThreadClass::Interactive => QOS_CLASS_DEFAULT,
         ThreadClass::Utility => QOS_CLASS_UTILITY,
-        ThreadClass::Background => QOS_CLASS_BACKGROUND,
+        // On macOS 27 Apple Silicon, Background QoS can stall the priority syscall when
+        // starting compute or download workers. Utility still runs below foreground work,
+        // allows both core types, and keeps housekeeping progressing (including model I/O).
+        ThreadClass::Background => QOS_CLASS_UTILITY,
     })
 }
 
@@ -93,7 +96,7 @@ fn apply(_class: ThreadClass) -> crate::sys::PriorityResult {
 
 /// The shared low-priority rayon pool for Background-class fan-out (smart sort, face indexing):
 /// the compute budget's size (the global pool's, once [`crate::init`] built it), its workers in
-/// [`ThreadClass::Background`] (Utility on macOS, see below). Under load the OS
+/// [`ThreadClass::Background`] (Utility QoS on macOS). Under load the OS
 /// gives the global (interactive) pool most of the CPU; when the machine is idle background work
 /// still gets every core. One pool for the whole process (replacing per-task private pools); `None`
 /// if it couldn't be started.
@@ -105,14 +108,6 @@ pub fn background_pool() -> Option<&'static rayon::ThreadPool> {
             .num_threads(threads)
             .thread_name(|i| format!("li-background-{i}"))
             .start_handler(|_| {
-                // Utility is Apple's class for long-running, user-visible CPU work. On macOS
-                // 27 Apple Silicon, lowering Rayon fan-out workers to Background can stall
-                // pthread_set_qos_class_self_np during pool startup. Utility keeps this shared
-                // CPU pool below foreground work, allows both core types, and avoids that stall.
-                // Dedicated housekeeping/download threads can still use Background normally.
-                #[cfg(target_os = "macos")]
-                set_current_thread_class(ThreadClass::Utility);
-                #[cfg(not(target_os = "macos"))]
                 set_current_thread_class(ThreadClass::Background);
             })
             .build()
@@ -157,7 +152,7 @@ mod tests {
             let after_utility = nice_and_policy();
             let background = set_current_thread_class(ThreadClass::Background);
             #[cfg(target_os = "macos")]
-            assert_eq!(crate::sys::macos::current_qos(), crate::sys::macos::QOS_CLASS_BACKGROUND);
+            assert_eq!(crate::sys::macos::current_qos(), crate::sys::macos::QOS_CLASS_UTILITY);
             #[cfg(target_os = "linux")]
             {
                 assert!(utility && background);
@@ -207,5 +202,18 @@ mod tests {
             (0..1000u64).into_par_iter().sum()
         });
         assert_eq!(sum, 499_500);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn dedicated_background_worker_starts_and_reports_low_priority() {
+        let (ready, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            assert!(set_current_thread_class(ThreadClass::Background));
+            ready.send(crate::sys::macos::current_qos()).unwrap();
+        });
+        let qos = receiver.recv_timeout(std::time::Duration::from_secs(10)).expect("background worker must not stall during startup");
+        assert_eq!(qos, crate::sys::macos::QOS_CLASS_UTILITY);
+        worker.join().unwrap();
     }
 }

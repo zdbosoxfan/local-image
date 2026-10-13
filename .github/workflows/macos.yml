@@ -4,6 +4,11 @@ on:
     branches: [v2]
   pull_request:
   workflow_dispatch:
+    inputs:
+      metal_runner:
+        description: 'Run full hardware acceptance on a trusted self-hosted Mac labelled metal'
+        type: boolean
+        default: false
 concurrency:
   group: macos-${{ github.ref }}
   cancel-in-progress: true
@@ -17,7 +22,9 @@ env:
   CRAFT_FONTS_DIR: ${{ github.workspace }}/.cache/craft-fonts
 jobs:
   native:
-    runs-on: macos-15
+    # Standard hosted macOS VMs are build/portable-test hosts. GPU acceptance needs a
+    # real Metal-capable host; never silently treat an adapter skip as acceleration proof.
+    runs-on: ${{ inputs.metal_runner && fromJSON('["self-hosted", "macOS", "ARM64", "metal"]') || 'macos-15' }}
     steps:
       - uses: actions/checkout@v4
       - name: Verify native Apple Silicon host
@@ -38,14 +45,22 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Fetch all platforms for the offline dependency audit
         run: cargo fetch --locked
-      - name: Test macOS and platform integrations
+      - name: Test portable macOS integrations
+        if: ${{ !inputs.metal_runner }}
+        run: cargo test --locked -p li-ai -p li-seg -p lightcraft-sysmem -p xtask
+      - name: Compile every macOS integration and feature
+        run: cargo check --workspace --all-targets --locked --features local-image/heif,local-image/sam,local-image-cli/heif
+      - name: Test full workspace on hardware
+        if: ${{ inputs.metal_runner }}
         run: cargo test --workspace --locked --features local-image/heif,local-image/sam,local-image-cli/heif
       - name: Require Metal compositor parity
+        if: ${{ inputs.metal_runner }}
         env:
           WGPU_BACKEND: metal
           LOCAL_IMAGE_REQUIRE_GPU: 1
         run: cargo test --locked -p photocraft-gpu --test gpu --test vector_geometry
       - name: Require Metal Develop numerical conformance
+        if: ${{ inputs.metal_runner }}
         env:
           LC_REQUIRE_GPU: 1
         run: cargo test --locked -p lightcraft-gpu --lib ds_finding_native_haze_selection_matches_sorted_quantile -- --ignored --nocapture

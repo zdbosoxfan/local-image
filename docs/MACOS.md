@@ -32,8 +32,8 @@ validate it using `xcrun stapler staple <package>` and `spctl -a -t install -vv 
   headroom (15 compute workers on a 16-core M4 Max); Preferences > Performance can override it.
   tract inference reuses the caller's shared compute/background pool instead of creating a pool
   per model or tile. The shared background CPU pool uses macOS Utility QoS: lower priority than
-  foreground work, with both core types available. Background QoS can stall Rayon worker startup
-  on macOS 27; dedicated housekeeping/download threads still use Background QoS.
+  foreground work, with both core types available. Background QoS can stall worker startup on
+  macOS 27, so housekeeping/download threads also use Utility QoS to keep I/O progressing.
 * Local ComfyUI can use PyTorch MPS. The app never forces CUDA or CPU mode on a Mac; unsupported
   PyTorch operators can fall back to CPU. Large generative models should run on a remote GPU
   server. Model-specific MPS support varies; the package does not claim that every model runs
@@ -87,8 +87,13 @@ cargo test -p local-image --features heif,sam
 cargo test -p xtask
 ```
 
-The macOS workflow runs native ARM64 tests and uploads the `.pkg` and checksum. GPU acceptance
-must use physical Metal hardware; an adapter skip or software fallback is not proof of acceleration.
+The macOS workflow builds ARM64, runs portable integration/threading tests and strict lint, and
+uploads the `.pkg` and checksum. Standard hosted VMs are not hardware acceleration evidence.
+For full workspace and mandatory Metal parity, manually dispatch it with `metal_runner` enabled
+on a trusted self-hosted Apple Silicon runner labelled `metal` (plus `macOS` and `ARM64`). The
+legacy RTX-named acceptance tests require hardware Metal on macOS and retain their original
+NVIDIA requirements elsewhere; image-accuracy tolerances are unchanged. An adapter skip or
+software fallback is not proof of acceleration.
 Real generative model acceptance belongs on the remote server, not the Mac. Optional SAM model
 acceptance needs the checkpoint; small synthetic tensor tests can verify Metal without it.
 

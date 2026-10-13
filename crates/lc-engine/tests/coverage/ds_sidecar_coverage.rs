@@ -95,7 +95,7 @@ fn find_sidecar_prefers_configured_naming_and_case() {
 
     // Upper-case extension accepted
     fs::write(&stem_upper, b"x").unwrap();
-    assert_eq!(find_sidecar(original_str, SidecarNaming::Stem), Some(stem_upper.clone()));
+    assert_eq!(find_sidecar(original_str, SidecarNaming::Stem).unwrap().canonicalize().unwrap(), stem_upper.canonicalize().unwrap());
     fs::remove_file(&stem_upper).unwrap();
 
     // Fallback to other naming
