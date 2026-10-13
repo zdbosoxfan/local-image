@@ -1,5 +1,5 @@
-//! Generic icons (Lucide/Feather and legacy originals) and sourced monochrome tools.
-//! Tool geometry shares tool_icon_data.rs; provenance is in assets/icons/SOURCES.md.
+//! Generic icons (Lucide/Feather and PhotoCraft originals). Names that are also tool icons embed the
+//! same file as tool_icon_data.rs; provenance is in assets/icons/SOURCES.md.
 
 pub static ICONS: &[(&str, &[u8])] = &[
     // The original cursor glyph retains its established hotspot.

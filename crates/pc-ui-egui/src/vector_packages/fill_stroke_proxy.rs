@@ -477,29 +477,12 @@ mod tests;
 
 pub use crate::vector_tool_icon_data as icons;
 
-/// Shares egui_extras' existing SVG loader and egui's texture upload path. 00 appends the
-/// ICONS bytes to colour_icons/mono_tool_icons as well, so menus and toolbar use one artwork.
+/// Vector toolbar buttons use the shared tool-icon renderer, so the flyouts, menus and toolbar show
+/// one artwork in the chosen style (monochrome by default, family tint in colour mode).
 pub fn tool_button(ui: &mut Ui, tool: &str, size: f32) -> egui::Response {
     egui_extras::install_image_loaders(ui.ctx());
-    let Some(index) = icons::ICONS.iter().position(|(id, _, _, _)| *id == tool) else { return ui.button(tool) };
-    let (_, name, _, _) = icons::ICONS[index];
-    let coloured = crate::color_icons::enabled(ui.ctx());
-    type IconBytes = (std::sync::Arc<[u8]>, std::sync::Arc<[u8]>);
-    static BYTES: std::sync::OnceLock<Vec<IconBytes>> = std::sync::OnceLock::new();
-    let bytes = BYTES.get_or_init(|| {
-        icons::ICONS
-            .iter()
-            .map(|(_, _, colour, mono)| {
-                (std::sync::Arc::from(*colour), std::sync::Arc::from(String::from_utf8_lossy(mono).replace("currentColor", "#ffffff").into_bytes()))
-            })
-            .collect()
-    });
-    let data = if coloured { bytes[index].0.clone() } else { bytes[index].1.clone() };
-    let image = egui::Image::from_bytes(format!("bytes://vector46/{name}/{coloured}.svg"), data).fit_to_exact_size(egui::vec2(size, size)).tint(if coloured {
-        Color32::WHITE
-    } else {
-        ui.visuals().text_color()
-    });
+    let Some((_, name, _)) = icons::ICONS.iter().find(|(id, _, _)| *id == tool) else { return ui.button(tool) };
+    let image = crate::icons::tool_icon(ui, name, size).fit_to_exact_size(egui::vec2(size, size));
     let r = ui.add(egui::Button::image(image));
     let label = icons::LABELS.iter().find(|(id, _)| *id == tool).map_or(tool, |(_, label)| *label);
     r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!(label)));

@@ -193,9 +193,10 @@
       "title": "Assets",
       "entries": [
         {
-          "name": "Local Image approved Glossy Duotone artwork and source adaptations",
+          "name": "Local Image tool icons (originals)",
           "author": "Local Image contributors",
-          "used_for": "Owner-approved Glossy Duotone base: 88 original glyphs retained exactly. Six reviewed replacements (Crop, Brush, Gradient, Eraser, Ellipse and Rectangle Marquee) use pinned upstream geometry with filled family/metal gradients, dark outlines and highlights. Colour/mono SVGs and review sheets; selection in assets/icons/SOURCES.md. Three Develop picker variants (White Balance, Skin Tone and Defringe) adapt the original Local Image pipette with original semantic badges; colour and mono silhouettes match.",
+          "used_for": "24 tool icons with no existing equivalent (Content-Aware Move, Quick Selection, Sponge, History Brush, Magnetic Lasso, Spot Healing, Slice Select, the Liquify Freeze/Thaw/Reconstruct All family, the Skin Tone and Defringe pickers and eight vector shape/transform tools), drawn to Lucide's rules: 24 px grid, 2 px round stroke, no fills. List and hashes in assets/icons/source-manifest.json and assets/icons/SOURCES.md.",
+          "ours": "assets/icons/tools (set local-image in source-manifest.json)",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
             "LICENSE",
@@ -203,13 +204,13 @@
           ]
         },
         {
-          "name": "Lucide sourced tool glyphs",
+          "name": "Lucide tool icons",
           "version": "0.468.0",
           "author": "Lucide contributors; Cole Bemis (Feather)",
-          "used_for": "Only the reviewed glyphs listed here are imported. Native path data and transforms are retained; fills, gradient paint, outline widths and highlights adapt them to the approved Glossy Duotone style. Modifications by Local Image contributors, GPL-3.0-or-later. See assets/icons/SOURCES.md.",
-          "upstream": "icons/crop.svg",
+          "used_for": "92 tool icons and the Library/Develop interface icons, unchanged upstream files (Path Selection adds a solid fill, the Photoshop convention). Three newer Lucide icons (spline-pointer and VectorCraft's pen-tool add/delete badges) come from lucide-static 1.49.0 as vendored by VectorCraft. See assets/icons/SOURCES.md.",
+          "upstream": "icons/<name>.svg",
           "commit": "f12b0de177fbc2a6795e99be065887e72b237123",
-          "ours": "assets/icons/upstream/lucide; assets/icons/color; assets/icons/tools",
+          "ours": "assets/icons/tools; assets/icons/*.svg",
           "licence": "ISC AND MIT",
           "licence_files": [
             "licenses/lucide-ISC.txt",
@@ -218,19 +219,43 @@
           "url": "https://github.com/lucide-icons/lucide"
         },
         {
-          "name": "Krita sourced tool glyphs",
-          "version": "v5.2.6",
-          "author": "Andrei Rudenko; Timoth\u00e9e Giet",
-          "used_for": "Only the reviewed glyphs listed here are imported. Native path data and transforms are retained; fills, gradient paint, outline widths and highlights adapt them to the approved Glossy Duotone style. Modifications by Local Image contributors, GPL-3.0-or-later. See assets/icons/SOURCES.md.",
-          "upstream": "krita/pics/tools/SVG/16/dark_krita_tool_gradient.svg; krita/pics/tools/SVG/16/dark_krita_tool_freehand.svg; krita/pics/tools/SVG/16/dark_tool_elliptical_selection.svg; krita/pics/misc-dark/dark_draw-eraser.svg; krita/pics/tools/SVG/16/dark_tool_rect_selection.svg",
-          "commit": "ab3502b67a5b07771d3127aeaf9cc522af5d626a",
-          "ours": "assets/icons/upstream/krita; assets/icons/color; assets/icons/tools",
-          "licence": "CC-BY-SA-4.0",
+          "name": "PhotoCraft tool icons",
+          "author": "PhotoCraft contributors (Lucide-derived files: Lucide contributors)",
+          "used_for": "Gradient, Layer Mask, Perspective Crop, Direct Selection, Background and Magic Eraser and Spot Removal tool icons, unchanged; the Lucide-derived ones keep Lucide's ISC notice.",
+          "commit": "72b499a28ff8f089fecc87963561e32ec272ec26",
+          "ours": "assets/icons/tools (set photocraft in source-manifest.json); assets/icons/star-filled.svg",
+          "licence": "MIT OR Apache-2.0",
           "licence_files": [
-            "licenses/CC-BY-SA-4.0.txt",
-            "licenses/krita-icons-NOTICE.md"
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/lucide-ISC.txt"
           ],
-          "url": "https://github.com/KDE/krita"
+          "url": "https://github.com/storytold/photocraft"
+        },
+        {
+          "name": "VectorCraft tool icons",
+          "author": "VectorCraft contributors",
+          "used_for": "37 original dc-* Illustrator-style tool icons (warp family, pathfinder and type tools, Rotate View and others), unchanged except Twirl CCW, which mirrors dc-twirl.",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "assets/icons/tools (set vectorcraft in source-manifest.json)",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-LICENSE-APACHE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft"
+        },
+        {
+          "name": "Tabler Icons",
+          "version": "3.44.0",
+          "author": "Pawe\u0142 Kuna",
+          "used_for": "Three outline tool icons Lucide 0.468 lacks: Polygonal Lasso (lasso-polygon), Guided Upright (perspective) and Spiral (spiral), unchanged.",
+          "ours": "assets/icons/tools/{pentagon,guided-upright,vector-spiral}.svg",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/tabler-icons-MIT.txt"
+          ],
+          "url": "https://github.com/tabler/tabler-icons"
         },
         {
           "name": "Inter",
@@ -275,16 +300,6 @@
           "url": "https://github.com/feathericons/feather"
         },
         {
-          "name": "Magnetic Lasso Tool icon",
-          "author": "Lil' Seal (Noun Project); adapted by PhotoCraft contributors",
-          "used_for": "Legacy bundled Magnetic Lasso SVG. Current tool rendering uses the owner-approved Local Image glyph; this notice covers the retained generic asset.",
-          "licence": "CC-BY-3.0",
-          "licence_files": [
-            "assets/icons/LICENSE-noun-magnetic-lasso.txt"
-          ],
-          "url": "https://thenounproject.com/icon/magnetic-lasso-tool-177513/"
-        },
-        {
           "name": "SCOWL English word list",
           "version": "2020.12.07, size 50, en_US",
           "author": "Kevin Atkinson and the SCOWL contributors",
@@ -319,16 +334,6 @@
             "licenses/OFL-noto-sans-arabic.txt",
             "licenses/OFL-noto-sans-thai.txt",
             "licenses/craft-fonts-NOTICE.md"
-          ]
-        },
-        {
-          "name": "Original Local Image vector toolbar artwork",
-          "author": "Local Image contributors",
-          "used_for": "70 original vector glyphs in colour and monochrome, hand-authored in xtask/src/tool_art_vector.rs on the 24px grid. Glossy Duotone family materials and matching theme-tinted silhouettes. Recognition inventory and labelled 16/20/40px sheet in docs/design/vector-tool-icons-recognition.tsv and vector-tool-icons.png. No copied or traced vendor artwork.",
-          "ours": "assets/icons/{color,tools}/vector-*.svg, docs/design/vector-tool-icons.png, xtask/src/tool_art_vector.rs",
-          "licence": "GPL-3.0-or-later",
-          "licence_files": [
-            "LICENSE"
           ]
         },
         {

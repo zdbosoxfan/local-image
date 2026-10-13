@@ -1,970 +1,1600 @@
 {
-  "schema": 2,
-  "sets": {
-    "krita": {
-      "commit": "ab3502b67a5b07771d3127aeaf9cc522af5d626a",
-      "tag": "v5.2.6",
-      "url": "https://github.com/KDE/krita",
-      "licence": "CC-BY-SA-4.0",
-      "author": "Timothée Giet"
-    },
-    "lucide": {
-      "commit": "f12b0de177fbc2a6795e99be065887e72b237123",
-      "tag": "0.468.0",
-      "url": "https://github.com/lucide-icons/lucide",
-      "licence": "ISC AND MIT",
-      "author": "Lucide contributors; Cole Bemis (Feather)"
-    }
+ "schema": 2,
+ "note": "Provenance of every tool icon in assets/icons/tools. Verified by `cargo xtask icons`. Owner decision 2026-10-13: Lucide 0.468.0 (ISC) as the base, PhotoCraft and VectorCraft originals (MIT OR Apache-2.0), Tabler outline (MIT) as the same-style fallback, Local Image originals (GPL-3.0-or-later) only where nothing exists.",
+ "style": {
+  "viewBox": "0 0 24 24",
+  "stroke": "currentColor",
+  "stroke_width": "2",
+  "linecap": "round",
+  "linejoin": "round",
+  "fill": "none"
+ },
+ "sets": {
+  "lucide": {
+   "name": "Lucide",
+   "version": "0.468.0",
+   "commit": "f12b0de177fbc2a6795e99be065887e72b237123",
+   "url": "https://github.com/lucide-icons/lucide/blob/{commit}/icons/{source}.svg",
+   "licence": "ISC",
+   "licence_files": [
+    "licenses/lucide-ISC.txt",
+    "licenses/feather-MIT.txt"
+   ],
+   "creator": "Lucide contributors; Cole Bemis (Feather)"
   },
-  "sources": {
-    "krita/krita/pics/tools/SVG/16/dark_krita_tool_gradient.svg": {
-      "set": "krita",
-      "path": "krita/pics/tools/SVG/16/dark_krita_tool_gradient.svg",
-      "file": "assets/icons/upstream/krita/krita/pics/tools/SVG/16/dark_krita_tool_gradient.svg",
-      "licence": "CC-BY-SA-4.0",
-      "author": "Andrei Rudenko",
-      "licence_evidence": "Embedded CC-BY-SA-4.0 metadata",
-      "sha256": "7b60bd12ca1d0fc03a1b175be8d1ce3f23f91b39ce965f9c9e2211e67b209bcd"
-    },
-    "krita/krita/pics/tools/SVG/16/dark_krita_tool_freehand.svg": {
-      "set": "krita",
-      "path": "krita/pics/tools/SVG/16/dark_krita_tool_freehand.svg",
-      "file": "assets/icons/upstream/krita/krita/pics/tools/SVG/16/dark_krita_tool_freehand.svg",
-      "licence": "CC-BY-SA-4.0",
-      "author": "Timothée Giet",
-      "licence_evidence": "Embedded CC-BY-SA-4.0 metadata",
-      "sha256": "bf1f26cd8e9a558ddf5e2f52a32c1b5a528add6b026e594a41f6c64e7e7515c8"
-    },
-    "krita/krita/pics/tools/SVG/16/dark_tool_elliptical_selection.svg": {
-      "set": "krita",
-      "path": "krita/pics/tools/SVG/16/dark_tool_elliptical_selection.svg",
-      "file": "assets/icons/upstream/krita/krita/pics/tools/SVG/16/dark_tool_elliptical_selection.svg",
-      "licence": "CC-BY-SA-4.0",
-      "author": "Andrei Rudenko",
-      "licence_evidence": "Embedded CC-BY-SA-4.0 metadata",
-      "sha256": "15f5c528f75d25e31307df5f1aaac7cceddac78130c62766ef8e1594faca70d3"
-    },
-    "lucide/icons/crop.svg": {
-      "set": "lucide",
-      "path": "icons/crop.svg",
-      "file": "assets/icons/upstream/lucide/icons/crop.svg",
-      "licence": "ISC AND MIT",
-      "author": "Lucide contributors; Cole Bemis (Feather)",
-      "licence_evidence": "repository LICENSE (ISC; Feather portions MIT)",
-      "sha256": "9229f7832445ee0caa15eecd6323397a3ebb5c9a124f923212605ad3529d64b8"
-    },
-    "krita/krita/pics/misc-dark/dark_draw-eraser.svg": {
-      "set": "krita",
-      "path": "krita/pics/misc-dark/dark_draw-eraser.svg",
-      "file": "assets/icons/upstream/krita/krita/pics/misc-dark/dark_draw-eraser.svg",
-      "licence": "CC-BY-SA-4.0",
-      "author": "Timothée Giet",
-      "licence_evidence": "Embedded CC-BY-SA-4.0 metadata",
-      "sha256": "a03a5be760feca566af0ca272bb2f7859bb5af99ff6dcea48c71efa83b8e0e62"
-    },
-    "krita/krita/pics/tools/SVG/16/dark_tool_rect_selection.svg": {
-      "set": "krita",
-      "path": "krita/pics/tools/SVG/16/dark_tool_rect_selection.svg",
-      "file": "assets/icons/upstream/krita/krita/pics/tools/SVG/16/dark_tool_rect_selection.svg",
-      "licence": "CC-BY-SA-4.0",
-      "author": "Andrei Rudenko",
-      "licence_evidence": "Embedded CC-BY-SA-4.0 metadata",
-      "sha256": "ff8e238967fec4196eb03bc59b7e6aac7f7f8e2c9786f7ffba59a712e9caef3e"
-    }
+  "lucide-static": {
+   "name": "Lucide (lucide-static 1.49.0, as vendored by VectorCraft)",
+   "version": "1.49.0",
+   "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+   "url": "https://github.com/storytold/vectorcraft/blob/{commit}/assets/icons/{source}.svg",
+   "licence": "ISC",
+   "licence_files": [
+    "licenses/lucide-ISC.txt",
+    "licenses/vectorcraft-LICENSE-MIT",
+    "licenses/vectorcraft-LICENSE-APACHE"
+   ],
+   "creator": "Lucide contributors; badges by VectorCraft contributors",
+   "why": "Not in Lucide 0.468.0 (spline-pointer) or a VectorCraft badge on Lucide pen-tool"
   },
-  "tools": [
-    {
-      "id": "activity",
-      "label": "History",
-      "family": "grey",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "arrow-left-right",
-      "label": "Content Aware Move",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "background-mask",
-      "label": "Background Mask",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "blend",
-      "label": "Gradient",
-      "family": "orange",
-      "components": [
-        {
-          "source": "krita/krita/pics/tools/SVG/16/dark_krita_tool_gradient.svg",
-          "badge": false
-        }
-      ],
-      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
-      "fallback": "",
-      "mode": "sourced",
-      "outline_width": 1.4,
-      "highlight_width": 0.5
-    },
-    {
-      "id": "bloat",
-      "label": "Bloat",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "blur",
-      "label": "Blur",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "brush",
-      "label": "Brush",
-      "family": "orange",
-      "components": [
-        {
-          "source": "krita/krita/pics/tools/SVG/16/dark_krita_tool_freehand.svg",
-          "badge": false
-        }
-      ],
-      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
-      "fallback": "",
-      "mode": "sourced",
-      "outline_width": 1.8,
-      "highlight_width": 0.75
-    },
-    {
-      "id": "circle",
-      "label": "Ellipse Shape",
-      "family": "cyan",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "circle-dashed",
-      "label": "Ellipse Marquee",
-      "family": "blue",
-      "components": [
-        {
-          "source": "krita/krita/pics/tools/SVG/16/dark_tool_elliptical_selection.svg",
-          "badge": false
-        }
-      ],
-      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
-      "fallback": "",
-      "mode": "sourced",
-      "outline_width": 0.85,
-      "highlight_width": 0.35
-    },
-    {
-      "id": "circle-dot",
-      "label": "Count",
-      "family": "measure",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "color-range",
-      "label": "Colour Range",
-      "family": "yellow",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "crop",
-      "label": "Crop",
-      "family": "purple",
-      "components": [
-        {
-          "source": "lucide/icons/crop.svg",
-          "badge": false
-        }
-      ],
-      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
-      "fallback": "",
-      "mode": "sourced",
-      "outline_width": 3.5,
-      "highlight_width": 0.5
-    },
-    {
-      "id": "custom-shape",
-      "label": "Custom Shape",
-      "family": "cyan",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "depth-range",
-      "label": "Depth Range",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "develop-edit",
-      "label": "Develop Edit",
-      "family": "grey",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "direct-select",
-      "label": "Direct Selection",
-      "family": "cyan",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "dodge",
-      "label": "Dodge",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "edit-toolbar",
-      "label": "Edit Toolbar",
-      "family": "grey",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "eraser",
-      "label": "Eraser",
-      "family": "orange",
-      "components": [
-        {
-          "source": "krita/krita/pics/misc-dark/dark_draw-eraser.svg",
-          "badge": false
-        }
-      ],
-      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
-      "fallback": "",
-      "mode": "sourced",
-      "outline_width": 1.2,
-      "highlight_width": 0.5
-    },
-    {
-      "id": "eraser-background",
-      "label": "Background Eraser",
-      "family": "orange",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "eraser-magic",
-      "label": "Magic Eraser",
-      "family": "orange",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "flame",
-      "label": "Burn",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "forward-warp",
-      "label": "Forward Warp",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "freeze",
-      "label": "Freeze Mask",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "freeze-all",
-      "label": "Freeze All",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "freeze-lasso",
-      "label": "Freeze Lasso",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "guided-upright",
-      "label": "Guided Upright",
-      "family": "purple",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "hand",
-      "label": "Hand",
-      "family": "grey",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "healing",
-      "label": "Healing",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "history-brush",
-      "label": "History Brush",
-      "family": "orange",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "info",
-      "label": "Info",
-      "family": "grey",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "invert-freeze",
-      "label": "Invert Freeze",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "keywords",
-      "label": "Keywords",
-      "family": "grey",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "landscape-mask",
-      "label": "Landscape Mask",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "lasso",
-      "label": "Lasso",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "lasso-magnetic",
-      "label": "Magnetic Lasso",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "lasso-select",
-      "label": "Patch",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "linear-mask",
-      "label": "Linear Mask",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "luminance-range",
-      "label": "Luminance Range",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "mask",
-      "label": "Masking",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "message-square",
-      "label": "Note",
-      "family": "measure",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "more",
-      "label": "More",
-      "family": "grey",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "mouse-pointer-2",
-      "label": "Path Selection",
-      "family": "cyan",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "move",
-      "label": "Move",
-      "family": "purple",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "object-mask",
-      "label": "Object Mask",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "object-selection",
-      "label": "Object Selection",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "paint-bucket",
-      "label": "Paint Bucket",
-      "family": "orange",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "palette",
-      "label": "Mixer Brush",
-      "family": "orange",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "pen-tool",
-      "label": "Pen",
-      "family": "cyan",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "pencil",
-      "label": "Pencil",
-      "family": "orange",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "pentagon",
-      "label": "Polygonal Lasso",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "people-mask",
-      "label": "People Mask",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "perspective-crop",
-      "label": "Perspective Crop",
-      "family": "purple",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "pipette",
-      "label": "Eyedropper",
-      "family": "yellow",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "presets",
-      "label": "Presets",
-      "family": "grey",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "prompt-mask",
-      "label": "Prompt Mask",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "pucker",
-      "label": "Pucker",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "push-left",
-      "label": "Push Left",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "quick-mask",
-      "label": "Quick Mask",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "quick-selection",
-      "label": "Quick Selection",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "radial-mask",
-      "label": "Radial Mask",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "reconstruct",
-      "label": "Reconstruct",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "reconstruct-all",
-      "label": "Reconstruct All",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "rectangle-horizontal",
-      "label": "Rectangle Shape",
-      "family": "cyan",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "red-eye",
-      "label": "Red Eye",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "remove",
-      "label": "Spot Removal",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "ruler",
-      "label": "Ruler",
-      "family": "measure",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "scissors",
-      "label": "AI Cutout",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "shape-polygon",
-      "label": "Polygon Shape",
-      "family": "cyan",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "shape-triangle",
-      "label": "Triangle Shape",
-      "family": "cyan",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "sharpen",
-      "label": "Sharpen",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "sky-mask",
-      "label": "Sky Mask",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "slash",
-      "label": "Line Shape",
-      "family": "cyan",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "slice-knife",
-      "label": "Slice",
-      "family": "purple",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "slice-select",
-      "label": "Slice Select",
-      "family": "purple",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "smooth",
-      "label": "Smooth",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "smudge",
-      "label": "Smudge",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "sparkles",
-      "label": "AI Remove",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "sponge",
-      "label": "Sponge",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "spot-healing",
-      "label": "Spot Healing",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "square-dashed",
-      "label": "Rectangle Marquee",
-      "family": "blue",
-      "components": [
-        {
-          "source": "krita/krita/pics/tools/SVG/16/dark_tool_rect_selection.svg",
-          "badge": false
-        }
-      ],
-      "why": "Coordinator accepted this sourced glyph; retain its geometry with filled Glossy Duotone paint.",
-      "fallback": "",
-      "mode": "sourced",
-      "outline_width": 1.4,
-      "highlight_width": 0.5
-    },
-    {
-      "id": "stamp",
-      "label": "Clone Stamp",
-      "family": "green",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "straighten",
-      "label": "Straighten",
-      "family": "purple",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "subject-mask",
-      "label": "Subject Mask",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "thaw",
-      "label": "Thaw Mask",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "thaw-all",
-      "label": "Thaw All",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "twirl-ccw",
-      "label": "Twirl CCW",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "twirl-cw",
-      "label": "Twirl CW",
-      "family": "liquify",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "targeted-adjust",
-      "label": "Targeted Adjustment",
-      "family": "measure",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "type",
-      "label": "Type",
-      "family": "cyan",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "versions",
-      "label": "Versions",
-      "family": "grey",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "vertical-type",
-      "label": "Vertical Type",
-      "family": "cyan",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "wand-sparkles",
-      "label": "Magic Wand",
-      "family": "blue",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    },
-    {
-      "id": "zoom-in",
-      "label": "Zoom",
-      "family": "grey",
-      "components": [],
-      "why": "Owner-approved OLD artwork retained as the base; no sourced replacement is clearly better.",
-      "fallback": "Approved Local Image glyph restored exactly.",
-      "mode": "approved"
-    }
-  ],
-  "approved": {
-    "commit": "2b3989c01b34a55ac9e908bdeed315cfb7ac2cb0",
-    "colour": "docs/design/tool-icons-pre-sourced.json",
-    "monochrome": "docs/design/tool-icons-approved-mono.json"
+  "photocraft": {
+   "name": "PhotoCraft",
+   "commit": "72b499a28ff8f089fecc87963561e32ec272ec26",
+   "url": "https://github.com/storytold/photocraft/blob/{commit}/assets/icons/{source}.svg",
+   "licence": "MIT OR Apache-2.0",
+   "licence_files": [
+    "licenses/photocraft-LICENSE-MIT",
+    "licenses/photocraft-LICENSE-APACHE",
+    "licenses/lucide-ISC.txt"
+   ],
+   "creator": "PhotoCraft contributors (Lucide-derived files: Lucide contributors)"
+  },
+  "vectorcraft": {
+   "name": "VectorCraft",
+   "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+   "url": "https://github.com/storytold/vectorcraft/blob/{commit}/assets/icons/{source}.svg",
+   "licence": "MIT OR Apache-2.0",
+   "licence_files": [
+    "licenses/vectorcraft-LICENSE-MIT",
+    "licenses/vectorcraft-LICENSE-APACHE"
+   ],
+   "creator": "VectorCraft contributors"
+  },
+  "tabler": {
+   "name": "Tabler Icons (outline)",
+   "version": "3.44.0",
+   "url": "https://github.com/tabler/tabler-icons/blob/v{version}/icons/outline/{source}.svg",
+   "licence": "MIT",
+   "licence_files": [
+    "licenses/tabler-icons-MIT.txt"
+   ],
+   "creator": "Paweł Kuna"
+  },
+  "local-image": {
+   "name": "Local Image originals",
+   "licence": "GPL-3.0-or-later",
+   "licence_files": [
+    "LICENSE"
+   ],
+   "creator": "Local Image contributors",
+   "why": "No existing icon in Lucide, PhotoCraft, VectorCraft or Tabler (or the owner rejected upstream's metaphor). Drawn to Lucide's style rules."
   }
+ },
+ "tools": [
+  {
+   "id": "activity",
+   "label": "History",
+   "family": "grey",
+   "set": "lucide",
+   "source": "history",
+   "licence": "ISC",
+   "sha256": "a98ff758157910b9fc9d42d5d5dc80c2f4e037afa5f8ea4dee5f5649f03d438d"
+  },
+  {
+   "id": "arrow-left-right",
+   "label": "Content-Aware Move",
+   "family": "green",
+   "set": "local-image",
+   "source": "arrow-left-right",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "5e66119ded415930a899edb9bd4fd6b3ca8fa1ca8ef6b335ebe474d32daa21ff"
+  },
+  {
+   "id": "background-mask",
+   "label": "Background Mask",
+   "family": "blue",
+   "set": "lucide",
+   "source": "image",
+   "licence": "ISC",
+   "sha256": "619c9db58c879dce6250376ba67d9c9102ca6dbb3b1efb9294c9f180e22273a5"
+  },
+  {
+   "id": "blend",
+   "label": "Gradient",
+   "family": "orange",
+   "set": "photocraft",
+   "source": "gradient",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "e5c88ab7f93259e12c260e749a82d0723a6b81f1fa61b46708b650fb8f05154e"
+  },
+  {
+   "id": "bloat",
+   "label": "Bloat",
+   "family": "liquify",
+   "set": "vectorcraft",
+   "source": "dc-bloat",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "7629a604a5f2413b7afdf56a105b1ce2ee2cdd46543a7ca63eae6f94ddede350"
+  },
+  {
+   "id": "blur",
+   "label": "Blur",
+   "family": "green",
+   "set": "lucide",
+   "source": "droplet",
+   "licence": "ISC",
+   "sha256": "abca4df60f91c605d945c6fe5ee0e6c919b53116d81e268f4581f8841bf24751"
+  },
+  {
+   "id": "brush",
+   "label": "Brush",
+   "family": "orange",
+   "set": "lucide",
+   "source": "brush",
+   "licence": "ISC",
+   "sha256": "537ea13802b4d4eed1e784f94a70e7ed335918eabb738a6c4b733c95c5d41905"
+  },
+  {
+   "id": "circle",
+   "label": "Ellipse Shape",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "circle",
+   "licence": "ISC",
+   "sha256": "3a991bd47beaf9874fba6fdf87bbba442970a89b5e6aa391558bc8b0a00a0513"
+  },
+  {
+   "id": "circle-dashed",
+   "label": "Ellipse Marquee",
+   "family": "blue",
+   "set": "lucide",
+   "source": "circle-dashed",
+   "licence": "ISC",
+   "sha256": "9b964be491a821be8ffd714baf3b94ca2d70af789bddcfc1bda6bde250d89187"
+  },
+  {
+   "id": "circle-dot",
+   "label": "Count",
+   "family": "measure",
+   "set": "lucide",
+   "source": "hash",
+   "licence": "ISC",
+   "sha256": "cd94af917b739ef26146d724613f6830ba3d702317fa4e60d92efea6133a1019"
+  },
+  {
+   "id": "color-range",
+   "label": "Colour Range",
+   "family": "yellow",
+   "set": "lucide",
+   "source": "palette",
+   "licence": "ISC",
+   "sha256": "fbe81d6b4e00ee35dfc9100ddeaaee72e2e1aeb4acb16568b768c316588d104d"
+  },
+  {
+   "id": "crop",
+   "label": "Crop",
+   "family": "purple",
+   "set": "lucide",
+   "source": "crop",
+   "licence": "ISC",
+   "sha256": "9229f7832445ee0caa15eecd6323397a3ebb5c9a124f923212605ad3529d64b8"
+  },
+  {
+   "id": "custom-shape",
+   "label": "Custom Shape",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "shapes",
+   "licence": "ISC",
+   "sha256": "480e2301a977f7f2fc7133c330f48d8318b5fd3761b27a9c582997eb5aa47f1f"
+  },
+  {
+   "id": "defringe-picker",
+   "label": "Defringe",
+   "family": "yellow",
+   "set": "local-image",
+   "source": "defringe-picker",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "2efae89f561072c705e657b0565d0df058d27b1ae9244c3725463c35e28b3978"
+  },
+  {
+   "id": "depth-range",
+   "label": "Depth Range",
+   "family": "blue",
+   "set": "lucide",
+   "source": "layers-2",
+   "licence": "ISC",
+   "sha256": "2fb9f11b92b06fedd9190c16d9781d4a34bb2151050ff1e0a484a411b4e18c03"
+  },
+  {
+   "id": "develop-edit",
+   "label": "Develop Edit",
+   "family": "grey",
+   "set": "lucide",
+   "source": "sliders-horizontal",
+   "licence": "ISC",
+   "sha256": "4a6b5404724a439227964670bf9eb71bcebd98384178441e50093f2620169b1a"
+  },
+  {
+   "id": "direct-select",
+   "label": "Direct Selection",
+   "family": "cyan",
+   "set": "photocraft",
+   "source": "direct-select",
+   "licence": "ISC (Lucide-derived; PhotoCraft marks MIT OR Apache-2.0)",
+   "sha256": "a15f796ddb04595899c8922d1d20fbb03d8da67a369e7dddf02bbac4e9b5a196"
+  },
+  {
+   "id": "dodge",
+   "label": "Dodge",
+   "family": "green",
+   "set": "lucide",
+   "source": "lollipop",
+   "licence": "ISC",
+   "sha256": "443e2b06aa1ea1998e9c06caefd02b5e5fe873c142330c5668c01793d35e356d"
+  },
+  {
+   "id": "edit-toolbar",
+   "label": "Edit Toolbar",
+   "family": "grey",
+   "set": "lucide",
+   "source": "ellipsis",
+   "licence": "ISC",
+   "sha256": "4f495cc72013ffdfec677f03b33a150f7b4dd741979283fd6853a09024bca112"
+  },
+  {
+   "id": "eraser",
+   "label": "Eraser",
+   "family": "orange",
+   "set": "lucide",
+   "source": "eraser",
+   "licence": "ISC",
+   "sha256": "503094bdc45fa1dcab39209da8028dc2fe4ac8876a87c37b4b976fd8d6ee53bd"
+  },
+  {
+   "id": "eraser-background",
+   "label": "Background Eraser",
+   "family": "orange",
+   "set": "photocraft",
+   "source": "eraser-background",
+   "licence": "ISC (Lucide-derived; PhotoCraft marks MIT OR Apache-2.0)",
+   "sha256": "4ebcfdc067e2e0a8671b5bce4c6d0738ec7261d67c3d56b5ea29f68d32095a1a"
+  },
+  {
+   "id": "eraser-magic",
+   "label": "Magic Eraser",
+   "family": "orange",
+   "set": "photocraft",
+   "source": "eraser-magic",
+   "licence": "ISC (Lucide-derived; PhotoCraft marks MIT OR Apache-2.0)",
+   "sha256": "12ae50e4e86c5f7c0b2783ff5cd83efd6bc1d4cfc23bb01a19200e109385f4ad"
+  },
+  {
+   "id": "flame",
+   "label": "Burn",
+   "family": "green",
+   "set": "lucide",
+   "source": "grab",
+   "licence": "ISC",
+   "sha256": "2bfb6b9fec56cccce35f8a09f57061896073523f4173df412b34ffc4db96fabf"
+  },
+  {
+   "id": "forward-warp",
+   "label": "Forward Warp",
+   "family": "liquify",
+   "set": "lucide",
+   "source": "waves",
+   "licence": "ISC",
+   "sha256": "de9e88a68ae884808e0852595e50cebd84b1a49b67ffecc8c7a888c629ab5b38"
+  },
+  {
+   "id": "freeze",
+   "label": "Freeze Mask",
+   "family": "liquify",
+   "set": "lucide",
+   "source": "snowflake",
+   "licence": "ISC",
+   "sha256": "3cec49ec3249fc69cdc4b62223002a750011829d9e5a35d05296d951c6872383"
+  },
+  {
+   "id": "freeze-all",
+   "label": "Freeze All",
+   "family": "liquify",
+   "set": "local-image",
+   "source": "freeze-all",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "0d7221a6289a1365d1a98876cff6e96a0b828c88799391194faeac55d87ced3a"
+  },
+  {
+   "id": "freeze-lasso",
+   "label": "Freeze Lasso",
+   "family": "liquify",
+   "set": "local-image",
+   "source": "freeze-lasso",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "131098ec79128077e56b1a7e41d1b6b05a525e0fce294823a2c526c0a79de5af"
+  },
+  {
+   "id": "guided-upright",
+   "label": "Guided Upright",
+   "family": "purple",
+   "set": "tabler",
+   "source": "perspective",
+   "licence": "MIT",
+   "sha256": "5ebc5fb7605ed8bae2fd2b33c4c6fd3ccaa30075be9b8dd742f87cfbab915e1f"
+  },
+  {
+   "id": "hand",
+   "label": "Hand",
+   "family": "grey",
+   "set": "lucide",
+   "source": "hand",
+   "licence": "ISC",
+   "sha256": "fe3771fa2f0a9a3c7736164c9a855beefacc02548084ac1d6fc8da8a8a9180b0"
+  },
+  {
+   "id": "healing",
+   "label": "Healing",
+   "family": "green",
+   "set": "lucide",
+   "source": "bandage",
+   "licence": "ISC",
+   "sha256": "cddef2fdd297fd3bb2b3579f23f303cf6619e47d8a26d37dbf168ad3001b7b96"
+  },
+  {
+   "id": "history-brush",
+   "label": "History Brush",
+   "family": "orange",
+   "set": "local-image",
+   "source": "history-brush",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "a59b2380d36e3f9c7dad2d33b271623333e61687fa7e0dbf0e29307176890eca"
+  },
+  {
+   "id": "info",
+   "label": "Info",
+   "family": "grey",
+   "set": "lucide",
+   "source": "info",
+   "licence": "ISC",
+   "sha256": "bc977a64eb96f3e9c1041ffd09a3fceb70e3e65c02b571f76064062ed31f3cb9"
+  },
+  {
+   "id": "invert-freeze",
+   "label": "Invert Freeze",
+   "family": "liquify",
+   "set": "local-image",
+   "source": "invert-freeze",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "9023440db406a8ad51d089251f6cd739bcfa97d5e7326659c622019930bfdb8d"
+  },
+  {
+   "id": "keywords",
+   "label": "Keywords",
+   "family": "grey",
+   "set": "lucide",
+   "source": "tag",
+   "licence": "ISC",
+   "sha256": "85e11c07b29f5b67410e0f14c84799d9406320cd4575b7c8322f31910e0582cc"
+  },
+  {
+   "id": "landscape-mask",
+   "label": "Landscape Mask",
+   "family": "blue",
+   "set": "lucide",
+   "source": "mountain",
+   "licence": "ISC",
+   "sha256": "fced3dd3ffb1472e62a13d92e72633e9c68a4655da3d8aa801bc65a041fe64be"
+  },
+  {
+   "id": "lasso",
+   "label": "Lasso",
+   "family": "blue",
+   "set": "lucide",
+   "source": "lasso",
+   "licence": "ISC",
+   "sha256": "884cf993f6175dc5e51e41255acdda53882deb413951858a5d0fcf3310dc2306"
+  },
+  {
+   "id": "lasso-magnetic",
+   "label": "Magnetic Lasso",
+   "family": "blue",
+   "set": "local-image",
+   "source": "lasso-magnetic",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "a9d2e4dbd9dd28b6c3b20ce99113251bad6e333d96a17205398cf20aa4b83183"
+  },
+  {
+   "id": "lasso-select",
+   "label": "Patch",
+   "family": "green",
+   "set": "lucide",
+   "source": "lasso-select",
+   "licence": "ISC",
+   "sha256": "227380bdb112334bd0761150230661ef566a96a840e864dea3e0cd135b23f7da"
+  },
+  {
+   "id": "linear-mask",
+   "label": "Linear Mask",
+   "family": "blue",
+   "set": "photocraft",
+   "source": "gradient",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "e5c88ab7f93259e12c260e749a82d0723a6b81f1fa61b46708b650fb8f05154e"
+  },
+  {
+   "id": "luminance-range",
+   "label": "Luminance Range",
+   "family": "blue",
+   "set": "lucide",
+   "source": "sun",
+   "licence": "ISC",
+   "sha256": "a3955c8b0425fcc5c9ba12d2bdd77fe53b2cd5dd05e7742a56f342e996fb2ef8"
+  },
+  {
+   "id": "mask",
+   "label": "Masking",
+   "family": "blue",
+   "set": "photocraft",
+   "source": "layer-mask",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "4dbde0cdc5a06807da7cd4a07da422d7e3d61d1e69d5e20ee5092362d50a1ce6"
+  },
+  {
+   "id": "message-square",
+   "label": "Note",
+   "family": "measure",
+   "set": "lucide",
+   "source": "sticky-note",
+   "licence": "ISC",
+   "sha256": "53ab065473631c3cd6e9cebc5ed473548aaff722defe08760a3a04a635d97f9e"
+  },
+  {
+   "id": "more",
+   "label": "More",
+   "family": "grey",
+   "set": "lucide",
+   "source": "ellipsis",
+   "licence": "ISC",
+   "sha256": "4f495cc72013ffdfec677f03b33a150f7b4dd741979283fd6853a09024bca112"
+  },
+  {
+   "id": "mouse-pointer-2",
+   "label": "Path Selection",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "mouse-pointer-2",
+   "licence": "ISC",
+   "sha256": "5a9685777e3c5d1ffddd9bc470d44c64c3da847e4fe5c10c647834aa60a7a23c",
+   "modification": "Lucide mouse-pointer-2 with fill=\"currentColor\" (solid Path Selection arrow)",
+   "upstream_sha256": "a87128b1d33024c22ab598d1ce313081ce8942efd1a70274215bcc53421b7c7e"
+  },
+  {
+   "id": "move",
+   "label": "Move",
+   "family": "purple",
+   "set": "lucide",
+   "source": "move",
+   "licence": "ISC",
+   "sha256": "915074a1292f72d59165339b8b93f8d440c8d55b7116b52fca240b9ded5af74d"
+  },
+  {
+   "id": "object-mask",
+   "label": "Object Mask",
+   "family": "blue",
+   "set": "lucide",
+   "source": "square-dashed-mouse-pointer",
+   "licence": "ISC",
+   "sha256": "d8d8e5f243104d42d3a4b8e8928255a6da24c53cf2370d36676cd97cd6997ef9"
+  },
+  {
+   "id": "object-selection",
+   "label": "Object Selection",
+   "family": "blue",
+   "set": "lucide",
+   "source": "square-dashed-mouse-pointer",
+   "licence": "ISC",
+   "sha256": "d8d8e5f243104d42d3a4b8e8928255a6da24c53cf2370d36676cd97cd6997ef9"
+  },
+  {
+   "id": "paint-bucket",
+   "label": "Paint Bucket",
+   "family": "orange",
+   "set": "lucide",
+   "source": "paint-bucket",
+   "licence": "ISC",
+   "sha256": "41b874de789e02cc6a519e3bcf6c80f4365dce47792993402773189fec23395e"
+  },
+  {
+   "id": "palette",
+   "label": "Mixer Brush",
+   "family": "orange",
+   "set": "lucide",
+   "source": "palette",
+   "licence": "ISC",
+   "sha256": "fbe81d6b4e00ee35dfc9100ddeaaee72e2e1aeb4acb16568b768c316588d104d"
+  },
+  {
+   "id": "pen-tool",
+   "label": "Pen",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "pen-tool",
+   "licence": "ISC",
+   "sha256": "a31b434a7b7e379bd37b05fe7ae4b632c0cf38baf7463a726961ce65dd0cb089"
+  },
+  {
+   "id": "pencil",
+   "label": "Pencil",
+   "family": "orange",
+   "set": "lucide",
+   "source": "pencil",
+   "licence": "ISC",
+   "sha256": "7e1ca7a6f5c1eb949671df762f2baadd32f5bd841d43153c3a15279af7d78d0c"
+  },
+  {
+   "id": "pentagon",
+   "label": "Polygonal Lasso",
+   "family": "blue",
+   "set": "tabler",
+   "source": "lasso-polygon",
+   "licence": "MIT",
+   "sha256": "2e07ba68f601e56b56f9c1acd8b26fe091e0b8d6bcfe7ab72939d3119e6a93bf"
+  },
+  {
+   "id": "people-mask",
+   "label": "People Mask",
+   "family": "blue",
+   "set": "lucide",
+   "source": "users",
+   "licence": "ISC",
+   "sha256": "c94a3781b154ab2716e1696c25c50d37b4b5634f26cb80ae1cdea20cfafc49c1"
+  },
+  {
+   "id": "perspective-crop",
+   "label": "Perspective Crop",
+   "family": "purple",
+   "set": "photocraft",
+   "source": "perspective-crop",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "35fea292c4415bc15eceed8faba1b282c0ff9a8645f37027f716c8f55a4741c4"
+  },
+  {
+   "id": "pipette",
+   "label": "Eyedropper",
+   "family": "yellow",
+   "set": "lucide",
+   "source": "pipette",
+   "licence": "ISC",
+   "sha256": "3703307928af762a71bf141ba7582b15cb909f3d90916bcfe3c0becdf3ab4e70"
+  },
+  {
+   "id": "presets",
+   "label": "Presets",
+   "family": "grey",
+   "set": "lucide",
+   "source": "swatch-book",
+   "licence": "ISC",
+   "sha256": "08e8ae6cead6b01282961d90a891a1d4332495b8fe8df616a17b2b2e249d37cc"
+  },
+  {
+   "id": "prompt-mask",
+   "label": "Prompt Mask",
+   "family": "blue",
+   "set": "lucide",
+   "source": "message-square-text",
+   "licence": "ISC",
+   "sha256": "ae33056899cef21b2ce20abb92d56ecd536e4cd5253c60b0eab2d09bb373775b"
+  },
+  {
+   "id": "pucker",
+   "label": "Pucker",
+   "family": "liquify",
+   "set": "vectorcraft",
+   "source": "dc-pucker",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "8af997d59eaaf89975d348974ac6e7ed4fce318ccf3a4dc8bf4f8a4fe4e1e7eb"
+  },
+  {
+   "id": "push-left",
+   "label": "Push Left",
+   "family": "liquify",
+   "set": "lucide",
+   "source": "move-left",
+   "licence": "ISC",
+   "sha256": "4224d3f0e7832d5069d3a35369b87d0d64ddd00771b630c9ba22b16f9e78c5d5"
+  },
+  {
+   "id": "quick-mask",
+   "label": "Quick Mask",
+   "family": "blue",
+   "set": "photocraft",
+   "source": "layer-mask",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "4dbde0cdc5a06807da7cd4a07da422d7e3d61d1e69d5e20ee5092362d50a1ce6"
+  },
+  {
+   "id": "quick-selection",
+   "label": "Quick Selection",
+   "family": "blue",
+   "set": "local-image",
+   "source": "quick-selection",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "b5804c984e27a229bf6bedb4a0d0393be0d94b22234281de4ea2a5677176bac6"
+  },
+  {
+   "id": "radial-mask",
+   "label": "Radial Mask",
+   "family": "blue",
+   "set": "lucide",
+   "source": "circle-dashed",
+   "licence": "ISC",
+   "sha256": "9b964be491a821be8ffd714baf3b94ca2d70af789bddcfc1bda6bde250d89187"
+  },
+  {
+   "id": "reconstruct",
+   "label": "Reconstruct",
+   "family": "liquify",
+   "set": "lucide",
+   "source": "undo-2",
+   "licence": "ISC",
+   "sha256": "efad2edbbd2be6038cc23fd64df2d012fad5cc6460dfbf227cfa3d990e9e897f"
+  },
+  {
+   "id": "reconstruct-all",
+   "label": "Reconstruct All",
+   "family": "liquify",
+   "set": "local-image",
+   "source": "reconstruct-all",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "c34f33a9bc7980b8b348781020e2b490546605eb6ddba49b3d8a78981d29ea90"
+  },
+  {
+   "id": "rectangle-horizontal",
+   "label": "Rectangle Shape",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "rectangle-horizontal",
+   "licence": "ISC",
+   "sha256": "484b5b2cf9876f6f62e7bc2ec5abdfb826e119597c4725d789f28835fc93dc27"
+  },
+  {
+   "id": "red-eye",
+   "label": "Red Eye",
+   "family": "green",
+   "set": "lucide",
+   "source": "scan-eye",
+   "licence": "ISC",
+   "sha256": "343741486dfe4188a80628e3b8ae7a71f6ac63e0de5fbf474674b053c8f80721"
+  },
+  {
+   "id": "remove",
+   "label": "Spot Removal",
+   "family": "green",
+   "set": "photocraft",
+   "source": "bandage-sparkle",
+   "licence": "ISC (Lucide-derived; PhotoCraft marks MIT OR Apache-2.0)",
+   "sha256": "9a9747d85cdf58a616edb4493e7d79b75331bec1f390b95fceaf7a0d4de5ec01"
+  },
+  {
+   "id": "rotate-view",
+   "label": "Rotate View",
+   "family": "grey",
+   "set": "vectorcraft",
+   "source": "dc-rotate-view",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "69b48b38e42229769c4c0e11d4e73c9fad926ecd9c97c064e1467853895eaf8d"
+  },
+  {
+   "id": "ruler",
+   "label": "Ruler",
+   "family": "measure",
+   "set": "lucide",
+   "source": "ruler",
+   "licence": "ISC",
+   "sha256": "af9710f70510217ef33773d502d0be2425c3a9cb1e3294ace27da9f0b4c8850b"
+  },
+  {
+   "id": "scissors",
+   "label": "AI Cutout",
+   "family": "green",
+   "set": "lucide",
+   "source": "scissors",
+   "licence": "ISC",
+   "sha256": "4c831fc2c903825f68565c28ffab945c34b2c60b6c564e2ae54250e1099fa550"
+  },
+  {
+   "id": "shape-polygon",
+   "label": "Polygon Shape",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "hexagon",
+   "licence": "ISC",
+   "sha256": "d6fe215b28eaccc1d50b89b967ae0bd6368ed602a89fd90b3c02688c15f133df"
+  },
+  {
+   "id": "shape-triangle",
+   "label": "Triangle Shape",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "triangle",
+   "licence": "ISC",
+   "sha256": "07ef0fa398d74189b9d59ce313534a4b01fad705d52b36f8e4e8fc57a3437023"
+  },
+  {
+   "id": "sharpen",
+   "label": "Sharpen",
+   "family": "green",
+   "set": "lucide",
+   "source": "pyramid",
+   "licence": "ISC",
+   "sha256": "9f41f141d16f41cffbb0389cb604d460b42d575ce2b76dc2ec2c1231ce3a02c6"
+  },
+  {
+   "id": "sky-mask",
+   "label": "Sky Mask",
+   "family": "blue",
+   "set": "lucide",
+   "source": "cloud-sun",
+   "licence": "ISC",
+   "sha256": "d3d0b5519e3e9e6073bc6d875fcb2b8d0a0c0d0062602490d444ef6a08bb2ab0"
+  },
+  {
+   "id": "skin-picker",
+   "label": "Skin Tone Selector",
+   "family": "yellow",
+   "set": "local-image",
+   "source": "skin-picker",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "efb581f2da91d056c8fba9078485fd8deb170eb769da6a68d88df27b885ca112"
+  },
+  {
+   "id": "slash",
+   "label": "Line Shape",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "slash",
+   "licence": "ISC",
+   "sha256": "2e8b636164f057c3113b04d36a5bb958f78aff454c4a644642da790ae2addbc8"
+  },
+  {
+   "id": "slice-knife",
+   "label": "Slice",
+   "family": "purple",
+   "set": "lucide",
+   "source": "slice",
+   "licence": "ISC",
+   "sha256": "7fe1258bdf8a62f02dbb9161b39058b4d7a0f207df2e03dfdbc45f1c73d3025e"
+  },
+  {
+   "id": "slice-select",
+   "label": "Slice Select",
+   "family": "purple",
+   "set": "local-image",
+   "source": "slice-select",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "210d668005ce239bb59d28f57c0e24c47d15311e9abf4fb62d7c55c1684376f7"
+  },
+  {
+   "id": "smooth",
+   "label": "Smooth",
+   "family": "liquify",
+   "set": "lucide",
+   "source": "spline",
+   "licence": "ISC",
+   "sha256": "995d3e71e8c4ebd6aa42ba70d4360e495d7c2ee192dbb6c4348e2cedc8f669ce"
+  },
+  {
+   "id": "smudge",
+   "label": "Smudge",
+   "family": "green",
+   "set": "lucide",
+   "source": "pointer",
+   "licence": "ISC",
+   "sha256": "0ba875e0f6f1317710958581f7b249d7d476663c1055c6c2d7448caaf0c03d97"
+  },
+  {
+   "id": "sparkles",
+   "label": "AI Remove",
+   "family": "green",
+   "set": "lucide",
+   "source": "sparkles",
+   "licence": "ISC",
+   "sha256": "cc8061ee31c43138e081522260d2ddd35465dfb2a4435fddd3d9857952d7231e"
+  },
+  {
+   "id": "sponge",
+   "label": "Sponge",
+   "family": "green",
+   "set": "local-image",
+   "source": "sponge",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "552bd9fb54c1c0e41ab3d59119bbfba3efd7e624211e12f12800ff5f1017812b"
+  },
+  {
+   "id": "spot-healing",
+   "label": "Spot Healing",
+   "family": "green",
+   "set": "local-image",
+   "source": "spot-healing",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "ae43b09bb945def0ac56a5896ab4dc10de67cbb231555caa25cd6e6c492f9b29"
+  },
+  {
+   "id": "square-dashed",
+   "label": "Rectangle Marquee",
+   "family": "blue",
+   "set": "lucide",
+   "source": "square-dashed",
+   "licence": "ISC",
+   "sha256": "bb7958e30d2658e90c3eaaa01d4808fa7a7427bc1ae1744a0fe016ddda258b2a"
+  },
+  {
+   "id": "stamp",
+   "label": "Clone Stamp",
+   "family": "green",
+   "set": "lucide",
+   "source": "stamp",
+   "licence": "ISC",
+   "sha256": "ad9a1c0746c03fb0596ebd586bd5e4c9e9030b5eb210712ec13a79eabc8dff21"
+  },
+  {
+   "id": "straighten",
+   "label": "Straighten",
+   "family": "purple",
+   "set": "lucide",
+   "source": "ruler",
+   "licence": "ISC",
+   "sha256": "af9710f70510217ef33773d502d0be2425c3a9cb1e3294ace27da9f0b4c8850b"
+  },
+  {
+   "id": "subject-mask",
+   "label": "Subject Mask",
+   "family": "blue",
+   "set": "lucide",
+   "source": "user",
+   "licence": "ISC",
+   "sha256": "eae3b3b2400031ddd5ec869327d127a96014e5f63aa6e06658dd5d4e90661aa8"
+  },
+  {
+   "id": "targeted-adjust",
+   "label": "Targeted Adjustment",
+   "family": "measure",
+   "set": "lucide",
+   "source": "crosshair",
+   "licence": "ISC",
+   "sha256": "ae9ed8583286ea03bffae85bb69aee5227540e588b0370cf185f2141ebe25e8d"
+  },
+  {
+   "id": "thaw",
+   "label": "Thaw Mask",
+   "family": "liquify",
+   "set": "local-image",
+   "source": "thaw",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "df875b3b685aa971292bbe99796bcb5211feb5ea4d60f60e91531ef1b8294e5d"
+  },
+  {
+   "id": "thaw-all",
+   "label": "Thaw All",
+   "family": "liquify",
+   "set": "local-image",
+   "source": "thaw-all",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "a1fb4b07ac3bec8e5b64fe97ff020c09447207914c067ca5591b6d2b639d8370"
+  },
+  {
+   "id": "twirl-ccw",
+   "label": "Twirl CCW",
+   "family": "liquify",
+   "set": "vectorcraft",
+   "source": "dc-twirl",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "a7294b983f31eb519e2c016b90bcb747b1d3ba994a2edb5cfb11973a63cb45ce",
+   "modification": "dc-twirl mirrored horizontally (counter-clockwise)",
+   "upstream_sha256": "851b1091807c97f4a1c1b981ff2f90664cc5cb69b64bfcdb9f22b7c5d7675547"
+  },
+  {
+   "id": "twirl-cw",
+   "label": "Twirl CW",
+   "family": "liquify",
+   "set": "vectorcraft",
+   "source": "dc-twirl",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "851b1091807c97f4a1c1b981ff2f90664cc5cb69b64bfcdb9f22b7c5d7675547"
+  },
+  {
+   "id": "type",
+   "label": "Type",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "type",
+   "licence": "ISC",
+   "sha256": "83cd0f418b9cbfec9601cb886d76aa080027b1a47a076eab6948aa50ba1ac6c2"
+  },
+  {
+   "id": "versions",
+   "label": "Versions",
+   "family": "grey",
+   "set": "lucide",
+   "source": "layers",
+   "licence": "ISC",
+   "sha256": "ce16d0a955e3581cda17f6b2fd5c5bc2034b405f9cecc31c8ebb8495b4afc1bb"
+  },
+  {
+   "id": "vertical-type",
+   "label": "Vertical Type",
+   "family": "cyan",
+   "set": "vectorcraft",
+   "source": "dc-type-vertical",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "a8926bb342aff9f1cf852f13efbfe7b853d8b3c71eea534cec455c6bc93d2e74"
+  },
+  {
+   "id": "wand-sparkles",
+   "label": "Magic Wand",
+   "family": "blue",
+   "set": "lucide",
+   "source": "wand-sparkles",
+   "licence": "ISC",
+   "sha256": "d73067ff2463118d4f11f9c532e7162be45f96835b966b4fc89977ca47a7317d"
+  },
+  {
+   "id": "wb-picker",
+   "label": "White Balance Selector",
+   "family": "yellow",
+   "set": "lucide",
+   "source": "pipette",
+   "licence": "ISC",
+   "sha256": "3703307928af762a71bf141ba7582b15cb909f3d90916bcfe3c0becdf3ab4e70"
+  },
+  {
+   "id": "zoom-in",
+   "label": "Zoom",
+   "family": "grey",
+   "set": "lucide",
+   "source": "zoom-in",
+   "licence": "ISC",
+   "sha256": "91206ae20013e2c84f2f5d09db5a7200f11698a84fc4e857b06fab2ce7c933f1"
+  },
+  {
+   "id": "vector-anchor-add",
+   "label": "Add Anchor Point",
+   "family": "purple",
+   "set": "lucide-static",
+   "source": "pen-tool-add",
+   "licence": "ISC (VectorCraft badge MIT OR Apache-2.0)",
+   "sha256": "5de4b84c0e048d7ef29c1da6c47e86cbf4f60aebecd68ac699ecf8c9c3a39133"
+  },
+  {
+   "id": "vector-anchor-delete",
+   "label": "Delete Anchor Point",
+   "family": "purple",
+   "set": "lucide-static",
+   "source": "pen-tool-delete",
+   "licence": "ISC (VectorCraft badge MIT OR Apache-2.0)",
+   "sha256": "5be5307f6574385e56a40698dea20a1d4c1265173153749e5fb42f80312ba660"
+  },
+  {
+   "id": "vector-anchor-point",
+   "label": "Anchor Point",
+   "family": "purple",
+   "set": "vectorcraft",
+   "source": "dc-anchor",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "c0cc8f9ecb93a3c1b066dd8f3c7867136457eb5b30eb123e65cd03e766ca8e65"
+  },
+  {
+   "id": "vector-arc",
+   "label": "Arc",
+   "family": "purple",
+   "set": "vectorcraft",
+   "source": "dc-arc",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "7c3d4a0808a8f12fa981b270eb8796b80c4caa8797e16713b3342f38bfb3b121"
+  },
+  {
+   "id": "vector-area",
+   "label": "Area",
+   "family": "measure",
+   "set": "vectorcraft",
+   "source": "dc-measure",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "6f3d21b6f7d67dc344e8e33e23fd5e82cea399c8b5550e8ff00a5760f4453caa"
+  },
+  {
+   "id": "vector-arrow",
+   "label": "Arrow",
+   "family": "purple",
+   "set": "lucide",
+   "source": "move-right",
+   "licence": "ISC",
+   "sha256": "5d5cd515e240654303ee557b0010988c2b4fd319b99aec9d13b7c6c846a4e08f"
+  },
+  {
+   "id": "vector-artboard",
+   "label": "Artboard",
+   "family": "grey",
+   "set": "lucide",
+   "source": "frame",
+   "licence": "ISC",
+   "sha256": "d00e5a3a53eb36555af8b76cd21e87751f39e4a65f5d440fea88e760e9b65f16"
+  },
+  {
+   "id": "vector-blend",
+   "label": "Blend",
+   "family": "purple",
+   "set": "vectorcraft",
+   "source": "dc-blend",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "f3350e0212bd7d53b64d5a9007b5e3a535aaf5a1e0ed95ab475dc4eb0f9337e4"
+  },
+  {
+   "id": "vector-blob-brush",
+   "label": "Blob Brush",
+   "family": "green",
+   "set": "lucide",
+   "source": "brush",
+   "licence": "ISC",
+   "sha256": "537ea13802b4d4eed1e784f94a70e7ed335918eabb738a6c4b733c95c5d41905"
+  },
+  {
+   "id": "vector-brush",
+   "label": "Vector Brush",
+   "family": "green",
+   "set": "lucide",
+   "source": "paintbrush",
+   "licence": "ISC",
+   "sha256": "b0a958ba9889f89c40df6e1c168b8a7aa20f6309780e795c5bce00a4bc11bff6"
+  },
+  {
+   "id": "vector-callout-ellipse",
+   "label": "Ellipse Callout",
+   "family": "purple",
+   "set": "lucide",
+   "source": "message-circle",
+   "licence": "ISC",
+   "sha256": "a9bd7a3e24bf81c598974bda992d0d363dd0996d0f14ecbe9986e03a07068884"
+  },
+  {
+   "id": "vector-callout",
+   "label": "Callout",
+   "family": "purple",
+   "set": "lucide",
+   "source": "message-square",
+   "licence": "ISC",
+   "sha256": "e30d9ab9660601815c2f957a64308f5e212715935def1216885d2efc14c58a66"
+  },
+  {
+   "id": "vector-cloud",
+   "label": "Cloud",
+   "family": "purple",
+   "set": "lucide",
+   "source": "cloud",
+   "licence": "ISC",
+   "sha256": "28a34022ed00177eb1f218eea5d2b7af30d09b529187fe32219e4dd8ea2b9740"
+  },
+  {
+   "id": "vector-cog",
+   "label": "Cog",
+   "family": "purple",
+   "set": "lucide",
+   "source": "cog",
+   "licence": "ISC",
+   "sha256": "8ce01eae252c3f3505681f282d023faf0dd39eb1b05674165128df0fe539dbc7"
+  },
+  {
+   "id": "vector-contour",
+   "label": "Contour",
+   "family": "purple",
+   "set": "local-image",
+   "source": "vector-contour",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "f4e7e39d6248d83914badcbd1b0480207f9a562c0f3a4121ae701d6ddc640178"
+  },
+  {
+   "id": "vector-corner",
+   "label": "Corner",
+   "family": "purple",
+   "set": "local-image",
+   "source": "vector-corner",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "8e4a518fe6286bc46854fa61180fec2d6dc753b7304e629c4d4e5fcd18856436"
+  },
+  {
+   "id": "vector-crescent",
+   "label": "Crescent",
+   "family": "purple",
+   "set": "lucide",
+   "source": "moon",
+   "licence": "ISC",
+   "sha256": "47503477c9c6848eeaff01c324093e1a04a7d264220f580662d92f229eaa428e"
+  },
+  {
+   "id": "vector-crop",
+   "label": "Vector Crop",
+   "family": "grey",
+   "set": "lucide",
+   "source": "crop",
+   "licence": "ISC",
+   "sha256": "9229f7832445ee0caa15eecd6323397a3ebb5c9a124f923212605ad3529d64b8"
+  },
+  {
+   "id": "vector-crystallize",
+   "label": "Crystallize",
+   "family": "liquify",
+   "set": "vectorcraft",
+   "source": "dc-crystallize",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "2ec1bdbfc8349e38859eddb18b891bc273f2929bb33acbd5ef68a64e8e580242"
+  },
+  {
+   "id": "vector-curvature",
+   "label": "Curvature",
+   "family": "purple",
+   "set": "lucide-static",
+   "source": "spline-pointer",
+   "licence": "ISC (VectorCraft badge MIT OR Apache-2.0)",
+   "sha256": "4eedf8bc22f593f3dfbf5dc3b12310129f91a66e35107f550401e8dbc37cf885"
+  },
+  {
+   "id": "vector-diamond",
+   "label": "Diamond",
+   "family": "purple",
+   "set": "lucide",
+   "source": "diamond",
+   "licence": "ISC",
+   "sha256": "2a2f4ccad87409bed020191ebfb30ff806dca49a1b687d0be96f4d7343da8d7c"
+  },
+  {
+   "id": "vector-donut",
+   "label": "Donut",
+   "family": "purple",
+   "set": "local-image",
+   "source": "vector-donut",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "952fddd4afdfef31f33b05898160b9e0754d5b79afb803db5da33f2d379c234c"
+  },
+  {
+   "id": "vector-double-star",
+   "label": "Double Star",
+   "family": "purple",
+   "set": "local-image",
+   "source": "vector-double-star",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "21a537467c63e6bab1248fdcdb106b9ed37c1bb87870e92888b3aec74f19f1ef"
+  },
+  {
+   "id": "vector-draw-behind",
+   "label": "Draw Behind",
+   "family": "grey",
+   "set": "vectorcraft",
+   "source": "dc-draw-behind",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "de7727ee6efd9322e38c6663e553f7ebc75f8e019cc2b9d3cc0b26be02d92047"
+  },
+  {
+   "id": "vector-draw-inside",
+   "label": "Draw Inside",
+   "family": "grey",
+   "set": "vectorcraft",
+   "source": "dc-draw-inside",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "e2b6f1f54e3b5d3f131cb725fd7b6f4a137aa99585c86686f84283b7f57402cf"
+  },
+  {
+   "id": "vector-draw-normal",
+   "label": "Draw Normal",
+   "family": "grey",
+   "set": "vectorcraft",
+   "source": "dc-draw-normal",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "193de5d2247486df8ebcef2a8294c8815bb5e6d6e44592d902e73b3428491b52"
+  },
+  {
+   "id": "vector-envelope",
+   "label": "Envelope",
+   "family": "purple",
+   "set": "local-image",
+   "source": "vector-envelope",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "aec0df16ea51d77343383f8183314c3867ad683848bba3f78524f7870c4d4635"
+  },
+  {
+   "id": "vector-eraser",
+   "label": "Vector Eraser",
+   "family": "orange",
+   "set": "lucide",
+   "source": "eraser",
+   "licence": "ISC",
+   "sha256": "503094bdc45fa1dcab39209da8028dc2fe4ac8876a87c37b4b976fd8d6ee53bd"
+  },
+  {
+   "id": "vector-fill-stroke",
+   "label": "Fill and Stroke",
+   "family": "cyan",
+   "set": "vectorcraft",
+   "source": "dc-swap",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "f9ddb2bc14c3911dd69051fa5a203aecdac7dea4860ccf566537a30c99abbf57"
+  },
+  {
+   "id": "vector-flood-fill",
+   "label": "Vector Flood Fill",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "paint-bucket",
+   "licence": "ISC",
+   "sha256": "41b874de789e02cc6a519e3bcf6c80f4365dce47792993402773189fec23395e"
+  },
+  {
+   "id": "vector-frame-text",
+   "label": "Frame Text",
+   "family": "grey",
+   "set": "vectorcraft",
+   "source": "dc-type-area",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "6525ff4f8d5b9cf28b23e81ed48dfdb20223717417c076275d9e1f7e2bfba6f6"
+  },
+  {
+   "id": "vector-free-transform",
+   "label": "Free Transform",
+   "family": "grey",
+   "set": "vectorcraft",
+   "source": "dc-free-transform",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "959e92a864ee6e5f1032c024df29b0d9d404172bdd5f07d4651adf575ab86c42"
+  },
+  {
+   "id": "vector-group-select",
+   "label": "Group Selection",
+   "family": "blue",
+   "set": "vectorcraft",
+   "source": "dc-group-select",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "136b84d82e2adc3d2573db69d80108d0353651bf123c7bebf24df70f59251f0c"
+  },
+  {
+   "id": "vector-heart",
+   "label": "Heart",
+   "family": "purple",
+   "set": "lucide",
+   "source": "heart",
+   "licence": "ISC",
+   "sha256": "57e0f565e829c6f0531251ad0998c6fe6b8c54ec3149b37c1921ccc5cdba7838"
+  },
+  {
+   "id": "vector-join",
+   "label": "Join",
+   "family": "purple",
+   "set": "vectorcraft",
+   "source": "dc-join",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "eeff7d2f8dbca93459fe26e400376d7655ce0bad4ddeed7e7ca184f02e3d587e"
+  },
+  {
+   "id": "vector-knife",
+   "label": "Knife",
+   "family": "orange",
+   "set": "vectorcraft",
+   "source": "dc-knife",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "784e5d86cc1071fc84abfb64e995f1b39a87572052e923d099f5a651ef44dde7"
+  },
+  {
+   "id": "vector-lasso",
+   "label": "Vector Lasso",
+   "family": "blue",
+   "set": "lucide",
+   "source": "lasso",
+   "licence": "ISC",
+   "sha256": "884cf993f6175dc5e51e41255acdda53882deb413951858a5d0fcf3310dc2306"
+  },
+  {
+   "id": "vector-line-cut",
+   "label": "Line Cut",
+   "family": "orange",
+   "set": "vectorcraft",
+   "source": "dc-line-cut",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "88c0c89a1793f3c18691a22610c318c334fc683f36065f0012cbe7557e8f6242"
+  },
+  {
+   "id": "vector-live-paint",
+   "label": "Live Paint Bucket",
+   "family": "cyan",
+   "set": "vectorcraft",
+   "source": "dc-live-bucket",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "039eb846f832956eb53c16515795dc31628ff01ae1946ef136bd8e60fc312c75"
+  },
+  {
+   "id": "vector-live-select",
+   "label": "Live Paint Selection",
+   "family": "blue",
+   "set": "vectorcraft",
+   "source": "dc-live-select",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "9937af504c743c57bf49d01043185e27a0942bf75cb0795ea7fb074c3afe5cdc"
+  },
+  {
+   "id": "vector-mesh",
+   "label": "Mesh",
+   "family": "cyan",
+   "set": "vectorcraft",
+   "source": "dc-mesh",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "c8938c170cc7bf7495b0c0c3102ba59c2c201e3dbea061d5995798b522446094"
+  },
+  {
+   "id": "vector-path-eraser",
+   "label": "Path Eraser",
+   "family": "purple",
+   "set": "vectorcraft",
+   "source": "dc-path-eraser",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "6b30ba98974300cc683da92c16e15a1ccd335dece9433397ec9ff2ab36d5e26f"
+  },
+  {
+   "id": "vector-path-text",
+   "label": "Text on Path",
+   "family": "grey",
+   "set": "vectorcraft",
+   "source": "dc-type-path",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "9bf688605505fb718c8208aa0e604d0edf1c71bb6af382d9ffe6490a0582a6eb"
+  },
+  {
+   "id": "vector-pencil",
+   "label": "Vector Pencil",
+   "family": "purple",
+   "set": "lucide",
+   "source": "pencil",
+   "licence": "ISC",
+   "sha256": "7e1ca7a6f5c1eb949671df762f2baadd32f5bd841d43153c3a15279af7d78d0c"
+  },
+  {
+   "id": "vector-pie",
+   "label": "Pie",
+   "family": "purple",
+   "set": "lucide",
+   "source": "chart-pie",
+   "licence": "ISC",
+   "sha256": "1ae765b638fe588b392f7da6e2c274fb438b257d936f9f4c7d548c73d5f9d8a1"
+  },
+  {
+   "id": "vector-point-transform",
+   "label": "Point Transform",
+   "family": "blue",
+   "set": "local-image",
+   "source": "vector-point-transform",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "ec3521cd26450fa7504a57d39821d3d9d826852308d7aa1e0daf1c522cb4d589"
+  },
+  {
+   "id": "vector-polar-grid",
+   "label": "Polar Grid",
+   "family": "purple",
+   "set": "vectorcraft",
+   "source": "dc-polar-grid",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "37019a8d424e94c76c9b4dbdd0cbf98721d4f10ce92acf90a169b10d7d8443d1"
+  },
+  {
+   "id": "vector-puppet",
+   "label": "Puppet Warp",
+   "family": "liquify",
+   "set": "vectorcraft",
+   "source": "dc-puppet",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "e52b2dddae6bf7c2184d5889ab0f18b14c02874334fa4ad0b8e73ab0b06534f5"
+  },
+  {
+   "id": "vector-rect-grid",
+   "label": "Rectangular Grid",
+   "family": "purple",
+   "set": "vectorcraft",
+   "source": "dc-rect-grid",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "afe567ba55f9dc77b1391c7d230ac643ab41a20105d8346712c4d255662120ab"
+  },
+  {
+   "id": "vector-reflect",
+   "label": "Reflect",
+   "family": "grey",
+   "set": "lucide",
+   "source": "flip-horizontal-2",
+   "licence": "ISC",
+   "sha256": "f8bbeaa885c8f56758d6d8478da8912679c352e12f371f7333405a8d83f14ee0"
+  },
+  {
+   "id": "vector-repeat",
+   "label": "Repeat",
+   "family": "purple",
+   "set": "lucide",
+   "source": "repeat",
+   "licence": "ISC",
+   "sha256": "6b67b8707e6a3107a1ccad48716bd93fc5e95e8d91f2bff5eec64f62cc7dfc4b"
+  },
+  {
+   "id": "vector-reshape",
+   "label": "Reshape",
+   "family": "grey",
+   "set": "vectorcraft",
+   "source": "dc-reshape",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "4ce10fd399a1f9db1e14e7933ec15b0cce186fa629c5c99071a49b0bd649dfa8"
+  },
+  {
+   "id": "vector-rotate",
+   "label": "Rotate",
+   "family": "grey",
+   "set": "lucide",
+   "source": "rotate-ccw",
+   "licence": "ISC",
+   "sha256": "622685386ab4017eabfde01cd74550a20b1924df233b353f73b6b155371f2afd"
+  },
+  {
+   "id": "vector-rounded-rectangle",
+   "label": "Rounded Rectangle",
+   "family": "purple",
+   "set": "vectorcraft",
+   "source": "dc-rounded-rect",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "9a1995ea06327ba08d061958aa408359edd26e1df651ea23d708a75a0a2917af"
+  },
+  {
+   "id": "vector-scale",
+   "label": "Scale",
+   "family": "grey",
+   "set": "lucide",
+   "source": "scaling",
+   "licence": "ISC",
+   "sha256": "587b5758bfbf2df54bc4701819a58fc63278682760bfb05213f093840ff1cfd5"
+  },
+  {
+   "id": "vector-scallop",
+   "label": "Scallop",
+   "family": "liquify",
+   "set": "vectorcraft",
+   "source": "dc-scallop",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "d4be1a0bcae2937af700262f63ac2124d75ac00c51f77a1cb0a5f6cf0b8c45f8"
+  },
+  {
+   "id": "vector-scissors",
+   "label": "Path Scissors",
+   "family": "orange",
+   "set": "lucide",
+   "source": "scissors",
+   "licence": "ISC",
+   "sha256": "4c831fc2c903825f68565c28ffab945c34b2c60b6c564e2ae54250e1099fa550"
+  },
+  {
+   "id": "vector-segment",
+   "label": "Segment",
+   "family": "purple",
+   "set": "local-image",
+   "source": "vector-segment",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "94132e65ccf94f4f007b8937863afea1ae17e028075f9f05ec7434e56a802e35"
+  },
+  {
+   "id": "vector-shape-builder",
+   "label": "Shape Builder",
+   "family": "purple",
+   "set": "vectorcraft",
+   "source": "dc-shape-builder",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "37f1bf74282ce7a831dc21443b47ceef8bfba4dc5a27b29b8b319c10e6c73f2e"
+  },
+  {
+   "id": "vector-shear",
+   "label": "Shear",
+   "family": "grey",
+   "set": "vectorcraft",
+   "source": "dc-shear",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "7d8d05dc5238294cc46f50bc2d46480df33c46c1ff8fe59b9096348b7116d7c7"
+  },
+  {
+   "id": "vector-smooth",
+   "label": "Smooth Path",
+   "family": "purple",
+   "set": "vectorcraft",
+   "source": "dc-smooth",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "edb45f4a0761be8b051b6c69374833dfef36ed9feae49d453bec7397477203f1"
+  },
+  {
+   "id": "vector-spiral",
+   "label": "Spiral",
+   "family": "purple",
+   "set": "tabler",
+   "source": "spiral",
+   "licence": "MIT",
+   "sha256": "68e7604ffcfc31ce9fe921cca43ac22c7919df39487cb5e9aefd36a355963857"
+  },
+  {
+   "id": "vector-square-star",
+   "label": "Square Star",
+   "family": "purple",
+   "set": "local-image",
+   "source": "vector-square-star",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "32ac23a7282d18a5ceb239aba2aa6932d6327c47fac0282277b8526a1a23f85f"
+  },
+  {
+   "id": "vector-star",
+   "label": "Star",
+   "family": "purple",
+   "set": "lucide",
+   "source": "star",
+   "licence": "ISC",
+   "sha256": "c59da86b889569387db28e69ad00a89f96af22863ad9eea9aa12c4876a14338c"
+  },
+  {
+   "id": "vector-style-picker",
+   "label": "Style Picker",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "pipette",
+   "licence": "ISC",
+   "sha256": "3703307928af762a71bf141ba7582b15cb909f3d90916bcfe3c0becdf3ab4e70"
+  },
+  {
+   "id": "vector-tear",
+   "label": "Tear",
+   "family": "purple",
+   "set": "lucide",
+   "source": "droplet",
+   "licence": "ISC",
+   "sha256": "abca4df60f91c605d945c6fe5ee0e6c919b53116d81e268f4581f8841bf24751"
+  },
+  {
+   "id": "vector-transparency",
+   "label": "Transparency",
+   "family": "cyan",
+   "set": "lucide",
+   "source": "blend",
+   "licence": "ISC",
+   "sha256": "0f76939b2becaa51186fa3ecdfed8d734c8fb4e18d04bde0024b472af91ce9fc"
+  },
+  {
+   "id": "vector-trapezoid",
+   "label": "Trapezoid",
+   "family": "purple",
+   "set": "local-image",
+   "source": "vector-trapezoid",
+   "licence": "GPL-3.0-or-later",
+   "sha256": "4a3ee5f977a6bd63f4ad79d92f06e85802673cc2b213ed4f637f2dd1c323d50a"
+  },
+  {
+   "id": "vector-width",
+   "label": "Width",
+   "family": "purple",
+   "set": "vectorcraft",
+   "source": "dc-width",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "15bdeecaa35e46b7666cedeab0fa79eea2f897dd2e9c8e886639fb539e24693d"
+  },
+  {
+   "id": "vector-wrinkle",
+   "label": "Wrinkle",
+   "family": "liquify",
+   "set": "vectorcraft",
+   "source": "dc-wrinkle",
+   "licence": "MIT OR Apache-2.0",
+   "sha256": "df4cd562748360143ccf2f29cd5701303b2546625dffad7feecde2af4fa20ec5"
+  }
+ ]
 }

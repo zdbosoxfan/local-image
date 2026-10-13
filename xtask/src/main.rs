@@ -23,9 +23,10 @@
 //! cargo xtask assets
 //!     audit asset attribution rows and referenced licence files.
 //! cargo xtask tool-icons
-//!     render both contact sheets with resvg at 20/40 px on dark/light backgrounds.
-//! cargo xtask redraw-tool-icons
-//!     regenerate the approved base and filled reviewed source replacements.
+//!     render the tool icon contact sheets with resvg at 16/20/40 px on dark/light backgrounds.
+//! cargo xtask icons
+//!     verify assets/icons/tools against assets/icons/source-manifest.json: pinned hashes, licence
+//!     files, Lucide line style, colour families and registries (nothing is generated).
 //! cargo xtask attributions [--fetch]
 //!     regenerate assets/attributions.json (Settings › Attributions) from
 //!     assets/attributions-curated.json, docs/PORTS.md, the AI model tables and Cargo.lock.
@@ -46,8 +47,7 @@ use anyhow::{Context, Result, bail};
 
 mod assets;
 mod attributions;
-mod tool_art;
-mod tool_art_vector;
+mod icons;
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("xtask sits in the workspace").to_path_buf()
@@ -479,6 +479,7 @@ const USAGE: &str = "usage: cargo xtask <task>
   deps-pure
   upstream-check [--offline]
   assets
+  icons
   tool-icons
   attributions [--fetch]
   sign <files…>";
@@ -497,8 +498,7 @@ fn main() -> Result<()> {
         Some("deps-pure") => deps_pure(),
         Some("upstream-check") => upstream_check(flag("--offline")),
         Some("assets") => assets::run(&root()),
-        Some("redraw-tool-icons") => tool_art::run(&root()),
-        Some("redraw-vector-tool-icons") => Ok(tool_art_vector::run(&root())?),
+        Some("icons") => icons::run(&root()),
         Some("tool-icons") => run("render tool icon contact sheet", &mut tool_icon_command(&root())),
         Some("attributions") => attributions::run(&root(), flag("--fetch")),
         Some("sign") if args.len() > 1 => sign(&args[1..].iter().map(PathBuf::from).collect::<Vec<_>>()),
