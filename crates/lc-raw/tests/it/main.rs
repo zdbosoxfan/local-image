@@ -3,5 +3,6 @@ mod corpus;
 mod dng;
 mod ljpeg_opcodes_dngwrite_coverage;
 mod raw_speed;
+mod rawler_contract;
 mod robust;
 mod vendor_robust;
