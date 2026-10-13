@@ -18,6 +18,7 @@ pub mod i18n;
 pub mod icons;
 pub mod import;
 pub mod links;
+pub mod match_look;
 pub mod menubar;
 pub mod menus;
 pub mod merge;
@@ -68,6 +69,8 @@ mod tests_host_composite;
 mod tests_library_problem;
 #[cfg(test)]
 mod tests_masking;
+#[cfg(test)]
+mod tests_match_look;
 #[cfg(test)]
 mod tests_offline;
 #[cfg(test)]
@@ -122,6 +125,9 @@ pub struct Services {
     pub pick_files: Option<PickFiles>,
     /// Open dialog for preset files (`.lcpreset`, `.xmp`, `.lrtemplate`, `.zip`, `.dng`, Luminar `.lmp` / `.mplumpack`).
     pub pick_preset_files: Option<PickFiles>,
+    /// Open/save versioned Match Look JSON through the host's existing native dialog helpers.
+    pub pick_look_files: Option<PickFiles>,
+    pub save_look_file: Option<SaveFile>,
     /// Open dialog for a GPS track log (`.gpx`; Photo ▸ Auto-Tag from Tracklog…).
     pub pick_tracklog: Option<PickFiles>,
     /// Save dialog for an exported `.lcpreset` file.
@@ -262,6 +268,7 @@ pub struct LightcraftApp {
     pub scan: Option<import::ScanTask>,
     /// A background export in progress.
     pub export: Option<export_task::ExportTask>,
+    pub match_look: match_look::Runtime,
     pub smart_sort: Option<smart_sort_task::SmartSortTask>,
     pub people_task: Option<people_task::PeopleTask>,
     pub people_images: people_task::SeedImages,
@@ -314,6 +321,7 @@ impl LightcraftApp {
         let gpu_test = gpu_test_support::lock();
         // AI mask requests run on the model's worker; frames apply their results (never wait)
         session.segmenter.background = true;
+        match_look::open_global_store(&mut session);
         Self {
             session,
             ui: UiState::default(),
@@ -356,6 +364,7 @@ impl LightcraftApp {
             import: None,
             scan: None,
             export: None,
+            match_look: Default::default(),
             smart_sort: None,
             people_task: None,
             people_images: Default::default(),
@@ -691,6 +700,9 @@ impl LightcraftApp {
         view.run(headless::HeadlessView::raw_input(size, ppp, time, vec![]), |ui| self.ui(ui));
         let img = capture.then(|| {
             let mut tex = self.renderer.cpu_textures();
+            for (id, pixels) in match_look::preview_pixels(self) {
+                tex.insert(id, crate::softpaint::CpuTexture::linear(pixels.into()));
+            }
             if let (Some((t, ..)), Some(px)) = (&self.merge.preview, &self.merge.preview_pixels) {
                 tex.insert(t.id(), crate::softpaint::CpuTexture::linear(px.clone()));
             }
@@ -1057,6 +1069,7 @@ impl LightcraftApp {
             import::progress(self, &ctx);
             import::scan_progress(self, &ctx);
             tasks::progress(self, &ctx);
+            match_look::progress(self, &ctx);
         }
         smart_sort_task::poll(self, &ctx);
         if !self.host_modal {

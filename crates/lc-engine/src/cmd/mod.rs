@@ -19,6 +19,7 @@ pub mod library;
 pub mod lut_profiles;
 pub mod manage;
 mod masks;
+pub mod match_look;
 mod merge;
 pub mod metadata;
 pub mod missing;
@@ -123,6 +124,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(edit::specs());
         v.extend(library::specs());
         v.extend(develop::specs());
+        v.extend(match_look::specs());
         v.extend(negative::specs());
         v.extend(color::specs());
         v.extend(curves::specs());

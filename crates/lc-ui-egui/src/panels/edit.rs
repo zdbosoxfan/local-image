@@ -404,11 +404,15 @@ const REL_TINT: ControlSpec = ControlSpec {
     track: Track::Tint,
 };
 
+// Relative JPEG WB keeps a neutral center and the familiar ±100 presentation while covering
+// the full legal Kelvin range. The former mired mapping silently pinned large Match Look
+// corrections (>13542 K) at +100, leaving a discontinuous first manual adjustment.
 fn k_to_rel(k: f64) -> f64 {
-    ((1e6 / 6500.0 - 1e6 / k) / 0.8).clamp(-100.0, 100.0)
+    let log = (k.clamp(2000.0, 50000.0) / 6500.0).ln();
+    100.0 * log / if log >= 0.0 { (50000.0f64 / 6500.0).ln() } else { (6500.0f64 / 2000.0).ln() }
 }
 fn rel_to_k(r: f64) -> f64 {
-    1e6 / (1e6 / 6500.0 - r * 0.8)
+    6500.0 * ((r.clamp(-100.0, 100.0) / 100.0) * if r >= 0.0 { (50000.0f64 / 6500.0).ln() } else { (6500.0f64 / 2000.0).ln() }).exp()
 }
 
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
@@ -491,11 +495,15 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     if n > 1 {
         egui::Frame::NONE.inner_margin(egui::Margin::symmetric(24, 6)).show(ui, |ui| {
-            if text_button(ui, "syncSettings", crate::i18n::tr("Sync Settings…"), false).clicked() {
+            if text_button(ui, "syncSettings", crate::i18n::tr("Sync Settings…"), false)
+                .on_hover_text(crate::i18n::tr("Sync copies slider values. Match Look solves each target to match a measured reference look."))
+                .clicked()
+            {
                 let _ = app.run("dialog.syncSettings", json!({}));
             }
         });
     }
+    crate::match_look::panel(app, ui);
     if app.session.auto_sync && n > 1 {
         egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 10 }).show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -1800,4 +1808,18 @@ fn quick_develop(app: &mut LightcraftApp, ui: &mut egui::Ui, n: usize) {
             }
         });
     });
+}
+
+#[cfg(test)]
+mod match_look_wb_scale_tests {
+    use super::*;
+    #[test]
+    fn match_look_jpeg_temperature_large_corrections_remain_editable() {
+        for k in [2000.0, 2850.0, 5500.0, 6500.0, 9700.0, 23343.0, 50000.0] {
+            assert!((rel_to_k(k_to_rel(k)) - k).abs() < 1e-8);
+        }
+        assert_eq!(k_to_rel(6500.0), 0.0);
+        assert!(k_to_rel(23343.0) < 90.0);
+        assert!(rel_to_k(k_to_rel(23343.0) + 1.0) > 23343.0);
+    }
 }

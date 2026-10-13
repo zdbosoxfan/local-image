@@ -196,6 +196,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.autoStack", "Auto-Stack by Capture Time…", None, "Photo>Stack"),
     ("dialog.copySettings", "Choose Edit Settings to Copy…", Some("Cmd+Shift+C"), "Edit"),
     ("dialog.pasteSettings", "Paste Selected Settings…", Some("Cmd+Shift+V"), "Edit"),
+    ("dialog.matchLook", "Match Look…", None, "Photo"),
     ("dialog.syncSettings", "Sync Settings…", Some("Cmd+Shift+S"), "Photo"),
     ("view.focusSearch", "Find…", Some("Cmd+F"), "Edit"),
     ("dialog.export", "Export…", Some("Cmd+Shift+E"), "File"),
@@ -218,6 +219,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("photo.locate", "Locate Missing File…", None, ""),
     ("dialog.saveMetadataPreset", "Save Metadata Preset…", None, ""),
     ("app.quit", "Quit Local Image", Some("Cmd+Q"), "File"),
+    ("file.importLook", "Import Look…", None, ""),
+    ("file.exportLook", "Export Look…", None, ""),
     ("file.importPresets", "Import Profiles & Presets…", None, "File"),
     ("file.exportPresets", "Export Presets…", None, "File"),
     // Edit panel ▸ Curve ▸ Point Curve dropdown
@@ -434,6 +437,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         "view.back" => {
             if app.ui.dialog.is_some() {
+                crate::match_look::cancel_preview(app);
                 app.ui.dialog = None;
             } else if app.ui.keyword_painter.is_some() {
                 app.ui.keyword_painter = None;
@@ -960,6 +964,16 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             app.ui.dialog = Some(Dialog::create_preset());
             Ok(Value::Null)
         }
+        "dialog.matchLook" => {
+            if let Err(e) = lightcraft_engine::cmd::match_look::ready(&app.session) {
+                return Some(Err(e));
+            }
+            app.ui.dialog = Some(Dialog::MatchLook { options: app.session.match_look.options });
+            app.match_look.preview = None;
+            Ok(Value::Null)
+        }
+        "develop.analyzeLook" => crate::match_look::analyze(app, p["update"].as_str().map(str::to_string)),
+        "develop.matchLook" => crate::match_look::start(app, p.clone(), false),
         "dialog.syncSettings" => {
             let groups =
                 app.session.copy_groups.iter().filter_map(|g| serde_json::to_value(g).ok().and_then(|v| v.as_str().map(str::to_string))).collect();
@@ -1234,6 +1248,41 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 None => Ok(Value::Null),
             }
         }
+        "file.importLook" => {
+            let paths: Vec<String> = if let Some(paths) = p["paths"].as_array() {
+                paths.iter().filter_map(Value::as_str).map(str::to_string).collect()
+            } else {
+                match app.services.pick_look_files.as_mut() {
+                    Some(f) => f(),
+                    None => return Some(Err("no file dialog on this platform".into())),
+                }
+            };
+            let mut imported = 0;
+            for path in paths {
+                let r = app.session.execute("develop.savedLook", &json!({"action":"importFile","path":path}));
+                match r {
+                    Ok(_) => imported += 1,
+                    Err(e) => return Some(Err(e.to_string())),
+                }
+            }
+            Ok(json!({"imported":imported}))
+        }
+        "file.exportLook" => {
+            let path = if let Some(path) = p["path"].as_str() {
+                Some(path.to_string())
+            } else {
+                match app.services.save_look_file.as_mut() {
+                    Some(f) => f("Match Look.json"),
+                    None => return Some(Err("no file dialog on this platform".into())),
+                }
+            };
+            match path {
+                Some(path) => {
+                    app.session.execute("develop.savedLook", &json!({"action":"exportFile","path":path,"id":p["id"]})).map_err(|e| e.to_string())
+                }
+                None => Ok(Value::Null),
+            }
+        }
         "file.importPresets" => {
             let paths = match p.get("paths").and_then(Value::as_array) {
                 Some(a) => a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
@@ -1436,6 +1485,7 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         }),
         "photo.tagFromTracklog" => app.session.active().is_some() && app.services.pick_tracklog.is_some(),
         "app.exportPrevious" => app.session.active().is_some() && app.session.last_export.is_some(),
+        "dialog.matchLook" => lightcraft_engine::cmd::match_look::ready(&app.session).is_ok(),
         "dialog.syncSettings" => app.session.active().is_some() && app.session.selection.ids.len() > 1,
         "dialog.pasteSettings" => app.session.active().is_some() && app.session.clipboard.is_some(),
         "app.showInFinder" => {

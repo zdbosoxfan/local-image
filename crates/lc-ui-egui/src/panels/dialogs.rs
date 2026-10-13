@@ -106,6 +106,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::AutoStack { .. } => "Auto-Stack by Capture Time",
         Dialog::CreatePreset { .. } => "Create Preset",
         Dialog::CopySettings { .. } => "Choose Edit Settings to Copy",
+        Dialog::UpdateMatchLook { .. } => "Update saved look?",
+        Dialog::MatchLook { .. } => "Match Look",
         Dialog::SyncSettings { .. } => "Sync Settings",
         Dialog::PasteSettings { .. } => "Paste Selected Settings",
         Dialog::Export { .. } => "Export",
@@ -121,17 +123,21 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     .to_string();
     let frame = egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::symmetric(16, 12));
     let exporting = matches!(dlg, Dialog::Export { .. });
-    let shown = egui::Window::new(crate::i18n::tr(&title)).id(egui::Id::new(if exporting { "lightcraft-export-dialog" } else { "lightcraft-dialog" }))
+    let matching = matches!(dlg, Dialog::MatchLook { .. });
+    let match_height = (t.section_h * 18.0).min((screen.height() - t.section_h * 2.0).max(t.section_h));
+    let shown = egui::Window::new(crate::i18n::tr(&title)).id(egui::Id::new(if exporting { "lightcraft-export-dialog" } else if matches!(dlg, Dialog::MatchLook { .. }) { "lightcraft-match-look-dialog" } else { "lightcraft-dialog" }))
         .collapsible(false)
         // the Export dialog is wide (presets beside the sections) and can be resized
         .resizable(matches!(dlg, Dialog::Export { .. }))
         .frame(frame)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .max_height(if exporting {(screen.height()-64.0).max(100.0)} else {f32::INFINITY})
+        .max_height(if exporting {(screen.height()-64.0).max(100.0)} else if matching {match_height} else {f32::INFINITY})
         .max_width(if exporting {(screen.width()-24.0).max(100.0)} else {f32::INFINITY})
-        .default_height(if exporting { (screen.height() * 0.78).min(780.0) } else { 0.0 })
+        .default_height(if exporting { (screen.height() * 0.78).min(780.0) } else if matching {match_height} else { 0.0 })
+        .min_height(if matching {match_height} else {0.0})
         .min_width(if exporting { 800.0_f32.min(screen.width() - 60.0) } else { 0.0 })
         .default_width(match dlg {
+            Dialog::MatchLook { .. } => app.ui.right_width,
             Dialog::Export { .. } => 900.0_f32.min((screen.width()-48.0).max(100.0)),
             Dialog::SaveOverOriginal { .. } => 480.0,
             Dialog::Import { .. } => 760.0,
@@ -142,6 +148,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
             match &mut dlg {
+                Dialog::UpdateMatchLook { name, .. } => { ui.label(egui::RichText::new(crate::i18n::tr("Replace the saved look with a new analysis of the current references?")).color(t.text_label));ui.label(name.as_str()); },
+                Dialog::MatchLook { options } => { egui::ScrollArea::vertical().max_height((ui.available_height() - ui.spacing().interact_size.y - ui.spacing().item_spacing.y).max(t.section_h)).auto_shrink([false, false]).show(ui, |ui| crate::match_look::body(app, ui, options)); },
                 Dialog::SmartSort { .. } => {},
                 Dialog::AutoStack { gap } => {
                     ui.label(egui::RichText::new(crate::i18n::tr("Stack photos taken within this time of each other:")).color(t.text_label));
@@ -455,6 +463,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 }
                 Dialog::TextPrompt { value, hint, .. } => {
                     let r = ui.add(egui::TextEdit::singleline(value).hint_text(hint.as_str()).desired_width(f32::INFINITY));
+                    crate::widgets::register(ui.ctx(), "field:dialogText", r.rect);
                     r.request_focus();
                     if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         confirm = true;
@@ -474,7 +483,11 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     group_checklist(ui, "presetInclude", groups);
                 }
                 Dialog::CopySettings { groups } => group_checklist(ui, "copyGroup", groups),
-                Dialog::SyncSettings { groups } | Dialog::PasteSettings { groups } => {
+                Dialog::SyncSettings { groups } => {
+                    ui.label(egui::RichText::new(crate::i18n::tr("Sync copies slider values. Match Look measures the finished reference look and solves each target's own sliders.")).color(t.text_dim));
+                    group_checklist(ui, "pasteGroup", groups);
+                }
+                Dialog::PasteSettings { groups } => {
                     let n = app.session.targets(&json!({})).len();
                     ui.label(
                         egui::RichText::new(crate::i18n::tr_format!("Paste into {n} photo{} — only settings that were copied are pasted", if n == 1 { "" } else { "s" }, n = n))
@@ -548,6 +561,13 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             }
             ui.add_space(4.0);
             ui.horizontal(|ui| {
+                if let Dialog::MatchLook { .. } = &dlg {
+                    if crate::widgets::text_button(ui, "dialogCancel", "Cancel", false).clicked() { close = true; }
+                    let reason = if app.match_look.control.is_some() { Some("Wait for the current job") }
+                        else if lightcraft_engine::cmd::match_look::ready(&app.session).is_err() { Some("Analyze references or choose a saved look first") } else { None };
+                    if crate::widgets::text_action(ui, "dialogOk", "Apply", reason).clicked() { confirm = true; }
+                    return;
+                }
                 let informational = matches!(dlg, Dialog::About | Dialog::Shortcuts | Dialog::Settings { .. });
                 let sam = &app.session.segmenter;
                 let (sam_installed, sam_running, sam_failed) = (sam.installed(), sam.download_status().running, sam.download_status().error.is_some());
@@ -683,6 +703,10 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             }
             Ok(_) => close = true,
         }
+    }
+    if close && matches!(dlg, Dialog::MatchLook { .. }) {
+        let _ = app.session.save_prefs();
+        crate::match_look::cancel_preview(app);
     }
     app.ui.dialog = if close { None } else { Some(dlg) };
 }
@@ -826,6 +850,8 @@ fn sam_model_body(app: &mut LightcraftApp, ui: &mut egui::Ui, error: Option<&str
 
 pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_json::Value, String> {
     match dlg {
+        Dialog::UpdateMatchLook { id, .. } => crate::match_look::analyze(app, Some(id.clone())),
+        Dialog::MatchLook { options } => crate::match_look::start(app, json!(options), false),
         Dialog::SmartSort { .. } => Ok(serde_json::Value::Null),
         Dialog::SamModel { then, .. } => {
             if app.session.segmenter.installed() {

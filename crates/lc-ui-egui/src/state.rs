@@ -491,6 +491,13 @@ impl Dialog {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Dialog {
+    UpdateMatchLook {
+        id: String,
+        name: String,
+    },
+    MatchLook {
+        options: lightcraft_pipeline::match_look::Options,
+    },
     SmartSort {
         state: Box<crate::panels::smart_sort::SmartSortDialog>,
     },

@@ -884,6 +884,15 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     if ui.button(crate::i18n::tr("Set as Reference Photo")).clicked() {
         let _ = run_context(app, id, "photo.setReference", json!({"id": id.0}));
     }
+    if crate::widgets::text_action(ui, "matchLookSetReference", "Add to Match Look References", None).clicked() {
+        let _ = run_context(app, id, "develop.matchLookReferences", json!({}));
+        ui.close();
+    }
+    let why = lightcraft_engine::cmd::match_look::ready(&app.session).err();
+    if crate::widgets::text_action(ui, "matchLookContext", "Match Look…", why.as_deref()).clicked() {
+        let _ = run_context(app, id, "dialog.matchLook", json!({}));
+        ui.close();
+    }
     ui.separator();
     ui.menu_button(crate::i18n::tr("Set Rating"), |ui| {
         for r in 0..=5 {

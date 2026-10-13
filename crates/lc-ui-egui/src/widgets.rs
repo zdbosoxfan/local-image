@@ -420,12 +420,24 @@ pub fn flyout_row(ui: &mut Ui, id: &str, title: &str, icon: Icon, open: bool) ->
 /// A small bordered text button (Auto, B&W, HDR…).
 pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response {
     let label = if id.starts_with("labelSet-") { label } else { crate::i18n::tr(label) };
+    text_button_translated(ui, id, label, active)
+}
+
+/// Text button for a label already translated or supplied by the user (e.g. a saved look name).
+pub fn text_button_translated(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response {
+    text_button_enabled(ui, id, label, active, ui.is_enabled())
+}
+
+fn text_button_enabled(ui: &mut Ui, id: &str, label: &str, active: bool, enabled: bool) -> Response {
     let t = Tokens::get(ui.ctx());
+    let text_color = if enabled { t.text } else { t.text_disabled };
     let font = t.semibold(11.5);
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font, t.text);
-    let size = vec2((galley.size().x + 18.0).max(37.0), 24.0);
-    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, label));
+    let mut job = egui::text::LayoutJob::simple(label.to_string(), font, text_color, (ui.max_rect().width() - 18.0).max(1.0));
+    job.wrap.max_rows = 1;
+    let galley = ui.painter().layout_job(job);
+    let size = vec2((galley.size().x + 18.0).max(37.0).min(ui.max_rect().width()), 24.0);
+    let (r, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, label));
     register(ui.ctx(), format!("button:{id}"), r);
     let fill = if active {
         t.pressed
@@ -436,7 +448,7 @@ pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response
     };
     let p = ui.painter();
     p.rect(r, CornerRadius::same(4), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
-    p.galley(r.center() - galley.size() / 2.0, galley, t.text);
+    p.galley(r.center() - galley.size() / 2.0, galley, text_color);
     resp
 }
 
@@ -709,7 +721,9 @@ pub fn stars(ui: &mut Ui, id: &str, rating: u8, size: f32) -> Option<u8> {
 /// A borderless dropdown button: `text` followed by a painted chevron (no font glyph needed).
 pub fn dropdown(ui: &mut Ui, id: &str, text: &str, font: egui::FontId, color: Color32) -> Response {
     let t = Tokens::get(ui.ctx());
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font, color);
+    let mut job = egui::text::LayoutJob::simple(text.to_string(), font, color, (ui.available_width() - 20.0).max(1.0));
+    job.wrap.max_rows = 1;
+    let galley = ui.painter().layout_job(job);
     let size = vec2(galley.size().x + 20.0, galley.size().y.max(20.0));
     let (r, resp) = ui.allocate_exact_size(size, Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, text));
@@ -850,4 +864,176 @@ mod access_tests {
         run(vec![egui::Event::Text("1.25".into())]);
         assert!(seen, "focused numeric TextInput must expose its control name and current draft to accessibility");
     }
+}
+
+/// Shared checkbox for Library dialogs. Uses the host's themed egui visuals, translates its
+/// accessible name and exposes a stable automation ID. Used by Match Look options.
+pub fn checkbox(ui: &mut Ui, id: &str, value: &mut bool, label: &str) -> Response {
+    let r = ui.checkbox(value, crate::i18n::tr(label));
+    register(ui.ctx(), format!("check:{id}"), r.rect);
+    r
+}
+
+/// Shared enabled/disabled text action, with an explanation when unavailable.
+pub fn text_action(ui: &mut Ui, id: &str, label: &str, reason: Option<&str>) -> Response {
+    let r = text_button_enabled(ui, id, crate::i18n::tr(label), false, reason.is_none() && ui.is_enabled());
+    if let Some(reason) = reason { r.on_hover_text(crate::i18n::tr(reason)) } else { r }
+}
+
+/// A removable reference strip, wrapped to its panel width. Photo texture is image content;
+/// surrounding chrome uses tokens. Used by the Match Look panel and reusable by reference tools.
+pub fn reference_tray(ui: &mut Ui, items: &[(u64, String, Option<(egui::TextureId, Vec2)>)]) -> Option<u64> {
+    let t = Tokens::get(ui.ctx());
+    let mut removed = None;
+    let edge = t.slider_row_h;
+    let columns = ((ui.available_width() + ui.spacing().item_spacing.x) / (edge + ui.spacing().item_spacing.x)).floor().max(1.0) as usize;
+    let tray = egui::Grid::new(ui.id().with("reference-tray")).num_columns(columns).min_col_width(edge).max_col_width(edge).show(ui, |ui| {
+        for (index, (id, label, texture)) in items.iter().enumerate() {
+            ui.push_id(id, |ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(edge);
+                    let (rect, response) = ui.allocate_exact_size(vec2(edge, edge), Sense::hover());
+                    ui.painter().rect_filled(rect, SWATCH_RADIUS, t.inset);
+                    if let Some((texture, size)) = texture {
+                        let fit = (*size * (edge / size.x.max(size.y).max(1.0))).min(rect.size());
+                        ui.painter().image(
+                            *texture,
+                            Rect::from_center_size(rect.center(), fit),
+                            Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
+                    }
+                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, label));
+                    response.on_hover_text(label);
+                    if icon_button(
+                        ui,
+                        &format!("matchReferenceRemove-{id}"),
+                        Icon::Close,
+                        ui.spacing().interact_size,
+                        false,
+                        true,
+                        &format!("Remove reference: {label}"),
+                    )
+                    .clicked()
+                    {
+                        removed = Some(*id);
+                    }
+                });
+            });
+            if (index + 1) % columns == 0 {
+                ui.end_row();
+            }
+        }
+    });
+    register(ui.ctx(), "matchLook:tray", tray.response.rect);
+    removed
+}
+
+/// Quiet summary chips that wrap without growing a narrow panel. Shared by analysed looks.
+pub fn summary_chips(ui: &mut Ui, labels: &[String]) {
+    let t = Tokens::get(ui.ctx());
+    let padding = ui.spacing().button_padding.y as i8;
+    ui.horizontal_wrapped(|ui| {
+        let limit = ui.max_rect().width();
+        for label in labels {
+            let width = ui.painter().layout_no_wrap(label.clone(), t.font(11.0), t.text_label).size().x + 2.0 * padding as f32;
+            if width > ui.available_size_before_wrap().x && ui.cursor().left() > ui.max_rect().left() + ui.spacing().item_spacing.x {
+                ui.end_row();
+            }
+            egui::Frame::NONE.fill(t.inset).corner_radius(SWATCH_RADIUS).inner_margin(egui::Margin::same(padding)).show(ui, |ui| {
+                let text = egui::Label::new(egui::RichText::new(label).font(t.font(11.0)).color(t.text_label));
+                ui.add(text.wrap_mode(if width > limit { egui::TextWrapMode::Wrap } else { egui::TextWrapMode::Extend }));
+            });
+        }
+    });
+}
+
+/// Fixed-height photo preview, including its empty state, for dialogs whose footer must stay
+/// stationary while a worker loads an image. Used by Match Look; content preserves aspect.
+pub fn image_preview(ui: &mut Ui, id: &str, texture: Option<(egui::TextureId, Vec2)>, empty: &str) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let width = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(vec2(width, width.min(t.section_h * 4.0)), Sense::hover());
+    ui.painter().rect_filled(rect, SWATCH_RADIUS, t.canvas);
+    if let Some((texture, size)) = texture {
+        let size = size * (rect.width() / size.x).min(rect.height() / size.y);
+        ui.painter().image(texture, Rect::from_center_size(rect.center(), size), Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
+        register(ui.ctx(), id, rect);
+    } else {
+        let text = crate::i18n::tr(empty);
+        let galley = ui.painter().layout(text.to_string(), t.font(11.5), t.text_dim, width);
+        ui.painter().galley(rect.center() - galley.size() / 2.0, galley, t.text_dim);
+    }
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, crate::i18n::tr("Match Look preview")));
+    response
+}
+
+/// Shared cancellable job window for Library workers (culling and Match Look).
+/// Uses the host palette and the shared action's accessible name/automation ID.
+pub fn job_progress(ctx: &egui::Context, title: &str, id: &str, completed: usize, total: usize) -> bool {
+    let mut cancel = false;
+    egui::Window::new(crate::i18n::tr(title)).collapsible(false).resizable(false).show(ctx, |ui| {
+        ui.add(egui::ProgressBar::new(completed as f32 / total.max(1) as f32).text(format!("{completed} / {total}")));
+        cancel = text_button(ui, id, "Cancel", false).clicked();
+    });
+    cancel
+}
+
+/// Accessible reference/before-versus-result wipe. Reused by photo comparison dialogs.
+/// Images retain aspect; the chrome and divider use Library theme tokens.
+pub fn compare_preview(
+    ui: &mut Ui,
+    id: &str,
+    left: Option<(egui::TextureId, Vec2)>,
+    right: Option<(egui::TextureId, Vec2)>,
+    left_label: &str,
+    wipe: &mut f32,
+) -> Response {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(crate::i18n::tr(left_label)).font(t.font(11.5)).color(t.text_label));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(egui::RichText::new(crate::i18n::tr("Result")).font(t.font(11.5)).color(t.text_label));
+        });
+    });
+    let width = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(vec2(width, width.min(t.section_h * 4.0)), Sense::drag());
+    ui.painter().rect_filled(rect, SWATCH_RADIUS, t.canvas);
+    if response.dragged()
+        && let Some(pointer) = response.interact_pointer_pos()
+    {
+        *wipe = ((pointer.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+    }
+    let split = rect.left() + rect.width() * wipe.clamp(0.0, 1.0);
+    for (image, clip) in
+        [(left, Rect::from_min_max(rect.min, pos2(split, rect.bottom()))), (right, Rect::from_min_max(pos2(split, rect.top()), rect.max))]
+    {
+        if let Some((texture, size)) = image {
+            let size = size * (rect.width() / size.x).min(rect.height() / size.y);
+            ui.painter().with_clip_rect(clip.intersect(ui.clip_rect())).image(
+                texture,
+                Rect::from_center_size(rect.center(), size),
+                Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
+        }
+    }
+    ui.painter().line_segment([pos2(split, rect.top()), pos2(split, rect.bottom())], Stroke::new(1.0, t.text_label));
+    register(ui.ctx(), id, rect);
+    register(ui.ctx(), format!("wipe:{id}"), rect);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, crate::i18n::tr("Drag to compare")));
+    response.on_hover_text(crate::i18n::tr("Drag the divider to compare the reference or original with the result."))
+}
+/// Reusable change summaries with individual reset actions. Used after Match Look and in its
+/// optional preview; reset buttons return a stable group key to the caller.
+pub fn change_summary(ui: &mut Ui, id: &str, rows: &[(&str, String)], disabled: Option<&str>) -> Option<String> {
+    let t = Tokens::get(ui.ctx());
+    let mut reset = None;
+    for (group, text) in rows {
+        ui.label(egui::RichText::new(text).font(t.font(11.5)).color(t.text_label));
+        if text_action(ui, &format!("{id}Reset-{group}"), &format!("Reset {}", crate::i18n::tr(group)), disabled).clicked() {
+            reset = Some((*group).to_string());
+        }
+    }
+    reset
 }

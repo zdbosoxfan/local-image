@@ -58,3 +58,14 @@ read-only robustness reference. **No code was ported from it.** Our existing spa
 held-out JPEG fit uses median bins, isotonic regression and validation instead of global CDF
 matching: this preserves correspondences and rejects unrelated previews. Low-colour photos
 with valid camera calibration can fit tone/chroma without fitting a new colour matrix.
+
+## Match Look CDF tone projection
+
+`crates/lc-pipeline/src/match_look.rs` adapts `rtengine/histmatching.cc` at
+`0fdac3797aebbba4a751184e60278e5460bc56b7`, Copyright (c) 2018 **Alberto Griggio**,
+**GPL-3.0-or-later**. Unlike the paired raw/JPEG camera calibration mentioned above, this
+Match Look port matches populated luminance quantiles between unrelated finished images,
+excludes empty/clipped tails, creates a monotone sparse CDF map and projects it in a fixed
+order onto existing sliders. We add slope bounds and a regularized LM fit, and do not apply
+RawTherapee's Catmull-Rom curve directly. Distributed under the repository's GPL-3.0-or-later
+LICENSE, without warranty. No upstream C/C++ is included in the Rust build.

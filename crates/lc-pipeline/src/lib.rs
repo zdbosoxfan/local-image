@@ -53,6 +53,7 @@ pub mod llf;
 pub mod local;
 pub mod lut;
 pub mod masks;
+pub mod match_look;
 pub mod metrics;
 pub mod negative;
 pub mod optics;

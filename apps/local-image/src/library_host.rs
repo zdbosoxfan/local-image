@@ -1605,6 +1605,19 @@ fn services(opens: Opens) -> Services {
             .map(|p| p.to_string_lossy().to_string())
             .collect()
         })),
+        pick_look_files: Some(Box::new(|| {
+            crate::file_dialog_probe::explain_empty(file_dialog().set_title("Import Look").add_filter_nocase("Match Look JSON", &["json"]).pick_files())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect()
+        })),
+        save_look_file: Some(Box::new(|name: &str| {
+            crate::file_dialog_probe::explain_empty(
+                file_dialog().set_title("Export Look").add_filter_nocase("Match Look JSON", &["json"]).set_file_name(name).save_file(),
+            )
+            .map(|p| p.to_string_lossy().to_string())
+        })),
         pick_tracklog: Some(Box::new(|| {
             crate::file_dialog_probe::explain_empty(file_dialog().set_title("Auto-Tag from Tracklog").add_filter_nocase("GPS Track Log", &["gpx"]).pick_file())
                 .map(|p| vec![p.to_string_lossy().to_string()])
