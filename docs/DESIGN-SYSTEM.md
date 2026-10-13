@@ -1,70 +1,240 @@
 # Design system
 
-Local Image uses Microsoft's **Fluent UI 2** through
-[`@fluentui/react-components`](https://react.fluentui.dev/) (v9), the design
-system behind Windows 11 and Microsoft 365. It matches the Windows/WebView2 host
-and the Segoe UI typeface. New interface work should use Fluent's own
-components, icons and tokens rather than hand-built equivalents.
+Local Image 2 is an all-Rust egui 0.36 app. **Our design system is the one we inherited from the two apps
+we forked, and we keep it:** the editor (Compositing) follows **PhotoCraft's** system, Library and Develop
+follow **LightCraft's**. The owner likes how the app looks, so do not invent a new style. The current code
+is the ground truth; this page records what it is, where it came from and where we deliberately differ.
+(The retired Fluent/React web app had another system; none of it applies.) Line numbers are at the time of
+writing; search for the names if they have drifted.
 
-## Rules
+## 1. Provenance and principles
 
-1. **Components come from Fluent.** Use the Fluent component for each job:
-   `Button`, `ToggleButton`, `Toolbar` (`ToolbarButton`, `ToolbarToggleButton`,
-   `ToolbarRadioButton`, `ToolbarDivider`), `Menu`, `TabList`, `Field`, `Input`,
-   `Select`, `Slider`, `Checkbox`, `Dialog`, `Accordion`, `Badge`, `ProgressBar`.
-   Do not style a plain `<button>`, `<details>` or `<span>` to imitate one.
-   One-of-many pickers (model, precision, output folder, zoom) use
-   `ChoiceSelect` (`features/shell/ChoiceSelect.tsx`), which is Fluent's
-   `Select` fed by a plain list of choices, so every picker looks and behaves
-   the same. Do not build a picker from `Menu` and a button.
-2. **Icons come from Fluent System Icons.** Every glyph is registered once in
-   `frontend/src/features/shell/Icon.tsx` and used as `<Icon name="…" />`.
-   To add one, import the matching `…20Regular` icon from
-   `@fluentui/react-icons` and add it to that map. Never draw an SVG by hand or
-   type a character (`+`, `×`, `…`, arrows) as an icon.
-3. **Icon-only buttons need a name and a tooltip.** Give them `aria-label`
-   and wrap them in `<Hint content="…">` (`features/shell/Hint.tsx`), which is
-   Fluent's `Tooltip`. Use `relationship="description"` when the tooltip adds
-   detail such as a shortcut. Do not use the browser's `title` attribute for
-   this.
-4. **Colors, radii and shadows are Fluent tokens.** In CSS use
-   `var(--colorNeutralBackground2)`, `var(--colorBrandStroke1)`,
-   `var(--borderRadiusMedium)` and so on. Only two fixed colors are allowed,
-   because they must look the same over any image: the transparency
-   checkerboard and the brush-cursor ring in `frontend/src/editor.css`.
-5. **The theme is `webDarkTheme`.** `frontend/src/theme.ts` only adapts
-   typography (Segoe UI Variable, and sizes that follow the Interface size
-   setting). Do not override colors or radii there.
-6. **Toggles look like toggles.** On/off commands use `ToggleButton` or
-   `ToolbarToggleButton`; one-of-several choices use `ToolbarRadioButton` in a
-   `Toolbar` with `checkedValues`. Do not hand-style `aria-pressed` on buttons;
-   the shared image-picker style in rule 8 is the only exception.
-7. **One home per command.** A command appears once in its natural place: the
-   command bar (Undo/Redo, Assets, Remove backgrounds in the Cutout workspace,
-   Inspector, Export, Settings), the zoom controls in the status bar (Zoom,
-   Fit), the document tabs row (New workspace) or the document bar (Original,
-   Save). Menus may repeat commands with their shortcuts.
-8. **Image pickers share one selected style.** Add the `li-selectable` class
-   to a thumbnail button and set `aria-pressed` (or `aria-current`); do not add
-   a separate selected style.
-9. **Large interface size must keep working.** Check new controls at
-   **Settings → Interface size → Large** and at an 800 × 560 window. The
-   command bar collapses to icon-only buttons when its labels do not fit.
+| Part | Follows | Source document |
+| --- | --- | --- |
+| Editor tokens, themes, widgets, Photoshop layout grammar, icons, fonts, "verify visually" | PhotoCraft | `docs/upstream/photocraft/ui-design.md` (latest: `docs/ui-design.md` in the upstream repo), UI rules 5 and 6 in its `AGENTS.md` |
+| Library/Develop tokens, sliders, panel look, asset and icon rules | LightCraft | no UI design doc exists upstream; the code is the spec: `crates/ui-egui/src/theme.rs` header (dark values measured from the reference app), `docs/upstream/lightcraft/AGENTS.md` (asset rules, "look at the result"), `docs/ui-parity.md` |
+| Adobe-asset ban, attribution, `cargo xtask assets` | both | the two `AGENTS.md` files |
 
-## Layout
+Crates: `pc-ui-egui` (editor; upstream `photocraft-ui-egui`) and `lc-ui-egui` (library; upstream
+`lightcraft-ui-egui`). Each has `theme.rs`, `widgets.rs`, `icons.rs`. `apps/local-image/src/library_host.rs:49`
+(`library_palette`) maps the editor's active theme onto the library's `Tokens`, so one theme choice
+recolours both. Use your own crate's module; do not reach across.
 
-| Region | Contents |
-| --- | --- |
-| Menu bar | File, Edit, Layer, Select, View, Help |
-| Workspace bar | Retouch / Cutout / Generate tabs; command bar |
-| Tool options | Options for the active tool |
-| Tool rail (left) | Move, Quick Heal, selection tools, Hand |
-| Canvas | Document bar (name, status badge, Original, Save) above the image |
-| Inspector (right) | Layers, opacity and cutout properties, or the Generate panel |
-| Status bar | Tool hint, status message, zoom controls |
+**Where we differ from upstream (deliberate):**
 
-## Code style
+- **Themes.** Upstream PhotoCraft ships 14 (Pro, Pro Medium, Pro Light Gray, Pro Light, Studio, Studio Light,
+  Classic, Adwaita, Adwaita Dark, Solarized Dark, Breeze Light/Dark, Soft Dark/Light) and LightCraft four
+  (Charcoal, Midnight, Silver, Paper). We ship the editor's five (`ThemeKind`, `pc theme.rs:17`: Pro,
+  Pro Medium (default), Studio, Studio Light, Classic) and the library takes its palette from the host.
+- **New shared widgets** added here to replace one-off painting: editor `icon_action`, `color_tile`; library
+  `color_swatch`, `range_strip`, `disclosure`, `image_badge`, `icon_button_as`, and the `overlay_bg`/`overlay_fg`
+  tokens. Upstream has none of them. Upstream widgets we do not have: `elided_label`, `panel_footer`,
+  `compact_button`, `text_field`. The rule against hand-painted controls is upstream's ("colours and radii
+  come from tokens, never hard-coded") made stricter (section 8).
+- **Library icons** are drawn in code with a shared pen (`lc icons.rs`), as upstream; tool images are the
+  approved Glossy Duotone set, shared by both crates, with reviewed Krita/Lucide replacements.
 
-The frontend is formatted with Prettier (`frontend/.prettierrc.json`). Run
-`npm run format` in `frontend/` before committing; `npm run format:check`
-verifies it.
+**Principles (from the upstream apps and the owner).**
+
+1. **Feel at home.** A Lightroom, Capture One, Photoshop or Affinity user finds things where they expect,
+   with familiar names and shortcuts. PhotoCraft's goal is Photoshop parity; LightCraft's is Lightroom's.
+2. **Consistency.** One checkbox, one dropdown, one icon button, one colour tile.
+3. **No one-off UI.** A screen that paints its own control drifts and misses focus, disabled,
+   accessibility and theme behaviour. See rule 8.
+4. **The photo is the hero.** Chrome is flat and neutral; colour on screen should be the image's.
+5. **Photoshop layout grammar (editor, from PhotoCraft).** Essentials dock order (`pc dock.rs:76`); options-bar
+   labels end with a colon (`pc panels.rs:1205`); document tabs read `name @ 12.5% (RGB/8)` (`pc canvas.rs:1417`);
+   tool groups carry a corner triangle.
+
+## 2. Tokens
+
+Source: PhotoCraft's `ui-design.md` (Themes, Rules) for the editor; LightCraft's `theme.rs` for the library.
+
+**Where.** `Tokens` is a plain `Copy` struct read each frame; widgets never store colours.
+Editor: `pc-ui-egui/src/theme.rs:68` (`Tokens`), built by `Tokens::for_kind` (`:121`) and read with
+`Tokens::get(ctx)` (`:300`). Library: `lc-ui-egui/src/theme.rs:11` (`Tokens`), default in `:63`, read with
+`Tokens::get(ctx)` (`:112`); a host palette is installed through `apply_tokens` (`:201`).
+
+**Themes.** `ThemeKind` (`pc theme.rs:17`): `Pro` (darkest), `ProMedium` (default, Photoshop mid-grey),
+`Studio`, `StudioLight`, `Classic` (bevelled, square). `Tokens::dark()` (`:328`) tells dark from light.
+`Tokens::pro` / `bevel` switch Photoshop-style tab strips and Classic bevels. The library has one dark
+default and a light palette supplied by the host (`Tokens.dark`).
+
+**Colour roles (editor).** Surfaces: `chrome` (title bar, toolbars), `canvas`, `dock`, `card`/`card_border`,
+`field`/`field_border`, `row_selected`, `tab_strip`. States: `hover`, `pressed`. Text: `text`, `text_dim`,
+`text_faint` (also the disabled colour), `icon`. Accent: `accent`, `accent_soft`, `accent_border`,
+`accent_text`; primary button `primary_bg`/`primary_text`. Status: `danger`, `warning`. Lines:
+`separator`, `shadow`. Scopes: `histogram_bg`, `histogram_level` (use `histogram_color`, `scope_hue`).
+**Library** uses `chrome`, `canvas`, `grid_bg`, `inset`, `field`/`field_border`, `button`/`button_border`,
+`hover`, `pressed`, `tool_active`, `divider`, `text`/`text_label`/`text_dim`/`text_disabled`, `accent`,
+`caution`, and `overlay_bg`/`overlay_fg` for anything drawn over photo pixels (badges, scrims), which must
+read the same in light and dark chrome. Image data (a swatch's colour, mask black/white, the
+transparency checker) is content, not chrome, and may be literal.
+
+**Shape.** Radii: `radius_sm` / `radius` / `radius_lg` = Pro 3/4/6, Studio 6/8/12, Classic 0/0/0
+(`pc theme.rs:100`). Library: buttons and rows 4, windows and menus 6, swatch tile 3 (`SWATCH_RADIUS`),
+badge 6 (`BADGE_RADIUS`). Strokes are 1 pt everywhere (`Stroke::new(1.0, ..)`); never thicker for chrome.
+Spacing: editor `item_spacing` 8x6, `button_padding` 10x4, `interact_size` 24, `ROW_GAP` 4 between stacked
+panel rows (`pc theme.rs:547`), `TOOLTIP_DELAY` 0.35 s (`:543`). Library: item spacing 6x4, button padding
+8x3, interact height 22 (`lc theme.rs:201`), metrics `panel_w` 270, `section_h` 57, `slider_row_h` 45.
+
+**Type scale.** Faces: Inter (UI), Inter SemiBold (`theme::semibold`/`Tokens::semibold`), Inter Medium
+(editor `medium`), JetBrains Mono for numbers (`mono`). CJK fallbacks load from craft-fonts
+(`pc theme.rs:334`, `lc theme.rs:142`). Sizes are one fixed scale: 10.5, 11, 11.5, 12, 12.5, 13, 14 pt
+(headings 15 editor / 16 library). Pass them through the helpers (`t.font(12.0)`, `theme::semibold(12.5)`),
+never `FontId::new(..)` by hand. Preferences > Interface > UI Font Size scales every face at once
+(`pc theme.rs:414`), so do not multiply sizes yourself.
+
+**Add a token.** Add the field to `Tokens`, give it a value in every theme (`for_kind` arms in the editor;
+`Default` and `library_palette` plus `tests_develop_c::light()` in the library), use it, and check contrast
+in light and dark. Do not add a token for a one-off; first try an existing role. Debug builds can tune
+tokens live with `PHOTOCRAFT_THEME_FILE` (`pc theme.rs:672`).
+
+## 3. Widget catalogue
+
+Editor widgets are PhotoCraft's (`widgets.rs`) except where marked new; library widgets are LightCraft's
+except where marked new. **New here** (not upstream): `icon_action`, `color_tile`, `color_swatch`,
+`range_strip`, `disclosure`, `image_badge`, `icon_button_as`.
+
+Rule of thumb: reach for these before touching `egui::Button`, `ui.checkbox` or `Painter` directly. Editor
+file `crates/pc-ui-egui/src/widgets.rs` (`pc`), library file `crates/lc-ui-egui/src/widgets.rs` (`lc`).
+
+### Editor (`pc`)
+
+| Widget | Purpose and usage | Line |
+| --- | --- | --- |
+| `card` / `card_ex` | Dock card with pill-tab header, collapsible; `card(ui, id, &tabs, &mut sel, \|ui, i\| ..)` | 37 / 59 |
+| `pill_tab` (`_translated`) | One tab in a strip or a two-way switch: `pill_tab(ui, "Layers", on)` | 141 |
+| `surface` | Flat or Classic-bevelled box behind custom content | 22 |
+| `drop_line` | Accent insertion line while dragging onto a row | 10 |
+| `slider` / `slider_row` (`_translated`) | Thin slider; labelled row with value field and optional gradient track | 251 / 312 |
+| `value_field` (`_with_precision`) | Monospace number field with unit suffix, drag to scrub | 168 / 174 |
+| `toggle` | Switch for an immediate on/off setting | 346 |
+| `checkbox` | The only checkbox: `widgets::checkbox(ui, &mut on, "Label")` | 705 |
+| `primary_button` / `secondary_button` | Filled main action / outlined action, `(ui, label, min_width)` | 375 / 380 |
+| `dialog_buttons`, `DialogButton`, `ButtonRole` | Every modal's button row, in the platform's order (Default, Alternate, Cancel, Apply) | 435 / 414 / 387 |
+| `dropdown` | Compact choice list: `dropdown(ui, id, &mut cur, &[(v, "Label")], width)` | 570 |
+| `dropdown_with_tooltips` | Same, each option with a hint | 637 |
+| `dropdown_menu` | Dropdown shell for grouped or custom rows | 585 |
+| `menu_scroll` | Body of a context menu that scrolls instead of running off screen | 594 |
+| `swatch_popup` | Colour picker popup anchored to a swatch | 612 |
+| `icon_action` | Square footer/header icon button with accessible label and disabled-with-reason: `icon_action(ui, "plus", 24.0, "New Swatch", tip, None)` | 660 |
+| `color_tile` | Paint a colour value (checkerboard under alpha, `radius_sm`, outline). Paint only; owner supplies click and name | 679 |
+| `checker` | Transparency checkerboard | 690 |
+| `section_label` (`_translated`) | Small-caps section heading in a panel | 534 |
+| `hairline` / `vline` | Horizontal / vertical separators | 545 / 552 |
+| `rgb_histogram` | Histogram plot on scope tokens | 523 |
+| `hue_stops` | Hue spectrum stops for colour sliders | 559 |
+| `chevron_icon` | Dropdown chevron (do not use egui's triangle) | 735 |
+| `fmt_num`, `fmt_num2`, `parse_num` | Number display and typed-arithmetic parsing | 744 / 750 / 758 |
+
+Also in `pc-ui-egui/src/icons.rs`: `icons::button` (`:235`, square icon button), `rail_button` (`:249`),
+`tool_button` (`:290`, tool images), and `button_chrome` (`:217`, the shared hover/selected fill).
+
+### Library (`lc`)
+
+| Widget | Purpose and usage | Line |
+| --- | --- | --- |
+| `slider` / `numeric_slider` | Lightroom slider row: label, value, ring thumb; double-click resets, Shift fine | 147 / 162 |
+| `section_header` | Collapsible 52 pt panel section: `section_header(ui, id, "Light", open, enabled)` | 355 |
+| `disclosure` | One-line chevron + title for a fold inside a panel; `DISCLOSURE_H` 24 | 548 |
+| `flyout_row` | Inset row with icon tile that opens a sub-editor (Curve, Color Mixer) | 396 |
+| `text_button` | Small bordered text button (Auto, B&W) | 421 |
+| `segmented` | Equal-width segmented control, `per_row` wraps | 445 |
+| `icon_button` / `icon_button_as` | Icon-only button; `_as` keeps a legacy automation id like `button:layerNew` | 480 / 486 |
+| `tool_button` | Tool-strip button with tool image | 490 |
+| `dropdown` | Borderless text + chevron button that opens a menu | 710 |
+| `color_swatch` | Colour sample tile, optionally a selectable choice; `SWATCH_RADIUS` 3 | 587 |
+| `range_strip` | Caption over a colour strip with selected window(s) outlined; `RANGE_STRIP_H` 14 | 620 |
+| `image_badge` | Badge over photo pixels (`overlay_bg`/`overlay_fg`); `BADGE_H` 24, `BADGE_RADIUS` 6 | 654 |
+| `stars` | Five-star rating row | 685 |
+| `divider` | Thin divider between groups | 388 |
+| `preview_only_notice` | Amber panel notice for a raw shown from its embedded preview | 45 |
+| `register` / `take_registry` | Record a widget's automation id and rect for the control protocol and tests | 17 / 22 |
+| `hex`, `lerp`, `BAND_COLORS`, `nudged` | Colour and value helpers | 70 / 75 / 82 / 348 |
+
+### Duplicates across the crates (consolidation later)
+
+Both crates have their own icon button (`icons::button`+`icon_action` vs `icon_button`), colour tile
+(`color_tile` vs `color_swatch`), dropdown (`dropdown` vs `dropdown`), segmented/tab control (`pill_tab` vs
+`segmented`), separator (`hairline` vs `divider`) and section heading (`section_label` vs `section_header`).
+Merging needs a token trait both crates share, so until then keep the two in step: change both when you
+change the look of one, and name a new widget the same in each crate.
+
+## 4. Icons
+
+From PhotoCraft's "Icons" and "Adding icons" rules (Lucide SVGs, ISC, embedded via `icon_data.rs`) and both
+`AGENTS.md` asset rules. We differ in that icons are registered by hand in `icon_data.rs` (no curl/regenerate
+script) and tool glyphs are generated by `xtask`.
+
+- **Style.** Outline, 24 px grid, round caps and joins, 2 px stroke in the source (rendered at 1.75), single
+  colour, recoloured to the theme `icon` tint at draw time. Tool controls may use the approved Glossy Duotone
+  set (colour optional via Preferences). Draw at about half the button box (`box_size * 0.52`).
+- **Use.** `icons::button(ui, "name", box, selected, "Tooltip")` or `widgets::icon_action`; library
+  `widgets::icon_button(ui, id, Icon::X, size, active, enabled, "Tooltip")`.
+  Never type a character (`+`, `x`, arrows) as an icon.
+- **Add a generic icon (editor).** Put a Lucide-style SVG in `assets/icons/<name>.svg` (`stroke="currentColor"`),
+  register it in `pc-ui-egui/src/icon_data.rs` (`ICONS`), add its row to the table in `assets/icons/SOURCES.md`
+  and a row in `assets/ATTRIBUTION-lightcraft.md` (a path pattern in its first column).
+  Tool glyphs are generated: `cargo xtask redraw-tool-icons` then `cargo xtask tool-icons`.
+- **Add a library icon.** Add a variant to `Icon` (`lc icons.rs:8`) and draw it in `paint` (`:147`) with the
+  shared pen on a 20x20 grid, 1.5 px strokes.
+- **Attribution.** Every asset needs a licence row or `cargo xtask assets` (part of `cargo xtask ci`) fails:
+  creator, source and pinned commit, licence, date, modifications. Lucide is ISC (some MIT via Feather);
+  Krita glyphs are CC-BY-SA-4.0; never use anything from Adobe products. Provenance and hashes live in
+  `assets/icons/SOURCES.md` and `source-manifest.json`; licence texts sit beside them.
+
+## 5. Layout rules
+
+- **Panel inset.** Develop panels indent content `Margin { left: 24, right: 22 }` (see
+  `lc panels/masking.rs:77`, `layer_bar.rs:43`, `develop_tools.rs:16`). A row that skips the inset sits
+  flush against the panel edge; this has been a real bug. Use the same inset for new Develop rows.
+- **Dock widths.** Editor dock: 250 to 520 pt, default 290/300 (`pc panels.rs:1332`). Library right panel:
+  250 to 520, default 270; left sidebar 200 to 480 (`lc state.rs:238`). Everything must work at **250 pt
+  (narrow)** and **400 pt (normal)**: no clipped labels, no horizontal scrollbar, long text elides with
+  "...", buttons that do not fit wrap to their own row.
+- **HiDPI.** Test at 1.0 and 1.5 pixels-per-point (examples: `pc menu_nav_tests.rs:10`). Size in points,
+  never pixels; icons are rasterised at the exact on-screen size so they stay crisp.
+- **Scrolling.** A column that can overflow is wrapped in a vertical `ScrollArea`; context menus use
+  `widgets::menu_scroll`. A dock group never grows with its content; taller content scrolls inside it (`pc dock.rs:4`).
+- **Rows.** Stack panel rows with `ROW_GAP`; align labels, fields and sliders on one left edge.
+
+## 6. Accessibility
+
+- Every interactive widget has an accessible name. Icon-only buttons need a label as well as a tooltip
+  (`icon_action(.., label, tip, ..)`; `icons::button` uses the tooltip text); tiles and strips get one via
+  `widget_info`/the `label` argument (`color_swatch`, `range_strip`).
+- A disabled control says why: pass the reason as the tooltip (`icon_action(.., Some("Open a document first"))`),
+  never just grey it out. Disabled must also mean no click, no focus, and disabled for screen readers.
+- Everything is reachable by keyboard: Tab order follows reading order, focus shows the same fill as hover,
+  Enter/Space activate, Esc closes. Dialog buttons come from `dialog_buttons` for the right order and Tab walk.
+- Text contrast must stay readable on every theme; derive colours from tokens (`text_on`, `readable_text`
+  in `lc theme.rs:252`). Translate user-visible text with `tl!("...")` (editor) / `i18n::tr` (library); the
+  `_translated` widget variants are for text already translated.
+
+## 7. Testing
+
+- **Behaviour.** `egui_kittest` harnesses drive the real UI and query by accessible name or automation id
+  (`pc-ui-egui` tests such as `props_layout_tests.rs`, `menu_nav_tests.rs`; widget tests live beside the
+  widget, e.g. `widgets::tests`). A new widget gets a test that it names itself, responds, and, if it can
+  be disabled, explains why.
+- **Library/Develop.** The `headless.rs` driver (`lc-ui-egui/src/headless.rs`) runs the whole app offscreen
+  with CPU rasterisation; tests click by automation id (`ui.clickWidget`) and read rectangles.
+- **Screenshots.** Upstream's rule ("verify every visual change": PhotoCraft `ui-design.md`, `AGENTS.md` rule 6;
+  LightCraft "look at the result") applies: use the offscreen `snapshot` example
+  (`crates/pc-ui-egui/examples/snapshot.rs`) or the control channel's `ui.screenshot` (`headless: true` for the
+  library). UI changes are checked as pictures in **both themes at both widths** (dark and light, 250
+  and 400 pt). Reference harnesses, run with `--ignored`: `pc design_system_shots.rs` (kittest, GPU, Pro vs
+  Studio Light) and `lc tests_design_system.rs` (headless, default dark vs `tests_develop_c::light()`);
+  output goes to `target/design-system/`. Look at them; passing assertions do not prove it looks right.
+- Do not run the full workspace build for a UI tweak; run the owning crate's lib tests.
+
+## 8. The rule
+
+**Never hard-code colours/sizes or hand-paint a control that a widget provides; if a new element is needed,
+add one documented reusable widget to the shared module and use it everywhere it applies.**
+
+In practice: no `Color32::from_rgb` or `from_gray` in chrome, no `rect_filled` for a button, no raw
+`ui.checkbox`/`ComboBox`/`ui.button` where `widgets::` has one, no private copy of a widget in a panel file.
+A new widget goes in `widgets.rs` with a doc comment saying what it is for and where it is used, themes
+through tokens, names itself for accessibility, and replaces every ad hoc copy in the same change.
