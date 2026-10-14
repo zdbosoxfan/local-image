@@ -10,6 +10,9 @@ The feature branch incorporates published v2 through `0ad93000`, including the s
 codec/CMS and RAW Develop path, camera data, DeviceHealth recovery, Camera Raw preview
 unification and full-precision GPU bridge, library safety, shared `li-color` and shared `li-raster`. J2 was independently
 submitted and merged as PR #15; its report is `CODEX-REPORT-j02-li-color.md`.
+The branch inherits the earlier high-resolution RAW prerequisite `af3829f0`, separately
+submitted as open PR #13. Current color/cache/measurement work does not edit `lc-raw`,
+but the cumulative feature-branch diff against v2 still contains that prerequisite.
 
 Current Match Look workflow includes twenty mixed catalog/external references, portable
 version-three saved looks with preview images and tool options, nineteen individual
@@ -120,6 +123,18 @@ Both workflows changed all five hundred targets in one Undo entry and produced a
 GPU texture. Cached Apply used 26,500 renders; direct Apply used 83,000. The new ignored
 direct-Apply benchmark deliberately exposes the remaining throughput failure; the cached
 pass does not establish completion of the general performance requirement.
+
+At `0a61f9bd`, exact chroma reuse removes two repeated hypot calculations per measured
+pixel. All sixty-two focused pipeline tests pass, including a full-Look bit oracle against
+the original formula. Isolated 60/256/512-edge measurements improved by approximately
+7–16%, with at most 2 MiB additional transient solver scratch. A further actual direct
+five-hundred-proxy run took 144.058 s, with 83,000 renders, 2.779 ms UI frame p95 and
+930.5 MiB sampled peak RSS. It still fails the unchanged ninety-second gate. These single
+runs show no demonstrated end-to-end gain; they do not establish a statistical regression.
+The narrow-panel workflow test now analyzes all twenty references, checks every tile
+against the actual panel bounds, pins/compares references, matches an underexposed target,
+and reaches its quality summary and weak-match review through real UI actions. This
+expanded focused test passes; the prior ten-reference coverage was insufficient for the cap.
 
 Remaining work includes automatic evidence that separates material, composition and
 illumination; stable color/tone fitting with regional and output-resolution safeguards;

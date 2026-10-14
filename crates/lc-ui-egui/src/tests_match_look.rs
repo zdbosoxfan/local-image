@@ -972,10 +972,12 @@ fn match_look_ui_revision2_debounced_preview_reopen_and_reference_cycle() {
 #[test]
 fn match_look_ui_revision3_quality_pin_wrap_and_weak_review() {
     let mut h = setup(250.0, true, 1.0);
-    analyze(&mut h, 10);
+    analyze(&mut h, 20);
+    let panel = rect(&h, "panel:right_panel");
     for id in h.app.session.match_look.references.clone() {
         let tile = rect(&h, &format!("reference:{}", id.0));
-        assert!(tile.bottom() <= h.size.y, "all ten reference tiles must be on screen: {tile:?}");
+        assert!(tile.bottom() <= h.size.y, "all twenty reference tiles must be on screen: {tile:?}");
+        assert!(tile.left() >= panel.left() && tile.right() <= panel.right(), "reference tile must fit the narrow panel: {tile:?}, {panel:?}");
     }
     let first = h.app.session.match_look.references[0];
     click(&mut h, &format!("icon:matchReferencePin-{}", first.0));
@@ -983,6 +985,7 @@ fn match_look_ui_revision3_quality_pin_wrap_and_weak_review() {
     click(&mut h, &format!("reference:{}", first.0));
     assert!(h.app.match_look.compare_reference);
     let id = target(&mut h);
+    request(&mut h, "develop.set", json!({"ids":[id.0],"control":"light.exposure","value":-1.0}));
     click(&mut h, "button:matchLook");
     click(&mut h, "check:matchRegions");
     click(&mut h, "button:matchLookPreview");
@@ -991,6 +994,15 @@ fn match_look_ui_revision3_quality_pin_wrap_and_weak_review() {
     assert_eq!(h.app.match_look.reference_index, 1);
     click(&mut h, "button:dialogOk");
     wait(&mut h);
+    assert!(h.app.session.match_look.applied.contains_key(&id), "underexposed target must receive a match: {:?}", h.app.match_look.last_result);
+    // Exercise the actual panel scroll with the full twenty-reference tray
+    // before checking that the result remains reachable at narrow width.
+    let last_reference = *h.app.session.match_look.references.last().unwrap();
+    request(&mut h, "ui.hoverWidget", json!({"id":format!("reference:{}", last_reference.0)}));
+    request(&mut h, "ui.scroll", json!({"dy":-600.0}));
+    for _ in 0..8 {
+        h.step();
+    }
     assert!(h.app.widgets.iter().any(|(name, _)| name == "matchLook:quality"));
     let text = h
         .view
