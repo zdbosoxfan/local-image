@@ -129,7 +129,7 @@ pub(crate) fn paint_sample(painter: &egui::Painter, rect: Rect, rgb: [f32; 3], t
     }
     let painter = painter.with_clip_rect(rect);
     let [r, g, b] = rgb.map(|v| v.clamp(0.0, 1.0));
-    let tone = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    let tone = li_color::luminance_709([r, g, b]);
     let x = rect.left() + tone * rect.width();
     let color = t.histogram_color(7);
     let left = (x - 1.0).round();

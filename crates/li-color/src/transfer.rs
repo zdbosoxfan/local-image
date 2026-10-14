@@ -2,14 +2,68 @@
 
 use std::sync::OnceLock;
 
+// One formula instantiated at the caller's precision. Keep arithmetic (including the
+// reciprocal exponent) in that precision so existing f32 Develop vectors stay unchanged.
+trait SrgbFloat:
+    Copy + PartialOrd + std::ops::Add<Output = Self> + std::ops::Sub<Output = Self> + std::ops::Mul<Output = Self> + std::ops::Div<Output = Self>
+{
+    fn value(v: f64) -> Self;
+    fn powf(self, p: Self) -> Self;
+}
+impl SrgbFloat for f32 {
+    fn value(v: f64) -> Self {
+        v as Self
+    }
+    fn powf(self, p: Self) -> Self {
+        self.powf(p)
+    }
+}
+impl SrgbFloat for f64 {
+    fn value(v: f64) -> Self {
+        v
+    }
+    fn powf(self, p: Self) -> Self {
+        self.powf(p)
+    }
+}
+#[inline]
+fn srgb_decode<T: SrgbFloat>(v: T) -> T {
+    let c = T::value;
+    if v <= c(0.04045) { v / c(12.92) } else { ((v + c(0.055)) / c(1.055)).powf(c(2.4)) }
+}
+#[inline]
+fn srgb_encode<T: SrgbFloat>(v: T) -> T {
+    let c = T::value;
+    if v <= c(0.003_130_8) { v * c(12.92) } else { c(1.055) * v.powf(c(1.0) / c(2.4)) - c(0.055) }
+}
 #[inline]
 pub fn srgb_to_linear(v: f32) -> f32 {
-    if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    srgb_decode(v)
 }
-
 #[inline]
 pub fn linear_to_srgb(v: f32) -> f32 {
-    if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
+    srgb_encode(v)
+}
+/// sRGB EOTF at f64 precision, extending the linear branch below zero.
+#[inline]
+pub fn srgb_to_linear_f64(v: f64) -> f64 {
+    srgb_decode(v)
+}
+/// sRGB OETF at f64 precision, extending the linear branch below zero.
+#[inline]
+pub fn linear_to_srgb_f64(v: f64) -> f64 {
+    srgb_encode(v)
+}
+
+/// ITU-R BT.709 EOTF; callers select negative-value mirroring versus linear extension.
+#[inline]
+pub fn rec709_to_linear(v: f32) -> f32 {
+    if v < 0.081 { v / 4.5 } else { ((v + 0.099) / 1.099).powf(1.0 / 0.45) }
+}
+/// ITU-R BT.709 OETF, retaining source-space transfer arithmetic.
+#[inline]
+pub fn linear_to_rec709(v: f32) -> f32 {
+    if v < 0.018 { 4.5 * v } else { 1.099 * v.powf(0.45) - 0.099 }
 }
 
 pub fn gamma_to_linear(v: f32, g: f32) -> f32 {

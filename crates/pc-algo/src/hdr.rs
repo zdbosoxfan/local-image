@@ -25,7 +25,7 @@ use crate::photo_util::{Normal, linear_to_srgb, par_rows, srgb_to_linear};
 use crate::tone::HdrToning;
 
 fn luma(c: [f32; 4]) -> f32 {
-    0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    li_color::luminance_709([c[0], c[1], c[2]])
 }
 
 /// Hat weight on a 0..=255 code value.

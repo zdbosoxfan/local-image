@@ -3,12 +3,8 @@
 use lightcraft_raster::{Plane, Rgb32f};
 use std::f64::consts::PI;
 pub fn lab(c: [f32; 3]) -> [f64; 3] {
-    let xyz = lightcraft_color::REC2020.to_xyz().apply(c.map(f64::from));
-    let f = |t: f64| if t > 216. / 24389. { t.cbrt() } else { (24389. / 27. * t + 16.) / 116. };
-    let x = f(xyz[0] / 0.95047);
-    let y = f(xyz[1]);
-    let z = f(xyz[2] / 1.08883);
-    [116. * y - 16., 500. * (x - y), 200. * (y - z)]
+    let xyz = li_color::REC2020.to_xyz().apply(c.map(f64::from));
+    li_color::cms_math::xyz_to_lab(xyz, [0.95047, 1.0, 1.08883])
 }
 pub fn delta_e(a: [f64; 3], b: [f64; 3]) -> f64 {
     let [l1, a1, b1] = a;

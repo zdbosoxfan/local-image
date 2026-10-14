@@ -9,6 +9,7 @@ description = "LightCraft standard image codecs: sniffing, decode to linear ligh
 workspace = true
 
 [dependencies]
+li-color.workspace = true
 lightcraft-geom = { workspace = true }
 lightcraft-color = { workspace = true }
 lightcraft-raster = { workspace = true }

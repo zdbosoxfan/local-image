@@ -22,7 +22,7 @@ pub enum ToneRange {
 /// Rec. 601 luma of a straight RGB triple.
 #[inline]
 pub fn luma(c: [f32; 3]) -> f32 {
-    0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+    li_color::convert::rgb_to_gray([c[0], c[1], c[2]])
 }
 
 /// The dodge/burn transfer for one value `v` (0..1) with strength `e` (0..1).

@@ -116,12 +116,11 @@ pub fn signature(c: &ColorState, doc: &Document) -> String {
 }
 
 fn srgb_decode(v: f32) -> f32 {
-    if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    li_color::transfer::srgb_to_linear(v)
 }
 
 fn srgb_encode(v: f32) -> f32 {
-    let v = v.clamp(0.0, 1.0);
-    if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
+    li_color::transfer::linear_to_srgb(v.clamp(0.0, 1.0))
 }
 
 /// Viénot et al. (1999): linear RGB → LMS.

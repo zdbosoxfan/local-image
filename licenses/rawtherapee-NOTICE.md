@@ -37,8 +37,8 @@ Upstream: <https://github.com/RawTherapee/RawTherapee>, snapshot
   Copyright RawTherapee developers and camera calibration contributors, **GPL-3.0-or-later**.
   The dcraw matrix integers are divided by 10000; only cameras absent from rawler are added.
   A single daylight matrix stays single; no second illuminant is inferred.
-- `rtengine/dcp.cc` → DCP table interpolation in `crates/lc-color/src/profile.rs` and
-  dual-illuminant blending in `crates/lc-color/src/camera.rs`: Copyright (c) 2012
+- `rtengine/dcp.cc` → DCP table interpolation in `crates/li-color/src/profile.rs` and
+  dual-illuminant blending in `crates/li-color/src/camera.rs`: Copyright (c) 2012
   **Oliver Duis**, RawTherapee developers, **GPL-3.0-or-later**.
   DNG chapter 6 supplies the independent colour model/container definitions; our TIFF reader
   reads profile tags without an SDK. C++ extracted reference harnesses test numeric parity.

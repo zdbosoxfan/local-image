@@ -1008,7 +1008,7 @@ fn bevel_height(shape: &Map, b: &Bevel, g: &BevelGeom, tex: &TextureCtx, pattern
             for x in 0..h.w {
                 let (u, v) = place.map(f64::from(x0 + x as i32) + 0.5, f64::from(y0 + y as i32) + 0.5);
                 let p = tile.sample(u, v);
-                let l = (0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]) * p[3];
+                let l = (li_color::convert::rgb_to_gray([p[0], p[1], p[2]])) * p[3];
                 h.v[y * h.w + x] += k * if t.invert { 1.0 - l } else { l };
             }
         }

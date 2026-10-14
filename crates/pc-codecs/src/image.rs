@@ -485,20 +485,12 @@ pub(crate) fn quantize(values: &[f32], sample: SampleType) -> Vec<u8> {
     }
 }
 
-/// Rec. 709 luma weights applied to encoded values.
-const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
-
 fn cmyk_to_rgb(c: f32, m: f32, y: f32, k: f32) -> [f32; 3] {
-    [(1.0 - c) * (1.0 - k), (1.0 - m) * (1.0 - k), (1.0 - y) * (1.0 - k)]
+    li_color::convert::cmyk_to_rgb_naive([c, m, y, k])
 }
 
 fn rgb_to_cmyk(r: f32, g: f32, b: f32) -> [f32; 4] {
-    let k = 1.0 - r.max(g).max(b);
-    if k >= 1.0 {
-        return [0.0, 0.0, 0.0, 1.0];
-    }
-    let d = 1.0 - k;
-    [(1.0 - r - k) / d, (1.0 - g - k) / d, (1.0 - b - k) / d, k]
+    li_color::convert::rgb_to_cmyk_naive_with_black_threshold([r, g, b], 1.0)
 }
 
 /// Convert normalized interleaved samples between layouts. Naive
@@ -525,7 +517,7 @@ pub(crate) fn convert_layout(src: &[f32], from: ChannelLayout, to: ChannelLayout
             };
             match to {
                 ChannelLayout::Gray | ChannelLayout::GrayA => {
-                    out.push(rgb[0] * LUMA[0] + rgb[1] * LUMA[1] + rgb[2] * LUMA[2]);
+                    out.push(li_color::luminance_709(rgb));
                 }
                 ChannelLayout::Rgb | ChannelLayout::Rgba => out.extend_from_slice(&rgb),
                 ChannelLayout::Cmyk | ChannelLayout::CmykA => out.extend_from_slice(&rgb_to_cmyk(rgb[0], rgb[1], rgb[2])),

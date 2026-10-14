@@ -135,7 +135,7 @@ const MIN_IMPROVEMENT: f64 = 0.7;
 const MAX_HOLDOUT_RMS: f64 = 0.10;
 
 fn luma(p: [f64; 3]) -> f64 {
-    p[0] * 0.2627 + p[1] * 0.6780 + p[2] * 0.0593
+    li_color::luminance_2020_f64(p)
 }
 
 /// The finish stage's tone map and chroma curve (`lightcraft_pipeline::finish`).

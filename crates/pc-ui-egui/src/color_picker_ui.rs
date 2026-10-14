@@ -17,34 +17,11 @@ use crate::widgets;
 pub const MODES: &[(&str, &str)] = &[("h", "H:"), ("s", "S:"), ("v", "B:"), ("r", "R:"), ("g", "G:"), ("b", "B:")];
 
 pub fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
-    let h = (h.rem_euclid(360.0)) / 60.0;
-    let c = v * s;
-    let x = c * (1.0 - (h % 2.0 - 1.0).abs());
-    let (r, g, b) = match h as u32 {
-        0 => (c, x, 0.0),
-        1 => (x, c, 0.0),
-        2 => (0.0, c, x),
-        3 => (0.0, x, c),
-        4 => (x, 0.0, c),
-        _ => (c, 0.0, x),
-    };
-    let m = v - c;
-    [r + m, g + m, b + m]
+    li_color::perceptual::hsv_to_rgb(h, s, v)
 }
 
 pub fn rgb_to_hsv(c: [f32; 3]) -> [f32; 3] {
-    let (mx, mn) = (c[0].max(c[1]).max(c[2]), c[0].min(c[1]).min(c[2]));
-    let d = mx - mn;
-    let h = if d <= 0.0 {
-        0.0
-    } else if mx == c[0] {
-        60.0 * ((c[1] - c[2]) / d).rem_euclid(6.0)
-    } else if mx == c[1] {
-        60.0 * ((c[2] - c[0]) / d + 2.0)
-    } else {
-        60.0 * ((c[0] - c[1]) / d + 4.0)
-    };
-    [h, if mx <= 0.0 { 0.0 } else { d / mx }, mx]
+    li_color::perceptual::rgb_to_hsv(c)
 }
 
 pub fn hex(c: [f32; 3]) -> String {

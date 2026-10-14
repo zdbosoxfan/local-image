@@ -15,6 +15,7 @@ krilla = { workspace = true }
 photocraft-text = { workspace = true }
 photocraft-doc = { workspace = true }
 photocraft-geom = { workspace = true }
+li-color = { workspace = true }
 lightcraft-geom = { workspace = true }
 lightcraft-color = { workspace = true }
 lightcraft-raster = { workspace = true }
