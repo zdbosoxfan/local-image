@@ -25,6 +25,9 @@ const ANALYSIS_VERSION: u32 = 2;
 pub const LOOK_ANALYZER_VERSION: u32 = 2;
 #[path = "match_look_assets.rs"]
 mod assets;
+#[allow(dead_code)]
+#[path = "match_look_batch_cache.rs"]
+pub(crate) mod batch_cache;
 pub use assets::{ExternalReference, ReferencePreview};
 pub const IMPORT_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const LOOK_NAME_MAX_CHARS: usize = 128;
@@ -59,6 +62,8 @@ pub struct State {
     pub selected: Option<String>,
     #[serde(skip)]
     pub applied: std::collections::BTreeMap<PhotoId, Applied>,
+    #[serde(skip)]
+    pub(crate) shared_style: Option<Arc<batch_cache::SharedStyle>>,
 }
 /// Catalog-local target history, stored separately on close. Portable recipes contain
 /// reference evidence/previews, never these target settings or Undo chains.
@@ -288,6 +293,11 @@ pub struct Control {
     pub total: usize,
 }
 #[derive(Clone)]
+enum ReloadCheck {
+    Exact(batch_cache::SourceEvidence),
+    Unverifiable,
+}
+#[derive(Clone)]
 struct Input {
     identity: Identity,
     source: SourceRef,
@@ -295,6 +305,7 @@ struct Input {
     info: SourceInfo,
     bytes: u64,
     verification_bytes: u64,
+    reload_check: Option<ReloadCheck>,
     faces: Vec<[f32; 4]>,
     preview_only: bool,
     name: String,
@@ -316,6 +327,7 @@ fn input(s: &mut Session, id: PhotoId) -> Result<Input> {
         name: photo.file_name.clone(),
         bytes,
         verification_bytes,
+        reload_check: None,
         faces: s
             .smart
             .people
@@ -430,6 +442,45 @@ fn near_match_errors(
     let (goal, _) = match_look::reachable_goal(&a, &match_look::blend(refs, weights), opts, similarity);
     (match_look::distance(&a, &goal, opts), match_look::distance(&b, &goal, opts))
 }
+/// Warm-source retention is an optimization, never a second unbounded source cache. Keys
+/// follow original input order so parallel completion order cannot change retained IDs.
+struct RetainedSources {
+    entries: std::collections::BTreeMap<usize, (PhotoId, DecodedSource)>,
+    bytes: usize,
+    budget: usize,
+    evicted_through: Option<usize>,
+}
+impl RetainedSources {
+    fn new(budget: usize) -> Self {
+        Self { entries: Default::default(), bytes: 0, budget, evicted_through: None }
+    }
+    fn insert(&mut self, index: usize, id: PhotoId, source: DecodedSource) {
+        if self.evicted_through.is_some_and(|floor| index <= floor) {
+            return;
+        }
+        let cost = crate::media::decoded_source_bytes(&source);
+        if let Some((_, old)) = self.entries.remove(&index) {
+            self.bytes = self.bytes.saturating_sub(crate::media::decoded_source_bytes(&old));
+        }
+        if cost > self.budget {
+            return;
+        }
+        self.bytes = self.bytes.saturating_add(cost);
+        self.entries.insert(index, (id, source));
+        while self.bytes > self.budget {
+            let Some((evicted, (_, old))) = self.entries.pop_first() else { break };
+            self.evicted_through = Some(self.evicted_through.map_or(evicted, |floor| floor.max(evicted)));
+            self.bytes = self.bytes.saturating_sub(crate::media::decoded_source_bytes(&old));
+        }
+    }
+    fn into_vec(self) -> Vec<(PhotoId, DecodedSource)> {
+        self.entries.into_values().collect()
+    }
+}
+fn retained_source_budget() -> usize {
+    ((lightcraft_sysmem::profile().memory_budget() / 32).min(64 << 20)) as usize
+}
+
 pub struct AnalyzeWork {
     generation: u64,
     inputs: Vec<Input>,
@@ -465,14 +516,14 @@ impl AnalyzeWork {
     pub fn run(self, c: &Control) -> std::result::Result<Analyzed, String> {
         lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
         let stop = || c.cancel.load(Ordering::Relaxed);
-        let mut decoded = Vec::new();
+        let mut decoded = RetainedSources::new(retained_source_budget());
         let mut a =
             Analysis { version: ANALYSIS_VERSION, identities: Vec::new(), looks: Vec::new(), previews: Vec::new(), external_identities: Vec::new() };
-        for input in self.inputs {
+        for (index, input) in self.inputs.into_iter().enumerate() {
             let _permit = lightcraft_sysmem::heavy_jobs().admit(input.bytes, &stop).ok_or("Cancelled")?;
             let src = lightcraft_sysmem::in_background_pool(|| input.source.load_source())?;
             if !matches!(input.source, SourceRef::Loaded(_)) {
-                decoded.push((input.identity.id, src.clone()));
+                decoded.insert(index, input.identity.id, src.clone());
             }
             if stop() {
                 return Err("Cancelled".into());
@@ -524,7 +575,7 @@ impl AnalyzeWork {
         if stop() {
             return Err("Cancelled".into());
         }
-        Ok(Analyzed { generation: self.generation, analysis: a, decoded })
+        Ok(Analyzed { generation: self.generation, analysis: a, decoded: decoded.into_vec() })
     }
 }
 pub fn apply_analysis(s: &mut Session, result: Analyzed, update: Option<&str>) -> Result<Value> {
@@ -572,6 +623,7 @@ pub struct SolveWork {
     preview_id: Option<PhotoId>,
     selection_ids: Vec<PhotoId>,
     report_progress: bool,
+    source_budget: usize,
     failed: Vec<Value>,
 }
 /// A preview's shared style depends on its complete target batch, including photos
@@ -601,6 +653,8 @@ impl PreviewContext {
 }
 pub struct Matched {
     pub decoded: Vec<(PhotoId, DecodedSource)>,
+    source_evidence: std::collections::BTreeMap<PhotoId, batch_cache::SourceEvidence>,
+    source_changed: bool,
     generation: u64,
     reference_looks: Arc<[Look]>,
     pub rows: Vec<(Identity, DevelopSettings)>,
@@ -660,6 +714,7 @@ pub fn prepare(s: &mut Session, p: &Value) -> Result<SolveWork> {
         preview_id,
         selection_ids: s.targets(&Value::Null),
         report_progress: true,
+        source_budget: retained_source_budget(),
     })
 }
 /// Select an actual solved style nearest the coordinate-wise median, rather than
@@ -768,6 +823,9 @@ impl SolveWork {
     /// Both stages remain worker-only; apply installs their final results with one undo.
     fn run_consistent(mut self, c: &Control, preview: bool, parallel: bool) -> Matched {
         let start = web_time::Instant::now();
+        let source_budget = self.source_budget;
+        let source_order =
+            self.inputs.iter().enumerate().map(|(index, input)| (input.identity.id, index)).collect::<std::collections::BTreeMap<_, _>>();
         let mut first = SolveWork {
             generation: self.generation,
             inputs: self.inputs.clone(),
@@ -777,6 +835,7 @@ impl SolveWork {
             preview_id: None,
             selection_ids: self.selection_ids.clone(),
             report_progress: preview && self.report_progress,
+            source_budget: self.source_budget,
             failed: Vec::new(),
         }
         .run_independent(c, false, parallel);
@@ -818,12 +877,30 @@ impl SolveWork {
         for input in &mut self.inputs {
             if let Some(source) = decoded.get(&input.identity.id) {
                 input.source = SourceRef::Loaded(Box::new(source.clone()));
+            } else if !matches!(input.source, SourceRef::Loaded(_)) {
+                input.reload_check =
+                    Some(first.source_evidence.get(&input.identity.id).cloned().map_or(ReloadCheck::Unverifiable, ReloadCheck::Exact));
             }
         }
+        drop(decoded);
         self.shared_color = Some(Arc::new(shared));
         self.failed.append(&mut first.failed);
         let mut out = self.run_independent(c, preview, parallel);
-        out.decoded.extend(first.decoded);
+        let mut retained = RetainedSources::new(source_budget);
+        for (id, source) in first.decoded.into_iter().chain(out.decoded.drain(..)) {
+            if let Some(&index) = source_order.get(&id) {
+                retained.insert(index, id, source);
+            }
+        }
+        out.decoded = retained.into_vec();
+        out.source_evidence.extend(first.source_evidence);
+        if out.source_changed {
+            out.rows.clear();
+            out.applications.clear();
+            out.preview = None;
+            out.preview_before = None;
+            out.decoded.clear();
+        }
         out.load_ms += first.load_ms;
         out.solve_ms += first.solve_ms;
         out.renders += first.renders;
@@ -861,7 +938,7 @@ impl SolveWork {
         }
         let start = web_time::Instant::now();
         let next = AtomicUsize::new(0);
-        let results = std::sync::Mutex::new(Vec::new());
+        let results = std::sync::Mutex::new((Vec::new(), RetainedSources::new(self.source_budget)));
         let mut workers_started = 0;
         std::thread::scope(|scope| {
             for worker in 0..workers {
@@ -878,7 +955,7 @@ impl SolveWork {
                         let Some(input) = work.inputs.get(index) else {
                             break;
                         };
-                        let result = SolveWork {
+                        let mut result = SolveWork {
                             generation: work.generation,
                             inputs: vec![input.clone()],
                             looks: work.looks.clone(),
@@ -887,10 +964,15 @@ impl SolveWork {
                             preview_id: None,
                             selection_ids: Vec::new(),
                             report_progress: work.report_progress,
+                            source_budget: work.source_budget,
                             failed: Vec::new(),
                         }
                         .run_sequential(c, false);
-                        results.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((index, result));
+                        let mut collected = results.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        for (id, source) in result.decoded.drain(..) {
+                            collected.1.insert(index, id, source);
+                        }
+                        collected.0.push((index, result));
                     }
                 });
                 match spawned {
@@ -902,10 +984,12 @@ impl SolveWork {
         if workers_started == 0 {
             return self.run_sequential(c, preview);
         }
-        let mut results = results.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (mut results, retained) = results.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
         results.sort_by_key(|(index, _)| *index);
         let mut out = Matched {
-            decoded: Vec::new(),
+            decoded: retained.into_vec(),
+            source_evidence: Default::default(),
+            source_changed: false,
             generation: self.generation,
             reference_looks: self.looks.clone(),
             rows: Vec::new(),
@@ -922,7 +1006,8 @@ impl SolveWork {
             per_photo: Vec::new(),
         };
         for (_, result) in results {
-            out.decoded.extend(result.decoded);
+            out.source_changed |= result.source_changed;
+            out.source_evidence.extend(result.source_evidence);
             out.rows.extend(result.rows);
             out.applications.extend(result.applications);
             out.failed.extend(result.failed);
@@ -944,6 +1029,8 @@ impl SolveWork {
         let stop = || c.cancel.load(Ordering::Relaxed);
         let mut out = Matched {
             decoded: Vec::new(),
+            source_evidence: Default::default(),
+            source_changed: false,
             generation: self.generation,
             reference_looks: self.looks.clone(),
             rows: Vec::new(),
@@ -959,16 +1046,31 @@ impl SolveWork {
             workers: 1,
             per_photo: Vec::new(),
         };
-        for i in self.inputs {
+        let mut retained = RetainedSources::new(self.source_budget);
+        for (index, i) in self.inputs.into_iter().enumerate() {
             if stop() {
                 break;
             }
             let Some(mut permit) = lightcraft_sysmem::heavy_jobs().admit(i.bytes, &stop) else { break };
             let load_start = web_time::Instant::now();
-            match lightcraft_sysmem::in_background_pool(|| i.source.load_source()) {
+            let loaded = lightcraft_sysmem::in_background_pool(|| i.source.load_source()).and_then(|source| {
+                if let Some(check) = &i.reload_check {
+                    let info = source.info_or(i.info.clone());
+                    let matches = match check {
+                        ReloadCheck::Exact(expected) => expected.matches(&source, &info),
+                        ReloadCheck::Unverifiable => false,
+                    };
+                    if !matches {
+                        out.source_changed = true;
+                        return Err("Source changed or cannot be verified between Match Look stages; run Match Look again".into());
+                    }
+                }
+                Ok(source)
+            });
+            match loaded {
                 Ok(src) => {
                     if !matches!(i.source, SourceRef::Loaded(_)) {
-                        out.decoded.push((i.identity.id, src.clone()));
+                        retained.insert(index, i.identity.id, src.clone());
                     }
                     // Sensor/file buffers are gone. The bounded Thumb/probe working set is
                     // small: release the heavy decode slot while keeping its memory reserved,
@@ -979,6 +1081,12 @@ impl SolveWork {
                     let id = i.identity.id;
                     let solve_start = web_time::Instant::now();
                     let info = src.info_or(i.info);
+                    if self.opts.consistent_batch
+                        && self.shared_color.is_none()
+                        && let Some(evidence) = batch_cache::SourceEvidence::capture(&src, &info)
+                    {
+                        out.source_evidence.insert(id, evidence);
+                    }
                     let target_opts = Options { layer_placement: i.placement, ..self.opts };
                     if let Some(mut solved) = lightcraft_sysmem::in_background_pool(|| {
                         if let Some(shared) = &self.shared_color {
@@ -1100,6 +1208,7 @@ impl SolveWork {
                 c.completed.fetch_add(1, Ordering::Relaxed);
             }
         }
+        out.decoded = retained.into_vec();
         out.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         out
     }
@@ -1557,6 +1666,137 @@ mod tests {
         s
     }
     #[test]
+    fn retained_sources_are_bounded_and_order_independent_with_varying_costs() {
+        let small = DecodedSource::new(Arc::new(lightcraft_raster::Rgb32f::new(1, 1)), None);
+        let big = DecodedSource::new(Arc::new(lightcraft_raster::Rgb32f::new(64, 64)), None);
+        let budget = crate::media::decoded_source_bytes(&small) + crate::media::decoded_source_bytes(&big);
+        for order in [[0, 1, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] {
+            let mut retained = RetainedSources::new(budget);
+            for index in order {
+                retained.insert(index, PhotoId(index as u64), if index == 0 { small.clone() } else { big.clone() });
+                assert!(retained.bytes <= budget);
+            }
+            assert_eq!(retained.into_vec().iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![PhotoId(2)]);
+        }
+        let cost = crate::media::decoded_source_bytes(&big);
+        let mut retained = RetainedSources::new(cost * 3);
+        let mut weak = Vec::new();
+        for index in 0..500 {
+            let image = Arc::new(lightcraft_raster::Rgb32f::new(64, 64));
+            weak.push(Arc::downgrade(&image));
+            retained.insert(index, PhotoId(index as u64), DecodedSource::new(image, None));
+            assert!(retained.bytes <= cost * 3);
+        }
+        assert_eq!(weak.iter().filter(|source| source.strong_count() != 0).count(), 3);
+        assert_eq!(retained.into_vec().iter().map(|(id, _)| id.0).collect::<Vec<_>>(), vec![497, 498, 499]);
+    }
+
+    #[test]
+    fn retained_large_smart_and_loaded_sources_keep_exact_decoder_facts() {
+        let image = Arc::new(lightcraft_raster::Rgb32f::from_fn(1024, 600, |x, y| [0.1 + x as f32 / 2048.0, 0.2 + y as f32 / 1200.0, 0.3]));
+        let info = SourceInfo {
+            raw: true,
+            sensor_scale: 11.0,
+            raw_clip_level: Some(0.99),
+            baseline_gain: 2.0,
+            clip_confidence: Some(Arc::new(lightcraft_pipeline::ClipConfidence { width: 1024, height: 600, data: vec![0.25; 1024 * 600] })),
+            ..Default::default()
+        };
+        let original = DecodedSource { raw_key: 17, ..DecodedSource::new(image, Some(info)) };
+        let path = std::env::temp_dir().join(format!("matchlook-retention-{}.lcsp", uuid::Uuid::new_v4()));
+        std::fs::write(&path, crate::smart::encode_source(&original).unwrap()).unwrap();
+        let smart = SourceRef::Smart { path: path.clone() }.load_source().unwrap();
+        std::fs::remove_file(path).unwrap();
+        for source in [original, smart] {
+            assert!(source.image.width > match_look::CALIBRATION_EDGE);
+            let loaded = SourceRef::Loaded(Box::new(source.clone())).load_source().unwrap();
+            let cost = crate::media::decoded_source_bytes(&loaded);
+            let mut retained = RetainedSources::new(cost);
+            retained.insert(0, PhotoId(1), loaded);
+            let kept = retained.into_vec().pop().unwrap().1;
+            assert!(Arc::ptr_eq(&kept.image, &source.image), "retention must not resample or copy pixels");
+            assert_eq!(kept.info, source.info);
+            assert_eq!(kept.raw_key, source.raw_key);
+            assert_eq!(kept.camera_tone, source.camera_tone);
+            let mut too_small = RetainedSources::new(cost - 1);
+            too_small.insert(0, PhotoId(1), source);
+            assert!(too_small.into_vec().is_empty(), "temporary retention must skip an oversized entry");
+        }
+    }
+
+    fn retention_work(budget: usize, mutate_reload: bool) -> (SolveWork, Arc<AtomicUsize>) {
+        let mut session = setup();
+        let ids = session
+            .catalog
+            .photos()
+            .filter(|photo| !session.match_look.references.contains(&photo.id))
+            .take(4)
+            .map(|photo| photo.id)
+            .collect::<Vec<_>>();
+        let mut work = prepare(
+            &mut session,
+            &json!({"ids": ids, "consistentBatch": true, "normalize": false, "lightContrast": false, "colorTone": false, "strength": 50}),
+        )
+        .unwrap();
+        let total = Arc::new(AtomicUsize::new(0));
+        for (index, input) in work.inputs.iter_mut().enumerate() {
+            let total = total.clone();
+            let calls = AtomicUsize::new(0);
+            let info = SourceInfo {
+                raw: true,
+                sensor_scale: 7.0,
+                raw_clip_level: Some(0.99),
+                clip_confidence: Some(Arc::new(lightcraft_pipeline::ClipConfidence { width: 16, height: 12, data: vec![0.0; 16 * 12] })),
+                ..Default::default()
+            };
+            input.verification =
+                SourceRef::Loaded(Box::new(DecodedSource::new(Arc::new(lightcraft_raster::Rgb32f::new(16, 12)), Some(info.clone()))));
+            input.source = SourceRef::File {
+                path: format!("retention-fixture-{index}"),
+                max_edge: 16,
+                fallback: None,
+                loader: Some(Arc::new(move |_, _| {
+                    total.fetch_add(1, Ordering::Relaxed);
+                    let changed = mutate_reload && calls.fetch_add(1, Ordering::Relaxed) > 0;
+                    let image = lightcraft_raster::Rgb32f::from_fn(16, 12, |x, y| {
+                        [0.04 + x as f32 / 100.0 + if changed { 0.02 } else { 0.0 }, 0.06 + y as f32 / 120.0, 0.08 + index as f32 / 100.0]
+                    });
+                    Ok((image, info.clone()))
+                })),
+            };
+            input.bytes = 2 << 20;
+        }
+        work.source_budget = budget;
+        (work, total)
+    }
+
+    #[test]
+    fn bounded_sequential_parallel_reloads_preserve_shared_settings() {
+        let (unbounded, count) = retention_work(64 << 20, false);
+        let reference = unbounded.run_serial(&Control::default());
+        assert!(reference.failed.is_empty() && reference.rows.len() == 4);
+        assert_eq!(count.load(Ordering::Relaxed), 4);
+        for parallel in [false, true] {
+            let (bounded, count) = retention_work(8192, false);
+            let result = if parallel { bounded.run(&Control::default(), false) } else { bounded.run_serial(&Control::default()) };
+            assert!(result.failed.is_empty(), "{:?}", result.failed);
+            assert_eq!(
+                result.rows.iter().map(|(identity, settings)| (identity.id, settings)).collect::<Vec<_>>(),
+                reference.rows.iter().map(|(identity, settings)| (identity.id, settings)).collect::<Vec<_>>()
+            );
+            assert!(result.decoded.iter().map(|(_, source)| crate::media::decoded_source_bytes(source)).sum::<usize>() <= 8192);
+            assert!(count.load(Ordering::Relaxed) > 4, "evicted sources must be reloaded, not silently resized");
+        }
+        let (changed, _) = retention_work(0, true);
+        let result = changed.run_serial(&Control::default());
+        assert!(result.source_changed && !result.failed.is_empty());
+        assert!(
+            result.rows.is_empty() && result.applications.is_empty() && result.decoded.is_empty(),
+            "a changed source must invalidate the shared-style batch"
+        );
+    }
+
+    #[test]
     fn match_look_cached_thumbnail_does_not_hide_cold_raw_verification_cost() {
         let mut s = Session::new();
         let id = s.catalog.alloc_photo_id();
@@ -1663,6 +1903,7 @@ mod tests {
                 preview_id: None,
                 selection_ids: Vec::new(),
                 report_progress: true,
+                source_budget: retained_source_budget(),
                 failed: Vec::new(),
             };
             let serial_control = Control::default();
@@ -1713,6 +1954,7 @@ mod tests {
                 preview_id: None,
                 selection_ids: Vec::new(),
                 report_progress: true,
+                source_budget: retained_source_budget(),
                 failed: Vec::new(),
             }
             .run_serial(&Control::default());
@@ -1741,6 +1983,7 @@ mod tests {
                 preview_id: None,
                 selection_ids: Vec::new(),
                 report_progress: true,
+                source_budget: retained_source_budget(),
                 failed: Vec::new(),
             }
             .run_serial(&during_fit);
@@ -1756,6 +1999,7 @@ mod tests {
                 preview_id: None,
                 selection_ids: Vec::new(),
                 report_progress: true,
+                source_budget: retained_source_budget(),
                 failed: Vec::new(),
             }
             .run(&cancelled, false);

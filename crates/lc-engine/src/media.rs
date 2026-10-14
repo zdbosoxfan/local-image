@@ -220,7 +220,9 @@ pub(crate) fn source_working_bytes(photo: &Photo, source: &SourceRef) -> u64 {
         u64::from(photo.width).min(edge).saturating_mul(u64::from(photo.height).min(edge))
     };
     match source {
-        SourceRef::Loaded(decoded) => proxy(decoded.image.data.len() as u64),
+        SourceRef::Loaded(decoded) => {
+            proxy(decoded.image.data.len() as u64).saturating_add(decoded.info.as_ref().map_or(0, source_info_heap_bytes) as u64)
+        }
         // Native smart previews are built from the Preview source and load at that size,
         // including when the caller asked for a thumbnail. No original RAW is decoded.
         SourceRef::Smart { .. } => proxy(fitted_pixels(SourceLevel::Preview.max_edge())),
@@ -294,8 +296,40 @@ fn rendered_budget(share: usize) -> usize {
     RENDERED_MEM_BYTES.min(share / 4)
 }
 
-fn source_bytes(img: &Rgb32f) -> usize {
-    img.data.len() * 12 + 64 + std::mem::size_of::<SourceInfo>()
+/// Conservative owned allocation cost. Shared Arc payloads are counted for each source;
+/// overcounting keeps source caches bounded without global pointer-ownership bookkeeping.
+pub(crate) fn decoded_source_bytes(source: &DecodedSource) -> usize {
+    source
+        .image
+        .data
+        .capacity()
+        .saturating_mul(std::mem::size_of::<[f32; 3]>())
+        .saturating_add(std::mem::size_of::<Rgb32f>())
+        .saturating_add(std::mem::size_of::<DecodedSource>())
+        .saturating_add(64)
+        .saturating_add(source.info.as_ref().map_or(0, source_info_heap_bytes))
+}
+
+fn source_info_heap_bytes(info: &SourceInfo) -> usize {
+    let mut bytes = info.camera_wb_presets.capacity().saturating_mul(std::mem::size_of::<lightcraft_pipeline::CameraWbPreset>());
+    for preset in &info.camera_wb_presets {
+        bytes = bytes.saturating_add(preset.name.capacity());
+    }
+    if let Some(clip) = &info.clip_confidence {
+        bytes = bytes
+            .saturating_add(clip.data.capacity().saturating_mul(4))
+            .saturating_add(std::mem::size_of::<lightcraft_pipeline::ClipConfidence>() + 16);
+    }
+    if let Some(profile) = &info.camera_profile {
+        bytes = bytes.saturating_add(std::mem::size_of::<lightcraft_color::profile::ProfileLook>() + 16);
+        for table in profile.hue_sat_map.iter().chain(std::iter::once(&profile.look_table)).flatten() {
+            bytes = bytes.saturating_add(table.data.capacity().saturating_mul(std::mem::size_of::<[f32; 3]>()));
+        }
+        if let Some(curve) = &profile.tone_curve {
+            bytes = bytes.saturating_add(curve.points.capacity().saturating_mul(std::mem::size_of::<[f32; 2]>()));
+        }
+    }
+    bytes
 }
 
 impl MediaCache {
@@ -360,8 +394,8 @@ impl MediaCache {
             let Some((tick, which)) = candidates.into_iter().flatten().min() else { break };
             let freed = match which {
                 0 => self.thumbs.pop_oldest(),
-                1 => self.previews.iter().position(|e| e.2 == tick).map(|i| source_bytes(&self.previews.remove(i).1.image)),
-                2 => self.full.take().map(|e| source_bytes(&e.1.image)),
+                1 => self.previews.iter().position(|e| e.2 == tick).map(|i| decoded_source_bytes(&self.previews.remove(i).1)),
+                2 => self.full.take().map(|e| decoded_source_bytes(&e.1)),
                 _ => self.rendered.evict_oldest(),
             };
             match freed {
@@ -419,7 +453,7 @@ impl MediaCache {
         let tick = lightcraft_preview::next_tick();
         match level {
             SourceLevel::Thumb => {
-                let cost = source_bytes(&img.image);
+                let cost = decoded_source_bytes(&img);
                 self.thumbs.insert(id, img, cost);
             }
             SourceLevel::Preview => {
@@ -453,8 +487,8 @@ impl MediaCache {
     /// Decoded sources held: (thumbnail level, preview level, full size).
     pub fn usage(&self) -> (crate::memory::Usage, crate::memory::Usage, crate::memory::Usage) {
         use crate::memory::Usage;
-        let previews = Usage::new(self.previews.len(), self.previews.iter().map(|e| source_bytes(&e.1.image)).sum());
-        let full = self.full.as_ref().map(|e| Usage::new(1, source_bytes(&e.1.image))).unwrap_or_default();
+        let previews = Usage::new(self.previews.len(), self.previews.iter().map(|e| decoded_source_bytes(&e.1)).sum());
+        let full = self.full.as_ref().map(|e| Usage::new(1, decoded_source_bytes(&e.1))).unwrap_or_default();
         (Usage::new(self.thumbs.len(), self.thumbs.cost()), previews, full)
     }
 
@@ -1254,6 +1288,38 @@ mod thumbnail_hash_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decoded_source_cost_counts_clip_profile_and_wb_allocations() {
+        use lightcraft_color::profile::{HsvTable, ProfileLook, ToneCurve};
+        let image = Arc::new(Rgb32f::new(4, 4));
+        let baseline = DecodedSource::new(image.clone(), None);
+        let clip = Arc::new(lightcraft_pipeline::ClipConfidence { width: 64, height: 64, data: vec![0.25; 4096] });
+        let table = HsvTable { hue_divisions: 16, sat_divisions: 16, val_divisions: 16, data: vec![[0.0, 1.0, 1.0]; 4096], srgb_value: false };
+        let profile = Arc::new(ProfileLook {
+            hue_sat_map: [Some(table.clone()), None],
+            look_table: Some(table),
+            tone_curve: Some(ToneCurve { points: vec![[0.0, 0.0], [1.0, 1.0]] }),
+        });
+        let info = SourceInfo {
+            clip_confidence: Some(clip),
+            camera_profile: Some(profile),
+            camera_wb_presets: vec![lightcraft_pipeline::CameraWbPreset { name: "Daylight".into(), temp: 5500.0, tint: 2.0 }],
+            raw: true,
+            sensor_scale: 13.0,
+            raw_clip_level: Some(0.99),
+            ..Default::default()
+        };
+        let source = DecodedSource::new(image, Some(info));
+        assert!(decoded_source_bytes(&source) >= decoded_source_bytes(&baseline) + 4096 * 4 + 2 * 4096 * 12 + 2 * 8 + "Daylight".len());
+        let mut cache = MediaCache::default();
+        let cost = decoded_source_bytes(&source);
+        cache.set_budget(cost + 1024);
+        cache.insert_source(PhotoId(1), SourceLevel::Thumb, source.clone());
+        cache.insert_source(PhotoId(2), SourceLevel::Thumb, source);
+        assert_eq!(cache.thumbs.len(), 1, "metadata-heavy entries must consume the source cache budget");
+        assert!(cache.held() <= cache.budget());
+    }
 
     #[test]
     fn source_working_bytes_uses_actual_cached_or_smart_proxy() {
