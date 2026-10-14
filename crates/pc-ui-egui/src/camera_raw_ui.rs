@@ -1,16 +1,16 @@
 //! Filter › Camera Raw Filter…: a large dialog like Adobe Camera Raw's (preview on the left,
 //! edit panels on the right: Light, Color, Effects, Curve, Color Mixer, Color Grading, Detail).
 //!
-//! The preview runs [`photocraft_algo::camera_raw::develop`] on a CPU proxy of the layer
-//! (≤ 900 px, `pixel_scale` keeps pixel radii true to the full image), recomputed when a
-//! control changes. OK runs `filter.cameraRaw` with the non-default settings, so the result is
+//! Previews and commits use the shared Develop bridge on document-profile pixels. The
+//! ≤ 900 px interactive proxy is approximate; native refinement shows the committed result.
+//! OK runs `filter.cameraRaw` with the non-default settings, so the result is
 //! one history step (or a smart filter on a smart object) and exactly replayable.
 //!
 //! Control channel: `ui.menu.invoke {"id":"filter.cameraRaw","params":{"ui":{"set":{…},
 //! "commit":true | "cancel":true}}}`; the reply describes the dialog.
 
 use egui::{Align2, Color32, FontId, Pos2, Rect as ERect, Sense, Stroke, TextureHandle, pos2, vec2};
-use photocraft_algo::camera_raw::{CameraRaw, Wheel, curve_lut};
+use photocraft_algo::camera_raw::{CameraRaw, Wheel};
 use photocraft_algo::histogram::RgbHistogram;
 
 use crate::camera_raw_scope_ui::{MAX_SAMPLERS, ToneZone};
@@ -45,7 +45,7 @@ pub struct CameraRawDialog {
     preview_ppp: f32,
     pub(crate) detail: super::camera_raw_detail_ui::DetailPreview,
     pub(crate) viewport: Option<ERect>,
-    pub(crate) float: bool,
+    profile: std::sync::Arc<photocraft_cms::Profile>,
     tex: Option<TextureHandle>,
     before_tex: Option<TextureHandle>,
     pub(crate) before_histogram: RgbHistogram,
@@ -131,20 +131,27 @@ impl CameraRawDialog {
         egui::ColorImage::new([w, h], px.iter().map(|q| Color32::from_rgba_unmultiplied(enc(q[0]), enc(q[1]), enc(q[2]), enc(q[3]))).collect())
     }
 
+    fn display_image(&self, pixels: &[[f32; 4]]) -> egui::ColorImage {
+        let mut display = pixels.to_vec();
+        self.scope_transform.apply(display.as_flattened_mut(), 4);
+        Self::image(&display, self.pw, self.ph)
+    }
+
     pub(crate) fn render(&mut self, ctx: &egui::Context) {
         let t0 = crate::gpu_canvas::now_ms();
         let mut px = self.proxy.clone();
-        let mut p = self.params.clone();
-        p.pixel_scale = (self.pw as f32 / self.full_w.max(1) as f32).min(1.0);
-        match &self.develop {
-            Some(e) => {
-                let s = e.settings(&self.params);
-                if let Err(err) = photocraft_io::develop_filter::develop_rgba(&mut px, self.pw, self.ph, &s, &e.profile) {
-                    self.detail.error = Some(err);
+        let scale = (self.pw as f32 / self.full_w.max(1) as f32).min(self.ph as f32 / self.full_h.max(1) as f32).min(1.0);
+        let settings = self.develop.as_ref().map_or_else(
+            || {
+                if self.params.is_identity() {
+                    photocraft_io::develop_filter::identity().clone()
+                } else {
+                    photocraft_io::develop_filter::from_camera_raw(&self.params, photocraft_io::develop_filter::identity())
                 }
-            }
-            None => photocraft_algo::camera_raw::develop(&mut px, self.pw, self.ph, &p, self.float),
-        }
+            },
+            |e| e.settings(&self.params),
+        );
+        self.detail.error = photocraft_io::develop_filter::develop_rgba_scaled(&mut px, self.pw, self.ph, &settings, &self.profile, scale).err();
         if let Some(mask) = &self.selection {
             for ((out, original), coverage) in px.iter_mut().zip(&self.proxy).zip(mask) {
                 for (out, original) in out.iter_mut().zip(original) {
@@ -155,13 +162,13 @@ impl CameraRawDialog {
         let histogram_start = crate::gpu_canvas::now_ms();
         self.after_histogram = RgbHistogram::from_rgba(&px);
         self.histogram_ms = crate::gpu_canvas::now_ms() - histogram_start;
-        let img = Self::image(&px, self.pw, self.ph);
+        let img = self.display_image(&px);
         match &mut self.tex {
             Some(t) => t.set(img, egui::TextureOptions::LINEAR),
             None => self.tex = Some(ctx.load_texture("camera-raw-after", img, egui::TextureOptions::LINEAR)),
         }
         if self.before_tex.is_none() {
-            self.before_tex = Some(ctx.load_texture("camera-raw-before", Self::image(&self.proxy, self.pw, self.ph), egui::TextureOptions::LINEAR));
+            self.before_tex = Some(ctx.load_texture("camera-raw-before", self.display_image(&self.proxy), egui::TextureOptions::LINEAR));
         }
         self.processed = px;
         self.scope.cache = None;
@@ -190,7 +197,7 @@ enum Coverage {
 pub fn open(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String> {
     photocraft_engine::commands::find("filter.cameraRaw").map(|c| (c.enabled)(&app.session)).unwrap_or(Err("unknown command".into()))?;
     let (layer, surf, _) = crate::distort_ui::active_pixels(app)?;
-    open_pixels(app, ctx, layer, surf, CameraRaw::default(), Coverage::Selection, Target::NewFilter)
+    open_pixels(app, ctx, layer, surf, CameraRaw::default(), Coverage::Selection, Target::NewFilter, None)
 }
 
 /// Opens Camera Raw on smart filter `index` of smart layer `layer`, with its stored settings and
@@ -211,7 +218,7 @@ pub fn open_smart_filter(app: &mut PhotocraftApp, ctx: &egui::Context, layer: La
         .map_err(|e| e.to_string())?
         .ok_or("the smart object's contents are unavailable (missing linked file?)")?;
     let coverage = sm.filter_mask.clone().filter(|m| m.enabled).map_or(Coverage::None, Coverage::Mask);
-    open_pixels(app, ctx, layer, surf, params, coverage, Target::SmartFilter(index))
+    open_pixels(app, ctx, layer, surf, params, coverage, Target::SmartFilter(index), None)
 }
 
 fn open_pixels(
@@ -222,6 +229,7 @@ fn open_pixels(
     params: CameraRaw,
     coverage: Coverage,
     target: Target,
+    develop: Option<super::camera_raw_detail_ui::DevelopEngine>,
 ) -> Result<(), String> {
     let st = app.session.active().ok_or("no document")?;
     let canvas = st.doc.bounds();
@@ -272,7 +280,7 @@ fn open_pixels(
         Coverage::Mask(mask) => Some(sample(&|x, y| mask.value(x, y))),
         Coverage::None => None,
     };
-    let source = photocraft_engine::color_cmds::composite_profile(&st.doc);
+    let source = develop.as_ref().map_or_else(|| photocraft_engine::color_cmds::composite_profile(&st.doc), |e| e.profile.clone());
     let lab_transform = photocraft_cms::cached(&source, photocraft_cms::Builtin::LabD50.profile(), Default::default()).map_err(|e| e.to_string())?;
     let scope_transform = photocraft_cms::cached(&source, photocraft_cms::Builtin::Srgb.profile(), Default::default()).map_err(|e| e.to_string())?;
     if let Some(saved) = app.session.prefs().dialogs.get("filter.cameraRaw.scope")
@@ -288,7 +296,7 @@ fn open_pixels(
     if selection.is_none() {
         app.ui.camera_raw_scope.selected_region = false;
     }
-    let float = surf.format().sample == photocraft_color::SampleType::F32;
+
     let mut d = CameraRawDialog {
         layer,
         layer_name: name,
@@ -298,7 +306,7 @@ fn open_pixels(
         before_histogram: RgbHistogram::from_rgba(&proxy),
         processed: Vec::new(),
         lab_transform,
-        scope_transform,
+        scope_transform: scope_transform.clone(),
         scope: Default::default(),
         after_histogram: RgbHistogram::default(),
         preview_revision: 0,
@@ -322,7 +330,7 @@ fn open_pixels(
             },
         ),
         viewport: None,
-        float,
+        profile: source.clone(),
         tex: None,
         before_tex: None,
         dirty: true,
@@ -331,8 +339,11 @@ fn open_pixels(
         curve_state: Default::default(),
         curve_rect: None,
         render_ms: 0.0,
-        develop: None,
+        develop: develop.clone(),
     };
+    d.detail.develop = develop;
+    d.detail.profile = source;
+    d.detail.display_transform = Some(scope_transform);
     d.render(ctx);
     app.camera_raw = Some(d);
     Ok(())
@@ -352,15 +363,8 @@ pub fn open_develop(
 ) -> Result<(), String> {
     let params = photocraft_io::develop_filter::to_camera_raw(&base);
     let coverage = if smart_filter { Coverage::None } else { Coverage::Selection };
-    open_pixels(app, ctx, layer, surf, params, coverage, Target::NewFilter)?;
     let engine = super::camera_raw_detail_ui::DevelopEngine { base: std::sync::Arc::new(base), profile };
-    if let Some(d) = app.camera_raw.as_mut() {
-        d.detail.develop = Some(engine.clone());
-        d.develop = Some(engine);
-        d.dirty = true;
-        d.render(ctx);
-    }
-    Ok(())
+    open_pixels(app, ctx, layer, surf, params, coverage, Target::NewFilter, Some(engine))
 }
 
 /// Closes the dialog without applying (ending a develop session too).
@@ -597,7 +601,7 @@ fn curve_editor(ui: &mut egui::Ui, p: &mut CameraRaw, dirty: &mut bool, state: &
         *dirty = true;
     }
     // Curve (point curve after the parametric one).
-    let lut = curve_lut(&points, 256);
+    let lut = photocraft_io::develop_filter::camera_raw_curve_lut(p, 256);
     let pts: Vec<Pos2> = lut.iter().enumerate().map(|(i, value)| to_screen(i as f32, value * 255.0)).collect();
     painter.add(egui::Shape::line(pts, Stroke::new(1.5, t.text)));
     for (i, c) in points.iter().enumerate() {
@@ -935,7 +939,7 @@ mod tests {
         let layer = app.session.active().unwrap().active_layer.unwrap();
         let mut source = photocraft_raster::Surface::new(photocraft_color::PixelFormat::RGBA8);
         source.write_region(Rect::new(30_000, 30_000, 30_001, 30_001), &[0.5, 0.5, 0.5, 1.0]);
-        let result = open_pixels(&mut app, &ctx, layer, source, CameraRaw::default(), Coverage::None, Target::NewFilter);
+        let result = open_pixels(&mut app, &ctx, layer, source, CameraRaw::default(), Coverage::None, Target::NewFilter, None);
         assert!(result.unwrap_err().contains("bounds are too large"));
         assert!(app.camera_raw.is_none());
     }
@@ -962,5 +966,204 @@ mod tests {
         let r = menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"cancel": true}})).unwrap().unwrap();
         assert_eq!(r["cancelled"], true);
         assert!(menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"set": {"exposure": "x"}}})).unwrap().is_err());
+    }
+}
+
+#[cfg(test)]
+mod j04_tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    #[test]
+    fn j04_preview_equals_commit_interactive() {
+        let mut h = Harness::builder().with_size(vec2(1200.0, 800.0)).build_eframe(|cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.run("file.new", json!({"width":96,"height":64,"depth":32})).unwrap();
+            app.run("layer.new.layer", json!({})).unwrap();
+            let st = app.session.active_mut().unwrap();
+            let id = st.active_layer.unwrap();
+            let doc = std::sync::Arc::make_mut(&mut st.doc);
+            let photocraft_doc::LayerContent::Raster(surface) = &mut doc.layer_mut(id).unwrap().content else { panic!() };
+            let pixels: Vec<f32> = (0..96 * 64)
+                .flat_map(|i| {
+                    let x = (i % 96) as f32 / 95.0;
+                    let y = (i / 96) as f32 / 63.0;
+                    [0.1 + 0.7 * x, 0.15 + 0.65 * y, 0.25 + 0.3 * ((i * 17 % 29) as f32 / 28.0), 1.0]
+                })
+                .collect();
+            surface.write_region(Rect::new(0, 0, 96, 64), &pixels);
+            open(&mut app, &cc.egui_ctx).unwrap();
+            app
+        });
+        h.run_steps(2);
+        let cases = [
+            CameraRaw { dehaze: 40.0, ..Default::default() },
+            CameraRaw { texture: 35.0, clarity: 30.0, ..Default::default() },
+            CameraRaw { noise_luminance: 45.0, noise_color: 35.0, ..Default::default() },
+            CameraRaw { grain_amount: 45.0, seed: 42, ..Default::default() },
+        ];
+        for p in cases {
+            let ctx = h.ctx.clone();
+            let d = h.state_mut().camera_raw.as_mut().unwrap();
+            d.params = p.clone();
+            d.render(&ctx);
+            let s = photocraft_io::develop_filter::from_camera_raw(&p, photocraft_io::develop_filter::identity());
+            let mut reference = d.proxy.clone();
+            photocraft_io::develop_filter::develop_rgba(&mut reference, d.pw, d.ph, &s, photocraft_cms::Builtin::Srgb.profile()).unwrap();
+            let differences: Vec<f32> = d.processed.iter().zip(&reference).flat_map(|(a, b)| (0..3).map(move |c| (a[c] - b[c]).abs())).collect();
+            let max = differences.iter().copied().fold(0.0f32, f32::max);
+            let rmse = (differences.iter().map(|v| v * v).sum::<f32>() / differences.len() as f32).sqrt();
+            println!(
+                "J04 dehaze={} texture={} nr={} grain={} preview_ms={:.3} max_error={max:.8} rmse={rmse:.8}",
+                p.dehaze, p.texture, p.noise_luminance, p.grain_amount, d.render_ms
+            );
+            assert_eq!(max, 0.0, "native-size interactive preview must match shared commit pixels");
+        }
+        h.run_steps(2);
+        let before = h.state().camera_raw.as_ref().unwrap().proxy.clone();
+        let history = h.state().session.active().unwrap().history.past_len();
+        let exposure = h.get_by_label("Exposure slider").rect();
+        let start = exposure.center();
+        h.hover_at(start);
+        h.run_steps(1);
+        h.drag_at(start);
+        h.run_steps(1);
+        h.hover_at(start + vec2(35.0, 0.0));
+        h.run_steps(1);
+        h.drop_at(start + vec2(35.0, 0.0));
+        h.run_steps(2);
+        assert_ne!(h.state().camera_raw.as_ref().unwrap().params.exposure, 0.0);
+        assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+        h.get_by_label("Before (Y)").click();
+        h.run_steps(2);
+        assert!(h.state().camera_raw.as_ref().unwrap().show_before);
+        h.get_by_label("Before (Y)").click();
+        h.run_steps(2);
+        let d = h.state().camera_raw.as_ref().unwrap();
+        let expected = d.processed.clone();
+        let layer = d.layer;
+        assert_ne!(expected, before);
+        h.get_by_label("OK").click();
+        h.run_steps(2);
+        assert!(h.state().camera_raw.is_none());
+        let st = h.state().session.active().unwrap();
+        let photocraft_doc::LayerContent::Raster(committed) = &st.doc.layer(layer).unwrap().content else { panic!() };
+        let mut pixels = vec![[0.0; 4]; 96 * 64];
+        committed.read_rgba_into(Rect::new(0, 0, 96, 64), &mut pixels);
+        assert_eq!(pixels, expected);
+        assert_eq!(st.history.past_len(), history + 1);
+    }
+}
+
+#[cfg(test)]
+mod j04_develop_tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    #[test]
+    fn j04_develop_dialog_drag_preserves_full_settings_and_commits_p3_pixels() {
+        let mut base = photocraft_io::develop_filter::identity().clone();
+        base.wb.mode = serde_json::from_value(json!("custom")).unwrap();
+        base.wb.temp = 30000.123456789;
+        base.wb.tint = 130.123456789;
+        base.curve.master = serde_json::from_value(json!([{"x":0.0,"y":0.0},{"x":0.345678912345,"y":0.456789123456},{"x":1.0,"y":1.0}])).unwrap();
+        base.treatment = serde_json::from_value(json!("bw")).unwrap();
+        base.detail.nr_contrast = 42.123456789;
+        let settings = serde_json::to_value(&base).unwrap();
+        let mut h = Harness::builder().with_size(vec2(1200.0, 800.0)).build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.run("file.new", json!({"width":32,"height":24,"depth":32})).unwrap();
+            app.run("layer.new.layer", json!({})).unwrap();
+            app.run("edit.fill", json!({"color":"#ad5734"})).unwrap();
+            app.run("edit.assignProfile", json!({"profile":"display-p3"})).unwrap();
+            let layer = app.session.active().unwrap().active_layer.unwrap();
+            crate::develop_filter_ui::start(&mut app, &cc.egui_ctx, crate::develop_filter_ui::Action::Layer { layer, convert: false }, settings.clone())
+                .unwrap();
+            app
+        });
+        h.run_steps(2);
+        assert_eq!(h.state().camera_raw.as_ref().unwrap().preview_revision, 1, "open renders once with its full settings");
+        let start = h.get_by_label("Exposure slider").rect().center();
+        h.hover_at(start);
+        h.run_steps(1);
+        h.drag_at(start);
+        h.run_steps(1);
+        h.hover_at(start + vec2(30.0, 0.0));
+        h.run_steps(1);
+        h.drop_at(start + vec2(30.0, 0.0));
+        h.run_steps(2);
+        let d = h.state().camera_raw.as_ref().unwrap();
+        let actual = d.develop.as_ref().unwrap().settings(&d.params);
+        assert_ne!(actual.light.exposure, base.light.exposure);
+        assert_eq!(actual.wb, base.wb);
+        assert_eq!(actual.curve.master, base.curve.master);
+        assert_eq!(actual.treatment, base.treatment);
+        assert_eq!(actual.detail.nr_contrast, base.detail.nr_contrast);
+        assert_eq!(d.detail.develop.as_ref().unwrap().settings(&d.params), actual);
+        let expected = d.processed.clone();
+        let layer = d.layer;
+        assert_ne!(expected, d.proxy);
+        let mut display = expected[0];
+        d.scope_transform.apply(&mut display, 4);
+        let enc = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+        assert_eq!(d.display_image(&expected).pixels[0], Color32::from_rgba_unmultiplied(enc(display[0]), enc(display[1]), enc(display[2]), enc(display[3])));
+        h.get_by_label("OK").click();
+        h.run_steps(2);
+        assert!(h.state().camera_raw.is_none());
+        let st = h.state().session.active().unwrap();
+        let photocraft_doc::LayerContent::Raster(surface) = &st.doc.layer(layer).unwrap().content else { panic!() };
+        let mut committed = vec![[0.0; 4]; 32 * 24];
+        surface.read_rgba_into(Rect::new(0, 0, 32, 24), &mut committed);
+        assert_eq!(committed, expected);
+    }
+}
+
+#[cfg(test)]
+mod j04_proxy_tests {
+    use super::*;
+
+    #[test]
+    fn j04_downsampled_proxy_equals_downsampled_commit_within_tolerance() {
+        let ctx = egui::Context::default();
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width":902,"height":24,"depth":32})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        let st = app.session.active_mut().unwrap();
+        let layer = st.active_layer.unwrap();
+        let photocraft_doc::LayerContent::Raster(source) = &mut std::sync::Arc::make_mut(&mut st.doc).layer_mut(layer).unwrap().content else { panic!() };
+        let pixels: Vec<f32> = (0..902 * 24)
+            .flat_map(|i| {
+                let x = (i % 902) as f32 / 901.0;
+                [0.15 + 0.4 * x, 0.25 + 0.3 * x, 0.5 - 0.2 * x, 1.0]
+            })
+            .collect();
+        source.write_region(Rect::new(0, 0, 902, 24), &pixels);
+        open(&mut app, &ctx).unwrap();
+        let d = app.camera_raw.as_mut().unwrap();
+        assert_eq!((d.pw, d.ph), (451, 12));
+        d.params.exposure = 0.5;
+        d.render(&ctx);
+        let preview = d.processed.clone();
+        let pw = d.pw;
+        commit(&mut app).unwrap();
+        let st = app.session.active().unwrap();
+        let photocraft_doc::LayerContent::Raster(surface) = &st.doc.layer(layer).unwrap().content else { panic!() };
+        let mut full = vec![[0.0; 4]; 902 * 24];
+        surface.read_rgba_into(Rect::new(0, 0, 902, 24), &mut full);
+        let mut max = 0.0f32;
+        for (i, p) in preview.iter().enumerate() {
+            let (x, y) = (i % pw * 2, i / pw * 2);
+            for c in 0..3 {
+                let average = (full[y * 902 + x][c] + full[y * 902 + x + 1][c] + full[(y + 1) * 902 + x][c] + full[(y + 1) * 902 + x + 1][c]) * 0.25;
+                max = max.max((p[c] - average).abs());
+            }
+            assert_eq!(p[3], 1.0);
+        }
+        println!("J04 downsampled proxy max RGB error={max:.8}");
+        // Two-pixel box filtering and the nonlinear document encoding need not commute;
+        // allow far less than one 8-bit display level on this smooth, unclipped fixture.
+        assert!(max < 1e-4, "proxy/commit resampling error={max}");
     }
 }

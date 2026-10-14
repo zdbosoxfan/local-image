@@ -27,7 +27,7 @@ pub(crate) struct DevelopEngine {
 
 impl DevelopEngine {
     pub(crate) fn settings(&self, params: &CameraRaw) -> photocraft_io::develop_filter::DevelopSettings {
-        let mut s = photocraft_io::develop_filter::from_camera_raw(params, &self.base);
+        let mut s = photocraft_io::develop_filter::edit_camera_raw(params, &self.base);
         photocraft_io::develop_filter::sanitize(&mut s);
         s
     }
@@ -51,6 +51,8 @@ pub(crate) struct DetailPreview {
     overlay_key: Option<OverlayKey>,
     pub(crate) ready: bool,
     pub(crate) develop: Option<DevelopEngine>,
+    pub(crate) profile: Arc<photocraft_cms::Profile>,
+    pub(crate) display_transform: Option<Arc<photocraft_cms::Transform>>,
 }
 
 impl Drop for DetailPreview {
@@ -76,7 +78,13 @@ impl DetailPreview {
             overlay_key: None,
             ready: false,
             develop: None,
+            profile: Arc::new(photocraft_cms::Builtin::Srgb.profile().clone()),
+            display_transform: None,
         }
+    }
+
+    fn is_identity(&self, params: &CameraRaw) -> bool {
+        self.develop.as_ref().map_or_else(|| params.is_identity(), |e| e.settings(params) == *photocraft_io::develop_filter::identity())
     }
 
     pub(crate) fn pending(&self) -> bool {
@@ -126,6 +134,7 @@ impl DetailPreview {
         let area = self.area;
         let coverage = self.coverage.clone();
         let engine = self.develop.clone();
+        let profile = self.profile.clone();
         let mut params = params.clone();
         params.pixel_scale = 1.0;
         let cancel = self.cancel.clone();
@@ -135,9 +144,9 @@ impl DetailPreview {
             if cancel.load(Ordering::Relaxed) {
                 return;
             }
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| develop(&source, area, &params, &coverage, engine.as_ref())))
-                .map(|surface| (revision, surface))
-                .map_err(|_| "Camera Raw detail preview failed; the proxy remains available".into());
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| develop_in(&source, area, &params, &coverage, engine.as_ref(), &profile)))
+                .map_err(|_| "Camera Raw detail preview failed; the proxy remains available".to_string())
+                .and_then(|result| result.map(|surface| (revision, surface)));
             if !cancel.load(Ordering::Relaxed) {
                 let _ = tx.send(result);
                 ctx.request_repaint();
@@ -179,7 +188,7 @@ impl DetailPreview {
             return false;
         }
         let Some(crop) = visible_pixels(image, ui.clip_rect(), self.area, ui.input(|i| i.max_texture_side)) else { return false };
-        let original = before || params.is_identity();
+        let original = before || self.is_identity(params);
         if !original {
             self.request(ui.ctx(), revision, params);
             self.poll(revision);
@@ -195,7 +204,7 @@ impl DetailPreview {
         };
         let key = (if original { 0 } else { revision }, original, crop);
         if self.crop != Some(key) {
-            let color = crop_image(surface, crop);
+            let color = crop_image_in(surface, crop, self.display_transform.as_deref());
             let options = TextureOptions { magnification: egui::TextureFilter::Nearest, ..TextureOptions::LINEAR };
             match &mut self.texture {
                 Some(t) => t.set(color, options),
@@ -218,7 +227,7 @@ impl DetailPreview {
         if !self.ready || !p.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)) {
             return None;
         }
-        let source = if before || params.is_identity() {
+        let source = if before || self.is_identity(params) {
             &self.source
         } else if let Some((r, source)) = &self.result
             && *r == revision
@@ -300,13 +309,25 @@ impl DetailPreview {
     }
 }
 
+#[cfg(test)]
 fn develop(source: &Surface, area: PixelRect, params: &CameraRaw, coverage: &Coverage, engine: Option<&DevelopEngine>) -> Surface {
+    develop_in(source, area, params, coverage, engine, photocraft_cms::Builtin::Srgb.profile()).unwrap()
+}
+
+fn develop_in(
+    source: &Surface,
+    area: PixelRect,
+    params: &CameraRaw,
+    coverage: &Coverage,
+    engine: Option<&DevelopEngine>,
+    profile: &photocraft_cms::Profile,
+) -> Result<Surface, String> {
     let mut result = match engine {
-        Some(e) => photocraft_io::develop_filter::develop_surface(source, area, &e.settings(params), &e.profile).unwrap_or_else(|_| source.clone()),
-        None => photocraft_engine::lens_cmds::camera_raw_surface(source, area, params),
+        Some(e) => photocraft_io::develop_filter::develop_surface(source, area, &e.settings(params), &e.profile)?,
+        None => photocraft_io::develop_filter::camera_raw_surface(source, area, params, profile)?,
     };
     if matches!(coverage, Coverage::None) {
-        return result;
+        return Ok(result);
     }
     let width = area.width() as usize;
     let channels = source.channels();
@@ -330,7 +351,7 @@ fn develop(source: &Surface, area: PixelRect, params: &CameraRaw, coverage: &Cov
         }
         result.write_region(rect, &row);
     }
-    result
+    Ok(result)
 }
 
 fn visible_pixels(image: Rect, viewport: Rect, area: PixelRect, max_side: usize) -> Option<PixelRect> {
@@ -353,13 +374,21 @@ fn visible_pixels(image: Rect, viewport: Rect, area: PixelRect, max_side: usize)
     (crop.width() as usize <= max_side && crop.height() as usize <= max_side && crop.width() as u64 * crop.height() as u64 <= 16_777_216).then_some(crop)
 }
 
+#[cfg(test)]
 fn crop_image(surface: &Surface, area: PixelRect) -> ColorImage {
+    crop_image_in(surface, area, None)
+}
+
+fn crop_image_in(surface: &Surface, area: PixelRect, transform: Option<&photocraft_cms::Transform>) -> ColorImage {
     let width = area.width() as usize;
     let mut row = vec![[0.0; 4]; width];
     let mut pixels = Vec::with_capacity(width * area.height() as usize);
     let enc = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
     for y in area.y0..area.y1 {
         surface.read_rgba_into(PixelRect::new(area.x0, y, area.x1, y + 1), &mut row);
+        if let Some(transform) = transform {
+            transform.apply(row.as_flattened_mut(), 4);
+        }
         pixels.extend(row.iter().map(|q| Color32::from_rgba_unmultiplied(enc(q[0]), enc(q[1]), enc(q[2]), enc(q[3]))));
     }
     ColorImage::new([width, area.height() as usize], pixels)
@@ -458,5 +487,37 @@ mod tests {
         assert_eq!((crop.width(), crop.height()), (802, 602));
         assert!(visible_pixels(image, Rect::from_min_size(Pos2::ZERO, vec2(8000.0, 6000.0)), area, 4096).is_none());
         assert!(visible_pixels(Rect::NOTHING, visible, area, 4096).is_none());
+    }
+}
+
+#[cfg(test)]
+mod j04_tests {
+    use super::*;
+
+    #[test]
+    fn j04_full_settings_identity_and_profile_display_are_preserved() {
+        let area = PixelRect::new(0, 0, 16, 12);
+        let mut source = Surface::new(photocraft_color::PixelFormat::RGBA32F);
+        source.write_region(area, &[0.7, 0.2, 0.1, 0.75].repeat(16 * 12));
+        let profile = Arc::new(photocraft_cms::Builtin::DisplayP3.profile().clone());
+        let mut base = photocraft_io::develop_filter::identity().clone();
+        base.treatment = serde_json::from_value(serde_json::json!("bw")).unwrap();
+        let params = photocraft_io::develop_filter::to_camera_raw(&base);
+        assert!(params.is_identity());
+        let engine = DevelopEngine { base: Arc::new(base), profile: profile.clone() };
+        let result = develop_in(&source, area, &params, &Coverage::None, Some(&engine), &profile).unwrap();
+        assert_ne!(result, source);
+        let mut preview = DetailPreview::new(source, area, Coverage::None);
+        preview.develop = Some(engine);
+        assert!(!preview.is_identity(&params), "full settings determine identity at native zoom");
+        preview.result = Some((1, result.clone()));
+        preview.ready = true;
+        assert_eq!(preview.sample([0.5, 0.5], 1, false, &params), Some(result.rgba(8, 6)));
+        let transform = photocraft_cms::cached(&profile, photocraft_cms::Builtin::Srgb.profile(), Default::default()).unwrap();
+        let image = crop_image_in(&result, area, Some(&transform));
+        let mut pixel = result.rgba(8, 6);
+        transform.apply(&mut pixel, 4);
+        let enc = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+        assert_eq!(image.pixels[6 * 16 + 8], Color32::from_rgba_unmultiplied(enc(pixel[0]), enc(pixel[1]), enc(pixel[2]), enc(pixel[3])));
     }
 }
