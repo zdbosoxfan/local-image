@@ -214,7 +214,10 @@ fn match_look_real_raw_end_to_end() {
             let result = work.run(&engine::Control::default(), false);
             assert_eq!(serial.rows, result.rows, "serial and parallel edits must be identical");
             if !layer && !consistent {
-                let equivalent = result.elapsed_ms / result.rows.len() as f64 * 500.0 / result.workers as f64;
+                // elapsed_ms already measures the parallel batch wall time. Dividing by
+                // workers again would overstate throughput. This remains an extrapolation;
+                // the separate 500-photo app wall benchmark is authoritative.
+                let equivalent = result.elapsed_ms / result.rows.len() as f64 * 500.0;
                 if equivalent > 90_000.0 {
                     failures.push(format!("cold normalized equivalent500 {equivalent:.2} ms (app wall benchmark is authoritative)"));
                 }
