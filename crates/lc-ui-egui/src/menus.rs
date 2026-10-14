@@ -8,7 +8,7 @@ use crate::LightcraftApp;
 use crate::state::{BeforeAfter, Dialog, RightPanel, SpotOverlay, ViewMode, Zoom};
 
 /// (id, label, shortcut, menu path)
-pub type UiCommand = (&'static str, &'static str, Option<&'static str>, &'static str);
+pub use li_commands::UiCommand;
 
 /// The "Edit → Language" entries, one per language in [`crate::i18n::Locale::ALL`], so a language
 /// added to the table shows up in the menu (and in the control channel's command list) by itself.
@@ -1518,8 +1518,12 @@ pub fn action_label(label: &str) -> String {
 
 /// The flattened menu model (UI commands + engine commands with menu paths).
 pub fn menu_entries(app: &LightcraftApp) -> Vec<MenuEntry> {
+    menu_entries_with_bindings(app, &crate::shortcuts::catalog::effective(app))
+}
+
+pub(crate) fn menu_entries_with_bindings(app: &LightcraftApp, bindings: &[(crate::shortcuts::catalog::Binding, String)]) -> Vec<MenuEntry> {
     let effective: std::collections::BTreeMap<_, _> =
-        crate::shortcuts::catalog::effective(app).into_iter().filter(|(b, _)| b.params.is_none()).map(|(b, key)| (b.command, key)).collect();
+        bindings.iter().filter(|(b, _)| b.params.is_none()).map(|(b, key)| (b.command.as_str(), key.clone())).collect();
     let mut v: Vec<MenuEntry> = ui_commands()
         .filter(|c| !c.3.is_empty())
         .map(|(id, label, _sc, m)| MenuEntry {

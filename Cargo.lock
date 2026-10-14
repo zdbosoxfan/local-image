@@ -3964,6 +3964,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-commands"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "egui",
+ "egui_kittest",
+ "li-keys",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "li-fs"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -4154,6 +4165,7 @@ dependencies = [
  "krilla",
  "lensfun",
  "li-color",
+ "li-commands",
  "li-raster",
  "li-seg",
  "libc",
@@ -4383,6 +4395,7 @@ dependencies = [
  "egui_extras",
  "li-attributions",
  "li-color",
+ "li-commands",
  "li-keys",
  "li-seg",
  "lightcraft-catalog",
@@ -5769,6 +5782,7 @@ dependencies = [
  "image",
  "li-ai",
  "li-color",
+ "li-commands",
  "li-keys",
  "li-seg",
  "lightcraft-meta",
@@ -6081,6 +6095,7 @@ dependencies = [
  "li-ai",
  "li-attributions",
  "li-color",
+ "li-commands",
  "li-gpu",
  "li-keys",
  "li-seg",

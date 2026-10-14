@@ -1076,33 +1076,13 @@ fn ds2_value_field_displays_requested_four_decimal_precision() {
 /// Menu label with a reserved icon gutter. Used by command rows and submenu rows so
 /// check marks never move labels or become part of their accessible names. Metrics
 /// follow egui's themed icon spacing and button font (including UI font scaling).
-pub fn menu_row_label(ui: &Ui, label: &str) -> egui::text::LayoutJob {
-    let mut job = egui::text::LayoutJob::simple_singleline(label.into(), egui::TextStyle::Button.resolve(ui.style()), ui.visuals().text_color());
-    if let Some(section) = job.sections.first_mut() {
-        section.leading_space = ui.spacing().icon_width + ui.spacing().icon_spacing;
-    }
-    job
-}
+pub use li_commands::widgets::{menu_row_button, menu_row_label};
 
-/// Standard egui menu button with the shared check gutter. Owners may add shortcut
-/// text, enabled state or a user-selected menu tint before adding it to the UI.
-pub fn menu_row_button<'a>(ui: &Ui, label: &str) -> egui::Button<'a> {
-    egui::Button::new(menu_row_label(ui, label))
-}
-
-/// Decorate a menu response with its check and accessible selected state. The
-/// shared icon painter uses the current enabled/hovered text colour from egui.
+/// Compatibility adapter to the editor's shared monochrome icon painter.
 pub fn menu_row_check(ui: &Ui, response: &Response, label: &str, checked: Option<bool>) {
-    if let Some(on) = checked {
-        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, response.enabled(), on, label));
-        if on {
-            let width = ui.spacing().icon_width;
-            let center = response.rect.left_center() + vec2(ui.spacing().button_padding.x + width / 2.0, 0.0);
-            let rect = Rect::from_center_size(center, Vec2::splat(width));
-            let color = ui.style().interact(response).fg_stroke.color;
-            crate::icons::paint(ui, rect, "check", width, color);
-        }
-    }
+    li_commands::widgets::menu_row_check(ui, response, label, checked, |ui, rect, width, color| {
+        crate::icons::paint(ui, rect, "check", width, color);
+    });
 }
 
 /// A canvas/panel command row. Uses egui's themed menu button and the disabled-hover
@@ -1114,9 +1094,9 @@ pub fn command_menu_item(ui: &mut Ui, label: &str, shortcut: Option<&str>, check
     if let Some(shortcut) = shortcut {
         button = button.shortcut_text(shortcut);
     }
-    let response = ui.add_enabled(reason.is_none(), button);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, response.enabled(), label));
-    menu_row_check(ui, &response, label, checked);
+    let response = li_commands::widgets::command_menu_item(ui, button, label, reason.is_none(), checked, |ui, rect, width, color| {
+        crate::icons::paint(ui, rect, "check", width, color);
+    });
     if let Some(reason) = reason { disabled_reason_tooltip(response, reason) } else { response }
 }
 
