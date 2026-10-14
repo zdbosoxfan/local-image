@@ -131,6 +131,13 @@ fn deserialize_clip_runs<'de, D: serde::Deserializer<'de>>(deserializer: D) -> R
     }
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CameraWbPreset {
+    pub name: String,
+    pub temp: f64,
+    pub tint: f64,
+}
+
 /// Facts about the source the settings are interpreted against.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -138,6 +145,8 @@ pub struct SourceInfo {
     /// Sensor fraction of clipped channels, before reconstruction and camera conversion.
     pub clip_confidence: Option<Arc<ClipConfidence>>,
     pub raw_clip_level: Option<f32>,
+    pub camera_noise: Option<detail::nr::NoiseCalibration>,
+    pub camera_wb_presets: Vec<CameraWbPreset>,
     /// Lens corrections embedded in the file (DNG opcodes), relative to the EXIF-oriented source.
     pub lens: Option<lightcraft_develop::EmbeddedLens>,
     /// Raw sources use absolute Kelvin white balance; rendered sources use a relative scale around
@@ -178,6 +187,8 @@ impl Default for SourceInfo {
             raw: false,
             clip_confidence: None,
             raw_clip_level: None,
+            camera_noise: None,
+            camera_wb_presets: vec![],
             as_shot_temp: 6500.0,
             as_shot_tint: 0.0,
             lens: None,
@@ -511,7 +522,10 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         // colour calibration runs with the white balance
         format!("{:?}", colorcal::of(info, s)),
         format!("{:?}", info.camera_color),
-        info.camera_profile.as_ref().map(|p| p.hash64()),
+        (
+            info.camera_profile.as_ref().map(|p| p.hash64()),
+            info.camera_noise.map(|n| (n.a.map(f32::to_bits), n.b.map(f32::to_bits), n.camera_to_working.map(|r| r.map(f32::to_bits)))),
+        ),
         (info.baseline_gain.to_bits(), info.sensor_scale.to_bits()),
     ));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
@@ -683,7 +697,7 @@ fn render_impl(
             // Without a cache the resampled buffer is ours: work on it in place.
             let mut img = if shared.is_some() { (*sampled).clone() } else { Arc::unwrap_or_clone(sampled.clone()) };
             lin_cpu(&mut img, info, &plan);
-            local::denoise(&mut img, s, src_long, px_per_long, info.sensor_scale);
+            local::denoise_source(&mut img, s, src_long, px_per_long, info);
             Arc::new(img)
         }
     };

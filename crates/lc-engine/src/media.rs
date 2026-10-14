@@ -668,10 +668,10 @@ pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &
         };
         log_develop_backend(&format!("CPU: {cpu_reason}"));
     }
-    match stages {
+    lightcraft_sysmem::power::compute(|| match stages {
         Some(st) => lightcraft_pipeline::render_cached(src, info, s, req, st),
         None => lightcraft_pipeline::render(src, info, s, req),
-    }
+    })
 }
 
 #[cfg(test)]

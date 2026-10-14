@@ -439,6 +439,7 @@ impl ComfyClient {
                 return Err(anyhow!(Busy));
             }
         }
+        let _vram = lightcraft_sysmem::gpu::AiJob::new(crate::resources::local(&self.host));
         let prompt_id = self.queue_prompt(&graph, &client_id)?;
         let _ours = OurPrompt::new(&self.host, &prompt_id, ctl);
         if let Some(s) = &socket {

@@ -1804,8 +1804,8 @@ pub mod pipeline {
     use super::{Exported, PreparedExport};
 
     /// Batch renders that would use the GPU take this one at a time: concurrent full-size GPU
-    /// renders could exhaust video memory, and a failed GPU render turns the GPU off for the
-    /// process. Their decoding runs in parallel outside it. Interactive renders (loupe, grid)
+    /// renders could exhaust video memory. Device errors now use bounded recovery; local
+    /// ComfyUI pressure temporarily selects CPU rendering. Their decoding runs in parallel outside it. Interactive renders (loupe, grid)
     /// never take it.
     pub static GPU_GATE: Mutex<()> = Mutex::new(());
     /// AI enlargement (CPU inference or the ComfyUI GPU queue) in an export: one at a time.

@@ -1,5 +1,7 @@
 //! Destructive pixel operations on layers (Image → Adjustments, flips, fills).
 
+use rayon::prelude::*;
+
 use photocraft_compose::{Buffer, adjust};
 use photocraft_doc::{Adjustment, Document, Layer, LayerContent};
 use photocraft_geom::Rect;
@@ -44,27 +46,29 @@ pub fn adjust_mask(s: &mut Surface, adj: &Adjustment, selection: Option<&Surface
 
 /// `s`'s pixels over `r` (untouched ones included) with `adj` applied through the selection, encoded.
 fn adjusted(s: &Surface, r: Rect, adj: &Adjustment, selection: Option<&Surface>, mode: photocraft_color::ColorMode) -> Vec<f32> {
-    let fmt = s.format();
-    let n = fmt.channels();
-    let raw = s.read_region(r);
-    let mut buf = Buffer { rect: r, px: raw.chunks_exact(n).map(|p| to_rgba(&fmt, p)).collect() };
-    let orig = buf.clone();
-    // 32-bit documents get the float behaviour of an adjustment layer there (Levels doesn't clip);
-    // integer depths keep the unrounded, clipped curves.
-    let depth = (fmt.sample == photocraft_color::SampleType::F32).then_some(fmt.sample);
-    adjust::apply_depth(adj, &mut buf, adjust::Transfer::for_document(mode, fmt.sample), depth);
-    let w = r.width() as usize;
-    let mut out = Vec::with_capacity(raw.len());
-    for (i, (a, o)) in buf.px.iter().zip(&orig.px).enumerate() {
-        let k = selection.map_or(1.0, |sel| sel.sample_channel(r.x0 + (i % w) as i32, r.y0 + (i / w) as i32, 0));
-        let mixed: [f32; 4] = std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k);
-        let mut enc = [0.0f32; 8];
-        let m = photocraft_raster::from_rgba_into(&fmt, mixed, &mut enc);
-        out.extend_from_slice(&enc[..m]);
-    }
-    out
+    lightcraft_sysmem::power::compute(|| {
+        let fmt = s.format();
+        let n = fmt.channels();
+        let raw = s.read_region(r);
+        let mut buf = Buffer { rect: r, px: raw.par_chunks_exact(n).map(|p| to_rgba(&fmt, p)).collect() };
+        let orig = buf.clone();
+        // 32-bit documents get the float behaviour of an adjustment layer there (Levels doesn't clip);
+        // integer depths keep the unrounded, clipped curves.
+        let depth = (fmt.sample == photocraft_color::SampleType::F32).then_some(fmt.sample);
+        adjust::apply_depth(adj, &mut buf, adjust::Transfer::for_document(mode, fmt.sample), depth);
+        let w = r.width() as usize;
+        let mut out = vec![0.0; raw.len()];
+        out.par_chunks_exact_mut(n).enumerate().for_each(|(i, dst)| {
+            let (a, o) = (&buf.px[i], &orig.px[i]);
+            let k = selection.map_or(1.0, |sel| sel.sample_channel(r.x0 + (i % w) as i32, r.y0 + (i / w) as i32, 0));
+            let mixed: [f32; 4] = std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k);
+            let mut enc = [0.0f32; 8];
+            photocraft_raster::from_rgba_into(&fmt, mixed, &mut enc);
+            dst.copy_from_slice(&enc[..n]);
+        });
+        out
+    })
 }
-
 /// Fill (respecting selection coverage) with a straight RGBA colour.
 pub fn fill_surface(s: &mut Surface, area: Rect, color: [f32; 4], selection: Option<&Surface>, lock_transparency: bool) {
     let fmt = s.format();
@@ -149,4 +153,37 @@ pub fn merge_down(doc_bounds: Rect, lower: &Layer, upper: &Layer, format: photoc
     merged.blend = lower.blend;
     merged.opacity = 1.0;
     merged
+}
+
+#[cfg(test)]
+mod parallel_tests {
+    use super::*;
+    #[test]
+    fn destructive_adjustment_byte_identical_across_threads_and_serial_reference() {
+        use photocraft_color::{ColorMode, PixelFormat, SampleType};
+        for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let fmt = PixelFormat::new(ColorMode::Rgb, sample, true);
+            let r = Rect::from_xywh(-7, -3, 73, 59);
+            let raw: Vec<f32> = (0..73 * 59).flat_map(|i| [((i * 19) % 256) as f32 / 255.0, 0.3, 0.7, (i % 13) as f32 / 12.0]).collect();
+            let mut surface = Surface::new(fmt);
+            surface.write_region(r, &raw);
+            let mut selection = Surface::new(PixelFormat::new(ColorMode::Grayscale, SampleType::F32, false));
+            selection.write_region(r, &(0..73 * 59).map(|i| (i % 17) as f32 / 16.0).collect::<Vec<_>>());
+            let adj = Adjustment::Invert;
+            let original: Vec<_> = surface.read_region(r).as_chunks::<4>().0.iter().map(|p| to_rgba(&fmt, p)).collect();
+            let mut buf = Buffer { rect: r, px: original.clone() };
+            let depth = (fmt.sample == SampleType::F32).then_some(fmt.sample);
+            adjust::apply_depth(&adj, &mut buf, adjust::Transfer::for_document(ColorMode::Rgb, sample), depth);
+            let mut reference = Vec::new();
+            for (i, (a, o)) in buf.px.iter().zip(&original).enumerate() {
+                let k = selection.sample_channel(r.x0 + (i % 73) as i32, r.y0 + (i / 73) as i32, 0);
+                reference.extend(from_rgba(&fmt, std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k)));
+            }
+            for threads in [1, 4] {
+                let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+                let out = pool.install(|| adjusted(&surface, r, &adj, Some(&selection), ColorMode::Rgb));
+                assert_eq!(out.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), reference.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+            }
+        }
+    }
 }

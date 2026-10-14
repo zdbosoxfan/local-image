@@ -239,3 +239,13 @@ covered by the repository LICENSE and distributed without warranty. Adaptations:
 of CIELab, deterministic soft clustering instead of random initialization, percentile-relative
 luminance zones, robust chroma weights and an editable-slider fit instead of pixel transfer.
 No upstream C/C++ is compiled into or shipped with the app.
+
+## Whole noise profiles and white-balance presets
+
+`crates/lc-raw/data/cameras/noiseprofiles.json` and `wb_presets.json` are distributed whole and
+unmodified from `733bd69f32cac7ff5e41025115942772add1f088`. Credit: darktable developers and the
+per-camera contributors recorded in each file. Noise profile handling follows
+`src/common/noiseprofiles.c` (copyright 2015-2023 darktable developers, GPL-3.0-or-later).
+White-balance data originated in `src/external/wb_presets.c` (GPL-2.0-or-later); the distributed JSON
+retains all names and measurements. Local Image is GPL-3.0-or-later. See the data manifest and
+`docs/CAMERA-DATA.md` for exact hashes, precedence and the whole-file refresh procedure.

@@ -240,7 +240,11 @@ impl FaceModels {
         let embedder = tract_onnx::onnx().model_for_path(embedder).context("Could not load SFace")?;
         ensure!(embedder.input_outlets()?.len() == 1 && embedder.output_outlets()?.len() == 1, "SFace must have one input and one output");
         let plan = embedder.with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, 112, 112)))?.into_optimized()?.into_runnable()?;
-        let models = Self { detector, detector_plans: Mutex::new(BTreeMap::new()), embedder: Arc::new(move |input| plan.run(tvec!(input.into()))) };
+        let models = Self {
+            detector,
+            detector_plans: Mutex::new(BTreeMap::new()),
+            embedder: Arc::new(move |input| crate::estimate::run("sface", 112 * 112, || plan.run(tvec!(input.into())))),
+        };
         // Fail at load time for an incompatible detector, and warm the common square plan.
         models.detector_plan(1024, 1024)?;
         Ok(models)
@@ -257,7 +261,7 @@ impl FaceModels {
             .with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, height, width)))?
             .into_optimized()?
             .into_runnable()?;
-        let run: Arc<Runner> = Arc::new(move |input| plan.run(tvec!(input.into())));
+        let run: Arc<Runner> = Arc::new(move |input| crate::estimate::run("yunet", (width * height) as u64, || plan.run(tvec!(input.into()))));
         if plans.len() >= 4 {
             // Eviction is deterministic; outstanding runs retain their own Arc.
             if let Some(key) = plans.keys().next().copied() {

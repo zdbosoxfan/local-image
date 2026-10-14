@@ -963,7 +963,14 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
         }
     }
     for item in &mut items {
-        if !item.enabled && item.id != "---" {
+        if matches!(item.id.as_str(), "select.subject" | "layer.removeBackground")
+            && let Some(model) = photocraft_engine::seg::installed()
+        {
+            let estimate = model.cpu_estimate();
+            item.enabled &= estimate.allowed();
+            item.tooltip = Some(estimate.label());
+        }
+        if !item.enabled && item.tooltip.is_none() && item.id != "---" {
             item.tooltip = Some(crate::command_feedback::disabled_reason(app, &item.id));
         }
     }

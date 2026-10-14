@@ -182,6 +182,31 @@ pub fn denoise(img: &mut Rgb32f, s: &DevelopSettings, src_long: usize, px_per_lo
     }
 }
 
+/// Resolve the calibrated sensor model through the same WB matrix as the rendered pixels.
+pub fn denoise_source(img: &mut Rgb32f, s: &DevelopSettings, src_long: usize, px_per_long: f64, info: &SourceInfo) {
+    let scale = crate::detail::out_per_orig(px_per_long, src_long, info.sensor_scale);
+    let Some(p) = crate::detail::nr_params(s, scale) else {
+        return;
+    };
+    if let Some(profile) = noise_calibration(info, s) {
+        crate::timed("profiled wavelet NR", || crate::detail::nr::denoise_profiled(img, &p, &profile));
+    } else {
+        crate::timed("wavelet NR", || crate::detail::denoise(img, &p));
+    }
+}
+
+/// Noise calibration in the same current WB coordinates as the pixels.
+pub fn noise_calibration(info: &SourceInfo, s: &DevelopSettings) -> Option<crate::detail::nr::NoiseCalibration> {
+    let nonlinear = crate::negative::params(s).is_some() || crate::colorcal::of(info, s).is_some_and(|c| !c.is_linear());
+    let mut profile = info.camera_noise.filter(|_| !nonlinear)?;
+    if let Some(wb) = wb_matrix_for(info, s) {
+        let wb = lightcraft_color::Mat3(wb.map(|r| r.map(f64::from)));
+        let camera = lightcraft_color::Mat3(profile.camera_to_working.map(|r| r.map(f64::from)));
+        profile.camera_to_working = wb.mul(&camera).to_f32();
+    }
+    Some(profile)
+}
+
 pub fn log_lum(c: [f32; 3]) -> f32 {
     (luminance_2020(c).max(1e-7) / crate::tone::GREY).log2()
 }

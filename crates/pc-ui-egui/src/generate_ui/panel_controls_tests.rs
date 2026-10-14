@@ -78,6 +78,14 @@ impl egui_kittest::TestRenderer for CpuRenderer {
 }
 
 fn screenshot(h: &mut Harness<'_, PhotocraftApp>, name: &str, check_thumbnail: bool) {
+    if check_thumbnail {
+        let started = std::time::Instant::now();
+        while !rt(|runtime| runtime.selected.as_ref().is_some_and(|id| runtime.gallery_thumbs.loaded(id))) {
+            assert!(started.elapsed() < std::time::Duration::from_secs(10), "async Library thumbnail did not become ready");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            h.run_steps(1);
+        }
+    }
     let image = h.render().unwrap();
     if check_thumbnail {
         let center = visible(h, "thumbnail").rect.center() * h.ctx.pixels_per_point();

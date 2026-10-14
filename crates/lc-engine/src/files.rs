@@ -463,12 +463,52 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         let relative = crate::camera_preview::file_local_look(raw.format) && t.matrix_is_fallback;
         let camera_tone = camera_look.as_ref().map(|p| p.tone).or_else(|| raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve));
         let (temp, tint) = if relative { (6500.0, 0.0) } else { (temp.round(), tint.round()) };
+        let normalized_color = lightcraft_raw::color::normalized_color(&raw);
+        let normalization_ratio = lightcraft_raw::color::normalization_ratios(&raw);
         return Ok((
             img,
             SourceInfo {
                 raw: true,
+                camera_wb_presets: if !relative {
+                    lightcraft_raw::camera_data::wb_presets(
+                        raw.metadata.make.as_deref().unwrap_or_default(),
+                        raw.metadata.model.as_deref().unwrap_or_default(),
+                    )
+                    .iter()
+                    .filter(|p| p.tuning == 0)
+                    .map(|p| {
+                        let mut neutral = p.multipliers.map(|v| 1.0 / v as f64);
+                        for i in 0..3 {
+                            neutral[i] *= normalization_ratio[i];
+                        }
+                        let xy = lightcraft_raw::color::neutral_to_xy(&normalized_color, neutral);
+                        let (temp, tint) = xy_to_temp_tint(xy);
+                        lightcraft_pipeline::CameraWbPreset {
+                            name: p.name.clone(),
+                            temp: temp.clamp(2000.0, 50000.0),
+                            tint: tint.clamp(-150.0, 150.0),
+                        }
+                    })
+                    .collect()
+                } else {
+                    vec![]
+                },
                 clip_confidence,
                 raw_clip_level: Some(HIGHLIGHT_CLIP),
+                camera_noise: if hue_sat.is_none() && raw.color.profile.is_empty() {
+                    lightcraft_raw::camera_data::noise_profile(
+                        raw.metadata.make.as_deref().unwrap_or_default(),
+                        raw.metadata.model.as_deref().unwrap_or_default(),
+                        raw.metadata.iso.unwrap_or(0),
+                    )
+                    .map(|p| lightcraft_pipeline::detail::nr::NoiseCalibration {
+                        a: std::array::from_fn(|i| p.a[i] * normalization_ratio[i] as f32),
+                        b: std::array::from_fn(|i| p.b[i] * normalization_ratio[i] as f32),
+                        camera_to_working: std::array::from_fn(|i| std::array::from_fn(|j| m[i][j] * wb[j] * gain)),
+                    })
+                } else {
+                    None
+                },
                 as_shot_temp: temp,
                 as_shot_tint: tint,
                 lens,
@@ -491,7 +531,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                         color_matrix: raw.color.color_matrix,
                         forward_matrix: raw.color.forward_matrix,
                         camera_calibration: raw.color.camera_calibration,
-                        analog_balance: raw.color.analog_balance,
+                        analog_balance: normalized_color.analog_balance,
                     };
                     let total = lightcraft_color::Mat3(m.map(|r| r.map(f64::from))).mul(&lightcraft_color::Mat3::diag(
                         wb[0] as f64,
@@ -861,5 +901,21 @@ mod tests {
         assert!(s.quick_thumb_job(&job).is_none());
         assert_eq!(s.quick_view_job(id, 1600, true).unwrap().run().quick, Some(QuickSource::Small));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod camdata_tests {
+    #[test]
+    #[ignore = "fetch CC0 rawdecode and licensed RawNIND reference samples under target/"]
+    fn camdata_real_raw_sources_use_profiles_and_camera_presets() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        for path in [root.join("rawdecode/2414.ARW"), root.join("rawnind/Bayer_7D-1_ISO6400_sha1=733cb095be69607aa14eca55b1f9f471bd0f00a3.cr2")] {
+            let (image, info) = super::load_bytes(&std::fs::read(&path).unwrap(), 512).unwrap();
+            assert!(info.raw && image.width > 0 && image.height > 0);
+            assert!(info.camera_noise.is_some(), "{}: profiled NR must reach the app path", path.display());
+            assert!(!info.camera_wb_presets.is_empty(), "{}: camera WB presets", path.display());
+            assert!(info.camera_color.is_some());
+        }
     }
 }

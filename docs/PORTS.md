@@ -634,3 +634,25 @@ All glue is in one adapter; rawler remains an ordinary crates.io dependency.
 | Our file | Upstream project | Upstream path | Upstream commit | Licence | Date | Used for |
 |---|---|---|---|---|---|---|
 | `crates/lc-raw/src/rawler_adapter.rs` | [rawler](https://github.com/dnglab/dnglab) | `rawler/Cargo.toml` | `ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7` | LGPL-2.1-only | 2026-10-13 | Unmodified crates.io 0.8.0 dependency for Canon CR3 RAW/C-RAW/dual-pixel, compressed Fujifilm RAF and Olympus/OM ORF; fallback for any native Unsupported variant, and runtime camera calibration missing from our first-choice table. |
+
+## Whole camera calibration data (2026-10-13)
+
+| Our file | Upstream project | Upstream path | Upstream commit | Licence | Used for |
+|---|---|---|---|---|---|
+| `crates/lc-raw/data/cameras/camconst.json` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/camconst.json` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | Whole camera white/black levels, crops and PDAF patterns |
+| `crates/lc-raw/data/cameras/cameras.xml` | [rawspeed](https://github.com/darktable-org/rawspeed) | `data/cameras.xml` | `0c16fee7772594e98897bded01fc31bc3409b4cb` | CC-BY-SA-3.0 | Whole ISO sensor calibration, crops, black areas and matrices |
+| `crates/lc-raw/data/cameras/noiseprofiles.json` | [darktable](https://github.com/darktable-org/darktable) | `data/noiseprofiles.json` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | Whole per-camera measured noise fits |
+| `crates/lc-raw/data/cameras/wb_presets.json` | [darktable](https://github.com/darktable-org/darktable) | `data/wb_presets.json` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-2.0-or-later | Whole camera WB presets |
+
+
+Files remain whole and byte-identical to upstream. [Camera-data contract](CAMERA-DATA.md) defines
+precedence, mode guards, refresh steps and validation. `camera_data.rs` follows RT `camconst.cc` and
+`pdaflinesfilter.cc`, rawspeed `Camera.cpp` and darktable `noiseprofiles.c`; the runtime and algorithms
+remain Rust. Notices are in `licenses/{rawtherapee,darktable,rawspeed}-NOTICE.md`.
+
+| Our file | Upstream project | Upstream path | Upstream commit | Licence | Used for |
+|---|---|---|---|---|---|
+| `crates/lc-raw/src/camera_data.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/camconst.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | ISO/aperture camera constant semantics |
+| `crates/lc-raw/src/camera_data.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/rawimage.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | Integer TIFF-bit-depth white mapping and absolute black flags |
+| `crates/lc-raw/src/camera_data.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/pdaflinesfilter.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | PDAF periods and green-triplet detection; host clean-row interpolation |
+| `crates/lc-raw/src/camera_data.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/common/noiseprofiles.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | Profile skip/interpolation semantics |

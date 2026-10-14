@@ -1476,3 +1476,6 @@ mod tests_updates;
 
 #[cfg(test)]
 mod tests_lrc_ux;
+
+#[cfg(test)]
+mod tests_camera_data;

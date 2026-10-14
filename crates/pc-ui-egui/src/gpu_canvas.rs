@@ -274,18 +274,33 @@ impl GpuCanvas {
         Some((d.format, bytes))
     }
 
+    /// Shared DeviceHealth admission: fresh idle VRAM may shorten a recoverable error's backoff.
+    /// Device loss itself still needs the host's replacement device (future li-gpu handoff).
+    pub fn resume_compute_after_backoff(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.health.resume_retry(std::time::Instant::now(), Some(lightcraft_sysmem::gpu::idle_epoch()));
+        self.health.begin_operation(lightcraft_sysmem::gpu::idle_epoch());
+    }
+
     /// Set the GPU memory the wgpu compositor may hold for layer pages and effect maps (see
     /// [`memory_budget`]); pages beyond it are evicted least recently used first.
     pub fn set_memory_budget(&self, bytes: u64) {
         let mut r = self.rs.renderer.write();
         if let Some(res) = r.callback_resources.get_mut::<Resources>() {
+            let shrinking = res.compositor_budget.is_some_and(|old| bytes < old);
             res.compositor_budget = Some(bytes);
             let share = bytes / (res.scaled_frames.len() as u64 + 1);
             if let Some(comp) = &mut res.compositor {
+                if shrinking {
+                    comp.forget_all();
+                }
                 comp.set_memory_budget(share);
             }
             for frame in res.scaled_frames.values_mut() {
                 if let Some(comp) = &mut frame.compositor {
+                    if shrinking {
+                        comp.forget_all();
+                    }
                     comp.set_memory_budget(share);
                 }
             }

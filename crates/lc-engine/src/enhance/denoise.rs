@@ -54,8 +54,7 @@ pub fn can_denoise(s: &Session, id: PhotoId) -> Result<(), String> {
     Ok(())
 }
 
-/// The only inference router. Failure retries the entire image on tract, preserving the tiler,
-/// color contract and gain matching. Cancellation never triggers a CPU retry.
+/// GPU/NPU-only inference router. Device failure is reported; never silently start a CPU job.
 pub fn infer(
     dir: &std::path::Path,
     kind: Variant,
@@ -90,6 +89,9 @@ fn infer_selected(
     gpu: bool,
     progress: &(dyn Fn(usize, usize) -> bool + Sync),
 ) -> Result<Vec<[f32; 3]>, String> {
+    if !gpu {
+        return Err("AI Denoise requires a GPU/NPU; CPU inference is disabled.".into());
+    }
     let (path, kind, tile) = if let Some(c) = custom {
         (c.path(dir), if c.class == 1 { Variant::Linear } else { Variant::Rgb }, c.size)
     } else {
@@ -103,12 +105,12 @@ fn infer_selected(
     #[cfg(not(target_arch = "wasm32"))]
     if gpu && lightcraft_gpu::enabled() {
         let mut cache = GPU_MODEL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if cache.as_ref().is_none_or(|(p, k, st, _)| p != &path || *k != kind || *st != stamp) {
+        if cache.as_ref().is_none_or(|(p, k, st, d)| p != &path || *k != kind || *st != stamp || !d.is_current()) {
             match lightcraft_gpu::denoise::Denoiser::load_at(&path, kind, tile) {
                 Ok(d) => *cache = Some((path.clone(), kind, stamp, d)),
                 Err(e) => {
-                    log::info!("AI Denoise CPU fallback: {e}");
                     *cache = None;
+                    return Err(format!("AI Denoise GPU unavailable: {e}"));
                 }
             }
         }
@@ -117,25 +119,15 @@ fn infer_selected(
                 Ok(out) => return Ok(out),
                 Err(e) if e == CANCELLED => return Err(e),
                 Err(e) => {
-                    log::info!("AI Denoise CPU fallback: {e}");
                     *cache = None;
+                    return Err(format!("AI Denoise GPU unavailable: {e}"));
                 }
             }
         }
     }
     #[cfg(target_arch = "wasm32")]
     let _ = gpu;
-    type CpuSlot = Option<(std::path::PathBuf, Variant, (u64, Option<std::time::SystemTime>), li_seg::denoise::Denoiser)>;
-    static CPU: Mutex<CpuSlot> = Mutex::new(None);
-    let d = {
-        let mut cache = CPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if cache.as_ref().is_none_or(|(p, k, st, _)| p != &path || *k != kind || *st != stamp) {
-            let d = li_seg::denoise::Denoiser::load_at(&path, kind, tile).map_err(|e| format!("{e:#}"))?;
-            *cache = Some((path, kind, stamp, d));
-        }
-        cache.as_ref().map(|(_, _, _, d)| d.clone()).ok_or("no CPU denoiser")?
-    };
-    d.denoise_channels(pixels, w, h, progress).map_err(|e| if e.is::<li_seg::denoise::Cancelled>() { CANCELLED.into() } else { format!("{e:#}") })
+    Err("AI Denoise requires an available GPU/NPU. Retry after other GPU jobs finish.".into())
 }
 impl Session {
     pub fn denoiser(&self) -> Result<(DenoiseFn, String), String> {
@@ -784,5 +776,15 @@ mod integration_tests {
             }
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod gpu_only_tests {
+    #[test]
+    fn denoise_cpu_request_refused_before_model_loading() {
+        let error = super::infer_selected(std::path::Path::new("not-installed"), li_seg::denoise::Variant::Rgb, None, &[], 1, 1, false, &|_, _| true)
+            .unwrap_err();
+        assert!(error.contains("CPU inference is disabled"));
     }
 }

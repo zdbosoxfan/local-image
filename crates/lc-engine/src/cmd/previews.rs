@@ -38,6 +38,7 @@ impl PreviewBuild {
             "done": self.done.load(Ordering::Relaxed),
             "failed": self.failed.load(Ordering::Relaxed),
             "running": !self.finished.load(Ordering::Relaxed),
+            "pausedOnBattery": !self.finished.load(Ordering::Relaxed) && lightcraft_sysmem::power::conserving(),
             "cancelled": self.cancel.load(Ordering::Relaxed),
             "what": if self.what.is_empty() { "previews" } else { self.what },
             "repaired": self.repaired.load(Ordering::Relaxed),
@@ -79,7 +80,7 @@ pub(crate) fn for_each_bounded<T: Send>(
     let queue = std::sync::Mutex::new(items.into_iter().enumerate());
     let run = || {
         loop {
-            if cancelled() {
+            if !lightcraft_sysmem::power::wait_background(cancelled) {
                 break;
             }
             let Some((i, (cost, item))) = queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next() else { break };

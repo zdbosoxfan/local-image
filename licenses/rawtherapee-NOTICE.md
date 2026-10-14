@@ -69,3 +69,15 @@ excludes empty/clipped tails, creates a monotone sparse CDF map and projects it 
 order onto existing sliders. We add slope bounds and a regularized LM fit, and do not apply
 RawTherapee's Catmull-Rom curve directly. Distributed under the repository's GPL-3.0-or-later
 LICENSE, without warranty. No upstream C/C++ is included in the Rust build.
+
+## Whole camera constants
+
+`crates/lc-raw/data/cameras/camconst.json` is distributed whole and unmodified from commit
+`5f486d3678b34c74ba0c63571c17babe20935019` (GPL-3.0-or-later). Its comments and contributor credits
+are intact. `camera_data.rs` follows `rtengine/camconst.cc` lookup/aperture conventions and
+`rtengine/pdaflinesfilter.cc` green-triplet outlier detection (copyright 2018 Alberto Griggio).
+Same-colour clean-row interpolation and robust phase medians are Local Image host adaptations.
+Hashes, precedence and refresh procedure are in `docs/CAMERA-DATA.md` and the data manifest.
+
+The camera reader also follows `rtengine/rawimage.cc` at the same pin for integer white-level
+mapping to TIFF bits per sample and the low-16-bit absolute black flag. No C++ is built or linked.

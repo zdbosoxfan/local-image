@@ -1208,3 +1208,19 @@ pub fn preferences_tab(ui: &mut egui::Ui, title: &str, selected: bool, empty: bo
     }
     response
 }
+
+/// Preflight notice for on-device CPU AI. Shared by Restore and selection/model controls.
+/// Returns whether the model fits the interactive CPU time limit; warnings use theme tokens.
+pub fn cpu_estimate(ui: &mut Ui, estimate: li_seg::estimate::Estimate) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let color = if estimate.warning() { t.warning } else { t.text_dim };
+    ui.label(egui::RichText::new(estimate.label()).color(color));
+    estimate.allowed()
+}
+
+/// Total CPU estimate for cancellable background AI batches (Smart Sort and indexing).
+/// The per-model inference guard still applies; a large batch shows a warning and can run.
+pub fn cpu_batch_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimate) {
+    let t = Tokens::get(ui.ctx());
+    ui.label(egui::RichText::new(estimate.batch_label()).color(if estimate.warning() { t.warning } else { t.text_dim }));
+}

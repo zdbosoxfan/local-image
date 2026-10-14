@@ -564,3 +564,43 @@ fn develop_a_stack_reorder_drag_changes_displayed_pixels() {
     let restored = h.app.renderer.textures[&Slot::Main].pixels.as_ref().unwrap();
     assert!(restored.pixels == before.pixels, "undo must restore the pixels, including cached prefixes");
 }
+
+#[test]
+#[ignore = "real GPU pressure/recovery interactive path; run explicitly with LC_REQUIRE_GPU=1"]
+fn develop_gpu_pressure_recovery_slider_remains_responsive() {
+    use std::time::Instant;
+    let mut h = setup(400.0, true, 1.0);
+    h.app.ui.settings.gpu = true;
+    h.step();
+    assert!(lightcraft_engine::gpu::available(), "real GPU required");
+    let adapter = lightcraft_engine::gpu::adapter_name().unwrap();
+    assert!(!adapter.to_ascii_lowercase().contains("llvmpipe"));
+    eprintln!("interactive recovery adapter: {adapter}");
+    if !h.app.ui.section_open("light") {
+        click(&mut h, "section:light");
+    }
+    drag(&mut h, "slider:light.exposure", 8.0);
+    assert!(h.settle(T));
+    let base = d(&h).light.exposure;
+    let mut frames = Vec::new();
+    {
+        let _ai = lightcraft_sysmem::gpu::AiJob::new(true);
+        let start = Instant::now();
+        drag(&mut h, "slider:light.exposure", -8.0);
+        assert!(h.settle(T));
+        eprintln!("interactive local-AI CPU preview ms={:.2}", start.elapsed().as_secs_f64() * 1000.0);
+        assert_ne!(d(&h).light.exposure, base);
+        assert_eq!(h.app.renderer.memory()["stageCaches"]["gpuBytes"], 0);
+        for _ in 0..30 {
+            let t = Instant::now();
+            h.step();
+            frames.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+    }
+    drag(&mut h, "slider:light.exposure", 8.0);
+    assert!(h.settle(T));
+    assert!(lightcraft_engine::gpu::enabled());
+    assert!(h.app.renderer.memory()["stageCaches"]["gpuBytes"].as_u64().unwrap() > 0, "GPU stages restored after local AI releases VRAM");
+    frames.sort_by(f64::total_cmp);
+    eprintln!("interactive during local-AI p50={:.2} ms p95={:.2} ms", frames[15], frames[28]);
+}

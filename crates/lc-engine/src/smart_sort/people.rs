@@ -746,6 +746,9 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &AtomicBool, progress: 
     }
     // Face indexing: the shared low-priority background pool (threading rules 2 and 7).
     for batch in todo.chunks(32) {
+        if !lightcraft_sysmem::power::wait_background(&|| cancel.load(Ordering::Relaxed)) {
+            break;
+        }
         if cancel.load(Ordering::Relaxed) {
             break;
         }

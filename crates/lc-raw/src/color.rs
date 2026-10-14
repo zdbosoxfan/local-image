@@ -179,9 +179,45 @@ pub struct CameraTransform {
     pub baseline_exposure: f64,
 }
 
+/// Normalization changes vendor sensor coordinates, not file calibration metadata.
+/// Keep this derived gain out of RawInfo: frame-measured black is absent from headers.
+pub fn normalization_ratios(raw: &RawImage) -> [f64; 3] {
+    if raw.format == crate::RawFormat::Dng || raw.cpp != 1 || raw.white.len() != 4 {
+        return [1.0; 3];
+    }
+    let Some(cfa) = raw.cfa.as_ref() else {
+        return [1.0; 3];
+    };
+    let a = raw.active_area;
+    let (mut sum, mut count) = ([0.0f64; 3], [0u32; 3]);
+    for y in 0..cfa.height {
+        for x in 0..cfa.width {
+            let c = cfa.color_at(a.x + x, a.y + y).min(2) as usize;
+            sum[c] += (raw.sensor_white(a.x + x, a.y + y, 0) - raw.black.at(x, y, 0, 1)).max(1.0) as f64;
+            count[c] += 1;
+        }
+    }
+    let ranges: [f64; 3] = std::array::from_fn(|c| sum[c] / count[c].max(1) as f64);
+    std::array::from_fn(|c| ranges[1] / ranges[c].max(1.0))
+}
+/// The colour model for normalized samples; stored file tags remain untouched.
+pub fn normalized_color(raw: &RawImage) -> ColorData {
+    let mut color = raw.color.clone();
+    let ratio = normalization_ratios(raw);
+    if ratio != [1.0; 3] {
+        let ab = color.analog_balance.unwrap_or([1.0; 3]);
+        color.analog_balance = Some(std::array::from_fn(|i| ab[i] * ratio[i]));
+        if let Some(n) = color.as_shot_neutral {
+            color.as_shot_neutral = Some(std::array::from_fn(|i| n[i] * ratio[i]));
+        }
+    }
+    color
+}
+
 /// Camera transform for white `wb_xy`: `rec2020 = matrix · (wb ⊙ camera)`.
 pub fn camera_transform(raw: &RawImage, wb_xy: Xy) -> CameraTransform {
-    let color = &raw.color;
+    let normalized = normalized_color(raw);
+    let color = &normalized;
     let fallback = !has_matrix(color);
     let wb = wb_multipliers(color, wb_xy);
     let to_d50 = camera_to_xyz_d50(color, wb_xy);

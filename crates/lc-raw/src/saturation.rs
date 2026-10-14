@@ -45,11 +45,6 @@ impl RawImage {
         if !fits(a.x, a.width, self.width) || !fits(a.y, a.height, self.height) {
             return none;
         }
-        let lo = (black + 0.5 * (white - black)).ceil().max(0.0) as usize;
-        let hi = (white as usize).min(65535);
-        if lo + NEIGHBOURHOOD >= hi {
-            return none;
-        }
         let mut hist = vec![[0u32; 3]; 65536];
         let mut total = [0u64; 3];
         for y in 0..a.height {
@@ -62,6 +57,19 @@ impl RawImage {
         }
         let mut out = none;
         for c in 0..3 {
+            let white = if self.format != crate::RawFormat::Dng && self.white.len() == 4 {
+                if c == 1 { (self.white[1] + self.white[3]) * 0.5 } else { self.white[c] }
+            } else {
+                white
+            };
+            if !white.is_finite() || white <= black || white > 65535.0 {
+                continue;
+            }
+            let lo = (black + 0.5 * (white - black)).ceil().max(0.0) as usize;
+            let hi = (white as usize).min(65535);
+            if lo + NEIGHBOURHOOD >= hi {
+                continue;
+            }
             // the most populated value of the upper half of the range
             let Some((v, n)) = (lo..hi).map(|v| (v, hist[v][c])).max_by_key(|&(v, n)| (n, v)) else { continue };
             if (n as f64) < (total[c] as f64 * MIN_SHARE).max(100.0) || v as f32 >= white - NEAR_WHITE * (white - black) {
@@ -85,7 +93,8 @@ impl RawImage {
         if points.iter().all(Option::is_none) {
             return 0;
         }
-        let (a, w, white) = (self.active_area, self.width, self.white_at(0).round() as u16);
+        let (a, w) = (self.active_area, self.width);
+        let whites = self.white.clone();
         let Some(cfa) = self.cfa.clone() else { return 0 };
         let RawData::U16(d) = &mut self.data else { return 0 };
         let mut changed = 0;
@@ -93,6 +102,13 @@ impl RawImage {
             let row = &mut d[(a.y + y) * w + a.x..][..a.width];
             for (x, v) in row.iter_mut().enumerate() {
                 let c = cfa.color_at(a.x + x, a.y + y).min(2) as usize;
+                let channel = if c == 1 && cfa.is_bayer() && (a.y + y) % 2 == 1 { 3 } else { c };
+                let white = if self.format != crate::RawFormat::Dng && whites.len() == 4 {
+                    whites[channel]
+                } else {
+                    whites.first().copied().unwrap_or(65535.0)
+                }
+                .round() as u16;
                 if let Some(p) = points[c]
                     && *v >= p
                     && *v < white

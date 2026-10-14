@@ -24,9 +24,8 @@ fn tier(ai: &crate::ai_ui::AiOptions) -> Option<&'static li_seg::ModelSpec> {
 
 fn tooltip(engine: &str) -> String {
     if cpu(engine) {
-        let better = engine == "better";
-        let seconds = li_ai::ops::cutout_seconds(better).unwrap_or(if better { 15.0 } else { 3.0 });
-        format!("About {seconds:.1} s per photo on this computer. Runs locally on CPU, including on Apple Silicon.")
+        let id = if engine == "better" { "inspyrenet" } else { "rmbg-1.4" };
+        li_seg::estimate::estimate(id, 1024 * 1024).label()
     } else {
         "Needs a capable NVIDIA GPU and ComfyUI; does not run on a Mac. About 30–120 s per photo, depending on GPU and image size.".into()
     }
@@ -112,6 +111,7 @@ pub(crate) fn model_ready(ai: &crate::ai_ui::AiOptions) -> bool {
 pub(crate) fn can_remove(app: &PhotocraftApp) -> bool {
     let cmd = if cpu(&app.ui.ai.cutout_engine) { "layer.removeBackground" } else { "ai.removeBackground" };
     model_ready(&app.ui.ai)
+        && tier(&app.ui.ai).is_none_or(|spec| li_seg::estimate::estimate(spec.id, (spec.size * spec.size) as u64).allowed())
         && app.session.is_enabled(cmd)
         && app.session.active().and_then(|d| d.active_layer.map(|id| d.doc.effective_locks(id))).is_some_and(|locks| !locks.pixels && !locks.all)
 }
@@ -151,6 +151,7 @@ pub(crate) fn tier_download(ui: &mut egui::Ui, spec: &'static li_seg::ModelSpec)
 
 pub(crate) fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if let Some(spec) = tier(&app.ui.ai) {
+        widgets::cpu_estimate(ui, li_seg::estimate::estimate(spec.id, (spec.size * spec.size) as u64));
         tier_download(ui, spec);
     } else {
         let variant = if app.ui.ai.cutout_engine == "qwen-bf16" { "bf16" } else { "int8" };

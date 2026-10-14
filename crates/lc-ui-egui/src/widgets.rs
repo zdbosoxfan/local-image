@@ -1171,3 +1171,19 @@ pub fn modal<R>(ctx: &egui::Context, id: &str, body: impl FnOnce(&mut Ui) -> R) 
     let area = egui::Modal::default_area(egui::Id::new(id)).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, Tokens::get(ctx).top_bar_h));
     egui::Modal::new(egui::Id::new(id)).area(area).show(ctx, body)
 }
+
+/// Preflight notice for on-device CPU AI. Shared by mask and batch analysis controls.
+/// Returns whether the model fits the interactive CPU time limit; warnings use theme tokens.
+pub fn cpu_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimate) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let color = if estimate.warning() { t.caution } else { t.text_dim };
+    ui.label(egui::RichText::new(estimate.label()).color(color));
+    estimate.allowed()
+}
+
+/// Total CPU estimate for cancellable background AI batches (Smart Sort and indexing).
+/// The per-model inference guard still applies; a large batch shows a warning and can run.
+pub fn cpu_batch_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimate) {
+    let t = Tokens::get(ui.ctx());
+    ui.label(egui::RichText::new(estimate.batch_label()).color(if estimate.warning() { t.caution } else { t.text_dim }));
+}

@@ -1,0 +1,30 @@
+[
+  {
+    "file": "camconst.json",
+    "repository": "RawTherapee/RawTherapee",
+    "revision": "5f486d3678b34c74ba0c63571c17babe20935019",
+    "path": "rtengine/camconst.json",
+    "sha256": "1bc59b7325a6fa0faddf7e388ec92ad123bd9fb61bffcc689dd8b0edf219fa58"
+  },
+  {
+    "file": "noiseprofiles.json",
+    "repository": "darktable-org/darktable",
+    "revision": "733bd69f32cac7ff5e41025115942772add1f088",
+    "path": "data/noiseprofiles.json",
+    "sha256": "e22730cf69ead3534b2d2e7500ab24af6da99834250b852ca1831002ba2450f8"
+  },
+  {
+    "file": "wb_presets.json",
+    "repository": "darktable-org/darktable",
+    "revision": "733bd69f32cac7ff5e41025115942772add1f088",
+    "path": "data/wb_presets.json",
+    "sha256": "10df2f7c469832b7d00417c321bcf6df1eda6a9d339ad6494da7f7f48d86702d"
+  },
+  {
+    "file": "cameras.xml",
+    "repository": "darktable-org/rawspeed",
+    "revision": "0c16fee7772594e98897bded01fc31bc3409b4cb",
+    "path": "data/cameras.xml",
+    "sha256": "720558e102cfd7b767e7681ad1866d6e68874edea91725808439eb95e9c414a6"
+  }
+]

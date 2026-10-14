@@ -6901,6 +6901,103 @@
           "url": "https://github.com/dnglab/dnglab/blob/ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7/rawler/Cargo.toml"
         },
         {
+          "name": "RawTherapee",
+          "used_for": "Whole camera white/black levels, crops and PDAF patterns",
+          "upstream": "rtengine/camconst.json",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/data/cameras/camconst.json",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/camconst.json"
+        },
+        {
+          "name": "rawspeed",
+          "used_for": "Whole ISO sensor calibration, crops, black areas and matrices",
+          "upstream": "data/cameras.xml",
+          "commit": "0c16fee7772594e98897bded01fc31bc3409b4cb",
+          "ours": "crates/lc-raw/data/cameras/cameras.xml",
+          "licence": "CC-BY-SA-3.0",
+          "licence_files": [
+            "licenses/rawspeed-LICENSE.txt",
+            "licenses/rawspeed-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/rawspeed/blob/0c16fee7772594e98897bded01fc31bc3409b4cb/data/cameras.xml"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Whole per-camera measured noise fits",
+          "upstream": "data/noiseprofiles.json",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/data/cameras/noiseprofiles.json",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/data/noiseprofiles.json"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Whole camera WB presets",
+          "upstream": "data/wb_presets.json",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/data/cameras/wb_presets.json",
+          "licence": "GPL-2.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/data/wb_presets.json"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "ISO/aperture camera constant semantics",
+          "upstream": "rtengine/camconst.cc",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/src/camera_data.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/camconst.cc"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "Integer TIFF-bit-depth white mapping and absolute black flags",
+          "upstream": "rtengine/rawimage.cc",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/src/camera_data.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/rawimage.cc"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "PDAF periods and green-triplet detection; host clean-row interpolation",
+          "upstream": "rtengine/pdaflinesfilter.cc",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/src/camera_data.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/pdaflinesfilter.cc"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Profile skip/interpolation semantics",
+          "upstream": "src/common/noiseprofiles.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/camera_data.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/noiseprofiles.c"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",

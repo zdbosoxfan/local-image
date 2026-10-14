@@ -4165,7 +4165,9 @@ dependencies = [
  "lightcraft-pipeline",
  "lightcraft-raster",
  "lightcraft-scenes",
+ "lightcraft-sysmem",
  "log",
+ "photocraft-gpu",
  "pollster 1.0.1",
  "wgpu",
 ]
@@ -4261,9 +4263,11 @@ dependencies = [
  "lightcraft-tiff",
  "miniz_oxide 0.8.9",
  "proptest",
+ "quick-xml 0.38.4",
  "rawler",
  "rayon",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "zune-core",
  "zune-jpeg",
@@ -4318,6 +4322,7 @@ dependencies = [
  "egui",
  "egui_extras",
  "li-attributions",
+ "li-seg",
  "lightcraft-catalog",
  "lightcraft-codecs",
  "lightcraft-color",
@@ -5762,6 +5767,7 @@ dependencies = [
  "photocraft-vector",
  "pollster 1.0.1",
  "rayon",
+ "web-time",
  "wgpu",
 ]
 
@@ -6432,6 +6438,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
 dependencies = [
  "memchr",
+ "serde",
 ]
 
 [[package]]

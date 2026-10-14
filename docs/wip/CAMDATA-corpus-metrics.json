@@ -1,0 +1,2256 @@
+{
+  "samples": 1870,
+  "status_counts": {
+    "decoder_error": 283,
+    "ok": 1587
+  },
+  "decoder_errors": {
+    "unsupported raw variant": 58,
+    "not a recognised raw file": 144,
+    "corrupt raw data": 34,
+    "limit exceeded": 47
+  },
+  "header_mismatches": 0,
+  "static_white_disagreements": [
+    {
+      "entry": {
+        "id": "1084",
+        "make": "Olympus",
+        "model": "E-M5",
+        "mode": "16bit (4:3)",
+        "url": "https://raw.pixls.us/getfile.php/1084/nice/Olympus - E-M5 - 16bit (4:3).ORF",
+        "sha256": "b2221977cbc6eba0d3b363351072092e5647eaa0d02a5d8432b5d985b29f669f",
+        "file": "1084.orf",
+        "license": "CC0-1.0"
+      },
+      "iso": 200,
+      "table_white": [
+        4000.0
+      ],
+      "new_white": [
+        4000.0,
+        3791.0,
+        4000.0,
+        3791.0
+      ],
+      "table_plateaus": [
+        null,
+        3791,
+        null
+      ],
+      "plateaus": [
+        null,
+        3791,
+        null
+      ],
+      "discrepancies": [
+        null,
+        0.05225000157952309,
+        null
+      ]
+    },
+    {
+      "entry": {
+        "id": "1222",
+        "make": "Canon",
+        "model": "EOS Rebel T1i",
+        "mode": "RAW (3:2)",
+        "url": "https://raw.pixls.us/getfile.php/1222/nice/Canon - EOS Rebel T1i - RAW (3:2).CR2",
+        "sha256": "19690738ec7f3d0a80dbc50c6a5ee49eae38978cd42cb8f410551b0a3ae134a3",
+        "file": "1222.cr2",
+        "license": "CC0-1.0"
+      },
+      "iso": 1600,
+      "table_white": [
+        16320.0
+      ],
+      "new_white": [
+        15761.0,
+        15760.0,
+        15760.0,
+        15760.0
+      ],
+      "table_plateaus": [
+        15761,
+        15760,
+        15760
+      ],
+      "plateaus": [
+        15761,
+        15760,
+        15760
+      ],
+      "discrepancies": [
+        0.03425244987010956,
+        0.03431372717022896,
+        0.03431372717022896
+      ]
+    },
+    {
+      "entry": {
+        "id": "1386",
+        "make": "Nikon",
+        "model": "Df",
+        "mode": "12bit 12bit compressed (Lossy (type 2)) (3:2)",
+        "url": "https://raw.pixls.us/getfile.php/1386/nice/Nikon - Df - 12bit 12bit compressed (Lossy (type 2)) (3:2).NEF",
+        "sha256": "902483437706df59bed669ebb4eb7d9ecaf95b23a70d6c79e319316ce50ee884",
+        "file": "1386.nef",
+        "license": "CC0-1.0"
+      },
+      "iso": 100,
+      "table_white": [
+        4080.0
+      ],
+      "new_white": [
+        4080.0,
+        3862.0,
+        4080.0,
+        3862.0
+      ],
+      "table_plateaus": [
+        null,
+        3862,
+        null
+      ],
+      "plateaus": [
+        null,
+        3862,
+        null
+      ],
+      "discrepancies": [
+        null,
+        0.053431373089551926,
+        null
+      ]
+    },
+    {
+      "entry": {
+        "id": "1388",
+        "make": "Nikon",
+        "model": "Df",
+        "mode": "14bit 14bit compressed (Lossy (type 2)) (3:2)",
+        "url": "https://raw.pixls.us/getfile.php/1388/nice/Nikon - Df - 14bit 14bit compressed (Lossy (type 2)) (3:2).NEF",
+        "sha256": "452ed50be5e212cf7832cd5fc992d920206cebde8864c073988aeaf5a9d07708",
+        "file": "1388.nef",
+        "license": "CC0-1.0"
+      },
+      "iso": 100,
+      "table_white": [
+        16320.0
+      ],
+      "new_white": [
+        16320.0,
+        15516.0,
+        16320.0,
+        15516.0
+      ],
+      "table_plateaus": [
+        null,
+        15516,
+        null
+      ],
+      "plateaus": [
+        null,
+        15516,
+        null
+      ],
+      "discrepancies": [
+        null,
+        0.049264706671237946,
+        null
+      ]
+    },
+    {
+      "entry": {
+        "id": "5284",
+        "make": "OM System",
+        "model": "OM-1",
+        "mode": "16bit (4:3)",
+        "url": "https://raw.pixls.us/getfile.php/5284/nice/OM System - OM-1 - 16bit (4:3).ORF",
+        "sha256": "f0301e1b49a4ffbb366ec9800ebe9210f421fb25e75dcdf7d63e4b05bc063caf",
+        "file": "5284.orf",
+        "license": "CC0-1.0"
+      },
+      "iso": 200,
+      "table_white": [
+        4095.0,
+        4095.0,
+        4095.0,
+        4095.0
+      ],
+      "new_white": [
+        4095.0,
+        4095.0,
+        2496.0,
+        4095.0
+      ],
+      "table_plateaus": [
+        null,
+        null,
+        2496
+      ],
+      "plateaus": [
+        null,
+        null,
+        2496
+      ],
+      "discrepancies": [
+        null,
+        null,
+        0.39047619700431824
+      ]
+    },
+    {
+      "entry": {
+        "id": "5285",
+        "make": "OM System",
+        "model": "OM-1",
+        "mode": "16bit (4:3)",
+        "url": "https://raw.pixls.us/getfile.php/5285/nice/OM System - OM-1 - 16bit (4:3).ORF",
+        "sha256": "862dda54644400335633578ea3a37912fbe56429f755499fdbcab9e993543874",
+        "file": "5285.orf",
+        "license": "CC0-1.0"
+      },
+      "iso": 200,
+      "table_white": [
+        4095.0,
+        4095.0,
+        4095.0,
+        4095.0
+      ],
+      "new_white": [
+        4095.0,
+        4095.0,
+        2519.0,
+        4095.0
+      ],
+      "table_plateaus": [
+        null,
+        null,
+        2519
+      ],
+      "plateaus": [
+        null,
+        null,
+        2519
+      ],
+      "discrepancies": [
+        null,
+        null,
+        0.3848595917224884
+      ]
+    },
+    {
+      "entry": {
+        "id": "6555",
+        "make": "Panasonic",
+        "model": "DC-TZ200D",
+        "mode": "3:2",
+        "url": "https://raw.pixls.us/getfile.php/6555/nice/Panasonic - DC-TZ200D - 3:2.RW2",
+        "sha256": "3de7ff4470e0fee88f7368aaf64d51c4ebbcd42377f4d5584d9c4632a0e2c611",
+        "file": "6555.rw2",
+        "license": "CC0-1.0"
+      },
+      "iso": 100,
+      "table_white": [
+        4095.0
+      ],
+      "new_white": [
+        4095.0,
+        3521.0,
+        4095.0,
+        3521.0
+      ],
+      "table_plateaus": [
+        null,
+        3521,
+        null
+      ],
+      "plateaus": [
+        null,
+        null,
+        null
+      ],
+      "discrepancies": [
+        null,
+        0.14017094671726227,
+        null
+      ]
+    },
+    {
+      "entry": {
+        "id": "7263",
+        "make": "OM System",
+        "model": "OM-1 Mark II",
+        "mode": "16bit (4:3)",
+        "url": "https://raw.pixls.us/getfile.php/7263/nice/OM System - OM-1 Mark II - 16bit (4:3).orf",
+        "sha256": "780fa6a22ecd272cf3e86c04114439953b95fbc1bba8a05b4c99595a22e36bba",
+        "file": "7263.orf",
+        "license": "CC0-1.0"
+      },
+      "iso": 200,
+      "table_white": [
+        4095.0
+      ],
+      "new_white": [
+        4095.0,
+        4095.0,
+        2373.0,
+        4095.0
+      ],
+      "table_plateaus": [
+        null,
+        null,
+        2373
+      ],
+      "plateaus": [
+        null,
+        null,
+        2373
+      ],
+      "discrepancies": [
+        null,
+        null,
+        0.4205128252506256
+      ]
+    },
+    {
+      "entry": {
+        "id": "7265",
+        "make": "OM System",
+        "model": "OM-1 Mark II",
+        "mode": "16bit (4:3)",
+        "url": "https://raw.pixls.us/getfile.php/7265/nice/OM System - OM-1 Mark II - 16bit (4:3).orf",
+        "sha256": "c7bd43b29ed89542058534b867fa894b8550d1960503cf4b4cb9f5912fd242b3",
+        "file": "7265.orf",
+        "license": "CC0-1.0"
+      },
+      "iso": 200,
+      "table_white": [
+        4095.0
+      ],
+      "new_white": [
+        4095.0,
+        4095.0,
+        2373.0,
+        4095.0
+      ],
+      "table_plateaus": [
+        null,
+        null,
+        2373
+      ],
+      "plateaus": [
+        null,
+        null,
+        2373
+      ],
+      "discrepancies": [
+        null,
+        null,
+        0.4205128252506256
+      ]
+    },
+    {
+      "entry": {
+        "id": "7267",
+        "make": "OM System",
+        "model": "OM-1 Mark II",
+        "mode": "16bit (4:3)",
+        "url": "https://raw.pixls.us/getfile.php/7267/nice/OM System - OM-1 Mark II - 16bit (4:3).orf",
+        "sha256": "5c4845bcf87d868c1b770d7e92e574e148d82acb2806cddd9df5a7a47d7cd756",
+        "file": "7267.orf",
+        "license": "CC0-1.0"
+      },
+      "iso": 200,
+      "table_white": [
+        16380.0
+      ],
+      "new_white": [
+        16380.0,
+        16380.0,
+        9564.0,
+        16380.0
+      ],
+      "table_plateaus": [
+        null,
+        null,
+        9564
+      ],
+      "plateaus": [
+        null,
+        null,
+        9564
+      ],
+      "discrepancies": [
+        null,
+        null,
+        0.41611722111701965
+      ]
+    },
+    {
+      "entry": {
+        "id": "7269",
+        "make": "OM System",
+        "model": "OM-1 Mark II",
+        "mode": "16bit (4:3)",
+        "url": "https://raw.pixls.us/getfile.php/7269/nice/OM System - OM-1 Mark II - 16bit (4:3).orf",
+        "sha256": "dd2a6c1c4ca4d86201207925477e2ea8e50ebd53d7df9117847093f5023540ec",
+        "file": "7269.orf",
+        "license": "CC0-1.0"
+      },
+      "iso": 200,
+      "table_white": [
+        16380.0
+      ],
+      "new_white": [
+        16380.0,
+        16380.0,
+        9492.0,
+        16380.0
+      ],
+      "table_plateaus": [
+        null,
+        null,
+        9492
+      ],
+      "plateaus": [
+        null,
+        null,
+        9492
+      ],
+      "discrepancies": [
+        null,
+        null,
+        0.4205128252506256
+      ]
+    },
+    {
+      "entry": {
+        "id": "9066",
+        "make": "Nikon",
+        "model": "D2Xs",
+        "mode": "12bit compressed (Lossy (type 1)) (3:2)",
+        "url": "https://raw.pixls.us/getfile.php/9066/nice/Nikon - D2Xs - 12bit compressed (Lossy (type 1)) (3:2).NEF",
+        "sha256": "266d4f2bb6e56f5086714ad059871d2184edb06419c5ee7cd0d138f28796b216",
+        "file": "9066.nef",
+        "license": "CC0-1.0"
+      },
+      "iso": 100,
+      "table_white": [
+        4080.0
+      ],
+      "new_white": [
+        4080.0,
+        3952.0,
+        4080.0,
+        3952.0
+      ],
+      "table_plateaus": [
+        null,
+        3952,
+        null
+      ],
+      "plateaus": [
+        null,
+        3952,
+        null
+      ],
+      "discrepancies": [
+        null,
+        0.0313725508749485,
+        null
+      ]
+    }
+  ],
+  "frame_white_corrections": 12,
+  "pdaf_modified_files": 85,
+  "pdaf_modified_samples": 6267004,
+  "highlight_files": 20,
+  "fully_clipped_bins": 514292,
+  "magenta_cyan_before": 1,
+  "magenta_cyan_after": 0,
+  "highlights": [
+    {
+      "entry": {
+        "id": "5832",
+        "make": "Pentax",
+        "model": "K-3 Mark III",
+        "mode": "14bit (3:2)",
+        "url": "https://raw.pixls.us/getfile.php/5832/nice/Pentax - K-3 Mark III - 14bit (3:2).PEF",
+        "sha256": "29714bc4cc754a81d2ab154a4ecf1eb5fa125d3901b10f3bd88d731c674f69c4",
+        "file": "5832.pef",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 45111,
+      "before_full": {
+        "bins": 45111,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 2.408268073850195e-07
+      },
+      "after_full": {
+        "bins": 45111,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 2.408268073850195e-07
+      },
+      "before_any": {
+        "bins": 65370,
+        "hues": [
+          1,
+          0,
+          441,
+          774,
+          52,
+          462,
+          0,
+          0,
+          1,
+          0,
+          0,
+          2
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.014165463748924861
+      },
+      "after_any": {
+        "bins": 65370,
+        "hues": [
+          1,
+          0,
+          470,
+          741,
+          49,
+          438,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.013671300723918839
+      }
+    },
+    {
+      "entry": {
+        "id": "3463",
+        "make": "Sony",
+        "model": "DSC-RX100M7",
+        "mode": "12bit 12bit compressed (3:2)",
+        "url": "https://raw.pixls.us/getfile.php/3463/nice/Sony - DSC-RX100M7 - 12bit 12bit compressed (3:2).ARW",
+        "sha256": "815532f017b94e31990e8111791131647c95f6953aa28c571783c5e17eb36523",
+        "file": "3463.arw",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 43457,
+      "before_full": {
+        "bins": 43457,
+        "hues": [
+          0,
+          0,
+          40,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.00035919433757829075
+      },
+      "after_full": {
+        "bins": 43457,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.0
+      },
+      "before_any": {
+        "bins": 82336,
+        "hues": [
+          19,
+          191,
+          13341,
+          307,
+          0,
+          5,
+          0,
+          0,
+          2,
+          1,
+          0,
+          1
+        ],
+        "magenta_cyan_bins": 1,
+        "mean_chroma": 0.0742106378134958
+      },
+      "after_any": {
+        "bins": 82336,
+        "hues": [
+          3,
+          0,
+          13369,
+          315,
+          0,
+          7,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.07373054541078898
+      }
+    },
+    {
+      "entry": {
+        "id": "5833",
+        "make": "Pentax",
+        "model": "K-3 Mark III",
+        "mode": "14bit (3:2)",
+        "url": "https://raw.pixls.us/getfile.php/5833/nice/Pentax - K-3 Mark III - 14bit (3:2).PEF",
+        "sha256": "dbcbd2848c0635c3bc035034b9860ef72c1de855b78e03749c65fd31e77e227e",
+        "file": "5833.pef",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 42387,
+      "before_full": {
+        "bins": 42387,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 2.408268073850195e-07
+      },
+      "after_full": {
+        "bins": 42387,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 2.408268073850195e-07
+      },
+      "before_any": {
+        "bins": 65692,
+        "hues": [
+          1,
+          0,
+          376,
+          946,
+          27,
+          579,
+          0,
+          0,
+          1,
+          0,
+          0,
+          10
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.017330931893711828
+      },
+      "after_any": {
+        "bins": 65692,
+        "hues": [
+          1,
+          0,
+          416,
+          904,
+          27,
+          555,
+          0,
+          0,
+          1,
+          0,
+          0,
+          10
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.016772680933895938
+      }
+    },
+    {
+      "entry": {
+        "id": "5834",
+        "make": "Pentax",
+        "model": "K-3 Mark III",
+        "mode": "14bit (3:2)",
+        "url": "https://raw.pixls.us/getfile.php/5834/nice/Pentax - K-3 Mark III - 14bit (3:2).PEF",
+        "sha256": "babd6c58e5a95f0ae8396a908106a75b5d014bf0e9cb1cd315fd12fb8905815c",
+        "file": "5834.pef",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 41584,
+      "before_full": {
+        "bins": 41584,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 2.408268073850195e-07
+      },
+      "after_full": {
+        "bins": 41584,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 2.408268073850195e-07
+      },
+      "before_any": {
+        "bins": 65728,
+        "hues": [
+          0,
+          0,
+          392,
+          936,
+          27,
+          633,
+          0,
+          0,
+          2,
+          0,
+          0,
+          11
+        ],
+        "magenta_cyan_bins": 1,
+        "mean_chroma": 0.01775912249153649
+      },
+      "after_any": {
+        "bins": 65728,
+        "hues": [
+          0,
+          0,
+          422,
+          900,
+          26,
+          601,
+          0,
+          0,
+          2,
+          0,
+          0,
+          11
+        ],
+        "magenta_cyan_bins": 1,
+        "mean_chroma": 0.017181918808006215
+      }
+    },
+    {
+      "entry": {
+        "id": "4132",
+        "make": "Olympus",
+        "model": "E-M10 Mark IV",
+        "mode": "16bit (4:3)",
+        "url": "https://raw.pixls.us/getfile.php/4132/nice/Olympus - E-M10 Mark IV - 16bit (4:3).ORF",
+        "sha256": "77b67d898f85d3d738cb16daf9740c0fcf078ce9662c381994604ac540ce36b4",
+        "file": "4132.orf",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 35556,
+      "before_full": {
+        "bins": 35556,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 1.8062011974961933e-07
+      },
+      "after_full": {
+        "bins": 35556,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 1.8062011974961933e-07
+      },
+      "before_any": {
+        "bins": 94182,
+        "hues": [
+          1,
+          3,
+          1532,
+          224,
+          52,
+          6541,
+          23,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.011587987836286399
+      },
+      "after_any": {
+        "bins": 94182,
+        "hues": [
+          1,
+          3,
+          1532,
+          224,
+          52,
+          6541,
+          23,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.011587987836286399
+      }
+    },
+    {
+      "entry": {
+        "id": "2709",
+        "make": "Panasonic",
+        "model": "DMC-LX15",
+        "mode": "1:1",
+        "url": "https://raw.pixls.us/getfile.php/2709/nice/Panasonic - DMC-LX15 - 1:1.RW2",
+        "sha256": "59c1f7e7c972dc4e3704050b85d046ef8d0dd56b0810307b961188c9e89c4282",
+        "file": "2709.rw2",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 22921,
+      "before_full": {
+        "bins": 22921,
+        "hues": [
+          0,
+          0,
+          2,
+          0,
+          0,
+          15,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.0002471871522226353
+      },
+      "after_full": {
+        "bins": 22921,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 2.408268073850195e-07
+      },
+      "before_any": {
+        "bins": 41986,
+        "hues": [
+          1,
+          8,
+          410,
+          4800,
+          391,
+          3485,
+          10,
+          8,
+          4,
+          0,
+          0,
+          5
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.13667186675865903
+      },
+      "after_any": {
+        "bins": 41986,
+        "hues": [
+          0,
+          0,
+          399,
+          4821,
+          389,
+          3493,
+          0,
+          1,
+          0,
+          0,
+          0,
+          3
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.13813221546631435
+      }
+    },
+    {
+      "entry": {
+        "id": "4915",
+        "make": "Sony",
+        "model": "DSC-HX95",
+        "mode": "12bit 12bit compressed (4:3)",
+        "url": "https://raw.pixls.us/getfile.php/4915/nice/Sony - DSC-HX95 - 12bit 12bit compressed (4:3).ARW",
+        "sha256": "bdb8a6438456855fad2ff9b406da707019da88a38c8d1e0202d66ad9f9f21c80",
+        "file": "4915.arw",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 20425,
+      "before_full": {
+        "bins": 20425,
+        "hues": [
+          0,
+          0,
+          31,
+          1,
+          0,
+          67,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.0011750403893580458
+      },
+      "after_full": {
+        "bins": 20425,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 1.8062011974961933e-07
+      },
+      "before_any": {
+        "bins": 32285,
+        "hues": [
+          17,
+          4,
+          2058,
+          4092,
+          1613,
+          3477,
+          15,
+          65,
+          11,
+          3,
+          1,
+          49
+        ],
+        "magenta_cyan_bins": 7,
+        "mean_chroma": 0.1678073310950368
+      },
+      "after_any": {
+        "bins": 32285,
+        "hues": [
+          7,
+          0,
+          2044,
+          4125,
+          1584,
+          3482,
+          0,
+          3,
+          0,
+          0,
+          2,
+          40
+        ],
+        "magenta_cyan_bins": 4,
+        "mean_chroma": 0.1674628558972256
+      }
+    },
+    {
+      "entry": {
+        "id": "2708",
+        "make": "Panasonic",
+        "model": "DMC-LX15",
+        "mode": "16:9",
+        "url": "https://raw.pixls.us/getfile.php/2708/nice/Panasonic - DMC-LX15 - 16:9.RW2",
+        "sha256": "4e53ad5d92313018c8df6ad6a27f58118aab13d79673ccce5453ad47af4a56f5",
+        "file": "2708.rw2",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 22657,
+      "before_full": {
+        "bins": 22657,
+        "hues": [
+          0,
+          0,
+          3,
+          0,
+          0,
+          10,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.00019529620400493962
+      },
+      "after_full": {
+        "bins": 22657,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 2.7462517389282058e-05
+      },
+      "before_any": {
+        "bins": 45528,
+        "hues": [
+          2,
+          5,
+          434,
+          4931,
+          362,
+          4543,
+          9,
+          8,
+          12,
+          1,
+          3,
+          2
+        ],
+        "magenta_cyan_bins": 5,
+        "mean_chroma": 0.13747135253642986
+      },
+      "after_any": {
+        "bins": 45528,
+        "hues": [
+          0,
+          0,
+          428,
+          4938,
+          358,
+          4572,
+          0,
+          0,
+          11,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.13871180093185653
+      }
+    },
+    {
+      "entry": {
+        "id": "2707",
+        "make": "Panasonic",
+        "model": "DMC-LX15",
+        "mode": "4:3",
+        "url": "https://raw.pixls.us/getfile.php/2707/nice/Panasonic - DMC-LX15 - 4:3.RW2",
+        "sha256": "a65b8f9de001ec7c55b0e09e77dc77dcb9c16c43b58e66e59d86f11725eff00a",
+        "file": "2707.rw2",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 27010,
+      "before_full": {
+        "bins": 27010,
+        "hues": [
+          0,
+          0,
+          1,
+          0,
+          0,
+          18,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.00019598165628954503
+      },
+      "after_full": {
+        "bins": 27010,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 9.129497038455113e-07
+      },
+      "before_any": {
+        "bins": 60226,
+        "hues": [
+          2,
+          6,
+          413,
+          6310,
+          612,
+          8350,
+          37,
+          10,
+          13,
+          2,
+          2,
+          8
+        ],
+        "magenta_cyan_bins": 5,
+        "mean_chroma": 0.1358572973768719
+      },
+      "after_any": {
+        "bins": 60226,
+        "hues": [
+          0,
+          0,
+          401,
+          6337,
+          600,
+          8413,
+          0,
+          0,
+          7,
+          0,
+          1,
+          6
+        ],
+        "magenta_cyan_bins": 1,
+        "mean_chroma": 0.13725988386360635
+      }
+    },
+    {
+      "entry": {
+        "id": "2703",
+        "make": "Panasonic",
+        "model": "DMC-LX15",
+        "mode": "3:2",
+        "url": "https://raw.pixls.us/getfile.php/2703/nice/Panasonic - DMC-LX15 - 3:2.RW2",
+        "sha256": "717d203b792083c33285eb3097a3eb5ca5731ebbd49408838516b7717c3ccc52",
+        "file": "2703.rw2",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 25677,
+      "before_full": {
+        "bins": 25677,
+        "hues": [
+          0,
+          0,
+          6,
+          0,
+          0,
+          17,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.000366023182311231
+      },
+      "after_full": {
+        "bins": 25677,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 1.2762723324003535e-05
+      },
+      "before_any": {
+        "bins": 56849,
+        "hues": [
+          1,
+          9,
+          431,
+          5781,
+          532,
+          7744,
+          41,
+          15,
+          7,
+          2,
+          0,
+          2
+        ],
+        "magenta_cyan_bins": 2,
+        "mean_chroma": 0.1314340856255827
+      },
+      "after_any": {
+        "bins": 56849,
+        "hues": [
+          0,
+          0,
+          419,
+          5790,
+          527,
+          7815,
+          1,
+          0,
+          5,
+          1,
+          0,
+          1
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.13276435368616932
+      }
+    },
+    {
+      "entry": {
+        "id": "3332",
+        "make": "Canon",
+        "model": "EOS Kiss M",
+        "mode": "3:2",
+        "url": "https://raw.pixls.us/getfile.php/3332/nice/Canon - EOS Kiss M - 3:2.CR3",
+        "sha256": "49a4bcd16e0236451b73ae052af8a4d0c9872063f79fc62fdf982d462792741c",
+        "file": "3332.cr3",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 24108,
+      "before_full": {
+        "bins": 24108,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 1.8062010553876462e-07
+      },
+      "after_full": {
+        "bins": 24108,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 1.8062010553876462e-07
+      },
+      "before_any": {
+        "bins": 45150,
+        "hues": [
+          3,
+          1,
+          1006,
+          626,
+          350,
+          1030,
+          1,
+          3,
+          2,
+          3,
+          0,
+          2
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.010592695724428669
+      },
+      "after_any": {
+        "bins": 45150,
+        "hues": [
+          3,
+          1,
+          1006,
+          626,
+          350,
+          1030,
+          1,
+          3,
+          2,
+          3,
+          0,
+          2
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.010592695724428669
+      }
+    },
+    {
+      "entry": {
+        "id": "3120",
+        "make": "Leica",
+        "model": "V-LUX (Typ 114)",
+        "mode": "4:3",
+        "url": "https://raw.pixls.us/getfile.php/3120/nice/Leica - V-LUX (Typ 114) - 4:3.RWL",
+        "sha256": "eef12b681911713aad3bd09f0d159cf22d86f7a4995588b96f442abdf5a84fdd",
+        "file": "3120.rwl",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 22341,
+      "before_full": {
+        "bins": 22341,
+        "hues": [
+          0,
+          0,
+          29,
+          0,
+          0,
+          46,
+          0,
+          0,
+          0,
+          33,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 1,
+        "mean_chroma": 0.0021487508233204965
+      },
+      "after_full": {
+        "bins": 22341,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 1.2041341790336446e-07
+      },
+      "before_any": {
+        "bins": 32065,
+        "hues": [
+          10,
+          6,
+          1373,
+          2870,
+          584,
+          1486,
+          9,
+          27,
+          231,
+          512,
+          78,
+          40
+        ],
+        "magenta_cyan_bins": 225,
+        "mean_chroma": 0.11319340119567807
+      },
+      "after_any": {
+        "bins": 32065,
+        "hues": [
+          5,
+          0,
+          1482,
+          2638,
+          519,
+          1359,
+          0,
+          12,
+          176,
+          377,
+          51,
+          29
+        ],
+        "magenta_cyan_bins": 161,
+        "mean_chroma": 0.0974095308417567
+      }
+    },
+    {
+      "entry": {
+        "id": "5465",
+        "make": "Panasonic",
+        "model": "DMC-FZ100",
+        "mode": "4:3",
+        "url": "https://raw.pixls.us/getfile.php/5465/nice/Panasonic - DMC-FZ100 - 4:3.RW2",
+        "sha256": "a7e286e9b877a455d289f709bfad2ebc1fdbdb13e180f3cb0e15117e491708ac",
+        "file": "5465.rw2",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 14389,
+      "before_full": {
+        "bins": 14389,
+        "hues": [
+          0,
+          0,
+          65,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.0026470305453767857
+      },
+      "after_full": {
+        "bins": 14389,
+        "hues": [
+          0,
+          0,
+          65,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.0026116694151743338
+      },
+      "before_any": {
+        "bins": 35486,
+        "hues": [
+          215,
+          5,
+          14901,
+          4337,
+          55,
+          564,
+          1,
+          0,
+          13,
+          1,
+          0,
+          35
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.4552544580084642
+      },
+      "after_any": {
+        "bins": 35486,
+        "hues": [
+          207,
+          5,
+          14852,
+          4369,
+          56,
+          564,
+          1,
+          0,
+          13,
+          1,
+          0,
+          43
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.4508729913080923
+      }
+    },
+    {
+      "entry": {
+        "id": "1651",
+        "make": "Fujifilm",
+        "model": "FinePix S1",
+        "mode": "12bit 12bit uncompressed (4:3)",
+        "url": "https://raw.pixls.us/getfile.php/1651/nice/Fujifilm - FinePix S1 - 12bit 12bit uncompressed (4:3).RAF",
+        "sha256": "d77f104a9fa4ce11c78b5078ac40acf8b150d67ea837d187e0903d208bf2dbae",
+        "file": "1651.raf",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 21302,
+      "before_full": {
+        "bins": 21302,
+        "hues": [
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 6.121308921319141e-06
+      },
+      "after_full": {
+        "bins": 21302,
+        "hues": [
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 6.121308921319141e-06
+      },
+      "before_any": {
+        "bins": 25312,
+        "hues": [
+          6,
+          6,
+          2756,
+          277,
+          35,
+          73,
+          0,
+          1,
+          3,
+          0,
+          0,
+          1
+        ],
+        "magenta_cyan_bins": 1,
+        "mean_chroma": 0.07668080158236933
+      },
+      "after_any": {
+        "bins": 25312,
+        "hues": [
+          6,
+          6,
+          2756,
+          277,
+          35,
+          73,
+          0,
+          1,
+          3,
+          0,
+          0,
+          1
+        ],
+        "magenta_cyan_bins": 1,
+        "mean_chroma": 0.07668080158236933
+      }
+    },
+    {
+      "entry": {
+        "id": "3119",
+        "make": "Leica",
+        "model": "V-LUX (Typ 114)",
+        "mode": "3:2",
+        "url": "https://raw.pixls.us/getfile.php/3119/nice/Leica - V-LUX (Typ 114) - 3:2.RWL",
+        "sha256": "71e9fe7c8f7d150dfa65736899655187cfea1fda9a72689b52aad9cc1cf66a8e",
+        "file": "3119.rwl",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 20698,
+      "before_full": {
+        "bins": 20698,
+        "hues": [
+          0,
+          0,
+          1,
+          0,
+          0,
+          6,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 7.857994203780633e-05
+      },
+      "after_full": {
+        "bins": 20698,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 6.020670895168223e-08
+      },
+      "before_any": {
+        "bins": 28598,
+        "hues": [
+          6,
+          9,
+          511,
+          3130,
+          663,
+          1198,
+          10,
+          11,
+          18,
+          3,
+          1,
+          3
+        ],
+        "magenta_cyan_bins": 2,
+        "mean_chroma": 0.08647347620696567
+      },
+      "after_any": {
+        "bins": 28598,
+        "hues": [
+          0,
+          0,
+          635,
+          2949,
+          563,
+          1084,
+          0,
+          4,
+          9,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.0764847826168054
+      }
+    },
+    {
+      "entry": {
+        "id": "7012",
+        "make": "Panasonic",
+        "model": "DMC-LX7",
+        "mode": "3:2",
+        "url": "https://raw.pixls.us/getfile.php/7012/nice/Panasonic - DMC-LX7 - 3:2.RW2",
+        "sha256": "ad2973970e16c6f5a3ef36ce84ab9a1aef3d1e8ff2d1748351f18ee3dd40a77f",
+        "file": "7012.rw2",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 19101,
+      "before_full": {
+        "bins": 19101,
+        "hues": [
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 4.7723008915770185e-05
+      },
+      "after_full": {
+        "bins": 19101,
+        "hues": [
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 4.7956531432484823e-05
+      },
+      "before_any": {
+        "bins": 30325,
+        "hues": [
+          6,
+          1,
+          3820,
+          3669,
+          569,
+          2081,
+          0,
+          3,
+          5,
+          0,
+          1,
+          21
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.22161694351063124
+      },
+      "after_any": {
+        "bins": 30325,
+        "hues": [
+          8,
+          1,
+          3823,
+          3678,
+          567,
+          2081,
+          0,
+          3,
+          5,
+          0,
+          1,
+          19
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.22290827100989766
+      }
+    },
+    {
+      "entry": {
+        "id": "3899",
+        "make": "Fujifilm",
+        "model": "X-T200",
+        "mode": "14bit 14bit uncompressed (3:2)",
+        "url": "https://raw.pixls.us/getfile.php/3899/nice/Fujifilm - X-T200 - 14bit 14bit uncompressed (3:2).RAF",
+        "sha256": "8fc8dfa5b4741246287c430010d9699fe6f1e512ac03e14abea72e63cb022051",
+        "file": "3899.raf",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 18171,
+      "before_full": {
+        "bins": 18171,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 6.020670895168223e-08
+      },
+      "after_full": {
+        "bins": 18171,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 6.020670895168223e-08
+      },
+      "before_any": {
+        "bins": 41690,
+        "hues": [
+          3,
+          3,
+          888,
+          289,
+          138,
+          1177,
+          4,
+          9,
+          1,
+          2,
+          0,
+          4
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.010427097820943181
+      },
+      "after_any": {
+        "bins": 41690,
+        "hues": [
+          3,
+          3,
+          888,
+          289,
+          138,
+          1177,
+          4,
+          9,
+          1,
+          2,
+          0,
+          4
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.010427097820943181
+      }
+    },
+    {
+      "entry": {
+        "id": "3118",
+        "make": "Leica",
+        "model": "V-LUX (Typ 114)",
+        "mode": "1:1",
+        "url": "https://raw.pixls.us/getfile.php/3118/nice/Leica - V-LUX (Typ 114) - 1:1.RWL",
+        "sha256": "7a5fd52fe776c74ca9ed216092e5cd8c1e11d4169a473a08a14b4af694ceea12",
+        "file": "3118.rwl",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 17017,
+      "before_full": {
+        "bins": 17017,
+        "hues": [
+          0,
+          0,
+          1,
+          0,
+          0,
+          7,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 9.639818726263588e-05
+      },
+      "after_full": {
+        "bins": 17017,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 1.8062013396047405e-07
+      },
+      "before_any": {
+        "bins": 20836,
+        "hues": [
+          5,
+          9,
+          479,
+          1706,
+          327,
+          621,
+          3,
+          2,
+          1,
+          0,
+          0,
+          1
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.07179553693939962
+      },
+      "after_any": {
+        "bins": 20836,
+        "hues": [
+          0,
+          0,
+          573,
+          1565,
+          289,
+          573,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.063704447443469
+      }
+    },
+    {
+      "entry": {
+        "id": "2418",
+        "make": "Sony",
+        "model": "ILCE-7M3",
+        "mode": "14bit 14bit uncompressed (3:2)",
+        "url": "https://raw.pixls.us/getfile.php/2418/nice/Sony - ILCE-7M3 - 14bit 14bit uncompressed (3:2).ARW",
+        "sha256": "ece80551abf64949dbe826985a80f1d9b265401ee4ea6b989e1829549616fdcd",
+        "file": "2418.arw",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 15171,
+      "before_full": {
+        "bins": 15171,
+        "hues": [
+          0,
+          0,
+          12,
+          0,
+          0,
+          111,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.002444656206505654
+      },
+      "after_full": {
+        "bins": 15171,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 6.738000692682764e-05
+      },
+      "before_any": {
+        "bins": 52641,
+        "hues": [
+          13,
+          64,
+          448,
+          11866,
+          662,
+          14424,
+          22,
+          146,
+          117,
+          2,
+          2,
+          6
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.3009108678547714
+      },
+      "after_any": {
+        "bins": 52641,
+        "hues": [
+          0,
+          1,
+          425,
+          11853,
+          649,
+          14420,
+          2,
+          14,
+          102,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.2999917824374012
+      }
+    },
+    {
+      "entry": {
+        "id": "8022",
+        "make": "Sony",
+        "model": "ZV-E10M2",
+        "mode": "12bit (3:2)",
+        "url": "https://raw.pixls.us/getfile.php/8022/nice/Sony - ZV-E10M2 - 12bit (3:2).ARW",
+        "sha256": "3d61e7f685460e6e77a52355d88bc960d51332f3470468a06c4490a406e6b715",
+        "file": "8022.arw",
+        "license": "CC0-1.0"
+      },
+      "fully_clipped_bins": 15209,
+      "before_full": {
+        "bins": 15209,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 1.8062011974961933e-07
+      },
+      "after_full": {
+        "bins": 15209,
+        "hues": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 1.8062011974961933e-07
+      },
+      "before_any": {
+        "bins": 16222,
+        "hues": [
+          0,
+          0,
+          94,
+          130,
+          52,
+          186,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.009694059551804421
+      },
+      "after_any": {
+        "bins": 16222,
+        "hues": [
+          0,
+          0,
+          94,
+          130,
+          52,
+          186,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "magenta_cyan_bins": 0,
+        "mean_chroma": 0.009694059551804421
+      }
+    }
+  ],
+  "pdaf_synthetic_fourier_peak_reduction_db": 20.56057447200487
+}

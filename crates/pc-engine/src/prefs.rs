@@ -484,6 +484,8 @@ pub struct Performance {
 pub struct SystemResources {
     /// Processing threads; 0 = Automatic.
     pub threads: u32,
+    /// Continue at full speed and run background jobs on battery (off by default).
+    pub full_speed_on_battery: bool,
     pub background_priority: BackgroundPriority,
     /// Memory heavy work may plan for, in percent of RAM; 0 = Automatic.
     pub memory_percent: u32,
@@ -2382,5 +2384,19 @@ mod j16_tests {
         let old: Preferences = serde_json::from_value(json!({"general":{}})).unwrap();
         assert!(old.library.is_empty());
         assert_eq!(old.ai, li_ai::AiSettings::default());
+    }
+}
+
+#[cfg(test)]
+mod battery_compatibility_tests {
+    use super::*;
+    #[test]
+    fn old_processing_preferences_default_to_battery_saving_and_preserve_override() {
+        let old: SystemResources = serde_json::from_str(r#"{"threads":3,"memoryPercent":60}"#).unwrap();
+        assert!(!old.full_speed_on_battery);
+        assert_eq!(old.threads, 3);
+        let full = SystemResources { full_speed_on_battery: true, ..old };
+        let round: SystemResources = serde_json::from_value(serde_json::to_value(&full).unwrap()).unwrap();
+        assert_eq!(round, full);
     }
 }

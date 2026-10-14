@@ -1,0 +1,106 @@
+{
+  "lc-pair-adaptive-amplitude-metrics.json": {
+    "shift_yx": [
+      0,
+      0
+    ],
+    "exposure_gains": [
+      1.228858540482316,
+      1.2492159529271876,
+      1.2203175610567518
+    ],
+    "truth": "target/camdata-reference/truth.bin",
+    "region": [
+      488,
+      488
+    ],
+    "target/camdata-reference/noisy.bin": {
+      "psnr": 34.47078041093348,
+      "ssim": 0.7705639003609178
+    },
+    "target/camdata-reference/noisy-adaptive-amplitude-profiled.bin": {
+      "psnr": 40.83826960604121,
+      "ssim": 0.9424747749803252
+    },
+    "target/camdata-reference/noisy-adaptive-amplitude-estimated.bin": {
+      "psnr": 40.81876094576272,
+      "ssim": 0.9428555041403911
+    }
+  },
+  "lc-pair-3200-metrics.json": {
+    "shift_yx": [
+      0,
+      0
+    ],
+    "exposure_gains": [
+      1.247397934908939,
+      1.2422521846630123,
+      1.2189800759865903
+    ],
+    "truth": "target/camdata-reference/truth.bin",
+    "region": [
+      488,
+      488
+    ],
+    "target/camdata-reference/noisy3200.bin": {
+      "psnr": 37.550759350326025,
+      "ssim": 0.864764082981402
+    },
+    "target/camdata-reference/noisy3200-profiled.bin": {
+      "psnr": 43.668488786769764,
+      "ssim": 0.9669852303705481
+    },
+    "target/camdata-reference/noisy3200-estimated.bin": {
+      "psnr": 43.61549926264229,
+      "ssim": 0.9668408310699942
+    }
+  },
+  "dt-pair-metrics.json": {
+    "shift_yx": [
+      0,
+      0
+    ],
+    "exposure_gains": [
+      1.4015545034446746,
+      1.387196474293554,
+      1.344526953978478
+    ],
+    "truth": "target/camdata-reference/dt-linear/gt-off.tif",
+    "region": [
+      488,
+      488
+    ],
+    "target/camdata-reference/dt-linear/noisy-off.tif": {
+      "psnr": 30.306323183511566,
+      "ssim": 0.6172578539305531
+    },
+    "target/camdata-reference/dt-linear/noisy-on.tif": {
+      "psnr": 34.798759187779574,
+      "ssim": 0.8004670455821051
+    }
+  },
+  "dt-pair-3200-metrics.json": {
+    "shift_yx": [
+      0,
+      0
+    ],
+    "exposure_gains": [
+      1.4026848545591435,
+      1.3805545328360185,
+      1.3438987033317111
+    ],
+    "truth": "target/camdata-reference/dt-linear/gt-off.tif",
+    "region": [
+      488,
+      488
+    ],
+    "target/camdata-reference/dt-linear/noisy3200-off.tif": {
+      "psnr": 33.49964138980534,
+      "ssim": 0.751745871914299
+    },
+    "target/camdata-reference/dt-linear/noisy3200-on.tif": {
+      "psnr": 38.090687491599226,
+      "ssim": 0.8876074427247023
+    }
+  }
+}
