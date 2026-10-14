@@ -20,8 +20,9 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use image::{GrayImage, Luma, Rgb, RgbImage, RgbaImage};
+use image::{GrayImage, Luma, RgbImage, RgbaImage};
 use li_ai::{JobControl, RemoveEngine, Stage};
+use li_ai::{RgbFrame, RgbaFrame};
 use photocraft_color::{ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{Document, Layer, LayerContent, LayerId};
 use photocraft_geom::{Rect, Size};
@@ -126,13 +127,18 @@ pub fn bridged<T>(ctx: &JobCtx, f: impl FnOnce(&JobControl) -> anyhow::Result<T>
 
 /// The visible composite of `rect` as 8-bit RGB (transparency over white) — what the user sees.
 fn composite_rgb(doc: &Document, rect: Rect) -> Result<RgbImage> {
+    Ok(composite_frame(doc, rect)?.to_rgb8())
+}
+
+/// [`composite_rgb`] at full precision (encoded sRGB over white, normalized): what AI engines
+/// receive, so 16-bit and float documents are quantized only at a ComfyUI wire.
+fn composite_frame(doc: &Document, rect: Rect) -> Result<RgbFrame> {
     let buf = crate::color_cmds::composite_to_srgb(doc, photocraft_compose::render(doc, rect))?;
-    let (w, h) = (rect.width(), rect.height());
-    Ok(RgbImage::from_fn(w, h, |x, y| {
-        let p = buf.px[(y * w + x) as usize];
+    let (w, h) = (rect.width() as usize, rect.height() as usize);
+    Ok(RgbFrame::from_fn(w, h, |x, y| {
+        let p = buf.px[y * w + x];
         let a = p[3].clamp(0.0, 1.0);
-        let c = |v: f32| ((v.clamp(0.0, 1.0) * a + (1.0 - a)) * 255.0).round() as u8;
-        Rgb([c(p[0]), c(p[1]), c(p[2])])
+        [0, 1, 2].map(|k| p[k].clamp(0.0, 1.0) * a + (1.0 - a))
     }))
 }
 
@@ -188,9 +194,13 @@ pub fn selection_gray(doc: &Document) -> Option<GrayImage> {
 
 /// A new raster layer holding `img`, in the document's format, at `(x, y)`.
 pub fn layer_from_rgba(doc: &Document, name: &str, img: &RgbaImage, x: i32, y: i32) -> Result<Layer> {
-    let rect = Rect::from_xywh(x, y, img.width(), img.height());
-    let rgb = image::DynamicImage::ImageRgba8(img.clone()).to_rgb8();
-    let surf = surface_from(doc, rect, &rgb, |px, py| img.get_pixel(px, py)[3] as f32 / 255.0)?;
+    layer_from_frame(doc, name, &RgbaFrame::from_rgba8(img), x, y)
+}
+
+/// [`layer_from_rgba`] for a float sRGB frame (straight alpha), without an 8-bit step.
+pub fn layer_from_frame(doc: &Document, name: &str, img: &RgbaFrame, x: i32, y: i32) -> Result<Layer> {
+    let rect = Rect::from_xywh(x, y, img.width as u32, img.height as u32);
+    let surf = surface_from(doc, rect, &img.rgb(), |px, py| img.get(px as usize, py as usize)[3])?;
     let mut l = Layer::raster(name, surf.format());
     if let LayerContent::Raster(s) = &mut l.content {
         *s = surf;
@@ -215,8 +225,9 @@ pub fn selected_layer_rgba(doc: &Document, layer: &Layer, rect: Rect) -> Result<
     rendered_rgba(&isolated, photocraft_compose::render(&isolated, rect))
 }
 
-/// Convert the model's sRGB pixels to document space. Coverage stays unchanged.
-fn surface_from(doc: &Document, rect: Rect, rgb: &RgbImage, alpha: impl Fn(u32, u32) -> f32) -> Result<Surface> {
+/// Convert the model's sRGB pixels (normalized, unquantized) to document space. Coverage stays
+/// unchanged.
+fn surface_from(doc: &Document, rect: Rect, rgb: &RgbFrame, alpha: impl Fn(u32, u32) -> f32) -> Result<Surface> {
     use photocraft_cms::{Builtin, Intent, Transform};
     let fmt = PixelFormat::new(doc.mode, doc.depth, true);
     let dst = crate::color_cmds::document_profile(doc);
@@ -231,8 +242,8 @@ fn surface_from(doc: &Document, rect: Rect, rgb: &RgbImage, alpha: impl Fn(u32, 
     let mut row = vec![0f32; w as usize * 4];
     for y in 0..h {
         for x in 0..w {
-            let p = rgb.get_pixel(x, y);
-            row[x as usize * 4..x as usize * 4 + 4].copy_from_slice(&[p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0, alpha(x, y)]);
+            let p = rgb.get(x as usize, y as usize);
+            row[x as usize * 4..x as usize * 4 + 4].copy_from_slice(&[p[0], p[1], p[2], alpha(x, y)]);
         }
         let start = y as usize * w as usize * fmt.channels();
         transform.convert_f32(&row, 4, &mut data[start..start + w as usize * fmt.channels()], fmt.channels(), true);
@@ -372,11 +383,11 @@ fn ai_remove(s: &mut Session, p: &Value) -> Result<Value> {
         label,
         true,
         move |ctx| {
-            let rgb = composite_rgb(&doc, region)?;
+            let rgb = composite_frame(&doc, region)?;
             let local = GrayImage::from_fn(region.width(), region.height(), |x, y| {
                 Luma([mask[(region.y0 as usize + y as usize) * size.width as usize + region.x0 as usize + x as usize]])
             });
-            let out = bridged(ctx, |ctl| li_ai::service().remove_patch(&rgb, &local, &engine, seed, ctl))?;
+            let out = bridged(ctx, |ctl| li_ai::service().remove_patch_frame(&rgb, &local, &engine, seed, ctl))?;
             // Only the cleaned selection changed; its coverage becomes the new layer's alpha.
             let cleaned = li_ai::imaging::clean_selection_mask(&local);
             ctx.check()?;
@@ -546,11 +557,11 @@ fn generative_fill(s: &mut Session, p: &Value) -> Result<Value> {
         "Generative Fill",
         true,
         move |ctx| {
-            let rgb = composite_rgb(&doc, region)?;
+            let rgb = composite_frame(&doc, region)?;
             let local = GrayImage::from_fn(region.width(), region.height(), |x, y| {
                 Luma([mask[(region.y0 as usize + y as usize) * size.width as usize + region.x0 as usize + x as usize]])
             });
-            let out = bridged(ctx, |ctl| li_ai::service().fill(&rgb, &local, &prompt, &variant, seed, ctl))?;
+            let out = bridged(ctx, |ctl| li_ai::service().fill_frame(&rgb, &local, &prompt, &variant, seed, ctl))?;
             surface_from(&doc, region, &out, |x, y| local.get_pixel(x, y)[0] as f32 / 255.0)
         },
         move |s, surf| {
@@ -590,8 +601,7 @@ fn generate_background(s: &mut Session, p: &Value) -> Result<Value> {
         move |ctx| {
             let img = bridged(ctx, |ctl| li_ai::service().generate_background(&prompt, gw, gh, &variant, seed, ctl))?;
             let filled = li_ai::imaging::fit_cover(&img, bounds.width(), bounds.height());
-            let rgb = image::DynamicImage::ImageRgba8(filled).to_rgb8();
-            surface_from(&doc, bounds, &rgb, |_, _| 1.0)
+            surface_from(&doc, bounds, &RgbaFrame::from_rgba8(&filled).rgb(), |_, _| 1.0)
         },
         move |s, surf| {
             let id = s.edit("Generate Background", move |doc, active| {
@@ -1144,4 +1154,45 @@ fn lama_real_rtx5090_patch_undo_redo_parity() {
     assert_eq!(session.active().unwrap().doc, repaired);
     check(&repaired);
     eprintln!("actual ai.remove (CPU LaMa + layer) {seconds:.3}s; GPU patch undo/redo passed");
+}
+
+#[cfg(test)]
+mod j28_tests {
+    use super::*;
+
+    /// A 16-bit sRGB document holding a deep gradient: about six 8-bit levels across 512 px.
+    fn deep_document(sample: SampleType, fmt: PixelFormat) -> Document {
+        let mut doc = Document::new("Deep", Size::new(512, 2), ColorMode::Rgb, sample);
+        doc.icc_profile = Some(photocraft_cms::Builtin::Srgb.profile().to_bytes());
+        let mut layer = Layer::raster("Source", fmt);
+        let px: Vec<f32> = (0..2 * 512).flat_map(|i| [0.40 + 0.02 * (i % 512) as f32 / 511.0, 0.55, 0.70, 1.0]).collect();
+        crate::pixels_mut(&mut layer).unwrap().write_region(doc.bounds(), &px);
+        doc.layers.push(layer);
+        doc
+    }
+
+    #[test]
+    fn j28_ai_boundary_keeps_16bit_and_float_documents_out_of_8bit() {
+        for (sample, fmt) in [(SampleType::U16, PixelFormat::RGBA16), (SampleType::F32, PixelFormat::RGBA32F)] {
+            let doc = deep_document(sample, fmt);
+            let rect = doc.bounds();
+            let source = doc.layers[0].surface().unwrap().read_region(rect);
+            // An identity "model": what comes back is what the engine was given.
+            let before = surface_from(&doc, rect, &RgbFrame::from_rgb8(&composite_rgb(&doc, rect).unwrap()), |_, _| 1.0).unwrap().read_region(rect);
+            let after = surface_from(&doc, rect, &composite_frame(&doc, rect).unwrap(), |_, _| 1.0).unwrap().read_region(rect);
+            let err = |v: &[f32]| v.iter().zip(&source).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max) * 65535.0;
+            let levels = |v: &[f32]| v.as_chunks::<4>().0.iter().map(|p| (p[0] * 65535.0).round() as u32).collect::<std::collections::BTreeSet<_>>().len();
+            eprintln!(
+                "j28 editor AI boundary {sample:?}: max error before {:.1}, after {:.2} 16-bit levels; distinct red levels before {}, after {} (source {})",
+                err(&before),
+                err(&after),
+                levels(&before),
+                levels(&after),
+                levels(&source)
+            );
+            assert!(err(&after) <= 1.0, "{sample:?}: no 8-bit step remains ({})", err(&after));
+            assert!(err(&before) > 50.0);
+            assert_eq!(composite_frame(&doc, rect).unwrap().to_rgb8(), composite_rgb(&doc, rect).unwrap(), "8-bit wire bytes unchanged");
+        }
+    }
 }

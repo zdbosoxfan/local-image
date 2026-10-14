@@ -4032,6 +4032,7 @@ dependencies = [
  "li-color",
  "li-fs",
  "li-matte",
+ "li-raster",
  "lightcraft-sysmem",
  "log",
  "miniz_oxide 0.8.9",

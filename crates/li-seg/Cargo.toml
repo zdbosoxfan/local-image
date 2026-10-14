@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 li-matte = { path = "../li-matte" }
+li-raster = { path = "../li-raster" }
 li-color = { workspace = true }
 li-fs = { workspace = true }
 tract-onnx = "0.23"
