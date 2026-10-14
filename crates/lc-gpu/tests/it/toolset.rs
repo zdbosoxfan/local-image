@@ -354,7 +354,7 @@ fn tone_equalizer_matches_and_draws_a_mask() {
     shown.tone_eq.ev6 = 0.;
     shown.tone_eq.ev5 = 0.;
     shown.tone_eq.ev1 = 0.;
-    let mreq = RenderRequest { overlay: Overlay::ToneEqMask, ..req };
+    let mreq = RenderRequest { overlay: Overlay::ToneEqMask, ..req.clone() };
     assert!(!lightcraft_pipeline::tools_need_cpu(&shown, &mreq));
     check("native neutral tone mask", &src, &info, &shown, &mreq);
     let mask = render(&src, &info, &shown, &mreq).image;
@@ -877,7 +877,7 @@ fn film_looks_match_the_cpu_export() {
         s.color.vibrance = 30.0;
         s.grading.shadows = lightcraft_develop::Wheel { hue: 200.0, sat: 30.0, lum: 0.0 };
         check(&format!("cinema negative + edits scene {i}"), &src, &info, &s, &req);
-        let p3 = RenderRequest { space: lightcraft_pipeline::OutputSpace::DisplayP3, ..req };
+        let p3 = RenderRequest { space: lightcraft_pipeline::OutputSpace::DisplayP3, ..req.clone() };
         check(&format!("cinema negative + edits, P3, scene {i}"), &src, &info, &s, &p3);
     }
 }

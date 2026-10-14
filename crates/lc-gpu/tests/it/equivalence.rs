@@ -975,7 +975,7 @@ fn deep_output_matches_cpu() {
             }
             let req = RenderRequest { space, depth: lightcraft_pipeline::OutputDepth::U16, ..RenderRequest::fit(320, 240) };
             let cache = StageCache::default();
-            let preview_req = RenderRequest { depth: lightcraft_pipeline::OutputDepth::U8, ..req };
+            let preview_req = RenderRequest { depth: lightcraft_pipeline::OutputDepth::U8, ..req.clone() };
             // A preview's native NR must not become the deep render's precise NR cache entry.
             lightcraft_gpu::render(&src, &info, &s, &preview_req, Some(&cache)).expect("cached preview");
             let cpu = render(&src, &info, &s, &req);

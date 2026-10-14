@@ -154,7 +154,7 @@ fn native_toneeq_filter_extremes_and_cached_overlay_match() {
         s.tone_eq.refine = 100.0;
         s.tone_eq.smoothing = -2.33;
         compare(g, &src, &info, &s, &req, &stages);
-        compare(g, &src, &info, &s, &RenderRequest { overlay: lightcraft_pipeline::Overlay::ToneEqMask, ..req }, &stages);
+        compare(g, &src, &info, &s, &RenderRequest { overlay: lightcraft_pipeline::Overlay::ToneEqMask, ..req.clone() }, &stages);
         s.tone_eq.size = 10.0; // Restore via complete settings below for cache equality.
         let mut original = DevelopSettings::default();
         original.tone_eq.enabled = true;
@@ -576,7 +576,7 @@ fn develop_c_full_scalar_opacity_mixed_masks_and_skin_overlay_match() {
     s.tone_eq.ev4 = 0.5;
     compare(g, &src, &info, &s, &req, &stages);
     let overlay = lightcraft_pipeline::Overlay::Mask { id: 1, view: lightcraft_pipeline::MaskView::WhiteOnBlack, color: [255, 0, 0], opacity: 50 };
-    compare(g, &src, &info, &s, &RenderRequest { overlay, ..req }, &stages);
+    compare(g, &src, &info, &s, &RenderRequest { overlay, ..req.clone() }, &stages);
     s.masks[0].components.push(MaskComponent {
         name: None,
         op: MaskOp::Subtract,
@@ -588,7 +588,7 @@ fn develop_c_full_scalar_opacity_mixed_masks_and_skin_overlay_match() {
     let reference = lightcraft_pipeline::skin_reference_sample(&src, &info, &s, &req, Point::new(0.2, 0.5)).unwrap();
     s.skin_tone = SkinTone { reference: Some(reference), uniformity: 75.0, lightness: 20.0, ..Default::default() };
     s.color.saturation = 10.0; // range reference survives remaining primary settings
-    compare(g, &src, &info, &s, &RenderRequest { overlay: lightcraft_pipeline::Overlay::SkinToneRange(None), ..req }, &stages);
+    compare(g, &src, &info, &s, &RenderRequest { overlay: lightcraft_pipeline::Overlay::SkinToneRange(None), ..req.clone() }, &stages);
     s.masks = vec![Mask {
         id: 7,
         components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Full }],
@@ -764,7 +764,7 @@ fn stacked_full_tool_sets_match_cpu_after_developed_inputs() {
         compare(g, &src, &info, &s, &req, &stages);
         s.masks[1].components = vec![MaskComponent { name: None, op: Default::default(), invert: false, shape: MaskShape::Full }];
         compare(g, &src, &info, &s, &req, &stages);
-        let deep_req = RenderRequest { depth: lightcraft_pipeline::OutputDepth::U16, ..req };
+        let deep_req = RenderRequest { depth: lightcraft_pipeline::OutputDepth::U16, ..req.clone() };
         if index == 9 {
             // Existing 16-bit NR uses precise host VST transforms around native wavelets.
             // The preview above must stay fully native; export keeps its established precision path.
@@ -818,7 +818,7 @@ fn stacked_hidden_and_imported_mask_overlays_match_warm_cpu() {
     for id in [1, 2, 3] {
         let r = RenderRequest {
             overlay: lightcraft_pipeline::Overlay::Mask { id, view: lightcraft_pipeline::MaskView::WhiteOnBlack, color: [255, 0, 0], opacity: 50 },
-            ..req
+            ..req.clone()
         };
         let cold = compare(g, &src, &info, &s, &r, &stages);
         let warm = compare(g, &src, &info, &s, &r, &stages);

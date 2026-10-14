@@ -471,7 +471,7 @@ fn develop_c_skin_range_uses_scene_reference_and_preserves_targeted_layer() {
     };
     let plain = render(&src, &info, &DevelopSettings::default(), &req).image;
     let overlay = Overlay::SkinToneRange(None);
-    let view = render(&src, &info, &s, &RenderRequest { overlay, ..req }).image;
+    let view = render(&src, &info, &s, &RenderRequest { overlay, ..req.clone() }).image;
     assert_eq!(view.data[10 * 40 + 5], plain.data[10 * 40 + 5], "selected skin stays in colour without its own edit");
     let blue = view.data[10 * 40 + 35];
     assert_eq!(blue[0], blue[1]);

@@ -624,30 +624,27 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "view.softProof" => {
-            // {on?, space?, destWarning?, displayWarning?}; no params toggles
-            let has = |k: &str| p.get(k).is_some();
-            if let Some(s) = p.get("space").and_then(Value::as_str) {
-                match lightcraft_engine::pipeline::OutputSpace::parse(s) {
-                    Some(sp) => app.ui.proof.space = sp,
-                    None => return Some(Err(format!("view.softProof: unknown space {s:?} (srgb|displayP3|adobeRgb|proPhoto|rec2020)"))),
-                }
-            }
-            if let Some(b) = p.get("destWarning").and_then(Value::as_bool) {
-                app.ui.proof.dest_warning = b;
-            }
-            if let Some(b) = p.get("displayWarning").and_then(Value::as_bool) {
-                app.ui.proof.display_warning = b;
-            }
-            app.ui.soft_proof = match p.get("on").and_then(Value::as_bool) {
-                Some(b) => b,
-                None if has("space") || has("destWarning") || has("displayWarning") => app.ui.soft_proof,
+            let proof = match lightcraft_engine::update_soft_proof(&app.ui.proof, p) {
+                Ok(proof) => proof,
+                Err(e) => return Some(Err(e)),
+            };
+            let on = match p.get("on") {
+                Some(value) => match value.as_bool() {
+                    Some(on) => on,
+                    None => return Some(Err("view.softProof: on must be a boolean".into())),
+                },
+                None if p.as_object().is_some_and(|p| !p.is_empty()) => app.ui.soft_proof,
                 None => !app.ui.soft_proof,
             };
+            app.ui.proof = proof;
+            app.ui.soft_proof = on;
             if app.ui.soft_proof && !matches!(app.ui.view, ViewMode::Detail | ViewMode::Reference) {
                 app.ui.view = ViewMode::Detail;
             }
-            let pr = app.ui.proof;
-            Ok(json!({"on": app.ui.soft_proof, "space": pr.space, "destWarning": pr.dest_warning, "displayWarning": pr.display_warning}))
+            let pr = &app.ui.proof;
+            Ok(
+                json!({"on": app.ui.soft_proof, "space": pr.space, "destWarning": pr.dest_warning, "displayWarning": pr.display_warning, "profile": pr.label(), "intent": pr.intent, "bpc": pr.bpc, "simulatePaper": pr.simulate_paper}),
+            )
         }
         "view.histogram" => {
             app.ui.histogram = !app.ui.histogram;

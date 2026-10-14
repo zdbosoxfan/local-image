@@ -628,7 +628,10 @@ fn soft_proofing_flags_out_of_gamut_colours_and_makes_proof_copies() {
     assert_eq!(r["ok"], true, "{r}");
     assert!(h.app.ui.soft_proof);
     let st = exec(&mut h, "view.softProof", json!({"space": "srgb", "destWarning": true}));
-    assert_eq!(st, json!({"on": true, "space": "srgb", "destWarning": true, "displayWarning": false}));
+    assert_eq!(
+        st,
+        json!({"on": true, "space": "srgb", "destWarning": true, "displayWarning": false, "profile":"sRGB", "intent":"relativeColorimetric", "bpc":true, "simulatePaper":false})
+    );
     h.settle(SETTLE);
     assert!(red(&h) > before, "out-of-gamut colours are painted red");
     let r = h.request("engine.execute", json!({"command": "view.softProof", "params": {"space": "cmyk"}}), T);

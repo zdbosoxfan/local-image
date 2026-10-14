@@ -4290,6 +4290,7 @@ dependencies = [
  "lightcraft-raster",
  "lightcraft-scenes",
  "photocraft-algo",
+ "photocraft-cms",
  "photocraft-raster",
  "proptest",
  "rayon",
