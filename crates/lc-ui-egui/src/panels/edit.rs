@@ -916,67 +916,22 @@ fn section(
 
 fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let t = Tokens::get(ui.ctx());
-    let w = ui.available_width();
-    let (r, resp) = ui.allocate_exact_size(vec2(w, 118.0), Sense::click());
-    register(ui.ctx(), "histogram", r);
-    let p = ui.painter();
-    p.rect_filled(r, 0.0, t.button);
-    let plot = Rect::from_min_max(r.min + vec2(0.0, 6.0), pos2(r.right(), r.bottom() - 26.0));
-    // the loupe render of this photo, else its thumbnail (grid view before the loupe has rendered it)
+    // Borrow cached bins: no image-sized work or per-frame histogram/smoothing allocation.
     let hist = app
         .renderer
         .textures
         .get(&Slot::Main)
         .filter(|t| t.photo == id)
-        .and_then(|t| t.histogram.clone())
-        .or_else(|| app.renderer.textures.get(&Slot::Thumb(id)).and_then(|t| t.histogram.clone()));
-    if let Some(h) = hist {
-        let smooth = |v: &[u32]| -> Vec<f32> {
-            (0..256)
-                .map(|i| {
-                    let (a, b) = (i.max(2) - 2, (i + 3).min(256));
-                    v[a..b].iter().map(|x| *x as f32).sum::<f32>() / (b - a) as f32
-                })
-                .collect()
-        };
-        let chans = [(smooth(&h.r), hex("#df3939")), (smooth(&h.g), hex("#44b072")), (smooth(&h.b), hex("#3b6fe0"))];
-        let peak = chans.iter().flat_map(|(v, _)| v.iter().skip(2).take(252)).fold(1.0f32, |a, b| a.max(*b));
-        let to = |i: usize, v: f32| pos2(plot.left() + plot.width() * i as f32 / 255.0, plot.bottom() - plot.height() * (v / peak).sqrt().min(1.0));
-        // luminance fill
-        let lum = smooth(&h.luma);
-        let mut mesh = Mesh::default();
-        for i in 0..256 {
-            let top = to(i, lum[i]);
-            mesh.vertices.push(Vertex { pos: top, uv: Pos2::ZERO, color: Color32::from_gray(120).gamma_multiply(0.35) });
-            mesh.vertices.push(Vertex { pos: pos2(top.x, plot.bottom()), uv: Pos2::ZERO, color: Color32::from_gray(120).gamma_multiply(0.35) });
-            if i > 0 {
-                let k = (i as u32) * 2;
-                mesh.indices.extend([k - 2, k - 1, k, k - 1, k + 1, k]);
-            }
-        }
-        p.add(mesh);
-        // greyscale images: the three channels coincide — draw one neutral line
-        let spread: f32 = (0..256).map(|i| (chans[0].0[i] - chans[1].0[i]).abs() + (chans[1].0[i] - chans[2].0[i]).abs()).sum();
-        let total: f32 = chans[1].0.iter().sum::<f32>().max(1.0);
-        if spread / total < 0.02 {
-            let pts: Vec<Pos2> = (0..256).map(|i| to(i, chans[1].0[i])).collect();
-            p.add(egui::Shape::line(pts, Stroke::new(1.5, Color32::from_gray(200))));
-        } else {
-            for (v, c) in &chans {
-                let pts: Vec<Pos2> = (0..256).map(|i| to(i, v[i])).collect();
-                p.add(egui::Shape::line(pts, Stroke::new(1.5, *c)));
-            }
-        }
-        let (lo, hi) = h.clipping();
-        for (on, x, active) in [(lo > 0.003, plot.left() + 12.0, app.ui.show_clipping), (hi > 0.003, plot.right() - 12.0, app.ui.show_clipping)] {
-            let tri = Rect::from_center_size(pos2(x, plot.top() + 10.0), vec2(14.0, 12.0));
-            p.rect_filled(tri, 2.0, if active { t.hover } else { Color32::from_gray(60) });
-            paint(p, tri.shrink(2.0), Icon::ChevronDown, if on { Color32::WHITE } else { Color32::from_gray(130) });
-        }
-    }
+        .and_then(|t| t.histogram.as_ref())
+        .or_else(|| app.renderer.textures.get(&Slot::Thumb(id)).and_then(|t| t.histogram.as_ref()));
+    let view = hist.map(|h| li_ui_kit::histogram::Histogram::u32([&h.r, &h.g, &h.b], Some(&h.luma)));
+    let resp = li_ui_kit::histogram::library(ui, view, hist.map_or((0.0, 0.0), |h| h.clipping()), app.ui.show_clipping, crate::i18n::tr("Histogram"));
+    let r = resp.rect;
+    register(ui.ctx(), "histogram", r);
     if resp.clicked() {
         app.ui.show_clipping = !app.ui.show_clipping;
     }
+    let p = ui.painter();
     // EXIF strip
     if let Some(ph) = app.session.catalog.photo(id) {
         let m = &ph.meta;

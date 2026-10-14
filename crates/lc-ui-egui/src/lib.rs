@@ -524,9 +524,8 @@ impl LightcraftApp {
         match (unsaved, self.ui.unsaved_seen) {
             (Some((n, e)), false) => {
                 self.ui.unsaved_seen = true;
-                let t = ctx.input(|i| i.time);
                 let what = if n == 1 { "1 change".to_string() } else { format!("{n} changes") };
-                self.ui.toast = Some((format!("{what} saved in memory but not written to disk: {e} — Local Image will retry"), t + 6.0));
+                self.toast_error(ctx, format!("{what} saved in memory but not written to disk: {e} — Local Image will retry"));
             }
             (None, true) => {
                 self.ui.unsaved_seen = false;
@@ -544,7 +543,10 @@ impl LightcraftApp {
     /// A toast that stays `secs` seconds (messages that say where to look or what to do next).
     pub fn toast_for(&mut self, ctx: &egui::Context, text: impl Into<String>, secs: f64) {
         let t = ctx.input(|i| i.time);
-        self.ui.toast = Some((text.into(), t + secs));
+        let text = text.into();
+        self.ui.toast_history.observe(self.ui.toast.as_ref());
+        self.ui.toast_history.post(text.clone(), t + secs, false);
+        self.ui.toast = Some((text, t + secs));
     }
 
     /// AI masks: apply finished background requests (clicks, descriptions, detail passes) and
@@ -622,7 +624,10 @@ impl LightcraftApp {
     /// A toast for an error the user has to read and act on (stays 6 s).
     pub fn toast_error(&mut self, ctx: &egui::Context, text: impl Into<String>) {
         let t = ctx.input(|i| i.time);
-        self.ui.toast = Some((text.into(), t + 6.0));
+        let text = text.into();
+        self.ui.toast_history.observe(self.ui.toast.as_ref());
+        self.ui.toast_history.post(text.clone(), t + 6.0, true);
+        self.ui.toast = Some((text, t + 6.0));
     }
 
     fn drain_control(&mut self, ctx: &egui::Context) {

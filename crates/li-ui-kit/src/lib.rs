@@ -11,3 +11,9 @@ pub mod mono_tool_icons;
 pub mod theme;
 pub mod tool_icon_data;
 pub mod vector_icon_data;
+
+pub mod histogram;
+pub mod notices;
+pub mod slider;
+pub mod widget_style;
+pub mod widgets;

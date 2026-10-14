@@ -2,7 +2,7 @@
 //! flyout rows, bordered buttons. Every interactive widget registers an automation id + rect
 //! ([`register`]) so the control channel can find and click it by name.
 
-use egui::{Align2, Color32, CornerRadius, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
+use egui::{Align2, Color32, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
 use lightcraft_develop::{ControlSpec, Track};
 
 use crate::icons::{Icon, paint};
@@ -10,18 +10,7 @@ use crate::theme::Tokens;
 
 // ------------------------------------------------------------------ automation registry
 
-#[derive(Clone, Default)]
-pub struct Registry(pub Vec<(String, Rect)>);
-
-/// Record a widget's automation id and screen rect for this frame.
-pub fn register(ctx: &egui::Context, id: impl Into<String>, rect: Rect) {
-    let id = id.into();
-    ctx.data_mut(|d| d.get_temp_mut_or_default::<Registry>(egui::Id::new("lc-registry")).0.push((id, rect)));
-}
-
-pub fn take_registry(ctx: &egui::Context) -> Vec<(String, Rect)> {
-    ctx.data_mut(|d| std::mem::take(&mut d.get_temp_mut_or_default::<Registry>(egui::Id::new("lc-registry")).0))
-}
+pub use li_ui_kit::widgets::{Registry, register, take_registry};
 
 /// Standard Develop content inset, used by Optics and its lens database rows.
 pub fn develop_body(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
@@ -31,7 +20,7 @@ pub fn develop_body(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 /// The shared, keyboard-accessible checkbox with a stable automation id. `label` is translated
 /// by the caller; egui supplies the check mark, focus and disabled treatment from the theme.
 pub fn checkbox(ui: &mut Ui, id: &str, checked: &mut bool, label: &str) -> Response {
-    let response = ui.add(egui::Checkbox::new(checked, crate::i18n::tr(label)));
+    let response = li_ui_kit::widgets::checkbox(ui, checked, crate::i18n::tr(label), li_ui_kit::widgets::Profile::Library);
     register(ui.ctx(), id, response.rect);
     // Preserve both jobs' public automation IDs with one widget implementation.
     if !id.starts_with("check:") {
@@ -105,7 +94,7 @@ pub fn lerp(a: Color32, b: Color32, t: f32) -> Color32 {
 pub const BAND_COLORS: [&str; 8] = ["#aa0000", "#bb6600", "#aaaa00", "#009900", "#00aaaa", "#0044cc", "#7722aa", "#aa0077"];
 
 fn track_stops(track: &Track) -> Option<Vec<Color32>> {
-    Some(match track {
+    let mut stops: Vec<Color32> = match track {
         Track::Plain | Track::Centered => return None,
         Track::Temp => ["#193961", "#47566a", "#60666d", "#70705b", "#737339", "#75742a"].iter().map(|h| hex(h)).collect(),
         Track::Tint => ["#246123", "#2c552c", "#394739", "#4a3d4c", "#6b336b", "#872c87"].iter().map(|h| hex(h)).collect(),
@@ -129,31 +118,13 @@ fn track_stops(track: &Track) -> Option<Vec<Color32>> {
             vec![c.gamma_multiply(0.2), c.gamma_multiply(0.55), lerp(c, Color32::WHITE, 0.35), lerp(c, Color32::WHITE, 0.6)]
         }
         Track::Rainbow => ["#aa0000", "#aaaa00", "#009900", "#00aaaa", "#0044cc", "#aa0077", "#aa0000"].iter().map(|h| hex(h)).collect(),
-    })
-}
-
-fn paint_track(ui: &Ui, rect: Rect, track: &Track, t: &Tokens, thumb_x: f32, ring: f32) {
-    let p = ui.painter();
-    let y = rect.center().y;
-    let h = 1.0;
-    if let Some(stops) = track_stops(track) {
-        // gradient: segments between stops
-        let n = stops.len().max(2) - 1;
-        let steps = 48;
-        for i in 0..steps {
-            let (a, b) = (i as f32 / steps as f32, (i + 1) as f32 / steps as f32);
-            let seg = (a * n as f32).floor() as usize;
-            let local = a * n as f32 - seg as f32;
-            let c = lerp(stops[seg.min(n)], stops[(seg + 1).min(n)], local);
-            let x0 = rect.left() + rect.width() * a;
-            let x1 = rect.left() + rect.width() * b;
-            p.rect_filled(Rect::from_min_max(pos2(x0, y - h - 0.5), pos2(x1 + 0.5, y + h + 0.5)), 0.0, c);
-        }
-    } else {
-        p.rect_filled(Rect::from_min_max(pos2(rect.left(), y - h), pos2(rect.right(), y + h)), 1.0, t.track);
+    };
+    // The inherited painter interpolated RGB as opaque even for gamma-multiplied
+    // stops. Preserve those displayed stop colors when passing the shared mesh.
+    for color in &mut stops {
+        *color = Color32::from_rgb(color.r(), color.g(), color.b());
     }
-    // gap around the hollow thumb
-    p.rect_filled(Rect::from_center_size(pos2(thumb_x, y), vec2(ring * 2.0 + 4.0, 6.0)), 0.0, t.chrome);
+    Some(stops)
 }
 
 /// Result of a slider interaction this frame.
@@ -222,69 +193,30 @@ fn slider_inner(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, labe
     let label_resp = ui.interact(label_hit, id.with("label"), if enabled { Sense::click() } else { Sense::hover() });
     register(ui.ctx(), format!("slider:{}", spec.id), track_rect);
     let mut out = SliderOut::default();
-    let span = (spec.max - spec.min).max(1e-9);
-    let to_x = |v: f64| track_rect.left() + ((v - spec.min) / span).clamp(0.0, 1.0) as f32 * track_rect.width();
-    let from_x = |x: f32| spec.min + ((x - track_rect.left()) / track_rect.width()).clamp(0.0, 1.0) as f64 * span;
+    let scale = li_ui_kit::slider::Scale { min: spec.min, max: spec.max, step: Some(spec.step) };
     let mut v = value;
-    let drag_id = id.with("continuous-value");
     if enabled && !editing && (resp.double_clicked() || label_resp.double_clicked()) {
         out.reset = true;
         out.value = Some(spec.default);
         v = spec.default;
-    } else if !editing {
-        if resp.drag_started() {
-            out.drag_started = true;
-            // Keep unrounded motion across frames: rounding each tiny Shift-drag delta to a
-            // slider step made slow drags stick at one value indefinitely.
-            let x = ui.input(|i| i.pointer.press_origin()).map_or(track_rect.center().x, |p| p.x);
-            ui.data_mut(|d| d.insert_temp(drag_id, (value, x)));
-        }
-        let released = resp.drag_stopped() && ui.input(|i| !i.pointer.primary_down());
-        if (resp.dragged() || resp.drag_started() || released)
-            && let Some(p) = resp.interact_pointer_pos()
-        {
-            let fine = ui.input(|i| i.modifiers.shift);
-            let (continuous, last_x) = ui.data(|d| d.get_temp::<(f64, f32)>(drag_id)).unwrap_or((value, p.x));
-            let nv = if fine { continuous + (p.x - last_x) as f64 * span / track_rect.width() as f64 * 0.1 } else { from_x(p.x) };
-            let nv = nv.clamp(spec.min, spec.max);
-            ui.data_mut(|d| d.insert_temp(drag_id, (nv, p.x)));
-            let step = spec.step.max(1e-9);
-            let nv = ((nv / step).round() * step).clamp(spec.min, spec.max);
-            if (nv - value).abs() > 1e-12 {
-                out.value = Some(nv);
-                v = nv;
-            }
-        } else if resp.clicked()
-            && let Some(p) = resp.interact_pointer_pos()
-        {
-            let step = spec.step.max(1e-9);
-            let nv = ((from_x(p.x) / step).round() * step).clamp(spec.min, spec.max);
-            out.value = Some(nv);
-            v = nv;
-            out.drag_started = true;
-            out.drag_stopped = true;
-        }
-        if resp.drag_stopped() {
-            out.drag_stopped = true;
-            ui.data_mut(|d| d.remove_temp::<(f64, f32)>(drag_id));
-        }
-        // ↑ / ↓ while the pointer rests on the row nudge the value (⇧: five times as much)
-        if admissible && !ui.ctx().egui_wants_keyboard_input() && out.value.is_none() && ui.rect_contains_pointer(row) {
-            let (up, down, shift) = ui.input_mut(|i| {
-                let shift = i.modifiers.shift;
-                let m = if shift { egui::Modifiers::SHIFT } else { egui::Modifiers::NONE };
-                (i.consume_key(m, egui::Key::ArrowUp), i.consume_key(m, egui::Key::ArrowDown), shift)
-            });
-            if up || down {
-                let nv = nudged(spec, value, if up { 1.0 } else { -1.0 } * if shift { 5.0 } else { 1.0 });
-                if (nv - value).abs() > 1e-12 {
-                    out.value = Some(nv);
-                    out.drag_started = true;
-                    out.drag_stopped = true;
-                    v = nv;
-                }
-            }
-        }
+    } else if admissible && !editing {
+        let result = li_ui_kit::slider::interact(
+            ui,
+            &resp,
+            track_rect,
+            value,
+            li_ui_kit::slider::Interaction {
+                scale,
+                fine_factor: Some(0.1),
+                epsilon: 1e-12,
+                hover_nudge: Some(row),
+                nudge_unit: (spec.id == "wb.temp").then_some(50.0),
+            },
+        );
+        out.value = result.value;
+        out.drag_started = result.drag_started;
+        out.drag_stopped = result.drag_stopped;
+        v = result.value.unwrap_or(value);
     }
     // paint
     let hovered = resp.hovered() || resp.dragged();
@@ -347,19 +279,21 @@ fn slider_inner(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, labe
             ui.memory_mut(|m| m.request_focus(edit_id));
         }
     }
-    let ring = 7.0;
-    let tx = to_x(v);
-    paint_track(ui, track_rect, &spec.track, &t, tx, ring);
-    let p = ui.painter();
-    let ring_c = if !enabled {
-        t.text_disabled
-    } else if hovered {
-        t.thumb_hover
-    } else {
-        t.thumb
-    };
-    p.circle_filled(pos2(tx, track_rect.center().y), ring, t.chrome);
-    p.circle_stroke(pos2(tx, track_rect.center().y), ring, Stroke::new(2.0, ring_c));
+    li_ui_kit::slider::paint_hollow(
+        ui,
+        track_rect,
+        track_stops(&spec.track).as_deref(),
+        scale.position(track_rect, v),
+        enabled,
+        hovered,
+        li_ui_kit::slider::HollowStyle {
+            track: t.track,
+            background: t.chrome,
+            thumb: t.thumb,
+            thumb_hover: t.thumb_hover,
+            disabled: t.text_disabled,
+        },
+    );
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
@@ -369,52 +303,31 @@ fn slider_inner(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, labe
 /// `value` moved by `steps` keyboard nudges: one nudge is about 1/200 of the range, a whole
 /// number of the control's steps (exposure 0.05, most sliders 1, temperature 50 K).
 pub fn nudged(spec: &ControlSpec, value: f64, steps: f64) -> f64 {
-    let step = spec.step.max(1e-9);
-    let unit = if spec.id == "wb.temp" { 50.0 } else { (((spec.max - spec.min) / 200.0 / step).round().max(1.0)) * step };
-    (((value + unit * steps) / step).round() * step).clamp(spec.min, spec.max)
+    li_ui_kit::slider::Scale { min: spec.min, max: spec.max, step: Some(spec.step) }.nudged(value, steps, (spec.id == "wb.temp").then_some(50.0))
 }
 
 /// Collapsible section header ("› Light"). Returns the response (click toggles).
 pub fn section_header(ui: &mut Ui, id: &str, title: &str, open: bool, enabled: Option<bool>) -> (Response, Option<bool>) {
-    let title = crate::i18n::tr(title);
-    let t = Tokens::get(ui.ctx());
-    let w = ui.available_width();
-    let (r, resp) = ui.allocate_exact_size(vec2(w, 52.0), Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, title));
-    register(ui.ctx(), format!("section:{id}"), r);
-    let p = ui.painter();
-    if resp.hovered() {
-        p.rect_filled(r, 0.0, t.chrome.gamma_multiply(1.06));
-    }
-    let chev = Rect::from_center_size(pos2(r.left() + 30.0, r.center().y), vec2(14.0, 14.0));
-    paint(p, chev, if open { Icon::ChevronDown } else { Icon::ChevronRight }, t.text_label);
-    p.text(pos2(r.left() + 44.0, r.center().y), Align2::LEFT_CENTER, title, t.semibold(14.0), t.text);
-    let mut toggled = None;
-    if let Some(on) = enabled
-        && (resp.hovered() || !on)
-    {
-        let eye = Rect::from_center_size(pos2(r.right() - 34.0, r.center().y), vec2(18.0, 18.0));
-        let er = ui.interact(eye, ui.id().with(("eye", id)), Sense::click());
-        register(ui.ctx(), format!("sectionEye:{id}"), eye);
-        paint(ui.painter(), eye, Icon::Eye, if on { t.icon } else { t.text_disabled });
-        if !on {
-            ui.painter().line_segment([eye.left_bottom(), eye.right_top()], Stroke::new(1.5, t.text_disabled));
-        }
-        if er.clicked() {
-            toggled = Some(!on);
-        }
-    }
-    (resp, toggled)
+    li_ui_kit::widgets::library_header(ui, id, crate::i18n::tr(title), open, enabled, |ui, rect, glyph, color| {
+        use li_ui_kit::widgets::HeaderGlyph;
+        paint(
+            ui.painter(),
+            rect,
+            match glyph {
+                HeaderGlyph::Open => Icon::ChevronDown,
+                HeaderGlyph::Closed => Icon::ChevronRight,
+                HeaderGlyph::Eye => Icon::Eye,
+            },
+            color,
+        );
+    })
 }
 
 /// Shared settings checkbox, translated and sized by the installed theme. Used in Preferences
 /// and other Library controls; callers retain their stable automation registration.
 /// Thin divider between groups.
 pub fn divider(ui: &mut Ui) {
-    let t = Tokens::get(ui.ctx());
-    let w = ui.available_width();
-    let (r, _) = ui.allocate_exact_size(vec2(w, 1.0), Sense::hover());
-    ui.painter().rect_filled(r, 0.0, t.divider);
+    li_ui_kit::widgets::separator(ui, li_ui_kit::widgets::Profile::Library, None);
 }
 
 /// A flyout row inside a section (Curve, Color Mixer, Color Grading…): inset dark box with icon tile.
@@ -443,67 +356,21 @@ pub fn flyout_row(ui: &mut Ui, id: &str, title: &str, icon: Icon, open: bool) ->
 }
 
 fn text_button_size(label_width: f32) -> egui::Vec2 {
-    vec2((label_width + 18.0).max(37.0), 24.0)
+    li_ui_kit::widget_style::text_button_size(label_width)
 }
 
-/// A small bordered text button (Auto, B&W, HDR…).
+/// A small bordered text button, retaining translation and automation IDs.
 pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response {
     let label = if id.starts_with("labelSet-") { label } else { crate::i18n::tr(label) };
-    let t = Tokens::get(ui.ctx());
-    let text = if ui.is_enabled() { t.text } else { t.text_disabled };
-    let font = t.semibold(11.5);
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font, text);
-    let size = text_button_size(galley.size().x);
-    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), active, label));
-    register(ui.ctx(), format!("button:{id}"), r);
-    let fill = if active {
-        t.pressed
-    } else if resp.hovered() || resp.has_focus() {
-        t.hover
-    } else {
-        t.button
-    };
-    let p = ui.painter();
-    p.rect(r, CornerRadius::same(4), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
-    p.galley(r.center() - galley.size() / 2.0, galley, text);
-    resp
+    let response = li_ui_kit::widgets::selection(ui, label, active, li_ui_kit::widgets::SelectionStyle::Text, None);
+    register(ui.ctx(), format!("button:{id}"), response.rect);
+    response
 }
 
 /// A segmented control: `labels` share the available width equally, `per_row` per row. Each segment is
 /// addressable as `button:{id}-{key}` (keys parallel to labels). Returns the clicked index.
 pub fn segmented(ui: &mut Ui, id: &str, items: &[(&str, &str)], active: Option<usize>, per_row: usize) -> Option<usize> {
-    let t = Tokens::get(ui.ctx());
-    let per_row = per_row.max(1);
-    let gap = 4.0;
-    let w = ui.available_width();
-    let seg_w = ((w - gap * (per_row as f32 - 1.0)) / per_row as f32).max(24.0);
-    let mut clicked = None;
-    for (row_i, row) in items.chunks(per_row).enumerate() {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = gap;
-            for (j, (label, key)) in row.iter().enumerate() {
-                let label = crate::i18n::tr(label);
-                let i = row_i * per_row + j;
-                let (r, resp) = ui.allocate_exact_size(vec2(seg_w, 24.0), Sense::click());
-                register(ui.ctx(), format!("button:{id}-{key}"), r);
-                let fill = if active == Some(i) {
-                    t.pressed
-                } else if resp.hovered() {
-                    t.hover
-                } else {
-                    t.button
-                };
-                let p = ui.painter();
-                p.rect(r, CornerRadius::same(4), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
-                p.text(r.center(), Align2::CENTER_CENTER, label, t.semibold(11.5), t.text);
-                if resp.clicked() {
-                    clicked = Some(i);
-                }
-            }
-        });
-    }
-    clicked
+    li_ui_kit::widgets::segmented(ui, id, items, active, per_row, crate::i18n::tr)
 }
 
 /// An icon-only button. `active` draws the selected background (tool strip).
@@ -534,37 +401,18 @@ fn icon_button_inner(
     tooltip: &str,
 ) -> Response {
     let tooltip = crate::i18n::tr(tooltip);
-    let t = Tokens::get(ui.ctx());
-    let (r, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, tooltip));
-    register(ui.ctx(), automation_id, r);
-    let p = ui.painter();
-    let sq = Rect::from_center_size(r.center(), vec2(32.0f32.min(size.x), 32.0f32.min(size.y)));
-    // keyboard focus (Tab) shows like hover
-    let lit = (resp.hovered() || resp.has_focus()) && enabled;
-    if active {
-        p.rect_filled(sq, 4.0, t.tool_active);
-    } else if lit {
-        p.rect_filled(sq, 4.0, t.hover.gamma_multiply(0.7));
-    }
-    let c = if !enabled {
-        t.text_disabled
-    } else if active {
-        t.pick
-    } else if lit {
-        t.text
-    } else {
-        t.icon
-    };
-    let glyph = (size.x.min(size.y) * 0.62).min(22.0);
-    let glyph = if tool.is_some() { glyph.max(20.0) } else { glyph };
-    let rect = Rect::from_center_size(r.center(), vec2(glyph, glyph));
-    if let Some(name) = tool {
-        crate::icons::paint_tool(ui, rect, name, icon, c, enabled);
-    } else {
-        paint(p, rect, icon, c);
-    }
-    if !tooltip.is_empty() { resp.on_hover_text(tooltip) } else { resp }
+    let response = li_ui_kit::widgets::icon_button(ui, size, active, enabled, tooltip, li_ui_kit::widgets::Profile::Library, |ui, r, c| {
+        let glyph = (size.x.min(size.y) * 0.62).min(22.0);
+        let glyph = if tool.is_some() { glyph.max(20.0) } else { glyph };
+        let rect = Rect::from_center_size(r.center(), vec2(glyph, glyph));
+        if let Some(name) = tool {
+            crate::icons::paint_tool(ui, rect, name, icon, c, enabled);
+        } else {
+            paint(ui.painter(), rect, icon, c);
+        }
+    });
+    register(ui.ctx(), automation_id, response.rect);
+    if !tooltip.is_empty() { response.on_hover_text(tooltip) } else { response }
 }
 
 // ------------------------------------------------------------------ disclosure rows
@@ -615,31 +463,11 @@ pub const DISCLOSURE_INDENT: f32 = 18.0;
 /// ring (hover a `text_dim` one). Registered under the full automation id `id`; screen readers
 /// get `label` (a button when selectable). The colour itself is document data, not a token.
 pub fn color_swatch(ui: &mut Ui, id: &str, color: Color32, size: Vec2, selected: Option<bool>, label: &str) -> Response {
-    let t = Tokens::get(ui.ctx());
-    let (r, resp) = ui.allocate_exact_size(size, if selected.is_some() { Sense::click() } else { Sense::hover() });
-    resp.widget_info(|| match selected {
-        Some(on) => egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), on, label),
-        None => egui::WidgetInfo::labeled(egui::WidgetType::Other, true, label),
-    });
-    register(ui.ctx(), id, r);
-    let p = ui.painter();
-    let tile = if selected.is_some() { r.shrink(2.0) } else { r };
-    p.rect_filled(tile, SWATCH_RADIUS, color);
-    p.rect_stroke(tile, SWATCH_RADIUS, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
-    match selected {
-        Some(true) => {
-            p.rect_stroke(r, SWATCH_RADIUS + 1.0, Stroke::new(1.5, t.text), StrokeKind::Inside);
-        }
-        Some(false) if resp.hovered() || resp.has_focus() => {
-            p.rect_stroke(r, SWATCH_RADIUS + 1.0, Stroke::new(1.0, t.text_dim), StrokeKind::Inside);
-        }
-        _ => {}
-    }
-    resp
+    li_ui_kit::widgets::color_swatch(ui, id, color, size, selected, label)
 }
 
 /// Corner radius of a [`color_swatch`] tile (one less than the 4 pt buttons, which it sits beside).
-pub const SWATCH_RADIUS: f32 = 3.0;
+pub const SWATCH_RADIUS: f32 = li_ui_kit::widget_style::SWATCH_RADIUS;
 
 /// A range readout: `label` (small, `text_label`) over a full-width strip of colour samples with
 /// the selected window(s) outlined, as Skin Tone shows its hue, saturation and lightness ranges.
@@ -738,23 +566,9 @@ pub fn stars(ui: &mut Ui, id: &str, rating: u8, size: f32) -> Option<u8> {
 
 /// A borderless dropdown button: `text` followed by a painted chevron (no font glyph needed).
 pub fn dropdown(ui: &mut Ui, id: &str, text: &str, font: egui::FontId, color: Color32) -> Response {
-    let t = Tokens::get(ui.ctx());
-    let color = if ui.is_enabled() { color } else { t.text_disabled };
-    let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), font, color);
-    job.wrap = egui::text::TextWrapping::truncate_at_width((ui.available_width() - crate::theme::DROPDOWN_ARROW_SPACE).max(0.0));
-    let galley = ui.painter().layout_job(job);
-    let size = vec2(
-        (galley.size().x + crate::theme::DROPDOWN_ARROW_SPACE).min(ui.available_width()),
-        galley.size().y.max(crate::theme::DROPDOWN_ARROW_SPACE),
-    );
-    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), text));
-    register(ui.ctx(), format!("dropdown:{id}"), r);
-    let resp = if galley.elided { resp.on_hover_text(text) } else { resp };
-    let c = if resp.hovered() || resp.has_focus() { t.text } else { color };
-    ui.painter().galley(pos2(r.left(), r.center().y - galley.size().y / 2.0), galley, c);
-    paint(ui.painter(), Rect::from_center_size(pos2(r.right() - 7.0, r.center().y + 1.0), vec2(12.0, 12.0)), Icon::ChevronDown, c);
-    resp
+    let response = li_ui_kit::widgets::choice_button(ui, text, font, color, |ui, rect, c| paint(ui.painter(), rect, Icon::ChevronDown, c));
+    register(ui.ctx(), format!("dropdown:{id}"), response.rect);
+    response
 }
 
 /// A labelled, width-bounded profile choice, shared by camera and lens profile pickers.

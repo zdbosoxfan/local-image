@@ -177,13 +177,31 @@ Library also provides `checkbox(ui, id, value, label)`, `choice(ui, id, value, o
 proof-sheet dialogs use these shared controls. They inherit the active light/dark theme, expose
 accessible labels, register automation IDs, and text fields adapt to the available width. Fields with an action stack the button below at narrow widths.
 
-### Duplicates across the crates (consolidation later)
+### Shared widget backend (J18)
 
-Both crates have their own icon button (`icons::button`+`icon_action` vs `icon_button`), colour tile
-(`color_tile` vs `color_swatch`), dropdown (`dropdown` vs `dropdown`), segmented/tab control (`pill_tab` vs
-`segmented`), separator (`hairline` vs `divider`) and section heading (`section_label` vs `section_header`).
-J17 now supplies the common token backend. Until J18 moves the widget pairs, keep them in step: change both when you
-change the look of one, and name a new widget the same in each crate.
+`li-ui-kit::widgets` owns the paired icon action, colour tile/swatch, choice shell, selection/tab,
+separator, heading, text button and checkbox controls, plus the automation registry and disabled
+reason tooltip. `Profile::Editor` and `Profile::Library` select the inherited theme vocabulary and
+layout; both old `widgets.rs` modules are compatibility adapters for these pairs. Callers retain
+translation, tool-icon selection, numeric edit ownership, and document/session state.
+
+`li-ui-kit::widget_style` holds the inherited reusable geometry and type tokens. Colours come from
+`theme::Tokens`; both palettes keep their established appearance. Transparent Library colour tiles
+now use the same transparency checker as Editor tiles. Selection controls and section-enable controls
+also expose their selected/checked state and keyboard focus.
+
+`li-ui-kit::slider` owns range mapping, drag/release/fine-motion accumulation, nudge quantization,
+and gradient/track painting. Editor and hollow Library thumbs retain their profiles; Library numeric
+owner/draft guards remain in the Library adapter. Library tracks use continuous gradients instead of
+48 sampled rectangles; this reaches both gradient endpoints exactly.
+
+`li-ui-kit::histogram` borrows existing 256-bin histograms (`u32`/`u64`) with Editor ribbon and Library
+sqrt/luma profiles. Scope colour roles live in `Tokens`. Clipping responds to click and keyboard.
+Domain statistics and cached metadata stay in their callers.
+
+`li-ui-kit::notices` owns the bounded session model (3 active notices, 256 history entries), operation
+completion and history view. Editor keeps its notice row; Library keeps transient HUD timing and adds
+persistent Details / History. History never enters saved settings and dismissal never erases diagnostics.
 
 ## 4. Icons
 
