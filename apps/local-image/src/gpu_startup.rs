@@ -32,9 +32,11 @@
 //! "CPU" composites on the CPU and draws the window with a software adapter where the platform
 //! has one (WARP on Windows, llvmpipe or lavapipe elsewhere).
 
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use eframe::{egui_wgpu, wgpu};
@@ -393,8 +395,18 @@ pub fn intel_dx12_applied(adapters: &[Candidate], chosen: usize, os: Os) -> bool
 /// selection (Intel on Windows, software adapters for `cpu`) and the marker update once the
 /// adapter is chosen. `note` receives a remark for System Info (e.g. the Intel default).
 pub fn configure(setup: &mut egui_wgpu::WgpuSetup, plan: &Plan, os: Os, sentinel: SharedSentinel, note: Arc<Mutex<Option<String>>>) {
+    li_gpu::device::reserve_window_with_compute(plan.backend != GpuBackend::Cpu);
     if let egui_wgpu::WgpuSetup::CreateNew(create) = setup {
-        if let Some(b) = backends(plan, os) {
+        if create.instance_descriptor.backends.is_empty() {
+            create.instance_descriptor.backends = wgpu::Backends::PRIMARY | wgpu::Backends::GL;
+        }
+        // Apply the parsed override explicitly: the legacy variable is not read by egui.
+        let override_backends = plan
+            .env
+            .as_deref()
+            .and_then(li_gpu::backend::parse_backends)
+            .and_then(|choice| li_gpu::backend::resolve(choice, create.instance_descriptor.backends, wgpu::Instance::enabled_backend_features()));
+        if let Some(b) = override_backends.or_else(|| backends(plan, os)) {
             create.instance_descriptor.backends = b;
         }
         if os == Os::Windows {
@@ -487,8 +499,7 @@ impl Previous {
 /// The locked marker file of this start.
 #[derive(Debug)]
 pub struct Sentinel {
-    path: PathBuf,
-    file: Option<File>,
+    startup: li_gpu::startup::StartupSentinel,
     marker: Marker,
 }
 
@@ -501,50 +512,29 @@ impl Sentinel {
     /// sentinel (not yet written: see [`Sentinel::write`]).
     pub fn begin(dir: &Path) -> (Previous, Option<Sentinel>) {
         let path = dir.join(MARKER_FILE);
-        if let Err(e) = std::fs::create_dir_all(dir) {
-            log::warn!("GPU startup marker: {e}");
-            return (Previous::Clean, None);
-        }
-        let mut file = match OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path) {
-            Ok(f) => f,
-            Err(e) => {
-                log::warn!("GPU startup marker {}: {e}", path.display());
-                return (Previous::Clean, None);
+        match li_gpu::startup::StartupSentinel::begin(&path) {
+            Ok(Some((text, startup))) => {
+                let previous = if text.trim().is_empty() { Previous::Clean } else { Previous::Crashed(Marker::parse(&text)) };
+                (previous, Some(Self { startup, marker: Marker::default() }))
             }
-        };
-        match file.try_lock() {
-            Ok(()) => {}
-            Err(std::fs::TryLockError::WouldBlock) => return (Previous::Busy, None),
-            Err(std::fs::TryLockError::Error(e)) => {
-                log::warn!("GPU startup marker lock: {e}");
-                return (Previous::Clean, None);
+            Ok(None) => (Previous::Busy, None),
+            Err(error) => {
+                log::warn!("GPU startup marker {}: {error}", path.display());
+                (Previous::Clean, None)
             }
         }
-        let mut text = String::new();
-        let _ = (&mut file).take(MARKER_MAX).read_to_string(&mut text);
-        let previous = if text.trim().is_empty() { Previous::Clean } else { Previous::Crashed(Marker::parse(&text)) };
-        (previous, Some(Sentinel { path, file: Some(file), marker: Marker::default() }))
     }
 
     /// Replace the marker's contents with `m`.
     pub fn write(&mut self, m: Marker) -> std::io::Result<()> {
-        let f = self.file.as_mut().ok_or_else(|| std::io::Error::other("marker closed"))?;
-        f.set_len(0)?;
-        f.seek(SeekFrom::Start(0))?;
-        f.write_all(m.to_json().as_bytes())?;
-        f.flush()?;
+        self.startup.write_text(&m.to_json())?;
         self.marker = m;
         Ok(())
     }
 
     /// The start succeeded: clear the marker and release the lock.
-    pub fn finish(mut self) {
-        if let Some(f) = self.file.take() {
-            // Empty means "no crash" even if removing fails (another instance has it open).
-            let _ = f.set_len(0);
-            drop(f);
-        }
-        let _ = std::fs::remove_file(&self.path);
+    pub fn finish(self) {
+        self.startup.finish();
     }
 }
 
@@ -976,4 +966,39 @@ mod tests {
             assert!(safe, "{:?}", create.instance_descriptor.backend_options.dx12.shader_compiler);
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+#[allow(clippy::unwrap_used)]
+fn j12_shell_shared_sentinel_preserves_legacy_marker_format() {
+    let dir = std::env::temp_dir().join(format!("j12-shell-marker-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let (previous, sentinel) = Sentinel::begin(&dir);
+    assert_eq!(previous, Previous::Clean);
+    let mut sentinel = sentinel.unwrap();
+    let marker = Marker { backend: "vulkan".into(), adapter: "test adapter".into(), attempt: 1, ..Default::default() };
+    sentinel.write(marker.clone()).unwrap();
+    assert_eq!(Sentinel::begin(&dir).0, Previous::Busy);
+    drop(sentinel);
+    let (previous, sentinel) = Sentinel::begin(&dir);
+    assert_eq!(previous, Previous::Crashed(marker));
+    sentinel.unwrap().finish();
+    assert!(!dir.join(MARKER_FILE).exists());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(test)]
+#[test]
+fn j12_shell_legacy_override_configures_the_shared_instance() {
+    let override_value = li_gpu::backend::startup_environment(Some("vulkan"), None);
+    let plan = plan(GpuBackend::Auto, None, override_value.as_deref(), false, Os::Other);
+    let mut setup = photocraft_ui_egui::gpu_canvas::wgpu_setup();
+    configure(&mut setup, &plan, Os::Other, Arc::new(Mutex::new(None)), Arc::new(Mutex::new(None)));
+    if let egui_wgpu::WgpuSetup::CreateNew(create) = setup {
+        assert_eq!(create.instance_descriptor.backends, wgpu::Backends::VULKAN);
+    } else {
+        panic!("expected configurable setup");
+    }
+    li_gpu::device::release_window();
 }

@@ -1,4 +1,4 @@
-// Shared helpers, prepended to every kernel (after the generated constants and bindings).
+// Develop-only helpers, after li_gpu::wgsl::COMMON and the generated constants/bindings.
 // Each function mirrors its CPU twin in `lightcraft-pipeline` / `lightcraft-color`; keep them in step.
 
 fn pu(i: u32) -> u32 {

@@ -280,7 +280,10 @@ fn main() -> eframe::Result {
         Some(dir) => gpu_startup::Sentinel::begin(&dir),
         None => (gpu_startup::Previous::Clean, None),
     };
-    let env_backend = std::env::var("WGPU_BACKEND").ok();
+    let legacy_backend = std::env::var("LIGHTCRAFT_GPU_BACKEND").ok();
+    let wgpu_backend = std::env::var("WGPU_BACKEND").ok();
+    let env_backend = li_gpu::backend::startup_environment(legacy_backend.as_deref(), wgpu_backend.as_deref());
+    let legacy_override = env_backend.is_some() && li_gpu::backend::startup_environment(None, wgpu_backend.as_deref()).is_none();
     // Why GPU acceleration is reduced or off after an earlier failure, while that still applies
     // (choosing GPU again in Preferences or the CPU-mode notice makes it stale).
     let config_dir = services::config_dir();
@@ -291,7 +294,10 @@ fn main() -> eframe::Result {
         }
         recovery = None;
     }
-    let plan = gpu_startup::plan_with_mode(pref, mode, previous.crashed(), env_backend.as_deref(), safe_gpu, os);
+    let mut plan = gpu_startup::plan_with_mode(pref, mode, previous.crashed(), env_backend.as_deref(), safe_gpu, os);
+    if legacy_override {
+        plan.reason = plan.reason.map(|reason| reason.replace("WGPU_BACKEND", "LIGHTCRAFT_GPU_BACKEND"));
+    }
     // A process re-launched after its parent's renderer couldn't initialise (see the end of main).
     let retry_env = std::env::var(gpu_startup::RETRY_ENV).ok();
     let retry_reason = std::env::var(gpu_startup::RETRY_REASON_ENV).ok();
@@ -429,6 +435,7 @@ fn main() -> eframe::Result {
             };
             info.canvas = "cpu".into();
             if let Some(rs) = cc.wgpu_render_state.clone() {
+                li_gpu::install_window(&rs.instance, &rs.adapter, &rs.device, &rs.queue);
                 app.perf.gpu_info.set_adapter(&rs.adapter.get_info());
                 app.perf.gpu_info.output_depth = if rs.target_format == eframe::wgpu::TextureFormat::Rgb10a2Unorm { 10 } else { 8 };
                 app.perf.gpu_info.output_note = if cfg!(target_os = "linux") && !wayland {
@@ -447,9 +454,6 @@ fn main() -> eframe::Result {
                     && app.session.prefs().performance.effective_rendering_mode() != photocraft_engine::prefs::RenderingMode::Cpu
                 {
                     app.set_wgpu(rs);
-                } else {
-                    // The window still draws with wgpu: record its errors instead of panicking.
-                    let _ = photocraft_ui_egui::gpu_canvas::DeviceHealth::watch(&rs.device);
                 }
             }
             let fallback_reason = startup_failure.clone().or_else(|| {
@@ -536,6 +540,10 @@ fn main() -> eframe::Result {
             Ok(Box::new(library_host::Host::new(app)))
         }),
     );
+    // Release the shared service before native driver exit handlers, after workers/queue drain.
+    if lightcraft_gpu::shutdown(std::time::Duration::from_secs(3)) {
+        li_gpu::device::release_window();
+    }
     // Closed before the first frames rendered: not a driver crash. (A start that failed to
     // create its device keeps the marker, so the next one tries a safer backend.)
     if result.is_ok()

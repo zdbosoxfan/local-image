@@ -486,7 +486,12 @@ fn uniform_entry(binding: u32, size: u64) -> wgpu::BindGroupLayoutEntry {
 }
 
 /// The compositor's WGSL source (exposed for validation in tests).
-pub const SHADER: &str = include_str!("compose.wgsl");
+pub const SHADER: &str = include_str!(concat!(env!("OUT_DIR"), "/compose.wgsl"));
+
+/// The assembled compositor shader, including the shared display helpers.
+pub fn shader_source() -> &'static str {
+    SHADER
+}
 
 /// Pass-level resources resolved for one page cell: resident pages (texture, mask) and effect
 /// maps (view and region) per pass.
@@ -959,8 +964,8 @@ impl Compositor {
         finish(&mut encoder);
         queue.submit([encoder.finish()]);
         self.check_errors(errors)?;
-        if let Some(health) = &self.health {
-            health.operation_succeeded();
+        if let (Some(health), Some(errors)) = (&self.health, errors) {
+            health.operation_succeeded_since(errors);
         }
         Ok(stats)
     }
@@ -1007,6 +1012,9 @@ impl Compositor {
 
     #[allow(clippy::too_many_arguments)]
     fn admit_compute(&self) -> Result<(), Unsupported> {
+        if !li_gpu::device::compute_allowed() {
+            return Err(Unsupported("GPU compute disabled by the shell's CPU rendering policy".into()));
+        }
         if let Some(health) = &self.health {
             health.resume_retry(web_time::Instant::now(), None);
             if !health.can_render() {
@@ -2352,3 +2360,12 @@ mod tests {
 }
 
 pub mod scaled_view;
+
+#[cfg(test)]
+#[test]
+fn j12_compositor_shared_shader_validates() -> Result<(), Box<dyn std::error::Error>> {
+    let source = shader_source();
+    let module = wgpu::naga::front::wgsl::parse_str(source)?;
+    wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::empty()).validate(&module)?;
+    Ok(())
+}

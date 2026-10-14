@@ -9,6 +9,7 @@ description = "LightCraft GPU develop pipeline: wgpu compute (WGSL) twin of the 
 workspace = true
 
 [dependencies]
+li-gpu.workspace = true
 lightcraft-geom = { workspace = true }
 lightcraft-color = { workspace = true }
 lightcraft-raster = { workspace = true }
@@ -21,8 +22,6 @@ lightcraft-sysmem = { workspace = true }
 # Native only: Metal / Vulkan / DX12 through wgpu (pure Rust; the drivers are the system's).
 # The browser build keeps the CPU pipeline (WebGPU needs async device creation: see docs/gpu-pipeline.md).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# One health model, shared with the compositor (future li-gpu extraction).
-photocraft-gpu = { workspace = true }
 wgpu = { workspace = true }
 pollster = { workspace = true }
 bytemuck = { workspace = true }
