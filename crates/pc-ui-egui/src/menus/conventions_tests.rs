@@ -104,10 +104,11 @@ fn menus_ux_order_geometry_and_verified_duplicates() {
         assert!(items.iter().any(|i| i.id == "window.panel.color"));
         assert!(items.iter().any(|i| i.id == "window.panel.brushSettings"));
         assert!(items.iter().any(|i| i.id == "window.panel.brushes"));
-        assert!(!items.iter().any(|i| matches!(i.id.as_str(), "edit.preferences.integrations" | "li.aiModels")));
+        // the hidden Local AI duplicates are gone; Local AI setup has one command (li.localAi)
         for id in ["edit.preferences.integrations", "li.aiModels"] {
-            assert!(is_live(id));
+            assert!(!items.iter().any(|i| i.id == id) && !is_live(id), "old command ID {id} is gone");
         }
+        assert!(is_live("li.localAi"));
     }
 }
 
@@ -209,7 +210,7 @@ fn menus_ux_checks_have_clean_labels_and_aligned_gutters() {
     let mut jobs = Vec::new();
     let mut fixture = Harness::builder().build_ui(|ui| {
         for label in ["Generate", "Model Browser…", "Theme"] {
-            jobs.push(crate::widgets::menu_row_label(ui, label));
+            jobs.push(li_commands::widgets::menu_row_label(ui, label));
         }
     });
     fixture.run_steps(2);
@@ -273,18 +274,13 @@ fn menus_ux_toolbar_flyout_pointer_selects_frame_text_without_raster_aliasing() 
 }
 
 #[test]
-fn menus_ux_preferences_hide_empty_integrations_and_preserve_legacy_route() {
+fn menus_ux_preferences_hide_empty_integrations() {
     let mut h = harness(false, (1440., 900.), crate::theme::ThemeKind::Pro);
     let ctx = h.ctx.clone();
     invoke(h.state_mut(), &ctx, "edit.preferences.general", json!({})).unwrap();
     h.run_steps(4);
     assert!(h.query_by_label("AI Integrations").is_none());
     assert_eq!(h.get_by_role_and_label(egui::accesskit::Role::Button, "General").accesskit_node().toggled(), Some(egui::accesskit::Toggled::True));
-    h.state_mut().ui.dialogs.clear();
-    invoke(h.state_mut(), &ctx, "edit.preferences.integrations", json!({})).unwrap();
-    assert_eq!(h.state().ui.dialogs.last().unwrap().fields["section"], "ai.connection", "the legacy alias opens shared AI Preferences");
-    h.run_steps(4);
-    h.get_by_label("Find on LAN");
 }
 
 #[test]

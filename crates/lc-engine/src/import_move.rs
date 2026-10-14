@@ -276,7 +276,7 @@ fn link_or_copy(src: &Path, dst: &Path) -> io::Result<()> {
 /// source) when given, else byte for byte against the source. On any failure the partial copy is
 /// removed.
 pub(crate) fn copy_verified(src: &Path, dst: &Path, expect: Option<lightcraft_preview::ContentId>) -> io::Result<()> {
-    lightcraft_catalog::safe_file::write_new_with(
+    li_fs::write_new_with(
         dst,
         &mut |out| {
             let mut inp = File::open(src)?;

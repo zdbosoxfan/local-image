@@ -459,7 +459,7 @@ fn parse_photo_filter(d: &[u8]) -> Option<Adjustment> {
             if !(0.0..=100.0).contains(&lab[0]) || lab[1].abs() > 128.0 || lab[2].abs() > 128.0 {
                 return None;
             }
-            (photocraft_color::convert::lab_to_srgb(lab), 14)
+            (li_color::convert::lab_to_srgb(lab), 14)
         }
         _ => return None,
     };
@@ -610,14 +610,12 @@ pub fn write(adj: &Adjustment) -> Vec<([u8; 4], Vec<u8>)> {
             // identity, so it is written as a 2³ identity cube rather than dropped.
             let n = *size as usize;
             let (file, dither, domain) = match lut {
-                Some(table) if (2..=256).contains(&n) && table.len() >= n * n * n * 3 => (
-                    photocraft_cms::lutfile::LutFile { title: String::new(), size: n, data: table[..n * n * n * 3].to_vec() },
-                    *dither,
-                    domain.filter(|d| d.valid()),
-                ),
-                _ => (photocraft_cms::lutfile::LutFile { title: String::new(), ..photocraft_cms::lutfile::LutFile::identity(2) }, false, None),
+                Some(table) if (2..=256).contains(&n) && table.len() >= n * n * n * 3 => {
+                    (li_color::lutfile::LutFile { title: String::new(), size: n, data: table[..n * n * n * 3].to_vec() }, *dither, domain.filter(|d| d.valid()))
+                }
+                _ => (li_color::lutfile::LutFile { title: String::new(), ..li_color::lutfile::LutFile::identity(2) }, false, None),
             };
-            let mut cube = photocraft_cms::lutfile::write_cube(&file);
+            let mut cube = li_color::lutfile::write_cube(&file);
             if let Some(domain) = domain {
                 cube = format!(
                     "DOMAIN_MIN {} {} {}\nDOMAIN_MAX {} {} {}\n{}",
@@ -725,7 +723,7 @@ mod tests {
 
     #[test]
     fn lookup_cube_input_domain_round_trips_through_psd() {
-        let table = photocraft_cms::lutfile::LutFile::identity(2);
+        let table = li_color::lutfile::LutFile::identity(2);
         let domain = photocraft_doc::LutDomain { min: [-1.0, 0.0, 0.25], max: [1.0, 2.0, 0.75] };
         let adjustment = Adjustment::ColorLookup {
             name: "Domain.cube".into(),
@@ -838,7 +836,7 @@ mod tests {
         rt(Adjustment::PhotoFilter { color: [q(0), q(40000), q(65535)], density: 1.0, preserve_luminosity: false });
         rt(Adjustment::ChannelMixer { matrix: [[0.5, 0.3, 0.2, 0.0], [0.1, 0.8, 0.1, 0.05], [0.0, 0.2, 0.9, -0.05]], monochrome: false });
         rt(Adjustment::ChannelMixer { matrix: [[0.4, 0.4, 0.2, 0.1], [0.0, 1.0, 0.0, 0.0], [-2.0, 0.0, 2.0, 0.0]], monochrome: true });
-        let id = photocraft_cms::lutfile::LutFile::identity(5);
+        let id = li_color::lutfile::LutFile::identity(5);
         rt(Adjustment::ColorLookup {
             domain: None,
             name: "Look.cube".into(),
@@ -1090,7 +1088,7 @@ mod tests {
             let back = parse(&b[0].0, &b[0].1, None, Channels::Rgb);
             let Adjustment::ColorLookup { lut: Some(t), size: 2, dither: false, name, .. } = back else { panic!("{back:?}") };
             assert_eq!(name, "L");
-            assert_eq!(*t, photocraft_cms::lutfile::LutFile::identity(2).data);
+            assert_eq!(*t, li_color::lutfile::LutFile::identity(2).data);
         }
         // Every kind except a malformed Unsupported key has an encoding.
         assert!(write(&Adjustment::Unsupported { psd_key: "abc".into(), raw: vec![] }).is_empty());

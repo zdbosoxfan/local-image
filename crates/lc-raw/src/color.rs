@@ -12,15 +12,15 @@
 //! "camera RGB ≈ linear sRGB" model and are flagged with `matrix_is_fallback`.
 
 use crate::{ColorData, Mat3, RawImage};
-use lightcraft_color::{D50, D65, REC2020, Xy, bradford};
+use li_color::{D50, D65, REC2020, Xy, bradford};
 use serde::{Deserialize, Serialize};
 
 /// Shared camera calibration, carried through the develop white-balance stage unchanged.
-pub fn camera_color(color: &ColorData) -> lightcraft_color::camera::CameraColor {
+pub fn camera_color(color: &ColorData) -> li_color::camera::CameraColor {
     // DNG chapter 6 / SDK dng_color_spec: calibrations belong to the profile's
     // reference camera space only when both calibration signatures match.
     let calibration_matches = color.camera_calibration_signature == color.profile_calibration_signature;
-    lightcraft_color::camera::CameraColor {
+    li_color::camera::CameraColor {
         illuminant: color.illuminant,
         illuminant_3: color.illuminant_3,
         illuminant_white_xy: color.illuminant_white_xy,
@@ -34,41 +34,41 @@ pub fn camera_color(color: &ColorData) -> lightcraft_color::camera::CameraColor 
     }
 }
 
-pub use lightcraft_color::camera::illuminant_temperature;
+pub use li_color::camera::illuminant_temperature;
 
 /// Weight of calibration 1 for legacy dual-profile callers.
 pub fn illuminant_weight(color: &ColorData, white: Xy) -> f64 {
-    lightcraft_color::camera::illuminant_weight(&camera_color(color), white)
+    li_color::camera::illuminant_weight(&camera_color(color), white)
 }
 
 /// DNG single/dual/triple calibration weights, shared by matrices and hue/saturation maps.
 pub fn illuminant_weights(color: &ColorData, white: Xy) -> [f64; 3] {
-    lightcraft_color::camera::illuminant_weights(&camera_color(color), white)
+    li_color::camera::illuminant_weights(&camera_color(color), white)
 }
 
 /// Whether a usable primary colour matrix is available.
 pub fn has_matrix(color: &ColorData) -> bool {
-    lightcraft_color::camera::has_matrix(&camera_color(color))
+    li_color::camera::has_matrix(&camera_color(color))
 }
 
 /// `AnalogBalance · CameraCalibration · ColorMatrix` for the chosen white.
 pub fn xyz_to_camera(color: &ColorData, white: Xy) -> Mat3 {
-    lightcraft_color::camera::xyz_to_camera(&camera_color(color), white)
+    li_color::camera::xyz_to_camera(&camera_color(color), white)
 }
 
 /// Camera neutral for the chosen white, normalized to max 1.
 pub fn camera_neutral(color: &ColorData, white: Xy) -> [f64; 3] {
-    lightcraft_color::camera::camera_neutral(&camera_color(color), white)
+    li_color::camera::camera_neutral(&camera_color(color), white)
 }
 
 /// White-balance multipliers, minimum 1.
 pub fn wb_multipliers(color: &ColorData, white: Xy) -> [f64; 3] {
-    lightcraft_color::camera::wb_multipliers(&camera_color(color), white)
+    li_color::camera::wb_multipliers(&camera_color(color), white)
 }
 
 /// DNG iterative inverse from camera neutral to chromaticity.
 pub fn neutral_to_xy(color: &ColorData, neutral: [f64; 3]) -> Xy {
-    lightcraft_color::camera::neutral_to_xy(&camera_color(color), neutral)
+    li_color::camera::neutral_to_xy(&camera_color(color), neutral)
 }
 
 /// The as-shot white point: `AsShotWhiteXY`, `AsShotNeutral`, vendor multipliers, else D65.
@@ -96,7 +96,7 @@ fn as_shot_white(c: &ColorData, wb_multipliers: Option<[f32; 3]>) -> Xy {
 
 /// Camera (raw, not white balanced) → XYZ relative to D50, for scene white `xy`.
 pub fn camera_to_xyz_d50(color: &ColorData, white: Xy) -> Mat3 {
-    lightcraft_color::camera::camera_to_xyz_d50(&camera_color(color), white)
+    li_color::camera::camera_to_xyz_d50(&camera_color(color), white)
 }
 
 /// Everything the pipeline needs to go from raw camera RGB to the working space.
@@ -189,7 +189,7 @@ pub fn grey_world(img: &lightcraft_raster::Rgb32f) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightcraft_color::{SRGB, cct};
+    use li_color::{SRGB, cct};
 
     /// A plausible camera: XYZ → camera matrix (rows sum to something sensible), invertible.
     fn cam_a() -> Mat3 {

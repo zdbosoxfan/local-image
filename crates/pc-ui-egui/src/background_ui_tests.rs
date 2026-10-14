@@ -388,8 +388,12 @@ fn background_ui_old_settings_load_and_new_settings_roundtrip() {
 }
 
 #[test]
-fn background_ui_quick_migration_and_defaults() {
+fn background_ui_engine_values_are_not_aliased_and_defaults() {
+    // engine values are read as saved (no renamed-value aliases); the settings fall back to Fast
+    // for a value this build doesn't offer
     let options: crate::ai_ui::AiOptions = serde_json::from_value(json!({"cutout_engine":"quick"})).unwrap();
+    assert_eq!(options.cutout_engine, "quick");
+    let options: crate::ai_ui::AiOptions = serde_json::from_value(json!({})).unwrap();
     assert_eq!(options.cutout_engine, "fast");
     assert!(options.cutout_refine);
     assert!(!options.cutout_decontaminate);

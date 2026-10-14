@@ -1,7 +1,5 @@
-//! Compatibility API for the shared Euclidean distance transform.
-pub use li_matte::distance::edt;
+//! Checks of the shared `li_matte` Euclidean distance transform against the previous editor one.
+use li_matte::distance::edt;
 
-#[cfg(test)]
 const EMPTY_DISTANCE: f32 = 1e10;
-#[cfg(test)]
 mod tests;

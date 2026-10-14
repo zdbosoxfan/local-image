@@ -108,12 +108,12 @@ fn prepare(cx: &mut Cx<'_>, src: &Buf, host: &lightcraft_raster::Rgb32f, p: &Cap
 /// Existing box kernels, with the CPU's sum restart locations instead of preview-sized chunks.
 fn mask_blur(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize) -> Buf {
     let mut bufs = [cx.gpu.buffer(w * h), cx.gpu.buffer(w * h)];
-    let radii = lightcraft_raster::blur::box_radii(2.0);
+    let radii = li_raster::blur::box_radii(2.0);
     for (i, r) in radii.into_iter().chain(radii).enumerate() {
         let (name, chunk, groups) = if i < 3 {
             ("box_h", w, groups2(1, h, [64, 4]))
         } else {
-            let band = lightcraft_raster::blur::BAND;
+            let band = li_raster::blur::BAND;
             ("box_v", band, groups2(w, h.div_ceil(band), [64, 4]))
         };
         let input = if i == 0 { src } else { &bufs[(i + 1) % 2] };

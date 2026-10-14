@@ -89,12 +89,12 @@ pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
             && !prefs.shortcut_overrides(false).iter().any(|(id, binding)| {
                 crate::shortcuts::override_applies_in_persona(prefs.toolbar.persona, id)
                     && !binding.is_empty()
-                    && crate::fill_stroke_proxy::shortcut(binding) == crate::fill_stroke_proxy::shortcut(key)
+                    && li_keys::input::parse(binding) == li_keys::input::parse(key)
             })
     });
     let mut explicit: Vec<_> = custom.into_iter().filter(|(_, key)| !key.is_empty()).map(|(id, key)| (id.clone(), key.clone())).collect();
     explicit.extend(result);
-    explicit.retain(|(id, key)| crate::keymaps::is_global(id) || crate::keymaps::global_conflict(key).is_none());
+    explicit.retain(|(id, key)| li_keys::keymaps::is_global(id) || crate::keymaps::global_conflict(key).is_none());
     for (id, _, key) in li_keys::GLOBAL_SHORTCUTS {
         if !id.starts_with("host.") {
             explicit.retain(|(command, _)| command != id);
@@ -107,7 +107,7 @@ pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
 pub fn bindings(app: &PhotocraftApp) -> Vec<(String, KeyboardShortcut)> {
     let mut all = Vec::new();
     for (id, value) in binding_strings(app) {
-        let Some(sc) = crate::fill_stroke_proxy::shortcut(&value) else { continue };
+        let Some(sc) = li_keys::input::parse(&value) else { continue };
         if !all.iter().any(|(_, b)| *b == sc) {
             all.push((id, sc));
         }

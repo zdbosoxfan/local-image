@@ -4,6 +4,7 @@
 use egui::{Align2, Color32, CornerRadius, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
 
 use crate::theme::{self, Tokens};
+use li_commands::widgets::menu_row_button;
 
 /// An accent insertion line on one edge of `r` while a drag hovers it (vertical: on its left or,
 /// `after`, right edge; else on its top or bottom).
@@ -393,7 +394,7 @@ fn button_layout(ui: &Ui, label: &str, min_width: f32, fg: Color32) -> (std::syn
 }
 
 /// Cached RGB data; drawing work is bounded by the 256 display bins, never the image size.
-pub fn rgb_histogram(ui: &mut Ui, histogram: &photocraft_algo::histogram::RgbHistogram, height: f32) -> egui::Response {
+pub fn rgb_histogram(ui: &mut Ui, histogram: &li_raster::histogram::RgbHistogram, height: f32) -> egui::Response {
     li_ui_kit::histogram::editor(ui, li_ui_kit::histogram::Histogram::u64(&histogram.channels, Some(&histogram.luma)), height, tl!("Histogram"))
 }
 
@@ -878,12 +879,7 @@ fn ds2_value_field_displays_requested_four_decimal_precision() {
     assert!((h.state().0 - 0.5678).abs() < 1e-8);
 }
 
-/// Menu label with a reserved icon gutter. Used by command rows and submenu rows so
-/// check marks never move labels or become part of their accessible names. Metrics
-/// follow egui's themed icon spacing and button font (including UI font scaling).
-pub use li_commands::widgets::{menu_row_button, menu_row_label};
-
-/// Compatibility adapter to the editor's shared monochrome icon painter.
+/// Paints a menu row's check mark with the editor's shared monochrome `check` icon.
 pub fn menu_row_check(ui: &Ui, response: &Response, label: &str, checked: Option<bool>) {
     li_commands::widgets::menu_row_check(ui, response, label, checked, |ui, rect, width, color| {
         crate::icons::paint(ui, rect, "check", width, color);

@@ -4,10 +4,8 @@
 //! Oklab follows Björn Ottosson's published 2021 matrices (MIT):
 //! https://bottosson.github.io/posts/oklab/. Transfer functions come from pc-color.
 use super::{Result, error};
-use photocraft_color::{
-    Color,
-    convert::{linear_to_srgb, srgb_to_linear},
-};
+use li_color::convert::{linear_to_srgb, srgb_to_linear};
+use photocraft_color::Color;
 use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, WidthPoint, WidthProfile};
 use photocraft_doc::{Fill, Layer, LayerContent, ShapeStroke};
 

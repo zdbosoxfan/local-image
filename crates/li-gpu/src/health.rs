@@ -229,8 +229,8 @@ impl DeviceHealth {
         self.error_text(reason);
     }
 
-    /// Compatibility API for a known clean operation. New work should retain its starting
-    /// error count and call `operation_succeeded_since`, so peer failures keep their backoff.
+    /// A clean operation that did not record its starting error count. Prefer
+    /// `operation_succeeded_since`, so peer failures keep their backoff.
     pub fn operation_succeeded(&self) {
         self.operation_succeeded_since(self.errors());
     }

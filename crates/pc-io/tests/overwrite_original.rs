@@ -63,7 +63,7 @@ fn overwrite_original_normalizes_exif_orientation_and_preserves_camera_metadata(
         let back = photocraft_codecs::decode(&out.bytes).unwrap();
         assert_eq!(back.dimensions(), (doc.size.width, doc.size.height));
         let saved = back.meta.exif.unwrap();
-        assert_eq!(photocraft_codecs::exif_orientation(&saved), 1);
+        assert_eq!(lightcraft_tiff::exif::orientation(&saved), 1);
         assert!(saved.windows(6).any(|b| b == b"Camera"));
     }
 }
@@ -237,7 +237,7 @@ fn overwrite_resized_jpeg_updates_geometry_without_relocating_opaque_metadata() 
         let iptc = b"Photoshop 3.0\0opaque IPTC \xff\x80";
         let private = b"camera-private\0\xff\x91\0\x05";
         let original = jpeg_with_metadata(&jpeg, &[(0xe1, &exif_payload), (0xe1, &xmp_payload), (0xed, iptc), (0xef, private)]);
-        let mut expected_exif = photocraft_codecs::upright_exif(&exif).into_owned();
+        let mut expected_exif = lightcraft_tiff::exif::upright(&exif).into_owned();
         for (at, size, value) in [(18, 2, 3u32), (30, 4, 2), (84, 2, 3), (96, 4, 2)] {
             let raw = if little { value.to_le_bytes() } else { value.to_be_bytes() };
             expected_exif[at..at + size].copy_from_slice(if little { &raw[..size] } else { &raw[4 - size..] });
@@ -250,7 +250,7 @@ fn overwrite_resized_jpeg_updates_geometry_without_relocating_opaque_metadata() 
             let embedded = lightcraft_meta::jpeg_segments(&saved);
             let got = embedded.exif.unwrap();
             assert_eq!(got, expected_exif, "every byte outside geometry stays at its original offset");
-            assert_eq!(photocraft_codecs::exif_orientation(&got), 1);
+            assert_eq!(lightcraft_tiff::exif::orientation(&got), 1);
             let metadata = lightcraft_meta::read_exif(&got);
             assert_eq!((metadata.width, metadata.height), (Some(3), Some(2)));
             assert_eq!(metadata.make.as_deref(), Some("Camera"));

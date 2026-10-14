@@ -101,12 +101,8 @@ pub fn open(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String> 
     let (w, h) = (frame.width() as usize, frame.height() as usize);
     let k = w.max(h).div_ceil(PROXY_SIDE).max(1);
     let (pw, ph) = (w.div_ceil(k), h.div_ceil(k));
-    let proxy = photocraft_algo::resample::resize_surface(
-        &surf.convert(PixelFormat::RGBA8),
-        1.0 / k as f64,
-        1.0 / k as f64,
-        photocraft_algo::resample::Resample::Bilinear,
-    );
+    let proxy =
+        photocraft_algo::resample::resize_surface(&surf.convert(PixelFormat::RGBA8), 1.0 / k as f64, 1.0 / k as f64, li_raster::resample::Resample::Bilinear);
     // Normalise the proxy to start at the origin.
     let mut px = Surface::new(PixelFormat::RGBA8);
     let src_r = Rect::new(

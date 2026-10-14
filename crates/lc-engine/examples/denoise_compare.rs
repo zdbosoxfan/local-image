@@ -124,13 +124,13 @@ fn crop(img: &Rgb32f, x: usize, y: usize, n: usize) -> Rgb32f {
     }
 }
 fn display(img: &Rgb32f) -> Vec<[f32; 3]> {
-    let m = lightcraft_color::SRGB.from_xyz().mul(&lightcraft_color::REC2020.to_xyz());
-    img.data.iter().map(|p| m.apply_f32(*p).map(|v| lightcraft_color::transfer::linear_to_srgb(v).clamp(0., 1.))).collect()
+    let m = li_color::SRGB.from_xyz().mul(&li_color::REC2020.to_xyz());
+    img.data.iter().map(|p| m.apply_f32(*p).map(|v| li_color::transfer::linear_to_srgb(v).clamp(0., 1.))).collect()
 }
 fn from_display(data: &mut [[f32; 3]]) {
-    let m = lightcraft_color::REC2020.from_xyz().mul(&lightcraft_color::SRGB.to_xyz());
+    let m = li_color::REC2020.from_xyz().mul(&li_color::SRGB.to_xyz());
     for p in data {
-        *p = m.apply_f32(p.map(lightcraft_color::transfer::srgb_to_linear));
+        *p = m.apply_f32(p.map(li_color::transfer::srgb_to_linear));
     }
 }
 fn align(input: &Rgb32f, reference: &Rgb32f) -> [i32; 2] {

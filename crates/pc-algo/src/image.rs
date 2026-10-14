@@ -1,11 +1,8 @@
 //! Interleaved `f32` image regions and sampling helpers.
 
+use li_raster::frame::{Edge, Frame};
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
-
-/// How samples outside an image are read (the shared dense-frame policy).
-pub use li_raster::frame::Edge;
-use li_raster::frame::Frame;
 
 /// A rectangle of interleaved, normalized samples.
 #[derive(Clone, Debug, PartialEq)]
@@ -157,8 +154,6 @@ impl Image {
         Image { rect: Rect::from_xywh(x0, y0, frame.width as u32, frame.height as u32), ch: N, data: frame.data.as_flattened().to_vec() }
     }
 }
-
-pub use li_raster::blur::{premultiply, unpremultiply};
 
 #[cfg(test)]
 mod j28_tests {

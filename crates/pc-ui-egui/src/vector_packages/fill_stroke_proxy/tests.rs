@@ -239,13 +239,13 @@ fn toolbar46_hold_flyout_curvature_and_preset_keyboard_switch() {
 fn toolbar46_registered_icon_alpha_and_styles_at_16_20_40() {
     let _gpu_gate = crate::gpu_test_support::lock();
     for tool in photocraft_engine::toolsets::VECTOR_TOOLS {
-        assert!(icons::ICONS.iter().any(|(id, _, _)| *id == tool.id), "missing {}", tool.id);
+        assert!(li_ui_kit::vector_icon_data::ICONS.iter().any(|(id, _, _)| *id == tool.id), "missing {}", tool.id);
     }
-    for (_, name, mono) in icons::ICONS {
-        assert!(crate::color_icon_data::family(name).is_some(), "no colour family for {name}");
+    for (_, name, mono) in li_ui_kit::vector_icon_data::ICONS {
+        assert!(li_ui_kit::color_icon_data::family(name).is_some(), "no colour family for {name}");
         for size in [16, 20, 40] {
             let svg = String::from_utf8_lossy(mono).replace("currentColor", "#ffffff");
-            let c = crate::color_icons::raster(name, size, false).unwrap();
+            let c = li_ui_kit::color_icons::raster(name, size, false).unwrap();
             let m = egui_extras::image::load_svg_bytes_with_size(svg.as_bytes(), egui::load::SizeHint::Width(size), &Default::default()).unwrap();
             assert_eq!(c.size, [size as usize; 2]);
             assert!(c.pixels.iter().filter(|p| p.a() > 100).count() > (size * size / 20) as usize, "empty {name}/{size}");
@@ -258,14 +258,14 @@ fn toolbar46_registered_icon_alpha_and_styles_at_16_20_40() {
 fn toolbar46_contact_sheet_original_artwork() {
     let _gpu_gate = crate::gpu_test_support::lock();
     // Actual resvg 16/20/40px output on dark/light: colour (family tint), then monochrome. No GPU or window.
-    let mut sheet = image::RgbaImage::from_pixel(1080, icons::ICONS.len() as u32 * 68, image::Rgba([31, 32, 35, 255]));
-    for (row, (tool, name, mono)) in icons::ICONS.iter().enumerate() {
+    let mut sheet = image::RgbaImage::from_pixel(1080, li_ui_kit::vector_icon_data::ICONS.len() as u32 * 68, image::Rgba([31, 32, 35, 255]));
+    for (row, (tool, name, mono)) in li_ui_kit::vector_icon_data::ICONS.iter().enumerate() {
         label(&mut sheet, 4, row as u32 * 68 + 26, tool, 1);
         for (i, (size, bg, colour)) in
             [16, 20, 40].into_iter().flat_map(|size| [(size, 30, true), (size, 240, true), (size, 30, false), (size, 240, false)]).enumerate()
         {
             let icon = if bg < 128 { egui::Color32::from_gray(222) } else { egui::Color32::from_gray(52) };
-            let ink = if colour { crate::color_icons::tint(name, icon, bg < 128) } else { icon };
+            let ink = if colour { li_ui_kit::color_icons::tint(name, icon, bg < 128) } else { icon };
             let svg = String::from_utf8_lossy(mono).replace("currentColor", &format!("#{:02x}{:02x}{:02x}", ink.r(), ink.g(), ink.b()));
             let im = egui_extras::image::load_svg_bytes_with_size(svg.as_bytes(), egui::load::SizeHint::Width(size), &Default::default()).unwrap();
             let raw: Vec<_> = im.pixels.iter().flat_map(|p| p.to_srgba_unmultiplied()).collect();
@@ -324,8 +324,8 @@ fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
         h.get_by_label("Vector persona").click();
         h.run_steps(3);
         h.get_by_label("Active fill");
-        for (_, name, _) in icons::ICONS {
-            assert!(crate::color_icons::exists(name) && crate::mono_tool_icons::exists(name), "00 must register {name} in both runtime loaders");
+        for (_, name, _) in li_ui_kit::vector_icon_data::ICONS {
+            assert!(li_ui_kit::color_icons::exists(name) && li_ui_kit::mono_tool_icons::exists(name), "00 must register {name} in both runtime loaders");
         }
         h.state_mut()
             .run("shape.create", serde_json::json!({"kind":"rect","rect":[12,12,40,32],"fill":"#ff0000","stroke":{"color":"#0000ff","width":3.}}))
@@ -403,7 +403,7 @@ fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
         assert_eq!(h.state().session.active().unwrap().history.past_len(), history + 1);
         // Pixel persona still deselects, while Vector Ctrl+D resolves Transform Again.
         let vector = crate::shortcut_dispatch::bindings(h.state());
-        let chord = crate::shortcuts::parse("Cmd+D").unwrap();
+        let chord = li_keys::input::parse("Cmd+D").unwrap();
         assert!(vector.iter().any(|(id, sc)| id == "vector.transform.again" && *sc == chord));
         h.get_by_label("Pixel persona").click();
         h.run_steps(3);
@@ -436,7 +436,7 @@ fn toolbar46_frozen_pixel_menu_keys_and_all_chords_parse() {
     let actual: Vec<_> = crate::menu_catalog::CATALOG.iter().filter_map(|(_, _, sc, id)| Some((*id, (*sc)?))).collect();
     assert_eq!(serde_json::json!(actual), expected);
     for binding in layout::ILLUSTRATOR.iter().chain(layout::AFFINITY).chain(layout::ACCELERATORS).chain(layout::PROXY_KEYS) {
-        assert!(shortcut(binding.key).is_some(), "unparseable {}", binding.key);
+        assert!(li_keys::input::parse(binding.key).is_some(), "unparseable {}", binding.key);
     }
 }
 
@@ -529,12 +529,12 @@ fn toolbar46_gpu_upload_every_vector_icon_and_switch_styles() {
     for scale in [1., 2.] {
         let mut h = Harness::builder().with_size(egui::vec2(800., 600.)).with_pixels_per_point(scale).wgpu_setup(setup.clone()).build_ui_state(
             |ui, (colour, clicked)| {
-                crate::color_icons::set_enabled(ui.ctx(), *colour);
+                li_ui_kit::color_icons::set_enabled(ui.ctx(), *colour);
                 if ui.button("Switch vector icon style").clicked() {
                     *colour = !*colour;
                 }
                 egui::Grid::new("toolbar46-icon-gpu").show(ui, |ui| {
-                    for (i, (tool, _, _)) in icons::ICONS.iter().enumerate() {
+                    for (i, (tool, _, _)) in li_ui_kit::vector_icon_data::ICONS.iter().enumerate() {
                         if tool_button(ui, tool, 40.).clicked() {
                             *clicked = true;
                         }

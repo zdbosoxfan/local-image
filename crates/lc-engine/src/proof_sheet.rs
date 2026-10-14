@@ -243,7 +243,7 @@ impl ProofJob {
             return Err("Proof sheet cancelled".into());
         }
         // Re-creatable output: atomic, never overwrites any existing file or an original.
-        lightcraft_catalog::safe_file::write_new(path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+        li_fs::write_new(path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
         Ok(pages)
     }
 }
@@ -268,7 +268,7 @@ mod tests {
         assert!(bytes.starts_with(b"%PDF-"));
         assert!(s.prepare_proof_sheet(&ids[..1], o.clone()).unwrap().run(&path, &|| false, &mut |_| {}).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
-        let fault = lightcraft_catalog::safe_file::fail_writes_after(20);
+        let fault = li_fs::fail_writes_after(20);
         let broken = root.join("broken.pdf");
         assert!(s.prepare_proof_sheet(&ids[..1], o).unwrap().run(&broken, &|| false, &mut |_| {}).is_err());
         drop(fault);

@@ -341,7 +341,7 @@ mod tests {
             command.args(["--exact", "restoration::tests::ds2_probe_honours_timeout_and_cancellation"]).env(CHILD, "1");
             let error = probe_output(&mut command, &ctl, std::time::Duration::from_millis(75)).unwrap_err();
             if cancelled {
-                assert!(error.is::<crate::Cancelled>());
+                assert!(error.is::<lightcraft_sysmem::jobs::Cancelled>());
             } else {
                 assert!(error.to_string().contains("timed out"));
             }

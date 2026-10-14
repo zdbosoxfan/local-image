@@ -1,7 +1,7 @@
 //! Auto tone and auto white balance (histogram / grey-world statistics on a proxy).
 
-use lightcraft_color::cct::xy_to_temp_tint;
-use lightcraft_color::{REC2020, Xy, bradford, luminance_2020};
+use li_color::cct::xy_to_temp_tint;
+use li_color::{REC2020, Xy, bradford, luminance_2020};
 use lightcraft_develop::DevelopSettings;
 use lightcraft_raster::Rgb32f;
 use serde::Serialize;
@@ -30,7 +30,7 @@ fn percentile(sorted: &[f32], q: f32) -> f32 {
 
 /// Compute auto tone values for `src` under the current white balance (ignores current tone values).
 pub fn auto_tone(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> AutoTone {
-    let mut img = lightcraft_raster::resample::fit(src, 512, 512, lightcraft_raster::resample::Filter::Box);
+    let mut img = lightcraft_raster::resample::fit(src, 512, 512, li_raster::resample::Filter::Box);
     let mut base = DevelopSettings { wb: s.wb, negative: s.negative, disabled_sections: s.disabled_sections.clone(), ..DevelopSettings::default() };
     base.light.exposure = 0.0;
     crate::local::scene_linear_pre(&mut img, info, &base);
@@ -63,8 +63,8 @@ pub fn auto_tone(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> AutoTo
 /// lightness — bands brighter than average get brighter, darker ones darker — so areas that
 /// differ only in colour stay apart in grey. Bands with almost no colourful pixels stay at 0.
 pub fn auto_bw_mix(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> [f64; 8] {
-    use lightcraft_color::perceptual::{lab_to_lch, oklab_from_2020};
-    let mut img = lightcraft_raster::resample::fit(src, 512, 512, lightcraft_raster::resample::Filter::Box);
+    use li_color::perceptual::{lab_to_lch, oklab_from_2020};
+    let mut img = lightcraft_raster::resample::fit(src, 512, 512, li_raster::resample::Filter::Box);
     let base = DevelopSettings {
         wb: s.wb,
         light: s.light,
@@ -106,7 +106,7 @@ pub fn auto_bw_mix(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> [f64
 
 /// Grey-world white balance weighted towards mid-tone, low-chroma pixels. Returns (temp, tint).
 pub fn auto_wb(src: &Rgb32f, info: &SourceInfo) -> (f64, f64) {
-    let img = lightcraft_raster::resample::fit(src, 256, 256, lightcraft_raster::resample::Filter::Box);
+    let img = lightcraft_raster::resample::fit(src, 256, 256, li_raster::resample::Filter::Box);
     let (mut acc, mut wsum) = ([0.0f64; 3], 0.0f64);
     for c in &img.data {
         let y = luminance_2020(*c);
@@ -127,7 +127,7 @@ pub fn auto_wb(src: &Rgb32f, info: &SourceInfo) -> (f64, f64) {
     }
     let avg = acc.map(|v| v / wsum);
     let xyz = REC2020.to_xyz().apply(avg);
-    let shot = lightcraft_color::cct::temp_tint_to_xy(info.as_shot_temp, info.as_shot_tint);
+    let shot = li_color::cct::temp_tint_to_xy(info.as_shot_temp, info.as_shot_tint);
     let seen = bradford(REC2020.white, shot).apply(xyz);
     let (t, tint) = xy_to_temp_tint(Xy::from_xyz(seen));
     (t.clamp(2000.0, 50000.0).round(), tint.clamp(-150.0, 150.0).round())

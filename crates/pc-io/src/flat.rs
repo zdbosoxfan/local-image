@@ -134,7 +134,7 @@ mod shared_decode_color_tests {
         let result = image_to_document("JXL", &img).unwrap();
         let bytes = result.document.icc_profile.as_ref().unwrap();
         let profile = photocraft_cms::Profile::parse(bytes).unwrap();
-        assert!(profile.trc.as_ref().unwrap().iter().all(|t| matches!(t, photocraft_cms::Curve::Identity)));
+        assert!(profile.trc.as_ref().unwrap().iter().all(|t| matches!(t, li_color::curve::Curve::Identity)));
         assert!(profile.matrix.unwrap()[0][0] > 0.6, "Rec.2020, not sRGB primaries");
         img.icc = Some(vec![1, 2, 3]);
         assert_eq!(decoded_profile(&img).unwrap().as_slice(), &[1, 2, 3]);
@@ -245,7 +245,7 @@ pub fn document_to_image(doc: &Document, warnings: &mut Vec<String>) -> Result<I
                 };
                 for p in &band.px[range] {
                     if gray {
-                        put(photocraft_color::convert::rgb_to_gray([p[0], p[1], p[2]]));
+                        put(li_color::convert::rgb_to_gray([p[0], p[1], p[2]]));
                     } else {
                         put(p[0]);
                         put(p[1]);
@@ -593,7 +593,7 @@ fn preserve_jpeg_metadata(original: &[u8], encoded: &[u8], (width, height): (u32
         }
         let mut segment = segment.to_vec();
         if segment[1] == 0xe1 && segment[4..].starts_with(b"Exif\0\0") {
-            let upright = codecs::upright_exif(&segment[10..]);
+            let upright = lightcraft_tiff::exif::upright(&segment[10..]);
             let mut payload = upright.into_owned();
             update_exif_dimensions(&mut payload, width, height)?;
             drop_exif_thumbnail(&mut payload);

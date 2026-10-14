@@ -58,11 +58,11 @@ fn decode_inner(bytes: &[u8], limits: &Limits, keep_associated: bool) -> Result<
     if let Ok(AuxBoxData::Data(exif)) = image.aux_boxes().first_exif() {
         // Samples are already oriented. Normalizing the embedded tag prevents a second turn by
         // decode_with or by consumers of the original EXIF payload.
-        meta.exif = Some(crate::orientation::upright_exif(exif.payload()).into_owned());
+        meta.exif = Some(lightcraft_tiff::exif::upright(exif.payload()).into_owned());
     }
     if let AuxBoxData::Data(xml) = image.aux_boxes().first_xml() {
         let xmp = String::from_utf8_lossy(xml).trim_end_matches('\0').to_owned();
-        meta.xmp = Some(crate::orientation::upright_xmp(&xmp).into_owned());
+        meta.xmp = Some(lightcraft_meta::upright_xmp(&xmp).into_owned());
     }
     let render = image.render_frame(0).map_err(err)?;
     // The stream selects black and the primary alpha by channel type, instead of assuming the

@@ -97,12 +97,13 @@ fn source_image_caches_by_content_hash() {
 
     assert_eq!(smart_cmds::source_decode_count(&bytes, fmt), 0);
 
-    let img = smart_cmds::source_image("doc.pcraft", &bytes, fmt).expect("source_image");
+    let working = photocraft_engine::color_cmds::working_profile(fmt.mode);
+    let img = smart_cmds::source_image_in_profile("doc.pcraft", &bytes, fmt, &working).expect("source_image");
     assert_eq!(img.bounds, doc.bounds());
     assert!(!img.surface.content_bounds().is_empty());
     assert_eq!(smart_cmds::source_decode_count(&bytes, fmt), 1);
 
-    let _again = smart_cmds::source_image("doc.pcraft", &bytes, fmt).expect("cached");
+    let _again = smart_cmds::source_image_in_profile("doc.pcraft", &bytes, fmt, &working).expect("cached");
     assert_eq!(smart_cmds::source_decode_count(&bytes, fmt), 1);
 }
 

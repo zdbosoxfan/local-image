@@ -76,7 +76,7 @@ fn colour39_recolor_lightness_independent_cie_l_oracle_and_alpha() {
         [Color::rgb(1., 0., 0.), Color::rgb(0., 1., 0.), Color::rgb(0., 0., 1.), Color::gray(0.05), Color::gray(0.95), Color::rgba(0.6, 0.2, 0.8, 0.3)];
     // Independent CIE L* oracle from linear sRGB->D50 Y coefficients, without a/b matrices.
     let lightness = |c: Color| {
-        let [r, g, b] = c.to_rgb().map(photocraft_color::convert::srgb_to_linear);
+        let [r, g, b] = c.to_rgb().map(li_color::convert::srgb_to_linear);
         let y = 0.2225045 * r + 0.7168786 * g + 0.0606169 * b;
         if y > 216. / 24389. { 116. * y.cbrt() - 16. } else { 24389. / 27. * y }
     };

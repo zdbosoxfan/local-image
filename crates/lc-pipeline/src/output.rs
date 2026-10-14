@@ -7,7 +7,7 @@
 //! sRGB-curve-encoded values of the target primaries (identical to the sRGB path when the target is
 //! sRGB); afterwards the values are re-encoded with the target's own curve.
 
-pub use lightcraft_color::space::{OutputSpace, OutputTrc};
+pub use li_color::space::{OutputSpace, OutputTrc};
 use serde::{Deserialize, Serialize};
 
 /// A validated, bidirectional ICC proof profile. Bytes travel with saved settings, so
@@ -150,7 +150,7 @@ impl ProofParams {
     /// Finish's compatibility boundary uses the sRGB curve, irrespective of target
     /// primaries. Preserve CMS device values through its final encoding adapter.
     pub(crate) fn finish(&self, rgb: [f32; 3]) -> [f32; 3] {
-        self.apply(rgb).map(|v| lightcraft_color::transfer::linear_to_srgb(self.out_trc.decode(v)))
+        self.apply(rgb).map(|v| li_color::transfer::linear_to_srgb(self.out_trc.decode(v)))
     }
 }
 impl Proof {
@@ -346,7 +346,7 @@ mod tests {
                     let rgb = [r, g, b];
                     let old_start = std::time::Instant::now();
                     let old_linear = matrix.map(|row| row.into_iter().zip(rgb).map(|(a, b)| a * b).sum());
-                    let old = crate::finish::gamut_map(old_linear, OutputSpace::Srgb.luma()).0.map(lightcraft_color::transfer::linear_to_srgb);
+                    let old = crate::finish::gamut_map(old_linear, OutputSpace::Srgb.luma()).0.map(li_color::transfer::linear_to_srgb);
                     old_time += old_start.elapsed();
                     let cms_start = std::time::Instant::now();
                     let new = params.apply(rgb);
@@ -404,9 +404,10 @@ mod tests {
 
     #[test]
     fn j22_proof_incomplete_monitor_returns_error_without_substitution() {
+        use li_color::curve::Curve;
+        use photocraft_cms::Builtin;
         use photocraft_cms::pipeline::Stage;
         use photocraft_cms::profile::{Lut, LutKind};
-        use photocraft_cms::{Builtin, Curve};
         let mut monitor = Builtin::Srgb.profile().clone();
         monitor.matrix = None;
         monitor.trc = None;

@@ -340,7 +340,7 @@ fn gain_ab(cx: &mut Cx<'_>, pl: &Buf, field: &Buf, w: usize, h: usize) -> Buf {
     gaussian(cx, &ab, w, h, 2, sigma)
 }
 fn up_gain(cx: &mut Cx<'_>, l: &Buf, ab: &Buf, (w, h): (usize, usize), (pw, ph): (usize, usize)) -> Buf {
-    let resized = (pw > w || ph > h).then(|| crate::render::resize(cx, ab, (pw, ph), (w, h), 2, lightcraft_raster::resample::Filter::Bilinear));
+    let resized = (pw > w || ph > h).then(|| crate::render::resize(cx, ab, (pw, ph), (w, h), 2, li_raster::resample::Filter::Bilinear));
     let (ab, pw, ph) = resized.as_ref().map_or((ab, pw, ph), |b| (b, w, h));
     run(cx, "p_up_gain", w * h, &[w as u32, h as u32, pw as u32, ph as u32], [Some(l), Some(ab), None, None, None], w * h)
 }
@@ -1231,7 +1231,7 @@ pub(crate) mod tests {
         }
         let map = lightcraft_pipeline::tone2::tone_map(&s, &info, s.light.contrast, 0., 0.);
         let c = src.get(150, 100).map(|v| v * (s.light.exposure as f32).exp2());
-        let lab = lightcraft_color::perceptual::oklab_from_2020(lightcraft_pipeline::tone2::tone_px(&map, &map.method(), c));
+        let lab = li_color::perceptual::oklab_from_2020(lightcraft_pipeline::tone2::tone_px(&map, &map.method(), c));
         s.masks.push(Mask {
             refine: 40.,
             opacity: 65.,

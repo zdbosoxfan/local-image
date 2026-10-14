@@ -345,7 +345,7 @@ mod tests {
         for (id, name, scale) in [("dcp:a", "Adobe Standard", 1.0), ("dcp:b", "Camera Portrait", 1.2)] {
             let mut profile = d.clone();
             profile.name = name.into();
-            profile.color.forward_matrix = profile.color.forward_matrix.map(|m| m.map(|m| lightcraft_color::Mat3(m.0.map(|r| r.map(|v| v * scale)))));
+            profile.color.forward_matrix = profile.color.forward_matrix.map(|m| m.map(|m| li_color::Mat3(m.0.map(|r| r.map(|v| v * scale)))));
             reg.profiles.insert(
                 id.into(),
                 (

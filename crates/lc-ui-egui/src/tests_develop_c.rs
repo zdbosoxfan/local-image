@@ -281,7 +281,7 @@ fn develop_c_picker_assets_and_cursor_glyphs_are_distinct() {
         assert_eq!(crate::panels::detail::picker_glyph(tool), Some(glyph));
     }
     let rasters: Vec<_> =
-        ["wb-picker", "skin-picker", "defringe-picker"].into_iter().map(|name| crate::color_icons::raster(name, 40, false).unwrap()).collect();
+        ["wb-picker", "skin-picker", "defringe-picker"].into_iter().map(|name| li_ui_kit::color_icons::raster(name, 40, false).unwrap()).collect();
     assert_ne!(rasters[0].pixels, rasters[1].pixels);
     assert_ne!(rasters[1].pixels, rasters[2].pixels);
     assert_ne!(rasters[0].pixels, rasters[2].pixels);

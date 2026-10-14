@@ -197,7 +197,7 @@ fn decode_jpeg_scaled_inner(bytes: &[u8], limits: &Limits, max_size: Option<(u32
     };
     img.source_bit_depth = Some(meta.precision);
     img.source_float = Some(false);
-    img.orientation = meta.exif.as_deref().map(crate::orientation::exif_orientation).unwrap_or(1);
+    img.orientation = meta.exif.as_deref().map(lightcraft_tiff::exif::orientation).unwrap_or(1);
     img.icc = meta.icc;
     img.meta = Metadata { exif: meta.exif, xmp: meta.xmp, dpi: meta.dpi, ..Default::default() };
     if meta.end == DataEnd::Truncated {
@@ -308,7 +308,7 @@ pub fn jpeg_embedded_preview(bytes: &[u8], max_edge: u32, min_edge: u32) -> Opti
     use super::tiff_ifd::File;
     let meta = scan_metadata(bytes);
     let (width, height, _) = meta.frame?;
-    let orientation = meta.exif.as_deref().map(crate::orientation::exif_orientation).unwrap_or(1);
+    let orientation = meta.exif.as_deref().map(lightcraft_tiff::exif::orientation).unwrap_or(1);
     let mut candidates = Vec::new();
     if let Some(exif) = meta.exif.as_deref()
         && let Some(tiff) = File::parse(exif)

@@ -7,9 +7,11 @@
 //! open documents (Photoshop's *Add Open Files*). Each command creates new documents; the
 //! sources are untouched.
 
+use lightcraft_merge::editor::hdr::{MergeOptions, estimate_exposures, merge_with_progress, mtb_offset};
+use lightcraft_merge::editor::panorama::{AlignOptions, Layout, PreparedImage, Projection, RoiImage, blend_levels, detect_mops_many, multiband, seam_labels};
 use photocraft_algo::exif;
-use photocraft_algo::hdr::{self, MergeOptions, ToneMethod};
-use photocraft_algo::panorama::{self, AlignOptions, Alignment, Layout, Placement, RoiImage};
+use photocraft_algo::hdr::{self, ToneMethod};
+use photocraft_algo::panorama::{self, Alignment, Placement};
 use photocraft_algo::scancrop;
 use photocraft_algo::tone::HdrToning;
 use photocraft_algo::transform::{Homography, Interp, warp_surface};
@@ -131,7 +133,7 @@ pub(crate) fn luma_alpha(surf: &Surface, area: Rect, k: usize) -> (usize, usize,
 pub(crate) fn register(images: &[(&Surface, Rect)], layout: Layout, reference: Option<usize>, geometric: bool, focal35: Option<f64>) -> Option<Alignment> {
     let side = images.iter().map(|(_, r)| r.width().max(r.height()) as usize).max().unwrap_or(1);
     let k = side.div_ceil(REGISTER_SIDE).max(1);
-    let prepared: Vec<panorama::PreparedImage> = images
+    let prepared: Vec<PreparedImage> = images
         .iter()
         .map(|(s, r)| {
             let (w, h, l, a) = luma_alpha(s, *r, k);
@@ -139,7 +141,7 @@ pub(crate) fn register(images: &[(&Surface, Rect)], layout: Layout, reference: O
             (w, h, l, valid)
         })
         .collect();
-    let feats = panorama::detect_mops_many(&prepared, 800);
+    let feats = detect_mops_many(&prepared, 800);
     let matches = panorama::match_mops_pairs(&feats);
     let focal = focal35.map(|f| f / 36.0 * side as f64 / k as f64);
     let a = panorama::align_mops(&feats, &matches, &AlignOptions { layout, focal, reference, geometric })?;
@@ -166,7 +168,7 @@ pub(crate) fn warp_placed(surf: &Surface, rect: Rect, origin: (f64, f64), pl: &P
 
 /// The projective matrix of a planar, distortion-free placement (surface px → panorama px).
 pub(crate) fn plane_matrix(pl: &Placement, origin: (f64, f64)) -> Option<Homography> {
-    (pl.projection == panorama::Projection::Plane && pl.k1 == 0.0).then(|| {
+    (pl.projection == Projection::Plane && pl.k1 == 0.0).then(|| {
         let t = Homography([1.0, 0.0, -pl.center[0] - origin.0, 0.0, 1.0, -pl.center[1] - origin.1, 0.0, 0.0, 1.0]);
         pl.h.mul(&t)
     })
@@ -275,7 +277,7 @@ pub(crate) fn seam_blend(warped: &[Surface], canvas: Rect, order: &[usize], seam
             }
         }
     }
-    let labels = panorama::seam_labels(gw, gh, &luma, &cover, order);
+    let labels = seam_labels(gw, gh, &luma, &cover, order);
     // Full-resolution weights: the seam label, falling back to the earliest covering image in
     // `order` where the label's image doesn't cover the pixel.
     let rank: Vec<usize> = {
@@ -317,8 +319,8 @@ pub(crate) fn seam_blend(warped: &[Surface], canvas: Rect, order: &[usize], seam
         .collect();
     // Shift ROIs to canvas-relative coordinates for the blend.
     let local: Vec<RoiImage> = rois.iter().map(|r| RoiImage { x0: r.x0 - canvas.x0, y0: r.y0 - canvas.y0, ..r.clone() }).collect();
-    let levels = if seamless { panorama::blend_levels(cw, chh).min(7) } else { 1 };
-    let (blend, cov) = panorama::multiband(cw, chh, &local, &weights, levels);
+    let levels = if seamless { blend_levels(cw, chh).min(7) } else { 1 };
+    let (blend, cov) = multiband(cw, chh, &local, &weights, levels);
     let cc = fmt.mode.color_channels();
     let nch = fmt.channels();
     let mut composite = Surface::new(fmt);
@@ -640,7 +642,7 @@ fn merge_hdr_document(
             Some(e) => (e, "exif"),
             None => {
                 let refs: Vec<&[[f32; 4]]> = imgs.iter().map(Vec::as_slice).collect();
-                (hdr::estimate_exposures(&refs), "estimated")
+                (estimate_exposures(&refs), "estimated")
             }
         },
     };
@@ -689,7 +691,7 @@ fn merge_hdr_document(
                 continue;
             }
             let (_, _, gi) = grey(&imgs[i]);
-            let (dx, dy) = hdr::mtb_offset(sw, sh, &gref, &gi, 5);
+            let (dx, dy) = mtb_offset(sw, sh, &gref, &gi, 5);
             offsets[i] = (dx * k as i32, dy * k as i32);
             alignment[i] = json!({"model": "mtb", "offset": offsets[i]});
             if offsets[i] != (0, 0) {
@@ -704,7 +706,7 @@ fn merge_hdr_document(
     ctx.check()?;
     ctx.report(0.4, "HDR: merging radiance");
     let refs: Vec<&[[f32; 4]]> = imgs.iter().map(Vec::as_slice).collect();
-    let merged = hdr::merge_with_progress(
+    let merged = merge_with_progress(
         w,
         h,
         &refs,

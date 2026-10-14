@@ -4,7 +4,8 @@ use std::time::Duration;
 use egui::{Color32, Rect};
 use serde_json::json;
 
-use crate::{LightcraftApp, color_icon_data, color_icons, headless::Headless, icons, state::RightPanel};
+use crate::{LightcraftApp, headless::Headless, icons, state::RightPanel};
+use li_ui_kit::color_icon_data;
 
 #[test]
 fn library_shutdown_waits_for_kernel_warm_up_even_without_a_photo() {
@@ -38,8 +39,8 @@ fn library_shutdown_waits_for_kernel_warm_up_even_without_a_photo() {
 fn all_develop_tools_panels_and_mask_variants_have_icons() {
     for (tool, name) in color_icon_data::DEVELOP_TOOL_ICONS {
         assert_eq!(icons::tool_name(tool), Some(*name));
-        assert!(color_icons::exists(name), "{tool}: {name}");
-        assert!(crate::mono_tool_icons::exists(name), "{tool}: monochrome {name}");
+        assert!(li_ui_kit::color_icons::exists(name), "{tool}: {name}");
+        assert!(li_ui_kit::mono_tool_icons::exists(name), "{tool}: monochrome {name}");
     }
     assert_eq!(icons::tool_name("target"), Some("targeted-adjust"));
     assert_eq!(icons::tool_name("pointColorPicker"), Some("color-range"));
@@ -71,7 +72,7 @@ fn all_develop_tools_panels_and_mask_variants_have_icons() {
         RightPanel::Keywords,
         RightPanel::Info,
     ] {
-        assert!(color_icons::exists(panel_name(panel).unwrap()));
+        assert!(li_ui_kit::color_icons::exists(panel_name(panel).unwrap()));
     }
     let mut distinct = HashSet::new();
     for shape in [
@@ -91,7 +92,7 @@ fn all_develop_tools_panels_and_mask_variants_have_icons() {
     ] {
         let shape = serde_json::from_value(shape).unwrap();
         let name = icons::mask_name(&shape);
-        assert!(color_icons::exists(name));
+        assert!(li_ui_kit::color_icons::exists(name));
         assert!(distinct.insert(name), "different masks share {name}");
     }
 }

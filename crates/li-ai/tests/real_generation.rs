@@ -2,7 +2,8 @@
 //! Run only in the coordinator's exclusive AI interval, with the generation fixture launcher.
 use anyhow::{Context, Result, ensure};
 use image::{Rgba, RgbaImage};
-use li_ai::{Ai, Cancelled, GenerateMode, GenerateRequest, JobControl, ModelId, Stage, ops::Generated};
+use li_ai::{Ai, GenerateMode, GenerateRequest, JobControl, ModelId, Stage, ops::Generated};
+use lightcraft_sysmem::jobs::Cancelled;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{

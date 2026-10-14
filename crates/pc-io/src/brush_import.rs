@@ -1,8 +1,8 @@
 //! Bounded brush-pack imports. Format references and fixture licences: see the brush report.
 //! No archive entries are written to disk and no resources outside the supplied pack are read.
 
+use lightcraft_sysmem::jobs::Interrupt;
 use photocraft_paint::{BrushPreset, BrushSettings, GrayTile, TipShape};
-use photocraft_raster::Interrupt;
 use std::collections::{BTreeMap, HashSet};
 
 pub const EXTENSIONS: &[&str] = &["abr", "gbr", "gih", "vbr", "bundle", "kpp", "brushset", "brush", "myb", "afbrushes"];

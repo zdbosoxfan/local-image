@@ -4,7 +4,7 @@
 //! A command opts in by doing its heavy work through [`run`] (or [`edit_job`] for a plain document
 //! edit). The work closure gets the app's one job handle, [`lightcraft_sysmem::JobCtl`]
 //! (`report(fraction, message)` — progress never goes backwards —, `check()?`, `stage` for an
-//! algorithm's [`Interrupt`](photocraft_raster::Interrupt), `cancel_flag` for `&AtomicBool`
+//! algorithm's [`Interrupt`](lightcraft_sysmem::jobs::Interrupt), `cancel_flag` for `&AtomicBool`
 //! APIs; duplicate-systems audit D14), and runs against
 //! a snapshot: documents are copy-on-write, so cloning one is O(layers). Its result is applied on
 //! the UI thread as one undo step, through the same path as [`Session::execute`], so the journal,
@@ -450,8 +450,8 @@ impl Session {
             },
             move |s, (r, native_import): (photocraft_io::ImportResult, bool)| {
                 let (index, color) = if deferred { s.open_document_deferred(r.document, None) } else { s.open_document(r.document, None) };
-                // The index is retained for API compatibility. Completion consumers must
-                // use the admitted ID: other jobs/callbacks may reorder or close tabs.
+                // `document` is the tab index at completion, as other commands report it. Completion
+                // consumers must use the admitted ID: other jobs/callbacks may reorder or close tabs.
                 let document = s.documents()[index].doc.id;
                 Ok(json!({"document": index, "documentId": document.0, "name": name_a, "warnings": r.warnings, "color": color, "nativeImport": native_import}))
             },

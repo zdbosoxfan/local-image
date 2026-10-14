@@ -37,7 +37,6 @@ pub use crate::format::{
 };
 pub use crate::image::{ChannelLayout, ColorHint, DecodeWarning, DeepChannel, DeepImage, Image, Metadata, SampleType};
 pub use crate::options::{DecodeOptions, EncodeOptions, ExrCompression, Limits, PngCompression, TiffCompression};
-pub use crate::orientation::{exif_orientation, upright_exif, upright_xmp};
 pub use half::f16;
 
 /// Decode TIFF device samples for a colour-managed caller, keeping associated alpha
@@ -96,7 +95,7 @@ fn decode_as_inner(format: Format, bytes: &[u8], opts: &DecodeOptions) -> Result
     let o = match format {
         Format::Tiff => img.orientation,
         Format::Heif => 1,
-        _ => img.meta.exif.as_deref().map_or(1, exif_orientation),
+        _ => img.meta.exif.as_deref().map_or(1, lightcraft_tiff::exif::orientation),
     };
     finish_decode(img, o, opts)
 }

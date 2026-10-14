@@ -3,12 +3,13 @@
 use super::store::{self, Kind};
 use super::{CANCELLED, Job, JobCtl, JobKind, Outcome};
 use crate::{Session, media::SourceLevel};
+use li_raster::resample::Filter;
 use li_seg::denoise::Variant;
 use lightcraft_catalog::{PhotoId, Source};
 use lightcraft_develop::DenoiseModel;
 use lightcraft_preview::Hasher128;
 use lightcraft_raster::Rgb32f;
-use lightcraft_raster::resample::{Filter, resize};
+use lightcraft_raster::resample::resize;
 use std::sync::{Arc, Mutex, Weak};
 
 pub const PREVIEW_EDGE: usize = 2560;
@@ -408,13 +409,13 @@ fn camera_source(raw: &lightcraft_raw::RawImage, bytes: &[u8], mut rgb: Rgb32f) 
     rgb.into_oriented(raw.orientation)
 }
 fn to_display(img: &Rgb32f) -> Vec<[f32; 3]> {
-    let m = lightcraft_color::SRGB.from_xyz().mul(&lightcraft_color::REC2020.to_xyz());
-    img.data.iter().map(|p| m.apply_f32(*p).map(|v| lightcraft_color::transfer::linear_to_srgb(v).clamp(0., 1.))).collect()
+    let m = li_color::SRGB.from_xyz().mul(&li_color::REC2020.to_xyz());
+    img.data.iter().map(|p| m.apply_f32(*p).map(|v| li_color::transfer::linear_to_srgb(v).clamp(0., 1.))).collect()
 }
 fn from_display(data: &mut [[f32; 3]]) {
-    let m = lightcraft_color::REC2020.from_xyz().mul(&lightcraft_color::SRGB.to_xyz());
+    let m = li_color::REC2020.from_xyz().mul(&li_color::SRGB.to_xyz());
     for p in data {
-        *p = m.apply_f32(p.map(lightcraft_color::transfer::srgb_to_linear));
+        *p = m.apply_f32(p.map(li_color::transfer::srgb_to_linear));
     }
 }
 fn export_new(path: &std::path::Path, img: &Rgb32f, p: &lightcraft_catalog::Photo, ctl: &JobCtl) -> Result<(), String> {
@@ -443,11 +444,8 @@ fn export_new(path: &std::path::Path, img: &Rgb32f, p: &lightcraft_catalog::Phot
         metadata.model = Some("Denoised linear Rec.2020".into());
         let color = lightcraft_raw::ColorData {
             illuminant: [21, 0],
-            color_matrix: [Some(lightcraft_color::REC2020.from_xyz()), None],
-            forward_matrix: [
-                Some(lightcraft_color::bradford(lightcraft_color::D65, lightcraft_color::D50).mul(&lightcraft_color::REC2020.to_xyz())),
-                None,
-            ],
+            color_matrix: [Some(li_color::REC2020.from_xyz()), None],
+            forward_matrix: [Some(li_color::bradford(li_color::D65, li_color::D50).mul(&li_color::REC2020.to_xyz())), None],
             as_shot_neutral: Some([1.; 3]),
             ..Default::default()
         };
@@ -476,7 +474,7 @@ fn export_new(path: &std::path::Path, img: &Rgb32f, p: &lightcraft_catalog::Phot
         return Err("choose a new .dng or .tiff file".into());
     };
     ctl.check()?;
-    lightcraft_catalog::safe_file::write_new(path, &bytes).map_err(|e| e.to_string())?;
+    li_fs::write_new(path, &bytes).map_err(|e| e.to_string())?;
     ctl.report(1., "Done");
     Ok(())
 }

@@ -3,8 +3,9 @@
 
 use crate::icc::{self, IccColorModel, IccKind};
 use crate::space::{NamedSpace, SourceSpace, SpaceOrigin, Trc};
-use crate::{DecodeOptions, Decoded, Error, Format, Result, exif};
-use lightcraft_raster::resample::{Filter, fit};
+use crate::{DecodeOptions, Decoded, Error, Format, Result};
+use li_raster::resample::Filter;
+use lightcraft_raster::resample::fit;
 use lightcraft_raster::{Plane, Rgb32f, par_rows};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -208,7 +209,7 @@ pub(crate) fn finish(format: Format, raw: Raw, meta: Meta, source_dims: (u32, u3
         }
     }
 
-    let summary = meta.exif.as_deref().map(exif::summarize).unwrap_or_default();
+    let summary = meta.exif.as_deref().map(lightcraft_tiff::exif::summarize).unwrap_or_default();
     let orientation = meta.orientation.or(summary.orientation).filter(|o| (1..=8).contains(o)).unwrap_or(1);
 
     let (image, alpha) = match opts.max_size {
@@ -395,7 +396,7 @@ fn rgb_or_gray(raw: &Raw, ch: usize, meta: &Meta, info: Option<&icc::IccInfo>, f
         let t = h.trc.clone().unwrap_or([Trc::Srgb, Trc::Srgb, Trc::Srgb]);
         return (linearize(raw, ch, &t), h.clone());
     }
-    let adobe = meta.exif.as_deref().map(exif::summarize).is_some_and(|s| s.adobe_rgb_hint);
+    let adobe = meta.exif.as_deref().map(lightcraft_tiff::exif::summarize).is_some_and(|s| s.adobe_rgb_hint);
     let mut s = if adobe {
         SourceSpace::named(NamedSpace::AdobeRgb, SpaceOrigin::Container)
     } else {
@@ -463,7 +464,7 @@ mod alpha_tests {
         let cmyk = input(Model::Cmyk, Buf::U16(vec![8192, 16384, 24576, 8192, 32768, 65535, 65535, 65535, 65535, 0]), true);
         assert_eq!(device_samples(&cmyk, 5, 4), [0.25, 0.5, 0.75, 0.25, 0., 0., 0., 0.]);
         let decoded = finish(Format::Tiff, cmyk, Meta::default(), (2, 1), &DecodeOptions::default()).unwrap();
-        let expected = [0.75 * 0.75, 0.5 * 0.75, 0.25 * 0.75].map(lightcraft_color::transfer::srgb_to_linear);
+        let expected = [0.75 * 0.75, 0.5 * 0.75, 0.25 * 0.75].map(li_color::transfer::srgb_to_linear);
         for (actual, want) in decoded.image.data[0].iter().zip(expected) {
             assert!((*actual - want).abs() < 1e-6);
         }

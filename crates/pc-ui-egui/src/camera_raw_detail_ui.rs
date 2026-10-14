@@ -267,7 +267,7 @@ impl DetailPreview {
                     if p[3] <= 0.0 || !p.iter().all(|v| v.is_finite()) {
                         return Color32::TRANSPARENT;
                     }
-                    let (lo, hi) = photocraft_algo::histogram::clipping(*p);
+                    let (lo, hi) = li_raster::histogram::clipping(*p);
                     match mode {
                         ClippingMode::ShadowChannels => t.histogram_color(7 ^ lo),
                         ClippingMode::HighlightChannels => {
@@ -408,7 +408,8 @@ mod tests {
         }
         source.write_region(area, &values);
         let params = CameraRaw { exposure: 0.5, texture: 15.0, grain_amount: 30.0, ..Default::default() };
-        let expected = photocraft_engine::lens_cmds::camera_raw_surface(&source, area, &params);
+        let expected = photocraft_engine::lens_cmds::camera_raw_surface_in(&source, area, &params, photocraft_cms::Builtin::Srgb.profile())
+            .unwrap_or_else(|_| source.clone());
         assert_eq!(develop(&source, area, &params, &Coverage::None, None), expected);
         let mask = Surface::with_default(PixelFormat::GRAY8, &[0.0]);
         assert_eq!(develop(&source, area, &params, &Coverage::Selection(mask), None), source);
@@ -453,7 +454,8 @@ mod tests {
                 source.write_region(area, &pixels);
                 let params = CameraRaw { exposure: 0.5, sharpen_amount: 20.0, grain_amount: 30.0, ..Default::default() };
                 let full = develop(&source, area, &params, &Coverage::None, None);
-                let expected = photocraft_engine::lens_cmds::camera_raw_surface(&source, area, &params);
+                let expected = photocraft_engine::lens_cmds::camera_raw_surface_in(&source, area, &params, photocraft_cms::Builtin::Srgb.profile())
+                    .unwrap_or_else(|_| source.clone());
                 assert_eq!(full, expected);
                 let mut preview = DetailPreview::new(source, area, Coverage::None);
                 preview.result = Some((1, full));

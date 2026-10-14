@@ -17,20 +17,18 @@
 
 use std::borrow::Cow;
 
+use lightcraft_meta::upright_xmp;
+
 use crate::error::CodecError;
 use crate::image::Image;
 
 /// One metadata policy for all shared format writers.
 pub(crate) fn encoded_exif(exif: &[u8], keep_orientation: bool) -> Cow<'_, [u8]> {
-    if keep_orientation { Cow::Borrowed(exif) } else { upright_exif(exif) }
+    if keep_orientation { Cow::Borrowed(exif) } else { lightcraft_tiff::exif::upright(exif) }
 }
 pub(crate) fn encoded_xmp(xmp: &str, keep_orientation: bool) -> Cow<'_, str> {
     if keep_orientation { Cow::Borrowed(xmp) } else { upright_xmp(xmp) }
 }
-
-pub use lightcraft_meta::upright_xmp;
-/// Shared byte-preserving metadata helpers. Pixel orientation remains codec-local.
-pub use lightcraft_tiff::exif::{orientation as exif_orientation, upright as upright_exif};
 
 /// Source pixel index for output pixel `(0, y2)` and the step per output column, for
 /// orientation `o` of a `w`×`h` source (values 2–8; see the module docs).
@@ -137,7 +135,7 @@ impl Image {
         let data = orient_bytes(self.data(), bpp, o, (w, h), ow)?;
         let mut meta = self.meta.clone();
         if let Some(e) = &mut meta.exif
-            && let Cow::Owned(fixed) = upright_exif(e)
+            && let Cow::Owned(fixed) = lightcraft_tiff::exif::upright(e)
         {
             *e = fixed;
         }
@@ -177,8 +175,8 @@ mod tests {
                 let encode = |value: u16| if order == ByteOrder::Little { value.to_le_bytes() } else { value.to_be_bytes() };
                 bytes[first + 2..first + 4].copy_from_slice(&encode(99));
                 bytes[second..second + 2].copy_from_slice(&encode(274));
-                assert_eq!(exif_orientation(&bytes), 1);
-                let fixed = upright_exif(&bytes);
+                assert_eq!(lightcraft_tiff::exif::orientation(&bytes), 1);
+                let fixed = lightcraft_tiff::exif::upright(&bytes);
                 assert!(matches!(fixed, Cow::Owned(_)));
                 assert_eq!(&fixed[first..second], &bytes[first..second]);
                 let file = File::parse(&fixed).expect("fixed header");
@@ -209,11 +207,11 @@ mod tests {
         assert_eq!(alloc_zeroed(3).unwrap(), vec![0, 0, 0]);
     }
     #[test]
-    fn j03_metadata_adapters_share_the_library_backend_policy() {
+    fn j03_shared_metadata_helpers_read_and_reset_orientation() {
         for value in 1..=8 {
             let exif = lightcraft_tiff::exif::minimal_exif(value);
-            assert_eq!(exif_orientation(&exif), lightcraft_tiff::exif::orientation(&exif));
-            assert_eq!(upright_exif(&exif), lightcraft_tiff::exif::upright(&exif));
+            assert_eq!(lightcraft_tiff::exif::orientation(&exif), value);
+            assert_eq!(lightcraft_tiff::exif::orientation(&lightcraft_tiff::exif::upright(&exif)), 1);
         }
         let packet = r#"<rdf:Description xmlns:o="http://ns.adobe.com/tiff/1.0/" o:Orientation='6'/>"#;
         assert_eq!(upright_xmp(packet), packet.replace("'6'", "'1'"));

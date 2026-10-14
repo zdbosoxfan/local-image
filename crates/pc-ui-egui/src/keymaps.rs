@@ -1,10 +1,6 @@
-//! Compatibility adapters: preferences stay in the engine; profile policy lives in li-keys.
-pub use li_keys::keymaps::{AFFINITY, is_global};
+//! The editor's effective shortcuts: the engine's preferences over li-keys' profile tables.
+use li_keys::keymaps::is_global;
 use photocraft_engine::prefs::Preferences;
-/// Preserve the old cross-crate module path without compiling another crate's source.
-pub mod library {
-    pub use li_keys::keymaps::{CAPTURE_ONE, GLOBAL_CHORDS, library_default as default};
-}
 pub fn default<'a>(prefs: &Preferences, id: &str, base: Option<&'a str>) -> Option<&'a str> {
     li_keys::keymaps::editor_default(prefs.shortcut_profiles.editor.parent(), id, crate::hold_keys::is_temporary(id), base)
 }

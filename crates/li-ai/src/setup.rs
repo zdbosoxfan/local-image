@@ -12,7 +12,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::settings::{AiSettings, data_root, write_atomic};
+use crate::settings::{AiSettings, data_root};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Installation {
@@ -117,7 +117,7 @@ pub fn write_model_paths(settings: &AiSettings) -> Result<PathBuf> {
     let v = serde_json::json!({ "local_image": {
         "base_path": models, "diffusion_models": "diffusion_models", "text_encoders": "text_encoders",
         "vae": "vae", "loras": "loras", "checkpoints": "checkpoints", "upscale_models": "upscale_models" } });
-    write_atomic(&path, serde_json::to_string_pretty(&v)?.as_bytes())?;
+    li_fs::atomic_write(&path, serde_json::to_string_pretty(&v)?.as_bytes())?;
     Ok(path)
 }
 

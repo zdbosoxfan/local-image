@@ -2,10 +2,11 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use lightcraft_sysmem::jobs::Interrupt;
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::{Document, Layer, LayerContent, Size};
 use photocraft_geom::Rect;
-use photocraft_raster::{Interrupt, Surface};
+use photocraft_raster::Surface;
 
 fn layered_psd() -> Vec<u8> {
     let mut d = Document::new("t", Size::new(32, 24), ColorMode::Rgb, SampleType::U8);

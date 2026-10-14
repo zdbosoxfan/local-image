@@ -185,11 +185,6 @@ fn buffer_to_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat, source:
     Ok(surface)
 }
 
-/// Source pixels in the built-in working profile for `fmt` (legacy public entry point).
-pub fn source_image(file_name: &str, bytes: &[u8], fmt: PixelFormat) -> Result<SourceImage> {
-    source_image_in_profile(file_name, bytes, fmt, &crate::color_cmds::working_profile(fmt.mode))
-}
-
 /// Decode/composite into the destination profile. A cache hit from another profile
 /// cannot be reused merely because the channel model and bit depth happen to match.
 pub fn source_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, target: &Profile) -> Result<SourceImage> {
@@ -209,10 +204,6 @@ pub fn source_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, 
     Ok(image)
 }
 
-/// Develop pixels in the built-in working profile for `fmt` (legacy entry point).
-pub fn developed_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, settings: &serde_json::Value) -> Result<SourceImage> {
-    developed_image_in_profile(file_name, bytes, fmt, settings, &crate::color_cmds::working_profile(fmt.mode))
-}
 pub fn developed_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, settings: &Value, target: &Profile) -> Result<SourceImage> {
     let mut hash = blake3::Hasher::new();
     hash.update(bytes);
@@ -279,7 +270,7 @@ fn plain_layer_surface(doc: &Document, fmt: PixelFormat) -> Option<Surface> {
 }
 
 /// Layer › Smart Objects › Stack Mode: the source's layers (or, when it holds a single group, the
-/// group's layers) combined per pixel with `mode`. Cached like [`source_image`], keyed by mode.
+/// group's layers) combined per pixel with `mode`. Cached like [`source_image_in_profile`], keyed by mode.
 pub fn stack_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, mode: photocraft_doc::StackMode) -> Result<SourceImage> {
     stack_image_in_profile(file_name, bytes, fmt, mode, &crate::color_cmds::working_profile(fmt.mode))
 }

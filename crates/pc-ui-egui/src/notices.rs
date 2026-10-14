@@ -7,7 +7,9 @@ use crate::PhotocraftApp;
 use li_ui_kit::widget_style as metrics;
 
 const WAYLAND_FILE_DROP_DISMISSED: &str = "ui.waylandFileDropGuidanceDismissed";
-pub use li_ui_kit::notices::{MAX_NOTICES, Notice};
+#[cfg(test)]
+use li_ui_kit::notices::MAX_NOTICES;
+use li_ui_kit::notices::Notice;
 
 /// Show a notice (newest last); returns its id.
 pub fn post(app: &mut PhotocraftApp, title: impl Into<String>, lines: Vec<String>, error: bool, dismiss_pref: Option<&str>) -> u64 {

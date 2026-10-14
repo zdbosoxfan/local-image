@@ -35,7 +35,7 @@ pub(super) fn drag(h: &mut Harness<'_, PhotocraftApp>, from: Pos2, to: Pos2) {
 #[test]
 fn persona_registry_icons_exist_in_the_existing_icon_system() {
     for tool in VECTOR_TOOLS {
-        assert!(crate::icons::exists(tool.icon), "{}: {}", tool.id, tool.icon);
+        assert!(li_ui_kit::icons::exists(tool.icon), "{}: {}", tool.id, tool.icon);
     }
 }
 

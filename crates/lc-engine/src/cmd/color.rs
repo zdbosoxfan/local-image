@@ -6,10 +6,10 @@
 //! picked colour is the one the adjustment will see (e.g. Point Color samples after the colour
 //! mixer, before vibrance, grading, vignette and curves).
 
-use lightcraft_color::perceptual::{lab_to_lch, oklab_from_2020};
-use lightcraft_color::spline::MonotoneCurve;
-use lightcraft_color::transfer::srgb_to_linear;
-use lightcraft_color::{REC2020, SRGB};
+use li_color::perceptual::{lab_to_lch, oklab_from_2020};
+use li_color::spline::MonotoneCurve;
+use li_color::transfer::srgb_to_linear;
+use li_color::{REC2020, SRGB};
 use lightcraft_develop::{DevelopSettings, MAX_POINT_COLORS, MIXER_BANDS, PointColor, ToneCurve, Treatment, controls};
 use lightcraft_geom::Point;
 use serde_json::{Value, json};

@@ -3,12 +3,13 @@
 use std::fmt;
 use std::time::{Duration, Instant};
 
+use lightcraft_sysmem::jobs::Cancelled;
 use ureq::unversioned::resolver::{DefaultResolver, Resolver};
 use ureq::unversioned::transport::time::Duration as WireDuration;
 use ureq::unversioned::transport::{Buffers, ConnectProxyConnector, ConnectionDetails, Connector, NextTimeout, RustlsConnector, TcpConnector, Transport};
 use ureq::{Error, ProxyProtocol, Timeout};
 
-use crate::{Cancelled, JobControl};
+use crate::JobControl;
 
 const RECEIVE_SLICE: Duration = Duration::from_millis(200);
 const SETUP_LIMIT: Duration = Duration::from_secs(20);

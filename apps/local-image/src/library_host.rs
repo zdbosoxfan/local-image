@@ -558,20 +558,21 @@ impl Host {
         let Some(library) = self.library.as_ref() else { return };
         let mut bar = lightcraft_ui_egui::menubar::native_menu_bar(library);
         // Appearance belongs to the application even while the Library owns its command set.
-        if let Some(app_menu) = bar.menus.iter_mut().find(|menu| menu.role == photocraft_ui_egui::native_menu::MenuRole::App) {
-            if let Some(language) = app_menu.children.iter_mut().find(|node| {
-                matches!(node, photocraft_ui_egui::native_menu::Node::Submenu { role: Some(photocraft_ui_egui::native_menu::ItemRole::Language), .. })
-            }) {
+        if let Some(app_menu) = bar.menus.iter_mut().find(|menu| menu.role == li_commands::menu::MenuRole::App) {
+            if let Some(language) = app_menu
+                .children
+                .iter_mut()
+                .find(|node| matches!(node, li_commands::menu::Node::Submenu { role: Some(li_commands::menu::ItemRole::Language), .. }))
+            {
                 *language = photocraft_ui_egui::native_menu::language_menu(&self.editor);
             }
-            let at =
-                app_menu.children.iter().position(|node| matches!(node, photocraft_ui_egui::native_menu::Node::Standard(_))).unwrap_or(app_menu.children.len());
-            let at = if at > 0 && matches!(app_menu.children[at - 1], photocraft_ui_egui::native_menu::Node::Separator) { at - 1 } else { at };
+            let at = app_menu.children.iter().position(|node| matches!(node, li_commands::menu::Node::Standard(_))).unwrap_or(app_menu.children.len());
+            let at = if at > 0 && matches!(app_menu.children[at - 1], li_commands::menu::Node::Separator) { at - 1 } else { at };
             app_menu.children.insert(at, photocraft_ui_egui::native_menu::appearance_menu(&self.editor));
         }
         if !self.library_native_commands_available() {
-            fn disable(nodes: &mut [photocraft_ui_egui::native_menu::Node]) {
-                use photocraft_ui_egui::native_menu::{HIDE, MINIMIZE, Node};
+            fn disable(nodes: &mut [li_commands::menu::Node]) {
+                use li_commands::menu::{HIDE, MINIMIZE, Node};
                 for node in nodes {
                     match node {
                         Node::Item(item) if item.id != HIDE && item.id != MINIMIZE => item.enabled = false,
@@ -603,7 +604,7 @@ impl Host {
         }
         let Some(menu) = self.editor.services.native_menu.as_mut() else { return };
         for id in menu.drain_clicks() {
-            if id == photocraft_ui_egui::native_menu::MINIMIZE {
+            if id == li_commands::menu::MINIMIZE {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
             } else if !self.library_native_commands_available() {
                 continue;
@@ -1827,7 +1828,7 @@ fn config_dir() -> Option<PathBuf> {
     if cfg!(test) {
         return Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/lrc-test-config").join(std::process::id().to_string()));
     }
-    crate::app_dirs::config_dir()
+    lightcraft_sysmem::app_dirs::config_dir()
 }
 
 fn module_preference(value: Option<&str>) -> Module {
@@ -3006,7 +3007,9 @@ mod tests {
 
     #[test]
     fn native_menu_keys_and_quit_click_reach_the_library_after_startup() {
-        use photocraft_ui_egui::native_menu::{Backend, Chord, Event, MenuBar, NativeMenu};
+        use li_commands::menu::{Backend, Event, MenuBar};
+        use li_keys::Chord;
+        use photocraft_ui_egui::native_menu::NativeMenu;
         struct Queue(Arc<Mutex<Vec<Event>>>);
         impl Backend for Queue {
             fn sync(&mut self, _: &MenuBar) {}
@@ -3034,7 +3037,8 @@ mod tests {
 
     #[test]
     fn j21_native_library_menu_tracks_active_module_parameters_and_modal_state() {
-        use photocraft_ui_egui::native_menu::{Backend, Event, MenuBar, NativeMenu};
+        use li_commands::menu::{Backend, Event, MenuBar};
+        use photocraft_ui_egui::native_menu::NativeMenu;
         struct Queue {
             events: Arc<Mutex<Vec<Event>>>,
             bar: Arc<Mutex<MenuBar>>,
@@ -3056,7 +3060,7 @@ mod tests {
         host.editor.services.native_menu = Some(NativeMenu::new(Box::new(Queue { events: events.clone(), bar: bar.clone() })));
         let mut h = RoundTripUi::new(host);
         h.host.sync_native_menu(&h.view.ctx);
-        let rate = lightcraft_ui_egui::menubar::MenuNode::key("photo.rate", &json!({"rating": 4}));
+        let rate = li_commands::menu::CommandMenuNode::key("photo.rate", &json!({"rating": 4}));
         assert!(bar.lock().unwrap().find(&rate).unwrap().enabled);
         assert!(bar.lock().unwrap().find("file.open").is_none());
         assert!(h.host.library.as_ref().unwrap().native_menu, "native Library must hide in-window menus from startup");

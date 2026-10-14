@@ -100,7 +100,7 @@ pub(crate) fn begin(app: &mut PhotocraftApp, path: String, settings: &ExportSett
                 let _guard = guard;
                 let cancelled = || ctx.is_cancelled() || worker_cancel.load(Ordering::Relaxed);
                 let progress = |p| ctx.report(p, if p < 0.8 { "Encoding document" } else { "Writing temporary save" });
-                let interrupt = photocraft_raster::Interrupt::new(&cancelled, &progress);
+                let interrupt = lightcraft_sysmem::jobs::Interrupt::new(&cancelled, &progress);
                 ctx.check()?;
                 let snapshot = reset_snapshot(snapshot, worker_reset.as_ref());
                 let prepared = prepare(snapshot, &worker_path, &settings, &interrupt)

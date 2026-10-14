@@ -14,7 +14,7 @@ Upstream files are copied byte for byte (two recorded exceptions: Path Selection
 Twirl CCW mirrors `dc-twirl`). `source-manifest.json` holds every icon's set, source file, licence,
 colour family and SHA-256; `cargo xtask icons` checks the files, hashes, licence texts, line style and
 registries against it. Colour mode is not separate artwork: it tints the same line icon by family
-(`crates/pc-ui-egui/src/color_icon_data.rs`); monochrome, in the theme's icon colour, is the default.
+(`crates/li-ui-kit/src/color_icon_data.rs`); monochrome, in the theme's icon colour, is the default.
 
 Licence texts: `licenses/lucide-ISC.txt` and `licenses/feather-MIT.txt` (Lucide, Feather-derived
 paths), `licenses/photocraft-LICENSE-{MIT,APACHE}`, `licenses/vectorcraft-LICENSE-{MIT,APACHE}`,
@@ -28,7 +28,7 @@ paths), `licenses/photocraft-LICENSE-{MIT,APACHE}`, `licenses/vectorcraft-LICENS
    `stroke-width="2"`, round caps/joins), shapes inside 2..22, legible at 16 and 20 px, and a comment
    `Local Image original, GPL-3.0-or-later: <what it shows>`.
 3. Add its manifest row (set, source, licence, family, `sha256`), a row below, and register it in
-   `crates/pc-ui-egui/src/tool_icon_data.rs` (or the vector table) and `color_icon_data.rs`.
+   `crates/li-ui-kit/src/tool_icon_data.rs` (or `vector_icon_data.rs`) and `color_icon_data.rs`.
 4. `cargo xtask icons`, `cargo xtask attributions`, then `cargo xtask tool-icons` and look at the sheets.
 
 ## Counts

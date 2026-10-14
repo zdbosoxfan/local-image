@@ -2,9 +2,10 @@
 //! profile connection space (or back). This is the exact reference path; [`crate::Transform`]
 //! builds faster lookup tables from it.
 
+use li_color::cms_math;
+use li_color::curve::Curve;
+
 use crate::clut::Clut;
-use crate::curve::Curve;
-use crate::math;
 
 /// Largest channel count flowing through a pipeline.
 pub const MAX: usize = 16;
@@ -54,7 +55,7 @@ impl Stage {
         }
     }
 
-    pub fn matrix3(m: &math::Mat3) -> Stage {
+    pub fn matrix3(m: &cms_math::Mat3) -> Stage {
         Stage::Matrix { rows: 3, cols: 3, m: m.iter().flatten().copied().collect(), offset: vec![0.0; 3] }
     }
 
@@ -94,12 +95,12 @@ impl Stage {
                 c.outputs
             }
             Stage::LabToXyz => {
-                let x = math::lab_to_xyz_f32([v[0], v[1], v[2]]);
+                let x = cms_math::lab_to_xyz_f32([v[0], v[1], v[2]]);
                 v[..3].copy_from_slice(&x);
                 3
             }
             Stage::XyzToLab => {
-                let l = math::xyz_to_lab_f32([v[0].max(0.0), v[1].max(0.0), v[2].max(0.0)]);
+                let l = cms_math::xyz_to_lab_f32([v[0].max(0.0), v[1].max(0.0), v[2].max(0.0)]);
                 v[..3].copy_from_slice(&l);
                 3
             }

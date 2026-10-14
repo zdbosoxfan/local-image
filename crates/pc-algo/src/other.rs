@@ -1,8 +1,9 @@
 //! Minimum, Maximum, Offset.
 
+use li_raster::frame::Edge;
 use photocraft_geom::Rect;
 
-use crate::image::{Edge, Image};
+use crate::image::Image;
 use crate::{Ctx, Preserve, UndefinedAreas};
 
 /// Minimum or Maximum with the dialog's Preserve option: a square (`min_max`) or a disc

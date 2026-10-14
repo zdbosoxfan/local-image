@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use image::{GrayImage, Luma, RgbImage, RgbaImage};
 use li_ai::{JobControl, RemoveEngine, Stage};
-use li_ai::{RgbFrame, RgbaFrame};
+use li_raster::{RgbFrame, RgbaFrame};
 use photocraft_color::{ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{Document, Layer, LayerContent, LayerId};
 use photocraft_geom::{Rect, Size};
@@ -122,7 +122,7 @@ pub fn bridged<T>(ctx: &JobCtl, f: impl FnOnce(&JobControl) -> anyhow::Result<T>
         let _stop = StopWatcher(stop);
         f(&ctl)
     });
-    r.map_err(|e| if e.is::<li_ai::Cancelled>() { EngineError::Cancelled } else { EngineError::Other(format!("{e:#}")) })
+    r.map_err(|e| if e.is::<lightcraft_sysmem::jobs::Cancelled>() { EngineError::Cancelled } else { EngineError::Other(format!("{e:#}")) })
 }
 
 /// The visible composite of `rect` as 8-bit RGB (transparency over white) — what the user sees.
@@ -408,7 +408,8 @@ fn ai_remove(s: &mut Session, p: &Value) -> Result<Value> {
 /// band along the edge and wherever the model was unsure) and the band is re-solved against the
 /// actual image with closed-form matting (photocraft_algo::cf_matting).
 fn refine_matte(img: &RgbaImage, alpha: &GrayImage) -> GrayImage {
-    use photocraft_algo::cf_matting::{MattingParams, closed_form_matting_tiled, trimap_from_mask};
+    use li_matte::cf_matting::{MattingParams, trimap_from_mask};
+    use photocraft_algo::cf_matting::closed_form_matting_tiled;
     let (w, h) = (img.width() as usize, img.height() as usize);
     let m: Vec<f32> = alpha.pixels().map(|p| p[0] as f32 / 255.0).collect();
     let band = ((w.min(h) as f32 / 160.0).round() as usize).clamp(3, 24);

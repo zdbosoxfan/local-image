@@ -4,7 +4,7 @@
 use crate::profile::{HsvTable, ProfileLook, ToneCurve};
 use crate::tiffraw::{Packing, read_image_in};
 use crate::{BlackLevel, Cfa, ColorData, Mat3, Mode, RawData, RawError, RawFormat, RawImage, Rect, Result, opcodes};
-use lightcraft_color::Xy;
+use li_color::Xy;
 use lightcraft_geom::Orientation;
 use lightcraft_tiff::tags::{self as t, photometric};
 use lightcraft_tiff::{ByteOrder, Ifd, Tiff};

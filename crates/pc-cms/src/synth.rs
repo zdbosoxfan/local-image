@@ -22,10 +22,11 @@
 //! The model is plausible for coated offset, not a measured characterisation: use a real
 //! profile from your print provider for production print.
 
+use li_color::cms_math;
+use li_color::curve::Curve;
+
 use crate::Intent;
 use crate::clut::Clut;
-use crate::curve::Curve;
-use crate::math;
 use crate::pipeline::Stage;
 use crate::profile::{ColorSpace, Lut, LutKind, Pcs, Profile, ProfileClass};
 
@@ -80,7 +81,7 @@ const YN: f64 = 2.0;
 
 impl CmykModel {
     pub fn coated(tvi: [f64; 4]) -> Self {
-        let lab = |l: f64, a: f64, b: f64| math::lab_to_xyz([l, a, b], math::D50);
+        let lab = |l: f64, a: f64, b: f64| cms_math::lab_to_xyz([l, a, b], cms_math::D50);
         // ISO 12647-2 (coated, paper type 1/2) Lab aims, D50/2°; CMY overprint estimated.
         let w = lab(95.0, 0.0, -2.0);
         let base: [[f64; 3]; 8] = [
@@ -137,8 +138,8 @@ impl CmykModel {
     /// ICC-relative Lab (paper = L* 100).
     pub fn lab(&self, cmyk: [f64; 4]) -> [f64; 3] {
         let x = self.xyz(cmyk);
-        let rel = [x[0] * math::D50[0] / self.paper[0], x[1] * math::D50[1] / self.paper[1], x[2] * math::D50[2] / self.paper[2]];
-        math::xyz_to_lab(rel, math::D50)
+        let rel = [x[0] * cms_math::D50[0] / self.paper[0], x[1] * cms_math::D50[1] / self.paper[1], x[2] * cms_math::D50[2] / self.paper[2]];
+        cms_math::xyz_to_lab(rel, cms_math::D50)
     }
 }
 
@@ -202,11 +203,11 @@ fn solve_cmy(model: &CmykModel, target: [f64; 3], k: f64, limit: f64, seeds: &[[
                 for (d, row) in al.iter_mut().enumerate() {
                     row[d] += lambda * (1.0 + a[d][d]);
                 }
-                let Some(inv) = math::invert(&al) else {
+                let Some(inv) = cms_math::invert(&al) else {
                     lambda *= 10.0;
                     continue;
                 };
-                let step = math::apply(&inv, g);
+                let step = cms_math::apply(&inv, g);
                 let xn = project([x[0] + step[0], x[1] + step[1], x[2] + step[2]]);
                 let en = err(xn);
                 let fnew = norm2(en);
@@ -429,7 +430,7 @@ pub fn cmyk_profile(p: &CmykParams) -> Profile {
         rendering_intent: Intent::Perceptual,
         description: p.description.clone(),
         copyright: crate::builtin::COPYRIGHT.into(),
-        white_point: model.paper.map(math::s15f16_round),
+        white_point: model.paper.map(cms_math::s15f16_round),
         black_point: None,
         chad: None,
         matrix: None,

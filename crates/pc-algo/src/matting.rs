@@ -21,7 +21,7 @@ use crate::segment::{RgbImage, Sampler};
 use crate::selection::Region;
 
 // The editor keeps only document/surface adapters; numerical work lives in li-matte.
-pub use li_matte::matting::{EPS, RefineParams, box_mean, gaussian_blur, guided_filter_gray, morph};
+use li_matte::matting::{RefineParams, box_mean};
 const TILE: i32 = 256;
 
 fn guide(img: &RgbImage) -> li_matte::RgbImage<'_> {
@@ -252,6 +252,7 @@ pub fn masked_copy(src: &Surface, alpha: &Region) -> Surface {
 mod tests {
     use super::*;
     use crate::segment::ImageSampler;
+    use li_matte::matting::{EPS, guided_filter_gray};
     use photocraft_color::SampleType;
 
     #[test]
@@ -266,7 +267,7 @@ mod tests {
         let view = guide(&img);
         assert_eq!(view.px.as_ptr(), img.px.as_ptr());
         assert_eq!(refine_buffer(Some(&img), &m, w, h, &p), li_matte::matting::refine_buffer(Some(&view), &m, w, h, &p));
-        let tri = crate::cf_matting::trimap_from_mask(&m, w, h, 3);
+        let tri = li_matte::cf_matting::trimap_from_mask(&m, w, h, 3);
         assert_eq!(
             crate::cf_matting::closed_form_matting_tiled(&img, &tri, &Default::default(), 32, 8),
             li_matte::cf_matting::closed_form_matting_tiled(&view, &tri, &Default::default(), 32, 8)
@@ -282,7 +283,7 @@ mod tests {
         let hash = |v: &[f32]| v.iter().fold(0xcbf29ce484222325u64, |h, v| (h ^ u64::from(v.to_bits())).wrapping_mul(0x100000001b3));
         let guide: Vec<f32> = img.px.iter().map(|p| p[0]).collect();
         let params = RefineParams { radius: 4.0, smart_radius: true, smooth: 23.0, feather: 1.0, contrast: 8.0, shift_edge: -20.0 };
-        let tri = crate::cf_matting::trimap_from_mask(&m, w, h, 3);
+        let tri = li_matte::cf_matting::trimap_from_mask(&m, w, h, 3);
         let alpha = crate::cf_matting::closed_form_matting(&img, &tri, &Default::default());
         let fg = crate::cf_matting::estimate_foreground(&img, &alpha);
         let actual = [

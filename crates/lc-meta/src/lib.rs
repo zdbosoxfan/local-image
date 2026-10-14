@@ -27,7 +27,7 @@ mod iptc;
 pub mod tags;
 mod xmp;
 mod xmp_orientation;
-pub use file_info::{copyright_xmp, read_file_info, try_write_file_info, write_file_info};
+pub use file_info::{copyright_xmp, read_file_info, try_write_file_info};
 pub use xmp_orientation::upright_xmp;
 mod xmp_merge;
 

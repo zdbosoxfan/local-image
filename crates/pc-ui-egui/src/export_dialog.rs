@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use photocraft_algo::resample::ResampleChoice;
+use li_raster::resample::ResampleChoice;
 use photocraft_doc::Document;
 use serde_json::{Map, Value, json};
 

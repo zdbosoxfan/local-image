@@ -8,11 +8,10 @@ use serde_json::{Value, json};
 
 use crate::{EngineError, Result, Session, inspect, pixels};
 
-// Compatibility aliases keep the editor API while both engines use one command model.
+// Command-model types specialised to this engine's Session.
 pub type Run = li_commands::Run<Session, EngineError>;
 pub type Enabled = li_commands::Enabled<Session>;
 pub type CommandSpec = li_commands::CommandSpec<Session, EngineError>;
-pub use li_commands::CommandInfo;
 
 /// The largest canvas side `file.new` creates (Photoshop's PSB limit).
 pub(crate) const MAX_NEW_DIMENSION: u32 = 300_000;

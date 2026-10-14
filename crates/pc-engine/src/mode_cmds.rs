@@ -344,7 +344,7 @@ fn bitmap(s: &mut Session, p: &Value) -> Result<Value> {
     };
     s.edit("Bitmap", |doc, active| {
         let px = composite(doc, true);
-        let mut gray: Vec<f32> = px.iter().map(|q| photocraft_color::convert::rgb_to_gray([q[0], q[1], q[2]])).collect();
+        let mut gray: Vec<f32> = px.iter().map(|q| li_color::convert::rgb_to_gray([q[0], q[1], q[2]])).collect();
         quantize::to_bitmap(&mut gray, doc.size.width as usize, method);
         let out: Vec<[f32; 4]> = gray.iter().map(|g| [*g, *g, *g, 1.0]).collect();
         single_layer(doc, active, ColorMode::Bitmap, &out, "Background", true);

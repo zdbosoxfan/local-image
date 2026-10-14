@@ -15,11 +15,13 @@
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, channel};
 
+use li_commands::menu::{Backend, Event, HIDE, MINIMIZE, MenuBar, MenuRole, Node, Standard, structure_key};
+use li_keys::Chord;
 use muda::accelerator::{Accelerator, Code, Modifiers};
 use muda::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSEventType};
-use photocraft_ui_egui::native_menu::{self, Backend, Chord, Event, MenuBar, MenuRole, Node, Standard};
+use photocraft_ui_egui::native_menu;
 
 enum Handle {
     Plain(MenuItem),
@@ -97,7 +99,7 @@ impl MacMenu {
             }
         }
         self.menu = Some(menu);
-        self.structure = native_menu::structure_key(bar);
+        self.structure = structure_key(bar);
     }
 
     fn append(&mut self, sub: &Submenu, nodes: &[Node]) {
@@ -160,7 +162,7 @@ impl MacMenu {
 
 impl Backend for MacMenu {
     fn sync(&mut self, bar: &MenuBar) {
-        if self.menu.is_none() || native_menu::structure_key(bar) != self.structure {
+        if self.menu.is_none() || structure_key(bar) != self.structure {
             self.build(bar);
             return;
         }
@@ -196,7 +198,7 @@ impl Backend for MacMenu {
         while let Ok(chosen) = self.rx.try_recv() {
             // Ids that aren't ours are AppKit's own items (Services, Zoom, …), already handled.
             let Some(e) = self.entries.get(&chosen.id) else { continue };
-            if e.command == native_menu::HIDE {
+            if e.command == HIDE {
                 if let Some(mtm) = MainThreadMarker::new() {
                     NSApplication::sharedApplication(mtm).hide(None);
                 }
@@ -209,7 +211,7 @@ impl Backend for MacMenu {
             let key =
                 e.chord.as_ref().filter(|c| chosen.key && (cmd || ctrl || !(c.cmd || c.ctrl))).map(|c| Chord { cmd, ctrl, alt, shift, key: c.key.clone() });
             out.push(match key {
-                Some(chord) if e.command != native_menu::MINIMIZE => Event::Key(chord),
+                Some(chord) if e.command != MINIMIZE => Event::Key(chord),
                 _ => Event::Click(e.command.clone()),
             });
         }

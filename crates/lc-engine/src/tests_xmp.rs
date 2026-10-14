@@ -355,8 +355,8 @@ pub(crate) fn synthetic_dng_with(xmp: Option<&str>, metadata: lightcraft_meta::M
         color: ColorData {
             illuminant: [17, 21],
             color_matrix: [
-                Some(lightcraft_color::Mat3([[0.9, 0.2, -0.15], [-0.3, 1.25, 0.08], [0.02, -0.12, 0.85]])),
-                Some(lightcraft_color::Mat3([[0.7, 0.3, -0.1], [-0.35, 1.3, 0.1], [0.05, -0.2, 1.0]])),
+                Some(li_color::Mat3([[0.9, 0.2, -0.15], [-0.3, 1.25, 0.08], [0.02, -0.12, 0.85]])),
+                Some(li_color::Mat3([[0.7, 0.3, -0.1], [-0.35, 1.3, 0.1], [0.05, -0.2, 1.0]])),
             ],
             as_shot_neutral: Some([0.5, 1.0, 0.7]),
             ..Default::default()
@@ -516,7 +516,7 @@ fn convert_to_dng_is_verified_and_atomic() {
     };
     {
         // the drive fills up part-way
-        let _fault = lightcraft_catalog::safe_file::fail_writes_after(200);
+        let _fault = li_fs::fail_writes_after(200);
         let r = s.execute("photo.convertToDng", &json!({})).unwrap();
         assert_eq!(r["converted"].as_array().unwrap().len(), 0, "{r}");
         assert!(r["skipped"][0][1].as_str().unwrap().contains("the raw is kept"), "{r}");

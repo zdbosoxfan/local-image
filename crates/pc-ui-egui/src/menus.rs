@@ -15,11 +15,6 @@ pub(crate) fn persona_menus(app: &PhotocraftApp) -> &'static [&'static str] {
     if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector { &VECTOR_TOP_MENUS } else { &TOP_MENUS }
 }
 
-// Hidden duplicates of Local AI setup. Both still have handlers in files owned by the
-// compatibility-removal job C (ai_ui.rs, pc-engine prefs.rs, prefs_ui.rs); delete these
-// rows with those handlers. No other old command IDs are kept.
-const MENU_ALIASES: &[(&str, &str)] = &[("li.aiModels", "li.localAi"), ("edit.preferences.integrations", "li.localAi")];
-
 /// UI-level commands (handled by the shell rather than the engine): id, label, menu, shortcut.
 pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("file.open", "Open…", &["File"], Some("Cmd+O")),
@@ -75,9 +70,7 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("window.theme.studioLight", "Studio Light Theme", &["Window", "Theme"], None),
     ("window.theme.classic", "Classic Theme", &["Window", "Theme"], None),
     ("edit.search", "Search…", &["Edit"], None),
-    ("edit.preferences.integrations", "AI Integrations…", &[], None),
-    // local-image: AI setup, and credit to the projects Local Image is built on.
-    ("li.aiModels", "AI Models & GPU…", &[], None),
+    // local-image: credit to the projects Local Image is built on.
     ("help.github", "Local Image on GitHub", &["Help"], None),
     ("help.artcraftWebsite", "PhotoCraft and LightCraft (ArtCraft)", &["Help"], None),
     ("help.reportIssue", "Report an Issue…", &["Help"], None),
@@ -728,8 +721,7 @@ pub(crate) fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     })
 }
 
-/// Shared menu tree entry for rendering and `ui.inspect`.
-pub use li_commands::menu::MenuItem;
+use li_commands::menu::MenuItem;
 
 /// Is `id` implemented by the engine or the shell (a live menu item)? Shared by the menus and
 /// the parity report ([`crate::parity`]).
@@ -898,9 +890,9 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             },
         );
     }
-    // Rows without a menu location and the hidden Local AI duplicates stay out of the menus.
+    // Rows without a menu location stay out of the menus.
     // Brushes opens presets, Brush Settings opens settings; the panel tabs are separate functions.
-    items.retain(|item| !item.path.is_empty() && !MENU_ALIASES.iter().any(|(alias, _)| *alias == item.id));
+    items.retain(|item| !item.path.is_empty());
     let mut seen = std::collections::HashSet::new();
     items.retain(|item| item.id == "---" || seen.insert(item.id.clone()));
     let tops = persona_menus(app);
@@ -915,9 +907,9 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
         if is_live(&item.id) {
             item.shortcut = bindings
                 .iter()
-                .filter(|(id, _)| id == &item.id || MENU_ALIASES.iter().any(|(alias, canonical)| *alias == id && *canonical == item.id))
-                // Prefer an explicit profile override, then the visible row's own binding.
-                .min_by_key(|(id, _)| (!prefs.shortcut_overrides(false).contains_key(id), id != &item.id))
+                .filter(|(id, _)| id == &item.id)
+                // Prefer an explicit profile override.
+                .min_by_key(|(id, _)| !prefs.shortcut_overrides(false).contains_key(id))
                 .map(|(_, key)| key.clone());
         }
     }
@@ -1053,7 +1045,7 @@ pub(crate) fn menu_bar_with_width(app: &mut PhotocraftApp, ui: &mut egui::Ui, wi
                 // Explicit profile bindings keep ownership of F10. Build bindings only on
                 // that key press, retaining the menu bar's cheap idle-frame path.
                 && !crate::shortcut_dispatch::binding_strings(app_ref).iter().any(|(_, key)| {
-                    crate::shortcuts::parse(key).is_some_and(|shortcut| crate::shortcuts::key_matches(&shortcut, egui::Key::F10, egui::Modifiers::NONE))
+                    li_keys::input::parse(key).is_some_and(|shortcut| li_keys::input::key_matches(&shortcut, egui::Key::F10, egui::Modifiers::NONE))
                 })
                 && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::F10))
                 && let Some(first) = tops.first()
@@ -1210,7 +1202,7 @@ fn help_search(ui: &mut egui::Ui, items: &[MenuItem], clicked: &mut Option<Strin
             let mut trail: Vec<&str> = it.path.iter().map(|p| crate::i18n::tr(lang, p)).collect();
             trail.push(crate::i18n::tr_id(lang, &it.id, &it.label));
             let label = trail.join(" › ");
-            let mut b = crate::widgets::menu_row_button(ui, &label);
+            let mut b = li_commands::widgets::menu_row_button(ui, &label);
             if let Some(sc) = &it.shortcut {
                 b = b.shortcut_text(crate::shortcuts::pretty(sc));
             }
@@ -1270,7 +1262,7 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
                 continue;
             }
             let text = crate::i18n::tr_id(lang, &it.id, &it.label);
-            let mut b = crate::widgets::menu_row_button(ui, text);
+            let mut b = li_commands::widgets::menu_row_button(ui, text);
             if let Some(tint) = it.color.as_deref().and_then(menu_tint) {
                 b = b.fill(tint.gamma_multiply(0.55));
             }
@@ -1306,7 +1298,7 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
             let enabled = any_enabled || !child.is_empty();
             ui.add_enabled_ui(enabled, |ui| {
                 nav.row(ui, depth - 1, enabled, None, |ui, nav| {
-                    let r = ui.menu_button(crate::widgets::menu_row_label(ui, crate::i18n::tr(lang, name)), |ui| {
+                    let r = ui.menu_button(li_commands::widgets::menu_row_label(ui, crate::i18n::tr(lang, name)), |ui| {
                         if name == "Help" && depth == 1 {
                             crate::menu_nav::level(ui, depth + 1, nav, |ui, nav| {
                                 let search: Vec<MenuItem> = items.iter().map(|item| (*item).clone()).collect();

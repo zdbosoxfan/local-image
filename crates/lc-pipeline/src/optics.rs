@@ -16,7 +16,7 @@
 
 use std::sync::Mutex;
 
-use lightcraft_color::perceptual::{oklab_from_2020, oklab_to_2020};
+use li_color::perceptual::{oklab_from_2020, oklab_to_2020};
 use lightcraft_develop::{DevelopSettings, EmbeddedLens, EmbeddedRadial, EmbeddedVignette, EmbeddedWarp};
 use lightcraft_geom::{Affine, Homography, Interval, Orientation, Point, Real};
 use lightcraft_raster::{Plane, Rgb32f};
@@ -57,7 +57,7 @@ pub struct Warp {
     pub lensdb_tca: f64,
     pub lensdb_vig: f64,
     /// Camera-plane sampling basis: working -> camera, then camera -> working.
-    pub camera_basis: Option<[lightcraft_color::Mat3; 2]>,
+    pub camera_basis: Option<[li_color::Mat3; 2]>,
     pub lcp: Option<crate::lcp::LcpMap>,
     pub lcp_dist: f64,
     pub lcp_vig: f64,
@@ -908,7 +908,7 @@ mod tests {
     fn lenscorr_camera_plane_ca_precedes_colour_mixing_without_double_estimation() {
         let (w, h) = (301usize, 201usize);
         let c = Point::new(w as f64 / 2.0, h as f64 / 2.0);
-        let matrix = lightcraft_color::Mat3([[1.4, -0.3, -0.1], [-0.2, 1.3, -0.1], [0.1, -0.4, 1.3]]);
+        let matrix = li_color::Mat3([[1.4, -0.3, -0.1], [-0.2, 1.3, -0.1], [0.1, -0.4, 1.3]]);
         let scales = [1.02, 1.0, 0.98];
         let camera = |x: f64, y: f64| {
             let f = 0.25 + x * 0.0008 + y * 0.0005;

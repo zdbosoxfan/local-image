@@ -14,9 +14,9 @@ use photocraft_engine::toolsets::ToolSet;
 use serde_json::{Map, Value, json};
 
 use crate::PhotocraftApp;
-use crate::menus::MenuItem;
 use crate::state::Tool;
 use crate::theme::Tokens;
+use li_commands::menu::MenuItem;
 
 #[path = "vector_packages/persona.rs"]
 pub mod persona;

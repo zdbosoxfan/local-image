@@ -38,11 +38,10 @@ use serde_json::Value;
 
 use crate::{EngineError, Result, Session};
 
-// Compatibility aliases keep the Library API while both engines use one command model.
+// Command-model types specialised to this engine's Session.
 pub type Run = li_commands::Run<Session, EngineError>;
 pub type Enabled = li_commands::Enabled<Session>;
 pub type CommandSpec = li_commands::CommandSpec<Session, EngineError>;
-pub use li_commands::CommandInfo;
 
 // ---------- enablement predicates
 

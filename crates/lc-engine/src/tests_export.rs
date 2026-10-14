@@ -370,7 +370,7 @@ fn a_failed_export_write_keeps_the_previous_file() {
     let to = Destination { dir: out.to_string_lossy().to_string(), exact: None };
     let o = ExportOptions { conflict: Conflict::Overwrite, ..Default::default() };
     {
-        let _fault = lightcraft_catalog::safe_file::fail_writes_after(100);
+        let _fault = li_fs::fail_writes_after(100);
         let err = disk_batch(&mut s, id, &o, &to).unwrap_err();
         assert!(err.contains("injected"), "{err}");
     }
@@ -412,7 +412,7 @@ fn export_protects_the_target_of_an_imported_symlink() {
 #[test]
 fn exports_are_atomic_without_a_sync() {
     use crate::export::{Conflict, Destination};
-    use lightcraft_catalog::safe_file::syncs_on_this_thread;
+    use li_fs::syncs_on_this_thread;
     let (mut s, id, dir, _src, _) = library_with_jpeg("export-nosync");
     let out = dir.join("out");
     let to = Destination { dir: out.to_string_lossy().to_string(), exact: None };

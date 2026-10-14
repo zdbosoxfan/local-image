@@ -86,14 +86,14 @@ impl Store for FsStore {
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
-        crate::safe_file::write_atomic(&self.path(name), data)
+        li_fs::write_atomic(&self.path(name), data)
     }
 
     fn write_atomic_with(&mut self, name: &str, fill: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>) -> io::Result<u64> {
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
-        crate::safe_file::write_atomic_with(&self.path(name), fill)
+        li_fs::write_atomic_with(&self.path(name), fill)
     }
 
     fn append(&mut self, name: &str, data: &[u8]) -> io::Result<()> {

@@ -1,5 +1,5 @@
 //! High-quality separable resampling; shared kernels with tile-aware Surface adapters.
-pub use li_raster::resample::{Resample, ResampleChoice};
+use li_raster::resample::Resample;
 use photocraft_geom::{Rect, TILE_SIZE};
 use photocraft_raster::Surface;
 fn region(r: Rect) -> li_raster::Region {

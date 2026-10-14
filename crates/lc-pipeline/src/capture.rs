@@ -162,7 +162,7 @@ fn blur_with(
 /// blurred/unblurred mix). Also returns the luminance.
 pub fn blend_mask(img: &Rgb32f, p: &CaptureParams) -> (Plane, Plane) {
     let (w, h) = (img.width, img.height);
-    let lum: Vec<f32> = img.data.iter().map(|c| lightcraft_color::luminance_2020(*c).max(0.0)).collect();
+    let lum: Vec<f32> = img.data.iter().map(|c| li_color::luminance_2020(*c).max(0.0)).collect();
     // 1. clipped / black pixels exclude their 5×5 (diamond-ish) neighbourhood; borders excluded
     let mut mask = vec![1.0f32; w * h];
     for row in 0..h {

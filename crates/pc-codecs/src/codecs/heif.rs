@@ -52,8 +52,8 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits, keep_orientation: bool) -> R
     let mut img = Image::from_raw(decoded.width, decoded.height, layout, sample, decoded.data)?;
     img.icc = decoded.icc;
     img.meta = Metadata {
-        exif: decoded.exif.map(|e| if keep_orientation { e } else { crate::orientation::upright_exif(&e).into_owned() }),
-        xmp: decoded.xmp.map(|x| if keep_orientation { x } else { crate::orientation::upright_xmp(&x).into_owned() }),
+        exif: decoded.exif.map(|e| if keep_orientation { e } else { lightcraft_tiff::exif::upright(&e).into_owned() }),
+        xmp: decoded.xmp.map(|x| if keep_orientation { x } else { lightcraft_meta::upright_xmp(&x).into_owned() }),
         ..Default::default()
     };
     Ok(img)

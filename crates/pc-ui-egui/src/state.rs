@@ -1220,10 +1220,10 @@ pub struct UiState {
     pub status_error: bool,
     /// Non-blocking notices (import/export warnings, files that couldn't open), newest last.
     #[serde(default)]
-    pub notices: Vec<crate::notices::Notice>,
+    pub notices: Vec<li_ui_kit::notices::Notice>,
     /// Recent complete operation results, including dismissed/compacted notices.
     #[serde(default)]
-    pub notice_history: Vec<crate::notices::Notice>,
+    pub notice_history: Vec<li_ui_kit::notices::Notice>,
     #[serde(default)]
     pub notice_history_omitted: usize,
     #[serde(skip)]

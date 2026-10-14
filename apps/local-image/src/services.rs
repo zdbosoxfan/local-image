@@ -73,9 +73,9 @@ fn save_filters(suggested: &str) -> Vec<(String, Vec<String>)> {
 
 /// Per-user settings directory: `LOCAL_IMAGE_CONFIG_DIR`, else `<exe dir>/LocalImageData` in
 /// portable mode, else the platform convention. Everything the app persists lives under it; see
-/// [`crate::app_dirs`].
+/// [`lightcraft_sysmem::app_dirs`].
 pub fn config_dir() -> Option<PathBuf> {
-    crate::app_dirs::config_dir()
+    lightcraft_sysmem::app_dirs::config_dir()
 }
 
 pub fn prefs_file() -> Option<PathBuf> {
@@ -93,10 +93,10 @@ fn recovery_dir() -> Option<PathBuf> {
 }
 
 /// Write `bytes` crash-safely (temp file beside the target, fsync, rename, directory fsync; see
-/// [`photocraft_format::atomic`]). Every document write (Save, Save As, Export, Save for Web) and
+/// [`li_fs`]). Every document write (Save, Save As, Export, Save for Web) and
 /// the preferences go through here, so a failed or interrupted save never destroys the old file.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    photocraft_format::atomic_write(path, bytes).map_err(|e| e.to_string())
+    li_fs::atomic_write(path, bytes).map_err(|e| e.to_string())
 }
 
 /// Persisted separately so the recovery location remains discoverable after restart.
@@ -228,7 +228,7 @@ fn save_editor_prefs(path: &Path, text: &str) -> Result<(), String> {
     save_editor_prefs_inner(path, text)
 }
 fn save_editor_prefs_inner(path: &Path, text: &str) -> Result<(), String> {
-    use photocraft_format::atomic::{AtomicFs, RealFs};
+    use li_fs::{AtomicFs, RealFs};
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let original = match std::fs::read(path) {
@@ -598,7 +598,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         })),
         write: Some(Box::new(|path: &str, bytes: &[u8]| write_atomic(Path::new(path), bytes))),
         stage_write: Some(Arc::new(|path, bytes, interrupt| {
-            let staged = photocraft_format::atomic::stage_write(Path::new(path), bytes, interrupt).map_err(|error| error.to_string())?;
+            let staged = li_fs::stage_write(Path::new(path), bytes, interrupt).map_err(|error| error.to_string())?;
             Ok(photocraft_ui_egui::PreparedWrite { commit: Box::new(move || staged.commit().map_err(|error| error.to_string())) })
         })),
         automation_read,
@@ -1324,7 +1324,7 @@ pub(crate) fn prepare_document_save(
     snapshot: Arc<Document>,
     name: &str,
     settings: &photocraft_ui_egui::ExportSettings,
-    interrupt: &photocraft_raster::Interrupt<'_>,
+    interrupt: &lightcraft_sysmem::jobs::Interrupt<'_>,
 ) -> Result<photocraft_ui_egui::PreparedSave, String> {
     let path = Path::new(name);
     interrupt.check().map_err(|e| e.to_string())?;
@@ -1353,14 +1353,14 @@ pub(crate) fn prepare_document_save(
     options.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
     let progress = |fraction| interrupt.progress(fraction * 0.8);
     let cancel = || interrupt.cancelled();
-    let encode = photocraft_raster::Interrupt::new(&cancel, &progress);
+    let encode = lightcraft_sysmem::jobs::Interrupt::new(&cancel, &progress);
     let output = crate::crash_guard::guard("Save", || {
         photocraft_engine::vector_integration::export_document_background(&snapshot, name, &options, &encode).map_err(|e| e.to_string())
     })?;
     interrupt.check().map_err(|e| e.to_string())?;
     let progress = |fraction| interrupt.progress(0.8 + fraction * 0.19);
-    let writing = photocraft_raster::Interrupt::new(&cancel, &progress);
-    let staged = photocraft_format::atomic::stage_write(&resolved, &output.bytes, &writing).map_err(|e| e.to_string())?;
+    let writing = lightcraft_sysmem::jobs::Interrupt::new(&cancel, &progress);
+    let staged = li_fs::stage_write(&resolved, &output.bytes, &writing).map_err(|e| e.to_string())?;
     let path = path.to_owned();
     #[cfg(not(target_os = "linux"))]
     let expected = original.clone();
@@ -1392,8 +1392,8 @@ pub(crate) fn prepare_document_save(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod save_worker_native_tests {
     use super::*;
+    use lightcraft_sysmem::jobs::Interrupt;
     use photocraft_doc::{ColorMode, Layer, LayerContent, SampleType, Size, SmartObject, SmartSource};
-    use photocraft_raster::Interrupt;
     struct Dir(PathBuf);
     impl Dir {
         fn new() -> Self {

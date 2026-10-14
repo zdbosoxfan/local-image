@@ -97,12 +97,6 @@ pub fn try_write_file_info(xmp: Option<&str>, info: &Value) -> Result<String, Xm
     }
 }
 
-/// Compatibility API. On a malformed source packet retain its bytes; command callers should
-/// use [`try_write_file_info`] to report the failure to the user.
-pub fn write_file_info(xmp: Option<&str>, info: &Value) -> String {
-    try_write_file_info(xmp, info).unwrap_or_else(|_| xmp.unwrap_or_default().to_string())
-}
-
 /// Build Save for Web's privacy-limited packet from the same namespace-aware metadata.
 /// Never carry camera settings, locations, keywords, ratings or opaque developer properties.
 pub fn copyright_xmp(xmp: &str, contact: bool) -> Result<Option<String>, XmpError> {
@@ -167,7 +161,7 @@ mod j03_tests {
         assert_eq!(back.lc_settings.as_deref(), Some("opaque"));
         let bad = "<rdf:RDF><rdf:Description><dc:title>bad</rdf:RDF>";
         assert!(try_write_file_info(Some(bad), &json!({"title":"Replacement"})).is_err());
-        assert_eq!(write_file_info(Some(bad), &json!({"title":"Replacement"})), bad);
+        assert_eq!(try_write_file_info(Some(bad), &json!({"title":"Replacement"})).unwrap_or_else(|_| bad.to_string()), bad);
     }
 
     #[test]

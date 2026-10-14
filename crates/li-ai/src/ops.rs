@@ -1147,7 +1147,7 @@ mod cutout_tier_tests {
         ctl.cancel();
         for variant in ["fast", "quick", "better", "int8", "bf16"] {
             let error = ai.cutout(&RgbaImage::new(4, 4), variant, "", 1, &ctl).unwrap_err();
-            assert!(error.is::<crate::Cancelled>());
+            assert!(error.is::<lightcraft_sysmem::jobs::Cancelled>());
         }
     }
     #[test]
@@ -1186,5 +1186,5 @@ fn lama_local_validation_and_cancellation_never_need_comfy() {
     let ctl = JobControl::new();
     assert!(ai.remove_objects(&rgb, &mask, &engine, 0, &ctl).unwrap_err().to_string().contains("Download AI Remove"));
     ctl.cancel();
-    assert!(ai.remove_patch(&rgb, &mask, &engine, 0, &ctl).unwrap_err().is::<crate::Cancelled>());
+    assert!(ai.remove_patch(&rgb, &mask, &engine, 0, &ctl).unwrap_err().is::<lightcraft_sysmem::jobs::Cancelled>());
 }

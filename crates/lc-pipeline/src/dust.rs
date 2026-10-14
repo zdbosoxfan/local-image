@@ -118,7 +118,7 @@ mod tests {
             .data
             .iter()
             .map(|c| {
-                let e = |v: f32| (lightcraft_color::transfer::linear_to_srgb(v.clamp(0.0, 1.0)) * 255.0) as u8;
+                let e = |v: f32| (li_color::transfer::linear_to_srgb(v.clamp(0.0, 1.0)) * 255.0) as u8;
                 [e(c[0]), e(c[1]), e(c[2]), 255]
             })
             .collect();

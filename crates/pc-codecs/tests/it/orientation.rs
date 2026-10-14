@@ -3,6 +3,8 @@
 
 use crate::common;
 use common::*;
+use lightcraft_meta::upright_xmp;
+use lightcraft_tiff::exif::{orientation as exif_orientation, upright as upright_exif};
 use photocraft_codecs::*;
 use proptest::prelude::{any, prop_assert, prop_assert_eq, proptest};
 

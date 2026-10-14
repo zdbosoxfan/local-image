@@ -10,8 +10,8 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-# Retain the existing public cancellation type; no new registry dependencies.
-photocraft-raster.workspace = true
+# The shared cancellation/progress type (`Interrupt`); no new registry dependencies.
+lightcraft-sysmem.workspace = true
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 # Already locked and in the build tree: safe renameat2/renameatx_np wrappers.

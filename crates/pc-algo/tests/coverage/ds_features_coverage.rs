@@ -1,4 +1,4 @@
-use photocraft_algo::features::{Corner, Descriptor, Model, describe, fit, hamming, harris, match_descriptors, ransac, register};
+use lightcraft_merge::editor::features::{Corner, Descriptor, Model, describe, fit, hamming, harris, match_descriptors, ransac, register};
 
 fn apply_matrix(m: [f64; 9], x: f64, y: f64) -> [f64; 2] {
     let w = m[6] * x + m[7] * y + m[8];
@@ -223,9 +223,9 @@ fn fit_homography_clean_exact() {
 
 #[test]
 fn ransac_insufficient_points() {
-    assert!(ransac(Model::Translation, &[], &[], 10, 1.0, 0).is_none());
-    assert!(ransac(Model::Similarity, &[[0.0, 0.0]], &[[1.0, 1.0]], 10, 1.0, 0).is_none());
-    assert!(ransac(Model::Homography, &[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], &[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], 10, 1.0, 0,).is_none());
+    assert!(ransac(Model::Translation, &[], &[], 1.0, 0).is_none());
+    assert!(ransac(Model::Similarity, &[[0.0, 0.0]], &[[1.0, 1.0]], 1.0, 0).is_none());
+    assert!(ransac(Model::Homography, &[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], &[[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], 1.0, 0).is_none());
 }
 
 #[test]
@@ -233,7 +233,7 @@ fn ransac_translation_all_inliers() {
     let src: Vec<[f64; 2]> = (0..20).map(|i| [i as f64, (i % 5) as f64]).collect();
     let dst: Vec<[f64; 2]> = src.iter().map(|p| [p[0] + 5.0, p[1] - 3.0]).collect();
 
-    let (h, inliers) = ransac(Model::Translation, &src, &dst, 30, 0.5, 7).unwrap();
+    let (h, inliers) = ransac(Model::Translation, &src, &dst, 0.5, 7).unwrap();
     assert_eq!(inliers.len(), src.len());
 
     let (x, y) = h.apply(0.0, 0.0);
@@ -245,8 +245,8 @@ fn ransac_deterministic_for_seed() {
     let src: Vec<[f64; 2]> = (0..15).map(|i| [i as f64, (i % 4) as f64]).collect();
     let dst: Vec<[f64; 2]> = src.iter().map(|p| [p[0] + 2.0, p[1] - 1.0]).collect();
 
-    let (h1, inliers1) = ransac(Model::Translation, &src, &dst, 10, 1.0, 9).unwrap();
-    let (h2, inliers2) = ransac(Model::Translation, &src, &dst, 10, 1.0, 9).unwrap();
+    let (h1, inliers1) = ransac(Model::Translation, &src, &dst, 1.0, 9).unwrap();
+    let (h2, inliers2) = ransac(Model::Translation, &src, &dst, 1.0, 9).unwrap();
 
     assert_eq!(inliers1, inliers2);
     let (x1, y1) = h1.apply(0.0, 0.0);
@@ -291,8 +291,8 @@ fn register_translation_alignment() {
 fn ransac_mismatched_lengths_does_not_panic() {
     let src = [[0.0, 0.0], [1.0, 1.0], [2.0, 1.0], [1.0, 2.0], [3.0, 2.0]];
     for model in [Model::Translation, Model::Similarity, Model::Homography] {
-        assert!(ransac(model, &src, &src[..4], 1, 1.0, 0).is_none());
-        assert!(ransac(model, &src[..4], &src, 1, 1.0, 0).is_none());
-        assert!(ransac(model, &src, &[], 1, 1.0, 0).is_none());
+        assert!(ransac(model, &src, &src[..4], 1.0, 0).is_none());
+        assert!(ransac(model, &src[..4], &src, 1.0, 0).is_none());
+        assert!(ransac(model, &src, &[], 1.0, 0).is_none());
     }
 }

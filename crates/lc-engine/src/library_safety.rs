@@ -1,7 +1,7 @@
 //! Catalog backup policy and read-only verification. Backups publish a complete directory only
 //! after both catalog files have been synced, compared and replayed successfully.
 use crate::{EngineError, Result, Session};
-use lightcraft_catalog::{Journal, MemStore, safe_file};
+use lightcraft_catalog::{Journal, MemStore};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -84,7 +84,7 @@ fn publish_backup(source: &Path, root: &Path, identity: &str, seconds: u64, keep
     let result: Result<PathBuf> = (|| {
         for name in ["catalog.snap", "catalog.log"] {
             let src = source.join(name);
-            safe_file::write_new_with(
+            li_fs::write_new_with(
                 &staging.join(name),
                 &mut |writer| std::io::copy(&mut std::fs::File::open(&src)?, writer).map(|_| ()),
                 &mut |tmp| {
@@ -97,11 +97,11 @@ fn publish_backup(source: &Path, root: &Path, identity: &str, seconds: u64, keep
         backup_cutpoint("pair");
         verify_pair(&staging)?;
         let manifest = serde_json::to_vec(&Manifest { version: 1, library: identity.into(), seconds }).map_err(other)?;
-        safe_file::write_new(&staging.join("backup.json"), &manifest).map_err(other)?;
+        li_fs::write_new(&staging.join("backup.json"), &manifest).map_err(other)?;
         backup_cutpoint("manifest");
-        safe_file::sync_dir_checked(&staging).map_err(other)?;
+        li_fs::sync_dir_checked(&staging).map_err(other)?;
         std::fs::rename(&staging, &destination).map_err(other)?;
-        safe_file::sync_dir_checked(root).map_err(other)?;
+        li_fs::sync_dir_checked(root).map_err(other)?;
         backup_cutpoint("published");
         Ok(destination.clone())
     })();
@@ -114,7 +114,7 @@ fn publish_backup(source: &Path, root: &Path, identity: &str, seconds: u64, keep
     for (_, old) in entries.into_iter().filter(|(_, p)| *p != path).take(remove) {
         std::fs::remove_dir_all(old).map_err(other)?;
     }
-    safe_file::sync_dir_checked(root).map_err(other)?;
+    li_fs::sync_dir_checked(root).map_err(other)?;
     Ok(path)
 }
 fn backup_cutpoint(_stage: &str) {
@@ -210,7 +210,7 @@ mod tests {
         let first = publish_backup(&dir, &root, identity, 1, 1).unwrap();
         let before = std::fs::read(dir.join("catalog.snap")).unwrap();
         for limit in [0, 4] {
-            let fault = safe_file::fail_writes_after(limit);
+            let fault = li_fs::fail_writes_after(limit);
             // Keep a nonempty, valid log beside the snapshot during injected failures.
             std::fs::write(dir.join("catalog.log"), b"\n").unwrap();
             assert!(publish_backup(&dir, &root, identity, 2, 1).is_err());

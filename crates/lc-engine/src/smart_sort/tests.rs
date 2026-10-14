@@ -298,7 +298,7 @@ fn store_appends_atomically_and_retries_a_failed_batch() {
     let before = std::fs::read(&path).unwrap();
     cache.insert("mock-tags", "two".into(), vec![2.0; 8]).unwrap();
     {
-        let _fault = lightcraft_catalog::safe_file::fail_writes_after(4);
+        let _fault = li_fs::fail_writes_after(4);
         assert!(cache.save().is_err());
     }
     assert_eq!(std::fs::read(&path).unwrap(), before);
@@ -459,7 +459,7 @@ fn analysis_retries_a_failed_save_even_when_every_photo_is_cached() {
     s.smart.store = Store::new(Some(&dir));
     let id = s.catalog.photos().find(|p| p.flag != Flag::Reject).unwrap().id;
     {
-        let _fault = lightcraft_catalog::safe_file::fail_writes_after(4);
+        let _fault = li_fs::fail_writes_after(4);
         assert!(s.execute("smartSort.analyze", &json!({"ids":[id]})).is_err());
     }
     assert_eq!(s.smart.store.len("mock-tags"), 1);

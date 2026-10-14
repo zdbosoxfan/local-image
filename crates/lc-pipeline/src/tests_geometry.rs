@@ -1,8 +1,9 @@
 //! Geometry / optics tests on synthetic images with known distortions.
 
+use li_raster::resample::Filter;
 use lightcraft_develop::{DevelopSettings, EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
 use lightcraft_geom::Point;
-use lightcraft_raster::resample::{Filter, resize};
+use lightcraft_raster::resample::resize;
 use lightcraft_raster::{Rgb32f, Rgba8};
 
 use crate::{RenderRequest, SourceInfo, render};

@@ -4,7 +4,7 @@
 use serde_json::{Map, Value, json};
 
 use crate::PhotocraftApp;
-use crate::menus::MenuItem;
+use li_commands::menu::MenuItem;
 
 /// Menu ids of installed plug-ins: `plugin.filter.<plug-in id>`.
 const PREFIX: &str = "plugin.filter.";

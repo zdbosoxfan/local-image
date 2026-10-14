@@ -11,8 +11,8 @@ use serde_json::json;
 
 use super::{Focus, Outcome, bindings, set_dry_run, take_log};
 use crate::PhotocraftApp;
-use crate::shortcuts::parse;
 use crate::state::Tool;
+use li_keys::input::parse;
 
 /// Background, a filled pixel layer "paint" (active, with a selection), a type layer and a group
 /// holding a layer: what a real layout PSD looks like.

@@ -2,8 +2,8 @@
 //! Mapping follows KDE Krita kis_paintop_preset.cpp, kis_brush.cpp, and libpaintop options.
 use super::brush_import::{self as common, BrushImport, SvgTip};
 use super::brush_import_xml as xml;
+use lightcraft_sysmem::jobs::Interrupt;
 use photocraft_paint::{BrushSettings, Control, Dynamic, GrayTile, Pattern, TipShape};
-use photocraft_raster::Interrupt;
 use std::collections::BTreeMap;
 
 pub(crate) fn bundle(bytes: &[u8], group: &str, ctl: &Interrupt<'_>, svg: &SvgTip<'_>) -> Result<BrushImport, String> {

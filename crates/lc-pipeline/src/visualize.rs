@@ -12,9 +12,9 @@
 
 use std::borrow::Cow;
 
-use lightcraft_color::perceptual::{lab_to_lch, oklab_from_2020};
-use lightcraft_color::transfer::srgb_to_linear;
-use lightcraft_color::{REC2020, SRGB};
+use li_color::perceptual::{lab_to_lch, oklab_from_2020};
+use li_color::transfer::srgb_to_linear;
+use li_color::{REC2020, SRGB};
 use lightcraft_develop::DevelopSettings;
 use lightcraft_raster::{Plane, Rgba8};
 

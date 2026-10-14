@@ -10,6 +10,8 @@ workspace = true
 
 [dependencies]
 li-commands.workspace = true
+# The shared crash-safe file writer (atomic replace, new-file publication, fault injection).
+li-fs.workspace = true
 li-raster = { path = "../li-raster" }
 # Existing locked pure-Rust PDF stack; no new crate versions.
 krilla = { workspace = true }
@@ -19,7 +21,6 @@ photocraft-doc = { workspace = true }
 photocraft-geom = { workspace = true }
 li-color = { workspace = true }
 lightcraft-geom = { workspace = true }
-lightcraft-color = { workspace = true }
 lightcraft-raster = { workspace = true }
 lightcraft-develop = { workspace = true }
 lightcraft-scenes = { workspace = true }

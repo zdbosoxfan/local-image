@@ -16,12 +16,13 @@
 
 use std::sync::Arc;
 
+use li_raster::resample::Filter;
 use lightcraft_catalog::PhotoId;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_geom::Point;
 use lightcraft_pipeline::patches::{AiView, PatchPixels, PatchSource};
 use lightcraft_preview::Hasher128;
-use lightcraft_raster::resample::{Filter, resize};
+use lightcraft_raster::resample::resize;
 use lightcraft_raster::{Plane, Rgb32f};
 
 use super::store::{self, Kind};
@@ -287,11 +288,12 @@ impl Prepared {
     }
 }
 
-/// Compatibility adapter: the shared pipeline backend keeps LOCAL jobs and saved spots equal.
+/// Heals through the shared pipeline backend (so LOCAL jobs and saved spots match), reporting
+/// progress and cancellation through the job.
 pub(crate) fn heal(pixels: &[[f32; 3]], w: usize, h: usize, cov: &[f32], seed: u64, ctl: &JobCtl) -> Result<(Vec<[f32; 3]>, Vec<f32>), String> {
     let cancel = || ctl.is_cancelled();
     let progress = |f: f32| ctl.report(0.1 + 0.8 * f, "Healing");
-    let interrupt = photocraft_raster::Interrupt::new(&cancel, &progress);
+    let interrupt = lightcraft_sysmem::jobs::Interrupt::new(&cancel, &progress);
     lightcraft_pipeline::spots::heal_patch(pixels, w, h, cov, seed, &interrupt).map_err(|_| super::CANCELLED.to_string())
 }
 

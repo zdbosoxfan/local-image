@@ -17,10 +17,8 @@
 
 mod convert;
 pub mod encode;
-pub mod exif;
 pub mod icc;
 mod jpeg;
-pub mod jpeg_par;
 mod sniff;
 pub mod space;
 
@@ -114,10 +112,10 @@ impl Decoded {
 
     /// Display-encoded 8-bit sRGB (gamut clipped), with alpha.
     pub fn to_srgb8(&self) -> Rgba8 {
-        let m = self.space.to_space(&lightcraft_color::SRGB);
-        let ident = m == lightcraft_color::Mat3::IDENTITY;
+        let m = self.space.to_space(&li_color::SRGB);
+        let ident = m == li_color::Mat3::IDENTITY;
         let m = m.to_f32();
-        let enc = lightcraft_color::transfer::encode_srgb8;
+        let enc = li_color::transfer::encode_srgb8;
         let mut out = Rgba8::new(self.image.width, self.image.height);
         let alpha = self.alpha.as_ref();
         lightcraft_raster::par_rows(&mut out.data, self.image.width, |y, row| {

@@ -1,8 +1,7 @@
 //! Downloading a model's files from an ordered list of mirrors, only when the user asked for it,
-//! through the app's one verified downloader. (A thin adapter over [`li_ai::download`]; audit D15,
-//! job J8.)
+//! through the app's one verified downloader.
 //!
-//! What this crate adds is only what `li-ai` does not do itself: the list of mirrors (the next one
+//! The downloader is [`li_ai::download`]; what this module adds is only what `li-ai` does not do itself: the list of mirrors (the next one
 //! when a mirror fails, see [`mirrors`]), tries per mirror, progress over several files, and an
 //! `AtomicBool` cancel flag. Every byte goes through `li-ai`: HTTPS to its host allow-list
 //! (checked on every redirect), the exact size and SHA-256 **required**, a `.part` file that is
@@ -16,19 +15,16 @@
 //! - an interrupted download starts over (no resume) and a stalled connection ends at `li-ai`'s
 //!   whole-body budget; cancelling stops it at once.
 //!
-//! Runs on whatever thread calls [`download`] (the engine uses a background thread). Native only:
-//! on wasm32 this crate is empty (the web build downloads no models).
-
-#![cfg(not(target_arch = "wasm32"))]
-#![forbid(unsafe_code)]
-#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+//! Runs on whatever thread calls [`download`] (the engine uses a background thread). Native only
+//! (the web build downloads no models).
 
 use std::cell::RefCell;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use li_ai::{Cancelled, JobControl};
+use li_ai::JobControl;
+use lightcraft_sysmem::jobs::Cancelled;
 
 /// One file of the model.
 #[derive(Clone, Debug, PartialEq, Eq)]

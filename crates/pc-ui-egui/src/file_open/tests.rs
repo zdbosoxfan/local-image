@@ -226,7 +226,7 @@ fn open_paths_reports_each_failure_without_panicking() {
     assert_eq!(n, 0);
     assert!(app.session.documents().is_empty());
     assert!(app.ui.status_error);
-    assert_eq!(app.ui.notices.len(), notices::MAX_NOTICES);
+    assert_eq!(app.ui.notices.len(), li_ui_kit::notices::MAX_NOTICES);
     // Bad control params error instead of panicking.
     let ctx = egui::Context::default();
     assert!(menus::invoke(&mut app, &ctx, "file.open", json!({ "path": "" })).is_err());
@@ -562,11 +562,11 @@ fn notices_are_capped_and_dismissable_state_round_trips() {
     for i in 0..10 {
         notices::post(&mut app, format!("n{i}"), vec![], false, None);
     }
-    assert_eq!(app.ui.notices.len(), notices::MAX_NOTICES);
+    assert_eq!(app.ui.notices.len(), li_ui_kit::notices::MAX_NOTICES);
     assert_eq!(app.ui.notices.last().map(|n| n.title.as_str()), Some("n9"));
     // Notices are part of the serialized UI state (ui.inspect / ui.set).
     let v = serde_json::to_value(&app.ui).unwrap();
-    assert_eq!(v["notices"].as_array().map(Vec::len), Some(notices::MAX_NOTICES));
+    assert_eq!(v["notices"].as_array().map(Vec::len), Some(li_ui_kit::notices::MAX_NOTICES));
     let back: crate::UiState = serde_json::from_value(v).unwrap();
     assert_eq!(back.notices, app.ui.notices);
 }

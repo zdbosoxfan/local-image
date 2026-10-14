@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
-use photocraft_codecs::{exif_orientation, upright_exif, upright_xmp};
+use lightcraft_meta::upright_xmp;
+use lightcraft_tiff::exif::{orientation as exif_orientation, upright as upright_exif};
 
 // ---------- helpers for constructing synthetic TIFF/EXIF blocks ----------
 

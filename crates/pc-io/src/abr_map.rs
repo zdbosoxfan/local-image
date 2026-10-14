@@ -32,32 +32,32 @@ pub struct AbrImport {
 
 /// Parse an `.abr` file into presets in group `group` (usually the file name).
 pub fn read_abr(bytes: &[u8], group: &str) -> Result<AbrImport, String> {
-    read_abr_with(bytes, group, &photocraft_raster::Interrupt::NONE)
+    read_abr_with(bytes, group, &lightcraft_sysmem::jobs::Interrupt::NONE)
 }
 
 /// [`read_abr`] that checks `ctl` before each brush (and reports progress): a cancelled import
 /// fails with "cancelled".
-pub fn read_abr_with(bytes: &[u8], group: &str, ctl: &photocraft_raster::Interrupt) -> Result<AbrImport, String> {
+pub fn read_abr_with(bytes: &[u8], group: &str, ctl: &lightcraft_sysmem::jobs::Interrupt) -> Result<AbrImport, String> {
     let f = abr::parse(bytes).map_err(|e| format!("not a readable Photoshop brush file: {e}"))?;
     // Parsing is the small part; mapping (tip decoding) reports 10–100 %.
     ctl.progress(0.1);
     let cancel = || ctl.cancelled();
     let progress = |p: f32| ctl.progress(0.1 + 0.9 * p);
-    map_file_with(&f, group, &photocraft_raster::Interrupt::new(&cancel, &progress)).map_err(|e| e.to_string())
+    map_file_with(&f, group, &lightcraft_sysmem::jobs::Interrupt::new(&cancel, &progress)).map_err(|e| e.to_string())
 }
 
 /// Map a parsed file.
 pub fn map_file(f: &AbrFile, group: &str) -> AbrImport {
     // Never cancelled, so always `Ok`.
-    map_file_with(f, group, &photocraft_raster::Interrupt::NONE).unwrap_or_default()
+    map_file_with(f, group, &lightcraft_sysmem::jobs::Interrupt::NONE).unwrap_or_default()
 }
 
 /// [`map_file`] that checks `ctl` before each brush.
-pub fn map_file_with(f: &AbrFile, group: &str, ctl: &photocraft_raster::Interrupt) -> Result<AbrImport, photocraft_raster::Cancelled> {
+pub fn map_file_with(f: &AbrFile, group: &str, ctl: &lightcraft_sysmem::jobs::Interrupt) -> Result<AbrImport, lightcraft_sysmem::jobs::Cancelled> {
     let mut out = AbrImport { version: f.version, warnings: f.warnings.clone(), ..Default::default() };
     let mut m = Mapper { file: f, warnings: BTreeSet::new(), unknown: BTreeSet::new(), remaining: 128 << 20 };
     let total = f.legacy.len().max(f.samples.len()).max(f.presets.len()).max(1) as f32;
-    let step = |i: usize| -> Result<(), photocraft_raster::Cancelled> {
+    let step = |i: usize| -> Result<(), lightcraft_sysmem::jobs::Cancelled> {
         ctl.check()?;
         ctl.progress(i as f32 / total);
         Ok(())

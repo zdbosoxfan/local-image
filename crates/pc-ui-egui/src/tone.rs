@@ -108,7 +108,7 @@ pub fn compute_histograms(doc: &Document, source: HistSource, space: ToneSpace) 
             }
             ToneSpace::Lab => {
                 let rgb = [p[0], p[1], p[2]].map(|v| f32::from(v) / 255.0);
-                let l = photocraft_color::convert::srgb_to_lab(rgb);
+                let l = li_color::convert::srgb_to_lab(rgb);
                 h[0][bin(l[0] / 100.0)] += 1;
                 h[1][bin((l[1] + 128.0) / 255.0)] += 1;
                 h[2][bin((l[2] + 128.0) / 255.0)] += 1;

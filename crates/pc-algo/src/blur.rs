@@ -1,9 +1,11 @@
 //! Blurs: Gaussian, box, motion, radial, surface.
 
+use li_raster::blur::{premultiply, unpremultiply};
+use li_raster::frame::Edge;
+use lightcraft_sysmem::jobs::Interrupt;
 use photocraft_geom::Rect;
-use photocraft_raster::Interrupt;
 
-use crate::image::{Edge, Image, premultiply, unpremultiply};
+use crate::image::Image;
 use crate::photo_util::{par_map, par_rows};
 use crate::{Ctx, FilterParams, RadialMethod};
 

@@ -1,5 +1,5 @@
 // Develop-only helpers, after li_gpu::wgsl::COMMON and the generated constants/bindings.
-// Each function mirrors its CPU twin in `lightcraft-pipeline` / `lightcraft-color`; keep them in step.
+// Each function mirrors its CPU twin in `lightcraft-pipeline` / `li-color`; keep them in step.
 
 fn pu(i: u32) -> u32 {
     return P[i];
@@ -32,7 +32,7 @@ fn wrap_angle(a: f32) -> f32 {
     return rem_euclid(a + PI, TAU) - PI;
 }
 
-// Rec.2020 luminance (`lightcraft_color::luminance_2020`).
+// Rec.2020 luminance (`li_color::luminance_2020`).
 fn lum2020(c: vec3<f32>) -> f32 {
     return c.x * 0.2627 + c.y * 0.6780 + c.z * 0.0593;
 }

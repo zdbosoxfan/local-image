@@ -18,10 +18,17 @@ log = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 candle-core = { workspace = true }
 candle-nn = { workspace = true }
-lightcraft-fetch = { workspace = true }
+# model downloads go through the app's one verified downloader (fetch::mirror)
+li-ai = { workspace = true }
+# the shared cancellation type the downloader reports
+lightcraft-sysmem = { workspace = true }
 # the shared CLIP BPE tokenizer (li_seg::bpe) for text prompts
 li-seg = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 candle-core = { workspace = true, features = ["metal"] }
 candle-nn = { workspace = true, features = ["metal"] }
+
+[dev-dependencies]
+# the mirror tests check the served bytes against their SHA-256
+sha2 = { workspace = true }

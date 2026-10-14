@@ -17,11 +17,8 @@
 
 pub mod builtin;
 pub mod clut;
-pub mod curve;
 pub mod gamut;
 pub mod lut3d;
-pub mod lutfile;
-pub mod math;
 pub mod pipeline;
 pub mod profile;
 pub mod synth;
@@ -30,7 +27,6 @@ mod write;
 
 pub use builtin::Builtin;
 pub use clut::Clut;
-pub use curve::Curve;
 pub use gamut::GamutCheck;
 pub use lut3d::Lut3d;
 pub use profile::{ColorSpace, Pcs, Profile, ProfileClass};

@@ -258,7 +258,7 @@ fn smart_run(
                 .ok_or_else(|| "nothing to build from".to_string())
                 .and_then(|s| s.load_source())
                 .and_then(|src| crate::smart::encode_source(&src))
-                .and_then(|b| lightcraft_catalog::safe_file::write_atomic(&path, &b).map_err(|e| format!("{}: {e}", path.display())));
+                .and_then(|b| li_fs::write_atomic(&path, &b).map_err(|e| format!("{}: {e}", path.display())));
             match r {
                 Ok(()) => {
                     if damaged && let Some(st) = state {

@@ -221,7 +221,7 @@ fn j11_editor_adapter_uses_shared_staging_and_fault_cleanup() {
         assert!(atomic_write(&p, b"replacement").is_err());
     }
     assert_eq!(std::fs::read(&p).unwrap(), ORIGINAL);
-    let staged = stage_write(&p, b"replacement", &photocraft_raster::Interrupt::NONE).unwrap();
+    let staged = stage_write(&p, b"replacement", &lightcraft_sysmem::jobs::Interrupt::NONE).unwrap();
     assert_eq!(std::fs::read(&p).unwrap(), ORIGINAL);
     staged.commit().unwrap();
     assert_eq!(std::fs::read(&p).unwrap(), b"replacement");

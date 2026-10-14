@@ -30,7 +30,7 @@ fn camera_exif_at(focal: u32, width: u32, height: u32, orientation: u16) -> Vec<
 }
 
 fn enc(v: f32) -> f32 {
-    photocraft_cms::curve::srgb_trc().eval_inverse(v.clamp(0.0, 1.0))
+    li_color::curve::srgb_trc().eval_inverse(v.clamp(0.0, 1.0))
 }
 
 #[test]

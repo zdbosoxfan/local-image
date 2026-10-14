@@ -872,7 +872,8 @@ impl Cache {
     }
     pub fn put(&self, url: &str, body: &[u8]) -> Result<()> {
         std::fs::create_dir_all(&self.dir)?;
-        crate::settings::write_atomic(&self.path(url), body)
+        li_fs::atomic_write(&self.path(url), body)?;
+        Ok(())
     }
     /// Fetches `url` online (caching it), or falls back to the cache; `online = false` reads the
     /// cache only. Returns the body and whether it came from the cache.

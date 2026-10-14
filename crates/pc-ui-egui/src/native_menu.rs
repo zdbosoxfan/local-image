@@ -24,11 +24,13 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use crate::PhotocraftApp;
 use crate::i18n::{Lang, tr, tr_id};
-use crate::menus::MenuItem;
+use li_commands::menu::MenuItem;
 
-pub use li_commands::menu::{
-    APP_NAME, Backend, Chord, Clash, Event, HIDE, Item, ItemRole, Layout, MINIMIZE, Menu, MenuBar, MenuRole, Node, Standard, from_items, structure_key,
-};
+use li_commands::menu::{Backend, Event, Item, ItemRole, Layout, MINIMIZE, MenuBar, MenuRole, Node, from_items};
+#[cfg(test)]
+use li_commands::menu::{HIDE, Menu, Standard, structure_key};
+#[cfg(test)]
+use li_keys::Chord;
 
 /// Apply the shared macOS layout using the editor's translation catalog.
 pub fn mac_layout(bar: &MenuBar, lang: Lang) -> Layout {
@@ -468,7 +470,7 @@ mod tests {
         let app = app(true);
         let bindings = crate::shortcut_dispatch::bindings(&app);
         for it in crate::menus::menu_items(&app).iter().filter(|it| it.enabled) {
-            let Some(shown) = it.shortcut.as_deref().and_then(crate::shortcuts::parse) else { continue };
+            let Some(shown) = it.shortcut.as_deref().and_then(li_keys::input::parse) else { continue };
             let runs = bindings.iter().find(|(_, b)| *b == shown).map(|(id, _)| id.as_str());
             assert!(runs.is_some(), "{} shows {:?}, which runs nothing", it.id, it.shortcut);
         }
@@ -505,8 +507,8 @@ mod tests {
             let c = Chord::parse(sc).unwrap_or_else(|| panic!("{sc} on {} doesn't parse", it.id));
             assert_eq!(&c.portable(), sc, "{} writes its modifiers in another order", it.id);
             let Some(egui::Event::Key { key, modifiers, .. }) = c.key_event(true) else { panic!("{sc} on {} has no egui key", it.id) };
-            let parsed = crate::shortcuts::parse(sc).unwrap();
-            assert!(crate::shortcuts::key_matches(&parsed, key, modifiers), "{sc} on {} doesn't match its own key press", it.id);
+            let parsed = li_keys::input::parse(sc).unwrap();
+            assert!(li_keys::input::key_matches(&parsed, key, modifiers), "{sc} on {} doesn't match its own key press", it.id);
         }
     }
 

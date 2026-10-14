@@ -4,7 +4,7 @@ use egui::{Mesh, Rect, pos2};
 /// Display work is bounded by these bins, independent of the source image size.
 pub const BINS: usize = 256;
 
-/// Borrow a legacy Library preview or the canonical exact RGB histogram without copying bins.
+/// Borrow a Library preview histogram (`u32` bins) or the exact RGB histogram (`u64`) without copying bins.
 #[derive(Clone, Copy)]
 pub enum Bins<'a> {
     U32(&'a [u32]),
@@ -19,7 +19,7 @@ impl Bins<'_> {
     }
 }
 
-/// A zero-copy histogram view. Missing legacy bins display as zero; extras are ignored.
+/// A zero-copy histogram view. Missing bins display as zero; extras are ignored.
 #[derive(Clone, Copy)]
 pub struct Histogram<'a> {
     pub channels: [Bins<'a>; 3],

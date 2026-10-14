@@ -2,10 +2,10 @@
 //! mutated/truncated valid files. Uses `decode_unguarded` so panics in our own code are not masked
 //! by the public entry point's panic guard.
 
-use lightcraft_codecs::exif::minimal_exif;
 use lightcraft_codecs::icc::write_named;
 use lightcraft_codecs::*;
 use lightcraft_raster::Rgba8;
+use lightcraft_tiff::exif::minimal_exif;
 use proptest::prelude::*;
 use std::sync::OnceLock;
 

@@ -6,10 +6,8 @@
 //! premultiplied linear-light colour. Envelope 20's private Catmull-Rom evaluator
 //! is a different surface and is not copied here. Coordinates are document pixels.
 use crate::{DEFAULT_TOLERANCE, Rasterizer, fill_rasterizer};
-use photocraft_color::{
-    PixelFormat,
-    convert::{linear_to_srgb, srgb_to_linear},
-};
+use li_color::convert::{linear_to_srgb, srgb_to_linear};
+use photocraft_color::PixelFormat;
 use photocraft_doc::{Path, vector_design::exchange::VectorWarning};
 use photocraft_geom::{Affine, Rect, TILE_SIZE};
 use photocraft_raster::Surface;

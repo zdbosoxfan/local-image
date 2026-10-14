@@ -391,7 +391,7 @@ fn move_into_the_library_is_saved_before_sources_go() {
 #[ignore]
 fn write_policy_timing() {
     use crate::import_move::copy_verified;
-    use lightcraft_catalog::safe_file::{write_atomic, write_atomic_nosync};
+    use li_fs::{write_atomic, write_atomic_nosync};
     use std::time::{Duration, Instant};
     let root = std::env::var_os("LIGHTCRAFT_BENCH_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     let base = root.join(format!("lc-write-policy-{}", std::process::id()));

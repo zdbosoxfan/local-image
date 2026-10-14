@@ -3,8 +3,8 @@
 //! Covers edge cases, invariants, determinism, and the reference solver.
 //! Synthetic data only; no I/O, no network.
 
+use lightcraft_sysmem::jobs::Interrupt;
 use photocraft_algo::poisson;
-use photocraft_raster::Interrupt;
 
 /// Disc-shaped mask (`true` inside), matching the unit test helper.
 fn disc_mask(w: usize, h: usize, cx: f32, cy: f32, r: f32) -> Vec<bool> {

@@ -170,7 +170,7 @@ impl Color {
             ColorMode::Rgb | ColorMode::Indexed | ColorMode::Multichannel => [self.c[0], self.c[1], self.c[2]],
             ColorMode::Grayscale | ColorMode::Bitmap | ColorMode::Duotone => [self.c[0]; 3],
             ColorMode::Cmyk => convert::cmyk_to_rgb([self.c[0], self.c[1], self.c[2], self.c[3]]),
-            ColorMode::Lab => convert::lab_to_srgb([self.c[0] * 100.0, self.c[1] * 255.0 - 128.0, self.c[2] * 255.0 - 128.0]),
+            ColorMode::Lab => li_color::convert::lab_to_srgb([self.c[0] * 100.0, self.c[1] * 255.0 - 128.0, self.c[2] * 255.0 - 128.0]),
         }
     }
 

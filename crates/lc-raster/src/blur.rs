@@ -1,9 +1,9 @@
 //! Adapters to the shared raster blur backend.
 
-use crate::Image;
-use crate::resample::Pixel;
+use li_raster::blur::GaussianPolicy;
+use li_raster::resample::Pixel;
 
-pub use li_raster::blur::{BAND, EXACT_SIGMA, FINE_SIGMA, GaussianPlan, GaussianPolicy, box_radii, gauss_taps, gaussian_kernel};
+use crate::Image;
 
 /// Gaussian blur; exact at sigma <= 4, three running-sum boxes above it.
 /// Small sigmas produce a real blur (#706).

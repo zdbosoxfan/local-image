@@ -11,7 +11,7 @@
 //! and the channel mixer part of the module is not ported. Standard illuminant chromaticities
 //! are the CIE's (1931 2° observer).
 
-use lightcraft_color::{Mat3, REC2020, Xy};
+use li_color::{Mat3, REC2020, Xy};
 
 /// Space the adaptation scales the white in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -255,7 +255,7 @@ pub fn of(info: &crate::SourceInfo, s: &lightcraft_develop::DevelopSettings) -> 
     let xy = match c.illuminant {
         Illuminant::WhiteBalance => {
             let (t, tint) = crate::local::effective_wb(info, s);
-            lightcraft_color::cct::temp_tint_to_xy(t, tint)
+            li_color::cct::temp_tint_to_xy(t, tint)
         }
         Illuminant::A => Standard::A.xy(),
         Illuminant::D50 => Standard::D50.xy(),
@@ -335,7 +335,7 @@ mod tests {
         let (a, b) = (off.apply(sat), on.apply(sat));
         assert!(a[1] < 0.0 && b.iter().all(|v| *v >= 0.0), "{a:?} {b:?}");
         // a saturated colour moves towards white, its luminance kept
-        let y = |c: [f32; 3]| lightcraft_color::luminance_2020(c);
+        let y = |c: [f32; 3]| li_color::luminance_2020(c);
         let chroma = |c: [f32; 3]| (c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2])) / c[0].max(c[1]).max(c[2]);
         let soft = ColorCal::new(Cat::Cat16, REC2020.white, 1.0, false);
         let red = [0.9, 0.05, 0.05];

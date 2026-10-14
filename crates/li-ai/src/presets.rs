@@ -116,7 +116,8 @@ pub fn load_user(path: &Path) -> Vec<GenPreset> {
 
 pub fn save_user(path: &Path, presets: &[GenPreset]) -> Result<()> {
     let user: Vec<&GenPreset> = presets.iter().filter(|p| !p.built_in).collect();
-    crate::settings::write_atomic(path, &serde_json::to_vec_pretty(&user)?)
+    li_fs::atomic_write(path, &serde_json::to_vec_pretty(&user)?)?;
+    Ok(())
 }
 
 /// Built-in presets followed by the user's.

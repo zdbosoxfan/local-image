@@ -1,5 +1,5 @@
 //! Which wgpu backends Local Image lets wgpu use — for its compute device and for the desktop
-//! window (eframe) — and the crash sentinel around device creation (issue #136).
+//! window (eframe) (issue #136). The crash sentinel around window startup is [`crate::startup`].
 //!
 //! wgpu loads the system driver of *every* backend in the instance's set while it enumerates
 //! adapters, even when it then picks another one: with Vulkan in the set, a broken Vulkan driver
@@ -15,9 +15,6 @@
 //!
 //! Backends this build doesn't contain (e.g. `gl`: the GL backend isn't compiled in) are ignored
 //! with a warning and the platform default is used.
-
-use std::path::PathBuf;
-use std::sync::Mutex;
 
 pub use wgpu::Backends;
 
@@ -145,80 +142,9 @@ pub fn env_off() -> bool {
     env_choice() == BackendChoice::Off
 }
 
-static MARKER: Mutex<Option<PathBuf>> = Mutex::new(None);
-
-/// Write this file before the compute device is created and remove it once creation returned
-/// (successfully or not). A file still there at the next launch means the process died inside
-/// the driver: see [`take_init_marker`]. `None` (the default) writes nothing.
-pub fn set_init_marker(path: Option<PathBuf>) {
-    *MARKER.lock().unwrap_or_else(|e| e.into_inner()) = path;
-}
-
-/// Run device creation `f` between writing and removing the init marker (if one is set).
-pub fn with_init_marker<T>(backends: Backends, f: impl FnOnce() -> T) -> T {
-    // Do not hold the configuration mutex across device creation. The generic sentinel's
-    // OS lock distinguishes a live headless initializer from a crashed predecessor.
-    let path = MARKER.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    let mut marker = path.as_deref().and_then(|path| match crate::startup::StartupSentinel::begin(path) {
-        Ok(Some((_, sentinel))) => Some(sentinel),
-        Ok(None) => None,
-        Err(error) => {
-            log::warn!("GPU init marker {}: {error}", path.display());
-            None
-        }
-    });
-    if let Some(marker) = marker.as_mut() {
-        let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let _ = marker.write_text(&format!("GPU device creation started (backends {backends:?}, unix time {secs})\n"));
-    }
-
-    // Rust unwinding is a handled failure, not a driver crash. Clear its marker as well.
-    struct CompletedInit(Option<crate::startup::StartupSentinel>);
-    impl Drop for CompletedInit {
-        fn drop(&mut self) {
-            if let Some(marker) = self.0.take() {
-                marker.finish();
-            }
-        }
-    }
-    let _completed = CompletedInit(marker);
-    f()
-}
-
-/// If the init marker `path` is present — the last process died while creating the GPU device —
-/// remove it and return what it recorded.
-pub fn take_init_marker(path: &std::path::Path) -> Option<String> {
-    crate::startup::StartupSentinel::take_previous(path).ok().flatten().map(|text| text.trim().to_string())
-}
-
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn j12_legacy_init_marker_shares_lock_and_clears_after_unwind() {
-        let _init = crate::TEST_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let dir = std::env::temp_dir().join(format!("li-gpu-legacy-marker-{}", std::process::id()));
-        let path = dir.join("gpu-init.marker");
-        let _ = std::fs::remove_dir_all(&dir);
-        set_init_marker(Some(path.clone()));
-        let failed = std::panic::catch_unwind(|| {
-            with_init_marker(Backends::VULKAN, || {
-                assert!(path.exists());
-                assert_eq!(take_init_marker(&path), None, "a live initializer is not a crash");
-                panic!("handled device creation failure");
-            });
-        });
-        set_init_marker(None);
-        assert!(failed.is_err());
-        assert!(!path.exists(), "handled unwind clears the legacy marker");
-
-        std::fs::write(&path, "GPU device creation started (backends VULKAN)\n").unwrap();
-        assert_eq!(take_init_marker(&path).as_deref(), Some("GPU device creation started (backends VULKAN)"));
-        assert_eq!(take_init_marker(&path), None);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
 
     #[test]
     fn j12_startup_environment_preserves_shell_priority_and_compute_off() {
@@ -283,25 +209,5 @@ mod tests {
         assert_eq!(resolve(BackendChoice::Use(Backends::VULKAN | Backends::GL), def, compiled), Some(Backends::VULKAN));
         // GL isn't compiled in: the default, not an empty set (no adapter at all)
         assert_eq!(resolve(BackendChoice::Use(Backends::GL), def, compiled), Some(def));
-    }
-
-    #[test]
-    fn init_marker_is_written_during_creation_and_removed_after() {
-        // Device tests also enter with_init_marker. Don't let initialization
-        // overlap this test's temporary process-wide marker configuration.
-        let _init = crate::TEST_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let dir = std::env::temp_dir().join(format!("lc-gpu-marker-{}", std::process::id()));
-        let m = dir.join("gpu-init.marker");
-        let _ = std::fs::remove_dir_all(&dir);
-        set_init_marker(Some(m.clone()));
-        let seen = with_init_marker(Backends::DX12, || m.exists());
-        set_init_marker(None);
-        assert!(seen, "the marker exists while the device is created");
-        assert!(!m.exists(), "and is removed afterwards");
-        // a marker left behind by a crashed process is reported once
-        std::fs::write(&m, "GPU device creation started (backends DX12)").unwrap();
-        assert!(take_init_marker(&m).unwrap().contains("DX12"));
-        assert_eq!(take_init_marker(&m), None);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

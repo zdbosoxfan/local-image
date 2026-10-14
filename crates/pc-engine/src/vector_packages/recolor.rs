@@ -6,7 +6,7 @@
 //! by reducing target chroma when needed to fit sRGB; alpha is always retained.
 use super::colours::{self, Access, Capture, Preview, bad};
 use crate::{EngineError, Result, Session, commands::CommandSpec};
-use photocraft_color::convert::{lab_to_srgb, srgb_to_lab};
+use li_color::convert::{lab_to_srgb, srgb_to_lab};
 use photocraft_doc::vector_design::{exchange::VectorWarning, swatches::*};
 use photocraft_doc::{Color, Fill, LayerId};
 use photocraft_vector::appearance::{NoProjection, StrokeProjection};

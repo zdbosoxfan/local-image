@@ -593,7 +593,7 @@ pub fn save(w: &CustomWorkflow, dir: &Path) -> Result<PathBuf> {
     std::fs::create_dir_all(dir)?;
     let stem: String = w.name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
     let path = dir.join(format!("{stem}.json"));
-    crate::settings::write_atomic(&path, &serde_json::to_vec_pretty(w)?)?;
+    li_fs::atomic_write(&path, &serde_json::to_vec_pretty(w)?)?;
     Ok(path)
 }
 

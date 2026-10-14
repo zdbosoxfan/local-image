@@ -139,7 +139,7 @@ pub fn effective(app: &LightcraftApp) -> Vec<(Binding, String)> {
     let edit =
         matches!(app.ui.right, crate::state::RightPanel::Edit | crate::state::RightPanel::Masking) && app.ui.view == crate::state::ViewMode::Detail;
     for b in &mut bindings {
-        b.default = crate::keymaps::default(parent, &b.key, edit, b.default.as_deref()).map(str::to_string);
+        b.default = li_keys::keymaps::library_default(parent, &b.key, edit, b.default.as_deref()).map(str::to_string);
     }
     bindings.sort_by_key(|b| {
         (

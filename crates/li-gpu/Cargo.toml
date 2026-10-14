@@ -19,6 +19,6 @@ pollster.workspace = true
 
 [dev-dependencies]
 lightcraft-pipeline.workspace = true
-photocraft-color.workspace = true
+li-color.workspace = true
 pollster.workspace = true
 bytemuck.workspace = true

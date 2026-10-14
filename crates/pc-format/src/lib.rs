@@ -22,13 +22,14 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-pub mod atomic;
 pub mod autosave;
 mod convert;
 mod finite;
 pub mod manifest;
 pub mod read;
 mod store;
+#[cfg(test)]
+mod tests_atomic;
 pub mod zip;
 
 use std::path::Path;
@@ -36,7 +37,6 @@ use std::path::Path;
 use photocraft_doc::Document;
 use photocraft_raster::Rgba8Image;
 
-pub use atomic::atomic_write;
 #[cfg(not(target_arch = "wasm32"))]
 pub use autosave::RecoveryStore;
 pub use autosave::{Autosaver, RecoveryEntry, discard_recovery, list_recovery, recover};

@@ -7,6 +7,7 @@
 //! change them with `prefs.get` / `prefs.set`); this module only edits a working copy in a dialog
 //! and commits it with those commands on Apply or OK.
 
+use li_keys::input::{is_modifier_key, shortcut_text};
 use std::collections::{BTreeMap, HashMap};
 
 use egui::{Color32, RichText, vec2};
@@ -263,7 +264,7 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
         load(app);
     }
     sync_display_scale(app, ctx);
-    crate::color_icons::set_enabled(ctx, app.session.prefs().interface.tool_icons != "monochrome");
+    li_ui_kit::color_icons::set_enabled(ctx, app.session.prefs().interface.tool_icons != "monochrome");
     // Interface theme: a preference change applies to the UI; a theme picked from the Window
     // menu is stored as the preference.
     let pref = app.session.prefs().interface.theme;
@@ -717,9 +718,6 @@ pub fn shortcut_items(app: &PhotocraftApp) -> Vec<(String, String, Vec<String>, 
     out
 }
 
-/// Text of a key press for the shortcut editor (`Cmd+Shift+K`), `None` for bare modifiers.
-pub use li_keys::input::{is_modifier_key, shortcut_text};
-
 // ------------------------------------------------------------------ menu routing
 
 /// Shell front ends for Edit-menu commands invoked without parameters (dialogs, pickers).
@@ -728,10 +726,6 @@ pub fn invoke(app: &mut PhotocraftApp, _ctx: &egui::Context, id: &str, params: &
     let empty = params.as_object().is_none_or(|o| o.is_empty());
     if !empty {
         return None;
-    }
-    // Retain the saved shortcut/automation alias, using the existing setup window.
-    if id == "edit.preferences.integrations" {
-        return crate::ai_ui::menu(app, _ctx, "li.localAi", params);
     }
     if let Some(section) = id.strip_prefix("edit.preferences.") {
         return Some(Ok(json!({"dialog": open_preferences(app, section)})));
@@ -1702,7 +1696,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         let mut last_top = String::new();
         egui::Grid::new("shortcut-grid").num_columns(3).spacing([12.0, 3.0]).striped(true).show(ui, |ui| {
             for (id, label, path, def) in &items {
-                if tab == 0 && crate::keymaps::is_global(id) {
+                if tab == 0 && li_keys::keymaps::is_global(id) {
                     continue;
                 }
                 if tab == 0 && ((scope == "library" && !id.starts_with("library::")) || (scope == "editor" && id.starts_with("library::"))) {
@@ -1760,7 +1754,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                                 .find(|(other, _, _, default)| {
                                     *other != *id
                                         && same_shortcut_scope(other, id)
-                                        && !crate::keymaps::is_global(other)
+                                        && !li_keys::keymaps::is_global(other)
                                         && eff(&overrides, other, default).as_deref().is_some_and(|key| same_chord_in_scope(id, key, chord))
                                 })
                                 .map(|(_, label, _, _)| format!("Conflict: {label}"))
@@ -2000,7 +1994,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
                 }
                 for (other, _, _, default) in &defaults {
                     if *other != id
-                        && !crate::keymaps::is_global(other)
+                        && !li_keys::keymaps::is_global(other)
                         && same_shortcut_scope(&id, other)
                         && !ov.contains_key(other)
                         && default.as_deref().is_some_and(|old| same_chord_in_scope(&id, old, &key))
@@ -3067,7 +3061,7 @@ fn profile_defaults(prefs: &prefs::Preferences, profiles: &li_keys::ShortcutProf
     working.shortcut_profiles = profiles.clone();
     for (id, _, _, def) in items {
         *def = if id.starts_with("library::") {
-            crate::keymaps::library::default(profiles.library.parent(), id, true, def.as_deref()).map(str::to_string)
+            li_keys::keymaps::library_default(profiles.library.parent(), id, true, def.as_deref()).map(str::to_string)
         } else {
             crate::keymaps::default(&working, id, def.as_deref()).map(str::to_string)
         };

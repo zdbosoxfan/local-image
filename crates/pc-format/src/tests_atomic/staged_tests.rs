@@ -1,5 +1,5 @@
 use super::*;
-use photocraft_raster::Interrupt;
+use lightcraft_sysmem::jobs::Interrupt;
 use std::sync::{Arc, atomic::AtomicBool};
 
 struct Dir(PathBuf);

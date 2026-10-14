@@ -1,6 +1,6 @@
 //! Source colour descriptions, using the shared colour formulas and named spaces.
-pub use lightcraft_color::space::{NamedSpace, Trc, rgb_to_xyz_d50};
-use lightcraft_color::{D50, Mat3, RgbSpace, WORKING, bradford};
+pub use li_color::space::{NamedSpace, Trc, rgb_to_xyz_d50};
+use li_color::{D50, Mat3, RgbSpace, WORKING, bradford};
 use serde::{Deserialize, Serialize};
 
 /// Where a decoded image's colour interpretation came from.

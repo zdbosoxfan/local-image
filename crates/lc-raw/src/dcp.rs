@@ -29,7 +29,7 @@ impl Dcp {
             return Err(RawError::Corrupt("DCP without a color matrix".into()));
         }
         if color.illuminant_3 != 0 {
-            if lightcraft_color::camera::triple_illuminant_whites(&crate::color::camera_color(&color)).is_none() {
+            if li_color::camera::triple_illuminant_whites(&crate::color::camera_color(&color)).is_none() {
                 return Err(RawError::Corrupt("DCP triple illuminants require distinct whites and all three color matrices".into()));
             }
             let forward = [color.forward_matrix[0], color.forward_matrix[1], color.forward_matrix_3];

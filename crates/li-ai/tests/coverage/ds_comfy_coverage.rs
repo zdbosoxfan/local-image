@@ -1,4 +1,5 @@
-use li_ai::comfy::{self, Cancelled, ComfyClient, JobControl, ObjectInfo, Progress, Stage};
+use li_ai::comfy::{self, ComfyClient, JobControl, ObjectInfo, Progress, Stage};
+use lightcraft_sysmem::jobs::Cancelled;
 use serde_json::{Value, json};
 
 #[test]

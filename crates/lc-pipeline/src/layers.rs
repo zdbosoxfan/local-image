@@ -252,7 +252,7 @@ pub fn contrast(c: [f32; 3], amount: f32) -> [f32; 3] {
     if amount == 0.0 {
         return c;
     }
-    let y = lightcraft_color::luminance_2020(c).max(1e-9);
+    let y = li_color::luminance_2020(c).max(1e-9);
     let slope = crate::tone2::contrast_slope(amount as f64);
     let gain = (y / crate::tone::GREY).powf(slope - 1.0);
     c.map(|v| v * gain)
@@ -417,7 +417,7 @@ pub(crate) fn stack(
                             &tool_input,
                             (plan.w as f64 * scale).round().max(1.0) as usize,
                             (plan.h as f64 * scale).round().max(1.0) as usize,
-                            lightcraft_raster::resample::Filter::Bilinear,
+                            li_raster::resample::Filter::Bilinear,
                         )
                     } else {
                         Rgb32f::new(0, 0)

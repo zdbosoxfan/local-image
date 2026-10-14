@@ -1,6 +1,6 @@
 //! Snapshot-only document encoding with private font/layout state.
 use super::*;
-use photocraft_raster::Interrupt;
+use lightcraft_sysmem::jobs::Interrupt;
 use std::cell::RefCell;
 
 fn project(source: &Document, engine: &mut photocraft_text::TextEngine, cancel: &dyn Fn() -> bool) -> Result<Document> {

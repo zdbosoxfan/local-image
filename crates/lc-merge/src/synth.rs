@@ -18,7 +18,7 @@ fn scene(kind: lightcraft_scenes::Kind) -> Result<lightcraft_scenes::Scene> {
 }
 
 fn srgb_color() -> FrameColor {
-    FrameColor::Linear { to_xyz_d50: lightcraft_color::bradford(lightcraft_color::D65, lightcraft_color::D50).mul(&lightcraft_color::SRGB.to_xyz()) }
+    FrameColor::Linear { to_xyz_d50: li_color::bradford(li_color::D65, li_color::D50).mul(&li_color::SRGB.to_xyz()) }
 }
 
 /// Exposure brackets (`evs`, e.g. `[-2, 0, 2]`) of a sunset scene as 16-bit linear DNGs, each
@@ -29,7 +29,7 @@ pub fn bracket_dngs(w: usize, h: usize, evs: &[f64]) -> Result<Vec<Vec<u8>>> {
     let mut l: Vec<f32> = truth.data.iter().map(|p| p[1]).collect();
     l.sort_by(|a, b| a.total_cmp(b));
     let s = 0.18 / l.get(l.len() / 2).copied().unwrap_or(0.0).max(1e-6);
-    let to_srgb = lightcraft_color::REC2020.to_space(&lightcraft_color::SRGB).to_f32();
+    let to_srgb = li_color::REC2020.to_space(&li_color::SRGB).to_f32();
     evs.iter()
         .enumerate()
         .map(|(i, ev)| {

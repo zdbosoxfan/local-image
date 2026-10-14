@@ -4,7 +4,8 @@ use egui::{Color32, Rect, vec2};
 use egui_kittest::{Harness, kittest::Queryable};
 use serde_json::json;
 
-use crate::{PhotocraftApp, color_icon_data, color_icons, icons, state::Tool};
+use crate::{PhotocraftApp, color_icons, icons, state::Tool};
+use li_ui_kit::color_icon_data;
 
 // The shared CPU egui painter (`li-testkit`, J7) for these windowless pixel checks.
 use li_testkit::softpaint as cpu;
@@ -16,8 +17,8 @@ fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() 
     let mut distinct = HashSet::new();
     for t in Tool::ALL {
         let name = icons::tool_icon_name(t);
-        assert!(color_icons::exists(name), "{t:?}: {name}");
-        assert!(crate::mono_tool_icons::exists(name), "{t:?}: monochrome {name}");
+        assert!(li_ui_kit::color_icons::exists(name), "{t:?}: {name}");
+        assert!(li_ui_kit::mono_tool_icons::exists(name), "{t:?}: monochrome {name}");
         if photocraft_engine::toolsets::ALL_TOOLS.contains(&format!("{t:?}").as_str()) {
             assert!(distinct.insert(name), "distinct legacy Pixel tools share {name}");
             used.insert(name);
@@ -30,12 +31,12 @@ fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() 
     liquify.extend([L::ReconstructAll, L::FreezeAll, L::ThawAll, L::InvertFreeze]);
     for tool in liquify {
         let name = crate::liquify_ui::tool_icon_name(tool);
-        assert!(color_icons::exists(name), "{tool:?}");
+        assert!(li_ui_kit::color_icons::exists(name), "{tool:?}");
         assert!(distinct.insert(name), "Liquify shares {name}");
         used.insert(name);
     }
     used.extend(["edit-toolbar", "quick-mask"]);
-    used.extend(crate::vector_tool_icon_data::ICONS.iter().map(|(_, name, _)| *name));
+    used.extend(li_ui_kit::vector_icon_data::ICONS.iter().map(|(_, name, _)| *name));
     used.extend(color_icon_data::DEVELOP_TOOL_ICONS.iter().map(|(_, name)| *name));
     // Colour mode tints the monochrome artwork: one family row per icon, no separate colour files.
     for (name, _) in color_icon_data::TOOL_FAMILIES {
@@ -46,10 +47,10 @@ fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() 
         .unwrap()
         .map(|e| e.unwrap().path().file_stem().unwrap().to_str().unwrap().to_owned())
         .collect();
-    let mono_embedded: HashSet<_> = crate::tool_icon_data::TOOL_ICONS
+    let mono_embedded: HashSet<_> = li_ui_kit::tool_icon_data::TOOL_ICONS
         .iter()
         .map(|(n, _)| n.to_string())
-        .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, n, _)| n.to_string()))
+        .chain(li_ui_kit::vector_icon_data::ICONS.iter().map(|(_, n, _)| n.to_string()))
         .collect();
     let families: HashSet<_> = color_icon_data::TOOL_FAMILIES.iter().map(|(n, _)| n.to_string()).collect();
     assert_eq!(mono_disk, families, "every tool icon has exactly one colour family");
@@ -69,8 +70,8 @@ fn formerly_shared_glyphs_have_distinct_rendered_silhouettes() {
         ("mouse-pointer-2", "direct-select"),
     ] {
         for size in [20, 24, 48] {
-            let a_image = color_icons::raster(a, size, false).unwrap();
-            let b_image = color_icons::raster(b, size, false).unwrap();
+            let a_image = li_ui_kit::color_icons::raster(a, size, false).unwrap();
+            let b_image = li_ui_kit::color_icons::raster(b, size, false).unwrap();
             // Alpha compares the artwork's silhouette, independent of family colour.
             let different = a_image.pixels.iter().zip(&b_image.pixels).filter(|(a, b)| a.a().abs_diff(b.a()) > 50).count();
             assert!(different > (size * size / 8) as usize, "{a}/{b} look alike at {size}px: {different} silhouette pixels differ");
@@ -88,10 +89,10 @@ fn dodge_tool_icon_has_the_lollipop_swirl_in_both_styles() {
             let c = (13.0 * f64::from(size) / 24.0).floor() as usize;
             image.pixels[c * size as usize + c].a()
         };
-        for image in [color_icons::raster("dodge", size, false).unwrap(), crate::mono_tool_icons::raster("dodge", size).unwrap()] {
+        for image in [li_ui_kit::color_icons::raster("dodge", size, false).unwrap(), li_ui_kit::mono_tool_icons::raster("dodge", size).unwrap()] {
             assert!(at(&image) > 128, "Dodge must show its swirl at {size}px");
         }
-        assert!(at(&crate::mono_tool_icons::raster("zoom-in", size).unwrap()) < 128, "Zoom must stay distinct at {size}px");
+        assert!(at(&li_ui_kit::mono_tool_icons::raster("zoom-in", size).unwrap()) < 128, "Zoom must stay distinct at {size}px");
     }
 }
 
@@ -248,7 +249,7 @@ fn gpu_tool_icons_upload_and_switch_styles_on_hardware() {
             .build_ui_state(
                 |ui, (colour, clicked)| {
                     egui_extras::install_image_loaders(ui.ctx());
-                    color_icons::set_enabled(ui.ctx(), *colour);
+                    li_ui_kit::color_icons::set_enabled(ui.ctx(), *colour);
                     if ui.button("Switch tool style").clicked() {
                         *colour = !*colour;
                     }
@@ -395,7 +396,7 @@ fn tool_icons_are_the_pinned_line_set_with_recorded_provenance() {
     let mut by_set = std::collections::BTreeMap::new();
     for tool in tools {
         let name = tool["id"].as_str().unwrap();
-        let svg = std::str::from_utf8(crate::mono_tool_icons::svg(name).unwrap_or_else(|| panic!("{name} is not registered"))).unwrap();
+        let svg = std::str::from_utf8(li_ui_kit::mono_tool_icons::svg(name).unwrap_or_else(|| panic!("{name} is not registered"))).unwrap();
         assert!(svg.contains("viewBox=\"0 0 24 24\"") && svg.contains("stroke=\"currentColor\""), "{name} is not a 24 px currentColor line icon");
         assert!(svg.contains("stroke-linecap=\"round\"") && svg.contains("stroke-linejoin=\"round\""), "{name} lacks round caps/joins");
         assert!(!svg.contains("linearGradient") || name == "blend" || name == "linear-mask", "{name} carries retired gradient paint");
@@ -409,8 +410,8 @@ fn tool_icons_are_the_pinned_line_set_with_recorded_provenance() {
     }
     assert_eq!(
         tools.len(),
-        crate::tool_icon_data::TOOL_ICONS.len()
-            + crate::vector_tool_icon_data::ICONS.iter().filter(|(_, n, _)| n.starts_with("vector-")).map(|(_, n, _)| *n).collect::<HashSet<_>>().len()
+        li_ui_kit::tool_icon_data::TOOL_ICONS.len()
+            + li_ui_kit::vector_icon_data::ICONS.iter().filter(|(_, n, _)| n.starts_with("vector-")).map(|(_, n, _)| *n).collect::<HashSet<_>>().len()
     );
     assert_eq!(by_set.get("local-image"), Some(&24), "drawn icons: {by_set:?}");
     assert_eq!(by_set.values().sum::<usize>() - 24, 144, "sourced icons: {by_set:?}");

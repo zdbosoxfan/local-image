@@ -1,7 +1,8 @@
 //! Remove Background for a pixel layer: Select Subject with edge refinement, then a mask,
 //! applied transparency, a background plate or a new cutout layer, in one history step.
 
-use photocraft_algo::matting::{self, RefineParams};
+use li_matte::RefineParams;
+use photocraft_algo::matting;
 use photocraft_algo::segment::subject;
 use photocraft_doc::{Color, Document, Fill, Layer, LayerContent, LayerId, LayerMask};
 use photocraft_raster::Surface;

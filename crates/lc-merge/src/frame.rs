@@ -1,11 +1,12 @@
 //! Merge inputs: scene-linear frames decoded from raw files (camera RGB, before white balance) or
 //! standard images (linear light in the file's primaries), with their exposure from EXIF.
 
-use lightcraft_color::Mat3;
+use li_color::Mat3;
+use li_raster::resample::Filter;
 use lightcraft_geom::Orientation;
 use lightcraft_meta::Metadata;
 use lightcraft_raster::Rgb32f;
-use lightcraft_raster::resample::{Filter, fit};
+use lightcraft_raster::resample::fit;
 use lightcraft_raw::ColorData;
 
 use crate::{MergeError, Result};
@@ -42,7 +43,7 @@ impl Frame {
     /// A frame from linear pixels in the develop working space (linear Rec.2020), e.g. a rendered
     /// procedural scene. `exposure` as in [`Frame::exposure`].
     pub fn from_linear_rec2020(image: Rgb32f, exposure: Option<f64>) -> Frame {
-        let to_xyz_d50 = lightcraft_color::bradford(lightcraft_color::D65, lightcraft_color::D50).mul(&lightcraft_color::REC2020.to_xyz());
+        let to_xyz_d50 = li_color::bradford(li_color::D65, li_color::D50).mul(&li_color::REC2020.to_xyz());
         let clip = detect_clip(&image);
         Frame {
             image,

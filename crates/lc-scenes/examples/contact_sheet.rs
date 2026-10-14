@@ -1,6 +1,6 @@
 //! Render every demo scene into a contact sheet PNG (simple clamp + sRGB encode, no develop).
 //! `cargo run --release -p lightcraft-scenes --example contact_sheet -- out.png`
-use lightcraft_color::{REC2020, SRGB, transfer::encode_srgb8};
+use li_color::{REC2020, SRGB, transfer::encode_srgb8};
 
 fn main() {
     let out = std::env::args().nth(1).unwrap_or_else(|| "contact.png".into());

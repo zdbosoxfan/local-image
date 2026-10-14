@@ -440,7 +440,6 @@ fn people_ui_analysis_worker_cache_cancel_and_opt_out() {
 #[ignore = "requires the owner's real Vulkan GPU; exercises the complete app without opening windows"]
 fn people_ui_real_gpu_interactions() {
     use std::time::Instant;
-    lightcraft_engine::gpu::backend::set_init_marker(None);
     assert!(lightcraft_engine::gpu::available(), "{}", lightcraft_engine::gpu::unavailable_reason().unwrap_or_default());
     let adapter = lightcraft_engine::gpu::adapter_name().unwrap();
     assert!(!adapter.to_lowercase().contains("llvmpipe"));

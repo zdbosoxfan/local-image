@@ -11,7 +11,8 @@ workspace = true
 [dependencies]
 li-gpu.workspace = true
 lightcraft-geom = { workspace = true }
-lightcraft-color = { workspace = true }
+li-color = { workspace = true }
+li-raster = { path = "../li-raster" }
 lightcraft-raster = { workspace = true }
 lightcraft-develop = { workspace = true }
 lightcraft-pipeline = { workspace = true }

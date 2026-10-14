@@ -271,8 +271,8 @@ pub fn heal_patch(
     h: usize,
     cov: &[f32],
     seed: u64,
-    interrupt: &photocraft_raster::Interrupt<'_>,
-) -> Result<(Vec<[f32; 3]>, Vec<f32>), photocraft_raster::Cancelled> {
+    interrupt: &lightcraft_sysmem::jobs::Interrupt<'_>,
+) -> Result<(Vec<[f32; 3]>, Vec<f32>), lightcraft_sysmem::jobs::Cancelled> {
     heal_patch_from(pixels, w, h, cov, seed, None, interrupt)
 }
 
@@ -285,8 +285,8 @@ fn heal_patch_from(
     cov: &[f32],
     seed: u64,
     source: Option<&[[f32; 3]]>,
-    interrupt: &photocraft_raster::Interrupt<'_>,
-) -> Result<(Vec<[f32; 3]>, Vec<f32>), photocraft_raster::Cancelled> {
+    interrupt: &lightcraft_sysmem::jobs::Interrupt<'_>,
+) -> Result<(Vec<[f32; 3]>, Vec<f32>), lightcraft_sysmem::jobs::Cancelled> {
     interrupt.check()?;
     use photocraft_algo::inpaint::{CompleteParams, complete_with};
     use photocraft_algo::poisson;
@@ -390,7 +390,7 @@ fn apply_source_heal(img: &mut Rgb32f, spot: &Spot, pts: &[(f32, f32)], r: f32, 
     });
     let gather = start.elapsed();
     let solve = Instant::now();
-    let Ok((out, _)) = heal_patch_from(&pixels, w, h, &cov, 1, source.as_deref(), &photocraft_raster::Interrupt::NONE) else { return };
+    let Ok((out, _)) = heal_patch_from(&pixels, w, h, &cov, 1, source.as_deref(), &lightcraft_sysmem::jobs::Interrupt::NONE) else { return };
     let solved = solve.elapsed();
     let render = Instant::now();
     let opacity = (spot.opacity / 100.0).clamp(0.0, 1.0) as f32;
@@ -433,7 +433,7 @@ mod reference {
         let blend = dilate(w, h, &hole, 1);
         let cancel = || false;
         let progress = |_: f32| {};
-        let interrupt = photocraft_raster::Interrupt::new(&cancel, &progress);
+        let interrupt = lightcraft_sysmem::jobs::Interrupt::new(&cancel, &progress);
         let params = CompleteParams { seed, ..CompleteParams::default() };
         let filled =
             complete_with(w, h, 3, &img, &domain, &params, &interrupt).unwrap().unwrap_or_else(|| poisson::membrane_fill(w, h, 3, &img, &domain));
@@ -711,7 +711,7 @@ mod tests {
         let pixels = synthetic(w, h).data;
         let cov: Vec<_> = (0..w * h).map(|i| if (i % w).abs_diff(24) < 4 && (i / w).abs_diff(20) < 4 { 1.0 } else { 0.0 }).collect();
         let expected = reference::local_heal_reference(&pixels, w, h, &cov, 7);
-        let actual = heal_patch(&pixels, w, h, &cov, 7, &photocraft_raster::Interrupt::NONE).unwrap();
+        let actual = heal_patch(&pixels, w, h, &cov, 7, &lightcraft_sysmem::jobs::Interrupt::NONE).unwrap();
         assert_eq!(actual, expected, "preserves the established local PatchMatch+Poisson result exactly");
     }
 
@@ -800,7 +800,7 @@ mod tests {
 
     #[test]
     fn j13_patch_backend_cancellation_empty_and_edge_masks() {
-        use photocraft_raster::Interrupt;
+        use lightcraft_sysmem::jobs::Interrupt;
         let pixels = vec![[0.2; 3]; 24 * 24];
         let mut cov = vec![0.0; 24 * 24];
         assert_eq!(heal_patch(&pixels, 24, 24, &cov, 1, &Interrupt::NONE).unwrap(), (pixels.clone(), cov.clone()));
@@ -823,7 +823,7 @@ mod tests {
         }
         cov[10 * 24 + 9] = 0.25;
         cov[11 * 24 + 9] = 0.75;
-        let (out, alpha) = heal_patch(&pixels, 24, 24, &cov, 1, &photocraft_raster::Interrupt::NONE).unwrap();
+        let (out, alpha) = heal_patch(&pixels, 24, 24, &cov, 1, &lightcraft_sysmem::jobs::Interrupt::NONE).unwrap();
         assert_eq!(alpha, cov, "feather is never promoted to a hard binary patch");
         assert_eq!(out[0], pixels[0]);
         assert!(out.iter().flatten().all(|v| v.is_finite()));

@@ -33,11 +33,9 @@ mod distort;
 mod distort2;
 pub mod erase;
 pub mod exif;
-pub mod features;
 mod fxutil;
 mod gallery;
 pub mod hdr;
-pub mod histogram;
 mod image;
 pub mod inpaint;
 pub mod lens;
@@ -83,7 +81,7 @@ pub mod warp;
 pub mod wideangle;
 
 pub use artistic::{GALLERY_CATEGORIES, GalleryEffect, GalleryFilter, GalleryParam, GalleryParamKind};
-pub use image::{Edge, Image};
+pub use image::Image;
 pub use params_ext::*;
 
 mod params_ext;
@@ -899,7 +897,7 @@ pub fn apply_in_with(
     bounds: Rect,
     selection: Option<&Surface>,
     extent: Rect,
-    ctl: &photocraft_raster::Interrupt,
+    ctl: &lightcraft_sysmem::jobs::Interrupt,
 ) -> Option<Surface> {
     apply_tiled_with(surface, params, area.intersect(&extent), bounds, selection, auto_tile(params), Some(extent), ctl)
 }
@@ -924,7 +922,7 @@ pub fn apply_tiled(
     extent: Option<Rect>,
 ) -> Surface {
     // Never cancelled, so always `Some`; the fallback (the input unchanged) is unreachable.
-    apply_tiled_with(surface, params, area, bounds, selection, tile, extent, &photocraft_raster::Interrupt::NONE).unwrap_or_else(|| surface.clone())
+    apply_tiled_with(surface, params, area, bounds, selection, tile, extent, &lightcraft_sysmem::jobs::Interrupt::NONE).unwrap_or_else(|| surface.clone())
 }
 
 /// [`apply_tiled`] with cancellation (checked before each tile, so a cancel takes effect within
@@ -938,7 +936,7 @@ pub fn apply_tiled_with(
     selection: Option<&Surface>,
     tile: i32,
     extent: Option<Rect>,
-    ctl: &photocraft_raster::Interrupt,
+    ctl: &lightcraft_sysmem::jobs::Interrupt,
 ) -> Option<Surface> {
     let mut out = surface.clone();
     if area.is_empty() {
@@ -1048,7 +1046,7 @@ fn apply_box_blur(
     extent: Option<Rect>,
     selection: Option<&Surface>,
     boxes: &[usize],
-    ctl: &photocraft_raster::Interrupt,
+    ctl: &lightcraft_sysmem::jobs::Interrupt,
 ) -> Option<Surface> {
     let fmt = surface.format();
     let n = fmt.channels();
@@ -1125,3 +1123,5 @@ const RESULT_BUDGET: usize = 256 << 20;
 mod tests;
 #[cfg(test)]
 mod tests_ext;
+#[cfg(test)]
+mod tests_histogram;

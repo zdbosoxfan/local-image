@@ -1,11 +1,9 @@
 //! Real-model source-stage inference and wavelet comparison. All writes stay under target or a
 //! supplied test output folder. Run sequentially; model copies use the approved test cache.
+use li_raster::resample::Filter;
 use li_seg::denoise::Variant;
 use lightcraft_engine::enhance::denoise::{infer, pack_bayer, prepare_raw};
-use lightcraft_raster::{
-    Rgb32f,
-    resample::{Filter, resize},
-};
+use lightcraft_raster::{Rgb32f, resample::resize};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,

@@ -1156,7 +1156,7 @@ fn dual_illuminant_wb_and_dcp_inside_gpu_render() {
     if !gpu() {
         return;
     }
-    use lightcraft_color::{
+    use li_color::{
         Mat3,
         camera::{CameraColor, CameraWhite},
         profile::{HsvTable, ProfileLook},
@@ -1171,7 +1171,7 @@ fn dual_illuminant_wb_and_dcp_inside_gpu_render() {
         ],
         ..Default::default()
     };
-    let total = lightcraft_color::camera::to_working(&color, lightcraft_color::cct::temp_tint_to_xy(5200., 4.));
+    let total = li_color::camera::to_working(&color, li_color::cct::temp_tint_to_xy(5200., 4.));
     let mut info = SourceInfo { camera_color: Some(CameraWhite { color, undo: total.inverse().unwrap() }), ..raw() };
     let mut a = HsvTable { hue_divisions: 4, sat_divisions: 3, val_divisions: 2, srgb_value: true, data: vec![[0., 1., 1.]; 24] };
     for (i, node) in a.data.iter_mut().enumerate() {

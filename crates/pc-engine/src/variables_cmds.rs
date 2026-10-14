@@ -6,7 +6,8 @@
 
 use std::sync::Arc;
 
-use photocraft_algo::resample::{Resample, resize_surface, translate_surface};
+use li_raster::resample::Resample;
+use photocraft_algo::resample::{resize_surface, translate_surface};
 use photocraft_doc::variables::Value as VarValue;
 use photocraft_doc::{DataSet, DataValue, Document, LayerContent, LayerId, PixelAlign, PixelMethod, VarKind, VariableDef, Variables};
 use serde_json::{Value, json};

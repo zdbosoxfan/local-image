@@ -1,8 +1,8 @@
 //! The per-pixel stage: everything after the spatial planes are ready, in one parallel pass.
 
-use lightcraft_color::luminance_2020;
-use lightcraft_color::spline::{Lut1, MonotoneCurve};
-use lightcraft_color::transfer::linear_to_srgb;
+use li_color::luminance_2020;
+use li_color::spline::{Lut1, MonotoneCurve};
+use li_color::transfer::linear_to_srgb;
 use lightcraft_develop::{DevelopSettings, LocalAdjustments, ToneCurve, VignetteStyle};
 use lightcraft_geom::Point;
 use lightcraft_raster::Rgba8;
@@ -81,7 +81,7 @@ impl CurveTables {
     }
     fn apply_mode(&self, c: [f32; 3], refine: f32, working: bool) -> [f32; 3] {
         let eval = |table: &Lut1, x: f32| table.eval(x) + if working { x - x.clamp(0.0, 1.0) } else { 0.0 };
-        use lightcraft_color::transfer::srgb_to_linear;
+        use li_color::transfer::srgb_to_linear;
         let mut d = if self.luminance {
             let y = luminance_2020(c).max(0.0);
             let z = srgb_to_linear(eval(&self.tables[0], linear_to_srgb(y)));
@@ -423,7 +423,7 @@ pub(crate) fn finish_mode(
     let data = finish_with(p, &fp, false, |e, x, y| {
         let e = match trc {
             OutputTrc::Srgb => e,
-            t => e.map(|v| t.encode(lightcraft_color::transfer::srgb_to_linear(v.clamp(0.0, 1.0)))),
+            t => e.map(|v| t.encode(li_color::transfer::srgb_to_linear(v.clamp(0.0, 1.0)))),
         };
         [dither8(e[0], x, y, 0), dither8(e[1], x, y, 1), dither8(e[2], x, y, 2), 255]
     });
@@ -454,7 +454,7 @@ pub(crate) fn finish_deep_mode(
     proof: Option<crate::Proof>,
     mode: FinishMode,
 ) -> DeepImage {
-    use lightcraft_color::transfer::srgb_to_linear;
+    use li_color::transfer::srgb_to_linear;
     let (w, h) = (p.img.width, p.img.height);
     let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, space)
         .with_planes(p.sharp.as_ref().map(|x| x.2), p.haze.as_ref().map(|x| (x.air, x.distance)));
@@ -759,8 +759,8 @@ fn finish_with_mask<T: Copy + Default + Send>(
                 // --- colour
                 d = ops.apply(d, l_sat, l_hue);
                 if let Some((dir, amt)) = tint_col {
-                    let lab = lightcraft_color::perceptual::oklab_from_2020(d);
-                    d = lightcraft_color::perceptual::oklab_to_2020([lab[0], lab[1] + dir[0] * 0.08 * amt, lab[2] + dir[1] * 0.08 * amt]);
+                    let lab = li_color::perceptual::oklab_from_2020(d);
+                    d = li_color::perceptual::oklab_to_2020([lab[0], lab[1] + dir[0] * 0.08 * amt, lab[2] + dir[1] * 0.08 * amt]);
                 }
                 for l in &fp.layers {
                     if let Some(o) = &l.ops {
@@ -807,7 +807,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     if let Some((lut, k)) = &p_lut {
                         e = mix3(e, lut.apply(e), *k);
                     }
-                    d = e.map(lightcraft_color::transfer::srgb_to_linear);
+                    d = e.map(li_color::transfer::srgb_to_linear);
                 }
                 *px = store(d, x, y);
                 continue;
@@ -849,7 +849,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                 }
                 None => e,
             };
-            let e = fp.proof.as_ref().map_or(e, |proof| proof.finish(e.map(lightcraft_color::transfer::srgb_to_linear)));
+            let e = fp.proof.as_ref().map_or(e, |proof| proof.finish(e.map(li_color::transfer::srgb_to_linear)));
             *px = store(e, x, y);
         }
     });

@@ -12,7 +12,7 @@
 
 use std::sync::OnceLock;
 
-use lightcraft_color::REC2020;
+use li_color::REC2020;
 
 pub type M3 = [[f32; 3]; 3];
 
@@ -337,8 +337,8 @@ pub fn hsb_to_rgb(hsb: [f32; 3], l_white: f32) -> [f32; 3] {
 
 /// UCS hue (radians) of a pure sRGB colour with HSV hue `deg`.
 pub fn ucs_hue_of_srgb_hue(deg: f64) -> f32 {
-    use lightcraft_color::{SRGB, perceptual::hsv_to_rgb};
-    let c = hsv_to_rgb(deg as f32, 1.0, 1.0).map(lightcraft_color::transfer::srgb_to_linear);
+    use li_color::{SRGB, perceptual::hsv_to_rgb};
+    let c = hsv_to_rgb(deg as f32, 1.0, 1.0).map(li_color::transfer::srgb_to_linear);
     let m = SRGB.to_space(&REC2020).apply_f32(c);
     let xyy = xyz_to_xyy(mul(&mats().rgb_to_xyz, m));
     let uv = xy_to_uv(xyy[0], xyy[1]);

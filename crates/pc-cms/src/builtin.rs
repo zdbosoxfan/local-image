@@ -2,12 +2,12 @@
 //! (primaries, white points, transfer functions) and dedicated to the public domain (CC0-1.0),
 //! so documents that embed them carry no licence obligations. See the crate README.
 
+use li_color::cms_math::{self, Mat3};
+use li_color::curve::{Curve, srgb_trc};
 use li_color::space::NamedSpace;
 use std::sync::OnceLock;
 
 use crate::Intent;
-use crate::curve::{Curve, srgb_trc};
-use crate::math::{self, Mat3};
 use crate::pipeline::Stage;
 use crate::profile::{ColorSpace, Lut, LutKind, Pcs, Profile, ProfileClass};
 
@@ -167,30 +167,34 @@ fn colorants(r: [f64; 2], g: [f64; 2], b: [f64; 2], white: [f64; 3]) -> (Mat3, O
     // Only called with the constant primaries of the built-in spaces, which are independent
     // (every built-in profile is built in the tests).
     #[allow(clippy::expect_used)]
-    let m = math::rgb_to_xyz_matrix(r, g, b, white).expect("built-in primaries are independent");
-    let d50 = math::d50_quantized();
-    let adapt = if (white[0] - math::D50[0]).abs() < 1e-3 && (white[2] - math::D50[2]).abs() < 1e-3 { None } else { Some(math::bradford(white, math::D50)) };
+    let m = cms_math::rgb_to_xyz_matrix(r, g, b, white).expect("built-in primaries are independent");
+    let d50 = cms_math::d50_quantized();
+    let adapt = if (white[0] - cms_math::D50[0]).abs() < 1e-3 && (white[2] - cms_math::D50[2]).abs() < 1e-3 {
+        None
+    } else {
+        Some(cms_math::bradford(white, cms_math::D50))
+    };
     let m50 = match &adapt {
-        Some(a) => math::mul(a, &m),
+        Some(a) => cms_math::mul(a, &m),
         None => {
             // White already (nearly) D50: scale rows onto the exact PCS white.
-            let s = math::apply(&m, [1.0, 1.0, 1.0]);
+            let s = cms_math::apply(&m, [1.0, 1.0, 1.0]);
             let mut o = m;
             for (i, row) in o.iter_mut().enumerate() {
                 for v in row.iter_mut() {
-                    *v *= math::D50[i] / s[i];
+                    *v *= cms_math::D50[i] / s[i];
                 }
             }
             o
         }
     };
-    let mut q = m50.map(|row| row.map(math::s15f16_round));
+    let mut q = m50.map(|row| row.map(cms_math::s15f16_round));
     for (i, row) in q.iter_mut().enumerate() {
         let err = d50[i] - row.iter().sum::<f64>();
         let k = (0..3).max_by(|a, b| row[*a].abs().total_cmp(&row[*b].abs())).unwrap_or(0);
-        row[k] = math::s15f16_round(row[k] + err);
+        row[k] = cms_math::s15f16_round(row[k] + err);
     }
-    (q, adapt.map(|a| a.map(|row| row.map(math::s15f16_round))))
+    (q, adapt.map(|a| a.map(|row| row.map(cms_math::s15f16_round))))
 }
 
 fn rgb(desc: &str, prim: [[f64; 2]; 3], white: [f64; 3], trc: Curve) -> Profile {
@@ -203,7 +207,7 @@ fn rgb(desc: &str, prim: [[f64; 2]; 3], white: [f64; 3], trc: Curve) -> Profile 
         rendering_intent: Intent::Perceptual,
         description: desc.into(),
         copyright: COPYRIGHT.into(),
-        white_point: math::d50_quantized(),
+        white_point: cms_math::d50_quantized(),
         black_point: None,
         chad,
         matrix: Some(m),
@@ -226,7 +230,7 @@ fn gray(desc: &str, trc: Curve) -> Profile {
         rendering_intent: Intent::Perceptual,
         description: desc.into(),
         copyright: COPYRIGHT.into(),
-        white_point: math::d50_quantized(),
+        white_point: cms_math::d50_quantized(),
         black_point: None,
         chad: None,
         matrix: None,
@@ -250,7 +254,7 @@ fn lab() -> Profile {
         rendering_intent: Intent::Perceptual,
         description: Builtin::LabD50.description().into(),
         copyright: COPYRIGHT.into(),
-        white_point: math::d50_quantized(),
+        white_point: cms_math::d50_quantized(),
         black_point: None,
         chad: None,
         matrix: None,

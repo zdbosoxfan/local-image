@@ -3,8 +3,9 @@
 //! EV remap, ten levels of intensity sampling, and a pyramid reaching 1×1.
 //! B uses darktable's faithful EIGF at multiple scales. Both apply ratio-preserving gains.
 use crate::{Plan, SourceInfo, eigf, llf, ucs};
+use li_raster::resample::Filter;
 use lightcraft_develop::{ClarityMode, DevelopSettings, SkinTone};
-use lightcraft_raster::resample::{Filter, resize};
+use lightcraft_raster::resample::resize;
 use lightcraft_raster::{Plane, Rgb32f};
 use std::sync::Arc;
 

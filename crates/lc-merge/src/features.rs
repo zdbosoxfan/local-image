@@ -16,8 +16,9 @@
 //! - **Matching:** brute-force nearest neighbour in L2 with Lowe's ratio test, kept only when
 //!   mutually consistent.
 
+use li_raster::blur::GaussianPolicy;
 use lightcraft_raster::Plane;
-use lightcraft_raster::blur::{GaussianPolicy, gaussian_with_policy};
+use lightcraft_raster::blur::gaussian_with_policy;
 use lightcraft_raster::resample::half;
 use rayon::prelude::*;
 

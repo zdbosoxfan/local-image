@@ -9,9 +9,6 @@
 //! subject tiers use x/255 and clamped probabilities; custom IS-Net and U²-Net style
 //! models use peak scaling and min–max output. Maps are bilinearly resized to the photo.
 
-/// Shared edge refinement without an inference-runtime dependency for classical callers.
-pub use li_matte as matte;
-
 pub mod bpe;
 pub mod clip;
 pub use clip::{Clip, Crops, shared_clip};
@@ -494,10 +491,9 @@ pub fn spec(id: &str) -> Option<&'static ModelSpec> {
 /// [`Cancelled`].
 type Runner = dyn Fn(Tensor, &dyn Fn() -> bool) -> TractResult<TVec<TValue>> + Send + Sync;
 
-/// The error of a run stopped through its cancel flag (see [`is_cancelled`]): the app's one cancel
-/// error (`lightcraft_sysmem::jobs`), shared with `li-ai` and `pc-raster`. The `&AtomicBool`
-/// cancel arguments below take a job's `JobCtl::cancel_flag()`.
-pub use lightcraft_sysmem::Cancelled;
+// A run stopped through its cancel flag ends with the shared job `Cancelled` (see `is_cancelled`).
+// The `&AtomicBool` cancel arguments below take a job's `JobCtl::cancel_flag()`.
+use lightcraft_sysmem::jobs::Cancelled;
 
 /// Did `e` come from a cancelled run?
 pub fn is_cancelled(e: &anyhow::Error) -> bool {

@@ -506,8 +506,8 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     for tool in LiquifyTool::ALL {
         let sc = crate::shortcuts::local_tool_shortcut(&app.session, shortcut_id(tool), shortcut(tool));
-        if let Some(sc) = sc.as_deref().and_then(crate::shortcuts::parse)
-            && crate::shortcuts::consume(ctx, &sc)
+        if let Some(sc) = sc.as_deref().and_then(li_keys::input::parse)
+            && li_keys::input::consume(ctx, &sc)
         {
             d.opts.tool = tool;
         }

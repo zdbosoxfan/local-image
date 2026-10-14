@@ -737,6 +737,6 @@ fn list_objects(dir: &Path) -> Result<HashSet<String>> {
 
 /// Crash-safe replace of one file (see [`crate::atomic`]).
 pub(crate) fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
-    crate::atomic::atomic_write(path, data)?;
+    li_fs::atomic_write(path, data)?;
     Ok(())
 }

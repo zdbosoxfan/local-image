@@ -102,11 +102,11 @@ fn every_modifier_key_waits_for_the_real_key() {
         assert!(field(&h, id, "overrides").get("edit.search").is_none(), "{modifier:?} alone assigns nothing");
         key(&mut h, Key::J, true, held);
         h.run_steps(2);
-        let want = crate::prefs_ui::shortcut_text(Key::J, held).unwrap();
+        let want = li_keys::input::shortcut_text(Key::J, held).unwrap();
         assert_eq!(field(&h, id, "overrides")["edit.search"], json!(want), "{modifier:?}");
     }
     for k in [Key::ControlLeft, Key::ShiftLeft, Key::AltLeft, Key::SuperRight] {
-        assert_eq!(crate::prefs_ui::shortcut_text(k, Modifiers::COMMAND), None, "{k:?}");
+        assert_eq!(li_keys::input::shortcut_text(k, Modifiers::COMMAND), None, "{k:?}");
     }
 }
 
@@ -122,24 +122,24 @@ fn a_shortcut_in_use_is_reported_and_moved_on_ok() {
     let app = h.state();
     assert_eq!(app.session.prefs().shortcut("edit.search", Some("Cmd+K")), Some("Cmd+J"));
     let bound: Vec<String> =
-        crate::shortcut_dispatch::bindings(app).into_iter().filter(|(_, sc)| *sc == crate::shortcuts::parse("Cmd+J").unwrap()).map(|(id, _)| id).collect();
+        crate::shortcut_dispatch::bindings(app).into_iter().filter(|(_, sc)| *sc == li_keys::input::parse("Cmd+J").unwrap()).map(|(id, _)| id).collect();
     assert_eq!(bound, ["edit.search"], "one owner for ⌘J");
 }
 
 #[test]
 fn every_named_key_remains_dispatchable_after_preference_normalization() {
     for key in Key::ALL {
-        if !crate::prefs_ui::is_modifier_key(*key) {
-            let captured = crate::prefs_ui::shortcut_text(*key, Modifiers::ALT).unwrap();
-            assert_eq!(crate::shortcuts::parse(&captured).unwrap().logical_key, *key, "capture {key:?}");
+        if !li_keys::input::is_modifier_key(*key) {
+            let captured = li_keys::input::shortcut_text(*key, Modifiers::ALT).unwrap();
+            assert_eq!(li_keys::input::parse(&captured).unwrap().logical_key, *key, "capture {key:?}");
         }
         let raw = format!("Alt+{}", key.name());
         let normalized = li_keys::normalize_shortcut(&raw).unwrap_or_else(|| panic!("key vocabulary missing {raw}"));
-        assert_eq!(crate::shortcuts::parse(&normalized).unwrap().logical_key, *key, "{raw}");
-        assert_eq!(crate::shortcuts::parse(&raw.to_ascii_lowercase()).unwrap().logical_key, *key, "old persisted {raw}");
+        assert_eq!(li_keys::input::parse(&normalized).unwrap().logical_key, *key, "{raw}");
+        assert_eq!(li_keys::input::parse(&raw.to_ascii_lowercase()).unwrap().logical_key, *key, "old persisted {raw}");
     }
-    assert!(crate::shortcuts::parse("Cmd+Pageup").is_some());
-    assert!(crate::shortcuts::parse("Cmd+Banana").is_none());
+    assert!(li_keys::input::parse("Cmd+Pageup").is_some());
+    assert!(li_keys::input::parse("Cmd+Banana").is_none());
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn named_shortcuts_capture_persist_reload_and_dispatch() {
     ] {
         let (mut h, id) = dialog(1.0, "edit.search", "search…");
         capture(&mut h, "edit.search", modifier, held, k);
-        let expected = crate::prefs_ui::shortcut_text(k, held).unwrap();
+        let expected = li_keys::input::shortcut_text(k, held).unwrap();
         assert_eq!(field(&h, id, "overrides")["edit.search"], json!(expected));
         crate::dialogs::confirm(h.state_mut(), id).unwrap();
         h.run_steps(2);
@@ -160,7 +160,7 @@ fn named_shortcuts_capture_persist_reload_and_dispatch() {
         let mut reload = photocraft_engine::Session::new();
         reload.load_prefs_json(&serde_json::to_string(&stored).unwrap()).unwrap();
         let shortcut = reload.prefs().shortcut("edit.search", None).unwrap();
-        assert_eq!(crate::shortcuts::parse(shortcut).unwrap().logical_key, k);
+        assert_eq!(li_keys::input::parse(shortcut).unwrap().logical_key, k);
         let binding = crate::shortcut_dispatch::bindings(h.state()).into_iter().find(|(id, _)| id == "edit.search").unwrap().1;
         assert_eq!(binding.logical_key, k);
         // The captured key actually opens Search after the dialog is gone.

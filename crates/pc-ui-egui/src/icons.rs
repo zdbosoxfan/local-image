@@ -1,4 +1,4 @@
-//! Icon rendering. Generic SVGs (`icon_data.rs`) and the line tool icons (`tool_icon_data.rs`:
+//! Icon rendering. Generic SVGs (`li_ui_kit::icon_data`) and the line tool icons (`li_ui_kit::tool_icon_data`:
 //! Lucide, PhotoCraft, VectorCraft, Tabler and Local Image originals) are embedded, recoloured to
 //! white, rasterized by the
 //! egui_extras SVG loader at the exact on-screen pixel size (crisp at any DPI), and tinted per use.
@@ -6,12 +6,14 @@
 //! (History: the first shell used Unicode glyphs; half of them rendered as tofu boxes because the
 //! bundled fonts lacked them. Vector icons fix that for good.)
 
-#[cfg(test)]
-use crate::icon_data::ICONS;
 use crate::state::Tool;
 use crate::theme::Tokens;
 use egui::{Color32, Rect, Response, Sense, Vec2};
-pub use li_ui_kit::icons::{exists, image};
+#[cfg(test)]
+use li_ui_kit::icon_data::ICONS;
+#[cfg(test)]
+use li_ui_kit::icons::exists;
+use li_ui_kit::icons::image;
 /// Paint an icon centred in `rect`.
 pub fn paint(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color32) {
     li_ui_kit::icons::install(ui.ctx());
@@ -38,7 +40,7 @@ pub fn cursor(ctx: &egui::Context, name: &str, p: egui::Pos2, hot: Vec2, size: f
 pub fn tool_icon_name_for(t: Tool, persona: photocraft_engine::toolsets::Persona) -> &'static str {
     if persona == photocraft_engine::toolsets::Persona::Vector || t.key() == '\0' {
         let id = format!("{t:?}");
-        if let Some((_, name, _)) = crate::fill_stroke_proxy::icons::ICONS.iter().find(|(tool, _, _)| *tool == id) {
+        if let Some((_, name, _)) = li_ui_kit::vector_icon_data::ICONS.iter().find(|(tool, _, _)| *tool == id) {
             return name;
         }
     }
@@ -47,7 +49,7 @@ pub fn tool_icon_name_for(t: Tool, persona: photocraft_engine::toolsets::Persona
 pub fn tool_icon_name(t: Tool) -> &'static str {
     if t.key() == '\0' {
         let id = format!("{t:?}");
-        if let Some((_, name, _)) = crate::fill_stroke_proxy::icons::ICONS.iter().find(|(tool, _, _)| *tool == id) {
+        if let Some((_, name, _)) = li_ui_kit::vector_icon_data::ICONS.iter().find(|(tool, _, _)| *tool == id) {
             return name;
         }
     }
@@ -231,13 +233,13 @@ pub fn rail_button(ui: &mut egui::Ui, name: &str, box_size: f32, on: bool, toolt
 }
 
 fn monochrome_tool_image(name: &str, size: f32, tint: Color32) -> egui::Image<'static> {
-    crate::mono_tool_icons::image(name, size, tint).unwrap_or_else(|| image(name, size, tint))
+    li_ui_kit::mono_tool_icons::image(name, size, tint).unwrap_or_else(|| image(name, size, tint))
 }
 
 /// Tool image for toolbar buttons and the rich tooltip's 32 px slot. Monochrome (the default) uses the
 /// theme tint; colour mode tints the same line icon by family. Set from preferences each frame.
 pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> egui::Image<'static> {
-    if crate::color_icons::enabled(ui.ctx())
+    if li_ui_kit::color_icons::enabled(ui.ctx())
         && let Some(image) = crate::color_icons::image(ui, name, size, !ui.is_enabled())
     {
         return image;
@@ -247,7 +249,7 @@ pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> egui::Image<'static> {
 
 pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color32) {
     let tint = if ui.is_enabled() { tint } else { Tokens::get(ui.ctx()).text_faint };
-    if crate::color_icons::enabled(ui.ctx())
+    if li_ui_kit::color_icons::enabled(ui.ctx())
         && let Some(image) = crate::color_icons::image(ui, name, size, !ui.is_enabled())
     {
         image.paint_at(ui, Rect::from_center_size(rect.center(), Vec2::splat(size)));
@@ -277,7 +279,7 @@ mod tests {
         assert_ne!(cursor.uri(), tool.uri());
         for (icon, source, style) in [
             (cursor, ICONS.iter().find(|(n, _)| *n == "cursor-pipette").unwrap().1, li_ui_kit::icons::StrokeStyle::Interface),
-            (tool, crate::mono_tool_icons::svg("pipette").unwrap(), li_ui_kit::icons::StrokeStyle::Tool),
+            (tool, li_ui_kit::mono_tool_icons::svg("pipette").unwrap(), li_ui_kit::icons::StrokeStyle::Tool),
         ] {
             match icon.source(&ctx) {
                 egui::ImageSource::Bytes { bytes, .. } => assert_eq!(bytes.as_ref(), li_ui_kit::icons::prepared(source, style).as_ref()),
@@ -292,7 +294,7 @@ mod tests {
         let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(120., 80.)).build_ui_state(
             |ui, clicked: &mut bool| {
                 egui_extras::install_image_loaders(ui.ctx());
-                crate::color_icons::set_enabled(ui.ctx(), false);
+                li_ui_kit::color_icons::set_enabled(ui.ctx(), false);
                 ui.add_enabled_ui(false, |ui| {
                     *clicked |= tool_button(ui, "crop", 40., false, "Disabled tool").clicked();
                 });
@@ -310,7 +312,7 @@ mod tests {
 
     #[test]
     fn generic_tool_ids_embed_the_same_sourced_monochrome_glyph() {
-        for (name, tool) in crate::tool_icon_data::TOOL_ICONS {
+        for (name, tool) in li_ui_kit::tool_icon_data::TOOL_ICONS {
             if let Some((_, generic)) = ICONS.iter().find(|(id, _)| id == name) {
                 assert_eq!(generic, tool, "generic tool ID uses a different silhouette: {name}");
             }
@@ -344,7 +346,7 @@ fn j17_editor_icon_controls_keep_accessible_clicks_and_disabled_behavior() {
             let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(240., 100.)).build_ui_state(
                 |ui, clicked: &mut [usize; 3]| {
                     crate::theme::apply(ui.ctx(), kind);
-                    crate::color_icons::set_enabled(ui.ctx(), colored);
+                    li_ui_kit::color_icons::set_enabled(ui.ctx(), colored);
                     ui.horizontal(|ui| {
                         clicked[0] += usize::from(button(ui, "crop", 40., false, "Crop").clicked());
                         clicked[1] += usize::from(tool_button(ui, "brush", 40., false, "Brush Tool").clicked());

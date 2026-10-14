@@ -244,7 +244,7 @@ pub fn shape_alpha_tone(
             let tol = 0.04 + 0.16 * (*refine as f32 / 100.0);
             let samples: Vec<[f32; 3]> = samples.iter().map(|s| [s[0] as f32, s[1] as f32, s[2] as f32]).collect();
             for (v, c) in out.data.iter_mut().zip(&img.data) {
-                let lab = lightcraft_color::perceptual::oklab_from_2020(
+                let lab = li_color::perceptual::oklab_from_2020(
                     tone.map_or_else(|| tonemap_for_select(c.map(|v| v * gain)), |t| crate::tone2::tone_px(t, &t.method(), c.map(|v| v * gain))),
                 );
                 let d = samples
@@ -440,7 +440,7 @@ pub const AUTO_TOL_CHROMA: f32 = 0.25;
 /// Chromaticity `rgb / Y` (as colour noise reduction uses it).
 #[inline]
 pub fn chromaticity(c: [f32; 3]) -> [f32; 3] {
-    let y = lightcraft_color::luminance_2020(c).max(1e-6);
+    let y = li_color::luminance_2020(c).max(1e-6);
     [c[0] / y, c[1] / y, c[2] / y]
 }
 

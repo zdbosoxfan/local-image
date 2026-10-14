@@ -1164,7 +1164,7 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if cmd == "path.delete" && delete_layer_path { (icon, "Delete vector mask", "layer.vectorMask.delete", json!({})) } else { (icon, tip, cmd, p) }
         });
         for (icon, tip, cmd, p) in items {
-            let icon = if crate::icons::exists(icon) { icon } else { "square" };
+            let icon = if li_ui_kit::icons::exists(icon) { icon } else { "square" };
             if crate::icons::button(ui, icon, 24.0, false, tip).clicked() {
                 if cmd == "path.stroke" && ui.input(|i| i.modifiers.alt) {
                     stroke_dialog = Some(sel.clone());

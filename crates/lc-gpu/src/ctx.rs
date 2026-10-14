@@ -467,7 +467,7 @@ fn constants() -> String {
     use lightcraft_pipeline::finish::{GRAIN_HASH, MASK_SUMS, MASK_TERMS, SRGB_LUT_N};
     use lightcraft_pipeline::tone::{CHROMA_N, LUT_MAX_EV, LUT_MIN_EV, LUT_N};
     let mut s = String::new();
-    let [to_lms, from_lms, to_lab, from_lab] = lightcraft_color::perceptual::oklab_matrices();
+    let [to_lms, from_lms, to_lab, from_lab] = li_color::perceptual::oklab_matrices();
     for (name, m) in [("OK_TO_LMS", to_lms), ("OK_FROM_LMS", from_lms), ("OK_TO_LAB", to_lab), ("OK_FROM_LAB", from_lab)] {
         let rows: Vec<String> = m.iter().map(|r| format!("vec3<f32>({:?}, {:?}, {:?})", r[0], r[1], r[2])).collect();
         s += &format!("const {name} = array<vec3<f32>, 3>({});\n", rows.join(", "));
@@ -544,7 +544,7 @@ impl Gpu {
     pub(crate) fn numerical_test_device() -> Result<Gpu, String> {
         // The caller holds TEST_INIT_LOCK through rendering and teardown, also
         // excluding the crash-marker test's process-wide configuration.
-        let backends = crate::backend::default_compute_backends(std::env::consts::OS);
+        let backends = li_gpu::backend::default_compute_backends(std::env::consts::OS);
         let device = Self::new_inner(backends, false, li_gpu::DeviceHealth::new()).or_else(|e| {
             if std::env::var_os("LC_REQUIRE_GPU").is_some() { Err(e) } else { Self::new_inner(backends, true, li_gpu::DeviceHealth::new()) }
         })?;

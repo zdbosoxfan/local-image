@@ -377,7 +377,7 @@ mod tests {
             orientation: Default::default(),
             color: ColorData {
                 illuminant: [21, 0],
-                color_matrix: [Some(lightcraft_color::Mat3::IDENTITY), None],
+                color_matrix: [Some(li_color::Mat3::IDENTITY), None],
                 baseline_exposure: 0.25,
                 ..Default::default()
             },

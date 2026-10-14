@@ -229,8 +229,7 @@ impl PeopleEngine {
                     Some(data) => self.data = data,
                     None => {
                         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
-                        lightcraft_catalog::safe_file::write_atomic(&dir.join(format!("people.json.corrupt-{stamp}")), &bytes)
-                            .map_err(|e| e.to_string())?;
+                        li_fs::write_atomic(&dir.join(format!("people.json.corrupt-{stamp}")), &bytes).map_err(|e| e.to_string())?;
                         let error = "Could not read people data. A copy of the damaged file was kept.".to_string();
                         self.load_error = Some(error.clone());
                         return Err(error);
@@ -280,7 +279,7 @@ impl PeopleEngine {
         if let Some(dir) = &self.dir {
             std::fs::create_dir_all(dir).map_err(|_| "could not create face data directory")?;
             let bytes = serde_json::to_vec_pretty(data).map_err(|_| "could not encode people data")?;
-            lightcraft_catalog::safe_file::write_atomic(&dir.join("people.json"), &bytes).map_err(|_| "could not save people data")?;
+            li_fs::write_atomic(&dir.join("people.json"), &bytes).map_err(|_| "could not save people data")?;
         }
         Ok(())
     }

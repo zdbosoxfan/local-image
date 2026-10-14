@@ -50,7 +50,7 @@ fn indices_f32(w: usize, h: usize, p: &CaptureParams, hypot: bool) -> Vec<u32> {
 /// whole-row/32-row restart locations and Develop's pinned box-blur policy.
 fn mask_f32(img: &Rgb32f, p: &CaptureParams) -> (Vec<f32>, Vec<f32>) {
     let (w, h) = (img.width, img.height);
-    let lum: Vec<_> = img.data.iter().map(|c| lightcraft_color::luminance_2020(*c).max(0.0)).collect();
+    let lum: Vec<_> = img.data.iter().map(|c| li_color::luminance_2020(*c).max(0.0)).collect();
     let modified = Plane::from_fn(w, h, |x, y| {
         if x <= 1 || y <= 1 || x + 2 >= w || y + 2 >= h {
             return 0.0;
@@ -92,7 +92,7 @@ fn mask_f32(img: &Rgb32f, p: &CaptureParams) -> (Vec<f32>, Vec<f32>) {
         let weight = 1.0 / (1.0 + (offset - 200.0 * t).exp());
         (1.01011 * (weight - 0.01)).clamp(0.0, 1.0)
     });
-    let blurred = lightcraft_raster::blur::gaussian_with_policy(&modified, 2.0, lightcraft_raster::blur::GaussianPolicy::Boxes);
+    let blurred = lightcraft_raster::blur::gaussian_with_policy(&modified, 2.0, li_raster::blur::GaussianPolicy::Boxes);
     let blend = modified
         .data
         .iter()
@@ -172,7 +172,7 @@ fn wgsl_f32_mask_and_iterations_match_cpu_reference() {
                     // rounding error in the inverse; dark pixels use the Y floor.
                     for i in 0..w * h {
                         if blend[i] >= 0.25 && lum[i] >= 0.001 {
-                            let new_l = lightcraft_color::luminance_2020(cpu.data[i]);
+                            let new_l = li_color::luminance_2020(cpu.data[i]);
                             let reference_est = (new_l - lum[i]) / blend[i] + lum[i];
                             let d = (est[i] - reference_est).abs();
                             estimate_max = estimate_max.max(d);

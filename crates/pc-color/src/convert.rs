@@ -6,11 +6,12 @@
 //! way a colour-managed editor does. A document's embedded CMYK profile replaces the built-in
 //! one while its [`CmykSpace`] is active on the thread ([`with_cmyk_space`]: the compositor,
 //! the GPU upload and composite exports enter it); otherwise the built-in profiles apply.
-//! Lab uses the exact D50 formulas; gray is treated as sGray (gray `v` = sRGB `(v, v, v)`).
+//! Lab, gray (sGray) and the sRGB transfer live in `li_color::convert`.
 
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
+use li_color::convert::{cmyk_to_rgb_naive, rgb_to_cmyk_naive};
 use photocraft_cms::{Builtin, ColorSpace, Intent, Profile, Transform};
 
 /// A document's own CMYK profile, linked to sRGB both ways (relative colorimetric + BPC, like
@@ -157,16 +158,10 @@ pub fn rgb_to_cmyk(rgb: [f32; 3]) -> [f32; 4] {
     o
 }
 
-// The pure colour math has one implementation in the shared backend. CMYK profile
-// state and transforms above remain this crate's compatibility/CMS adapter.
-pub use li_color::convert::{
-    D50, SRGB_TO_XYZ_D50, XYZ_D50_TO_SRGB, cmyk_to_rgb_naive, lab_to_srgb, linear_to_srgb, mat3_mul, rgb_to_cmyk_naive, rgb_to_gray, srgb_to_lab,
-    srgb_to_linear,
-};
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use li_color::convert::{lab_to_srgb, linear_to_srgb, srgb_to_lab, srgb_to_linear};
 
     #[test]
     fn srgb_roundtrip() {

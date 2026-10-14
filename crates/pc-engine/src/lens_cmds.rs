@@ -206,12 +206,6 @@ pub fn raw_params(cmd: &str, p: &Value) -> Result<CameraRaw> {
 
 // ---------- pixels ----------
 
-/// Compatibility adapter for callers without a document profile (sRGB).
-/// Document commands and smart filters use [`camera_raw_surface_in`].
-pub fn camera_raw_surface(surf: &Surface, area: Rect, p: &CameraRaw) -> Surface {
-    camera_raw_surface_in(surf, area, p, photocraft_cms::Builtin::Srgb.profile()).unwrap_or_else(|_| surf.clone())
-}
-
 /// The shared Develop engine, with the same RGB profile used by preview and commit.
 pub fn camera_raw_surface_in(surf: &Surface, area: Rect, p: &CameraRaw, profile: &photocraft_cms::Profile) -> Result<Surface> {
     photocraft_io::develop_filter::camera_raw_surface(surf, area, p, profile).map_err(EngineError::Other)

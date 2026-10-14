@@ -25,7 +25,7 @@ fn luma(img: &Rgb32f) -> (Vec<f32>, usize, usize) {
                 }
             }
             let l = acc / ((y1 - y0) * (x1 - x0)) as f32;
-            *v = lightcraft_color::transfer::linear_to_srgb(l.clamp(0.0, 1.0));
+            *v = li_color::transfer::linear_to_srgb(l.clamp(0.0, 1.0));
         }
     }
     (out, ow, oh)

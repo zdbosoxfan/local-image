@@ -119,7 +119,7 @@ fn without_a_path_it_says_why_and_the_key_can_be_rebound() {
     assert!(app.session.active().unwrap().doc.selection.is_none());
     assert!(app.ui.status_error && app.ui.status.contains("No path"), "status: {}", app.ui.status);
     // It's a listed, rebindable shortcut.
-    let cmd_enter = crate::shortcuts::parse("Cmd+Enter").unwrap();
+    let cmd_enter = li_keys::input::parse("Cmd+Enter").unwrap();
     assert!(crate::shortcut_dispatch::bindings(app).iter().any(|(id, sc)| id == "path.toSelection" && *sc == cmd_enter));
     h.state_mut().run("edit.keyboardShortcuts", json!({"set": {"path.toSelection": "Cmd+Shift+Y"}})).unwrap();
     h.state_mut().run("path.set", json!({"name": "work", "path": rect_path(10.0, 10.0, 20.0, 20.0)})).unwrap();

@@ -11,11 +11,11 @@
 //!    guided filter (He, Sun & Tang, "Guided Image Filtering", ECCV 2010) on the luminance, tile
 //!    by tile and only where the mask is mixed, which gives soft edges around foliage.
 
+use li_matte::matting::{box_mean, guided_filter_gray};
 use photocraft_geom::Rect;
 
 use super::gmm::Gmm;
 use super::{Region, RgbImage, Sampler, clean_mask, scale_for, subsample, trim_region};
-use crate::matting::{box_mean, guided_filter_gray};
 
 /// Working-resolution budget (pixels).
 pub const WORK_PX: usize = 160_000;

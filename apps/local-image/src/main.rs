@@ -20,7 +20,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-mod app_dirs;
 mod app_icon;
 mod app_log;
 #[cfg(target_os = "macos")]
@@ -192,7 +191,7 @@ fn main() -> eframe::Result {
         "Local Image {} starting (pid {}); settings in {:?}; log file {:?}",
         photocraft_engine::build_info::long_version(),
         std::process::id(),
-        app_dirs::config_dir(),
+        lightcraft_sysmem::app_dirs::config_dir(),
         log_path
     );
     // One compute pool sized from the hardware, built before anything uses rayon (threading rules 1-2).
@@ -534,7 +533,7 @@ fn main() -> eframe::Result {
             // Paths on the command line (Linux/Windows file associations, `photocraft a.psd`).
             app.open_paths(&files);
             // Portable marker found but its data folder isn't writable (#228): say where settings went.
-            if let Some(w) = &app_dirs::current().warning {
+            if let Some(w) = &lightcraft_sysmem::app_dirs::current().warning {
                 photocraft_ui_egui::notices::post(&mut app, "Portable mode is off", vec![w.clone()], false, None);
             }
             // The native bar and in-window menu visibility start in the remembered module.

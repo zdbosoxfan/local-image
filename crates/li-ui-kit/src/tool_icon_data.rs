@@ -102,7 +102,7 @@ pub static TOOL_ICONS: &[(&str, &[u8])] = &[
     ("zoom-in", include_bytes!("../../../assets/icons/tools/zoom-in.svg")),
 ];
 
-/// Existing labels for review sheets, exported for both compatibility facades.
+/// Tool labels for the icon review sheets of both shells.
 pub static TOOL_LABELS: &[(&str, &str)] = &[
     ("activity", "History"),
     ("arrow-left-right", "Content Aware Move"),

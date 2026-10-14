@@ -145,12 +145,12 @@ pub fn is_psd(bytes: &[u8]) -> bool {
 /// Imports a file. PSD/PSB and camera raws are detected by magic; everything
 /// else is decoded with `photocraft-codecs`.
 pub fn import(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
-    import_with(name, bytes, &photocraft_raster::Interrupt::NONE)
+    import_with(name, bytes, &lightcraft_sysmem::jobs::Interrupt::NONE)
 }
 
 /// [`import`] for a background open: checks `ctl` between stages (and per layer for PSD/PSB) and
 /// reports progress. A cancelled import fails with [`IoError::Cancelled`].
-pub fn import_with(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt) -> Result<ImportResult, IoError> {
+pub fn import_with(name: &str, bytes: &[u8], ctl: &lightcraft_sysmem::jobs::Interrupt) -> Result<ImportResult, IoError> {
     ctl.check().map_err(|_| IoError::Cancelled)?;
     if bytes.len() > photocraft_format::read::MAX_FILE_BYTES as usize {
         return Err(IoError::Unsupported("Input exceeds the file memory limit".into()));
@@ -162,7 +162,7 @@ pub fn import_with(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt)
     Ok(r)
 }
 
-fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt) -> Result<ImportResult, IoError> {
+fn import_stages(name: &str, bytes: &[u8], ctl: &lightcraft_sysmem::jobs::Interrupt) -> Result<ImportResult, IoError> {
     // A declared native extension must reach its loader so malformed bundles retain format errors.
     if has_extension(name, photocraft_format::EXTENSION) || photocraft_format::is_pcraft(bytes) {
         return Ok(ImportResult { document: photocraft_format::load_from_bytes(bytes)?, warnings: Vec::new() });

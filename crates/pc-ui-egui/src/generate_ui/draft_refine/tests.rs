@@ -75,7 +75,7 @@ fn zimage_turbo_variety_tip_follows_picker_clicks_in_generate_and_draft_gpu() {
         assert!(model_variety_tip(model).is_none(), "{model:?}");
     }
     assert!(model_variety_tip(ModelId::intern("installed:z_image_bf16.safetensors")).is_none());
-    assert!(crate::icons::exists("info"));
+    assert!(li_ui_kit::icons::exists("info"));
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/zimage-variety/ui");
     std::fs::create_dir_all(&dir).unwrap();
     let mut h = harness_render(vec2(1280.0, 800.0), true);

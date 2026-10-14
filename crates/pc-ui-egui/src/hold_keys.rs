@@ -16,8 +16,8 @@
 use egui::{InputState, KeyboardShortcut};
 
 use crate::PhotocraftApp;
-use crate::shortcuts::parse;
 use crate::state::Tool;
+use li_keys::input::parse;
 
 /// A tool in effect only while its key is held.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

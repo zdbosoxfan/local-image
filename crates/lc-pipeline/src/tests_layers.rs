@@ -227,7 +227,7 @@ fn half_opacity_gives_half_the_effect() {
         for x in LEFT.0..LEFT.1 {
             let i = y * W + x;
             for c in 0..3 {
-                use lightcraft_color::transfer::{linear_to_srgb, srgb_to_linear};
+                use li_color::transfer::{linear_to_srgb, srgb_to_linear};
                 let want =
                     linear_to_srgb((srgb_to_linear(base.data[i][c] as f32 / 255.0) + srgb_to_linear(full.data[i][c] as f32 / 255.0)) / 2.0) * 255.0;
                 assert!((half.data[i][c] as f32 - want).abs() <= 2.0, "({x},{y}) c{c}: {} vs {want}", half.data[i][c]);

@@ -1811,7 +1811,7 @@ mod tests {
         let photo_items = |app: &LightcraftApp| -> Vec<String> {
             let bar = crate::menubar::menu_bar(app);
             let items = &bar.iter().find(|(title, _)| title == "Photo").expect("Photo menu").1;
-            items.iter().filter_map(|n| if let crate::menubar::MenuNode::Item { id, .. } = n { Some(id.clone()) } else { None }).collect()
+            items.iter().filter_map(|n| if let li_commands::menu::CommandMenuNode::Item { id, .. } = n { Some(id.clone()) } else { None }).collect()
         };
         assert!(!photo_items(&h.app).contains(&"photo.restore".to_string()), "Restore only for deleted photos");
 

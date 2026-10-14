@@ -368,14 +368,14 @@ pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] 
     // negative channels (out-of-gamut scene colours) desaturated to zero (darktable sigmoid)
     let c = desaturate_negative(c);
     if v.luminance {
-        let y = lightcraft_color::luminance_2020(c);
+        let y = li_color::luminance_2020(c);
         if y <= 0.0 {
             return [0.0; 3];
         }
         let o = tone.apply(y);
         let k = tone.chroma_scale(o);
         let per = c.map(|x| tone.apply(x));
-        let py = lightcraft_color::luminance_2020(per).max(1e-9);
+        let py = li_color::luminance_2020(per).max(1e-9);
         let d = std::array::from_fn(|i| {
             let q = v.hue * c[i] * o / y + (1.0 - v.hue) * per[i] * o / py;
             o + (q - o) * k
@@ -386,7 +386,7 @@ pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] 
     let (lo, mid, hi) = channel_order(c);
     let mut d = preserve_hue_and_energy(c, per, lo, mid, hi, v.hue);
     // a camera curve's chroma by display luminance
-    let o = lightcraft_color::luminance_2020(d);
+    let o = li_color::luminance_2020(d);
     let k = tone.chroma_scale(o);
     if k != 1.0 {
         d = d.map(|x| o + (x - o) * k);
@@ -528,7 +528,7 @@ mod tests {
             }
             let t = scene(&base, 0.0, 0.0, 0.0);
             // the very darkest tones stay at black (below half an 8-bit level once encoded)
-            assert!(lightcraft_color::transfer::linear_to_srgb(t.apply(1e-5)) * 255.0 < 0.5, "{name}: {}", t.apply(1e-5));
+            assert!(li_color::transfer::linear_to_srgb(t.apply(1e-5)) * 255.0 < 0.5, "{name}: {}", t.apply(1e-5));
         }
         // grey placement: both brighter than the scene value (a metered grey sits ~3 EV below
         // sensor white, below 0.18)
@@ -544,7 +544,7 @@ mod tests {
     #[test]
     fn adobe_like_has_five_stops_of_headroom_and_no_knee() {
         let t = scene(&BaseCurve::Adobe, 0.0, 0.0, 0.0);
-        let enc = |y: f32| lightcraft_color::transfer::linear_to_srgb(t.apply(y)) * 255.0;
+        let enc = |y: f32| li_color::transfer::linear_to_srgb(t.apply(y)) * 255.0;
         // each stop up to +5 EV above grey is still at least about one 8-bit level brighter
         for ev in 0..5 {
             let (a, b) = (enc(GREY * 2f32.powi(ev)), enc(GREY * 2f32.powi(ev + 1)));
@@ -615,7 +615,7 @@ mod tests {
     }
 
     fn hue(d: [f32; 3]) -> f32 {
-        let lab = lightcraft_color::perceptual::oklab_from_2020(d);
+        let lab = li_color::perceptual::oklab_from_2020(d);
         lab[2].atan2(lab[1])
     }
 
@@ -639,7 +639,7 @@ mod tests {
                     let k = 0.002 * 1.05f32.powi(i);
                     let d = tone_px(&t, &v, col.map(|x| x * k));
                     assert!(d.iter().all(|x| (0.0..=1.0).contains(x)), "{name} {col:?}×{k}: {d:?}");
-                    let y = lightcraft_color::luminance_2020(d);
+                    let y = li_color::luminance_2020(d);
                     assert!(y >= prev_y - 1e-4, "{name} {col:?}×{k}: luminance falls");
                     prev_y = y;
                     let mx = d[0].max(d[1]).max(d[2]);
@@ -680,7 +680,7 @@ mod tests {
     fn compression_leaves_black_limited_colours_alone() {
         // a mid-luminance colour whose nearest border is black: unchanged (darktable's design)
         let d = [0.3, 0.15, 0.09];
-        let m = lightcraft_color::luminance_2020(d);
+        let m = li_color::luminance_2020(d);
         let out = compress(d, m, 1.0, 0.0);
         assert!((0..3).all(|k| (out[k] - d[k]).abs() < 1e-4), "{out:?}");
         // past white: pulled inside

@@ -1,12 +1,11 @@
-//! Compatibility API for the shared Local Image file writer.
-//! Durable writes preserve modes and symlinks; no-sync writes remain suitable for caches.
-//! New-file publication never replaces an existing name, including on unsupported volumes.
-pub use li_fs::{
-    FaultGuard, fail_writes_after, same_file, sync_dir, sync_dir_checked, syncs_on_this_thread, write_atomic, write_atomic_nosync, write_atomic_with,
-    write_new, write_new_unique, write_new_with,
+//! The shared file writer ([`li_fs`]) as the catalog and Library engine use it: durable writes
+//! preserve modes and symlinks; no-sync writes remain suitable for caches; new-file publication
+//! never replaces an existing name, including on unsupported volumes.
+use li_fs::{
+    fail_writes_after, same_file, syncs_on_this_thread, write_atomic, write_atomic_nosync, write_atomic_with, write_new, write_new_unique,
+    write_new_with,
 };
 
-#[cfg(test)]
 mod tests {
     use super::*;
     use std::{
@@ -137,7 +136,6 @@ mod tests {
     }
 }
 
-#[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod streaming_tests {
     use super::*;
@@ -166,7 +164,6 @@ mod streaming_tests {
     }
 }
 
-#[cfg(test)]
 mod store_writer_tests {
     use super::*;
     use crate::Store;

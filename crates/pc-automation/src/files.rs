@@ -62,7 +62,7 @@ pub fn save(
     }
     let r = photocraft_io::export(doc, &ext, opts)?;
     // Crash-safe: a failed write never destroys the previous file.
-    photocraft_format::atomic_write(path, &r.bytes).map_err(|e| AutomationError::Io(e.to_string()))?;
+    li_fs::atomic_write(path, &r.bytes).map_err(|e| AutomationError::Io(e.to_string()))?;
     Ok(r.warnings)
 }
 

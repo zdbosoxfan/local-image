@@ -307,11 +307,11 @@ impl AiView {
     }
 
     pub fn encode(&self, v: [f32; 3]) -> [u8; 3] {
-        apply3(&self.fwd, v).map(lightcraft_color::transfer::encode_srgb8)
+        apply3(&self.fwd, v).map(li_color::transfer::encode_srgb8)
     }
 
     pub fn decode(&self, c: [u8; 3]) -> [f32; 3] {
-        apply3(&self.inv, c.map(lightcraft_color::transfer::decode_srgb8))
+        apply3(&self.inv, c.map(li_color::transfer::decode_srgb8))
     }
 }
 

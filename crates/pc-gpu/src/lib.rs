@@ -36,7 +36,6 @@
 
 pub mod bounds;
 mod fx;
-pub mod health;
 pub mod plan;
 pub mod plan_cache;
 
@@ -51,7 +50,7 @@ use photocraft_doc::{DocId, Document, Layer, LayerContent, LayerId, Pattern};
 use photocraft_geom::{Rect, TILE_SIZE, TileCoord};
 use photocraft_raster::{Surface, Tile};
 
-pub use health::{DeviceHealth, Fault};
+use li_gpu::health::{DeviceHealth, Fault};
 pub use plan::{Kernel, Plan, Role, Unsupported, plan};
 
 /// Accumulator format for intermediate buffers. Full float: discontinuous operations
@@ -973,7 +972,7 @@ impl Compositor {
     /// `Err` when the device reported an error since [`DeviceHealth::errors`] was `before`: the
     /// render's output can't be trusted (the caller redoes it on the CPU), and every cached
     /// texture is dropped so nothing invalid is reused. The device itself stays in use unless
-    /// the error was its loss or one too many (see [`health::STRIKE_LIMIT`]).
+    /// the error was its loss or one too many (see [`li_gpu::health::STRIKE_LIMIT`]).
     pub fn check_errors(&mut self, before: Option<u64>) -> Result<(), Unsupported> {
         let (Some(h), Some(before)) = (&self.health, before) else { return Ok(()) };
         if h.errors() == before {

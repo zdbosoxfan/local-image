@@ -292,7 +292,7 @@ fn own_preview(raw: &RawImage) {
     let step = if raw.cfa.as_ref().is_some_and(|c| c.width == 6 && c.height == 6) { 3 } else { 2 };
     let k = raw.crop.width.max(raw.crop.height).div_ceil(512).max(step).next_multiple_of(step);
     let rgb = raw.develop_binned(k, 0.99).unwrap().unwrap_or_else(|| raw.develop(crate::Method::Bilinear).unwrap());
-    std::hint::black_box(lightcraft_raster::resample::fit(&rgb, 512, 512, lightcraft_raster::resample::Filter::Box));
+    std::hint::black_box(lightcraft_raster::resample::fit(&rgb, 512, 512, li_raster::resample::Filter::Box));
 }
 fn rawler_preview(raw: &rawler::RawImage) {
     use rawler::imgop::develop::{Intermediate, ProcessingStep, RawDevelop};
@@ -307,7 +307,7 @@ fn rawler_preview(raw: &rawler::RawImage) {
         Intermediate::Monochrome(c) => c.data.into_iter().map(|v| [v; 3]).collect(),
     };
     let rgb = lightcraft_raster::Rgb32f { width: dim.w, height: dim.h, data };
-    std::hint::black_box(lightcraft_raster::resample::fit(&rgb, 512, 512, lightcraft_raster::resample::Filter::Box));
+    std::hint::black_box(lightcraft_raster::resample::fit(&rgb, 512, 512, li_raster::resample::Filter::Box));
 }
 #[test]
 #[ignore = "CC0 comparison: scripts/raw_decoder_comparison.py --fetch --references --run"]

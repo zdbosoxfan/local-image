@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions};
-use photocraft_format::atomic::{AtomicFs, RenameRetry};
+use li_fs::{AtomicFs, RenameRetry};
 use serde_json::Value;
 
 use crate::AutomationError;
@@ -77,7 +77,7 @@ impl AtomicFs for CapFs<'_> {
         Ok(path.to_path_buf())
     }
 
-    fn preserve_permissions(&self, from: &Path, to: &Path, _policy: photocraft_format::atomic::Policy) -> io::Result<()> {
+    fn preserve_permissions(&self, from: &Path, to: &Path, _policy: li_fs::Policy) -> io::Result<()> {
         let permissions = self.dir.metadata(from)?.permissions();
         let mut options = OpenOptions::new();
         options.write(true);
@@ -193,7 +193,7 @@ impl AuthorizedWorkspace {
 
     /// Create or replace one file below the configured write root, crash-safely: the bytes go to
     /// a temporary file beside the target, which is synced and renamed over it (the same steps
-    /// as [`photocraft_format::atomic_write`], through the directory capability). On failure
+    /// as [`li_fs::atomic_write`], through the directory capability). On failure
     /// the previous file is untouched and the temporary file is removed.
     ///
     /// The parent directory must already exist. `cap-std` performs path
@@ -202,8 +202,7 @@ impl AuthorizedWorkspace {
     pub fn write(&self, path: &str, bytes: &[u8]) -> Result<(), AutomationError> {
         let relative = relative_path(path)?;
         let root = self.write.as_ref().ok_or_else(|| AutomationError::BadRequest(format!("{DENIED}: write authority is absent")))?;
-        photocraft_format::atomic::atomic_write_with(&CapFs { dir: &root.dir }, RenameRetry::platform(), &relative, bytes)
-            .map_err(|e| file_error("write", path, e))
+        li_fs::atomic_write_with(&CapFs { dir: &root.dir }, RenameRetry::platform(), &relative, bytes).map_err(|e| file_error("write", path, e))
     }
 }
 

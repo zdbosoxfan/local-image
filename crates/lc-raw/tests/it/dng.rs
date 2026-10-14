@@ -1,7 +1,7 @@
 //! Synthetic DNG round trips: every storage variant we decode is written with our own TIFF writer (and LJ92
 //! encoder) and must decode bit-exactly.
 
-use lightcraft_color::{D65, Mat3, Xy};
+use li_color::{D65, Mat3, Xy};
 use lightcraft_raw::opcodes::{Area, Opcode};
 use lightcraft_raw::{
     BlackLevel, Cfa, ColorData, DngCompression, DngWriteOptions, Method, OpcodeLists, Orientation, RawData, RawFormat, RawImage, Rect, decode,

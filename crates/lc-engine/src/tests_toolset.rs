@@ -37,8 +37,8 @@ pub(crate) fn textured_dng() -> Vec<u8> {
         color: ColorData {
             illuminant: [17, 21],
             color_matrix: [
-                Some(lightcraft_color::Mat3([[0.9, 0.2, -0.15], [-0.3, 1.25, 0.08], [0.02, -0.12, 0.85]])),
-                Some(lightcraft_color::Mat3([[0.7, 0.3, -0.1], [-0.35, 1.3, 0.1], [0.05, -0.2, 1.0]])),
+                Some(li_color::Mat3([[0.9, 0.2, -0.15], [-0.3, 1.25, 0.08], [0.02, -0.12, 0.85]])),
+                Some(li_color::Mat3([[0.7, 0.3, -0.1], [-0.35, 1.3, 0.1], [0.05, -0.2, 1.0]])),
             ],
             as_shot_neutral: Some([0.5, 1.0, 0.7]),
             ..Default::default()

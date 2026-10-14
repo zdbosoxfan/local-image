@@ -197,14 +197,13 @@ fn edit(a: &mut Appearance, active: ActivePaint, action: &Action) {
     }
 }
 /// Vector presets use the same vocabulary, including the Shift+~ Backtick alias.
-pub use crate::shortcuts::parse as shortcut;
 pub fn tool_key(ctx: &egui::Context, preset: Preset, registered: &[&str], current: &str) -> Option<String> {
     if crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::Text {
         return None;
     }
     for b in layout::tool_bindings(preset) {
         if let Some(target) = layout::tool_for_key_after(photocraft_engine::toolsets::Persona::Vector, preset, b.key, registered, current)
-            && shortcut(b.key).is_some_and(|sc| crate::shortcuts::consume(ctx, &sc))
+            && li_keys::input::parse(b.key).is_some_and(|sc| li_keys::input::consume(ctx, &sc))
         {
             return Some(target.into());
         }
@@ -218,7 +217,7 @@ pub fn keys(ctx: &egui::Context, state: &mut State, s: &mut Session, ids: &[Laye
         return Ok(false);
     }
     for (key, action) in [("Shift+X", Some(Action::Swap)), ("X", None), ("D", Some(Action::Default)), ("/", Some(Action::None))] {
-        if shortcut(key).is_some_and(|sc| crate::shortcuts::consume(ctx, &sc)) {
+        if li_keys::input::parse(key).is_some_and(|sc| li_keys::input::consume(ctx, &sc)) {
             if let Some(action) = action {
                 state.apply(s, ids, &action)?;
             } else {
@@ -470,16 +469,14 @@ pub fn flyouts(ui: &mut Ui, state: &mut FlyoutState, registered: &[&str], set: O
 #[path = "fill_stroke_proxy/tests.rs"]
 mod tests;
 
-pub use crate::vector_tool_icon_data as icons;
-
 /// Vector toolbar buttons use the shared tool-icon renderer, so the flyouts, menus and toolbar show
 /// one artwork in the chosen style (monochrome by default, family tint in colour mode).
 pub fn tool_button(ui: &mut Ui, tool: &str, size: f32) -> egui::Response {
     egui_extras::install_image_loaders(ui.ctx());
-    let Some((_, name, _)) = icons::ICONS.iter().find(|(id, _, _)| *id == tool) else { return ui.button(tool) };
+    let Some((_, name, _)) = li_ui_kit::vector_icon_data::ICONS.iter().find(|(id, _, _)| *id == tool) else { return ui.button(tool) };
     let image = crate::icons::tool_icon(ui, name, size).fit_to_exact_size(egui::vec2(size, size));
     let r = ui.add(egui::Button::image(image));
-    let label = icons::LABELS.iter().find(|(id, _)| *id == tool).map_or(tool, |(_, label)| *label);
+    let label = li_ui_kit::vector_icon_data::LABELS.iter().find(|(id, _)| *id == tool).map_or(tool, |(_, label)| *label);
     r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!(label)));
     r.on_hover_text(tl!(label))
 }
