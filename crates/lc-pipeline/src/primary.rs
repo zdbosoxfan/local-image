@@ -205,7 +205,7 @@ pub fn eigf_tone(l: &Plane, hl: f32, sh: f32, wh: f32, bl: f32) -> Plane {
 /// Cross fast guided upsampling of a gain field, guide = full-resolution log EV.
 pub fn upsample_gain(proxy_l: &Plane, gain: &Plane, full_l: &Plane) -> Plane {
     let sigma = (proxy_l.width.max(proxy_l.height) as f32 * 0.002).max(1.);
-    let mean = |p: &Plane| lightcraft_raster::blur::gaussian(p, sigma);
+    let mean = |p: &Plane| crate::blur::gaussian(p, sigma);
     let ml = mean(proxy_l);
     let mg = mean(gain);
     let var = mean(&proxy_l.map(|v| v * v));
