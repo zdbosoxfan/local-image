@@ -16,6 +16,9 @@ const DENIED: &str = "automation filesystem access is not granted";
 #[derive(Clone)]
 struct RootCapability {
     dir: Arc<Dir>,
+    /// The launch-time root path (canonical when it resolves). Reads and writes never go through
+    /// it; it only names files to engines that key records by path (the Library catalog).
+    path: PathBuf,
 }
 
 /// Shared writer operations resolved exclusively through the granted directory capability.
@@ -96,11 +99,83 @@ pub struct AuthorizedWorkspace {
     write: Option<RootCapability>,
 }
 
+/// Most files [`AuthorizedWorkspace::list_files`] returns for one request.
+pub const MAX_LISTED_FILES: usize = 100_000;
+
 impl AuthorizedWorkspace {
     /// Open the configured roots as capabilities. Either authority may be
     /// omitted; omitted authority fails closed.
     pub fn new(read_root: Option<&Path>, write_root: Option<&Path>) -> Result<Self, AutomationError> {
         Ok(Self { read: open_root(read_root, "read")?, write: open_root(write_root, "write")? })
+    }
+
+    /// The read root's path (launch-time configuration), when read authority was granted.
+    pub fn read_root_path(&self) -> Option<&Path> {
+        self.read.as_ref().map(|r| r.path.as_path())
+    }
+
+    /// The write root's path (launch-time configuration), when write authority was granted.
+    pub fn write_root_path(&self) -> Option<&Path> {
+        self.write.as_ref().map(|r| r.path.as_path())
+    }
+
+    /// Whether something already exists at `path` below the write root (export name collisions).
+    /// An invalid path or absent authority reports `false`; the write itself then fails.
+    pub fn write_target_exists(&self, path: &str) -> bool {
+        match (relative_path(path), self.write.as_ref()) {
+            (Ok(rel), Some(root)) => root.dir.symlink_metadata(rel).is_ok(),
+            _ => false,
+        }
+    }
+
+    /// The regular files at or below `path` under the read root: `path` itself when it is a
+    /// file, else every file in that folder and its subfolders (sorted, hidden entries skipped,
+    /// symbolic links not followed), as forward-slash relative paths. `""` or `"."` lists the
+    /// whole read root. Fails past [`MAX_LISTED_FILES`] files.
+    pub fn list_files(&self, path: &str) -> Result<Vec<String>, AutomationError> {
+        let root = self.read.as_ref().ok_or_else(|| AutomationError::BadRequest(format!("{DENIED}: read authority is absent")))?;
+        let top = if matches!(path, "" | ".") { None } else { Some(relative_path(path)?) };
+        if let Some(rel) = &top {
+            let metadata = root.dir.symlink_metadata(rel).map_err(|e| file_error("list", path, e))?;
+            if metadata.is_file() {
+                return Ok(vec![path.to_string()]);
+            }
+            if !metadata.is_dir() {
+                return Err(AutomationError::BadRequest(format!("automation read path is not a file or folder: `{path}`")));
+            }
+        }
+        let mut out = Vec::new();
+        let mut stack = vec![top.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()];
+        while let Some(dir_rel) = stack.pop() {
+            let dir = if dir_rel.is_empty() { root.dir.open_dir(".") } else { root.dir.open_dir(&dir_rel) };
+            let dir = dir.map_err(|e| file_error("list", &dir_rel, e))?;
+            let mut entries: Vec<(String, bool)> = Vec::new();
+            for entry in dir.entries().map_err(|e| file_error("list", &dir_rel, e))? {
+                let entry = entry.map_err(|e| file_error("list", &dir_rel, e))?;
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with('.') {
+                    continue;
+                }
+                let Ok(kind) = entry.file_type() else { continue };
+                let child = if dir_rel.is_empty() { name } else { format!("{dir_rel}/{name}") };
+                if kind.is_dir() {
+                    entries.push((child, true));
+                } else if kind.is_file() {
+                    entries.push((child, false));
+                }
+            }
+            for (child, is_dir) in entries {
+                if is_dir {
+                    stack.push(child);
+                } else if out.len() >= MAX_LISTED_FILES {
+                    return Err(AutomationError::BadRequest(format!("`{path}` holds more than {MAX_LISTED_FILES} files; name a smaller folder")));
+                } else {
+                    out.push(child);
+                }
+            }
+        }
+        out.sort();
+        Ok(out)
     }
 
     /// Read one regular file below the configured read root.
@@ -139,10 +214,11 @@ fn open_root(path: Option<&Path>, authority: &str) -> Result<Option<RootCapabili
     }
     let dir = Dir::open_ambient_dir(path, ambient_authority())
         .map_err(|e| AutomationError::Io(format!("cannot open automation {authority} root `{}`: {e}", path.display())))?;
-    Ok(Some(RootCapability { dir: Arc::new(dir) }))
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    Ok(Some(RootCapability { dir: Arc::new(dir), path }))
 }
 
-fn relative_path(raw: &str) -> Result<PathBuf, AutomationError> {
+pub(crate) fn relative_path(raw: &str) -> Result<PathBuf, AutomationError> {
     if raw.is_empty() {
         return Err(path_error(raw, "path is empty"));
     }

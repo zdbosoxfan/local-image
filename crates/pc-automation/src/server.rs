@@ -5,9 +5,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use base64::Engine as _;
-use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::router::tool::{ToolRoute, ToolRouter};
+use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, ContentBlock as Content};
+use rmcp::model::{CallToolResponse, CallToolResult, ContentBlock as Content, Tool};
 use rmcp::{ErrorData as McpError, ServerHandler, ServiceExt, tool, tool_handler, tool_router};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -16,6 +17,8 @@ use serde_json::{Value, json};
 use crate::bridge::BridgeClient;
 use crate::budgets::{BatchReplyBudget, MAX_PREVIEW_SIDE, check_png, json_bytes};
 use crate::headless::Headless;
+use crate::library::tools::{self as library_tools, LibraryReply};
+use crate::library::{LibraryFs, LibraryHeadless};
 use crate::security::MAX_BATCH_STEPS;
 use crate::{AuthorizedWorkspace, AutomationError, files};
 
@@ -30,8 +33,27 @@ pub enum Backend {
 #[derive(Clone)]
 pub struct PhotocraftMcp {
     backend: Arc<Backend>,
+    /// The Library session behind the `library_*` tools (created on first use).
+    library: Arc<LibraryCell>,
     tool_router: ToolRouter<Self>,
 }
+
+/// The Library half of the server: its filesystem policy (`None`: unavailable, bridge mode) and
+/// the session, created on the first Library tool call so editor-only clients never pay for it.
+struct LibraryCell {
+    policy: Option<LibraryFs>,
+    session: Mutex<Option<LibraryHeadless>>,
+}
+
+impl LibraryCell {
+    fn new(policy: Option<LibraryFs>) -> Arc<Self> {
+        Arc::new(Self { policy, session: Mutex::new(None) })
+    }
+}
+
+const LIBRARY_NEEDS_HEADLESS: &str = "the `library_*` tools run on a headless Library session; the desktop app's control channel \
+    does not expose its Library yet. Run `local-image-cli mcp` without --bridge (with --automation-read-root / \
+    --automation-write-root for files)";
 
 // ---------------------------------------------------------------------------
 // Parameters
@@ -221,11 +243,35 @@ fn no_backend() -> CallToolResult {
 }
 
 fn png_result(png: &[u8], note: String) -> CallToolResult {
-    if let Err(error) = check_png(png.len()) {
+    image_result(png, "image/png", note)
+}
+
+/// An encoded image (PNG or JPEG) plus a text note, within the PNG and response budgets.
+fn image_result(bytes: &[u8], mime: &str, note: String) -> CallToolResult {
+    if let Err(error) = check_png(bytes.len()) {
         return fail(error);
     }
-    let b64 = base64::engine::general_purpose::STANDARD.encode(png);
-    bounded_tool_result(CallToolResult::success(vec![Content::image(b64, "image/png"), Content::text(note)]))
+    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    bounded_tool_result(CallToolResult::success(vec![Content::image(b64, mime), Content::text(note)]))
+}
+
+/// One `library_*` tool as a route on the shared router. The definitions (names, descriptions,
+/// JSON schemas) come from [`library_tools::tool_definitions`].
+fn library_route(def: &Value) -> ToolRoute<PhotocraftMcp> {
+    let name = def["name"].as_str().unwrap_or_default().to_owned();
+    let schema = def["inputSchema"].as_object().cloned().unwrap_or_default();
+    let tool = Tool::new(name.clone(), def["description"].as_str().unwrap_or_default().to_owned(), Arc::new(schema))
+        .with_title(def["title"].as_str().unwrap_or_default());
+    ToolRoute::new_dyn(tool, move |ctx| library_call(ctx, name.clone()))
+}
+
+type ToolFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<CallToolResponse, McpError>> + Send + 'a>>;
+
+fn library_call(ctx: ToolCallContext<'_, PhotocraftMcp>, name: String) -> ToolFuture<'_> {
+    Box::pin(async move {
+        let args = ctx.arguments.map(Value::Object).unwrap_or_else(|| json!({}));
+        Ok(ctx.service.library_tool(name, args).await.into())
+    })
 }
 
 fn to_result(r: Result<Value, AutomationError>) -> Result<CallToolResult, McpError> {
@@ -249,7 +295,9 @@ impl PhotocraftMcp {
     }
 
     pub fn headless_with_workspace(workspace: AuthorizedWorkspace) -> Self {
-        Self::with_backend(Backend::Headless(Arc::new(Mutex::new(Headless::with_workspace(workspace)))))
+        let mut mcp = Self::with_backend(Backend::Headless(Arc::new(Mutex::new(Headless::with_workspace(workspace.clone())))));
+        mcp.library = LibraryCell::new(Some(LibraryFs::Workspace(Arc::new(workspace))));
+        mcp
     }
 
     pub fn bridge(addr: &str, token: &str) -> Result<Self, AutomationError> {
@@ -257,7 +305,49 @@ impl PhotocraftMcp {
     }
 
     pub fn with_backend(backend: Backend) -> Self {
-        PhotocraftMcp { backend: Arc::new(backend), tool_router: Self::tool_router() }
+        // A headless server's Library starts with no filesystem authority; a bridge has none.
+        let policy = match &backend {
+            Backend::Headless(_) => Some(LibraryFs::Denied),
+            Backend::Bridge(_) => None,
+        };
+        let mut tool_router = Self::tool_router();
+        for def in library_tools::tool_definitions() {
+            tool_router.add_route(library_route(&def));
+        }
+        PhotocraftMcp { backend: Arc::new(backend), library: LibraryCell::new(policy), tool_router }
+    }
+
+    /// Serve the `library_*` tools from `library` (for example a session with a library folder
+    /// open, or the demo library) instead of a fresh in-memory session.
+    pub fn with_library(mut self, library: LibraryHeadless) -> Self {
+        let cell = LibraryCell::new(Some(library.policy()));
+        if let Ok(mut slot) = cell.session.lock() {
+            *slot = Some(library);
+        }
+        self.library = cell;
+        self
+    }
+
+    /// Run a `library_*` tool on the Library session (on a blocking thread).
+    async fn library_tool(&self, name: String, args: Value) -> CallToolResult {
+        let Some(policy) = self.library.policy.clone() else {
+            return fail(LIBRARY_NEEDS_HEADLESS);
+        };
+        let cell = Arc::clone(&self.library);
+        let r = tokio::task::spawn_blocking(move || {
+            // Library commands run under the engine's panic guard; a poisoned lock still holds a
+            // consistent session, so keep serving.
+            let mut slot = cell.session.lock().unwrap_or_else(PoisonError::into_inner);
+            let library = slot.get_or_insert_with(|| LibraryHeadless::with_policy(policy));
+            library_tools::call_tool(library, &name, &args)
+        })
+        .await;
+        match r {
+            Err(e) => fail(format!("task failed: {e}")),
+            Ok(Err(e)) => fail(e),
+            Ok(Ok(LibraryReply::Json(v))) => ok_json(&v),
+            Ok(Ok(LibraryReply::Image { bytes, mime, info })) => image_result(&bytes, mime, info.to_string()),
+        }
     }
 
     /// Serve MCP over stdin/stdout until the client disconnects.
@@ -677,7 +767,7 @@ impl PhotocraftMcp {
     }
 }
 
-#[tool_handler(router = self.tool_router, name = "photocraft", instructions = "Photocraft image editor. Every edit is an engine command: call `command_list` to discover ids and parameter docs, then `command_run` (or `command_batch` for several at once). Use `doc_open`/`doc_new` first, `doc_inspect` for the layer tree, `doc_render_preview` to see the result, and `doc_save` (.pcraft is lossless native; .psd/.png/.jpg/.tif… export). In bridge mode the `ui_*` tools drive the live app (inspect, screenshot, pointer, menus).")]
+#[tool_handler(router = self.tool_router, name = "photocraft", instructions = "Photocraft image editor. Every edit is an engine command: call `command_list` to discover ids and parameter docs, then `command_run` (or `command_batch` for several at once). Use `doc_open`/`doc_new` first, `doc_inspect` for the layer tree, `doc_render_preview` to see the result, and `doc_save` (.pcraft is lossless native; .psd/.png/.jpg/.tif… export). In bridge mode the `ui_*` tools drive the live app (inspect, screenshot, pointer, menus). The Library (photo catalog and raw developer; headless mode) is under the `library_*` tools: library_import → library_query_photos / library_select_photos → library_list_controls → library_set_develop {values: {\"light.exposure\": 0.5}} → library_render_photo to look at the result → library_export; library_command_list / library_command_run reach every Library command. Library positions (crop rects) are normalized 0..1 with the origin at the top-left.")]
 impl ServerHandler for PhotocraftMcp {}
 
 /// Used by the render helper in tests and the CLI.
@@ -737,6 +827,61 @@ mod tests {
         assert_eq!(reply["failed"], 1);
         let docs = mcp.headless_op(|h| Ok(h.session.documents().len())).await.unwrap().unwrap();
         assert_eq!(docs, 0, "the step after the budget ran out did not run");
+    }
+
+    /// J5: the Library's tools are served by this one server, over the real protocol, under the
+    /// workspace policy; a bridge says where they are instead of failing obscurely.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn j05_library_tools_over_mcp() {
+        use rmcp::model::{CallToolRequestParams, ClientConfig};
+        #[derive(Clone, Default)]
+        struct Client;
+        impl rmcp::ClientHandler for Client {
+            fn get_info(&self) -> ClientConfig {
+                ClientConfig::default()
+            }
+        }
+        let root = std::env::temp_dir().join(format!("j05-mcp-library-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("in")).unwrap();
+        let img = photocraft_codecs::Image::from_u8(40, 30, photocraft_codecs::ChannelLayout::Rgba, vec![120; 40 * 30 * 4]).unwrap();
+        let png = photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap();
+        std::fs::write(root.join("in/p.png"), png).unwrap();
+        let server = PhotocraftMcp::headless_with_workspace(AuthorizedWorkspace::new(Some(&root), Some(&root)).unwrap());
+        let (s, c) = tokio::io::duplex(1 << 20);
+        tokio::spawn(async move {
+            if let Ok(running) = server.serve(s).await {
+                let _ = running.waiting().await;
+            }
+        });
+        let client = Client.serve(c).await.unwrap();
+        let names: Vec<String> = client.list_all_tools().await.unwrap().iter().map(|t| t.name.to_string()).collect();
+        for n in ["library_import", "library_set_develop", "library_render_photo", "library_export", "library_command_run", "doc_open", "command_run"] {
+            assert!(names.contains(&n.to_string()), "{n}: {names:?}");
+        }
+        let call = |name: &str, args: Value| {
+            let mut p = CallToolRequestParams::new(name.to_owned());
+            if let Value::Object(m) = args {
+                p = p.with_arguments(m);
+            }
+            p
+        };
+        let r = client.call_tool(call("library_import", json!({"paths": ["in"]}))).await.unwrap();
+        assert_ne!(r.is_error, Some(true), "{r:?}");
+        let r = client.call_tool(call("library_set_develop", json!({"values": {"light.exposure": 0.5}}))).await.unwrap();
+        assert_ne!(r.is_error, Some(true), "{r:?}");
+        let r = client.call_tool(call("library_render_photo", json!({"size": 4096}))).await.unwrap();
+        assert_ne!(r.is_error, Some(true), "{r:?}");
+        assert!(r.content.iter().any(|c| c.as_image().is_some_and(|i| i.mime_type == "image/png")));
+        let r = client.call_tool(call("library_command_run", json!({"command": "library.browse", "params": {"path": "/"}}))).await.unwrap();
+        assert_eq!(r.is_error, Some(true), "ambient-path Library commands stay off");
+        client.cancel().await.unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+
+        let bridge = PhotocraftMcp::bridge("127.0.0.1:9", &"ab".repeat(32)).unwrap();
+        let r = bridge.library_tool("library_query_photos".into(), json!({})).await;
+        assert_eq!(r.is_error, Some(true));
+        assert!(r.content[0].as_text().unwrap().text.contains("headless Library"));
     }
 
     /// The MCP server applies finished jobs before every tool call too (#503).

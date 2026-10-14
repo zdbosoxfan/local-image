@@ -70,7 +70,6 @@ lightcraft-engine = { path = "crates/lc-engine" }
 lightcraft-fetch = { path = "crates/lc-fetch" }
 lightcraft-geom = { path = "crates/lc-geom" }
 lightcraft-gpu = { path = "crates/lc-gpu" }
-lightcraft-mcp = { path = "crates/lc-mcp" }
 lightcraft-merge = { path = "crates/lc-merge" }
 lightcraft-meta = { path = "crates/lc-meta" }
 lightcraft-pipeline = { path = "crates/lc-pipeline" }

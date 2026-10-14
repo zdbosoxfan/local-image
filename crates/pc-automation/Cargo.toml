@@ -17,6 +17,10 @@ photocraft-codecs = { workspace = true }
 photocraft-io = { workspace = true }
 photocraft-format = { path = "../pc-format" }
 photocraft-engine = { workspace = true }
+# The Library half of the automation layer (J5): its session, codecs and image type.
+lightcraft-engine = { workspace = true }
+lightcraft-codecs = { workspace = true }
+lightcraft-raster = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
