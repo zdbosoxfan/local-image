@@ -218,8 +218,8 @@ fn panel_tab(app: &PhotocraftApp, id: &str) -> Option<(&'static str, usize)> {
         "window.panel.adjustments" => ("properties", 1),
         "window.panel.properties" => ("properties", 0),
         // Their own Character | Paragraph group, so Properties stays open (#150).
-        "window.panel.character" | "type.panels.character" => ("character", 0),
-        "window.panel.paragraph" | "type.panels.paragraph" => ("character", 1),
+        "window.panel.character" => ("character", 0),
+        "window.panel.paragraph" => ("character", 1),
         "window.panel.swatches" => ("color", usize::from(pro)),
         "window.panel.color" => ("color", usize::from(!pro)),
         _ => return None,
@@ -291,8 +291,6 @@ pub fn handles(id: &str) -> bool {
             | "window.panel.histogram"
             | "window.panel.swatches"
             | "window.panel.adjustments"
-            | "type.panels.character"
-            | "type.panels.paragraph"
     )
 }
 
@@ -465,7 +463,7 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, p: &Value) -> Res
         // Like Photoshop: choosing a visible panel's menu item again hides it (its group, or
         // its floating panel). A collapsed group is expanded instead, so the menu item always
         // brings the panel back (#129), wherever it was dragged.
-        let visible = !(crate::dock::tab_showing(app, group, tab) && !id.starts_with("type.panels."));
+        let visible = !crate::dock::tab_showing(app, group, tab);
         if visible {
             crate::dock::reveal_tab(app, group, tab);
         } else {

@@ -49,9 +49,9 @@ pub fn vector_data(path: Path) -> VectorData {
         ..Default::default()
     }
 }
-/// Expected model for the frozen v2 fixture, independently constructed with fixed IDs.
+/// Expected model for the frozen v3 fixture, independently constructed with fixed IDs.
 pub fn golden_document() -> Document {
-    let mut d = Document::new("Contract reference v2", Size::new(32, 24), ColorMode::Rgb, SampleType::U8);
+    let mut d = Document::new("Contract reference v3", Size::new(32, 24), ColorMode::Rgb, SampleType::U8);
     d.id = DocId(1);
     d.design_units = DesignUnits::Millimeters;
     let mut rectangle = shape();

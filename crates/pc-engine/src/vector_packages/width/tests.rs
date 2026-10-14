@@ -108,7 +108,7 @@ fn width_package_engine_point_add_move_delete_empty_and_old_load() {
     assert!(s.journal.is_empty());
     g.commit(&mut s).unwrap();
     assert_eq!(s.journal.len(), 1);
-    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-v1.pcraft")).unwrap();
+    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-basic.pcraft")).unwrap();
     assert!(old.layers.iter().all(|l| l.vector.appearance.is_none()));
 }
 #[test]

@@ -788,8 +788,8 @@ mod symbol_tests {
         }
     }
     #[test]
-    fn symbols_frozen_v1_fixture_loads_and_v3_writer_is_guarded() {
-        let d = crate::load_from_bytes(include_bytes!("../tests/fixtures/vector-v1.pcraft")).unwrap();
+    fn symbols_frozen_basic_fixture_loads_and_v3_writer_is_guarded() {
+        let d = crate::load_from_bytes(include_bytes!("../tests/fixtures/vector-basic.pcraft")).unwrap();
         assert_eq!(d.layers.len(), 2);
         assert!(d.symbols.is_empty());
         assert!(d.layers[0].vector_mask.is_some());

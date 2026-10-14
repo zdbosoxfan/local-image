@@ -258,7 +258,7 @@ fn layout16_bounded_caches_and_invalid_transforms() {
 }
 #[test]
 fn layout16_native_old_fixture_defaults_pixels_and_crop_roundtrip() {
-    let old = include_bytes!("../../../tests/fixtures/vector-v1.pcraft");
+    let old = include_bytes!("../../../tests/fixtures/vector-shapes.pcraft");
     let old = photocraft_format::load_from_bytes(old).unwrap();
     assert_eq!(old.design_units, DesignUnits::Pixels);
     let (s, ids) = setup();

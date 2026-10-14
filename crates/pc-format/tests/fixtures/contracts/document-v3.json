@@ -1,9 +1,9 @@
 {
-  "format_version": 2,
-  "generator": "Local Image contract fixture (hand-authored v2)",
+  "format_version": 3,
+  "generator": "Local Image contract fixture (hand-authored v3)",
   "document": {
     "id": 1,
-    "name": "Contract reference v2",
+    "name": "Contract reference v3",
     "size": {
       "width": 32,
       "height": 24

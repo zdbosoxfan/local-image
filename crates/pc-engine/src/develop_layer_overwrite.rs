@@ -80,14 +80,6 @@ fn freeze_layer(layer: &mut Layer, source: &mut SourcePath, name: &str, original
     if !matches!(&smart.source,SmartSource::Linked{path} if source.matches(path)) {
         return false;
     }
-    // Legacy Develop links derive their origin from the linked source. Keep that
-    // identity before the source becomes embedded.
-    if let SmartSource::Linked { path } = &smart.source
-        && let Some(link) = &mut smart.develop
-        && link.source.is_none()
-    {
-        link.source = Some(path.clone().into());
-    }
     smart.source = SmartSource::Embedded { file_name: name.into(), bytes: original.clone() };
     smart.psd_raw = None;
     layer.psd_blocks.retain(|(key, _)| ![b"SoLd", b"SoLE", b"PlLd"].contains(&key));

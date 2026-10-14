@@ -1,6 +1,7 @@
 //! `manifest.json` schema. This is a *separate* serde model from
-//! `photocraft-doc` on purpose: the on-disk schema is versioned and migrated
-//! independently of in-memory refactors.
+//! `photocraft-doc` on purpose: the on-disk schema is versioned independently
+//! of in-memory refactors. Only the current version is read; older and newer
+//! bundles are refused untouched.
 //!
 //! Binary payloads never live in JSON. Surfaces reference tiles
 //! (`tiles/<blake3>.zst`) and other binary data references blobs
@@ -14,8 +15,20 @@ use photocraft_doc::{
 use photocraft_geom::{Affine, Size};
 use serde::{Deserialize, Serialize};
 
-/// Current manifest version written by this build.
+/// The only manifest version this build reads and writes.
 pub const FORMAT_VERSION: u32 = 3;
+
+/// Accepts only [`FORMAT_VERSION`]; older and newer bundles get a clear error before any decoding.
+pub(crate) fn check_format_version(v: &serde_json::Value) -> crate::Result<u32> {
+    let found = v.get("format_version").and_then(serde_json::Value::as_u64).ok_or_else(|| crate::FormatError::corrupt("manifest has no format_version"))?;
+    let found = u32::try_from(found).map_err(|_| crate::FormatError::corrupt("format_version out of range"))?;
+    match found {
+        0 => Err(crate::FormatError::corrupt("format_version 0 is invalid")),
+        FORMAT_VERSION => Ok(found),
+        f if f > FORMAT_VERSION => Err(crate::FormatError::TooNew { found, supported: FORMAT_VERSION }),
+        _ => Err(crate::FormatError::TooOld { found, supported: FORMAT_VERSION }),
+    }
+}
 
 /// Hex-encoded BLAKE3 hash (64 chars).
 pub type Hash = String;
@@ -341,7 +354,7 @@ pub struct ChannelM {
     pub name: String,
     pub surface: SurfaceM,
     pub spot: Option<(Color, f32)>,
-    /// Channel Options overlay colour (older files: Photoshop's red).
+    /// Channel Options overlay colour (absent: Photoshop's red).
     #[serde(default = "default_channel_color")]
     pub color: Color,
     #[serde(default = "default_channel_opacity")]
@@ -377,7 +390,22 @@ mod channel_tests {
     use super::*;
 
     #[test]
-    fn older_channels_load_with_default_options() {
+    fn format_version_accepts_only_the_current_version() {
+        use serde_json::json;
+        assert_eq!(check_format_version(&json!({ "format_version": FORMAT_VERSION })).unwrap(), FORMAT_VERSION);
+        for old in 1..FORMAT_VERSION {
+            let e = check_format_version(&json!({ "format_version": old })).unwrap_err();
+            assert!(matches!(e, crate::FormatError::TooOld { found, supported: FORMAT_VERSION } if found == old), "{e:?}");
+            assert!(e.to_string().contains("older format"), "{e}");
+        }
+        assert!(matches!(check_format_version(&json!({ "format_version": 99 })), Err(crate::FormatError::TooNew { found: 99, .. })));
+        assert!(matches!(check_format_version(&json!({ "format_version": 0 })), Err(crate::FormatError::Corrupt(_))));
+        assert!(matches!(check_format_version(&json!({})), Err(crate::FormatError::Corrupt(_))));
+        assert!(matches!(check_format_version(&json!({ "format_version": u64::MAX })), Err(crate::FormatError::Corrupt(_))));
+    }
+
+    #[test]
+    fn channels_without_options_load_with_default_options() {
         let fmt = serde_json::to_value(PixelFormat::GRAY8).unwrap();
         let old = serde_json::json!({
             "name": "Alpha 1",

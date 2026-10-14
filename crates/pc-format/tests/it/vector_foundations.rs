@@ -1,11 +1,11 @@
-//! Frozen v1 loading and additive vector metadata/storage gates.
+//! Frozen basic-document loading and additive vector metadata/storage gates.
 use photocraft_doc::vector_design::{appearance::*, drawing::*, live::*, structure::*, text::*};
 use photocraft_doc::*;
 use photocraft_format::*;
 
 #[test]
-fn old_v1_documents_load() {
-    let bytes = include_bytes!("../fixtures/vector-v1.pcraft");
+fn frozen_basic_documents_load() {
+    let bytes = include_bytes!("../fixtures/vector-basic.pcraft");
     let m = read_manifest(bytes).unwrap();
     assert_eq!(m.format_version, FORMAT_VERSION);
     let d = load_from_bytes(bytes).unwrap();
@@ -26,7 +26,7 @@ fn old_v1_documents_load() {
 }
 
 fn extended_document() -> Document {
-    let mut d = load_from_bytes(include_bytes!("../fixtures/vector-v1.pcraft")).unwrap();
+    let mut d = load_from_bytes(include_bytes!("../fixtures/vector-basic.pcraft")).unwrap();
     let p = d.paths[0].path.clone();
     d.design_units = DesignUnits::Millimeters;
     d.layers[0].vector = VectorData {
@@ -77,8 +77,8 @@ fn vector_foundations_directory_storage_keeps_symbol_tiles() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 #[test]
-fn vector_foundations_empty_fields_are_absent_in_v1_output() {
-    let d = load_from_bytes(include_bytes!("../fixtures/vector-v1.pcraft")).unwrap();
+fn vector_foundations_empty_fields_are_absent_in_output() {
+    let d = load_from_bytes(include_bytes!("../fixtures/vector-basic.pcraft")).unwrap();
     let m = read_manifest(&save_to_bytes(&d, &Default::default()).unwrap()).unwrap();
     let json = serde_json::to_value(m).unwrap();
     assert!(json["document"].get("symbols").is_none());

@@ -681,7 +681,7 @@ fn presets_render_and_round_trip() {
         assert!(alpha_sum(&s, dmg) > 10.0, "{} painted nothing", p.name);
     }
     // Partial JSON fills defaults.
-    let b: BrushSettings = serde_json::from_str(r#"{"size": 50, "scattering": {"enabled": true, "scatter": {"jitter": 2}}, "pressure_size": false}"#).unwrap();
+    let b: BrushSettings = serde_json::from_str(r#"{"size": 50, "scattering": {"enabled": true, "scatter": {"jitter": 2}}, "pressureSize": false}"#).unwrap();
     assert_eq!(b.size, 50.0);
     assert!(b.scattering.enabled && b.scattering.count == 1 && !b.pressure_size);
     assert_eq!(b.hardness, 1.0);

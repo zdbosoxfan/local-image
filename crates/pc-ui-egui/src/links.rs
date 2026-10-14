@@ -13,8 +13,7 @@ pub const PHOTOCRAFT: &str = "https://github.com/storytold/photocraft";
 pub const ISSUES: &str = "https://github.com/zdbosoxfan/local-image/issues";
 
 /// Help-menu link commands: (id, url). Labels live in `menus::UI_COMMANDS`.
-pub const COMMANDS: &[(&str, &str)] =
-    &[("help.website", APP_PAGE), ("help.artcraftWebsite", ARTCRAFT_WEBSITE), ("help.github", GITHUB), ("help.reportIssue", ISSUES)];
+pub const COMMANDS: &[(&str, &str)] = &[("help.artcraftWebsite", ARTCRAFT_WEBSITE), ("help.github", GITHUB), ("help.reportIssue", ISSUES)];
 
 pub fn url_for(id: &str) -> Option<&'static str> {
     COMMANDS.iter().find(|c| c.0 == id).map(|c| c.1)
@@ -103,7 +102,6 @@ mod tests {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         let ctx = egui::Context::default();
         for (id, url) in [
-            ("help.website", "https://github.com/zdbosoxfan/local-image"),
             ("help.artcraftWebsite", "https://getartcraft.com"),
             ("help.github", "https://github.com/zdbosoxfan/local-image"),
             ("help.reportIssue", "https://github.com/zdbosoxfan/local-image/issues"),

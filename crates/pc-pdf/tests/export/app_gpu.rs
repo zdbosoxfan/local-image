@@ -189,7 +189,7 @@ fn pdf_export_app_real_gpu_preview_release_and_menu_dialog() {
         })
         .unwrap();
     let ctx = h.ctx.clone();
-    photocraft_ui_egui::menus::invoke(h.state_mut(), &ctx, "file.export.pdf", json!({})).unwrap();
+    photocraft_ui_egui::menus::invoke(h.state_mut(), &ctx, "file.export.exportAs", json!({ "format": "pdf" })).unwrap();
     h.run_steps(3);
     h.get_by_label("Export").click();
     h.run_steps(3);

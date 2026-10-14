@@ -156,7 +156,7 @@ fn live_shapes_native_save_load_preserves_all_parameters_and_legacy_forms() {
 }
 #[test]
 fn live_shapes_frozen_v1_document_loads_without_new_metadata() {
-    let bytes = include_bytes!("../../../../pc-format/tests/fixtures/vector-v1.pcraft");
+    let bytes = include_bytes!("../../../../pc-format/tests/fixtures/vector-basic.pcraft");
     let doc = photocraft_format::load_from_bytes(bytes).unwrap();
     assert!(!doc.layers.is_empty());
     assert!(doc.layers.iter().all(|l| l.vector.live_shape.is_none()));

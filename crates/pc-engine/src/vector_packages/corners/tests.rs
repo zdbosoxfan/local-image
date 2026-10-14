@@ -272,7 +272,7 @@ fn corners_seeded_256_rectangles_against_analytic_area_and_monotone_curve_radii(
 }
 #[test]
 fn corners_legacy_document_without_metadata_still_loads() {
-    let doc = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-v1.pcraft")).unwrap();
+    let doc = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-basic.pcraft")).unwrap();
     assert!(doc.layers.iter().all(|l| l.vector.corners.is_empty()));
     assert_eq!(project_document(&doc).unwrap(), doc);
 }

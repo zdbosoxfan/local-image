@@ -13,8 +13,8 @@
 //!     after the item: u8 flag; if set rect, u64 length, u16 compression, data
 //! ```
 //!
-//! Photoshop puts one item in each section. Files written by earlier PhotoCraft versions put
-//! every item in one section; both read.
+//! Photoshop puts one item in each section and so does the writer here. The layout above lets a
+//! section hold several items, so the reader accepts that too (spec grammar, not a fallback).
 //!
 //! The slots hold the unfiltered placed pixels (colour channels from slot 0, transparency in the
 //! last slot) and the trailing image is the filter mask, in document coordinates. RLE row counts
@@ -281,7 +281,7 @@ mod tests {
         assert_eq!(fx.to_bytes(), bytes);
     }
 
-    /// Older PhotoCraft files hold every item in one section; they still read.
+    /// The spec layout lets one section hold several items.
     #[test]
     fn reads_several_items_in_one_section() {
         let items = vec![item("a-1", true), item("b-2", false)];

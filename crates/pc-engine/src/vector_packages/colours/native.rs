@@ -5,7 +5,7 @@ use super::*;
 fn colour39_native_old_document_roundtrip_and_remapped_global_links() {
     crate::vector_integration::initialize();
     let access = access().expect("00 native Access must be installed");
-    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-v1.pcraft")).unwrap();
+    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-basic.pcraft")).unwrap();
     assert!((access.read)(&old).unwrap().is_empty());
     let (s, book) = tests::fixture();
     let mut doc = (*s.active().unwrap().doc).clone();

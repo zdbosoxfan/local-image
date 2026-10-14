@@ -228,23 +228,37 @@ fn video_frames_timeline_and_text_styles() {
     compare(&d);
 }
 #[test]
-fn frozen_v2_native_reference_loads_exact_document() {
-    let bytes = include_bytes!("fixtures/contracts/document-v2.pcraft");
+fn frozen_v3_native_reference_loads_exact_document() {
+    let bytes = include_bytes!("fixtures/contracts/document-v3.pcraft");
     let zip = zip::ZipReader::new(bytes).unwrap();
     let raw: serde_json::Value = serde_json::from_slice(&zip.read_by_name("manifest.json", 1 << 20).unwrap()).unwrap();
-    assert_eq!(raw["format_version"], 2); // Historical version; never change when FORMAT_VERSION grows.
-    const { assert!(FORMAT_VERSION >= 2) };
+    // Only the current format is read: re-freeze this reference when FORMAT_VERSION changes.
+    assert_eq!(raw["format_version"], FORMAT_VERSION);
     let loaded = load_from_bytes(bytes).unwrap();
     assert_eq!(loaded, golden_document());
     compare(&loaded);
 }
 #[test]
-fn frozen_v1_native_reference_migrates_without_data_loss() {
-    let d = load_from_bytes(include_bytes!("fixtures/vector-v1.pcraft")).unwrap();
+fn frozen_basic_native_reference_loads_without_data_loss() {
+    let d = load_from_bytes(include_bytes!("fixtures/vector-basic.pcraft")).unwrap();
     assert_eq!(d.layers.len(), 2);
     assert!(d.symbols.is_empty());
     assert_eq!(d.layers[1].name, "Legacy text");
     compare(&d);
+}
+#[test]
+fn older_native_formats_are_refused_with_a_clear_message() {
+    let bytes = include_bytes!("fixtures/contracts/document-v3.pcraft");
+    let reader = zip::ZipReader::new(bytes).unwrap();
+    let mut raw: serde_json::Value = serde_json::from_slice(&reader.read_by_name("manifest.json", 1 << 20).unwrap()).unwrap();
+    for old in 1..FORMAT_VERSION {
+        raw["format_version"] = old.into();
+        let mut w = zip::ZipWriter::new();
+        w.add("manifest.json", &serde_json::to_vec(&raw).unwrap()).unwrap();
+        let e = load_from_bytes(&w.finish().unwrap()).unwrap_err();
+        assert!(matches!(e, FormatError::TooOld { found, .. } if found == old), "format {old}: {e:?}");
+        assert!(e.to_string().contains("older format"), "format {old}: {e}");
+    }
 }
 
 #[test]

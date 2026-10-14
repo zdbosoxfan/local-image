@@ -17,7 +17,7 @@ and wgpu from this branch. Commands run offline with CARGO_BUILD_JOBS=3 and the 
 | rejection test | invalid last ID, duplicates, stale revision, NaN, lock, one-pixel×one-million-pixel path | unchanged document/history; conservative padded-tile budget rejection before rasterizing |
 | UI eyedropper tests | 300×100; rectangles at x=10/80/150,30×50; red+half-green+2px dash; raster [.2,.4,.8,1] at x220..250 | real I/Alt/Shift/Alt+Shift pointer events, detached press, exact post-release sample, Escape/selection/focus cancellation |
 | UI panel tests | 120×72; black and white rectangles; explicit fixture Hooks | real clicks/type/edit history; create/apply/redefine; names/list/link operations; stale release no edit |
-| native_acceptance.rs | actual coordinator-native Hooks REQUIRED, frozen vector-v1.pcraft + generated shapes | old defaults; actual save/load list+link equality; undo/redo; linked/local-edited acceptance |
+| native_acceptance.rs | actual coordinator-native Hooks REQUIRED, frozen vector-basic.pcraft + generated shapes | absent-field defaults; actual save/load list+link equality; undo/redo; linked/local-edited acceptance |
 | GPU tests | engine scene above and offscreen UI/full app scenes | assert RTX 5090/Vulkan/DiscreteGpu/Rgba32Float, finite pixels, premultiplied max diff <=1/255; full app screenshot interior oracle + journal |
 
 The two XMP Hooks in engine/UI unit fixtures are a deliberately visible **synthetic test

@@ -36,20 +36,11 @@ impl Serialize for LiveGroup {
 }
 impl<'de> Deserialize<'de> for LiveGroup {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum ReadWire {
-            Current(LiveGroupWire),
-            LegacyEnvelope(EnvelopeSpec),
-            LegacyRepeat(RepeatSpec),
-        }
-        Ok(match ReadWire::deserialize(deserializer)? {
-            ReadWire::Current(LiveGroupWire::Blend(spec)) => Self::Blend(spec),
-            ReadWire::Current(LiveGroupWire::Repeat { spec }) => Self::Repeat(spec),
-            ReadWire::Current(LiveGroupWire::Envelope { spec }) => Self::Envelope(spec),
-            ReadWire::Current(LiveGroupWire::LivePaint(spec)) => Self::LivePaint(spec),
-            ReadWire::LegacyEnvelope(spec) => Self::Envelope(spec),
-            ReadWire::LegacyRepeat(spec) => Self::Repeat(spec),
+        Ok(match LiveGroupWire::deserialize(deserializer)? {
+            LiveGroupWire::Blend(spec) => Self::Blend(spec),
+            LiveGroupWire::Repeat { spec } => Self::Repeat(spec),
+            LiveGroupWire::Envelope { spec } => Self::Envelope(spec),
+            LiveGroupWire::LivePaint(spec) => Self::LivePaint(spec),
         })
     }
 }
@@ -112,7 +103,7 @@ fn is_default_orientation(v: &BlendOrientation) -> bool {
 mod integration_tests {
     use super::*;
     #[test]
-    fn live_group_tags_roundtrip_and_read_legacy_flat_specs() {
+    fn live_group_tags_roundtrip_and_refuse_untagged_flat_specs() {
         let specs = [
             LiveGroup::Repeat(RepeatSpec::Radial { count: 9, center: [1., 2.], angle: 0.3 }),
             LiveGroup::Repeat(RepeatSpec::Grid { rows: 3, cols: 4, spacing: [2., 3.] }),
@@ -127,7 +118,8 @@ mod integration_tests {
             let value = serde_json::to_value(&spec).unwrap();
             assert_eq!(serde_json::from_value::<LiveGroup>(value.clone()).unwrap(), spec);
             if matches!(spec, LiveGroup::Repeat(_) | LiveGroup::Envelope(_)) {
-                assert_eq!(serde_json::from_value::<LiveGroup>(value["spec"].clone()).unwrap(), spec);
+                // Only the tagged form is read; the flat inner spec is not a live group.
+                assert!(serde_json::from_value::<LiveGroup>(value["spec"].clone()).is_err());
             }
         }
     }

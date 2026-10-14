@@ -453,9 +453,8 @@ fn window_character_opens_its_own_group_and_keeps_properties() {
         h.run_steps(3);
         assert!(!h.state().ui.panels.character && h.state().ui.panels.properties, "{theme:?}");
         assert!(!last_rects(&h.ctx).iter().any(|(g, _)| *g == Group::Character));
-        // Type › Panels › Character Panel always shows it; Reset Workspace closes it.
-        crate::menus::invoke(h.state_mut(), &ctx, "type.panels.character", json!({})).unwrap();
-        crate::menus::invoke(h.state_mut(), &ctx, "type.panels.character", json!({})).unwrap();
+        // Window › Character shows it again; Reset Workspace closes it.
+        crate::menus::invoke(h.state_mut(), &ctx, "window.panel.character", json!({})).unwrap();
         assert!(h.state().ui.panels.character);
         crate::menus::invoke(h.state_mut(), &ctx, "window.workspace.resetWorkspace", json!({})).unwrap();
         assert!(!h.state().ui.panels.character && h.state().ui.panels.properties);

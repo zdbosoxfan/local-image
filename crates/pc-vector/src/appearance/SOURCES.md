@@ -33,8 +33,8 @@ pattern uses userSpaceOnUse, phase (3,2), 4×4 opaque tile, identity scale/angle
 repeat/reflect spread are explicitly rejected by capability warnings; they are not falsely
 reported as equivalent native paints. Additional limitations/oracles are tracked in UI tests.
 
-Native compatibility fixture is the existing licensed repository
-`crates/pc-format/tests/fixtures/vector-v1.pcraft`; new native roundtrips are generated in
+Plain-document native fixture is the existing licensed repository
+`crates/pc-format/tests/fixtures/vector-basic.pcraft` (current format); new native roundtrips are generated in
 memory. Width/brush projection fixtures inject a synthetic filled rectangle and explicitly
 exercise the provider contract, not an implementation of packages 11/17.
 

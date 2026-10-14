@@ -412,7 +412,8 @@ pub struct DevelopLink {
     /// Library source identity retained even when a layered format embeds the pixels.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<Arc<str>>,
-    /// Catalog namespace. Missing in legacy documents: never implicitly matches a qualified Library.
+    /// Catalog namespace. When missing (for example after a layered-format round-trip drops our
+    /// private data) the link never implicitly matches a qualified Library.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub library: Option<Arc<str>>,
     pub settings: serde_json::Value,

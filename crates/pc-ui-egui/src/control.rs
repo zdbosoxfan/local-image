@@ -421,7 +421,7 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
             if let Some(d) = u("document") {
                 app.session.set_active(d as usize);
             }
-            wrap(crate::menus::invoke(app, ctx, "window.newWindowForDocument", json!({})))
+            wrap(crate::menus::invoke(app, ctx, "window.arrange.newWindowForDocument", json!({})))
         }
         "ui.window.close" => {
             let Some(id) = u("window") else { return err("missing `window`") };

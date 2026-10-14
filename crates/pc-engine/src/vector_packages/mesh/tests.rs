@@ -128,7 +128,7 @@ fn review_regression_mesh43_engine_command_specs_journal_edits_only_and_native_s
 }
 #[test]
 fn mesh43_engine_old_v1_native_document_loads() {
-    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-v1.pcraft")).unwrap();
+    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-basic.pcraft")).unwrap();
     for l in &old.layers {
         assert!(read_native(l).unwrap().is_none());
     }

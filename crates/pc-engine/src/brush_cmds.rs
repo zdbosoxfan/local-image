@@ -173,8 +173,8 @@ fn find_preset<'a>(s: &'a Session, name: &str, cmd: &str) -> Result<&'a BrushPre
     photocraft_paint::presets::find(&s.tools.presets, name).ok_or_else(|| bad(cmd, format!("no brush preset named `{name}`")))
 }
 
-/// Resolve the brush for a stroke command: session brush ← `preset` ← `brush` ← legacy scalar
-/// params; colours from the session; seed from `seed` or the points.
+/// Resolve the brush for a stroke command: session brush ← `preset` ← `brush` ← scalar shorthand
+/// params (`size`, `hardness`, …); colours from the session; seed from `seed` or the points.
 pub fn resolve_brush(s: &Session, p: &Value, cmd: &str) -> Result<BrushSettings> {
     let mut b = s.tools.brush.clone();
     if let Some(name) = p.get("preset").and_then(Value::as_str) {

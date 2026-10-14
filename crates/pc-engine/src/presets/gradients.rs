@@ -363,7 +363,7 @@ const CMD_SELECT: &str = "gradient.presets.select";
 
 /// Gradient for the Gradient tool: `"gradient": preset name`, else explicit `"stops"`, else the
 /// current gradient (Gradients panel selection); explicit `"transparency"` stops replace its
-/// own. `None` when the caller gave `colors` (the legacy evenly spaced form `paint.gradient`
+/// own. `None` when the caller gave `colors` (the evenly spaced shorthand `paint.gradient`
 /// handles itself).
 pub fn tool_stops(s: &Session, p: &Value) -> Result<Option<Stops>> {
     const CMD: &str = "paint.gradient";

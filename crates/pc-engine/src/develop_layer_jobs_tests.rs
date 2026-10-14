@@ -416,9 +416,6 @@ fn overwrite_preservation_keeps_sources_history_snapshots_and_library_baseline()
     let mut session = Session::new();
     let settings = json!({"light":{"exposure":0.5}});
     session.execute(OPEN_JOB, json!({"library":"catalog-a","photo":71,"path":source,"settings":settings})).unwrap();
-    let state = session.active_mut().unwrap();
-    let LayerContent::Smart(smart) = &mut Arc::make_mut(&mut state.doc).layers[0].content else { panic!("Develop source") };
-    smart.develop.as_mut().unwrap().source = None; // Supported legacy path-backed link.
     session.execute("layer.new.layer", json!({"name":"Retouch"})).unwrap();
     session.execute("edit.fill", json!({"color":"#d04020"})).unwrap();
     session.execute("history.newSnapshot", json!({"name":"Keep retouch"})).unwrap();

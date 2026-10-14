@@ -84,7 +84,7 @@ fn gradient(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let (fg, bg) = (s.tools.foreground, s.tools.background);
     // A preset (`gradient`), explicit `stops`, or the current gradient (Gradients panel); the
-    // legacy `colors` list spaces its colours evenly. Explicit `transparency` applies to all.
+    // shorthand `colors` list spaces its colours evenly. Explicit `transparency` applies to all.
     let stops: Vec<(f32, [f32; 4])> = match gradients::tool_stops(s, p)? {
         Some(st) => st,
         None => {

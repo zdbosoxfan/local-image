@@ -393,10 +393,8 @@ pub struct BrushSettings {
     /// Per-dab coverage.
     pub flow: f32,
     /// Shortcut for Shape Dynamics › Size › Pen Pressure (the options-bar button).
-    #[serde(alias = "pressure_size")]
     pub pressure_size: bool,
     /// Shortcut for Transfer › Opacity › Pen Pressure.
-    #[serde(alias = "pressure_opacity")]
     pub pressure_opacity: bool,
     /// Straight RGBA colour (display RGB). Commands fill it from the foreground colour.
     pub color: [f32; 4],

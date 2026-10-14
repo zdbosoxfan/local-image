@@ -271,7 +271,7 @@ pub fn develop(app: &mut PhotocraftApp) -> Result<Value, String> {
     if !app.host_modes {
         return Err(tl!("Open the Library to develop this layer").into());
     }
-    app.develop_request = Some(active_origin(app).ok_or("This legacy Develop layer has no source identity; reopen the photo from its Library")?);
+    app.develop_request = Some(active_origin(app).ok_or("This Develop layer has no source identity; reopen the photo from its Library")?);
     Ok(json!({ "photo": photo }))
 }
 

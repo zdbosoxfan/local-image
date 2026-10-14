@@ -968,9 +968,6 @@ mod tests {
         assert_eq!(color, [1.0, 32768.0 / 65535.0, 0.0]);
         assert_eq!(density, 0.4);
         assert_eq!(write(&a)[0].1, v2, "version 2 RGB is written back byte-exact");
-        // Older files used only one padding byte (18 bytes); keep importing them, but never
-        // produce that Photoshop-incompatible length again.
-        assert_eq!(parse(b"phfl", &v2[..18], None, Channels::Rgb), a);
         for preserve_luminosity in [false, true] {
             for density in [0.0, 0.14, 1.0] {
                 let adjustment = Adjustment::PhotoFilter { color: [0.8, 0.4, 0.2], density, preserve_luminosity };
