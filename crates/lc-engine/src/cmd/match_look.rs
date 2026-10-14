@@ -165,7 +165,7 @@ fn validate_file(f: &LookFile) -> std::result::Result<(), String> {
             || l.created.len() > 64
             || !ids.insert(&l.id)
             || l.looks.is_empty()
-            || l.looks.len() > 10
+            || l.looks.len() > match_look::MAX_REFERENCES
             || l.reference_count != l.looks.len()
             || l.looks.iter().any(|l| !l.valid() || l.support.iter().all(|w| *w == 0.0))
         {
@@ -323,8 +323,8 @@ pub struct Analyzed {
 }
 pub fn prepare_analysis(s: &mut Session) -> Result<AnalyzeWork> {
     let ids = s.match_look.references.clone();
-    if ids.is_empty() || ids.len() > 10 {
-        return Err(bad(C, "Choose 1–10 reference photos"));
+    if ids.is_empty() || ids.len() > match_look::MAX_REFERENCES {
+        return Err(bad(C, "Choose 1–20 reference photos"));
     }
     let inputs = ids.into_iter().map(|id| input(s, id)).collect::<Result<Vec<_>>>()?;
     Ok(AnalyzeWork { generation: s.library_generation, inputs })
@@ -397,6 +397,8 @@ pub struct SolveWork {
     inputs: Vec<Input>,
     looks: Arc<[Look]>,
     opts: Options,
+    shared_color: Option<Arc<DevelopSettings>>,
+    report_progress: bool,
     failed: Vec<Value>,
 }
 pub struct Matched {
@@ -437,7 +439,62 @@ pub fn prepare(s: &mut Session, p: &Value) -> Result<SolveWork> {
     if inputs.is_empty() {
         return Err(bad(C, "No still photos in the selection"));
     }
-    Ok(SolveWork { generation: s.library_generation, inputs, failed, looks: selected_looks(s).ok_or_else(|| bad(C, "Analyze first"))?.into(), opts })
+    Ok(SolveWork {
+        generation: s.library_generation,
+        inputs,
+        failed,
+        looks: selected_looks(s).ok_or_else(|| bad(C, "Analyze first"))?.into(),
+        opts,
+        shared_color: None,
+        report_progress: true,
+    })
+}
+/// Select an actual solved style nearest the coordinate-wise median, rather than
+/// averaging hue angles or inventing channel curves. Stable PhotoId breaks ties, so
+/// input order and worker scheduling cannot change the shared result. This is O(n k
+/// log n), with a fixed small color vector, rather than a quadratic all-pairs medoid.
+fn representative_color(candidates: &[(PhotoId, DevelopSettings)], opts: Options) -> Option<(PhotoId, DevelopSettings)> {
+    fn vector(settings: &DevelopSettings, opts: Options) -> Vec<f64> {
+        let mut values = Vec::new();
+        if opts.color_adjust {
+            values.push(if settings.treatment == lightcraft_develop::Treatment::Bw { 1.0 } else { 0.0 });
+            values.extend([settings.color.saturation / 100.0, settings.color.vibrance / 100.0]);
+            for band in settings.mixer.bands() {
+                values.extend([band.hue / 40.0, band.sat / 55.0, band.lum / 30.0]);
+            }
+        }
+        if opts.color_tone {
+            for points in [&settings.curve.red, &settings.curve.green, &settings.curve.blue] {
+                let curve = lightcraft_color::spline::MonotoneCurve::new(&points.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>());
+                values.extend([0.25, 0.5, 0.75].map(|x| (curve.eval(x) - x) / 0.15));
+            }
+            for wheel in [settings.grading.shadows, settings.grading.midtones, settings.grading.highlights, settings.grading.global] {
+                let hue = wheel.hue.to_radians();
+                values.extend([hue.cos() * wheel.sat / 100.0, hue.sin() * wheel.sat / 100.0, wheel.lum / 100.0]);
+            }
+            values.extend([settings.grading.balance / 100.0, (settings.grading.blending - 50.0) / 100.0]);
+        }
+        values
+    }
+    let vectors = candidates.iter().map(|(_, settings)| vector(settings, opts)).collect::<Vec<_>>();
+    let dimensions = vectors.first()?.len();
+    let median = (0..dimensions)
+        .map(|axis| {
+            let mut values = vectors.iter().map(|v| v[axis]).collect::<Vec<_>>();
+            values.sort_by(f64::total_cmp);
+            let mid = values.len() / 2;
+            (values[mid] + values[(values.len() - 1) / 2]) * 0.5
+        })
+        .collect::<Vec<_>>();
+    candidates
+        .iter()
+        .zip(vectors)
+        .map(|(candidate, vector)| {
+            let distance = vector.iter().zip(&median).map(|(a, b)| (a - b).abs()).sum::<f64>();
+            (candidate, distance)
+        })
+        .min_by(|(a, x), (b, y)| x.total_cmp(y).then_with(|| a.0.cmp(&b.0)))
+        .map(|(candidate, _)| candidate.clone())
 }
 impl SolveWork {
     pub fn len(&self) -> usize {
@@ -447,11 +504,103 @@ impl SolveWork {
         self.inputs.is_empty()
     }
     pub fn run(self, c: &Control, preview: bool) -> Matched {
+        self.run_with_mode(c, preview, true)
+    }
+    fn run_with_mode(self, c: &Control, preview: bool, parallel: bool) -> Matched {
+        let zero_without_normalization =
+            self.opts.strength == 0.0 && (!self.opts.normalize || (self.opts.keep_white_balance && self.opts.keep_exposure));
+        if self.opts.consistent_batch
+            && (self.opts.color_adjust || self.opts.color_tone)
+            && self.shared_color.is_none()
+            && !zero_without_normalization
+        {
+            self.run_consistent(c, preview, parallel)
+        } else {
+            self.run_independent(c, preview, parallel)
+        }
+    }
+    /// App semantics, rather than an assertion about Capture One's unpublished lock list:
+    /// selected Color Adjustment/Tone controls share one robust representative solution;
+    /// Normalize and Light are refit for each original target against the full reference goal.
+    /// Both stages remain worker-only; apply installs their final results with one undo.
+    fn run_consistent(mut self, c: &Control, preview: bool, parallel: bool) -> Matched {
+        let start = web_time::Instant::now();
+        let mut first = SolveWork {
+            generation: self.generation,
+            inputs: self.inputs.clone(),
+            looks: self.looks.clone(),
+            opts: Options { strength: 100.0, ..self.opts },
+            shared_color: None,
+            report_progress: false,
+            failed: Vec::new(),
+        }
+        .run_independent(c, false, parallel);
+        let candidates = first
+            .rows
+            .iter()
+            .filter_map(|(identity, _)| {
+                let applied = first.applications.get(&identity.id)?;
+                Some((identity.id, match_look::shared_color_settings(&identity.settings, &applied.full, self.opts)))
+            })
+            .collect::<Vec<_>>();
+        let Some((representative, shared)) = representative_color(&candidates, self.opts) else {
+            if self.report_progress && !c.cancel.load(Ordering::Relaxed) {
+                c.completed.fetch_add(self.inputs.len(), Ordering::Relaxed);
+            }
+            first.failed.extend(self.failed);
+            return first;
+        };
+        if c.cancel.load(Ordering::Relaxed) {
+            first.rows.clear();
+            first.applications.clear();
+            first.failed.extend(self.failed);
+            return first;
+        }
+        // Reuse stage-one pixels and decoder metadata. Keeping original identities protects
+        // against edits during either stage and avoids a second raw decode per target.
+        let decoded = first.decoded.iter().cloned().collect::<std::collections::BTreeMap<_, _>>();
+        let initial_count = self.inputs.len();
+        self.inputs.retain(|input| first.applications.contains_key(&input.identity.id));
+        if self.report_progress {
+            c.completed.fetch_add(initial_count - self.inputs.len(), Ordering::Relaxed);
+        }
+        for input in &mut self.inputs {
+            if let Some(source) = decoded.get(&input.identity.id) {
+                input.source = SourceRef::Loaded(Box::new(source.clone()));
+            }
+        }
+        self.shared_color = Some(Arc::new(shared));
+        self.failed.append(&mut first.failed);
+        let mut out = self.run_independent(c, preview, parallel);
+        out.decoded.extend(first.decoded);
+        out.load_ms += first.load_ms;
+        out.solve_ms += first.solve_ms;
+        out.renders += first.renders;
+        out.workers = out.workers.max(first.workers);
+        out.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        for row in &mut out.per_photo {
+            if let Some(initial) = first.per_photo.iter().find(|initial| initial["id"] == row["id"]) {
+                for key in ["loadMs", "solveMs"] {
+                    row[key] = json!(row[key].as_f64().unwrap_or(0.0) + initial[key].as_f64().unwrap_or(0.0));
+                }
+            }
+            row["consistentBatch"] = json!(true);
+            row["sharedColorSource"] = json!(representative);
+        }
+        if c.cancel.load(Ordering::Relaxed) {
+            out.rows.clear();
+            out.applications.clear();
+            out.preview = None;
+            out.preview_before = None;
+        }
+        out
+    }
+    fn run_independent(self, c: &Control, preview: bool, parallel: bool) -> Matched {
         let bytes = self.inputs.iter().map(|i| i.bytes).max().unwrap_or(1);
         let jobs = lightcraft_sysmem::heavy_jobs();
         // OS coordinators may overlap their bounded CPU solves with heavy raw decodes.
         // The shared permit still limits the decode slots and memory independently.
-        let workers = if preview || cfg!(target_arch = "wasm32") {
+        let workers = if !parallel || preview || cfg!(target_arch = "wasm32") {
             1
         } else {
             self.inputs.len().min(lightcraft_sysmem::profile().threads).min((jobs.headroom() / bytes).max(1) as usize).max(1)
@@ -483,6 +632,8 @@ impl SolveWork {
                             inputs: vec![input.clone()],
                             looks: work.looks.clone(),
                             opts: work.opts,
+                            shared_color: work.shared_color.clone(),
+                            report_progress: work.report_progress,
                             failed: Vec::new(),
                         }
                         .run_sequential(c, false);
@@ -530,7 +681,7 @@ impl SolveWork {
     }
     #[cfg(test)]
     pub(crate) fn run_serial(self, c: &Control) -> Matched {
-        self.run_sequential(c, false)
+        self.run_with_mode(c, false, false)
     }
     fn run_sequential(self, c: &Control, preview: bool) -> Matched {
         lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
@@ -572,14 +723,25 @@ impl SolveWork {
                     let solve_start = web_time::Instant::now();
                     let info = src.info_or(i.info);
                     if let Some(mut solved) = lightcraft_sysmem::in_background_pool(|| {
-                        if preview {
+                        if let Some(shared) = &self.shared_color {
+                            match_look::solve_batch_locked_color_with_faces(
+                                &src.image,
+                                &info,
+                                &i.identity.settings,
+                                &self.looks,
+                                self.opts,
+                                &i.faces,
+                                shared,
+                                &stop,
+                            )
+                        } else if preview {
                             match_look::solve_with_faces(&src.image, &info, &i.identity.settings, &self.looks, self.opts, &i.faces, &stop)
                         } else {
                             match_look::solve_batch_with_faces(&src.image, &info, &i.identity.settings, &self.looks, self.opts, &i.faces, &stop)
                         }
                     }) {
                         let already_close = solved.before_error < 0.05;
-                        if already_close && solved.settings != *i.identity.settings {
+                        if self.shared_color.is_none() && already_close && solved.settings != *i.identity.settings {
                             // A separate heavy permit bounds the rare larger preview decode.
                             let verify_bytes = i.bytes.saturating_add(2560 * 2560 * 32);
                             if let Some(_verify_permit) = lightcraft_sysmem::heavy_jobs().admit(verify_bytes, &stop) {
@@ -666,7 +828,9 @@ impl SolveWork {
                 }
                 Err(e) => out.failed.push(json!([i.identity.id.0, e])),
             }
-            c.completed.fetch_add(1, Ordering::Relaxed);
+            if self.report_progress {
+                c.completed.fetch_add(1, Ordering::Relaxed);
+            }
         }
         out.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         out
@@ -749,8 +913,8 @@ fn references(s: &mut Session, p: &Value) -> Result<Value> {
                 ids.push(id);
             }
         }
-        if ids.len() > 10 {
-            return Err(bad(C, "At most 10 references; remove a reference first"));
+        if ids.len() > match_look::MAX_REFERENCES {
+            return Err(bad(C, "At most 20 references; remove a reference first"));
         }
     }
     s.match_look.reference_weights.retain(|id, _| ids.contains(id));
@@ -961,7 +1125,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Add to Match Look References",
             ["Photo"],
             None,
-            "{ids?, remove?, replace?} — add up to 10 edited reference photos",
+            "{ids?, remove?, replace?} — add up to 20 edited reference photos",
             always,
             references
         ),
@@ -1013,6 +1177,169 @@ mod tests {
         s.execute("develop.matchLookReferences", &json!({"ids":[id.0]})).unwrap();
         s.execute("develop.analyzeLook", &json!({})).unwrap();
         s
+    }
+    #[test]
+    fn match_look_consistent_representative_is_robust_and_order_independent() {
+        let opts = Options { color_tone: false, ..Default::default() };
+        let candidates = [0.0, 3.0, 95.0]
+            .into_iter()
+            .enumerate()
+            .map(|(index, saturation)| {
+                let mut settings = DevelopSettings::default();
+                settings.color.saturation = saturation;
+                settings.grading.global.sat = if index == 1 { 90.0 } else { 0.0 };
+                (PhotoId(index as u64 + 1), settings)
+            })
+            .collect::<Vec<_>>();
+        let expected = representative_color(&candidates, opts).unwrap();
+        assert_eq!(expected.0, PhotoId(2));
+        let mut reversed = candidates.clone();
+        reversed.reverse();
+        assert_eq!(representative_color(&reversed, opts).unwrap(), expected);
+        let tie = vec![(PhotoId(8), candidates[0].1.clone()), (PhotoId(4), candidates[0].1.clone())];
+        assert_eq!(representative_color(&tie, opts).unwrap().0, PhotoId(4));
+    }
+    #[test]
+    fn match_look_consistent_batch_locks_colors_refits_light_and_decodes_once() {
+        for new_layer in [false, true] {
+            let mut session = Session::with_demo();
+            let ids = session.catalog.photos().take(3).map(|photo| photo.id).collect::<Vec<_>>();
+            for (index, id) in ids.iter().enumerate() {
+                let mut settings = DevelopSettings::default();
+                settings.color.saturation = index as f64 * 16.0 - 16.0;
+                settings.grading.midtones.hue = index as f64 * 90.0;
+                settings.grading.midtones.sat = index as f64 * 4.0;
+                settings.masks.push(lightcraft_develop::Mask { id: 7, name: "Existing mask".into(), ..Default::default() });
+                session.set_develop(*id, settings, "Fixture").unwrap();
+            }
+            let image = |gain: f32| {
+                Arc::new(lightcraft_raster::Rgb32f::from_fn(32, 24, |x, y| {
+                    let l = 0.04 + x as f32 / 96.0;
+                    [l * gain, (l * 0.8 + y as f32 / 300.0) * gain, l * 0.65 * gain]
+                }))
+            };
+            let mut desired = DevelopSettings::default();
+            desired.color.saturation = -25.0;
+            desired.grading.shadows.hue = 210.0;
+            desired.grading.shadows.sat = 9.0;
+            desired.light.exposure = 0.2;
+            let looks: Arc<[Look]> = vec![match_look::analyze(&image(1.0), &SourceInfo::default(), &desired)].into();
+            let opts = Options { new_layer, consistent_batch: true, strength: 50.0, light_contrast: false, ..Default::default() };
+            let decodes = Arc::new(AtomicUsize::new(0));
+            let mut inputs = ids.iter().map(|id| input(&mut session, *id).unwrap()).collect::<Vec<_>>();
+            for (index, input) in inputs.iter_mut().enumerate() {
+                let image = image([0.55, 1.0, 1.6][index]);
+                let decodes = decodes.clone();
+                input.verification = SourceRef::Loaded(Box::new(DecodedSource::new(image.clone(), Some(SourceInfo::default()))));
+                input.source = SourceRef::File {
+                    path: "consistent-fixture".into(),
+                    max_edge: 32,
+                    fallback: None,
+                    loader: Some(Arc::new(move |_, _| {
+                        decodes.fetch_add(1, Ordering::Relaxed);
+                        Ok(((*image).clone(), SourceInfo::default()))
+                    })),
+                };
+            }
+            let work = || SolveWork {
+                generation: session.library_generation,
+                inputs: inputs.clone(),
+                looks: looks.clone(),
+                opts,
+                shared_color: None,
+                report_progress: true,
+                failed: Vec::new(),
+            };
+            let serial_control = Control::default();
+            let serial = work().run_serial(&serial_control);
+            assert_eq!(serial_control.completed.load(Ordering::Relaxed), ids.len());
+            assert_eq!(decodes.load(Ordering::Relaxed), ids.len());
+            let parallel = work().run(&Control::default(), false);
+            assert_eq!(decodes.load(Ordering::Relaxed), ids.len() * 2);
+            assert_eq!(serial.rows, parallel.rows, "worker scheduling changed the consistent result");
+            assert_eq!(parallel.rows.len(), ids.len());
+            let mut shared = None;
+            let mut exposures = Vec::new();
+            for (identity, settings) in &parallel.rows {
+                assert_eq!(settings.masks.len(), identity.settings.masks.len() + usize::from(new_layer));
+                assert_eq!(settings.masks[0], identity.settings.masks[0]);
+                let selected = match_look::shared_color_settings(&identity.settings, settings, opts);
+                if let Some(expected) = &shared {
+                    assert_eq!(&selected, expected, "partial Impact must share selected color controls");
+                } else {
+                    shared = Some(selected);
+                }
+                let record = &parallel.applications[&identity.id];
+                assert_eq!(match_look::amount_settings(&record.before, &record.full, opts), *settings);
+                exposures.push(if new_layer { settings.masks.last().unwrap().tools.light.unwrap().exposure } else { settings.light.exposure });
+            }
+            assert!(exposures.iter().any(|exposure| (exposure - exposures[0]).abs() > 0.01), "Normalize must adapt per target");
+            assert!(parallel.per_photo.iter().all(|row| row["consistentBatch"] == true));
+            // A user edit arriving between the two stages and installation remains protected.
+            let mut later = (*session.develop_of(ids[0]).unwrap()).clone();
+            later.light.contrast = 17.0;
+            session.set_develop(ids[0], later, "Intervening edit").unwrap();
+            let undo = session.undo.len();
+            let before = ids.iter().map(|id| session.develop_of(*id).unwrap()).collect::<Vec<_>>();
+            let applied = apply(&mut session, parallel).unwrap();
+            assert_eq!(applied["changed"], ids.len() - 1);
+            assert_eq!(applied["skipped"], json!([ids[0]]));
+            assert_eq!(session.undo.len(), undo + 1);
+            session.execute("edit.undo", &json!({})).unwrap();
+            for (id, expected) in ids.iter().zip(before) {
+                assert_eq!(session.develop_of(*id).unwrap(), expected);
+            }
+            let zero = SolveWork {
+                generation: session.library_generation,
+                inputs: inputs.clone(),
+                looks: looks.clone(),
+                opts: Options { strength: 0.0, normalize: false, ..opts },
+                shared_color: None,
+                report_progress: true,
+                failed: Vec::new(),
+            }
+            .run_serial(&Control::default());
+            assert!(
+                zero.rows.iter().all(|(identity, settings)| settings == identity.settings.as_ref()),
+                "zero Impact with Normalize disabled is an exact no-op"
+            );
+            let during_fit = Arc::new(Control::default());
+            let cancel = during_fit.clone();
+            let mut cancel_inputs = inputs.clone();
+            cancel_inputs[0].source = SourceRef::File {
+                path: "cancel-during-first-stage".into(),
+                max_edge: 32,
+                fallback: None,
+                loader: Some(Arc::new(move |_, _| {
+                    cancel.cancel.store(true, Ordering::Relaxed);
+                    Ok((lightcraft_raster::Rgb32f::from_fn(16, 12, |_, _| [0.1, 0.2, 0.3]), SourceInfo::default()))
+                })),
+            };
+            let interrupted = SolveWork {
+                generation: session.library_generation,
+                inputs: cancel_inputs,
+                looks: looks.clone(),
+                opts,
+                shared_color: None,
+                report_progress: true,
+                failed: Vec::new(),
+            }
+            .run_serial(&during_fit);
+            assert!(interrupted.rows.is_empty() && interrupted.applications.is_empty(), "first-stage fits must never be installed on cancel");
+            let cancelled = Control::default();
+            cancelled.cancel.store(true, Ordering::Relaxed);
+            let result = SolveWork {
+                generation: session.library_generation,
+                inputs,
+                looks,
+                opts,
+                shared_color: None,
+                report_progress: true,
+                failed: Vec::new(),
+            }
+            .run(&cancelled, false);
+            assert!(result.rows.is_empty() && result.applications.is_empty());
+        }
     }
     #[test]
     fn match_look_already_close_stays_close() {
@@ -1103,8 +1430,8 @@ mod tests {
         let undo = s.undo.len();
         s.execute("develop.matchLook", &json!({"ids":[active.0]})).unwrap();
         assert_eq!(s.undo.len(), undo);
-        let ids = s.catalog.photos().take(11).map(|p| p.id.0).collect::<Vec<_>>();
-        assert_eq!(ids.len(), 11);
+        let ids = s.catalog.photos().take(match_look::MAX_REFERENCES + 1).map(|p| p.id.0).collect::<Vec<_>>();
+        assert_eq!(ids.len(), match_look::MAX_REFERENCES + 1);
         assert!(s.execute("develop.matchLookReferences", &json!({"ids":ids,"replace":true})).is_err());
         assert_eq!(s.match_look.references, [active]);
         s.execute("develop.set", &json!({"control":"color.saturation","value":12.0})).unwrap();
@@ -1112,10 +1439,10 @@ mod tests {
         assert!(s.execute("develop.matchLook", &json!({})).is_err());
         s.execute("develop.analyzeLook", &json!({})).unwrap();
         assert!(current_ready(&s));
-        s.execute("develop.matchLookReferences", &json!({"ids":ids[..10],"replace":true})).unwrap();
+        s.execute("develop.matchLookReferences", &json!({"ids":ids[..match_look::MAX_REFERENCES],"replace":true})).unwrap();
         assert!(!current_ready(&s));
         s.execute("develop.analyzeLook", &json!({})).unwrap();
-        assert_eq!(s.match_look.analysis.as_ref().unwrap().looks.len(), 10);
+        assert_eq!(s.match_look.analysis.as_ref().unwrap().looks.len(), match_look::MAX_REFERENCES);
     }
     #[test]
     fn match_look_batch_is_one_undo_with_editable_layer_controls() {
@@ -1408,8 +1735,8 @@ mod tests {
             match invalid {
                 "name" => l.name = "x".repeat(LOOK_NAME_MAX_CHARS + 1),
                 "refs" => {
-                    l.looks = vec![l.looks[0].clone(); 11];
-                    l.reference_count = 11;
+                    l.looks = vec![l.looks[0].clone(); match_look::MAX_REFERENCES + 1];
+                    l.reference_count = match_look::MAX_REFERENCES + 1;
                 }
                 "numeric" => l.looks[0].features[2] = 1000.0,
                 _ => l.looks[0].clusters = vec![Default::default(); 4],

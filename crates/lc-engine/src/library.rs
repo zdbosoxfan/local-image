@@ -168,7 +168,7 @@ fn read_match_look_prefs<'de, D: serde::Deserializer<'de>>(d: D) -> std::result:
     let legacy = value.get("analysis").cloned().and_then(|v| serde_json::from_value::<crate::cmd::match_look::Analysis>(v).ok()).filter(|a| {
         a.version == 1
             && !a.looks.is_empty()
-            && a.looks.len() <= 10
+            && a.looks.len() <= lightcraft_pipeline::match_look::MAX_REFERENCES
             && a.identities.len() == a.looks.len()
             && a.looks.iter().all(lightcraft_pipeline::match_look::Look::valid)
     });

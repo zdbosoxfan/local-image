@@ -1,3 +1,6 @@
+> Historical record. Resumed development and the current acceptance contract are in
+> [Match Look continuation](RESEARCH-matchlook-takeover.md). Earlier pause and ten-reference choices are superseded.
+
 # Match Look v2 plan: synthesis of three research reports (2026-10-13)
 
 Sources: `RESEARCH-matchlook-algorithms.md`, `RESEARCH-matchlook-opensource.md`, `RESEARCH-matchlook-products.md` (all in docs/wip), plus `REVIEW-matchlook-fable.md`. All three point the same way. Owner decisions still stand:

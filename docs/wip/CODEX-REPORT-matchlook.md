@@ -1,3 +1,6 @@
+> Historical record. Resumed development and the current acceptance contract are in
+> [Match Look continuation](RESEARCH-matchlook-takeover.md). Earlier pause and ten-reference choices are superseded.
+
 # Match Look implementation report
 
 2026-10-13. Continued the inherited implementation and completed the Analyze panel, global

@@ -394,8 +394,8 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         let why = if app.session.selection.ids.is_empty() {
             Some("Select reference photos first")
-        } else if references.len() >= 10 {
-            Some("At most 10 references; remove one first")
+        } else if references.len() >= lightcraft_pipeline::match_look::MAX_REFERENCES {
+            Some("At most 20 references; remove one first")
         } else if busy {
             Some("Wait for the current job")
         } else {
@@ -431,7 +431,7 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     } else if app.session.match_look.analysis.is_some() {
         tr("References changed — Analyze again").into()
     } else {
-        tr("Add 1–10 edited references, then Analyze").into()
+        tr("Add 1–20 edited references, then Analyze").into()
     };
     ui.label(egui::RichText::new(status).font(t.font(11.5)).color(t.text_dim));
     if let Some(looks) = engine::selected_looks(&app.session) {
@@ -546,13 +546,12 @@ pub(crate) fn batch_details(value: &Value) -> String {
         embedded = value["previewOnly"].as_u64().unwrap_or(0)
     )
 }
-fn result_quality(ui: &mut egui::Ui, fit: f64, reach: f64, wb_ratio: f64, preview_only: bool) {
+fn result_quality(ui: &mut egui::Ui, fit: f64, _reach: f64, wb_ratio: f64, preview_only: bool) {
     let top = ui.cursor().top();
     widgets::summary_chips(
         ui,
         &[
             crate::i18n::tr_format!("Fit {value:.0}%", value = fit * 100.0),
-            crate::i18n::tr_format!("Tonal range {value:.0}%", value = reach * 100.0),
             crate::i18n::tr_format!("WB shift {value:.2}×", value = wb_ratio),
             tr(if preview_only { "Embedded preview" } else { "Decoded photo" }).into(),
         ],
@@ -562,13 +561,8 @@ fn result_quality(ui: &mut egui::Ui, fit: f64, reach: f64, wb_ratio: f64, previe
         "matchLook:quality",
         egui::Rect::from_min_max(egui::pos2(ui.min_rect().left(), top), egui::pos2(ui.min_rect().right(), ui.cursor().top())),
     );
-    if reach < 0.6 {
-        let t = Tokens::get(ui.ctx());
-        ui.label(
-            egui::RichText::new(tr("References have a wider tonal range than this photo can reach — Light & Contrast was limited")).color(t.caution),
-        );
-    }
 }
+
 fn prompt(app: &mut LightcraftApp, title: &str, value: &str, action: &str, id: Option<&str>) {
     app.ui.dialog = Some(Dialog::TextPrompt {
         title: tr(title).into(),
@@ -627,9 +621,10 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
     ui.horizontal_wrapped(|ui| {
         widgets::checkbox(ui, "matchNewLayer", &mut options.new_layer, "Apply as new layer");
         widgets::checkbox(ui, "matchConsistent", &mut options.consistent_batch, "Consistent batch")
-            .on_hover_text(tr("Use the same reference blend for every target. Otherwise references are weighted by each target's scene similarity."));
+            .on_hover_text(tr("Share selected color controls across the batch; adapt exposure, white balance and Light per photo. Partial Strength fades shared colors from neutral; zero restores original colors."));
     });
     widgets::checkbox(ui, "matchRegions", &mut options.region_aware, "Match supported regions (experimental)");
+    widgets::checkbox(ui, "matchAppearance", &mut options.appearance_aware, "Match supported color groups (experimental)");
     if before != *options
         && (app.match_look.preview.is_some()
             || app.match_look.auto_preview_at.is_some()
@@ -762,7 +757,7 @@ fn changed_summary(
                 mixer: m.tools.mixer.unwrap_or_default(),
                 grading: m.tools.grading.unwrap_or_default(),
                 effects: m.tools.effects.unwrap_or_default(),
-                treatment: m.tools.treatment.unwrap_or(before.treatment),
+                treatment: after.treatment,
                 wb: lightcraft_develop::WhiteBalance { temp: m.adjust.temp, tint: m.adjust.tint, ..Default::default() },
                 ..Default::default()
             })
@@ -772,6 +767,7 @@ fn changed_summary(
     };
     let b = if opts.new_layer {
         let mut b = lightcraft_develop::DevelopSettings::default();
+        b.treatment = before.treatment;
         b.wb.temp = 0.0;
         b.wb.tint = 0.0;
         b
@@ -792,7 +788,6 @@ fn changed_summary(
                 "curve.darks",
                 "curve.lights",
                 "curve.highlights",
-                "effects.clarity",
             ],
         ),
         (
@@ -877,6 +872,17 @@ fn changed_summary(
                     ))
                 })
                 .collect::<Vec<_>>();
+            if group == "Color Tone" {
+                for (name, from, to) in [
+                    ("Red curve", &b.curve.red, &d.curve.red),
+                    ("Green curve", &b.curve.green, &d.curve.green),
+                    ("Blue curve", &b.curve.blue, &d.curve.blue),
+                ] {
+                    if from != to {
+                        changed.push(tr(name).into());
+                    }
+                }
+            }
             if group == "Color Adjust" && d.treatment != b.treatment {
                 changed.push(tr("Treatment Color → B&W").into());
             }

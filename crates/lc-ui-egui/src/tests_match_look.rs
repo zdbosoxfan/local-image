@@ -627,9 +627,10 @@ fn match_look_ui_revision3_quality_pin_wrap_and_weak_review() {
         })
         .collect::<Vec<_>>()
         .join(" ");
-    for chip in ["Fit ", "Tonal range ", "WB shift ", "Decoded photo"] {
+    for chip in ["Fit ", "WB shift ", "Decoded photo"] {
         assert!(text.contains(chip), "missing {chip}: {text}");
     }
+    assert!(!text.contains("Tonal range "), "curve slope comfort must not be presented as full-pipeline reachability");
     assert_eq!(h.app.match_look.last_result.as_ref().unwrap()["perPhoto"][0]["id"], json!(id));
     // Stub the result metrics only; clicking runs the real grid-filter command.
     h.app.match_look.last_result = Some(json!({"weak":1,"previewOnly":1,"perPhoto":[{"id":id,"fit":0.2,"reach":0.4}]}));
