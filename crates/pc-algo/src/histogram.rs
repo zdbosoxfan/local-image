@@ -167,7 +167,12 @@ mod tests {
     fn exposure_of_an_eight_bit_gradient_reproduces_the_quantization_comb() {
         let mut pixels: Vec<_> = (0..256).map(|i| [i as f32 / 255.0, i as f32 / 255.0, i as f32 / 255.0, 1.0]).collect();
         assert!(RgbHistogram::from_rgba(&pixels).channels[0].iter().all(|&v| v == 1));
-        crate::camera_raw::develop(&mut pixels, 256, 1, &crate::camera_raw::CameraRaw { exposure: 0.5, ..Default::default() }, true);
+        // A known half-stop exposure of a quantized gradient, independent of any develop engine.
+        for pixel in &mut pixels {
+            for c in &mut pixel[..3] {
+                *c = crate::photo_util::linear_to_srgb(crate::photo_util::srgb_to_linear(*c) * 2f32.sqrt());
+            }
+        }
         let h = RgbHistogram::from_rgba(&pixels);
         assert!(h.channels[0][10..230].iter().filter(|&&v| v == 0).count() > 10);
         assert_eq!(h.samples, 256);
