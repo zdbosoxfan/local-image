@@ -64,66 +64,23 @@ pub type PhotoshopTags<'a> = (Option<&'a [u8]>, Option<&'a [u8]>);
 /// header bytes and the two payloads are touched, and nothing is allocated. Anything malformed
 /// reads as "absent".
 pub fn photoshop_tags(b: &[u8]) -> PhotoshopTags<'_> {
-    fn walk(b: &[u8]) -> Option<PhotoshopTags<'_>> {
-        let le = match b.get(0..2)? {
-            b"II" => true,
-            b"MM" => false,
-            _ => return None,
-        };
-        let u16_at = |o: u64| -> Option<u16> {
-            let o = usize::try_from(o).ok()?;
-            let s = b.get(o..o.checked_add(2)?)?;
-            Some(if le { u16::from_le_bytes([s[0], s[1]]) } else { u16::from_be_bytes([s[0], s[1]]) })
-        };
-        let u32_at = |o: u64| -> Option<u32> {
-            let o = usize::try_from(o).ok()?;
-            let s: [u8; 4] = b.get(o..o.checked_add(4)?)?.try_into().ok()?;
-            Some(if le { u32::from_le_bytes(s) } else { u32::from_be_bytes(s) })
-        };
-        let u64_at = |o: u64| -> Option<u64> {
-            let o = usize::try_from(o).ok()?;
-            let s: [u8; 8] = b.get(o..o.checked_add(8)?)?.try_into().ok()?;
-            Some(if le { u64::from_le_bytes(s) } else { u64::from_be_bytes(s) })
-        };
-        let (big, ifd) = match u16_at(2)? {
-            42 => (false, u64::from(u32_at(4)?)),
-            43 => (true, u64_at(8)?),
-            _ => return None,
-        };
-        let n = if big { u64_at(ifd)? } else { u64::from(u16_at(ifd)?) }.min(4096);
-        let (entry, first, inline) = if big { (20u64, ifd.checked_add(8)?, 8u64) } else { (12, ifd.checked_add(2)?, 4) };
-        let mut resources = None;
-        let mut layers = None;
-        for i in 0..n {
-            let e = first.checked_add(i.checked_mul(entry)?)?;
-            let tag = u16_at(e)?;
-            if tag != TAG_PHOTOSHOP && tag != TAG_IMAGE_SOURCE_DATA {
-                continue;
-            }
-            // BYTE, ASCII, SBYTE or UNDEFINED: one byte per element.
-            if !matches!(u16_at(e + 2)?, 1 | 2 | 6 | 7) {
-                continue;
-            }
-            let count = if big { u64_at(e + 4)? } else { u64::from(u32_at(e + 4)?) };
-            let value_at = e + if big { 12 } else { 8 };
-            let start = if count <= inline {
-                value_at
-            } else if big {
-                u64_at(value_at)?
-            } else {
-                u64::from(u32_at(value_at)?)
-            };
-            let start = usize::try_from(start).ok()?;
-            let data = b.get(start..start.checked_add(usize::try_from(count).ok()?)?)?;
-            if tag == TAG_PHOTOSHOP {
-                resources = Some(data);
-            } else {
-                layers = Some(data);
-            }
+    let Some(file) = File::parse(b) else { return (None, None) };
+    let Some(entries) = file.entries_at(file.first_ifd) else { return (None, None) };
+    let mut resources = None;
+    let mut layers = None;
+    // Preserve the existing cap and last-duplicate policy without materializing payloads.
+    for entry in entries.take(4096) {
+        if !matches!(entry.tag, TAG_PHOTOSHOP | TAG_IMAGE_SOURCE_DATA) || !matches!(entry.ty, 1 | 2 | 6 | 7) {
+            continue;
         }
-        Some((resources, layers))
+        let Some(data) = file.data(&entry) else { return (None, None) };
+        if entry.tag == TAG_PHOTOSHOP {
+            resources = Some(data);
+        } else {
+            layers = Some(data);
+        }
     }
-    walk(b).unwrap_or((None, None))
+    (resources, layers)
 }
 
 /// ASCII tags mapped to `Metadata::text` keys.
@@ -149,79 +106,9 @@ fn map_err(e: tiff::TiffError) -> CodecError {
     }
 }
 
-/// TIFF/EP `PhotometricInterpretation` for colour filter array (sensor) data.
-const PHOTOMETRIC_CFA: u32 = 32803;
-/// DNG `PhotometricInterpretation` for demosaiced but undeveloped sensor data.
-const PHOTOMETRIC_LINEAR_RAW: u32 = 34892;
-const TAG_PHOTOMETRIC: u16 = 262;
-const TAG_SUB_IFDS: u16 = 330;
-const TAG_DNG_VERSION: u16 = 50706;
-
-/// Recognizes TIFF-structured camera raw files (TIFF/EP, DNG, CR2 and the
-/// TIFF-based NEF/ARW/PEF… layouts): a CR2 signature, a DNGVersion tag, or
-/// a CFA / LinearRaw image in IFD0, its SubIFDs or the next few IFDs. Their
-/// first IFD is often a reduced preview, so this runs before decoding.
-/// Reads only bounds-checked header bytes; anything malformed is "not raw".
-fn camera_raw(b: &[u8]) -> bool {
-    let le = match b.get(0..4) {
-        Some(b"II*\0") => true,
-        Some(b"MM\0*") => false,
-        _ => return false, // BigTIFF and others: no raw layouts to recognize
-    };
-    let u16_at = |o: usize| {
-        let s = b.get(o..o.checked_add(2)?)?;
-        Some(if le { u16::from_le_bytes([s[0], s[1]]) } else { u16::from_be_bytes([s[0], s[1]]) })
-    };
-    let u32_at = |o: usize| {
-        let s: [u8; 4] = b.get(o..o.checked_add(4)?)?.try_into().ok()?;
-        Some(if le { u32::from_le_bytes(s) } else { u32::from_be_bytes(s) })
-    };
-    // CR2: "CR" and major version 2 right after the TIFF header.
-    if b.get(8..11) == Some(b"CR\x02") {
-        return true;
-    }
-    // Entry value (count 1) as SHORT or LONG; anything else is ignored.
-    let value = |e: usize| match u16_at(e.saturating_add(2))? {
-        3 => u16_at(e.saturating_add(8)).map(u32::from),
-        4 | 13 => u32_at(e.saturating_add(8)),
-        _ => None,
-    };
-    let mut queue: Vec<u32> = u32_at(4).into_iter().collect();
-    let mut visited = 0;
-    while let Some(ifd) = queue.pop() {
-        // A handful of IFDs is enough for every real layout; also stops loops.
-        visited += 1;
-        if visited > 16 {
-            break;
-        }
-        let ifd = ifd as usize;
-        let Some(n) = u16_at(ifd) else { continue };
-        for i in 0..usize::from(n) {
-            let e = ifd.saturating_add(2 + 12 * i);
-            let (Some(tag), Some(count)) = (u16_at(e), u32_at(e.saturating_add(4))) else {
-                break;
-            };
-            match tag {
-                TAG_DNG_VERSION => return true,
-                TAG_PHOTOMETRIC if matches!(value(e), Some(PHOTOMETRIC_CFA | PHOTOMETRIC_LINEAR_RAW)) => {
-                    return true;
-                }
-                TAG_SUB_IFDS if count == 1 => queue.extend(value(e)),
-                TAG_SUB_IFDS => {
-                    // More than one offset: they are stored at the entry's offset.
-                    let at = u32_at(e.saturating_add(8)).unwrap_or(0) as usize;
-                    for k in 0..count.min(8) as usize {
-                        queue.extend(u32_at(at.saturating_add(4 * k)));
-                    }
-                }
-                _ => {}
-            }
-        }
-        if let Some(next) = u32_at(ifd.saturating_add(2 + 12 * usize::from(n))).filter(|&o| o != 0) {
-            queue.push(next);
-        }
-    }
-    false
+/// TIFF-structured camera raw identification shares the bounded TIFF directory reader.
+fn camera_raw(bytes: &[u8]) -> bool {
+    File::parse(bytes).is_some_and(|file| file.is_camera_raw())
 }
 
 /// Decodes the page Photoshop would open: the first full-resolution directory.
@@ -233,6 +120,16 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
 /// carries the page's metadata, a [`DecodeWarning::MorePages`] when the file holds more
 /// full-resolution pages, and a [`DecodeWarning::Truncated`] when image data is cut off.
 pub(crate) fn decode_page(bytes: &[u8], page: Option<usize>, limits: &Limits) -> Result<Image, CodecError> {
+    decode_page_with(bytes, page, limits, false)
+}
+
+/// Device samples retained for the Library colour layer, which unassociates without integer
+/// quantization and linearizes float samples in the established order.
+pub(crate) fn decode_for_color(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError> {
+    decode_page_with(bytes, None, limits, true)
+}
+
+fn decode_page_with(bytes: &[u8], page: Option<usize>, limits: &Limits, keep_associated: bool) -> Result<Image, CodecError> {
     if camera_raw(bytes) {
         return Err(CodecError::unsupported(
             F,
@@ -250,8 +147,9 @@ pub(crate) fn decode_page(bytes: &[u8], page: Option<usize>, limits: &Limits) ->
         .get(index)
         .ok_or_else(|| CodecError::InvalidImage(format!("TIFF page {index} does not exist (the file has {} directories)", info.pages.len())))?;
     let dir = file.ifd(p.ifd_offset).ok_or_else(|| err("image directory cut off"))?;
-    let mut img = decode_ifd(&file, &dir, limits)?;
+    let mut img = decode_ifd(&file, &dir, limits, keep_associated)?;
     img.meta = metadata(&file, &dir, &mut img.icc);
+    img.orientation = ifd::orientation_of(&file, &dir);
     let pages = info.page_count();
     if pages > 1 {
         img.warnings.push(DecodeWarning::MorePages { total: info.complete.then_some(u32::try_from(pages).unwrap_or(u32::MAX)) });
@@ -478,7 +376,7 @@ fn jpeg_dimensions(data: &[u8]) -> Result<(u16, u16), CodecError> {
 }
 
 /// Decodes the pixels of one directory.
-fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits) -> Result<Image, CodecError> {
+fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -> Result<Image, CodecError> {
     // The values the `tiff` crate reads must exist: a count past the end of the file is
     // neither allocated nor read.
     if let Some(e) = dir.entries.iter().find(|e| ifd::STRUCTURAL_TAGS.contains(&e.tag) && f.data(e).is_none()) {
@@ -680,7 +578,7 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits) -> Result<Image, CodecEr
         across,
         chunks_per_plane,
         invert: invert && palette.is_none(),
-        premultiplied: out_layout.has_alpha() && extra.first() == Some(&1),
+        premultiplied: !keep_associated && out_layout.has_alpha() && extra.first() == Some(&1),
         palette,
         scratch_cap,
     };
@@ -696,6 +594,9 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits) -> Result<Image, CodecEr
         return Err(err("the image data is missing (cut off or past the end of the file)"));
     }
     let mut img = Image::from_raw(w, h, out_layout, out, data)?;
+    img.source_bit_depth = Some(bits as u8);
+    img.source_float = Some(format == 3);
+    img.associated_alpha = keep_associated && out_layout.has_alpha() && extra.first() == Some(&1);
     if tally.missing > 0 {
         img.warnings.push(DecodeWarning::Truncated { format: F });
     }
@@ -1196,5 +1097,90 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
         Ok(v) => Ok(v),
         Err(tiff::TiffError::IntSizeError) if !big => write(true).map_err(|e| CodecError::encode(F, e)),
         Err(e) => Err(CodecError::encode(F, e)),
+    }
+}
+
+#[cfg(test)]
+mod shared_directory_tests {
+    use super::*;
+    use lightcraft_tiff::{ByteOrder, IfdBuilder, ImageData, TiffWriter, Value};
+
+    fn associated_fixture(bits: u16, format: u16, data: Vec<u8>, gray: bool) -> Vec<u8> {
+        let channels = if gray { 2 } else { 4 };
+        let mut ifd = IfdBuilder::new()
+            .with(256, Value::Long(vec![1]))
+            .with(257, Value::Long(vec![1]))
+            .with(258, Value::Short(vec![bits; channels]))
+            .with(259, Value::Short(vec![1]))
+            .with(262, Value::Short(vec![if gray { 0 } else { 2 }]))
+            .with(277, Value::Short(vec![channels as u16]))
+            .with(284, Value::Short(vec![1]))
+            .with(338, Value::Short(vec![1]))
+            .with(339, Value::Short(vec![format; channels]));
+        ifd.set_image(ImageData::Strips { rows_per_strip: 1, strips: vec![data] });
+        TiffWriter::default().write(&[ifd]).expect("valid associated-alpha TIFF")
+    }
+
+    #[test]
+    fn shared_directory_tiff_color_path_preserves_integer_associated_samples() {
+        for bits in [8u16, 16] {
+            let (stored, straight) = if bits == 8 {
+                (vec![1, 2, 3, 128], vec![2, 4, 6, 128])
+            } else {
+                let bytes = |values: [u16; 4]| values.into_iter().flat_map(u16::to_le_bytes).collect::<Vec<_>>();
+                (bytes([1, 2, 3, 32768]), bytes([2, 4, 6, 32768]))
+            };
+            let bytes = associated_fixture(bits, 1, stored.clone(), false);
+            let device = decode_for_color(&bytes, &Limits::default()).expect("device samples");
+            assert_eq!(device.data(), stored);
+            assert!(device.associated_alpha);
+            assert_eq!(device.source_bit_depth, Some(bits as u8));
+            assert_eq!(device.source_float, Some(false));
+            let normal = decode(&bytes, &Limits::default()).expect("straight samples");
+            assert_eq!(normal.data(), straight);
+            assert!(!normal.associated_alpha);
+        }
+    }
+
+    #[test]
+    fn shared_directory_tiff_color_path_preserves_float_associated_samples() {
+        let bytes_of = |values: [f32; 4]| values.into_iter().flat_map(f32::to_le_bytes).collect::<Vec<_>>();
+        let stored = bytes_of([0.125, 0.25, 0.375, 0.5]);
+        let bytes = associated_fixture(32, 3, stored.clone(), false);
+        let device = decode_for_color(&bytes, &Limits::default()).expect("float device samples");
+        assert_eq!(device.data(), stored);
+        assert!(device.associated_alpha);
+        assert_eq!(device.source_bit_depth, Some(32));
+        assert_eq!(device.source_float, Some(true));
+        let normal = decode(&bytes, &Limits::default()).expect("float straight samples");
+        assert_eq!(normal.data(), bytes_of([0.25, 0.5, 0.75, 0.5]));
+        assert!(!normal.associated_alpha);
+    }
+
+    #[test]
+    fn shared_directory_tiff_color_path_keeps_white_is_zero_inversion() {
+        let bytes = associated_fixture(8, 1, vec![10, 128], true);
+        let device = decode_for_color(&bytes, &Limits::default()).expect("inverted device samples");
+        assert_eq!(device.data(), [245, 128]);
+        assert!(device.associated_alpha);
+        let normal = decode(&bytes, &Limits::default()).expect("straight gray samples");
+        assert_eq!(normal.data(), [255, 128]);
+    }
+
+    #[test]
+    fn shared_directory_photoshop_payloads_are_borrowed_in_all_layouts() {
+        for order in [ByteOrder::Little, ByteOrder::Big] {
+            for big in [false, true] {
+                let resources = b"8BIM resources";
+                let layers = b"Adobe Photoshop Document Data Block";
+                let ifd = IfdBuilder::new().with(TAG_PHOTOSHOP, Value::Byte(resources.to_vec())).with(TAG_IMAGE_SOURCE_DATA, Value::Undefined(layers.to_vec()));
+                let bytes = TiffWriter::new(order, big).write(&[ifd]).expect("valid private tags");
+                let tags = photoshop_tags(&bytes);
+                assert_eq!(tags, (Some(resources.as_slice()), Some(layers.as_slice())));
+                let file = File::parse(&bytes).expect("header");
+                let dir = file.ifd(file.first_ifd).expect("directory");
+                assert_eq!(tags.0.expect("resources").as_ptr(), file.tag_bytes(&dir, TAG_PHOTOSHOP).expect("shared view").as_ptr());
+            }
+        }
     }
 }

@@ -11,10 +11,7 @@ use serde_json::{Value, json};
 use crate::backend::Backend;
 
 /// File extensions recognised as photos when expanding folders.
-pub const PHOTO_EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "tif", "tiff", "webp", "dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2", "rwl", "raw", "pef", "psd", "jxl", "gif",
-    "bmp", "avif",
-];
+pub use lightcraft_codecs::PHOTO_EXTENSIONS;
 
 /// Headless backend: a [`Session`] with filesystem hooks.
 pub struct Headless {
@@ -152,7 +149,7 @@ pub fn expand_paths(paths: &[String]) -> Vec<String> {
                     }
                 }
             }
-        } else if p.extension().is_some_and(|e| PHOTO_EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str())) {
+        } else if p.extension().is_some_and(|e| lightcraft_codecs::is_readable_extension(&e.to_string_lossy(), true)) {
             out.push(std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf()).to_string_lossy().to_string());
         }
     }
@@ -187,6 +184,28 @@ pub fn write_image(path: &Path, img: &Rgba8, quality: u8) -> Result<(), String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn j6_headless_folder_expansion_uses_shared_registry() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!("j6-headless-extension-registry-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        for name in ["a.HEIC", "b.CRW", "c.PSB", "d.QOI", "unsupported.avif", "notes.txt"] {
+            std::fs::write(dir.join(name), [])?;
+        }
+        let files = expand_paths(&[dir.to_string_lossy().into_owned()]);
+        for (name, included) in [
+            ("a.HEIC", lightcraft_codecs::is_readable_extension("heic", true)),
+            ("b.CRW", true),
+            ("c.PSB", true),
+            ("d.QOI", true),
+            ("unsupported.avif", false),
+            ("notes.txt", false),
+        ] {
+            assert_eq!(files.iter().any(|f| f.ends_with(name)), included, "{name}");
+        }
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
 
     /// `app.export` without `ids` exports the selection (as the desktop app does), else the active photo.
     #[test]

@@ -103,7 +103,10 @@ pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
     let mut out: Vec<String> = rd
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.is_file() && p.extension().and_then(|x| x.to_str()).is_some_and(|x| OPENABLE.contains(&x.to_ascii_lowercase().as_str())))
+        .filter(|p| {
+            p.is_file()
+                && p.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(x, true))
+        })
         .map(|p| p.to_string_lossy().into_owned())
         .collect();
     out.sort();
@@ -113,12 +116,6 @@ pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
 pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
     Err(EngineError::Other(format!("cannot list {dir}: no file system on the web")))
 }
-
-/// Extensions the batch commands pick up from a folder.
-const OPENABLE: &[&str] = &[
-    "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "qoi", "ico", "pnm", "ppm", "pgm", "heic", "heif",
-    "hif", "dng", "cr2", "nef", "nrw", "arw", "pef",
-];
 
 pub(crate) fn file_name(path: &str) -> String {
     path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()
@@ -1401,5 +1398,23 @@ mod file_worker_regressions {
         assert!(session.active().unwrap().doc.layer_count() > before);
         assert!(session.undo());
         assert_eq!(session.active().unwrap().doc.layer_count(), before);
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod j6_extension_tests {
+    #[test]
+    fn j6_engine_folder_expansion_uses_shared_registry() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!("j6-engine-extension-registry-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        for name in ["a.CRW", "b.QOI", "c.PSB", "d.pcraft", "unsupported.avif", "notes.txt"] {
+            std::fs::write(dir.join(name), [])?;
+        }
+        let files = super::list_images(&dir.to_string_lossy())?;
+        for (name, included) in [("a.CRW", true), ("b.QOI", true), ("c.PSB", true), ("d.pcraft", true), ("unsupported.avif", false), ("notes.txt", false)] {
+            assert_eq!(files.iter().any(|f| f.ends_with(name)), included, "{name}");
+        }
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
     }
 }

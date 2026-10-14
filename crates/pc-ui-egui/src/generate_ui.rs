@@ -1669,7 +1669,7 @@ fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_im
             ui.add_enabled_ui(!full, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
                 if crate::icons::button(ui, "folder-open", 22.0, false, tl!("Add an image file")).clicked()
-                    && let Some(path) = file_dialog().add_filter_nocase(tl!("Images"), &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_file()
+                    && let Some(path) = file_dialog().add_filter_nocase(tl!("Images"), &photocraft_codecs::readable_extensions()).pick_file()
                 {
                     match photocraft_engine::ai_cmds::file_rgba_srgb(&path) {
                         Ok(img) => {
@@ -2559,17 +2559,20 @@ pub fn open_folder(app: &mut PhotocraftApp) -> Result<Value, String> {
     }
 }
 
-pub const IMAGE_EXTS: &[&str] = &[
-    "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "heic", "heif", "dng", "cr2", "cr3", "nef", "nrw",
-    "arw", "pef", "orf", "rw2", "raf",
-];
+/// Compatibility alias; opening filters consult the shared capability registry.
+pub const IMAGE_EXTS: &[&str] = photocraft_codecs::PHOTO_EXTENSIONS;
 
 pub fn folder_images(dir: &std::path::Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|rd| {
             rd.flatten()
                 .map(|e| e.path())
-                .filter(|p| p.is_file() && p.extension().and_then(|e| e.to_str()).is_some_and(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str())))
+                .filter(|p| {
+                    p.is_file()
+                        && p.extension()
+                            .and_then(|e| e.to_str())
+                            .is_some_and(|e| e.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(e, true))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -2687,18 +2690,18 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         if widgets::secondary_button(ui, tl!("Add Images…"), 0.0).clicked()
-                            && let Some(paths) = file_dialog().add_filter_nocase(tl!("Images"), &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_files()
+                            && let Some(paths) = file_dialog().add_filter_nocase(tl!("Images"), &photocraft_codecs::readable_extensions()).pick_files()
                         {
                             b.files.extend(paths);
                         }
                         if widgets::secondary_button(ui, tl!("Add Folder…"), 0.0).clicked()
                             && let Some(dir) = file_dialog().pick_folder()
                         {
-                            b.files.extend(folder_images(&dir).into_iter().filter(|p| {
-                                p.extension()
-                                    .and_then(|e| e.to_str())
-                                    .is_some_and(|e| ["png", "jpg", "jpeg", "webp", "tif", "tiff"].contains(&e.to_ascii_lowercase().as_str()))
-                            }));
+                            b.files.extend(
+                                folder_images(&dir)
+                                    .into_iter()
+                                    .filter(|p| p.extension().and_then(|e| e.to_str()).is_some_and(|e| photocraft_codecs::is_readable_extension(e, false))),
+                            );
                         }
                     }
                     ui.label(RichText::new(crate::i18n::fmt(tl!("{n} images"), &[("n", &b.files.len().to_string())])).color(t.text_dim));
@@ -2968,6 +2971,21 @@ mod bg_batch_tests {
         let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/bgremove-tests").join(li_ai::ops::new_seed().to_string());
         std::fs::create_dir_all(&p).unwrap();
         p
+    }
+
+    #[test]
+    fn j6_generate_folder_uses_shared_readable_registry() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!("j6-generate-extension-registry-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        for name in ["a.CRW", "b.QOI", "c.PSB", "d.pcraft", "unsupported.avif", "notes.txt"] {
+            std::fs::write(dir.join(name), [])?;
+        }
+        let files = folder_images(&dir);
+        for (name, included) in [("a.CRW", true), ("b.QOI", true), ("c.PSB", true), ("d.pcraft", true), ("unsupported.avif", false), ("notes.txt", false)] {
+            assert_eq!(files.contains(&dir.join(name)), included, "{name}");
+        }
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
     }
 
     #[test]

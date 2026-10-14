@@ -140,6 +140,28 @@ impl Metadata {
     }
 }
 
+/// Container-level RGB encoding when no ICC profile supersedes it.
+/// Samples retain their precision and encoding; interpretation belongs to the colour adapter.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColorHint {
+    pub named: Option<li_color::NamedSpace>,
+    pub to_xyz_d50: li_color::Mat3,
+    pub trc: [li_color::Trc; 3],
+    /// The decoder rendered directly into this linear space (for JPEG XL).
+    pub already_linear: bool,
+}
+
+impl ColorHint {
+    pub fn linear_rec2020() -> Self {
+        Self {
+            named: Some(li_color::NamedSpace::Rec2020),
+            to_xyz_d50: li_color::NamedSpace::Rec2020.to_xyz_d50(),
+            trc: [li_color::Trc::Linear, li_color::Trc::Linear, li_color::Trc::Linear],
+            already_linear: true,
+        }
+    }
+}
+
 /// Something a decoder noticed about the file that the decoded pixels don't show: the file
 /// held more than was decoded, or less than it should.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +257,15 @@ pub struct Image {
     /// What the decoder noticed about the file: empty for a complete, single image and for
     /// images built in memory. Encoders ignore it.
     pub warnings: Vec<DecodeWarning>,
+    pub color_hint: Option<ColorHint>,
+    /// Stored precision may differ from the expanded sample type (e.g. palette PNG/JXL).
+    pub source_bit_depth: Option<u8>,
+    pub source_float: Option<bool>,
+    /// Device samples still carry associated alpha, for a caller that linearizes them.
+    /// Ordinary decode APIs always return straight alpha.
+    pub associated_alpha: bool,
+    /// Orientation of these stored pixels; 1 after applying the container transform.
+    pub orientation: u16,
 }
 
 fn byte_len(width: u32, height: u32, layout: ChannelLayout, sample: SampleType) -> Option<usize> {
@@ -245,7 +276,21 @@ impl Image {
     /// A zero-filled image, or an error if the byte size overflows `usize`.
     pub fn new(width: u32, height: u32, layout: ChannelLayout, sample: SampleType) -> Result<Self, CodecError> {
         let len = byte_len(width, height, layout, sample).ok_or_else(|| CodecError::InvalidImage("image size overflows usize".into()))?;
-        Ok(Image { width, height, layout, sample, data: vec![0; len], icc: None, meta: Metadata::default(), warnings: Vec::new() })
+        Ok(Image {
+            width,
+            height,
+            layout,
+            sample,
+            data: vec![0; len],
+            icc: None,
+            meta: Metadata::default(),
+            warnings: Vec::new(),
+            color_hint: None,
+            source_bit_depth: None,
+            source_float: None,
+            associated_alpha: false,
+            orientation: 1,
+        })
     }
 
     /// Wrap raw interleaved, native-endian bytes.
@@ -254,7 +299,21 @@ impl Image {
         if data.len() != expected {
             return Err(CodecError::InvalidImage(format!("buffer has {} bytes, expected {expected} for {width}x{height} {layout:?} {sample:?}", data.len())));
         }
-        Ok(Image { width, height, layout, sample, data, icc: None, meta: Metadata::default(), warnings: Vec::new() })
+        Ok(Image {
+            width,
+            height,
+            layout,
+            sample,
+            data,
+            icc: None,
+            meta: Metadata::default(),
+            warnings: Vec::new(),
+            color_hint: None,
+            source_bit_depth: None,
+            source_float: None,
+            associated_alpha: false,
+            orientation: 1,
+        })
     }
 
     pub fn from_u8(width: u32, height: u32, layout: ChannelLayout, data: Vec<u8>) -> Result<Self, CodecError> {
@@ -423,6 +482,11 @@ impl Image {
             icc: if layout.same_model(self.layout) { self.icc.clone() } else { None },
             meta: self.meta.clone(),
             warnings: self.warnings.clone(),
+            color_hint: if layout.same_model(self.layout) { self.color_hint.clone() } else { None },
+            source_bit_depth: self.source_bit_depth,
+            source_float: self.source_float,
+            associated_alpha: self.associated_alpha,
+            orientation: self.orientation,
         }
     }
 

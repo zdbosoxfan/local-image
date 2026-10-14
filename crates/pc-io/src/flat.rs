@@ -93,7 +93,7 @@ pub(crate) fn image_to_document(name: &str, img: &Image) -> Result<ImportResult,
         bg.locks.position = true;
     }
     doc.layers.push(bg);
-    doc.icc_profile = img.icc.clone().map(Arc::new);
+    doc.icc_profile = decoded_profile(img);
     doc.metadata.exif = img.meta.exif.clone().map(Arc::new);
     doc.metadata.xmp = img.meta.xmp.clone();
     if let Some((x, _)) = img.meta.dpi {
@@ -103,6 +103,42 @@ pub(crate) fn image_to_document(name: &str, img: &Image) -> Result<ImportResult,
         warnings.push(format!("{} text metadata entries are not kept in the document", img.meta.text.len()));
     }
     Ok(ImportResult { document: doc, warnings })
+}
+
+/// Container colour hints must accompany their device samples into a document too.
+/// Keep the embedded profile verbatim; only synthesize one when the container has no ICC.
+fn decoded_profile(img: &Image) -> Option<Arc<Vec<u8>>> {
+    if let Some(icc) = &img.icc {
+        return Some(Arc::new(icc.clone()));
+    }
+    let hint = img.color_hint.as_ref()?;
+    let mut profile = if img.layout().is_gray() { photocraft_cms::Builtin::SGray.profile().clone() } else { photocraft_cms::Builtin::Srgb.profile().clone() };
+    if img.layout().is_gray() {
+        profile.gray_trc = Some(hint.trc[1].to_curve());
+    } else {
+        profile.matrix = Some(hint.to_xyz_d50.0);
+        profile.trc = Some(hint.trc.each_ref().map(|t| t.to_curve()));
+    }
+    profile.chad = None;
+    profile.description = "Image container colour encoding".into();
+    Some(profile.with_encoded_bytes().to_bytes())
+}
+
+#[cfg(test)]
+mod shared_decode_color_tests {
+    use super::*;
+    #[test]
+    fn shared_decode_document_retains_container_encoding_and_original_icc() {
+        let mut img = Image::from_f32(1, 1, ChannelLayout::Rgb, &[0.18, 0.4, 1.2]).unwrap();
+        img.color_hint = Some(codecs::ColorHint::linear_rec2020());
+        let result = image_to_document("JXL", &img).unwrap();
+        let bytes = result.document.icc_profile.as_ref().unwrap();
+        let profile = photocraft_cms::Profile::parse(bytes).unwrap();
+        assert!(profile.trc.as_ref().unwrap().iter().all(|t| matches!(t, photocraft_cms::Curve::Identity)));
+        assert!(profile.matrix.unwrap()[0][0] > 0.6, "Rec.2020, not sRGB primaries");
+        img.icc = Some(vec![1, 2, 3]);
+        assert_eq!(decoded_profile(&img).unwrap().as_slice(), &[1, 2, 3]);
+    }
 }
 
 /// `Some(surface)` when the document is exactly one visible, unmasked,
@@ -369,96 +405,15 @@ fn admit_overwrite_size(size: u64) -> Result<(), IoError> {
 /// IFD1 describes the old thumbnail. Leave camera/EXIF/GPS entries and their original offsets
 /// intact, but unlink that directory so fast thumbnail loaders decode the replacement pixels.
 fn drop_exif_thumbnail(exif: &mut [u8]) {
-    let little = exif.starts_with(b"II");
-    if !little && !exif.starts_with(b"MM") {
-        return;
-    }
-    let read = |at: usize, n: usize| -> Option<u64> {
-        let b = exif.get(at..at.checked_add(n)?)?;
-        Some(if little { b.iter().rev().fold(0, |v, b| (v << 8) | u64::from(*b)) } else { b.iter().fold(0, |v, b| (v << 8) | u64::from(*b)) })
-    };
-    let (header, count_size, entry_size, offset_size) = match read(2, 2) {
-        Some(42) => (4, 2, 12, 4),
-        Some(43) => (8, 8, 20, 8),
-        _ => return,
-    };
-    let Some(at) = read(header, offset_size).and_then(|v| usize::try_from(v).ok()) else { return };
-    let Some(count) = read(at, count_size).and_then(|v| usize::try_from(v).ok()) else { return };
-    let Some(next) = count.checked_mul(entry_size).and_then(|v| at.checked_add(count_size)?.checked_add(v)) else { return };
-    if let Some(bytes) = exif.get_mut(next..next.saturating_add(offset_size)) {
-        bytes.fill(0);
-    }
+    lightcraft_tiff::exif::drop_thumbnail(exif);
 }
 
 /// Patch dimensions in the original Exif allocation. Rebuilding its TIFF tree would
 /// relocate opaque MakerNotes (including their vendor-relative/absolute pointers).
 /// Only dimension entries change; old out-of-line payloads and all offsets remain.
 fn update_exif_dimensions(exif: &mut [u8], width: u32, height: u32) -> Result<(), IoError> {
-    fn number(bytes: &[u8], at: usize, n: usize, little: bool) -> Option<u64> {
-        let b = bytes.get(at..at.checked_add(n)?)?;
-        Some(if little { b.iter().rev().fold(0, |v, b| (v << 8) | u64::from(*b)) } else { b.iter().fold(0, |v, b| (v << 8) | u64::from(*b)) })
-    }
-    fn put(bytes: &mut [u8], value: u64, little: bool) {
-        let n = bytes.len();
-        for (i, byte) in bytes.iter_mut().enumerate() {
-            *byte = (value >> (8 * if little { i } else { n - i - 1 })) as u8;
-        }
-    }
-    let invalid = || IoError::Unsupported("invalid JPEG Exif directory; cannot update dimensions safely".into());
-    let little = exif.starts_with(b"II");
-    if !little && !exif.starts_with(b"MM") {
-        return Err(invalid());
-    }
-    let (header, count_size, entry_size, offset_size) = match number(exif, 2, 2, little) {
-        Some(42) => (4, 2, 12, 4),
-        Some(43) if number(exif, 4, 2, little) == Some(8) && number(exif, 6, 2, little) == Some(0) => (8, 8, 20, 8),
-        _ => return Err(invalid()),
-    };
-    let first = number(exif, header, offset_size, little).and_then(|v| usize::try_from(v).ok()).ok_or_else(invalid)?;
-    let mut pending = vec![(first, false)];
-    let mut visited = std::collections::BTreeSet::new();
-    let mut changes = Vec::new();
-    while let Some((at, is_exif)) = pending.pop() {
-        if at == 0 || !visited.insert(at) {
-            continue;
-        }
-        let count = number(exif, at, count_size, little).and_then(|v| usize::try_from(v).ok()).ok_or_else(invalid)?;
-        let start = at.checked_add(count_size).ok_or_else(invalid)?;
-        let end = count.checked_mul(entry_size).and_then(|n| start.checked_add(n)).ok_or_else(invalid)?;
-        exif.get(start..end.checked_add(offset_size).ok_or_else(invalid)?).ok_or_else(invalid)?;
-        for entry in (start..end).step_by(entry_size) {
-            let tag = number(exif, entry, 2, little).ok_or_else(invalid)?;
-            let typ = number(exif, entry + 2, 2, little).ok_or_else(invalid)?;
-            let count = number(exif, entry + 4, entry_size - 4 - offset_size, little).ok_or_else(invalid)?;
-            let slot = entry + entry_size - offset_size;
-            if !is_exif && tag == 34665 {
-                let size = match typ {
-                    4 | 13 => 4,
-                    16 | 18 if offset_size == 8 => 8,
-                    _ => return Err(invalid()),
-                };
-                if count != 1 {
-                    return Err(invalid());
-                }
-                let child = number(exif, slot, size, little).and_then(|v| usize::try_from(v).ok()).ok_or_else(invalid)?;
-                pending.push((child, true));
-            }
-            let dimension = match (is_exif, tag) {
-                (false, 256) | (true, 40962) => width,
-                (false, 257) | (true, 40963) => height,
-                _ => continue,
-            };
-            changes.push((entry, slot, typ == 3 && count == 1 && dimension <= u16::MAX as u32, dimension));
-        }
-    }
-    for (entry, slot, short, dimension) in changes {
-        let size = if short { 2 } else { 4 };
-        put(&mut exif[entry + 2..entry + 4], if short { 3 } else { 4 }, little);
-        put(&mut exif[entry + 4..slot], 1, little);
-        // Keep unused inline padding exactly as the camera wrote it.
-        put(&mut exif[slot..slot + size], u64::from(dimension), little);
-    }
-    Ok(())
+    lightcraft_tiff::exif::update_dimensions(exif, width, height)
+        .map_err(|_| IoError::Unsupported("invalid JPEG Exif directory; cannot update dimensions safely".into()))
 }
 
 const JPEG_XMP: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";

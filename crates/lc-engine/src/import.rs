@@ -33,10 +33,7 @@ use crate::Session;
 use crate::media::ProbeInfo;
 
 /// File extensions LightCraft imports (lower case).
-pub const EXTENSIONS: &[&str] = &[
-    "jpg", "jpeg", "png", "tif", "tiff", "webp", "dng", "cr2", "cr3", "nef", "nrw", "arw", "arq", "sr2", "raf", "orf", "rw2", "rwl", "raw", "pef",
-    "psd", "jxl", "gif", "bmp", "heic", "avif",
-];
+pub const EXTENSIONS: &[&str] = lightcraft_codecs::PHOTO_EXTENSIONS;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ImportMode {
@@ -341,7 +338,7 @@ pub fn apply_import_defaults(s: &Session, p: &mut Photo) {
 }
 
 pub fn is_supported(path: &Path) -> bool {
-    path.extension().is_some_and(|e| EXTENSIONS.contains(&e.to_string_lossy().to_lowercase().as_str()))
+    path.extension().is_some_and(|e| lightcraft_codecs::is_readable_extension(&e.to_string_lossy(), true))
 }
 
 /// Expand files and folders (recursively) into supported files. `skip` (e.g. the library folder)
@@ -1525,4 +1522,36 @@ fn probe_file(probe: &crate::media::FileProbe, path: &str) -> Result<ProbeInfo, 
     let after = std::fs::metadata(path).and_then(|m| m.modified()).ok();
     info.modified = before.filter(|t| Some(*t) == after);
     Ok(info)
+}
+
+#[cfg(test)]
+mod shared_decode_registry_tests {
+    #[test]
+    fn shared_decode_heic_imports_and_loads_through_real_library_path() {
+        let root = std::env::temp_dir().join(format!("j06-library-heic-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("checker.HIF");
+        std::fs::write(&path, include_bytes!("../../lc-codecs/tests/fixtures/shared-decode-heic/checker-64.heic")).unwrap();
+        let mut session = crate::Session::new().with_fs();
+        let start = std::time::Instant::now();
+        let report = super::import(&mut session, &[root.to_string_lossy().into_owned()], super::ImportMode::Add).unwrap();
+        assert!(report.failed.is_empty(), "{:?}", report.failed);
+        assert_eq!(report.imported.len(), 1);
+        let id = lightcraft_catalog::PhotoId(report.imported[0]);
+        let source = session.source_now(id, crate::media::SourceLevel::Preview).unwrap();
+        assert_eq!((source.width, source.height), (64, 64));
+        assert!(source.data.iter().flatten().all(|v| v.is_finite()));
+        eprintln!("J06 real Library folder import + preview load,64x64 HEIC: {:?}", start.elapsed());
+        drop(session);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shared_decode_library_import_includes_heif_aliases_jxl_and_existing_arq() {
+        for name in ["photo.heic", "photo.HEIF", "photo.HIF", "photo.jxl", "photo.ARQ", "photo.CRW"] {
+            assert!(super::is_supported(std::path::Path::new(name)), "{name}");
+        }
+        assert!(!super::is_supported(std::path::Path::new("photo.avif")));
+        assert!(!super::is_supported(std::path::Path::new("notes.txt")));
+    }
 }

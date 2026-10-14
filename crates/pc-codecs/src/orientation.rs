@@ -17,6 +17,9 @@
 
 use std::borrow::Cow;
 
+use lightcraft_tiff::ByteOrder as Order;
+use lightcraft_tiff::directory::{Entry, File};
+
 use crate::error::CodecError;
 use crate::image::Image;
 
@@ -34,83 +37,9 @@ const TAG_ORIENTATION: u16 = 274;
 /// (written by some cameras and tools).
 const TYPE_SHORT: u16 = 3;
 const TYPE_LONG: u16 = 4;
-/// Bytes per IFD entry.
-const ENTRY: usize = 12;
-/// The TIFF header is 8 bytes, so no IFD can start before it.
-const HEADER: usize = 8;
-/// BigTIFF uses a 16-byte header, 20-byte entries, and 8-byte offsets.
-const BIG_ENTRY: usize = 20;
-const BIG_HEADER: usize = 16;
-
-/// Byte order of a TIFF structure.
-#[derive(Clone, Copy)]
-enum Order {
-    Little,
-    Big,
-}
-
-impl Order {
-    fn u16(self, b: &[u8], at: usize) -> Option<u16> {
-        let s: [u8; 2] = b.get(at..at.checked_add(2)?)?.try_into().ok()?;
-        Some(match self {
-            Order::Little => u16::from_le_bytes(s),
-            Order::Big => u16::from_be_bytes(s),
-        })
-    }
-
-    fn u32(self, b: &[u8], at: usize) -> Option<u32> {
-        let s: [u8; 4] = b.get(at..at.checked_add(4)?)?.try_into().ok()?;
-        Some(match self {
-            Order::Little => u32::from_le_bytes(s),
-            Order::Big => u32::from_be_bytes(s),
-        })
-    }
-
-    fn u64(self, b: &[u8], at: usize) -> Option<u64> {
-        let s: [u8; 8] = b.get(at..at.checked_add(8)?)?.try_into().ok()?;
-        Some(match self {
-            Order::Little => u64::from_le_bytes(s),
-            Order::Big => u64::from_be_bytes(s),
-        })
-    }
-}
-
 /// The TIFF payload of an EXIF block (a JPEG-style `Exif\0\0` prefix is skipped).
 fn tiff_body(b: &[u8]) -> &[u8] {
     b.strip_prefix(b"Exif\0\0").unwrap_or(b)
-}
-
-/// IFD0 of a TIFF structure: byte order, entry layout, and entry offsets.
-///
-/// The full table and next-IFD pointer must be present, and IFD0 must start
-/// after the corresponding TIFF or BigTIFF header.
-fn ifd0_entries(b: &[u8]) -> Option<(Order, usize, usize, usize, bool)> {
-    let (order, big_tiff) = match b.get(0..4)? {
-        [b'I', b'I', 42, 0] => (Order::Little, false),
-        [b'M', b'M', 0, 42] => (Order::Big, false),
-        [b'I', b'I', 43, 0] => (Order::Little, true),
-        [b'M', b'M', 0, 43] => (Order::Big, true),
-        _ => return None,
-    };
-    let (ifd, count_bytes, entry_bytes, next_ifd_bytes, header) = if big_tiff {
-        if order.u16(b, 4)? != 8 || order.u16(b, 6)? != 0 {
-            return None;
-        }
-        (usize::try_from(order.u64(b, 8)?).ok()?, 8usize, BIG_ENTRY, 8usize, BIG_HEADER)
-    } else {
-        (usize::try_from(order.u32(b, 4)?).ok()?, 2usize, ENTRY, 4usize, HEADER)
-    };
-    if ifd < header {
-        return None;
-    }
-    let count = if big_tiff { usize::try_from(order.u64(b, ifd)?).ok()? } else { usize::from(order.u16(b, ifd)?) };
-    let first = ifd.checked_add(count_bytes)?;
-    let next_ifd = first.checked_add(count.checked_mul(entry_bytes)?)?;
-    if next_ifd.checked_add(next_ifd_bytes)? > b.len() {
-        return None;
-    }
-    // In bounds: every entry ends at or before `next_ifd`.
-    Some((order, first, count, entry_bytes, big_tiff))
 }
 
 /// A well-formed Orientation entry's value: where it sits and its field type.
@@ -124,8 +53,8 @@ impl Value {
     /// The stored value (a SHORT or LONG, left-justified in the 4-byte field).
     fn read(self, order: Order, b: &[u8]) -> Option<u32> {
         match self.ty {
-            TYPE_SHORT => order.u16(b, self.at).map(u32::from),
-            _ => order.u32(b, self.at),
+            TYPE_SHORT => order.read_u16(b, self.at).map(u32::from),
+            _ => order.read_u32(b, self.at),
         }
     }
 
@@ -142,25 +71,19 @@ impl Value {
 
 /// The value of the entry at `e` if it is a well-formed Orientation entry:
 /// exactly one SHORT or LONG.
-fn orientation_value(order: Order, b: &[u8], e: usize, big_tiff: bool) -> Option<Value> {
-    let count = if big_tiff { order.u64(b, e.checked_add(4)?)? } else { u64::from(order.u32(b, e.checked_add(4)?)?) };
-    if order.u16(b, e)? != TAG_ORIENTATION || count != 1 {
+fn orientation_value(entry: &Entry) -> Option<Value> {
+    if entry.tag != TAG_ORIENTATION || entry.count != 1 || !matches!(entry.ty, TYPE_SHORT | TYPE_LONG) {
         return None;
     }
-    let ty = order.u16(b, e.checked_add(2)?)?;
-    let value_offset = if big_tiff { 12 } else { 8 };
-    matches!(ty, TYPE_SHORT | TYPE_LONG).then_some(Value { at: e.checked_add(value_offset)?, ty })
+    Some(Value { at: usize::try_from(entry.value_at).ok()?, ty: entry.ty })
 }
 
-/// Locates the Orientation value in IFD0.
-///
-/// The **first** Orientation entry wins (like libexif and Photoshop); if that
-/// one is malformed (count ≠ 1, or neither SHORT nor LONG) the tag is ignored,
-/// even when a later duplicate is well formed.
+/// Locate the first Orientation entry, retaining unknown types so a malformed first
+/// duplicate cannot be overridden by a later well-formed entry.
 fn find_entry(b: &[u8]) -> Option<(Order, Value)> {
-    let (order, first, count, entry_bytes, big_tiff) = ifd0_entries(b)?;
-    let e = (0..count).filter_map(|i| first.checked_add(i.checked_mul(entry_bytes)?)).find(|&e| order.u16(b, e) == Some(TAG_ORIENTATION))?;
-    Some((order, orientation_value(order, b, e, big_tiff)?))
+    let file = File::parse(b)?;
+    let entry = file.entries_at(file.first_ifd)?.find(|entry| entry.tag == TAG_ORIENTATION)?;
+    Some((file.order(), orientation_value(&entry)?))
 }
 
 /// The orientation (1–8) recorded in a TIFF-structured block: an EXIF payload
@@ -182,11 +105,14 @@ pub fn exif_orientation(exif: &[u8]) -> u16 {
 pub fn upright_exif(exif: &[u8]) -> Cow<'_, [u8]> {
     let body = tiff_body(exif);
     let prefix = exif.len() - body.len();
-    let Some((order, first, count, entry_bytes, big_tiff)) = ifd0_entries(body) else {
+    let Some(file) = File::parse(body) else {
         return Cow::Borrowed(exif);
     };
-    let values: Vec<Value> =
-        (0..count).filter_map(|i| first.checked_add(i.checked_mul(entry_bytes)?)).filter_map(|e| orientation_value(order, body, e, big_tiff)).collect();
+    let Some(entries) = file.entries_at(file.first_ifd) else {
+        return Cow::Borrowed(exif);
+    };
+    let order = file.order();
+    let values: Vec<Value> = entries.filter_map(|entry| orientation_value(&entry)).collect();
     if values.iter().all(|v| v.read(order, body) == Some(1)) {
         return Cow::Borrowed(exif);
     }
@@ -354,6 +280,10 @@ impl Image {
         }
         let mut out = Image::from_raw(ow as u32, oh as u32, layout, sample, data)?.with_icc(self.icc).with_meta(meta);
         out.warnings = self.warnings;
+        out.color_hint = self.color_hint;
+        out.source_bit_depth = self.source_bit_depth;
+        out.source_float = self.source_float;
+        out.associated_alpha = self.associated_alpha;
         Ok(out)
     }
 }
@@ -361,6 +291,44 @@ impl Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_directory_orientation_keeps_unknown_first_duplicate_and_patches_later_values() {
+        use lightcraft_tiff::{ByteOrder, IfdBuilder, TiffWriter, Value as TiffValue};
+        for order in [Order::Little, Order::Big] {
+            for big in [false, true] {
+                let ifd = IfdBuilder::new().with(274, TiffValue::Short(vec![7])).with(275, TiffValue::Short(vec![6]));
+                let mut bytes = TiffWriter::new(order, big).write(&[ifd]).expect("fixture");
+                let file = File::parse(&bytes).expect("header");
+                let first = file.first_ifd as usize + if big { 8 } else { 2 };
+                let second = first + if big { 20 } else { 12 };
+                let encode = |value: u16| if order == ByteOrder::Little { value.to_le_bytes() } else { value.to_be_bytes() };
+                bytes[first + 2..first + 4].copy_from_slice(&encode(99));
+                bytes[second..second + 2].copy_from_slice(&encode(274));
+                assert_eq!(exif_orientation(&bytes), 1);
+                let fixed = upright_exif(&bytes);
+                assert!(matches!(fixed, Cow::Owned(_)));
+                assert_eq!(&fixed[first..second], &bytes[first..second]);
+                let file = File::parse(&fixed).expect("fixed header");
+                let entry = file.entries_at(file.first_ifd).expect("table").nth(1).expect("duplicate");
+                assert_eq!(file.uint(&entry, 0), Some(1));
+            }
+        }
+    }
+
+    #[test]
+    fn shared_directory_orientation_preserves_decode_source_precision_hints() {
+        use crate::image::{ChannelLayout, SampleType};
+        let mut image = Image::new(1, 2, ChannelLayout::Rgba, SampleType::U16).expect("image");
+        image.source_bit_depth = Some(12);
+        image.source_float = Some(false);
+        image.associated_alpha = true;
+        let oriented = image.oriented(6).expect("orientation");
+        assert_eq!((oriented.width(), oriented.height()), (2, 1));
+        assert_eq!(oriented.source_bit_depth, Some(12));
+        assert_eq!(oriented.source_float, Some(false));
+        assert!(oriented.associated_alpha);
+    }
 
     #[test]
     fn an_impossible_allocation_is_an_error_not_an_abort() {
