@@ -26,7 +26,7 @@ pub fn installed() -> Option<li_seg::InUse> {
 pub fn wanted(p: &Value) -> std::result::Result<bool, String> {
     match p.get("engine").and_then(Value::as_str).unwrap_or("auto") {
         "classic" => Ok(false),
-        "learned" if SubjectModel::current().is_none() => Err("no selection model is installed (Help › AI Models & GPU…)".into()),
+        "learned" if SubjectModel::current().is_none() => Err("no selection model is installed (Edit › Preferences › Local AI…)".into()),
         "learned" => Ok(true),
         _ => Ok(SubjectModel::current().is_some()),
     }

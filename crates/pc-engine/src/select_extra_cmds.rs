@@ -55,14 +55,15 @@ fn select_sky(s: &mut Session, p: &Value) -> Result<Value> {
     let all = p.get("sampleAllLayers").and_then(Value::as_bool).unwrap_or(true);
     // local-image: the quick sky model when installed (`"engine": "auto|learned|classic"`), else
     // PhotoCraft's classical sky detector.
-    let sky_model = match p.get("engine").and_then(Value::as_str).unwrap_or("auto") {
-        "classic" => None,
-        "learned" => Some(
-            crate::seg::SkyModel::current()
-                .ok_or_else(|| EngineError::BadParams { cmd: "select.sky".into(), msg: "no sky model is installed (Help › AI Models & GPU…)".into() })?,
-        ),
-        _ => crate::seg::SkyModel::current(),
-    };
+    let sky_model =
+        match p.get("engine").and_then(Value::as_str).unwrap_or("auto") {
+            "classic" => None,
+            "learned" => Some(crate::seg::SkyModel::current().ok_or_else(|| EngineError::BadParams {
+                cmd: "select.sky".into(),
+                msg: "no sky model is installed (Edit › Preferences › Local AI…)".into(),
+            })?),
+            _ => crate::seg::SkyModel::current(),
+        };
     let m = p.get("mode").and_then(Value::as_str).unwrap_or("replace");
     let m = SelectionMode::parse(if m == "new" { "replace" } else { m });
     crate::jobs::run(

@@ -186,7 +186,7 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
         let xy = (pt.first().and_then(Value::as_f64), pt.get(1).and_then(Value::as_f64));
         let (Some(x), Some(y)) = xy else { return Err(bad("select.object", "\"point\" must be [x, y]")) };
         let model = crate::seg::SubjectModel::current()
-            .ok_or_else(|| bad("select.object", "click mode needs a selection model (Help › AI Models & GPU…); drag a rectangle instead"))?;
+            .ok_or_else(|| bad("select.object", "click mode needs a selection model (Edit › Preferences › Local AI…); drag a rectangle instead"))?;
         let all = b(p, "sampleAllLayers", false);
         let m = mode(p, "replace");
         let (doc, layer) = snapshot(s)?;
