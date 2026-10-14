@@ -936,6 +936,19 @@ pub enum ReferenceAction {
 /// A removable reference strip, wrapped to its panel width. Photo texture is image content;
 /// surrounding chrome uses tokens. Used by the Match Look panel and reusable by reference tools.
 pub fn reference_tray(ui: &mut Ui, items: &[(u64, String, Option<(egui::TextureId, Vec2)>)], pinned: &[u64]) -> Option<ReferenceAction> {
+    reference_tray_inner(ui, items, pinned, true)
+}
+/// Embedded saved-look previews remain available without their source catalog. They are
+/// comparison images rather than mutable members of the current reference selection.
+pub fn saved_reference_tray(ui: &mut Ui, items: &[(u64, String, Option<(egui::TextureId, Vec2)>)]) -> Option<ReferenceAction> {
+    reference_tray_inner(ui, items, &[], false)
+}
+fn reference_tray_inner(
+    ui: &mut Ui,
+    items: &[(u64, String, Option<(egui::TextureId, Vec2)>)],
+    pinned: &[u64],
+    editable: bool,
+) -> Option<ReferenceAction> {
     let t = Tokens::get(ui.ctx());
     let mut removed = None;
     let edge = reference_tile_edge(ui.ctx());
@@ -961,10 +974,19 @@ pub fn reference_tray(ui: &mut Ui, items: &[(u64, String, Option<(egui::TextureI
                                 Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
                                 Color32::WHITE,
                             );
+                        } else {
+                            let bounds = rect.shrink(5.0);
+                            let mut job = egui::text::LayoutJob::simple(label.clone(), t.font(10.0), t.text_dim, bounds.width().max(1.0));
+                            job.wrap.max_rows = 2;
+                            let text = ui.painter().layout_job(job);
+                            ui.painter().with_clip_rect(bounds).galley(bounds.center() - text.size() / 2.0, text, t.text_dim);
                         }
                         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
                         let hovered = response.hovered();
                         response.on_hover_text(label);
+                        if !editable {
+                            return;
+                        }
                         let size = ui.spacing().interact_size;
                         let overlay = Rect::from_min_size(rect.right_top() - vec2(size.x, 0.0), size);
                         ui.scope_builder(egui::UiBuilder::new().max_rect(overlay), |ui| {

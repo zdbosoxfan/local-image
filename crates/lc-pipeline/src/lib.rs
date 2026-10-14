@@ -324,6 +324,21 @@ impl Default for StageCache {
 }
 
 impl StageCache {
+    /// Independent CPU cache seeded with this view's immutable intermediate buffers.
+    /// Finite-difference probes can reuse unchanged stages while replacing their own
+    /// entries/counters. GPU extensions are deliberately not shared between probes.
+    pub fn fork_cpu(&self) -> Self {
+        let entries = self.lock().clone();
+        let pre = self.pre.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        StageCache {
+            entries: Mutex::new(entries),
+            capacity: self.capacity,
+            stack_renders: Mutex::new((0, 0)),
+            ext: Mutex::new(None),
+            pre: Mutex::new(pre),
+        }
+    }
+
     /// Background finishes and layer evaluations performed by the latest cached CPU render.
     pub fn stack_renders(&self) -> (usize, usize) {
         *self.stack_renders.lock().unwrap_or_else(|e| e.into_inner())

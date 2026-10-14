@@ -166,14 +166,16 @@ impl Library {
 fn read_match_look_prefs<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<crate::cmd::match_look::State, D::Error> {
     let value = serde_json::Value::deserialize(d)?;
     let legacy = value.get("analysis").cloned().and_then(|v| serde_json::from_value::<crate::cmd::match_look::Analysis>(v).ok()).filter(|a| {
-        a.version == 1
+        [1, 2].contains(&a.version)
             && !a.looks.is_empty()
             && a.looks.len() <= lightcraft_pipeline::match_look::MAX_REFERENCES
-            && a.identities.len() == a.looks.len()
+            && a.identities.len() + a.external_identities.len() == a.looks.len()
             && a.looks.iter().all(lightcraft_pipeline::match_look::Look::valid)
     });
     let mut state = crate::cmd::match_look::State {
         references: value.get("references").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        external_references: value.get("externalReferences").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        reference_weights: value.get("referenceWeights").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
         selected: value.get("selected").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
         options: value.get("options").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
         ..Default::default()

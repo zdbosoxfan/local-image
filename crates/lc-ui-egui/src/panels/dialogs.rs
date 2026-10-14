@@ -631,7 +631,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     _ => "OK",
                 };
                 let reason = if matching && app.match_look.control.is_some() && app.match_look.label != "Preview Match Look" { Some("Wait for the current job") }
-                    else if matching && lightcraft_engine::cmd::match_look::ready(&app.session).is_err() { Some("Analyze references or choose a saved look first") } else { None };
+                    else if matching && lightcraft_engine::cmd::match_look::ready(&app.session).is_err() { Some("Analyze references or choose a saved look first") }
+                    else if matches!(&dlg, Dialog::MatchLook { options } if !crate::match_look::any_adjustment_enabled(*options)) { Some("Enable at least one adjustment; no photos will change.") } else { None };
                 let r = (!ok.is_empty()).then(|| {
                     let r = ui.add_enabled(reason.is_none(), egui::Button::new(crate::i18n::tr(ok)));
                     if let Some(reason) = reason { r.on_disabled_hover_text(crate::i18n::tr(reason)) } else { r }

@@ -11,14 +11,19 @@ use crate::{RenderRequest, SourceInfo, StageCache};
 use lightcraft_color::spline::MonotoneCurve;
 use lightcraft_color::{REC2020, SRGB, perceptual::oklab_from_2020, transfer::srgb_to_linear};
 use lightcraft_develop::{CurveMode, ToneCurve};
-use lightcraft_develop::{DevelopSettings, LayerTools, Mask, MaskComponent, MaskShape, Treatment, WbMode, controls};
+use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskShape, Treatment, WbMode, controls};
 use lightcraft_geom::Point;
 use lightcraft_raster::{Rgb32f, Rgba8};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+#[cfg(test)]
+mod adjustments_tests;
 mod appearance;
 mod content;
+#[cfg(test)]
+mod quality_tests;
+mod regularization;
 
 pub const MAX_REFERENCES: usize = 20;
 pub const PROXY_EDGE: usize = 60;
@@ -30,6 +35,8 @@ const FEATURES: usize = LEGACY_FEATURES + appearance::FEATURES;
 // Match the existing robust color-statistic floor: sub-code-value texture is not reliable
 // evidence. An additive floor keeps flat scenes / 8-bit quantization from dominating fit.
 const LOCAL_CONTRAST_FLOOR: f64 = 0.005;
+const MASTER_KNOTS: [f64; 5] = [0.1, 0.25, 0.5, 0.75, 0.95];
+const PALETTE_PRIOR: f64 = 0.00025;
 const PALETTE_CONTROLS: [&str; 8] = [
     "mixer.red.sat",
     "mixer.orange.sat",
@@ -41,9 +48,70 @@ const PALETTE_CONTROLS: [&str; 8] = [
     "mixer.magenta.sat",
 ];
 
+/// Individual editable tools, subordinate to the four group switches. Light maps to
+/// this editor's endpoint/contrast sliders and luminance curve; there is no invented
+/// Brightness or Levels setting. Balance maps to the four editable grading wheels.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Adjustments {
+    pub exposure: bool,
+    pub white_balance: bool,
+    pub contrast: bool,
+    pub highlights: bool,
+    pub shadows: bool,
+    pub whites: bool,
+    pub blacks: bool,
+    pub luma_curve: bool,
+    pub saturation: bool,
+    pub vibrance: bool,
+    pub color_editor: bool,
+    pub black_white: bool,
+    pub master_balance: bool,
+    pub shadows_balance: bool,
+    pub midtones_balance: bool,
+    pub highlights_balance: bool,
+    pub red_curve: bool,
+    pub green_curve: bool,
+    pub blue_curve: bool,
+}
+impl Default for Adjustments {
+    fn default() -> Self {
+        Self {
+            exposure: true,
+            white_balance: true,
+            contrast: true,
+            highlights: true,
+            shadows: true,
+            whites: true,
+            blacks: true,
+            luma_curve: true,
+            saturation: true,
+            vibrance: true,
+            color_editor: true,
+            black_white: true,
+            master_balance: true,
+            shadows_balance: true,
+            midtones_balance: true,
+            highlights_balance: true,
+            red_curve: true,
+            green_curve: true,
+            blue_curve: true,
+        }
+    }
+}
+/// Worker-local insertion point for replacing an app-owned Match Look layer.
+/// Skipped in Options serialization; only the engine can restore catalog ownership.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LayerPlacement {
+    pub index: usize,
+    pub id: u32,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Options {
+    #[serde(skip)]
+    pub layer_placement: Option<LayerPlacement>,
+    pub adjustments: Adjustments,
     pub normalize: bool,
     pub light_contrast: bool,
     pub color_adjust: bool,
@@ -61,6 +129,8 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
+            layer_placement: None,
+            adjustments: Adjustments::default(),
             normalize: true,
             light_contrast: true,
             color_adjust: true,
@@ -76,6 +146,115 @@ impl Default for Options {
             appearance_aware: false,
         }
     }
+}
+
+impl Options {
+    pub fn exposure_enabled(self) -> bool {
+        self.normalize && self.adjustments.exposure && !self.keep_exposure
+    }
+    pub fn white_balance_enabled(self) -> bool {
+        self.normalize && self.adjustments.white_balance && !self.keep_white_balance
+    }
+    pub fn light_enabled(self) -> bool {
+        self.light_contrast
+            && (self.adjustments.contrast
+                || self.adjustments.highlights
+                || self.adjustments.shadows
+                || self.adjustments.whites
+                || self.adjustments.blacks
+                || self.adjustments.luma_curve)
+    }
+    pub fn color_enabled(self) -> bool {
+        self.color_adjust
+            && (self.adjustments.saturation || self.adjustments.vibrance || self.adjustments.color_editor || self.adjustments.black_white)
+    }
+    pub fn tone_enabled(self) -> bool {
+        self.color_tone
+            && (self.adjustments.master_balance
+                || self.adjustments.shadows_balance
+                || self.adjustments.midtones_balance
+                || self.adjustments.highlights_balance
+                || self.adjustments.red_curve
+                || self.adjustments.green_curve
+                || self.adjustments.blue_curve)
+    }
+    fn effective(mut self) -> Self {
+        self.normalize = self.exposure_enabled() || self.white_balance_enabled();
+        self.light_contrast = self.light_enabled();
+        self.color_adjust = self.color_enabled();
+        self.color_tone = self.tone_enabled();
+        self
+    }
+    fn channel_enabled(self, channel: usize) -> bool {
+        self.color_tone && [self.adjustments.red_curve, self.adjustments.green_curve, self.adjustments.blue_curve][channel]
+    }
+    fn wheel_enabled(self, band: &str) -> bool {
+        self.color_tone
+            && match band {
+                "global" => self.adjustments.master_balance,
+                "shadows" => self.adjustments.shadows_balance,
+                "midtones" => self.adjustments.midtones_balance,
+                "highlights" => self.adjustments.highlights_balance,
+                _ => false,
+            }
+    }
+}
+/// Restore every excluded tool from the editable starting state, including shared
+/// style copies and curve guards. For layers the starting state is neutral/relative.
+fn preserve_excluded(start: &DevelopSettings, edited: &mut DevelopSettings, opts: Options) {
+    if !opts.exposure_enabled() {
+        edited.light.exposure = start.light.exposure;
+    }
+    if !opts.white_balance_enabled() {
+        edited.wb = start.wb;
+    }
+    for (name, on) in [
+        ("contrast", opts.adjustments.contrast),
+        ("highlights", opts.adjustments.highlights),
+        ("shadows", opts.adjustments.shadows),
+        ("whites", opts.adjustments.whites),
+        ("blacks", opts.adjustments.blacks),
+    ] {
+        if !opts.light_contrast || !on {
+            let id = format!("light.{name}");
+            controls::set(edited, &id, controls::get(start, &id).unwrap());
+        }
+    }
+    if !opts.light_contrast || !opts.adjustments.luma_curve {
+        restore_light_curve(&mut edited.curve, &start.curve);
+    }
+    if !opts.color_adjust || !opts.adjustments.saturation {
+        edited.color.saturation = start.color.saturation;
+    }
+    if !opts.color_adjust || !opts.adjustments.vibrance {
+        edited.color.vibrance = start.color.vibrance;
+    }
+    if !opts.color_adjust || !opts.adjustments.color_editor {
+        edited.mixer = start.mixer;
+    }
+    if !opts.color_adjust || !opts.adjustments.black_white {
+        edited.treatment = start.treatment;
+    }
+    for c in 0..3 {
+        if !opts.channel_enabled(c) {
+            *channel_mut(&mut edited.curve, c) = channel(&start.curve, c).clone();
+        }
+    }
+    if !opts.wheel_enabled("global") {
+        edited.grading.global = start.grading.global;
+    }
+    if !opts.wheel_enabled("shadows") {
+        edited.grading.shadows = start.grading.shadows;
+    }
+    if !opts.wheel_enabled("midtones") {
+        edited.grading.midtones = start.grading.midtones;
+    }
+    if !opts.wheel_enabled("highlights") {
+        edited.grading.highlights = start.grading.highlights;
+    }
+    // These unselected wheel-combination controls are never fit by Match Look.
+    edited.grading.blending = start.grading.blending;
+    edited.grading.balance = start.grading.balance;
 }
 
 /// OkLab lightness quantiles, neutral a/b, chroma, three tonal a/b pairs, and skin L/a/b.
@@ -750,6 +929,7 @@ pub fn blend(references: &[Look], w: &[f64]) -> Look {
 /// tone controls are not limited to an incremental point curve's slope cone. The returned
 /// legacy reach field is only curve comfort, not physical attainability of the full pipeline.
 pub fn reachable_goal(initial: &Look, reference: &Look, opts: Options, similarity: f64) -> (Look, f64) {
+    let opts = opts.effective();
     let mut adapted = reference.clone();
     let s = if opts.consistent_batch { 1.0 } else { similarity.sqrt().clamp(0.35, 1.0) };
     let median = initial.features[2] + (reference.features[2] - initial.features[2]) * s;
@@ -776,6 +956,7 @@ pub fn reachable_goal(initial: &Look, reference: &Look, opts: Options, similarit
 }
 
 fn metric_weights(a: &Look, b: &Look, opts: Options) -> [f64; FEATURES] {
+    let opts = opts.effective();
     let accepted_mass: f64 = (0..9).map(|g| a.support[LEGACY_FEATURES + g * 7].min(b.support[LEGACY_FEATURES + g * 7])).sum();
     let appearance_enabled = opts.appearance_aware && accepted_mass > 1e-8;
     std::array::from_fn(|i| {
@@ -857,7 +1038,9 @@ fn curve_value(points: &[Point], x: f64) -> f64 {
     MonotoneCurve::new(&points.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>()).eval(x)
 }
 fn set_channel(c: &mut ToneCurve, index: usize, x: f64, value: f64) {
-    let points = channel_mut(c, index);
+    set_curve_point(channel_mut(c, index), x, value);
+}
+fn set_curve_point(points: &mut Vec<Point>, x: f64, value: f64) {
     if (curve_value(points, x) - value).abs() < 1e-12 {
         return;
     }
@@ -926,6 +1109,7 @@ enum Parameter {
     Grade(&'static str, bool),
     Temperature,
     Channel(usize, usize),
+    Master(usize),
 }
 impl Parameter {
     fn value(&self, s: &DevelopSettings) -> f64 {
@@ -933,6 +1117,7 @@ impl Parameter {
             Self::Slider(id, _) => controls::get(s, id).unwrap_or(0.0),
             Self::Temperature => s.wb.temp.max(1.0).log2(),
             Self::Channel(c, knot) => curve_value(channel(&s.curve, *c), (*knot + 1) as f64 * 0.25),
+            Self::Master(knot) => curve_value(&s.curve.master, MASTER_KNOTS[*knot]),
             Self::Grade(band, y) => {
                 let hue = controls::get(s, &format!("grading.{band}.hue")).unwrap_or(0.0).to_radians();
                 let sat = controls::get(s, &format!("grading.{band}.sat")).unwrap_or(0.0);
@@ -946,12 +1131,14 @@ impl Parameter {
             Self::Grade(..) => 4.0,
             Self::Temperature => 0.06,
             Self::Channel(..) => 0.015,
+            Self::Master(..) => 0.025,
         }
     }
     fn scale(&self) -> f64 {
         match self {
             Self::Temperature => 0.4,
             Self::Channel(..) => 0.1,
+            Self::Master(..) => 0.2,
             Self::Grade(..) => 18.0,
             Self::Slider("light.exposure", _) => 1.5,
             Self::Slider("wb.tint", _) => 25.0,
@@ -962,6 +1149,7 @@ impl Parameter {
         match self {
             Self::Temperature => 0.00004,
             Self::Channel(..) => 0.0003,
+            Self::Master(..) => 0.00004,
             Self::Slider("light.exposure", _) => 0.000015,
             Self::Slider("light.contrast", _) => 0.0008,
             Self::Slider("color.saturation" | "color.vibrance", _) => 0.0005,
@@ -972,12 +1160,14 @@ impl Parameter {
     fn bounds(&self, start: &DevelopSettings, wb: (f64, f64), layer: bool) -> (f64, f64) {
         let (lo, hi) = match self {
             Self::Channel(..) => ((self.value(start) - 0.16).max(0.0), (self.value(start) + 0.16).min(1.0)),
+            Self::Master(..) => ((self.value(start) - 0.4).max(0.0), (self.value(start) + 0.4).min(1.0)),
             Self::Temperature if layer => ((wb.0 * (-0.6f64).exp()).max(2000.0).log2(), (wb.0 * 0.6f64.exp()).min(50000.0).log2()),
             Self::Temperature => ((wb.0 * (-1.0f64).exp()).max(2000.0).log2(), (wb.0 * 1.0f64.exp()).min(50000.0).log2()),
             Self::Slider("light.exposure", _) => (-5.0, 5.0),
             Self::Slider("wb.tint", _) if layer => (wb.1 - 40.0, wb.1 + 40.0),
             Self::Slider("wb.tint", _) => ((wb.1 - 40.0).max(-150.0), (wb.1 + 40.0).min(150.0)),
             Self::Slider("light.contrast", _) => (-60.0, 60.0),
+            Self::Slider("light.highlights" | "light.shadows", _) => (-100.0, 100.0),
             Self::Slider("color.saturation", _) => (-55.0, 55.0),
             Self::Slider("color.vibrance", _) => (-65.0, 65.0),
             Self::Slider(id, _) if id.starts_with("curve.") => (-55.0, 55.0),
@@ -1005,6 +1195,7 @@ impl Parameter {
     fn set(&self, s: &mut DevelopSettings, value: f64) {
         match self {
             Self::Channel(c, knot) => set_channel(&mut s.curve, *c, (*knot + 1) as f64 * 0.25, value),
+            Self::Master(knot) => set_curve_point(&mut s.curve.master, MASTER_KNOTS[*knot], value),
             Self::Temperature => {
                 s.wb.mode = WbMode::Custom;
                 controls::set(s, "wb.temp", value.exp2());
@@ -1027,48 +1218,91 @@ impl Parameter {
 }
 fn parameters(opts: Options) -> Vec<Parameter> {
     let mut v = Vec::new();
-    if opts.normalize {
-        if !opts.keep_exposure {
-            v.push(Parameter::Slider("light.exposure", 0.15));
-        }
-        if !opts.keep_white_balance {
-            v.push(Parameter::Temperature);
-            v.push(Parameter::Slider("wb.tint", 3.0));
-        }
+    if opts.exposure_enabled() {
+        v.push(Parameter::Slider("light.exposure", 0.15));
+    }
+    if opts.white_balance_enabled() {
+        v.extend([Parameter::Temperature, Parameter::Slider("wb.tint", 3.0)]);
     }
     if opts.light_contrast {
-        // Endpoint tools precede Contrast; curves share the work rather than exhausting it.
-        for id in [
-            "light.blacks",
-            "light.whites",
-            "light.shadows",
-            "light.highlights",
-            "light.contrast",
-            "curve.shadows",
-            "curve.darks",
-            "curve.lights",
-            "curve.highlights",
+        if opts.adjustments.luma_curve {
+            v.extend((0..MASTER_KNOTS.len()).map(Parameter::Master));
+        }
+        for (id, on) in [
+            ("light.blacks", opts.adjustments.blacks),
+            ("light.whites", opts.adjustments.whites),
+            ("light.shadows", opts.adjustments.shadows),
+            ("light.highlights", opts.adjustments.highlights),
+            ("light.contrast", opts.adjustments.contrast),
+            ("curve.shadows", opts.adjustments.luma_curve),
+            ("curve.darks", opts.adjustments.luma_curve),
+            ("curve.lights", opts.adjustments.luma_curve),
+            ("curve.highlights", opts.adjustments.luma_curve),
         ] {
-            v.push(Parameter::Slider(id, 6.0));
+            if on {
+                v.push(Parameter::Slider(id, 6.0));
+            }
         }
     }
     if opts.color_adjust {
-        for id in ["color.saturation", "color.vibrance"] {
-            v.push(Parameter::Slider(id, 6.0));
+        if opts.adjustments.saturation {
+            v.push(Parameter::Slider("color.saturation", 6.0));
+        }
+        if opts.adjustments.vibrance {
+            v.push(Parameter::Slider("color.vibrance", 6.0));
         }
     }
-    if opts.color_tone {
-        for c in 0..3 {
+    for c in 0..3 {
+        if opts.channel_enabled(c) {
             for knot in 0..3 {
                 v.push(Parameter::Channel(c, knot));
             }
         }
-        for band in ["shadows", "midtones", "highlights"] {
-            v.push(Parameter::Grade(band, false));
-            v.push(Parameter::Grade(band, true));
+    }
+    for band in ["shadows", "midtones", "highlights", "global"] {
+        if opts.wheel_enabled(band) {
+            v.extend([Parameter::Grade(band, false), Parameter::Grade(band, true)]);
         }
     }
     v
+}
+fn channel_delta(start: &DevelopSettings, current: &DevelopSettings) -> [f64; 9] {
+    std::array::from_fn(|i| {
+        let parameter = Parameter::Channel(i / 3, i % 3);
+        (parameter.value(current) - parameter.value(start)) / parameter.scale()
+    })
+}
+fn palette_scale(axis: &str) -> f64 {
+    if axis == "sat" { 30.0 } else { 20.0 }
+}
+fn palette_prior(start: &DevelopSettings, current: &DevelopSettings) -> f64 {
+    PALETTE_CONTROLS
+        .iter()
+        .map(|id| {
+            ["sat", "hue", "lum"]
+                .iter()
+                .map(|axis| {
+                    let id = id.replace("sat", axis);
+                    let delta = (controls::get(current, &id).unwrap_or(0.0) - controls::get(start, &id).unwrap_or(0.0)) / palette_scale(axis);
+                    PALETTE_PRIOR * delta * delta
+                })
+                .sum::<f64>()
+        })
+        .sum()
+}
+fn palette_candidate(current: &DevelopSettings, direction: &[f64; 8], axis: &str, scale: f64) -> DevelopSettings {
+    let mut result = current.clone();
+    for (id, delta) in PALETTE_CONTROLS.iter().zip(direction) {
+        let id = id.replace("sat", axis);
+        let value = controls::get(current, &id).unwrap_or(0.0);
+        let bound: f64 = match axis {
+            "hue" => 40.0,
+            "lum" => 30.0,
+            _ => 55.0,
+        };
+        controls::set(&mut result, &id, (value + delta * scale).clamp((-bound).min(value), bound.max(value)));
+    }
+    result
 }
 // Small deterministic dense solve, used for the regularized normal equations (at most 20 axes).
 fn linear_solve(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Vec<f64> {
@@ -1151,45 +1385,112 @@ fn guard_curve(start: &DevelopSettings, d: &mut DevelopSettings) {
     [d.curve.shadows, d.curve.darks, d.curve.lights, d.curve.highlights] = values;
 }
 
+/// Merge only selected Match Look controls into a layer's existing editable tools.
+/// Components, opacity, legacy/manual tools and excluded controls belong to the template.
+fn merge_layer_controls(mask: &mut Mask, edits: &DevelopSettings, opts: Options) {
+    let original = mask.tools.view((6500.0, 0.0));
+    let mut selected = edits.clone();
+    preserve_excluded(&original, &mut selected, opts);
+    if opts.exposure_enabled() || opts.light_enabled() {
+        mask.tools.light = Some(selected.light);
+    }
+    if (opts.light_contrast && opts.adjustments.luma_curve) || (0..3).any(|c| opts.channel_enabled(c)) {
+        mask.tools.curve = Some(selected.curve);
+    }
+    if opts.color_adjust && (opts.adjustments.saturation || opts.adjustments.vibrance) {
+        mask.tools.color = Some(selected.color);
+    }
+    if opts.color_adjust && opts.adjustments.color_editor {
+        mask.tools.mixer = Some(selected.mixer);
+    }
+    if ["global", "shadows", "midtones", "highlights"].iter().any(|band| opts.wheel_enabled(band)) {
+        mask.tools.grading = Some(selected.grading);
+    }
+}
+fn template_layer(before: &DevelopSettings, opts: Options) -> Option<&Mask> {
+    opts.layer_placement.and_then(|placement| before.masks.iter().find(|mask| mask.id == placement.id))
+}
+fn relative_start(before: &DevelopSettings, opts: Options) -> DevelopSettings {
+    template_layer(before, opts).map_or_else(DevelopSettings::default, |mask| mask.tools.view((6500.0, 0.0)))
+}
+fn relative_wb(before: &DevelopSettings, opts: Options, photo: (f64, f64)) -> (f64, f64) {
+    template_layer(before, opts).map_or(photo, |mask| {
+        mask.tools.wb.map_or((photo.0 * (mask.adjust.temp * 0.6 / 100.0).exp(), photo.1 + mask.adjust.tint * 0.4), |wb| (wb.temp, wb.tint))
+    })
+}
 fn layer_settings(base: &DevelopSettings, edits: &DevelopSettings, opts: Options, wb: (f64, f64)) -> DevelopSettings {
     let mut d = base.clone();
     // Match Look treatment is global even when color/tone adjustments use a layer.
-    if opts.color_adjust {
+    if opts.color_adjust && opts.adjustments.black_white {
         d.treatment = edits.treatment;
     }
-    d.masks.push(Mask {
-        id: base.masks.iter().map(|m| m.id).max().unwrap_or(0).saturating_add(1),
+    let mut mask = template_layer(base, opts).cloned().unwrap_or_else(|| Mask {
+        id: opts.layer_placement.map_or_else(|| base.masks.iter().map(|m| m.id).max().unwrap_or(0).saturating_add(1), |placement| placement.id),
         name: "Match Look".into(),
         components: vec![MaskComponent { shape: MaskShape::Full, op: Default::default(), invert: false, name: None }],
-        adjust: lightcraft_develop::LocalAdjustments {
-            temp: if opts.normalize { (edits.wb.temp / wb.0).ln() * 100.0 / 0.6 } else { 0.0 },
-            tint: if opts.normalize { (edits.wb.tint - wb.1) / 0.4 } else { 0.0 },
-            ..Default::default()
-        },
-        tools: LayerTools {
-            curve: (opts.light_contrast || opts.color_tone).then_some(edits.curve.clone()),
-            light: (opts.normalize || opts.light_contrast).then_some(edits.light),
-            color: opts.color_adjust.then_some(edits.color),
-            mixer: opts.color_adjust.then_some(edits.mixer),
-            grading: opts.color_tone.then_some(edits.grading),
-            ..Default::default()
-        },
         ..Default::default()
     });
+    if opts.white_balance_enabled() {
+        // An absolute legacy/manual layer WB otherwise takes precedence over relative
+        // normalization in the renderer. Convert this selected tool to the relative form.
+        mask.tools.wb = None;
+        mask.adjust.temp = (edits.wb.temp / wb.0).ln() * 100.0 / 0.6;
+        mask.adjust.tint = (edits.wb.tint - wb.1) / 0.4;
+    }
+    merge_layer_controls(&mut mask, edits, opts);
+    if let Some(placement) = opts.layer_placement {
+        if let Some(existing) = d.masks.iter().position(|mask| mask.id == placement.id) {
+            d.masks.remove(existing);
+        }
+        d.masks.insert(placement.index.min(d.masks.len()), mask);
+    } else {
+        d.masks.push(mask);
+    }
     d
+}
+/// Select the explicitly owned layer, or the newly appended layer from an initial fit.
+/// An unchanged/no-op result must never reinterpret an existing unrelated last mask.
+fn result_layer_index(before: &DevelopSettings, full: &DevelopSettings, opts: Options) -> Option<usize> {
+    if let Some(placement) = opts.layer_placement {
+        full.masks.iter().position(|mask| mask.id == placement.id)
+    } else {
+        (full.masks.len() > before.masks.len()).then(|| full.masks.len() - 1)
+    }
 }
 
 /// Copy only the color controls selected by Match Look. Tone curves belong to Color
 /// Tone independently of the luminance/master curve and its Light settings.
 pub fn copy_color_controls(destination: &mut DevelopSettings, shared: &DevelopSettings, opts: Options) {
     if opts.color_adjust {
-        destination.color = shared.color;
-        destination.mixer = shared.mixer;
-        destination.treatment = shared.treatment;
+        if opts.adjustments.saturation {
+            destination.color.saturation = shared.color.saturation;
+        }
+        if opts.adjustments.vibrance {
+            destination.color.vibrance = shared.color.vibrance;
+        }
+        if opts.adjustments.color_editor {
+            destination.mixer = shared.mixer;
+        }
+        if opts.adjustments.black_white {
+            destination.treatment = shared.treatment;
+        }
     }
-    if opts.color_tone {
-        destination.grading = shared.grading;
-        restore_channel_curves(&mut destination.curve, &shared.curve);
+    for c in 0..3 {
+        if opts.channel_enabled(c) {
+            *channel_mut(&mut destination.curve, c) = channel(&shared.curve, c).clone();
+        }
+    }
+    if opts.wheel_enabled("global") {
+        destination.grading.global = shared.grading.global;
+    }
+    if opts.wheel_enabled("shadows") {
+        destination.grading.shadows = shared.grading.shadows;
+    }
+    if opts.wheel_enabled("midtones") {
+        destination.grading.midtones = shared.grading.midtones;
+    }
+    if opts.wheel_enabled("highlights") {
+        destination.grading.highlights = shared.grading.highlights;
     }
 }
 /// Extract editable color controls from an applied result. Layer tools are relative;
@@ -1197,13 +1498,16 @@ pub fn copy_color_controls(destination: &mut DevelopSettings, shared: &DevelopSe
 pub fn shared_color_settings(before: &DevelopSettings, full: &DevelopSettings, opts: Options) -> DevelopSettings {
     let mut shared = DevelopSettings::default();
     if opts.new_layer {
-        if let Some(layer) = full.masks.last().filter(|_| full.masks.len() > before.masks.len()) {
+        if let Some(layer) = result_layer_index(before, full, opts).and_then(|index| full.masks.get(index)) {
             shared.color = layer.tools.color.unwrap_or_default();
             shared.mixer = layer.tools.mixer.unwrap_or_default();
             shared.grading = layer.tools.grading.unwrap_or_default();
             shared.curve = layer.tools.curve.clone().unwrap_or_default();
         }
         shared.treatment = full.treatment;
+        let extracted = shared;
+        shared = DevelopSettings::default();
+        copy_color_controls(&mut shared, &extracted, opts);
     } else {
         copy_color_controls(&mut shared, full, opts);
     }
@@ -1224,6 +1528,7 @@ fn shared_amount(before: &DevelopSettings, full: &DevelopSettings, opts: Options
 
 /// Slider-space style amount. Normalize stays at full strength, including effective preset WB.
 pub fn fade_controls(start: &DevelopSettings, full: &DevelopSettings, opts: Options) -> DevelopSettings {
+    let opts = opts.effective();
     let opts = if start.treatment == Treatment::Bw && full.treatment == Treatment::Bw {
         Options { color_adjust: false, color_tone: false, ..opts }
     } else {
@@ -1231,11 +1536,11 @@ pub fn fade_controls(start: &DevelopSettings, full: &DevelopSettings, opts: Opti
     };
     let mut d = start.clone();
     let amount = opts.strength.clamp(0.0, 125.0) / 100.0;
-    if opts.color_adjust {
+    if opts.color_adjust && opts.adjustments.black_white {
         d.treatment = full.treatment;
     }
     for p in parameters(opts) {
-        if matches!(p, Parameter::Channel(..)) {
+        if matches!(p, Parameter::Channel(..) | Parameter::Master(..)) {
             continue;
         }
         let normalization = matches!(&p, Parameter::Temperature | Parameter::Slider("light.exposure" | "wb.tint", _));
@@ -1246,7 +1551,10 @@ pub fn fade_controls(start: &DevelopSettings, full: &DevelopSettings, opts: Opti
             p.set(&mut d, p.value(start) + (p.value(full) - p.value(start)) * factor);
         }
     }
-    if opts.color_adjust {
+    if opts.light_contrast && opts.adjustments.luma_curve && start.curve.mode == CurveMode::Luminance {
+        d.curve.master = fade_channel(&start.curve.master, &full.curve.master, amount);
+    }
+    if opts.color_adjust && opts.adjustments.color_editor {
         for id in PALETTE_CONTROLS {
             for axis in ["sat", "hue", "lum"] {
                 let id = id.replace("sat", axis);
@@ -1256,61 +1564,59 @@ pub fn fade_controls(start: &DevelopSettings, full: &DevelopSettings, opts: Opti
             }
         }
     }
-    if opts.color_tone {
-        for c in 0..3 {
+    for c in 0..3 {
+        if opts.channel_enabled(c) {
             *channel_mut(&mut d.curve, c) = fade_channel(channel(&start.curve, c), channel(&full.curve, c), amount);
         }
-        let x = Parameter::Grade("global", false);
-        let y = Parameter::Grade("global", true);
-        let a = x.value(start) + (x.value(full) - x.value(start)) * amount;
-        let b = y.value(start) + (y.value(full) - y.value(start)) * amount;
-        x.set(&mut d, a);
-        y.set(&mut d, b);
+    }
+    // Cartesian grading hue/saturation are interpolated by parameters() above.
+    // Luminance is part of a selected wheel and can also come from a shared batch style.
+    if opts.wheel_enabled("global") {
+        d.grading.global.lum = start.grading.global.lum + (full.grading.global.lum - start.grading.global.lum) * amount;
+    }
+    if opts.wheel_enabled("shadows") {
+        d.grading.shadows.lum = start.grading.shadows.lum + (full.grading.shadows.lum - start.grading.shadows.lum) * amount;
+    }
+    if opts.wheel_enabled("midtones") {
+        d.grading.midtones.lum = start.grading.midtones.lum + (full.grading.midtones.lum - start.grading.midtones.lum) * amount;
+    }
+    if opts.wheel_enabled("highlights") {
+        d.grading.highlights.lum = start.grading.highlights.lum + (full.grading.highlights.lum - start.grading.highlights.lum) * amount;
+    }
+    if amount == 1.0 {
+        copy_color_controls(&mut d, full, opts);
     }
     // Preserve a disabled normalization group's original preset mode.
-    if !opts.normalize || opts.keep_white_balance {
+    if !opts.white_balance_enabled() {
         d.wb = start.wb;
     }
     guard_curve(start, &mut d);
+    preserve_excluded(start, &mut d, opts);
     d
 }
 /// Re-amount an applied result without solving or touching unrelated tools. Layer tools are
 /// relative; their normalization adjustment remains unscaled.
 pub fn amount_settings(before: &DevelopSettings, full: &DevelopSettings, opts: Options) -> DevelopSettings {
+    let opts = opts.effective();
     if opts.new_layer {
+        let Some(index) = result_layer_index(before, full, opts) else {
+            return full.clone();
+        };
         let mut d = full.clone();
-        if opts.consistent_batch && opts.strength == 0.0 && opts.color_adjust {
+        if !opts.color_adjust || !opts.adjustments.black_white || (opts.consistent_batch && opts.strength == 0.0) {
             d.treatment = before.treatment;
         }
-        if let Some(layer) = d.masks.last_mut() {
-            let mut end = DevelopSettings::default();
-            if let Some(x) = layer.tools.light {
-                end.light = x;
-            }
-            if let Some(x) = layer.tools.curve.clone() {
-                end.curve = x;
-            }
-            if let Some(x) = layer.tools.effects {
-                end.effects = x;
-            }
-            if let Some(x) = layer.tools.color {
-                end.color = x;
-            }
-            if let Some(x) = layer.tools.mixer {
-                end.mixer = x;
-            }
-            if let Some(x) = layer.tools.grading {
-                end.grading = x;
-            }
-            let faded = fade_controls(&DevelopSettings::default(), &end, Options { normalize: opts.normalize, keep_white_balance: true, ..opts });
+        if let Some(layer) = d.masks.get_mut(index) {
+            let original = relative_start(before, opts);
+            let end = layer.tools.view((6500.0, 0.0));
+            let faded = fade_controls(&original, &end, Options { keep_white_balance: true, ..opts });
+            // `faded` already restores excluded fields from the baseline template.
+            // Do not restore them from the fully fitted mask when exclusions change.
             if layer.tools.light.is_some() {
                 layer.tools.light = Some(faded.light);
             }
             if layer.tools.curve.is_some() {
                 layer.tools.curve = Some(faded.curve);
-            }
-            if layer.tools.effects.is_some() {
-                layer.tools.effects = Some(faded.effects);
             }
             if layer.tools.color.is_some() {
                 layer.tools.color = Some(faded.color);
@@ -1320,6 +1626,11 @@ pub fn amount_settings(before: &DevelopSettings, full: &DevelopSettings, opts: O
             }
             if layer.tools.grading.is_some() {
                 layer.tools.grading = Some(faded.grading);
+            }
+            if !opts.white_balance_enabled() {
+                let adjust = template_layer(before, opts).map(|mask| &mask.adjust);
+                layer.adjust.temp = adjust.map_or(0.0, |a| a.temp);
+                layer.adjust.tint = adjust.map_or(0.0, |a| a.tint);
             }
         }
         d
@@ -1333,38 +1644,32 @@ pub fn amount_settings(before: &DevelopSettings, full: &DevelopSettings, opts: O
 pub fn reset_group(before: &DevelopSettings, full: &DevelopSettings, opts: Options, group: &str) -> Option<DevelopSettings> {
     let mut d = full.clone();
     if opts.new_layer {
-        let layer = d.masks.last_mut()?;
-        match group {
-            "normalize" => {
-                layer.adjust.temp = 0.0;
-                layer.adjust.tint = 0.0;
-                if let Some(l) = &mut layer.tools.light {
-                    l.exposure = 0.0;
-                }
-            }
-            "light" => {
-                if let Some(curve) = &mut layer.tools.curve {
-                    restore_light_curve(curve, &ToneCurve::default());
-                }
-                if let Some(l) = &mut layer.tools.light {
-                    let exposure = l.exposure;
-                    *l = Default::default();
-                    l.exposure = exposure;
-                }
-            }
-            "color" => {
-                d.treatment = before.treatment;
+        let index = result_layer_index(before, full, opts)?;
+        let original = relative_start(before, opts);
+        let layer = d.masks.get_mut(index)?;
+        let current = layer.tools.view((6500.0, 0.0));
+        let restored = reset_group(&original, &current, Options { new_layer: false, ..opts }, group)?;
+        merge_layer_controls(layer, &restored, opts);
+        let template = template_layer(before, opts);
+        if group == "normalize" && opts.white_balance_enabled() {
+            layer.tools.wb = template.and_then(|mask| mask.tools.wb);
+            layer.adjust.temp = template.map_or(0.0, |mask| mask.adjust.temp);
+            layer.adjust.tint = template.map_or(0.0, |mask| mask.adjust.tint);
+        }
+        // Sparse sections that were absent before fitting remain absent after a full reset.
+        if group == "color" {
+            if restored.color == Default::default() && template.is_none_or(|m| m.tools.color.is_none()) {
                 layer.tools.color = None;
+            }
+            if restored.mixer == Default::default() && template.is_none_or(|m| m.tools.mixer.is_none()) {
                 layer.tools.mixer = None;
-                layer.tools.treatment = None;
             }
-            "tone" => {
-                layer.tools.grading = None;
-                if let Some(curve) = &mut layer.tools.curve {
-                    restore_channel_curves(curve, &ToneCurve::default());
-                }
-            }
-            _ => return None,
+        }
+        if group == "tone" && restored.grading == Default::default() && template.is_none_or(|m| m.tools.grading.is_none()) {
+            layer.tools.grading = None;
+        }
+        if group == "color" && opts.color_adjust && opts.adjustments.black_white {
+            d.treatment = before.treatment;
         }
     } else {
         match group {
@@ -1389,6 +1694,9 @@ pub fn reset_group(before: &DevelopSettings, full: &DevelopSettings, opts: Optio
             }
             _ => return None,
         }
+    }
+    if !opts.new_layer {
+        preserve_excluded(full, &mut d, opts);
     }
     Some(d)
 }
@@ -1510,6 +1818,7 @@ fn solve_impl(
     shared: Option<&DevelopSettings>,
     cancel: &dyn Fn() -> bool,
 ) -> Option<Solved> {
+    let opts = opts.effective();
     if !opts.strength.is_finite()
         || !(0.0..=125.0).contains(&opts.strength)
         || refs.is_empty()
@@ -1610,7 +1919,7 @@ fn solve_impl(
             look.support[6] = 0.1;
         }
     }
-    let monochrome = is_monochrome(&goal) && opts.color_adjust;
+    let monochrome = is_monochrome(&goal) && opts.color_adjust && opts.adjustments.black_white;
     let target_bw = base.treatment == Treatment::Bw && shared.is_none();
     let solver_opts = Options {
         color_adjust: opts.color_adjust && !monochrome && !target_bw,
@@ -1620,10 +1929,9 @@ fn solve_impl(
     };
     let before_error = distance(&initial, &goal, opts);
     // Pixel-identical/self matches and zero Impact are exactly no-ops, including layer mode.
-    if shared.is_none()
-        && (distance(&calibrated, &reference_goal, opts) < 1e-10
-            || before_error < 1e-7
-            || (opts.strength <= 0.0 && (!opts.normalize || (opts.keep_white_balance && opts.keep_exposure))))
+    if (!opts.normalize && !opts.light_contrast && !opts.color_adjust && !opts.color_tone)
+        || (opts.strength <= 0.0 && !opts.exposure_enabled() && !opts.white_balance_enabled())
+        || (shared.is_none() && (distance(&calibrated, &reference_goal, opts) < 1e-10 || before_error < 1e-7))
     {
         return Some(Solved {
             monochrome,
@@ -1641,10 +1949,15 @@ fn solve_impl(
     }
     let wb = crate::auto::current_wb(&info, base);
     let start = if opts.new_layer {
-        DevelopSettings { wb: lightcraft_develop::WhiteBalance { mode: WbMode::Custom, temp: wb.0, tint: wb.1 }, ..Default::default() }
+        let local_wb = relative_wb(base, opts, wb);
+        DevelopSettings {
+            wb: lightcraft_develop::WhiteBalance { mode: WbMode::Custom, temp: local_wb.0, tint: local_wb.1 },
+            treatment: base.treatment,
+            ..relative_start(base, opts)
+        }
     } else {
         let mut d = base.clone();
-        if opts.normalize && !opts.keep_white_balance && d.wb.mode != WbMode::Custom {
+        if opts.white_balance_enabled() && d.wb.mode != WbMode::Custom {
             d.wb.temp = wb.0;
             d.wb.tint = wb.1;
         }
@@ -1658,10 +1971,14 @@ fn solve_impl(
         edits.treatment = Treatment::Bw;
         if goal.features[7] >= 0.012 && opts.color_tone && goal.hue_distribution.iter().copied().fold(0.0, f64::max) >= 0.8 {
             let dominant = goal.hue_distribution.iter().enumerate().max_by(|a, b| a.1.total_cmp(b.1)).map_or(0, |(i, _)| i);
-            edits.grading.midtones.hue = (dominant as f64 + 0.5) * 45.0;
-            edits.grading.midtones.sat = 0.0;
-            edits.grading.global.hue = goal.features[26].atan2(goal.features[25]).to_degrees().rem_euclid(360.0);
-            edits.grading.global.sat = (100.0 * goal.features[7] / 0.1).min(45.0);
+            if opts.wheel_enabled("midtones") {
+                edits.grading.midtones.hue = (dominant as f64 + 0.5) * 45.0;
+                edits.grading.midtones.sat = 0.0;
+            }
+            if opts.wheel_enabled("global") {
+                edits.grading.global.hue = goal.features[26].atan2(goal.features[25]).to_degrees().rem_euclid(360.0);
+                edits.grading.global.sat = (100.0 * goal.features[7] / 0.1).min(45.0);
+            }
         }
     }
     let layer_opts = Options { color_adjust: opts.color_adjust && !target_bw, color_tone: opts.color_tone && !target_bw, ..opts };
@@ -1673,11 +1990,9 @@ fn solve_impl(
     // Existing RGB master curves retain their meaning. Fit Light with the light
     // sliders in that case; a new layer has its own luminance-mode curve.
     if start.curve.mode != CurveMode::Luminance {
-        params.retain(|p| !matches!(p, Parameter::Slider(id, _) if id.starts_with("curve.")));
+        params.retain(|p| !matches!(p, Parameter::Master(..)) && !matches!(p, Parameter::Slider(id, _) if id.starts_with("curve.")));
     }
-    if monochrome && fit_opts.color_tone {
-        params.extend([Parameter::Grade("global", false), Parameter::Grade("global", true)]);
-    }
+    let coupled_curves = params.iter().any(|p| matches!(p, Parameter::Channel(..)));
     let mut mw = metric_weights(&initial, &goal, solver_opts);
     for i in [5, 6, 25, 26] {
         mw[i] *= 0.5 + 0.5 * adaptation;
@@ -1723,13 +2038,19 @@ fn solve_impl(
     };
     let objective = |l: &Look, d: &DevelopSettings, penalty: f64| {
         let fit = (0..FEATURES).map(|i| huber(observation(l, i) - goal.features[i], spread[i] * 2.0) * mw[i]).sum::<f64>();
-        let prior = params
+        let mut prior = params
             .iter()
             .map(|p| {
                 let x = (p.value(d) - p.value(&start)) / p.scale();
                 p.cost(opts) * (x * x + 0.08 * ((x * x + 0.01).sqrt() - 0.1))
             })
             .sum::<f64>();
+        if coupled_curves {
+            prior += regularization::energy(&channel_delta(&start, d));
+        }
+        if solver_opts.color_adjust && opts.adjustments.color_editor && shared.is_none() {
+            prior += palette_prior(&start, d);
+        }
         let skin = if solver_opts.protect_skin && !faces.is_empty() && initial.support[14] > 0.05 && l.support[14] > 0.05 {
             let h0 = skin_anchor.get();
             let h = l.features[16].atan2(l.features[15]);
@@ -1746,7 +2067,7 @@ fn solve_impl(
         fit + penalty * prior + skin
     };
     let mut score = objective(&current, &edits, 1.0);
-    if techniques.warm_start && opts.normalize && !opts.keep_exposure && current.features[2] > 0.02 && goal.features[2] > 0.02 {
+    if techniques.warm_start && opts.exposure_enabled() && current.features[2] > 0.02 && goal.features[2] > 0.02 {
         let mut seed = edits.clone();
         let p = Parameter::Slider("light.exposure", 0.15);
         p.set(&mut seed, p.bounded(p.value(&start) + 3.0 * (goal.features[2] / current.features[2]).log2(), &start, wb, opts.new_layer));
@@ -1764,8 +2085,9 @@ fn solve_impl(
     let mut previous_columns = vec![[0.0; FEATURES]; params.len()];
     let mut previous_values = params.iter().map(|p| p.value(&edits)).collect::<Vec<_>>();
     let mut refresh_all = false;
-    for pass in 0..3 {
-        let penalty = [1.6, 1.0, 0.6][pass];
+    let passes = 4;
+    for pass in 0..passes {
+        let penalty = [1.6, 1.0, 0.6, 0.5][pass];
         score = objective(&current, &edits, penalty);
         let pass_start_score = score;
         let coarse_current = evaluate(&materialize(&edits), false);
@@ -1787,8 +2109,8 @@ fn solve_impl(
                 })
                 .collect::<Vec<_>>();
             changed.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
-            let reserve = (3 - pass) * 3 + 12;
-            let budget = (50 + params.len() * 2).saturating_sub(renders.get() + probe_renders + reserve);
+            let reserve = (passes - pass) * 3 + 12;
+            let budget = (60 + params.len() * 3).saturating_sub(renders.get() + probe_renders + reserve);
             for (j, _) in changed.into_iter().take(budget) {
                 refresh[j] = true;
             }
@@ -1810,7 +2132,7 @@ fn solve_impl(
             if h.abs() < 1e-8 {
                 return ([0.0; FEATURES], false);
             }
-            let image = crate::render_cached(&src, &info, &materialize(&probe), &req, &StageCache::default());
+            let image = crate::render_cached(&src, &info, &materialize(&probe), &req, &cache.fork_cpu());
             let mut measured = measure_rendered_with_membership(&image, &faces, coarse_membership.as_ref());
             if let Some(masks) = &coarse_regions {
                 measure_regions(&mut measured, &image, masks);
@@ -1832,7 +2154,7 @@ fn solve_impl(
         if cancel() {
             return None;
         }
-        if techniques.warm_start && pass == 0 && opts.normalize && !opts.keep_white_balance {
+        if techniques.warm_start && pass == 0 && opts.white_balance_enabled() {
             let axes: Vec<_> =
                 params.iter().enumerate().filter(|(_, p)| matches!(p, Parameter::Temperature | Parameter::Slider("wb.tint", _))).collect();
             if axes.len() == 2 {
@@ -1872,14 +2194,15 @@ fn solve_impl(
             skin_anchor.set(current.features[16].atan2(current.features[15]));
             skin_enforce.set(true);
         }
-        // RawTherapee populated-CDF map, slope guarded and projected onto editable tone
-        // tools in a fixed order. Reuse this Jacobian: no extra basis renders are needed.
-        if techniques.tone_projection && pass == 0 && opts.light_contrast {
-            let curve = cdf_curve(&current, &goal);
-            let mut residual = std::array::from_fn::<_, 5, _>(|i| curve[i] - current.features[i]);
+        // Project populated tone quantiles onto editable tools through their real renderer
+        // derivatives. The master curve is monotone, but legitimate HDR compression is
+        // not limited to the parametric region curve's twofold incremental slope cone.
+        if techniques.tone_projection && pass == 0 && opts.light_contrast && opts.adjustments.luma_curve {
+            let mut residual = std::array::from_fn::<_, 5, _>(|i| goal.features[i] - current.features[i]);
             let mut projected = edits.clone();
             for (j, p) in params.iter().enumerate() {
-                if !matches!(p,Parameter::Slider(id,_) if id.starts_with("light.") || id.starts_with("curve.")) {
+                if !matches!(p, Parameter::Master(..)) && !matches!(p,Parameter::Slider(id,_) if id.starts_with("light.") || id.starts_with("curve."))
+                {
                     continue;
                 }
                 let denominator = (0..5).map(|i| jac[j][i] * jac[j][i] * mw[i]).sum::<f64>() + p.cost(opts) * 2.0;
@@ -1926,6 +2249,18 @@ fn solve_impl(
             rhs[j] = (0..FEATURES).map(|i| jac[j][i] * (goal.features[i] - observation(&current, i)) * robust[i]).sum::<f64>()
                 - prior * (params[j].value(&edits) - params[j].value(&start)) / params[j].scale();
         }
+        let delta = channel_delta(&start, &edits);
+        for (j, parameter) in params.iter().enumerate() {
+            if let Parameter::Channel(c, knot) = parameter {
+                let index = c * 3 + knot;
+                rhs[j] -= penalty * (0..9).map(|k| regularization::matrix(index, k) * delta[k]).sum::<f64>();
+                for (k, other) in params.iter().enumerate() {
+                    if let Parameter::Channel(c, knot) = other {
+                        a[j][k] += penalty * regularization::matrix(index, c * 3 + knot);
+                    }
+                }
+            }
+        }
         let step = linear_solve(a, rhs);
         let old_score = score;
         let mut accepted = false;
@@ -1957,7 +2292,7 @@ fn solve_impl(
     // Fit the palette last: changing a hue band activates the equalizer's guided filters
     // and RBF tables. Band-chroma errors supply one joint direction; a real render supplies
     // its derivative and verifies the bounded step. The output is eight editable sliders.
-    if solver_opts.color_adjust && shared.is_none() {
+    if solver_opts.color_adjust && opts.adjustments.color_editor && shared.is_none() {
         for axis in ["sat", "hue", "lum"] {
             let mut delta: [f64; 8] = std::array::from_fn(|i| {
                 let feature = match axis {
@@ -1988,24 +2323,17 @@ fn solve_impl(
             if !delta.iter().any(|d| d.abs() > 0.5) {
                 continue;
             }
-            let candidate = |scale: f64| {
-                let mut d = edits.clone();
-                for (id, delta) in PALETTE_CONTROLS.iter().zip(delta) {
-                    let id = id.replace("sat", axis);
-                    let value = controls::get(&edits, &id).unwrap_or(0.0);
-                    let bound: f64 = match axis {
-                        "hue" => 40.0,
-                        "lum" => 30.0,
-                        _ => 55.0,
-                    };
-                    controls::set(&mut d, &id, (value + delta * scale).clamp((-bound).min(value), bound.max(value)));
-                }
-                d
-            };
             if cancel() {
                 return None;
             }
-            let probe = candidate(1.0);
+            let probe = palette_candidate(&edits, &delta, axis, 1.0);
+            // Keep the measured and fitted direction identical near a control bound.
+            // Scaling the unclipped proposal would otherwise overshoot a small derivative.
+            let direction: [f64; 8] = std::array::from_fn(|i| {
+                let id = PALETTE_CONTROLS[i].replace("sat", axis);
+                controls::get(&probe, &id).unwrap_or(0.0) - controls::get(&edits, &id).unwrap_or(0.0)
+            });
+            let candidate = |scale: f64| palette_candidate(&edits, &direction, axis, scale);
             let coarse = evaluate(&materialize(&edits), false);
             let measured = evaluate(&materialize(&probe), false);
             let (mut numerator, mut denominator) = (0.0, 0.0);
@@ -2013,6 +2341,16 @@ fn solve_impl(
                 let response = observation(&measured, i) - observation(&coarse, i);
                 numerator += weight * response * (goal.features[i] - observation(&current, i));
                 denominator += weight * response * response;
+            }
+            // The final palette direction needs the same bounded prior as joint tools;
+            // otherwise unregularized hue/saturation sliders pile up at their limits.
+            for id in PALETTE_CONTROLS {
+                let id = id.replace("sat", axis);
+                let at = controls::get(&edits, &id).unwrap_or(0.0);
+                let direction = (controls::get(&probe, &id).unwrap_or(at) - at) / palette_scale(axis);
+                let value = (at - controls::get(&start, &id).unwrap_or(at)) / palette_scale(axis);
+                numerator -= PALETTE_PRIOR * direction * value;
+                denominator += PALETTE_PRIOR * direction * direction;
             }
             let next_edits = candidate(if denominator > 1e-12 { (numerator / denominator).clamp(-1.0, 2.0) } else { 0.0 });
             if cancel() {
@@ -2030,7 +2368,7 @@ fn solve_impl(
     }
     // Palette / grading adjustments can move brightness as a side effect. Refit the
     // normalized median once, against the same adapted reachable goal, after the style fit.
-    if opts.normalize && !opts.keep_exposure && (current.features[2] - goal.features[2]).abs() > 0.005 {
+    if opts.exposure_enabled() && (current.features[2] - goal.features[2]).abs() > 0.005 {
         let p = Parameter::Slider("light.exposure", 0.15);
         let mut candidate = edits.clone();
         let correction = 3.0 * (goal.features[2].max(0.01) / current.features[2].max(0.01)).log2();
@@ -2045,27 +2383,18 @@ fn solve_impl(
             best_error = distance(&current, &goal, opts);
         }
     }
+    preserve_excluded(&start, &mut edits, opts);
     let full_settings = materialize(&edits);
     let mut faded = fade_controls(&start, &edits, opts);
     if shared.is_some() {
         shared_amount(&start, &edits, opts, &mut faded);
-    }
-    let strength = opts.strength.clamp(0.0, 125.0) / 100.0;
-    // Cartesian grade components must be interpolated together (polar hue wrap is not linear).
-    if solver_opts.color_tone && shared.is_none() {
-        for band in ["shadows", "midtones", "highlights", "global"] {
-            let x = Parameter::Grade(band, false);
-            let y = Parameter::Grade(band, true);
-            x.set(&mut faded, x.value(&start) + (x.value(&edits) - x.value(&start)) * strength);
-            y.set(&mut faded, y.value(&start) + (y.value(&edits) - y.value(&start)) * strength);
-        }
     }
     let mut settings = if shared.is_some() || best_error + 1e-10 < before_error {
         if opts.strength == 100.0 { full_settings.clone() } else { materialize(&faded) }
     } else {
         base.clone()
     };
-    if opts.consistent_batch && opts.strength == 0.0 && opts.color_adjust {
+    if opts.consistent_batch && opts.strength == 0.0 && opts.color_adjust && opts.adjustments.black_white {
         settings.treatment = base.treatment;
     }
     if cancel() {

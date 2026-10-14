@@ -334,6 +334,19 @@ pub const PENDING_FILE_INPUT_TRANSLATIONS: &[&str] = &[
 
 /// Library/Develop final-review additions awaiting translation.
 pub const PENDING_DEVELOP_TRANSLATIONS: &[&str] = &[
+    "Choose adjustments",
+    "Enable at least one adjustment; no photos will change.",
+    "Enable at least one adjustment",
+    "White balance",
+    "Luma curve",
+    "Color editor",
+    "Black & white",
+    "Master balance",
+    "Shadow balance",
+    "Midtone balance",
+    "Highlight balance",
+    "Add files…",
+    "File selection is unavailable in this host",
     "Use the same reference blend for every target. Otherwise references are weighted by each target's scene similarity.",
     "{count} references on embedded previews",
     "Fit {value:.0}%",

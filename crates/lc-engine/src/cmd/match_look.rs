@@ -20,8 +20,12 @@ use std::sync::{
 
 const C: &str = "develop.matchLook";
 const FILE: &str = "match-looks.json";
-const VERSION: u32 = 2;
-const ANALYSIS_VERSION: u32 = 1;
+const VERSION: u32 = 3;
+const ANALYSIS_VERSION: u32 = 2;
+pub const LOOK_ANALYZER_VERSION: u32 = 2;
+#[path = "match_look_assets.rs"]
+mod assets;
+pub use assets::{ExternalReference, ReferencePreview};
 pub const IMPORT_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const LOOK_NAME_MAX_CHARS: usize = 128;
 
@@ -36,14 +40,19 @@ pub struct Analysis {
     pub version: u32,
     pub identities: Vec<Identity>,
     pub looks: Vec<Look>,
+    #[serde(default)]
+    pub previews: Vec<ReferencePreview>,
+    #[serde(default)]
+    pub external_identities: Vec<ExternalReference>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct State {
     pub references: Vec<PhotoId>,
+    pub external_references: Vec<ExternalReference>,
     pub reference_weights: std::collections::BTreeMap<PhotoId, f64>,
     #[serde(skip)]
-    pub undone: std::collections::BTreeMap<PhotoId, Applied>,
+    pub undone: std::collections::BTreeMap<PhotoId, Vec<Applied>>,
     #[serde(skip)]
     pub analysis: Option<Analysis>,
     pub options: Options,
@@ -51,8 +60,8 @@ pub struct State {
     #[serde(skip)]
     pub applied: std::collections::BTreeMap<PhotoId, Applied>,
 }
-/// Catalog-local amount history, stored separately on close. Global saved looks contain only
-/// statistics; this is never serialized into prefs or a saved look or allowed to overwrite later edits.
+/// Catalog-local target history, stored separately on close. Portable recipes contain
+/// reference evidence/previews, never these target settings or Undo chains.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Applied {
     pub key: String,
@@ -70,6 +79,12 @@ pub struct Applied {
     #[serde(default)]
     pub preview_only: bool,
     pub weights: Vec<f64>,
+    #[serde(default)]
+    pub managed_layer: Option<u32>,
+    #[serde(skip)]
+    pub undo_before: Option<Arc<DevelopSettings>>,
+    #[serde(skip)]
+    pub previous: Option<Arc<Applied>>,
 }
 fn full_reach() -> f64 {
     1.0
@@ -87,6 +102,9 @@ pub struct SavedLook {
     pub created: String,
     pub reference_count: usize,
     pub looks: Vec<Look>,
+    pub options: Option<Options>,
+    pub previews: Vec<ReferencePreview>,
+    pub analyzer_version: Option<u32>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -120,7 +138,7 @@ impl SavedLooks {
                 .map(|b| serde_json::from_slice::<LookFile>(&b).map_err(|e| e.to_string()))
                 .transpose()?;
             let mut file = loaded.unwrap_or_default();
-            validate_file(&file)?;
+            validate_file_with_previews(&file, true)?;
             file.version = VERSION;
             Ok::<_, String>(file)
         })();
@@ -152,7 +170,10 @@ impl SavedLooks {
     }
 }
 fn validate_file(f: &LookFile) -> std::result::Result<(), String> {
-    if f.version != VERSION && f.version != 1 {
+    validate_file_with_previews(f, false)
+}
+fn validate_file_with_previews(f: &LookFile, deep: bool) -> std::result::Result<(), String> {
+    if ![1, 2, VERSION].contains(&f.version) {
         return Err("Unsupported saved-look format version".into());
     }
     let mut ids = std::collections::BTreeSet::new();
@@ -168,6 +189,10 @@ fn validate_file(f: &LookFile) -> std::result::Result<(), String> {
             || l.looks.len() > match_look::MAX_REFERENCES
             || l.reference_count != l.looks.len()
             || l.looks.iter().any(|l| !l.valid() || l.support.iter().all(|w| *w == 0.0))
+            || l.options.is_some_and(|o| !o.strength.is_finite() || !(0.0..=125.0).contains(&o.strength))
+            || (!l.previews.is_empty() && l.previews.len() != l.looks.len())
+            || l.previews.iter().any(|p| !p.bounded() || deep && p.image().is_none())
+            || l.analyzer_version.is_some_and(|v| v > LOOK_ANALYZER_VERSION || v == 0)
         {
             return Err("Invalid saved look".into());
         }
@@ -197,7 +222,7 @@ pub fn parse_import(bytes: &[u8]) -> std::result::Result<LookFile, String> {
         return Err("Look file exceeds 2 MiB".into());
     }
     let file: LookFile = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-    validate_file(&file)?;
+    validate_file_with_previews(&file, true)?;
     Ok(file)
 }
 pub fn identity(s: &Session, id: PhotoId) -> Option<Identity> {
@@ -209,13 +234,30 @@ fn unchanged(s: &Session, i: &Identity) -> bool {
 }
 pub fn current_ready(s: &Session) -> bool {
     s.match_look.analysis.as_ref().is_some_and(|a| {
-        a.version == ANALYSIS_VERSION
-            && a.looks.len() == s.match_look.references.len()
+        [1, ANALYSIS_VERSION].contains(&a.version)
+            && a.looks.len() == s.match_look.references.len() + s.match_look.external_references.len()
+            && same_external_sources(&a.external_identities, &s.match_look.external_references, true)
+            && a.external_identities.iter().all(ExternalReference::unchanged)
             && !a.looks.is_empty()
             && a.looks.iter().all(Look::valid)
             && a.identities.iter().map(|i| i.id).eq(s.match_look.references.iter().copied())
             && a.identities.iter().all(|i| unchanged(s, i))
     })
+}
+fn analyzed_looks(s: &Session) -> Option<Vec<Look>> {
+    current_ready(s).then(|| {
+        let mut looks = s.match_look.analysis.as_ref().map(|a| a.looks.clone()).unwrap_or_default();
+        apply_reference_weights(s, &mut looks);
+        looks
+    })
+}
+fn apply_reference_weights(s: &Session, looks: &mut [Look]) {
+    for (look, id) in looks.iter_mut().zip(&s.match_look.references) {
+        look.importance = if s.match_look.reference_weights.get(id) == Some(&2.0) { 2.0 } else { 1.0 };
+    }
+    for (look, reference) in looks.iter_mut().skip(s.match_look.references.len()).zip(&s.match_look.external_references) {
+        look.importance = reference.importance;
+    }
 }
 pub fn selected_looks(s: &Session) -> Option<Vec<Look>> {
     if s.saved_looks.error.is_none()
@@ -224,23 +266,16 @@ pub fn selected_looks(s: &Session) -> Option<Vec<Look>> {
     {
         return Some(look.looks.clone());
     }
-    current_ready(s).then(|| {
-        s.match_look
-            .analysis
-            .as_ref()
-            .map(|a| {
-                a.looks
-                    .iter()
-                    .cloned()
-                    .zip(&s.match_look.references)
-                    .map(|(mut look, id)| {
-                        look.importance = if s.match_look.reference_weights.get(id) == Some(&2.0) { 2.0 } else { 1.0 };
-                        look
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
-    })
+    analyzed_looks(s)
+}
+pub fn selected_previews(s: &Session) -> Vec<ReferencePreview> {
+    if let Some(saved) = s.match_look.selected.as_ref().and_then(|id| s.saved_looks.file.looks.iter().find(|l| &l.id == id)) {
+        return saved.previews.clone();
+    }
+    s.match_look.analysis.as_ref().filter(|_| current_ready(s)).map(|a| a.previews.clone()).unwrap_or_default()
+}
+fn same_external_sources(a: &[ExternalReference], b: &[ExternalReference], include_key: bool) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.id == b.id && a.path == b.path && (!include_key || a.key == b.key))
 }
 pub fn ready(s: &Session) -> std::result::Result<(), String> {
     has_selection(s)?;
@@ -261,6 +296,10 @@ struct Input {
     bytes: u64,
     faces: Vec<[f32; 4]>,
     preview_only: bool,
+    name: String,
+    baseline: Arc<DevelopSettings>,
+    placement: Option<match_look::LayerPlacement>,
+    previous: Option<Arc<Applied>>,
 }
 fn input(s: &mut Session, id: PhotoId) -> Result<Input> {
     let photo = s.catalog.photo(id).cloned().ok_or_else(|| bad(C, "Unknown photo"))?;
@@ -269,6 +308,7 @@ fn input(s: &mut Session, id: PhotoId) -> Result<Input> {
     }
     Ok(Input {
         preview_only: photo.preview_only.is_some(),
+        name: photo.file_name.clone(),
         bytes: u64::from(photo.width.min(512))
             .saturating_mul(u64::from(photo.height.min(512)))
             .saturating_mul(32)
@@ -287,12 +327,92 @@ fn input(s: &mut Session, id: PhotoId) -> Result<Input> {
             .iter()
             .map(|f| f.rect)
             .collect(),
+        baseline: photo.develop.clone(),
+        placement: None,
+        previous: None,
         identity: identity(s, id).ok_or_else(|| bad(C, "Missing photo"))?,
         info: s.source_info(id),
         source: s.media.source_ref(&photo, SourceLevel::Thumb),
         verification: s.media.source_ref(&photo, SourceLevel::Preview),
     })
 }
+fn relative_tools(mask: &lightcraft_develop::Mask) -> DevelopSettings {
+    let mut d = DevelopSettings::default();
+    if let Some(v) = mask.tools.light {
+        d.light = v;
+    }
+    if let Some(v) = &mask.tools.curve {
+        d.curve = v.clone();
+    }
+    if let Some(v) = mask.tools.color {
+        d.color = v;
+    }
+    if let Some(v) = mask.tools.mixer {
+        d.mixer = v;
+    }
+    if let Some(v) = mask.tools.grading {
+        d.grading = v;
+    }
+    d
+}
+fn owned_layer(record: &Applied) -> Option<u32> {
+    record.managed_layer.or_else(|| record.options.new_layer.then(|| record.last.masks.last().map(|m| m.id)).flatten())
+}
+fn prepare_reapplication(s: &Session, input: &mut Input, opts: Options) {
+    if !opts.new_layer
+        || !(opts.exposure_enabled() || opts.white_balance_enabled() || opts.light_enabled() || opts.color_enabled() || opts.tone_enabled())
+    {
+        return;
+    }
+    let Some(record) = s.match_look.applied.get(&input.identity.id).filter(|r| r.key == input.identity.key && r.options.new_layer) else {
+        return;
+    };
+    let Some(id) = owned_layer(record) else {
+        return;
+    };
+    let Some(index) = input.identity.settings.masks.iter().position(|m| m.id == id) else {
+        return;
+    };
+    let mut baseline = (*input.identity.settings).clone();
+    let mask = &mut baseline.masks[index];
+    let relative = relative_tools(mask);
+    let neutral = match_look::fade_controls(
+        &relative,
+        &DevelopSettings::default(),
+        Options { strength: 100.0, new_layer: false, consistent_batch: false, layer_placement: None, ..record.options },
+    );
+    if mask.tools.light.is_some() {
+        mask.tools.light = Some(neutral.light);
+    }
+    if mask.tools.curve.is_some() {
+        mask.tools.curve = Some(neutral.curve);
+    }
+    if mask.tools.color.is_some() {
+        mask.tools.color = Some(neutral.color);
+    }
+    if mask.tools.mixer.is_some() {
+        mask.tools.mixer = Some(neutral.mixer);
+    }
+    if mask.tools.grading.is_some() {
+        mask.tools.grading = Some(neutral.grading);
+    }
+    if record.options.white_balance_enabled() {
+        mask.adjust.temp = 0.0;
+        mask.adjust.tint = 0.0;
+    }
+    if record.options.color_adjust && record.options.adjustments.black_white && baseline.treatment == record.last.treatment {
+        baseline.treatment = record.before.treatment;
+    }
+    input.baseline = Arc::new(baseline);
+    input.placement = Some(match_look::LayerPlacement { index, id });
+    input.previous = Some(Arc::new(record.clone()));
+}
+// The larger verification estimate already includes the retained thumbnail work. Keeping
+// the earlier reservation while waiting can deadlock an oversized job on its own bytes.
+fn release_decode_for_verification(permit: &mut lightcraft_sysmem::Permit<'_>) {
+    permit.shrink(0);
+}
+
 /// Audit near matches at the user-visible preview level. Proxy fitting is an approximation;
 /// its local-contrast frequency and conditional palette support must not worsen a good photo.
 fn near_match_errors(
@@ -315,6 +435,8 @@ fn near_match_errors(
 pub struct AnalyzeWork {
     generation: u64,
     inputs: Vec<Input>,
+    external: Vec<ExternalReference>,
+    external_loader: crate::media::FileLoader,
 }
 pub struct Analyzed {
     generation: u64,
@@ -323,24 +445,31 @@ pub struct Analyzed {
 }
 pub fn prepare_analysis(s: &mut Session) -> Result<AnalyzeWork> {
     let ids = s.match_look.references.clone();
-    if ids.is_empty() || ids.len() > match_look::MAX_REFERENCES {
+    let external = s.match_look.external_references.clone();
+    if ids.len() + external.len() == 0 || ids.len() + external.len() > match_look::MAX_REFERENCES {
         return Err(bad(C, "Choose 1–20 reference photos"));
     }
     let inputs = ids.into_iter().map(|id| input(s, id)).collect::<Result<Vec<_>>>()?;
-    Ok(AnalyzeWork { generation: s.library_generation, inputs })
+    Ok(AnalyzeWork {
+        generation: s.library_generation,
+        inputs,
+        external,
+        external_loader: s.media.file_loader.clone().unwrap_or_else(|| crate::files::fs_hooks().0),
+    })
 }
 impl AnalyzeWork {
     pub fn len(&self) -> usize {
-        self.inputs.len()
+        self.inputs.len() + self.external.len()
     }
     pub fn is_empty(&self) -> bool {
-        self.inputs.is_empty()
+        self.inputs.is_empty() && self.external.is_empty()
     }
     pub fn run(self, c: &Control) -> std::result::Result<Analyzed, String> {
         lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
         let stop = || c.cancel.load(Ordering::Relaxed);
         let mut decoded = Vec::new();
-        let mut a = Analysis { version: ANALYSIS_VERSION, identities: Vec::new(), looks: Vec::new() };
+        let mut a =
+            Analysis { version: ANALYSIS_VERSION, identities: Vec::new(), looks: Vec::new(), previews: Vec::new(), external_identities: Vec::new() };
         for input in self.inputs {
             let _permit = lightcraft_sysmem::heavy_jobs().admit(input.bytes, &stop).ok_or("Cancelled")?;
             let src = lightcraft_sysmem::in_background_pool(|| input.source.load_source())?;
@@ -350,10 +479,48 @@ impl AnalyzeWork {
             if stop() {
                 return Err("Cancelled".into());
             }
+            let info = src.info_or(input.info);
             a.looks.push(lightcraft_sysmem::in_background_pool(|| {
-                match_look::analyze_with_faces(&src.image, &src.info_or(input.info), &input.identity.settings, &input.faces)
+                match_look::analyze_with_faces(&src.image, &info, &input.identity.settings, &input.faces)
             }));
+            let image = lightcraft_sysmem::in_background_pool(|| {
+                lightcraft_pipeline::render(
+                    &src.image,
+                    &info,
+                    &input.identity.settings,
+                    &lightcraft_pipeline::RenderRequest::fit(assets::PREVIEW_EDGE, assets::PREVIEW_EDGE),
+                )
+                .image
+            });
+            a.previews.push(ReferencePreview::capture(&input.name, &image)?);
             a.identities.push(input.identity);
+            c.completed.fetch_add(1, Ordering::Relaxed);
+        }
+        for mut reference in self.external {
+            if stop() {
+                return Err("Cancelled".into());
+            }
+            reference.key = assets::external_key(&reference.path)?;
+            let file_bytes = std::fs::metadata(&reference.path).map_err(|e| e.to_string())?.len();
+            let _permit = lightcraft_sysmem::heavy_jobs().admit(file_bytes.saturating_mul(8).saturating_add(32 << 20), &stop).ok_or("Cancelled")?;
+            let (image, info) = lightcraft_sysmem::in_background_pool(|| (self.external_loader)(&reference.path, 1024))?;
+            if !reference.unchanged() {
+                return Err("Reference file changed during analysis; Analyze again".into());
+            }
+            let image = Arc::new(image);
+            let settings = DevelopSettings::default();
+            a.looks.push(lightcraft_sysmem::in_background_pool(|| match_look::analyze(&image, &info, &settings)));
+            let preview = lightcraft_sysmem::in_background_pool(|| {
+                lightcraft_pipeline::render(
+                    &image,
+                    &info,
+                    &settings,
+                    &lightcraft_pipeline::RenderRequest::fit(assets::PREVIEW_EDGE, assets::PREVIEW_EDGE),
+                )
+                .image
+            });
+            a.previews.push(ReferencePreview::capture(&reference.name, &preview)?);
+            a.external_identities.push(reference);
             c.completed.fetch_add(1, Ordering::Relaxed);
         }
         if stop() {
@@ -366,8 +533,13 @@ pub fn apply_analysis(s: &mut Session, result: Analyzed, update: Option<&str>) -
     if s.library_generation != result.generation
         || result.analysis.identities.iter().any(|i| !unchanged(s, i))
         || !result.analysis.identities.iter().map(|i| i.id).eq(s.match_look.references.iter().copied())
+        || !same_external_sources(&result.analysis.external_identities, &s.match_look.external_references, false)
+        || result.analysis.external_identities.iter().any(|r| !r.unchanged())
     {
         return Ok(json!({"discarded":true}));
+    }
+    for (state, analyzed) in s.match_look.external_references.iter_mut().zip(&result.analysis.external_identities) {
+        state.key = analyzed.key.clone();
     }
     for (id, src) in result.decoded {
         s.media.insert_source(id, SourceLevel::Thumb, src);
@@ -376,10 +548,11 @@ pub fn apply_analysis(s: &mut Session, result: Analyzed, update: Option<&str>) -
         let mut file = s.saved_looks.file.clone();
         let look = file.looks.iter_mut().find(|l| l.id == id).ok_or_else(|| bad(C, "Look was deleted"))?;
         look.looks = result.analysis.looks.clone();
-        for (look, id) in look.looks.iter_mut().zip(&s.match_look.references) {
-            look.importance = if s.match_look.reference_weights.get(id) == Some(&2.0) { 2.0 } else { 1.0 };
-        }
+        apply_reference_weights(s, &mut look.looks);
         look.reference_count = look.looks.len();
+        look.options = Some(s.match_look.options);
+        look.previews = result.analysis.previews.clone();
+        look.analyzer_version = Some(LOOK_ANALYZER_VERSION);
         s.saved_looks.replace(file)?;
     }
     let preview_only = result.analysis.identities.iter().filter(|i| s.catalog.photo(i.id).is_some_and(|p| p.preview_only.is_some())).count();
@@ -404,6 +577,7 @@ pub struct SolveWork {
 pub struct Matched {
     pub decoded: Vec<(PhotoId, DecodedSource)>,
     generation: u64,
+    reference_looks: Arc<[Look]>,
     pub rows: Vec<(Identity, DevelopSettings)>,
     pub applications: std::collections::BTreeMap<PhotoId, Applied>,
     pub failed: Vec<Value>,
@@ -429,7 +603,10 @@ pub fn prepare(s: &mut Session, p: &Value) -> Result<SolveWork> {
         .into_iter()
         .filter(|id| seen.insert(*id))
         .filter_map(|id| match input(s, id) {
-            Ok(input) => Some(input),
+            Ok(mut input) => {
+                prepare_reapplication(s, &mut input, opts);
+                Some(input)
+            }
             Err(error) => {
                 failed.push(json!([id.0, error.to_string()]));
                 None
@@ -507,10 +684,9 @@ impl SolveWork {
         self.run_with_mode(c, preview, true)
     }
     fn run_with_mode(self, c: &Control, preview: bool, parallel: bool) -> Matched {
-        let zero_without_normalization =
-            self.opts.strength == 0.0 && (!self.opts.normalize || (self.opts.keep_white_balance && self.opts.keep_exposure));
+        let zero_without_normalization = self.opts.strength == 0.0 && !self.opts.exposure_enabled() && !self.opts.white_balance_enabled();
         if self.opts.consistent_batch
-            && (self.opts.color_adjust || self.opts.color_tone)
+            && (self.opts.color_enabled() || self.opts.tone_enabled())
             && self.shared_color.is_none()
             && !zero_without_normalization
         {
@@ -540,7 +716,7 @@ impl SolveWork {
             .iter()
             .filter_map(|(identity, _)| {
                 let applied = first.applications.get(&identity.id)?;
-                Some((identity.id, match_look::shared_color_settings(&identity.settings, &applied.full, self.opts)))
+                Some((identity.id, match_look::shared_color_settings(&applied.before, &applied.full, applied.options)))
             })
             .collect::<Vec<_>>();
         let Some((representative, shared)) = representative_color(&candidates, self.opts) else {
@@ -654,6 +830,7 @@ impl SolveWork {
         let mut out = Matched {
             decoded: Vec::new(),
             generation: self.generation,
+            reference_looks: self.looks.clone(),
             rows: Vec::new(),
             applications: Default::default(),
             failed: self.failed,
@@ -690,6 +867,7 @@ impl SolveWork {
         let mut out = Matched {
             decoded: Vec::new(),
             generation: self.generation,
+            reference_looks: self.looks.clone(),
             rows: Vec::new(),
             applications: Default::default(),
             failed: self.failed,
@@ -722,27 +900,29 @@ impl SolveWork {
                     let id = i.identity.id;
                     let solve_start = web_time::Instant::now();
                     let info = src.info_or(i.info);
+                    let target_opts = Options { layer_placement: i.placement, ..self.opts };
                     if let Some(mut solved) = lightcraft_sysmem::in_background_pool(|| {
                         if let Some(shared) = &self.shared_color {
                             match_look::solve_batch_locked_color_with_faces(
                                 &src.image,
                                 &info,
-                                &i.identity.settings,
+                                &i.baseline,
                                 &self.looks,
-                                self.opts,
+                                target_opts,
                                 &i.faces,
                                 shared,
                                 &stop,
                             )
                         } else if preview {
-                            match_look::solve_with_faces(&src.image, &info, &i.identity.settings, &self.looks, self.opts, &i.faces, &stop)
+                            match_look::solve_with_faces(&src.image, &info, &i.baseline, &self.looks, target_opts, &i.faces, &stop)
                         } else {
-                            match_look::solve_batch_with_faces(&src.image, &info, &i.identity.settings, &self.looks, self.opts, &i.faces, &stop)
+                            match_look::solve_batch_with_faces(&src.image, &info, &i.baseline, &self.looks, target_opts, &i.faces, &stop)
                         }
                     }) {
                         let already_close = solved.before_error < 0.05;
-                        if self.shared_color.is_none() && already_close && solved.settings != *i.identity.settings {
+                        if i.previous.is_none() && self.shared_color.is_none() && already_close && solved.settings != *i.identity.settings {
                             // A separate heavy permit bounds the rare larger preview decode.
+                            release_decode_for_verification(&mut permit);
                             let verify_bytes = i.bytes.saturating_add(2560 * 2560 * 32);
                             if let Some(_verify_permit) = lightcraft_sysmem::heavy_jobs().admit(verify_bytes, &stop) {
                                 if let Ok(verified) = lightcraft_sysmem::in_background_pool(|| i.verification.load_source()) {
@@ -779,8 +959,15 @@ impl SolveWork {
                         }
                         out.renders += solved.renders;
                         let similarity = solved.similarity;
+                        let managed_layer = i.placement.map(|p| p.id).or_else(|| {
+                            (target_opts.new_layer && solved.full_settings.masks.len() > i.baseline.masks.len())
+                                .then(|| solved.full_settings.masks.last().map(|m| m.id))
+                                .flatten()
+                        });
                         let wb_ratio = if self.opts.new_layer {
-                            solved.settings.masks.last().map_or(1.0, |m| (m.adjust.temp * 0.6 / 100.0).exp())
+                            managed_layer
+                                .and_then(|id| solved.settings.masks.iter().find(|m| m.id == id))
+                                .map_or(1.0, |m| (m.adjust.temp * 0.6 / 100.0).exp())
                         } else {
                             lightcraft_pipeline::auto::current_wb(&info, &solved.settings).0
                                 / lightcraft_pipeline::auto::current_wb(&info, &i.identity.settings).0
@@ -790,10 +977,13 @@ impl SolveWork {
                             i.identity.id,
                             Applied {
                                 key: i.identity.key.clone(),
-                                before: i.identity.settings.clone(),
+                                before: i.baseline.clone(),
+                                managed_layer,
+                                undo_before: Some(i.identity.settings.clone()),
+                                previous: i.previous.clone(),
                                 full: solved.full_settings,
                                 last: solved.settings.clone(),
-                                options: self.opts,
+                                options: target_opts,
                                 similarity,
                                 fit: solved.fit,
                                 reach: solved.reach,
@@ -848,7 +1038,7 @@ pub fn retain_decoded(s: &mut Session, result: &mut Matched) {
 }
 pub fn apply(s: &mut Session, mut result: Matched) -> Result<Value> {
     // Like Sync, finish the batch in one transaction; protect only targets changed since capture.
-    if s.library_generation != result.generation {
+    if s.library_generation != result.generation || selected_looks(s).as_deref() != Some(result.reference_looks.as_ref()) {
         return Ok(json!({"changed":0,"skipped":[],"discarded":true}));
     }
     retain_decoded(s, &mut result);
@@ -867,16 +1057,14 @@ pub fn apply(s: &mut Session, mut result: Matched) -> Result<Value> {
         }
     }
     let per_photo = result.per_photo.into_iter().filter(|row| !skipped.iter().any(|id| row["id"] == json!(id))).collect::<Vec<_>>();
-    let weak = per_photo
-        .iter()
-        .filter(|r| r["reach"].as_f64().unwrap_or(1.0) < 0.6 || (r["alreadyClose"] != true && r["fit"].as_f64().unwrap_or(1.0) < 0.5))
-        .count();
+    let weak = per_photo.iter().filter(|r| r["alreadyClose"] != true && r["fit"].as_f64().unwrap_or(1.0) < 0.5).count();
     let preview_only = per_photo.iter().filter(|r| r["previewOnly"] == true).count();
     let n = ops.len();
     if n > 0 {
         s.commit("Match Look", Op::Batch { ops })?;
         for id in installed {
             if let Some(record) = applications.remove(&id) {
+                s.match_look.undone.remove(&id);
                 s.match_look.applied.insert(id, record);
             }
         }
@@ -886,7 +1074,11 @@ pub fn apply(s: &mut Session, mut result: Matched) -> Result<Value> {
     )
 }
 fn references(s: &mut Session, p: &Value) -> Result<Value> {
+    if p.get("paths").is_some_and(|v| !v.is_array()) {
+        return Err(bad(C, "Reference paths must be a list"));
+    }
     let mut ids = s.match_look.references.clone();
+    let mut external = s.match_look.external_references.clone();
     if let Some(id) = p["weightId"].as_u64() {
         let id = PhotoId(id);
         if !ids.contains(&id) {
@@ -897,35 +1089,86 @@ fn references(s: &mut Session, p: &Value) -> Result<Value> {
         s.save_prefs()?;
         return status(s, &Value::Null);
     }
+    if let Some(id) = p["weightExternalId"].as_u64() {
+        let reference = s.match_look.external_references.iter_mut().find(|r| r.id == id).ok_or_else(|| bad(C, "Unknown reference"))?;
+        reference.importance = if reference.importance == 2.0 { 1.0 } else { 2.0 };
+        s.save_prefs()?;
+        return status(s, &Value::Null);
+    }
     if let Some(remove) = p["remove"].as_u64() {
         ids.retain(|i| i.0 != remove);
+    } else if let Some(remove) = p["removeExternal"].as_u64() {
+        external.retain(|r| r.id != remove);
     } else {
-        let incoming = s.targets(p);
-        if incoming.is_empty() {
-            return Err(bad(C, "Select reference photos first"));
-        }
         if p["replace"] == true {
             ids.clear();
+            external.clear();
         }
-        for id in incoming {
-            input(s, id)?;
-            if !ids.contains(&id) {
-                ids.push(id);
+        if let Some(paths) = p["paths"].as_array() {
+            if paths.is_empty() {
+                return Err(bad(C, "Choose reference image files"));
+            }
+            for path in paths {
+                let path = path.as_str().ok_or_else(|| bad(C, "Invalid reference path"))?;
+                let path = std::fs::canonicalize(path).map_err(|e| bad(C, e.to_string()))?;
+                let path = path.to_str().ok_or_else(|| bad(C, "Reference path is not valid text"))?.to_string();
+                let key = assets::external_key(&path).map_err(|e| bad(C, e))?;
+                if external.iter().any(|r| r.path == path) {
+                    continue;
+                }
+                let id = external
+                    .iter()
+                    .map(|r| r.id)
+                    .max()
+                    .unwrap_or(assets::EXTERNAL_ID_START)
+                    .checked_add(1)
+                    .ok_or_else(|| bad(C, "Reference limit reached"))?;
+                let name = std::path::Path::new(&path).file_name().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Reference".into());
+                external.push(ExternalReference { id, name, path, key, importance: 1.0 });
+            }
+        } else {
+            let incoming = s.targets(p);
+            if incoming.is_empty() {
+                return Err(bad(C, "Select reference photos first"));
+            }
+            for id in incoming {
+                input(s, id)?;
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
             }
         }
-        if ids.len() > match_look::MAX_REFERENCES {
+        if ids.len() + external.len() > match_look::MAX_REFERENCES {
             return Err(bad(C, "At most 20 references; remove a reference first"));
         }
     }
     s.match_look.reference_weights.retain(|id, _| ids.contains(id));
     s.match_look.references = ids;
+    s.match_look.external_references = external;
+    s.match_look.selected = None;
     s.save_prefs()?;
     status(s, &Value::Null)
 }
-fn status(s: &mut Session, _: &Value) -> Result<Value> {
-    Ok(
-        json!({"references":s.match_look.references,"analyzed":current_ready(s),"ready":selected_looks(s).is_some(),"selected":s.match_look.selected,"looks":s.saved_looks.file.looks}),
-    )
+fn status(s: &mut Session, p: &Value) -> Result<Value> {
+    let looks = if p["includeData"] == true {
+        json!(s.saved_looks.file.looks)
+    } else {
+        Value::Array(
+            s.saved_looks
+                .file
+                .looks
+                .iter()
+                .map(|look| {
+                    json!({
+                        "id":look.id,"name":look.name,"created":look.created,"referenceCount":look.reference_count,
+                        "hasPreviews":!look.previews.is_empty(),"analyzerVersion":look.analyzer_version
+                    })
+                })
+                .collect(),
+        )
+    };
+    Ok(json!({"references":s.match_look.references,"externalReferences":s.match_look.external_references,
+        "analyzed":current_ready(s),"ready":selected_looks(s).is_some(),"selected":s.match_look.selected,"looks":looks}))
 }
 fn saved(s: &mut Session, p: &Value) -> Result<Value> {
     reconcile_selection(s);
@@ -949,6 +1192,9 @@ fn saved(s: &mut Session, p: &Value) -> Result<Value> {
                 created: (s.clock)(),
                 reference_count: looks.len(),
                 looks,
+                options: Some(s.match_look.options),
+                previews: selected_previews(s),
+                analyzer_version: Some(LOOK_ANALYZER_VERSION),
             }
         };
         let bytes = serde_json::to_vec_pretty(&LookFile { version: VERSION, looks: vec![look] }).map_err(|e| bad(C, e.to_string()))?;
@@ -966,6 +1212,9 @@ fn saved(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(bad(C, "Unknown saved look"));
         }
         s.match_look.selected = id.map(str::to_string);
+        if let Some(options) = id.and_then(|id| s.saved_looks.file.looks.iter().find(|l| l.id == id)).and_then(|l| l.options) {
+            s.match_look.options = options;
+        }
         s.save_prefs()?;
         return status(s, p);
     }
@@ -974,19 +1223,26 @@ fn saved(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let mut file = s.saved_looks.file.clone();
     if action == "save" {
-        if !current_ready(s) {
-            return Err(bad(C, "Analyze current references before saving"));
+        if selected_looks(s).is_none() {
+            return Err(bad(C, "Analyze references or select a saved look before saving"));
         }
         let name = p["name"].as_str().unwrap_or("").trim();
         if name.is_empty() {
             return Err(bad(C, "Enter a look name"));
         }
-        let mut looks = s.match_look.analysis.as_ref().map(|a| a.looks.clone()).unwrap_or_default();
-        for (look, id) in looks.iter_mut().zip(&s.match_look.references) {
-            look.importance = if s.match_look.reference_weights.get(id) == Some(&2.0) { 2.0 } else { 1.0 };
-        }
+        let looks = selected_looks(s).unwrap_or_default();
+        let previews = selected_previews(s);
         let id = uuid::Uuid::new_v4().to_string();
-        file.looks.push(SavedLook { id: id.clone(), name: name.into(), created: (s.clock)(), reference_count: looks.len(), looks });
+        file.looks.push(SavedLook {
+            id: id.clone(),
+            name: name.into(),
+            created: (s.clock)(),
+            reference_count: looks.len(),
+            looks,
+            options: Some(s.match_look.options),
+            previews,
+            analyzer_version: Some(LOOK_ANALYZER_VERSION),
+        });
         s.saved_looks.replace(file)?;
         s.match_look.selected = Some(id.clone());
         s.save_prefs()?;
@@ -995,7 +1251,7 @@ fn saved(s: &mut Session, p: &Value) -> Result<Value> {
         let bytes = serde_json::to_vec(&p["file"]).map_err(|e| bad(C, e.to_string()))?;
         let imported = parse_import(&bytes).map_err(|e| bad(C, e))?;
         for mut l in imported.looks {
-            if file.looks.iter().any(|existing| existing.looks == l.looks) {
+            if file.looks.iter().any(|existing| existing.looks == l.looks && existing.options == l.options && existing.previews == l.previews) {
                 continue;
             }
             if file.looks.iter().any(|existing| existing.name == l.name) {
@@ -1039,16 +1295,32 @@ pub fn reconcile_applied(s: &mut Session) {
     if s.interaction.is_some() {
         return;
     }
-    let undone = s
+    let transitions = s
         .match_look
         .applied
         .iter()
-        .filter(|(id, r)| r.last != *r.before && s.develop_of(**id).as_deref() == Some(r.before.as_ref()))
-        .map(|(id, _)| *id)
+        .filter_map(|(id, record)| {
+            let current = s.develop_of(*id)?;
+            if current.as_ref() == &record.last {
+                return None;
+            }
+            let mut previous = record.previous.clone();
+            while let Some(candidate) = previous {
+                if current.as_ref() == &candidate.last {
+                    return Some((*id, Some(candidate)));
+                }
+                previous = candidate.previous.clone();
+            }
+            let before = record.undo_before.as_ref().unwrap_or(&record.before);
+            (record.last != **before && current.as_ref() == before.as_ref()).then(|| (*id, record.previous.clone()))
+        })
         .collect::<Vec<_>>();
-    for id in undone {
+    for (id, previous) in transitions {
         if let Some(record) = s.match_look.applied.remove(&id) {
-            s.match_look.undone.insert(id, record);
+            if let Some(previous) = previous {
+                s.match_look.applied.insert(id, (*previous).clone());
+            }
+            s.match_look.undone.entry(id).or_default().push(record);
         }
     }
 }
@@ -1057,12 +1329,19 @@ pub fn restore_applied(s: &mut Session) {
         .match_look
         .undone
         .iter()
-        .filter(|(id, r)| s.develop_of(**id).as_deref() == Some(&r.last) && identity(s, **id).is_some_and(|i| i.key == r.key))
+        .filter(|(id, records)| {
+            records.last().is_some_and(|r| s.develop_of(**id).as_deref() == Some(&r.last) && identity(s, **id).is_some_and(|i| i.key == r.key))
+        })
         .map(|(id, _)| *id)
         .collect::<Vec<_>>();
     for id in ids {
-        if let Some(r) = s.match_look.undone.remove(&id) {
-            s.match_look.applied.insert(id, r);
+        if let Some(records) = s.match_look.undone.get_mut(&id) {
+            if let Some(record) = records.pop() {
+                s.match_look.applied.insert(id, record);
+            }
+            if records.is_empty() {
+                s.match_look.undone.remove(&id);
+            }
         }
     }
 }
@@ -1080,6 +1359,14 @@ fn amount(s: &mut Session, p: &Value) -> Result<Value> {
     if s.develop_of(id).as_deref() != Some(&record.last) || identity(s, id).is_none_or(|i| i.key != record.key) {
         return Err(bad(C, "Photo edited since Match Look; undo those edits before changing its amount"));
     }
+    if record.options.new_layer {
+        if let Some(id) = owned_layer(&record) {
+            if let Some(index) = record.last.masks.iter().position(|m| m.id == id) {
+                record.options.layer_placement = Some(match_look::LayerPlacement { index, id });
+            }
+        }
+    }
+    let previous_record = record.clone();
     if let Some(group) = p["resetGroup"].as_str() {
         record.full =
             match_look::reset_group(&record.before, &record.full, record.options, group).ok_or_else(|| bad(C, "Unknown Match Look group"))?;
@@ -1101,6 +1388,9 @@ fn amount(s: &mut Session, p: &Value) -> Result<Value> {
     let d = match_look::amount_settings(&record.before, &record.full, record.options);
     if d != record.last {
         s.set_develop(id, d.clone(), "Match Look amount")?;
+        record.undo_before = Some(Arc::new(previous_record.last.clone()));
+        record.previous = Some(Arc::new(previous_record));
+        s.match_look.undone.remove(&id);
     }
     if p["interaction"] == "end" {
         s.end_interaction()?;
@@ -1125,11 +1415,11 @@ pub fn specs() -> Vec<CommandSpec> {
             "Add to Match Look References",
             ["Photo"],
             None,
-            "{ids?, remove?, replace?} — add up to 20 edited reference photos",
+            "{ids?, paths?, remove?, removeExternal?, replace?} — up to 20 catalog or external image references",
             always,
             references
         ),
-        cmd!(query "develop.matchLookStatus","Match Look Status",[],None,"{}",always,status),
+        cmd!(query "develop.matchLookStatus","Match Look Status",[],None,"{includeData?:bool} — compact metadata by default",always,status),
         cmd!(
             "develop.analyzeLook",
             "Analyze Match Look",
@@ -1147,7 +1437,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Match Look",
             [],
             None,
-            "{ids?, normalize?, lightContrast?, colorAdjust?, colorTone?, strength?:0..125, newLayer?, consistentBatch?} — solve editable controls, one undo",
+            "{ids?, normalize?, lightContrast?, colorAdjust?, colorTone?, adjustments?, strength?:0..125, newLayer?, consistentBatch?} — editable controls, one undo",
             ready,
             |s, p| {
                 let result = prepare(s, p)?.run(&Control::default(), false);
@@ -1225,6 +1515,15 @@ mod tests {
             desired.light.exposure = 0.2;
             let looks: Arc<[Look]> = vec![match_look::analyze(&image(1.0), &SourceInfo::default(), &desired)].into();
             let opts = Options { new_layer, consistent_batch: true, strength: 50.0, light_contrast: false, ..Default::default() };
+            session.saved_looks.file.looks.push(SavedLook {
+                id: "consistent-fixture".into(),
+                name: "Fixture".into(),
+                reference_count: looks.len(),
+                looks: looks.to_vec(),
+                options: Some(opts),
+                ..Default::default()
+            });
+            session.match_look.selected = Some("consistent-fixture".into());
             let decodes = Arc::new(AtomicUsize::new(0));
             let mut inputs = ids.iter().map(|id| input(&mut session, *id).unwrap()).collect::<Vec<_>>();
             for (index, input) in inputs.iter_mut().enumerate() {
@@ -2042,3 +2341,7 @@ mod gpu_acceptance {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "match_look_workflow_tests.rs"]
+mod workflow_tests;

@@ -30,6 +30,11 @@ pub struct Preview {
     preview_only: bool,
     weights: Vec<f64>,
 }
+struct CachedReference {
+    source: engine::ReferencePreview,
+    texture: Option<egui::TextureHandle>,
+    pixels: Option<egui::ColorImage>,
+}
 pub struct Runtime {
     pub control: Option<Arc<Control>>,
     pub label: String,
@@ -41,6 +46,9 @@ pub struct Runtime {
     pub compare_reference: bool,
     pub reference_index: usize,
     auto_preview_at: Option<web_time::Instant>,
+    expanded_groups: [bool; 4],
+    reference_owner: String,
+    reference_previews: Vec<CachedReference>,
 }
 impl Default for Runtime {
     fn default() -> Self {
@@ -55,6 +63,9 @@ impl Default for Runtime {
             compare_reference: false,
             reference_index: 0,
             auto_preview_at: None,
+            expanded_groups: [false; 4],
+            reference_owner: String::new(),
+            reference_previews: Vec::new(),
         }
     }
 }
@@ -196,7 +207,7 @@ pub fn start(app: &mut LightcraftApp, params: Value, preview: bool) -> Result<Va
                         );
                         let before_texture = ctx.load_texture("match-look-before", before_pixels.clone(), egui::TextureOptions::LINEAR);
                         let record = r.applications.remove(&photo);
-                        let changes = record.as_ref().map(|r| changed_summary(&r.before, &r.last, options)).unwrap_or_default();
+                        let changes = record.as_ref().map(|r| changed_summary(&r.before, &r.last, r.options)).unwrap_or_default();
                         let similarity = record.as_ref().map_or(1.0, |r| r.similarity);
                         let (fit, reach, wb_ratio, preview_only) =
                             record.as_ref().map_or((1.0, 1.0, 1.0, false), |r| (r.fit, r.reach, r.wb_ratio, r.preview_only));
@@ -326,7 +337,47 @@ pub fn panel(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         })
         .show(ui, |ui| panel_body(app, ui));
 }
+/// JPEG decoding and GPU upload happen only when the analyzed/saved sources change.
+/// Saved previews belong to the look itself; catalog IDs are never used to resolve them.
+fn cache_reference_previews(app: &mut LightcraftApp, ctx: &egui::Context) {
+    let saved = app.session.match_look.selected.as_ref().and_then(|id| app.session.saved_looks.file.looks.iter().find(|look| &look.id == id));
+    let (owner, previews) = if let Some(saved) = saved {
+        (saved.id.as_str(), saved.previews.as_slice())
+    } else if engine::current_ready(&app.session) {
+        ("analysis", app.session.match_look.analysis.as_ref().map_or(&[][..], |analysis| analysis.previews.as_slice()))
+    } else {
+        ("", &[][..])
+    };
+    if app.match_look.reference_owner == owner
+        && app.match_look.reference_previews.len() == previews.len()
+        && app.match_look.reference_previews.iter().zip(previews).all(|(cached, source)| &cached.source == source)
+    {
+        return;
+    }
+    app.match_look.reference_owner = owner.to_string();
+    app.match_look.reference_index %= previews.len().max(1);
+    if previews.is_empty() {
+        app.match_look.compare_reference = false;
+    }
+    app.match_look.reference_previews = previews
+        .iter()
+        .enumerate()
+        .map(|(index, source)| {
+            let pixels = source.image().map(|image| {
+                egui::ColorImage::from_rgba_unmultiplied([image.width, image.height], &image.data.iter().flatten().copied().collect::<Vec<_>>())
+            });
+            let texture = pixels
+                .as_ref()
+                .map(|pixels| ctx.load_texture(format!("match-look-reference-{owner}-{index}"), pixels.clone(), egui::TextureOptions::LINEAR));
+            CachedReference { source: source.clone(), texture, pixels }
+        })
+        .collect();
+}
+fn reference_texture(app: &LightcraftApp, index: usize) -> Option<(egui::TextureId, egui::Vec2)> {
+    app.match_look.reference_previews.get(index).and_then(|cached| cached.texture.as_ref()).map(|texture| (texture.id(), texture.size_vec2()))
+}
 fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    cache_reference_previews(app, ui.ctx());
     let t = Tokens::get(ui.ctx());
     let name = app
         .session
@@ -363,10 +414,14 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         egui::Popup::menu(&menu).show(|ui| look_menu(app, ui, &name));
     });
     let references = app.session.match_look.references.clone();
+    let external = app.session.match_look.external_references.clone();
+    let reference_count = references.len() + external.len();
+    let saved = app.session.match_look.selected.is_some();
     let reference_bucket =
         lightcraft_engine::media::thumb_bucket((widgets::reference_tile_edge(ui.ctx()) * ui.ctx().pixels_per_point()).ceil() as usize);
-    let items = references
+    let mut items = references
         .iter()
+        .filter(|_| !saved)
         .map(|id| {
             crate::panels::grid::request_thumb(app, *id, reference_bucket, 40);
             let name = app.session.catalog.photo(*id).map(|p| p.file_name.clone()).unwrap_or_else(|| tr("Missing reference").into());
@@ -374,19 +429,49 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             (id.0, name, texture)
         })
         .collect::<Vec<_>>();
-    let pinned = app.session.match_look.reference_weights.iter().filter(|(_, w)| **w == 2.0).map(|(id, _)| id.0).collect::<Vec<_>>();
-    if let Some(action) = widgets::reference_tray(ui, &items, &pinned) {
-        match action {
-            widgets::ReferenceAction::Remove(id) => {
-                let _ = app.run("develop.matchLookReferences", json!({"remove":id}));
-            }
-            widgets::ReferenceAction::Pin(id) => {
-                let _ = app.run("develop.matchLookReferences", json!({"weightId":id}));
-                app.match_look.preview = None;
-            }
-            widgets::ReferenceAction::Compare(id) => {
-                app.match_look.reference_index = references.iter().position(|p| p.0 == id).unwrap_or(0);
-                app.match_look.compare_reference = true;
+    if !saved {
+        items.extend(
+            external.iter().enumerate().map(|(index, source)| (source.id, source.name.clone(), reference_texture(app, references.len() + index))),
+        );
+    }
+    if saved {
+        let items = app
+            .match_look
+            .reference_previews
+            .iter()
+            .enumerate()
+            .map(|(index, cached)| (index as u64, cached.source.name.clone(), reference_texture(app, index)))
+            .collect::<Vec<_>>();
+        if let Some(widgets::ReferenceAction::Compare(index)) = widgets::saved_reference_tray(ui, &items) {
+            app.match_look.reference_index = index as usize;
+            app.match_look.compare_reference = true;
+        }
+    } else {
+        let pinned = app
+            .session
+            .match_look
+            .reference_weights
+            .iter()
+            .filter(|(_, w)| **w == 2.0)
+            .map(|(id, _)| id.0)
+            .chain(external.iter().filter(|source| source.importance == 2.0).map(|source| source.id))
+            .collect::<Vec<_>>();
+        if let Some(action) = widgets::reference_tray(ui, &items, &pinned) {
+            match action {
+                widgets::ReferenceAction::Remove(id) => {
+                    let params = if external.iter().any(|source| source.id == id) { json!({"removeExternal":id}) } else { json!({"remove":id}) };
+                    let _ = app.run("develop.matchLookReferences", params);
+                }
+                widgets::ReferenceAction::Pin(id) => {
+                    let params = if external.iter().any(|source| source.id == id) { json!({"weightExternalId":id}) } else { json!({"weightId":id}) };
+                    let _ = app.run("develop.matchLookReferences", params);
+                    app.match_look.preview = None;
+                }
+                widgets::ReferenceAction::Compare(id) => {
+                    app.match_look.reference_index =
+                        references.iter().map(|id| id.0).chain(external.iter().map(|source| source.id)).position(|source| source == id).unwrap_or(0);
+                    app.match_look.compare_reference = true;
+                }
             }
         }
     }
@@ -394,7 +479,7 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         let why = if app.session.selection.ids.is_empty() {
             Some("Select reference photos first")
-        } else if references.len() >= lightcraft_pipeline::match_look::MAX_REFERENCES {
+        } else if reference_count >= lightcraft_pipeline::match_look::MAX_REFERENCES {
             Some("At most 20 references; remove one first")
         } else if busy {
             Some("Wait for the current job")
@@ -408,7 +493,24 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
         let why = if busy {
             Some("Wait for the current job")
-        } else if references.is_empty() {
+        } else if reference_count >= lightcraft_pipeline::match_look::MAX_REFERENCES {
+            Some("At most 20 references; remove one first")
+        } else if app.services.pick_files.is_none() {
+            Some("File selection is unavailable in this host")
+        } else {
+            None
+        };
+        if widgets::text_action(ui, "matchLookAddFiles", "Add files…", why).clicked() {
+            let paths = app.services.pick_files.as_mut().map(|picker| picker()).unwrap_or_default();
+            if !paths.is_empty()
+                && let Err(error) = app.run("develop.matchLookReferences", json!({"paths":paths}))
+            {
+                app.match_look.error = error;
+            }
+        }
+        let why = if busy {
+            Some("Wait for the current job")
+        } else if reference_count == 0 {
             Some("Add reference photos first")
         } else {
             None
@@ -427,7 +529,7 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     {
         crate::i18n::tr_format!("Saved look: {count} references", count = saved.reference_count)
     } else if ready {
-        crate::i18n::tr_format!("Analyzed: {count} references", count = references.len())
+        crate::i18n::tr_format!("Analyzed: {count} references", count = reference_count)
     } else if app.session.match_look.analysis.is_some() {
         tr("References changed — Analyze again").into()
     } else {
@@ -452,8 +554,8 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         let why = if busy {
             Some("Wait for the current job")
-        } else if !ready {
-            Some("Analyze current references before saving")
+        } else if engine::selected_looks(&app.session).is_none() {
+            Some("Analyze references or choose a saved look first")
         } else {
             None
         };
@@ -499,7 +601,7 @@ fn panel_body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .filter(|r| r["reach"].as_f64().unwrap_or(1.0) < 0.6 || (r["alreadyClose"] != true && r["fit"].as_f64().unwrap_or(1.0) < 0.5))
+                .filter(|r| r["alreadyClose"] != true && r["fit"].as_f64().unwrap_or(1.0) < 0.5)
                 .map(|r| r["id"].clone())
                 .collect::<Vec<_>>();
             let _ = app.run("library.filter", json!({"only":ids}));
@@ -573,7 +675,47 @@ fn prompt(app: &mut LightcraftApp, title: &str, value: &str, action: &str, id: O
         key: "name".into(),
     });
 }
+/// Group switches are masters: expanding a disabled group still reveals its remembered
+/// tool selection, while subordinate controls cannot accidentally re-enable the group.
+fn adjustment_group(
+    ui: &mut egui::Ui,
+    id: &str,
+    label: &str,
+    enabled: &mut bool,
+    expanded: &mut bool,
+    tools: &mut [(&str, &str, &mut bool)],
+) -> egui::Response {
+    let response = ui
+        .horizontal(|ui| {
+            let check = widgets::checkbox(ui, id, enabled, label);
+            let icon = if *expanded { crate::icons::Icon::ChevronDown } else { crate::icons::Icon::ChevronRight };
+            let tooltip = tr("Choose adjustments");
+            // The chevron already conveys expansion. Keep the standard icon color;
+            // tool-selection colors can have poor contrast in a light host palette.
+            if widgets::icon_button(ui, &format!("{id}Tools"), icon, ui.spacing().interact_size, false, true, tooltip).clicked() {
+                *expanded = !*expanded;
+            }
+            check
+        })
+        .inner;
+    if *expanded {
+        ui.indent(id, |ui| {
+            ui.add_enabled_ui(*enabled, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (id, label, value) in tools {
+                        widgets::checkbox(ui, id, value, label);
+                    }
+                });
+            });
+        });
+    }
+    response
+}
+pub(crate) fn any_adjustment_enabled(options: Options) -> bool {
+    options.exposure_enabled() || options.white_balance_enabled() || options.light_enabled() || options.color_enabled() || options.tone_enabled()
+}
 pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
+    cache_reference_previews(app, ui.ctx());
     let t = Tokens::get(ui.ctx());
     ui.label(
         egui::RichText::new(tr(
@@ -585,16 +727,64 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
     if app.session.active().and_then(|id| app.session.develop_of(id)).is_some_and(|d| d.treatment == lightcraft_develop::Treatment::Bw) {
         widgets::summary_chips(ui, &[tr("Black & white target").into(), tr("Color groups skipped").into()]);
     }
+    // Older saved looks expressed these two exclusions negatively. Show one positive
+    // control for each tool so there is no contradictory “WB”/“Keep WB” pair.
+    options.adjustments.exposure &= !options.keep_exposure;
+    options.adjustments.white_balance &= !options.keep_white_balance;
+    options.keep_exposure = false;
+    options.keep_white_balance = false;
     let before = *options;
-    ui.horizontal_wrapped(|ui| {
-        widgets::checkbox(ui, "matchNormalize", &mut options.normalize, "Normalize")
-            .on_hover_text(tr("Exposure follows the references fully for similar scenes and partially for different ones; Consistent batch always matches fully. Strength changes the style groups only."));
-        widgets::checkbox(ui, "matchLight", &mut options.light_contrast, "Light & Contrast");
-    });
-    ui.horizontal_wrapped(|ui| {
-        widgets::checkbox(ui, "matchColor", &mut options.color_adjust, "Color Adjust");
-        widgets::checkbox(ui, "matchTone", &mut options.color_tone, "Color Tone");
-    });
+    adjustment_group(
+        ui, "matchNormalize", "Normalize", &mut options.normalize, &mut app.match_look.expanded_groups[0],
+        &mut [
+            ("matchExposure", "Exposure", &mut options.adjustments.exposure),
+            ("matchWhiteBalance", "White balance", &mut options.adjustments.white_balance),
+        ],
+    ).on_hover_text(tr("Exposure follows the references fully for similar scenes and partially for different ones; Consistent batch always matches fully. Strength changes the style groups only."));
+    adjustment_group(
+        ui,
+        "matchLight",
+        "Light & Contrast",
+        &mut options.light_contrast,
+        &mut app.match_look.expanded_groups[1],
+        &mut [
+            ("matchContrast", "Contrast", &mut options.adjustments.contrast),
+            ("matchHighlights", "Highlights", &mut options.adjustments.highlights),
+            ("matchShadows", "Shadows", &mut options.adjustments.shadows),
+            ("matchWhites", "Whites", &mut options.adjustments.whites),
+            ("matchBlacks", "Blacks", &mut options.adjustments.blacks),
+            ("matchLumaCurve", "Luma curve", &mut options.adjustments.luma_curve),
+        ],
+    );
+    adjustment_group(
+        ui,
+        "matchColor",
+        "Color Adjust",
+        &mut options.color_adjust,
+        &mut app.match_look.expanded_groups[2],
+        &mut [
+            ("matchSaturation", "Saturation", &mut options.adjustments.saturation),
+            ("matchVibrance", "Vibrance", &mut options.adjustments.vibrance),
+            ("matchColorEditor", "Color editor", &mut options.adjustments.color_editor),
+            ("matchBlackWhite", "Black & white", &mut options.adjustments.black_white),
+        ],
+    );
+    adjustment_group(
+        ui,
+        "matchTone",
+        "Color Tone",
+        &mut options.color_tone,
+        &mut app.match_look.expanded_groups[3],
+        &mut [
+            ("matchMasterBalance", "Master balance", &mut options.adjustments.master_balance),
+            ("matchShadowsBalance", "Shadow balance", &mut options.adjustments.shadows_balance),
+            ("matchMidtonesBalance", "Midtone balance", &mut options.adjustments.midtones_balance),
+            ("matchHighlightsBalance", "Highlight balance", &mut options.adjustments.highlights_balance),
+            ("matchRedCurve", "Red curve", &mut options.adjustments.red_curve),
+            ("matchGreenCurve", "Green curve", &mut options.adjustments.green_curve),
+            ("matchBlueCurve", "Blue curve", &mut options.adjustments.blue_curve),
+        ],
+    );
     const STRENGTH: lightcraft_develop::ControlSpec = strength_spec("matchLook.strength");
 
     let out = widgets::slider(ui, &STRENGTH, options.strength, true, None);
@@ -605,19 +795,15 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
         widgets::checkbox(ui, "matchSkin", &mut options.protect_skin, "Protect skin").on_hover_text(tr(
             "Protect skin color in cached People faces and limit hue shifts. Without faces, warm neutrals are measured without a skin constraint.",
         ));
-        widgets::checkbox(ui, "matchKeepWB", &mut options.keep_white_balance, "Keep white balance");
-    });
-    ui.horizontal_wrapped(|ui| {
-        widgets::checkbox(ui, "matchKeepExposure", &mut options.keep_exposure, "Keep exposure");
         widgets::checkbox(ui, "matchContrastGuard", &mut options.contrast_guard, "Contrast guard")
             .on_hover_text(tr("Give Contrast a smaller share of the correction; prefer Whites, Blacks and the curve."));
+        if widgets::text_action(ui, "matchColourOnly", "Color only", None).clicked() {
+            options.normalize = false;
+            options.light_contrast = false;
+            options.color_adjust = true;
+            options.color_tone = true;
+        }
     });
-    if widgets::text_action(ui, "matchColourOnly", "Color only", None).clicked() {
-        options.normalize = false;
-        options.light_contrast = false;
-        options.color_adjust = true;
-        options.color_tone = true;
-    }
     ui.horizontal_wrapped(|ui| {
         widgets::checkbox(ui, "matchNewLayer", &mut options.new_layer, "Apply as new layer");
         widgets::checkbox(ui, "matchConsistent", &mut options.consistent_batch, "Consistent batch")
@@ -631,7 +817,9 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
             || app.match_look.label == "Preview Match Look" && app.match_look.control.is_some())
     {
         cancel_preview(app);
-        app.match_look.auto_preview_at = Some(web_time::Instant::now());
+        if any_adjustment_enabled(*options) {
+            app.match_look.auto_preview_at = Some(web_time::Instant::now());
+        }
     }
     if let Some(at) = app.match_look.auto_preview_at {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
@@ -643,31 +831,25 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
         }
     }
     app.session.match_look.options = *options;
-    if widgets::text_action(ui, "matchLookPreview", "Preview", app.match_look.control.as_ref().map(|_| "Wait for the current job")).clicked()
+    let enabled = any_adjustment_enabled(*options);
+    if !enabled {
+        ui.label(egui::RichText::new(tr("Enable at least one adjustment; no photos will change.")).font(t.font(11.5)).color(t.caution));
+    }
+    let preview_reason =
+        if !enabled { Some("Enable at least one adjustment") } else { app.match_look.control.as_ref().map(|_| "Wait for the current job") };
+    if widgets::text_action(ui, "matchLookPreview", "Preview", preview_reason).clicked()
         && let Err(e) = start(app, json!(*options), true)
     {
         app.match_look.error = e;
     }
-    let same_analysis = engine::current_ready(&app.session)
-        && app.session.match_look.analysis.as_ref().is_some_and(|a| app.session.match_look.selected.is_none() && !a.looks.is_empty());
-    let reference = same_analysis
-        .then(|| {
-            app.session
-                .match_look
-                .references
-                .get(app.match_look.reference_index % app.session.match_look.references.len().max(1))
-                .and_then(|id| app.renderer.thumb(*id))
-                .map(|tex| (tex.tex.id(), egui::vec2(tex.size[0] as f32, tex.size[1] as f32)))
-        })
-        .flatten();
+    let reference_count = app.match_look.reference_previews.len();
+    let reference = reference_texture(app, app.match_look.reference_index % reference_count.max(1));
     let mut choices = vec![(tr("Before").to_string(), "before".to_string())];
-    if same_analysis {
-        for i in 0..app.session.match_look.references.len() {
-            choices.push((crate::i18n::tr_format!("Ref {number}", number = i + 1), (i + 1).to_string()));
-        }
+    for i in 0..reference_count {
+        choices.push((crate::i18n::tr_format!("Ref {number}", number = i + 1), (i + 1).to_string()));
     }
     let items = choices.iter().map(|(label, key)| (label.as_str(), key.as_str())).collect::<Vec<_>>();
-    let active = if app.match_look.compare_reference && same_analysis { app.match_look.reference_index + 1 } else { 0 };
+    let active = if app.match_look.compare_reference && reference_count > 0 { app.match_look.reference_index + 1 } else { 0 };
     if let Some(index) = widgets::segmented(ui, "matchCompare", &items, Some(active), 3) {
         app.match_look.compare_reference = index > 0;
         app.match_look.reference_index = index.saturating_sub(1);
@@ -705,10 +887,15 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
     }
 }
 pub fn preview_pixels(app: &LightcraftApp) -> Vec<(egui::TextureId, egui::ColorImage)> {
-    app.match_look
+    let mut pixels = app
+        .match_look
         .preview
         .as_ref()
-        .map_or_else(Vec::new, |p| vec![(p.texture.id(), p.pixels.clone()), (p.before_texture.id(), p.before_pixels.clone())])
+        .map_or_else(Vec::new, |p| vec![(p.texture.id(), p.pixels.clone()), (p.before_texture.id(), p.before_pixels.clone())]);
+    pixels.extend(
+        app.match_look.reference_previews.iter().filter_map(|reference| Some((reference.texture.as_ref()?.id(), reference.pixels.as_ref()?.clone()))),
+    );
+    pixels
 }
 const fn strength_spec(id: &'static str) -> lightcraft_develop::ControlSpec {
     lightcraft_develop::ControlSpec {
@@ -740,39 +927,42 @@ fn similarity(ui: &mut egui::Ui, value: f64, weights: &[f64]) {
         );
     }
 }
+fn relative_summary_settings(
+    mask: Option<&lightcraft_develop::Mask>,
+    treatment: lightcraft_develop::Treatment,
+) -> lightcraft_develop::DevelopSettings {
+    lightcraft_develop::DevelopSettings {
+        light: mask.and_then(|m| m.tools.light).unwrap_or_default(),
+        curve: mask.and_then(|m| m.tools.curve.clone()).unwrap_or_default(),
+        color: mask.and_then(|m| m.tools.color).unwrap_or_default(),
+        mixer: mask.and_then(|m| m.tools.mixer).unwrap_or_default(),
+        grading: mask.and_then(|m| m.tools.grading).unwrap_or_default(),
+        effects: mask.and_then(|m| m.tools.effects).unwrap_or_default(),
+        treatment,
+        wb: lightcraft_develop::WhiteBalance {
+            temp: mask.map_or(0.0, |m| m.adjust.temp),
+            tint: mask.map_or(0.0, |m| m.adjust.tint),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
 fn changed_summary(
     before: &lightcraft_develop::DevelopSettings,
     after: &lightcraft_develop::DevelopSettings,
     opts: Options,
 ) -> Vec<(&'static str, String)> {
     use lightcraft_develop::controls;
-    let d = if opts.new_layer {
-        after
-            .masks
-            .last()
-            .map(|m| lightcraft_develop::DevelopSettings {
-                light: m.tools.light.unwrap_or_default(),
-                curve: m.tools.curve.clone().unwrap_or_default(),
-                color: m.tools.color.unwrap_or_default(),
-                mixer: m.tools.mixer.unwrap_or_default(),
-                grading: m.tools.grading.unwrap_or_default(),
-                effects: m.tools.effects.unwrap_or_default(),
-                treatment: after.treatment,
-                wb: lightcraft_develop::WhiteBalance { temp: m.adjust.temp, tint: m.adjust.tint, ..Default::default() },
-                ..Default::default()
-            })
-            .unwrap_or_default()
+    let (d, b) = if opts.new_layer {
+        let layer = if let Some(placement) = opts.layer_placement {
+            after.masks.iter().find(|mask| mask.id == placement.id)
+        } else {
+            after.masks.iter().find(|mask| !before.masks.iter().any(|existing| existing.id == mask.id))
+        };
+        let baseline = opts.layer_placement.and_then(|placement| before.masks.iter().find(|mask| mask.id == placement.id));
+        (relative_summary_settings(layer, after.treatment), relative_summary_settings(baseline, before.treatment))
     } else {
-        after.clone()
-    };
-    let b = if opts.new_layer {
-        let mut b = lightcraft_develop::DevelopSettings::default();
-        b.treatment = before.treatment;
-        b.wb.temp = 0.0;
-        b.wb.tint = 0.0;
-        b
-    } else {
-        before.clone()
+        (after.clone(), before.clone())
     };
     let groups = [
         ("Normalize", vec!["light.exposure", "wb.temp", "wb.tint"]),
@@ -872,6 +1062,9 @@ fn changed_summary(
                     ))
                 })
                 .collect::<Vec<_>>();
+            if group == "Light & Contrast" && b.curve.master != d.curve.master {
+                changed.push(tr("Luma curve").into());
+            }
             if group == "Color Tone" {
                 for (name, from, to) in [
                     ("Red curve", &b.curve.red, &d.curve.red),
@@ -893,7 +1086,7 @@ fn changed_summary(
 
 fn look_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, name: &str) {
     let busy = app.match_look.control.is_some();
-    let references = app.session.match_look.references.clone();
+    let reference_count = app.session.match_look.references.len() + app.session.match_look.external_references.len();
     if let Some(id) = app.session.match_look.selected.clone().filter(|id| app.session.saved_looks.file.looks.iter().any(|l| &l.id == id)) {
         ui.vertical(|ui| {
             if widgets::menu_action(ui, "matchLookRename", "Rename…", busy.then_some("Wait for the current job")).clicked() {
@@ -912,7 +1105,7 @@ fn look_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, name: &str) {
                 ui,
                 "matchLookUpdate",
                 "Update from current references…",
-                (busy || references.is_empty()).then_some("Add current references and wait for the current job"),
+                (busy || reference_count == 0).then_some("Add current references and wait for the current job"),
             )
             .clicked()
             {
@@ -937,5 +1130,57 @@ fn look_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, name: &str) {
             }
             ui.close();
         }
+    }
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+    #[test]
+    fn new_layer_summary_uses_owned_layer_and_ignores_existing_masks_on_no_op() {
+        use lightcraft_develop::{DevelopSettings, LayerTools, Light, Mask, ToneCurve};
+        use lightcraft_geom::Point;
+        let curve = ToneCurve { master: vec![Point::new(0.0, 0.0), Point::new(0.5, 0.6), Point::new(1.0, 1.0)], ..Default::default() };
+        let mut before = DevelopSettings { curve: curve.clone(), ..Default::default() };
+        before.masks.push(Mask {
+            id: 7,
+            name: "Existing local edit".into(),
+            tools: LayerTools { light: Some(Light { exposure: 2.0, ..Default::default() }), ..Default::default() },
+            ..Default::default()
+        });
+        let options = Options { new_layer: true, ..Default::default() };
+        assert!(changed_summary(&before, &before, options).is_empty());
+        let mut after = before.clone();
+        after.masks.insert(
+            0,
+            Mask {
+                id: 8,
+                name: "Match Look".into(),
+                tools: LayerTools { light: Some(Light { contrast: 14.0, ..Default::default() }), curve: Some(curve.clone()), ..Default::default() },
+                ..Default::default()
+            },
+        );
+        let rows = changed_summary(&before, &after, options);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "Light & Contrast");
+        assert!(!rows[0].1.contains("Exposure"));
+        assert!(rows[0].1.contains("Luma curve"));
+        assert_eq!(
+            rows,
+            changed_summary(&before, &after, Options { layer_placement: Some(pipeline::LayerPlacement { id: 8, index: 0 }), ..options })
+        );
+        let mut global = before.clone();
+        global.curve.master[1].y = 0.4;
+        let global_rows = changed_summary(&before, &global, Options::default());
+        assert_eq!(global_rows.len(), 1);
+        assert_eq!(global_rows[0].0, "Light & Contrast");
+        assert_eq!(global_rows[0].1, "Light & Contrast: Luma curve");
+        let replacement_before = after.clone();
+        after.masks[0].tools.light.as_mut().unwrap().contrast = 19.0;
+        let replacement_rows =
+            changed_summary(&replacement_before, &after, Options { layer_placement: Some(pipeline::LayerPlacement { id: 8, index: 0 }), ..options });
+        assert_eq!(replacement_rows.len(), 1);
+        assert!(replacement_rows[0].1.contains("Contrast +14 → +19"), "{}", replacement_rows[0].1);
+        assert!(!replacement_rows[0].1.contains("Luma curve"), "An unchanged existing curve must not be reported as a new change");
     }
 }

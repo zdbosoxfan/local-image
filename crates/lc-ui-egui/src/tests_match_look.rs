@@ -160,6 +160,278 @@ fn match_look_ui_saved_picker_reload_and_stale_analysis() {
     assert_eq!(h.app.session.develop_of(id).unwrap(), saved, "Reloading the saved look gives the same sliders");
 }
 #[test]
+fn match_look_ui_individual_adjustments_group_masters_and_no_op() {
+    for width in [250.0, 400.0] {
+        let mut h = setup(width, true, 1.0);
+        analyze(&mut h, 2);
+        let id = target(&mut h);
+        let before = h.app.session.develop_of(id).unwrap();
+        let revision = h.app.session.catalog.revision;
+        let undo = h.app.session.undo.len();
+        click(&mut h, "button:matchLook");
+        for (group, tools) in [
+            ("matchNormalize", vec!["matchExposure", "matchWhiteBalance"]),
+            ("matchLight", vec!["matchContrast", "matchHighlights", "matchShadows", "matchWhites", "matchBlacks", "matchLumaCurve"]),
+            ("matchColor", vec!["matchSaturation", "matchVibrance", "matchColorEditor", "matchBlackWhite"]),
+            (
+                "matchTone",
+                vec![
+                    "matchMasterBalance",
+                    "matchShadowsBalance",
+                    "matchMidtonesBalance",
+                    "matchHighlightsBalance",
+                    "matchRedCurve",
+                    "matchGreenCurve",
+                    "matchBlueCurve",
+                ],
+            ),
+        ] {
+            click(&mut h, &format!("icon:{group}Tools"));
+            let window = rect(&h, "dialog:window");
+            for tool in &tools {
+                let r = rect(&h, &format!("check:{tool}"));
+                assert!(r.left() >= window.left() && r.right() <= window.right(), "{tool} overflowed {window:?}: {r:?}");
+                click(&mut h, &format!("check:{tool}"));
+            }
+            click(&mut h, &format!("icon:{group}Tools"));
+        }
+        let options = match h.app.ui.dialog.as_ref().unwrap() {
+            crate::state::Dialog::MatchLook { options } => *options,
+            _ => panic!("wrong dialog"),
+        };
+        assert!(!crate::match_look::any_adjustment_enabled(options));
+        // Masters retain individual exclusions; disabled children cannot re-enable a tool.
+        click(&mut h, "check:matchLight");
+        click(&mut h, "icon:matchLightTools");
+        click(&mut h, "check:matchContrast");
+        click(&mut h, "icon:matchLightTools");
+        click(&mut h, "check:matchLight");
+        let remembered = match h.app.ui.dialog.as_ref().unwrap() {
+            crate::state::Dialog::MatchLook { options } => *options,
+            _ => panic!("wrong dialog"),
+        };
+        assert_eq!(options, remembered);
+        click(&mut h, "button:matchLookPreview");
+        assert!(h.app.match_look.control.is_none());
+        assert!(h.app.match_look.preview.is_none());
+        click(&mut h, "button:dialogOk");
+        wait(&mut h);
+        assert_eq!(h.app.session.catalog.revision, revision, "No enabled adjustments must not write to the catalog");
+        assert_eq!(h.app.session.undo.len(), undo);
+        assert_eq!(h.app.session.develop_of(id).unwrap(), before);
+    }
+}
+
+fn narrow_body(h: &mut Headless, width: f32) -> Vec<(String, egui::Rect)> {
+    let mut options = h.app.session.match_look.options;
+    crate::widgets::take_registry(&h.view.ctx);
+    let time = h.view.ctx.input(|input| input.time) + 1.0;
+    h.view.run(crate::headless::HeadlessView::raw_input(egui::vec2(width, 1800.0), 1.0, time, vec![]), |ui| {
+        ui.set_max_width(width);
+        ui.painter().rect_filled(ui.max_rect(), 0.0, Tokens::get(ui.ctx()).chrome);
+        crate::match_look::body(&mut h.app, ui, &mut options);
+    });
+    crate::widgets::take_registry(&h.view.ctx)
+}
+#[test]
+fn match_look_ui_expanded_adjustments_fit_actual_narrow_content_width() {
+    for width in [250.0, 400.0] {
+        let mut h = setup(width, true, 1.0);
+        analyze(&mut h, 2);
+        target(&mut h);
+        click(&mut h, "button:matchLook");
+        for group in ["matchNormalize", "matchLight", "matchColor", "matchTone"] {
+            click(&mut h, &format!("icon:{group}Tools"));
+        }
+        let controls = narrow_body(&mut h, width);
+        let adjustment_controls = controls.iter().filter(|(id, _)| id.starts_with("check:match") || id.ends_with("Tools")).collect::<Vec<_>>();
+        assert!(adjustment_controls.len() >= 27, "All expanded adjustment controls must render");
+        for (id, rect) in adjustment_controls {
+            assert!(rect.left() >= 0.0 && rect.right() <= width + 0.1, "{id} must fit {width}px: {rect:?}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "explicit visual QA: all individual adjustment controls at actual 250/400px content widths"]
+fn match_look_ui_expanded_adjustment_screenshots() {
+    for dark in [true, false] {
+        for width in [250.0, 400.0] {
+            let mut h = setup(width, dark, 1.0);
+            analyze(&mut h, 2);
+            target(&mut h);
+            click(&mut h, "button:matchLook");
+            for group in ["matchNormalize", "matchLight", "matchColor", "matchTone"] {
+                click(&mut h, &format!("icon:{group}Tools"));
+            }
+            let controls = narrow_body(&mut h, width);
+            let bottom = controls.iter().map(|(_, rect)| rect.bottom()).fold(0.0, f32::max);
+            save(
+                &h,
+                &format!("tools-{}-{}", if dark { "dark" } else { "light" }, width as u32),
+                egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(width, bottom + 8.0)),
+            );
+        }
+    }
+}
+
+#[test]
+fn match_look_ui_saved_previews_options_and_layer_survive_without_source_catalog() {
+    let store = MemStore::new();
+    let mut h = setup(250.0, false, 1.0);
+    h.app.session.saved_looks.open(Box::new(store.clone())).unwrap();
+    analyze(&mut h, 2);
+    let reference_ids = h.app.session.match_look.references.clone();
+    let target_id = target(&mut h);
+    click(&mut h, "button:matchLook");
+    click(&mut h, "icon:matchNormalizeTools");
+    click(&mut h, "check:matchWhiteBalance");
+    click(&mut h, "icon:matchNormalizeTools");
+    click(&mut h, "icon:matchToneTools");
+    click(&mut h, "check:matchRedCurve");
+    click(&mut h, "icon:matchToneTools");
+    click(&mut h, "check:matchNewLayer");
+    request(&mut h, "ui.dragWidget", json!({"id":"slider:matchLook.strength","dx":-28.0,"steps":4}));
+    let expected = match h.app.ui.dialog.as_ref().unwrap() {
+        crate::state::Dialog::MatchLook { options } => *options,
+        _ => panic!("wrong dialog"),
+    };
+    assert!(expected.new_layer && expected.strength < 100.0);
+    click(&mut h, "button:dialogCancel");
+    click(&mut h, "button:matchLookSave");
+    click(&mut h, "field:dialogText");
+    request(&mut h, "ui.text", json!({"text":"Portable exterior"}));
+    click(&mut h, "button:dialogOk");
+    let saved = h.app.session.saved_looks.file.looks[0].clone();
+    assert_eq!(saved.options, Some(expected));
+    assert_eq!(saved.previews.len(), 2);
+    assert!(saved.previews.iter().all(|preview| preview.image().is_some()));
+    drop(h);
+
+    let mut h = setup(250.0, false, 1.0);
+    h.app.session.saved_looks.open(Box::new(store)).unwrap();
+    for id in &reference_ids {
+        h.app.session.catalog.apply(lightcraft_catalog::Op::RemovePhoto { id: *id }).unwrap();
+    }
+    request(&mut h, "library.select", json!({"ids":[target_id.0]}));
+    let before = h.app.session.develop_of(target_id).unwrap();
+    click(&mut h, "dropdown:matchLookPicker");
+    click(&mut h, "button:matchLookPick-1");
+    assert!(h.app.session.match_look.references.is_empty());
+    assert_eq!(h.app.session.match_look.options, expected);
+    assert!(h.app.widgets.iter().any(|(id, _)| id == "reference:0"));
+    assert!(!h.app.widgets.iter().any(|(id, _)| id.starts_with("icon:matchReferenceRemove-")), "Saved previews cannot remove current references");
+    let images = crate::match_look::preview_pixels(&h.app);
+    assert_eq!(images.len(), 2, "Saved thumbnails decode without the source catalog");
+    h.step();
+    h.step();
+    assert_eq!(images, crate::match_look::preview_pixels(&h.app), "Stable saved references must reuse GPU textures");
+    click(&mut h, "button:matchLook");
+    click(&mut h, "button:matchLookPreview");
+    wait(&mut h);
+    click(&mut h, "button:matchCompare-2");
+    assert!(h.app.match_look.compare_reference);
+    assert_eq!(h.app.match_look.reference_index, 1);
+    assert!(crate::match_look::preview_ready(&h.app, expected));
+    assert_eq!(crate::match_look::preview_pixels(&h.app).len(), 4);
+    click(&mut h, "button:dialogOk");
+    wait(&mut h);
+    let applied = h.app.session.develop_of(target_id).unwrap();
+    assert_eq!(applied.masks.len(), before.masks.len() + 1);
+    assert_eq!(applied.wb, before.wb, "The saved WB exclusion is preserved on layers");
+    assert_eq!(applied.curve.red, before.curve.red);
+    let layer = applied.masks.last().unwrap();
+    assert_eq!(layer.adjust.temp, 0.0);
+    assert_eq!(layer.adjust.tint, 0.0);
+    assert!(layer.tools.curve.as_ref().is_none_or(|curve| curve.red.is_empty()), "The excluded RGB curve remains neutral in the Match Look layer");
+    request(&mut h, "ui.dragWidget", json!({"id":"slider:matchLook.photoStrength","dx":-20.0,"steps":4}));
+    assert!(h.app.session.match_look.applied[&target_id].options.strength < expected.strength);
+    assert!(!h.app.session.match_look.applied[&target_id].options.adjustments.white_balance);
+    assert!(!h.app.session.match_look.applied[&target_id].options.adjustments.red_curve);
+    // Reapply into the owned layer while preserving a later, unrelated user mask.
+    request(&mut h, "mask.add", json!({"kind":"linear","name":"User gradient"}));
+    request(&mut h, "mask.select", json!({"id":null}));
+    let user_mask = h.app.session.develop_of(target_id).unwrap().masks.last().unwrap().clone();
+    click(&mut h, "button:matchLook");
+    click(&mut h, "button:matchLookPreview");
+    wait(&mut h);
+    assert!(
+        h.app.widgets.iter().any(|(id, _)| id.starts_with("button:matchPreviewReset-")),
+        "Replacing an owned layer must preview the real changes against its neutral template"
+    );
+    click(&mut h, "button:dialogOk");
+    wait(&mut h);
+    let reapplied = h.app.session.develop_of(target_id).unwrap();
+    assert_eq!(reapplied.masks.len(), before.masks.len() + 2, "Reapplication must reuse the Match Look layer");
+    assert_eq!(reapplied.masks.last(), Some(&user_mask));
+    assert_eq!(reapplied.masks[before.masks.len()].id, layer.id);
+    // Save an adjusted recipe from the portable look while every original reference is gone.
+    click(&mut h, "button:matchLook");
+    click(&mut h, "check:matchSkin");
+    let modified = match h.app.ui.dialog.as_ref().unwrap() {
+        crate::state::Dialog::MatchLook { options } => *options,
+        _ => panic!("wrong dialog"),
+    };
+    click(&mut h, "button:dialogCancel");
+    click(&mut h, "button:matchLookSave");
+    assert!(
+        matches!(h.app.ui.dialog, Some(crate::state::Dialog::TextPrompt { .. })),
+        "A portable saved recipe can be saved without original references"
+    );
+    click(&mut h, "field:dialogText");
+    request(&mut h, "ui.text", json!({"text":"Portable exterior without skin protection"}));
+    click(&mut h, "button:dialogOk");
+    let resaved = h.app.session.saved_looks.file.looks.last().unwrap();
+    assert_eq!(resaved.options, Some(modified));
+    assert_eq!(resaved.previews, saved.previews);
+    assert_eq!(resaved.looks, saved.looks);
+}
+
+#[test]
+fn match_look_ui_external_reference_picker_analyze_pin_and_remove_without_import() {
+    let mut h = setup(250.0, true, 1.0);
+    let count = h.app.session.catalog.photos().count();
+    let dir = std::env::temp_dir()
+        .join(format!("lc-match-reference-ui-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("finished-exterior.png");
+    let image = lightcraft_raster::Rgba8::from_fn(96, 64, |x, y| [(80 + x) as u8, (100 + y) as u8, (140 + x / 2) as u8, 255]);
+    std::fs::write(&path, lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap()).unwrap();
+    let picked = path.to_string_lossy().into_owned();
+    h.app.services.pick_files = Some(Box::new(move || vec![picked.clone()]));
+    click(&mut h, "button:matchLookAddFiles");
+    assert_eq!(h.app.session.catalog.photos().count(), count, "Finished reference files must not be imported as target photos");
+    assert!(h.app.session.match_look.references.is_empty());
+    assert_eq!(h.app.session.match_look.external_references.len(), 1);
+    let reference = h.app.session.match_look.external_references[0].id;
+    assert!(
+        h.view.shapes().iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text().contains("finished-exterior.png"))),
+        "An external reference shows its filename while its image awaits analysis"
+    );
+    click(&mut h, &format!("icon:matchReferencePin-{reference}"));
+    assert_eq!(h.app.session.match_look.external_references[0].importance, 2.0);
+    click(&mut h, "button:matchLookAnalyze");
+    wait(&mut h);
+    assert!(engine::current_ready(&h.app.session));
+    assert_eq!(h.app.session.match_look.analysis.as_ref().unwrap().previews.len(), 1);
+    click(&mut h, &format!("reference:{reference}"));
+    assert!(h.app.match_look.compare_reference);
+    let id = target(&mut h);
+    click(&mut h, "button:matchLook");
+    click(&mut h, "button:matchLookPreview");
+    wait(&mut h);
+    click(&mut h, "button:matchCompare-1");
+    assert!(h.app.match_look.compare_reference);
+    assert_eq!(h.app.session.active(), Some(id));
+    click(&mut h, "button:dialogCancel");
+    click(&mut h, &format!("icon:matchReferenceRemove-{reference}"));
+    assert!(h.app.session.match_look.external_references.is_empty());
+    assert!(!engine::current_ready(&h.app.session));
+    assert_eq!(h.app.session.catalog.photos().count(), count);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn match_look_ui_cancel_analyze_and_target_batch() {
     let mut h = setup(400.0, true, 1.0);
     let ids = h.app.session.catalog.photos().take(10).map(|p| p.id.0).collect::<Vec<_>>();
@@ -413,8 +685,9 @@ fn match_look_ui_apply_direct_locks_colour_only_remember_amount_and_reset() {
     analyze(&mut h, 2);
     let id = target(&mut h);
     click(&mut h, "button:matchLook");
-    click(&mut h, "check:matchKeepWB");
-    click(&mut h, "check:matchKeepExposure");
+    click(&mut h, "icon:matchNormalizeTools");
+    click(&mut h, "check:matchWhiteBalance");
+    click(&mut h, "check:matchExposure");
     click(&mut h, "button:matchColourOnly");
     click(&mut h, "check:matchSkin");
     let before = h.app.session.develop_of(id).unwrap();
@@ -423,7 +696,7 @@ fn match_look_ui_apply_direct_locks_colour_only_remember_amount_and_reset() {
         _ => panic!(),
     };
     assert!(!opts.normalize && !opts.light_contrast && opts.color_adjust && opts.color_tone, "{opts:?}");
-    assert!(opts.keep_white_balance && opts.keep_exposure && !opts.protect_skin);
+    assert!(!opts.adjustments.white_balance && !opts.adjustments.exposure && !opts.protect_skin);
     assert!(h.app.match_look.preview.is_none());
     click(&mut h, "button:dialogOk");
     wait(&mut h);
@@ -633,7 +906,9 @@ fn match_look_ui_revision3_quality_pin_wrap_and_weak_review() {
     assert!(!text.contains("Tonal range "), "curve slope comfort must not be presented as full-pipeline reachability");
     assert_eq!(h.app.match_look.last_result.as_ref().unwrap()["perPhoto"][0]["id"], json!(id));
     // Stub the result metrics only; clicking runs the real grid-filter command.
-    h.app.match_look.last_result = Some(json!({"weak":1,"previewOnly":1,"perPhoto":[{"id":id,"fit":0.2,"reach":0.4}]}));
+    let other = h.app.session.catalog.photos().find(|photo| photo.id != id).unwrap().id;
+    h.app.match_look.last_result =
+        Some(json!({"weak":1,"previewOnly":1,"perPhoto":[{"id":id,"fit":0.2,"reach":0.4},{"id":other,"fit":0.9,"reach":0.1}]}));
     assert_eq!(crate::match_look::batch_details(h.app.match_look.last_result.as_ref().unwrap()), "1 photos matched weakly; 1 on embedded previews");
     h.step();
     click(&mut h, "button:matchWeak");
