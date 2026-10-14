@@ -20,6 +20,7 @@ use std::sync::Arc;
 #[cfg(test)]
 mod adjustments_tests;
 mod appearance;
+mod chroma_statistics;
 mod content;
 mod order_statistics;
 #[cfg(test)]
@@ -464,6 +465,19 @@ fn measure_samples_with_quantiles(
     membership: Option<&appearance::Membership>,
     quantiles: impl FnOnce(&mut [f64]) -> [f64; 7],
 ) -> Look {
+    measure_samples_with_reductions::<true>(width, height, pixels, faces, descriptor, membership, quantiles, chroma_statistics::moments)
+}
+#[allow(clippy::too_many_arguments)]
+fn measure_samples_with_reductions<const REUSE_CHROMA: bool>(
+    width: usize,
+    height: usize,
+    pixels: impl Iterator<Item = [f64; 3]>,
+    faces: &[[f32; 4]],
+    descriptor: bool,
+    membership: Option<&appearance::Membership>,
+    quantiles: impl FnOnce(&mut [f64]) -> [f64; 7],
+    chroma_moments: impl FnOnce(&[[f64; 3]], &[f64]) -> (f64, f64),
+) -> Look {
     let mut l = Vec::with_capacity(width * height);
     let mut sums = [0.0; FEATURES];
     let mut mass = [0.0; FEATURES];
@@ -471,6 +485,9 @@ fn measure_samples_with_quantiles(
     let mut hue_vector = [[0.0; 2]; 8];
     let centers = crate::colorops::band_hues().map(|h| f64::from(h).sin_cos());
     let mut labs = Vec::with_capacity(width * height);
+    // Solver measurements are at most 512² pixels: at most 2 MiB of temporary
+    // scratch, released with this measurement and never retained across photos.
+    let mut chromas = Vec::with_capacity(if REUSE_CHROMA { width * height } else { 0 });
     for (index, lab) in pixels.enumerate() {
         let [ll, a, b] = lab;
         l.push(ll);
@@ -480,6 +497,9 @@ fn measure_samples_with_quantiles(
         mass[25] += 1.0;
         mass[26] += 1.0;
         let c = a.hypot(b);
+        if REUSE_CHROMA {
+            chromas.push(c);
+        }
         let neutral = (1.0 - c / 0.08).clamp(0.0, 1.0).powi(2) * f64::from(ll > 0.15 && ll < 0.9);
         for (i, v, w) in [(5, a, neutral), (6, b, neutral), (7, c, 1.0)] {
             sums[i] += v * w;
@@ -536,9 +556,7 @@ fn measure_samples_with_quantiles(
             }
         }
     }
-    let mean_chroma = labs.iter().map(|p| p[1].hypot(p[2])).sum::<f64>() / labs.len().max(1) as f64;
-    let chroma_variation =
-        (labs.iter().map(|p| (p[1].hypot(p[2]) - mean_chroma).powi(2)).sum::<f64>() / labs.len().max(1) as f64).sqrt() / mean_chroma.max(1e-9);
+    let (_, chroma_variation) = chroma_moments(&labs, &chromas);
     let quantiles = quantiles(&mut l);
     let mut features = [0.0; FEATURES];
     let mut support = [0.0; FEATURES];
