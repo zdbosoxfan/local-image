@@ -6,10 +6,8 @@ use serde_json::json;
 
 use crate::{PhotocraftApp, color_icon_data, color_icons, icons, state::Tool};
 
-#[allow(dead_code)] // Reuse Develop's CPU painter for these windowless pixel checks.
-#[rustfmt::skip] // The source is formatted with Develop's own rustfmt configuration.
-#[path = "../../lc-ui-egui/src/softpaint.rs"]
-pub(super) mod cpu;
+// The shared CPU egui painter (`li-testkit`, J7) for these windowless pixel checks.
+use li_testkit::softpaint as cpu;
 
 #[test]
 fn every_tool_and_group_member_has_a_distinct_colour_icon_and_none_are_unused() {

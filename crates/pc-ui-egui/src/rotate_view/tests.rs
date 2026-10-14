@@ -3,20 +3,9 @@ use crate::theme::ThemeKind;
 use egui::{Event, Rect, accesskit::Role};
 use egui_kittest::{Harness, kittest::Queryable};
 
-#[derive(Default)]
-struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
-impl egui_kittest::TestRenderer for CpuRenderer {
-    fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
-        self.0.apply(std::mem::take(delta));
-    }
-    fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
-        let scale = output.pixels_per_point;
-        let size = ctx.content_rect().size() * scale;
-        let primitives = ctx.tessellate(output.shapes.clone(), scale);
-        let image = crate::tool_icon_tests::cpu::paint(&primitives, &self.0, [size.x as usize, size.y as usize], scale, egui::Color32::BLACK);
-        image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, image.pixels.iter().flat_map(|p| p.to_array()).collect())
-            .ok_or_else(|| "invalid CPU image size".into())
-    }
+/// The shared CPU kittest renderer (`li-testkit`): no GPU or window.
+fn cpu_renderer() -> li_testkit::SoftpaintRenderer {
+    li_testkit::SoftpaintRenderer::with_clear(egui::Color32::BLACK)
 }
 type H = Harness<'static, PhotocraftApp>;
 fn session() -> photocraft_engine::Session {
@@ -38,7 +27,7 @@ fn session() -> photocraft_engine::Session {
     s
 }
 fn harness(theme: ThemeKind, size: Vec2, ppp: f32) -> H {
-    let mut h = Harness::builder().with_size(size).with_pixels_per_point(ppp).with_max_steps(64).renderer(CpuRenderer::default()).build_eframe(move |cc| {
+    let mut h = Harness::builder().with_size(size).with_pixels_per_point(ppp).with_max_steps(64).renderer(cpu_renderer()).build_eframe(move |cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, theme);
         let mut app = PhotocraftApp::new(session(), Default::default());
         app.ui.theme = theme;

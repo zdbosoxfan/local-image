@@ -10,7 +10,7 @@ fn source() -> Vec<u8> {
 }
 #[test]
 fn affinity_place_preview_is_detached_atomic_undo_and_redo() {
-    let _gpu_gate = crate::gpu_test_support::lock();
+    let _gpu_gate = li_testkit::gpu::lock();
     let mut s = session();
     let mut request = capture(&s, source()).unwrap();
     request.offset = [12, 14];
@@ -31,7 +31,7 @@ fn affinity_place_preview_is_detached_atomic_undo_and_redo() {
 }
 #[test]
 fn affinity_stale_locked_and_invalid_targets_publish_nothing() {
-    let _gpu_gate = crate::gpu_test_support::lock();
+    let _gpu_gate = li_testkit::gpu::lock();
     let mut s = session();
     let r = capture(&s, source()).unwrap();
     s.execute("layer.new.layer", json!({"name":"changed"})).unwrap();
@@ -64,7 +64,7 @@ fn affinity_stale_locked_and_invalid_targets_publish_nothing() {
 }
 #[test]
 fn affinity_open_preview_recovery_is_open_only_and_never_recovers_crc() {
-    let _gpu_gate = crate::gpu_test_support::lock();
+    let _gpu_gate = li_testkit::gpu::lock();
     let mut s = session();
     let bytes = include_bytes!("../../../../pc-affinity/tests/fixtures/preview.afphoto").to_vec();
     assert!(matches!(read_open(&bytes, 72., &std::sync::atomic::AtomicBool::new(true)), Err(EngineError::Cancelled)));
@@ -87,7 +87,7 @@ fn affinity_open_preview_recovery_is_open_only_and_never_recovers_crc() {
 }
 #[test]
 fn affinity_imported_shape_remains_editable() {
-    let _gpu_gate = crate::gpu_test_support::lock();
+    let _gpu_gate = li_testkit::gpu::lock();
     let mut s = session();
     s.execute("file.affinity.place", serde_json::to_value(capture(&s, source()).unwrap()).unwrap()).unwrap();
     let (id, path) = s
@@ -104,29 +104,9 @@ fn affinity_imported_shape_remains_editable() {
 }
 #[test]
 fn affinity_rtx5090_vulkan_detached_preview_commit_cpu_parity() {
-    let _gpu_gate = crate::gpu_test_support::lock();
+    let _gpu_gate = li_testkit::gpu::lock();
     use photocraft_gpu::{Compositor, render_to_vec};
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN },
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        force_fallback_adapter: false,
-        ..Default::default()
-    }))
-    .expect("RTX 5090 Vulkan required");
-    let info = adapter.get_info();
-    assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
-    #[cfg(not(target_os = "macos"))]
-    assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
-    #[cfg(target_os = "macos")]
-    assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
-    #[cfg(not(target_os = "macos"))]
-    assert!(info.name.contains("5090"), "{info:?}");
-    assert_eq!(Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float);
-    eprintln!("Affinity import GPU: {info:?}");
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let (device, queue) = crate::gpu_test_support::compositor_device("Affinity import");
     let mut compositor = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let mut s = session();
     let mut r = capture(&s, source()).unwrap();
@@ -172,7 +152,7 @@ fn affinity_rtx5090_vulkan_detached_preview_commit_cpu_parity() {
 }
 #[test]
 fn affinity_prepared_scene_validates_all_layers_before_publication() {
-    let _gpu_gate = crate::gpu_test_support::lock();
+    let _gpu_gate = li_testkit::gpu::lock();
     let mut s = session();
     let request = capture(&s, source()).unwrap();
     let mut scene = decode(&s, &request).unwrap();

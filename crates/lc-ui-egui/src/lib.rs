@@ -35,7 +35,6 @@ pub mod render;
 pub mod shortcuts;
 pub mod smart_sort_keys;
 pub mod smart_sort_task;
-pub mod softpaint;
 pub mod state;
 pub mod tasks;
 pub mod theme;
@@ -726,7 +725,7 @@ impl LightcraftApp {
         let img = capture.then(|| {
             let mut tex = self.renderer.cpu_textures();
             if let (Some((t, ..)), Some(px)) = (&self.merge.preview, &self.merge.preview_pixels) {
-                tex.insert(t.id(), crate::softpaint::CpuTexture::linear(px.clone()));
+                tex.insert(t.id(), li_testkit::softpaint::CpuTexture::linear(px.clone()));
             }
             view.paint(&tex)
         });

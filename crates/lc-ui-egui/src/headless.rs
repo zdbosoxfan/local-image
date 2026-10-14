@@ -1,5 +1,5 @@
 //! Headless UI rendering: run the app's UI in an offscreen [`egui::Context`] and rasterize it on
-//! the CPU ([`crate::softpaint`]) — no window or native compositor. Photo render jobs still use
+//! the CPU ([`li_testkit::softpaint`]) — no window or native compositor. Photo render jobs still use
 //! the configured Develop backend (GPU compute or CPU), including in headless timing tests.
 //!
 //! Two users:
@@ -21,8 +21,8 @@ use std::time::{Duration, Instant};
 use egui::{Color32, ColorImage, RawInput, TextureId, ViewportCommand, ViewportId};
 use serde_json::{Value, json};
 
-use crate::softpaint::{self, CpuTexture, Layered, TextureStore};
 use crate::{ControlRequest, LightcraftApp};
+use li_testkit::softpaint::{self, CpuTexture, Layered, TextureStore};
 
 /// Background behind the panels (eframe's default clear colour, made opaque).
 const CLEAR: Color32 = Color32::from_rgb(12, 12, 12);

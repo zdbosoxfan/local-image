@@ -1,28 +1,8 @@
 use super::*;
 #[test]
 fn symbol_instances_real_rtx_5090_vulkan_parity() {
-    let _gpu_gate = crate::gpu_test_support::lock();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN },
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        force_fallback_adapter: false,
-        ..Default::default()
-    }))
-    .expect("RTX 5090 Vulkan required");
-    let info = adapter.get_info();
-    assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
-    #[cfg(not(target_os = "macos"))]
-    assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
-    #[cfg(target_os = "macos")]
-    assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
-    #[cfg(not(target_os = "macos"))]
-    assert!(info.name.contains("5090"), "{info:?}");
-    assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float);
-    eprintln!("symbols adapter: {info:?}");
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let _gpu_gate = li_testkit::gpu::lock();
+    let (device, queue) = crate::gpu_test_support::compositor_device("symbols");
     let mut compositor = photocraft_gpu::Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let mut s = tests::fixture();
     let (master, ids) = tests::three(&mut s);

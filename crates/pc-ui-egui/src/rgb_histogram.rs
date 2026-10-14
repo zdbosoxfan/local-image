@@ -25,20 +25,9 @@ mod tests {
     use crate::theme::ThemeKind;
     use egui_kittest::{Harness, kittest::Queryable};
 
-    #[derive(Default)]
-    struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
-    impl egui_kittest::TestRenderer for CpuRenderer {
-        fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
-            self.0.apply(std::mem::take(delta));
-        }
-        fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
-            let scale = output.pixels_per_point;
-            let size = ctx.content_rect().size() * scale;
-            let primitives = ctx.tessellate(output.shapes.clone(), scale);
-            let image = crate::tool_icon_tests::cpu::paint(&primitives, &self.0, [size.x as usize, size.y as usize], scale, Tokens::get(ctx).canvas);
-            image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, image.pixels.iter().flat_map(|pixel| pixel.to_array()).collect())
-                .ok_or_else(|| "invalid histogram CPU image".into())
-        }
+    /// The shared CPU kittest renderer (`li-testkit`): no GPU or window.
+    fn cpu_renderer() -> li_testkit::SoftpaintRenderer {
+        li_testkit::SoftpaintRenderer::with_clear_from(|ctx: &egui::Context| crate::theme::Tokens::get(ctx).canvas)
     }
 
     #[test]
@@ -58,7 +47,7 @@ mod tests {
                 for ppp in [1.0, 1.5] {
                     let histogram = h.clone();
                     let mut harness =
-                        Harness::builder().with_size(egui::vec2(width, 300.0)).with_pixels_per_point(ppp).renderer(CpuRenderer::default()).build_ui_state(
+                        Harness::builder().with_size(egui::vec2(width, 300.0)).with_pixels_per_point(ppp).renderer(cpu_renderer()).build_ui_state(
                             move |ui, clipping: &mut bool| {
                                 crate::theme::apply(ui.ctx(), kind);
                                 li_ui_kit::library::apply_tokens(ui.ctx(), li_ui_kit::library::for_kind(kind));
@@ -98,7 +87,7 @@ mod tests {
                 for ppp in [1.0, 1.5] {
                     for library in [false, true] {
                         let mut harness =
-                            Harness::builder().with_size(egui::vec2(width, 140.0)).with_pixels_per_point(ppp).renderer(CpuRenderer::default()).build_ui_state(
+                            Harness::builder().with_size(egui::vec2(width, 140.0)).with_pixels_per_point(ppp).renderer(cpu_renderer()).build_ui_state(
                                 move |ui, baseline: &mut bool| {
                                     crate::theme::apply(ui.ctx(), kind);
                                     let t = Tokens::get(ui.ctx());

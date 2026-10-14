@@ -5,20 +5,9 @@ use image::Rgba;
 use serde_json::json;
 
 // Reuse the existing CPU mesh painter so the compact modal artifact needs no GPU or inference.
-#[derive(Default)]
-struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
-impl egui_kittest::TestRenderer for CpuRenderer {
-    fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
-        self.0.apply(std::mem::take(delta));
-    }
-    fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
-        let scale = output.pixels_per_point;
-        let size = ctx.content_rect().size() * scale;
-        let primitives = ctx.tessellate(output.shapes.clone(), scale);
-        let image = crate::tool_icon_tests::cpu::paint(&primitives, &self.0, [size.x as usize, size.y as usize], scale, crate::theme::Tokens::get(ctx).canvas);
-        image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, image.pixels.iter().flat_map(|p| p.to_array()).collect())
-            .ok_or_else(|| "invalid CPU image size".into())
-    }
+/// The shared CPU kittest renderer (`li-testkit`): no GPU or window.
+fn cpu_renderer() -> li_testkit::SoftpaintRenderer {
+    li_testkit::SoftpaintRenderer::with_clear_from(|ctx: &egui::Context| crate::theme::Tokens::get(ctx).canvas)
 }
 
 fn harness() -> Harness<'static, PhotocraftApp> {
@@ -29,7 +18,7 @@ fn harness_at(size: egui::Vec2, ppp: f32) -> Harness<'static, PhotocraftApp> {
     let mut session = photocraft_engine::Session::new();
     session.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
     session.execute("edit.fill", json!({"color": "#334455"})).unwrap();
-    let mut h = Harness::builder().with_size(size).with_pixels_per_point(ppp).with_max_steps(64).renderer(CpuRenderer::default()).build_eframe(move |cc| {
+    let mut h = Harness::builder().with_size(size).with_pixels_per_point(ppp).with_max_steps(64).renderer(cpu_renderer()).build_eframe(move |cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
         PhotocraftApp::new(session, crate::Services::default())
     });
@@ -855,20 +844,19 @@ fn gpu_resources_shared_widgets_theme_width_screenshots() {
             for scale in [1.0, 1.5] {
                 let mut first = true;
                 let mut full_speed = false;
-                let mut h =
-                    Harness::builder().with_size(vec2(width, 260.0)).with_pixels_per_point(scale).renderer(CpuRenderer::default()).build_ui(move |ui| {
-                        if first {
-                            PhotocraftApp::setup_context(ui.ctx(), theme);
-                            first = false;
-                            ui.ctx().request_repaint();
-                            return;
-                        }
-                        ui.set_width(ui.available_width());
-                        widgets::checkbox(ui, &mut full_speed, "Keep full speed on battery");
-                        widgets::cpu_estimate(ui, li_seg::estimate::Estimate { seconds: 25.0, measured: false });
-                        widgets::cpu_batch_estimate(ui, li_seg::estimate::Estimate { seconds: 360.0, measured: true });
-                        widgets::primary_button(ui, "Preview restoration", 0.0);
-                    });
+                let mut h = Harness::builder().with_size(vec2(width, 260.0)).with_pixels_per_point(scale).renderer(cpu_renderer()).build_ui(move |ui| {
+                    if first {
+                        PhotocraftApp::setup_context(ui.ctx(), theme);
+                        first = false;
+                        ui.ctx().request_repaint();
+                        return;
+                    }
+                    ui.set_width(ui.available_width());
+                    widgets::checkbox(ui, &mut full_speed, "Keep full speed on battery");
+                    widgets::cpu_estimate(ui, li_seg::estimate::Estimate { seconds: 25.0, measured: false });
+                    widgets::cpu_batch_estimate(ui, li_seg::estimate::Estimate { seconds: 360.0, measured: true });
+                    widgets::primary_button(ui, "Preview restoration", 0.0);
+                });
                 h.run_steps(4);
                 h.get_by_label("Keep full speed on battery").click();
                 h.run_steps(2);

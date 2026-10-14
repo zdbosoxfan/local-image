@@ -12,21 +12,9 @@ use egui_kittest::{
     kittest::{NodeT, Queryable},
 };
 
-#[derive(Default)]
-struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
-
-impl egui_kittest::TestRenderer for CpuRenderer {
-    fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
-        self.0.apply(std::mem::take(delta));
-    }
-    fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<RgbaImage, String> {
-        let scale = output.pixels_per_point;
-        let size = ctx.content_rect().size() * scale;
-        let primitives = ctx.tessellate(output.shapes.clone(), scale);
-        let image = crate::tool_icon_tests::cpu::paint(&primitives, &self.0, [size.x as usize, size.y as usize], scale, Tokens::get(ctx).canvas);
-        RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, image.pixels.iter().flat_map(|p| p.to_array()).collect())
-            .ok_or_else(|| "invalid CPU image size".into())
-    }
+/// The shared CPU kittest renderer (`li-testkit`): no GPU or window.
+fn cpu_renderer() -> li_testkit::SoftpaintRenderer {
+    li_testkit::SoftpaintRenderer::with_clear_from(|ctx: &egui::Context| Tokens::get(ctx).canvas)
 }
 
 fn harness(size: egui::Vec2) -> Harness<'static, PhotocraftApp> {
@@ -45,7 +33,7 @@ fn harness_render(size: egui::Vec2, gpu: bool) -> Harness<'static, PhotocraftApp
         ..Default::default()
     };
     crate::ai_ui::TEST_STATUS.with(|v| *v.borrow_mut() = Some(st));
-    let mut builder = Harness::builder().with_size(size).with_max_steps(64).renderer(CpuRenderer::default());
+    let mut builder = Harness::builder().with_size(size).with_max_steps(64).renderer(cpu_renderer());
     if gpu {
         let rs = egui_kittest::wgpu::create_render_state(crate::gpu_canvas::wgpu_setup(), eframe::egui_wgpu::RendererOptions::PREDICTABLE);
         let adapter = rs.adapter.get_info();

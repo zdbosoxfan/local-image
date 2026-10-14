@@ -1,32 +1,15 @@
 //! Windowless integration of the editor facades and shared Library widget profile.
-//! The CPU renderer uses Develop's existing software painter; no GPU/window is created.
+//! The CPU renderer is the shared `li-testkit` software painter; no GPU/window is created.
 use egui::{Color32, Rect, Sense, Vec2, vec2};
 use egui_kittest::{
-    Harness, TestRenderer,
+    Harness,
     kittest::{By, Queryable},
 };
 use li_ui_kit::widgets::{self as kit, Profile, SelectionStyle};
 
-#[derive(Default)]
-struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
-impl TestRenderer for CpuRenderer {
-    fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
-        self.0.apply(std::mem::take(delta));
-    }
-    fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
-        let ppp = output.pixels_per_point;
-        let size = ctx.content_rect().size() * ppp;
-        let primitives = ctx.tessellate(output.shapes.clone(), ppp);
-        let pixels = crate::tool_icon_tests::cpu::paint(
-            &primitives,
-            &self.0,
-            [size.x.round() as usize, size.y.round() as usize],
-            ppp,
-            crate::theme::Tokens::get(ctx).chrome,
-        );
-        let rgba: Vec<u8> = pixels.pixels.iter().flat_map(|color| color.to_array()).collect();
-        image::RgbaImage::from_raw(pixels.size[0] as u32, pixels.size[1] as u32, rgba).ok_or_else(|| "CPU image dimensions disagree".into())
-    }
+/// The shared CPU kittest renderer (`li-testkit`): no GPU or window.
+fn cpu_renderer() -> li_testkit::SoftpaintRenderer {
+    li_testkit::SoftpaintRenderer::with_clear_from(|ctx: &egui::Context| crate::theme::Tokens::get(ctx).chrome)
 }
 
 #[derive(Default)]
@@ -124,7 +107,7 @@ fn gallery(ui: &mut egui::Ui, state: &mut Gallery) {
 
 fn harness(kind: crate::theme::ThemeKind, width: f32) -> Harness<'static, Gallery> {
     let mut initialized = false;
-    let mut harness = Harness::builder().with_size(vec2(width, 650.0)).renderer(CpuRenderer::default()).build_ui_state(
+    let mut harness = Harness::builder().with_size(vec2(width, 650.0)).renderer(cpu_renderer()).build_ui_state(
         move |ui, state| {
             if !initialized {
                 // Named Inter faces become available on the next egui pass.

@@ -12,23 +12,8 @@ mod cpu;
 use photocraft_doc::{Color, ColorMode, Document, Fill, Layer, LayerContent, SampleType, ShapeLayer, Size};
 #[test]
 fn cutout_rtx5090_vulkan_scaled_mosaic_cpu_parity() -> TestResult {
-    let _gpu_gate = crate::gpu_test_support::lock();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN },
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions { force_fallback_adapter: false, ..Default::default() }))?;
-    let info = adapter.get_info();
-    eprintln!("cutout RTX gate: {info:?}");
-    assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
-    #[cfg(not(target_os = "macos"))]
-    assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
-    #[cfg(target_os = "macos")]
-    assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
-    #[cfg(not(target_os = "macos"))]
-    assert!(info.name.contains("RTX 5090"));
-    assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float);
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
+    let _gpu_gate = li_testkit::gpu::lock();
+    let (device, queue) = crate::gpu_test_support::compositor_device("cutout");
     let mut compositor = photocraft_gpu::Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float)?;
     let labels: Vec<_> = (0..32).flat_map(|y| (0..32).map(move |x| u32::from((x - 16i32).pow(2) + (y - 16i32).pow(2) < 100))).collect();
     let data: Vec<_> = labels.iter().flat_map(|&l| if l == 0 { [0, 20, 160, 255] } else { [40, 20, 160, 255] }).collect();
@@ -74,7 +59,7 @@ fn cutout_rtx5090_vulkan_scaled_mosaic_cpu_parity() -> TestResult {
 #[test]
 #[ignore = "requires shared-coverage mosaic rendering from 00/09; run to expose the current compositor deficit"]
 fn cutout_composited_mosaic_has_no_antialias_seam() -> TestResult {
-    let _gpu_gate = crate::gpu_test_support::lock();
+    let _gpu_gate = li_testkit::gpu::lock();
     let labels: Vec<_> = (0..32).flat_map(|y| (0..32).map(move |x| u32::from((x - 16i32).pow(2) + (y - 16i32).pow(2) < 100))).collect();
     let data: Vec<_> = labels.iter().flat_map(|&l| if l == 0 { [0, 20, 160, 255] } else { [200, 20, 40, 255] }).collect();
     let t = trace(Image { width: 32, height: 32, rgba: &data }, &Params::default())?;

@@ -66,3 +66,5 @@ wat = "1.228"
 photocraft-gpu = { workspace = true }
 wgpu = { workspace = true }
 pollster = { workspace = true }
+# The one strict real-GPU test prelude (Vulkan, or Metal on macOS) shared by the GPU gates (J7).
+li-testkit = { workspace = true, features = ["gpu"] }
