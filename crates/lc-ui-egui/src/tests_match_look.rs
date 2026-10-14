@@ -580,6 +580,16 @@ fn match_look_ui_screenshots() {
 #[test]
 #[ignore = "500-photo app-path performance acceptance; run separately with low-end profile override"]
 fn match_look_ui_500_photo_app_path_benchmark() {
+    run_match_look_app_benchmark(false);
+}
+
+#[test]
+#[ignore = "500-photo direct-Apply acceptance; no prior Preview or shared-style cache"]
+fn match_look_ui_500_photo_direct_apply_benchmark() {
+    run_match_look_app_benchmark(true);
+}
+
+fn run_match_look_app_benchmark(direct_apply: bool) {
     lightcraft_sysmem::init(Default::default());
     let mut h = setup(400.0, true, 1.0);
     h.app.ui.settings.gpu = true;
@@ -637,34 +647,41 @@ fn match_look_ui_500_photo_app_path_benchmark() {
     h.step();
     click(&mut h, "button:matchLook");
     click(&mut h, "check:matchConsistent");
-    let preview_start = Instant::now();
-    click(&mut h, "button:matchLookPreview");
-    // Consistent Preview now analyzes the complete batch. Record that work rather
-    // than hiding it behind the normal small-selection helper's 60-second wait.
-    let mut preview_frames = Vec::new();
-    let mut preview_peak_rss = 0;
-    while h.app.match_look.control.is_some() {
-        let frame = Instant::now();
+    let (preview_metrics, preview_peak_rss) = if direct_apply {
+        assert!(h.app.match_look.preview.is_none(), "Direct Apply must not inherit a Preview");
+        assert!(h.app.match_look.control.is_none(), "Direct Apply must begin without a running Preview");
+        (None, 0)
+    } else {
+        let preview_start = Instant::now();
+        click(&mut h, "button:matchLookPreview");
+        // Consistent Preview now analyzes the complete batch. Record that work rather
+        // than hiding it behind the normal small-selection helper's 60-second wait.
+        let mut preview_frames = Vec::new();
+        let mut preview_peak_rss = 0;
+        while h.app.match_look.control.is_some() {
+            let frame = Instant::now();
+            h.step();
+            preview_frames.push(frame.elapsed().as_secs_f64() * 1000.0);
+            preview_peak_rss = preview_peak_rss.max(lightcraft_sysmem::permits::process_rss().unwrap_or(0));
+            assert!(preview_start.elapsed() < Duration::from_secs(300), "Preview watchdog expired");
+            std::thread::sleep(Duration::from_millis(10));
+        }
         h.step();
-        preview_frames.push(frame.elapsed().as_secs_f64() * 1000.0);
-        preview_peak_rss = preview_peak_rss.max(lightcraft_sysmem::permits::process_rss().unwrap_or(0));
-        assert!(preview_start.elapsed() < Duration::from_secs(300), "Preview watchdog expired");
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    h.step();
-    h.step();
-    assert!(h.app.match_look.error.is_empty(), "{}", h.app.match_look.error);
-    let preview_wall = preview_start.elapsed().as_secs_f64();
-    preview_frames.sort_by(f64::total_cmp);
-    let preview_p95 = preview_frames.get(((preview_frames.len().saturating_sub(1)) as f64 * 0.95) as usize).copied().unwrap_or(0.0);
-    println!("MATCH_LOOK_PREVIEW photos={count} wall_seconds={preview_wall:.3} ui_frame_p95_ms={preview_p95:.3}");
-    assert!(
-        h.app.widgets.iter().any(|(id, _)| id == "matchLook:preview"),
-        "preview exists={}, dialog={:?}, last={:?}",
-        h.app.match_look.preview.is_some(),
-        h.app.ui.dialog,
-        h.app.match_look.last_result
-    );
+        h.step();
+        assert!(h.app.match_look.error.is_empty(), "{}", h.app.match_look.error);
+        let preview_wall = preview_start.elapsed().as_secs_f64();
+        preview_frames.sort_by(f64::total_cmp);
+        let preview_p95 = preview_frames.get(((preview_frames.len().saturating_sub(1)) as f64 * 0.95) as usize).copied().unwrap_or(0.0);
+        println!("MATCH_LOOK_PREVIEW photos={count} wall_seconds={preview_wall:.3} ui_frame_p95_ms={preview_p95:.3}");
+        assert!(
+            h.app.widgets.iter().any(|(id, _)| id == "matchLook:preview"),
+            "preview exists={}, dialog={:?}, last={:?}",
+            h.app.match_look.preview.is_some(),
+            h.app.ui.dialog,
+            h.app.match_look.last_result
+        );
+        (Some((preview_wall, preview_p95)), preview_peak_rss)
+    };
     let before = h.app.session.undo.len();
     let start = Instant::now();
     click(&mut h, "button:dialogOk");
@@ -691,7 +708,7 @@ fn match_look_ui_500_photo_app_path_benchmark() {
     let p95 = frames[((frames.len() - 1) as f64 * 0.95) as usize];
     let solve = h.app.match_look.last_result.as_ref().unwrap()["elapsedMs"].as_f64().unwrap() / 1000.0;
     println!(
-        "MATCH_LOOK_BENCH adapter={adapter} raw={} workers={} profile={:?} memory_override={:?} photos={count} solve_seconds={solve:.3} wall_seconds={wall:.3} per_photo_ms={:.3} ui_frame_p95_ms={p95:.3} frames={}",
+        "MATCH_LOOK_BENCH direct_apply={direct_apply} adapter={adapter} raw={} workers={} profile={:?} memory_override={:?} photos={count} solve_seconds={solve:.3} wall_seconds={wall:.3} per_photo_ms={:.3} ui_frame_p95_ms={p95:.3} frames={}",
         raw_dir.is_some(),
         h.app.match_look.last_result.as_ref().unwrap()["workers"],
         lightcraft_sysmem::profile(),
@@ -702,19 +719,22 @@ fn match_look_ui_500_photo_app_path_benchmark() {
     let mut metrics = h.app.match_look.last_result.as_ref().unwrap().clone();
     println!("MATCH_LOOK_PHASES load_ms={} solve_ms={} renders={}", metrics["loadMs"], metrics["solveMs"], metrics["renders"]);
     metrics["benchmark"] = json!({
-        "photos":count,"nativeRaw":raw_dir.is_some(),"previewWallSeconds":preview_wall,
-        "applyWallSeconds":wall,"previewFrameP95Ms":preview_p95,"applyFrameP95Ms":p95,
+        "photos":count,"nativeRaw":raw_dir.is_some(),"directApply":direct_apply,
+        "previewWallSeconds":preview_metrics.map(|(wall, _)| wall),
+        "applyWallSeconds":wall,"previewFrameP95Ms":preview_metrics.map(|(_, p95)| p95),"applyFrameP95Ms":p95,
         "peakRssBytes":peak_rss,"proxy500WallLimitSeconds":90.0,
         "proxy500WallGateApplies":count == 500 && raw_dir.is_none()
     });
     let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/matchlook-revision3");
     std::fs::create_dir_all(&out).unwrap();
     std::fs::write(
-        out.join(format!("benchmark-{count}-{}.json", lightcraft_sysmem::profile().threads)),
+        out.join(format!("benchmark-{count}-{}{}.json", lightcraft_sysmem::profile().threads, if direct_apply { "-direct" } else { "" })),
         serde_json::to_vec_pretty(&metrics).unwrap(),
     )
     .unwrap();
-    assert!(preview_p95 < 16.7, "Preview must leave interactive frames responsive: {preview_p95}");
+    if let Some((_, preview_p95)) = preview_metrics {
+        assert!(preview_p95 < 16.7, "Preview must leave interactive frames responsive: {preview_p95}");
+    }
     assert!(p95 < 16.7, "CPU job must leave interactive frames responsive: {p95}");
     assert!(h.settle(T));
     let texture_seconds = start.elapsed().as_secs_f64();
@@ -726,7 +746,10 @@ fn match_look_ui_500_photo_app_path_benchmark() {
     );
     request(&mut h, "edit.undo", json!({}));
     if count == 500 && raw_dir.is_none() {
-        assert!(preview_wall <= 90.0 && wall <= 90.0, "500-proxy throughput gate: Preview {preview_wall:.3}s, Apply {wall:.3}s; each must be <=90s");
+        assert!(
+            preview_metrics.is_none_or(|(wall, _)| wall <= 90.0) && wall <= 90.0,
+            "500-proxy throughput gate: Preview {preview_metrics:?}, Apply {wall:.3}s; each measured phase must be <=90s"
+        );
     }
 }
 

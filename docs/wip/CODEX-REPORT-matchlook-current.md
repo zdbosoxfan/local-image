@@ -33,7 +33,11 @@ as well as in sequential work and between stages. Source cost includes confidenc
 and white-balance allocations. Retention eviction is deterministic under differing completion
 orders. Evicted stage-two sources must match recorded pixel and effective-decoder evidence;
 changed or unverifiable sources discard the shared-style result. No source is downsampled
-to obtain these savings. Reuse of the shared representative analysis is separate ongoing work.
+to obtain these savings. A single metadata-only shared-style cache now reuses the complete
+successful analysis across Preview and Apply. It validates every selected source against
+exact finite pixel and effective-decoder witnesses before use; any late mismatch discards
+the speculative result. Cached and fresh paths preserve exact settings, including Amount
+and active-photo changes. Partial cancellation applies no edits and creates no Undo entry.
 
 ## Photographic evidence and rejected experiments
 
@@ -72,8 +76,11 @@ the existing Candle CPU dependencies and correct positional interpolation. Synth
 against pinned official source passed for final and selected intermediate patch tensors,
 including rectangular inputs. Four-thread warm p95 at 224 pixels was 79.1 ms, with approximately
 174 MiB process peak memory and cancellation acknowledgment below 3.4 ms. These are diagnostic
-measurements, not app throughput or evidence of photographic matching quality. No model or
-experimental runner is included in this checkpoint's production behavior.
+measurements, not app throughput or evidence of photographic matching quality. Subsequent
+tests on four distinct photographic inputs passed pinned official tensor parity but failed
+the frozen correspondence gates: ceiling wood matched walls, a cross-scene foliage/wall
+match passed, and useful sofa/floor support was absent. This route also stays out of the
+solver. No model or experimental runner is included in this checkpoint's production behavior.
 
 Implementation input separation and provenance are documented in
 `MATCHLOOK-CLEAN-ROOM.md`. Feature work remains in the existing fork; target-derived proprietary
@@ -93,9 +100,30 @@ At the shared-raster integration checkpoint:
 - Native benchmark extrapolation corrected: parallel batch wall time must not be divided
   by worker count a second time. An extrapolation is not an actual five-hundred-photo run.
 
+At shared-style cache checkpoint `3fb6eaeb`, the focused engine suite passed forty-seven
+tests (five intentionally ignored), the UI suite passed sixteen (four intentionally
+ignored), and the full app check passed. Both physical Vulkan GPU regressions passed;
+solved global/layer and later-WB comparisons differed by at most one output code value.
+Typed source-witness hashing reduced the isolated 2560-by-1920 cold measurement from
+about 207 ms to 62 ms without changing its exact evidence contract.
+
+Two actual application-path benchmarks used five hundred synthetic 512-pixel proxies,
+seven automatic workers, and an RTX 5090 Vulkan renderer. These are not native-RAW or
+low-memory acceptance runs. Each measured phase retains the ninety-second gate:
+
+| Workflow | Preview | Apply | UI frame p95 | Sampled peak RSS | Result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Preview, then cached Apply | 68.874 s | 66.338 s | 1.992 / 2.821 ms | 1011.5 MiB | Pass |
+| Direct Apply, no Preview | — | 142.069 s | 2.679 ms | 939.3 MiB | Fail |
+
+Both workflows changed all five hundred targets in one Undo entry and produced an actual
+GPU texture. Cached Apply used 26,500 renders; direct Apply used 83,000. The new ignored
+direct-Apply benchmark deliberately exposes the remaining throughput failure; the cached
+pass does not establish completion of the general performance requirement.
+
 Remaining work includes automatic evidence that separates material, composition and
 illumination; stable color/tone fitting with regional and output-resolution safeguards;
-held-out native photographic acceptance; measured low-memory acceptance of bounded retention; exact
-shared-style caching across Preview/Apply; and current native, proxy, low-memory and UI
-responsiveness measurements. Historical eighty/ninety-second targets remain unresolved;
+held-out native photographic acceptance; measured low-memory acceptance of bounded retention;
+faster direct Apply; and current native and low-memory measurements. Historical
+eighty/ninety-second targets remain unresolved for all required workflows;
 a longer watchdog does not replace them.
