@@ -137,7 +137,8 @@ pub fn probe(bytes: &[u8]) -> Option<RawFormat> {
     if ifd0.contains(lightcraft_tiff::tags::DNG_VERSION) {
         return Some(RawFormat::Dng);
     }
-    let make = t.find(lightcraft_tiff::tags::MAKE).and_then(|e| e.value.as_str()).unwrap_or_default().to_ascii_uppercase();
+    let make_tag = t.find(lightcraft_tiff::tags::MAKE).and_then(|e| e.value.as_str()).unwrap_or_default();
+    let make = make_tag.to_ascii_uppercase();
     let has_cfa = t.all_ifds().iter().any(|i| {
         i.u16(lightcraft_tiff::tags::PHOTOMETRIC) == Some(lightcraft_tiff::tags::photometric::CFA)
             || i.u16(lightcraft_tiff::tags::COMPRESSION).is_some_and(|c| c == 34713 || c == 32767 || c == 32769 || c == 32770)
@@ -146,7 +147,9 @@ pub fn probe(bytes: &[u8]) -> Option<RawFormat> {
         return Some(RawFormat::Cr2);
     }
     if make.starts_with("NIKON") {
-        return Some(if has_cfa || t.all_ifds().len() > 1 { RawFormat::Nef } else { RawFormat::Nrw });
+        // rawler's container dispatch identifies NRW by the exact "NIKON" maker string.
+        // Keep the same container distinction; no camera-model list is involved.
+        return Some(if make_tag.trim_end() == "NIKON" || !(has_cfa || t.all_ifds().len() > 1) { RawFormat::Nrw } else { RawFormat::Nef });
     }
     if make.starts_with("SONY") {
         return Some(RawFormat::Arw);
@@ -208,6 +211,29 @@ fn decode_with(bytes: &[u8], mode: Mode) -> Result<RawImage> {
 }
 fn decode_impl(bytes: &[u8], mode: Mode, calibrate: bool) -> Result<RawImage> {
     let format = probe(bytes).ok_or(RawError::NotRaw)?;
+    let result = if !rawler_adapter::native_first_for(bytes, format) {
+        match rawler_adapter::decode(bytes, format, mode) {
+            Ok(raw) => Ok(raw),
+            Err(limit @ RawError::Limit(_)) => Err(limit),
+            Err(error) => decode_native(bytes, format, mode).or(Err(error)),
+        }
+    } else {
+        match decode_native(bytes, format, mode) {
+            Err(RawError::Unsupported(_)) => rawler_adapter::decode(bytes, format, mode),
+            result => result,
+        }
+    };
+    // Per-camera calibration (camera_data) applies after whichever decoder produced the image.
+    result.map(|mut image| {
+        if calibrate {
+            camera_data::apply(&mut image, mode);
+        }
+        image
+    })
+}
+
+/// Native-only path: comparison and fallback must never measure the same decoder twice.
+pub(crate) fn decode_native(bytes: &[u8], format: RawFormat, mode: Mode) -> Result<RawImage> {
     let native = match format {
         RawFormat::Dng => dng::decode(bytes, mode).map(lift_clipped),
         RawFormat::Cr2 => vendor::cr2::decode(bytes, mode),
@@ -219,21 +245,12 @@ fn decode_impl(bytes: &[u8], mode: Mode, calibrate: bool) -> Result<RawImage> {
         RawFormat::Orf => vendor::orf::decode(bytes, mode),
         other => Err(RawError::Unsupported(format!("{other:?} files are not decoded yet"))),
     };
-    let result = match native {
-        Err(RawError::Unsupported(_)) => rawler_adapter::decode(bytes, format, mode),
-        result => result.map(|mut image| {
-            rawler_adapter::fill_color(
-                &mut image.color,
-                image.metadata.make.as_deref().unwrap_or_default(),
-                image.metadata.model.as_deref().unwrap_or_default(),
-            );
-            image
-        }),
-    };
-    result.map(|mut image| {
-        if calibrate {
-            camera_data::apply(&mut image, mode);
-        }
+    native.map(|mut image| {
+        rawler_adapter::fill_color(
+            &mut image.color,
+            image.metadata.make.as_deref().unwrap_or_default(),
+            image.metadata.model.as_deref().unwrap_or_default(),
+        );
         image
     })
 }
@@ -765,3 +782,8 @@ mod dcp_bundled;
 
 #[cfg(test)]
 mod tests_camera_matrices;
+
+#[cfg(test)]
+extern crate self as lightcraft_raw;
+#[cfg(test)]
+mod decoder_comparison;

@@ -21,6 +21,20 @@ fn geometry(w: usize, h: usize) -> Result<usize> {
     w.checked_mul(h).filter(|&n| w > 0 && h > 0 && w <= 65535 && h <= 65535 && n <= MAX_PIXELS).ok_or(RawError::Limit("raw image geometry"))
 }
 
+/// Reference comparisons favor the tuned native paths. New/other containers go directly to rawler.
+/// This is a format policy, never a camera-model allow-list.
+pub(crate) fn native_first(format: RawFormat) -> bool {
+    matches!(format, RawFormat::Dng | RawFormat::Cr2 | RawFormat::Nef | RawFormat::Arw | RawFormat::Pef | RawFormat::Orf)
+}
+
+/// RW2/RWL packing 4 favors our decoder; words, packed 2 and compressed 6/8 favor rawler.
+pub(crate) fn native_first_for(bytes: &[u8], format: RawFormat) -> bool {
+    if format == RawFormat::Rw2 {
+        return lightcraft_tiff::Tiff::parse(bytes).ok().and_then(|t| t.ifds.first().and_then(|i| i.u16(0x2d))) == Some(4);
+    }
+    native_first(format)
+}
+
 pub(crate) fn decode(bytes: &[u8], format: RawFormat, mode: Mode) -> Result<RawImage> {
     preflight(bytes, format)?;
     let source = RawSource::new_from_slice(bytes);
@@ -95,7 +109,7 @@ fn map_image(raw: rawler::RawImage, bytes: &[u8], format: RawFormat, mode: Mode)
             if w == 0 || h == 0 || w > 12 || h > 12 {
                 return Err(corrupt("invalid CFA"));
             }
-            let pattern = (0..h).flat_map(|y| (0..w).map(move |x| config.cfa.color_at(x, y) as u8)).collect();
+            let pattern = (0..h).flat_map(|y| (0..w).map(move |x| config.cfa.color_at(y, x) as u8)).collect();
             Some(Cfa { width: w, height: h, pattern })
         }
         RawPhotometricInterpretation::BlackIsZero => None,
@@ -279,7 +293,7 @@ fn tiff_mode(bytes: &[u8], base: usize, chain: bool) -> Result<()> {
         _ => return Err(corrupt("invalid TIFF byte order")),
     };
     let offset = order.read_u32(bytes, base.saturating_add(4)).ok_or_else(|| corrupt("short TIFF header"))? as usize;
-    let mut guard = TiffGuard { bytes, visited: HashSet::new(), values: 0, olympus: None };
+    let mut guard = TiffGuard { bytes, visited: HashSet::new(), values: 0, olympus: None, rw2: bytes.get(base + 2..base + 4) == Some(b"U\0") };
     guard.ifd(base.saturating_add(offset), base, order, 0, chain)
 }
 struct TiffGuard<'a> {
@@ -287,6 +301,7 @@ struct TiffGuard<'a> {
     visited: HashSet<(usize, usize)>,
     values: usize,
     olympus: Option<usize>,
+    rw2: bool,
 }
 impl TiffGuard<'_> {
     fn ifd(&mut self, at: usize, base: usize, order: ByteOrder, depth: usize, chain: bool) -> Result<()> {
@@ -303,6 +318,9 @@ impl TiffGuard<'_> {
         for p in (at + 2..end).step_by(12) {
             let tag = order.read_u16(self.bytes, p).ok_or_else(|| corrupt("short tag"))?;
             let typ = order.read_u16(self.bytes, p + 2).ok_or_else(|| corrupt("short type"))?;
+            if typ == 0 || typ > 13 {
+                return Err(corrupt("unknown TIFF field type"));
+            }
             let count = order.read_u32(self.bytes, p + 4).ok_or_else(|| corrupt("short count"))? as usize;
             let size = lightcraft_tiff::FieldType::from_u16(typ).map_or(8, |t| t.size());
             if count > MAX_VALUES && (size != 1 || count > MAX_METADATA) {
@@ -322,18 +340,29 @@ impl TiffGuard<'_> {
                 _ => None,
             };
             match tag {
+                2 if self.rw2 && depth == 0 => width = scalar,
+                3 if self.rw2 && depth == 0 => height = scalar,
                 tags::IMAGE_WIDTH | 0xf001 => width = scalar,
                 tags::IMAGE_LENGTH | 0xf002 => height = scalar,
                 tags::SAMPLES_PER_PIXEL if scalar.is_some_and(|v| v == 0 || v > 4) => return Err(RawError::Limit("raw samples per pixel")),
                 tags::TILE_WIDTH | tags::TILE_LENGTH if scalar.is_some_and(|v| v == 0 || v > 65535) => {
                     return Err(RawError::Limit("raw tile dimensions"));
                 }
-                tags::SUB_IFDS | tags::EXIF_IFD | tags::GPS_IFD | tags::INTEROP_IFD | 0xf000 if matches!(typ, 4 | 13) => {
-                    for v in data.as_chunks::<4>().0 {
-                        let offset = order.read_u32(v, 0).unwrap_or(0) as usize;
-                        if offset != 0 {
+                tags::SUB_IFDS | tags::EXIF_IFD | tags::GPS_IFD | tags::INTEROP_IFD | tags::ICC_PROFILE | 0xf000 => {
+                    match typ {
+                        4 => {
+                            for v in data.as_chunks::<4>().0 {
+                                let offset = order.read_u32(v, 0).unwrap_or(0) as usize;
+                                self.ifd(base.saturating_add(offset), base, order, depth + 1, false)?;
+                            }
+                        }
+                        7 => self.ifd(value, base, order, depth + 1, false)?,
+                        // rawler 0.8 treats type 13 as Unknown(bytes) and follows its first byte.
+                        13 => {
+                            let offset = self.bytes.get(p + 8).copied().ok_or_else(|| corrupt("short IFD pointer"))? as usize;
                             self.ifd(base.saturating_add(offset), base, order, depth + 1, false)?;
                         }
+                        _ => {}
                     }
                 }
                 0x2010 | 0x2040 | 0x3000 if self.olympus.is_some() => {
@@ -369,6 +398,12 @@ impl TiffGuard<'_> {
             (at + 16, base, order)
         } else if note.starts_with(b"OLYMP\0") {
             (at + 8, base, order)
+        } else if note.starts_with(b"Panasonic\0") {
+            (at + 12, base, order)
+        } else if note.starts_with(b"AOC\0") {
+            (at + 6, base, if note.get(4..6) == Some(b"MM") { ByteOrder::Big } else { ByteOrder::Little })
+        } else if note.starts_with(b"PENTAX \0") {
+            (at + 10, at, if note.get(8..10) == Some(b"MM") { ByteOrder::Big } else { ByteOrder::Little })
         } else if note.starts_with(b"Nikon\0\x02") {
             let hdr = at + 10;
             let o = if self.bytes.get(hdr..hdr + 2) == Some(b"II") { ByteOrder::Little } else { ByteOrder::Big };
@@ -653,6 +688,16 @@ mod tests {
         }
     }
     #[test]
+    fn decoder_compare_adapter_preserves_asymmetric_cfa_rows_and_columns() {
+        for pattern in ["GRBG", "GBRG", "RBGBRGGGRGGBGGBGGRBRGRBGGGBGGRGGRGGB"] {
+            let mut raw = sensor();
+            let cfa = rawler::CFA::new(pattern);
+            raw.photometric = RawPhotometricInterpretation::Cfa(CFAConfig::new(&cfa, &raw.camera.plane_color));
+            let mapped = map_image(raw, &metadata(), RawFormat::Cr3, Mode::Full).unwrap();
+            assert_eq!(mapped.cfa.unwrap().name(), pattern);
+        }
+    }
+    #[test]
     fn rawler_contract_rejects_invalid_mapping() {
         for kind in 0..6 {
             let mut raw = sensor();
@@ -685,6 +730,9 @@ mod tests {
         cyclic[14..18].copy_from_slice(&u32::MAX.to_le_bytes());
         assert!(tiff(&cyclic, 0).is_err());
         assert!(boxes(&[0; 8], 0, 8, 13, &mut 100).is_err());
+        let mut ifd = IfdBuilder::new();
+        ifd.set(tags::SUB_IFDS, Value::Long(vec![0]));
+        assert!(tiff(&TiffWriter::default().write(&[ifd]).unwrap(), 0).is_err());
         let mut ifd = IfdBuilder::new();
         ifd.set(tags::SAMPLES_PER_PIXEL, Value::Long(vec![u32::MAX]));
         assert!(matches!(tiff(&TiffWriter::default().write(&[ifd]).unwrap(), 0), Err(RawError::Limit(_))));

@@ -1,8 +1,10 @@
 # RAW decoder boundary and updates
 
-`lc-raw` keeps its native decoders. A native `RawError::Unsupported` is delegated to **unmodified
-crates.io rawler**, pinned to `=0.8.0` with default features disabled. Corrupt input and resource-limit
-errors are retained. There are no model lists, vendored sources, forks, path dependencies or patches.
+`lc-raw` uses measured per-format routing. Native DNG/CR2/NEF/ARW/PEF/uncompressed ORF and
+RW2/RWL packing 4 stay first. RAF, NRW and other RW2/RWL packings use **unmodified crates.io
+rawler** first, pinned to `=0.8.0` with default features disabled. Native Unsupported results use
+rawler; rawler-primary files can use native code when rawler cannot decode them. Safety Limit
+errors never fall through. See `wip/RAW-DECODER-COMPARISON.md` for numbers and the permanent harness. There are no model lists, vendored sources, forks, path dependencies or patches.
 All integration code lives in `crates/lc-raw/src/rawler_adapter.rs`.
 
 The adapter carries sensor samples, CFA, black/white levels, as-shot WB, matrices, active area,
@@ -83,3 +85,9 @@ Camera data calibration is applied after this decoder boundary. The `testgen` co
 decoder-only samples/headers so per-camera calibration does not silently regenerate sensor
 goldens. The calibrated header/full geometry and levels are audited separately by
 [`CAMERA-DATA.md`](CAMERA-DATA.md).
+
+
+The permanent comparison driver is `scripts/raw_decoder_comparison.py`; its sample manifest,
+new ignored tests and cached reference protocol are documented in `wip/RAW-DECODER-COMPARISON.md`.
+Rerun correctness and robustness after every bump; five-run timing requires explicit authorization
+under the current owner testing rule. CFA conversion uses rawler's row/column argument order.
