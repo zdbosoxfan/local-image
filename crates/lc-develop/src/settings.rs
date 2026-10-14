@@ -842,6 +842,18 @@ pub struct EmbeddedLens {
     pub vignette: Option<EmbeddedVignette>,
 }
 
+/// Sony's embedded radial correction samples, in the original vendor units.
+/// Kept whole at the lens boundary: these are sampled curves, not DNG polynomials.
+/// The lens-correction implementation decides their interpolation and reference geometry.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SonyLensData {
+    pub distortion: Vec<i16>,
+    pub ca_red: Vec<i16>,
+    pub ca_blue: Vec<i16>,
+    pub vignetting: Vec<i16>,
+}
+
 /// DNG `WarpRectilinear`: per plane (R, G, B) `[kr0, kr1, kr2, kr3, kt0, kt1]`. For an output (corrected) point at
 /// offset `d = (p − center) / radius`, the source point is `center + radius · (d·f(r²) + tangential(d))`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]

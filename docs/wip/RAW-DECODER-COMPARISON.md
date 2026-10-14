@@ -196,3 +196,14 @@ Sources: [rawler public CFA API/source](https://github.com/dnglab/dnglab/blob/v0
 [darktable CLI manual](https://docs.darktable.org/usermanual/development/en/special-topics/program-invocation/darktable-cli/),
 [RawTherapee CLI documentation](https://rawpedia.rawtherapee.com/Command-Line), and
 [raw.pixls.us](https://raw.pixls.us/). Per-file source URLs and SHA-256 values are in the manifest.
+
+## Sony/DJI follow-up
+
+The Sony ARW2 outliers in this historical comparison are resolved: inverse-curve
+values above nominal white are preserved. Native M/S RGB, SR2, ARQ and ARW6
+normal/HQ support, protected legacy MRI routing and updated reference domains
+are documented in `CODEX-REPORT-sony-dji.md`. Its bounded21-file Sony measurement
+is exact after black subtraction (explicit ARQ projection/A100 alignment).
+Nine DJI DNGs also match exact unpacked references after fixing the terminal
+uncompressed strip count. The earlier timings remain unmeasured; no benchmark
+or complete comparison/robustness sweep was repeated in this follow-up.

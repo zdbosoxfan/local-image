@@ -130,6 +130,25 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
     ifd.set(t::UNIQUE_CAMERA_MODEL, Value::Ascii(if unique.is_empty() { "LightCraft".into() } else { unique }));
     ifd.set(t::ORIENTATION, Value::Short(vec![raw.orientation.to_exif()]));
     ifd.set(t::SOFTWARE, Value::Ascii("Local Image".into()));
+    // Sony sample curves travel whole through DNG conversion/Pixel Shift output.
+    // Darktable's DNG round trip uses these original numeric tags in IFD0.
+    // They are vendor data, never fitted into a different polynomial model.
+    if let Some(lens) = raw.metadata.sony.as_ref().and_then(|s| s.lens_correction.as_ref()) {
+        let n = lens.distortion.len();
+        if (2..=16).contains(&n) && lens.ca_red.len() == n && lens.ca_blue.len() == n && lens.vignetting.len() == n {
+            let prefixed = |count: usize, values: &[i16]| {
+                let mut out = Vec::with_capacity(values.len() + 1);
+                out.push(count as i16);
+                out.extend_from_slice(values);
+                Value::SShort(out)
+            };
+            ifd.set(0x7037, prefixed(n, &lens.distortion));
+            ifd.set(0x7032, prefixed(n, &lens.vignetting));
+            let mut ca = lens.ca_red.clone();
+            ca.extend_from_slice(&lens.ca_blue);
+            ifd.set(0x7035, prefixed(2 * n, &ca));
+        }
+    }
     let xmp = opts.xmp.clone().unwrap_or_else(|| lightcraft_meta::write_xmp(&raw.metadata, None));
     ifd.set(t::XMP, Value::Byte(xmp.into_bytes()));
 
@@ -363,4 +382,56 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
         }
     }
     Ok(TiffWriter::new(opts.order, false).write(&[ifd])?)
+}
+
+#[cfg(test)]
+mod sony_dji_roundtrip_tests {
+    use super::*;
+    #[test]
+    fn sony_dji_linear_dng_retains_vendor_curves_and_drone_xmp() {
+        let lens = lightcraft_meta::SonyLensCorrection {
+            distortion: vec![-100, 0, 417],
+            ca_red: vec![128, 256, 640],
+            ca_blue: vec![512, 0, -256],
+            vignetting: vec![0, 32, 6144],
+        };
+        let mut metadata = lightcraft_meta::Metadata {
+            make: Some("SONY".into()),
+            model: Some("ILCE-7RM3".into()),
+            sony: Some(lightcraft_meta::SonyMetadata { lens_correction: Some(lens.clone()), ..Default::default() }),
+            dji: Some(lightcraft_meta::DjiMetadata { relative_altitude: Some(12.5), gimbal_yaw: Some(-44.0), ..Default::default() }),
+            ..Default::default()
+        };
+        // Both kinds of metadata use the same writer; this synthetic metadata is
+        // intentionally camera-independent and contains no owner image values.
+        metadata.dji.as_mut().unwrap().properties.insert("CalibrationTag".into(), "1.2340".into());
+        let raw = RawImage {
+            format: crate::RawFormat::Dng,
+            width: 4,
+            height: 3,
+            cpp: 3,
+            data: RawData::F32(vec![0.25; 36]),
+            cfa: None,
+            bits: 32,
+            black: crate::BlackLevel::uniform(0.0),
+            white: vec![1.0],
+            active_area: crate::Rect::new(0, 0, 4, 3),
+            crop: crate::Rect::new(0, 0, 4, 3),
+            orientation: crate::Orientation::Normal,
+            color: Default::default(),
+            wb_multipliers: None,
+            linearized: false,
+            opcodes: Default::default(),
+            metadata,
+        };
+        let bytes =
+            write_dng(&raw, &DngWriteOptions { compression: DngCompression::Deflate { tile: 16, half: false }, ..Default::default() }).unwrap();
+        let back = crate::decode(&bytes).unwrap();
+        assert_eq!(back.data, raw.data);
+        assert_eq!(back.metadata.sony.unwrap().lens_correction, Some(lens));
+        let dji = back.metadata.dji.unwrap();
+        assert_eq!(dji.relative_altitude, Some(12.5));
+        assert_eq!(dji.gimbal_yaw, Some(-44.0));
+        assert_eq!(dji.properties.get("CalibrationTag").map(String::as_str), Some("1.2340"));
+    }
 }

@@ -83,9 +83,9 @@ def rendered_references(cache, rows, threads):
     (cache/'reference-capabilities.json').write_text(json.dumps({'libraw':'unpacked CFA + metadata','darktable-cli':'rendered RGB only; CFA comparison unavailable through CLI','rawtherapee-cli':'rendered RGB only; CFA comparison unavailable through CLI','dcraw_emu':shutil.which('dcraw_emu') or 'not installed'},indent=2)+'\n')
 
 def main():
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--fetch',action='store_true');p.add_argument('--references',action='store_true');p.add_argument('--renders',action='store_true');p.add_argument('--run',action='store_true');p.add_argument('--robustness',action='store_true');p.add_argument('--backends',nargs='+',choices=['ours','rawler','adapter'],default=['ours','rawler','adapter']);p.add_argument('--timings',action='store_true');p.add_argument('--threads',type=int,default=4);p.add_argument('--ids',nargs='*');p.add_argument('--cache',type=Path,default=ROOT/'target/raw-comparison');a=p.parse_args()
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--manifest',type=Path,default=MANIFEST);p.add_argument('--fetch',action='store_true');p.add_argument('--references',action='store_true');p.add_argument('--renders',action='store_true');p.add_argument('--run',action='store_true');p.add_argument('--robustness',action='store_true');p.add_argument('--backends',nargs='+',choices=['ours','rawler','adapter'],default=['ours','rawler','adapter']);p.add_argument('--timings',action='store_true');p.add_argument('--threads',type=int,default=4);p.add_argument('--ids',nargs='*');p.add_argument('--cache',type=Path,default=ROOT/'target/raw-comparison');a=p.parse_args()
     cache=a.cache.resolve();cache.mkdir(parents=True,exist_ok=True)
-    with MANIFEST.open() as f:rows=[r for r in csv.DictReader(f,delimiter='\t') if not a.ids or r['id'] in a.ids]
+    with a.manifest.open() as f:rows=[r for r in csv.DictReader(f,delimiter='\t') if not a.ids or r['id'] in a.ids]
     for row in rows:
         path=cache/row['file']
         if a.fetch and not path.exists():
@@ -102,7 +102,7 @@ def main():
         try:topology.add(((cpu/'topology/physical_package_id').read_text().strip(),(cpu/'topology/core_id').read_text().strip()))
         except OSError:pass
     (cache/'machine.json').write_text(json.dumps({'logical_cores':logical,'physical_cores':len(topology),'decoder_workers':a.threads,'timings_enabled':a.timings},indent=2)+'\n')
-    env=os.environ.copy();env.update(RAW_COMPARE_DIR=str(cache),RAW_COMPARE_THREADS=str(a.threads),RAW_COMPARE_IDS=','.join(r['id'] for r in rows),RAW_COMPARE_TIMINGS='1' if a.timings else '0')
+    env=os.environ.copy();env.update(RAW_COMPARE_MANIFEST=str(a.manifest.resolve()),RAW_COMPARE_DIR=str(cache),RAW_COMPARE_THREADS=str(a.threads),RAW_COMPARE_IDS=','.join(r['id'] for r in rows),RAW_COMPARE_TIMINGS='1' if a.timings else '0')
     cargo=[str(Path.home()/'.cargo/bin/cargo'),'+1.98.1','test','--offline','-p','lightcraft-raw','--lib']
     if a.run:
         status=run([*cargo,'decoder_compare_cc0','--','--ignored','--nocapture','--test-threads=1'],cache/'comparison-run.log',env)

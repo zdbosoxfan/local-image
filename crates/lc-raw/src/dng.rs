@@ -70,11 +70,68 @@ pub(crate) fn profile_look(ifd0: &Ifd, raw: &Ifd) -> ProfileLook {
     }
 }
 
+/// Some camera DNGs underreport a terminal uncompressed StripByteCounts while
+/// the complete declared image is present at EOF (CC0 Mavic 3, 5140). Recover
+/// only that unambiguous layout; never consume trailing metadata as pixels or
+/// manufacture missing samples. LibRaw's packed DNG loader reads these full rows.
+fn uncompressed_layout(bytes: &[u8], info: &mut lightcraft_tiff::image::ImageInfo, bits: u32) -> Result<()> {
+    use lightcraft_tiff::image::{Layout, chunk_bytes};
+    if info.compression != t::compression::NONE {
+        return Ok(());
+    }
+    let cpp = info.samples_per_pixel as usize;
+    let row_bytes = (info.width as usize)
+        .checked_mul(cpp)
+        .and_then(|n| n.checked_mul(bits as usize))
+        .and_then(|n| n.checked_add(7))
+        .map(|n| n / 8)
+        .ok_or(RawError::Limit("DNG row size"))?;
+    if matches!(info.layout, Layout::Strips { rows_per_strip } if rows_per_strip >= info.height)
+        && info.offsets.len() == 1
+        && info.byte_counts.len() == 1
+    {
+        let expected = row_bytes.checked_mul(info.height as usize).ok_or(RawError::Limit("DNG strip size"))?;
+        let available = usize::try_from(info.offsets[0]).ok().and_then(|at| bytes.len().checked_sub(at));
+        if info.byte_counts[0] < expected as u64 && available == Some(expected) {
+            info.byte_counts[0] = expected as u64;
+        }
+    }
+    // Edge padding outside the image may be omitted, but every covered pixel
+    // must exist. Short uncompressed input is corruption, not zero-filled detail.
+    let ccpp = if info.planar == 2 { 1 } else { cpp };
+    for c in info.chunks(bytes.len() as u64) {
+        if c.x >= info.width || c.y >= info.height {
+            continue;
+        }
+        let rows = c.height.min(info.height - c.y) as usize;
+        let cols = c.width.min(info.width - c.x) as usize;
+        let pitch = (c.width as usize)
+            .checked_mul(ccpp)
+            .and_then(|n| n.checked_mul(bits as usize))
+            .and_then(|n| n.checked_add(7))
+            .map(|n| n / 8)
+            .ok_or(RawError::Limit("DNG chunk row"))?;
+        let tail = cols
+            .checked_mul(ccpp)
+            .and_then(|n| n.checked_mul(bits as usize))
+            .and_then(|n| n.checked_add(7))
+            .map(|n| n / 8)
+            .ok_or(RawError::Limit("DNG chunk tail"))?;
+        let needed = rows.saturating_sub(1).checked_mul(pitch).and_then(|n| n.checked_add(tail)).ok_or(RawError::Limit("DNG chunk size"))?;
+        if chunk_bytes(bytes, &c).is_none_or(|src| src.len() < needed) {
+            return Err(RawError::Corrupt("truncated uncompressed DNG samples".into()));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
     let tiff = Tiff::parse(bytes)?;
     let ifd0 = &tiff.ifds[0];
     let raw = raw_ifd(&tiff).ok_or_else(|| RawError::Corrupt("DNG without a raw image IFD".into()))?;
-    let info = raw.image()?;
+    let mut info = raw.image()?;
+    let storage_bits = info.bits() as u32;
+    uncompressed_layout(bytes, &mut info, storage_bits)?;
     let (w, h, cpp) = (info.width as usize, info.height as usize, info.samples_per_pixel as usize);
     if !(1..=4).contains(&cpp) {
         return Err(RawError::Unsupported(format!("{cpp} samples per pixel")));
@@ -183,4 +240,56 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
     };
     img.validate_for(mode)?;
     Ok(img)
+}
+
+#[cfg(test)]
+mod sony_dji_strip_tests {
+    use super::*;
+    use crate::{BlackLevel, DngCompression, DngWriteOptions, RawFormat, write_dng};
+
+    #[test]
+    fn sony_dji_terminal_strip_count_recovery_requires_complete_eof_pixels() {
+        let raw = RawImage {
+            format: RawFormat::Dng,
+            width: 4,
+            height: 3,
+            cpp: 1,
+            data: RawData::U16((1000..1012).collect()),
+            cfa: Cfa::bayer("RGGB"),
+            bits: 16,
+            black: BlackLevel::uniform(0.0),
+            white: vec![65535.0],
+            active_area: Rect::new(0, 0, 4, 3),
+            crop: Rect::new(0, 0, 4, 3),
+            orientation: Orientation::Normal,
+            color: Default::default(),
+            wb_multipliers: None,
+            linearized: false,
+            opcodes: Default::default(),
+            metadata: Default::default(),
+        };
+        let mut bytes = write_dng(&raw, &DngWriteOptions { compression: DngCompression::Uncompressed, ..Default::default() }).unwrap();
+        let tiff = Tiff::parse(&bytes).unwrap();
+        let ifd = raw_ifd(&tiff).unwrap();
+        let count_at = ifd.get(t::STRIP_BYTE_COUNTS).unwrap().offset as usize;
+        let data_at = ifd.u64(t::STRIP_OFFSETS).unwrap() as usize;
+        let offset_at = ifd.get(t::STRIP_OFFSETS).unwrap().offset as usize;
+        // TiffWriter places pixels before the directory. Relocate this complete
+        // strip to EOF to reproduce the independently observed camera layout.
+        let pixels = bytes[data_at..data_at + 24].to_vec();
+        let terminal_at = bytes.len();
+        bytes.extend(pixels);
+        bytes[offset_at..offset_at + 4].copy_from_slice(&(terminal_at as u32).to_le_bytes());
+        assert_eq!(bytes.len() - terminal_at, 24);
+        bytes[count_at..count_at + 4].copy_from_slice(&20u32.to_le_bytes());
+        let full = decode(&bytes, Mode::Full).unwrap();
+        assert_eq!(full.data, raw.data);
+        assert_eq!(decode(&bytes, Mode::Header).unwrap().info(), full.info());
+        let mut ambiguous = bytes.clone();
+        ambiguous.extend([1, 2, 3, 4]);
+        assert!(matches!(decode(&ambiguous, Mode::Full), Err(RawError::Corrupt(_))));
+        bytes.truncate(bytes.len() - 2);
+        assert!(matches!(decode(&bytes, Mode::Full), Err(RawError::Corrupt(_))));
+        assert!(matches!(decode(&bytes, Mode::Header), Err(RawError::Corrupt(_))));
+    }
 }

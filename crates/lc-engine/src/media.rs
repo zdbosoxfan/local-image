@@ -787,7 +787,15 @@ pub fn source_info(p: &Photo) -> SourceInfo {
     // balance and the display tone curve, like any other rendered file.
     if p.develops_raw() {
         let (temp, tint) = if p.relative_wb() { (6500.0, 0.0) } else { p.as_shot_wb.unwrap_or((5500.0, 0.0)) };
-        SourceInfo { raw: true, as_shot_temp: temp, as_shot_tint: tint, lens: p.embedded_lens, relative_wb: p.relative_wb(), ..Default::default() }
+        SourceInfo {
+            raw: true,
+            as_shot_temp: temp,
+            as_shot_tint: tint,
+            lens: p.embedded_lens,
+            sony_lens: crate::files::sony_lens(p.meta.sony.as_ref()),
+            relative_wb: p.relative_wb(),
+            ..Default::default()
+        }
     } else {
         SourceInfo::default()
     }

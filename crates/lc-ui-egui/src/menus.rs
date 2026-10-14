@@ -204,6 +204,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     // replace the original with the edited render (asks first; raws get a JPEG beside them)
     ("dialog.saveOverOriginal", "Save Over Original…", Some("Cmd+Alt+S"), "File"),
     ("photo.editInExternal", "Edit In…", Some("Cmd+E"), "Photo"),
+    ("dialog.mergePixelShift", "Sony Pixel Shift…", None, "Photo>Photo Merge"),
     ("dialog.mergeHdr", "HDR…", Some("Ctrl+H"), "Photo>Photo Merge"),
     ("dialog.mergePanorama", "Panorama…", Some("Ctrl+M"), "Photo>Photo Merge"),
     ("dialog.mergeHdrPanorama", "HDR Panorama…", None, "Photo>Photo Merge"),
@@ -1029,6 +1030,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "merge.hdrLast" => crate::merge::start_last(app, "merge.hdr"),
         "merge.panoramaLast" => crate::merge::start_last(app, "merge.panorama"),
         "merge.hdrPanoramaLast" => crate::merge::start_last(app, "merge.hdrPanorama"),
+        "dialog.mergePixelShift" => crate::merge::open(app, "merge.pixelShift"),
         "dialog.mergeHdr" => crate::merge::open(app, "merge.hdr"),
         "dialog.mergePanorama" => crate::merge::open(app, "merge.panorama"),
         "dialog.mergeHdrPanorama" => crate::merge::open(app, "merge.hdrPanorama"),
@@ -1492,6 +1494,7 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         "file.backupLibrary" => app.services.backup_library.is_some(),
         "file.restoreLibrary" => app.services.restore_library.is_some(),
         "compare.swap" | "compare.makeSelect" => app.ui.view == ViewMode::Compare,
+        "dialog.mergePixelShift" => matches!(app.session.targets(&serde_json::json!({})).len(), 1 | 4 | 16) && app.merge.final_task.is_none(),
         s if s.starts_with("dialog.merge") || (s.starts_with("merge.") && s.ends_with("Last")) => {
             app.session.targets(&serde_json::json!({})).len() >= 2 && app.merge.final_task.is_none()
         }

@@ -209,14 +209,22 @@ fn parse_one(id: u32, flags: u32, params: &[u8]) -> Option<Opcode> {
         9 => {
             let area = r.area()?;
             let (pv, ph) = (r.u32()?, r.u32()?);
-            let spacing = [f(&mut r)?, f(&mut r)?];
-            let origin = [f(&mut r)?, f(&mut r)?];
+            let mut spacing = [f(&mut r)?, f(&mut r)?];
+            let mut origin = [f(&mut r)?, f(&mut r)?];
+            // Adobe SDK treats a singleton axis as constant regardless of its
+            // recorded spacing/origin (some cameras write zero spacing here).
+            for (axis, points) in [pv, ph].into_iter().enumerate() {
+                if points == 1 {
+                    spacing[axis] = 1.0;
+                    origin[axis] = 0.0;
+                }
+            }
             let mp = r.u32()?;
             let n = (pv as usize).checked_mul(ph as usize)?.checked_mul(mp as usize)?;
-            if n == 0 || n * 4 > r.remaining() {
+            if n == 0 || mp == 0 || spacing.iter().any(|v| *v <= 0.0) || n.checked_mul(4)? > r.remaining() {
                 return None;
             }
-            let gains = (0..n).map(|_| r.f32()).collect::<Option<_>>()?;
+            let gains = (0..n).map(|_| r.f32().filter(|v| v.is_finite() && *v >= 0.0)).collect::<Option<_>>()?;
             Opcode::GainMap { area, points_v: pv, points_h: ph, spacing, origin, map_planes: mp, gains }
         }
         10..=13 => {
@@ -225,7 +233,7 @@ fn parse_one(id: u32, flags: u32, params: &[u8]) -> Option<Opcode> {
             if n * 4 > r.remaining() {
                 return None;
             }
-            let v: Vec<f32> = (0..n).map(|_| r.f32()).collect::<Option<_>>()?;
+            let v: Vec<f32> = (0..n).map(|_| r.f32().filter(|v| v.is_finite() && *v >= 0.0)).collect::<Option<_>>()?;
             match id {
                 10 => Opcode::DeltaPerRow { area, deltas: v },
                 11 => Opcode::DeltaPerColumn { area, deltas: v },
@@ -405,8 +413,9 @@ pub fn apply_list(list: &[Opcode], buf: &mut [f32], w: usize, h: usize, cpp: usi
             }
             Opcode::GainMap { area, points_v, points_h, spacing, origin, map_planes, gains } => {
                 for (x, y, p) in area_iter(area, w, h, cpp) {
-                    let rv = y as f64 / h as f64;
-                    let rh = x as f64 / w as f64;
+                    // Adobe dng_gain_map_interpolator evaluates pixel centres, not corners.
+                    let rv = (y as f64 + 0.5) / h as f64;
+                    let rh = (x as f64 + 0.5) / w as f64;
                     let g = gain_at(*points_v, *points_h, *spacing, *origin, *map_planes, gains, rv, rh, p - area.plane as usize);
                     buf[(y * w + x) * cpp + p] *= g;
                 }
@@ -529,8 +538,10 @@ pub fn apply_list3(list: &[Opcode], img: &mut Rgb32f) {
 /// optical centre, with coordinates normalised by the distance to the farthest corner.
 pub fn warp_rectilinear(img: &Rgb32f, planes: &[[f64; 6]], center: [f64; 2]) -> Rgb32f {
     let (w, h) = (img.width, img.height);
-    let (cx, cy) = (center[0] * (w as f64 - 1.0), center[1] * (h as f64 - 1.0));
-    let m = max_radius(cx, cy, w as f64 - 1.0, h as f64 - 1.0);
+    // Match Adobe dng_filter_warp: bounds are [0,w) × [0,h), while
+    // the warp evaluates integer pixel indices (the sampler adds its half pixel).
+    let (cx, cy) = (center[0] * w as f64, center[1] * h as f64);
+    let m = max_radius(cx, cy, w as f64, h as f64);
     let mut out = Rgb32f::new(w, h);
     let coef = |p: usize| planes[p.min(planes.len() - 1)];
     lightcraft_raster::par_rows(&mut out.data, w, |y, row| {
@@ -610,9 +621,9 @@ pub(crate) mod tests {
         assert!(list[..3].iter().all(|o| o.is_applied()));
         let mut buf = vec![0.25f32; w * h];
         apply_list(&list, &mut buf, w, h, 1, None, 1.0);
-        // gain map: horizontal ramp 1 → 2 across relative x 0..1 (x / w)
+        // gain map: horizontal ramp 1 → 2 at pixel centres
         let expect = |x: usize, y: usize| {
-            let g = 1.0 + x as f32 / w as f32;
+            let g = 1.0 + (x as f32 + 0.5) / w as f32;
             let v = 0.25 * g + [0.0, 0.1, 0.2][y];
             if x.is_multiple_of(2) { v * 2.0 } else { v }
         };
@@ -708,6 +719,38 @@ pub(crate) mod tests {
         let out = warp_rectilinear(&img, &[[1.0, -0.6, 0.0, 0.0, 0.0, 0.0]], [0.5, 0.5]);
         let (bx, _) = (0..31).map(|x| (x, out.get(x, 15)[0])).fold((0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
         assert!(bx >= 25, "{bx}");
+    }
+
+    /// Independent Adobe SDK coordinate vectors: non-central optical centre and
+    /// half-pixel GainMap origin expose errors hidden by identity transforms.
+    #[test]
+    fn sony_dji_sdk_opcode_coordinates() {
+        let (w, h) = (8, 6);
+        let ramp = Rgb32f::from_fn(w, h, |x, y| [x as f32, y as f32, (x + y) as f32]);
+        let warped = warp_rectilinear(&ramp, &[[0.5, 0.0, 0.0, 0.0, 0.0, 0.0]], [0.25, 0.75]);
+        // SDK image bounds [0,8) × [0,6): centre (2,4.5).
+        // At integer index (3,2), source = centre + 0.5 * (index-centre).
+        let p = warped.get(3, 2);
+        for (v, expected) in p.into_iter().zip([2.5, 3.25, 5.75]) {
+            assert!((v - expected).abs() < 1e-6, "{v} versus {expected}");
+        }
+        let mut flat = vec![1.0; w * h];
+        apply_list(&[Opcode::FixVignetteRadial { k: [1.0, 0.0, 0.0, 0.0, 0.0], center: [0.25, 0.75] }], &mut flat, w, h, 1, None, 1.0);
+        // Vignette uses pixel centres: (3.5,2.5), max radius 7.5.
+        assert!((flat[2 * w + 3] - 10.0 / 9.0).abs() < 1e-6);
+        let op = Opcode::GainMap {
+            area: Area { bottom: 6, right: 8, planes: 1, row_pitch: 1, col_pitch: 1, ..Default::default() },
+            points_v: 2,
+            points_h: 2,
+            spacing: [1.0, 1.0],
+            origin: [0.0, 0.0],
+            map_planes: 1,
+            gains: vec![1.0, 3.0, 4.0, 6.0],
+        };
+        flat.fill(1.0);
+        apply_list(&[op], &mut flat, w, h, 1, None, 1.0);
+        assert!((flat[0] - (1.0 + 2.0 * 0.5 / 8.0 + 3.0 * 0.5 / 6.0)).abs() < 1e-6);
+        assert!((flat[47] - (1.0 + 2.0 * 7.5 / 8.0 + 3.0 * 5.5 / 6.0)).abs() < 1e-6);
     }
 
     #[test]

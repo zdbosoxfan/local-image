@@ -26,6 +26,8 @@ pub const PREVIEW_EDGE: usize = 1024;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum MergeKind {
+    /// Sony complete 4/16-source capture, or one composed ARQ.
+    PixelShift,
     Hdr {
         hdr: HdrOptions,
     },
@@ -43,6 +45,7 @@ pub enum MergeKind {
 impl MergeKind {
     fn suffix(&self) -> &'static str {
         match self {
+            MergeKind::PixelShift => "PixelShift",
             MergeKind::Hdr { .. } => "HDR",
             MergeKind::Panorama { .. } => "Pano",
             MergeKind::HdrPanorama { .. } => "HDR-Pano",
@@ -50,6 +53,7 @@ impl MergeKind {
     }
     fn min_photos(&self) -> usize {
         match self {
+            MergeKind::PixelShift => 1,
             MergeKind::HdrPanorama { .. } => 4,
             _ => 2,
         }
@@ -128,7 +132,63 @@ impl MergeJob {
             return Err("cancelled".into());
         }
         let sub = |a: f32, b: f32| move |f: f32, s: &str| progress(a + (b - a) * f, s);
+        let mut pixelshift_permit = None;
         let (image, color, orientation, metadata, baseline, samples, crop, mut info, ghost) = match &self.kind {
+            MergeKind::PixelShift => {
+                let mut raws = Vec::with_capacity(self.sources.len());
+                let mut source_size = None;
+                let mut decode_allowance = 0usize;
+                // Keep decode sequential: sixteen large sensors must not multiply decoder
+                // scratch allocations by the machine's logical CPU count.
+                for (i, (_, path)) in self.sources.iter().enumerate() {
+                    if !progress(0.3 * i as f32 / self.sources.len() as f32, "Reading Pixel Shift shots") {
+                        return Err("cancelled".into());
+                    }
+                    let bytes = (self.read)(path)?;
+                    let info = lightcraft_raw::probe_info(&bytes).map_err(|e| format!("{path}: {e}"))?;
+                    if info.metadata.sony.as_ref().and_then(|s| s.pixel_shift.as_ref()).is_none()
+                        && lightcraft_meta::extract(&bytes).sony.as_ref().and_then(|s| s.pixel_shift.as_ref()).is_none()
+                    {
+                        return Err(
+                            "Sony Pixel Shift capture information is missing; select the original Pixel Shift ARWs or one composed ARQ".into()
+                        );
+                    }
+                    if source_size.is_some_and(|size| size != (info.width, info.height)) {
+                        return Err("Pixel Shift sources have different sensor dimensions".into());
+                    }
+                    if i == 0 {
+                        source_size = Some((info.width, info.height));
+                        let cost = pixelshift_memory_bytes(info.width, info.height, self.sources.len())?;
+                        let jobs = lightcraft_sysmem::heavy_jobs();
+                        if cost > jobs.headroom() {
+                            return Err(format!(
+                                "Pixel Shift needs approximately {:.1} GB of working memory; {:.1} GB is currently available within the application budget. Close other work and retry.",
+                                cost as f64 / 1_073_741_824.0,
+                                jobs.headroom() as f64 / 1_073_741_824.0
+                            ));
+                        }
+                        decode_allowance = cost.min(usize::MAX as u64) as usize;
+                        pixelshift_permit = Some(jobs.admit(cost, &|| !progress(0.0, "Waiting for Pixel Shift memory")).ok_or("cancelled")?);
+                    }
+                    let mut raw = lightcraft_raw::decode_for_pixel_shift(&bytes, decode_allowance).map_err(|e| format!("{path}: {e}"))?;
+                    if raw.metadata.sony.as_ref().and_then(|s| s.pixel_shift.as_ref()).is_none() {
+                        raw.metadata.sony = lightcraft_meta::extract(&bytes).sony;
+                    }
+                    raws.push(raw);
+                }
+                let r = lightcraft_merge::merge_pixel_shift(raws, &sub(0.3, 0.88)).map_err(err)?;
+                let motion_pixels = r.motion.data.iter().filter(|v| **v > 0.0).count();
+                let mut image = r.image;
+                // Reconstruction must see the original CFA sampling lattice even for
+                // previews. Resize the complete reconstruction, never its source mosaics.
+                if let Some(edge) = self.preview {
+                    image = lightcraft_raster::resample::fit(&image, edge, edge, lightcraft_raster::resample::Filter::Box);
+                }
+                let info = json!({"shots": r.shots, "motionPixels": motion_pixels, "motionCorrection": self.sources.len() > 1,
+                    "motionFallback": if self.sources.len() > 1 { "firstShotAuto" } else { "alreadyComposed" }});
+                let ghost = (self.preview.is_some() && self.finish.show_overlay && motion_pixels > 0).then(|| r.motion.oriented(r.orientation));
+                (image, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, None, info, ghost)
+            }
             MergeKind::Hdr { hdr } => {
                 let frames = self.load(false, progress, (0.0, 0.3))?;
                 let p = sub(0.3, 0.9);
@@ -220,8 +280,27 @@ impl MergeJob {
             None => None,
         };
         progress(1.0, "Done");
+        drop(pixelshift_permit);
         Ok(MergeOutput { dng, preview, crop, info })
     }
+}
+
+/// Conservative peak: decoded sensor storage, first-shot develop scratch, full RGB/mask,
+/// float DNG staging and compressed output. Use full sensor dimensions before any allocation;
+/// previews need the same CFA reconstruction as final merges.
+pub(crate) fn pixelshift_memory_bytes(width: usize, height: usize, shots: usize) -> std::result::Result<u64, String> {
+    if width < 2 || height < 2 || !matches!(shots, 1 | 4 | 16) {
+        return Err("select one composed ARQ or one complete 4-shot or 16-shot capture".into());
+    }
+    let factor_squared = if shots == 16 { 4 } else { 1 };
+    let pixels = (width as u64)
+        .checked_mul(height as u64)
+        .filter(|p| *p <= isize::MAX as u64 / 12)
+        .ok_or("Pixel Shift dimensions exceed the supported address space")?;
+    pixels
+        .checked_mul(shots as u64 * 4 + factor_squared * 48 + 32)
+        .and_then(|bytes| bytes.checked_add(8 << 20))
+        .ok_or_else(|| "Pixel Shift working memory estimate overflowed".into())
 }
 
 fn pano_info(r: &lightcraft_merge::PanoResult, sources: &[(PhotoId, String)]) -> Value {
@@ -328,6 +407,7 @@ pub fn parse(id: &str, p: &Value) -> Result<(MergeKind, MergeFinish)> {
         max_megapixels: p.get("maxMegapixels").and_then(Value::as_f64).unwrap_or(40.0),
     };
     let kind = match id {
+        "merge.pixelShift" => MergeKind::PixelShift,
         "merge.hdr" => MergeKind::Hdr { hdr },
         "merge.panorama" => MergeKind::Panorama { pano },
         _ => MergeKind::HdrPanorama { hdr, pano, bracket: p.get("bracket").and_then(Value::as_u64).unwrap_or(0) as usize },

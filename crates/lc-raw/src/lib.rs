@@ -171,6 +171,27 @@ pub fn decode(bytes: &[u8]) -> Result<RawImage> {
     decode_with(bytes, Mode::Full)
 }
 
+/// Decode with the caller's current memory allowance for TIFF pixel buffers.
+/// The app passes its shared hardware/user budget; standalone [`decode`] keeps
+/// the defensive 1 GiB default. The allowance is scoped to this calling thread,
+/// restored on errors and unwinding, and never changes process-global settings.
+/// Format/container safety bounds still apply independently.
+pub fn decode_with_memory_budget(bytes: &[u8], max_bytes: usize) -> Result<RawImage> {
+    tiffraw::with_memory_budget(max_bytes, || decode(bytes))
+}
+
+/// Sony Pixel Shift needs the original measured CFA observations, before
+/// frame-specific PDAF interpolation or saturation estimation. Apply the same
+/// static camera calibration as ordinary development, preserving those samples
+/// for fusion. Only the merge path should use this entry point.
+pub fn decode_for_pixel_shift(bytes: &[u8], max_bytes: usize) -> Result<RawImage> {
+    tiffraw::with_memory_budget(max_bytes, || {
+        let mut raw = decode_impl(bytes, Mode::Full, false)?;
+        camera_data::apply(&mut raw, Mode::Header);
+        Ok(raw)
+    })
+}
+
 /// Everything [`decode`] learns about a raw file except its samples: geometry, orientation, CFA,
 /// colour data, as-shot white balance, opcode lists (embedded lens corrections), metadata — read
 /// from the headers without decompressing the pixel data, for imports. Equal to

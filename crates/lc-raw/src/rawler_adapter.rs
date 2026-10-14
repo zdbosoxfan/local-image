@@ -35,13 +35,78 @@ pub(crate) fn native_first_for(bytes: &[u8], format: RawFormat) -> bool {
     native_first(format)
 }
 
+// The transitional Sony MRI container stores compressed pixels in root tag
+// SubIFDs, rather than an IFD. Recognize its structure, never a model allow-list.
+fn sony_mri_hybrid(bytes: &[u8]) -> Result<bool> {
+    let Ok(tiff) = lightcraft_tiff::Tiff::parse(bytes) else { return Ok(false) };
+    let Some(root) = tiff.ifds.first() else { return Ok(false) };
+    if !root.string(tags::MAKE).is_some_and(|s| s.trim().eq_ignore_ascii_case("SONY"))
+        || root.u16(tags::COMPRESSION) != Some(6)
+        || root.get(tags::STRIP_OFFSETS).is_some()
+        || root.get(tags::DNG_VERSION).is_some()
+    {
+        return Ok(false);
+    }
+    let Some(lightcraft_tiff::Value::Byte(pointer)) = root.value(tags::DNG_PRIVATE_DATA) else { return Ok(false) };
+    if pointer.len() != 4 {
+        return Ok(false);
+    }
+    let at = ByteOrder::Little.read_u32(pointer, 0).ok_or_else(|| corrupt("Sony MRI pointer"))? as usize;
+    if bytes.get(at..at.saturating_add(4)) != Some(b"\0MRI") {
+        return Ok(false);
+    }
+    let size = ByteOrder::Little.read_u32(bytes, at.saturating_add(4)).ok_or_else(|| corrupt("Sony MRI header"))? as usize;
+    if size > MAX_METADATA {
+        return Err(RawError::Limit("Sony MRI metadata"));
+    }
+    let end = at.checked_add(8).and_then(|v| v.checked_add(size)).filter(|v| *v <= bytes.len()).ok_or_else(|| corrupt("Sony MRI bounds"))?;
+    let mut p = at + 8;
+    let mut wb = false;
+    while p < end {
+        let len = ByteOrder::Little.read_u32(bytes, p + 4).ok_or_else(|| corrupt("Sony MRI block"))? as usize;
+        let next = p.checked_add(8).and_then(|v| v.checked_add(len)).filter(|v| *v <= end).ok_or_else(|| corrupt("Sony MRI block bounds"))?;
+        if bytes.get(p..p + 4) == Some(b"\0WBG") {
+            if len < 12 {
+                return Err(corrupt("Sony MRI white balance"));
+            }
+            wb = true;
+        }
+        p = next;
+    }
+    if !wb {
+        return Err(corrupt("Sony MRI missing white balance"));
+    }
+    Ok(true)
+}
+
+fn decode_sony_mri(source: &RawSource, mode: Mode) -> rawler::Result<rawler::RawImage> {
+    use rawler::decoders::{Decoder, arw::ArwDecoder};
+    use rawler::formats::tiff::{GenericTiffReader, IFD, reader::TiffReader};
+    // Use the pinned crate's public reader/decoder interfaces. Excluding the raw
+    // SubIFDs pointer prevents its generic TIFF reader from parsing entropy as
+    // tags and allocating from random counts. Camera/codec data remain unmodified.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let root = IFD::new_root_with_correction(&mut source.reader(), 0, 0, 0, 10, &[tags::EXIF_IFD, tags::GPS_IFD, tags::INTEROP_IFD])
+            .map_err(|e| rawler::RawlerError::DecoderFailed(e.to_string()))?;
+        let mut tiff = GenericTiffReader::default();
+        tiff.file_mut().chain.push(root);
+        let decoder = ArwDecoder::new(source, tiff, rawler::global_loader())?;
+        decoder.raw_image(source, &RawDecodeParams::default(), mode == Mode::Header)
+    }));
+    result.unwrap_or_else(|_| Err(rawler::RawlerError::DecoderFailed("Sony MRI decoder panic".into())))
+}
+
 pub(crate) fn decode(bytes: &[u8], format: RawFormat, mode: Mode) -> Result<RawImage> {
     preflight(bytes, format)?;
     let source = RawSource::new_from_slice(bytes);
     // Public rawler decode/dummy contain panic::catch_unwind, including parallel codec panics.
-    let mut raw = match mode {
-        Mode::Full => rawler::decode(&source, &RawDecodeParams::default()),
-        Mode::Header => rawler::decode_dummy(&source),
+    let mut raw = if format == RawFormat::Arw && sony_mri_hybrid(bytes)? {
+        decode_sony_mri(&source, mode)
+    } else {
+        match mode {
+            Mode::Full => rawler::decode(&source, &RawDecodeParams::default()),
+            Mode::Header => rawler::decode_dummy(&source),
+        }
     }
     .map_err(|err| match err {
         rawler::RawlerError::Unsupported { .. } => RawError::Unsupported(format!("rawler: {err}")),
@@ -293,7 +358,14 @@ fn tiff_mode(bytes: &[u8], base: usize, chain: bool) -> Result<()> {
         _ => return Err(corrupt("invalid TIFF byte order")),
     };
     let offset = order.read_u32(bytes, base.saturating_add(4)).ok_or_else(|| corrupt("short TIFF header"))? as usize;
-    let mut guard = TiffGuard { bytes, visited: HashSet::new(), values: 0, olympus: None, rw2: bytes.get(base + 2..base + 4) == Some(b"U\0") };
+    let mut guard = TiffGuard {
+        bytes,
+        visited: HashSet::new(),
+        values: 0,
+        olympus: None,
+        rw2: bytes.get(base + 2..base + 4) == Some(b"U\0"),
+        sony_mri: base == 0 && sony_mri_hybrid(bytes)?,
+    };
     guard.ifd(base.saturating_add(offset), base, order, 0, chain)
 }
 struct TiffGuard<'a> {
@@ -302,6 +374,7 @@ struct TiffGuard<'a> {
     values: usize,
     olympus: Option<usize>,
     rw2: bool,
+    sony_mri: bool,
 }
 impl TiffGuard<'_> {
     fn ifd(&mut self, at: usize, base: usize, order: ByteOrder, depth: usize, chain: bool) -> Result<()> {
@@ -347,6 +420,12 @@ impl TiffGuard<'_> {
                 tags::SAMPLES_PER_PIXEL if scalar.is_some_and(|v| v == 0 || v > 4) => return Err(RawError::Limit("raw samples per pixel")),
                 tags::TILE_WIDTH | tags::TILE_LENGTH if scalar.is_some_and(|v| v == 0 || v > 65535) => {
                     return Err(RawError::Limit("raw tile dimensions"));
+                }
+                tags::SUB_IFDS if self.sony_mri && depth == 0 => {
+                    if typ != 4 || count != 1 || scalar.is_none_or(|v| v >= self.bytes.len()) {
+                        return Err(corrupt("Sony MRI raw pointer"));
+                    }
+                    geometry(3880, 2608)?;
                 }
                 tags::SUB_IFDS | tags::EXIF_IFD | tags::GPS_IFD | tags::INTEROP_IFD | tags::ICC_PROFILE | 0xf000 => {
                     match typ {
@@ -747,5 +826,63 @@ mod tests {
         raf[112..116].copy_from_slice(&[1, 0, 0, 4]);
         raf[116..120].fill(0xff);
         assert!(matches!(preflight(&raf, RawFormat::Raf), Err(RawError::Limit(_))));
+    }
+}
+
+#[cfg(test)]
+mod sony_mri_tests {
+    use super::*;
+    use lightcraft_tiff::{IfdBuilder, TiffWriter, Value};
+
+    fn hybrid() -> Vec<u8> {
+        let mut root = IfdBuilder::new();
+        root.set(tags::MAKE, Value::Ascii("SONY".into()));
+        root.set(tags::MODEL, Value::Ascii("DSLR-A100".into()));
+        root.set(tags::COMPRESSION, Value::Short(vec![6]));
+        root.set(tags::SUB_IFDS, Value::Long(vec![0]));
+        root.set(tags::DNG_PRIVATE_DATA, Value::Byte(vec![0; 4]));
+        let mut bytes = TiffWriter::default().write(&[root]).unwrap();
+        let tiff = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
+        let private_field = tiff.ifds[0].get(tags::DNG_PRIVATE_DATA).unwrap().offset as usize;
+        let raw_field = tiff.ifds[0].get(tags::SUB_IFDS).unwrap().offset as usize;
+        let private_at = bytes.len();
+        bytes.extend(b"\0MRI");
+        bytes.extend(20u32.to_le_bytes());
+        bytes.extend(b"\0WBG");
+        bytes.extend(12u32.to_le_bytes());
+        bytes.extend([0; 4]);
+        for word in [512u16, 256, 256, 384] {
+            bytes.extend(word.to_le_bytes());
+        }
+        let raw_at = bytes.len();
+        // Entropy deliberately resembles a hostile IFD with a huge unknown value.
+        bytes.extend(1u16.to_le_bytes());
+        bytes.extend(123u16.to_le_bytes());
+        bytes.extend(150u16.to_le_bytes());
+        bytes.extend(u32::MAX.to_le_bytes());
+        bytes.extend(0u32.to_le_bytes());
+        bytes.extend(0u32.to_le_bytes());
+        bytes[private_field..private_field + 4].copy_from_slice(&(private_at as u32).to_le_bytes());
+        bytes[raw_field..raw_field + 4].copy_from_slice(&(raw_at as u32).to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn sony_mri_preflight_distinguishes_bounded_metadata_from_entropy() {
+        let bytes = hybrid();
+        assert!(sony_mri_hybrid(&bytes).unwrap());
+        preflight(&bytes, RawFormat::Arw).unwrap();
+        // The custom public-reader path reaches the missing-maker-note error,
+        // safely ignoring entropy as metadata instead of following forged counts.
+        let error = decode_sony_mri(&RawSource::new_from_slice(&bytes), Mode::Header).unwrap_err();
+        assert!(error.to_string().contains("makernotes"), "{error}");
+        let tiff = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
+        let private_at = ByteOrder::Little.read_u32(tiff.ifds[0].bytes(tags::DNG_PRIVATE_DATA).unwrap(), 0).unwrap() as usize;
+        let mut bad = bytes.clone();
+        bad[private_at + 4..private_at + 8].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(matches!(preflight(&bad, RawFormat::Arw), Err(RawError::Limit(_))));
+        let mut not_hybrid = bytes;
+        not_hybrid[private_at] = b'x';
+        assert!(preflight(&not_hybrid, RawFormat::Arw).is_err(), "ordinary TIFF still checks unknown field types");
     }
 }

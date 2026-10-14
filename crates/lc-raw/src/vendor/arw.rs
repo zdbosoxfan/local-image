@@ -8,8 +8,7 @@
 //! 1. Sensor values are tone-mapped to 11-bit codes by a five-segment piecewise-linear curve whose step doubles at
 //!    each threshold; the thresholds are recorded in the file (`0x7010`). We invert it: code `c` indexes the curve at
 //!    `2c` in a 12-bit domain whose breakpoints are the recorded thresholds / 4, with slopes 1, 2, 4, 8, 16; the
-//!    result is in 14-bit sensor units (black 512, white 16383 per the file's own tags, which we verified against
-//!    the decoded data).
+//!    result is in sensor units (nominal black 512 / white 16383, with valid tone-curve headroom above white).
 //! 2. Each row is coded in 32-pixel groups split into two interleaved 16-pixel sets (even columns, then odd), each
 //!    a 128-bit little-endian block: 11-bit max, 11-bit min, 4-bit index of the max, 4-bit index of the min and 14
 //!    seven-bit deltas above the min, scaled by the smallest shift that fits `max − min` into 7 bits.
@@ -43,8 +42,8 @@ use rayon::prelude::*;
 
 const TONE_CURVE: u16 = 0x7010;
 /// Maker-note `FileFormat` (ExifTool Sony tag names): `1 0 0 0` is SR2, `2 0 0 0` ARW 1.0, `3 …` and later ARW 2.x+.
-/// The DSC-R1's SR2 stores 16-bit samples that are spread uniformly over 2–65340 (median ~33000, three quarters
-/// above any white level): encrypted, so it is refused and opens from its preview instead of decoding to noise.
+/// DSC-R1 SR2 has little-endian TIFF metadata and big-endian 14-bit pixel words.
+/// Its calibration directory is encrypted with a per-file key, unlike later ARWs.
 const MN_FILE_FORMAT: u16 = 0xb000;
 const BLACK_LEVEL: u16 = 0x7310;
 const WB_RGGB: u16 = 0x7313;
@@ -239,11 +238,15 @@ pub(crate) fn unpack_row12(row: &[u8], out: &mut [u16]) {
     }
 }
 
-/// The inverse tone curve: 11-bit code → 14-bit sensor value.
+/// The inverse tone curve: 11-bit code → sensor value, including headroom above nominal white.
+/// LibRaw 0.22.2 `tiff.cpp` (0x7010) and `sony_arw2_load_raw` preserve the full table result.
+/// A nominal 14-bit white is a development threshold, not a storage clamp: CC0 ILCE-7M3
+/// 2414 and ILCE-7RM4 3480 contain valid table results through 16628. Clamping here lost
+/// 245 DN in their highlights. Thresholds use the low twelve bits after division by four.
 pub(crate) fn code_curve(thresholds: &[u64]) -> Vec<u16> {
     let mut bp = [0usize, 4095, 4095, 4095, 4095, 4095];
     for (i, &v) in thresholds.iter().take(4).enumerate() {
-        bp[i + 1] = ((v >> 2) as usize).min(4095);
+        bp[i + 1] = ((v >> 2) & 0xfff) as usize;
     }
     // keep breakpoints monotonic
     for i in 1..6 {
@@ -257,7 +260,7 @@ pub(crate) fn code_curve(thresholds: &[u64]) -> Vec<u16> {
         }
         lut[i] = lut[i - 1] + (1 << seg);
     }
-    (0..2048).map(|c| lut[(2 * c).min(4095)].min(16383) as u16).collect()
+    (0..2048).map(|c| lut[2 * c] as u16).collect()
 }
 
 /// Decode one row of ARW2 data (`row.len() == width` bytes) into codes.
@@ -382,6 +385,18 @@ const YCBCR_OFFSET: f32 = 512.0;
 /// White of the YCbCr data before [`YCBCR_OFFSET`]: the reference levels' Y white (required by [`read_ycbcr_tiles`]).
 const YCBCR_WHITE: f32 = 16383.0;
 
+/// Sony's YCbCr codec convention. LibRaw 0.22.2 `sonycc.cpp` uses 16383
+/// as chroma neutral, BT.601 coefficients in f32, and integer truncation. The
+/// reference tag's identical chroma black/white values cannot describe a TIFF
+/// chroma scaling range, so matching the codec is preferable to interpreting
+/// that degenerate tag as a neutral code of 16384 (which added 1–2 DN biases).
+fn sony_ycbcr_rgb(luma: u16, cb: u16, cr: u16) -> [u16; 3] {
+    let y = f32::from(luma);
+    let cb = f32::from(cb) - 16383.0;
+    let cr = f32::from(cr) - 16383.0;
+    [y + 1.402 * cr, y - 0.34414 * cb - 0.71414 * cr, y + 1.772 * cb].map(|v| v.clamp(0.0, 65535.0) as u16)
+}
+
 /// Downsized M/S ARWs are linear YCbCr 4:2:0 / 4:2:2, not CFA, despite retaining dummy CFA tags.
 /// T.81 supplies the lossless coding; TIFF 6.0 supplies the YCbCr coefficients and reference
 /// levels. Sony's reference chroma black and white are identical (the neutral offset).
@@ -430,17 +445,10 @@ fn read_ycbcr_tiles(bytes: &[u8], info: &ImageInfo, raw: &Ifd, mode: Mode) -> Re
     for (c, f) in decoded {
         for y in 0..f.height.min(h.saturating_sub(c.y as usize)) {
             for x in 0..f.width.min(w.saturating_sub(c.x as usize)) {
-                let luma = f.planes[0][y * f.width + x] as f64;
                 let ci = (y / f.vertical_subsampling) * (f.width / 2) + x / 2;
-                let cb = f.planes[1][ci] as f64 - cbzero;
-                let cr = f.planes[2][ci] as f64 - crzero;
-                let r = luma + (2.0 - 2.0 * kr) * cr;
-                let b = luma + (2.0 - 2.0 * kb) * cb;
-                let g = (luma - kr * r - kb * b) / kg;
+                let rgb = sony_ycbcr_rgb(f.planes[0][y * f.width + x], f.planes[1][ci], f.planes[2][ci]);
                 let dst = (((c.y as usize + y) * w) + c.x as usize + x) * 3;
-                for (s, value) in [r, g, b].into_iter().enumerate() {
-                    out[dst + s] = value.round().clamp(0.0, 65535.0) as u16;
-                }
+                out[dst..dst + 3].copy_from_slice(&rgb);
             }
         }
     }
@@ -466,6 +474,62 @@ fn sr2_black_levels(plain: &[u8], order: lightcraft_tiff::ByteOrder) -> Option<f
     let levels: Vec<u16> = (0..4).filter_map(|i| order.read_u16(plain, 2 * i)).collect();
     let (&lo, &hi) = (levels.iter().min()?, levels.iter().max()?);
     (levels.len() == 4 && (64..=4096).contains(&lo) && hi - lo <= 64).then(|| levels.iter().map(|&v| f32::from(v)).sum::<f32>() / 4.0)
+}
+
+/// DSC-R1 uses a per-file key for its encrypted calibration, while its sensor strip
+/// is simply big-endian words. Algorithm follows LibRaw 0.22.2 `sony_decrypt`
+/// (LGPL-2.1-or-later); no C or decoder source is included in the build.
+fn decrypt_sr2_r1(block: &[u8], key: u32) -> Vec<u8> {
+    let mut pad = [0u32; 128];
+    let mut state = key;
+    for word in &mut pad[..4] {
+        state = state.wrapping_mul(48_828_125).wrapping_add(1);
+        *word = state;
+    }
+    pad[3] = (pad[3] << 1) | ((pad[0] ^ pad[2]) >> 31);
+    for i in 4..127 {
+        pad[i] = ((pad[i - 4] ^ pad[i - 2]) << 1) | ((pad[i - 3] ^ pad[i - 1]) >> 31);
+    }
+    let mut out = block.to_vec();
+    for (i, bytes) in out.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        let p = i + 127;
+        pad[p & 127] = pad[(p + 1) & 127] ^ pad[(p + 65) & 127];
+        for (byte, mask) in bytes.iter_mut().zip(pad[p & 127].to_be_bytes()) {
+            *byte ^= mask;
+        }
+    }
+    out
+}
+
+fn read_sr2_r1_levels(bytes: &[u8], ifd0: &Ifd, order: lightcraft_tiff::ByteOrder) -> Option<([f32; 4], [f32; 3])> {
+    let private_at = order.read_u32(ifd0.bytes(t::DNG_PRIVATE_DATA)?, 0)?;
+    let opts = lightcraft_tiff::ParseOptions { max_ifds: 1, max_depth: 0, follow_children: false, ..Default::default() };
+    let (private, _) = lightcraft_tiff::parse_ifd_at(bytes, u64::from(private_at), order, 0, false, &opts).ok()?;
+    let start = usize::try_from(private.u64(0x7200)?).ok()?;
+    let len = usize::try_from(private.u64(0x7201)?).ok()?;
+    if len > 1 << 20 {
+        return None;
+    }
+    let key = order.read_u32(private.bytes(0x7221)?, 0)?;
+    let plain = decrypt_sr2_r1(bytes.get(start..start.checked_add(len)?)?, key);
+    let values = |tag| -> Option<[f32; 4]> {
+        let entries = order.read_u16(&plain, 0)?;
+        let entry = (0..usize::from(entries)).map_while(|i| plain.get(2 + 12 * i..14 + 12 * i)).find(|e| order.read_u16(e, 0) == Some(tag))?;
+        if order.read_u16(entry, 2)? != 3 || order.read_u32(entry, 4)? != 4 {
+            return None;
+        }
+        let at = usize::try_from(order.read_u32(entry, 8)?).ok()?.checked_sub(start)?;
+        let data = plain.get(at..at.checked_add(8)?)?;
+        Some(std::array::from_fn(|i| f32::from(order.u16([data[2 * i], data[2 * i + 1]]))))
+    };
+    // 0x7300 is RGBG, 0x7303 is GRBG; preserve both green black levels.
+    let [r, g1, b, g2] = values(0x7300)?;
+    if ![r, g1, b, g2].iter().all(|v| (0.0..=4096.0).contains(v)) {
+        return None;
+    }
+    let [wg1, wr, wb, wg2] = values(0x7303)?;
+    let wb = rggb_gains(&[f64::from(wr), f64::from(wg1), f64::from(wg2), f64::from(wb)])?;
+    Some(([g1, r, b, g2], wb))
 }
 
 /// The raw IFD's DNG-style `DefaultCropOrigin` / `DefaultCropSize`, clipped to the `w × h` frame.
@@ -528,7 +592,11 @@ fn recorded_size_crop(full: (u64, u64), exif: Option<(u64, u64)>, w: usize, h: u
 fn raw_ifd(tiff: &Tiff) -> Option<&Ifd> {
     tiff.all_ifds()
         .into_iter()
-        .filter(|i| i.u16(t::PHOTOMETRIC) == Some(photometric::CFA) || i.contains(TONE_CURVE))
+        .filter(|i| {
+            i.u16(t::PHOTOMETRIC) == Some(photometric::CFA)
+                || i.contains(TONE_CURVE)
+                || (i.u16(t::SAMPLES_PER_PIXEL) == Some(4) && i.u16(t::COMPRESSION) == Some(1))
+        })
         .max_by_key(|i| i.u64(t::IMAGE_WIDTH).unwrap_or(0).saturating_mul(i.u64(t::IMAGE_LENGTH).unwrap_or(0)))
 }
 
@@ -540,9 +608,15 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         .exif()
         .and_then(|e| e.get(t::MAKER_NOTE))
         .and_then(|e| makernote::parse_makernote(bytes, e.offset, e.count() as u64, tiff.order, &ifd0.string(t::MAKE).unwrap_or_default()));
-    if mn.as_ref().and_then(|m| m.ifd.u64s(MN_FILE_FORMAT)).as_deref() == Some(&[1, 0, 0, 0]) {
-        return Err(RawError::Unsupported("Sony SR2 (DSC-R1): the raw data is encrypted, not decoded yet".into()));
-    }
+    let sr2_r1 = mn.as_ref().and_then(|m| m.ifd.u64s(MN_FILE_FORMAT)).as_deref() == Some(&[1, 0, 0, 0]);
+    let sr2_r1_levels = if sr2_r1 {
+        Some(
+            read_sr2_r1_levels(bytes, ifd0, tiff.order)
+                .ok_or_else(|| RawError::Unsupported("Sony SR2 (DSC-R1): unavailable encrypted calibration".into()))?,
+        )
+    } else {
+        None
+    };
     let info = raw.image()?;
     let (w, h) = (info.width as usize, info.height as usize);
     if w * h > crate::MAX_SAMPLES {
@@ -557,7 +631,29 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
     // smaller), which is a different packing, so they are refused rather than read with the wrong layout.
     let one_byte_per_sample = chunks.len() == 1 && strip_len == (w * h) as u64;
     let packed12 = info.compression == 32767 && is_packed12(&info, chunks.len(), strip_len);
+    // Imaging Edge ARQ stores an uncompressed R,G1,G2,B sample at every pixel.
+    // LibRaw 0.22.2 tiff.cpp identifies this exact eight-byte-per-pixel layout;
+    // sony_arq_load_raw swaps the last channels into RGBG order. Keep both green
+    // observations at half-DN precision instead of inventing a CFA for merged data.
+    let arq = info.compression == 1 && info.samples_per_pixel == 4 && strip_len == (w * h * 8) as u64;
+    if info.samples_per_pixel != 1 && !linear_rgb && !arq {
+        return Err(RawError::Unsupported("Sony multi-component raw layout".into()));
+    }
     let (data, out_bits) = match info.compression {
+        32766 => {
+            if chunks.len() != 1 || info.samples_per_pixel != 1 || info.photometric != photometric::CFA {
+                return Err(RawError::Unsupported("Sony ARW6 strip layout".into()));
+            }
+            let src = chunk_bytes(bytes, &chunks[0]).ok_or_else(|| RawError::Corrupt("ARW6 strip outside file".into()))?;
+            let data = match mode {
+                Mode::Full => super::arw6::decode(src, w, h)?,
+                Mode::Header => {
+                    super::arw6::validate(src, w, h)?;
+                    Vec::new()
+                }
+            };
+            (RawData::U16(data), 16)
+        }
         7 if linear_rgb => (RawData::U16(read_ycbcr_tiles(bytes, &info, raw, mode)?), 14),
         32767 if one_byte_per_sample && mode == Mode::Header => {
             chunk_bytes(bytes, &chunks[0]).ok_or_else(|| RawError::Corrupt("raw strip outside file".into()))?;
@@ -599,6 +695,8 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
                 (RawData::U16(Vec::new()), bits)
             }
         },
+        1 if sr2_r1 => (read_image_in(mode, bytes, &info, lightcraft_tiff::ByteOrder::Big, Packing::Word16)?, 14),
+        1 if arq => (read_image_in(mode, bytes, &info, tiff.order, Packing::Word16)?, 14),
         1 => {
             let packing = if strip_len >= (w * h * 2) as u64 { Packing::Word16 } else { Packing::Msb };
             (read_image_in(mode, bytes, &info, tiff.order, packing)?, bits)
@@ -623,15 +721,26 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
     // the decrypted SR2SubIFD, read once and only when a plain black level or white balance is missing
     let sr2_cell = std::cell::OnceCell::new();
     let sr2 = || sr2_cell.get_or_init(|| super::sr2::SubIfd::read(bytes, ifd0, tiff.order)).as_ref();
-    let black = match raw.f64s(BLACK_LEVEL).as_deref() {
-        Some(v) if linear_rgb && !v.is_empty() => BlackLevel::uniform((v.iter().sum::<f64>() / v.len() as f64) as f32 + YCBCR_OFFSET),
-        Some([a, b, c, d]) => {
-            BlackLevel { repeat_rows: 2, repeat_cols: 2, values: vec![*a as f32, *b as f32, *c as f32, *d as f32], ..Default::default() }
+    let black = if info.compression == 32766 {
+        // LibRaw's ARW6 LLVC3 output has its own linear domain: 1024 black,
+        // 39002 white. The file's older 14-bit calibration tags describe codes.
+        BlackLevel::uniform(1024.0)
+    } else if let Some((levels, _)) = sr2_r1_levels {
+        BlackLevel { repeat_rows: 2, repeat_cols: 2, values: levels.to_vec(), ..Default::default() }
+    } else {
+        match raw.f64s(BLACK_LEVEL).as_deref() {
+            Some(v) if linear_rgb && !v.is_empty() => BlackLevel::uniform((v.iter().sum::<f64>() / v.len() as f64) as f32 + YCBCR_OFFSET),
+            Some([a, b, c, d]) if arq => BlackLevel { values: vec![*a as f32, ((*b + *c) * 0.5) as f32, *d as f32], ..Default::default() },
+            Some([a, b, c, d]) => {
+                BlackLevel { repeat_rows: 2, repeat_cols: 2, values: vec![*a as f32, *b as f32, *c as f32, *d as f32], ..Default::default() }
+            }
+            _ if linear_rgb => BlackLevel::uniform(default_black + YCBCR_OFFSET),
+            _ => BlackLevel::uniform((scale_bits >= 14).then(|| sr2().and_then(sr2_black)).flatten().unwrap_or(default_black)),
         }
-        _ if linear_rgb => BlackLevel::uniform(default_black + YCBCR_OFFSET),
-        _ => BlackLevel::uniform((scale_bits >= 14).then(|| sr2().and_then(sr2_black)).flatten().unwrap_or(default_black)),
     };
-    let white = if linear_rgb {
+    let white = if info.compression == 32766 {
+        39002.0
+    } else if linear_rgb {
         YCBCR_WHITE + YCBCR_OFFSET
     } else {
         raw.f64(t::WHITE_LEVEL).map(|v| v as f32).filter(|v| *v > 0.0).unwrap_or_else(|| super::white_from_data(samples, scale_bits))
@@ -642,6 +751,7 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         .and_then(|v| rggb_gains(&v))
         .or_else(|| rggb_gains(&sr2()?.shorts(WB_RGGB)?))
         .or_else(|| mn.as_ref().and_then(|m| tag2010_wb(&model, m.ifd.bytes(MN_TAG2010)?, m.order)))
+        .or_else(|| sr2_r1_levels.map(|(_, wb)| wb))
         .or_else(|| mn.as_ref().filter(|_| packed12).and_then(|m| a900_wb(m.ifd.bytes(MN_A900_BLOCK)?)));
     let crop = match (raw.u64s(CROP_TOP_LEFT).as_deref(), raw.u64s(CROP_SIZE).as_deref()) {
         (Some([x, y]), Some([cw, ch])) if *cw > 0 && *ch > 0 => Rect::new(*x as usize, *y as usize, *cw as usize, *ch as usize).clipped(w, h),
@@ -650,16 +760,23 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
             default_crop(raw, mn.as_ref(), exif_size, w, h, packed12)
         }
     };
-    let mut metadata = lightcraft_meta::from_tiff(&tiff);
+    let data = if arq {
+        RawData::F32(
+            samples.as_chunks::<4>().0.iter().flat_map(|p| [f32::from(p[0]), (f32::from(p[1]) + f32::from(p[2])) * 0.5, f32::from(p[3])]).collect(),
+        )
+    } else {
+        data
+    };
+    let mut metadata = lightcraft_meta::from_tiff_with_bytes(bytes, &tiff);
     metadata.width = Some(crop.width as u32);
     metadata.height = Some(crop.height as u32);
     let img = RawImage {
         format: RawFormat::Arw,
         width: w,
         height: h,
-        cpp: if linear_rgb { 3 } else { 1 },
+        cpp: if linear_rgb || arq { 3 } else { 1 },
         data,
-        cfa: if linear_rgb { None } else { Some(cfa) },
+        cfa: if linear_rgb || arq { None } else { Some(cfa) },
         bits: out_bits,
         black,
         white: vec![white],
@@ -670,7 +787,7 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         // Sony's linear YCbCr already carries as-shot WB. Applying the CFA gains again
         // makes a neutral surface magenta. WB edits remain relative to this as-shot RGB.
         wb_multipliers: if linear_rgb { Some([1.0; 3]) } else { wb },
-        linearized: false,
+        linearized: info.compression == 32766,
         opcodes: OpcodeLists::default(),
         metadata,
     };
@@ -681,6 +798,223 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "explicit CC0 ARW1 aligned active-area diagnostic"]
+    fn sony_arw1_reference_aligned_visible_area() {
+        use std::{fs, path::PathBuf};
+        let dir = std::env::var_os("SONY_REFERENCE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/sony-compare"));
+        let raw = crate::rawler_adapter::decode(&fs::read(dir.join("2346.ARW")).unwrap(), RawFormat::Arw, Mode::Full).unwrap();
+        let meta = fs::read_to_string(dir.join("2346.libraw.meta")).unwrap();
+        let dimensions = meta.lines().next().unwrap().split_whitespace().map(|v| v.parse::<usize>().unwrap()).collect::<Vec<_>>();
+        let reference = fs::read(dir.join("2346.libraw.f32")).unwrap();
+        assert_eq!(dimensions, [3881, 2608, 1]);
+        assert_eq!((raw.width, raw.height), (3880, 2608));
+        // LibRaw's extra left column changes its CFA phase to GRBG; rawler's
+        // visible RGGB array is aligned one column to the right in that buffer.
+        let mut max = 0.0f32;
+        let crop = raw.crop;
+        for y in crop.y..crop.y + crop.height {
+            for x in crop.x..crop.x + crop.width {
+                let at = (y * dimensions[0] + x + 1) * 4;
+                let expected = f32::from_le_bytes(reference[at..at + 4].try_into().unwrap());
+                let actual = raw.data.get(y * raw.width + x) - raw.black.at(x, y, 0, 1);
+                max = max.max((expected - actual).abs());
+            }
+        }
+        let count = crop.width * crop.height;
+        let report = format!("id\tcomparison\tsamples\tmax_abs_after_black\n2346\tvisible-crop-reference-x-plus-one\t{count}\t{max}\n");
+        fs::write(dir.join("sony-arw1-aligned.tsv"), &report).unwrap();
+        eprintln!("{report}");
+        assert_eq!(max, 0.0);
+    }
+
+    #[test]
+    #[ignore = "explicit two-variant CC0 ARW6 reference against pinned upstream LibRaw master"]
+    fn sony_arw6_reference_normal_and_hq() {
+        use std::{fs, path::PathBuf};
+        let dir = std::env::var_os("SONY_REFERENCE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/sony-compare"));
+        let mut report = String::from("id\tprojection\tsamples\tmax_abs_after_black\n");
+        for id in ["8846", "8847"] {
+            let bytes = fs::read(dir.join(format!("{id}.ARW"))).unwrap();
+            // The test explicitly budgets this requested reference measurement.
+            // Production imports use the engine's live hardware memory allowance.
+            let raw = crate::tiffraw::with_memory_budget(4 * 1024 * 1024 * 1024, || decode(&bytes, Mode::Full)).unwrap();
+            let header = decode(&bytes, Mode::Header).unwrap();
+            assert_eq!(header.info(), raw.info());
+            assert_eq!((raw.width, raw.height, raw.bits), (7040, 4688, 16));
+            assert_eq!(raw.black.mean(), 1024.0);
+            assert_eq!(raw.white, vec![39002.0]);
+            assert!(raw.linearized);
+            let reference = fs::read(dir.join(format!("{id}.libraw-master.f32"))).unwrap();
+            assert_eq!(reference.len(), raw.width * raw.height * 4);
+            let mut max = 0.0f32;
+            for (i, bytes) in reference.as_chunks::<4>().0.iter().enumerate() {
+                let expected = f32::from_le_bytes(*bytes) - 1024.0;
+                max = max.max((raw.data.get(i) - 1024.0 - expected).abs());
+            }
+            report.push_str(&format!("{id}\tCFA-LibRaw-830ac963\t{}\t{max}\n", raw.data.len()));
+            assert_eq!(max, 0.0, "ARW6 {id} differs from independent reference");
+        }
+        fs::write(dir.join("sony-arw6-native-contract.tsv"), &report).unwrap();
+        eprintln!("{report}");
+    }
+
+    #[test]
+    #[ignore = "explicit small CC0 reference measurement: scripts/sony_samples.py --references"]
+    fn sony_cc0_reference_sr2_arq_and_a7v_lossless() {
+        use std::{fs, path::PathBuf};
+        let dir = std::env::var_os("SONY_REFERENCE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/sony-compare"));
+        let mut report = String::from("id\tprojection\tsamples\tmax_abs_after_black\n");
+        for (id, suffix) in [("3221", "SR2"), ("3255", "ARQ"), ("8845", "ARW")] {
+            let raw = decode(&fs::read(dir.join(format!("{id}.{suffix}"))).unwrap(), Mode::Full).unwrap();
+            let meta = fs::read_to_string(dir.join(format!("{id}.libraw.meta"))).unwrap();
+            let lines = meta.lines().collect::<Vec<_>>();
+            let numbers = |s: &str| s.split_whitespace().map(|v| v.parse::<usize>().unwrap()).collect::<Vec<_>>();
+            let dimensions = numbers(lines[0]);
+            let area = numbers(lines[1]);
+            let black = numbers(lines[2]);
+            let reference = fs::read(dir.join(format!("{id}.libraw.f32"))).unwrap();
+            assert_eq!(reference.len(), dimensions.iter().product::<usize>() * 4);
+            assert_eq!((raw.width, raw.height), (dimensions[0], dimensions[1]));
+            assert_eq!(raw.cpp, if suffix == "ARQ" { 3 } else { 1 });
+            let colors = lines[10].as_bytes();
+            let sample = |x: usize, y: usize, s: usize| {
+                let at = ((y * dimensions[0] + x) * dimensions[2] + s) * 4;
+                f32::from_le_bytes(reference[at..at + 4].try_into().unwrap()) - black[s] as f32
+            };
+            let mut count = 0usize;
+            let mut max = 0.0f32;
+            for y in area[1]..area[1] + area[3] {
+                for x in area[0]..area[0] + area[2] {
+                    for s in 0..raw.cpp {
+                        let expected = if suffix == "ARQ" {
+                            // LibRaw exposes RGBG; native deliberately averages G1/G2
+                            // at half-DN precision. Compare the same observations.
+                            match s {
+                                0 => sample(x, y, 0),
+                                1 => (sample(x, y, 1) + sample(x, y, 3)) * 0.5,
+                                _ => sample(x, y, 2),
+                            }
+                        } else {
+                            let c = usize::from(colors[(y % 6) * 6 + x % 6] - b'0');
+                            let at = (y * dimensions[0] + x) * 4;
+                            f32::from_le_bytes(reference[at..at + 4].try_into().unwrap()) - black[c] as f32
+                        };
+                        let actual = raw.data.get((y * raw.width + x) * raw.cpp + s) - raw.black.at(x, y, s, raw.cpp);
+                        max = max.max((actual - expected).abs());
+                        count += 1;
+                    }
+                }
+            }
+            let projection = if suffix == "ARQ" { "RGBG-to-RGB-green-mean" } else { "CFA" };
+            report.push_str(&format!("{id}\t{projection}\t{count}\t{max}\n"));
+            assert_eq!(max, 0.0, "{id} differs after black subtraction");
+        }
+        fs::write(dir.join("sony-native-contract.tsv"), &report).unwrap();
+        eprintln!("{report}");
+    }
+
+    #[test]
+    fn sony_ycbcr_codec_neutral_and_truncation_match_libraw() {
+        assert_eq!(sony_ycbcr_rgb(1250, 16383, 16383), [1250; 3]);
+        assert_eq!(sony_ycbcr_rgb(1250, 16384, 16384), [1251, 1248, 1251]);
+        assert_eq!(sony_ycbcr_rgb(0, 0, 0), [0, 17337, 0]);
+        assert_eq!(sony_ycbcr_rgb(65535, 65535, 65535), [65535, 13518, 65535]);
+    }
+
+    #[test]
+    fn sony_sr2_per_file_key_matches_known_arw_keystream() {
+        let mut known = vec![0u8; 4096];
+        super::super::sr2::tests::encrypt(&mut known);
+        assert_eq!(decrypt_sr2_r1(&vec![0u8; 4096], 0x4433_2211), known);
+        let plain = (0..517).map(|i| (i * 71) as u8).collect::<Vec<_>>();
+        let encrypted = decrypt_sr2_r1(&plain, 0x3e01_be63);
+        assert_ne!(encrypted, plain);
+        assert_eq!(decrypt_sr2_r1(&encrypted, 0x3e01_be63), plain);
+    }
+
+    #[test]
+    fn sony_sr2_big_endian_sensor_preserves_per_channel_black_and_white_balance() {
+        let mut file = sony_with_file_format([1, 0, 0, 0]);
+        let tiff = Tiff::parse(&file).unwrap();
+        let pointer_at = tiff.ifds[0].get(t::DNG_PRIVATE_DATA).unwrap().offset as usize;
+        let raw = raw_ifd(&tiff).unwrap();
+        let strip_at = raw.u64(t::STRIP_OFFSETS).unwrap() as usize;
+        let private_at = file.len();
+        let start = private_at + 2 + 3 * 12 + 4;
+        let mut block = vec![0u8; 46];
+        block[..2].copy_from_slice(&2u16.to_le_bytes());
+        for (i, (tag, levels)) in [(0x7300u16, [514u16, 511, 512, 513]), (0x7303, [256, 500, 385, 256])].iter().enumerate() {
+            let at = 2 + 12 * i;
+            block[at..at + 2].copy_from_slice(&tag.to_le_bytes());
+            block[at + 2..at + 4].copy_from_slice(&3u16.to_le_bytes());
+            block[at + 4..at + 8].copy_from_slice(&4u32.to_le_bytes());
+            block[at + 8..at + 12].copy_from_slice(&((start + 30 + 8 * i) as u32).to_le_bytes());
+            for (j, value) in levels.iter().enumerate() {
+                block[30 + 8 * i + 2 * j..32 + 8 * i + 2 * j].copy_from_slice(&value.to_le_bytes());
+            }
+        }
+        let encrypted = decrypt_sr2_r1(&block, 0x3e01_be63);
+        file[pointer_at..pointer_at + 4].copy_from_slice(&(private_at as u32).to_le_bytes());
+        for pixel in file[strip_at..strip_at + 8 * 4 * 2].as_chunks_mut::<2>().0 {
+            *pixel = 1200u16.to_be_bytes();
+        }
+        file.extend(3u16.to_le_bytes());
+        for (tag, kind, value) in [(0x7200u16, 4u16, start as u32), (0x7201, 4, block.len() as u32), (0x7221, 7, 0x3e01_be63)] {
+            file.extend(tag.to_le_bytes());
+            file.extend(kind.to_le_bytes());
+            file.extend(if kind == 7 { 4u32 } else { 1 }.to_le_bytes());
+            file.extend(value.to_le_bytes());
+        }
+        file.extend([0; 4]);
+        file.extend(encrypted);
+        let full = decode(&file, Mode::Full).unwrap();
+        let header = decode(&file, Mode::Header).unwrap();
+        assert_eq!(full.data.get(0), 1200.0);
+        assert_eq!(full.black.values, vec![511.0, 514.0, 512.0, 513.0]);
+        assert_eq!(full.wb_multipliers, Some([500.0 / 256.0, 1.0, 385.0 / 256.0]));
+        assert_eq!(header.info(), full.info());
+    }
+
+    #[test]
+    fn sony_arq_preserves_two_green_observations_as_linear_rgb() {
+        use lightcraft_tiff::{IfdBuilder, ImageData, TiffWriter, Value};
+        let mut raw = IfdBuilder::new();
+        raw.set(t::MAKE, Value::Ascii("SONY".into()));
+        raw.set(t::MODEL, Value::Ascii("ILCE-7RM4".into()));
+        raw.set(t::IMAGE_WIDTH, Value::Long(vec![2]));
+        raw.set(t::IMAGE_LENGTH, Value::Long(vec![2]));
+        raw.set(t::BITS_PER_SAMPLE, Value::Short(vec![16; 4]));
+        raw.set(t::SAMPLES_PER_PIXEL, Value::Short(vec![4]));
+        raw.set(t::PHOTOMETRIC, Value::Short(vec![32892]));
+        raw.set(t::COMPRESSION, Value::Short(vec![1]));
+        raw.set(BLACK_LEVEL, Value::Short(vec![510, 512, 514, 516]));
+        raw.set(WB_RGGB, Value::Short(vec![2048, 1024, 1024, 1536]));
+        let samples = [1000u16, 2000, 2001, 3000].repeat(4);
+        raw.set_image(ImageData::Strips { rows_per_strip: 2, strips: vec![samples.iter().flat_map(|v| v.to_le_bytes()).collect()] });
+        let file = TiffWriter::default().write(&[raw]).unwrap();
+        let full = decode(&file, Mode::Full).unwrap();
+        let header = decode(&file, Mode::Header).unwrap();
+        assert_eq!(full.cpp, 3);
+        assert!(full.cfa.is_none());
+        assert_eq!(full.bits, 14);
+        assert_eq!(full.white, vec![16383.0]);
+        assert_eq!(full.black.values, vec![510.0, 513.0, 516.0]);
+        assert_eq!(full.wb_multipliers, Some([2.0, 1.0, 1.5]));
+        let RawData::F32(rgb) = full.data else { panic!("ARQ must retain half-DN green precision") };
+        assert_eq!(rgb, [1000.0, 2000.5, 3000.0].repeat(4));
+        assert_eq!(header.cpp, 3);
+        assert!(header.cfa.is_none());
+        assert!(header.data.is_empty());
+        assert_eq!(header.black, full.black);
+    }
 
     #[test]
     fn downsized_lossless_is_linear_rgb_not_cfa() {
@@ -712,7 +1046,7 @@ mod tests {
         let RawData::U16(ref pixels) = full.data else {
             panic!("integer ARW");
         };
-        assert_eq!(&pixels[..3], &[1140, 929, 1000]);
+        assert_eq!(&pixels[..3], &[1141, 927, 1001]);
         let developed = full.develop(crate::Method::Bilinear).unwrap();
         assert_eq!((developed.width, developed.height), (4, 4));
     }
@@ -760,6 +1094,7 @@ mod tests {
         raw.set(t::PHOTOMETRIC, Value::Short(vec![photometric::CFA]));
         raw.set(t::COMPRESSION, Value::Short(vec![1]));
         raw.set_child(t::EXIF_IFD, exif);
+        raw.set(t::DNG_PRIVATE_DATA, Value::Byte(vec![0; 4]));
         raw.set_image(ImageData::Strips { rows_per_strip: 4, strips: vec![vec![0x10u8; 8 * 4 * 2]] });
         TiffWriter::default().write(&[raw]).unwrap()
     }
@@ -938,10 +1273,26 @@ mod tests {
         assert!(c.windows(2).all(|w| w[1] >= w[0]));
         assert_eq!(c[256], 512); // black
         assert_eq!(c[1000], 2000);
-        assert_eq!(*c.last().unwrap(), 16383);
+        assert_eq!(*c.last().unwrap(), 17204);
         // degenerate thresholds do not panic
         let _ = code_curve(&[]);
         let _ = code_curve(&[60000, 1, 0, 0]);
+    }
+
+    #[test]
+    fn sony_arw2_linearization_preserves_highlight_headroom() {
+        let curve = code_curve(&[8000, 10400, 12900, 14100]);
+        // LibRaw 0.22.2: code 2029 from the CC0 2414/3480 highlights is 16628,
+        // even though the nominal sensor white is 16383. Every code agrees with
+        // independently accumulated five-segment lengths, including transitions.
+        assert_eq!(curve[2029], 16628);
+        let breakpoints = [0usize, 2000, 2600, 3225, 3525, 4095];
+        for (code, &value) in curve.iter().enumerate() {
+            let index = code * 2;
+            let expected: usize =
+                breakpoints.windows(2).enumerate().map(|(segment, pair)| index.min(pair[1]).saturating_sub(pair[0]) * (1 << segment)).sum();
+            assert_eq!(usize::from(value), expected, "code {code}");
+        }
     }
 
     #[test]

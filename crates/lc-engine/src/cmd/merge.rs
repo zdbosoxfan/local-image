@@ -43,6 +43,15 @@ fn run(s: &mut Session, id: &str, p: &Value) -> Result<Value> {
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
+            "merge.pixelShift",
+            "Sony Pixel Shift Merge",
+            [],
+            None,
+            "{ids? (one composed ARQ or complete 4/16-shot ARWs), autoSettings=true, stack=false, preview=false, showOverlay=false, previewPath?}",
+            |_| Ok(()),
+            |s, p| run(s, "merge.pixelShift", p)
+        ),
+        cmd!(
             "merge.hdr",
             "HDR Merge",
             [],
