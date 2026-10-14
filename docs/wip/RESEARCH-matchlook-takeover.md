@@ -1,5 +1,10 @@
 # Match Look continuation and photographic acceptance
 
+Current implementation and validation status is in
+[the October 14 checkpoint](CODEX-REPORT-matchlook-current.md). The observations below
+record earlier research; statements about unfinished workflow additions can be superseded
+by that checkpoint. Photographic acceptance remains incomplete.
+
 Research and implementation continuation, October 13, 2026. Development remains on
 `wip/cx-matchlook`; `v2` is the integration target. The continuation includes v2 at
 `9969623848982e344bbbf6fa2bc50c6ae799cdbb` and preserves prior Match Look work.
