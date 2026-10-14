@@ -20,8 +20,9 @@ use photocraft_doc::{DevelopLink, DocId, Document, Layer, LayerContent, LayerId,
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
-use crate::jobs::{self, JobCtx};
+use crate::jobs;
 use crate::{EngineError, Result, Session};
+use lightcraft_sysmem::JobCtl;
 use std::sync::Arc;
 #[path = "develop_layer_overwrite.rs"]
 mod overwrite;
@@ -70,11 +71,11 @@ pub fn source_of(sm: &SmartObject) -> Option<&str> {
 }
 
 /// Expensive source reads, rendering, transforms and smart filters all run in the worker.
-fn render_layer(doc: &Document, mut layer: Layer, link: DevelopLink, ctx: &JobCtx) -> Result<Layer> {
+fn render_layer(doc: &Document, mut layer: Layer, link: DevelopLink, ctx: &JobCtl) -> Result<Layer> {
     ctx.check()?;
     let LayerContent::Smart(sm) = &mut layer.content else { return Err(EngineError::Other("not a smart object".into())) };
     sm.develop = Some(link);
-    ctx.progress(0.05, "Developing");
+    ctx.report(0.05, "Developing");
     work_probe(ctx)?;
     if !crate::smart_cmds::refresh_layer(doc, &mut layer)? {
         return Err(EngineError::Other("the Develop source is unavailable; the old pixels were kept".into()));
@@ -129,15 +130,15 @@ fn open_photo(s: &mut Session, p: &Value) -> Result<Value> {
         move |ctx| {
             wait_work_gate(ctx, gate)?;
             let _work = enter_work(ctx)?;
-            ctx.progress(0.0, "Reading");
+            ctx.report(0.0, "Reading");
             let bytes = jobs::read_path(&path)?;
             ctx.check()?;
             let file_name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
-            ctx.progress(0.05, "Developing");
+            ctx.report(0.05, "Developing");
             work_probe(ctx)?;
             let r = photocraft_io::raw::develop_with_settings(&file_name, &bytes, &settings).map_err(|e| bad(C, e.to_string()))?;
             ctx.check()?;
-            ctx.progress(1.0, "Opening");
+            ctx.report(1.0, "Opening");
             Ok((r, path, settings, photo, library, name, ask_color_profile))
         },
         |s, (r, path, settings, photo, library, name, ask_color_profile)| {
@@ -346,7 +347,7 @@ fn sync_photo(s: &mut Session, p: &Value) -> Result<Value> {
                 let in_place = if is_untouched(&base) { Some(render_layer(&base, template, link, ctx)?) } else { None };
                 rendered.push((base, old, clean, in_place));
             }
-            ctx.progress(1.0, "Applying Develop edits");
+            ctx.report(1.0, "Applying Develop edits");
             Ok(rendered)
         },
         |s, rendered| {
@@ -463,19 +464,19 @@ pub fn gate_next_work(gate: Arc<std::sync::atomic::AtomicBool>) {
 fn take_work_gate() -> Option<Arc<std::sync::atomic::AtomicBool>> {
     WORK_GATE.with(|g| g.borrow_mut().take())
 }
-fn wait_work_gate(ctx: &JobCtx, gate: Option<Arc<std::sync::atomic::AtomicBool>>) -> Result<()> {
+fn wait_work_gate(ctx: &JobCtl, gate: Option<Arc<std::sync::atomic::AtomicBool>>) -> Result<()> {
     if let Some(gate) = gate {
         while !gate.load(std::sync::atomic::Ordering::Relaxed) {
             ctx.check()?;
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
-    ctx.check()
+    Ok(ctx.check()?)
 }
 // Full-size sources and spatial stages are large. Superseded requests waiting for this slot
 // stop before they decode/render, rather than accumulating simultaneous full-size workers.
 static DEVELOP_WORK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-fn enter_work(ctx: &JobCtx) -> Result<std::sync::MutexGuard<'static, ()>> {
+fn enter_work(ctx: &JobCtl) -> Result<std::sync::MutexGuard<'static, ()>> {
     loop {
         ctx.check()?;
         match DEVELOP_WORK.try_lock() {
@@ -486,9 +487,9 @@ fn enter_work(ctx: &JobCtx) -> Result<std::sync::MutexGuard<'static, ()>> {
     }
 }
 
-fn work_probe(ctx: &JobCtx) -> Result<()> {
+fn work_probe(ctx: &JobCtl) -> Result<()> {
     WORK_COUNT.with(|c| c.set(c.get() + 1));
-    ctx.check()
+    Ok(ctx.check()?)
 }
 
 #[cfg(test)]

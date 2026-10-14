@@ -1,6 +1,7 @@
 //! Package 28: captured trace requests and fully prepared, atomic output.
 //! T1 tracing stays in pc-trace. No preview changes document/history/journal state.
-use crate::{EngineError, Result, Session, commands::CommandSpec, jobs::JobCtx};
+use crate::{EngineError, Result, Session, commands::CommandSpec};
+use lightcraft_sysmem::JobCtl;
 pub use pc_trace::cutout::Layering;
 pub use pc_trace::{Mode, Params, Preset, Trace};
 use photocraft_color::Color;
@@ -155,13 +156,13 @@ pub fn start_preview(
     result.map(|started| (started, rx))
 }
 /// Pixel extraction and smart rendering happen on the job worker, against the captured doc.
-pub fn trace(doc: &Document, request: &Capture, params: &Params, output: &Output, scale: f64, ctx: &JobCtx) -> Result<Preview> {
+pub fn trace(doc: &Document, request: &Capture, params: &Params, output: &Output, scale: f64, ctx: &JobCtl) -> Result<Preview> {
     trace_impl(doc, request, params, output, scale, ctx, true)
 }
-pub(crate) fn trace_geometry(doc: &Document, request: &Capture, params: &Params, output: &Output, scale: f64, ctx: &JobCtx) -> Result<Preview> {
+pub(crate) fn trace_geometry(doc: &Document, request: &Capture, params: &Params, output: &Output, scale: f64, ctx: &JobCtl) -> Result<Preview> {
     trace_impl(doc, request, params, output, scale, ctx, false)
 }
-fn trace_impl(doc: &Document, request: &Capture, params: &Params, output: &Output, scale: f64, ctx: &JobCtx, render_pixels: bool) -> Result<Preview> {
+fn trace_impl(doc: &Document, request: &Capture, params: &Params, output: &Output, scale: f64, ctx: &JobCtl, render_pixels: bool) -> Result<Preview> {
     params.validate().map_err(error)?;
     output.validate(params)?;
     if !scale.is_finite() || !(0.01..=1.0).contains(&scale) {
@@ -175,7 +176,7 @@ fn trace_impl(doc: &Document, request: &Capture, params: &Params, output: &Outpu
     let bounds = source_bounds(doc)?;
     let (width, height) = (bounds.width(), bounds.height());
     ctx.check()?;
-    ctx.progress(0.05, "Reading image");
+    ctx.report(0.05, "Reading image");
     let layer = doc.layer(request.layer).ok_or(EngineError::NoLayer(request.layer))?;
     let rendered = if let LayerContent::Smart(sm) = &layer.content { crate::smart_cmds::render(doc, sm)? } else { None };
     let surface = rendered.as_ref().or_else(|| layer.surface()).ok_or_else(|| error("smart object has no renderable pixels"))?;
@@ -218,7 +219,7 @@ fn trace_impl(doc: &Document, request: &Capture, params: &Params, output: &Outpu
         }
     }
     ctx.check()?;
-    ctx.progress(0.15, "Tracing regions");
+    ctx.report(0.15, "Tracing regions");
     let mut trace_params = params.clone();
     if doc.selection.is_some() {
         trace_params.use_alpha = true;
@@ -226,11 +227,11 @@ fn trace_impl(doc: &Document, request: &Capture, params: &Params, output: &Outpu
     let image = pc_trace::Image { width: tw, height: th, rgba: &rgba };
     let mut cleanup_stats = None;
     let mut trace = if let Some(options) = &output.cleanup {
-        let cleaned = pc_trace::cleanup::trace_with_cancel(image, &trace_params, options, || ctx.cancelled()).map_err(error)?;
+        let cleaned = pc_trace::cleanup::trace_with_cancel(image, &trace_params, options, || ctx.is_cancelled()).map_err(error)?;
         cleanup_stats = Some(cleaned.stats);
         cleaned.trace
     } else {
-        pc_trace::trace_with_cancel(image, &trace_params, || ctx.cancelled()).map_err(error)?
+        pc_trace::trace_with_cancel(image, &trace_params, || ctx.is_cancelled()).map_err(error)?
     };
     for edit in &output.palette_edits {
         trace.layers.retain_mut(|l| {
@@ -308,7 +309,7 @@ fn resize_rgba(rgba: Vec<u8>, width: u32, height: u32, tw: u32, th: u32) -> Resu
 }
 /// Merge only when palette edits created repeated paints. Pathfinder computes visible
 /// geometry in stack order before grouping, so moving a paint never exposes hidden pixels.
-fn merge_equal_paints(trace: &mut Trace, ctx: &JobCtx) -> Result<()> {
+fn merge_equal_paints(trace: &mut Trace, ctx: &JobCtl) -> Result<()> {
     let mut colors = Vec::new();
     for layer in &trace.layers {
         if !colors.contains(&layer.color) {
@@ -350,7 +351,7 @@ pub struct Prepared {
     nodes: usize,
     cutout: bool,
 }
-pub fn prepare(doc: &Document, preview: &Preview, output: &Output, ctx: &JobCtx) -> Result<Prepared> {
+pub fn prepare(doc: &Document, preview: &Preview, output: &Output, ctx: &JobCtl) -> Result<Prepared> {
     if preview.scale_xy.iter().any(|v| !v.is_finite() || !(0.0..=1.0).contains(v) || *v == 0.)
         || preview.bounds[2..].iter().any(|v| *v <= 0)
         || preview.trace.width == 0
@@ -449,7 +450,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
 mod tests;
 
 /// The shared dialog renders and publishes editable centreline strokes with the width provider.
-fn stroke_layers(doc: &Document, trace: &Trace, affine: Affine, ctx: &JobCtx) -> Result<Vec<Layer>> {
+fn stroke_layers(doc: &Document, trace: &Trace, affine: Affine, ctx: &JobCtl) -> Result<Vec<Layer>> {
     use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, StrokeItem};
     if trace.strokes.len() > 8192 {
         return Err(error("Centreline stroke budget exceeded"));

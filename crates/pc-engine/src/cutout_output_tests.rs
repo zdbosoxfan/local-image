@@ -23,7 +23,7 @@ fn scene() -> (Session, LayerId, Surface) {
 
 fn apply(s: &mut Session, id: LayerId, matte: Surface, output: &BackgroundOutput) -> LayerId {
     s.edit("Remove Background", |doc, active| {
-        let result = apply_output(doc, id, matte, output, &JobCtx::new())?;
+        let result = apply_output(doc, id, matte, output, &JobCtl::new())?;
         *active = Some(result);
         Ok(result)
     })

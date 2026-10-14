@@ -382,7 +382,7 @@ fn content_aware_fill(s: &mut Session, p: &Value) -> Result<Value> {
         label,
         true,
         move |ctx| {
-            ctx.progress(0.0, label);
+            ctx.report(0.0, label);
             let img = match target {
                 Some(id) => doc.layer(id).and_then(|l| l.surface()).ok_or(EngineError::NoLayer(id))?.read_region(window),
                 None => {
@@ -540,7 +540,7 @@ fn content_aware_scale(s: &mut Session, p: &Value) -> Result<Value> {
         label,
         true,
         move |ctx| {
-            ctx.progress(0.0, label);
+            ctx.report(0.0, label);
             let surf = doc.layer(id).and_then(|l| l.surface()).ok_or(EngineError::NoLayer(id))?;
             let img = surf.read_region(region);
             let mut protect: Option<Vec<f32>> =

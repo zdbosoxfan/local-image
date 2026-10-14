@@ -184,11 +184,11 @@ impl Session {
         let to = self.ai_store_root();
         let exporting = destination.is_some();
         let work: super::Work = Box::new(move |ctl| {
-            ctl.set(0.01, "Loading the photo");
+            ctl.report(0.01, "Loading the photo");
             ctl.check()?;
             let progress = |n: usize, total: usize| {
-                ctl.set(0.05 + 0.85 * n as f32 / total.max(1) as f32, "Denoising");
-                !ctl.cancelled()
+                ctl.report(0.05 + 0.85 * n as f32 / total.max(1) as f32, "Denoising");
+                !ctl.is_cancelled()
             };
             let mut variant =
                 if family == DenoiseModel::Raw || custom.as_ref().is_some_and(|c| c.class == 1) { Variant::Linear } else { Variant::Rgb };
@@ -310,7 +310,7 @@ impl Session {
                 export_new(&path, &full, &p, ctl)?;
                 return Ok(Outcome::DenoiseExport(path.to_string_lossy().into()));
             }
-            ctl.set(0.92, "Saving");
+            ctl.report(0.92, "Saving");
             let source = source_hash(&p);
             let tag = if override_fn.is_some() {
                 "custom".into()
@@ -328,7 +328,7 @@ impl Session {
                 store::put_rgb(Kind::Denoise, &preview_key(&key), &resize(&full, pw, ph, Filter::Mitchell), to.as_deref())?;
             }
             forget_levels(&key);
-            ctl.set(1., "Done");
+            ctl.report(1., "Done");
             Ok(Outcome::Denoise(DenoiseDone { key, source, model, family, preview }))
         });
         Ok(self.enhance.spawn(
@@ -420,7 +420,7 @@ fn from_display(data: &mut [[f32; 3]]) {
 fn export_new(path: &std::path::Path, img: &Rgb32f, p: &lightcraft_catalog::Photo, ctl: &JobCtl) -> Result<(), String> {
     use lightcraft_codecs::encode::{EncodeImage, EncodeMeta, Samples, TiffCompression};
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
-    ctl.set(0.93, "Saving");
+    ctl.report(0.93, "Saving");
     let mut metadata = crate::export::export_metadata(p, &crate::export::ExportOptions::default()).unwrap_or_default();
     metadata.width = Some(img.width as u32);
     metadata.height = Some(img.height as u32);
@@ -477,7 +477,7 @@ fn export_new(path: &std::path::Path, img: &Rgb32f, p: &lightcraft_catalog::Phot
     };
     ctl.check()?;
     lightcraft_catalog::safe_file::write_new(path, &bytes).map_err(|e| e.to_string())?;
-    ctl.set(1., "Done");
+    ctl.report(1., "Done");
     Ok(())
 }
 

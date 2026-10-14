@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
 use egui::{Color32, Rect, RichText, Sense, Stroke, vec2};
+use li_ui_kit::progress::bar;
 use photocraft_engine::jobs::{JobEvent, JobId, JobInfo, JobOutcome, OPEN_JOB, OpenSource, Started};
 use serde_json::{Value, json};
 
@@ -401,35 +402,14 @@ fn finish_open(
 
 // ------------------------------------------------------------------------------------- drawing
 
-/// A progress bar: `frac` of `rect` filled with the accent; `None` = indeterminate (a sliding
-/// segment), for jobs that haven't reported progress yet.
-pub fn bar(ui: &egui::Ui, rect: Rect, frac: Option<f32>, t: &Tokens) {
-    let p = ui.painter();
-    let r = rect.height() / 2.0;
-    p.rect_filled(rect, r, t.field);
-    p.rect_stroke(rect, r, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
-    let fill = match frac {
-        Some(f) => Rect::from_min_size(rect.min, vec2((rect.width() * f.clamp(0.0, 1.0)).max(rect.height()), rect.height())),
-        None => {
-            let time = ui.input(|i| i.time) as f32;
-            let w = rect.width() * 0.3;
-            let x = rect.left() + ((time * 0.8).fract() * (rect.width() + w)) - w;
-            Rect::from_min_max(egui::pos2(x.max(rect.left()), rect.top()), egui::pos2((x + w).min(rect.right()), rect.bottom()))
-        }
-    };
-    if fill.width() > 0.0 {
-        p.rect_filled(fill, r, t.accent);
-    }
-}
-
-/// Progress that has been reported, or `None` (indeterminate) while it's still 0.
+// Bars and percentages are the shared progress widget (`li_ui_kit::progress`, also the
+// Library's task panel): nothing reported yet = an indeterminate bar and no number.
 fn shown_fraction(j: &JobInfo) -> Option<f32> {
-    (j.progress > 0.0).then_some(j.progress)
+    li_ui_kit::progress::shown(Some(j.progress))
 }
 
 fn percent(j: &JobInfo) -> String {
-    // Nothing yet reported: the bar is indeterminate, so no number.
-    if j.progress > 0.0 { format!("{:.0}%", j.progress * 100.0) } else { String::new() }
+    li_ui_kit::progress::percent(Some(j.progress))
 }
 
 /// The status bar's job readout: "Gaussian Blur ▬▬▬▭▭ 45 %  ×". Draws nothing when no job runs.

@@ -385,9 +385,9 @@ fn prepare_place(
     source: crate::jobs::OpenSource,
     linked: Option<String>,
     params: Value,
-    ctx: &crate::jobs::JobCtx,
+    ctx: &lightcraft_sysmem::JobCtl,
 ) -> Result<PreparedPlace> {
-    ctx.progress(0.0, "Reading");
+    ctx.report(0.0, "Reading");
     let bytes = match source {
         crate::jobs::OpenSource::Bytes(b) => Arc::unwrap_or_clone(b),
         crate::jobs::OpenSource::Path(p) => crate::jobs::read_path(&p)?,
@@ -398,7 +398,7 @@ fn prepare_place(
     let state = detached.active_mut().ok_or(EngineError::NoDocument)?;
     state.active_layer = active;
     state.selected_layers = selected;
-    ctx.progress(0.05, "Decoding");
+    ctx.report(0.05, "Decoding");
     let response = place_decoded_with(&mut detached, &name, bytes, linked, &params, ctx)?;
     ctx.check()?;
     let state = detached.active().ok_or(EngineError::NoDocument)?;
@@ -445,7 +445,7 @@ pub fn place_bytes(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Option<S
     place_source(s, name, crate::jobs::OpenSource::Bytes(Arc::new(bytes)), linked, p)
 }
 
-fn place_decoded_with(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Option<String>, p: &Value, ctx: &crate::jobs::JobCtx) -> Result<Value> {
+fn place_decoded_with(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Option<String>, p: &Value, ctx: &lightcraft_sysmem::JobCtl) -> Result<Value> {
     if bytes.starts_with(b"%PDF-") {
         let request = crate::vector_packages::pdf_import::capture(s, bytes)?;
         let dpi = s.active().ok_or(EngineError::NoDocument)?.doc.resolution_dpi;
@@ -453,7 +453,7 @@ fn place_decoded_with(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Optio
             &request.pdf,
             &photocraft_doc::vector_design::exchange::ImportOptions { dpi, ..Default::default() },
             &Default::default(),
-            ctx.cancellation_flag(),
+            ctx.cancel_flag(),
         )
         .map_err(|e| EngineError::Other(e.to_string()))?;
         ctx.check()?;
@@ -462,7 +462,7 @@ fn place_decoded_with(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Optio
     if photocraft_affinity::is_affinity(&bytes) {
         let mut request = crate::vector_packages::affinity::capture(s, bytes)?;
         request.name = name.into();
-        let scene = crate::vector_packages::affinity::decode_with(s, &request, ctx.cancellation_flag())?;
+        let scene = crate::vector_packages::affinity::decode_with(s, &request, ctx.cancel_flag())?;
         ctx.check()?;
         let id = crate::vector_packages::affinity::commit(s, &request, &scene)?;
         return Ok(json!({"layer": id.0, "warnings": scene.warnings, "nativeImport": true}));
@@ -475,7 +475,7 @@ fn place_decoded_with(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Optio
             request.svg.as_bytes(),
             &photocraft_doc::vector_design::exchange::ImportOptions { dpi, ..Default::default() },
             None,
-            ctx.cancellation_flag(),
+            ctx.cancel_flag(),
         )
         .map_err(|e| EngineError::Other(e.to_string()))?;
         ctx.check()?;

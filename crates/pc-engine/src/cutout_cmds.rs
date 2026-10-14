@@ -6,7 +6,7 @@ use photocraft_algo::segment::subject;
 use photocraft_doc::{Color, Document, Fill, Layer, LayerContent, LayerId, LayerMask};
 use photocraft_raster::Surface;
 
-use crate::jobs::JobCtx;
+use lightcraft_sysmem::JobCtl;
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, layer_param};
@@ -66,7 +66,7 @@ impl BackgroundOutput {
 
 /// Apply a matte and its output within the caller's single document edit. Both CPU and Qwen
 /// commands share this path, including cancellation and sibling placement inside groups.
-pub fn apply_output(doc: &mut Document, id: LayerId, mask: Surface, output: &BackgroundOutput, ctx: &JobCtx) -> Result<LayerId> {
+pub fn apply_output(doc: &mut Document, id: LayerId, mask: Surface, output: &BackgroundOutput, ctx: &JobCtl) -> Result<LayerId> {
     let bounds = doc.bounds();
     let original = doc.layer(id).ok_or(EngineError::NoLayer(id))?.clone();
     let matte = LayerMask { surface: mask, ..LayerMask::reveal_all() };
@@ -185,11 +185,11 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
         s,
         "Remove Background",
         move |doc, active, ctx| {
-            ctx.progress(0.1, "Finding subject");
+            ctx.report(0.1, "Finding subject");
             // local-image: the learned model first (when installed), the classical heuristic otherwise.
-            let learned = model.as_ref().and_then(|m| crate::seg::subject_with(m, doc, Some(id), sample_all, ctx.cancellation_flag()));
+            let learned = model.as_ref().and_then(|m| crate::seg::subject_with(m, doc, Some(id), sample_all, ctx.cancel_flag()));
             // A cancelled model run returns nothing: don't fall back to the classical heuristic.
-            if ctx.cancelled() {
+            if ctx.is_cancelled() {
                 return Err(EngineError::Cancelled);
             }
             if require_learned && learned.is_none() {
@@ -198,16 +198,16 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
             let refine_params = if learned.is_some() { crate::smartselect_cmds::learned_refine(doc.bounds()) } else { REFINE };
             let found = learned.or_else(|| with_doc_sampler(doc, Some(id), sample_all, |smp, d| subject::select_subject(smp, d.bounds())));
             let mut region = found.ok_or_else(|| EngineError::Other("no subject found".into()))?;
-            if ctx.cancelled() {
+            if ctx.is_cancelled() {
                 return Err(EngineError::Cancelled);
             }
             if refine {
-                ctx.progress(0.6, "Refining edge");
+                ctx.report(0.6, "Refining edge");
                 let refined = with_doc_sampler(doc, Some(id), sample_all, |smp, d| {
                     matting::refine_mask(smp, &matting::region_reader(&region), region.bbox, d.bounds(), &refine_params)
                 });
                 region = refined.unwrap_or(region);
-                if ctx.cancelled() {
+                if ctx.is_cancelled() {
                     return Err(EngineError::Cancelled);
                 }
             }

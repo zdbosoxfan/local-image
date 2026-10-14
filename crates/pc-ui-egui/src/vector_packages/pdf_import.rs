@@ -608,7 +608,7 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
         ui.label(tl!("Working…"));
         let t = crate::theme::Tokens::get(ui.ctx());
         let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), ui.spacing().item_spacing.y), egui::Sense::hover());
-        crate::jobs_ui::bar(ui, rect, None, &t);
+        li_ui_kit::progress::bar(ui, rect, None, &t);
     }
     use crate::widgets::{ButtonRole, DialogButton};
     let open = if state.image_mode { tl!("Open as image") } else { tl!("Open PDF") };

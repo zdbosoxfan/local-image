@@ -19,16 +19,6 @@ fn secs(iso: &str) -> Option<i64> {
     Some(((d.year as i64 * 372 + d.month as i64 * 31 + d.day as i64) * 24 + d.hour as i64) * 3600 + d.minute as i64 * 60 + d.second as i64)
 }
 
-/// Progress and cancellation shared with the culling worker (the Library task strip's counter).
-/// Kept until that task moves to the shared job runner (J25); new code drives [`Work::run_job`]
-/// with a `lightcraft_sysmem::JobCtl` instead (cancel flag + `step` = photos done / total).
-#[derive(Default)]
-pub struct Control {
-    pub cancel: std::sync::atomic::AtomicBool,
-    pub completed: std::sync::atomic::AtomicUsize,
-    pub total: usize,
-}
-
 type Row = (PhotoId, Option<i64>, f32, f32, [f32; 64]);
 struct Input {
     id: PhotoId,
@@ -72,14 +62,8 @@ impl Work {
     pub fn is_empty(&self) -> bool {
         self.inputs.is_empty()
     }
-    pub fn run(self, control: &Control) -> Measured {
-        use std::sync::atomic::Ordering;
-        self.run_with(&|| control.cancel.load(Ordering::Relaxed), &|_| {
-            control.completed.fetch_add(1, Ordering::Relaxed);
-        })
-    }
-    /// [`Work::run`] as a job: stops at the next photo once `job` is cancelled and reports
-    /// `step` = photos done / total (and the fraction).
+    /// Measure the photos as a job (the Library's Assisted Culling task): stops at the next photo
+    /// once `job` is cancelled and reports `step` = photos done / total (and the fraction).
     pub fn run_job<S>(self, job: &lightcraft_sysmem::JobCtl<S>) -> Measured {
         let total = u32::try_from(self.inputs.len()).unwrap_or(u32::MAX);
         job.set_step(0, total);

@@ -82,20 +82,20 @@ pub fn start<T: Send + 'static>(
     s: &mut Session,
     r: &Request,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    prepare: impl FnOnce(ExportedVector, &crate::jobs::JobCtx, &(dyn Fn() -> bool + Sync)) -> Result<T> + Send + 'static,
+    prepare: impl FnOnce(ExportedVector, &lightcraft_sysmem::JobCtl, &(dyn Fn() -> bool + Sync)) -> Result<T> + Send + 'static,
 ) -> Result<(crate::jobs::Started, std::sync::mpsc::Receiver<T>)> {
     preflight(s, r)?;
     let capture = Capture::new(s, r.document, r.revision)?;
     let params = serde_json::to_value(r).map_err(|e| error(e.to_string()))?;
     let request = r.clone();
     vector_export_job::start(s, "file.svg.export", params, capture, move |doc, ctx| {
-        ctx.progress(0.05, "Preparing artwork");
-        let cancelled = || ctx.cancelled() || cancel.load(std::sync::atomic::Ordering::Relaxed);
+        ctx.report(0.05, "Preparing artwork");
+        let cancelled = || ctx.is_cancelled() || cancel.load(std::sync::atomic::Ordering::Relaxed);
         let output = export_document(doc, &request, &cancelled)?;
         if cancelled() {
             return Err(EngineError::Cancelled);
         }
-        ctx.progress(0.8, "Preparing output file");
+        ctx.report(0.8, "Preparing output file");
         let output = prepare(output, ctx, &cancelled)?;
         if cancelled() {
             return Err(EngineError::Cancelled);
@@ -118,8 +118,8 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
         "Export SVG",
         false,
         move |ctx| {
-            ctx.progress(0.05, "Preparing artwork");
-            let output = export_document(&snapshot, &r, &|| ctx.cancelled())?;
+            ctx.report(0.05, "Preparing artwork");
+            let output = export_document(&snapshot, &r, &|| ctx.is_cancelled())?;
             ctx.check()?;
             let result = vector_export_job::response(output, "image/svg+xml", base64);
             ctx.check()?;

@@ -5429,7 +5429,7 @@ mod tests {
         let photo = h.host.library.as_ref().unwrap().session.active().unwrap();
         h.host.library.as_mut().unwrap().run("app.export", json!({"ids":[photo.0],"dir":output.to_string_lossy(),"format":"png","background":true})).unwrap();
         h.wait_for(|_| started.load(Ordering::SeqCst));
-        let cancel = h.host.library.as_ref().unwrap().export.as_ref().unwrap().cancel.clone();
+        let cancel = h.host.library.as_ref().unwrap().export.as_ref().unwrap().job.clone();
         h.host.library.as_mut().unwrap().run("app.settings", json!({})).unwrap();
         h.step(vec![]);
         let underlying = h.host.library.as_ref().unwrap().ui.dialog.clone();
@@ -5442,7 +5442,7 @@ mod tests {
         f.insert("selected".into(), json!("library::view.develop"));
         f.insert("capture".into(), json!(true));
         assert!(!h.host.library.as_ref().unwrap().widgets.iter().any(|(id, _)| id == "button:exportCancel"));
-        assert!(!cancel.load(Ordering::SeqCst));
+        assert!(!cancel.is_cancelled());
         release.store(true, Ordering::SeqCst);
         h.wait_for(|host| host.library.as_ref().unwrap().export.is_none());
         let lib = h.host.library.as_ref().unwrap();

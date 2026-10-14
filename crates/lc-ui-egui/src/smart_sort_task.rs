@@ -1,12 +1,14 @@
 //! Model loading, decoding and embedding run off the UI thread. Results are applied to the
-//! session on each frame; closing the dialog cancels work without discarding its cache.
+//! session on each frame; closing the dialog cancels work without discarding its cache. The task
+//! carries one `JobCtl` (`step` = photos done / total, message = the photo id in progress) that
+//! the dialog and the Library's task panel read and cancel.
 use crate::{LightcraftApp, i18n::tr, state::Dialog};
 use lightcraft_catalog::{MediaKind, PhotoId};
 use lightcraft_engine::smart_sort::{self, Tagger};
+use lightcraft_sysmem::JobCtl;
 use serde_json::{Value, json};
 use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    Arc,
     mpsc::{Receiver, channel},
 };
 
@@ -16,8 +18,8 @@ enum Event {
     Done(Result<(), String>),
 }
 pub struct SmartSortTask {
-    pub cancel: Arc<AtomicBool>,
-    pub progress: Arc<Mutex<(usize, String)>>,
+    /// Cancel and progress: `step` = photos done / total, message = the photo id in progress.
+    pub job: JobCtl,
     pub total: usize,
     pub skipped: usize,
     pub videos: usize,
@@ -26,8 +28,13 @@ pub struct SmartSortTask {
 }
 impl SmartSortTask {
     pub fn status(&self) -> Value {
-        let (done, current) = self.progress.lock().map(|p| p.clone()).unwrap_or_default();
-        json!({"done":done,"total":self.total,"current":current,"skipped":self.skipped,"videos":self.videos,"cancelled":self.cancel.load(Ordering::Relaxed)})
+        let status = self.job.status();
+        json!({"done":status.step.map_or(0, |s| s.0),"total":self.total,"current":status.message,"skipped":self.skipped,"videos":self.videos,"cancelled":self.job.is_cancelled()})
+    }
+
+    /// Stop the analysis after the photos in flight; what was analysed stays cached.
+    pub fn cancel(&self) {
+        self.job.cancel();
     }
 }
 pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
@@ -60,10 +67,10 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
     let missing: Vec<_> = todo.into_iter().filter(|id| !prepared.contains(id)).collect();
     let total = inputs.len() + missing.len();
     let dir = app.session.quick_seg_dir.clone();
-    let cancel = Arc::new(AtomicBool::new(false));
-    let progress = Arc::new(Mutex::new((0, String::new())));
+    let job = JobCtl::new();
+    job.set_step(0, u32::try_from(total).unwrap_or(u32::MAX));
     let (tx, rx) = channel();
-    let (c, p) = (cancel.clone(), progress.clone());
+    let worker = job.clone();
     let prepare_error = tr("Could not prepare photo").to_string();
     let work = move || {
         let tagger = injected.map(Ok).unwrap_or_else(|| {
@@ -74,12 +81,11 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
             let _ = tx.send(Event::Model(tagger.clone()));
             for id in missing {
                 let _ = tx.send(Event::Row(id, String::new(), Err(prepare_error.clone())));
+                worker.add_step(1);
             }
-            smart_sort::run_inputs(inputs, tagger, &c, &|id, key, value| {
-                if let Ok(mut progress) = p.lock() {
-                    progress.0 += 1;
-                    progress.1 = format!("{}", id.0);
-                }
+            smart_sort::run_inputs(inputs, tagger, worker.cancel_flag(), &|id, key, value| {
+                worker.add_step(1);
+                worker.set_message(id.0.to_string());
                 let _ = tx.send(Event::Row(id, key, value));
             })
         });
@@ -102,7 +108,7 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
     }
     #[cfg(target_arch = "wasm32")]
     work();
-    app.smart_sort = Some(SmartSortTask { cancel, progress, total, skipped, videos, model, rx });
+    app.smart_sort = Some(SmartSortTask { job, total, skipped, videos, model, rx });
     Ok(())
 }
 
@@ -159,7 +165,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
             state.skipped = task.skipped;
             state.videos = task.videos;
             state.dirty = app.session.smart.tagger.is_some();
-            if succeeded && !task.cancel.load(Ordering::Relaxed) && app.people_task.is_none() {
+            if succeeded && !task.job.is_cancelled() && app.people_task.is_none() {
                 state.step = 1;
             }
         } else {
@@ -173,6 +179,6 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
 
 impl Drop for SmartSortTask {
     fn drop(&mut self) {
-        self.cancel.store(true, Ordering::Relaxed);
+        self.job.cancel();
     }
 }

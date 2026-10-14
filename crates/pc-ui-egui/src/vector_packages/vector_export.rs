@@ -139,12 +139,12 @@ pub(super) fn begin_named(app: &mut PhotocraftApp, request: Request, suggested_n
     }
     let cancelled = Arc::new(AtomicBool::new(false));
     let worker_path = path.clone();
-    let prepare = move |output: ExportedVector, ctx: &photocraft_engine::jobs::JobCtx, cancel: &(dyn Fn() -> bool + Sync)| {
+    let prepare = move |output: ExportedVector, ctx: &lightcraft_sysmem::JobCtl, cancel: &(dyn Fn() -> bool + Sync)| {
         if cancel() {
             return Err(EngineError::Cancelled);
         }
         let payload = if let Some(stage) = stage {
-            let progress = |fraction: f32| ctx.progress(0.8 + fraction.clamp(0.0, 1.0) * 0.18, "Writing temporary export");
+            let progress = |fraction: f32| ctx.report(0.8 + fraction.clamp(0.0, 1.0) * 0.18, "Writing temporary export");
             let interrupt = photocraft_raster::Interrupt::new(cancel, &progress);
             Payload::Staged(stage(&worker_path, &output.bytes, &interrupt).map_err(|e| if cancel() { EngineError::Cancelled } else { EngineError::Other(e) })?)
         } else {
@@ -153,7 +153,7 @@ pub(super) fn begin_named(app: &mut PhotocraftApp, request: Request, suggested_n
         if cancel() {
             return Err(EngineError::Cancelled);
         }
-        ctx.progress(0.99, "Ready to publish export");
+        ctx.report(0.99, "Ready to publish export");
         Ok(Ready { payload, warnings: output.warnings })
     };
     let result = match &request {

@@ -1995,7 +1995,7 @@ impl PhotocraftApp {
                             Err(_) => continue,
                         };
                         ctx.check()?;
-                        return photocraft_engine::edit_cmds::Clip::from_document_checked(&imported.document, || ctx.check());
+                        return photocraft_engine::edit_cmds::Clip::from_document_checked(&imported.document, || Ok(ctx.check()?));
                     }
                     Err(photocraft_engine::EngineError::Other("The copied files contain no readable image".into()))
                 },

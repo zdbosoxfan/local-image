@@ -2,9 +2,8 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use lightcraft_engine::catalog::PhotoId;
-use lightcraft_engine::enhance::{
-    AiHost, AiStroke, CANCELLED, Enhance, JobCtl, JobKind, Outcome, RemoveDone, RemoveEngine, RemoveRequest, RemoveResult,
-};
+use lightcraft_engine::enhance::{AiHost, AiStroke, CANCELLED, Enhance, JobKind, Outcome, RemoveDone, RemoveEngine, RemoveRequest, RemoveResult};
+use lightcraft_sysmem::JobCtl;
 
 fn done_outcome() -> Outcome {
     Outcome::Remove(RemoveDone {
@@ -54,60 +53,67 @@ fn enhance_default_is_empty() {
 
 #[test]
 fn job_ctl_defaults() {
-    let ctl = JobCtl::default();
-    assert_eq!(ctl.progress(), 0.0);
-    assert_eq!(ctl.message(), "");
-    assert!(!ctl.cancelled());
+    let ctl = JobCtl::new();
+    assert_eq!(ctl.fraction(), None);
+    assert_eq!(ctl.status().message, "");
+    assert!(!ctl.is_cancelled());
     assert_eq!(ctl.check(), Ok(()));
 }
 
 #[test]
 fn job_ctl_set_clamps_finite_and_non_finite_floats() {
-    let ctl = JobCtl::default();
+    let ctl = JobCtl::new();
 
-    ctl.set(-0.5, "negative");
-    assert_eq!(ctl.progress(), 0.0);
+    ctl.set_fraction(-0.5);
+    assert_eq!(ctl.fraction(), Some(0.0));
 
-    ctl.set(1.5, "over");
-    assert_eq!(ctl.progress(), 1.0);
+    ctl.set_fraction(1.5);
+    assert_eq!(ctl.fraction(), Some(1.0));
 
-    ctl.set(0.25, "quarter");
-    assert_eq!(ctl.progress(), 0.25);
+    ctl.set_fraction(0.25);
+    assert_eq!(ctl.fraction(), Some(0.25));
 
-    ctl.set(f32::NEG_INFINITY, "neg inf");
-    assert_eq!(ctl.progress(), 0.0);
+    // Non-finite reports are ignored (the shared job keeps the last real progress).
+    ctl.set_fraction(f32::NEG_INFINITY);
+    assert_eq!(ctl.fraction(), Some(0.25));
 
-    ctl.set(f32::INFINITY, "pos inf");
-    assert_eq!(ctl.progress(), 1.0);
+    ctl.set_fraction(f32::INFINITY);
+    assert_eq!(ctl.fraction(), Some(0.25));
 
-    ctl.set(f32::NAN, "nan");
-    let _ = ctl.progress(); // must not panic
+    ctl.set_fraction(f32::NAN);
+    assert_eq!(ctl.fraction(), Some(0.25));
+
+    // Develop's AI jobs report through `report`: clamped too, and never backwards.
+    ctl.report(-0.5, "negative");
+    assert_eq!(ctl.fraction(), Some(0.25));
+    ctl.report(1.5, "over");
+    assert_eq!(ctl.fraction(), Some(1.0));
 }
 
 #[test]
 fn job_ctl_message_reports_latest() {
-    let ctl = JobCtl::default();
-    ctl.set(0.0, "");
-    assert_eq!(ctl.message(), "");
+    let ctl = JobCtl::new();
+    ctl.report(0.0, "");
+    assert_eq!(ctl.status().message, "");
 
-    ctl.set(0.5, "half");
-    assert_eq!(ctl.message(), "half");
+    ctl.report(0.5, "half");
+    assert_eq!(ctl.status().message, "half");
 
-    ctl.set(0.9, "done");
-    assert_eq!(ctl.message(), "done");
+    ctl.report(0.9, "done");
+    assert_eq!(ctl.status().message, "done");
 }
 
 #[test]
 fn job_ctl_cancel_is_idempotent_and_check_returns_cancelled() {
-    let ctl = JobCtl::default();
+    let ctl = JobCtl::new();
     assert_eq!(ctl.check(), Ok(()));
 
     ctl.cancel();
-    assert!(ctl.cancelled());
-    assert_eq!(ctl.check(), Err(CANCELLED.to_string()));
+    assert!(ctl.is_cancelled());
+    assert_eq!(ctl.check().map_err(String::from), Err(CANCELLED.to_string()));
 
     ctl.cancel();
-    assert!(ctl.cancelled());
+    assert!(ctl.is_cancelled());
 }
 
 #[test]
@@ -119,7 +125,7 @@ fn wait_true_job_runs_synchronously_and_reports() {
         "Regenerate",
         true,
         Box::new(|ctl| {
-            ctl.set(0.5, "half");
+            ctl.report(0.5, "half");
             Ok(done_outcome())
         }),
     );
@@ -127,7 +133,7 @@ fn wait_true_job_runs_synchronously_and_reports() {
     assert!(j.finished());
     assert!(!e.busy());
     assert_eq!(e.running_for(PhotoId(7)).count(), 0);
-    assert_eq!((j.ctl.progress(), j.ctl.message()), (0.5, "half".to_string()));
+    assert_eq!((j.ctl.fraction().unwrap_or(0.0), j.ctl.status().message), (0.5, "half".to_string()));
 
     let mut done = e.take_finished();
     assert_eq!(done.len(), 1);
@@ -257,10 +263,10 @@ fn cancel_none_cancels_all_running_jobs() {
         false,
         Box::new(move |ctl| {
             start1_tx.send(()).unwrap();
-            while !ctl.cancelled() {
+            while !ctl.is_cancelled() {
                 std::thread::sleep(Duration::from_millis(2));
             }
-            ctl.check().map(|_| done_outcome())
+            ctl.check().map(|_| done_outcome()).map_err(String::from)
         }),
     );
     let j2 = e.spawn(
@@ -270,10 +276,10 @@ fn cancel_none_cancels_all_running_jobs() {
         false,
         Box::new(move |ctl| {
             start2_tx.send(()).unwrap();
-            while !ctl.cancelled() {
+            while !ctl.is_cancelled() {
                 std::thread::sleep(Duration::from_millis(2));
             }
-            ctl.check().map(|_| done_outcome())
+            ctl.check().map(|_| done_outcome()).map_err(String::from)
         }),
     );
 
@@ -303,10 +309,10 @@ fn cancel_specific_does_not_cancel_others() {
         false,
         Box::new(move |ctl| {
             start1_tx.send(()).unwrap();
-            while !ctl.cancelled() {
+            while !ctl.is_cancelled() {
                 std::thread::sleep(Duration::from_millis(2));
             }
-            ctl.check().map(|_| done_outcome())
+            ctl.check().map(|_| done_outcome()).map_err(String::from)
         }),
     );
     let j2 = e.spawn(
@@ -316,10 +322,10 @@ fn cancel_specific_does_not_cancel_others() {
         false,
         Box::new(move |ctl| {
             start2_tx.send(()).unwrap();
-            while !ctl.cancelled() {
+            while !ctl.is_cancelled() {
                 std::thread::sleep(Duration::from_millis(2));
             }
-            ctl.check().map(|_| done_outcome())
+            ctl.check().map(|_| done_outcome()).map_err(String::from)
         }),
     );
 

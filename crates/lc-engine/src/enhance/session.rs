@@ -51,7 +51,7 @@ impl Session {
                 Outcome::Denoise(r) => self.catalog.photo(photo).is_some_and(|p| super::denoise::source_hash(p) == r.source),
                 Outcome::DenoiseExport(_) => true,
             };
-            if !source_matches || job.ctl.cancelled() {
+            if !source_matches || job.ctl.is_cancelled() {
                 continue;
             }
             let kind = job.kind.clone();

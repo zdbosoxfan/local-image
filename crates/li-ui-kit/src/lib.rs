@@ -14,6 +14,7 @@ pub mod vector_icon_data;
 
 pub mod histogram;
 pub mod notices;
+pub mod progress;
 pub mod slider;
 pub mod widget_style;
 pub mod widgets;

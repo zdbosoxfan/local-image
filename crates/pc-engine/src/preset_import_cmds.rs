@@ -94,7 +94,7 @@ fn import_abr(s: &mut Session, p: &Value) -> Result<Value> {
         label,
         false,
         move |ctx| {
-            ctx.progress(0.0, "Importing brushes");
+            ctx.report(0.0, "Importing brushes");
             let p = &params;
             let (bytes, stem) = file_bytes(p, cmd, ".abr file")?;
             let group = match p.get("group") {
@@ -105,7 +105,7 @@ fn import_abr(s: &mut Session, p: &Value) -> Result<Value> {
             ctx.check()?;
             let imp = ctx
                 .stage(0.05, 1.0, "Importing brushes", |ctl| photocraft_io::abr_map::read_abr_with(&bytes, &group, ctl))
-                .map_err(|e| if ctx.cancelled() { EngineError::Cancelled } else { bad(cmd, e) })?;
+                .map_err(|e| if ctx.is_cancelled() { EngineError::Cancelled } else { bad(cmd, e) })?;
             Ok((group, imp))
         },
         move |s, (group, imp)| add_abr_presets(s, &params_apply, group, imp),
@@ -175,7 +175,7 @@ fn import_brushes(s: &mut Session, p: &Value) -> Result<Value> {
                 .to_string();
             let imp = ctx
                 .stage(0.05, 1.0, "Importing brushes", |ctl| photocraft_io::brush_import::read_with_svg(&bytes, &extension, &group, ctl, &svg_brush_tip))
-                .map_err(|e| if ctx.cancelled() { EngineError::Cancelled } else { bad(cmd, e) })?;
+                .map_err(|e| if ctx.is_cancelled() { EngineError::Cancelled } else { bad(cmd, e) })?;
             Ok((group, imp))
         },
         move |s, (group, imp)| {

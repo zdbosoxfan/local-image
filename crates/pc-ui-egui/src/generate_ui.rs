@@ -2177,12 +2177,12 @@ fn launch_resolved(
                 meta.extend(resolved.clone());
             }
             ctx.check()?;
-            ctx.progress(0.98, "Preparing library image");
+            ctx.report(0.98, "Preparing library image");
             let prepared = library
                 .prepare(&img, &name, Some(meta), None)
                 .map_err(|e| photocraft_engine::EngineError::Other(format!("Could not prepare the library image: {e:#}")))?;
             ctx.check()?;
-            ctx.progress(0.99, "Ready to save to the library");
+            ctx.report(0.99, "Ready to save to the library");
             Ok(prepared)
         },
         |_, prepared| {
@@ -2653,7 +2653,7 @@ struct BatchRun {
     done: usize,
     status: Vec<(String, String)>,
     finished: bool,
-    ctl: photocraft_engine::jobs::JobCtx,
+    ctl: lightcraft_sysmem::JobCtl,
 }
 
 fn batch<R>(f: impl FnOnce(&mut Option<BatchState>) -> R) -> R {
@@ -2840,7 +2840,7 @@ fn batch_export(
     dest: &std::path::Path,
     format: &str,
     options: &crate::ai_ui::AiOptions,
-    ctl: &photocraft_engine::jobs::JobCtx,
+    ctl: &lightcraft_sysmem::JobCtl,
 ) -> anyhow::Result<()> {
     use std::io::Read;
     ctl.check()?;
@@ -2859,7 +2859,7 @@ fn batch_export(
     let encoded = photocraft_io::export(&doc, format, &Default::default())?.bytes;
     ctl.check()?;
     // Shared staging preserves cancellation, modes, symlinks and atomic publication.
-    let cancelled = || ctl.cancelled();
+    let cancelled = || ctl.is_cancelled();
     let staged = photocraft_format::atomic::stage_write(dest, &encoded, &photocraft_raster::Interrupt::cancel_only(&cancelled))?;
     ctl.check()?;
     staged.commit()?;
@@ -2874,9 +2874,7 @@ fn start_batch(b: &BatchState, options: &crate::ai_ui::AiOptions) -> Arc<std::sy
 fn start_batch_with(
     b: &BatchState,
     options: &crate::ai_ui::AiOptions,
-    process: &'static (
-                 dyn Fn(&std::path::Path, &std::path::Path, &str, &crate::ai_ui::AiOptions, &photocraft_engine::jobs::JobCtx) -> anyhow::Result<()> + Sync
-             ),
+    process: &'static (dyn Fn(&std::path::Path, &std::path::Path, &str, &crate::ai_ui::AiOptions, &lightcraft_sysmem::JobCtl) -> anyhow::Result<()> + Sync),
 ) -> Arc<std::sync::Mutex<BatchRun>> {
     let run = Arc::new(std::sync::Mutex::new(BatchRun {
         status: b.files.iter().map(|p| (p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), tl!("Waiting").into())).collect(),
@@ -2889,7 +2887,7 @@ fn start_batch_with(
         lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
         let ctl = r2.lock().map(|r| r.ctl.clone()).unwrap_or_default();
         for (i, path) in files.iter().enumerate() {
-            if ctl.cancelled() {
+            if ctl.is_cancelled() {
                 break;
             }
             let set = |s: String| {
@@ -2916,7 +2914,7 @@ fn start_batch_with(
                     process(path, &dest, &format, &options, &ctl)?;
                     Ok(Some(dest))
                 })();
-            let cancelled = ctl.cancelled();
+            let cancelled = ctl.is_cancelled();
             match res {
                 Ok(Some(dest)) => set(format!("Saved {}", dest.file_name().map(|n| n.to_string_lossy()).unwrap_or_default())),
                 Ok(None) => {
@@ -2934,7 +2932,7 @@ fn start_batch_with(
             }
         }
         if let Ok(mut r) = r2.lock() {
-            if ctl.cancelled() {
+            if ctl.is_cancelled() {
                 for (_, s) in &mut r.status {
                     if s == tl!("Waiting") {
                         *s = tl!("Cancelled").into();
@@ -3021,13 +3019,7 @@ mod bg_batch_tests {
 
     #[test]
     fn bg_batch_cancel_mid_batch_publishes_only_completed_photo() {
-        fn process(
-            _: &std::path::Path,
-            dest: &std::path::Path,
-            _: &str,
-            _: &crate::ai_ui::AiOptions,
-            ctl: &photocraft_engine::jobs::JobCtx,
-        ) -> anyhow::Result<()> {
+        fn process(_: &std::path::Path, dest: &std::path::Path, _: &str, _: &crate::ai_ui::AiOptions, ctl: &lightcraft_sysmem::JobCtl) -> anyhow::Result<()> {
             std::fs::write(dest, b"completed")?;
             ctl.cancel();
             Ok(())
@@ -3053,7 +3045,7 @@ mod bg_batch_tests {
         }
         let r = run.lock().unwrap();
         assert_eq!(r.done, 1);
-        assert!(r.ctl.cancelled());
+        assert!(r.ctl.is_cancelled());
         assert_eq!(r.status[1].1, "Cancelled");
         assert_eq!(r.status[2].1, "Cancelled");
         assert_eq!(std::fs::read_dir(dir.join("outputs")).unwrap().count(), 1);
@@ -3065,13 +3057,7 @@ mod bg_batch_tests {
 
     #[test]
     fn bg_batch_overwrite_never_changes_another_input_photo() {
-        fn process(
-            _: &std::path::Path,
-            dest: &std::path::Path,
-            _: &str,
-            _: &crate::ai_ui::AiOptions,
-            _: &photocraft_engine::jobs::JobCtx,
-        ) -> anyhow::Result<()> {
+        fn process(_: &std::path::Path, dest: &std::path::Path, _: &str, _: &crate::ai_ui::AiOptions, _: &lightcraft_sysmem::JobCtl) -> anyhow::Result<()> {
             std::fs::write(dest, b"cutout")?;
             Ok(())
         }
@@ -3129,7 +3115,7 @@ mod bg_batch_tests {
         use egui_kittest::kittest::Queryable;
         batch(|b| *b = None);
         open_batch();
-        let control = photocraft_engine::jobs::JobCtx::new();
+        let control = lightcraft_sysmem::JobCtl::new();
         let ctl = control.clone();
         batch(|b| {
             b.as_mut().unwrap().run =
@@ -3147,7 +3133,7 @@ mod bg_batch_tests {
         h.run_steps(4);
         h.get_by_label("Cancel").click();
         h.run_steps(4);
-        assert!(control.cancelled());
+        assert!(control.is_cancelled());
         h.get_by_value("PNG").click();
         h.run_steps(4);
         h.get_by_label("TIFF").click();

@@ -1,8 +1,6 @@
 //! Shared detached vector export jobs. Binary payloads bypass JSON job history.
-use crate::{
-    EngineError, Result, Session,
-    jobs::{JobCtx, Started},
-};
+use crate::{EngineError, Result, Session, jobs::Started};
+use lightcraft_sysmem::JobCtl;
 use photocraft_doc::{Document, vector_design::exchange::ExportedVector};
 use serde_json::{Value, json};
 use std::sync::{
@@ -54,7 +52,7 @@ pub fn start<T: Send + 'static>(
     command: &'static str,
     params: Value,
     capture: Capture,
-    work: impl FnOnce(&Document, &JobCtx) -> Result<T> + Send + 'static,
+    work: impl FnOnce(&Document, &JobCtl) -> Result<T> + Send + 'static,
 ) -> Result<(Started, Receiver<T>)> {
     if let Some(gate) = session.authorize {
         gate(command, &params)?;

@@ -197,7 +197,7 @@ impl PxBox {
 
 impl Prepared {
     fn run(self, ctl: &JobCtl) -> Result<Outcome, String> {
-        ctl.set(0.01, "Loading the photo");
+        ctl.report(0.01, "Loading the photo");
         let decoded = self.src.load_source()?;
         let info = decoded.info_or(self.header);
         ctl.check()?;
@@ -215,7 +215,7 @@ impl Prepared {
             .collect();
         lightcraft_pipeline::patches::apply_spots(&mut img, &earlier, &frame);
         let (w, h) = (img.width, img.height);
-        ctl.set(0.05, "Preparing");
+        ctl.report(0.05, "Preparing");
         let coverage = match &self.mask {
             Some(m) => mask_coverage(m, &frame, &img, &info, s),
             None => stroke_coverage(&self.stroke, &frame, w, h),
@@ -237,7 +237,7 @@ impl Prepared {
         drop(img);
         // the repaired region (in the photo's own light) and where it replaces the photo (0..1)
         let (out, alpha): (Vec<[f32; 3]>, Vec<f32>) = if local {
-            ctl.set(0.1, "Healing");
+            ctl.report(0.1, "Healing");
             heal(&pixels, rw, rh, &cov, self.seed, ctl)?
         } else {
             let host = self.host.as_ref().ok_or(NO_HOST)?;
@@ -250,7 +250,7 @@ impl Prepared {
                 engine: self.engine.clone(),
                 seed: self.seed,
             };
-            ctl.set(0.1, "Removing");
+            ctl.report(0.1, "Removing");
             let out = host.remove(&req, ctl)?;
             ctl.check()?;
             if out.rgb.len() != rw * rh || out.alpha.len() != rw * rh {
@@ -259,7 +259,7 @@ impl Prepared {
             (out.rgb.iter().map(|c| view.decode(*c)).collect(), out.alpha.iter().map(|a| *a as f32 / 255.0).collect())
         };
         ctl.check()?;
-        ctl.set(0.95, "Saving");
+        ctl.report(0.95, "Saving");
         // the patch: the repaired part only
         let Some(pb) = bbox(&alpha, rw, rh) else {
             return Err("The AI engine changed nothing.".into());
@@ -282,15 +282,15 @@ impl Prepared {
         let a = to_norm.apply(Point::new((region.x0 + pb.x0) as f64, (region.y0 + pb.y0) as f64));
         let b = to_norm.apply(Point::new((region.x0 + pb.x1) as f64, (region.y0 + pb.y1) as f64));
         let rect = [a.x.min(b.x), a.y.min(b.y), a.x.max(b.x), a.y.max(b.y)];
-        ctl.set(1.0, "Done");
+        ctl.report(1.0, "Done");
         Ok(Outcome::Remove(RemoveDone { stroke: self.stroke, key, source: self.source, rect, engine: self.engine, seed: self.seed, geometry }))
     }
 }
 
 /// Compatibility adapter: the shared pipeline backend keeps LOCAL jobs and saved spots equal.
 pub(crate) fn heal(pixels: &[[f32; 3]], w: usize, h: usize, cov: &[f32], seed: u64, ctl: &JobCtl) -> Result<(Vec<[f32; 3]>, Vec<f32>), String> {
-    let cancel = || ctl.cancelled();
-    let progress = |f: f32| ctl.set(0.1 + 0.8 * f, "Healing");
+    let cancel = || ctl.is_cancelled();
+    let progress = |f: f32| ctl.report(0.1 + 0.8 * f, "Healing");
     let interrupt = photocraft_raster::Interrupt::new(&cancel, &progress);
     lightcraft_pipeline::spots::heal_patch(pixels, w, h, cov, seed, &interrupt).map_err(|_| super::CANCELLED.to_string())
 }

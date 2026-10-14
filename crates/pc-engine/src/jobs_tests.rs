@@ -128,14 +128,14 @@ fn a_panic_in_the_worker_becomes_an_error_and_the_document_is_unchanged() {
 
 #[test]
 fn progress_is_monotonic_and_reaches_one() {
-    let ctx = JobCtx::new();
-    ctx.progress(0.5, "half");
-    ctx.progress(0.3, "");
-    assert_eq!(ctx.fraction(), 0.5, "progress never goes backwards");
-    assert_eq!(ctx.message(), "half");
-    ctx.progress(f32::NAN, "");
-    ctx.progress(7.0, "");
-    assert_eq!(ctx.fraction(), 1.0);
+    let ctx = JobCtl::new();
+    ctx.report(0.5, "half");
+    ctx.report(0.3, "");
+    assert_eq!(ctx.fraction(), Some(0.5), "progress never goes backwards");
+    assert_eq!(ctx.status().message, "half");
+    ctx.report(f32::NAN, "");
+    ctx.report(7.0, "");
+    assert_eq!(ctx.fraction(), Some(1.0));
 
     let mut s = session(2000, 1500);
     let id = job(s.start("filter.blur.gaussianBlur", json!({"radius": 30})).unwrap());
@@ -181,7 +181,7 @@ pub(super) fn gated_job(s: &mut Session, gate: &Arc<std::sync::atomic::AtomicBoo
             move |ctx| {
                 while !gate.load(std::sync::atomic::Ordering::Relaxed) {
                     ctx.check()?;
-                    ctx.progress(0.5, "waiting");
+                    ctx.report(0.5, "waiting");
                     std::thread::sleep(Duration::from_millis(1));
                 }
                 Ok(())

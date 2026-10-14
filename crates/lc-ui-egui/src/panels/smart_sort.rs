@@ -345,10 +345,10 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 if button(ui, "smartSort:cancel", "Cancel").clicked() {
                     if let Some(task) = &app.smart_sort {
-                        task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                        task.cancel();
                     }
                     if let Some(task) = &app.people_task {
-                        task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                        task.cancel();
                     }
                     if app.smart_sort.is_none() && app.people_task.is_none() {
                         close = true;
@@ -404,10 +404,10 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     }
     if s.step != 1 && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         if let Some(task) = &app.smart_sort {
-            task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            task.cancel();
         }
         if let Some(task) = &app.people_task {
-            task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            task.cancel();
         }
         if app.smart_sort.is_none() && app.people_task.is_none() {
             close = true;

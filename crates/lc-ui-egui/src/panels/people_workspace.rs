@@ -188,14 +188,14 @@ pub fn face_options(app: &mut LightcraftApp, ui: &mut Ui) {
         });
     }
     if let Some(task) = &app.people_task {
-        let (done, total) = task.progress.lock().map(|p| *p).unwrap_or_default();
+        let (done, total) = task.job.status().step.unwrap_or_default();
         ui.add(egui::ProgressBar::new(done as f32 / total.max(1) as f32).text(crate::i18n::tr_format!(
             "Faces: {done} of {total}",
             done = done,
             total = total
         )));
         if button(ui, "smartSort:facesCancel", "Cancel face analysis").clicked() {
-            task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            task.cancel();
         }
     }
 }
