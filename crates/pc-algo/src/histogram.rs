@@ -1,94 +1,6 @@
-//! Bounded RGB histograms of straight, normalized float RGBA samples.
-//!
-//! No colour conversion is performed: bins describe the supplied sample domain, not an
-//! assumed sRGB/ICC display space. 256 bins are a display resolution, not an input bit depth.
-pub const BINS: usize = 256;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RgbHistogram {
-    pub channels: [[u64; BINS]; 3],
-    pub samples: u64,
-    pub transparent: u64,
-    pub invalid: u64,
-    /// Finite samples outside 0..=1 are included in the edge bins and counted separately.
-    pub underflow: [u64; 3],
-    pub overflow: [u64; 3],
-    /// Exact endpoints, before display-bin rounding. A near-white value is not clipped.
-    pub shadows: [u64; 3],
-    pub highlights: [u64; 3],
-}
-
-impl Default for RgbHistogram {
-    fn default() -> Self {
-        Self { channels: [[0; BINS]; 3], samples: 0, transparent: 0, invalid: 0, underflow: [0; 3], overflow: [0; 3], shadows: [0; 3], highlights: [0; 3] }
-    }
-}
-
-impl RgbHistogram {
-    /// Each visible pixel counts once, including partially transparent pixels. Non-finite
-    /// pixels are rejected as a whole; transparent RGB cannot contribute phantom peaks.
-    pub fn from_rgba(pixels: &[[f32; 4]]) -> Self {
-        let mut h = Self::default();
-        for pixel in pixels {
-            if !pixel[3].is_finite() {
-                h.invalid = h.invalid.saturating_add(1);
-                continue;
-            }
-            if pixel[3] <= 0.0 {
-                h.transparent = h.transparent.saturating_add(1);
-                continue;
-            }
-            if !pixel.iter().all(|v| v.is_finite()) {
-                h.invalid = h.invalid.saturating_add(1);
-                continue;
-            }
-            h.samples = h.samples.saturating_add(1);
-            let (low, high) = clipping(*pixel);
-            for (c, ((((bins, below), above), shadows), highlights)) in
-                h.channels.iter_mut().zip(&mut h.underflow).zip(&mut h.overflow).zip(&mut h.shadows).zip(&mut h.highlights).enumerate()
-            {
-                let Some(value) = pixel.get(c) else { continue };
-                if low & (1 << c) != 0 {
-                    *shadows = shadows.saturating_add(1);
-                }
-                if high & (1 << c) != 0 {
-                    *highlights = highlights.saturating_add(1);
-                }
-                if *value < 0.0 {
-                    *below = below.saturating_add(1);
-                } else if *value > 1.0 {
-                    *above = above.saturating_add(1);
-                }
-                // Match the preview encoder's nearest-bin rule, before it loses float precision.
-                let bin = (value.clamp(0.0, 1.0) * (BINS - 1) as f32 + 0.5) as usize;
-                if let Some(count) = bins.get_mut(bin) {
-                    *count = count.saturating_add(1);
-                }
-            }
-        }
-        h
-    }
-}
-
-/// Clipped channels of one visible straight RGBA pixel as bit masks (bit 0=R, 1=G, 2=B):
-/// `(shadows, highlights)` at exact endpoints ≤0 / ≥1, not rounded edge bins.
-/// Transparent and non-finite pixels clip nothing.
-pub fn clipping(p: [f32; 4]) -> (u8, u8) {
-    if p[3] <= 0.0 || !p.iter().all(|v| v.is_finite()) {
-        return (0, 0);
-    }
-    let mut shadows = 0;
-    let mut highlights = 0;
-    for (c, v) in p.iter().take(3).enumerate() {
-        if *v <= 0.0 {
-            shadows |= 1 << c;
-        }
-        if *v >= 1.0 {
-            highlights |= 1 << c;
-        }
-    }
-    (shadows, highlights)
-}
+//! Compatibility exports for the shared histogram backend.
+//! Float bins describe the supplied sample domain; no colour conversion is performed.
+pub use li_raster::histogram::{BINS, LumaWeights, RgbHistogram, clipping, preview_stride};
 
 #[cfg(test)]
 mod tests {
@@ -177,5 +89,21 @@ mod tests {
         assert!(h.channels[0][10..230].iter().filter(|&&v| v == 0).count() > 10);
         assert_eq!(h.samples, 256);
         assert!(h.overflow[0] > 0);
+    }
+
+    #[test]
+    fn j01_shared_histogram_pc_adapter_luma_goldens() {
+        let pixels = [[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]];
+        let h = RgbHistogram::from_rgba(&pixels);
+        assert_eq!(h.samples, 3);
+        assert_eq!(h.shadows, [2; 3]);
+        assert_eq!(h.highlights, [1; 3]);
+        let mut expected = [0; BINS];
+        for bin in [54, 182, 18] {
+            expected[bin] = 1;
+        }
+        assert_eq!(h.luma, expected);
+        assert_eq!(h.channels[0][0], 2);
+        assert_eq!(h.channels[0][255], 1);
     }
 }

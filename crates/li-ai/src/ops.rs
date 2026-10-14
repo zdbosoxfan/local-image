@@ -349,7 +349,7 @@ impl Ai {
             if out.dimensions() != highlighted.dimensions() {
                 bail!("The removal model returned an unexpected size.");
             }
-            let generated = imageops::resize(&out, b.width(), b.height(), imageops::FilterType::Lanczos3);
+            let generated = li_raster::resize_rgb8(&out, b.width(), b.height(), li_raster::Filter::Lanczos3);
             let crop_mask = imageops::crop_imm(&region_mask, b.x0, b.y0, b.width(), b.height()).to_image();
             let blended = imaging::poisson_blend(&crop, &generated, &crop_mask);
             for (x, y, p) in blended.enumerate_pixels() {
@@ -424,7 +424,7 @@ impl Ai {
             .iter()
             .map(|r| {
                 let (w, h) = imaging::qwen_canvas_size(r.width(), r.height());
-                imaging::encode_png(&imageops::resize(r, w, h, imageops::FilterType::Lanczos3))
+                imaging::encode_png(&li_raster::resize_rgba8(r, w, h, li_raster::Filter::Lanczos3))
             })
             .collect::<Result<Vec<_>>>()?;
         let built = workflows::qwen(
@@ -445,7 +445,7 @@ impl Ai {
         );
         let images: Vec<(String, Vec<u8>)> = built.image_nodes.iter().cloned().zip(pngs).collect();
         let out = imaging::decode_rgba(&self.client.run(built.graph, &images, ctl)?)?;
-        Ok(if out.dimensions() != (ow, oh) { imageops::resize(&out, ow, oh, imageops::FilterType::Lanczos3) } else { out })
+        Ok(if out.dimensions() != (ow, oh) { li_raster::resize_rgba8(&out, ow, oh, li_raster::Filter::Lanczos3) } else { out })
     }
 
     /// Background removal with Qwen: returns an alpha matte the size of `image`. Callers apply it
@@ -617,7 +617,7 @@ impl Ai {
             GenerateMode::Edit if f.capabilities.edit => {
                 let src = source.context("Open an image to edit.")?;
                 let (w, h) = crate::inpaint::work_size(src.width(), src.height(), f.sizes.native, f.sizes.max, f.sizes.multiple);
-                let png = imaging::encode_png(&imageops::resize(&imaging::over_white(src), w, h, imageops::FilterType::Lanczos3))?;
+                let png = imaging::encode_png(&li_raster::resize_rgba8(&imaging::over_white(src), w, h, li_raster::Filter::Lanczos3))?;
                 let refs = prepare_refs(f, refs, w, h)?;
                 let p = Params { task: Task::Edit, width: w, height: h, references: refs.len(), ..base };
                 let out = self.run_built(builders::build(f, &a.files, &p), Some(png), None, &refs, ctl)?;
@@ -664,7 +664,7 @@ impl Ai {
     /// img2img of the whole image at the family's working size; the result keeps `src`'s size.
     fn refine_image(&self, src: &RgbaImage, f: &Family, a: &Availability, p: Params, refs: Vec<Vec<u8>>, ctl: &JobControl) -> Result<RgbaImage> {
         let (w, h) = crate::inpaint::work_size(src.width(), src.height(), f.sizes.native, f.sizes.max, f.sizes.multiple);
-        let png = imaging::encode_png(&imageops::resize(&imaging::over_white(src), w, h, imageops::FilterType::Lanczos3))?;
+        let png = imaging::encode_png(&li_raster::resize_rgba8(&imaging::over_white(src), w, h, li_raster::Filter::Lanczos3))?;
         let p = Params { width: w, height: h, references: refs.len(), ..p };
         let out = self.run_built(builders::build(f, &a.files, &p), Some(png), None, &refs, ctl)?;
         Ok(resize_to(&imaging::over_white(&out), src.width(), src.height()))
@@ -690,7 +690,7 @@ impl Ai {
         let crop = imageops::crop_imm(&rgb, plan.context.x0, plan.context.y0, plan.context.width(), plan.context.height()).to_image();
         let nmask = inpaint::noise_mask(mask, &plan);
         let (w, h) = inpaint::work_size(crop.width(), crop.height(), f.sizes.native, f.sizes.max, f.sizes.multiple);
-        let scaled = |img: &RgbImage| imageops::resize(img, w, h, imageops::FilterType::Lanczos3);
+        let scaled = |img: &RgbImage| li_raster::resize_rgb8(img, w, h, li_raster::Filter::Lanczos3);
         let refs_png = prepare_refs(f, refs, w, h)?;
         let prompt_owned;
         let (task, source_img, mask_png) = match f.pipeline.inpaint {
@@ -713,7 +713,7 @@ impl Ai {
             }
         };
         let source_png = imaging::encode_png(&scaled(&source_img))?;
-        let mask_png = mask_png.map(|m| imaging::encode_png(&imageops::resize(&m, w, h, imageops::FilterType::Triangle))).transpose()?;
+        let mask_png = mask_png.map(|m| imaging::encode_png(&li_raster::resize_gray8(&m, w, h, li_raster::Filter::Triangle))).transpose()?;
         let p = Params { task, prompt: &prompt_owned, width: w, height: h, references: refs_png.len(), ..base };
         ctl.set_message("Filling the selection");
         let out = self.run_built(builders::build(f, &a.files, &p), Some(source_png), mask_png, &refs_png, ctl)?;
@@ -732,7 +732,7 @@ impl Ai {
     fn upscale_refine(&self, src: &RgbaImage, scale: f32, f: &Family, a: &Availability, p: Params, ctl: &JobControl) -> Result<RgbaImage> {
         let scale = scale.clamp(1.0, 4.0);
         let (tw, th) = (((src.width() as f32 * scale) as u32).min(8192), ((src.height() as f32 * scale) as u32).min(8192));
-        let big = imageops::resize(&imaging::over_white(src), tw, th, imageops::FilterType::Lanczos3);
+        let big = li_raster::resize_rgba8(&imaging::over_white(src), tw, th, li_raster::Filter::Lanczos3);
         let tile = f.sizes.native.clamp(512, 1536);
         let overlap = tile / 8;
         let starts = |len: u32| -> Vec<u32> {
@@ -755,7 +755,7 @@ impl Ai {
                 let (w, h) = (tile.min(tw), tile.min(th));
                 let crop = imageops::crop_imm(&big, x0, y0, w, h).to_image();
                 let (ww, wh) = imaging::snap_size(w, h, f.sizes.multiple.max(8));
-                let png = imaging::encode_png(&imageops::resize(&crop, ww, wh, imageops::FilterType::Lanczos3))?;
+                let png = imaging::encode_png(&li_raster::resize_rgba8(&crop, ww, wh, li_raster::Filter::Lanczos3))?;
                 let tp = Params { prompt, width: ww, height: wh, ..p.clone() };
                 let out = self.run_built(builders::build(f, &a.files, &tp), Some(png), None, &[], ctl)?;
                 let out = resize_to(&out, w, h);
@@ -778,7 +778,7 @@ impl Ai {
                 }
             }
         }
-        let alpha = imageops::resize(src, tw, th, imageops::FilterType::Lanczos3);
+        let alpha = li_raster::resize_rgba8(src, tw, th, li_raster::Filter::Lanczos3);
         Ok(RgbaImage::from_fn(tw, th, |x, y| {
             let a = acc[(y * tw + x) as usize];
             let d = a[3].max(1e-6);
@@ -799,7 +799,7 @@ impl Ai {
         let defaults = recipe.defaults();
         let src = if step.scale > 1.01 {
             let (w, h) = ((draft.width() as f32 * step.scale) as u32, (draft.height() as f32 * step.scale) as u32);
-            imageops::resize(draft, w.min(8192), h.min(8192), imageops::FilterType::Lanczos3)
+            li_raster::resize_rgba8(draft, w.min(8192), h.min(8192), li_raster::Filter::Lanczos3)
         } else {
             draft.clone()
         };
@@ -856,7 +856,7 @@ impl Ai {
                     imaging::encode_png(&imaging::pad_to(r, w, h))
                 } else {
                     let (rw, rh) = imaging::qwen_canvas_size(r.width(), r.height());
-                    imaging::encode_png(&imageops::resize(r, rw, rh, imageops::FilterType::Lanczos3))
+                    imaging::encode_png(&li_raster::resize_rgba8(r, rw, rh, li_raster::Filter::Lanczos3))
                 }
             })
             .collect::<Result<Vec<_>>>()?;
@@ -974,11 +974,11 @@ impl Ai {
         } else {
             self.resolve(ModelId::SeedVr2, "fp16", &info)?.files
         };
-        let resized = imageops::resize(image, width, height, imageops::FilterType::Lanczos3);
+        let resized = li_raster::resize_rgba8(image, width, height, li_raster::Filter::Lanczos3);
         let png = imaging::encode_png(&imaging::over_white(&resized))?;
         let built = workflows::seedvr2(&files, seed);
         let out = image::load_from_memory(&self.client.run(built.graph, &[(built.image_nodes[0].clone(), png)], ctl)?)?.to_rgba8();
-        let out = if out.dimensions() != (width, height) { imageops::resize(&out, width, height, imageops::FilterType::Lanczos3) } else { out };
+        let out = if out.dimensions() != (width, height) { li_raster::resize_rgba8(&out, width, height, li_raster::Filter::Lanczos3) } else { out };
         // Restore transparency: blend by alpha⁴ so soft edges keep the source colour.
         Ok(RgbaImage::from_fn(width, height, |x, y| {
             let s = resized.get_pixel(x, y);
@@ -991,7 +991,7 @@ impl Ai {
 }
 
 fn resize_to(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
-    if img.dimensions() == (w, h) { img.clone() } else { imageops::resize(img, w, h, imageops::FilterType::Lanczos3) }
+    if img.dimensions() == (w, h) { img.clone() } else { li_raster::resize_rgba8(img, w, h, li_raster::Filter::Lanczos3) }
 }
 
 /// The family's prompt conventions: Pony's score tags and Illustrious' quality tags are added
@@ -1017,11 +1017,11 @@ fn prepare_refs(f: &Family, refs: &[RgbaImage], w: u32, h: u32) -> Result<Vec<Ve
                 RefMethod::InitImage => imaging::over_white(&imaging::fit_cover(r, w, h)),
                 RefMethod::IpAdapter | RefMethod::Redux => {
                     let k = (512.0 / white.width().max(white.height()) as f32).min(1.0);
-                    imageops::resize(
+                    li_raster::resize_rgba8(
                         &white,
                         ((white.width() as f32 * k) as u32).max(1),
                         ((white.height() as f32 * k) as u32).max(1),
-                        imageops::FilterType::Lanczos3,
+                        li_raster::Filter::Lanczos3,
                     )
                 }
                 _ => {
@@ -1029,7 +1029,7 @@ fn prepare_refs(f: &Family, refs: &[RgbaImage], w: u32, h: u32) -> Result<Vec<Ve
                     let s = (1_048_576.0 / (white.width() as f64 * white.height() as f64)).sqrt();
                     let (sw, sh) = (((white.width() as f64 * s) as u32).max(32), ((white.height() as f64 * s) as u32).max(32));
                     let (rw, rh) = imaging::qwen_canvas_size(sw, sh);
-                    imageops::resize(&white, rw, rh, imageops::FilterType::Lanczos3)
+                    li_raster::resize_rgba8(&white, rw, rh, li_raster::Filter::Lanczos3)
                 }
             };
             imaging::encode_png(&img)
@@ -1135,7 +1135,7 @@ mod cutout_tier_tests {
         let image = image::open(std::env::var_os("BGREMOVE_PHOTO").expect("CC0 photo path")).unwrap().to_rgba8();
         // Use a small, grid-aligned photograph at the model's usable spatial scale.
         // A 128-pixel probe produced an almost-zero matte (alpha 0..3) on the real GPU.
-        let image = imageops::resize(&image, 512, 320, imageops::FilterType::Lanczos3);
+        let image = li_raster::resize_rgba8(&image, 512, 320, li_raster::Filter::Lanczos3);
         let alpha = ai.cutout(&image, "int8", "", 1, &JobControl::new()).unwrap();
         assert_eq!(alpha.dimensions(), image.dimensions());
         assert!(alpha.pixels().any(|p| p[0] < 128) && alpha.pixels().any(|p| p[0] > 128));
