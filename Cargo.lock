@@ -3928,6 +3928,7 @@ dependencies = [
  "dirs",
  "hex",
  "image",
+ "li-raster",
  "li-seg",
  "lightcraft-sysmem",
  "log",
@@ -3951,6 +3952,15 @@ dependencies = [
  "egui",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "li-raster"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "image",
+ "rayon",
+ "serde",
 ]
 
 [[package]]
@@ -4105,6 +4115,7 @@ dependencies = [
  "ab_glyph",
  "krilla",
  "lensfun",
+ "li-raster",
  "li-seg",
  "libc",
  "lightcraft-catalog",
@@ -4246,6 +4257,7 @@ dependencies = [
 name = "lightcraft-raster"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-raster",
  "libc",
  "lightcraft-color",
  "lightcraft-geom",
@@ -5589,6 +5601,7 @@ dependencies = [
 name = "photocraft-algo"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-raster",
  "photocraft-color",
  "photocraft-geom",
  "photocraft-raster",
@@ -5662,6 +5675,7 @@ name = "photocraft-compose"
 version = "2.0.0-alpha.1"
 dependencies = [
  "criterion",
+ "li-raster",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",

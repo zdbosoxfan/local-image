@@ -7,16 +7,7 @@ use crate::image::{Edge, Image, premultiply, unpremultiply};
 use crate::photo_util::{par_map, par_rows};
 use crate::{Ctx, FilterParams, RadialMethod};
 
-/// Normalized Gaussian kernel with standard deviation `sigma` (radius 3σ).
-pub(crate) fn gaussian_kernel(sigma: f32) -> Vec<f32> {
-    if sigma < 0.05 {
-        return vec![1.0];
-    }
-    let r = (sigma * 3.0).ceil() as i32;
-    let k: Vec<f32> = (-r..=r).map(|i| (-(i * i) as f32 / (2.0 * sigma * sigma)).exp()).collect();
-    let s: f32 = k.iter().sum();
-    k.into_iter().map(|v| v / s).collect()
-}
+pub(crate) use li_raster::blur::gaussian_kernel;
 
 /// Separable convolution of `src` (premultiplied internally) for `out`.
 /// `src` must cover `out` grown by the kernel radii.
@@ -24,7 +15,6 @@ pub(crate) fn conv_sep(src: &Image, out: Rect, kx: &[f32], ky: &[f32], alpha: bo
     let n = src.ch;
     let (rx, ry) = ((kx.len() / 2) as i32, (ky.len() / 2) as i32);
     let (ow, oh) = (out.width() as usize, out.height() as usize);
-    let th = oh + 2 * ry as usize;
     // Premultiplied copy of the needed source window.
     let win = Rect::new(out.x0 - rx, out.y0 - ry, out.x1 + rx, out.y1 + ry);
     let ww = win.width() as usize;
@@ -38,32 +28,7 @@ pub(crate) fn conv_sep(src: &Image, out: Rect, kx: &[f32], ky: &[f32], alpha: bo
         }
     }
     premultiply(&mut p, n, alpha);
-    // Horizontal pass: (ow × th).
-    let mut tmp = vec![0.0f32; ow * th * n];
-    for ty in 0..th {
-        let row = &p[ty * ww * n..(ty + 1) * ww * n];
-        let dst = &mut tmp[ty * ow * n..(ty + 1) * ow * n];
-        for ox in 0..ow {
-            let d = &mut dst[ox * n..(ox + 1) * n];
-            for (i, kv) in kx.iter().enumerate() {
-                let s = &row[(ox + i) * n..(ox + i + 1) * n];
-                for c in 0..n {
-                    d[c] += s[c] * kv;
-                }
-            }
-        }
-    }
-    // Vertical pass.
-    let mut res = vec![0.0f32; ow * oh * n];
-    for oy in 0..oh {
-        let d = &mut res[oy * ow * n..(oy + 1) * ow * n];
-        for (i, kv) in ky.iter().enumerate() {
-            let s = &tmp[(oy + i) * ow * n..(oy + i + 1) * ow * n];
-            for (dv, sv) in d.iter_mut().zip(s) {
-                *dv += sv * kv;
-            }
-        }
-    }
+    let mut res = li_raster::blur::convolve_padded(&p, ow, oh, n, kx, ky);
     unpremultiply(&mut res, n, alpha);
     res
 }
@@ -80,26 +45,11 @@ pub(crate) fn gaussian(src: &Image, out: Rect, ctx: &Ctx, radius: f32) -> Vec<f3
     }
 }
 
-/// Box widths (odd) whose `n`-fold convolution has standard deviation `sigma`.
-fn boxes_for_gauss(sigma: f32, n: usize) -> Vec<usize> {
-    let nf = n as f32;
-    let w_ideal = (12.0 * sigma * sigma / nf + 1.0).sqrt();
-    let mut wl = w_ideal.floor() as i32;
-    if wl % 2 == 0 {
-        wl -= 1;
-    }
-    let wl = wl.max(1);
-    let wu = wl + 2;
-    let m_ideal = (12.0 * sigma * sigma - nf * (wl * wl) as f32 - 4.0 * nf * wl as f32 - 3.0 * nf) / (-4.0 * wl as f32 - 4.0);
-    let m = m_ideal.round().clamp(0.0, nf) as usize;
-    (0..n).map(|i| if i < m { wl as usize } else { wu as usize }).collect()
-}
-
 /// The box widths (odd) a blur runs as running-sum passes along each axis, or `None` when it uses a
 /// direct kernel (small radii, where the kernel is quicker).
 pub(crate) fn box_widths(params: &FilterParams) -> Option<Vec<usize>> {
     match *params {
-        FilterParams::GaussianBlur { radius } if radius > 4.0 => Some(boxes_for_gauss(radius, 3)),
+        FilterParams::GaussianBlur { radius } if radius > 4.0 => Some(li_raster::blur::box_radii(radius).iter().map(|r| 2 * r + 1).collect()),
         FilterParams::BoxBlur { radius } => {
             let r = radius.max(0.0).round() as usize;
             (r > 4).then(|| vec![2 * r + 1])
@@ -108,89 +58,7 @@ pub(crate) fn box_widths(params: &FilterParams) -> Option<Vec<usize>> {
     }
 }
 
-/// Scratch buffers of one worker for [`box_blur`].
-#[derive(Default)]
-struct Scratch {
-    line: Vec<f32>,
-    next: Vec<f32>,
-    acc: Vec<f32>,
-}
-
-/// One running-sum box pass of radius `r` along a line of elements of `w` floats each (a pixel's
-/// channels, or a strip of a row): element `i` of `dst` is the mean of elements `i ..= i + 2r` of
-/// `src`, which is `2r` elements longer.
-fn box_pass(src: &[f32], dst: &mut [f32], w: usize, r: usize, acc: &mut Vec<f32>) {
-    // Pixels are short elements: fixed sizes let the compiler keep the sums in registers.
-    match w {
-        1 => box_pass_px::<1>(src, dst, r),
-        2 => box_pass_px::<2>(src, dst, r),
-        3 => box_pass_px::<3>(src, dst, r),
-        4 => box_pass_px::<4>(src, dst, r),
-        5 => box_pass_px::<5>(src, dst, r),
-        0 => {}
-        _ => {
-            let norm = 1.0 / (2 * r + 1) as f32;
-            acc.clear();
-            acc.resize(w, 0.0);
-            for e in src.chunks_exact(w).take(2 * r + 1) {
-                for (a, s) in acc.iter_mut().zip(e) {
-                    *a += s;
-                }
-            }
-            for (i, d) in dst.chunks_exact_mut(w).enumerate() {
-                for (d, a) in d.iter_mut().zip(acc.iter()) {
-                    *d = a * norm;
-                }
-                let (add, sub) = ((i + 2 * r + 1) * w, i * w);
-                if let (Some(add), Some(sub)) = (src.get(add..add + w), src.get(sub..sub + w)) {
-                    for ((a, add), sub) in acc.iter_mut().zip(add).zip(sub) {
-                        *a += add - sub;
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// [`box_pass`] for elements of `N` floats.
-fn box_pass_px<const N: usize>(src: &[f32], dst: &mut [f32], r: usize) {
-    let (src, dst) = (src.as_chunks::<N>().0, dst.as_chunks_mut::<N>().0);
-    let norm = 1.0 / (2 * r + 1) as f32;
-    let mut acc = [0.0f32; N];
-    for e in src.iter().take(2 * r + 1) {
-        for c in 0..N {
-            acc[c] += e[c];
-        }
-    }
-    for (i, d) in dst.iter_mut().enumerate() {
-        for c in 0..N {
-            d[c] = acc[c] * norm;
-        }
-        if let (Some(add), Some(sub)) = (src.get(i + 2 * r + 1), src.get(i)) {
-            for c in 0..N {
-                acc[c] += add[c] - sub[c];
-            }
-        }
-    }
-}
-
-/// Box passes of the given radii in turn along the line in `s.line` (`w`-float elements, as many
-/// as `dst` holds plus twice the radii's sum; consumed), ending in `dst`.
-fn line_passes(dst: &mut [f32], w: usize, radii: &[usize], s: &mut Scratch) {
-    let Scratch { line, next, acc } = s;
-    let Some(len) = dst.len().checked_div(w) else { return };
-    let mut tail: usize = radii.iter().sum();
-    for (k, &r) in radii.iter().enumerate() {
-        tail -= r;
-        if k + 1 == radii.len() {
-            box_pass(line, dst, w, r, acc);
-        } else {
-            next.resize((len + 2 * tail) * w, 0.0);
-            box_pass(line, next, w, r, acc);
-            std::mem::swap(line, next);
-        }
-    }
-}
+use li_raster::blur::{Scratch, line_passes};
 
 /// Rows of the horizontal passes handed to one worker (they share its scratch buffers).
 const ROWS_PER_TASK: usize = 8;
@@ -538,10 +406,10 @@ mod tests {
         let out = Rect::new(0, 0, 120, 8);
         let k = gaussian_kernel(12.0);
         let exact = conv_sep(&img, out, &k, &k, true);
-        let fast = box_passes(&img, out, true, &boxes_for_gauss(12.0, 3));
+        let fast = box_passes(&img, out, true, &li_raster::blur::box_radii(12.0).map(|r| 2 * r + 1));
         let err = exact.iter().zip(&fast).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
         assert!(err < 0.02, "max error {err}");
-        assert_eq!(boxes_for_gauss(10.0, 3).len(), 3);
+        assert_eq!(li_raster::blur::box_radii(10.0).len(), 3);
     }
 
     #[test]
@@ -702,4 +570,21 @@ mod tests {
         img.data[i] = 0.5 / 255.0;
         assert!(surface_8bit(&img, out, &ctx, 4, 0.1, 26).is_none());
     }
+}
+
+#[cfg(test)]
+#[test]
+fn j01_d2_streamed_blur_preserves_cancel_and_transparent_empty() {
+    let rect = Rect::new(-3, -2, 7, 5);
+    let cancel = || true;
+    let ctl = Interrupt::cancel_only(&cancel);
+    let read = |r: Rect, buf: &mut Vec<f32>| {
+        buf.clear();
+        buf.resize(r.width() as usize, 0.75);
+    };
+    assert!(box_blur(rect, &read, rect, 1, false, &[11], &ctl).is_none());
+    let empty = box_blur(Rect::new(100, 100, 101, 101), &read, rect, 1, false, &[11], &Interrupt::NONE).unwrap();
+    assert!(empty.iter().all(|(_, data)| data.iter().all(|v| *v == 0.0)));
+    let full = box_blur(rect, &read, rect, 1, false, &[11], &Interrupt::NONE).unwrap();
+    assert!(full.iter().all(|(_, data)| data.iter().all(|v| (*v - 0.75).abs() < 1e-6)));
 }

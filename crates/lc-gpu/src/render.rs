@@ -338,10 +338,25 @@ pub(crate) fn rgb_words(img: &Rgb32f) -> &[f32] {
 /// priming sum stays a small share of the work).
 const CHUNK: usize = 16;
 
-/// Gaussian blur of a `w × h` image of `nc` interleaved channels: three box passes each way
-/// (`lightcraft_raster::blur::gaussian`).
+/// Gaussian twin of the shared CPU policy: exact sampled taps at sigma <= 4,
+/// Kovesi running-sum boxes above it. Reuses the existing convolution shaders.
 pub(crate) fn gaussian(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sigma: f32) -> Buf {
-    if sigma <= 0.3 || w * h == 0 {
+    if sigma <= 0.05 || !sigma.is_finite() || w * h == 0 {
+        return cx.copy(src);
+    }
+    if sigma > lightcraft_raster::blur::EXACT_SIGMA {
+        return gaussian_boxes(cx, src, w, h, nc, sigma);
+    }
+    let taps = sampled_gaussian_taps(sigma);
+    gaussian_convolve(cx, src, w, h, nc, &taps)
+}
+fn sampled_gaussian_taps(sigma: f32) -> Vec<f32> {
+    let kernel = lightcraft_raster::blur::gaussian_kernel(sigma);
+    kernel[kernel.len() / 2..].to_vec()
+}
+/// Box-only policy retained for gaussian_fine above its GPU-compatible fine threshold.
+fn gaussian_boxes(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sigma: f32) -> Buf {
+    if sigma <= 0.05 || !sigma.is_finite() || w * h == 0 {
         return cx.copy(src);
     }
     let radii = lightcraft_raster::blur::box_radii(sigma);
@@ -1617,12 +1632,15 @@ fn masks_impl(
 fn gaussian_fine(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sigma: f32) -> Buf {
     use lightcraft_raster::blur::{FINE_SIGMA, gauss_taps};
     if sigma >= FINE_SIGMA {
-        return gaussian(cx, src, w, h, nc, sigma);
+        return gaussian_boxes(cx, src, w, h, nc, sigma);
     }
-    if sigma <= 0.05 {
+    if sigma <= 0.05 || !sigma.is_finite() {
         return cx.copy(src);
     }
     let taps = gauss_taps(sigma);
+    gaussian_convolve(cx, src, w, h, nc, &taps)
+}
+fn gaussian_convolve(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, taps: &[f32]) -> Buf {
     let mut p = vec![w as u32, h as u32, nc as u32, (taps.len() - 1) as u32];
     p.extend(taps.iter().map(|v| v.to_bits()));
     let tmp = cx.gpu.buffer(w * h * nc);
@@ -2612,4 +2630,20 @@ fn stack_skin_range(cx: &mut Cx<'_>, input: &Buf, skin: &lightcraft_develop::Ski
     let out = cx.gpu.buffer(n);
     cx.run("p_skin_range", &p, &[Some(input), None, None, None, None, Some(&out)], groups1(n));
     out
+}
+
+#[cfg(test)]
+#[test]
+fn j01_final_gpu_gaussian_host_taps_match_cpu_policy() {
+    // Check the existing conv_h/conv_v shader's centre/pair host layout without a device run.
+    // Device acceptance is intentionally deferred to the owner's merged run.
+    for sigma in [0.3, 0.5, 1.0, 2.0, 4.0] {
+        let taps = sampled_gaussian_taps(sigma);
+        let kernel = lightcraft_raster::blur::gaussian_kernel(sigma);
+        assert_eq!(taps, &kernel[kernel.len() / 2..]);
+        let mass = taps[0] + 2.0 * taps.iter().skip(1).sum::<f32>();
+        assert!((mass - 1.0).abs() < 1e-6);
+    }
+    assert!(sampled_gaussian_taps(0.5)[0] < 0.8);
+    assert_eq!(lightcraft_raster::blur::FINE_SIGMA, 2.0);
 }

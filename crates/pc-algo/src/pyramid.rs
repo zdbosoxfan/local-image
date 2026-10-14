@@ -170,24 +170,9 @@ pub fn blend(w: usize, h: usize, ch: usize, images: &[&[f32]], weights: &[Vec<f3
 }
 
 fn box_blur1(w: usize, h: usize, v: &[f32], r: usize) -> Vec<f32> {
-    let pass = |src: &[f32], horizontal: bool| -> Vec<f32> {
-        let mut dst = vec![0.0f32; src.len()];
-        let (n, m) = if horizontal { (h, w) } else { (w, h) };
-        for line in 0..n {
-            let at = |k: i64| {
-                let k = k.clamp(0, m as i64 - 1) as usize;
-                if horizontal { src[line * w + k] } else { src[k * w + line] }
-            };
-            let mut s: f32 = (-(r as i64)..=r as i64).map(at).sum();
-            for k in 0..m {
-                let i = if horizontal { line * w + k } else { k * w + line };
-                dst[i] = s / (2 * r + 1) as f32;
-                s += at(k as i64 + r as i64 + 1) - at(k as i64 - r as i64);
-            }
-        }
-        dst
-    };
-    pass(&pass(v, true), false)
+    let mut out = v.to_vec();
+    li_raster::blur::box_blur_n(&mut out, w, h, 1, r);
+    out
 }
 
 /// One-hot winner maps: weight 1 for the image with the largest score at each pixel.

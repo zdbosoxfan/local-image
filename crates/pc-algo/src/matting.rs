@@ -85,36 +85,7 @@ impl RefineParams {
     }
 }
 
-/// Box mean with radius `r` (window clipped to the image, divided by the pixel count).
-pub fn box_mean(src: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
-    let mut tmp = vec![0.0f32; w * h];
-    let mut pre = vec![0.0f64; w.max(h) + 1];
-    for y in 0..h {
-        let row = &src[y * w..(y + 1) * w];
-        for x in 0..w {
-            pre[x + 1] = pre[x] + row[x] as f64;
-        }
-        for x in 0..w {
-            let (lo, hi) = (x.saturating_sub(r), (x + r + 1).min(w));
-            tmp[y * w + x] = ((pre[hi] - pre[lo]) / (hi - lo) as f64) as f32;
-        }
-    }
-    let mut out = vec![0.0f32; w * h];
-    let mut col = vec![0.0f64; (h + 1) * w];
-    for y in 0..h {
-        for x in 0..w {
-            col[(y + 1) * w + x] = col[y * w + x] + tmp[y * w + x] as f64;
-        }
-    }
-    for y in 0..h {
-        let (lo, hi) = (y.saturating_sub(r), (y + r + 1).min(h));
-        let n = (hi - lo) as f64;
-        for x in 0..w {
-            out[y * w + x] = ((col[hi * w + x] - col[lo * w + x]) / n) as f32;
-        }
-    }
-    out
-}
+pub use li_raster::blur::box_mean;
 
 /// Guided filter with a grayscale guide.
 pub fn guided_filter_gray(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f32) -> Vec<f32> {
@@ -183,37 +154,10 @@ pub fn guided_filter_color(guide: &RgbImage, p: &[f32], r: usize, eps: f32) -> V
     (0..n).map(|i| ma[0][i] * chans[0][i] + ma[1][i] * chans[1][i] + ma[2][i] * chans[2][i] + mb[i]).collect()
 }
 
-/// Separable Gaussian blur (edge-clamped).
+/// Shared exact-small / running-sum-large Gaussian (replicated borders).
 pub fn gaussian_blur(src: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
-    if sigma < 0.1 {
-        return src.to_vec();
-    }
-    let r = (sigma * 3.0).ceil() as i64;
-    let k: Vec<f32> = (-r..=r).map(|i| (-(i * i) as f32 / (2.0 * sigma * sigma)).exp()).collect();
-    let s: f32 = k.iter().sum();
-    let k: Vec<f32> = k.iter().map(|v| v / s).collect();
-    let mut tmp = vec![0.0f32; w * h];
-    for y in 0..h {
-        for x in 0..w {
-            let mut a = 0.0;
-            for (i, kv) in k.iter().enumerate() {
-                let xx = (x as i64 + i as i64 - r).clamp(0, w as i64 - 1) as usize;
-                a += src[y * w + xx] * kv;
-            }
-            tmp[y * w + x] = a;
-        }
-    }
-    let mut out = vec![0.0f32; w * h];
-    for y in 0..h {
-        for x in 0..w {
-            let mut a = 0.0;
-            for (i, kv) in k.iter().enumerate() {
-                let yy = (y as i64 + i as i64 - r).clamp(0, h as i64 - 1) as usize;
-                a += tmp[yy * w + x] * kv;
-            }
-            out[y * w + x] = a;
-        }
-    }
+    let mut out = src.to_vec();
+    li_raster::blur::gaussian_n(&mut out, w, h, 1, sigma, false);
     out
 }
 

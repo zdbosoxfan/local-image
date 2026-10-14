@@ -9,6 +9,7 @@ description = "LightCraft engine: session, command registry, history, render job
 workspace = true
 
 [dependencies]
+li-raster = { path = "../li-raster" }
 # Existing locked pure-Rust PDF stack; no new crate versions.
 krilla = { workspace = true }
 # Reuse the editor text layout/shaping engine for multilingual metadata captions.
