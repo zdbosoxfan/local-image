@@ -209,7 +209,7 @@ fn copy_import_verifies_each_copy() {
 
 /// Copy verifies against the probe's content hash (issue #134): the hash, not a re-read of the
 /// source, is the reference — a copy that matches the source but not the hash is refused, a
-/// corrupted copy is caught, and the file hash agrees with `hash_bytes` across read chunks.
+/// corrupted copy is caught, and the file hash agrees with `ContentId::of` across read chunks.
 #[test]
 fn copy_is_verified_against_the_probe_hash() {
     use crate::import_move::copy_verified;
@@ -218,11 +218,11 @@ fn copy_is_verified_against_the_probe_hash() {
     // larger than one 1 MB read, not a multiple of it
     let bytes: Vec<u8> = (0..(3 << 20) + 12_345u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
     std::fs::write(&src, &bytes).unwrap();
-    let good = lightcraft_preview::hash_bytes(&bytes);
+    let good = lightcraft_preview::ContentId::of(&bytes);
     copy_verified(&src, &base.join("ok.bin"), Some(good)).unwrap();
     assert_eq!(std::fs::read(base.join("ok.bin")).unwrap(), bytes);
     // a hash that doesn't match: refused (a byte compare with the source would have passed)
-    let stale = lightcraft_preview::hash_bytes(b"what the probe read earlier");
+    let stale = lightcraft_preview::ContentId::of(b"what the probe read earlier");
     let e = copy_verified(&src, &base.join("stale.bin"), Some(stale)).unwrap_err();
     assert!(e.to_string().contains("differs"), "{e}");
     assert!(!base.join("stale.bin").exists(), "the refused copy is removed");
@@ -417,7 +417,7 @@ fn write_policy_timing() {
         .map(|i| {
             let b = data(size, 7 * i as u32);
             std::fs::write(card.join(format!("{i}.raw")), &b).unwrap();
-            lightcraft_preview::hash_bytes(&b)
+            lightcraft_preview::ContentId::of(&b)
         })
         .collect();
     let (mut bytewise, mut hashed) = (Duration::ZERO, Duration::ZERO);

@@ -95,14 +95,20 @@ fn relink(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"id": id.0, "path": abs}))
 }
 
-/// The stored content hash of a photo, without the `:dupN` suffix duplicates get.
-fn stored_hash(p: &Photo) -> Option<&str> {
-    p.content_hash.as_deref().map(|h| h.split(':').next().unwrap_or(h)).filter(|h| !h.is_empty())
+/// The stored content identity of a photo ([`crate::media::content_identity`]), without the
+/// `:dupN` suffix duplicates get.
+fn stored_hash(p: &Photo) -> Option<String> {
+    let id = crate::media::content_identity(p.content_hash.as_deref()?).into_owned();
+    Some(id.split(':').next().unwrap_or(&id).to_string()).filter(|h| !h.is_empty())
 }
 
-/// The content hash of the file at `path` (as import computes it), if it can be read.
-fn file_hash(path: &str) -> Option<String> {
-    std::fs::read(path).ok().map(|b| lightcraft_preview::hash_bytes(&b).to_string())
+/// The content identities of the file at `path` (as import computes them: BLAKE3, and the legacy
+/// one when `legacy`), if it can be read.
+fn file_hash(path: &str, legacy: bool) -> Option<(String, Option<String>)> {
+    let bytes = std::fs::read(path).ok()?;
+    let mut h = lightcraft_preview::ContentHasher::with_legacy(legacy);
+    h.update(&bytes);
+    Some((h.finish().to_string(), h.finish_legacy().map(|l| l.to_string())))
 }
 
 /// An in-scope photo ([`checked_path`]) as Find Missing Photos sees it: its file, the size and
@@ -120,9 +126,7 @@ pub struct FindCandidate {
 /// UI thread and plans on a worker without holding the session.
 pub fn find_candidates(cat: &Catalog) -> Vec<FindCandidate> {
     cat.photos()
-        .filter_map(|p| {
-            checked_path(p).map(|f| FindCandidate { id: p.id, path: f.to_string(), size: p.file_size, hash: stored_hash(p).map(str::to_string) })
-        })
+        .filter_map(|p| checked_path(p).map(|f| FindCandidate { id: p.id, path: f.to_string(), size: p.file_size, hash: stored_hash(p) }))
         .collect()
 }
 
@@ -243,8 +247,12 @@ pub fn plan_find_missing(candidates: &[FindCandidate], folder: &str) -> std::res
         }
     }
     let mut by_size: Option<HashMap<u64, Vec<String>>> = None;
-    let mut hashes: HashMap<String, Option<String>> = HashMap::new();
-    let mut hash_of = |f: &str| hashes.entry(f.to_string()).or_insert_with(|| file_hash(f)).clone();
+    let mut hashes: HashMap<String, Option<(String, Option<String>)>> = HashMap::new();
+    // a photo still identified by a legacy hash is matched by it (BLAKE3 for all the others)
+    let legacy = lost.iter().any(|c| c.hash.as_deref().is_some_and(crate::media::is_legacy_identity));
+    let mut hash_of = |f: &str, h: &str| {
+        hashes.entry(f.to_string()).or_insert_with(|| file_hash(f, legacy)).as_ref().is_some_and(|(b3, old)| b3 == h || old.as_deref() == Some(h))
+    };
     let size_of = |f: &str| std::fs::metadata(f).map(|m| m.len()).ok();
     let mut used: HashSet<String> = HashSet::new();
     let mut plan = FindPlan::default();
@@ -257,8 +265,7 @@ pub fn plan_find_missing(candidates: &[FindCandidate], folder: &str) -> std::res
             .map(|v| v.iter().filter(|f| !used.contains(*f) && (size == 0 || size_of(f) == Some(size))).collect())
             .unwrap_or_default();
         // 1. same name and size, confirmed by the content hash
-        let mut hit: Option<(String, MatchBy)> =
-            hash.and_then(|h| named.iter().find(|f| hash_of(f).as_deref() == Some(h))).map(|f| (f.to_string(), MatchBy::Name));
+        let mut hit: Option<(String, MatchBy)> = hash.and_then(|h| named.iter().find(|f| hash_of(f, h))).map(|f| (f.to_string(), MatchBy::Name));
         // 2. renamed: same size and content
         if hit.is_none()
             && let Some(h) = hash
@@ -273,10 +280,7 @@ pub fn plan_find_missing(candidates: &[FindCandidate], folder: &str) -> std::res
                 }
                 m
             });
-            hit = sizes
-                .get(&size)
-                .and_then(|v| v.iter().find(|f| !used.contains(*f) && hash_of(f).as_deref() == Some(h)))
-                .map(|f| (f.clone(), MatchBy::Content));
+            hit = sizes.get(&size).and_then(|v| v.iter().find(|f| !used.contains(*f) && hash_of(f, h))).map(|f| (f.clone(), MatchBy::Content));
         }
         // 3. same name and size only (no hash, or the file was edited in place): one candidate
         //    is taken, several are ambiguous and skipped rather than guessed

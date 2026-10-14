@@ -174,12 +174,12 @@ pub(crate) fn place(src: &Path, dir: &Path, name: &str) -> Result<Placed, String
 /// disk and verified; a bad copy is removed and reported, so a card is never wiped on the strength
 /// of it. Returns the new path.
 ///
-/// `expect` is the content hash the import's probe computed from its full read of the source
-/// ([`lightcraft_preview::hash_bytes`]): the copy is read back and checked against it, which spares
+/// `expect` is the content identity the import's probe computed from its full read of the source
+/// ([`lightcraft_preview::ContentId`]): the copy is read back and checked against it, which spares
 /// a third read of the card (issue #134). It also catches a source that changed since the probe
 /// (whose recorded metadata and hash would be stale). Without one the copy is compared byte for
 /// byte with the source.
-pub(crate) fn copy_new(src: &Path, dir: &Path, name: &str, expect: Option<lightcraft_preview::Hash128>) -> Result<PathBuf, String> {
+pub(crate) fn copy_new(src: &Path, dir: &Path, name: &str, expect: Option<lightcraft_preview::ContentId>) -> Result<PathBuf, String> {
     fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let (stem, ext) = match name.rsplit_once('.') {
         Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
@@ -275,7 +275,7 @@ fn link_or_copy(src: &Path, dst: &Path) -> io::Result<()> {
 /// Copy into a new file, sync it to disk and verify it: against `expect` (the probe's hash of the
 /// source) when given, else byte for byte against the source. On any failure the partial copy is
 /// removed.
-pub(crate) fn copy_verified(src: &Path, dst: &Path, expect: Option<lightcraft_preview::Hash128>) -> io::Result<()> {
+pub(crate) fn copy_verified(src: &Path, dst: &Path, expect: Option<lightcraft_preview::ContentId>) -> io::Result<()> {
     lightcraft_catalog::safe_file::write_new_with(
         dst,
         &mut |out| {
@@ -291,7 +291,7 @@ pub(crate) fn copy_verified(src: &Path, dst: &Path, expect: Option<lightcraft_pr
             Ok(())
         },
         &mut |tmp| match expect {
-            Some(h) if hash_file(tmp)? != h => {
+            Some(h) if hash_file(tmp, &h)? != h => {
                 Err(io::Error::other("the copy differs from the original as it was read for the import (a bad copy, or the file changed meanwhile)"))
             }
             Some(_) => Ok(()),
@@ -305,10 +305,10 @@ pub(crate) fn copy_verified(src: &Path, dst: &Path, expect: Option<lightcraft_pr
     Ok(())
 }
 
-/// [`lightcraft_preview::hash_bytes`] of a file's content, read in chunks.
-fn hash_file(path: &Path) -> io::Result<lightcraft_preview::Hash128> {
+/// The content identity of a file, in the scheme of `like` (BLAKE3, or a legacy one), read in chunks.
+fn hash_file(path: &Path, like: &lightcraft_preview::ContentId) -> io::Result<lightcraft_preview::ContentId> {
     let mut f = File::open(path)?;
-    let mut h = lightcraft_preview::Hasher128::new();
+    let mut h = like.hasher();
     let mut buf = vec![0u8; 1 << 20];
     loop {
         let n = fill(&mut f, &mut buf)?;

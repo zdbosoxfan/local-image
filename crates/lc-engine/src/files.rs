@@ -182,7 +182,12 @@ fn ext_upper(name: &str) -> String {
 /// Probe a file's bytes: kind, dimensions (oriented), metadata. Raws are described from their
 /// headers ([`lightcraft_raw::probe_info`]): no pixel data is decompressed.
 pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
-    let content_hash = Some(lightcraft_preview::hash_bytes(bytes).to_string());
+    // content identity: BLAKE3, plus the legacy hash while old library photos need it (J24)
+    let (content_hash, legacy_hash) = crate::media::probe_ids(bytes);
+    describe_bytes(name, bytes, Some(content_hash)).map(|info| ProbeInfo { legacy_hash, ..info })
+}
+
+fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Result<ProbeInfo, String> {
     let m = lightcraft_meta::extract(bytes);
     let (meta, captured) = meta_of(&m);
     if lightcraft_raw::probe(bytes).is_some() {
@@ -240,6 +245,7 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
             xmp: lightcraft_meta::embedded(bytes).xmp,
             preview_only: None,
             modified: None,
+            legacy_hash: None,
         });
     }
     let fmt = lightcraft_codecs::sniff(bytes).ok_or("unrecognized file format")?;
@@ -272,6 +278,7 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
         xmp: None,
         preview_only: None,
         modified: None,
+        legacy_hash: None,
     })
 }
 

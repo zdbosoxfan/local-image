@@ -3,7 +3,7 @@ name = "lightcraft-preview"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "LightCraft preview cache: content hashing, memory LRU, disk thumbnail cache, prioritized job pool (L3)"
+description = "LightCraft preview cache: content identity and hashing, memory LRU, disk thumbnail cache, prioritized job pool (L3)"
 
 [lints]
 workspace = true
@@ -12,6 +12,8 @@ workspace = true
 li-fs.workspace = true
 lightcraft-raster = { workspace = true }
 siphasher = { workspace = true }
+# content identity: the same BLAKE3 (pure Rust, as the editor uses it) for catalog and linked sources
+blake3 = { version = "1.8", default-features = false, features = ["pure"] }
 jpeg-encoder = { workspace = true }
 zune-jpeg = { workspace = true }
 zune-core = { workspace = true }
