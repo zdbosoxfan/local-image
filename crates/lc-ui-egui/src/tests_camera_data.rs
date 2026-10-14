@@ -41,7 +41,7 @@ fn camdata_camera_wb_dropdown_click_and_undo() {
         app.ui.histogram = false;
         app.ui.left_panel = false;
         app.ui.filmstrip = false;
-        app.ui.open_sections = vec!["color".into()];
+        app.ui.open_sections = vec!["light".into()]; // WB lives in Basic since the Lightroom Classic layout
         app.set_host_theme(if dark { Default::default() } else { super::tests_develop_c::light() });
         let mut h = Headless::new(app, [1200.0, 1800.0], 1.0);
         h.step();
