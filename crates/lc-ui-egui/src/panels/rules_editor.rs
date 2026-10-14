@@ -77,9 +77,9 @@ fn person_picker(ui: &mut egui::Ui, op: &str, v: &mut Value, salt: &str, people:
     let mut ids: Vec<_> = if let Some(a) = v.as_array() { a.iter().filter_map(Value::as_u64).collect() } else { v.as_u64().into_iter().collect() };
     let names: Vec<_> = ids
         .iter()
-        .map(|id| people.iter().find(|p| p.0 == *id).map(|p| p.1.clone()).unwrap_or_else(|| crate::i18n::tr_format!("Unnamed person {id}", id = id)))
+        .map(|id| people.iter().find(|p| p.0 == *id).map(|p| p.1.clone()).unwrap_or_else(|| li_i18n::tr_format!("Unnamed person {id}", id = id)))
         .collect();
-    let label = if names.is_empty() { crate::i18n::tr("Choose people…").to_string() } else { names.join(", ") };
+    let label = if names.is_empty() { li_i18n::library::t("Choose people…").to_string() } else { names.join(", ") };
     let t = Tokens::get(ui.ctx());
     let r = crate::widgets::dropdown(ui, &format!("rule-person-{salt}"), &label, t.font(12.5), t.text);
     register(ui.ctx(), format!("rulePerson:{salt}"), r.rect);
@@ -87,7 +87,7 @@ fn person_picker(ui: &mut egui::Ui, op: &str, v: &mut Value, salt: &str, people:
         let missing: Vec<_> = ids
             .iter()
             .filter(|id| !people.iter().any(|p| p.0 == **id))
-            .map(|id| (*id, crate::i18n::tr_format!("Unnamed person {id}", id = id)))
+            .map(|id| (*id, li_i18n::tr_format!("Unnamed person {id}", id = id)))
             .collect();
         for (id, name) in people.iter().chain(&missing) {
             if multiple {
@@ -145,11 +145,11 @@ fn value_editor(ui: &mut egui::Ui, field: &str, op: &str, v: &mut Value, salt: &
             let Value::Array(a) = v else { return };
             if k == Kind::Number {
                 number_value(ui, &mut a[0], field);
-                ui.label(crate::i18n::tr("and"));
+                ui.label(li_i18n::library::t("and"));
                 number_value(ui, &mut a[1], field);
             } else {
                 text_value(ui, &mut a[0], 86.0, "2026-01-01", &format!("{salt}-a"));
-                ui.label(crate::i18n::tr("and"));
+                ui.label(li_i18n::library::t("and"));
                 text_value(ui, &mut a[1], 86.0, "2026-12", &format!("{salt}-b"));
             }
         }
@@ -186,9 +186,9 @@ fn value_editor(ui: &mut egui::Ui, field: &str, op: &str, v: &mut Value, salt: &
 pub fn edit(ui: &mut egui::Ui, rs: &mut RuleSet, salt: &str, depth: usize, people: &[(u64, String)]) {
     let t = Tokens::get(ui.ctx());
     ui.horizontal(|ui| {
-        ui.label(RichText::new(crate::i18n::tr("Match")).color(t.text_label));
+        ui.label(RichText::new(li_i18n::library::t("Match")).color(t.text_label));
         match_combo(ui, salt, &mut rs.mode);
-        ui.label(RichText::new(crate::i18n::tr("of the following rules:")).color(t.text_label));
+        ui.label(RichText::new(li_i18n::library::t("of the following rules:")).color(t.text_label));
     });
     let mut remove = None;
     let mut insert: Option<(usize, Rule)> = None;
@@ -198,7 +198,7 @@ pub fn edit(ui: &mut egui::Ui, rs: &mut RuleSet, salt: &str, depth: usize, peopl
             Rule::Group { group } => {
                 egui::Frame::group(ui.style()).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        if ui.small_button("−").on_hover_text(crate::i18n::tr("Remove this group")).clicked() {
+                        if ui.small_button("−").on_hover_text(li_i18n::library::t("Remove this group")).clicked() {
                             remove = Some(i);
                         }
                         ui.vertical(|ui| edit(ui, group, &rsalt, depth + 1, people));
@@ -220,26 +220,29 @@ pub fn edit(ui: &mut egui::Ui, rs: &mut RuleSet, salt: &str, depth: usize, peopl
                         }
                     });
                     let op_label = ops_for_field(field).iter().find(|o| o.0 == op.as_str()).map_or(op.as_str(), |o| o.1).to_string();
-                    egui::ComboBox::from_id_salt(format!("{rsalt}-op")).width(110.0).selected_text(crate::i18n::tr(&op_label)).show_ui(ui, |ui| {
-                        for (id, l) in ops_for_field(field) {
-                            if ui.selectable_label(op == id, crate::i18n::tr(l)).clicked() && op != id {
-                                let was_special =
-                                    matches!(op.as_str(), "between" | "inLast" | "notInLast" | "isEmpty" | "isNotEmpty" | "anyOf" | "allOf");
-                                *op = id.to_string();
-                                if field == "person" && matches!(*id, "anyOf" | "allOf") {
-                                    *value = if value.is_array() { value.clone() } else { json!(value.as_u64().into_iter().collect::<Vec<_>>()) };
-                                } else if (field == "person" && !matches!(*id, "is" | "isNot") && (value.is_array() || value.is_number()))
-                                    || was_special
-                                    || matches!(*id, "between" | "inLast" | "notInLast" | "isEmpty" | "isNotEmpty" | "anyOf" | "allOf")
-                                {
-                                    *value = default_value(field, op);
+                    egui::ComboBox::from_id_salt(format!("{rsalt}-op")).width(110.0).selected_text(li_i18n::library::t(&op_label)).show_ui(
+                        ui,
+                        |ui| {
+                            for (id, l) in ops_for_field(field) {
+                                if ui.selectable_label(op == id, li_i18n::library::t(l)).clicked() && op != id {
+                                    let was_special =
+                                        matches!(op.as_str(), "between" | "inLast" | "notInLast" | "isEmpty" | "isNotEmpty" | "anyOf" | "allOf");
+                                    *op = id.to_string();
+                                    if field == "person" && matches!(*id, "anyOf" | "allOf") {
+                                        *value = if value.is_array() { value.clone() } else { json!(value.as_u64().into_iter().collect::<Vec<_>>()) };
+                                    } else if (field == "person" && !matches!(*id, "is" | "isNot") && (value.is_array() || value.is_number()))
+                                        || was_special
+                                        || matches!(*id, "between" | "inLast" | "notInLast" | "isEmpty" | "isNotEmpty" | "anyOf" | "allOf")
+                                    {
+                                        *value = default_value(field, op);
+                                    }
                                 }
                             }
-                        }
-                    });
+                        },
+                    );
                     value_editor(ui, field, op, value, &rsalt, people);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let add = ui.small_button("+").on_hover_text(crate::i18n::tr("Add a rule (⌥-click: a group)"));
+                        let add = ui.small_button("+").on_hover_text(li_i18n::library::t("Add a rule (⌥-click: a group)"));
                         register(ui.ctx(), format!("button:ruleAdd-{rsalt}"), add.rect);
                         if add.clicked() {
                             let group = ui.input(|i| i.modifiers.alt) && depth < 3;
@@ -248,7 +251,7 @@ pub fn edit(ui: &mut egui::Ui, rs: &mut RuleSet, salt: &str, depth: usize, peopl
                                 if group { Rule::Group { group: RuleSet { mode: Match::Any, rules: vec![new_rule()] } } } else { new_rule() },
                             ));
                         }
-                        let del = ui.small_button("−").on_hover_text(crate::i18n::tr("Remove this rule"));
+                        let del = ui.small_button("−").on_hover_text(li_i18n::library::t("Remove this rule"));
                         register(ui.ctx(), format!("button:ruleRemove-{rsalt}"), del.rect);
                         if del.clicked() {
                             remove = Some(i);
@@ -287,7 +290,7 @@ pub fn people_choices(app: &crate::LightcraftApp) -> Vec<(u64, String)> {
         .people
         .iter()
         .filter(|p| !p.ignored)
-        .map(|p| (p.id, if p.name.is_empty() { crate::i18n::tr_format!("Unnamed person {id}", id = p.id) } else { p.name.clone() }))
+        .map(|p| (p.id, if p.name.is_empty() { li_i18n::tr_format!("Unnamed person {id}", id = p.id) } else { p.name.clone() }))
         .collect()
 }
 

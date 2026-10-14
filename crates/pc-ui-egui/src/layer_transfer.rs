@@ -47,7 +47,7 @@ fn begin(app: &PhotocraftApp, ctx: &egui::Context, id: LayerId, grab: Option<[f6
     let layers = if st.is_layer_selected(id) { st.selected_layers() } else { vec![id] };
     let label = match layers.as_slice() {
         [one] => st.doc.layer(*one).map_or_else(String::new, |l| l.name.clone()),
-        many => crate::i18n::trn(crate::i18n::current(), many.len() as u64, "{n} layer", "{n} layers"),
+        many => li_i18n::trn(li_i18n::current(), many.len() as u64, "{n} layer", "{n} layers"),
     };
     let t = Transfer { source: st.doc.id, layers: layers.iter().map(|l| l.0).collect(), grab, label };
     ctx.data_mut(|d| d.insert_temp(key(), t));

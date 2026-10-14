@@ -22,20 +22,20 @@ impl Drop for ProofTask {
 }
 
 pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ProofOptions, folder: &mut String, name: &mut String) {
-    ui.label(crate::i18n::tr("Export selected photos as a PDF contact sheet"));
+    ui.label(li_i18n::library::t("Export selected photos as a PDF contact sheet"));
     ui.horizontal_wrapped(|ui| {
-        ui.label(crate::i18n::tr("Page size"));
+        ui.label(li_i18n::library::t("Page size"));
         widgets::choice(ui, "proofPage", &mut opts.page, &[(PageSize::A4, "A4"), (PageSize::Letter, "Letter"), (PageSize::A3, "A3")]);
         widgets::checkbox(ui, "proofLandscape", &mut opts.landscape, "Landscape");
     });
     ui.horizontal_wrapped(|ui| {
-        ui.label(crate::i18n::tr("Columns"));
+        ui.label(li_i18n::library::t("Columns"));
         widgets::choice(ui, "proofColumns", &mut opts.columns, &[(1, "1"), (2, "2"), (3, "3"), (4, "4"), (5, "5"), (6, "6")]);
-        ui.label(crate::i18n::tr("Rows"));
+        ui.label(li_i18n::library::t("Rows"));
         widgets::choice(ui, "proofRows", &mut opts.rows, &[(1, "1"), (2, "2"), (3, "3"), (4, "4"), (5, "5"), (6, "6")]);
     });
     ui.horizontal_wrapped(|ui| {
-        ui.label(crate::i18n::tr("Photo info"));
+        ui.label(li_i18n::library::t("Photo info"));
         widgets::choice(
             ui,
             "proofCaption",
@@ -48,22 +48,22 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ProofOptions,
             ],
         );
     });
-    ui.label(crate::i18n::tr("Watermark (optional)"));
+    ui.label(li_i18n::library::t("Watermark (optional)"));
     widgets::text_field(ui, "proofWatermark", &mut opts.watermark, "Watermark (optional)");
-    ui.label(crate::i18n::tr("Output folder"));
+    ui.label(li_i18n::library::t("Output folder"));
     if widgets::field_with_action(ui, "proofFolder", folder, "Output folder", "Choose…", app.services.has_folder_picker())
         && let Some(path) = app.services.choose_folder("Choose Proof Sheet Folder")
     {
         *folder = path;
     }
-    ui.label(crate::i18n::tr("PDF filename"));
+    ui.label(li_i18n::library::t("PDF filename"));
     widgets::text_field(ui, "proofFilename", name, "PDF filename");
     let n = crate::control::export_targets(app).len();
     let pages = n.div_ceil((opts.rows * opts.columns).max(1));
     ui.label(format!(
         "{n} {} · {pages} {}",
-        crate::i18n::tr(if n == 1 { "Photo" } else { "Photos" }),
-        crate::i18n::tr(if pages == 1 { "Page" } else { "Pages" })
+        li_i18n::library::t(if n == 1 { "Photo" } else { "Photos" }),
+        li_i18n::library::t(if pages == 1 { "Page" } else { "Pages" })
     ));
 }
 
@@ -112,7 +112,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
         Ok(result) => {
             app.proof = None;
             match result {
-                Ok(pages) => app.toast(ctx, format!("{}: {pages} {}", crate::i18n::tr("Proof sheet exported"), crate::i18n::tr("Pages"))),
+                Ok(pages) => app.toast(ctx, format!("{}: {pages} {}", li_i18n::library::t("Proof sheet exported"), li_i18n::library::t("Pages"))),
                 Err(e) => app.toast_error(ctx, e),
             }
         }
@@ -121,7 +121,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
             app.toast_error(ctx, "Proof sheet worker stopped");
         }
         Err(std::sync::mpsc::TryRecvError::Empty) => {
-            egui::Window::new(crate::i18n::tr("Export Proof Sheet")).collapsible(false).show(ctx, |ui| {
+            egui::Window::new(li_i18n::library::t("Export Proof Sheet")).collapsible(false).show(ctx, |ui| {
                 let t = Tokens::get(ui.ctx());
                 ui.label(egui::RichText::new(format!("{} / {}", task.done.load(Ordering::Relaxed), task.total)).color(t.text));
                 if widgets::text_button(ui, "proofCancel", "Cancel", false).clicked() {

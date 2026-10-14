@@ -1,7 +1,7 @@
 //! A single resumable Sort → Review → Export workspace. Persisted folder definitions use
 //! catalog rules, so export and the optional smart albums always agree with reviewed keywords.
 use crate::smart_sort_keys::{self, ReviewAction};
-use crate::{LightcraftApp, i18n::tr, state::Dialog, widgets::register};
+use crate::{LightcraftApp, state::Dialog, widgets::register};
 use egui::{Response, Ui};
 use lightcraft_catalog::{Flag, PhotoId};
 use lightcraft_engine::smart_sort::{Category, FolderDef, Sensitivity, SortPreset, builtin_presets, classify::Classification, plan};
@@ -120,15 +120,15 @@ impl Default for SmartSortDialog {
 pub fn open(app: &mut LightcraftApp, selected_only: bool) {
     let source = if selected_only || app.session.selection.ids.len() > 1 { app.session.selection.ids.clone() } else { app.session.visible_cloned() };
     let source_name = if selected_only || app.session.selection.ids.len() > 1 {
-        tr("Selected photos").to_string()
+        li_i18n::library::t("Selected photos").to_string()
     } else if let Some(browse) = &app.session.browse {
         friendly_folder(&browse.path)
     } else if let lightcraft_engine::LibrarySource::Album(id) = app.session.source {
-        app.session.catalog.album(id).map(|a| a.name.clone()).unwrap_or_else(|| tr("Current view").to_string())
+        app.session.catalog.album(id).map(|a| a.name.clone()).unwrap_or_else(|| li_i18n::library::t("Current view").to_string())
     } else if let Some(date) = &app.session.filter.date {
         date.clone()
     } else {
-        tr("Current view").to_string()
+        li_i18n::library::t("Current view").to_string()
     };
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
@@ -168,7 +168,7 @@ pub fn open(app: &mut LightcraftApp, selected_only: bool) {
     });
 }
 fn button(ui: &mut Ui, id: impl Into<String>, label: &str) -> Response {
-    let r = ui.button(tr(label));
+    let r = ui.button(li_i18n::library::t(label));
     register(ui.ctx(), id, r.rect);
     r
 }
@@ -178,7 +178,7 @@ fn text(ui: &mut Ui, id: impl Into<String>, value: &mut String, width: f32) -> R
     r
 }
 fn check(ui: &mut Ui, id: impl Into<String>, value: &mut bool, label: &str) -> Response {
-    let r = ui.checkbox(value, tr(label));
+    let r = ui.checkbox(value, li_i18n::library::t(label));
     register(ui.ctx(), id, r.rect);
     r
 }
@@ -216,7 +216,7 @@ fn classify(app: &mut LightcraftApp, s: &mut SmartSortDialog) -> Result<(), Stri
 fn advance(app: &mut LightcraftApp, s: &mut SmartSortDialog) -> Result<(), String> {
     if s.step == 0 {
         if s.rows.is_empty() {
-            return Err(tr("Analyse photos before review").to_string());
+            return Err(li_i18n::library::t("Analyse photos before review").to_string());
         }
         s.step = 1;
         return Ok(());
@@ -259,7 +259,7 @@ fn correct(app: &mut LightcraftApp, ctx: &egui::Context, s: &mut SmartSortDialog
     if let Err(e) = classify(app, s) {
         s.error = e;
     }
-    app.toast(ctx, crate::i18n::tr_format!("Learned from {n} corrections", n = s.overrides.len()));
+    app.toast(ctx, li_i18n::tr_format!("Learned from {n} corrections", n = s.overrides.len()));
 }
 
 pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
@@ -288,7 +288,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         ui.painter().rect_filled(screen, 0.0, egui::Color32::from_black_alpha(140));
     });
     let mut close = false;
-    let shown = egui::Window::new(tr("Smart Sort & Export…"))
+    let shown = egui::Window::new(li_i18n::library::t("Smart Sort & Export…"))
         .id(egui::Id::new("smart-sort-dialog"))
         .collapsible(false)
         .resizable(true)
@@ -301,7 +301,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 for (i, key, label) in [(0, "sort", "1 Sort"), (1, "review", "2 Review"), (2, "export", "3 Export")] {
                     let r = ui.add_enabled(
                         app.smart_sort.is_none() && app.people_task.is_none() && (i == 0 || !s.rows.is_empty()),
-                        egui::Button::new(tr(label)).selected(s.step == i),
+                        egui::Button::new(li_i18n::library::t(label)).selected(s.step == i),
                     );
                     register(ui.ctx(), format!("smartSort:step:{key}"), r.rect);
                     if r.clicked() {
@@ -315,7 +315,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         }
                     }
                 }
-                ui.label(crate::i18n::tr_format!("{n} photos from {source}", n = ids(app, s).len(), source = &s.source_name));
+                ui.label(li_i18n::tr_format!("{n} photos from {source}", n = ids(app, s).len(), source = &s.source_name));
             });
             ui.separator();
             let body_h = (ui.available_height() - 72.0).max(340.0);
@@ -339,7 +339,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 // individual inference that exceeds the interactive limit.
                 crate::widgets::cpu_batch_estimate(ui, estimate);
                 if lightcraft_sysmem::power::conserving() {
-                    ui.label(crate::i18n::tr("Paused on battery"));
+                    ui.label(li_i18n::library::t("Paused on battery"));
                 }
             }
             ui.horizontal(|ui| {
@@ -362,7 +362,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                                 && app.people_task.is_none()
                                 && status["tagger"]["installed"] == true
                                 && (!app.session.smart.prefs.faces_enabled || status["faces"]["installed"] == true),
-                            egui::Button::new(crate::i18n::tr_format!("Analyse {n} Photos", n = ids(app, s).len())),
+                            egui::Button::new(li_i18n::tr_format!("Analyse {n} Photos", n = ids(app, s).len())),
                         );
                         register(ui.ctx(), "smartSort:analyze", r.rect);
                         if r.clicked() {
@@ -374,7 +374,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                             }
                         }
                     } else if s.step == 2 {
-                        let r = ui.add_enabled(app.export.is_none(), egui::Button::new(tr("Export")));
+                        let r = ui.add_enabled(app.export.is_none(), egui::Button::new(li_i18n::library::t("Export")));
                         register(ui.ctx(), "smartSort:export", r.rect);
                         if r.clicked() {
                             match start_export(app, s) {
@@ -424,11 +424,11 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
 
 fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
     ui.horizontal(|ui| {
-        ui.label(tr("Preset"));
+        ui.label(li_i18n::library::t("Preset"));
         let presets: Vec<_> = builtin_presets().into_iter().chain(app.session.smart.prefs.presets.clone()).collect();
-        let response = egui::ComboBox::from_id_salt("smart-sort-preset").selected_text(tr(&s.preset.name)).show_ui(ui, |ui| {
+        let response = egui::ComboBox::from_id_salt("smart-sort-preset").selected_text(li_i18n::library::t(&s.preset.name)).show_ui(ui, |ui| {
             for (i, preset) in presets.iter().enumerate() {
-                let r = ui.selectable_label(s.preset.name == preset.name, tr(&preset.name));
+                let r = ui.selectable_label(s.preset.name == preset.name, li_i18n::library::t(&preset.name));
                 register(ui.ctx(), format!("smartSort:preset:{i}"), r.rect);
                 if r.clicked() {
                     s.preset = preset.clone();
@@ -497,8 +497,8 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                     if r.changed() {
                         s.dirty = !s.rows.is_empty();
                     }
-                    ui.label(tr(if c.match_all { "Match all tags" } else { "Match any tag" }));
-                    let menu = ui.menu_button(tr("Tag sets"), |ui| {
+                    ui.label(li_i18n::library::t(if c.match_all { "Match all tags" } else { "Match any tag" }));
+                    let menu = ui.menu_button(li_i18n::library::t("Tag sets"), |ui| {
                         if button(ui, format!("smartSort:saveTagSet:{i}"), "Save Tags as Tag Set…").clicked() {
                             s.tag_set_folder = Some(i);
                             s.tag_set_focus = true;
@@ -577,7 +577,9 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                     s.dirty = !s.rows.is_empty();
                 }
                 let r = ui.add(
-                    egui::TextEdit::singleline(&mut s.inputs[i]).hint_text(tr("Type tags, separated by commas")).desired_width(ui.available_width()),
+                    egui::TextEdit::singleline(&mut s.inputs[i])
+                        .hint_text(li_i18n::library::t("Type tags, separated by commas"))
+                        .desired_width(ui.available_width()),
                 );
                 register(ui.ctx(), format!("smartSort:tagInput:{i}"), r.rect);
                 let query = s.inputs[i].trim().to_lowercase();
@@ -663,14 +665,14 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
         manage_sets(app, ui, s, &sets);
     }
     ui.horizontal(|ui| {
-        ui.label(tr("Sorting"));
+        ui.label(li_i18n::library::t("Sorting"));
         sensitivity(ui, s);
         if check(ui, "smartSort:multi", &mut s.preset.multi, "A photo can go in more than one folder").changed() {
             s.dirty = !s.rows.is_empty();
         }
     });
     ui.horizontal(|ui| {
-        ui.label(tr("Add keywords under:"));
+        ui.label(li_i18n::library::t("Add keywords under:"));
         let old = s.preset.keyword_parent.clone();
         if text(ui, "smartSort:keywordParent", &mut s.preset.keyword_parent, 240.0).changed() {
             for folder in &mut s.preset.folders {
@@ -690,7 +692,7 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
     let model_id = lightcraft_engine::smart_sort::DEFAULT_MODEL;
 
     if !installed {
-        ui.label(crate::i18n::tr_format!(
+        ui.label(li_i18n::tr_format!(
             "Smart Sort needs a one-time download of {size} MB. It runs on this computer; your photos are never uploaded.",
             size = status["tagger"]["bytes"].as_u64().unwrap_or(0) / 1_000_000
         ));
@@ -714,7 +716,7 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                 ui.colored_label(egui::Color32::LIGHT_RED, e);
             }
         } else {
-            ui.label(tr("Download the Smart Sort model in Compositing ▸ Local AI"));
+            ui.label(li_i18n::library::t("Download the Smart Sort model in Compositing ▸ Local AI"));
         }
         ui.hyperlink_to("MIT", "https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K");
     }
@@ -725,20 +727,20 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
             .and_then(|id| id.parse::<u64>().ok())
             .and_then(|id| app.session.catalog.photo(PhotoId(id)))
             .map(|p| p.file_name.clone())
-            .unwrap_or_else(|| tr("Loading model…").to_string());
-        ui.add(egui::ProgressBar::new(status["done"].as_u64().unwrap_or(0) as f32 / task.total.max(1) as f32).text(crate::i18n::tr_format!(
+            .unwrap_or_else(|| li_i18n::library::t("Loading model…").to_string());
+        ui.add(egui::ProgressBar::new(status["done"].as_u64().unwrap_or(0) as f32 / task.total.max(1) as f32).text(li_i18n::tr_format!(
             "Analysing {done} of {total} — {file}",
             done = status["done"],
             total = task.total,
             file = current
         )));
-        ui.label(crate::i18n::tr_format!("{n} already analysed", n = task.skipped));
+        ui.label(li_i18n::tr_format!("{n} already analysed", n = task.skipped));
     }
     if s.videos > 0 {
-        ui.label(crate::i18n::tr_format!("{n} videos skipped", n = s.videos));
+        ui.label(li_i18n::tr_format!("{n} videos skipped", n = s.videos));
     }
     if !s.failed.is_empty() {
-        ui.collapsing(tr("Couldn't read"), |ui| {
+        ui.collapsing(li_i18n::library::t("Couldn't read"), |ui| {
             for (id, e) in &s.failed {
                 let name = app.session.catalog.photo(*id).map(|p| p.file_name.clone()).unwrap_or_default();
                 ui.label(format!("{name}: {e}"));
@@ -748,7 +750,7 @@ fn sort(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
 }
 fn manage_sets(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog, sets: &Value) {
     ui.group(|ui| {
-        ui.label(tr("Manage Tag Sets…"));
+        ui.label(li_i18n::library::t("Manage Tag Sets…"));
         for set in sets.as_array().into_iter().flatten().filter(|s| s["builtin"] == false) {
             let name = set["name"].as_str().unwrap_or_default();
             ui.horizontal(|ui| {
@@ -778,7 +780,7 @@ fn sensitivity(ui: &mut Ui, s: &mut SmartSortDialog) {
         Sensitivity::Loose => 2,
     };
     let r = ui.add(egui::Slider::new(&mut value, 0..=2).custom_formatter(|v, _| {
-        tr(match v as i32 {
+        li_i18n::library::t(match v as i32 {
             0 => "Strict",
             1 => "Balanced",
             _ => "Loose",
@@ -818,10 +820,11 @@ fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
         }
     }
     ui.horizontal(|ui| {
-        ui.label(tr("Sorting"));
+        ui.label(li_i18n::library::t("Sorting"));
         sensitivity(ui, s);
         check(ui, "smartSort:leastSure", &mut s.least_sure, "Least sure first");
-        let r = ui.add_enabled(!s.selected.is_empty() || !s.library_examples.is_empty(), egui::Button::new(tr("+ Folder from Examples…")));
+        let r = ui
+            .add_enabled(!s.selected.is_empty() || !s.library_examples.is_empty(), egui::Button::new(li_i18n::library::t("+ Folder from Examples…")));
         register(ui.ctx(), "smartSort:folderFromExamples", r.rect);
         if r.clicked() {
             match app.session.execute(
@@ -854,7 +857,7 @@ fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                     [215.0, 28.0],
                     egui::Button::new(format!(
                         "{}  {}  [{}]",
-                        if name == "Unsorted" { tr("Unsorted") } else { name.as_str() },
+                        if name == "Unsorted" { li_i18n::library::t("Unsorted") } else { name.as_str() },
                         s.counts.get(name).copied().unwrap_or(0),
                         hint
                     ))
@@ -863,9 +866,9 @@ fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                 let r = if hint.is_empty() {
                     r
                 } else if name == "Unsorted" {
-                    r.on_hover_text(format!("0: {}", tr("Unsorted")))
+                    r.on_hover_text(format!("0: {}", li_i18n::library::t("Unsorted")))
                 } else {
-                    r.on_hover_text(format!("{hint}: {}\nAlt+{hint}: {}", tr("Move to"), tr("Also add to")))
+                    r.on_hover_text(format!("{hint}: {}\nAlt+{hint}: {}", li_i18n::library::t("Move to"), li_i18n::library::t("Also add to")))
                 };
                 register(ui.ctx(), format!("smartSort:reviewFolder:{name}"), r.rect);
                 if r.clicked() {
@@ -880,7 +883,7 @@ fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
             }
             if !s.selected.is_empty() {
                 ui.separator();
-                ui.label(tr("Move to"));
+                ui.label(li_i18n::library::t("Move to"));
                 for name in &names {
                     if button(ui, format!("smartSort:moveTo:{name}"), if name == "Unsorted" { "Unsorted" } else { name }).clicked() {
                         correct(app, ui.ctx(), s, name, false, false);
@@ -1002,7 +1005,7 @@ fn review(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                             r.dnd_set_drag_payload(DragPhotos(s.selected.clone()));
                             r.context_menu(|ui| {
                                 for (prefix, label, add) in [("moveTo", "Move to", false), ("alsoAdd", "Also add to", true)] {
-                                    let menu = ui.menu_button(tr(label), |ui| {
+                                    let menu = ui.menu_button(li_i18n::library::t(label), |ui| {
                                         for name in &names {
                                             if button(ui, format!("smartSort:{prefix}:{name}"), if name == "Unsorted" { "Unsorted" } else { name })
                                                 .clicked()
@@ -1040,11 +1043,13 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
         ("filePattern", "File name pattern (optional)", &mut s.preset.file_pattern),
     ] {
         ui.horizontal(|ui| {
-            ui.label(tr(label));
+            ui.label(li_i18n::library::t(label));
             text(ui, format!("smartSort:{id}"), value, 450.0);
         });
     }
-    ui.label(tr("Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}."));
+    ui.label(li_i18n::library::t(
+        "Folder tokens: {event}, {folder}, {person}, {session}, {date}, {camera}. File names also accept {original} and {seq:4}.",
+    ));
     let sessions = sessions::split_sessions(&app.session.catalog, &ids(app, s), &s.preset.sessions);
     if s.preset.sessions.enabled {
         check(ui, "smartSort:sessionFolders", &mut s.preset.sessions.export_folders, "Export sessions as folders");
@@ -1052,14 +1057,14 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
     if s.preset.bursts.enabled {
         ui.horizontal(|ui| {
             for (mode, label, id) in [(BurstExport::BestOnly, "Best of each burst", "bestBursts"), (BurstExport::All, "All photos", "allBursts")] {
-                let r = ui.radio_value(&mut s.preset.bursts.export, mode, tr(label));
+                let r = ui.radio_value(&mut s.preset.bursts.export, mode, li_i18n::library::t(label));
                 register(ui.ctx(), format!("smartSort:{id}"), r.rect);
             }
         });
         check(ui, "smartSort:libraryStacks", &mut s.preset.bursts.also_stack_in_library, "Also stack in the Library");
     }
     ui.horizontal(|ui| {
-        ui.label(tr("Export folder"));
+        ui.label(li_i18n::library::t("Export folder"));
         ui.label(friendly_folder(&s.dest)).on_hover_text(&s.dest);
         let response = text(ui, "smartSort:dest", &mut s.dest, 320.0);
         if response.lost_focus() && !s.dest.trim().is_empty() {
@@ -1074,7 +1079,7 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
         }
     });
     ui.horizontal(|ui| {
-        ui.heading(tr("Folders"));
+        ui.heading(li_i18n::library::t("Folders"));
         text(ui, "smartSort:exportPresetName", &mut s.save_name, 180.0);
         if button(ui, "smartSort:saveLayoutPreset", "Save Preset…").clicked() {
             let mut preset = s.preset.clone();
@@ -1093,7 +1098,7 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
             for p in app.session.smart.people.data.people.iter().filter(|p| p.folder_enabled && !p.ignored) {
                 if !s.preset.folders.iter().any(|f| f.people_enabled && f.person_ids == [p.id]) {
                     s.preset.folders.push(FolderDef {
-                        name: if p.name.is_empty() { crate::i18n::tr_format!("Unnamed person {id}", id = p.id) } else { p.name.clone() },
+                        name: if p.name.is_empty() { li_i18n::tr_format!("Unnamed person {id}", id = p.id) } else { p.name.clone() },
                         person_ids: vec![p.id],
                         people_enabled: true,
                         use_rules: false,
@@ -1108,7 +1113,7 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
     let value = plan_result(app, s).unwrap_or_default();
     let planned: Vec<plan::Folder> = serde_json::from_value(value["folders"].clone()).unwrap_or_default();
     for notice in value["notices"].as_array().into_iter().flatten().filter_map(Value::as_str) {
-        ui.label(tr(notice));
+        ui.label(li_i18n::library::t(notice));
     }
     let mut swap = None;
     for i in 0..s.preset.folders.len() {
@@ -1128,7 +1133,7 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                 register(ui.ctx(), format!("smartSort:exportFolder:{i}"), r.rect);
                 text(ui, format!("smartSort:folders:name:{i}"), &mut folder.name, 230.0);
                 let count = if folder.enabled { planned.get(count_index).map_or(0, |p| p.ids.len()) } else { 0 };
-                ui.label(crate::i18n::tr_format!("{n} photos", n = count));
+                ui.label(li_i18n::tr_format!("{n} photos", n = count));
                 if button(ui, format!("smartSort:folders:up:{i}"), "↑").clicked() && i > 0 {
                     swap = Some((i, i - 1));
                 }
@@ -1140,21 +1145,21 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                     s.rules_open = if s.rules_open == Some(i) { None } else { Some(i) };
                 }
                 if s.preset.sessions.enabled {
-                    ui.label(tr("Only in session"));
+                    ui.label(li_i18n::library::t("Only in session"));
                     let label = folder
                         .session
                         .as_ref()
-                        .map(|key| sessions.sessions.iter().find(|s| &s.start == key).map_or(tr("No time"), |s| s.name.as_str()))
-                        .unwrap_or(tr("All sessions"));
+                        .map(|key| sessions.sessions.iter().find(|s| &s.start == key).map_or(li_i18n::library::t("No time"), |s| s.name.as_str()))
+                        .unwrap_or(li_i18n::library::t("All sessions"));
                     let response =
                         egui::ComboBox::from_id_salt(("session-filter", i)).width(140.0).truncate().selected_text(label).show_ui(ui, |ui| {
-                            let r = ui.selectable_value(&mut folder.session, None, tr("All sessions"));
+                            let r = ui.selectable_value(&mut folder.session, None, li_i18n::library::t("All sessions"));
                             register(ui.ctx(), format!("smartSort:folderSession:{i}:all"), r.rect);
                             for (j, session) in sessions.sessions.iter().enumerate() {
                                 let r = ui.selectable_value(&mut folder.session, Some(session.start.clone()), &session.name);
                                 register(ui.ctx(), format!("smartSort:folderSession:{i}:{j}"), r.rect);
                             }
-                            let r = ui.selectable_value(&mut folder.session, Some(sessions::NO_TIME.into()), tr("No time"));
+                            let r = ui.selectable_value(&mut folder.session, Some(sessions::NO_TIME.into()), li_i18n::library::t("No time"));
                             register(ui.ctx(), format!("smartSort:folderSession:{i}:noTime"), r.rect);
                         });
                     register(ui.ctx(), format!("smartSort:folderSession:{i}"), response.response.rect);
@@ -1169,7 +1174,7 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                         s.people_folder = Some(i);
                     }
                     check(ui, format!("smartSort:folderEveryone:{i}"), &mut folder.everyone, "Everyone in the photo together");
-                    ui.label(tr("Any of these people"));
+                    ui.label(li_i18n::library::t("Any of these people"));
                     check(ui, format!("smartSort:folderUseTags:{i}"), &mut folder.use_rules, "Also use tag rules");
                     if folder.use_rules {
                         check(ui, format!("smartSort:folderPeopleOr:{i}"), &mut folder.people_or, "Tagged OR showing");
@@ -1183,8 +1188,8 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
             }
             if custom {
                 ui.horizontal(|ui| {
-                    ui.label(tr("Include photos tagged:"));
-                    let response = ui.menu_button(tr("Tags"), |ui| {
+                    ui.label(li_i18n::library::t("Include photos tagged:"));
+                    let response = ui.menu_button(li_i18n::library::t("Tags"), |ui| {
                         for (j, c) in s.preset.categories.iter().enumerate() {
                             let mut on = folder.tags.contains(&c.name);
                             if check(ui, format!("smartSort:folders:tag:{i}:{j}"), &mut on, &c.name).changed() {
@@ -1225,7 +1230,7 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
                     folder.rules = plan::tag_rules(&s.preset.keyword_parent, &folder.tags, folder.combine_all);
                 }
             } else if folder.unsorted {
-                ui.label(tr("Photos matching no enabled folder"));
+                ui.label(li_i18n::library::t("Photos matching no enabled folder"));
             } else {
                 ui.label(folder.tags.join(", "));
             }
@@ -1263,16 +1268,22 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
     }
     ui.separator();
     check(ui, "smartSort:firstMatch", &mut s.preset.first_match, "First matching folder only");
-    ui.label(tr(if s.preset.first_match { "Only the first matching folder receives a copy" } else { "Copy into every matching folder" }));
+    ui.label(li_i18n::library::t(if s.preset.first_match {
+        "Only the first matching folder receives a copy"
+    } else {
+        "Copy into every matching folder"
+    }));
     ui.horizontal(|ui| {
-        ui.label(tr("Export as:"));
+        ui.label(li_i18n::library::t("Export as:"));
         let presets = app.session.all_export_presets();
         let response = egui::ComboBox::from_id_salt("smart-sort-export-preset")
-            .selected_text(tr(if s.export_preset == "Original + Settings" { "Copy originals" } else { &s.export_preset }))
+            .selected_text(li_i18n::library::t(if s.export_preset == "Original + Settings" { "Copy originals" } else { &s.export_preset }))
             .show_ui(ui, |ui| {
                 for (i, (p, _)) in presets.iter().enumerate() {
-                    let r =
-                        ui.selectable_label(s.export_preset == p.name, tr(if p.name == "Original + Settings" { "Copy originals" } else { &p.name }));
+                    let r = ui.selectable_label(
+                        s.export_preset == p.name,
+                        li_i18n::library::t(if p.name == "Original + Settings" { "Copy originals" } else { &p.name }),
+                    );
                     register(ui.ctx(), format!("smartSort:exportPreset:{i}"), r.rect);
                     if r.clicked() {
                         s.export_preset = p.name.clone();
@@ -1300,7 +1311,7 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
     let resolved = plan::resolve_tokens(&app.session.catalog, &planned, &s.preset, &sessions).unwrap_or_default();
     let files: usize = planned.iter().map(|p| p.ids.len()).sum();
     let photos: std::collections::BTreeSet<_> = planned.iter().flat_map(|p| p.ids.iter()).collect();
-    ui.label(crate::i18n::tr_format!(
+    ui.label(li_i18n::tr_format!(
         "{files} files into {folders} folders ({photos} photos)",
         files = files,
         folders = resolved.len(),
@@ -1316,7 +1327,7 @@ fn export_params(app: &LightcraftApp, s: &SmartSortDialog) -> Value {
 }
 fn start_export(app: &mut LightcraftApp, s: &SmartSortDialog) -> Result<(), String> {
     if app.export.is_some() {
-        return Err(tr("An export is already running").to_string());
+        return Err(li_i18n::library::t("An export is already running").to_string());
     }
     let folders = planned_folders(app, s)?;
     let effective = export_preset(app, s);
@@ -1328,7 +1339,7 @@ fn start_export(app: &mut LightcraftApp, s: &SmartSortDialog) -> Result<(), Stri
     let sessions = sessions::split_sessions(&app.session.catalog, &ids(app, s), &s.preset.sessions);
     let items = plan::prepare_preset(&mut app.session, &folders, &opts, &s.dest, &s.preset, &sessions)?;
     if items.is_empty() {
-        return Err(tr("No photos match the enabled folders").to_string());
+        return Err(li_i18n::library::t("No photos match the enabled folders").to_string());
     }
     save_last(app, s)?;
     if s.preset.bursts.enabled && s.preset.bursts.also_stack_in_library {
@@ -1394,7 +1405,7 @@ fn start_export(app: &mut LightcraftApp, s: &SmartSortDialog) -> Result<(), Stri
     if app.services.write_shared.is_some() {
         crate::export_task::start(app, items, opts, to, crate::control::AfterExport::from_params(&json!({"afterExport":"showInFolder"})))?;
     } else {
-        let writer = app.services.write.as_mut().ok_or_else(|| tr("No export writer is available").to_string())?;
+        let writer = app.services.write.as_mut().ok_or_else(|| li_i18n::library::t("No export writer is available").to_string())?;
         let files = lightcraft_engine::export::run_batch(items, &opts, &to, writer, &|p| std::path::Path::new(p).exists(), false, &mut |_, _| true)?;
         app.last_export_result = Some(json!({"files":files,"cancelled":false}));
     }
@@ -1460,7 +1471,7 @@ fn refresh_bursts(app: &mut LightcraftApp, s: &mut SmartSortDialog) -> Result<()
 fn session_options(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
     ui.horizontal(|ui| {
         check(ui, "smartSort:sessions", &mut s.preset.sessions.enabled, "Split into sessions when there is a gap of more than");
-        let r = ui.add(egui::DragValue::new(&mut s.preset.sessions.gap_minutes).range(1..=1440).suffix(tr(" minutes")));
+        let r = ui.add(egui::DragValue::new(&mut s.preset.sessions.gap_minutes).range(1..=1440).suffix(li_i18n::library::t(" minutes")));
         register(ui.ctx(), "smartSort:sessionGap", r.rect);
     });
     if s.preset.sessions.enabled {
@@ -1471,7 +1482,7 @@ fn session_options(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog
                 if text(ui, format!("smartSort:session:{index}"), &mut name, 210.0).changed() {
                     s.preset.sessions.names.insert(session.start.clone(), name);
                 }
-                ui.label(crate::i18n::tr_format!(
+                ui.label(li_i18n::tr_format!(
                     "{start}–{end} · {n} photos",
                     start = session.start.get(11..16).unwrap_or(&session.start),
                     end = session.end.get(11..16).unwrap_or(&session.end),
@@ -1480,7 +1491,7 @@ fn session_options(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog
             });
         }
         if !sessions.no_time.is_empty() {
-            ui.label(format!("{} · {} {}", tr("No time"), sessions.no_time.len(), tr("photos")));
+            ui.label(format!("{} · {} {}", li_i18n::library::t("No time"), sessions.no_time.len(), li_i18n::library::t("photos")));
         }
     }
 }
@@ -1489,14 +1500,14 @@ fn burst_options(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) 
     ui.horizontal(|ui| {
         changed |= check(ui, "smartSort:bursts", &mut s.preset.bursts.enabled, "Group bursts and near-duplicates").changed();
         let r = egui::ComboBox::from_id_salt("burst-strictness")
-            .selected_text(tr(match s.preset.bursts.strictness {
+            .selected_text(li_i18n::library::t(match s.preset.bursts.strictness {
                 BurstStrictness::Strict => "Strict",
                 BurstStrictness::Normal => "Normal",
                 BurstStrictness::Loose => "Loose",
             }))
             .show_ui(ui, |ui| {
                 for (value, label) in [(BurstStrictness::Strict, "Strict"), (BurstStrictness::Normal, "Normal"), (BurstStrictness::Loose, "Loose")] {
-                    let r = ui.selectable_value(&mut s.preset.bursts.strictness, value, tr(label));
+                    let r = ui.selectable_value(&mut s.preset.bursts.strictness, value, li_i18n::library::t(label));
                     register(ui.ctx(), format!("smartSort:burstStrictness:{label}"), r.rect);
                     changed |= r.changed();
                 }

@@ -116,13 +116,12 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
                     let ok = files.iter().filter(|f| f.get("path").is_some()).count();
                     let failed: Vec<&Value> = files.iter().filter(|f| f.get("error").is_some()).collect();
                     let skipped = files.iter().filter(|f| f.get("skipped").is_some()).count();
-                    let mut m =
-                        crate::i18n::tr_format!("Exported {ok} of {total} photo{}", if total == 1 { "" } else { "s" }, ok = ok, total = total);
+                    let mut m = li_i18n::tr_format!("Exported {ok} of {total} photo{}", if total == 1 { "" } else { "s" }, ok = ok, total = total);
                     if skipped > 0 {
-                        m += &crate::i18n::tr_format!(" · {skipped} skipped (file exists)", skipped = skipped);
+                        m += &li_i18n::tr_format!(" · {skipped} skipped (file exists)", skipped = skipped);
                     }
                     if let Some(first) = failed.first() {
-                        m += &crate::i18n::tr_format!(" · {} failed: {}", failed.len(), first["error"].as_str().unwrap_or("error"));
+                        m += &li_i18n::tr_format!(" · {} failed: {}", failed.len(), first["error"].as_str().unwrap_or("error"));
                     }
                     if cancelled {
                         m += " · cancelled";

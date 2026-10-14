@@ -1,5 +1,5 @@
 use super::*;
-use crate::i18n::t;
+use li_i18n::t;
 fn number(text: &str) -> Result<f64, String> {
     let v = text.trim().parse::<f64>().map_err(|_| "Enter a number".to_string())?;
     engine::finite(v, 1e7).map_err(|e| e.to_string())?;

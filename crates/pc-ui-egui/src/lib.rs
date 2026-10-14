@@ -7,12 +7,9 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-/// Translate a string literal into the current UI language: `tl!("Image Size…")`.
-macro_rules! tl {
-    ($s:expr) => {
-        $crate::i18n::t($s)
-    };
-}
+// `tl!("Image Size…")` (translate a literal into the current UI language) for every module.
+#[macro_use]
+extern crate li_i18n;
 
 /// local-image: the app's modules, as in Lightroom's module picker: **Library** (browse, rate,
 /// organise), **Develop** (raw and photo development, masks) and **Compositing** (this editor:
@@ -158,7 +155,10 @@ pub mod gpu_canvas;
 pub mod gpu_status;
 pub mod gradient_ui;
 pub mod hold_keys;
-pub mod i18n;
+#[cfg(test)]
+mod i18n_live_tests;
+#[cfg(test)]
+mod i18n_tests;
 mod icon_data;
 pub mod icons;
 pub mod jobs_ui;
@@ -1273,7 +1273,7 @@ impl PhotocraftApp {
             st.path = Some(path.clone());
             st.saved_revision = st.revision;
         }
-        self.ui.status = if preserves_document { format!("Saved {path}") } else { crate::i18n::fmt(tl!("Saved a copy to {path}"), &[("path", &path)]) };
+        self.ui.status = if preserves_document { format!("Saved {path}") } else { li_i18n::fmt(tl!("Saved a copy to {path}"), &[("path", &path)]) };
         // "Save Document" script events and File › Generate › Image Assets.
         if preserves_document
             && let Some(i) = self.session.active_index()
@@ -1404,7 +1404,7 @@ impl eframe::App for PhotocraftApp {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.resource_policy_tick(ctx);
-        i18n::set_current(i18n::Lang::from_pref(&self.session.prefs().interface.language));
+        li_i18n::set_current(li_i18n::Lang::from_pref(&self.session.prefs().interface.language));
         if !self.styled {
             Self::setup_context(ctx, self.ui.theme);
             self.styled = true;
@@ -1439,7 +1439,7 @@ impl eframe::App for PhotocraftApp {
         updates_ui::tick(self, ctx);
         monitor_status::poll(self, ctx);
         // Control requests and persisted preferences can change the language in this frame.
-        i18n::sync_context(ctx, &self.session.prefs().interface.language);
+        crate::theme::sync_language(ctx, &self.session.prefs().interface.language);
         // A window bigger than its display (1440 × 900 on 1366 × 768) runs under the taskbar:
         // maximize it into the work area once (#315).
         work_area::fit_window(ctx);
@@ -1500,7 +1500,7 @@ impl eframe::App for PhotocraftApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        i18n::set_current(i18n::Lang::from_pref(&self.session.prefs().interface.language));
+        li_i18n::set_current(li_i18n::Lang::from_pref(&self.session.prefs().interface.language));
         // Fonts registered via set_fonts only take effect next frame; named families would panic now.
         if !self.fonts_ready {
             ctx.request_repaint();

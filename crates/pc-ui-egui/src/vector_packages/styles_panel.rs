@@ -115,7 +115,7 @@ pub fn show_with_hooks(ui: &mut Ui, state: &mut State, session: &mut Session, ho
     if state.selected.is_some_and(|id| store.graphic_styles.iter().all(|s| s.id != id)) {
         state.selected = None;
     }
-    ui.heading(crate::i18n::t("Graphic Styles"));
+    ui.heading(li_i18n::t("Graphic Styles"));
     if hooks.is_none() {
         return Err(error("Graphic Styles requires the native document provider"));
     }
@@ -126,7 +126,7 @@ pub fn show_with_hooks(ui: &mut Ui, state: &mut State, session: &mut Session, ho
             state.name = def.name.clone();
         }
     }
-    let label = ui.label(crate::i18n::t("Style name"));
+    let label = ui.label(li_i18n::t("Style name"));
     if ui.text_edit_singleline(&mut state.name).labelled_by(label.id).changed() {
         state.cancel();
     }
@@ -141,7 +141,7 @@ pub fn show_with_hooks(ui: &mut Ui, state: &mut State, session: &mut Session, ho
         state,
         session,
         hooks,
-        ui.add_enabled(source.is_some(), egui::Button::new(crate::i18n::t("New from selection"))),
+        ui.add_enabled(source.is_some(), egui::Button::new(li_i18n::t("New from selection"))),
         source.map(|source| Operation::New { source, name: new_name }),
         false,
     )?;
@@ -151,7 +151,7 @@ pub fn show_with_hooks(ui: &mut Ui, state: &mut State, session: &mut Session, ho
         state,
         session,
         hooks,
-        ui.add_enabled(selected.is_some() && source.is_some(), egui::Button::new(crate::i18n::t("Apply style"))),
+        ui.add_enabled(selected.is_some() && source.is_some(), egui::Button::new(li_i18n::t("Apply style"))),
         selected.map(|style| Operation::Apply { style, add }),
         true,
     )?;
@@ -159,24 +159,17 @@ pub fn show_with_hooks(ui: &mut Ui, state: &mut State, session: &mut Session, ho
         state,
         session,
         hooks,
-        ui.add_enabled(selected.is_some() && source.is_some(), egui::Button::new(crate::i18n::t("Redefine style"))),
+        ui.add_enabled(selected.is_some() && source.is_some(), egui::Button::new(li_i18n::t("Redefine style"))),
         selected.zip(source).map(|(style, source)| Operation::Redefine { style, source }),
         false,
     )?;
-    action(
-        state,
-        session,
-        hooks,
-        ui.add_enabled(source.is_some(), egui::Button::new(crate::i18n::t("Break Link"))),
-        source.map(|_| Operation::BreakLink),
-        false,
-    )?;
+    action(state, session, hooks, ui.add_enabled(source.is_some(), egui::Button::new(li_i18n::t("Break Link"))), source.map(|_| Operation::BreakLink), false)?;
     let name = state.name.clone();
     action(
         state,
         session,
         hooks,
-        ui.add_enabled(selected.is_some(), egui::Button::new(crate::i18n::t("Rename style"))),
+        ui.add_enabled(selected.is_some(), egui::Button::new(li_i18n::t("Rename style"))),
         selected.map(|style| Operation::Rename { style, name }),
         false,
     )?;
@@ -185,7 +178,7 @@ pub fn show_with_hooks(ui: &mut Ui, state: &mut State, session: &mut Session, ho
         state,
         session,
         hooks,
-        ui.add_enabled(selected.is_some(), egui::Button::new(crate::i18n::t("Duplicate style"))),
+        ui.add_enabled(selected.is_some(), egui::Button::new(li_i18n::t("Duplicate style"))),
         selected.map(|style| Operation::Duplicate { style, name }),
         false,
     )?;
@@ -193,11 +186,11 @@ pub fn show_with_hooks(ui: &mut Ui, state: &mut State, session: &mut Session, ho
         state,
         session,
         hooks,
-        ui.add_enabled(selected.is_some(), egui::Button::new(crate::i18n::t("Delete style"))),
+        ui.add_enabled(selected.is_some(), egui::Button::new(li_i18n::t("Delete style"))),
         selected.map(|style| Operation::Delete { style }),
         false,
     )?;
-    action(state, session, hooks, ui.button(crate::i18n::t("Add starter library")), Some(Operation::InstallStarters), false)?;
+    action(state, session, hooks, ui.button(li_i18n::t("Add starter library")), Some(Operation::InstallStarters), false)?;
     if ui.input(|i| i.pointer.any_released()) {
         state.cancel();
         state.blocked = false;

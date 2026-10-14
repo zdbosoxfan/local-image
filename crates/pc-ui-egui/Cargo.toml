@@ -11,6 +11,8 @@ workspace = true
 li-commands = { workspace = true, features = ["egui"] }
 li-gpu.workspace = true
 li-keys = { workspace = true, features = ["egui"] }
+# The one translation engine (`tl!`, catalogs, languages).
+li-i18n.workspace = true
 li-ui-kit.workspace = true
 li-color.workspace = true
 photocraft-svg = { workspace = true, features = ["svg-import-integrated"] }
@@ -57,7 +59,9 @@ base64 = "0.22"
 # local-image: folder and file pickers in the AI panels.
 rfd = { workspace = true }
 rayon = { workspace = true }
-# Safe native UI-language APIs (Windows/macOS); no subprocess or web dependency.
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# tests/it/system_locale.rs asks the platform directly (li-i18n owns the app's detection).
 sys-locale = "=0.3.2"
 
 [dev-dependencies]

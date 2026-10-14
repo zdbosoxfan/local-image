@@ -144,7 +144,7 @@ impl State {
             layer.clone()
         } else {
             Layer::new(
-                crate::i18n::t(engine::layer_name(&candidate.parameters)),
+                li_i18n::t(engine::layer_name(&candidate.parameters)),
                 LayerContent::Shape(if geometry::stroke_only(&candidate.parameters) {
                     photocraft_doc::ShapeLayer { stroke: Some(Default::default()), ..Default::default() }
                 } else {
@@ -153,7 +153,7 @@ impl State {
             )
         };
         if targets.is_empty() {
-            layer.name = crate::i18n::t(engine::layer_name(&candidate.parameters)).into();
+            layer.name = li_i18n::t(engine::layer_name(&candidate.parameters)).into();
         }
         let LayerContent::Shape(sh) = &layer.content else {
             return Err(EngineError::Other("shape preview target required".into()));
@@ -186,7 +186,7 @@ impl State {
         let base = json!({"document":g.capture.document.0,"revision":g.capture.revision});
         let mut params = base;
         if g.targets.is_empty() {
-            params["name"] = json!(crate::i18n::t(engine::layer_name(&d.parameters)));
+            params["name"] = json!(li_i18n::t(engine::layer_name(&d.parameters)));
             params["design"] = json!(d);
             params["above"] = json!(g.above.map(|id| id.0));
             if let Some((fill, stroke)) = paint {

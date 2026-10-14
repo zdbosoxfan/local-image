@@ -724,7 +724,7 @@ mod label_tests {
 
     #[test]
     fn untranslated_form_labels_stay_sentence_case() {
-        crate::i18n::with_language(crate::i18n::Lang::EN, || {
+        li_i18n::with_language(li_i18n::Lang::En, || {
             assert_eq!(label_of("useAntialias"), "Use antialias");
             assert_eq!(label_of("radius"), "Radius");
         });

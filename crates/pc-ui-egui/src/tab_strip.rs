@@ -126,7 +126,7 @@ fn tabs_in(
         let r = Rect::from_min_size(pos2(x, area.top()), vec2(w, area.height()));
         // Tabs drag too: out of the dock they float, onto another strip they join it.
         let resp = ui.interact(r, id.with(("tab", i)), Sense::click_and_drag());
-        let accessible = crate::i18n::fmt(tl!("{name} panel tab"), &[("name", name)]);
+        let accessible = li_i18n::fmt(tl!("{name} panel tab"), &[("name", name)]);
         resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, ui.is_enabled(), *selected == i, &accessible));
         // The padding gives way (down to a third) before the label is cut.
         let galley = elided(ui, name, font.clone(), t.text, (w - pad / 3.0).max(1.0));

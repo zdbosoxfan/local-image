@@ -29,7 +29,7 @@ pub fn catalog() -> Vec<Binding> {
         out.push(Binding {
             key: format!("{PREFIX}{id}"),
             command: (*id).into(),
-            label: crate::i18n::tr(label).into(),
+            label: li_i18n::library::t(label).into(),
             menu: vec!["Library".into(), menu.split('>').next().unwrap_or("Other").into()],
             default: shortcut.map(str::to_string),
             params: None,
@@ -43,7 +43,7 @@ pub fn catalog() -> Vec<Binding> {
         out.push(Binding {
             key: format!("{PREFIX}{}", c.id),
             command: c.id.into(),
-            label: crate::i18n::tr(&crate::menus::action_label(c.label)).into(),
+            label: li_i18n::library::t(&crate::menus::action_label(c.label)).into(),
             menu: vec!["Library".into(), c.menu.first().copied().unwrap_or("Other").into()],
             default,
             params: None,
@@ -53,16 +53,16 @@ pub fn catalog() -> Vec<Binding> {
         let label = out.iter().find(|b| b.command == *id).map(|b| b.label.clone()).unwrap_or_else(|| "Photo action".into());
         let params: Value = serde_json::from_str(params).unwrap_or_default();
         let label = if *id == "photo.flag" && params["advance"] == true {
-            crate::i18n::tr(match params["flag"].as_str() {
+            li_i18n::library::t(match params["flag"].as_str() {
                 Some("pick") => "Pick and advance",
                 Some("reject") => "Reject and advance",
                 _ => "Clear flag and advance",
             })
             .to_string()
         } else if let Some(index) = params["index"].as_u64() {
-            crate::i18n::tr("Toggle keyword {index}").replace("{index}", &index.to_string())
+            li_i18n::library::t("Toggle keyword {index}").replace("{index}", &index.to_string())
         } else {
-            crate::i18n::tr("{action} (alternate)").replace("{action}", &label)
+            li_i18n::library::t("{action} (alternate)").replace("{action}", &label)
         };
         out.push(Binding {
             key: format!("{PREFIX}alias/{id}/{sc}"),
@@ -80,9 +80,9 @@ pub fn catalog() -> Vec<Binding> {
                 key: format!("{PREFIX}{command}"),
                 command,
                 label: if advance {
-                    crate::i18n::tr("Set rating {rating} and advance").replace("{rating}", &rating.to_string())
+                    li_i18n::library::t("Set rating {rating} and advance").replace("{rating}", &rating.to_string())
                 } else {
-                    crate::i18n::tr("Set rating {rating}").replace("{rating}", &rating.to_string())
+                    li_i18n::library::t("Set rating {rating}").replace("{rating}", &rating.to_string())
                 },
                 menu: vec!["Library".into(), "Photo".into()],
                 default: Some(format!("{}{rating}", if advance { "Shift+" } else { "" })),
@@ -95,7 +95,7 @@ pub fn catalog() -> Vec<Binding> {
         out.push(Binding {
             key: format!("{PREFIX}{command}"),
             command,
-            label: crate::i18n::tr("Set {color} label").replace("{color}", crate::i18n::tr(color)),
+            label: li_i18n::library::t("Set {color} label").replace("{color}", li_i18n::library::t(color)),
             menu: vec!["Library".into(), "Photo".into()],
             default: Some(key.into()),
             params: None,
@@ -105,7 +105,7 @@ pub fn catalog() -> Vec<Binding> {
         out.push(Binding {
             key: format!("{PREFIX}{command}"),
             command: command.into(),
-            label: crate::i18n::tr(label).into(),
+            label: li_i18n::library::t(label).into(),
             menu: vec!["Library".into(), "View".into()],
             default: Some(key.into()),
             params: None,

@@ -94,7 +94,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     });
     let mut choice = None;
     let frame = egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::symmetric(18, 14));
-    egui::Window::new(crate::i18n::tr("Your library couldn't be opened"))
+    egui::Window::new(li_i18n::library::t("Your library couldn't be opened"))
         .id(egui::Id::new("library-problem"))
         .order(egui::Order::Foreground)
         .collapsible(false)
@@ -107,9 +107,9 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             ui.set_width(440.0);
             ui.spacing_mut().item_spacing.y = 8.0;
             if problem.path.is_empty() {
-                ui.label(RichText::new(crate::i18n::tr("Local Image couldn't find where to keep your library.")).color(t.text));
+                ui.label(RichText::new(li_i18n::library::t("Local Image couldn't find where to keep your library.")).color(t.text));
             } else {
-                ui.label(RichText::new(crate::i18n::tr("Local Image couldn't open the library at")).color(t.text_label));
+                ui.label(RichText::new(li_i18n::library::t("Local Image couldn't open the library at")).color(t.text_label));
                 ui.label(RichText::new(&problem.path).font(t.semibold(12.5)).color(t.text));
             }
             ui.add(egui::Label::new(RichText::new(&problem.error).color(t.caution)).wrap());
@@ -124,7 +124,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let mut button = |ui: &mut egui::Ui, id: &str, label: &str, enabled: bool, c: Choice| {
-                    let r = ui.add_enabled(enabled, egui::Button::new(crate::i18n::tr(label)).min_size(vec2(0.0, 26.0)));
+                    let r = ui.add_enabled(enabled, egui::Button::new(li_i18n::library::t(label)).min_size(vec2(0.0, 26.0)));
                     register(ui.ctx(), format!("button:{id}"), r.rect);
                     if r.clicked() {
                         choice = Some(c);
@@ -166,13 +166,14 @@ pub fn banner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 let r = ui.label(
-                    RichText::new(crate::i18n::tr("Temporary session — your library isn't open, and nothing you do here is saved."))
+                    RichText::new(li_i18n::library::t("Temporary session — your library isn't open, and nothing you do here is saved."))
                         .font(t.semibold(12.5))
                         .color(crate::theme::text_on(t.caution)),
                 );
                 register(ui.ctx(), "indicator:temporarySession", r.rect);
-                let b = ui
-                    .add(egui::Button::new(RichText::new(crate::i18n::tr("Open Library…")).color(crate::theme::text_on(t.caution))).fill(t.caution));
+                let b = ui.add(
+                    egui::Button::new(RichText::new(li_i18n::library::t("Open Library…")).color(crate::theme::text_on(t.caution))).fill(t.caution),
+                );
                 register(ui.ctx(), "button:libraryReopen", b.rect);
                 reopen = b.clicked();
             });

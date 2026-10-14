@@ -150,7 +150,7 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
                     ui.painter().rect_filled(r, t.radius_sm, t.hover);
                 }
                 align_glyph(ui, r, kind, if on { t.icon } else { t.text_faint });
-                if resp.on_hover_text(crate::i18n::fmt(tl!("Align {what}"), &[("what", tl!(&label))])).clicked() {
+                if resp.on_hover_text(li_i18n::fmt(tl!("Align {what}"), &[("what", tl!(&label))])).clicked() {
                     run.push((id, json!({})));
                 }
             }

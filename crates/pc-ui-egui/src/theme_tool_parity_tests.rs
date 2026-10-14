@@ -87,7 +87,7 @@ fn theme_parity_selection_bucket_gradient_crop_and_move_actions() {
         for (width, ppp) in [(1440.0, 1.0), (760.0, 1.0), (760.0, 1.25), (760.0, 2.0)] {
             let mut h = fixture(theme, width, false, ppp);
             select(&mut h, Tool::RectMarquee);
-            let add = crate::i18n::fmt("Add to selection  ({key})", &[("key", &crate::shortcuts::pretty("Shift"))]);
+            let add = li_i18n::fmt("Add to selection  ({key})", &[("key", &crate::shortcuts::pretty("Shift"))]);
             click_option(&mut h, &add);
             assert_eq!(h.state().ui.selection_mode, 1);
             click_option_matching(&mut h, "Normal", By::new().role(egui::accesskit::Role::ComboBox).value("Normal"));

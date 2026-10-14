@@ -118,7 +118,7 @@ pub fn start_open(app: &mut PhotocraftApp, name: &str, path: Option<String>, sou
             app.jobs.opens.push(OpenTab { job, name: name.to_string(), path, slot: None });
             app.jobs.focus = Some(job);
             app.ui.chrome.home = None;
-            app.ui.status = crate::i18n::fmt(tl!("Opening {name}…"), &[("name", name)]);
+            app.ui.status = li_i18n::fmt(tl!("Opening {name}…"), &[("name", name)]);
             app.ui.status_error = false;
             Ok(())
         }
@@ -244,7 +244,7 @@ pub fn cancel(app: &mut PhotocraftApp, id: JobId) {
     if app.session.cancel_job(id) {
         // The event (and its status text) arrives with the next poll; say so now as well.
         if let Some(l) = label {
-            app.ui.status = crate::i18n::fmt(tl!("Cancelled {label}"), &[("label", &l)]);
+            app.ui.status = li_i18n::fmt(tl!("Cancelled {label}"), &[("label", &l)]);
             app.ui.status_error = false;
         }
     }
@@ -298,7 +298,7 @@ fn on_event(app: &mut PhotocraftApp, mut e: JobEvent, previous: Option<photocraf
             }
             JobOutcome::Failed(err) => app.open_failed(&tab.name, &err),
             JobOutcome::Cancelled => {
-                app.ui.status = crate::i18n::fmt(tl!("Cancelled opening {name}"), &[("name", &tab.name)]);
+                app.ui.status = li_i18n::fmt(tl!("Cancelled opening {name}"), &[("name", &tab.name)]);
                 app.ui.status_error = false;
             }
         }
@@ -332,7 +332,7 @@ fn on_event(app: &mut PhotocraftApp, mut e: JobEvent, previous: Option<photocraf
             notices::error(app, format!("{}: {err}", e.label));
         }
         JobOutcome::Cancelled => {
-            app.ui.status = crate::i18n::fmt(tl!("Cancelled {label}"), &[("label", &e.label)]);
+            app.ui.status = li_i18n::fmt(tl!("Cancelled {label}"), &[("label", &e.label)]);
             app.ui.status_error = false;
         }
     }
@@ -490,7 +490,7 @@ pub fn open_card(app: &mut PhotocraftApp, ui: &mut egui::Ui, job: JobId) {
     ui.painter().rect_filled(card, t.radius_lg, t.card);
     ui.painter().rect_stroke(card, t.radius_lg, Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside);
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(card.shrink(18.0)));
-    child.label(RichText::new(crate::i18n::fmt(tl!("Opening {name}"), &[("name", &tab.name)])).font(crate::theme::semibold(14.0)));
+    child.label(RichText::new(li_i18n::fmt(tl!("Opening {name}"), &[("name", &tab.name)])).font(crate::theme::semibold(14.0)));
     child.add_space(4.0);
     let msg = if j.message.is_empty() { tl!("Reading…").to_string() } else { format!("{}…", j.message) };
     child.label(RichText::new(msg).color(t.text_dim).size(12.0));

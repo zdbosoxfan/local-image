@@ -782,12 +782,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         ui.spacing_mut().item_spacing.x = 2.0;
                         for (i, (icon, tip)) in [
                             ("square", tl!("New selection").to_string()),
-                            ("plus", crate::i18n::fmt(tl!("Add to selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift"))])),
-                            ("minus", crate::i18n::fmt(tl!("Subtract from selection  ({key})"), &[("key", &crate::shortcuts::pretty("Alt"))])),
-                            (
-                                "squares-subtract",
-                                crate::i18n::fmt(tl!("Intersect with selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift+Alt"))]),
-                            ),
+                            ("plus", li_i18n::fmt(tl!("Add to selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift"))])),
+                            ("minus", li_i18n::fmt(tl!("Subtract from selection  ({key})"), &[("key", &crate::shortcuts::pretty("Alt"))])),
+                            ("squares-subtract", li_i18n::fmt(tl!("Intersect with selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift+Alt"))])),
                         ]
                         .iter()
                         .enumerate()
@@ -858,7 +855,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         if crate::lasso_ui::active(app) || (app.ui.tool == Tool::PolygonLasso && !app.ui.polygon.is_empty()) {
                             hint(
                                 ui,
-                                &crate::i18n::fmt(
+                                &li_i18n::fmt(
                                     tl!("Click the first point or press {key} to close · Esc cancels"),
                                     &[("key", &crate::shortcuts::pretty("Enter"))],
                                 ),
@@ -869,7 +866,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         if app.ui.tool == Tool::MagneticLasso && app.ui.magnetic.active() {
                             hint(
                                 ui,
-                                &crate::i18n::fmt(
+                                &li_i18n::fmt(
                                     tl!("Click the first point or press {key} to close · {del} removes a point · Esc cancels"),
                                     &[("key", &crate::shortcuts::pretty("Enter")), ("del", &crate::shortcuts::pretty("Backspace"))],
                                 ),
@@ -1017,7 +1014,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                 "check",
                                 26.0,
                                 false,
-                                &crate::i18n::fmt(tl!("Commit current crop operation  ({key})"), &[("key", &crate::shortcuts::pretty("Enter"))]),
+                                &li_i18n::fmt(tl!("Commit current crop operation  ({key})"), &[("key", &crate::shortcuts::pretty("Enter"))]),
                             )
                             .clicked()
                             {
@@ -1081,7 +1078,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     }
                     Tool::Eyedropper => hint(
                         ui,
-                        &crate::i18n::fmt(
+                        &li_i18n::fmt(
                             tl!("Click to sample the foreground colour  ·  {key}-click for background"),
                             &[("key", &crate::shortcuts::pretty("Alt"))],
                         ),
@@ -1091,7 +1088,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         widgets::checkbox(ui, &mut app.ui.tool_options.zoom_scrubby, tl!("Scrubby Zoom"));
                         hint(
                             ui,
-                            &crate::i18n::fmt(
+                            &li_i18n::fmt(
                                 tl!("Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out"),
                                 &[("key", &crate::shortcuts::pretty("Alt"))],
                             ),
@@ -1247,11 +1244,11 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         app.ui.views[i].fit_pending = false;
                     }
                     widgets::vline(ui, 16.0);
-                    label(ui, &crate::i18n::fmt(tl!("{mode} Color · {bits} bit"), &[("mode", mode), ("bits", &bits.to_string())]));
+                    label(ui, &li_i18n::fmt(tl!("{mode} Color · {bits} bit"), &[("mode", mode), ("bits", &bits.to_string())]));
                     widgets::vline(ui, 16.0);
                     label(ui, &format!("{w} × {h} px"));
                     widgets::vline(ui, 16.0);
-                    label(ui, &crate::i18n::trn(crate::i18n::current(), layers as u64, "{n} layer", "{n} layers"));
+                    label(ui, &li_i18n::trn(li_i18n::current(), layers as u64, "{n} layer", "{n} layers"));
                 } else {
                     label(ui, tl!("No document"));
                 }
@@ -1380,7 +1377,7 @@ fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate::dock::Tab) 
         Tab::Paths => crate::vector_ui::paths_panel(app, ui),
         Tab::Symbols => {
             let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
-            crate::symbols::panel(ui, &mut app.session, &mut app.ui.symbols, &ids, |s| crate::i18n::t(s).to_owned());
+            crate::symbols::panel(ui, &mut app.session, &mut app.ui.symbols, &ids, |s| li_i18n::t(s).to_owned());
         }
         Tab::Generate => crate::generate_ui::panel(app, ui),
         Tab::Library => crate::generate_ui::library_panel(app, ui),
@@ -1451,9 +1448,7 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
     widgets::hairline(ui);
     ui.label(
-        RichText::new(crate::i18n::fmt(tl!("Doc: {w} × {h} px"), &[("w", &size.width.to_string()), ("h", &size.height.to_string())]))
-            .color(t.text_dim)
-            .size(11.5),
+        RichText::new(li_i18n::fmt(tl!("Doc: {w} × {h} px"), &[("w", &size.width.to_string()), ("h", &size.height.to_string())])).color(t.text_dim).size(11.5),
     );
 }
 
@@ -1860,7 +1855,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 "square-dot",
                 26.0,
                 false,
-                &crate::i18n::fmt(tl!("Add a mask  (from the selection; {key} inverts)"), &[("key", &crate::shortcuts::pretty("Alt"))]),
+                &li_i18n::fmt(tl!("Add a mask  (from the selection; {key} inverts)"), &[("key", &crate::shortcuts::pretty("Alt"))]),
             )
             .clicked()
             {
@@ -2169,7 +2164,7 @@ fn layer_row(
     if !is_pixel {
         let sub = match &l.content {
             LayerContent::Adjustment(a) => tl!(a.label()).to_string(),
-            LayerContent::Group(g) => crate::i18n::trn(crate::i18n::current(), g.children.len() as u64, "Group · {n} layer", "Group · {n} layers"),
+            LayerContent::Group(g) => li_i18n::trn(li_i18n::current(), g.children.len() as u64, "Group · {n} layer", "Group · {n} layers"),
             other => tl!(other.kind_name()).to_string(),
         };
         crate::layer_row_ui::label(&painter, x, rect.center().y + 8.0, name_right, &sub, egui::FontId::proportional(11.0), t.text_faint);
@@ -2500,7 +2495,7 @@ pub fn properties_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 ui.vertical(|ui| {
                     ui.label(RichText::new(&layer.name).font(theme::medium(13.0)).color(t.text));
                     let kind = match &layer.content {
-                        LayerContent::Adjustment(a) => crate::i18n::fmt(tl!("{name} Properties"), &[("name", tl!(a.label()))]),
+                        LayerContent::Adjustment(a) => li_i18n::fmt(tl!("{name} Properties"), &[("name", tl!(a.label()))]),
                         // Whole phrases ("Type Layer"), as the Properties header translates them.
                         other => tl!(&format!("{} Layer", other.kind_name())).to_string(),
                     };
@@ -3017,9 +3012,9 @@ fn selection_mode_buttons(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.spacing_mut().item_spacing.x = 2.0;
     for (i, (icon, tip)) in [
         ("square", tl!("New selection").to_string()),
-        ("plus", crate::i18n::fmt(tl!("Add to selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift"))])),
-        ("minus", crate::i18n::fmt(tl!("Subtract from selection  ({key})"), &[("key", &crate::shortcuts::pretty("Alt"))])),
-        ("squares-subtract", crate::i18n::fmt(tl!("Intersect with selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift+Alt"))])),
+        ("plus", li_i18n::fmt(tl!("Add to selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift"))])),
+        ("minus", li_i18n::fmt(tl!("Subtract from selection  ({key})"), &[("key", &crate::shortcuts::pretty("Alt"))])),
+        ("squares-subtract", li_i18n::fmt(tl!("Intersect with selection  ({key})"), &[("key", &crate::shortcuts::pretty("Shift+Alt"))])),
     ]
     .iter()
     .enumerate()

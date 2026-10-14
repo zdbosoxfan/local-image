@@ -40,8 +40,8 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) {
     b.state.synchronize(&app.session, true);
     if b.state.open {
         let mut open = true;
-        egui::Window::new(crate::i18n::t("Repeat")).id(key().with("panel")).open(&mut open).default_pos(egui::pos2(820., 80.)).show(ctx, |ui| {
-            panel(ui, &mut app.session, &mut b.state, |s| crate::i18n::t(s).to_string());
+        egui::Window::new(li_i18n::t("Repeat")).id(key().with("panel")).open(&mut open).default_pos(egui::pos2(820., 80.)).show(ctx, |ui| {
+            panel(ui, &mut app.session, &mut b.state, |s| li_i18n::t(s).to_string());
         });
         b.state.open = open;
         if !open {

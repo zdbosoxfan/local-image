@@ -361,18 +361,18 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
                 match r.map_err(lightcraft_engine::EngineError::Other).and_then(|out| app.session.finish_merge(&t.job, out)) {
                     Ok(v) => {
                         app.merge.last_result = Some(v);
-                        app.toast(ctx, crate::i18n::tr_format!("{what} merge added", what = what));
+                        app.toast(ctx, li_i18n::tr_format!("{what} merge added", what = what));
                     }
                     Err(e) => {
                         app.ui.status = e.to_string();
-                        app.toast(ctx, crate::i18n::tr_format!("{what} merge failed: {e}", e = e, what = what));
+                        app.toast(ctx, li_i18n::tr_format!("{what} merge failed: {e}", e = e, what = what));
                     }
                 }
             }
             Err(_) => {
                 let (f, stage) = t.progress.lock().map(|g| g.clone()).unwrap_or_default();
                 let now = ctx.input(|i| i.time);
-                app.ui.toast = Some((crate::i18n::tr_format!("Merging… {stage} {:.0}%", f * 100.0, stage = stage), now + 0.5));
+                app.ui.toast = Some((li_i18n::tr_format!("Merging… {stage} {:.0}%", f * 100.0, stage = stage), now + 0.5));
                 ctx.request_repaint_after(std::time::Duration::from_millis(100));
             }
         }
@@ -384,7 +384,7 @@ fn poll_batch(app: &mut LightcraftApp, ctx: &egui::Context) {
     if task.library_generation != app.session.library_generation {
         task.cancel.store(true, Ordering::Relaxed);
         app.merge.final_task = None;
-        app.toast(ctx, crate::i18n::tr("HDR batch cancelled because the library changed"));
+        app.toast(ctx, li_i18n::library::t("HDR batch cancelled because the library changed"));
         return;
     }
     let Some(receiver) = task.batch_rx.as_ref() else { return };
@@ -440,7 +440,7 @@ fn poll_batch(app: &mut LightcraftApp, ctx: &egui::Context) {
     }
     if let Some(task) = app.merge.final_task.as_ref() {
         let t = crate::theme::Tokens::get(ctx);
-        egui::Window::new(crate::i18n::tr("HDR Batch Merge"))
+        egui::Window::new(li_i18n::library::t("HDR Batch Merge"))
             .collapsible(false)
             .resizable(false)
             .default_width(t.panel_w)
@@ -451,7 +451,7 @@ fn poll_batch(app: &mut LightcraftApp, ctx: &egui::Context) {
 
 fn batch_progress(ui: &mut egui::Ui, task: &MergeTask) {
     let (fraction, stage) = task.progress.lock().map(|g| g.clone()).unwrap_or_default();
-    ui.label(crate::i18n::tr_format!("{stage}… {:.0}%", fraction * 100.0, stage = stage));
+    ui.label(li_i18n::tr_format!("{stage}… {:.0}%", fraction * 100.0, stage = stage));
     ui.label(format!("{} HDR merges added", task.batch_results.len()));
     let cancelling = task.cancel.load(Ordering::Relaxed);
     ui.add_enabled_ui(!cancelling, |ui| {
@@ -485,7 +485,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut MergeDialog) 
                 ui.painter().text(
                     rect.center_bottom() - egui::vec2(0.0, 14.0),
                     egui::Align2::CENTER_CENTER,
-                    crate::i18n::tr_format!("{stage}… {:.0}%", f * 100.0, stage = stage),
+                    li_i18n::tr_format!("{stage}… {:.0}%", f * 100.0, stage = stage),
                     t.font(12.0),
                     t.text,
                 );
@@ -498,9 +498,9 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut MergeDialog) 
                 let txt = if opts.command == "merge.pixelShift" {
                     format!(
                         "{} · {} {}",
-                        crate::i18n::tr_format!("{} photos", info["shots"].as_u64().unwrap_or(0)),
+                        li_i18n::tr_format!("{} photos", info["shots"].as_u64().unwrap_or(0)),
                         info["motionPixels"].as_u64().unwrap_or(0),
-                        crate::i18n::tr("pixels use motion fallback")
+                        li_i18n::library::t("pixels use motion fallback")
                     )
                 } else if opts.is_pano() {
                     format!(
@@ -527,24 +527,24 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut MergeDialog) 
         ui.vertical(|ui| {
             ui.set_width(if matches!(opts.command.as_str(), "merge.pixelShift" | "merge.hdr") { t.panel_w } else { 220.0 });
             if opts.command == "merge.pixelShift" {
-                ui.label(egui::RichText::new(crate::i18n::tr("Measured full colour; 16 shots double width and height.")).color(t.text_label));
+                ui.label(egui::RichText::new(li_i18n::library::t("Measured full colour; 16 shots double width and height.")).color(t.text_label));
                 if app.merge.ids.len() == 1 {
                     ui.label(
-                        egui::RichText::new(crate::i18n::tr(
+                        egui::RichText::new(li_i18n::library::t(
                             "Composed ARQ keeps its existing pixels. Motion correction requires the original shots.",
                         ))
                         .color(t.text_dim),
                     );
                 } else {
                     ui.label(
-                        egui::RichText::new(crate::i18n::tr("Moving areas use the first shot. Capture order comes from Sony metadata."))
+                        egui::RichText::new(li_i18n::library::t("Moving areas use the first shot. Capture order comes from Sony metadata."))
                             .color(t.text_dim),
                     );
                     crate::widgets::checkbox(ui, "merge.motionOverlay", &mut opts.show_overlay, "Show Motion Overlay");
                 }
             }
             if opts.is_pano() {
-                ui.label(egui::RichText::new(crate::i18n::tr("Projection")).color(t.text_label));
+                ui.label(egui::RichText::new(li_i18n::library::t("Projection")).color(t.text_label));
                 for (v, l) in [("auto", "Auto Select"), ("spherical", "Spherical"), ("cylindrical", "Cylindrical"), ("perspective", "Perspective")] {
                     if ui.radio(opts.projection == v, l).clicked() {
                         opts.projection = v.to_string();
@@ -555,8 +555,8 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut MergeDialog) 
                 if num(ui, &BOUNDARY_WARP, &mut bw, crate::widgets::numeric_owner(app, (&opts.command, &app.session.selection.ids))) {
                     opts.boundary_warp = bw.round();
                 }
-                ui.checkbox(&mut opts.fill_edges, crate::i18n::tr("Fill Edges"));
-                ui.checkbox(&mut opts.auto_crop, crate::i18n::tr("Auto Crop"));
+                ui.checkbox(&mut opts.fill_edges, li_i18n::library::t("Fill Edges"));
+                ui.checkbox(&mut opts.auto_crop, li_i18n::library::t("Auto Crop"));
                 ui.add_space(4.0);
             }
             if opts.is_hdr() {
@@ -565,12 +565,12 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut MergeDialog) 
                     crate::widgets::checkbox(ui, "merge.autoBrackets", &mut opts.auto_brackets, "Automatically Group Brackets");
                     if opts.auto_brackets {
                         ui.label(
-                            egui::RichText::new(crate::i18n::tr("Merge each detected set in the background. Preview shows the first set."))
+                            egui::RichText::new(li_i18n::library::t("Merge each detected set in the background. Preview shows the first set."))
                                 .color(t.text_dim),
                         );
                     }
                 }
-                ui.label(egui::RichText::new(crate::i18n::tr("Deghost Amount")).color(t.text_label));
+                ui.label(egui::RichText::new(li_i18n::library::t("Deghost Amount")).color(t.text_label));
                 ui.horizontal(|ui| {
                     for (i, (v, l)) in [("none", "None"), ("low", "Low"), ("medium", "Med"), ("high", "High")].iter().enumerate() {
                         if crate::widgets::text_button(ui, &format!("mergeDeghost-{i}"), l, opts.deghost == *v).clicked() {
@@ -594,7 +594,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut MergeDialog) 
             crate::widgets::checkbox(ui, "merge.autoSettings", &mut opts.auto_settings, "Auto Settings");
             crate::widgets::checkbox(ui, "merge.stack", &mut opts.stack, "Create Stack");
             ui.add_space(8.0);
-            ui.label(egui::RichText::new(crate::i18n::tr_format!("{} photos", app.merge.ids.len())).color(t.text_dim));
+            ui.label(egui::RichText::new(li_i18n::tr_format!("{} photos", app.merge.ids.len())).color(t.text_dim));
         });
     });
 }

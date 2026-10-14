@@ -158,7 +158,7 @@ pub fn ruler_units(app: &PhotocraftApp) -> (photocraft_engine::prefs::Unit, f64)
 /// Package 00 places this button in the existing context/properties UI; it opens the
 /// same panel used by keyboard fields and dedicated tool selection.
 pub fn context(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    if crate::widgets::secondary_button(ui, crate::i18n::t("Transform and Layout"), 0.0).clicked() {
+    if crate::widgets::secondary_button(ui, li_i18n::t("Transform and Layout"), 0.0).clicked() {
         app.shared_tools.layout.open = true;
     }
 }
@@ -173,7 +173,7 @@ pub fn window(app: &mut PhotocraftApp, _ctx: &Context) {
 pub fn dock_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate::dock::Tab) {
     let mut state: State = std::mem::take(&mut app.shared_tools.layout);
     let before = state.tool;
-    let result = super::layout::panel_section(ui, &mut state, &mut app.session, Some(tab), |s| crate::i18n::t(s).to_string());
+    let result = super::layout::panel_section(ui, &mut state, &mut app.session, Some(tab), |s| li_i18n::t(s).to_string());
     if state.tool != before && state.tool != LayoutTool::None {
         app.ui.tool = Tool::PathSelection;
     }

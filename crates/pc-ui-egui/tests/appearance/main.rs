@@ -2,7 +2,7 @@
 use photocraft_ui_egui::widgets;
 macro_rules! tl {
     ($s:expr) => {
-        photocraft_ui_egui::i18n::t($s)
+        li_i18n::t($s)
     };
 }
 #[path = "../../src/vector_packages/appearance.rs"]

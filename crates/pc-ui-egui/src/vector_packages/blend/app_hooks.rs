@@ -60,7 +60,7 @@ pub fn paint(state: &State, app: &PhotocraftApp, painter: &egui::Painter, xf: &V
     overlay(state, &app.session, painter, |p| xf.to_screen(p.x as f32, p.y as f32));
 }
 pub fn context(state: &mut State, ui: &mut egui::Ui) {
-    if ui.button(crate::i18n::t("Blend Options")).clicked() {
+    if ui.button(li_i18n::t("Blend Options")).clicked() {
         state.open = true;
     }
 }
@@ -70,12 +70,9 @@ pub fn window(state: &mut State, app: &mut PhotocraftApp, ctx: &egui::Context) -
     }
     let mut open = state.open;
     let mut result = Ok(());
-    egui::Window::new(crate::i18n::t("Blend Options")).id(egui::Id::new("blend18 options")).default_pos(egui::pos2(860., 70.)).open(&mut open).show(
-        ctx,
-        |ui| {
-            result = panel(ui, state, &mut app.session, |s| crate::i18n::t(s).to_string());
-        },
-    );
+    egui::Window::new(li_i18n::t("Blend Options")).id(egui::Id::new("blend18 options")).default_pos(egui::pos2(860., 70.)).open(&mut open).show(ctx, |ui| {
+        result = panel(ui, state, &mut app.session, |s| li_i18n::t(s).to_string());
+    });
     state.open = open;
     if !open {
         state.cancel();

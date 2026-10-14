@@ -17,7 +17,7 @@ pub const PREFS: &str = "pc-prefs";
 const OPEN_URL: &str = "__attributionsOpenUrl";
 
 fn tr(s: &'static str) -> String {
-    crate::i18n::t(s).to_string()
+    li_i18n::t(s).to_string()
 }
 
 /// About › Attributions.

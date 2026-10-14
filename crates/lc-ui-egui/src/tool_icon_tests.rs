@@ -113,7 +113,7 @@ fn rect(h: &Headless, id: &str) -> Rect {
 fn settings_click_switches_tool_strip_pixels_and_round_trips_at_both_scales() {
     for scale in [1.0, 2.0] {
         let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
-        app.ui.language = crate::i18n::Locale::En;
+        app.ui.language = li_i18n::Lang::En;
         // Start in Colour; the fresh default is Monochrome (asserted below).
         app.ui.settings.color_tool_icons = true;
         let mut h = Headless::new(app, [1300.0, 820.0], scale);

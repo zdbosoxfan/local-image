@@ -335,7 +335,7 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session, prefs: &m
         use photocraft_engine::vector_packages::trace_cleanup::Upscale;
         ui.horizontal(|ui| {
             for (scale, label) in [(Upscale::Off, "1×"), (Upscale::Auto, "Auto"), (Upscale::X2, "2×"), (Upscale::X4, "4×")] {
-                changed |= ui.selectable_value(&mut options.upscale, scale, crate::i18n::t(label)).changed();
+                changed |= ui.selectable_value(&mut options.upscale, scale, li_i18n::t(label)).changed();
             }
         });
     }
@@ -346,7 +346,7 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session, prefs: &m
     if let Some(p) = &state.preview {
         let paths: usize =
             p.trace.layers.iter().map(|l| l.path.subpaths.len()).sum::<usize>() + p.trace.strokes.iter().map(|s| s.path.subpaths.len()).sum::<usize>();
-        ui.label(crate::i18n::fmt(
+        ui.label(li_i18n::fmt(
             tl!("{colours} colours · {paths} paths · {nodes} nodes · {time} ms"),
             &[
                 ("colours", &p.trace.layers.len().to_string()),
@@ -356,7 +356,7 @@ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session, prefs: &m
             ],
         ));
         if let Some(stats) = &p.cleanup_stats {
-            ui.label(crate::i18n::fmt(
+            ui.label(li_i18n::fmt(
                 tl!("Cleanup: {before} → {after} nodes · {holes} holes · {shapes} shapes · {rejected} rejected"),
                 &[
                     ("before", &stats.nodes_before_geometry.to_string()),

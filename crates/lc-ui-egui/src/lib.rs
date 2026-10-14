@@ -14,9 +14,9 @@ pub mod control;
 pub mod credits;
 pub mod export_task;
 pub mod headless;
-pub mod i18n;
 pub mod icons;
 pub mod import;
+pub mod library_labels;
 mod library_safety_ui;
 pub mod links;
 pub mod menubar;
@@ -65,6 +65,8 @@ mod tests_doc_layers;
 mod tests_grid;
 #[cfg(test)]
 mod tests_host_composite;
+#[cfg(test)]
+mod tests_i18n;
 #[cfg(test)]
 mod tests_lenscorr;
 #[cfg(test)]
@@ -219,7 +221,7 @@ pub struct LightcraftApp {
     /// Hosted Preferences request (legacy command/tab ids are unchanged).
     pub open_shared_preferences: Option<String>,
     /// Legacy language commands update the shared Interface preference when hosted.
-    pub open_shared_language: Option<i18n::Locale>,
+    pub open_shared_language: Option<li_i18n::Lang>,
     pub host_modal: bool,
     /// Runtime mirror of the host's single persisted shortcut authority.
     pub shortcut_overrides: std::collections::BTreeMap<String, String>,
@@ -248,7 +250,7 @@ pub struct LightcraftApp {
     styled: bool,
     /// The language the installed fonts were built for: the CJK fallback order follows the UI
     /// language's script, so switching language reinstalls them.
-    font_language: i18n::Locale,
+    font_language: li_i18n::Lang,
     fonts_ready: bool,
     last_time: f64,
     /// Rect of the photo canvas and the displayed image (screen points) from the last frame.
@@ -359,7 +361,7 @@ impl LightcraftApp {
             synthetic_mods: egui::Modifiers::NONE,
             synthetic_mods_release: false,
             styled: false,
-            font_language: i18n::Locale::En,
+            font_language: li_i18n::Lang::En,
             fonts_ready: false,
             last_time: 0.0,
             canvas_rect: None,
@@ -578,11 +580,11 @@ impl LightcraftApp {
             match (&download.error, open) {
                 (_, true) => {}
                 (Some(e), false) if e.contains("cancelled") => {
-                    self.toast(ctx, crate::i18n::tr("SAM 3 download stopped: it resumes where it left off next time."))
+                    self.toast(ctx, li_i18n::library::t("SAM 3 download stopped: it resumes where it left off next time."))
                 }
                 (Some(e), false) => self.toast_error(ctx, format!("The SAM 3 download failed: {e}")),
                 (None, false) if download.finished => {
-                    self.toast_error(ctx, crate::i18n::tr("The SAM 3 model is installed: Object and Describe masks are ready."))
+                    self.toast_error(ctx, li_i18n::library::t("The SAM 3 model is installed: Object and Describe masks are ready."))
                 }
                 (None, false) => {}
             }
@@ -780,7 +782,7 @@ impl LightcraftApp {
         if self.ui.view != crate::state::ViewMode::Detail && self.ui.before_after == crate::state::BeforeAfter::Original {
             self.ui.before_after = crate::state::BeforeAfter::Off;
         }
-        i18n::set_language(self.ui.language);
+        li_i18n::set_current(self.ui.language);
         shortcuts::publish_labels(self, ctx);
         let t0 = now_ms();
         panels::library_problem::logic(self);
@@ -1002,7 +1004,7 @@ impl LightcraftApp {
     /// Lay out the whole window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         crate::color_icons::set_enabled(ui.ctx(), self.ui.settings.color_tool_icons);
-        i18n::set_language(self.ui.language);
+        li_i18n::set_current(self.ui.language);
         let ctx = ui.ctx().clone();
         if !self.fonts_ready {
             ctx.request_repaint();

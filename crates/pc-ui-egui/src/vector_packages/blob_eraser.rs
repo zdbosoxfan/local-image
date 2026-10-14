@@ -185,7 +185,7 @@ pub fn canvas_input_with_pressure(state: &mut State, s: &mut Session, response: 
     result
 }
 pub fn context_bar(ui: &mut egui::Ui, state: &mut State) {
-    use crate::i18n::t;
+    use li_i18n::t;
     let before = (state.options.clone(), state.rope_length);
     let label = ui.label(t("Size"));
     ui.add(egui::DragValue::new(&mut state.options.tip.size).range(0.1..=1000.)).labelled_by(label.id);

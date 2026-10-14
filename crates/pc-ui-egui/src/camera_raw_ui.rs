@@ -544,7 +544,7 @@ fn row(ui: &mut egui::Ui, dirty: &mut bool, label: &str, v: &mut f32, range: std
 }
 
 fn slider(ui: &mut egui::Ui, dirty: &mut bool, label: &str, v: &mut f32, range: std::ops::RangeInclusive<f32>, grad: Option<&[Color32]>) -> egui::Response {
-    let r = widgets::slider_row_translated(ui, crate::i18n::tr_ctx(crate::i18n::current(), "cameraRaw", label), v, range, "", grad);
+    let r = widgets::slider_row_translated(ui, li_i18n::tr_ctx(li_i18n::current(), "cameraRaw", label), v, range, "", grad);
     if r.changed() {
         *dirty = true;
     }
@@ -564,14 +564,14 @@ fn tone_row(ui: &mut egui::Ui, dirty: &mut bool, alt: &mut Option<ToneZone>, zon
 }
 
 fn section(ui: &mut egui::Ui, title: &str, open: bool, body: impl FnOnce(&mut egui::Ui)) {
-    egui::CollapsingHeader::new(egui::RichText::new(crate::i18n::tr_ctx(crate::i18n::current(), "cameraRaw", title)).font(FontId::proportional(13.0)))
+    egui::CollapsingHeader::new(egui::RichText::new(li_i18n::tr_ctx(li_i18n::current(), "cameraRaw", title)).font(FontId::proportional(13.0)))
         .id_salt(("camera-raw-section", title))
         .default_open(open)
         .show(ui, body);
 }
 
 fn wheel(ui: &mut egui::Ui, dirty: &mut bool, title: &str, w: &mut Wheel) {
-    widgets::section_label_translated(ui, crate::i18n::tr_ctx(crate::i18n::current(), "cameraRaw", title));
+    widgets::section_label_translated(ui, li_i18n::tr_ctx(li_i18n::current(), "cameraRaw", title));
     let hs = widgets::hue_stops();
     row(ui, dirty, "Hue", &mut w.hue, 0.0..=360.0, Some(&hs));
     row(ui, dirty, "Saturation", &mut w.sat, 0.0..=100.0, None);
@@ -634,7 +634,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let title = ERect::from_min_size(full.min, vec2(full.width(), 30.0));
         painter.rect_filled(title, 0.0, t.dock);
         painter.line_segment([title.left_bottom(), title.right_bottom()], Stroke::new(1.0, t.separator));
-        let window_title = crate::i18n::fmt(tl!("Camera Raw Filter ({layer})"), &[("layer", &d.layer_name)]);
+        let window_title = li_i18n::fmt(tl!("Camera Raw Filter ({layer})"), &[("layer", &d.layer_name)]);
         painter.text(title.center(), Align2::CENTER_CENTER, window_title, FontId::proportional(13.0), t.text);
         let footer_h = 48.0;
         let body = ERect::from_min_max(pos2(full.left(), title.bottom()), pos2(full.right(), full.bottom() - footer_h));
@@ -750,7 +750,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             section(ui, "Color Mixer", false, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     for (i, source) in ["Hue", "Saturation", "Luminance"].iter().enumerate() {
-                        let name = crate::i18n::tr_ctx(crate::i18n::current(), "cameraRaw", source);
+                        let name = li_i18n::tr_ctx(li_i18n::current(), "cameraRaw", source);
                         let response = widgets::pill_tab_translated(ui, name, d.mixer_tab == i);
                         response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, ui.is_enabled(), d.mixer_tab == i, name));
                         if response.clicked() {

@@ -226,7 +226,7 @@ impl PhotocraftApp {
                         self.ui.status = e;
                     }
                 }
-                Err(e) => self.failed(crate::i18n::fmt(tl!("Couldn't place {name}: {error}"), &[("name", &dropped_name(&f)), ("error", &e)])),
+                Err(e) => self.failed(li_i18n::fmt(tl!("Couldn't place {name}: {error}"), &[("name", &dropped_name(&f)), ("error", &e)])),
             }
         }
     }

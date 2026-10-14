@@ -150,7 +150,7 @@ pub fn load(app: &mut PhotocraftApp) {
             repaired = true;
         }
         let error = error.to_string();
-        app.ui.status = crate::i18n::fmt(tl!("Some preferences used defaults: {error}"), &[("error", &error)]);
+        app.ui.status = li_i18n::fmt(tl!("Some preferences used defaults: {error}"), &[("error", &error)]);
         let notice = crate::notices::post(
             app,
             if unreadable { "Preferences couldn't be read" } else { "Preferences need repair" },
@@ -1126,7 +1126,7 @@ fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
     let mut section = f.get("section").and_then(Value::as_str).unwrap_or("general").to_string();
     let mut values = f.get("values").cloned().unwrap_or(Value::Null);
     // The dialog follows the language being edited, so a change shows before OK.
-    let lang = crate::i18n::Lang::from_pref(values.pointer("/interface/language").and_then(Value::as_str).unwrap_or("auto"));
+    let lang = li_i18n::Lang::from_pref(values.pointer("/interface/language").and_then(Value::as_str).unwrap_or("auto"));
     let available = (ui.ctx().content_rect().width() - 48.0).min(750.0);
     let nav_width = (available * 0.23).clamp(130.0, 170.0);
     let body_width = (available - nav_width - 24.0).max(280.0);
@@ -1354,7 +1354,7 @@ fn has_visible_fields(values: &Value, section: &str) -> bool {
 
 /// Generic editor for a section's fields: checkboxes, dropdowns for choices, colour swatches,
 /// number fields with the preference's range, text fields.
-fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, order: &[String], lang: crate::i18n::Lang) {
+fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, order: &[String], lang: li_i18n::Lang) {
     let t = Tokens::get(ui.ctx());
     if section == "interface" {
         let mut current = obj.get("toolIcons").and_then(Value::as_str).unwrap_or("colour").to_string();
@@ -1402,7 +1402,7 @@ fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>
                 Value::String(s) if path == "interface.language" => {
                     ui.label(RichText::new(tl!(&label)).color(t.text_dim));
                     let mut pairs: Vec<(String, &str)> = vec![("auto".into(), tl!("Auto"))];
-                    pairs.extend(crate::i18n::Lang::all().map(|l| (l.code().to_string(), l.name())));
+                    pairs.extend(li_i18n::Lang::ALL.into_iter().map(|l| (l.code().to_string(), l.name())));
                     let mut cur = s.clone();
                     crate::widgets::dropdown(ui, &format!("pref-{path}"), &mut cur, &pairs, 220.0);
                     obj.insert(k, json!(cur));
@@ -1472,7 +1472,7 @@ fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>
                 }
                 Value::Array(items) => {
                     ui.label(RichText::new(tl!(&label)).color(t.text_dim));
-                    ui.label(RichText::new(crate::i18n::trn(lang, items.len() as u64, "{n} item", "{n} items")).color(t.text_faint));
+                    ui.label(RichText::new(li_i18n::trn(lang, items.len() as u64, "{n} item", "{n} items")).color(t.text_faint));
                     if !items.is_empty() && ui.small_button(tl!("Clear")).clicked() {
                         obj.insert(k, json!([]));
                     }
@@ -1616,8 +1616,8 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     let original_overrides = overrides.clone();
     // Menu path and command label as shown in the menus, in the UI language.
     let shown = |id: &str, label: &str, path: &[String]| -> (Vec<String>, String) {
-        let lang = crate::i18n::current();
-        (path.iter().map(|p| crate::i18n::tr(lang, p).to_string()).collect(), crate::i18n::tr_id(lang, id, label).to_string())
+        let lang = li_i18n::current();
+        (path.iter().map(|p| li_i18n::tr(lang, p).to_string()).collect(), li_i18n::tr_id(lang, id, label).to_string())
     };
     let eff = |overrides: &BTreeMap<String, String>, id: &str, def: &Option<String>| -> Option<String> {
         match overrides.get(id) {
@@ -2138,10 +2138,10 @@ mod tests {
     fn preference_labels_are_translated() {
         let session = photocraft_engine::Session::new();
         let v: Value = serde_json::from_str(&session.prefs_to_json()).expect("prefs json");
-        for lang in crate::i18n::Lang::all().filter(|l| l.complete_menus()) {
+        for lang in li_i18n::Lang::ALL.into_iter().filter(|l| l.complete_menus()) {
             let mut missing = Vec::new();
             for (sec, title) in SECTIONS {
-                if !crate::i18n::has(lang, title) {
+                if !li_i18n::has(lang, title) {
                     missing.push(title.to_string());
                 }
                 let Some(obj) = v.get(sec).and_then(Value::as_object) else { continue };
@@ -2152,11 +2152,11 @@ mod tests {
                         // CODEX-TASK.md explicitly defers this new string to the pending list.
                         // Keep every existing caption and all choice labels under the strict gate.
                         let caption = humanize(k);
-                        let pending: &[&str] = include!("i18n/pending_vector.rs");
+                        let pending: &[&str] = include!("i18n_pending_vector.rs");
                         assert!(pending.contains(&caption.as_str()), "new update preference must be registered for translation");
                         labels.retain(|label| *label != caption);
                     }
-                    missing.extend(labels.into_iter().filter(|l| !crate::i18n::has(lang, l)));
+                    missing.extend(labels.into_iter().filter(|l| !li_i18n::has(lang, l)));
                 }
             }
             missing.sort();
@@ -3001,7 +3001,7 @@ mod tablet_compatibility_tests {
         let values = json!({"tabletCompatibilityMode":"auto"}).as_object().unwrap().clone();
         let mut h = Harness::builder().with_size(egui::vec2(900.0, 200.0)).build_ui_state(
             |ui, values: &mut Map<String, Value>| {
-                section_fields(ui, "tools", values, &["tabletCompatibilityMode".into()], crate::i18n::Lang::EN);
+                section_fields(ui, "tools", values, &["tabletCompatibilityMode".into()], li_i18n::Lang::En);
             },
             values,
         );

@@ -39,10 +39,10 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &Context) -> bool {
         && app.live_stroke.is_none();
     b.state.synchronize(&app.session, enabled);
     if let Ok(a) = engine::access() {
-        b.state.dialog(ctx, &mut app.session, a, command, |s| crate::i18n::t(s).to_owned());
+        b.state.dialog(ctx, &mut app.session, a, command, |s| li_i18n::t(s).to_owned());
     }
     if let Some(error) = &b.state.error {
-        app.ui.status = crate::i18n::t(error).to_owned();
+        app.ui.status = li_i18n::t(error).to_owned();
         app.ui.status_error = true;
     }
     let modal = b.state.is_open();
@@ -54,7 +54,7 @@ pub fn menu(app: &mut PhotocraftApp, ui: &mut Ui, target: EffectTarget) {
     let mut b = bridge(&ctx);
     if let Ok(a) = engine::access() {
         let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
-        b.state.menu(ui, &app.session, &ids, target, a, |s| crate::i18n::t(s).to_owned());
+        b.state.menu(ui, &app.session, &ids, target, a, |s| li_i18n::t(s).to_owned());
     }
     store(&ctx, b);
 }
@@ -63,7 +63,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut Ui) {
     let mut b = bridge(&ctx);
     if let Ok(a) = engine::access() {
         let ids = app.session.active().map(|s| s.selected_layers()).unwrap_or_default();
-        b.state.panel(ui, &mut app.session, &ids, a, command, |s| crate::i18n::t(s).to_owned());
+        b.state.panel(ui, &mut app.session, &ids, a, command, |s| li_i18n::t(s).to_owned());
     }
     store(&ctx, b);
 }

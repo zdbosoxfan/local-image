@@ -219,7 +219,7 @@ pub(super) fn action(app: &PhotocraftApp) -> Action {
     };
     let refine = if s.refine && s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
         match ModelId::from_key(&s.refine_model) {
-            Some(rm) => refine_readiness(&st, rm, &s.refine_variant).map_err(|error| crate::i18n::fmt(tl!("Refine model: {why}"), &[("why", &error)])),
+            Some(rm) => refine_readiness(&st, rm, &s.refine_variant).map_err(|error| li_i18n::fmt(tl!("Refine model: {why}"), &[("why", &error)])),
             None => Err(tl!("Choose a model to refine with.").into()),
         }
     } else {
@@ -239,12 +239,12 @@ pub(super) fn action(app: &PhotocraftApp) -> Action {
         _ => None,
     };
     let label = match s.mode {
-        Mode::Create if s.count > 1 => crate::i18n::fmt(tl!("Generate {n}"), &[("n", &s.count.to_string())]),
+        Mode::Create if s.count > 1 => li_i18n::fmt(tl!("Generate {n}"), &[("n", &s.count.to_string())]),
         Mode::Create => tl!("Generate").into(),
         Mode::Edit => tl!("Apply Edit").into(),
         Mode::Fill => tl!("Fill Selection").into(),
         Mode::Refine => tl!("Refine").into(),
-        Mode::Upscale => crate::i18n::fmt(tl!("Upscale {scale}×"), &[("scale", &widgets::fmt_num(s.upscale as f64))]),
+        Mode::Upscale => li_i18n::fmt(tl!("Upscale {scale}×"), &[("scale", &widgets::fmt_num(s.upscale as f64))]),
     };
     Action {
         label,

@@ -1,7 +1,7 @@
 //! Real pointer/keyboard events in an isolated host; app GPU gates are separate.
 macro_rules! tl {
     ($s:expr) => {
-        photocraft_ui_egui::i18n::t($s)
+        li_i18n::t($s)
     };
 }
 #[path = "../../src/vector_packages/path_text.rs"]

@@ -80,12 +80,12 @@ pub fn toast(app: &mut LightcraftApp, ctx: &egui::Context) {
     }
     let labels = li_ui_kit::notices::Labels {
         profile: li_ui_kit::widgets::Profile::Library,
-        history: crate::i18n::tr("Details / History"),
-        title: crate::i18n::tr("Operation details and history"),
-        copy: crate::i18n::tr("Copy details"),
-        dismiss: crate::i18n::tr("Dismiss"),
-        error: crate::i18n::tr("Error"),
-        warnings: crate::i18n::tr("warnings"),
+        history: li_i18n::library::t("Details / History"),
+        title: li_i18n::library::t("Operation details and history"),
+        copy: li_i18n::library::t("Copy details"),
+        dismiss: li_i18n::library::t("Dismiss"),
+        error: li_i18n::library::t("Error"),
+        warnings: li_i18n::library::t("warnings"),
     };
     if !app.ui.toast_history.history.is_empty() {
         let canvas = app.canvas_rect.unwrap_or_else(|| ctx.content_rect());
@@ -133,8 +133,8 @@ pub fn toast(app: &mut LightcraftApp, ctx: &egui::Context) {
 pub fn empty_message(ui: &egui::Ui, rect: Rect, title: &str, body: &str) {
     let t = Tokens::get(ui.ctx());
     let p = ui.painter();
-    p.text(rect.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, crate::i18n::tr(title), t.semibold(18.0), t.text_label);
-    p.text(rect.center() + vec2(0.0, 14.0), Align2::CENTER_CENTER, crate::i18n::tr(body), t.font(13.0), t.text_dim);
+    p.text(rect.center() - vec2(0.0, 12.0), Align2::CENTER_CENTER, li_i18n::library::t(title), t.semibold(18.0), t.text_label);
+    p.text(rect.center() + vec2(0.0, 14.0), Align2::CENTER_CENTER, li_i18n::library::t(body), t.font(13.0), t.text_dim);
 }
 
 pub mod smart_sort;

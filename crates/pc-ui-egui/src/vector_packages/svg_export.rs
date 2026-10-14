@@ -229,7 +229,7 @@ pub fn frame(app: &mut crate::PhotocraftApp, ctx: &egui::Context) {
     } else if state.request.is_some() && !state.embedded {
         let modal = egui::Modal::new(egui::Id::new("vector-svg-export")).show(ctx, |ui| {
             ui.set_min_width(360.0);
-            controls(ui, &mut state, |text| crate::i18n::t(text).to_owned())
+            controls(ui, &mut state, |text| li_i18n::t(text).to_owned())
         });
         match modal.inner {
             Some(Action::Export) => {

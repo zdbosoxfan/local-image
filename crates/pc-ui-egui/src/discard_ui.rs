@@ -208,14 +208,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         return;
     };
     let (title, message) = if reverts {
-        ("Revert", crate::i18n::fmt(tl!("Revert “{name}” to the last saved version? Your changes will be lost."), &[("name", &name)]))
+        ("Revert", li_i18n::fmt(tl!("Revert “{name}” to the last saved version? Your changes will be lost."), &[("name", &name)]))
     } else {
         let template = if exits {
             tl!("Do you want to save the changes you made to “{name}” before quitting?")
         } else {
             tl!("Do you want to save the changes you made to “{name}” before closing?")
         };
-        (tl!("Unsaved changes"), crate::i18n::fmt(template, &[("name", &name)]))
+        (tl!("Unsaved changes"), li_i18n::fmt(template, &[("name", &name)]))
     };
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
     // The answers in the platform's words; `dialog_buttons` puts them in its order. Windows (and

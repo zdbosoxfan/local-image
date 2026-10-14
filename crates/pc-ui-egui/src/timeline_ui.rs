@@ -88,8 +88,8 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         act = Some(("timeline.previousFrame", json!({})));
                     }
                     ui.label(
-                        RichText::new(crate::i18n::fmt(
-                            crate::i18n::t("Frame {current} / {total}"),
+                        RichText::new(li_i18n::fmt(
+                            li_i18n::t("Frame {current} / {total}"),
                             &[("current", &(tl.current + 1).to_string()), ("total", &tl.duration.to_string())],
                         ))
                         .color(t.text)

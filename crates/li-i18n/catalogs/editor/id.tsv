@@ -1,0 +1,3897 @@
+# Indonesian (id) catalog. Columns, separated by a TAB:  context <TAB> source <TAB> translation
+#
+#   context  empty                a plain UI string; `source` is the English text in the code
+#            @plural              `source` is "one|other" (English forms); the translation lists
+#                                 the language's forms separated by "|" (see `plural` in li-i18n src/lib.rs)
+#   escapes  \n  \t  \\  inside a column. `{name}` placeholders must appear in both columns.
+#   lines starting with # and blank lines are ignored.
+#
+# Clean-room: every entry was written from the plain meaning of the English label using ordinary
+# Indonesian computing vocabulary (layer, kuas, seleksi, kanvas ...). No proprietary localisation
+# resource, string table or product UI was consulted or copied; add entries the same way.
+# Product and technology names (Local Image, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin
+# letters; the trailing "…" of dialog commands is kept.
+	File	Berkas
+	Edit	Edit
+	Image	Gambar
+	Layer	Layer
+	Type	Teks
+	Select	Seleksi
+	Filter	Filter
+	View	Tampilan
+	Window	Jendela
+	Help	Bantuan
+	(coming soon)	(segera hadir)
+	New…	Baru…
+	Open…	Buka…
+	Open As…	Buka Sebagai…
+	Open Recent	Terakhir Dibuka
+	Clear Recent Files	Hapus File Terbaru
+	Close	Tutup
+	Minimize	Minimalkan
+	Maximize	Maksimalkan
+	Restore	Pulihkan
+	Close All	Tutup Semua
+	Close Others	Tutup Lainnya
+	Save	Simpan
+	Save As…	Simpan Sebagai…
+	Save a Copy…	Simpan Salinan…
+	Revert	Kembalikan
+	Export	Ekspor
+	Quick Export as PNG	Ekspor Cepat sebagai PNG
+	Export As…	Ekspor Sebagai…
+	Export Preferences…	Preferensi Ekspor…
+	Save for Web (Legacy)…	Simpan untuk Web (Lama)…
+	Artboards to Files…	Artboard ke File…
+	Artboards to PDF…	Artboard ke PDF…
+	Layers to Files…	Layer ke File…
+	Layer Comps to Files…	Layer Comp ke File…
+	Color Lookup Tables…	Tabel Color Lookup…
+	Data Sets as Files…	Data Set sebagai File…
+	Paths to Illustrator…	Path ke Illustrator…
+	Render Video…	Render Video…
+	Generate	Generate
+	Image Assets	Aset Gambar
+	Place Embedded…	Tempatkan Tertanam…
+	Place Linked…	Tempatkan Tertaut…
+	Package…	Paketkan…
+	Automate	Otomatisasi
+	Batch…	Batch…
+	Create Droplet…	Buat Droplet…
+	Crop and Straighten Photos	Crop dan Luruskan Foto
+	Contact Sheet II…	Contact Sheet II…
+	Conditional Mode Change…	Ubah Mode Bersyarat…
+	Fit Image…	Sesuaikan Gambar…
+	Lens Correction…	Koreksi Lensa…
+	Merge to HDR Pro…	Gabung ke HDR Pro…
+	Photomerge…	Photomerge…
+	Scripts	Skrip
+	Image Processor…	Pemroses Gambar…
+	Delete All Empty Layers	Hapus Semua Layer Kosong
+	Flatten All Layer Effects	Ratakan Semua Efek Layer
+	Flatten All Masks	Ratakan Semua Mask
+	Script Events Manager…	Pengelola Event Skrip…
+	Import	Impor
+	Browse…	Telusuri…
+	Reveal in Finder	Tampilkan di Finder
+	File Info…	Info File…
+	Print…	Cetak…
+	Print One Copy	Cetak Satu Salinan
+	Exit	Keluar
+	Undo	Urungkan
+	Redo	Ulangi
+	Toggle Last State	Alihkan Status Terakhir
+	Fade…	Pudarkan…
+	Cut	Potong
+	Copy	Salin
+	Copy Merged	Salin Gabungan
+	Paste	Tempel
+	Paste Special	Tempel Khusus
+	Paste in Place	Tempel di Posisi Sama
+	Paste Into	Tempel ke Dalam
+	Paste Outside	Tempel ke Luar
+	Paste Lorem Ipsum	Tempel Lorem Ipsum
+	Clear	Hapus
+	Search…	Cari…
+	Check Spelling…	Periksa Ejaan…
+	Find and Replace Text…	Cari dan Ganti Teks…
+	Fill…	Isi…
+	Stroke…	Stroke…
+	Content-Aware Fill…	Isi Content-Aware…
+	Content-Aware Scale	Skala Content-Aware
+	Puppet Warp	Puppet Warp
+	Perspective Warp	Perspective Warp
+	Free Transform	Transformasi Bebas
+	Transform	Transformasi
+	Again	Ulangi
+	Scale	Skala
+	Rotate	Putar
+	Skew	Miringkan
+	Distort	Distorsi
+	Perspective	Perspektif
+	Warp	Warp
+	Flip Horizontal	Balik Horizontal
+	Flip Vertical	Balik Vertikal
+	Rotate 180°	Putar 180°
+	Rotate 90° Clockwise	Putar 90° Searah Jarum Jam
+	Rotate 90° Counter Clockwise	Putar 90° Berlawanan Arah Jarum Jam
+	180°	180°
+	90° Clockwise	90° Searah Jarum Jam
+	90° Counter Clockwise	90° Berlawanan Arah Jarum Jam
+	Arbitrary…	Arbitrer…
+	Auto-Align Layers…	Ratakan Layer Otomatis…
+	Auto-Blend Layers…	Blend Layer Otomatis…
+	Define Brush Preset…	Tetapkan Preset Kuas…
+	Define Pattern…	Tetapkan Pola…
+	Define Custom Shape…	Tetapkan Bentuk Kustom…
+	Purge	Bersihkan
+	Clipboard	Clipboard
+	Histories	Riwayat
+	Video Cache	Cache Video
+	All	Semua
+	Presets	Preset
+	Preset Manager…	Pengelola Preset…
+	Export/Import Presets…	Ekspor/Impor Preset…
+	Color Settings…	Pengaturan Warna…
+	Assign Profile…	Tetapkan Profil…
+	Convert to Profile…	Konversi ke Profil…
+	Keyboard Shortcuts…	Pintasan Keyboard…
+	Menus…	Menu…
+	Toolbar…	Toolbar…
+	Preferences	Preferensi
+	General…	Umum…
+	Interface…	Antarmuka…
+	Workspace…	Ruang Kerja…
+	Tools…	Alat…
+	History Log…	Log Riwayat…
+	File Handling…	Penanganan File…
+	Export…	Ekspor…
+	Performance…	Performa…
+	Scratch Disks…	Scratch Disk…
+	Cursors…	Kursor…
+	Transparency & Gamut…	Transparansi & Gamut…
+	Units & Rulers…	Satuan & Penggaris…
+	Guides, Grid & Slices…	Panduan, Grid & Slice…
+	Plug-ins…	Plug-in…
+	Type…	Teks…
+	Enhanced Controls…	Kontrol Disempurnakan…
+	Camera Raw…	Camera Raw…
+	Raw Defaults…	Default Raw…
+	Integrations…	Integrasi…
+	AI Integrations…	Integrasi AI…
+	Install Plug-in…	Pasang Plug-in…
+	Language Options	Opsi Bahasa
+	Settings…	Pengaturan…
+	Mode	Mode
+	Bitmap	Bitmap
+	Grayscale	Grayscale
+	Duotone	Duotone
+	Indexed Color	Warna Terindeks
+	RGB Color	Warna RGB
+	CMYK Color	Warna CMYK
+	Lab Color	Warna Lab
+	Multichannel	Multichannel
+	8 Bits/Channel	8 Bit/Channel
+	16 Bits/Channel	16 Bit/Channel
+	32 Bits/Channel	32 Bit/Channel
+	Color Table…	Tabel Warna…
+	Bitmap…	Bitmap…
+	Duotone…	Duotone…
+	Indexed Color…	Warna Terindeks…
+	Adjustments	Penyesuaian
+	Brightness/Contrast…	Kecerahan/Kontras…
+	Levels…	Level…
+	Curves…	Kurva…
+	Exposure…	Eksposur…
+	Vibrance…	Vibransi…
+	Hue/Saturation…	Hue/Saturasi…
+	Color Balance…	Keseimbangan Warna…
+	Black & White…	Hitam & Putih…
+	Photo Filter…	Filter Foto…
+	Channel Mixer…	Channel Mixer…
+	Color Lookup…	Color Lookup…
+	Invert	Balikkan
+	Posterize…	Posterisasi…
+	Threshold…	Threshold…
+	Gradient Map…	Gradient Map…
+	Selective Color…	Warna Selektif…
+	Shadows/Highlights…	Bayangan/Sorotan…
+	HDR Toning…	HDR Toning…
+	Desaturate	Desaturasi
+	Match Color…	Cocokkan Warna…
+	Replace Color…	Ganti Warna…
+	Equalize	Ekualisasi
+	Auto Tone	Auto Tone
+	Auto Contrast	Auto Kontras
+	Auto Color	Auto Warna
+	Image Size…	Ukuran Gambar…
+	Canvas Size…	Ukuran Kanvas…
+	Image Rotation	Rotasi Gambar
+	Flip Canvas Horizontal	Balik Kanvas Horizontal
+	Flip Canvas Vertical	Balik Kanvas Vertikal
+	Crop	Crop
+	Trim…	Trim…
+	Reveal All	Tampilkan Semua
+	Duplicate…	Duplikat…
+	Apply Image…	Terapkan Gambar…
+	Calculations…	Kalkulasi…
+	Variables	Variabel
+	Define…	Tentukan…
+	Data Sets…	Data Set…
+	Apply Data Set…	Terapkan Data Set…
+	Variable Data Sets…	Data Set Variabel…
+	Trap…	Trap…
+	Analysis	Analisis
+	Set Measurement Scale…	Atur Skala Pengukuran…
+	Select Data Points…	Pilih Titik Data…
+	Record Measurements	Rekam Pengukuran
+	Ruler Tool	Alat Penggaris
+	Count Tool	Alat Hitung
+	Place Scale Marker…	Tempatkan Penanda Skala…
+	Custom…	Kustom…
+	New	Baru
+	Layer…	Layer…
+	Group…	Grup…
+	Group from Layers…	Grup dari Layer…
+	Artboard…	Artboard…
+	Artboard from Group…	Artboard dari Grup…
+	Artboard from Layers…	Artboard dari Layer…
+	Layer via Copy	Layer via Salin
+	Layer via Cut	Layer via Potong
+	Layer From Background…	Layer dari Background…
+	Layer from Background…	Layer dari Background…
+	New Shape Layer	Layer Bentuk Baru
+	New Type Layer	Layer Teks Baru
+	New Fill Layer	Layer Isian Baru
+	New Adjustment Layer	Layer Penyesuaian Baru
+	New Layer Based Slice	Slice Berbasis Layer Baru
+	New Smart Object via Copy	Smart Object Baru via Salin
+	New Blank Video Layer	Layer Video Kosong Baru
+	New Video Layer from File…	Layer Video Baru dari Berkas…
+	Duplicate Layer…	Duplikat Layer…
+	Delete Layer	Hapus Layer
+	Delete	Hapus
+	Rename Layer	Ganti Nama Layer
+	Create Layer	Buat Layer
+	Layer Style	Gaya Layer
+	Blending Options…	Opsi Blending…
+	Bevel & Emboss…	Bevel & Emboss…
+	Inner Shadow…	Bayangan Dalam…
+	Inner Glow…	Cahaya Dalam…
+	Satin…	Satin…
+	Color Overlay…	Overlay Warna…
+	Gradient Overlay…	Overlay Gradien…
+	Pattern Overlay…	Overlay Pola…
+	Outer Glow…	Cahaya Luar…
+	Drop Shadow…	Bayangan Jatuh…
+	Copy Layer Style	Salin Gaya Layer
+	Paste Layer Style	Tempel Gaya Layer
+	Clear Layer Style	Hapus Gaya Layer
+	Global Light…	Cahaya Global…
+	Hide All Effects	Sembunyikan Semua Efek
+	Scale Effects…	Skala Efek…
+	Smart Filter	Smart Filter
+	Convert for Smart Filters	Konversi untuk Smart Filter
+	Clear Smart Filters	Hapus Smart Filter
+	Disable Smart Filters	Nonaktifkan Smart Filter
+	Delete Filter Mask	Hapus Mask Filter
+	Disable Filter Mask	Nonaktifkan Mask Filter
+	Solid Color…	Warna Solid…
+	Gradient…	Gradien…
+	Pattern…	Pola…
+	Layer Mask	Mask Layer
+	Vector Mask	Mask Vektor
+	Reveal Selection	Tampilkan Seleksi
+	Hide Selection	Sembunyikan Seleksi
+	Hide All	Sembunyikan Semua
+	From Transparency	Dari Transparansi
+	Delete Vector Mask	Hapus Mask Vektor
+	Enable Layer Mask	Aktifkan Mask Layer
+	Disable Layer Mask	Nonaktifkan Mask Layer
+	Enable Vector Mask	Aktifkan Mask Vektor
+	Link Layer Mask	Tautkan Mask Layer
+	Unlink Layer Mask	Lepas Tautan Mask Layer
+	Link Vector Mask	Tautkan Mask Vektor
+	Add Vector Mask	Tambah Mask Vektor
+	Vector Mask from Current Path	Mask Vektor dari Path Saat Ini
+	Create Clipping Mask	Buat Clipping Mask
+	Release Clipping Mask	Lepas Clipping Mask
+	Smart Objects	Smart Object
+	Smart Object	Smart Object
+	Convert to Smart Object	Konversi ke Smart Object
+	Convert to Embedded	Konversi ke Tertanam
+	Convert to Layers	Konversi ke Layer
+	Convert to Linked…	Konversi ke Tertaut…
+	Edit Contents	Edit Isi
+	Replace Contents…	Ganti Isi…
+	Relink to File…	Tautkan Ulang ke Berkas…
+	Export Contents…	Ekspor Isi…
+	Update Modified Content	Perbarui Isi yang Diubah
+	Update All Modified Content	Perbarui Semua Isi yang Diubah
+	Stack Mode	Mode Stack
+	Entropy	Entropi
+	Kurtosis	Kurtosis
+	Maximum	Maksimum
+	Mean	Rata-rata
+	Median	Median
+	Minimum	Minimum
+	Range	Rentang
+	Skewness	Skewness
+	Standard Deviation	Standar Deviasi
+	Summation	Penjumlahan
+	Variance	Varians
+	Video Layers	Layer Video
+	Interpret Footage…	Interpretasikan Footage…
+	Replace Footage…	Ganti Footage…
+	Reload Frame	Muat Ulang Frame
+	Show Altered Video	Tampilkan Video yang Diubah
+	Restore Frame	Pulihkan Frame
+	Restore All Frames	Pulihkan Semua Frame
+	Insert Blank Frame	Sisipkan Frame Kosong
+	Delete Frame	Hapus Frame
+	Duplicate Frame	Duplikat Frame
+	Frame from Layers	Frame dari Layer
+	Video Frames to Layers…	Frame Video ke Layer…
+	Rasterize	Rasterisasi
+	Rasterize Type	Rasterisasi Teks
+	Rasterize Type Layer	Rasterisasi Layer Teks
+	Rasterize Shape	Rasterisasi Bentuk
+	New Guide Layout…	Layout Panduan Baru…
+	New Guides From Shape	Panduan Baru dari Bentuk
+	Lock Layers…	Kunci Layer…
+	Link Layers	Tautkan Layer
+	Select Linked Layers	Pilih Layer Tertaut
+	Merge Layers	Gabungkan Layer
+	Merge Down	Gabung ke Bawah
+	Merge Visible	Gabung yang Terlihat
+	Stamp Visible	Stempel yang Terlihat
+	Stamp Down	Stempel ke Bawah
+	Flatten Image	Ratakan Gambar
+	Matting	Matting
+	Color Decontaminate…	Dekontaminasi Warna…
+	Remove Black Matte	Hapus Matte Hitam
+	Remove White Matte	Hapus Matte Putih
+	Defringe…	Defringe…
+	Group Layers	Kelompokkan Layer
+	Ungroup Layers	Pisahkan Grup Layer
+	Hide Layers	Sembunyikan Layer
+	Arrange	Susun
+	Bring to Front	Bawa ke Depan
+	Bring Forward	Majukan
+	Send Backward	Mundurkan
+	Send to Back	Kirim ke Belakang
+	Reverse	Balik Urutan
+	Combine Shapes	Gabungkan Bentuk
+	Unite Shapes	Satukan Bentuk
+	Subtract Front Shape	Kurangi Bentuk Depan
+	Intersect Shape Areas	Irisan Area Bentuk
+	Exclude Overlapping Shapes	Kecualikan Bentuk yang Tumpang Tindih
+	Merge Shape Components	Gabungkan Komponen Bentuk
+	Align	Rata
+	Top Edges	Tepi Atas
+	Vertical Centers	Tengah Vertikal
+	Bottom Edges	Tepi Bawah
+	Left Edges	Tepi Kiri
+	Horizontal Centers	Tengah Horizontal
+	Right Edges	Tepi Kanan
+	Distribute	Distribusi
+	Vertically	Secara Vertikal
+	Horizontally	Secara Horizontal
+	Layer Edges	Tepi Layer
+	Isolate Layers	Isolasi Layer
+	Layer Content Options…	Opsi Konten Layer…
+	Fill Content	Isi Konten
+	Deselect Layers	Batalkan Pilihan Layer
+	Find Layers	Cari Layer
+	Layer Comps	Layer Comp
+	Layers	Layer
+	All Layers	Semua Layer
+	Hidden Layers	Layer Tersembunyi
+	Mask All Objects	Masker Semua Objek
+	Subject	Subjek
+	Sky	Langit
+	Panels	Panel
+	Character Panel	Panel Karakter
+	Paragraph Panel	Panel Paragraf
+	Character Styles Panel	Panel Gaya Karakter
+	Paragraph Styles Panel	Panel Gaya Paragraf
+	Glyphs Panel	Panel Glyph
+	Anti-Alias	Anti-Alias
+	Sharp	Tajam
+	Crisp	Tegas
+	Strong	Kuat
+	Smooth	Halus
+	Windows LCD	Windows LCD
+	Windows	Windows
+	Orientation	Orientasi
+	Horizontal	Horizontal
+	Vertical	Vertikal
+	OpenType	OpenType
+	Standard Ligatures	Ligatur Standar
+	Contextual Alternates	Alternatif Kontekstual
+	Discretionary Ligatures	Ligatur Diskresioner
+	Swash	Swash
+	Oldstyle	Oldstyle
+	Stylistic Alternates	Alternatif Stilistik
+	Titling Alternates	Alternatif Judul
+	Ornaments	Ornamen
+	Ordinals	Ordinal
+	Fractions	Pecahan
+	Create Work Path	Buat Path Kerja
+	Convert to Shape	Konversi ke Bentuk
+	Warp Text…	Warp Teks…
+	Convert to Point Text	Konversi ke Teks Titik
+	Convert to Paragraph Text	Konversi ke Teks Paragraf
+	Default Features	Fitur Default
+	East Asian Features	Fitur Asia Timur
+	Middle Eastern Features	Fitur Timur Tengah
+	Middle Eastern & South Asian Composer	Penyusun Timur Tengah & Asia Selatan
+	Update All Text Layers	Perbarui Semua Layer Teks
+	Replace All Missing Fonts	Ganti Semua Font yang Hilang
+	Resolve Missing Fonts…	Selesaikan Font yang Hilang…
+	Font Preview Size	Ukuran Pratinjau Font
+	None	Tidak Ada
+	Small	Kecil
+	Medium	Sedang
+	Large	Besar
+	Extra Large	Sangat Besar
+	Huge	Raksasa
+	Load Default Type Styles	Muat Gaya Teks Default
+	Save Default Type Styles	Simpan Gaya Teks Default
+	Deselect	Batalkan Seleksi
+	Reselect	Pilih Ulang
+	Inverse	Balikkan
+	Inverse Selection	Balik Seleksi
+	Similar	Serupa
+	Color Range…	Rentang Warna…
+	Focus Area…	Area Fokus…
+	Select and Mask…	Seleksi dan Mask…
+	Modify	Ubah
+	Border…	Batas…
+	Smooth…	Haluskan…
+	Expand…	Perluas…
+	Contract…	Kerutkan…
+	Feather…	Feather…
+	Grow	Tumbuhkan
+	Transform Selection	Transformasi Seleksi
+	Edit in Quick Mask Mode	Edit dalam Mode Masker Cepat
+	Load Selection…	Muat Seleksi…
+	Save Selection…	Simpan Seleksi…
+	Match All	Cocokkan Semua
+	Last Filter	Filter Terakhir
+	Filter Gallery…	Galeri Filter…
+	Adaptive Wide Angle…	Adaptive Wide Angle…
+	Camera Raw Filter…	Filter Camera Raw…
+	Liquify…	Liquify…
+	Vanishing Point…	Vanishing Point…
+	Blur	Blur
+	Blur Gallery	Galeri Blur
+	Field Blur…	Field Blur…
+	Iris Blur…	Iris Blur…
+	Tilt-Shift…	Tilt-Shift…
+	Path Blur…	Path Blur…
+	Spin Blur…	Spin Blur…
+	Blur More	Blur Lagi
+	Box Blur…	Box Blur…
+	Gaussian Blur…	Gaussian Blur…
+	Lens Blur…	Lens Blur…
+	Motion Blur…	Motion Blur…
+	Radial Blur…	Radial Blur…
+	Shape Blur…	Shape Blur…
+	Smart Blur…	Smart Blur…
+	Surface Blur…	Surface Blur…
+	Average	Rata-rata
+	Displace…	Displace…
+	Pinch…	Pinch…
+	Polar Coordinates…	Koordinat Polar…
+	Ripple…	Riak…
+	Shear…	Shear…
+	Spherize…	Spherize…
+	Twirl…	Twirl…
+	Wave…	Gelombang…
+	ZigZag…	ZigZag…
+	Noise	Noise
+	Add Noise…	Tambah Noise…
+	Despeckle	Despeckle
+	Dust & Scratches…	Debu & Goresan…
+	Median…	Median…
+	Reduce Noise…	Kurangi Noise…
+	Pixelate	Pixelate
+	Color Halftone…	Halftone Warna…
+	Crystallize…	Crystallize…
+	Facet	Facet
+	Fragment	Fragment
+	Mezzotint…	Mezzotint…
+	Mosaic…	Mosaik…
+	Pointillize…	Pointillize…
+	Render	Render
+	Clouds	Awan
+	Difference Clouds	Awan Selisih
+	Fibers…	Serat…
+	Flame…	Api…
+	Lens Flare…	Lens Flare…
+	Lighting Effects…	Efek Pencahayaan…
+	Relight…	Terangi ulang…
+	Picture Frame…	Bingkai Foto…
+	Tree…	Pohon…
+	Sharpen	Pertajam
+	Sharpen Edges	Pertajam Tepi
+	Sharpen More	Pertajam Lagi
+	Smart Sharpen…	Smart Sharpen…
+	Unsharp Mask…	Unsharp Mask…
+	High Pass…	High Pass…
+	Stylize	Stilisasi
+	Diffuse…	Diffuse…
+	Emboss…	Emboss…
+	Extrude…	Extrude…
+	Find Edges	Cari Tepi
+	Oil Paint…	Cat Minyak…
+	Solarize	Solarize
+	Tiles…	Ubin…
+	Trace Contour…	Telusuri Kontur…
+	Wind…	Angin…
+	Video	Video
+	De-Interlace…	De-Interlace…
+	NTSC Colors	Warna NTSC
+	Other	Lainnya
+	Maximum…	Maksimum…
+	Minimum…	Minimum…
+	Offset…	Offset…
+	Plug-ins	Plug-in
+	Proof Setup	Pengaturan Proof
+	Proof Colors	Warna Proof
+	Gamut Warning	Peringatan Gamut
+	Working CMYK	CMYK Kerja
+	Working Cyan Plate	Pelat Cyan Kerja
+	Working Magenta Plate	Pelat Magenta Kerja
+	Working Yellow Plate	Pelat Kuning Kerja
+	Working Black Plate	Pelat Hitam Kerja
+	Working CMY Plate	Pelat CMY Kerja
+	Legacy Macintosh RGB	RGB Macintosh Lawas
+	Internet Standard RGB	RGB Standar Internet
+	Monitor RGB	RGB Monitor
+	Color Blindness — Protanopia-type	Buta Warna — Tipe Protanopia
+	Color Blindness — Deuteranopia-type	Buta Warna — Tipe Deuteranopia
+	Zoom In	Perbesar
+	Zoom Out	Perkecil
+	Fit on Screen	Pas di Layar
+	Fit Layer(s) on Screen	Pas Layer di Layar
+	Fit Artboard on Screen	Pas Artboard di Layar
+	100%	100%
+	200%	200%
+	75%	75%
+	125%	125%
+	150%	150%
+	175%	175%
+	250%	250%
+	300%	300%
+	Print Size	Ukuran Cetak
+	Pixel Aspect Ratio	Rasio Aspek Piksel
+	Pixel Aspect Ratio Correction	Koreksi Rasio Aspek Piksel
+	Custom Pixel Aspect Ratio…	Rasio Aspek Piksel Kustom…
+	Square	Persegi
+	D1/DV NTSC (0.91)	D1/DV NTSC (0.91)
+	D1/DV NTSC Widescreen (1.21)	D1/DV NTSC Widescreen (1.21)
+	D1/DV PAL (1.09)	D1/DV PAL (1.09)
+	D1/DV PAL Widescreen (1.46)	D1/DV PAL Widescreen (1.46)
+	Anamorphic 2:1 (2)	Anamorphic 2:1 (2)
+	HDV 1080/DVCPRO HD 720 (1.33)	HDV 1080/DVCPRO HD 720 (1.33)
+	DVCPRO HD 1080/HDV 1080 (1.5)	DVCPRO HD 1080/HDV 1080 (1.5)
+	32-bit Preview Options…	Opsi Pratinjau 32-bit…
+	Screen Mode	Mode Layar
+	Standard Screen Mode	Mode Layar Standar
+	Full Screen Mode With Menu Bar	Mode Layar Penuh dengan Menu Bar
+	Full Screen Mode	Mode Layar Penuh
+	Cycle Screen Mode	Ganti Mode Layar
+	Show	Tampilkan
+	Extras	Ekstra
+	Selection Edges	Tepi Seleksi
+	Target Path	Path Target
+	Current Path	Path Saat Ini
+	Grid	Grid
+	Guides	Panduan
+	Canvas Guides	Panduan Kanvas
+	Artboard Guides	Panduan Artboard
+	Count	Hitungan
+	Smart Guides	Panduan Cerdas
+	Slices	Slice
+	Notes	Catatan
+	Pixel Grid	Grid Piksel
+	Pixel Art	Pixel Art
+	Pixel Art Preview	Pratinjau Pixel Art
+	Pattern Preview	Pratinjau Pola
+	Brush Preview	Pratinjau Kuas
+	Mesh	Mesh
+	Edit Pins	Edit Pin
+	Document Bounds	Batas Dokumen
+	Show Extras Options…	Opsi Tampilkan Ekstra…
+	Rulers	Penggaris
+	Snap	Snap
+	Snap To	Snap ke
+	Lock Guides	Kunci Panduan
+	Clear Guides	Hapus Panduan
+	Clear Selected Artboard Guides	Hapus Panduan Artboard Terpilih
+	Clear Canvas Guides	Hapus Panduan Kanvas
+	New Guide…	Panduan Baru…
+	Lock Slices	Kunci Slice
+	Clear Slices	Hapus Slice
+	Match Zoom	Samakan Zoom
+	Match Location	Samakan Lokasi
+	Match Rotation	Samakan Rotasi
+	Cascade	Kaskade
+	Tile	Ubin
+	Tile All Horizontally	Ubin Semua Horizontal
+	Tile All Vertically	Ubin Semua Vertikal
+	2-up Horizontal	2-up Horizontal
+	2-up Vertical	2-up Vertikal
+	3-up Horizontal	3-up Horizontal
+	3-up Stacked	3-up Bertumpuk
+	3-up Vertical	3-up Vertikal
+	4-up	4-up
+	6-up	6-up
+	Consolidate All to Tabs	Gabungkan Semua ke Tab
+	Float in Window	Mengambang di Jendela
+	Float All in Windows	Mengambangkan Semua di Jendela
+	New Window for Document	Jendela Baru untuk Dokumen
+	Workspace	Ruang Kerja
+	Essentials	Esensial
+	Graphic and Web	Grafis dan Web
+	Painting	Melukis
+	Photography	Fotografi
+	New Workspace…	Ruang Kerja Baru…
+	Delete Workspace…	Hapus Ruang Kerja…
+	Reset Workspace	Reset Ruang Kerja
+	Lock Workspace	Kunci Ruang Kerja
+	Theme	Tema
+	Pro Theme	Tema Pro
+	Pro Medium Gray Theme	Tema Pro Abu-abu Sedang
+	Studio Theme	Tema Studio
+	Studio Light Theme	Tema Studio Terang
+	Classic Theme	Tema Klasik
+	Next Theme	Tema Berikutnya
+	Actions	Tindakan
+	Brush Settings	Pengaturan Kuas
+	Brushes	Kuas
+	Channels	Saluran
+	Character	Karakter
+	Character Styles	Gaya Karakter
+	Clone Source	Sumber Klon
+	Color	Warna
+	Glyphs	Glyph
+	Gradients	Gradien
+	Histogram	Histogram
+	History	Riwayat
+	Info	Info
+	Measurement Log	Log Pengukuran
+	Modifier Keys	Tombol Pengubah
+	Navigator	Navigator
+	Options	Opsi
+	Paragraph	Paragraf
+	Paragraph Styles	Gaya Paragraf
+	Paths	Path
+	Patterns	Pola
+	Properties	Properti
+	Shapes	Bentuk
+	Styles	Gaya
+	Swatches	Swatch
+	Timeline	Timeline
+	Tool Presets	Preset Alat
+	Tools	Alat
+	About Local Image	Tentang Local Image
+	Local Image Website	Situs Web Local Image
+	Local Image on GitHub	Local Image di GitHub
+	ArtCraft Website	Situs Web ArtCraft
+	Join the ArtCraft Discord…	Gabung ke Discord ArtCraft…
+	Report an Issue…	Laporkan Masalah…
+	WIA Support…	Dukungan WIA…
+	Apply	Terapkan
+	HSB/HSL	HSB/HSL
+	Invert…	Balikkan…
+	Load Files into Stack…	Muat Berkas ke Stack…
+	Motion	Gerakan
+	Notes…	Catatan…
+	Other…	Lainnya…
+	Remove Warp Split	Hapus Pembagian Warp
+	Shape	Bentuk
+	Split Warp Crosswise	Bagi Warp Silang
+	Split Warp Horizontally	Bagi Warp Horizontal
+	Split Warp Vertically	Bagi Warp Vertikal
+	Statistics…	Statistik…
+@plural	{n} item|{n} items	{n} item
+	Auto	Otomatis
+	(print to the printer)	(cetak ke printer)
+	+ Add variable	+ Tambah variabel
+	30 frames @ 30 fps	30 frame @ 30 fps
+	3D LUT File	Berkas LUT 3D
+	Absolute	Absolut
+	Absolute Colorimetric	Kolorimetri Absolut
+	Action	Tindakan
+	Adaptive	Adaptif
+	Adaptive Wide Angle isn't open	Sudut Lebar Adaptif tidak terbuka
+	Add	Tambah
+	Add Layer Mask	Tambah Masker Lapisan
+	Add Stop	Tambah Stop
+	Add a layer style	Tambah gaya lapisan
+	Add a mask  (from the selection; {key} inverts)	Tambah mask  (dari seleksi; {key} membalik)
+	Add an adjustment	Tambah penyesuaian
+	Add disk	Tambah disk
+	Add space after paragraph	Tambah spasi setelah paragraf
+	Add space before paragraph	Tambah spasi sebelum paragraf
+	Add to Sample	Tambah ke Sampel
+	Add to selection  ({key})	Tambah ke seleksi  ({key})
+	Adjust for Zoom	Sesuaikan dengan Zoom
+	Adjustment visible	Penyesuaian terlihat
+	Adobe RGB (1998) compatible	Kompatibel dengan Adobe RGB (1998)
+	Align and Distribute	Rata dan Distribusi
+	Align and distribute	Rata dan distribusi
+	Align horizontal centers	Ratakan tengah horizontal
+	Align left edges	Ratakan tepi kiri
+	Align right edges	Ratakan tepi kanan
+	Aligned	Selaras
+	All Caps	Huruf Kapital Semua
+	All Slices	Semua Slice
+	All User Slices	Semua Slice Pengguna
+	All shortcuts reset to Photoshop defaults.	Semua pintasan direset ke default Photoshop.
+	Alt	Alt
+	Alt-click to define a source point to clone from	Alt-klik untuk menentukan titik sumber yang mau di-clone
+	Always use pressure for opacity	Selalu gunakan tekanan untuk opasitas
+	Always use pressure for size	Selalu gunakan tekanan untuk ukuran
+	Amount	Jumlah
+	Anchor:	Jangkar:
+	Angle	Sudut
+	Angle Gradient	Gradien Sudut
+	Angle Jitter	Jitter Sudut
+	Answer the unsaved-changes prompt first	Jawab terlebih dahulu prompt perubahan yang belum disimpan
+	Anti-alias	Anti-alias
+	Appearance	Tampilan
+	Appearance (Layer Style)	Tampilan (Gaya Lapisan)
+	Apply Layer Mask	Terapkan Masker Lapisan
+	Apply Per Tip	Terapkan Per Ujung
+	Apply next selected layer comp	Terapkan layer comp terpilih berikutnya
+	Apply previous selected layer comp	Terapkan layer comp terpilih sebelumnya
+	Artboard	Artboard
+	Artboard Background Color	Warna Latar Artboard
+	Assign working space	Tetapkan ruang kerja
+	Author:	Penulis:
+	Auto Hide	Sembunyi Otomatis
+	Auto-Select:	Pilih Otomatis:
+	Automatically level near-horizontal line segments	Ratakan otomatis segmen garis yang hampir horizontal
+	Automatically straighten and level	Luruskan dan ratakan otomatis
+	Automatically straighten near-vertical line segments	Luruskan otomatis segmen garis yang hampir vertikal
+	Background	Background
+	Background Color	Warna Latar Belakang
+	Background Contents	Isi Background
+	Balance	Keseimbangan
+	Baseline	Baseline
+	Baseline shift	Geser baseline
+	Basic	Dasar
+	Before (Y)	Sebelum (Y)
+	Begin recording	Mulai merekam
+	Bend:	Lengkung:
+	Bicubic	Bicubic
+	Bicubic (smooth gradients)	Bicubic (gradien halus)
+	Bilinear	Bilinear
+	Black	Hitam
+	Black & White	Hitam & Putih
+	Black Point Compensation	Kompensasi Titik Hitam
+	Black, White	Hitam, Putih
+	Blacks	Hitam
+	Blending	Blending
+	Blending Options	Opsi Blending
+	Blue	Biru
+	Blue, Red, Yellow	Biru, Merah, Kuning
+	Both	Keduanya
+	Both Axes	Kedua Sumbu
+	Bottom	Bawah
+	Brightness	Kecerahan
+	Brightness Jitter	Jitter Kecerahan
+	Brightness/Contrast	Kecerahan/Kontras
+	Bring the selected pin forward	Majukan pin terpilih
+	Brush Preset picker	Pemilih Preset Kuas
+	Brush Reconstruct Options	Opsi Rekonstruksi Kuas
+	Brush Tool Options	Opsi Alat Kuas
+	Cache Level:	Level Cache:
+	Camera Raw isn't open	Camera Raw tidak terbuka
+	Cancel	Batal
+	Cancel (Esc)	Batal (Esc)
+	Cancel any current edits (Esc)	Batalkan semua pengeditan saat ini (Esc)
+	Cancel current crop operation  (Esc)	Batalkan operasi crop saat ini  (Esc)
+	Cancel transform (Esc)	Batalkan transformasi (Esc)
+	Cancel warp (Esc)	Batalkan warp (Esc)
+	Canvas	Kanvas
+	Canvas extension color:	Warna perluasan kanvas:
+	Capture	Tangkap
+	Capture the visibility, position and style of every layer with + below, then switch between versions.	Tangkap visibilitas, posisi, dan gaya setiap layer dengan + di bawah, lalu pindah antar versi.
+	Catch-up on Stroke End	Catch-up di Akhir Stroke
+	Center	Tengah
+	Center Crop Marks	Tanda Crop Tengah
+	Center text	Teks rata tengah
+	Change	Ubah
+	Change All	Ubah Semua
+	Change Screen Mode  (F)	Ganti Mode Layar  (F)
+	Change To:	Ubah Menjadi:
+	Channel Mixer	Channel Mixer
+	Channel:	Channel:
+	Check All Layers	Centang Semua Layer
+	Check Spelling	Periksa Ejaan
+	Clarity	Clarity
+	Clear All	Hapus Semua
+	Clear Override	Hapus Override
+	Clear Samples	Hapus Sampel
+	Click sets foreground · right-click sets background	Klik untuk atur foreground · klik kanan untuk atur background
+	Click the first point or press {key} to close · Esc cancels	Klik titik pertama atau tekan {key} untuk menutup · Esc untuk batal
+	Click to add a point · drag off or {key}-click or Delete to remove	Klik untuk menambah titik · seret keluar atau {key}-klik atau Delete untuk menghapus
+	Click to apply, {key}-click to clear overrides, double-click for Style Options	Klik untuk menerapkan, {key}-klik untuk menghapus override, klik dua kali untuk Opsi Gaya
+	Click to edit the gradient	Klik untuk mengedit gradien
+	Click to restore the current colour	Klik untuk memulihkan warna saat ini
+	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Klik untuk zoom in  ·  {key}-klik untuk zoom out  ·  seret kanan/kiri untuk zoom in/out
+	Click with the Note tool to add a note.	Klik dengan alat Catatan untuk menambah catatan.
+	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Klik: sudut · Seret: halus · Klik titik pertama: tutup · {key} selesai · Esc batal
+	Clip to layer below	Klip ke layer di bawah
+	Clipped	Terklip
+	Close Style Options	Tutup Opsi Gaya
+	Cmd	Cmd
+	Coated CMYK	CMYK Coated
+	Color & Swatches	Warna & Swatch
+	Color Balance	Keseimbangan Warna
+	Color Detail	Detail Warna
+	Color Grading	Color Grading
+	Color Lookup	Color Lookup
+	Color Management	Manajemen Warna
+	Color Mixer	Color Mixer
+	Color Mode	Mode Warna
+	Color Priority	Prioritas Warna
+	Color Range preview	Pratinjau Rentang Warna
+	Color:	Warna:
+	Colorize	Colorize
+	Colors	Warna
+	Commit Perspective Warp ({key})	Terapkan Perspective Warp ({key})
+	Commit Puppet Warp ({key})	Terapkan Puppet Warp ({key})
+	Commit any current edits ({key})	Terapkan semua pengeditan saat ini ({key})
+	Commit current crop operation  ({key})	Terapkan operasi crop saat ini  ({key})
+	Commit transform ({key})	Terapkan transformasi ({key})
+	Commit warp ({key})	Terapkan warp ({key})
+	Constant	Konstan
+	Constrain proportions	Kunci proporsi
+	Contact Sheet II	Contact Sheet II
+	Content-Aware	Content-Aware
+	Contiguous	Berdekatan
+	Contrast	Kontras
+	Control:	Kontrol:
+	Convert document's colors to the working space	Konversi warna dokumen ke ruang kerja
+	Convert to sRGB	Konversi ke sRGB
+	Copies	Salinan
+	Copper	Tembaga
+	Copyright	Hak Cipta
+	Copyright and Contact Info	Hak Cipta dan Info Kontak
+	Corner Crop Marks	Tanda Crop Sudut
+	Corner radius	Radius sudut
+	Correction	Koreksi
+	Count Jitter	Jitter Jumlah
+	Create	Buat
+	Create Droplet	Buat Droplet
+	Create Texture	Buat Tekstur
+	Create Video Timeline	Buat Timeline Video
+	Create a new count group	Buat grup hitungan baru
+	Create a new document or open an existing file.	Buat dokumen baru atau buka berkas yang sudah ada.
+	Create a new group	Buat grup baru
+	Create a new layer	Buat layer baru
+	Create new action	Buat action baru
+	Create new channel	Buat channel baru
+	Create new document from current state	Buat dokumen baru dari kondisi saat ini
+	Create new fill or adjustment layer	Buat layer isian atau penyesuaian baru
+	Create new gradient	Buat gradien baru
+	Create new group	Buat grup baru
+	Create new layer comp	Buat layer comp baru
+	Create new pattern from the selection	Buat pola baru dari seleksi
+	Create new shape from the current path	Buat bentuk baru dari path saat ini
+	Create new snapshot	Buat snapshot baru
+	Create new tool preset	Buat preset alat baru
+	Crop Factor	Faktor Crop
+	Ctrl	Ctrl
+	Current & Below	Saat Ini & Di Bawahnya
+	Current Layer	Layer Saat Ini
+	Current Size	Ukuran Saat Ini
+	Current Tool Only	Hanya Alat Saat Ini
+	Curve	Kurva
+	Curves	Kurva
+	Custom	Kustom
+	Custom Shapes	Bentuk Kustom
+	Cyan	Cyan
+	Cyan  ·  Red	Cyan  ·  Merah
+	Darken	Gelapkan
+	Darks	Gelap
+	Data Sets	Data Set
+	Default	Default
+	Default colours (D)	Warna default (D)
+	Default printer	Printer default
+	Default restored.	Default dipulihkan.
+	Define	Tentukan
+	Define at least one variable first.	Tentukan setidaknya satu variabel dulu.
+	Dehaze	Dehaze
+	Delete Cropped Pixels	Hapus Piksel yang Di-crop
+	Delete Group	Hapus Grup
+	Delete Layer Mask	Hapus Layer Mask
+	Delete Layers	Hapus Layer
+	Delete Shortcut	Hapus Pintasan
+	Delete Timeline	Hapus Timeline
+	Delete Tool Preset	Hapus Preset Alat
+	Delete count group	Hapus grup hitungan
+	Delete current channel	Hapus saluran saat ini
+	Delete current state	Hapus kondisi saat ini
+	Delete effect layer	Hapus layer efek
+	Delete layer	Hapus layer
+	Delete layer comp	Hapus layer comp
+	Delete note	Hapus catatan
+	Delete selected measurements	Hapus pengukuran terpilih
+	Delete style	Hapus gaya
+	Delete tool preset	Hapus preset alat
+	Density	Kepadatan
+	Density:	Kepadatan:
+	Depth	Kedalaman
+	Depth Jitter	Jitter Kedalaman
+	Description	Deskripsi
+	Deselect All	Batalkan Semua Seleksi
+	Detail	Detail
+	Diamond Gradient	Gradien Berlian
+	Difference	Selisih
+	Diffusion	Difusi
+	Discard the embedded profile (don't color manage)	Buang profil tertanam (tanpa manajemen warna)
+	Discontiguous	Tidak Berdekatan
+	Discord	Discord
+	Dismiss	Tutup
+	Display P3	Display P3
+	Display Text	Teks Tampilan
+	Dither	Dither
+	Divide…	Bagi…
+	Document	Dokumen
+	Don't Save	Jangan Simpan
+	No	Tidak
+	Yes	Ya
+	Done	Selesai
+	Dots	Titik
+	Drag a rectangle around the object	Seret persegi panjang di sekeliling objek
+	Drag on the image to add a constraint; Shift for horizontal/vertical; right-click to delete.	Seret pada gambar untuk menambah batasan; Shift untuk horizontal/vertikal; klik kanan untuk menghapus.
+	Drag to move the active shape's path or the Work Path	Seret untuk memindah path bentuk aktif atau Work Path
+	Click: select anchor · Drag: move anchor, handle or segment · {shift}-click: add · {alt}-click: whole subpath	Klik: pilih titik jangkar · Seret: pindahkan titik, gagang, atau segmen · {shift}-klik: tambah · {alt}-klik: seluruh subpath
+	Draw with the Pen tool (P) or make a work path from a selection.	Gambar dengan alat Pen (P) atau buat work path dari seleksi.
+	Drop an image or PSD anywhere to open it.	Jatuhkan gambar atau PSD di mana saja untuk membukanya.
+	Duplicate Layers…	Duplikat Layer…
+	Duplicate style	Duplikat gaya
+	Edit Toolbar…	Edit Toolbar…
+	Edit in Quick Mask Mode  (Q)	Edit dalam Mode Quick Mask  (Q)
+	Edit in Standard Mode  (Q)	Edit dalam Mode Standar  (Q)
+	Effects	Efek
+	Embed Color Profile	Tanamkan Profil Warna
+	Embedded Profile Mismatch	Profil Tertanam Tidak Cocok
+	Enable airbrush-style build-up effects	Aktifkan efek build-up gaya airbrush
+	Enhance Edge	Pertegas Tepi
+	Entire Font	Seluruh Font
+	Exact	Tepat
+	Expansion:	Ekspansi:
+	Export Presets	Ekspor Preset
+	Export selected measurements (CSV)	Ekspor pengukuran terpilih (CSV)
+	Exposure	Eksposur
+	Exposure and Gamma	Eksposur dan Gamma
+	Exposure:	Eksposur:
+	Eyedropper	Eyedropper
+	Factor:	Faktor:
+	Faux Bold	Faux Bold
+	Faux Italic	Faux Italic
+	Feather	Feather
+	Fewer Points	Titik Lebih Sedikit
+	File Settings	Pengaturan Berkas
+	Fill	Isi
+	Fill:	Isi:
+	Filter for adjustment layers	Filter untuk layer penyesuaian
+	Filter for pixel layers	Filter untuk layer piksel
+	Filter for shape layers	Filter untuk layer bentuk
+	Filter for smart objects	Filter untuk smart object
+	Filter for type layers	Filter untuk layer teks
+	Filter:	Filter:
+	Finger Painting	Lukis Jari
+	Fisheye	Fisheye
+	Fit	Pas
+	Fit Screen	Pas Layar
+	Fit in View	Pas di Tampilan
+	Fixed	Tetap
+	Fixed Ratio	Rasio Tetap
+	Fixed Size	Ukuran Tetap
+	Flip	Balik
+	Flip X	Balik X
+	Flip X Jitter	Jitter Balik X
+	Flip Y	Balik Y
+	Flip Y Jitter	Jitter Balik Y
+	Flow	Aliran
+	Flow Jitter	Jitter Aliran
+	Focal Length	Panjang Fokal
+	Font	Font
+	Font Size:	Ukuran Font:
+	Font size	Ukuran font
+	Foreground	Foreground
+	Foreground to Background	Latar Depan ke Latar Belakang
+	Foreground/Background Jitter	Jitter Latar Depan/Latar Belakang
+	Format	Format
+	Frame from Layers…	Frame dari Layer…
+	Free	Bebas
+	Full Spherical	Bola Penuh
+	Fuzziness:	Kekaburan:
+	GPU	GPU
+	Gamma Correction	Koreksi Gamma
+	Gamma:	Gamma:
+	Global	Global
+	Glow Color	Warna Cahaya
+	Gradient Map	Peta Gradien
+	Grain	Grain
+	Gray	Abu-abu
+	Gray Gamma 2.2	Gray Gamma 2.2
+	Green	Hijau
+	Group	Grup
+	Hardness	Kekerasan
+	Heart	Hati
+	Height	Tinggi
+	Height:	Tinggi:
+	Hide Auto Slices	Sembunyikan Slice Otomatis
+	Hide Properties	Sembunyikan Properti
+	Highlight Compression	Kompresi Sorotan
+	Highlight Priority	Prioritas Sorotan
+	Highlights	Highlight
+	Home	Home
+	Horizontal scale	Skala horizontal
+	Hue	Hue
+	Hue Jitter	Jitter Hue
+	Hue/Saturation	Hue/Saturasi
+	Hyphenate	Tanda hubung otomatis
+	Ignore	Abaikan
+	Ignore All	Abaikan Semua
+	Image Size	Ukuran Gambar
+	Import Brushes…	Impor Kuas…
+	Import Photoshop brushes (.abr)	Impor kuas Photoshop (.abr)
+	Import Presets	Impor Preset
+	Imported	Diimpor
+	Indent First	Indentasi Pertama
+	Indent Left	Indentasi Kiri
+	Indent Right	Indentasi Kanan
+	Indent first line	Indentasi baris pertama
+	Indent left margin	Indentasi margin kiri
+	Indent right margin	Indentasi margin kanan
+	Input:	Input:
+	Inside	Di Dalam
+	Interlaced	Interlaced
+	Interpolation:	Interpolasi:
+	Intersect with selection  ({key})	Irisan dengan seleksi  ({key})
+	Invert All	Balikkan Semua
+	Invert has no settings.	Invert tidak punya pengaturan.
+	Italic	Miring
+	Join us on Discord	Bergabunglah dengan kami di Discord
+	Justify all	Rata penuh semua
+	Justify last centered	Rata penuh, baris terakhir di tengah
+	Justify last left	Rata penuh, baris terakhir di kiri
+	Justify last right	Rata penuh, baris terakhir di kanan
+	Kerning	Kerning
+	Keyboard Shortcuts	Pintasan Keyboard
+	Keyboard Shortcuts and Menus	Pintasan Keyboard dan Menu
+	Kind	Jenis
+	Label Size	Ukuran Label
+	Labels	Label
+	Lanczos (sharp)	Lanczos (tajam)
+	Landscape	Lanskap
+	Last Document State	Kondisi Dokumen Terakhir
+	Layout	Tata Letak
+	Leading	Leading
+	Leading (set to the font size × auto-leading when Auto)	Leading (diatur ke ukuran font × auto-leading saat Auto)
+	Leave as is (don't color manage)	Biarkan apa adanya (tanpa manajemen warna)
+	Left	Kiri
+	Left align text	Teks rata kiri
+	Length:	Panjang:
+	Level	Level
+	Levels	Level
+	Lighten	Cerahkan
+	Lightness	Lightness
+	Lights	Terang
+	Limits:	Batas:
+	Linear Gradient	Gradien Linear
+	Link layers	Tautkan layer
+	Link width and height	Tautkan lebar dan tinggi
+	Liquify is not open	Liquify tidak terbuka
+	Load	Muat
+	Load 3D LUT…	Muat 3D LUT…
+	Load Photoshop brushes (.abr)	Muat kuas Photoshop (.abr)
+	Load channel as selection	Muat saluran sebagai seleksi
+	Load…	Muat…
+	Localized Color Clusters	Klaster Warna Lokal
+	Lock	Kunci
+	Lock all	Kunci semua
+	Lock image pixels	Kunci piksel gambar
+	Lock layer	Kunci layer
+	Lock position	Kunci posisi
+	Lock transparent pixels	Kunci piksel transparan
+	Lock:	Kunci:
+	Logical Length:	Panjang Logis:
+	Logical Units:	Satuan Logis:
+	Luminance	Luminansi
+	Luminance Detail	Detail Luminansi
+	Magenta	Magenta
+	Magenta  ·  Green	Magenta  ·  Hijau
+	Maintain aspect ratio	Pertahankan rasio aspek
+	Marker Size	Ukuran Penanda
+	Mask All	Mask Semua
+	Mask Options	Opsi Mask
+	Masking	Masking
+	Master	Master
+	Matte	Matte
+	Median:	Median:
+	Menus	Menu
+	Mesh Size	Ukuran Mesh
+	Metadata	Metadata
+	Metrics	Metrik
+	Midpoint	Titik Tengah
+	Midtones	Midtone
+	Midtones from:	Midtone dari:
+	Midtones to:	Midtone ke:
+	Minimum Depth	Kedalaman Minimum
+	Minimum Diameter	Diameter Minimum
+	Minimum Roundness	Kebulatan Minimum
+	Mode:	Mode:
+	Monochrome	Monokrom
+	More Points	Titik Lebih Banyak
+	Move effect layer down	Turunkan layer efek
+	Move effect layer up	Naikkan layer efek
+	Move to	Pindah ke
+	Name	Nama
+	Name:	Nama:
+	Nearest Neighbor	Nearest Neighbor
+	Nearest Neighbor (hard edges)	Nearest Neighbor (tepi keras)
+	New Size	Ukuran Baru
+	New document…	Dokumen baru…
+	New effect layer	Layer efek baru
+	New selection	Seleksi baru
+	Next frame	Frame berikutnya
+	Next note	Catatan berikutnya
+	No Color	Tanpa Warna
+	No Color Management	Tanpa Manajemen Warna
+	No Dither	Tanpa Dither
+	No author	Tanpa penulis
+	No character style	Tanpa gaya karakter
+	No document	Tidak ada dokumen
+	No matching commands	Tidak ada perintah yang cocok
+	No presets for the current tool.	Tidak ada preset untuk alat saat ini.
+	No presets of this type.	Tidak ada preset dengan jenis ini.
+	No properties	Tidak ada properti
+	No tool presets.	Tidak ada preset alat.
+	Noise Reduction	Pengurangan Noise
+	Normal	Normal
+	Not in Dictionary:	Tidak Ada di Kamus:
+	OK	OK
+	Offset	Offset
+	Only Web Colors	Hanya Warna Web
+	Opacity	Opasitas
+	Opacity Jitter	Jitter Opasitas
+	Opacity:	Opasitas:
+	Open a document to define variables.	Buka dokumen untuk menentukan variabel.
+	Open a document to select a colour range.	Buka dokumen untuk memilih rentang warna.
+	Open a document to use the timeline.	Buka dokumen untuk memakai timeline.
+	Optical	Optik
+	Optimized	Dioptimalkan
+	Option-click to define a source point to clone from	Option-klik untuk menentukan titik sumber yang akan dikloning
+	Original	Asli
+	Output Channel:	Saluran Output:
+	Output Levels:	Level Output:
+	Output:	Output:
+	Outside	Di Luar
+	Overlay Color	Warna Overlay
+	Overlay Opacity	Opasitas Overlay
+	Overlay: Rule of Thirds	Overlay: Aturan Sepertiga
+	Override Pressure	Timpa Tekanan
+	Override Rotation	Timpa Rotasi
+	Override Tilt	Timpa Kemiringan
+	PRESET DETAILS	DETAIL PRESET
+	PSD	PSD
+	Paint Overlay	Overlay Cat
+	Panel locations are saved in the workspace. Keyboard shortcuts, menus and toolbar are optional.	Posisi panel disimpan di ruang kerja. Pintasan keyboard, menu, dan toolbar bersifat opsional.
+	Paper	Kertas
+	Path	Path
+	Pattern	Pola
+	Pattern Size	Ukuran Pola
+	Pause	Jeda
+	Percent	Persen
+	Perceptual	Perceptual
+	Perspective Warp is not active	Perspective Warp tidak aktif
+	Perspective Warp: draw planes along the image's perspective, then switch to Warp	Perspective Warp: gambar bidang mengikuti perspektif gambar, lalu pindah ke Warp
+	Photo Filter	Filter Foto
+	Local Image	Local Image
+	Local Image Manages Colors	Local Image Mengelola Warna
+	Local Image — an open-source, native image editor written in Rust.	Local Image — editor gambar native open-source yang ditulis dengan Rust.
+	Pin Depth:	Kedalaman Pin:
+	Pixel Length:	Panjang Piksel:
+	Pixels/Centimeter	Piksel/Sentimeter
+	Pixels/Inch	Piksel/Inci
+	Pixels:	Piksel:
+	Play	Putar
+	Play selection	Putar seleksi
+	Portrait	Potret
+	Position	Posisi
+	Position and Size	Posisi dan Ukuran
+	Posterize	Posterisasi
+	Preserve Details	Pertahankan Detail
+	Preserve Luminosity	Pertahankan Luminansi
+	Preset	Preset
+	Preset Type	Jenis Preset
+	Preset:	Preset:
+	Presets:	Preset:
+	Press keys…	Tekan tombol…
+	Pressure	Tekanan
+	Pressure for Opacity	Tekanan untuk Opasitas
+	Pressure for Size	Tekanan untuk Ukuran
+	Prevent auto-nesting in and out of Artboards and Frames	Cegah auto-nesting masuk dan keluar Artboard dan Frame
+	Preview	Pratinjau
+	Previous frame	Frame sebelumnya
+	Previous note	Catatan sebelumnya
+	Print	Cetak
+	Printer	Printer
+	Printer Manages Colors	Printer Mengelola Warna
+	Printer Setup	Pengaturan Printer
+	Printing Marks	Tanda Cetak
+	Progressive	Progresif
+	Promote	Promosikan
+	Protect Detail	Lindungi Detail
+	Protect Foreground Color	Lindungi Warna Depan
+	Protect Tones	Lindungi Tone
+	Proximity Match	Proximity Match
+	Pulled String Mode	Mode Pulled String
+	Puppet Warp is not active	Puppet Warp tidak aktif
+	Purity	Kemurnian
+	Quality	Kualitas
+	Quick Actions	Aksi Cepat
+	Quick Export As PNG	Ekspor Cepat Sebagai PNG
+	Radial Gradient	Gradien Radial
+	Radius	Radius
+	Radius:	Radius:
+	Range:	Rentang:
+	Rate	Rate
+	Recently Used	Baru Dipakai
+	Reconstruct	Rekonstruksi
+	Record ● a sequence of edits, then play ▶ it on any document.	Rekam ● urutan pengeditan, lalu putar ▶ di dokumen apa saja.
+	Red	Merah
+	Redefine style by current selection	Definisikan ulang gaya dengan seleksi saat ini
+	Reflected Gradient	Gradien Pantulan
+	Registration Marks	Tanda Registrasi
+	Regular	Reguler
+	Relative	Relatif
+	Relative Colorimetric	Kolorimetri Relatif
+	Remove	Hapus
+	Remove All Pins	Hapus Semua Pin
+	Remove Background	Hapus Background
+	Remove Planes	Hapus Bidang
+	Remove stop	Hapus stop
+	Remove variable	Hapus variabel
+	Rename	Ganti Nama
+	Rename Group…	Ganti Nama Grup…
+	Rename Layer…	Ganti Nama Layer…
+	Rename Tool Preset…	Ganti Nama Preset Alat…
+	Rename…	Ganti Nama…
+	Resample	Resample
+	Reset All to Defaults	Reset Semua ke Default
+	Reset Section	Reset Bagian
+	Reset Transform	Reset Transformasi
+	Reset to defaults	Reset ke default
+	Resolution	Resolusi
+	Resolution:	Resolusi:
+	Restore All	Pulihkan Semua
+	Restore Defaults	Pulihkan Default
+	Restrictive (Web)	Restriktif (Web)
+	Right	Kanan
+	Right align text	Teks rata kanan
+	Rigid	Kaku
+	Rotate:	Putar:
+	Rotation	Rotasi
+	Roughness	Kekasaran
+	Roundness	Kebulatan
+	Roundness Jitter	Jitter Kebulatan
+	Rulers & Grids	Penggaris & Grid
+	Sample All Layers	Sampel Semua Layer
+	Sample:	Sampel:
+	Sampling: Background Swatch	Sampling: Swatch Latar Belakang
+	Sampling: Continuous	Sampling: Kontinu
+	Sampling: Once	Sampling: Sekali
+	Saturate	Saturasi
+	Saturation	Saturasi
+	Saturation Jitter	Jitter Saturasi
+	Save HTML and Images	Simpan HTML dan Gambar
+	Save as PDF	Simpan sebagai PDF
+	Save selection as channel	Simpan seleksi sebagai saluran
+	Save…	Simpan…
+	Scale to Fit Media	Skala agar Sesuai Media
+	Scatter	Sebar
+	Scratch disks	Disk Gores
+	Search	Cari
+	Search commands	Cari perintah
+	Search commands, tools and panels…	Cari perintah, alat, dan panel…
+	Search fonts	Cari font
+	Select All	Pilih Semua
+	Select Subject	Pilih Subjek
+	Select a type layer or click into text to insert glyphs	Pilih layer teks atau klik ke dalam teks untuk menyisipkan glyph
+	Select text to apply a character style	Pilih teks untuk menerapkan gaya karakter
+	Select:	Pilih:
+	Selections	Seleksi
+	Selective	Selektif
+	Selective Color	Warna Selektif
+	Send the selected pin backward	Mundurkan pin terpilih
+	Set additional smoothing options	Atur opsi penghalusan tambahan
+	Set background color	Atur warna belakang
+	Set foreground color	Atur warna depan
+	Set painting symmetry options	Atur opsi simetri lukisan
+	Set shape fill type	Atur jenis isian bentuk
+	Set shape stroke type	Atur jenis goresan bentuk
+	Set the text color	Atur warna teks
+	Shadows	Bayangan
+	Shape:	Bentuk:
+	Sharpening	Penajaman
+	Shift	Shift
+	Shortcut removed.	Pintasan dihapus.
+	Show All Menu Items	Tampilkan Semua Item Menu
+	Show Backdrop	Tampilkan Backdrop
+	Show Guides	Tampilkan Panduan
+	Show Mask	Tampilkan Mask
+	Show Mesh	Tampilkan Mesh
+	Show Overlay	Tampilkan Overlay
+	Show Transform Controls	Tampilkan Kontrol Transformasi
+	Show or hide the Notes panel	Tampilkan atau sembunyikan panel Catatan
+	Show:	Tampilkan:
+	Sides	Sisi
+	Sides:	Sisi:
+	Size	Ukuran
+	Size Jitter	Jitter Ukuran
+	Size:	Ukuran:
+	Slice Options…	Opsi Slice…
+	Slices From Guides	Slice dari Panduan
+	Slices are locked (View › Lock Slices)	Slice terkunci (Tampilan › Kunci Slice)
+	Small Caps	Kapital Kecil
+	Smoothing	Penghalusan
+	Space After	Spasi Setelah
+	Space Before	Spasi Sebelum
+	Spacing	Jarak
+	Spell check complete.	Pemeriksaan ejaan selesai.
+	Split:	Bagi:
+	Star ratio	Rasio bintang
+	Stop playing/recording	Hentikan putar/rekam
+	Straighten	Luruskan
+	Straighten Layer	Luruskan Layer
+	Strength:	Kekuatan:
+	Strikethrough	Coret
+	Stroke	Stroke
+	Stroke Catch-up	Stroke Catch-up
+	Stroke:	Goresan:
+	Style	Gaya
+	Style Options	Opsi Gaya
+	Style Options…	Opsi Gaya…
+	Style: Normal	Gaya: Normal
+	Subtract from Sample	Kurangi dari Sampel
+	Subtract from selection  ({key})	Kurangi dari seleksi  ({key})
+	Suggestions:	Saran:
+	Swap colours (X)	Tukar warna (X)
+	Swaps height and width	Tukar tinggi dan lebar
+	Switch between free transform and warp modes	Beralih antara mode transformasi bebas dan warp
+	Switch theme	Ganti tema
+	Temperature	Temperatur
+	Tetrahedral	Tetrahedral
+	Text Position:	Posisi Teks:
+	Texture	Tekstur
+	Texture Each Tip	Tekstur Setiap Ujung
+	Threshold	Threshold
+	Threshold Level	Level Threshold
+	Thumbnail size (smallest: list)	Ukuran thumbnail (terkecil: daftar)
+	Tilt X	Kemiringan X
+	Tilt Y	Kemiringan Y
+	Tint	Tint
+	Toggle count group visibility	Alihkan visibilitas grup hitungan
+	Toggle text orientation	Alihkan orientasi teks
+	Tolerance	Toleransi
+	Tolerance:	Toleransi:
+	Tone:	Tone:
+	Toolbar	Toolbar
+	Top	Atas
+	Total:	Total:
+	Tracking	Tracking
+	Tracking (1/1000 em)	Tracking (1/1000 em)
+	Transparency	Transparansi
+	Transparent	Transparan
+	Trilinear	Trilinear
+	Type Styles	Gaya Teks
+	Type:	Jenis:
+	Underline	Garis Bawah
+	Untitled	Tanpa Judul
+	Untitled-1	Tanpa Judul-1
+	Update layer comp (visibility, position and appearance)	Perbarui komposisi layer (visibilitas, posisi, dan tampilan)
+	Use Default	Gunakan Default
+	Use Legacy	Gunakan Versi Lama
+	Use Measurement Scale	Gunakan Skala Pengukuran
+	Use the embedded profile (instead of the working space)	Gunakan profil tertanam (bukan ruang kerja)
+	Variables bind a layer's visibility, text or pixels to a named data slot.	Variabel mengikat visibilitas, teks, atau piksel sebuah lapisan ke slot data bernama.
+	Vertical scale	Skala vertikal
+	Vibrance	Vibrance
+	View Options	Opsi Tampilan
+	Vignetting	Vignetting
+	Violet, Orange	Ungu, Oranye
+	Visibility	Visibilitas
+	Visible	Terlihat
+	Warp:	Warp:
+	Web Snap	Web Snap
+	Weight	Ketebalan
+	Weight:	Ketebalan:
+	White	Putih
+	White Balance: As Shot	White Balance: Sesuai Pemotretan
+	Whites	Putih
+	Width	Lebar
+	Width:	Lebar:
+	Work Path	Jalur Kerja
+	Yellow	Kuning
+	Yellow  ·  Blue	Kuning  ·  Biru
+	Zoom	Zoom
+	Zoom in	Perbesar
+	Zoom out	Perkecil
+	command or shortcut	perintah atau pintasan
+	current	saat ini
+	image file path	jalur berkas gambar
+	modified	dimodifikasi
+	name	nama
+	new	baru
+	{name} options	Opsi {name}
+	↑↓ navigate   {key} run   esc close	↑↓ navigasi   {key} jalankan   esc tutup
+	Version {version}	Versi {version}
+	New Document	Dokumen Baru
+	Error	Error
+	Command	Perintah
+	Adjustment layers have nothing to transform	Lapisan penyesuaian tidak ada yang bisa ditransformasi
+	Altitude	Ketinggian
+	Android 1080p	Android 1080p
+	Apple Watch 45mm	Apple Watch 45mm
+	Aqua	Aqua
+	Art & Illustration	Seni & Ilustrasi
+	ArtCraft	ArtCraft
+	Background Eraser Tool	Alat Penghapus Latar Belakang
+	Bevel & Emboss	Bevel & Emboss
+	Blend Mode	Mode Blend
+	Blues	Biru
+	Blur Tool	Alat Blur
+	Bold	Tebal
+	Brush	Kuas
+	Brush Pose	Pose Kuas
+	Brush Tip Shape	Bentuk Ujung Kuas
+	Brush Tool	Alat Kuas
+	Build-up	Build-up
+	Burn Tool	Alat Burn
+	Centimeters	Sentimeter
+	Choke	Choke
+	Classic	Klasik
+	Click to add text	Klik untuk menambah teks
+	Click to fill similar colours	Klik untuk mengisi warna serupa
+	Clone Stamp Tool	Alat Stempel Klon
+	Color Burn	Color Burn
+	Color Dodge	Color Dodge
+	Color Dynamics	Dinamika Warna
+	Color Overlay	Overlay Warna
+	Comic Book	Komik
+	Conform	Conform
+	Content-Aware Fill needs a selection on a pixel layer	Isi Content-Aware memerlukan seleksi pada lapisan piksel
+	Could not transform: the layer is empty	Tidak bisa transformasi: lapisannya kosong
+	Could not use Perspective Warp: the layer is empty	Tidak bisa pakai Warp Perspektif: lapisannya kosong
+	Could not use Puppet Warp: no opaque pixels	Tidak bisa pakai Warp Boneka: tidak ada piksel opak
+	Could not use Puppet Warp: the layer is empty	Tidak bisa pakai Warp Boneka: lapisannya kosong
+	Crop Tool	Alat Pangkas
+	Crosswise	Silang
+	Current Tool	Alat Saat Ini
+	Custom Shape Tool	Alat Bentuk Kustom
+	Cyans	Cyan
+	Default Photoshop Size	Ukuran Default Photoshop
+	Delete Workspace	Hapus Ruang Kerja
+	Diamond	Diamond
+	Dimensions:	Dimensi:
+	Direction	Arah
+	Distance	Jarak
+	Document Dimensions	Dimensi Dokumen
+	Document Profile	Profil Dokumen
+	Document Sizes	Ukuran Dokumen
+	Dodge Tool	Alat Dodge
+	Down	Bawah
+	Drag to draw a gradient	Seret untuk menggambar gradien
+	Drag to move the active layer	Seret untuk memindah lapisan aktif
+	Drag to pan  ·  hold Space with any tool	Seret untuk menggeser  ·  tahan Space dengan alat apa saja
+	Drop Shadow	Bayangan Jatuh
+	Dual Brush	Kuas Ganda
+	Edge	Tepi
+	Efficiency	Efisiensi
+	Efficiency: 100%	Efisiensi: 100%
+	Ellipse Tool	Alat Elips
+	Elliptical Marquee Tool	Alat Elliptical Marquee
+	Emboss	Emboss
+	Eraser	Penghapus
+	Eraser Tool	Alat Penghapus
+	ExtraBold	ExtraBold
+	ExtraLight	ExtraLight
+	Eyedropper Tool	Alat Eyedropper
+	Fade	Pudar
+	Fill Opacity	Opasitas Isian
+	Film & Video	Film & Video
+	From	Dari
+	General	Umum
+	GitHub	GitHub
+	Gradient Overlay	Overlay Gradien
+	Gradient Tool	Alat Gradien
+	Greens	Hijau
+	Hand Tool	Alat Hand
+	Hard	Keras
+	Hard Mix	Hard Mix
+	Healing Brush Tool	Alat Healing Brush
+	Highlights from:	Sorotan dari:
+	History Brush Tool	Alat History Brush
+	Horizontal Type Tool	Alat Teks Horizontal
+	Image Size:	Ukuran Gambar:
+	Inches	Inci
+	Indexed	Terindeks
+	Initial Direction	Arah Awal
+	Inner Bevel	Bevel Dalam
+	Inner Glow	Cahaya Dalam
+	Inner Shadow	Bayangan Dalam
+	Lab	Lab
+	Landscape, 10 x 8	Lanskap, 10 x 8
+	Landscape, 6 x 4	Lanskap, 6 x 4
+	Landscape, 7 x 5	Lanskap, 7 x 5
+	Lasso	Lasso
+	Lasso Tool	Alat Lasso
+	Layer Count	Jumlah Layer
+	Layer Knocks Out Drop Shadow	Layer Menghilangkan Drop Shadow
+	Legal	Legal
+	Letter	Letter
+	Light	Light
+	Line Tool	Alat Garis
+	Linear	Linear
+	Linear Burn	Linear Burn
+	Linear Height	Tinggi Linear
+	Link with Layer	Tautkan dengan Layer
+	Lorem Ipsum	Lorem Ipsum
+	Magentas	Magenta
+	Magic Eraser Tool	Alat Magic Eraser
+	Magic Wand Tool	Alat Magic Wand
+	Marquee	Marquee
+	Mean:	Rata-rata:
+	Measurement Scale	Skala Pengukuran
+	Measurement Scale Marker	Penanda Skala Pengukuran
+	Millimeters	Milimeter
+	Mobile	Seluler
+	Move Tool	Alat Pindah
+	Multiply	Multiply
+	My Brushes	Kuas Saya
+	Neutrals	Netral
+	New Workspace	Ruang Kerja Baru
+	Note Tool	Alat Catatan
+	Object Selection Tool	Alat Object Selection
+	Off	Mati
+	Open	Buka
+	Orange	Oranye
+	Original Ratio	Rasio Asli
+	Out Of Gamut	Di Luar Gamut
+	Outer Bevel	Bevel Luar
+	Outer Glow	Cahaya Luar
+	Overlay	Overlay
+	Paint Bucket Tool	Alat Paint Bucket
+	Paints from the document's opening state	Melukis dari kondisi awal dokumen saat dibuka
+	Path Selection Tool	Alat Path Selection
+	Direct Selection Tool	Alat Direct Selection
+	Pattern Overlay	Overlay Pola
+	Pen Pressure	Tekanan Pena
+	Pen Tilt	Kemiringan Pena
+	Pen Tool	Alat Pen
+	Photo	Foto
+	Local Image website	Situs web Local Image
+	Picas	Pica
+	Pillow Emboss	Pillow Emboss
+	Pixel Replacement	Penggantian Piksel
+	Pixels	Piksel
+	Points	Poin
+	Polygon Tool	Alat Polygon
+	Polygonal Lasso Tool	Alat Polygonal Lasso
+	Portrait, 4 x 6	Potret, 4 x 6
+	Portrait, 5 x 7	Potret, 5 x 7
+	PostScript (72 points/inch)	PostScript (72 poin/inci)
+	Postcard	Kartu Pos
+	Poster	Poster
+	Pro (Dark)	Pro (Gelap)
+	Pro (Medium Gray)	Pro (Abu-abu Sedang)
+	Protect Texture	Lindungi Tekstur
+	Purple	Ungu
+	Quick Mask	Quick Mask
+	Quick Selection Tool	Alat Quick Selection
+	Radial	Radial
+	Rasterize Layer	Rasterisasi Layer
+	Ratio	Rasio
+	Recent	Terbaru
+	Rectangle Tool	Alat Rectangle
+	Rectangular Marquee Tool	Alat Rectangular Marquee
+	Reds	Merah
+	Reflected	Pantulan
+	Sample: foreground colour	Sampel: warna foreground
+	Sampled Colors	Warna Sampel
+	Satin	Satin
+	Save Pixel Aspect Ratio	Simpan Rasio Aspek Piksel
+	Scattering	Scattering
+	Scratch Sizes	Ukuran Scratch
+	Select Data Points	Pilih Titik Data
+	Selection	Seleksi
+	SemiBold	SemiBold
+	Shadows up to:	Bayangan sampai:
+	Shape Dynamics	Dinamika Bentuk
+	Sharpen Tool	Alat Sharpen
+	Show Extras Options	Opsi Tampilkan Ekstra
+	Slice Select Tool	Alat Slice Select
+	Slice Tool	Alat Slice
+	Smart Filters	Filter Cerdas
+	Smudge Tool	Alat Smudge
+	Soft	Lembut
+	Soften	Lembutkan
+	Source	Sumber
+	Source: set	Sumber: sudah diatur
+	Sponge Tool	Alat Sponge
+	Spot Healing Brush Tool	Alat Spot Healing Brush
+	Spread	Sebar
+	Square, 12 x 12	Persegi, 12 x 12
+	Square, 5 x 5	Persegi, 5 x 5
+	Std Dev:	Std Dev:
+	Studio (Dark)	Studio (Gelap)
+	Studio (Light)	Studio (Terang)
+	Stylus Wheel	Stylus Wheel
+	Subtract	Kurangi
+	Tabloid	Tabloid
+	Text Replacement	Penggantian Teks
+	Thin	Tipis
+	Traditional (72.27 points/inch)	Tradisional (72.27 poin/inci)
+	Transfer	Transfer
+	Triangle Tool	Alat Triangle
+	Unsaved changes	Perubahan belum disimpan
+	Uses the foreground and background colours.	Memakai warna foreground dan background.
+	Web	Web
+	Web Large	Web Besar
+	Web Minimum	Web Minimum
+	Web Most Common	Web Paling Umum
+	WebP (lossless)	WebP (lossless)
+	Wet Edges	Tepi Basah
+	Yellows	Kuning
+	Zoom Tool	Alat Zoom
+	{name} Properties	Properti {name}
+	Revert “{name}” to the last saved version? Your changes will be lost.	Kembalikan “{name}” ke versi terakhir yang disimpan? Perubahan Anda akan hilang.
+	Do you want to save the changes you made to “{name}” before quitting?	Apakah Anda ingin menyimpan perubahan yang Anda buat pada “{name}” sebelum keluar?
+	Do you want to save the changes you made to “{name}” before closing?	Apakah Anda ingin menyimpan perubahan yang Anda buat pada “{name}” sebelum ditutup?
+	Doc: {flat}/{layered}	Dok: {flat}/{layered}
+	Scratch: {size}	Scratch: {size}
+	Untagged {mode}	{mode} Tanpa Tag
+	{w} px x {h} px ({ppi} ppi)	{w} px x {h} px ({ppi} ppi)
+	Resolution: {dpi} pixels/inch	Resolusi: {dpi} piksel/inci
+	Doc: {w} × {h} px	Dok: {w} × {h} px
+	Frame {current} / {total}	Frame {current} / {total}
+	Count: {n}	Jumlah: {n}
+	BLANK DOCUMENT PRESETS ({n})	PRESET DOKUMEN KOSONG ({n})
+	Constraints ({n})	Batasan ({n})
+	Align {what}	Rata {what}
+@plural	{n} Layer|{n} Layers	{n} Layer
+@plural	{n} layer|{n} layers	{n} layer
+@plural	Group · {n} layer|Group · {n} layers	Grup · {n} layer
+	Additional plugins folder	Folder plugin tambahan
+	Adobe	Adobe
+	Adobe rgb	Adobe RGB
+	Allow agent control	Izinkan kontrol agen
+	Allow scripts to connect	Izinkan skrip terhubung
+	Always	Selalu
+	Always create smart objects when placing	Selalu buat smart object saat menempatkan
+	Animated zoom	Zoom beranimasi
+	Apply auto tone	Terapkan auto tone
+	Ask	Tanya
+	Ask before saving layered tiff	Tanya sebelum menyimpan TIFF berlapis
+	Auto collapse icon panels	Ciutkan otomatis panel ikon
+	Auto show hidden panels	Tampilkan otomatis panel tersembunyi
+	Auto show home screen	Tampilkan otomatis layar beranda
+	Autosave	Simpan otomatis
+	Autosave minutes	Menit simpan otomatis
+	Beep when done	Bunyi bip saat selesai
+	Bicubic automatic	Bicubic otomatis
+	Bicubic sharper	Bicubic lebih tajam
+	Bicubic smoother	Bicubic lebih halus
+	Bit depth	Kedalaman bit
+	Brush preview color	Warna pratinjau kuas
+	Cache levels	Level cache
+	Cache tile size	Ukuran tile cache
+	Camera Raw Defaults	Default Camera Raw
+	Canvas border	Border kanvas
+	Canvas color	Warna kanvas
+	Canvas custom color	Warna kustom kanvas
+	Color picker	Pemilih warna
+	Color space	Ruang warna
+	Column width	Lebar kolom
+	Concise	Ringkas
+	Control port	Port kontrol
+	Convert to srgb	Konversi ke sRGB
+	Cursors	Kursor
+	Custom dark	Gelap kustom
+	Custom light	Terang kustom
+	Dark	Gelap
+	Dark gray	Abu-abu gelap
+	Dashed lines	Garis putus-putus
+	Destination	Tujuan
+	Detailed	Terperinci
+	Disks	Disk
+	Display p3	Display P3
+	Double click layer mask launches select and mask	Klik dua kali layer mask membuka Select and Mask
+	Drop shadow	Bayangan jatuh
+	Dynamic color sliders	Slider warna dinamis
+	East asian	Asia Timur
+	Effect cache mb	Cache efek MB
+	Enable flick panning	Aktifkan flick panning
+	Enable floating document window docking	Aktifkan docking jendela dokumen mengambang
+	Enable narrow options bar	Aktifkan bilah opsi sempit
+	Enabled	Aktif
+	Enhanced Controls	Kontrol Lanjutan
+	Export clipboard	Ekspor clipboard
+	Extra large	Sangat besar
+	File Handling	Penanganan Berkas
+	File path	Path berkas
+	Fill new type layers with placeholder	Isi layer teks baru dengan placeholder
+	Font preview	Pratinjau font
+	Full size tip	Ujung ukuran penuh
+	Gamut warning color	Warna peringatan gamut
+	Gamut warning opacity	Opasitas peringatan gamut
+	Generator enabled	Generator aktif
+	Gif	GIF
+	Glossy	Mengilap
+	Grid color	Warna grid
+	Grid colors	Warna grid
+	Grid size	Ukuran grid
+	Grid style	Gaya grid
+	Grid unit	Satuan grid
+	Gridline every	Garis grid setiap
+	Guide color	Warna panduan
+	Guide style	Gaya panduan
+	Guides, Grid & Slices	Panduan, Grid & Slice
+	Gutter	Gutter
+	History Log	Log Riwayat
+	History states	Status riwayat
+	Ignore exif profile tag	Abaikan tag profil EXIF
+	Image interpolation	Interpolasi gambar
+	Image previews	Pratinjau gambar
+	Integrations	Integrasi
+	Interface	Antarmuka
+	Jpeg quality	Kualitas JPEG
+	Jpg	JPG
+	Language	Bahasa
+	Large tabs	Tab besar
+	Legacy compositing	Compositing lama
+	Light gray	Abu-abu terang
+	Line	Garis
+	Lines	Garis
+	Lossless	Tanpa kehilangan
+	Lowercase extension	Ekstensi huruf kecil
+	Maximize psd compatibility	Maksimalkan kompatibilitas PSD
+	Medium gray	Abu-abu sedang
+	Memory usage mb	Pemakaian memori MB
+	Missing glyph protection	Perlindungan glyph hilang
+	Modern	Modern
+	Nearest neighbor	Nearest neighbor
+	Never	Tidak pernah
+	Normal tip	Ujung normal
+	Open as smart object	Buka sebagai smart object
+	Open documents as tabs	Buka dokumen sebagai tab
+	Overscroll	Overscroll
+	Performance	Performa
+	Png	PNG
+	Point size	Ukuran poin
+	Precise	Presisi
+	Preserve details	Pertahankan detail
+	Print resolution	Resolusi cetak
+	Pro	Pro
+	Pro medium	Pro sedang
+	Pro photo	Pro photo
+	Quick export format	Format ekspor cepat
+	Quick export location	Lokasi ekspor cepat
+	Recent file count	Jumlah berkas terbaru
+	Recent files	Berkas terbaru
+	Recent fonts	Font terbaru
+	Recover on launch	Pulihkan saat dibuka
+	Remember workspace changes	Ingat perubahan ruang kerja
+	Resize image during place	Ubah ukuran gambar saat menempatkan
+	Rotate view with trackpad	Putar tampilan dengan trackpad
+	Same folder	Folder yang sama
+	Save in background	Simpan di latar belakang
+	Scratch Disks	Scratch Disk
+	Screen	Layar
+	Screen resolution	Resolusi layar
+	Scrubby slider acceleration	Akselerasi slider scrubby
+	Sessions only	Hanya sesi
+	Sharpen for	Pertajam untuk
+	Show channels in color	Tampilkan saluran berwarna
+	Show crosshair in brush tip	Tampilkan crosshair di ujung kuas
+	Show extension panels	Tampilkan panel ekstensi
+	Show font names in english	Tampilkan nama font dalam bahasa Inggris
+	Show menu colors	Tampilkan warna menu
+	Show only crosshair while painting	Tampilkan crosshair saja saat melukis
+	Show slice numbers	Tampilkan nomor slice
+	Show tooltips	Tampilkan tooltip
+	Show transformation values	Tampilkan nilai transformasi
+	Slice color	Warna slice
+	Smart guide color	Warna smart guide
+	Smart quotes	Tanda kutip pintar
+	Snap vector tools and transforms to pixel grid	Snap alat vektor dan transformasi ke grid piksel
+	Srgb	sRGB
+	Standard	Standar
+	Studio	Studio
+	Studio light	Studio terang
+	Subdivisions	Subdivisi
+	System	Sistem
+	Text engine	Mesin teks
+	Text file	Berkas teks
+	Tiny	Mungil
+	Touch gestures	Gestur sentuh
+	Transparency & Gamut	Transparansi & Gamut
+	Type units	Satuan teks
+	UI font size	Ukuran font UI
+	UI scale	Skala UI
+	Units & Rulers	Satuan & Penggaris
+	Use additional plugins folder	Gunakan folder plugin tambahan
+	Use esc to commit	Gunakan Esc untuk menerapkan
+	Use gpu	Gunakan GPU
+	Use legacy free transform	Gunakan free transform lama
+	Use shift key for tool switch	Gunakan tombol Shift untuk ganti alat
+	Vary round brush hardness on hud	Variasikan kekerasan kuas bulat di HUD
+	Webp	WebP
+	World ready	World-ready
+	Zoom clicked point to center	Zoom titik yang diklik ke tengah
+	Zoom resizes windows	Zoom mengubah ukuran jendela
+	Zoom with scroll wheel	Zoom dengan roda scroll
+	Zoom with trackpad pinch	Zoom dengan cubit trackpad
+	Pass Through	Pass Through
+	Dissolve	Dissolve
+	Darker Color	Darker Color
+	Linear Dodge (Add)	Linear Dodge (Add)
+	Lighter Color	Lighter Color
+	Soft Light	Soft Light
+	Hard Light	Hard Light
+	Vivid Light	Vivid Light
+	Linear Light	Linear Light
+	Pin Light	Pin Light
+	Exclusion	Exclusion
+	Divide	Divide
+	Luminosity	Luminosity
+@plural	{n} sample|{n} samples	{n} sampel
+	{added}, {removed} subtracted	{added}, {removed} dikurangi
+	Adjustment Preview	Pratinjau Penyesuaian
+	Airbrush: keeps depositing paint while the pointer rests.	Airbrush: terus menyemprotkan cat selama penunjuk diam.
+	Angle:	Sudut:
+	Blend If	Blend If
+	Close Tab Group	Tutup Grup Tab
+	Collapse	Ciutkan
+	Collapse All Groups	Ciutkan Semua Grup
+	Collapse Panel Group	Ciutkan Grup Panel
+	Collapse group  ({key}-click: all groups)	Ciutkan grup  ({key}-klik: semua grup)
+	Create new brush from the current settings	Buat kuas baru dari pengaturan saat ini
+	Create new brush from these settings	Buat kuas baru dari pengaturan ini
+	Delete brush	Hapus kuas
+	Drag the arrow to set the angle, the dots to set the roundness	Seret panah untuk mengatur sudut, titik untuk mengatur kebulatan
+	Expand	Bentangkan
+	Expand Panel Group	Bentangkan Grup Panel
+	Expand group  ({key}-click: all groups)	Bentangkan grup  ({key}-klik: semua grup)
+	Fade steps	Langkah pudar
+	Hide the layer's effects  ({key}-click: all layers)	Sembunyikan efek layer  ({key}-klik: semua layer)
+	Import Brushes… (.abr)	Impor Kuas… (.abr)
+	Move Group Down	Pindah Grup ke Bawah
+	Move Group Up	Pindah Grup ke Atas
+	Reset the brush to the defaults	Reset kuas ke default
+	Restore original size	Pulihkan ukuran asli
+	Roundness:	Kebulatan:
+	Search Brushes	Cari Kuas
+	Show the layer's effects  ({key}-click: all layers)	Tampilkan efek layer  ({key}-klik: semua layer)
+	Brush picker	Pemilih kuas
+	Erase	Hapus
+	Right click with painting tools	Klik kanan dengan alat lukis
+	System Info…	Info Sistem…
+	System Info	Info Sistem
+	More panels	Panel lainnya
+	These settings aren't available in Local Image yet.	Pengaturan ini belum tersedia di Local Image.
+	Graphics	Grafis
+	Reset GPU Backend	Reset Backend GPU
+	Applies at next launch.	Berlaku saat dibuka berikutnya.
+	Click to sample the foreground colour  ·  {key}-click for background	Klik untuk mengambil sampel warna foreground  ·  {key}-klik untuk background
+	{key}-click to set the source	{key}-klik untuk mengatur sumber
+	{key} to subtract	{key} untuk mengurangi
+	Clone source {n} ({key}-click with Clone Stamp to set)	Sumber clone {n} ({key}-klik dengan Clone Stamp untuk mengatur)
+	Source: not set ({key}-click with Clone Stamp)	Sumber: belum diatur ({key}-klik dengan Clone Stamp)
+	Pixel Layer	Layer Piksel
+	Type Layer	Layer Teks
+	Shape Layer	Layer Bentuk
+	Group Layer	Layer Grup
+	Fill Layer	Layer Isian
+	Smart Object Layer	Layer Smart Object
+	Create Warped Text	Buat Teks Warp
+	Rasterize Smart Object	Rasterisasi Smart Object
+	Rasterize Fill Content	Rasterisasi Konten Isian
+	Unlock: picking a preset replaces these settings	Buka kunci: memilih preset akan mengganti pengaturan ini
+	Lock: keep these settings when picking another preset	Kunci: pertahankan pengaturan ini saat memilih preset lain
+	Diameter:	Diameter:
+	Hardness:	Kekerasan:
+	No brush presets	Tidak ada preset kuas
+	Toggle the Brush Settings panel  (F5)	Alihkan panel Pengaturan Kuas  (F5)
+	Create new brush preset from the current settings	Buat preset kuas baru dari pengaturan saat ini
+	Brush Settings…  (F5): every option of this brush	Pengaturan Kuas…  (F5): semua opsi kuas ini
+	Rename Brush…	Ganti Nama Kuas…
+	Delete Brush	Hapus Kuas
+	Group name	Nama grup
+	Brush name	Nama kuas
+	Grid view	Tampilan grid
+	List view	Tampilan daftar
+	Off: the speed of the pointer sets the spacing	Mati: kecepatan penunjuk menentukan jarak
+	Tilt Scale	Skala Kemiringan
+	Brush Projection	Proyeksi Kuas
+	Apply the pen's tilt and rotation to the tip shape	Terapkan kemiringan dan rotasi pena ke bentuk ujung
+	Mixer Brush	Kuas Pencampur
+	Wet	Basah
+	Mix	Campur
+	Wetness Jitter	Jitter Kebasahan
+	Mix Jitter	Jitter Campuran
+	Show the layer mask as an overlay	Tampilkan layer mask sebagai overlay
+	Toggle visibility	Alihkan visibilitas
+	Unlink the mask from the layer	Lepas tautan mask dari layer
+	Link the mask to the layer	Tautkan mask ke layer
+	Gradient	Gradien
+	Gradient Options	Opsi Gradien
+	Align with layer	Sejajarkan dengan layer
+	Reset Alignment	Reset Penyelarasan
+	Centre the gradient (offset 0, 0)	Tengahkan gradien (offset 0, 0)
+	The current gradient (pick one in Window › Gradients)	Gradien saat ini (pilih di Jendela › Gradien)
+	Select a type layer to edit its character and paragraph settings.	Pilih layer teks untuk mengedit pengaturan karakter dan paragrafnya.
+	Text color	Warna teks
+	Type Options	Opsi Teks
+	Anti-aliasing method	Metode anti-aliasing
+	Horizontal type	Teks horizontal
+	Vertical type	Teks vertikal
+	Fill path with foreground color	Isi path dengan warna foreground
+	Stroke path with brush	Stroke path dengan kuas
+	Load path as a selection	Muat path sebagai seleksi
+	Make work path from selection	Buat work path dari seleksi
+	Add vector mask	Tambah mask vektor
+	Create new path	Buat path baru
+	Delete path	Hapus path
+	Delete vector mask	Hapus mask vektor
+	CPU (no GPU acceleration)	CPU (tanpa akselerasi GPU)
+	DirectX 12	DirectX 12
+	GPU backend	Backend GPU
+	Metal	Metal
+	OpenGL	OpenGL
+	Use tablet pressure	Gunakan tekanan tablet
+	Vulkan	Vulkan
+	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Tidak ada path untuk membuat seleksi: gambarlah dengan alat Pen atau pilih salah satu di panel Path.
+	Cancel opening	Batalkan pembukaan
+	Cancelled opening {name}	Pembukaan {name} dibatalkan
+	Cancelled {label}	{label} dibatalkan
+	Esc to cancel	Esc untuk batal
+	Opening {name}	Membuka {name}
+	Opening {name}…	Membuka {name}…
+	Opening…	Membuka…
+	Reading…	Membaca…
+	Working…	Memproses…
+	Delete Smart Filters	Hapus Smart Filter
+	Enable Smart Filters	Aktifkan Smart Filter
+	New Layer…	Layer Baru…
+	Delete Layer…	Hapus Layer…
+	Color Range	Rentang Warna
+	Select Similar Colors	Pilih Warna Serupa
+	New Selection	Seleksi Baru
+	Adaptive Wide Angle	Adaptive Wide Angle
+	Chalk & Charcoal	Chalk & Charcoal
+	Charcoal	Charcoal
+	Chrome	Chrome
+	Conté Crayon	Conté Crayon
+	Graphic Pen	Graphic Pen
+	Halftone Pattern	Pola Halftone
+	Note Paper	Kertas Catatan
+	Photocopy	Fotokopi
+	Plaster	Plaster
+	Reticulation	Reticulation
+	Stamp	Stempel
+	Torn Edges	Tepi Sobek
+	Water Paper	Kertas Air
+	Canvas rotation	Rotasi kanvas
+	Extensions	Ekstensi
+	Libraries	Pustaka
+	3D	3D
+	Toolbars	Toolbar
+	Move	Pindah
+	Wand	Wand
+	Pencil	Pensil
+	Clone Stamp	Clone Stamp
+	Healing	Healing
+	Dodge	Dodge
+	Burn	Burn
+	Pen	Pen
+	Hand	Hand
+	Sampler	Sampler
+	Note tool	Alat catatan
+	Quick Selection	Quick Selection
+	Magnetic Lasso	Magnetic Lasso
+	History Brush	History Brush
+	Art History Brush	Art History Brush
+	Pattern Stamp	Pattern Stamp
+	Spot Healing	Spot Healing
+	Red Eye	Red Eye
+	Patch	Patch
+	Content-Aware Move	Content-Aware Move
+	Rotate View	Putar Tampilan
+	Perspective Crop	Crop Perspektif
+	Color Replacement	Penggantian Warna
+	Dodge/Burn	Dodge/Burn
+	Dynamics	Dinamika
+	Tilt	Miring
+	Reset	Reset
+	Defaults restored.	Default dipulihkan.
+	Stop	Berhenti
+	Create new set	Buat set baru
+	Technology Previews	Pratinjau Teknologi
+	New Group	Grup Baru
+	Layer Comp	Layer Comp
+	Create new layer	Buat layer baru
+	Group · {n} layer	Grup · {n} layer
+	General Blend	Blend Umum
+	Advanced Blending	Blending Lanjutan
+	RGB	RGB
+	Alpha	Alpha
+	Spot Channel	Spot Channel
+	Working Gray Plate	Pelat Abu-abu Kerja
+	HSL/Grayscale	HSL/Grayscale
+	Tone Curve	Kurva Tone
+	Split Toning	Split Toning
+	Lens Corrections	Koreksi Lensa
+	Camera Calibration	Kalibrasi Kamera
+	Snapshots	Snapshot
+	Recovery	Recovery
+	Fill Light	Fill Light
+	Convert to Grayscale	Konversi ke Grayscale
+	Sharpness	Ketajaman
+	Color Noise Reduction	Pengurangan Noise Warna
+	Luminance Smoothness	Kehalusan Luminansi
+	Make	Merek
+	Model	Model
+	Lens	Lensa
+	F	F
+	ISO	ISO
+	Focal Length35mm	Panjang Fokus 35mm
+	Aspect Ratio	Rasio Aspek
+	Time	Waktu
+	Artist	Seniman
+	Enter description…	Masukkan deskripsi…
+	ColorSync	ColorSync
+	ProPhoto	ProPhoto
+	sRGB	sRGB
+	ACES	ACES
+	Industry Standard	Standar Industri
+	Uncoated CMYK	CMYK Uncoated
+	Newspaper	Koran
+	Working Spaces	Ruang Kerja
+	Color Management Policies	Kebijakan Manajemen Warna
+	Detect Faces	Deteksi Wajah
+	Localize Color Clusters	Lokalkan Klaster Warna
+	Duplicated selection name	Nama seleksi duplikat
+	Operation	Operasi
+	New channel only	Hanya channel baru
+	Masked Areas	Area Termasker
+	Selected Areas	Area Terpilih
+	Spot Color	Warna Spot
+	Color indicates	Warna menunjukkan
+	Create Snapshot	Buat Snapshot
+	Delete Snapshot	Hapus Snapshot
+	New Snapshot	Snapshot Baru
+	Snapshot 1	Snapshot 1
+	Step Forward	Maju Satu Langkah
+	Step Backward	Mundur Satu Langkah
+	Nonlinear History	Riwayat Nonlinear
+	Set New Snapshot as Default	Jadikan Snapshot Baru sebagai Default
+	Automatically Create First Snapshot	Buat Snapshot Pertama Secara Otomatis
+	Automatically Create New Snapshot When Saving	Buat Snapshot Baru Secara Otomatis Saat Menyimpan
+	Show New Snapshot Dialog by Default	Tampilkan Dialog Snapshot Baru secara Default
+	Clear History	Hapus Riwayat
+	Panel Options…	Opsi Panel…
+	View menu	Menu tampilan
+	Keep view in sync	Jaga tampilan tetap sinkron
+	{zoom}%	{zoom}%
+	Mouse Controls	Kontrol Mouse
+	Initial Direction of Stroke	Arah Awal Stroke
+	Direction of Stroke	Arah Stroke
+	Humidity	Kelembapan
+	Auto Clean Brush	Bersihkan Kuas Otomatis
+	Spacing:	Jarak:
+	Brush Tip	Ujung Kuas
+	New Layer from Brush	Layer Baru dari Kuas
+	New Brush	Kuas Baru
+	New Tool Preset	Preset Alat Baru
+	Auto-Leading	Auto-Leading
+	Scale Horizontally	Skala Horizontal
+	Scale Vertically	Skala Vertikal
+	Baseline Shift	Pergeseran Baseline
+	Mac LCD	Mac LCD
+	Mac Sharp	Mac Sharp
+	Mac Crisp	Mac Crisp
+	Mac Strong	Mac Strong
+	Mac Smooth	Mac Smooth
+	Superscript	Superskrip
+	Subscript	Subskrip
+	Ligature	Ligatur
+	Alternative	Alternatif
+	Roman	Roman
+	Bold Italic	Tebal Miring
+	Ultra Light	Ultra Light
+	Extra Light	Extra Light
+	Semi Bold	Semi Bold
+	Extra Bold	Extra Bold
+	Ultra Bold	Ultra Bold
+	Condensed	Condensed
+	First Line Indent	Indentasi Baris Pertama
+	Hanging Punctuation	Tanda Baca Menggantung
+	Roman Hanging Punctuation	Tanda Baca Menggantung Roman
+	Avoid Widows/Orphans	Hindari Janda/Yatim
+	Compose	Komposisi
+	Adobe Single-line Composer	Adobe Single-line Composer
+	Adobe Every-line Composer	Adobe Every-line Composer
+	Justification	Justifikasi
+	Word Spacing	Spasi Kata
+	Letter Spacing	Spasi Huruf
+	Glyph Scaling	Skala Glyph
+	Auto-leading %	Auto-leading %
+	Single Word Justification	Justifikasi Kata Tunggal
+	Alignment	Perataan
+	Justify	Rata Penuh
+	Glyph	Glyph
+	Alternates for Current Selection	Alternatif untuk Seleksi Saat Ini
+	Digits	Angka
+	Symbols	Simbol
+	Punctuation	Tanda Baca
+	Path:	Path:
+	Path to Illustrator…	Path ke Illustrator…
+	Make Work Path	Buat Path Kerja
+	Make Selection	Buat Seleksi
+	Fill Path	Isi Path
+	Stroke Path	Stroke Path
+	Clipping Path	Path Kliping
+	New Path	Path Baru
+	Duplicate Path	Duplikat Path
+	Delete Path	Hapus Path
+	Auto-Hide	Sembunyi Otomatis
+	W	W
+	H	H
+	X	X
+	Y	Y
+	Frame Sync	Sinkron Frame
+	Quick Sync	Sinkron Cepat
+	Audio	Audio
+	Frame Duration	Durasi Frame
+	Loop	Loop
+	Split at Playhead	Pisah di Playhead
+	Flatten Frames Into Clips	Ratakan Frame ke Klip
+	Flatten Frames Into Layers	Ratakan Frame ke Layer
+	Convert Frames > Video Layers	Konversi Frame > Layer Video
+	New Video Layer	Layer Video Baru
+	New Video Group	Grup Video Baru
+	Limit Playback	Batasi Pemutaran
+	Enable Timeline Quick Config	Aktifkan Timeline Quick Config
+	Set Start Timecode…	Atur Kode Waktu Awal…
+	Timecode	Timecode
+	30 fps	30 fps
+	25 fps	25 fps
+	24 fps	24 fps
+	15 fps	15 fps
+	10 fps	10 fps
+	Current Time	Waktu Saat Ini
+	Out	Out
+	In	In
+	Duration	Durasi
+	Repeat	Ulangi
+	Play Once	Putar Sekali
+	Info Options…	Opsi Info…
+	First Color Readout	Pembacaan Warna Pertama
+	Second Color Readout	Pembacaan Warna Kedua
+	Actual Color	Warna Aktual
+	Grayscale Slider	Slider Grayscale
+	Web Color	Warna Web
+	HSB Color	Warna HSB
+	Total Ink	Total Tinta
+	Opacity Mask	Masker Opasitas
+	Ruler	Penggaris
+	Document Size	Ukuran Dokumen
+	Timing	Pengaturan Waktu
+	Status Information	Informasi Status
+	Saved Multichannel	Multichannel Tersimpan
+	Mouse Coordinates	Koordinat Mouse
+	Ruler Units	Satuan Penggaris
+	Hide	Sembunyikan
+	New Layer Comp	Layer Comp Baru
+	Duplicate Layer Comp	Duplikat Layer Comp
+	Rename Layer Comp	Ganti Nama Layer Comp
+	Apply Layer Comp	Terapkan Layer Comp
+	Update Layer Comp	Perbarui Layer Comp
+	Restore last viewed comp	Pulihkan comp yang terakhir dilihat
+	Method	Metode
+	Select All Layers	Pilih Semua Layer
+	Keep proportions	Pertahankan proporsi
+	Interpolation	Interpolasi
+	Author	Penulis
+	Caption	Keterangan
+	Caption Credits	Kredit Keterangan
+	Keywords	Kata Kunci
+	Copyright Info URL	URL Info Hak Cipta
+	Copyright Status	Status Hak Cipta
+	Copyrighted	Berhak Cipta
+	Public Domain	Domain Publik
+	Unknown	Tidak Diketahui
+	Credit	Kredit
+	Transmission Reference	Referensi Transmisi
+	Urgency	Urgensi
+	High	Tinggi
+	Low	Rendah
+	Category	Kategori
+	Supplemental Categories	Kategori Tambahan
+	Object Name / Title	Nama Objek / Judul
+	Date Created	Tanggal Dibuat
+	City	Kota
+	Location	Lokasi
+	Province / State	Provinsi / Negara Bagian
+	Country	Negara
+	Byline	Byline
+	Byline Title	Judul Byline
+	Phone	Telepon
+	Email	Email
+	URLs	URL
+	Last Modified	Terakhir Diubah
+	EXIF	EXIF
+	GPS	GPS
+	Camera Data	Data Kamera
+	Camera Model	Model Kamera
+	Camera Make	Merek Kamera
+	EXIF Version	Versi EXIF
+	Exposure Program	Program Eksposur
+	Aperture	Bukaan
+	Shutter Speed	Kecepatan Rana
+	Metering Mode	Mode Metering
+	Light Source	Sumber Cahaya
+	Flash	Flash
+	Lens Info	Info Lensa
+	ISO Speed	Kecepatan ISO
+	Subject Distance	Jarak Subjek
+	DateTime Original	TanggalWaktu Asli
+	Create Date	Tanggal Dibuat
+	Modify Date	Tanggal Diubah
+	Software	Perangkat Lunak
+	Raw Data	Data Raw
+	Advanced	Lanjutan
+	Import…	Impor…
+	PDF Presentation…	Presentasi PDF…
+	Create Multiple Picture Packages	Buat Beberapa Paket Gambar
+	Picture Package…	Paket Gambar…
+	Web Photo Gallery…	Galeri Foto Web…
+	Choose…	Pilih…
+	Select Folder…	Pilih Folder…
+	Override Action "Save" Commands	Timpa Perintah Tindakan "Save"
+	File Naming	Penamaan Berkas
+	Compatibility	Kompatibilitas
+	Mac OS	Mac OS
+	Unix	Unix
+	Include ICC Profile	Sertakan Profil ICC
+	Error File	Berkas Error
+	Stop For Errors	Berhenti Saat Error
+	Log Errors To File	Catat Error ke Berkas
+	Errors	Error
+	Settings	Pengaturan
+	Settings:	Pengaturan:
+	Working Space	Ruang Kerja
+	RGB:	RGB:
+	CMYK:	CMYK:
+	Gray:	Abu-abu:
+	Spot:	Spot:
+	Advanced Controls	Kontrol Lanjutan
+	Desaturate Monitor Colors By	Desaturasi Warna Monitor Sebesar
+	Blend RGB Colors Using Gamma 1.0	Campur Warna RGB Memakai Gamma 1.0
+	Profile Mismatches: Ask When Opening	Profil Tidak Cocok: Tanya Saat Membuka
+	Ask When Pasting	Tanya Saat Menempel
+	Missing Profiles: Ask When Opening	Profil Hilang: Tanya Saat Membuka
+	Embed profiles	Tanamkan profil
+	Ask Before Saving Saved Embedded	Tanya Sebelum Menyimpan yang Sudah Tertanam
+	Coerce to sRGB	Paksa ke sRGB
+	sRGB IEC61966-2.1	sRGB IEC61966-2.1
+	Adobe RGB (1998)	Adobe RGB (1998)
+	ProPhoto RGB	ProPhoto RGB
+	ColorMatch RGB	ColorMatch RGB
+	Wide Gamut RGB	Wide Gamut RGB
+	Apple RGB	Apple RGB
+	NTSC (1953)	NTSC (1953)
+	PAL/SECAM	PAL/SECAM
+	SMPTE C	SMPTE C
+	HDTV (Rec. 709)	HDTV (Rec. 709)
+	CIE RGB	CIE RGB
+	Graphic and web	Grafis dan web
+	Minimalistic	Minimalis
+	Expand All Groups	Bentangkan Semua Grup
+	Photo (2 × 3 in)	Foto (2 × 3 in)
+	Photo (4 × 6 in)	Foto (4 × 6 in)
+	Photo (5 × 7 in)	Foto (5 × 7 in)
+	Photo (8 × 10 in)	Foto (8 × 10 in)
+	Recent Items	Item Terbaru
+	Save Preset…	Simpan Preset…
+	Delete Preset…	Hapus Preset…
+	Preset Name:	Nama Preset:
+	Width and Height	Lebar dan Tinggi
+	Color Profile	Profil Warna
+	Units	Satuan
+	Columns	Kolom
+	Do you want to save you made to “{name}” before quitting?	Apakah Anda ingin menyimpan perubahan yang Anda buat ke “{name}” sebelum keluar?
+	Create new count group	Buat grup hitungan baru
+	Adjustment Layer	Layer Penyesuaian
+	Pencil Tool	Alat Pensil
+	Pixel	Piksel
+	Adjustment	Penyesuaian
+	Drag (lasso) or click points (polygonal) · {add} add · {sub} subtract	Seret (lasso) atau klik titik (poligonal) · {add} tambah · {sub} kurangi
+	Drag a crop box · drag inside to move · edges resize ({ratio} ratio, {centre} centre) · Space moves while drawing · {commit} commits · Esc cancels	Seret kotak crop · seret di dalam untuk memindah · tepi mengubah ukuran (rasio {ratio}, tengah {centre}) · Space memindah saat menggambar · {commit} menerapkan · Esc batal
+	{mode} Color · {bits} bit	Warna {mode} · {bits} bit
+	Drag to move the layer	Seret untuk memindah layer
+	Scrubby Zoom	Zoom Scrubby
+	Auto Erase	Hapus Otomatis
+	Color Adaptation	Adaptasi Warna
+	Preserve Transparency	Pertahankan Transparansi
+	shortcut	pintasan
+	Go to Layer	Ke Layer
+	Saved	Tersimpan
+	After (X)	Sesudah (X)
+	Current	Saat Ini
+	Reference point location	Lokasi titik referensi
+	Toggle reference point	Alihkan titik referensi
+	Arc	Busur
+	Arch	Lengkung
+	Bulge	Cembung
+	Shell Lower	Cangkang Bawah
+	Shell Upper	Cangkang Atas
+	Flag	Bendera
+	Fish	Ikan
+	Wave	Gelombang
+	Rise	Naik
+	Inflate	Gembung
+	Twist	Pilin
+	Squeeze	Peras
+	Add Pins	Tambah Pin
+	Delete Pins	Hapus Pin
+	Rotate Auto	Rotasi Otomatis
+	Rotate Fixed	Rotasi Tetap
+	Create Plane	Buat Bidang
+	Edit Plane	Edit Bidang
+	Select Plane	Pilih Bidang
+	Measure	Ukur
+	Heal	Heal
+	Heal Off	Sembuhkan Mati
+	Heal On	Sembuhkan Hidup
+	Heal Auto	Sembuhkan Otomatis
+	Blend	Campur
+	Brush Size	Ukuran Kuas
+	Heal Color	Warna Penyembuhan
+	Mask	Mask
+	Channel	Saluran
+	Rectangle	Persegi Panjang
+	Result	Hasil
+	New Channel	Saluran Baru
+	Save Selection	Simpan Seleksi
+	Load Selection	Muat Seleksi
+	Duplicate	Duplikat
+	Fast	Cepat
+	Accurate	Akurat
+	Add to	Tambah ke
+	Subtract from	Kurangi dari
+	Intersect with	Irisan dengan
+	Capture Comp	Tangkap Comp
+	No Layer Comps	Tidak Ada Layer Comp
+	Adobe PDF Presets…	Preset Adobe PDF…
+	3D…	3D…
+	Technology Previews…	Pratinjau Teknologi…
+	Background from Layer	Background dari Layer
+	Add a mask  (from the selection; ⌥ inverts)	Tambahkan masker  (dari seleksi; ⌥ membalik)
+	Add to selection  (⇧)	Tambah ke seleksi  (⇧)
+	Airbrush: keeps painting while the pointer rests.	Airbrush: terus melukis selama penunjuk diam.
+	Click the first point or press ↵ to close · Esc cancels	Klik titik pertama atau tekan ↵ untuk menutup · Esc batal
+	Click to add a point · drag off or ⌘/Ctrl-click or Delete to remove	Klik untuk menambah titik · seret keluar atau ⌘/Ctrl-klik atau Delete untuk menghapus
+	Click to apply, ⌥-click to clear overrides, double-click for Style Options	Klik untuk menerapkan, ⌥-klik untuk menghapus override, klik dua kali untuk Opsi Gaya
+	Click to zoom in  ·  ⌥-click to zoom out	Klik untuk zoom in  ·  ⌥-klik untuk zoom out
+	Click: corner · Drag: smooth · Click first point: close · ↩ finish · Esc cancel	Klik: sudut · Seret: halus · Klik titik pertama: tutup · ↩ selesai · Esc batal
+	Commit Perspective Warp (↩)	Terapkan Warp Perspektif (↩)
+	Commit Puppet Warp (↩)	Terapkan Warp Boneka (↩)
+	Commit any current edits (⌘↩)	Terapkan semua pengeditan saat ini (⌘↩)
+	Commit current crop operation  (↵)	Terapkan operasi pangkas saat ini  (↵)
+	Commit transform (↩)	Terapkan transformasi (↩)
+	Commit warp (↩)	Terapkan warp (↩)
+	Create a new layer  (⇧⌘N)	Buat layer baru  (⇧⌘N)
+	Custom pattern	Pola kustom
+	General Brushes	Kuas Umum
+	Grid  (⌘')	Kisi  (⌘')
+	Intersect with selection  (⇧⌥)	Irisan dengan seleksi  (⇧⌥)
+	New document…     ⌘N	Dokumen baru…     ⌘N
+	Open…     ⌘O	Buka…     ⌘O
+	Rulers  (⌘R)	Penggaris  (⌘R)
+	Search commands (⌘K)	Cari perintah (⌘K)
+	Show Guides  (⌘;)	Tampilkan Panduan  (⌘;)
+	Subtract from selection  (⌥)	Kurangi dari seleksi  (⌥)
+	Uses the foreground and background colors.	Memakai warna latar depan dan latar belakang.
+	↑↓ navigate   ↵ run   esc close	↑↓ navigasi   ↵ jalankan   esc tutup
+	Adds grain to the soft edges of the brush tip.	Menambah grain pada tepi lembut ujung kuas.
+	Keeps the current texture when switching presets.	Mempertahankan tekstur saat ini ketika ganti preset.
+	Watercolour look: lighter interior, darker rims.	Tampilan cat air: bagian dalam lebih terang, tepi lebih gelap.
+	Collapse group  (⌥-click: all groups)	Ciutkan grup  (⌥-klik: semua grup)
+	Expand group  (⌥-click: all groups)	Bentangkan grup  (⌥-klik: semua grup)
+	Hide the layer's effects  (⌥-click: all layers)	Sembunyikan efek lapisan  (⌥-klik: semua lapisan)
+	Show the layer's effects  (⌥-click: all layers)	Tampilkan efek lapisan  (⌥-klik: semua lapisan)
+	New from Clipboard	Baru dari Clipboard
+	Free Transform a Copy	Transformasi Bebas pada Salinan
+	Transform Again on a Copy	Transformasi Lagi pada Salinan
+	Select Layer Above	Pilih Lapisan di Atas
+	Select Layer Below	Pilih Lapisan di Bawah
+	Select Top Layer	Pilih Lapisan Teratas
+	Select Bottom Layer	Pilih Lapisan Terbawah
+	Add Layer Above to Selection	Tambah Lapisan di Atas ke Seleksi
+	Add Layer Below to Selection	Tambah Lapisan di Bawah ke Seleksi
+
+# Labels added on main after this catalog (depth labels, Wayland drop, profiles, Camera Raw, Patch tool, rendering mode)
+	8 bit	8 bit (bilangan bulat)
+	Integer	Bilangan bulat
+	16 bit	16 bit (bilangan bulat)
+	32 bit (float)	32 bit (titik mengambang)
+	Floating point	Titik mengambang
+	Use Global Light	Gunakan Cahaya Global
+	Native file drag-and-drop is unavailable	Seret dan lepas berkas native tidak tersedia
+	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run Local Image under XWayland with `WAYLAND_DISPLAY= local-image`.	Seret dan lepas berkas native belum didukung di Wayland. Gunakan Berkas › Buka, atau jalankan Local Image di XWayland dengan `WAYLAND_DISPLAY= local-image`.
+	Use File › Open to open an image.	Gunakan Berkas › Buka untuk membuka gambar.
+	Mixer Brush Tool	Alat Kuas Pencampur
+	Invalid {mode} profile	Profil {mode} tidak valid
+	Unnamed {mode} profile	Profil {mode} tanpa nama
+	Show bounding box when dragging layer	Tampilkan kotak pembatas saat menyeret lapisan
+	Freeze Lasso: drag to freeze an area, Alt-drag to thaw it (L)	Lasso Bekukan: seret untuk membekukan area, seret dengan Alt untuk mencairkannya (L)
+	Shadow Clipping Warning (U)	Peringatan Clipping Bayangan (U)
+	Highlight Clipping Warning (O)	Peringatan Clipping Sorotan (O)
+	Show Lab Color Readouts	Tampilkan Nilai Warna Lab
+	Show Vectorscope	Tampilkan Vectorscope
+	Show Red at 3 o'clock	Tampilkan Merah di Posisi Jam 3
+	Show Skin Tone Indicator	Tampilkan Indikator Warna Kulit
+	Tone Histogram	Histogram Nada
+	Show Selected Region	Tampilkan Wilayah Terpilih
+cameraRaw	Light	Cahaya
+	Camera Raw Filter ({layer})	Filter Camera Raw ({layer})
+cameraRaw	Lights	Nada Terang
+cameraRaw	Darks	Nada Gelap
+cameraRaw	Blacks	Hitam
+cameraRaw	Amount	Jumlah
+cameraRaw	Tint	Rona
+cameraRaw	Masking	Masking
+cameraRaw	Blending	Pembauran
+	Patch Tool	Alat Patch
+	Patch:	Patch:
+	Lasso around an area, then drag the selection	Lingkari area dengan lasso, lalu seret seleksinya
+	Rendering Mode	Mode Rendering
+	Automatic (recommended)	Otomatis (disarankan)
+	CPU / Compatibility	CPU / Kompatibilitas
+	Automatic uses GPU acceleration when available and falls back to CPU rendering on errors.	Mode otomatis memakai akselerasi GPU bila tersedia dan beralih ke rendering CPU jika terjadi galat.
+	Switched to CPU rendering	Beralih ke rendering CPU
+	GPU acceleration could not continue. Your documents are unchanged.	Akselerasi GPU tidak dapat dilanjutkan. Dokumen Anda tidak berubah.
+	Local Image is using the CPU image compositor. The window may still use your graphics adapter.	Local Image menggunakan kompositor gambar CPU. Jendela mungkin masih menggunakan adaptor grafis Anda.
+	Retry GPU requires a restart. Save your work first.	Mencoba GPU lagi memerlukan mulai ulang. Simpan pekerjaan Anda terlebih dahulu.
+	Keep Using CPU	Tetap Gunakan CPU
+	Retry GPU	Coba GPU Lagi
+	GPU Backend	Backend GPU
+	Details	Detail
+	Rendering mode	Mode rendering
+
+# Warp grid presets (#388)
+	3 x 3	3 × 3
+	4 x 4	4 × 4
+	5 x 5	5 × 5
+	Grid:	Kisi-kisi:
+	Edit Type	Edit Teks
+
+
+	New Style…	Gaya Baru…
+	Style {name} saved	Gaya {name} disimpan
+
+	Create new style (from the selected type)	Buat gaya baru (dari teks terpilih)
+	Create new style from the selected layer	Buat gaya baru dari lapisan terpilih
+
+	Make Default	Jadikan Default
+	Reset to Default	Atur Ulang ke Default
+	Full-resolution preview unavailable	Pratinjau resolusi penuh tidak tersedia
+	No patterns	Tidak ada pola
+	Enable {name}	Aktifkan {name}
+	Hold Alt while drawing for straight segments	Tahan Alt saat menggambar untuk segmen lurus
+	Drag or click polygon points · hold Alt during lasso for straight segments · {add} add · {sub} before drawing subtracts	Seret atau klik titik poligon · tahan Alt saat lasso untuk segmen lurus · {add} tambah · {sub} sebelum menggambar mengurangi
+	Extend	Perluas
+	Structure:	Struktur:
+	Content-Aware Move Tool	Alat Content-Aware Move
+	TIFF Options	Opsi TIFF
+	Including layers will increase file size.	Menyertakan lapisan akan memperbesar ukuran file.
+	Discard Layers and Save a Copy	Buang Lapisan dan Simpan Salinan
+	Don't show again	Jangan tampilkan lagi
+	Save failed: {error}	Gagal menyimpan: {error}
+	Save cancelled	Penyimpanan dibatalkan
+	Couldn't place {name}: {error}	Tidak dapat menempatkan {name}: {error}
+	Magnetic Lasso Tool	Alat Magnetic Lasso
+	Frequency	Frekuensi
+	Use tablet pressure to change pen width	Gunakan tekanan tablet untuk mengubah lebar pena
+
+# About ▸ Contributors / Models (credits, craftrules standards/contributors.md)
+	About	Tentang
+	Contributors	Kontributor
+	Models	Model
+	Sort	Urutkan
+	Username	Nama pengguna
+	Display name	Nama tampilan
+	Real name	Nama asli
+	Reverse the order	Balik urutan
+	Grab bag	Daftar bebas
+	Table	Tabel
+	Name (A–Z)	Nama (A–Z)
+	Merged PRs	PR yang digabung
+	Commits	Commit
+	Lines added	Baris ditambah
+	Lines deleted	Baris dihapus
+	Line delta	Selisih baris
+	Binary assets added	Berkas biner ditambah
+	Binary assets removed	Berkas biner dihapus
+	First commit	Commit pertama
+	First	Pertama
+	Last commit	Commit terakhir
+	Last	Terakhir
+	Contributors: {contributors} · Commits: {commits}	Kontributor: {contributors} · Commit: {commits}
+	No contributor data was built into this copy.	Salinan ini tidak memuat data kontributor.
+	No model credits were built into this copy.	Salinan ini tidak memuat kredit model.
+	Company	Perusahaan
+	Version	Versi
+	% of all commits	% dari semua commit
+	Lines +/−	Baris +/−
+	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}	@{login}: {prs} PR, {commits} commit, +{added} / −{deleted} baris (Δ {delta}), +{binAdded} / −{binDeleted} berkas biner, {first} – {last}
+# local-image: AI, Library and V2 strings
+	AI Enhance (SeedVR2)…	Peningkatan AI (SeedVR2)…
+	AI Models & GPU…	Model AI & GPU…
+	AI Remove Selection	Hapus Seleksi dengan AI
+	Automatic	Otomatis
+	Bicubic Sharper (reduction)	Bikubik Lebih Tajam (pengecilan)
+	Bicubic Smoother (enlargement)	Bikubik Lebih Halus (pembesaran)
+	Browse, rate and organise your photos	Jelajahi, beri peringkat, dan atur foto Anda
+	Layers, retouching and AI tools	Lapisan, retus, dan alat AI
+	Contextual Task Bar	Bilah Tugas Kontekstual
+	Describe an image to create…	Jelaskan gambar yang ingin dibuat…
+	Edit photos, catalogue them, and create with local AI.	Edit foto, katalogkan, dan berkreasi dengan AI lokal.
+	Filmstrip	Strip Film
+	Generate Background (AI)…	Buat Latar Belakang (AI)…
+	Generative Fill (AI)…	Isian Generatif (AI)…
+	Get Models…	Dapatkan Model…
+	Local AI…	AI Lokal…
+	Model Browser…	Penjelajah Model…
+	New from Prompt…	Baru dari Prompt…
+	No AI model is installed yet.	Belum ada model AI yang terpasang.
+	Open Folder…	Buka Folder…
+	PhotoCraft and LightCraft (ArtCraft)	PhotoCraft dan LightCraft (ArtCraft)
+	Remove Background (AI)	Hapus Latar Belakang (AI)
+	Remove Backgrounds (AI)…	Hapus Latar Belakang (AI)…
+	Set Up AI…	Siapkan AI…
+	Subject (AI)	Subjek (AI)
+	The AI engine isn't running.	Mesin AI tidak berjalan.
+	Contextual task bar	Bilah tugas kontekstual
+	Tool presets	Preset alat
+	Paint only when the string is pulled taut	Lukis hanya saat tali tertarik kencang
+	Keep painting toward the pointer while it pauses	Terus melukis ke arah penunjuk saat berhenti
+	Finish the stroke where the pointer was released	Akhiri goresan di tempat penunjuk dilepas
+	Less smoothing when zoomed in, more when zoomed out	Lebih sedikit penghalusan saat diperbesar, lebih banyak saat diperkecil
+	Diagonal	Diagonal
+	Along the Work Path	Sepanjang Jalur Kerja
+	Mirror across the current path (draw it with the Pen tool first)	Cerminkan pada jalur saat ini (gambar dulu dengan alat Pena)
+	Symmetry Off	Simetri Nonaktif
+	Click to restore this snapshot	Klik untuk memulihkan snapshot ini
+	Set the overlay options for the Crop tool	Atur opsi overlay untuk alat Pangkas
+	Rule of Thirds	Aturan Sepertiga
+	Triangle	Segitiga
+	Golden Ratio	Rasio Emas
+	Frequency Separation…	Pemisahan Frekuensi…
+	Perspective Crop Tool	Alat Pangkas Perspektif
+	Drag a frame, then drag its corners onto the edges of the object to straighten	Seret bingkai, lalu seret sudut-sudutnya ke tepi objek untuk meluruskannya
+	Behind	Di Belakang
+	Add a layer mask that shows only this area	Tambahkan masker lapisan yang hanya menampilkan area ini
+	Describe what to generate (optional)	Jelaskan apa yang akan dibuat (opsional)
+	Generative Fill: regenerate the selection from your description	Isian Generatif: membuat ulang seleksi dari deskripsi Anda
+	Contextual Task Bar hidden — Window › Contextual Task Bar shows it again.	Bilah Tugas Kontekstual disembunyikan — Jendela › Bilah Tugas Kontekstual menampilkannya lagi.
+	AI Remove isn't ready: {why}	Hapus AI belum siap: {why}
+	Generative Fill	Isi Generatif
+	Remove what's inside with AI (on its own layer)	Hapus isinya dengan AI (di lapisannya sendiri)
+	Turn the path into a selection	Ubah jalur menjadi seleksi
+	Back	Kembali
+	Regenerate the area from a description	Buat ulang area dari deskripsi
+	Hide Contextual Task Bar	Sembunyikan Bilah Tugas Kontekstual
+	More	Lainnya
+	Click a red pupil	Klik pupil yang merah
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Klik titik pertama atau tekan {key} untuk menutup · {del} menghapus titik · Esc untuk batal
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Klik, lalu gerakkan di sepanjang tepi · klik untuk menancapkan titik · {alt}-klik untuk segmen lurus · klik ganda untuk menutup
+	Darken Amount	Jumlah Penggelapan
+	Follows only edges this close to the pointer ([ and ] change it)	Hanya mengikuti tepi sedekat ini dengan penunjuk ([ dan ] mengubahnya)
+	Higher values follow only edges that contrast sharply with their surroundings	Nilai lebih tinggi hanya mengikuti tepi yang kontrasnya tajam dengan sekitarnya
+	How often fastening points are placed by themselves	Seberapa sering titik penanda ditempatkan secara otomatis
+	Pupil Size	Ukuran Pupil
+	Sample Size	Ukuran Sampel
+	Straighten: tilt the frame to level a horizon	Luruskan: miringkan bingkai untuk meratakan horizon
+	+ Add	+ Tambah
+	1 file to download ({size}), verified by SHA-256:	1 berkas untuk diunduh ({size}), diverifikasi dengan SHA-256:
+	A copy in the Edited folder (originals untouched)	Salinan di folder Edited (berkas asli tidak diubah)
+	A new image from a description and optional reference images	Gambar baru dari deskripsi dan gambar referensi opsional
+	ACCOUNTS (OPTIONAL)	AKUN (OPSIONAL)
+	AI	AI
+	AI ENGINE	MESIN AI
+	AI Enhance	Peningkatan AI
+	AI off	AI mati
+	AI ready{gpu}	AI siap{gpu}
+	AI starting…	AI sedang dimulai…
+	AI · no models	AI · tidak ada model
+	API key	Kunci API
+	Accept the licence on the publisher's page first	Terima lisensi di halaman penerbit terlebih dahulu
+	Add Background ▾	Tambah Latar Belakang ▾
+	Add Folder…	Tambah Folder…
+	Add Images…	Tambah Gambar…
+	Add Key…	Tambah Kunci…
+	Add a LoRA	Tambah LoRA
+	Add an image file	Tambah berkas gambar
+	Add the current image	Tambah gambar saat ini
+	Add your {provider} API key in Local AI › Cloud to use it.	Tambahkan kunci API {provider} Anda di Local AI › Cloud untuk menggunakannya.
+	Add your {provider} API key in Local AI › Cloud.	Tambahkan kunci API {provider} Anda di Local AI › Cloud.
+	Added “{name}” to the model list (basic controls)	“{name}” ditambahkan ke daftar model (kontrol dasar)
+	Address:	Alamat:
+	Already installed: {names}	Sudah terpasang: {names}
+	Apply Edit	Terapkan Edit
+	Ask each time (Save As)	Tanya setiap kali (Simpan Sebagai)
+	Avoid… (negative prompt)	Hindari… (prompt negatif)
+	BROWSE	JELAJAHI
+	Background:	Latar belakang:
+	Basic controls	Kontrol dasar
+	Browse Models…	Jelajahi Model…
+	CLOUD (OPTIONAL)	CLOUD (OPSIONAL)
+	CLOUD · YOUR API KEY	CLOUD · KUNCI API ANDA
+	CUSTOM WORKFLOWS	ALUR KERJA KUSTOM
+	Cancelled	Dibatalkan
+	Change the open image from an instruction (edit models), or restyle it	Ubah gambar yang terbuka dari instruksi (model edit), atau ubah gayanya
+	Change…	Ubah…
+	Check again	Periksa lagi
+	Checking for profile updates…	Memeriksa pembaruan profil…
+	Checking models…	Memeriksa model…
+	Checking the files’ sizes and checksums…	Memeriksa ukuran dan checksum berkas…
+	Choose Folder…	Pilih Folder…
+	Choose a model	Pilih model
+	Choose a model to refine with.	Pilih model untuk memperhalus.
+	Choose the model folder	Pilih folder model
+	Choose your ComfyUI folder	Pilih folder ComfyUI Anda
+	Civitai API key:	Kunci API Civitai:
+	Click Remove Background first; then drag to erase or restore parts of the cutout.	Klik Hapus Latar Belakang terlebih dahulu; lalu seret untuk menghapus atau memulihkan bagian potongan.
+	ComfyUI at {host} — click for Local AI settings	ComfyUI di {host} — klik untuk pengaturan Local AI
+	ComfyUI installation found.	Instalasi ComfyUI ditemukan.
+	ComfyUI is not running at {host}	ComfyUI tidak berjalan di {host}
+	ComfyUI workflow	Alur kerja ComfyUI
+	Connected to ComfyUI at {host}	Terhubung ke ComfyUI di {host}
+	Copy Prompt	Salin Prompt
+	Could not open {name}: {error}	Tidak dapat membuka {name}: {error}
+	Could not save settings: {error}	Tidak dapat menyimpan pengaturan: {error}
+	Couldn't save: {error}	Tidak dapat menyimpan: {error}
+	Couldn't update profiles: {error}	Tidak dapat memperbarui profil: {error}
+	Cuts out the subject of each image with Qwen Image 2.1 and saves PNGs. Originals are never changed.	Memotong subjek setiap gambar dengan Qwen Image 2.1 dan menyimpan PNG. Berkas asli tidak pernah diubah.
+	Delete from Library	Hapus dari Pustaka
+	Describe details to add (optional)…	Jelaskan detail yang ingin ditambahkan (opsional)…
+	Describe the change, e.g. “make it golden hour”…	Jelaskan perubahannya, mis. “jadikan golden hour”…
+	Describe the empty scene behind your subject	Jelaskan pemandangan kosong di belakang subjek Anda
+	Describe the image (optional)…	Jelaskan gambarnya (opsional)…
+	Describe the image you want it to become…	Jelaskan gambar yang Anda inginkan…
+	Describe what should appear in the selection	Jelaskan apa yang harus muncul di seleksi
+	Describe what you want first.	Jelaskan dulu apa yang Anda inginkan.
+	Detect	Deteksi
+	Double-click to open	Klik ganda untuk membuka
+	Download	Unduh
+	Download size	Ukuran unduhan
+	Downloads are checked against the publisher's size and SHA-256, and ComfyUI's model list is refreshed after each install.	Unduhan diperiksa terhadap ukuran dan SHA-256 dari penerbit, dan daftar model ComfyUI diperbarui setelah setiap pemasangan.
+	Draft → Refine: generate with this model, then resample the draft with another (e.g. a fast draft refined by a detailed model)	Draf → Perhalus: buat dengan model ini, lalu sampel ulang draf dengan model lain (mis. draf cepat diperhalus oleh model yang detail)
+	Engine:	Mesin:
+	Enhance	Tingkatkan
+	Enhances detail and enlarges the image with SeedVR2. The result opens as a new document.	Meningkatkan detail dan memperbesar gambar dengan SeedVR2. Hasilnya terbuka sebagai dokumen baru.
+	Enlarge	Perbesar
+	Enlarge first	Perbesar dulu
+	Enlarge the open image and add detail, tile by tile	Perbesar gambar yang terbuka dan tambahkan detail, ubin demi ubin
+	Everything it needs is already installed.	Semua yang dibutuhkan sudah terpasang.
+	FAMILIES	KELUARGA
+	Fetch the latest family profiles (new models, settings) from Local Image's repository	Ambil profil keluarga terbaru (model baru, pengaturan) dari repositori Local Image
+	Files present	Berkas tersedia
+	Files present — restart ComfyUI	Berkas tersedia — mulai ulang ComfyUI
+	Fill Selection	Isi Seleksi
+	Filmstrip options	Opsi Strip Film
+	Find LoRAs…	Cari LoRA…
+	Find, compare and install models and LoRAs for any family	Cari, bandingkan, dan pasang model serta LoRA untuk keluarga apa pun
+	Fits your GPU memory	Muat di memori GPU Anda
+	Found {n} installation(s).	Ditemukan {n} instalasi.
+	Free GPU Memory	Kosongkan Memori GPU
+	GPU MEMORY GUIDE	PANDUAN MEMORI GPU
+	Generate (AI)…	Buat (AI)…
+	Generate Background	Buat Latar Belakang
+	Generate {n}	Buat {n}
+	Generated images are kept here.	Gambar yang dibuat disimpan di sini.
+	Generated {name} · seed {seed}	{name} dibuat · seed {seed}
+	Generation failed: {error}	Pembuatan gagal: {error}
+	Get Template	Dapatkan Templat
+	Get a key	Dapatkan kunci
+	Get models…	Dapatkan model…
+	Guidance	Panduan
+	Hide the filmstrip (Window › Filmstrip)	Sembunyikan strip film (Jendela › Strip Film)
+	How much may change: 100 % regenerates, lower keeps more of the image	Seberapa banyak boleh berubah: 100 % membuat ulang, lebih rendah mempertahankan lebih banyak gambar
+	Hugging Face token:	Token Hugging Face:
+	I have read and accept the licence	Saya telah membaca dan menerima lisensi
+	Images	Gambar
+	Images per run (1–4)	Gambar per proses (1–4)
+	Image…	Gambar…
+	Import ComfyUI Workflow	Impor Alur Kerja ComfyUI
+	Import Workflow…	Impor Alur Kerja…
+	Imported the workflow “{name}”.	Alur kerja “{name}” telah diimpor.
+	In use	Digunakan
+	Install	Pasang
+	Install failed	Pemasangan gagal
+	Install {name}	Pasang {name}
+	Installation:	Instalasi:
+	Installed	Terpasang
+	Keep	Pertahankan
+	Keep… (optional)	Pertahankan… (opsional)
+	Licence	Lisensi
+	Licence gate	Perlu lisensi
+	Licence: see its page	Lisensi: lihat halamannya
+	Loading catalogues…	Memuat katalog…
+	Local AI	AI Lokal
+	Local AI is off — click to set it up	AI Lokal mati — klik untuk menyiapkannya
+	Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only	Local Image belum mengenal keluarga ini: dijalankan melalui templat resmi hanya dengan prompt, seed, dan ukuran
+	Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).	Local Image belum mengenal keluarga model ini: model akan muncul di daftar model sebagai alur kerja kustom dengan kontrol dasar (prompt, seed, ukuran).
+	MODELS	MODEL
+	Make a selection first	Buat seleksi terlebih dahulu
+	Make a selection to fill.	Buat seleksi untuk diisi.
+	Model Browser	Penjelajah Model
+	Model default	Model bawaan
+	Model folder:	Folder model:
+	Model profiles are up to date	Profil model sudah terbaru
+	Model:	Model:
+	Models unloaded.	Model dibongkar dari memori.
+	My preset {n}	Preset saya {n}
+	Newest	Terbaru
+	Next image ({key})	Gambar berikutnya ({key})
+	No ComfyUI installation found in the usual places.	Tidak ada instalasi ComfyUI yang ditemukan di lokasi biasa.
+	No ComfyUI installation found. Choose its folder in Local AI, or install ComfyUI first.	Tidak ada instalasi ComfyUI yang ditemukan. Pilih foldernya di AI Lokal, atau pasang ComfyUI terlebih dahulu.
+	No LoRAs for this model family are installed (Find LoRAs…)	Tidak ada LoRA untuk keluarga model ini yang terpasang (Cari LoRA…)
+	No compatible LoRAs installed.	Tidak ada LoRA yang kompatibel terpasang.
+	No matches. Try another family, source or search.	Tidak ada yang cocok. Coba keluarga, sumber, atau pencarian lain.
+	Not chosen — detected automatically	Belum dipilih — terdeteksi otomatis
+	Not enough space in {folder} ({free} free).	Ruang di {folder} tidak cukup ({free} tersedia).
+	Not installed: {reason}	Tidak terpasang: {reason}
+	Not stated: check the model's page before use	Tidak disebutkan: periksa halaman model sebelum digunakan
+	Nothing installed yet. Pick a model from Trending or a family.	Belum ada yang terpasang. Pilih model dari Tren atau dari sebuah keluarga.
+	Nothing matches.	Tidak ada yang cocok.
+	Only .safetensors and .gguf files with a published size and SHA-256 are installed.	Hanya berkas .safetensors dan .gguf dengan ukuran dan SHA-256 yang dipublikasikan yang dipasang.
+	Open Folder	Buka Folder
+	Open Its Page	Buka Halamannya
+	Open an image first	Buka gambar terlebih dahulu
+	Open an image first.	Buka gambar terlebih dahulu.
+	Open an image from the filmstrip's folder first.	Buka gambar dari folder strip film terlebih dahulu.
+	Open its page	Buka halamannya
+	Paint over a distraction; it's removed when you release	Lukis di atas gangguan; akan dihapus saat Anda melepaskan
+	Place as Layer	Tempatkan sebagai Layer
+	Port:	Port:
+	Precision	Presisi
+	Preset name	Nama preset
+	Previous image ({key})	Gambar sebelumnya ({key})
+	Qwen Compact	Qwen Ringkas
+	Qwen Full	Qwen Penuh
+	RESULTS	HASIL
+	Read the licence	Baca lisensi
+	Ready	Siap
+	Recreate	Buat ulang
+	References · {n}/{max}	Referensi · {n}/{max}
+	Refine	Perhalus
+	Refine model: {why}	Model perhalus: {why}
+	Refine strength	Kekuatan perhalus
+	Refine with	Perhalus dengan
+	Refine:	Perhalus:
+	Refresh	Segarkan
+	Regenerate the selection (Photoshop's Generative Fill)	Buat ulang seleksi (seperti Isian Generatif di Photoshop)
+	Remove Backgrounds	Hapus Latar Belakang
+	Remove Selection	Hapus Seleksi
+	Request Access…	Minta Akses…
+	Resample the open image at a chosen strength (img2img)	Sampel ulang gambar yang terbuka dengan kekuatan pilihan (img2img)
+	Results appear here and are saved to the Library.	Hasil muncul di sini dan disimpan ke Pustaka.
+	Retry	Coba lagi
+	Review in Library: see this folder in the Library's grid to compare and rate	Tinjau di Pustaka: lihat folder ini di kisi Pustaka untuk membandingkan dan memberi nilai
+	Rough GPU memory to run it	Perkiraan memori GPU untuk menjalankannya
+	Rough GPU memory to run it: more than your GPU has	Perkiraan memori GPU untuk menjalankannya: lebih dari yang dimiliki GPU Anda
+	Running {name}	Menjalankan {name}
+	Runs on {provider}'s servers: your prompt and images are sent there.	Berjalan di server {provider}: prompt dan gambar Anda dikirim ke sana.
+	Runs on {provider}: your prompt and images are sent there, billed to your key.	Berjalan di {provider}: prompt dan gambar Anda dikirim ke sana dan ditagihkan ke kunci Anda.
+	SELECTION MODELS (CPU)	MODEL SELEKSI (CPU)
+	Save & Next	Simpan & Berikutnya
+	Save & Next saves to	Simpan & Berikutnya menyimpan ke
+	Save Preset	Simpan Preset
+	Save a copy in the Edited folder and open the next one ({key})	Simpan salinan di folder Edited dan buka berikutnya ({key})
+	Save these settings as a preset	Simpan pengaturan ini sebagai preset
+	Save this image (Save As) and open the next one ({key})	Simpan gambar ini (Simpan Sebagai) dan buka berikutnya ({key})
+	Save this image over the original and open the next one ({key})	Simpan gambar ini menimpa aslinya dan buka berikutnya ({key})
+	Save to:	Simpan ke:
+	Saved {name}	{name} disimpan
+	Search LoRAs	Cari LoRA
+	Search models	Cari model
+	Search prompts	Cari prompt
+	See each model's page	Lihat halaman setiap model
+	Select Subject, Remove Background (Quick) and Object Selection clicks use the best one installed. No GPU or ComfyUI needed.	Pilih Subjek, Hapus Latar Belakang (Cepat), dan klik Seleksi Objek memakai model terbaik yang terpasang. Tidak perlu GPU atau ComfyUI.
+	Sent as {size}	Dikirim sebagai {size}
+	Set up AI…	Siapkan AI…
+	Show the folder when opening a photo	Tampilkan folder saat membuka foto
+	Start AI Engine	Mulai Mesin AI
+	Start the AI engine first: Local Image checks what ComfyUI already has. ({error})	Mulai mesin AI terlebih dahulu: Local Image memeriksa apa yang sudah dimiliki ComfyUI. ({error})
+	Start the AI engine to see your GPU's memory; showing what fits 8 GB.	Mulai mesin AI untuk melihat memori GPU Anda; menampilkan yang muat di 8 GB.
+	Starting ComfyUI… (the first start can take a minute)	Memulai ComfyUI… (mulai pertama kali bisa memakan waktu satu menit)
+	Starting image · {n}/{max}	Gambar awal · {n}/{max}
+	Starting {name}…	Memulai {name}…
+	Steps	Langkah
+	Stopped	Dihentikan
+	Styles (LoRA) · {n}/{max}	Gaya (LoRA) · {n}/{max}
+	That file is not a ComfyUI workflow (JSON).	Berkas itu bukan alur kerja ComfyUI (JSON).
+	That folder has no ComfyUI (main.py and a Python environment).	Folder itu tidak berisi ComfyUI (main.py dan lingkungan Python).
+	That was the first image in the folder.	Itu gambar pertama di folder.
+	That was the last image in the folder.	Itu gambar terakhir di folder.
+	The AI engine (ComfyUI) is not running.	Mesin AI (ComfyUI) tidak berjalan.
+	The AI engine is starting…	Mesin AI sedang dimulai…
+	The author doesn't allow commercial use.	Pembuat tidak mengizinkan penggunaan komersial.
+	The model isn't ready.	Model belum siap.
+	The original file	Berkas asli
+	The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.	Penerbit meminta Anda menerima lisensinya di halamannya terlebih dahulu; tambahkan token Hugging Face di pengaturan AI Lokal.
+	The workflow has no nodes titled li:prompt, li:image, li:mask, li:seed or li:output, so Local Image can't fill it in. Rename the nodes in ComfyUI and export again.	Alur kerja tidak memiliki node berjudul li:prompt, li:image, li:mask, li:seed, atau li:output, sehingga Local Image tidak dapat mengisinya. Ganti nama node di ComfyUI lalu ekspor lagi.
+	Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site.	Token memungkinkan Penjelajah Model mengunduh model yang dibatasi atau yang memerlukan masuk. Token hanya dikirim ke situsnya sendiri.
+	Transparent PNG	PNG transparan
+	Transparent background	Latar belakang transparan
+	Trending	Tren
+	Trending this week	Tren minggu ini
+	Unknown family	Keluarga tidak dikenal
+	Update Model Profiles	Perbarui Profil Model
+	Updated 1 model profile: {names}	1 profil model diperbarui: {names}
+	Updated {n} model profiles: {names}	{n} profil model diperbarui: {names}
+	Upscale	Perbesar
+	Upscale {scale}×	Perbesar {scale}×
+	Use	Gunakan
+	Use as Reference	Gunakan sebagai Referensi
+	Variation strength	Kekuatan variasi
+	Waiting	Menunggu
+	What should appear in the selection…	Apa yang harus muncul di seleksi…
+	With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere.	Dengan kunci API Anda sendiri, Buat juga dapat memakai model cloud (muncul di bagian Cloud pada pemilih model). Prompt dan gambar Anda lalu dikirim dari komputer ini ke penyedia tersebut dan ditagihkan ke akun Anda; tidak ada data lain yang dikirim ke mana pun.
+	Works on my GPU	Berjalan di GPU saya
+	a “cutouts” folder beside each image	folder “cutouts” di samping setiap gambar
+	just now	baru saja
+	new each time	baru setiap kali
+	seed {seed}	seed {seed}
+	{author} · {n} downloads	{author} · {n} unduhan
+	{best_for} · {size} · {gb} GB GPU	{best_for} · {size} · GPU {gb} GB
+	{done} of {total}	{done} dari {total}
+	{licence} · non-commercial	{licence} · non-komersial
+	{model} creates, edits and fills; choose a local model to refine or upscale.	{model} dapat membuat, mengedit, dan mengisi; pilih model lokal untuk memperhalus atau memperbesar.
+	{mode} with {model}	{mode} dengan {model}
+	{name} (family unknown)	{name} (keluarga tidak dikenal)
+	{name} · Custom workflow	{name} · Alur kerja kustom
+	{name} · edited copy saved	{name} · salinan hasil edit disimpan
+	{name} · {gb} GB GPU memory	{name} · memori GPU {gb} GB
+	{name} — click to remove	{name} — klik untuk menghapus
+	{n} LoRAs	{n} LoRA
+	{n} days ago	{n} hari lalu
+	{n} downloads	{n} unduhan
+	{n} edited	{n} diedit
+	{n} files to download ({size}), verified by SHA-256:	{n} berkas untuk diunduh ({size}), diverifikasi dengan SHA-256:
+	{n} h ago	{n} jam lalu
+	{n} images	{n} gambar
+	{n} images in {folder}	{n} gambar di {folder}
+	{n} min ago	{n} menit lalu
+	{n} models	{n} model
+	{n} refs	{n} referensi
+	{size} · runs on the CPU · {licence}	{size} · berjalan di CPU · {licence}
+	{source}: offline, showing results from {when}	{source}: offline, menampilkan hasil dari {when}
+	{source}: the catalogue couldn't be read	{source}: katalog tidak dapat dibaca
+	{why} Qwen Image 2.1 runs these.	{why} Fitur ini dijalankan oleh Qwen Image 2.1.
+	Seed	Seed
+	Solid Color	Warna Solid
+	Strength	Kekuatan
+	Qwen AI · Compact	Qwen AI · Ringkas
+	Qwen AI · Full	Qwen AI · Penuh
+	Standard (CPU)	Standar (CPU)
+	Templates	Templat
+	Community	Komunitas
+ai	Restore	Pulihkan
+ai	Sampler	Sampler
+ai	New	Baru
+	Filmstrip shows folder	Strip film menampilkan folder
+	Save and next saves to	Simpan & Berikutnya menyimpan ke
+	Develop	Kembangkan
+	Compositing	Komposisi
+	Develop photos: light, colour, detail, masks, AI selections and removal	Kembangkan foto: cahaya, warna, detail, masker, seleksi dan penghapusan AI
+	Layers, retouching, compositing and every AI tool	Lapisan, retus, komposisi, dan semua alat AI
+	Develop…	Kembangkan…
+	Open the Library to develop this layer	Buka Pustaka untuk mengembangkan lapisan ini
+	The active layer isn't a Develop layer	Lapisan aktif bukan lapisan Kembangkan
+	Updated from Develop	Diperbarui dari Kembangkan
+	{name} · Develop layer (double-click it to return to Develop)	{name} · lapisan Kembangkan (klik dua kali untuk kembali ke Kembangkan)
+	A merged copy on top, as a Smart Object with a Camera Raw Filter.	Salinan gabungan di atas, sebagai Smart Object dengan Filter Camera Raw.
+	Apply Destructively	Terapkan Secara Destruktif
+	As a Smart Object the filter stays editable: double-click it in the Layers panel to change it.	Sebagai Smart Object, filter tetap dapat diedit: klik dua kali di panel Lapisan untuk mengubahnya.
+	Camera Raw Filter	Filter Camera Raw
+	Camera Raw Filter applied	Filter Camera Raw diterapkan
+	Camera Raw Filter cancelled	Filter Camera Raw dibatalkan
+	Composite	Komposit
+	Convert	Konversi
+	Convert to Smart Object to keep it editable?	Konversi ke Smart Object agar tetap dapat diedit?
+	Develop a Layered Document	Kembangkan Dokumen Berlapis
+	Develop the composite (live)	Kembangkan komposit (langsung)
+	Don't ask again	Jangan tanya lagi
+	Just switch	Hanya beralih
+	Merge visible to a new layer and develop	Gabungkan yang terlihat ke layer baru lalu kembangkan
+	Show the Library's Develop module.	Tampilkan modul Kembangkan di Pustaka.
+	The visible layers become a Smart Object (still editable inside) with a Camera Raw Filter.	Layer yang terlihat menjadi Smart Object (tetap dapat diedit di dalamnya) dengan Filter Camera Raw.
+	This document has no Develop layer. How should Develop work on it?	Dokumen ini tidak memiliki layer Kembangkan. Bagaimana Kembangkan harus mengolahnya?
+	Pen pressure curve	Kurva tekanan pena
+	Paste Seamless	Tempel Mulus
+	Cage	Sangkar
+	Seamless	Mulus
+	Blend the cloned pixels into their surroundings	Padukan piksel kloningan dengan sekitarnya
+	Subject Assist	Bantuan Subjek
+	Guide the selection with the installed selection model	Pandu seleksi dengan model seleksi yang terpasang
+	Firm	Keras
+	Input pressure → brush pressure	Tekanan pena → tekanan kuas
+	Green Coordinates	Koordinat Green
+	Mean Value Coordinates	Koordinat Nilai Rata-rata
+	Reset Cage	Atur Ulang Sangkar
+	Close Cage	Tutup Sangkar
+	Commit Cage ({key})	Terapkan Sangkar ({key})
+	Drag the cage's points to deform	Seret titik sangkar untuk mengubah bentuk
+	Click to draw a cage around the content; click the first point or press Enter to close it	Klik untuk menggambar sangkar di sekitar konten; klik titik pertama atau tekan Enter untuk menutupnya
+	The cage can't cross itself	Sangkar tidak boleh bersilangan dengan dirinya sendiri
+	A cage needs at least three points	Sangkar memerlukan minimal tiga titik
+	The cage is closed: drag its points	Sangkar sudah tertutup: seret titik-titiknya
+	Cage is not active	Sangkar tidak aktif
+	Could not use Cage: the layer is empty	Tidak dapat memakai Sangkar: lapisan kosong
+	Index	Indeks
+	Browse LoRAs for this model family	Jelajahi LoRA untuk keluarga model ini
+	Browse LoRAs…	Jelajahi LoRA…
+	Choose another model…	Pilih model lain…
+	Couldn't remove {name}: {error}	Tidak dapat menghapus {name}: {error}
+	Find LoRAs (styles) for the chosen model's family	Cari LoRA (gaya) untuk keluarga model yang dipilih
+	Kept because other installed models use them: {files}	Disimpan karena model terpasang lain memakainya: {files}
+	List only the official upscalers (SeedVR2)	Tampilkan hanya upscaler resmi (SeedVR2)
+	Move to Trash	Pindahkan ke Tempat Sampah
+	None of its files are in the model folder.	Tidak ada berkasnya di folder model.
+	ON-DEVICE MODELS (CPU)	MODEL DI PERANGKAT (CPU)
+	Official upscalers only	Hanya upscaler resmi
+	Recommended	Disarankan
+	Remove (deletes the files)	Hapus (menghapus berkas)
+	Remove (moves the files to the Trash)	Hapus (memindahkan berkas ke Tempat Sampah)
+	Remove {name}?	Hapus {name}?
+	Removed {name} ({size} freed)	{name} dihapus ({size} dibebaskan)
+	Stop generation	Hentikan pembuatan
+	Stopped generation	Pembuatan dihentikan
+	This frees {size}. The files are deleted permanently.	Ini membebaskan {size}. Berkas dihapus secara permanen.
+	This frees {size}. The files go to the Trash, so you can restore them from there.	Ini membebaskan {size}. Berkas masuk ke Tempat Sampah, jadi Anda bisa memulihkannya dari sana.
+	Unload AI models from GPU memory (the AI engine is off)	Keluarkan model AI dari memori GPU (mesin AI mati)
+	Unload AI models from GPU memory	Keluarkan model AI dari memori GPU
+	Unloading AI models…	Mengeluarkan model AI…
+	Upscale with any image model instead: enlarge, then add detail with img2img	Perbesar dengan model gambar apa pun: perbesar, lalu tambahkan detail dengan img2img
+	kept {files}	disimpan {files}
+	using {name}	memakai {name}
+	{n} of {total} installed	{n} dari {total} terpasang
+	{size} download · runs on the CPU · {licence}	unduhan {size} · berjalan di CPU · {licence}
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each group powers different tools, and the best model installed in a group is the one used.	Model kecil yang berjalan di prosesor komputer ini: tanpa ComfyUI atau GPU, unduhan cepat, dan foto Anda tidak pernah meninggalkan komputer. Setiap grup melayani alat yang berbeda, dan model terbaik yang terpasang di grup itulah yang dipakai.
+	Subject & Background	Subjek & Latar Belakang
+# Selected-item context bars and live shapes
+	AI Fill	Isi dengan AI
+	Add a vector mask from the path	Tambahkan masker vektor dari jalur
+	Bottom-left corner radius	Radius sudut kiri bawah
+	Bottom-right corner radius	Radius sudut kanan bawah
+	Content-Aware Fill	Isi sesuai konten
+	Corners	Sudut
+	Create another variation using this layer's prompt and a new seed	Buat variasi lain dengan prompt lapisan ini dan seed baru
+	Describe what to generate, or leave empty to fill from the surroundings	Jelaskan yang ingin dibuat, atau kosongkan untuk mengisi dari sekitarnya
+	Edit Path	Edit jalur
+	Edit Text	Edit teks
+	Edit the shape's anchors and handles	Edit jangkar dan handel bentuk
+	Edit this photo's develop settings	Edit pengaturan pengembangan foto ini
+	Fill the path's area from the image around it	Isi area jalur dari gambar di sekitarnya
+	Fill the selection from the image around it	Isi seleksi dari gambar di sekitarnya
+	Generate this area again from its surroundings	Buat ulang area ini dari sekitarnya
+	Generate “{prompt}” again with a new seed	Buat ulang “{prompt}” dengan seed baru
+	Generative Fill: regenerate the area from your description (empty: from its surroundings)	Isi generatif: buat ulang area dari deskripsi (kosong: dari sekitarnya)
+	Generative Fill: regenerate the path's area from a description	Isi generatif: buat ulang area jalur dari deskripsi
+	L	P
+	Line weight	Ketebalan garis
+	Mask out the background with AI	Masker latar belakang dengan AI
+	Number of sides	Jumlah sisi
+	Open in Develop	Buka di Kembangkan
+	Open the Smart Object's contents	Buka isi Smart Object
+	Regenerate	Buat ulang
+	Select the main subject with AI	Pilih subjek utama dengan AI
+	Set radius of all corners	Atur radius semua sudut
+	Set shape stroke width	Atur ketebalan goresan bentuk
+	Set the font size	Atur ukuran font
+	This layer has no generation model to repeat	Lapisan ini tidak memiliki model untuk pembuatan ulang
+	This layer has no generation settings to repeat	Lapisan ini tidak memiliki pengaturan untuk pembuatan ulang
+	This layer's generation model is unavailable	Model pembuatan lapisan ini tidak tersedia
+	Top-left corner radius	Radius sudut kiri atas
+	Top-right corner radius	Radius sudut kanan atas
+	Turn the shape into pixels	Ubah bentuk menjadi piksel
+	Variations	Variasi
+	Close panel	Tutup panel
+	Dock Panel	Tambatkan panel
+	Float Panel Group	Apungkan Grup Panel
+	Save and Return to Library	Simpan dan Kembali ke Pustaka
+	Added your new Develop edits as layer {name}	Hasil edit Kembangkan baru Anda ditambahkan sebagai layer {name}
+	Open the Library to save into it	Buka Pustaka untuk menyimpan ke dalamnya
+	The layers below are unchanged; hide or delete the new layer to go back.	Layer di bawahnya tidak berubah; sembunyikan atau hapus layer baru untuk kembali.
+# Attributions page (li-attributions)
+	Attributions	Atribusi
+	Search attributions…	Cari atribusi…
+	No matches.	Tidak ada yang cocok.
+	Show licence text	Tampilkan teks lisensi
+	Smart Sort (scenes)	Urut Cerdas (adegan)
+	Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer.	Mengenali isi foto (pembicara, penonton, detail…) agar Urut Cerdas menempatkannya di folder yang tepat. Berjalan di CPU; foto tidak pernah meninggalkan komputer ini.
+	Recognises scenes from your descriptions for Smart Sort. A fast local model for speakers, audiences, details and other categories you choose. Downloads include its text model and tokenizer.	Mengenali adegan dari deskripsi Anda untuk Urut Cerdas. Model lokal cepat untuk pembicara, penonton, detail, dan kategori lain pilihan Anda. Unduhan menyertakan model teks dan tokenizer.
+	Finds the main subject of a photo. Used by Select › Subject, Remove Background (Quick), the Object Selection tool's click mode, and the Library's Subject and Background masks.	Menemukan subjek utama foto. Dipakai oleh Pilih › Subjek, Hapus Latar Belakang (Cepat), mode klik Alat Seleksi Objek, serta masker Subjek dan Latar Belakang di Pustaka.
+	Finds the sky. Used by Select › Sky and the Library's sky masks.	Menemukan langit. Dipakai oleh Pilih › Langit dan masker langit di Pustaka.
+	Estimates how far away each part of a photo is. Used by the Library's depth masks (e.g. to darken or blur the background, or pick the foreground by distance).	Memperkirakan seberapa jauh setiap bagian foto. Dipakai oleh masker kedalaman di Pustaka (misalnya untuk menggelapkan atau mengaburkan latar belakang, atau memilih latar depan berdasarkan jarak).
+	Finds the subject with the finest edges (hair, fur, thin details). The best quality for Select Subject and Remove Background; takes a second or two per photo.	Menemukan subjek dengan tepi paling halus (rambut, bulu, detail tipis). Kualitas terbaik untuk Pilih Subjek dan Hapus Latar Belakang; butuh satu-dua detik per foto.
+	Clean edges between near and far, good on most photos. Takes a few seconds per photo.	Tepi bersih antara dekat dan jauh, bagus untuk sebagian besar foto. Butuh beberapa detik per foto.
+	Custom: {name}	Kustom: {name}
+	Use official model	Pakai model resmi
+	Your own model, run on the CPU instead of the official one.	Model Anda sendiri, dijalankan di prosesor menggantikan model resmi.
+	{name} · {size} download · runs on the CPU · {licence}	{name} · unduhan {size} · berjalan di prosesor · {licence}
+	Custom model…	Model kustom…
+	Pick any .onnx model that does this. It is copied into the models folder and used instead of the official one.	Pilih model .onnx apa pun untuk fungsi ini. Model disalin ke folder model dan dipakai menggantikan model resmi.
+	Input style:	Gaya input:
+	IS-Net style	Gaya IS-Net
+	U²-Net / ImageNet style	Gaya U²-Net / ImageNet
+	Sky class:	Kelas langit:
+	Only used when the model gives one map per class (ADE20K: 2).	Hanya dipakai jika model menghasilkan satu peta per kelas (ADE20K: 2).
+	Testing the model…	Menguji model…
+	Choose an ONNX file…	Pilih berkas ONNX…
+	That model can't be used: {error}	Model itu tidak dapat dipakai: {error}
+	Choose an ONNX model	Pilih model ONNX
+	ONNX model	Model ONNX
+	Remove old models ({size})	Hapus model lama ({size})
+	Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.	Memindahkan model yang tidak lagi dipakai aplikasi (U²-Net, TinySkyNet, MiDaS) ke Tempat Sampah.
+	the old models	model lama
+	Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead.	Model kecil yang berjalan di prosesor komputer ini: tanpa ComfyUI atau GPU, unduhan cepat, dan foto Anda tidak pernah meninggalkan komputer. Setiap fungsi punya satu model yang direkomendasikan; Anda bisa memakai model ONNX sendiri.
+	Choose an ONNX model (a file ending in .onnx)	Pilih model ONNX (file yang berakhiran .onnx)
+	Not a depth model: it must output one depth map	Bukan model kedalaman: harus menghasilkan satu peta kedalaman
+	Not a sky model	Bukan model langit
+	Not a sky model: its output {shape} should be 1 map or one map per class	Bukan model langit: keluarannya {shape} harus 1 peta atau satu peta per kelas
+	Not a subject model: it must output one foreground map	Bukan model subjek: harus menghasilkan satu peta latar depan
+	The model has no input	Model tidak memiliki masukan
+	The model's input has {channels} channels; an RGB image (3) is needed	Masukan model memiliki {channels} saluran; diperlukan citra RGB (3)
+	The model's input is {height}×{width}; a square input (or a flexible size) is needed	Masukan model adalah {height}×{width}; diperlukan masukan persegi (atau ukuran fleksibel)
+	The model's input must be an image (batch × 3 × height × width)	Masukan model harus berupa citra (batch × 3 × tinggi × lebar)
+	The sky class {class} is out of range: this model has {classes} classes (0 to {max})	Kelas langit {class} di luar rentang: model ini memiliki {classes} kelas (0 hingga {max})
+	{path} isn't a file	{path} bukan file
+	Custom models are not supported for this function	Model kustom tidak didukung untuk fungsi ini
+	Moves the selected layers or the selection.	Memindahkan lapisan yang dipilih atau seleksi.
+	Drag to move; hold {shift} to keep to one axis.	Seret untuk memindahkan; tahan {shift} agar tetap pada satu sumbu.
+	{alt}-drag to move a copy.	{alt}-seret untuk memindahkan salinan.
+	{cmd}-click picks the layer under the pointer (it switches Auto-Select for that click).	{cmd}-klik memilih lapisan di bawah penunjuk (mengalihkan Pilih Otomatis untuk klik tersebut).
+	Arrow keys nudge by 1 pixel, {shift}+arrow by 10.	Tombol panah menggeser 1 piksel, {shift}+panah 10 piksel.
+	Selects a rectangular area.	Memilih area persegi panjang.
+	Drag to select; {shift}-drag adds to the selection, {alt}-drag subtracts.	Seret untuk memilih; {shift}-seret menambah seleksi, {alt}-seret mengurangi.
+	Hold {shift} and {alt} together to intersect.	Tahan {shift} dan {alt} bersamaan untuk irisan.
+	Selects an oval or circular area.	Memilih area oval atau lingkaran.
+	Selects by drawing a freehand outline.	Memilih dengan menggambar garis bebas.
+	Drag to draw; release to close the outline.	Seret untuk menggambar; lepaskan untuk menutup garis.
+	Hold {alt} while drawing for straight segments; let go to go freehand again.	Tahan {alt} saat menggambar untuk segmen lurus; lepaskan untuk kembali bebas.
+	Hold {shift} before you start to add, {alt} to subtract.	Tahan {shift} sebelum mulai untuk menambah, {alt} untuk mengurangi.
+	Selects with a straight-sided outline.	Memilih dengan garis bersisi lurus.
+	Click to place each corner.	Klik untuk menempatkan setiap sudut.
+	Click the first point, or double-click, to close the shape.	Klik titik pertama, atau klik dua kali, untuk menutup bentuk.
+	Hold {shift} for the first click to add, {alt} to subtract.	Tahan {shift} untuk klik pertama untuk menambah, {alt} untuk mengurangi.
+	Selects by following the edge of an object.	Memilih dengan mengikuti tepi objek.
+	Click to start, then move along the edge; click to fasten a point.	Klik untuk memulai, lalu gerakkan di sepanjang tepi; klik untuk menambatkan titik.
+	{alt}-click adds a straight segment; drag for freehand.	{alt}-klik menambah segmen lurus; seret untuk bebas.
+	Double-click, or click the first point, to close the outline.	Klik dua kali, atau klik titik pertama, untuk menutup garis.
+	Selects an object with the local AI model.	Memilih objek dengan model AI lokal.
+	Click an object, or drag a box around it.	Klik objek, atau seret kotak di sekelilingnya.
+	{shift} adds to the selection, {alt} subtracts.	{shift} menambah seleksi, {alt} mengurangi.
+	Paints a selection that grows out to the edges.	Melukis seleksi yang meluas ke tepi.
+	Drag over the area you want.	Seret di atas area yang diinginkan.
+	Hold {alt} while dragging to subtract.	Tahan {alt} saat menyeret untuk mengurangi.
+	Selects pixels of a similar colour with one click.	Memilih piksel dengan warna serupa dengan satu klik.
+	Click a colour; Tolerance and Contiguous are in the options bar.	Klik warna; Toleransi dan Bersebelahan ada di bilah opsi.
+	{shift}-click adds, {alt}-click subtracts, {shift}+{alt}-click intersects.	{shift}-klik menambah, {alt}-klik mengurangi, {shift}+{alt}-klik irisan.
+	Trims the image to a rectangle.	Memangkas gambar menjadi persegi panjang.
+	Drag to draw the crop, then drag the handles to adjust.	Seret untuk menggambar pangkasan, lalu seret gagang untuk menyesuaikan.
+	Hold {shift} to keep the ratio and {alt} to resize from the centre.	Tahan {shift} untuk mempertahankan rasio dan {alt} untuk mengubah ukuran dari tengah.
+	Press Enter to apply, Esc to cancel.	Tekan Enter untuk menerapkan, Esc untuk membatalkan.
+	Crops to a four-cornered shape and straightens it, as for a photographed page or building.	Memangkas ke bentuk bersudut empat dan meluruskannya, seperti halaman atau bangunan yang difoto.
+	Divides the image into slices for web export.	Membagi gambar menjadi irisan untuk ekspor web.
+	Selects and adjusts existing slices.	Memilih dan menyesuaikan irisan yang ada.
+	Samples a colour from the image.	Mengambil sampel warna dari gambar.
+	Click to set the foreground colour.	Klik untuk menetapkan warna depan.
+	{alt}-click sets the background colour.	{alt}-klik menetapkan warna latar belakang.
+	Measures distances and angles on the image.	Mengukur jarak dan sudut pada gambar.
+	Adds a text note to the document.	Menambahkan catatan teks ke dokumen.
+	Counts items in the image by clicking on each.	Menghitung item di gambar dengan mengklik masing-masing.
+	Removes a blemish by blending in the pixels around it.	Menghilangkan noda dengan membaurkan piksel di sekitarnya.
+	Paint over the spot.	Lukis di atas titik.
+	Hold {shift} for a straight line from the last stroke.	Tahan {shift} untuk garis lurus dari sapuan terakhir.
+	Repairs an area using sampled pixels, matching light and texture.	Memperbaiki area menggunakan piksel sampel, mencocokkan cahaya dan tekstur.
+	{alt}-click to set the source point.	{alt}-klik untuk menetapkan titik sumber.
+	Then paint over the area to repair.	Kemudian lukis di atas area untuk diperbaiki.
+	Repairs a selected area from another area.	Memperbaiki area yang dipilih dari area lain.
+	Draw around the flaw, then drag the selection onto clean pixels.	Gambar di sekitar cacat, kemudian seret seleksi ke piksel bersih.
+	Drag from inside an existing selection to move it.	Seret dari dalam seleksi yang ada untuk memindahkannya.
+	Moves a selected object and fills the gap it leaves.	Memindahkan objek yang dipilih dan mengisi celah yang ditinggalkannya.
+	Draw around the object, then drag the selection to its new place.	Gambar di sekitar objek, lalu seret seleksi ke tempat barunya.
+	Removes red from the pupils in flash photos.	Menghilangkan merah dari pupil pada foto kilat.
+	Click on the red pupil.	Klik pada pupil merah.
+	Paints soft or hard strokes in the foreground colour.	Melukis sapuan lembut atau keras dengan warna depan.
+	Drag to paint; hold {shift} to keep a straight line.	Seret untuk melukis; tahan {shift} agar tetap lurus.
+	{shift}-click draws a line from the end of the last stroke.	{shift}-klik menggambar garis dari ujung sapuan terakhir.
+	Hold {alt} to pick a colour from the image.	Tahan {alt} untuk mengambil warna dari gambar.
+	Paints hard-edged strokes.	Melukis sapuan dengan tepi keras.
+	Paints with colours that mix with the canvas, like wet paint.	Melukis dengan warna yang bercampur dengan kanvas, seperti cat basah.
+	Paints with pixels copied from another part of the image.	Melukis dengan piksel yang disalin dari bagian lain gambar.
+	Then paint where you want the copy.	Kemudian lukis di tempat salinan yang diinginkan.
+	Paints back an earlier state of the image.	Melukis kembali keadaan gambar sebelumnya.
+	Erases pixels as you drag.	Menghapus piksel saat Anda menyeret.
+	Drag to erase; hold {shift} to keep a straight line.	Seret untuk menghapus; tahan {shift} agar tetap lurus.
+	Erases the background colour under the brush, keeping edges.	Menghapus warna latar belakang di bawah kuas, mempertahankan tepi.
+	Drag along the edge of the subject.	Seret di sepanjang tepi subjek.
+	Erases all pixels of a similar colour with one click.	Menghapus semua piksel dengan warna serupa dengan satu klik.
+	Click the colour to erase.	Klik warna untuk menghapus.
+	Fills with a blend between colours.	Mengisi dengan gradasi antara warna.
+	Drag from where the blend starts to where it ends.	Seret dari tempat gradasi dimulai ke tempat berakhir.
+	Hold {shift} to snap the angle to 45 degrees.	Tahan {shift} untuk mengunci sudut ke 45 derajat.
+	Fills an area of similar colour with the foreground colour.	Mengisi area dengan warna serupa dengan warna depan.
+	Click inside the area to fill.	Klik di dalam area untuk mengisi.
+	Softens the pixels you paint over.	Melembutkan piksel yang Anda lukis.
+	Drag to blur; hold {shift} to keep a straight line.	Seret untuk memburamkan; tahan {shift} agar tetap lurus.
+	Sharpens the pixels you paint over.	Menajamkan piksel yang Anda lukis.
+	Drag to sharpen; hold {shift} to keep a straight line.	Seret untuk menajamkan; tahan {shift} agar tetap lurus.
+	Smears pixels in the direction you drag, like wet paint.	Mengoles piksel ke arah Anda menyeret, seperti cat basah.
+	Drag to smudge; hold {shift} to keep a straight line.	Seret untuk mengoles; tahan {shift} agar tetap lurus.
+	Lightens the areas you paint over.	Mencerahkan area yang Anda lukis.
+	Drag to lighten; hold {shift} to keep a straight line.	Seret untuk mencerahkan; tahan {shift} agar tetap lurus.
+	Darkens the areas you paint over.	Menggelapkan area yang Anda lukis.
+	Drag to darken; hold {shift} to keep a straight line.	Seret untuk menggelapkan; tahan {shift} agar tetap lurus.
+	Raises or lowers the colour saturation where you paint.	Menaikkan atau menurunkan saturasi warna di tempat Anda melukis.
+	Drag to change saturation; hold {shift} to keep a straight line.	Seret untuk mengubah saturasi; tahan {shift} agar tetap lurus.
+	Draws precise paths and shapes with anchor points.	Menggambar jalur dan bentuk presisi dengan titik jangkar.
+	Click to add points; {alt} on an anchor turns it into a corner or smooth point.	Klik untuk menambah titik; {alt} pada jangkar mengubahnya menjadi titik sudut atau halus.
+	Selects and moves whole paths.	Memilih dan memindahkan seluruh jalur.
+	Selects and edits individual anchor points and handles.	Memilih dan mengedit titik jangkar dan gagang individual.
+	Click an anchor or handle; drag a box to select several.	Klik jangkar atau gagang; seret kotak untuk memilih beberapa.
+	{shift}-click toggles an anchor in the selection.	{shift}-klik mengalihkan jangkar dalam seleksi.
+	{alt}-drag a handle to move it on its own.	{alt}-seret gagang untuk memindahkannya sendiri.
+	Adds text to the image.	Menambahkan teks ke gambar.
+	Click to type a line of text.	Klik untuk mengetik baris teks.
+	Drag to make a box for paragraph text.	Seret untuk membuat kotak untuk teks paragraf.
+	Adds text that runs top to bottom.	Menambahkan teks yang mengalir dari atas ke bawah.
+	Draws rectangles as editable shape layers.	Menggambar persegi panjang sebagai lapisan bentuk yang dapat diedit.
+	Draws ellipses and circles as editable shape layers.	Menggambar elips dan lingkaran sebagai lapisan bentuk yang dapat diedit.
+	Draws triangles as editable shape layers.	Menggambar segitiga sebagai lapisan bentuk yang dapat diedit.
+	Draws polygons with any number of sides.	Menggambar poligon dengan jumlah sisi berapa pun.
+	Draws straight lines as editable shape layers.	Menggambar garis lurus sebagai lapisan bentuk yang dapat diedit.
+	Draws a shape chosen from the shape library.	Menggambar bentuk yang dipilih dari pustaka bentuk.
+	Pans the view around the image.	Menggeser tampilan di sekitar gambar.
+	Drag to move the image.	Seret untuk memindahkan gambar.
+	Hold Space with any other tool to pan temporarily.	Tahan Spasi dengan alat lain untuk menggeser sementara.
+	Magnifies or reduces the view.	Memperbesar atau memperkecil tampilan.
+	Click to zoom in, {alt}-click to zoom out.	Klik untuk memperbesar, {alt}-klik untuk memperkecil.
+	Drag right to zoom in and left to zoom out, or drag a box when Scrubby Zoom is off.	Seret ke kanan untuk memperbesar dan ke kiri untuk memperkecil, atau seret kotak saat Zoom Geser nonaktif.
+	Removes distractions with the local AI model.	Menghilangkan gangguan dengan model AI lokal.
+	Paint over what you want gone.	Lukis di atas apa yang ingin dihilangkan.
+	When you let go, the repair lands on its own layer.	Saat dilepaskan, hasil perbaikan ditempatkan pada lapisannya sendiri.
+	Cuts out the subject with the local AI model.	Memotong subjek dengan model AI lokal.
+	Use Remove Background in the options bar to make the mask.	Gunakan Hapus Latar Belakang di bilah opsi untuk membuat masker.
+	Then paint to erase or restore parts of it; X swaps the two.	Kemudian lukis untuk menghapus atau memulihkan bagian-bagiannya; X menukar keduanya.
+	Pushes pixels forward as you drag.	Mendorong piksel ke depan saat Anda menyeret.
+	Drag across the area to push it along.	Seret melintasi area untuk mendorongnya.
+	Undoes warping where you paint.	Membatalkan pembengkokan di tempat Anda melukis.
+	Paint over a distorted area to restore it; hold still to keep restoring.	Sapukan pada area yang terdistorsi untuk memulihkannya; tahan diam untuk terus memulihkan.
+	Smooths out the distortion where you paint.	Menghaluskan distorsi di area yang Anda sapu.
+	Paint over an area; hold still to keep smoothing.	Sapukan pada area; tahan diam untuk terus menghaluskan.
+	Spins pixels clockwise.	Memutar piksel searah jarum jam.
+	Click or hold still to keep twirling.	Klik atau tahan diam untuk terus memutar.
+	Spins pixels counterclockwise.	Memutar piksel berlawanan arah jarum jam.
+	Pulls pixels in toward the centre of the brush.	Menarik piksel ke arah tengah kuas.
+	Click or hold still to keep pinching.	Klik atau tahan diam untuk terus mencubit.
+	Pushes pixels out from the centre of the brush.	Mendorong piksel keluar dari tengah kuas.
+	Click or hold still to keep swelling.	Klik atau tahan diam untuk terus menggembung.
+	Shifts pixels sideways as you drag.	Menggeser piksel ke samping saat Anda menyeret.
+	Drag to move pixels to the left of your direction.	Seret untuk memindahkan piksel ke kiri dari arah Anda.
+	Protects areas from being warped.	Melindungi area agar tidak terdistorsi.
+	Paint over the areas to protect.	Sapukan pada area yang ingin dilindungi.
+	Removes protection from frozen areas.	Menghapus perlindungan dari area beku.
+	Paint over the frozen areas to release them.	Sapukan pada area beku untuk melepaskannya.
+	Freezes an area you outline.	Membekukan area yang Anda lingkari.
+	Drag to freeze an outlined area.	Seret untuk membekukan area yang dilingkari.
+	{alt}-drag to thaw it.	{alt}-seret untuk mencairkannya.
+	Changes the whole image at once.	Mengubah seluruh gambar sekaligus.
+	Also in this group:	Juga di grup ini:
+	How to use	Cara penggunaan
+	All Tools	Semua Alat
+	Photographer	Fotografer
+	Retouching	Retouching
+	Tool Set	Set Alat
+	Tool Sets	Set Alat
+	built-in	bawaan
+	My Tools	Alat Saya
+	Reset to All Tools	Atur Ulang ke Semua Alat
+	Built-in sets can't be changed. Save a copy to choose your own tools.	Set bawaan tidak dapat diubah. Simpan salinan untuk memilih alat Anda sendiri.
+	Save as New Set	Simpan sebagai Set Baru
+	Tick the tools this set shows.	Centang alat yang ditampilkan set ini.
+	Tool tips	Tips Alat
+	Rich (name, shortcut and how to use)	Detail (nama, pintasan, dan cara penggunaan)
+	Simple (name and shortcut)	Sederhana (nama dan pintasan)
+	Tool icons	Ikon alat
+	Colour (default)	Warna (default)
+
+# Smart Sort face model bundle
+	Faces	Wajah
+	Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library.	Menemukan wajah dan mengenali orang yang sama di berbagai foto. Nonaktif sampai Anda mengaktifkannya di Smart Sort. Data wajah tetap di pustaka Anda.
+	Finds faces and their landmarks, ready to recognise the same person in other photos. Runs locally on the CPU.	Menemukan wajah dan titik acuannya untuk mengenali orang yang sama di foto lain. Berjalan secara lokal di CPU.
+	Finds faces and groups photos of the same person for Smart Sort. Includes both face models; runs on the CPU with face data kept in your library.	Menemukan wajah dan mengelompokkan foto orang yang sama untuk Smart Sort. Mencakup kedua model wajah; berjalan di CPU dan menyimpan data wajah di pustaka Anda.
+
+# Tool tip and tool set completion (English fallback).
+	Cancel Rename	Cancel Rename
+	Choose Move or Extend in the options bar.	Choose Move or Extend in the options bar.
+	Choose the active shape, work path or targeted vector mask.	Choose the active shape, work path or targeted vector mask.
+	Click a slice to select it.	Click a slice to select it.
+	Click each item to add a numbered marker.	Click each item to add a numbered marker.
+	Click the first point to close, Enter to finish an open path.	Click the first point to close, Enter to finish an open path.
+	Click the image to add a sampler, then drag its marker to move it.	Click the image to add a sampler, then drag its marker to move it.
+	Click to add a note and edit its text in the Notes panel.	Click to add a note and edit its text in the Notes panel.
+	Click to add corners; drag to create smooth handles.	Click to add corners; drag to create smooth handles.
+	Click to switch between Fit and 100%; {alt}-click zooms out.	Click to switch between Fit and 100%; {alt}-click zooms out.
+	Color Sampler Tool	Color Sampler Tool
+	Double-click the image or tool button to fit the image.	Double-click the image or tool button to fit the image.
+	Double-click the tool button to fit the image.	Double-click the tool button to fit the image.
+	Drag a frame, then drag its four corners onto the subject.	Drag a frame, then drag its four corners onto the subject.
+	Drag a note marker to move it.	Drag a note marker to move it.
+	Drag a rectangle to create a slice.	Drag a rectangle to create a slice.
+	Drag between the endpoints.	Drag between the endpoints.
+	Drag between two points to measure.	Drag between two points to measure.
+	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.	Drag right to zoom in and left to zoom out; {cmd}-drag draws a zoom box.
+	Drag the selected slice to move it.	Drag the selected slice to move it.
+	Drag to draw; {shift} keeps equal width and height.	Drag to draw; {shift} keeps equal width and height.
+	Drag to move its whole path.	Drag to move its whole path.
+	Drag to move the image; hold Space to pan with another tool.	Drag to move the image; hold Space to pan with another tool.
+	Hold {alt} to draw from the centre.	Hold {alt} to draw from the centre.
+	Magnifies or reduces the Camera Raw preview.	Magnifies or reduces the Camera Raw preview.
+	Paints back the document’s opening state.	Paints back the document’s opening state.
+	Pans the Camera Raw preview.	Pans the Camera Raw preview.
+	Places colour readouts on the Camera Raw preview.	Places colour readouts on the Camera Raw preview.
+	Save Name	Save Name
+	Set Pupil Size and Darken Amount in the options bar.	Set Pupil Size and Darken Amount in the options bar.
+	Set Size and Pressure in Brush Tool Options.	Set Size and Pressure in Brush Tool Options.
+	Set the brush size in the options bar before painting.	Set the brush size in the options bar before painting.
+	Then paint to erase or restore parts of it; Swap Colors switches modes.	Then paint to erase or restore parts of it; Swap Colors switches modes.
+	Up	Up
+	Use Slice Select to move an existing slice.	Use Slice Select to move an existing slice.
+	{alt}-click a marker to remove it.	{alt}-click a marker to remove it.
+	{alt}-drag an endpoint to measure an angle.	{alt}-drag an endpoint to measure an angle.
+	Hold {key} with any other tool to pan temporarily.	Hold {key} with any other tool to pan temporarily.
+	Set Tolerance and Contiguous in the options bar.	Atur Toleransi dan Bersebelahan di bilah opsi.
+	Choose Erase or Restore in the options bar, then paint to refine the mask.	Pilih Hapus atau Pulihkan di bilah opsi, lalu lukis untuk menyempurnakan mask.
+	Tool Set Name	Nama set alat
+	You can also drag with the middle mouse button to pan.	Anda juga dapat menyeret dengan tombol tengah mouse untuk menggeser tampilan.
+	32-bit Preview Options	Opsi Pratinjau 32-bit
+	AI Integrations	Integrasi AI
+	Accented Edges	Tepi Beraksen
+	Add Noise	Tambahkan Noise
+	Adjust Interval For Loops	Sesuaikan Interval untuk Loop
+	Ambience	Ambience
+	Ambient	Ambient
+	Amplitude Max	Amplitudo Maks
+	Amplitude Min	Amplitudo Min
+	Angled Strokes	Sapuan Bersudut
+	Anisotropic	Anisotropik
+	Apply Data Set	Terapkan Set Data
+	Apply Image	Terapkan Gambar
+	Arbitrary	Sembarang
+	Area	Area
+	Around Center	Di Sekitar Pusat
+	Arrangement	Susunan
+	Artboard from Group	Artboard dari Grup
+	Artboard from Layers	Artboard dari Layer
+	Artboards to Files	Artboard ke File
+	Artboards to PDF	Artboard ke PDF
+	Artistic	Artistik
+	Assign Profile	Tetapkan Profil
+	At	Di
+	Auto Scale	Skala Otomatis
+	Auto-Align Layers	Ratakan Layer Otomatis
+	Auto-Blend Layers	Campur Layer Otomatis
+	Background Level	Level Latar Belakang
+	Bamboo	Bambu
+	Bas Relief	Relief Dasar
+	Base Tree Type	Jenis Pohon Dasar
+	Batch	Batch
+	Berries	Beri
+	Black Clip	Klip Hitam
+	Black Intensity	Intensitas Hitam
+	Blade Curvature	Kelengkungan Bilah
+	Blast	Ledakan
+	Bleach Bypass	Bleach Bypass
+	Blocks	Blok
+	Blue Yellow	Biru Kuning
+	Blur Angle	Sudut Blur
+	Border	Batas
+	Border Thickness	Ketebalan Batas
+	Bottom Left	Kiri Bawah
+	Bottom Right	Kanan Bawah
+	Box Blur	Blur Kotak
+	Branches Color	Warna Cabang
+	Branches Height	Tinggi Cabang
+	Branches Thickness	Ketebalan Cabang
+	Brick	Bata
+	Bristle Detail	Detail Bulu
+	Browse	Telusuri
+	Brush Detail	Detail Kuas
+	Brush Strokes	Sapuan Kuas
+	Brush Type	Jenis Kuas
+	Burlap	Goni
+	Calculations	Kalkulasi
+	Camera Raw	Camera Raw
+	Candle Light	Cahaya Lilin
+	Canvas Size	Ukuran Kanvas
+	Cell Size	Ukuran Sel
+	Center X	Pusat X
+	Center Y	Pusat Y
+	Chalk Area	Area Kapur
+	Channel1	Saluran 1
+	Channel2	Saluran 2
+	Channel3	Saluran 3
+	Channel4	Saluran 4
+	Charcoal Area	Area Arang
+	Charcoal Thickness	Ketebalan Arang
+	Circle	Lingkaran
+	Circularity	Sirkularitas
+	Cleanliness	Kebersihan
+	Clear Amount	Jumlah Clear
+	Clone	Klon
+	Clumped	Menggumpal
+	Coarse Dots	Titik Kasar
+	Color Decontaminate	Dekontaminasi Warna
+	Color Halftone	Halftone Warna
+	Color Lookup Tables	Tabel Lookup Warna
+	Color Settings	Pengaturan Warna
+	Color Table	Tabel Warna
+	Colored Pencil	Pensil Warna
+	Conditional Mode Change	Perubahan Mode Bersyarat
+	Cone	Kerucut
+	Constraints	Batasan
+	Contract	Kontrak
+	Contrasty	Kontras
+	Convert to Linked	Konversi ke Tertaut
+	Convert to Profile	Konversi ke Profil
+	Cool	Dingin
+	Cooling L B B	Cooling LBB
+	Cooling80	Cooling80
+	Cooling82	Cooling82
+	Correct C A	Koreksi CA
+	Correct Distortion	Koreksi Distorsi
+	Correct Vignette	Koreksi Vinyet
+	Crack Brightness	Kecerahan Retakan
+	Crack Depth	Kedalaman Retakan
+	Crack Spacing	Jarak Retakan
+	Craquelure	Craquelure
+	Create By	Buat Berdasarkan
+	Cross	Silang
+	Cross Process	Cross Process
+	Crosshatch	Arsir Silang
+	Crystallize	Kristalisasi
+	Curve Darks	Kurva Gelap
+	Curve Highlights	Kurva Sorotan
+	Curve Lights	Kurva Terang
+	Curve Shadows	Kurva Bayangan
+	Curve Splits	Pemisahan Kurva
+	Custom Branch Color	Warna Cabang Kustom
+	Custom Pixel Aspect Ratio	Rasio Aspek Piksel Kustom
+	Cutout	Potongan
+	Daisies	Bunga Aster
+	Dark Intensity	Intensitas Gelap
+	Dark Rough	Kasar Gelap
+	Dark Strokes	Sapuan Gelap
+	Darken Only	Hanya Gelapkan
+	Darkness	Kegelapan
+	Data	Data
+	Data Sets as Files	Set Data sebagai File
+	Date and Time	Tanggal dan Waktu
+	Day For Night	Siang Menjadi Malam
+	De-Interlace	De-Interlace
+	Deep Blue	Biru Tua
+	Deep Emerald	Zamrud Tua
+	Deep Red	Merah Tua
+	Deep Yellow	Kuning Tua
+	Default Leaves	Daun Bawaan
+	Define Brush Preset	Tentukan Preset Kuas
+	Define Custom Shape	Tentukan Bentuk Kustom
+	Define Pattern	Tentukan Pola
+	Definition	Definisi
+	Defringe	Hapus Pinggiran
+	Depth Map	Peta Kedalaman
+	Depth Mode	Mode Kedalaman
+	Diffuse	Difus
+	Diffuse Glow	Pendar Difus
+	Direction Balance	Keseimbangan Arah
+	Displace	Geser
+	Distortion	Distorsi
+	Distribution	Distribusi
+	Dot	Titik
+	Double Line	Garis Ganda
+	Draft	Draf
+	Dry Brush	Kuas Kering
+	Duplicate Layer	Duplikat Layer
+	Duplicate Layers	Duplikat Layer
+	Duplication	Duplikasi
+	Dust & Scratches	Debu & Goresan
+	Edge Brightness	Kecerahan Tepi
+	Edge Extension	Perpanjangan Tepi
+	Edge Fidelity	Kesetiaan Tepi
+	Edge Intensity	Intensitas Tepi
+	Edge Only	Hanya Tepi
+	Edge Simplicity	Kesederhanaan Tepi
+	Edge Thickness	Ketebalan Tepi
+	Edge Width	Lebar Tepi
+	Edit Toolbar	Edit Bilah Alat
+	Elevation	Elevasi
+	Eliminate	Hilangkan
+	End X	X Akhir
+	End Y	Y Akhir
+	Enlarged	Diperbesar
+	Even Fields	Field Genap
+	Export As	Ekspor Sebagai
+	Export Contents	Ekspor Isi
+	Export Preferences	Ekspor Preferensi
+	Export/Import Presets	Ekspor/Impor Preset
+	Extrude	Ekstrusi
+	Faded Film	Film Pudar
+	Fiber Length	Panjang Serat
+	Fibers	Serat
+	Field Blur	Blur Medan
+	File Info	Info File
+	Film Grain	Grain Film
+	Filter Gallery	Galeri Filter
+	Find and Replace Text	Temukan dan Ganti Teks
+	Fine	Halus
+	Fine Dots	Titik Halus
+	Fit Image	Sesuaikan Gambar
+	Flame	Api
+	Flame Bottom Alignment	Perataan Bawah Api
+	Flame Lines	Garis Api
+	Flame Shape	Bentuk Api
+	Flame Style	Gaya Api
+	Flame Type	Jenis Api
+	Flat	Datar
+	Flat Shading	Pewarnaan Datar
+	Flower Color	Warna Bunga
+	Focal Distance	Jarak Fokus
+	Focus	Fokus
+	Focus Area	Area Fokus
+	Foreground Level	Tingkat Latar Depan
+	Frame	Bingkai
+	Fresco	Fresko
+	From Left	Dari Kiri
+	From Right	Dari Kanan
+	Frosted	Beku
+	Fuzziness	Kekaburan
+	Gamma	Gamma
+	Gaussian	Gaussian
+	Gaussian Blur	Blur Gaussian
+	Generators	Generator
+	Generic	Generik
+	Glass	Kaca
+	Global Light	Cahaya Global
+	Gloss	Kilap
+	Glow Amount	Jumlah Pendar
+	Glow Brightness	Kecerahan Pendar
+	Glow Size	Ukuran Pendar
+	Glowing Edges	Tepi Berpendar
+	Grade Balance	Keseimbangan Grade
+	Grade Blending	Pencampuran Grade
+	Grade Global	Grade Global
+	Grade Highlights	Grade Sorotan
+	Grade Midtones	Grade Nada Tengah
+	Grade Shadows	Grade Bayangan
+	Grain Amount	Jumlah Grain
+	Grain Roughness	Kekasaran Grain
+	Grain Size	Ukuran Grain
+	Grain Type	Jenis Grain
+	Graininess	Kebutiran
+	Grainy Dots	Titik Berbutir
+	Gray Value (Maximum)	Nilai Abu-abu (Maksimum)
+	Gray Value (Mean)	Nilai Abu-abu (Rata-rata)
+	Gray Value (Median)	Nilai Abu-abu (Median)
+	Gray Value (Minimum)	Nilai Abu-abu (Minimum)
+	Group from Layers	Grup dari Layer
+	Grout Width	Lebar Nat
+	HDR Toning	HDR Toning
+	Hearts	Hati
+	Heptagon	Segi Tujuh
+	Hexagon	Segi Enam
+	High Pass	High Pass
+	Highlight	Sorotan
+	Highlight Amount	Jumlah Sorotan
+	Highlight Area	Area Sorotan
+	Highlight Radius	Radius Sorotan
+	Highlight Strength	Kekuatan Sorotan
+	Highlight Tone	Nada Sorotan
+	Horizontal Only	Hanya Horizontal
+	Hotspot	Hotspot
+	Hsb	HSB
+	Hsl	HSL
+	Hsl Hue	Hue HSL
+	Hsl Lum	Luminansi HSL
+	Hsl Sat	Saturasi HSL
+	Image Balance	Keseimbangan Gambar
+	Image Processor	Prosesor Gambar
+	Import Brushes	Impor Kuas
+	In Black	Hitam Input
+	In White	Putih Input
+	Infinite	Tak Terbatas
+	Ink Outlines	Garis Tinta
+	Input Mode	Mode Input
+	Install Plug-in	Pasang Plug-in
+	Integrated Density	Kepadatan Terintegrasi
+	Intensity	Intensitas
+	Interpret Footage	Interpretasikan Footage
+	Interval	Interval
+	Iris Blur	Blur Iris
+	Ivy	Ivy
+	Jag	Jag
+	Join the ArtCraft Discord	Bergabung dengan Discord ArtCraft
+	Kernel	Kernel
+	Label	Label
+	Layer Comps to Files	Komposisi Layer ke File
+	Layer Content Options	Opsi Konten Layer
+	Layer From Background	Layer dari Latar Belakang
+	Layer from Background	Layer dari Latar Belakang
+	Layers to Files	Layer ke File
+	Leaf Color	Warna Daun
+	Leaves Amount	Jumlah Daun
+	Leaves Color	Warna Daun
+	Leaves Size	Ukuran Daun
+	Left Diagonal	Diagonal Kiri
+	Legacy	Legacy
+	Length	Panjang
+	Lens Blur	Blur Lensa
+	Lens Correction	Koreksi Lensa
+	Lens Flare	Suar Lensa
+	Level Based	Berbasis Level
+	Light Dark Balance	Keseimbangan Terang Gelap
+	Light Direction	Arah Cahaya
+	Light Intensity	Intensitas Cahaya
+	Light Rough	Kekasaran Cahaya
+	Light Type	Jenis Cahaya
+	Light X	Cahaya X
+	Light Y	Cahaya Y
+	Light Z	Cahaya Z
+	Lighten Grout	Terangkan Nat
+	Lighten Only	Hanya Terangkan
+	Lighting	Pencahayaan
+	Lighting Effects	Efek Pencahayaan
+	Liquify	Liquify
+	List	Daftar
+	Load 3D LUT	Muat 3D LUT
+	Load Files into Stack	Muat File ke Tumpukan
+	Lock Layers	Kunci Layer
+	Long Lines	Garis Panjang
+	Long Strokes	Sapuan Panjang
+	Lower	Turunkan
+	Lum	Lum
+	Lut	LUT
+	Map Document	Petakan Dokumen
+	Map Layer	Petakan Layer
+	Map Path	Petakan Path
+	Margin	Margin
+	Mask Incomplete Blocks	Masker Blok Tidak Lengkap
+	Match Color	Cocokkan Warna
+	Max Offset	Offset Maks
+	Max Radius	Radius Maks
+	Medium Dots	Titik Sedang
+	Medium Lines	Garis Sedang
+	Medium Strokes	Sapuan Sedang
+	Merge to HDR Pro	Gabungkan ke HDR Pro
+	Metallic	Metalik
+	Mezzotint	Mezzotint
+	Midtone	Nada Tengah
+	Mono Contrast	Kontras Mono
+	Monochromatic	Monokromatik
+	Mosaic	Mosaik
+	Mosaic Tiles	Ubin Mosaik
+	Motion Blur	Blur Gerak
+	Movie Prime	Movie Prime
+	Multiple Flames Along Path	Beberapa Api di Sepanjang Path
+	Multiple Flames One Direction	Beberapa Api Satu Arah
+	Multiple Flames Path Directions	Beberapa Api Arah Path
+	Multiple Flames Various Length	Beberapa Api Panjang Beragam
+	Neon Glow	Pendar Neon
+	Neutralize	Netralkan
+	New Guide	Panduan Baru
+	New Guide Layout	Tata Letak Panduan Baru
+	New Layer	Layer Baru
+	New Video Layer from File	Layer Video Baru dari File
+	New document	Dokumen baru
+	Noise Color	Noise Warna
+	Noise Color Detail	Detail Noise Warna
+	Noise Luminance	Noise Luminansi
+	Noise Luminance Detail	Detail Noise Luminansi
+	Number Of Levels	Jumlah Level
+	Ocean Ripple	Riak Samudra
+	Octagon	Oktagon
+	Odd Fields	Bidang Ganjil
+	Oil Paint	Cat Minyak
+	One Flame Along Path	Satu Api di Sepanjang Path
+	Open As	Buka Sebagai
+	Opening	Pembukaan
+	Out Black	Hitam Output
+	Out From Center	Keluar dari Tengah
+	Out White	Putih Output
+	Oval	Oval
+	Overlay Edge	Tepi Hamparan
+	Package	Paket
+	Paint Daubs	Sapuan Cat
+	Palette Knife	Pisau Palet
+	Paper Brightness	Kecerahan Kertas
+	Parallel	Paralel
+	Patchwork	Tambal Sulam
+	Path Blur	Blur Jalur
+	Paths to Illustrator	Jalur ke Illustrator
+	Pattern Type	Jenis Pola
+	Pencil Width	Lebar Pensil
+	Pentagon	Segi Lima
+	Perimeter	Keliling
+	Photomerge	Photomerge
+	Picture Frame	Bingkai Gambar
+	Pinch	Cubit
+	Pins	Pin
+	Place Embedded	Tempatkan Tersemat
+	Place Linked	Tempatkan Tertaut
+	Place Scale Marker	Tempatkan Penanda Skala
+	Plane	Bidang
+	Planes	Bidang
+	Plastic Wrap	Bungkus Plastik
+	Point	Titik
+	Point Curve	Kurva Titik
+	Point Curve Blue	Kurva Titik Biru
+	Point Curve Green	Kurva Titik Hijau
+	Point Curve Red	Kurva Titik Merah
+	Pointed	Runcing
+	Pointillize	Pointilis
+	Polar Coordinates	Koordinat Polar
+	Polar To Rectangular	Polar ke Persegi Panjang
+	Pond Ripples	Riak Kolam
+	Poster Edges	Tepi Poster
+	Posterization	Posterisasi
+	Preserve	Pertahankan
+	Preset Manager	Manajer Preset
+	Press keys	Tekan tombol
+	Prime105	Prime105
+	Prime35	Prime35
+	Profile	Profil
+	Pyramids	Piramida
+	Radial Blur	Blur Radial
+	Radius X	Radius X
+	Radius Y	Radius Y
+	Random	Acak
+	Randomize Length	Acak Panjang
+	Randomize Shapes	Acak Bentuk
+	Raw Defaults	Default Raw
+	Reading	Membaca
+	Rectangular To Polar	Persegi Panjang ke Polar
+	Red Cyan	Merah Cyan
+	Reduce Color Noise	Kurangi Noise Warna
+	Reduce Noise	Kurangi Noise
+	Relief	Relief
+	Relink to File	Tautkan Ulang ke File
+	Remove Jpeg Artifact	Hapus Artefak JPEG
+	Rename Brush	Ganti Nama Kuas
+	Rename Group	Ganti Nama Grup
+	Rename Tool Preset	Ganti Nama Preset Alat
+	Render Video	Render Video
+	Replace Color	Ganti Warna
+	Replace Contents	Ganti Isi
+	Replace Footage	Ganti Rekaman
+	Report an Issue	Laporkan Masalah
+	Resolve Missing Fonts	Atasi Font Hilang
+	Rgb	RGB
+	Ridges	Punggung
+	Right Diagonal	Diagonal Kanan
+	Ring	Cincin
+	Ripple	Riak
+	Ripple Magnitude	Besaran Riak
+	Ripple Size	Ukuran Riak
+	Rope	Tali
+	Roses	Mawar
+	Rough Pastels	Pastel Kasar
+	Row Order	Urutan Baris
+	Sandstone	Batu Pasir
+	Sat	Sat
+	Save As	Simpan Sebagai
+	Save a Copy	Simpan Salinan
+	Save for Web (Legacy)	Simpan untuk Web (Legacy)
+	Scale Effects	Skala Efek
+	Scale Factor	Faktor Skala
+	Scale Units	Satuan Skala
+	Scaling	Penskalaan
+	Scallops	Kerang
+	Script Events Manager	Manajer Peristiwa Skrip
+	Search commands, tools and panels	Cari perintah, alat, dan panel
+	Select and Mask	Pilih dan Masker
+	Sepia	Sepia
+	Set Measurement Scale	Atur Skala Pengukuran
+	Shadow	Bayangan
+	Shadow Amount	Jumlah Bayangan
+	Shadow Intensity	Intensitas Bayangan
+	Shadow Radius	Radius Bayangan
+	Shadow Tone	Nada Bayangan
+	Shadows/Highlights	Bayangan/Sorotan
+	Shape Blur	Blur Bentuk
+	Sharpen Amount	Jumlah Penajaman
+	Sharpen Detail	Detail Penajaman
+	Sharpen Details	Detail Penajaman
+	Sharpen Masking	Masking Penajaman
+	Sharpen Radius	Radius Penajaman
+	Shear	Geser
+	Shine	Kilau
+	Short Lines	Garis Pendek
+	Short Strokes	Sapuan Pendek
+	Simple	Sederhana
+	Sine	Sinus
+	Sketch	Sketsa
+	Slice Options	Opsi Irisan
+	Smart Blur	Blur Cerdas
+	Smart Sharpen	Penajaman Cerdas
+	Smoothness	Kehalusan
+	Smudge Stick	Tongkat Noda
+	Snowflakes	Kepingan Salju
+	Softness	Kelembutan
+	Solid Front Faces	Wajah Depan Solid
+	Source Layer	Lapisan Sumber
+	Sparkle	Kilauan
+	Spatter	Percikan
+	Speckle	Bintik
+	Speed	Kecepatan
+	Spherize	Sferis
+	Spin	Putar
+	Spin Blur	Blur Putar
+	Sponge	Spons
+	Spot	Titik
+	Spray Radius	Radius Semprotan
+	Sprayed Strokes	Goresan Semprotan
+	Sprinkles	Taburan
+	Square Size	Ukuran Kotak
+	Squareness	Persegi
+	Stagger	Selang-seling
+	Stained Glass	Kaca Patri
+	Star	Bintang
+	Stars	Bintang
+	Start X	Mulai X
+	Start Y	Mulai Y
+	Statistics	Statistik
+	Stippled	Titik-titik
+	Stops	Perhentian
+	Stretch	Peregangan
+	Stroke Detail	Detail Goresan
+	Stroke Direction	Arah Goresan
+	Stroke Length	Panjang Goresan
+	Stroke Pressure	Tekanan Goresan
+	Stroke Size	Ukuran Goresan
+	Stroke Width	Lebar Goresan
+	Strokes	Goresan
+	Stylization	Stilasi
+	Sumi-e	Sumi-e
+	Surface Blur	Blur Permukaan
+	Taper	Meruncing
+	Target X	Target X
+	Target Y	Target Y
+	Teal Orange	Teal Oranye
+	Texture Coverage	Cakupan Tekstur
+	Texturizer	Pemberi Tekstur
+	Thickness	Ketebalan
+	Tile Size	Ukuran Ubin
+	Tiles	Ubin
+	Tilt-Shift	Tilt-Shift
+	Tint Color	Warna Tinta
+	Tiny Lens	Lensa Kecil
+	To Center	Ke Tengah
+	Tool	Alat
+	Top Left	Kiri Atas
+	Top Right	Kanan Atas
+	Trace Contour	Lacak Kontur
+	Transition	Transisi
+	Trap	Perangkap
+	Tree	Pohon
+	Trim	Pangkas
+	Turbulent	Turbulen
+	Twirl	Pilin
+	Unaltered	Tidak Diubah
+	Undefined Areas	Area Tidak Terdefinisi
+	Underpainting	Lukisan Dasar
+	Underwater	Bawah Air
+	Uniform	Seragam
+	Unsharp Mask	Unsharp Mask
+	Upper	Atas
+	Use Custom Color	Gunakan Warna Kustom
+	Use Selection In Source	Gunakan Seleksi di Sumber
+	Use Selection In Target	Gunakan Seleksi di Target
+	Vanishing Point	Titik Hilang
+	Variable Data Sets	Kumpulan Data Variabel
+	Vertical Only	Vertikal Saja
+	Vertical Type Tool	Alat Teks Vertikal
+	Video Frames to Layers	Bingkai Video ke Lapisan
+	Vignette Amount	Jumlah Vinyet
+	Vignette Feather	Kehalusan Vinyet
+	Vignette Highlights	Sorotan Vinyet
+	Vignette Midpoint	Titik Tengah Vinyet
+	Vignette Roundness	Kebulatan Vinyet
+	Vignette Style	Gaya Vinyet
+	Vine Color	Warna Sulur
+	Vine With Flowers	Sulur dengan Bunga
+	Vine With Leaves	Sulur dengan Daun
+	Violent	Keras
+	Violet	Ungu
+	WIA Support	Dukungan WIA
+	Warm	Hangat
+	Warming L B A	Warming L B A
+	Warming81	Warming81
+	Warming85	Warming85
+	Warmth	Kehangatan
+	Warp Text	Warp Teks
+	Watercolor	Cat Air
+	Wavelength Max	Panjang Gelombang Maks
+	Wavelength Min	Panjang Gelombang Min
+	Waves	Gelombang
+	White Clip	Klip Putih
+	White Intensity	Intensitas Putih
+	White Is High	Putih Tinggi
+	Wide Blurry	Buram Lebar
+	Wide Sharp	Tajam Lebar
+	Wind	Angin
+	Working	Bekerja
+	Wrap	Bungkus
+	ZigZag	Zigzag
+	Zigzag	Zigzag
+	CPU mode	Mode CPU
+	GPU acceleration is off after a graphics failure.	Akselerasi GPU nonaktif setelah kegagalan grafis.
+	Recommended: {value}	Direkomendasikan: {value}
+	Recommended: {min}–{max} (default {default})	Direkomendasikan: {min}–{max} (bawaan {default})
+	Family unknown: may not work with this model	Keluarga tidak dikenal: mungkin tidak berfungsi dengan model ini
+	Background removal options	Opsi penghapusan latar belakang
+	Remove the background using the chosen model and output	Hapus latar belakang menggunakan model yang dipilih dan hasilkan output
+	Cancel test	Batalkan pengujian
+	Re-test	Uji ulang
+	testing…	menguji…
+@id	path.finishCompound	Selesaikan Jalur Gabungan
+	Autosave failed	Simpan otomatis gagal
+	Crash recovery can't keep a copy of your unsaved changes. Save your work to keep it.	Pemulihan crash tidak dapat menyimpan salinan perubahan yang belum disimpan. Simpan pekerjaan Anda agar tidak hilang.
+# Stroke Path brush tool dialog (PhotoCraft 55c1847f)
+	Simulate Pressure	Simulasikan Tekanan
+	Stroke Path…	Stroke Path…
+	Background Eraser	Background Eraser
+	Healing Brush	Healing Brush
+	Spot Healing Brush	Spot Healing Brush
+	Smudge	Smudge
+# Tablet compatibility and shared colour controls
+	Pen tablet: use compatibility mode (XWayland)	Tablet pena: gunakan mode kompatibilitas (XWayland)
+	On	Aktif
+	Colour hue	Rona warna
+	Colour saturation	Saturasi warna
+	Colour brightness	Kecerahan warna
+# Workspace shortcut profiles and color-control labels (clean-room).
+	All shortcuts in this profile reset to defaults.	Semua pintasan dalam profil ini telah diatur ulang ke nilai default.
+	Editor	Editor
+	Library + Develop	Pustaka + Pengembangan
+	Scope	Cakupan
+	Colour	Warna
+	Monochrome (default)	Monokrom (default)

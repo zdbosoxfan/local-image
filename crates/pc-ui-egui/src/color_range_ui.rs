@@ -424,10 +424,10 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                 let (add, sub) = (points(f, "points").len(), points(f, "subtractPoints").len());
                 let what = match (add, sub) {
                     (0, 0) => tl!("Sample: foreground colour").to_string(),
-                    (a, 0) => crate::i18n::trn(crate::i18n::current(), a as u64, "{n} sample", "{n} samples"),
-                    (a, s) => crate::i18n::fmt(
+                    (a, 0) => li_i18n::trn(li_i18n::current(), a as u64, "{n} sample", "{n} samples"),
+                    (a, s) => li_i18n::fmt(
                         tl!("{added}, {removed} subtracted"),
-                        &[("added", &crate::i18n::trn(crate::i18n::current(), a as u64, "{n} sample", "{n} samples")), ("removed", &s.to_string())],
+                        &[("added", &li_i18n::trn(li_i18n::current(), a as u64, "{n} sample", "{n} samples")), ("removed", &s.to_string())],
                     ),
                 };
                 ui.label(egui::RichText::new(what).size(11.0).color(t.text_faint));

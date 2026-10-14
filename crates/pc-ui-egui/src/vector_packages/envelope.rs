@@ -139,17 +139,16 @@ impl State {
         };
         let before = kind;
         ui.add_enabled_ui(ready, |ui| {
-            egui::ComboBox::new("envelope-kind", crate::i18n::t("Envelope kind"))
-                .selected_text(crate::i18n::t(match kind {
+            egui::ComboBox::new("envelope-kind", li_i18n::t("Envelope kind"))
+                .selected_text(li_i18n::t(match kind {
                     0 => "Warp",
                     1 => "Mesh",
                     _ => "Top object",
                 }))
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut kind, 0, crate::i18n::t("Warp"));
-                    ui.selectable_value(&mut kind, 1, crate::i18n::t("Mesh"));
-                    ui.add_enabled(false, egui::Label::new(crate::i18n::t("Top object")))
-                        .on_hover_text(crate::i18n::t("Choose an outline from the Object menu"));
+                    ui.selectable_value(&mut kind, 0, li_i18n::t("Warp"));
+                    ui.selectable_value(&mut kind, 1, li_i18n::t("Mesh"));
+                    ui.add_enabled(false, egui::Label::new(li_i18n::t("Top object"))).on_hover_text(li_i18n::t("Choose an outline from the Object menu"));
                 });
         });
         if kind != before {
@@ -168,20 +167,20 @@ impl State {
         let previous = spec.clone();
         match &mut spec {
             EnvelopeSpec::Warp { style, bend, horizontal, vertical } => {
-                egui::ComboBox::new("envelope-style", crate::i18n::t("Warp style")).selected_text(crate::i18n::t(style_label(style))).show_ui(ui, |ui| {
+                egui::ComboBox::new("envelope-style", li_i18n::t("Warp style")).selected_text(li_i18n::t(style_label(style))).show_ui(ui, |ui| {
                     for (id, label) in STYLES {
-                        ui.selectable_value(style, id.to_string(), crate::i18n::t(label));
+                        ui.selectable_value(style, id.to_string(), li_i18n::t(label));
                     }
                 });
                 for (label, value) in [("Bend", bend), ("Horizontal distortion", horizontal), ("Vertical distortion", vertical)] {
-                    let l = ui.label(crate::i18n::t(label));
+                    let l = ui.label(li_i18n::t(label));
                     ui.add(egui::DragValue::new(value).range(-100.0..=100.0).speed(0.5).suffix("%")).labelled_by(l.id);
                 }
             }
             EnvelopeSpec::Mesh { rows, cols, .. } => {
-                let l = ui.label(crate::i18n::t("Rows"));
+                let l = ui.label(li_i18n::t("Rows"));
                 ui.add(egui::DragValue::new(rows).range(1..=geometry::MAX_GRID_SIDE)).labelled_by(l.id);
-                let l = ui.label(crate::i18n::t("Columns"));
+                let l = ui.label(li_i18n::t("Columns"));
                 ui.add(egui::DragValue::new(cols).range(1..=geometry::MAX_GRID_SIDE)).labelled_by(l.id);
                 if let EnvelopeSpec::Mesh { rows: r, cols: c, .. } = &previous
                     && (*r != *rows || *c != *cols)
@@ -193,7 +192,7 @@ impl State {
                 }
             }
             EnvelopeSpec::TopObject { .. } => {
-                ui.label(crate::i18n::t("Top object"));
+                ui.label(li_i18n::t("Top object"));
             }
         }
         if ready && (before != kind || previous != spec) {
@@ -203,18 +202,18 @@ impl State {
                 self.error = None;
             }
         }
-        if ui.add_enabled(self.pending.is_some() && self.drag.is_none() && self.error.is_none(), egui::Button::new(crate::i18n::t("Apply envelope"))).clicked()
+        if ui.add_enabled(self.pending.is_some() && self.drag.is_none() && self.error.is_none(), egui::Button::new(li_i18n::t("Apply envelope"))).clicked()
             && let Err(e) = self.apply(s)
         {
             self.error = Some(e);
         }
-        if ui.button(crate::i18n::t("Cancel envelope")).clicked() {
+        if ui.button(li_i18n::t("Cancel envelope")).clicked() {
             self.cancel();
             self.error = None;
         }
         let live = self.pending.is_none()
             && s.active().and_then(|st| self.target.and_then(|id| st.doc.layer(id))).is_some_and(|l| matches!(l.vector.live, Some(LiveGroup::Envelope(_))));
-        if ui.add_enabled(live, egui::Button::new(crate::i18n::t("Expand envelope"))).clicked() {
+        if ui.add_enabled(live, egui::Button::new(li_i18n::t("Expand envelope"))).clicked() {
             let result = (|| {
                 let g = Gesture::begin(s, &[self.target.ok_or("Select an envelope group")?]).map_err(|e| e.to_string())?;
                 s.execute("vector.envelope.expand", serde_json::to_value(g.request).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
@@ -227,7 +226,7 @@ impl State {
             }
         }
         if let Some(e) = &self.error {
-            ui.colored_label(Color32::RED, crate::i18n::t(e));
+            ui.colored_label(Color32::RED, li_i18n::t(e));
         }
     }
     pub fn handles(&self, s: &Session) -> Vec<[f64; 2]> {

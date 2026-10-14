@@ -886,7 +886,7 @@ fn diagnostics_enabled() -> bool {
 fn stroke_feedback(ui: &mut egui::Ui, d: &LiquifyDialog, diagnostics: bool) {
     let t = Tokens::get(ui.ctx());
     let faint = |text: String| egui::RichText::new(text).color(t.text_faint).size(11.0);
-    ui.label(faint(crate::i18n::fmt(tl!("Strokes: {count}"), &[("count", &d.strokes.len().to_string())])));
+    ui.label(faint(li_i18n::fmt(tl!("Strokes: {count}"), &[("count", &d.strokes.len().to_string())])));
     if diagnostics {
         // Developer-only, so plain English and not part of the translation catalogue.
         ui.label(faint(format!("Field spacing: {} px/node", d.cell)));

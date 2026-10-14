@@ -49,7 +49,7 @@ pub fn disabled_reason(app: &PhotocraftApp, id: &str) -> String {
     if matches!(id, crate::overwrite_original::SAVE_ID | crate::overwrite_original::RETURN_ID)
         && let Some(why) = app.session.active().and_then(|d| crate::overwrite_original::disabled_reason(app, d.doc.id))
     {
-        return crate::i18n::t(why).into();
+        return li_i18n::t(why).into();
     }
     let Some(st) = app.session.active() else { return tl!("Open a photo first.").into() };
     if let Some(why) = crate::vector_integration::disabled_reason(app, id) {

@@ -172,7 +172,7 @@ pub(crate) fn begin(app: &mut PhotocraftApp, path: String, settings: &ExportSett
         tiff_dont_ask: false,
     });
     app.jobs.last_started = Some(job);
-    app.ui.status = crate::i18n::fmt(tl!("Saving {name}…"), &[("name", &crate::file_open::display_name(&path))]);
+    app.ui.status = li_i18n::fmt(tl!("Saving {name}…"), &[("name", &crate::file_open::display_name(&path))]);
     app.ui.status_error = false;
     Ok((path, Vec::new()))
 }
@@ -209,7 +209,7 @@ pub(crate) fn on_event(app: &mut PhotocraftApp, event: &JobEvent) -> bool {
         },
         JobOutcome::Failed(error) => {
             notices::post(app, tl!("Save failed"), vec![pending.path.clone(), error.clone()], true, None);
-            app.ui.status = crate::i18n::fmt(tl!("Save failed: {error}"), &[("error", error)]);
+            app.ui.status = li_i18n::fmt(tl!("Save failed: {error}"), &[("error", error)]);
             app.ui.status_error = true;
         }
         JobOutcome::Cancelled => {

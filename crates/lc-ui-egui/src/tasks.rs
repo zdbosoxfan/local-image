@@ -16,7 +16,6 @@ use lightcraft_sysmem::JobCtl;
 use serde_json::{Value, json};
 
 use crate::LightcraftApp;
-use crate::i18n::tr;
 
 /// Applies a task's result to the app (on the UI thread).
 type Finish = Box<dyn FnOnce(&mut LightcraftApp, &egui::Context) + Send>;
@@ -157,7 +156,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
             Ok(finish) => {
                 let task = app.tasks.running.remove(i);
                 if task.job.is_cancelled() {
-                    app.toast(ctx, format!("{} cancelled", tr(&task.label)));
+                    app.toast(ctx, format!("{} cancelled", li_i18n::library::t(&task.label)));
                 } else {
                     finish(app, ctx);
                 }
@@ -216,7 +215,7 @@ fn rows(app: &LightcraftApp, now: f64) -> Vec<Row> {
         rows.push(Row {
             target: Target::Task(t.label.clone()),
             automation: if t.label == CULLING { "button:cullCancel".into() } else { format!("button:taskCancel:{}", t.label) },
-            title: tr(&t.label).to_string(),
+            title: li_i18n::library::t(&t.label).to_string(),
             detail: if status.message.is_empty() { count(status.step) } else { status.message },
             fraction: t.job.fraction(),
             stopping: t.job.is_cancelled(),
@@ -228,7 +227,7 @@ fn rows(app: &LightcraftApp, now: f64) -> Vec<Row> {
         rows.push(Row {
             target: Target::Export,
             automation: "button:exportCancel".into(),
-            title: crate::i18n::tr_format!("Exporting {} of {total}", (done + 1).min(e.total), total = e.total),
+            title: li_i18n::tr_format!("Exporting {} of {total}", (done + 1).min(e.total), total = e.total),
             detail: status.message,
             fraction: Some(done as f32 / e.total.max(1) as f32),
             stopping: e.job.is_cancelled(),
@@ -241,7 +240,7 @@ fn rows(app: &LightcraftApp, now: f64) -> Vec<Row> {
             rows.push(Row {
                 target: Target::SmartSort,
                 automation: "button:smartSortTaskCancel".into(),
-                title: tr("Smart Sort").to_string(),
+                title: li_i18n::library::t("Smart Sort").to_string(),
                 detail: [count(status.step), photo_name(app, &status.message)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · "),
                 fraction: s.job.fraction(),
                 stopping: s.job.is_cancelled(),
@@ -251,7 +250,7 @@ fn rows(app: &LightcraftApp, now: f64) -> Vec<Row> {
             rows.push(Row {
                 target: Target::People,
                 automation: "button:peopleTaskCancel".into(),
-                title: tr("People").to_string(),
+                title: li_i18n::library::t("People").to_string(),
                 detail: count(p.job.status().step),
                 fraction: p.job.fraction(),
                 stopping: p.job.is_cancelled(),
@@ -270,7 +269,7 @@ pub fn progress(app: &mut LightcraftApp, ctx: &egui::Context) {
         return;
     }
     let mut cancel = None;
-    egui::Window::new(tr("Background Tasks"))
+    egui::Window::new(li_i18n::library::t("Background Tasks"))
         .id(egui::Id::new("lc-task-panel"))
         .title_bar(false)
         .resizable(false)
@@ -285,7 +284,7 @@ pub fn progress(app: &mut LightcraftApp, ctx: &egui::Context) {
                 let r = li_ui_kit::progress::job_row(
                     ui,
                     &line,
-                    tr(if row.stopping { "Stopping…" } else { "Cancel" }),
+                    li_i18n::library::t(if row.stopping { "Stopping…" } else { "Cancel" }),
                     li_ui_kit::widgets::Profile::Library,
                 );
                 crate::widgets::register(ctx, row.automation.clone(), r.rect);
