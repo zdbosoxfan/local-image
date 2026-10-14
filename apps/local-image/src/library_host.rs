@@ -69,6 +69,7 @@ pub struct Host {
     camera_raw: Option<CameraRawSession>,
     /// Composites of unsaved Compositing documents, rendered for the Library.
     composites: Composites,
+    filmstrip_previews: FilmstripPreviews,
     /// One non-blocking round-trip notice, also visible while its preview is rendering.
     round_trip_notice: Option<RoundTripNotice>,
 }
@@ -92,6 +93,245 @@ struct Composites {
     failed: std::collections::HashMap<u64, u64>,
     /// Finished renders: (photo, key, image).
     done: Arc<Mutex<Vec<CompositeRender>>>,
+}
+
+/// Folder-only files use the same renderer/MediaCache backend without adding records to the
+/// user's Library. Catalog photos share the Library's actual texture (including its display CMS).
+#[derive(Default)]
+struct FilmstripPreviews {
+    folder: Option<LightcraftApp>,
+    entries: std::collections::HashMap<PathBuf, FolderPreview>,
+    next_id: u64,
+    defaults: Option<lightcraft_engine::import::ImportDefaults>,
+    presets: Vec<lightcraft_engine::develop::Preset>,
+    xmp: Option<lightcraft_engine::sidecar::XmpPrefs>,
+    epoch: Option<u64>,
+    index_revision: Option<(String, u64, u64)>,
+    photos: std::collections::HashMap<PathBuf, lightcraft_catalog::PhotoId>,
+    catalog_keys: std::collections::HashMap<(lightcraft_catalog::PhotoId, usize), u64>,
+    resolved: std::collections::HashMap<PathBuf, Option<lightcraft_catalog::PhotoId>>,
+}
+type FileStamp = Option<(u64, std::time::SystemTime)>;
+type SourceFingerprint = (FileStamp, FileStamp);
+
+struct FolderPreview {
+    id: lightcraft_catalog::PhotoId,
+    revision: u64,
+    fingerprint: SourceFingerprint,
+    checked: std::time::Instant,
+    key: u64,
+    edge: usize,
+}
+
+impl FilmstripPreviews {
+    fn folder(&mut self, library: &LightcraftApp) -> &mut LightcraftApp {
+        self.folder.get_or_insert_with(|| {
+            let mut session = lightcraft_engine::Session::new().with_fs();
+            if library.session.media.rendered.disk().is_some() {
+                session.media.rendered = library.session.media.rendered.clone();
+            } else if let Some(dir) = config_dir() {
+                session.media.attach_disk_cache(&dir.join("cache").join("filmstrip"), lightcraft_engine::media::DISK_CACHE_BYTES);
+            }
+            LightcraftApp::new(session, Services::default())
+        })
+    }
+
+    fn service(
+        &mut self,
+        ctx: &egui::Context,
+        library: &mut LightcraftApp,
+        requests: &[photocraft_ui_egui::filmstrip_ui::PreviewRequest],
+        display: Option<Arc<photocraft_engine::display_color::CanvasDisplay>>,
+    ) {
+        use lightcraft_ui_egui::render::Slot;
+        use photocraft_ui_egui::filmstrip_ui::accept_preview;
+        // Library may never have shown a frame; its normal background tick then returns early.
+        if library.renderer.poll(ctx, &mut library.session) {
+            ctx.request_repaint();
+        }
+        let identity = (library.session.library_identity().to_string(), library.session.catalog.revision, library.session.active().map_or(0, |id| id.0));
+        if self.index_revision.as_ref() != Some(&identity) {
+            self.photos.clear();
+            self.catalog_keys.clear();
+            self.resolved.clear();
+            // Prefer the master; when the active virtual copy is in view, use its current look.
+            for p in library.session.catalog.photos().filter(|p| !p.deleted && p.copy_of.is_none()) {
+                if let lightcraft_catalog::Source::File { path } = &p.source {
+                    self.photos.insert(PathBuf::from(path), p.id);
+                }
+            }
+            if let Some(p) = library.session.active().and_then(|id| library.session.catalog.photo(id))
+                && !p.deleted
+                && let lightcraft_catalog::Source::File { path } = &p.source
+            {
+                self.photos.insert(PathBuf::from(path), p.id);
+            }
+            self.index_revision = Some(identity);
+        }
+        let epoch = requests.first().map(|r| r.epoch);
+        let changed_defaults = self.defaults.as_ref() != Some(&library.session.import_defaults)
+            || self.presets != library.session.presets
+            || self.xmp != Some(library.session.xmp);
+        if self.epoch != epoch || changed_defaults || (self.next_id >= 128 && requests.iter().any(|r| !self.entries.contains_key(&r.source))) {
+            if let Some(folder) = &mut self.folder {
+                folder.renderer.forget_all();
+            }
+            self.entries.clear();
+            self.next_id = 0;
+            self.epoch = epoch;
+            self.defaults = Some(library.session.import_defaults.clone());
+            self.presets = library.session.presets.clone();
+            self.xmp = Some(library.session.xmp);
+        }
+        let sources: std::collections::HashSet<_> = requests.iter().map(|r| r.source.clone()).collect();
+        self.entries.retain(|path, _| sources.contains(path));
+        self.resolved.retain(|path, _| sources.contains(path));
+        let mut folder_keep = std::collections::HashSet::new();
+        let mut catalog_keep = std::collections::HashSet::new();
+        for request in requests {
+            // Paths are normally absolute from Open Folder / import. Canonicalize only on a
+            // catalog index miss, so ordinary settled frames don't traverse the file system.
+            let photo = *self.resolved.entry(request.source.clone()).or_insert_with(|| {
+                self.photos.get(&request.source).copied().or_else(|| {
+                    let source = std::fs::canonicalize(&request.source).ok()?;
+                    self.photos.iter().find(|(p, _)| std::fs::canonicalize(p).ok().as_ref() == Some(&source)).map(|(_, id)| *id)
+                })
+            });
+            if let Some(id) = photo {
+                catalog_keep.insert(id);
+                lightcraft_ui_egui::panels::grid::request_thumb(library, id, request.edge, request.priority.min(11));
+                let expected = self.catalog_keys.entry((id, request.edge)).or_insert_with(|| {
+                    let Some(job) = library.session.thumb_job(id, request.edge) else { return 0 };
+                    let mut key = job.key;
+                    if let Some(interaction) = library.session.interaction.as_ref().filter(|i| i.photo == id) {
+                        key ^= job.settings.hash64() ^ interaction.original.hash64();
+                    }
+                    key
+                });
+                let texture = library.renderer.thumb(id).filter(|tex| tex.key == *expected).map(|tex| tex.tex.clone());
+                accept_preview(ctx, request, texture);
+                continue;
+            }
+            if !self.entries.contains_key(&request.source) {
+                self.next_id = self.next_id.wrapping_add(1);
+                self.entries.insert(
+                    request.source.clone(),
+                    FolderPreview {
+                        id: lightcraft_catalog::PhotoId(self.next_id),
+                        revision: request.revision,
+                        fingerprint: source_fingerprint(&request.source, library.session.xmp.naming),
+                        checked: std::time::Instant::now(),
+                        key: self.next_id,
+                        edge: request.edge,
+                    },
+                );
+            }
+            let Some(entry) = self.entries.get_mut(&request.source) else { continue };
+            let fingerprint = if entry.checked.elapsed() >= std::time::Duration::from_secs(1) || entry.revision != request.revision {
+                entry.checked = std::time::Instant::now();
+                source_fingerprint(&request.source, library.session.xmp.naming)
+            } else {
+                entry.fingerprint
+            };
+            if entry.fingerprint != fingerprint || entry.revision != request.revision || entry.edge != request.edge {
+                entry.key = entry.key.wrapping_add(1);
+                entry.fingerprint = fingerprint;
+                entry.revision = request.revision;
+                entry.edge = request.edge;
+            }
+            let (id, key) = (entry.id, entry.key);
+            folder_keep.insert(id);
+            let folder = self.folder(library);
+            if library.session.media.rendered.disk().is_some() {
+                folder.session.media.rendered = library.session.media.rendered.clone();
+            }
+            if let Some(display) = &display {
+                folder.renderer.set_display(display.clone());
+            }
+            let slot = Slot::Thumb(id);
+            if request.source.extension().is_some_and(|ext| photocraft_codecs::raw_from_extension(&ext.to_string_lossy()))
+                && !folder.renderer.textures.get(&slot).is_some_and(|tex| tex.key == key)
+            {
+                folder.renderer.request_quick(
+                    Slot::ThumbQuick(id),
+                    lightcraft_engine::media::QuickJob {
+                        request_id: 0,
+                        photo: id,
+                        key,
+                        cached: Vec::new(),
+                        embedded: Some((request.source.to_string_lossy().into_owned(), lightcraft_engine::files::fs_preview_loader(), request.edge)),
+                        small: None,
+                    },
+                    request.priority.min(11).saturating_add(1).min(11),
+                );
+            }
+            if !folder.renderer.is_current(slot, key) && !folder.renderer.is_pending(slot) {
+                let defaults = library.session.import_defaults.clone();
+                let presets = library.session.presets.clone();
+                let xmp = library.session.xmp;
+                let cache = folder.session.media.rendered.clone();
+                let generation = cache.generation();
+                let loader = Arc::new(move |path: &str, edge| {
+                    lightcraft_engine::memory::in_background(|| {
+                        let mut session = lightcraft_engine::Session::new().with_fs();
+                        session.media.rendered = cache.clone();
+                        session.import_defaults = defaults.clone();
+                        session.presets = presets.clone();
+                        session.xmp = lightcraft_engine::sidecar::XmpPrefs { auto_write: false, ..xmp };
+                        // All reads, hashing, metadata and decoding stay on the existing job worker.
+                        let mut job = folder_thumb_job(&mut session, path, edge)?;
+                        job.cache_generation = generation;
+                        job.run().rendered.ok().map(|r| r.image)
+                    })
+                });
+                let job = lightcraft_engine::media::QuickJob {
+                    request_id: 0,
+                    photo: id,
+                    key,
+                    cached: Vec::new(),
+                    embedded: Some((request.source.to_string_lossy().into_owned(), loader, request.edge)),
+                    small: None,
+                };
+                folder.renderer.request_quick(slot, job, request.priority.saturating_sub(1).min(10));
+            }
+            // Never hand out a pre-save texture while the new source is being decoded.
+            let texture = [Slot::Thumb(id), Slot::ThumbQuick(id)]
+                .iter()
+                .find_map(|slot| folder.renderer.textures.get(slot).filter(|tex| tex.key == key).map(|tex| tex.tex.clone()));
+            accept_preview(ctx, request, texture);
+        }
+        self.catalog_keys.retain(|(id, _), _| catalog_keep.contains(id));
+        // Match the Library grid's existing 600-texture limit; preserve its other cached
+        // thumbnails until that limit is exceeded, rather than flushing on each module change.
+        library.renderer.evict_thumbs(&catalog_keep, 600);
+        if let Some(folder) = &mut self.folder {
+            folder.renderer.evict_thumbs(&folder_keep, folder_keep.len());
+            if folder.renderer.poll(ctx, &mut folder.session) {
+                ctx.request_repaint();
+            }
+        }
+        if library.renderer.in_flight() > 0 {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
+    }
+}
+
+/// Probe/hash through the existing import reader in an isolated in-memory session. This reads
+/// sidecar settings too, but has no persistent catalog and performs no file copies or writes.
+fn folder_thumb_job(session: &mut lightcraft_engine::Session, path: &str, edge: usize) -> Option<lightcraft_engine::media::RenderJob> {
+    let report = lightcraft_engine::import::import_with(session, &[path.to_string()], &Default::default()).ok()?;
+    let photo = report.imported.first().copied().map(lightcraft_catalog::PhotoId)?;
+    session.thumb_job(photo, edge)
+}
+
+fn source_fingerprint(path: &std::path::Path, naming: lightcraft_engine::sidecar::SidecarNaming) -> SourceFingerprint {
+    let sidecar = lightcraft_engine::sidecar::find_sidecar(&path.to_string_lossy(), naming);
+    (file_fingerprint(path), sidecar.as_deref().and_then(file_fingerprint))
+}
+
+fn file_fingerprint(path: &std::path::Path) -> FileStamp {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()?))
 }
 
 /// Longest side of a composite shown in the Library.
@@ -178,8 +418,26 @@ impl Host {
             save_sources_seen: None,
             camera_raw: None,
             composites: Composites::default(),
+            filmstrip_previews: FilmstripPreviews::default(),
             round_trip_notice: None,
         }
+    }
+
+    fn filmstrip_previews_ui(&mut self, ctx: &egui::Context) {
+        let requests = photocraft_ui_egui::filmstrip_ui::take_preview_requests();
+        if requests.is_empty() {
+            if let Some(folder) = &mut self.filmstrip_previews.folder {
+                folder.renderer.evict_thumbs(&Default::default(), 0);
+            }
+            return;
+        }
+        self.library();
+        let Some(lib) = &mut self.library else { return };
+        let display = self.editor.session.color.srgb_preview_display().ok();
+        if let Some(display) = &display {
+            lib.renderer.set_display(display.clone());
+        }
+        self.filmstrip_previews.service(ctx, lib, &requests, display);
     }
 
     /// One preferences writer remembers module choice as well as application settings.
@@ -1389,6 +1647,7 @@ impl eframe::App for Host {
         if self.mode == Module::Compositing || self.library.is_none() {
             let ctx = ui.ctx().clone();
             self.with_preferences_ui(&ctx, |editor| editor.ui(ui, frame));
+            self.filmstrip_previews_ui(&ctx);
             return;
         }
         let title = match &self.camera_raw {
@@ -1797,6 +2056,206 @@ fn services(opens: Opens) -> Services {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn j23_raw_standin_uses_shared_container_orientation_before_development() {
+        let mut jpeg = Vec::new();
+        let rgb = image::RgbImage::from_fn(48, 32, |x, y| image::Rgb([(x * 5) as u8, (y * 7) as u8, 60]));
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg).encode(rgb.as_raw(), 48, 32, image::ExtendedColorType::Rgb8).unwrap();
+        // TIFF root orientation plus JPEG interchange offsets; the JPEG has no EXIF tag.
+        let mut bytes = b"II\x2a\0\x08\0\0\0".to_vec();
+        bytes.extend_from_slice(&3u16.to_le_bytes());
+        for (tag, kind, value) in [(274u16, 3u16, 6u32), (513, 4, 50), (514, 4, jpeg.len() as u32)] {
+            bytes.extend_from_slice(&tag.to_le_bytes());
+            bytes.extend_from_slice(&kind.to_le_bytes());
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(&jpeg);
+        let dir = PathBuf::from("target").join(format!("j23-raw-preview-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("synthetic.arw");
+        std::fs::write(&path, &bytes).unwrap();
+        let old = photocraft_ui_egui::filmstrip_ui::thumbnail(&path).unwrap();
+        let preview = lightcraft_engine::files::fs_preview_loader()(path.to_str().unwrap(), 128).unwrap();
+        assert_eq!(old.size, [48, 32], "legacy filmstrip ignores RAW container orientation");
+        assert_eq!((preview.width, preview.height), (32, 48), "shared preview applies container orientation before sensor decode");
+        let source = lightcraft_codecs::decode(&jpeg, Default::default()).unwrap().to_srgb8();
+        // Clockwise rotation: first output pixel is the old bottom-left pixel.
+        assert_eq!(preview.data[0], source.data[31 * 48]);
+        eprintln!("J23 RAW orientation: old 48x32 landscape, shared 32x48 portrait, first oriented pixel exact");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn j23_host_developed_thumbnail_is_library_texture_and_preserves_selection() {
+        use photocraft_ui_egui::filmstrip_ui;
+        let (dir, path, mut lib, photo) = library_with_photo("j23-catalog");
+        lib.run("develop.set", json!({"control":"light.exposure", "value":1.5})).unwrap();
+        lib.run("crop.set", json!({"rect":[0.0,0.0,0.5,1.0]})).unwrap();
+        lib.renderer.keep_pixels = true;
+        let before_selection = lib.session.selection.clone();
+        let before_catalog = serde_json::to_value(&lib.session.catalog).unwrap();
+        let mut host = Host::new(PhotocraftApp::new(photocraft_engine::Session::new(), Default::default()));
+        host.library = Some(lib);
+        host.mode = Module::Compositing;
+        filmstrip_ui::set_folder(&dir, vec![PathBuf::from(&path)]);
+        let mut h = RoundTripUi::new(host);
+        h.wait_for(|host| host.library.as_ref().unwrap().renderer.thumb(photo).is_some());
+        let lib = h.host.library.as_mut().unwrap();
+        let expected = lib.session.thumb_job(photo, 128).unwrap().run().rendered.unwrap().image;
+        let tex = lib.renderer.thumb(photo).unwrap();
+        let actual = tex.pixels.as_ref().unwrap();
+        assert_eq!(actual.size, [expected.width, expected.height]);
+        let golden = egui::ColorImage::from_rgba_unmultiplied(actual.size, &expected.as_bytes());
+        assert_eq!(actual.pixels, golden.pixels, "0 differing channels against Library's developed and cropped render");
+        assert!(actual.size[0] < actual.size[1]);
+        let legacy_start = std::time::Instant::now();
+        let legacy = filmstrip_ui::thumbnail(std::path::Path::new(&path)).unwrap();
+        let legacy_ms = legacy_start.elapsed().as_secs_f64() * 1000.0;
+        let bytes: Vec<_> = legacy.pixels.iter().flat_map(|p| p.to_array()).collect();
+        let old = image::RgbaImage::from_raw(legacy.size[0] as u32, legacy.size[1] as u32, bytes).unwrap();
+        let old = image::imageops::crop_imm(&old, 0, 0, old.width() / 2, old.height()).to_image();
+        let old = image::imageops::resize(&old, actual.size[0] as u32, actual.size[1] as u32, image::imageops::FilterType::Triangle);
+        let legacy_error = actual
+            .pixels
+            .iter()
+            .zip(old.pixels())
+            .map(|(p, old)| p.to_array().iter().zip(old.0).take(3).map(|(a, b)| a.abs_diff(b) as f64).sum::<f64>())
+            .sum::<f64>()
+            / (actual.pixels.len() * 3) as f64;
+        assert!(legacy_error > 5.0);
+        eprintln!(
+            "J23 catalog golden: old dimensions {:?}, developed {:?}, old normalized-crop RGB MAE={legacy_error:.3}, new MAE=0, legacy decode {legacy_ms:.3} ms",
+            legacy.size, actual.size
+        );
+        assert!(h.host.filmstrip_previews.folder.is_none(), "catalog thumbnails start no extra workers/cache");
+        assert_eq!(h.host.library.as_ref().unwrap().session.selection, before_selection);
+        assert_eq!(serde_json::to_value(&h.host.library.as_ref().unwrap().session.catalog).unwrap(), before_catalog);
+        let started = std::time::Instant::now();
+        for _ in 0..5 {
+            h.step(vec![]);
+        }
+        eprintln!(
+            "J23 real headless host path: settled frame {:.3} ms, shared textures {}, folder workers 0",
+            started.elapsed().as_secs_f64() * 200.0,
+            h.host.library.as_ref().unwrap().renderer.thumb_textures()
+        );
+        // Settled frames must neither rebuild nor resubmit the thumbnail.
+        assert_eq!(h.host.library.as_ref().unwrap().renderer.in_flight(), 0);
+        let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+        drop(h);
+        previews.retire();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn j23_folder_cache_warm_reopen_skips_decode_and_refreshes_same_size_save() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = PathBuf::from("target").join(format!("j23-folder-cache-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("fixture.png");
+        image::RgbaImage::from_fn(192, 128, |x, y| image::Rgba([(x * 255 / 191) as u8, (y * 255 / 127) as u8, 80, 255])).save(&path).unwrap();
+        let counts = Arc::new(AtomicUsize::new(0));
+        let mut session = lightcraft_engine::Session::new().with_fs();
+        session.media.attach_disk_cache(&dir.join("thumbs"), 4 << 20);
+        let load = session.media.file_loader.clone().unwrap();
+        let reads = counts.clone();
+        session.media.file_loader = Some(Arc::new(move |path, edge| {
+            reads.fetch_add(1, Ordering::SeqCst);
+            load(path, edge)
+        }));
+        let cold_job = folder_thumb_job(&mut session, path.to_str().unwrap(), 256).unwrap();
+        let cache_key = cold_job.cache.as_ref().unwrap().1;
+        let start = std::time::Instant::now();
+        let cold = cold_job.run().rendered.unwrap().image;
+        let cold_ms = start.elapsed().as_secs_f64() * 1000.0;
+        assert_eq!(counts.load(Ordering::SeqCst), 1);
+        let mut reopen = lightcraft_engine::Session::new().with_fs();
+        reopen.media.attach_disk_cache(&dir.join("thumbs"), 4 << 20);
+        let reads = counts.clone();
+        reopen.media.file_loader = Some(Arc::new(move |_, _| {
+            reads.fetch_add(1, Ordering::SeqCst);
+            Err("warm cache must not decode".into())
+        }));
+        let start = std::time::Instant::now();
+        let warm = folder_thumb_job(&mut reopen, path.to_str().unwrap(), 256).unwrap().run().rendered.unwrap().image;
+        let warm_ms = start.elapsed().as_secs_f64() * 1000.0;
+        assert_eq!(counts.load(Ordering::SeqCst), 1, "warm disk reuse performs zero source decodes");
+        assert_eq!((cold.width, cold.height), (warm.width, warm.height));
+        let delta: Vec<_> = cold.as_bytes().iter().zip(warm.as_bytes()).map(|(a, b)| a.abs_diff(b)).collect();
+        let mae = delta.iter().map(|d| *d as f64).sum::<f64>() / delta.len() as f64;
+        assert!(mae < 2.0, "small sample cache MAE {mae}");
+        eprintln!(
+            "J23 folder sample: cold render {cold_ms:.3} ms, warm reopen including probe/hash {warm_ms:.3} ms, source decodes cold=1/warm=0, disk MAE={mae:.4}, max={}",
+            delta.iter().max().unwrap()
+        );
+        // Equal-sized BMP pixel changes must get a new true content key despite the same name.
+        let bmp = dir.join("saved.bmp");
+        image::RgbImage::from_pixel(16, 16, image::Rgb([180, 10, 10])).save(&bmp).unwrap();
+        let bytes = std::fs::metadata(&bmp).unwrap().len();
+        let mut a = lightcraft_engine::Session::new().with_fs();
+        a.media.rendered = reopen.media.rendered.clone();
+        let old_job = folder_thumb_job(&mut a, bmp.to_str().unwrap(), 128).unwrap();
+        let old_key = old_job.cache.as_ref().unwrap().1;
+        let old = old_job.run().rendered.unwrap().image;
+        image::RgbImage::from_pixel(16, 16, image::Rgb([10, 10, 180])).save(&bmp).unwrap();
+        assert_eq!(std::fs::metadata(&bmp).unwrap().len(), bytes);
+        let mut b = lightcraft_engine::Session::new().with_fs();
+        b.media.rendered = reopen.media.rendered.clone();
+        let new_job = folder_thumb_job(&mut b, bmp.to_str().unwrap(), 128).unwrap();
+        assert_ne!(new_job.cache.as_ref().unwrap().1, old_key);
+        assert_ne!(new_job.run().rendered.unwrap().image.as_bytes(), old.as_bytes());
+        assert!(reopen.media.rendered.get(cache_key).is_some());
+        session.media.rendered.retire();
+        reopen.media.rendered.retire();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn j23_host_folder_service_deduplicates_limits_textures_and_preserves_catalog() {
+        use lightcraft_ui_egui::render::Slot;
+        use photocraft_ui_egui::filmstrip_ui::PreviewRequest;
+        let dir = PathBuf::from("target").join(format!("j23-service-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("plain.png");
+        image::RgbaImage::from_pixel(48, 32, image::Rgba([60, 100, 180, 255])).save(&path).unwrap();
+        let mut library = LightcraftApp::new(lightcraft_engine::Session::new().with_fs(), Services::default());
+        library.session.media.attach_disk_cache(&dir.join("thumbs"), 4 << 20);
+        let before = serde_json::to_value(&library.session.catalog).unwrap();
+        let request = PreviewRequest { original: path.clone(), source: path.clone(), epoch: 1, revision: 0, edge: 128, priority: 10 };
+        let ctx = egui::Context::default();
+        let mut service = FilmstripPreviews::default();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            service.service(&ctx, &mut library, std::slice::from_ref(&request), None);
+            let id = service.entries[&path].id;
+            if service.folder.as_ref().unwrap().renderer.thumb(id).is_some() {
+                break;
+            }
+            assert!(std::time::Instant::now() < until);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let id = service.entries[&path].id;
+        let texture = service.folder.as_ref().unwrap().renderer.thumb(id).unwrap().tex.id();
+        for _ in 0..5 {
+            service.service(&ctx, &mut library, std::slice::from_ref(&request), None);
+        }
+        let folder = service.folder.as_ref().unwrap();
+        assert_eq!(folder.renderer.thumb(id).unwrap().tex.id(), texture);
+        assert!(!folder.renderer.is_pending(Slot::Thumb(id)));
+        assert_eq!(folder.renderer.thumb_textures(), 1);
+        assert!(Arc::ptr_eq(&folder.session.media.rendered, &library.session.media.rendered));
+        assert_eq!(serde_json::to_value(&library.session.catalog).unwrap(), before);
+        assert!(library.session.selection.ids.is_empty());
+        service.service(&ctx, &mut library, &[], None);
+        assert!(service.entries.is_empty());
+        assert_eq!(service.folder.as_ref().unwrap().renderer.thumb_textures(), 0);
+        drop(service);
+        library.session.media.rendered.retire();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn bugfix_develop_startup_defaults_to_library_and_restores_develop() {
         assert_eq!(super::module_preference(None), super::Module::Library);
