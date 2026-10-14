@@ -25,9 +25,10 @@ const ANALYSIS_VERSION: u32 = 2;
 pub const LOOK_ANALYZER_VERSION: u32 = 2;
 #[path = "match_look_assets.rs"]
 mod assets;
-#[allow(dead_code)]
 #[path = "match_look_batch_cache.rs"]
 pub(crate) mod batch_cache;
+#[path = "match_look_batch_reuse.rs"]
+mod batch_reuse;
 pub use assets::{ExternalReference, ReferencePreview};
 pub const IMPORT_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub const LOOK_NAME_MAX_CHARS: usize = 128;
@@ -306,6 +307,7 @@ struct Input {
     bytes: u64,
     verification_bytes: u64,
     reload_check: Option<ReloadCheck>,
+    verification_check: Option<batch_cache::SourceEvidence>,
     faces: Vec<[f32; 4]>,
     preview_only: bool,
     name: String,
@@ -328,6 +330,7 @@ fn input(s: &mut Session, id: PhotoId) -> Result<Input> {
         bytes,
         verification_bytes,
         reload_check: None,
+        verification_check: None,
         faces: s
             .smart
             .people
@@ -620,6 +623,8 @@ pub struct SolveWork {
     looks: Arc<[Look]>,
     opts: Options,
     shared_color: Option<Arc<DevelopSettings>>,
+    batch_key: Option<batch_cache::BatchKey>,
+    cached_style: Option<Arc<batch_cache::SharedStyle>>,
     preview_id: Option<PhotoId>,
     selection_ids: Vec<PhotoId>,
     report_progress: bool,
@@ -655,6 +660,12 @@ pub struct Matched {
     pub decoded: Vec<(PhotoId, DecodedSource)>,
     source_evidence: std::collections::BTreeMap<PhotoId, batch_cache::SourceEvidence>,
     source_changed: bool,
+    audited: std::collections::BTreeSet<PhotoId>,
+    verification_evidence: std::collections::BTreeMap<PhotoId, batch_cache::SourceEvidence>,
+    shared_style: Option<Arc<batch_cache::SharedStyle>>,
+    cache_options: Option<Options>,
+    cache_invalidated: bool,
+    cache_used: bool,
     generation: u64,
     reference_looks: Arc<[Look]>,
     pub rows: Vec<(Identity, DevelopSettings)>,
@@ -676,11 +687,12 @@ pub fn prepare(s: &mut Session, p: &Value) -> Result<SolveWork> {
     if !opts.strength.is_finite() || !(0.0..=125.0).contains(&opts.strength) {
         return Err(bad(C, "Strength must be 0–125"));
     }
+    let requested = s.targets(p);
     let mut seen = std::collections::BTreeSet::new();
     let mut failed = Vec::new();
-    let inputs = s
-        .targets(p)
-        .into_iter()
+    let inputs = requested
+        .iter()
+        .copied()
         .filter(|id| seen.insert(*id))
         .filter_map(|id| match input(s, id) {
             Ok(mut input) => {
@@ -704,13 +716,18 @@ pub fn prepare(s: &mut Session, p: &Value) -> Result<SolveWork> {
     if preview_id.is_some_and(|id| !inputs.iter().any(|input| input.identity.id == id)) {
         return Err(bad(C, "Preview target must belong to the target selection"));
     }
+    let looks: Arc<[Look]> = selected_looks(s).ok_or_else(|| bad(C, "Analyze first"))?.into();
+    let batch_key = batch_cache::BatchKey::capture(s.library_generation, &requested, &inputs, &looks, opts);
+    let cached_style = s.match_look.shared_style.as_ref().filter(|entry| batch_key.as_ref() == Some(&entry.key)).cloned();
     Ok(SolveWork {
         generation: s.library_generation,
         inputs,
         failed,
-        looks: selected_looks(s).ok_or_else(|| bad(C, "Analyze first"))?.into(),
+        looks,
         opts,
         shared_color: None,
+        batch_key,
+        cached_style,
         preview_id,
         selection_ids: s.targets(&Value::Null),
         report_progress: true,
@@ -809,7 +826,9 @@ impl SolveWork {
             self.run_independent(c, preview, parallel)
         };
         result.preview_context = context;
-        if preview && c.cancel.load(Ordering::Relaxed) {
+        if c.cancel.load(Ordering::Relaxed) {
+            result.shared_style = None;
+            result.cache_options = None;
             result.rows.clear();
             result.applications.clear();
             result.preview = None;
@@ -823,6 +842,11 @@ impl SolveWork {
     /// Both stages remain worker-only; apply installs their final results with one undo.
     fn run_consistent(mut self, c: &Control, preview: bool, parallel: bool) -> Matched {
         let start = web_time::Instant::now();
+        if let Some(mut result) = self.try_shared_style(c, preview, parallel) {
+            result.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+            return result;
+        }
+        let cache_invalidated = self.cached_style.take().is_some();
         let source_budget = self.source_budget;
         let source_order =
             self.inputs.iter().enumerate().map(|(index, input)| (input.identity.id, index)).collect::<std::collections::BTreeMap<_, _>>();
@@ -832,6 +856,8 @@ impl SolveWork {
             looks: self.looks.clone(),
             opts: Options { strength: 100.0, ..self.opts },
             shared_color: None,
+            batch_key: None,
+            cached_style: None,
             preview_id: None,
             selection_ids: self.selection_ids.clone(),
             report_progress: preview && self.report_progress,
@@ -852,16 +878,18 @@ impl SolveWork {
                 c.completed.fetch_add(if preview { 1 } else { self.inputs.len() }, Ordering::Relaxed);
             }
             first.failed.extend(self.failed);
+            first.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
             return first;
         };
         if c.cancel.load(Ordering::Relaxed) {
             first.rows.clear();
             first.applications.clear();
             first.failed.extend(self.failed);
+            first.elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
             return first;
         }
-        // Reuse stage-one pixels and decoder metadata. Keeping original identities protects
-        // against edits during either stage and avoids a second raw decode per target.
+        // Reuse bounded stage-one pixels and decoder metadata. Evicted sources reload
+        // through the same loader and must match their recorded evidence before refitting.
         let decoded = first.decoded.iter().cloned().collect::<std::collections::BTreeMap<_, _>>();
         let initial_count = self.inputs.len();
         self.inputs.retain(|input| first.applications.contains_key(&input.identity.id));
@@ -883,6 +911,8 @@ impl SolveWork {
             }
         }
         drop(decoded);
+        let cache_options = self.opts;
+        let candidate = self.complete_shared_style(&first, representative, &shared, c);
         self.shared_color = Some(Arc::new(shared));
         self.failed.append(&mut first.failed);
         let mut out = self.run_independent(c, preview, parallel);
@@ -894,6 +924,11 @@ impl SolveWork {
         }
         out.decoded = retained.into_vec();
         out.source_evidence.extend(first.source_evidence);
+        out.cache_invalidated = cache_invalidated;
+        if out.failed.is_empty() && !out.source_changed && !c.cancel.load(Ordering::Relaxed) {
+            out.shared_style = candidate;
+            out.cache_options = Some(cache_options);
+        }
         if out.source_changed {
             out.rows.clear();
             out.applications.clear();
@@ -961,6 +996,8 @@ impl SolveWork {
                             looks: work.looks.clone(),
                             opts: work.opts,
                             shared_color: work.shared_color.clone(),
+                            batch_key: None,
+                            cached_style: None,
                             preview_id: None,
                             selection_ids: Vec::new(),
                             report_progress: work.report_progress,
@@ -990,6 +1027,12 @@ impl SolveWork {
             decoded: retained.into_vec(),
             source_evidence: Default::default(),
             source_changed: false,
+            audited: Default::default(),
+            verification_evidence: Default::default(),
+            shared_style: None,
+            cache_options: None,
+            cache_invalidated: false,
+            cache_used: false,
             generation: self.generation,
             reference_looks: self.looks.clone(),
             rows: Vec::new(),
@@ -1008,6 +1051,8 @@ impl SolveWork {
         for (_, result) in results {
             out.source_changed |= result.source_changed;
             out.source_evidence.extend(result.source_evidence);
+            out.audited.extend(result.audited);
+            out.verification_evidence.extend(result.verification_evidence);
             out.rows.extend(result.rows);
             out.applications.extend(result.applications);
             out.failed.extend(result.failed);
@@ -1031,6 +1076,12 @@ impl SolveWork {
             decoded: Vec::new(),
             source_evidence: Default::default(),
             source_changed: false,
+            audited: Default::default(),
+            verification_evidence: Default::default(),
+            shared_style: None,
+            cache_options: None,
+            cache_invalidated: false,
+            cache_used: false,
             generation: self.generation,
             reference_looks: self.looks.clone(),
             rows: Vec::new(),
@@ -1056,13 +1107,29 @@ impl SolveWork {
             let loaded = lightcraft_sysmem::in_background_pool(|| i.source.load_source()).and_then(|source| {
                 if let Some(check) = &i.reload_check {
                     let info = source.info_or(i.info.clone());
-                    let matches = match check {
-                        ReloadCheck::Exact(expected) => expected.matches(&source, &info),
-                        ReloadCheck::Unverifiable => false,
+                    let evidence = match check {
+                        ReloadCheck::Exact(expected) => expected.validated(&source, &info),
+                        ReloadCheck::Unverifiable => None,
                     };
-                    if !matches {
+                    if let Some(evidence) = evidence {
+                        out.source_evidence.insert(i.identity.id, evidence);
+                    } else {
                         out.source_changed = true;
                         return Err("Source changed or cannot be verified between Match Look stages; run Match Look again".into());
+                    }
+                }
+                if i.verification_check.is_some() {
+                    let info = source.info_or(i.info.clone());
+                    permit.finish_heavy(batch_reuse::retained_working_bytes(&source));
+                    match batch_reuse::validate_audit(&i, &source, &info, &mut permit, &stop) {
+                        Ok(Some(evidence)) => {
+                            out.verification_evidence.insert(i.identity.id, evidence);
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            out.source_changed = !stop();
+                            return Err(error);
+                        }
                     }
                 }
                 Ok(source)
@@ -1075,7 +1142,7 @@ impl SolveWork {
                     // Sensor/file buffers are gone. The bounded Thumb/probe working set is
                     // small: release the heavy decode slot while keeping its memory reserved,
                     // so the next raw can decode during this photo's CPU-only solve.
-                    permit.finish_heavy((src.image.data.len() as u64).saturating_mul(12).saturating_add(16 << 20));
+                    permit.finish_heavy(batch_reuse::retained_working_bytes(&src));
                     let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
                     out.load_ms += load_ms;
                     let id = i.identity.id;
@@ -1106,6 +1173,9 @@ impl SolveWork {
                     }) {
                         let already_close = solved.before_error < 0.05;
                         if i.previous.is_none() && self.shared_color.is_none() && already_close && solved.settings != *i.identity.settings {
+                            // Record required audits even when loading fails; incomplete evidence
+                            // must never produce a reusable representative style.
+                            out.audited.insert(i.identity.id);
                             // A separate heavy permit bounds the rare larger preview decode.
                             release_decode_for_verification(&mut permit);
                             let retained_thumb = (src.image.data.len() as u64).saturating_mul(32).saturating_add(16 << 20);
@@ -1113,6 +1183,9 @@ impl SolveWork {
                             if let Some(_verify_permit) = lightcraft_sysmem::heavy_jobs().admit(verify_bytes, &stop) {
                                 if let Ok(verified) = lightcraft_sysmem::in_background_pool(|| i.verification.load_source()) {
                                     let verified_info = verified.info_or(info.clone());
+                                    if let Some(evidence) = batch_cache::SourceEvidence::capture(&verified, &verified_info) {
+                                        out.verification_evidence.insert(i.identity.id, evidence);
+                                    }
                                     let (before, after) = lightcraft_sysmem::in_background_pool(|| {
                                         lightcraft_raster::sequential(|| {
                                             near_match_errors(
@@ -1215,6 +1288,7 @@ impl SolveWork {
 }
 /// Install source pixels together with their decoder facts only for the originating library.
 pub fn retain_decoded(s: &mut Session, result: &mut Matched) {
+    batch_reuse::publish_shared_style(s, result);
     if s.library_generation == result.generation {
         for (id, src) in result.decoded.drain(..) {
             let captured = result
@@ -1900,6 +1974,8 @@ mod tests {
                 looks: looks.clone(),
                 opts,
                 shared_color: None,
+                batch_key: None,
+                cached_style: None,
                 preview_id: None,
                 selection_ids: Vec::new(),
                 report_progress: true,
@@ -1951,6 +2027,8 @@ mod tests {
                 looks: looks.clone(),
                 opts: Options { strength: 0.0, normalize: false, ..opts },
                 shared_color: None,
+                batch_key: None,
+                cached_style: None,
                 preview_id: None,
                 selection_ids: Vec::new(),
                 report_progress: true,
@@ -1980,6 +2058,8 @@ mod tests {
                 looks: looks.clone(),
                 opts,
                 shared_color: None,
+                batch_key: None,
+                cached_style: None,
                 preview_id: None,
                 selection_ids: Vec::new(),
                 report_progress: true,
@@ -1996,6 +2076,8 @@ mod tests {
                 looks,
                 opts,
                 shared_color: None,
+                batch_key: None,
+                cached_style: None,
                 preview_id: None,
                 selection_ids: Vec::new(),
                 report_progress: true,

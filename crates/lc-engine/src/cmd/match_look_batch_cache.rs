@@ -130,7 +130,7 @@ impl SourceEvidence {
                 if clip.width.checked_mul(clip.height) != Some(clip.data.len()) {
                     return None;
                 }
-                Some((fingerprint(&(clip.width, clip.height, clip.data.as_slice()))?, Arc::downgrade(clip)))
+                Some((f32_buffer_digest("clip", clip.width, clip.height, 1, &clip.data)?, Arc::downgrade(clip)))
             })
             .transpose_option()?;
         let profile = effective_info
@@ -142,12 +142,28 @@ impl SourceEvidence {
             width: source.image.width,
             height: source.image.height,
             raw_key: source.raw_key,
-            pixels_digest: fingerprint(&source.image.data)?,
+            pixels_digest: f32_buffer_digest("rgb", source.image.width, source.image.height, 3, source.image.data.as_flattened())?,
             pixels: Arc::downgrade(&source.image),
             small_facts,
             clip,
             profile,
         })
+    }
+    /// Rebind only weak tokens after the complete existing witness has matched.
+    /// Digests and source facts remain immutable; no decoded buffer is pinned.
+    pub(super) fn validated(&self, source: &DecodedSource, effective_info: &SourceInfo) -> Option<Self> {
+        if !self.matches(source, effective_info) {
+            return None;
+        }
+        let mut refreshed = self.clone();
+        refreshed.pixels = Arc::downgrade(&source.image);
+        if let (Some((_, token)), Some(clip)) = (&mut refreshed.clip, &effective_info.clip_confidence) {
+            *token = Arc::downgrade(clip);
+        }
+        if let (Some((_, token)), Some(profile)) = (&mut refreshed.profile, &effective_info.camera_profile) {
+            *token = Arc::downgrade(profile);
+        }
+        Some(refreshed)
     }
     pub(super) fn matches(&self, source: &DecodedSource, effective_info: &SourceInfo) -> bool {
         if self.width != source.image.width
@@ -160,7 +176,7 @@ impl SourceEvidence {
         let clip_matches = match (&self.clip, &effective_info.clip_confidence) {
             (None, None) => true,
             (Some((digest, token)), Some(clip)) => {
-                Weak::ptr_eq(token, &Arc::downgrade(clip)) || fingerprint(&(clip.width, clip.height, clip.data.as_slice())) == Some(*digest)
+                Weak::ptr_eq(token, &Arc::downgrade(clip)) || f32_buffer_digest("clip", clip.width, clip.height, 1, &clip.data) == Some(*digest)
             }
             _ => false,
         };
@@ -171,9 +187,32 @@ impl SourceEvidence {
         };
         clip_matches
             && profile_matches
-            && (Weak::ptr_eq(&self.pixels, &Arc::downgrade(&source.image)) || fingerprint(&source.image.data) == Some(self.pixels_digest))
+            && (Weak::ptr_eq(&self.pixels, &Arc::downgrade(&source.image))
+                || f32_buffer_digest("rgb", source.image.width, source.image.height, 3, source.image.data.as_flattened()) == Some(self.pixels_digest))
     }
 }
+/// Large typed planes avoid per-scalar serde tags/writes. The stream still includes
+/// the scalar type, role, dimensions, channels and length, then every finite f32 bit.
+/// A fixed stack chunk bounds temporary memory independently of image dimensions.
+fn f32_buffer_digest(role: &str, width: usize, height: usize, channels: usize, values: &[f32]) -> Option<Hash128> {
+    if width.checked_mul(height)?.checked_mul(channels)? != values.len() {
+        return None;
+    }
+    let mut digest = Hasher128::new();
+    digest.str("match-look-f32-bits-v2").str(role).u64(width as u64).u64(height as u64).u64(channels as u64).u64(values.len() as u64);
+    let mut bytes = [0u8; 16384];
+    for chunk in values.chunks(bytes.len() / 4) {
+        for (value, encoded) in chunk.iter().zip(bytes.chunks_exact_mut(4)) {
+            if !value.is_finite() {
+                return None;
+            }
+            encoded.copy_from_slice(&value.to_bits().to_le_bytes());
+        }
+        digest.update(&bytes[..chunk.len() * 4]);
+    }
+    Some(digest.finish())
+}
+
 trait TransposeOption<T> {
     fn transpose_option(self) -> Option<Option<T>>;
 }
@@ -582,6 +621,69 @@ mod tests {
         assert!(pixel_weak.upgrade().is_none() && clip_weak.upgrade().is_none() && profile_weak.upgrade().is_none());
         assert!(evidence.pixels.upgrade().is_none());
     }
+    #[test]
+    fn typed_plane_witness_preserves_exact_bits_shapes_and_rebinds_only_after_validation() {
+        // Cross the fixed chunk boundary and reject even a one-bit finite change.
+        let values = vec![0.0f32; 4097];
+        let digest = f32_buffer_digest("clip", 4097, 1, 1, &values).unwrap();
+        let mut changed = values.clone();
+        changed[4096] = f32::from_bits(1);
+        assert_ne!(f32_buffer_digest("clip", 4097, 1, 1, &changed), Some(digest));
+        changed[4096] = -0.0;
+        assert_ne!(f32_buffer_digest("clip", 4097, 1, 1, &changed), Some(digest));
+        assert_ne!(f32_buffer_digest("rgb", 4097, 1, 1, &values), Some(digest));
+        assert_ne!(f32_buffer_digest("clip", 1, 4097, 1, &values), Some(digest));
+        assert_ne!(f32_buffer_digest("clip", 1, 1, 4097, &values), Some(digest));
+        assert!(f32_buffer_digest("clip", 4096, 1, 1, &values).is_none());
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            changed[4096] = invalid;
+            assert!(f32_buffer_digest("clip", 4097, 1, 1, &changed).is_none());
+        }
+
+        let source = pixels();
+        let info = SourceInfo {
+            clip_confidence: Some(Arc::new(ClipConfidence { width: 2, height: 2, data: vec![0.0; 4] })),
+            camera_profile: Some(Arc::new(li_color::profile::ProfileLook::default())),
+            ..Default::default()
+        };
+        let evidence = SourceEvidence::capture(&source, &info).unwrap();
+        let reloaded = DecodedSource::new(Arc::new((*source.image).clone()), None);
+        let mut reloaded_info = info.clone();
+        reloaded_info.clip_confidence = info.clip_confidence.as_ref().map(|clip| Arc::new((**clip).clone()));
+        reloaded_info.camera_profile = info.camera_profile.as_ref().map(|profile| Arc::new((**profile).clone()));
+        let counts = (
+            Arc::strong_count(&reloaded.image),
+            Arc::strong_count(reloaded_info.clip_confidence.as_ref().unwrap()),
+            Arc::strong_count(reloaded_info.camera_profile.as_ref().unwrap()),
+        );
+        let refreshed = evidence.validated(&reloaded, &reloaded_info).unwrap();
+        assert!(Weak::ptr_eq(&refreshed.pixels, &Arc::downgrade(&reloaded.image)));
+        assert!(Weak::ptr_eq(&refreshed.clip.as_ref().unwrap().1, &Arc::downgrade(reloaded_info.clip_confidence.as_ref().unwrap())));
+        assert!(Weak::ptr_eq(&refreshed.profile.as_ref().unwrap().1, &Arc::downgrade(reloaded_info.camera_profile.as_ref().unwrap())));
+        assert_eq!(
+            counts,
+            (
+                Arc::strong_count(&reloaded.image),
+                Arc::strong_count(reloaded_info.clip_confidence.as_ref().unwrap()),
+                Arc::strong_count(reloaded_info.camera_profile.as_ref().unwrap())
+            )
+        );
+        assert_eq!(refreshed.pixels_digest, evidence.pixels_digest);
+        let mut changed_info = reloaded_info.clone();
+        let mut changed_clip = (**changed_info.clip_confidence.as_ref().unwrap()).clone();
+        changed_clip.data[0] = -0.0;
+        changed_info.clip_confidence = Some(Arc::new(changed_clip));
+        assert!(evidence.validated(&reloaded, &changed_info).is_none());
+        let mut changed_image = (*reloaded.image).clone();
+        changed_image.data[0][0] = f32::from_bits(changed_image.data[0][0].to_bits() + 1);
+        assert!(evidence.validated(&DecodedSource::new(Arc::new(changed_image), None), &reloaded_info).is_none());
+        drop(reloaded);
+        drop(reloaded_info);
+        drop(changed_info);
+        assert!(refreshed.pixels.upgrade().is_none());
+        assert!(refreshed.clip.as_ref().unwrap().1.upgrade().is_none());
+        assert!(refreshed.profile.as_ref().unwrap().1.upgrade().is_none());
+    }
     fn batch() -> (Session, Vec<Input>, Vec<Look>, Options) {
         let mut session = Session::with_demo();
         let ids = session.catalog.photos().take(3).map(|photo| photo.id).collect::<Vec<_>>();
@@ -595,6 +697,13 @@ mod tests {
         let (session, inputs, looks, options) = batch();
         let ids = inputs.iter().map(|input| input.identity.id).collect::<Vec<_>>();
         let key = BatchKey::capture(session.library_generation, &ids, &inputs, &looks, options).unwrap();
+        let mut stale = key.clone();
+        stale.epochs.camera ^= 1;
+        assert!(!stale.resources_current());
+        assert_ne!(stale, key);
+        let mut reweighted = looks.clone();
+        reweighted[0].importance *= 2.0;
+        assert_ne!(BatchKey::capture(session.library_generation, &ids, &inputs, &reweighted, options), Some(key.clone()));
         assert_eq!(BatchKey::capture(session.library_generation, &ids, &inputs, &looks, Options { strength: 42.0, ..options }), Some(key.clone()));
         let mut reordered = inputs.clone();
         reordered.reverse();
