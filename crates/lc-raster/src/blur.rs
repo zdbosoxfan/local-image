@@ -3,12 +3,18 @@
 use crate::Image;
 use crate::resample::Pixel;
 
-pub use li_raster::blur::{BAND, EXACT_SIGMA, FINE_SIGMA, box_radii, gauss_taps, gaussian_kernel};
+pub use li_raster::blur::{BAND, EXACT_SIGMA, FINE_SIGMA, GaussianPlan, GaussianPolicy, box_radii, gauss_taps, gaussian_kernel};
 
 /// Gaussian blur; exact at sigma <= 4, three running-sum boxes above it.
 /// Small sigmas produce a real blur (#706).
 pub fn gaussian<T: Pixel>(img: &Image<T>, sigma: f32) -> Image<T> {
     Image { width: img.width, height: img.height, data: li_raster::blur::gaussian(&img.data, img.width, img.height, sigma) }
+}
+
+/// Image-shaped adapter for consumers with a pinned numerical policy. The default
+/// [`gaussian`] retains the sampled small-radius and premultiplied-alpha contracts.
+pub fn gaussian_with_policy<T: Pixel>(img: &Image<T>, sigma: f32, policy: GaussianPolicy) -> Image<T> {
+    Image { width: img.width, height: img.height, data: li_raster::blur::gaussian_with_policy(&img.data, img.width, img.height, sigma, policy) }
 }
 
 /// Variance-corrected fine Gaussian, retaining the Develop GPU twin's tap order.

@@ -82,6 +82,54 @@ fn mask() -> Mask {
 }
 
 #[test]
+fn native_develop_gaussian_policy_matches_cpu_reference() {
+    let Some(gpu_device) = device() else { return };
+    let g = &*gpu_device;
+    if std::env::var_os("LC_REQUIRE_PHYSICAL_GPU").is_some() {
+        assert_ne!(g.info.device_type, wgpu::DeviceType::Cpu, "physical adapter required");
+    }
+    eprintln!("Develop Gaussian adapter: {:?}", g.info);
+    let _scope = crate::ctx::RenderScope::new(g);
+    let errors = crate::ctx::ErrorScopes::push(g);
+    let mut cx = Cx::new(g);
+    let (w, h) = (53, 37);
+    for nc in [1, 2, 3, 4] {
+        let input: Vec<f32> = (0..w * h)
+            .flat_map(|i| {
+                let (x, y) = (i % w, i / w);
+                [
+                    if x == 17 && y == 11 { 1.0 } else { 0.1 },
+                    ((x * 17 + y * 7) % 31) as f32 / 31.0,
+                    if x > w / 2 { 0.9 } else { 0.05 },
+                    ((x + y) % 3) as f32 * 0.2,
+                ][..nc]
+                    .to_vec()
+            })
+            .collect();
+        let uploaded = g.upload(&input.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+        for sigma in [0.0, 0.3, 0.5, 0.8, 1.0, 2.0, 4.0, 6.0] {
+            let out = gaussian(&mut cx, &uploaded, w, h, nc, sigma);
+            let actual: Vec<f32> = cx.read(&out, w * h * nc);
+            let mut expected = vec![0.0; input.len()];
+            // Each component is a scalar field, including four-channel guidance moments.
+            for c in 0..nc {
+                let field = Plane::from_fn(w, h, |x, y| input[(y * w + x) * nc + c]);
+                let cpu = lightcraft_pipeline::blur::gaussian(&field, sigma);
+                for (i, v) in cpu.data.iter().enumerate() {
+                    expected[i * nc + c] = *v;
+                }
+            }
+            let max = actual.iter().zip(&expected).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+            assert!(actual.iter().all(|v| v.is_finite()));
+            assert!(max < 3e-5, "nc={nc}, sigma={sigma}: max={max}");
+            eprintln!("Develop Gaussian nc={nc} sigma={sigma} max_abs={max:.9}");
+        }
+    }
+    assert!(errors.pop().is_none());
+    assert!(crate::ctx::take_failure().is_none());
+}
+
+#[test]
 fn native_toneeq_filter_extremes_and_cached_overlay_match() {
     let Some(gpu_device) = device() else { return };
     let g = &*gpu_device;

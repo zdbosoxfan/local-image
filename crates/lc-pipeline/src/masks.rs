@@ -270,7 +270,7 @@ pub fn shape_alpha_tone(
         MaskShape::Subject { .. } | MaskShape::Object { .. } | MaskShape::People { .. } => {
             // Saliency heuristic: centre-weighted local contrast (replaced by the segmenter in M12).
             let m = frame.out_to_norm(w, h);
-            let blur = lightcraft_raster::blur::gaussian(log_l, 0.03 * frame_px(frame, w));
+            let blur = crate::blur::gaussian(log_l, 0.03 * frame_px(frame, w));
             for (i, v) in out.data.iter_mut().enumerate() {
                 let (x, y) = (i % w, i / w);
                 let n = m.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5));
@@ -362,7 +362,7 @@ fn frame_px(frame: &Frame, w: usize) -> f32 {
 }
 
 fn smooth_plane(p: &mut Plane, sigma: f32) {
-    *p = lightcraft_raster::blur::gaussian(p, sigma.max(0.5));
+    *p = crate::blur::gaussian(p, sigma.max(0.5));
 }
 
 /// A rough display mapping for colour picking (so samples taken on screen match).
@@ -451,7 +451,7 @@ pub fn auto_refine(r: f64) -> (f32, f32) {
 /// Guided filter of `p` steered by `guide` (He et al.), clamped to 0..1: `p`'s edges snap to the
 /// guide's.
 pub fn guided_cross(guide: &Plane, p: &Plane, sigma: f32, eps: f32) -> Plane {
-    use lightcraft_raster::blur::gaussian;
+    use crate::blur::gaussian;
     let mi = gaussian(guide, sigma);
     let mp = gaussian(p, sigma);
     let cip = gaussian(&guide.zip_map(p, |a, b| a * b), sigma);

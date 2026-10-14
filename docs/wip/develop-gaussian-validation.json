@@ -1,0 +1,626 @@
+{
+  "base": "d4d24ead",
+  "sourceCommit": "766108fb",
+  "renderCacheVersion": 20,
+  "baselinePipeline": {
+    "passed": 231,
+    "failed": 4,
+    "ignored": 3
+  },
+  "fixedPipeline": {
+    "passed": 234,
+    "failed": 1,
+    "ignored": 3
+  },
+  "sharedRaster": {
+    "passed": 35,
+    "failed": 0,
+    "ignored": 1
+  },
+  "goldenRows": [
+    {
+      "suite": "layers",
+      "checkpoint": "fix",
+      "case": "default/rendered",
+      "expected": [
+        "0x6dc2c87b1494a4a2",
+        ""
+      ],
+      "actual": [
+        "0x6dc2c87b1494a4a2",
+        ""
+      ],
+      "exact": true
+    },
+    {
+      "suite": "layers",
+      "checkpoint": "fix",
+      "case": "default/raw",
+      "expected": [
+        "0x61dfdd1c1479866c",
+        ""
+      ],
+      "actual": [
+        "0x61dfdd1c1479866c",
+        ""
+      ],
+      "exact": true
+    },
+    {
+      "suite": "layers",
+      "checkpoint": "fix",
+      "case": "global edits/rendered",
+      "expected": [
+        "0x7b9236807e147100",
+        ""
+      ],
+      "actual": [
+        "0x7b9236807e147100",
+        ""
+      ],
+      "exact": true
+    },
+    {
+      "suite": "layers",
+      "checkpoint": "fix",
+      "case": "global edits/raw",
+      "expected": [
+        "0x4c3b932252745f9e",
+        ""
+      ],
+      "actual": [
+        "0x4c3b932252745f9e",
+        ""
+      ],
+      "exact": true
+    },
+    {
+      "suite": "layers",
+      "checkpoint": "fix",
+      "case": "old masks/rendered",
+      "expected": [
+        "0x442eb7386062df48",
+        ""
+      ],
+      "actual": [
+        "0x442eb7386062df48",
+        ""
+      ],
+      "exact": true
+    },
+    {
+      "suite": "layers",
+      "checkpoint": "fix",
+      "case": "old masks/raw",
+      "expected": [
+        "0x2087195d5011de65",
+        ""
+      ],
+      "actual": [
+        "0x2087195d5011de65",
+        ""
+      ],
+      "exact": true
+    },
+    {
+      "suite": "layers",
+      "checkpoint": "v2",
+      "case": "default/rendered",
+      "expected": [
+        "0x6dc2c87b1494a4a2",
+        ""
+      ],
+      "actual": [
+        "0x6dc2c87b1494a4a2",
+        ""
+      ],
+      "exact": true
+    },
+    {
+      "suite": "layers",
+      "checkpoint": "v2",
+      "case": "default/raw",
+      "expected": [
+        "0x61dfdd1c1479866c",
+        ""
+      ],
+      "actual": [
+        "0x61dfdd1c1479866c",
+        ""
+      ],
+      "exact": true
+    },
+    {
+      "suite": "layers",
+      "checkpoint": "v2",
+      "case": "global edits/rendered",
+      "expected": [
+        "0x7b9236807e147100",
+        ""
+      ],
+      "actual": [
+        "0xda567febb17d96bc",
+        ""
+      ],
+      "exact": false
+    },
+    {
+      "suite": "layers",
+      "checkpoint": "v2",
+      "case": "global edits/raw",
+      "expected": [
+        "0x4c3b932252745f9e",
+        ""
+      ],
+      "actual": [
+        "0x01ec63e25f8e3d6d",
+        ""
+      ],
+      "exact": false
+    },
+    {
+      "suite": "layers",
+      "checkpoint": "v2",
+      "case": "old masks/rendered",
+      "expected": [
+        "0x442eb7386062df48",
+        ""
+      ],
+      "actual": [
+        "0x5806aed03c6fc48b",
+        ""
+      ],
+      "exact": false
+    },
+    {
+      "suite": "layers",
+      "checkpoint": "v2",
+      "case": "old masks/raw",
+      "expected": [
+        "0x2087195d5011de65",
+        ""
+      ],
+      "actual": [
+        "0x3c4b7b6ff1c89433",
+        ""
+      ],
+      "exact": false
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "default/rendered",
+      "expected": [
+        "0x9ab6df6ab933abe6",
+        "0x97d20305a4beb718"
+      ],
+      "actual": [
+        "0x9ab6df6ab933abe6",
+        "0x97d20305a4beb718"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "default/raw",
+      "expected": [
+        "0xe4cadb152e11a72a",
+        "0x97d20305a4beb718"
+      ],
+      "actual": [
+        "0xe4cadb152e11a72a",
+        "0x97d20305a4beb718"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "raw defaults + edits/rendered",
+      "expected": [
+        "0x4a28ebc346639e93",
+        "0x15c51fec88c0f59f"
+      ],
+      "actual": [
+        "0x4a28ebc346639e93",
+        "0x15c51fec88c0f59f"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "raw defaults + edits/raw",
+      "expected": [
+        "0x27515ff61c81ba78",
+        "0x15c51fec88c0f59f"
+      ],
+      "actual": [
+        "0x27515ff61c81ba78",
+        "0x15c51fec88c0f59f"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "optics + geometry + crop/rendered",
+      "expected": [
+        "0x611da93f49c17e07",
+        "0x0d608f6981034f4f"
+      ],
+      "actual": [
+        "0x611da93f49c17e07",
+        "0x0d608f6981034f4f"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "optics + geometry + crop/raw",
+      "expected": [
+        "0xded90c5d0013a5d1",
+        "0x0d608f6981034f4f"
+      ],
+      "actual": [
+        "0xb7a97257711456dc",
+        "0x0d608f6981034f4f"
+      ],
+      "exact": false
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "profile look/rendered",
+      "expected": [
+        "0x3f11f540c5f9b92b",
+        "0x67aea33bdcc2fa0b"
+      ],
+      "actual": [
+        "0x3f11f540c5f9b92b",
+        "0x67aea33bdcc2fa0b"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "profile look/raw",
+      "expected": [
+        "0x8352318c42cfb5c8",
+        "0x67aea33bdcc2fa0b"
+      ],
+      "actual": [
+        "0x8352318c42cfb5c8",
+        "0x67aea33bdcc2fa0b"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "b&w profile/rendered",
+      "expected": [
+        "0xdf776ad9fab4c2dd",
+        "0xb6159ee7a2d437b0"
+      ],
+      "actual": [
+        "0xdf776ad9fab4c2dd",
+        "0xb6159ee7a2d437b0"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "b&w profile/raw",
+      "expected": [
+        "0xc3d16db57db48b3d",
+        "0xb6159ee7a2d437b0"
+      ],
+      "actual": [
+        "0xc3d16db57db48b3d",
+        "0xb6159ee7a2d437b0"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "negative/rendered",
+      "expected": [
+        "0x30b5bb6ca4d2340b",
+        "0xb00a5805f4d46110"
+      ],
+      "actual": [
+        "0x30b5bb6ca4d2340b",
+        "0xb00a5805f4d46110"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "negative/raw",
+      "expected": [
+        "0xd4e80f8f014fb4b0",
+        "0xb00a5805f4d46110"
+      ],
+      "actual": [
+        "0xd4e80f8f014fb4b0",
+        "0xb00a5805f4d46110"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "layers/rendered",
+      "expected": [
+        "0x2b8db6150bc87e19",
+        "0x72a3db4f1a1900ec"
+      ],
+      "actual": [
+        "0x2b8db6150bc87e19",
+        "0x72a3db4f1a1900ec"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "fix",
+      "case": "layers/raw",
+      "expected": [
+        "0x0fa75a20cc053614",
+        "0x72a3db4f1a1900ec"
+      ],
+      "actual": [
+        "0x0fa75a20cc053614",
+        "0x72a3db4f1a1900ec"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "default/rendered",
+      "expected": [
+        "0x9ab6df6ab933abe6",
+        "0x97d20305a4beb718"
+      ],
+      "actual": [
+        "0x9ab6df6ab933abe6",
+        "0x97d20305a4beb718"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "default/raw",
+      "expected": [
+        "0xe4cadb152e11a72a",
+        "0x97d20305a4beb718"
+      ],
+      "actual": [
+        "0xe4cadb152e11a72a",
+        "0x97d20305a4beb718"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "raw defaults + edits/rendered",
+      "expected": [
+        "0x4a28ebc346639e93",
+        "0x15c51fec88c0f59f"
+      ],
+      "actual": [
+        "0x6ebd9938e3a814ab",
+        "0x15c51fec88c0f59f"
+      ],
+      "exact": false
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "raw defaults + edits/raw",
+      "expected": [
+        "0x27515ff61c81ba78",
+        "0x15c51fec88c0f59f"
+      ],
+      "actual": [
+        "0x43833128b9fd57c1",
+        "0x15c51fec88c0f59f"
+      ],
+      "exact": false
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "optics + geometry + crop/rendered",
+      "expected": [
+        "0x611da93f49c17e07",
+        "0x0d608f6981034f4f"
+      ],
+      "actual": [
+        "0x611da93f49c17e07",
+        "0x0d608f6981034f4f"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "optics + geometry + crop/raw",
+      "expected": [
+        "0xded90c5d0013a5d1",
+        "0x0d608f6981034f4f"
+      ],
+      "actual": [
+        "0xb7a97257711456dc",
+        "0x0d608f6981034f4f"
+      ],
+      "exact": false
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "profile look/rendered",
+      "expected": [
+        "0x3f11f540c5f9b92b",
+        "0x67aea33bdcc2fa0b"
+      ],
+      "actual": [
+        "0x3f11f540c5f9b92b",
+        "0x67aea33bdcc2fa0b"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "profile look/raw",
+      "expected": [
+        "0x8352318c42cfb5c8",
+        "0x67aea33bdcc2fa0b"
+      ],
+      "actual": [
+        "0x8352318c42cfb5c8",
+        "0x67aea33bdcc2fa0b"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "b&w profile/rendered",
+      "expected": [
+        "0xdf776ad9fab4c2dd",
+        "0xb6159ee7a2d437b0"
+      ],
+      "actual": [
+        "0xdf776ad9fab4c2dd",
+        "0xb6159ee7a2d437b0"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "b&w profile/raw",
+      "expected": [
+        "0xc3d16db57db48b3d",
+        "0xb6159ee7a2d437b0"
+      ],
+      "actual": [
+        "0xc3d16db57db48b3d",
+        "0xb6159ee7a2d437b0"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "negative/rendered",
+      "expected": [
+        "0x30b5bb6ca4d2340b",
+        "0xb00a5805f4d46110"
+      ],
+      "actual": [
+        "0x30b5bb6ca4d2340b",
+        "0xb00a5805f4d46110"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "negative/raw",
+      "expected": [
+        "0xd4e80f8f014fb4b0",
+        "0xb00a5805f4d46110"
+      ],
+      "actual": [
+        "0xd4e80f8f014fb4b0",
+        "0xb00a5805f4d46110"
+      ],
+      "exact": true
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "layers/rendered",
+      "expected": [
+        "0x2b8db6150bc87e19",
+        "0x72a3db4f1a1900ec"
+      ],
+      "actual": [
+        "0xd244f68d8a18f4d2",
+        "0x72a3db4f1a1900ec"
+      ],
+      "exact": false
+    },
+    {
+      "suite": "toolset",
+      "checkpoint": "v2",
+      "case": "layers/raw",
+      "expected": [
+        "0x0fa75a20cc053614",
+        "0x72a3db4f1a1900ec"
+      ],
+      "actual": [
+        "0xa79f21b1a3a7df9b",
+        "0x72a3db4f1a1900ec"
+      ],
+      "exact": false
+    }
+  ],
+  "remainingFailure": "tests_toolset::old_settings_load_and_match_detail_goldens: optics + geometry + crop/raw; actual hash identical on v2 baseline and fix",
+  "settingsHashes": "all 14 unchanged on both checkpoints",
+  "appCheck": "passed",
+  "hostGpuPlan": "passed",
+  "formatting": "passed",
+  "diffCheck": "passed",
+  "strictClippy": "unavailable: Fedora compiler/upstream driver metadata mismatch; not a pass",
+  "physicalGpu": {
+    "adapter": "NVIDIA GeForce RTX 5090",
+    "backend": "Vulkan",
+    "gaussianCases": 32,
+    "gaussianMaxAbs": 7.15e-07,
+    "fullRenderCases": 18,
+    "gaussianTestExit": 0,
+    "fullRenderTestExit": 0,
+    "requiredPhysicalDevice": true,
+    "fullRenderMaxCodeDifference": 1
+  },
+  "scope": "Rendering policy and cache only. No Match Look algorithm, RAW edits, reference/threshold/ignore changes, native-photo or batch-quality claim.",
+  "logSha256": {
+    "develop-gaussian-pr-physical-render.log": "ba1e27bd90777ea762ada2c6198ef0feea8b8af8d303ade4b5695dd6113138f2",
+    "develop-gaussian-pr-physical-gaussian.log": "b438ac9ed2adb38e1d776a616d250d84e7807f678bb3dd81a6aa0db4053ae232",
+    "develop-gaussian-pr-gpu-host.log": "932e12f6ccb87299918c26d73b0118bb092517581362f8997f600548ead71959",
+    "develop-gaussian-pr-app-check.log": "7a6c268da08217233c340070ad0468fc1fc28f0021ed142177bee5ac7636ac56",
+    "develop-gaussian-pr-shared-raster.log": "19d67bfab55346c80ab85b52aef0254d5634257a1da2bce1f28ca9ff830615a7",
+    "develop-gaussian-pr-goldens.log": "783927acd12648153a12f44c904b041557b650bc4f84bd37949c155a1d131c83",
+    "develop-gaussian-pr-v2-goldens.log": "6182064d037eab15b244d79fcd697a98fece7857c172f042a50caf2c72a7c9af",
+    "develop-gaussian-pr-v2-baseline.log": "37f444378fbd7acd59cac4b4d05779bb9b6ba933bd1185d1a7452ab705e38b99",
+    "develop-gaussian-pr-cpu.log": "f106ce9b51ef1e49b4d7ebcc5781fba1f9355b1b66c0220b92b5883df08a8dc0"
+  },
+  "sourceSha256": {
+    "crates/lc-engine/src/media.rs": "462e45d8ff7eef5b2dc7142dace2e6844a7dd0703b07cb5e988e119d679a3e67",
+    "crates/lc-gpu/src/remaining_tests.rs": "bda3cb720dec8a3182c5125ccb6b9905d35aa32f0b5731f65030351062b2487f",
+    "crates/lc-gpu/src/render.rs": "97d404214abbf7b3ada8872ee8b33ab85d0912eac5c3196d529838e76598d631",
+    "crates/lc-pipeline/src/blur.rs": "fbbc15201aa38376f5f959e1a8b998ce7645573562a981d98a6522ba33586ec0",
+    "crates/lc-pipeline/src/capture.rs": "8f8d50efbf7734a531268cbe701cb726414e092cc3bd824680f9e9d2092481d4",
+    "crates/lc-pipeline/src/lib.rs": "506eb2cbf69491d9d16c07e4d8fb1f5ae8919e13feacc793a36e05d2f557b542",
+    "crates/lc-pipeline/src/local.rs": "2f04c7463b6b7a449e3754e0489cadaec426e0fa8a64082da5b3f8258580a8ec",
+    "crates/lc-pipeline/src/masks.rs": "d33b7e77c091c5b0a56793e4685db8390dc764e52095715ffeac0720d87d71e7",
+    "crates/lc-pipeline/src/primary.rs": "ee564b621bee9e838c61caa70a1403db375213e7370fec42a6430af133b0b1bf",
+    "crates/lc-pipeline/src/upright.rs": "5d8d45b6e1adf885d581126f233caf641005190c511b4f0d1fdc3e406a66951a",
+    "crates/lc-raster/src/blur.rs": "5cd18dd84496d9db4e7503e93f77df5110086a8c4195c69a28430837500bd03c",
+    "crates/li-raster/src/blur.rs": "3857f616d355910748e660d6738d8bde96a06ee57251fca29557778478accaa3"
+  }
+}

@@ -338,17 +338,17 @@ pub(crate) fn rgb_words(img: &Rgb32f) -> &[f32] {
 /// priming sum stays a small share of the work).
 const CHUNK: usize = 16;
 
-/// Gaussian twin of the shared CPU policy: exact sampled taps at sigma <= 4,
-/// Kovesi running-sum boxes above it. Reuses the existing convolution shaders.
+/// Follow Develop's explicit CPU policy rather than the general raster/editor default.
 pub(crate) fn gaussian(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sigma: f32) -> Buf {
-    if sigma <= 0.05 || !sigma.is_finite() || w * h == 0 {
+    use lightcraft_pipeline::blur::GaussianPlan;
+    if w * h == 0 {
         return cx.copy(src);
     }
-    if sigma > lightcraft_raster::blur::EXACT_SIGMA {
-        return gaussian_boxes(cx, src, w, h, nc, sigma);
+    match lightcraft_pipeline::blur::plan(sigma) {
+        GaussianPlan::Identity => cx.copy(src),
+        GaussianPlan::Boxes(radii) => gaussian_box_passes(cx, src, w, h, nc, radii),
+        GaussianPlan::Sampled => gaussian_convolve(cx, src, w, h, nc, &sampled_gaussian_taps(sigma)),
     }
-    let taps = sampled_gaussian_taps(sigma);
-    gaussian_convolve(cx, src, w, h, nc, &taps)
 }
 fn sampled_gaussian_taps(sigma: f32) -> Vec<f32> {
     let kernel = lightcraft_raster::blur::gaussian_kernel(sigma);
@@ -360,6 +360,9 @@ fn gaussian_boxes(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sig
         return cx.copy(src);
     }
     let radii = lightcraft_raster::blur::box_radii(sigma);
+    gaussian_box_passes(cx, src, w, h, nc, radii)
+}
+fn gaussian_box_passes(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, radii: [usize; 3]) -> Buf {
     let passes: Vec<(&str, usize)> = radii.iter().map(|r| ("box_h", *r)).chain(radii.iter().map(|r| ("box_v", *r))).filter(|p| p.1 > 0).collect();
     if passes.is_empty() {
         return cx.copy(src);
@@ -2681,4 +2684,19 @@ fn j01_final_gpu_gaussian_host_taps_match_cpu_policy() {
     }
     assert!(sampled_gaussian_taps(0.5)[0] < 0.8);
     assert_eq!(lightcraft_raster::blur::FINE_SIGMA, 2.0);
+}
+
+#[cfg(test)]
+#[test]
+fn develop_gaussian_host_plan_matches_cpu_compatibility_policy() {
+    use lightcraft_pipeline::blur::{GaussianPlan, plan};
+    use lightcraft_raster::blur::GaussianPolicy;
+    assert_eq!(plan(0.3), GaussianPlan::Identity);
+    assert_eq!(plan(0.5), GaussianPlan::Boxes([1, 0, 0]));
+    assert_eq!(plan(0.8), GaussianPlan::Boxes([0, 0, 1]));
+    assert_eq!(plan(2.0), GaussianPlan::Boxes([1, 1, 2]));
+    for sigma in [0.0, 0.3, 0.5, 0.8, 1.0, 2.0, 4.0, 12.0] {
+        assert_eq!(plan(sigma), GaussianPolicy::Boxes.plan(sigma));
+    }
+    assert_eq!(GaussianPolicy::Sampled.plan(0.5), GaussianPlan::Sampled, "Library/editor default remains sampled");
 }
