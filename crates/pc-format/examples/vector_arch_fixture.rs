@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bytes = photocraft_format::save_to_bytes(&d, &Default::default())?;
     let manifest = photocraft_format::read_manifest(&bytes)?;
     let raw = serde_json::to_string_pretty(&manifest)?;
-    std::fs::write("crates/pc-format/tests/fixtures/vector-v1.pcraft", bytes)?;
-    std::fs::write("crates/pc-format/tests/fixtures/vector-v1.json", raw)?;
+    std::fs::write("crates/pc-format/tests/fixtures/vector-basic.pcraft", bytes)?;
+    std::fs::write("crates/pc-format/tests/fixtures/vector-basic.json", raw)?;
     Ok(())
 }

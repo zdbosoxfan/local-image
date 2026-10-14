@@ -1,5 +1,5 @@
-//! V8 symbols and constraints. Definitions own ordinary layers, in paint order. V8 adds the
-//! Symbol content variant and FORMAT_VERSION 2 together; no instance variant is written yet.
+//! V8 symbols and constraints. Definitions own ordinary layers, in paint order. Symbol
+//! instances are the `Symbol` content variant.
 //! Constraints follow Affinity's edge pins and fixed-size choices in parent coordinates.
 use crate::{Affine, Layer, Surface};
 use serde::{Deserialize, Serialize};

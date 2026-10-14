@@ -204,7 +204,7 @@ fn repeat19_engine_native_roundtrip_retains_sources_parameters_and_old_documents
 #[test]
 fn repeat19_native_codec_existing_v1_document_fixture_still_loads() {
     // This must run independently even while the shared live-group tag hook is pending.
-    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-v1.pcraft")).unwrap();
+    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-basic.pcraft")).unwrap();
     assert!(!old.walk().iter().any(|(_, _, l)| l.vector.live.is_some()));
 }
 

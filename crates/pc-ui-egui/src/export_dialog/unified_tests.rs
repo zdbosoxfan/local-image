@@ -207,12 +207,12 @@ fn unified_export_picker_cancel_keeps_raster_and_vector_choices_and_basename() {
     assert_eq!(h.state().session.prefs().dialogs, original_preferences);
 }
 #[test]
-fn unified_export_legacy_aliases_share_one_modal_and_one_visible_menu_entry() {
+fn unified_export_format_param_shares_one_modal_and_one_visible_menu_entry() {
     let output = Arc::new(Output::default());
     let mut app = fixture(&output);
     let ctx = egui::Context::default();
-    for (id, fmt) in [("ui.svg.export", "svg"), ("ui.pdf.export", "pdf"), ("file.export.pdf", "pdf")] {
-        crate::menus::invoke(&mut app, &ctx, id, json!({})).unwrap();
+    for fmt in ["svg", "pdf"] {
+        crate::menus::invoke(&mut app, &ctx, "file.export.exportAs", json!({ "format": fmt })).unwrap();
         assert_eq!(app.ui.dialogs.len(), 1);
         assert_eq!(s_fmt(fields(&app)), fmt);
     }

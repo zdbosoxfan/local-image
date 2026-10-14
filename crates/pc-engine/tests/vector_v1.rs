@@ -253,8 +253,8 @@ fn empty_operand_live_compound_keeps_its_set_semantics() {
 }
 
 #[test]
-fn checked_in_v1_fixture_with_missing_defaults_loads() {
-    let bytes = include_bytes!("fixtures/vector-v1.pcraft");
+fn checked_in_shapes_fixture_with_missing_defaults_loads() {
+    let bytes = include_bytes!("fixtures/vector-shapes.pcraft");
     assert_eq!(photocraft_format::read_manifest(bytes).unwrap().format_version, photocraft_format::FORMAT_VERSION);
     let doc = photocraft_format::load_from_bytes(bytes).unwrap();
     assert_eq!(doc.paths.len(), 1);

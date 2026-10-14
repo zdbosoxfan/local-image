@@ -92,9 +92,9 @@ fn menus_ux_order_geometry_and_verified_duplicates() {
         let combine = layer.iter().rposition(|i| i.path.get(1).is_some_and(|p| p == "Combine Shapes")).unwrap();
         assert_eq!(layer[combine + 1].path, ["Layer", "Geometry"]);
         assert_eq!(items.iter().filter(|item| item.path == ["Window", "Arrange"] && item.label == "New Window for Document").count(), 1);
-        assert!(!items.iter().any(|item| item.id == "help.website"));
-        assert!(is_live("help.website") && is_live("window.newWindowForDocument"));
-        assert_eq!(crate::links::url_for("help.website"), crate::links::url_for("help.github"));
+        for old in ["help.website", "window.newWindowForDocument", "type.panels.character", "ui.svg.export", "ui.pdf.export", "file.export.pdf"] {
+            assert!(!items.iter().any(|item| item.id == old) && !is_live(old), "old command ID {old} is gone");
+        }
         let mut ids = std::collections::HashSet::new();
         for item in &items {
             assert!(item.id == "---" || ids.insert(&item.id), "duplicate {}", item.id);
@@ -104,12 +104,8 @@ fn menus_ux_order_geometry_and_verified_duplicates() {
         assert!(items.iter().any(|i| i.id == "window.panel.color"));
         assert!(items.iter().any(|i| i.id == "window.panel.brushSettings"));
         assert!(items.iter().any(|i| i.id == "window.panel.brushes"));
-        assert!(
-            !items
-                .iter()
-                .any(|i| matches!(i.id.as_str(), "ui.svg.export" | "ui.pdf.export" | "file.export.pdf" | "edit.preferences.integrations" | "li.aiModels"))
-        );
-        for id in ["ui.svg.export", "ui.pdf.export", "file.export.pdf", "edit.preferences.integrations", "li.aiModels"] {
+        assert!(!items.iter().any(|i| matches!(i.id.as_str(), "edit.preferences.integrations" | "li.aiModels")));
+        for id in ["edit.preferences.integrations", "li.aiModels"] {
             assert!(is_live(id));
         }
     }
@@ -311,7 +307,7 @@ fn menus_ux_active_editor_profile_labels_and_swatches_tab_are_retained() {
     app.session.edit_prefs(|p| {
         p.shortcut_profiles.editor.duplicate("Menus profile").unwrap();
         p.shortcut_profiles.editor.custom.get_mut("Menus profile").unwrap().overrides.insert("edit.search".into(), "Cmd+Alt+9".into());
-        p.shortcut_profiles.editor.custom.get_mut("Menus profile").unwrap().overrides.insert("window.newWindowForDocument".into(), "Cmd+Alt+8".into());
+        p.shortcut_profiles.editor.custom.get_mut("Menus profile").unwrap().overrides.insert("window.arrange.newWindowForDocument".into(), "Cmd+Alt+8".into());
         p.shortcut_profiles.library.duplicate("Library profile").unwrap();
         p.shortcut_profiles.library.custom.get_mut("Library profile").unwrap().overrides.insert("edit.search".into(), "Cmd+Alt+8".into());
     });
@@ -449,27 +445,27 @@ fn menus_ux_overflow_help_search_runs_commands_from_other_roots() {
 }
 
 #[test]
-fn menus_ux_verified_type_panel_aliases_have_one_location_and_identical_effects() {
+fn menus_ux_type_panels_have_one_location_and_toggle() {
     for name in ["character", "paragraph", "glyphs", "characterStyles", "paragraphStyles"] {
         let mut app = self::app(false);
-        let alias = format!("type.panels.{name}");
-        app.session.edit_prefs(|p| {
-            p.shortcut_profiles.editor.duplicate("Panel alias profile").unwrap();
-            p.shortcut_profiles.editor.custom.get_mut("Panel alias profile").unwrap().overrides.insert(alias.clone(), "Cmd+Alt+9".into());
-        });
+        let old = format!("type.panels.{name}");
         let canonical = format!("window.panel.{name}");
+        app.session.edit_prefs(|p| {
+            p.shortcut_profiles.editor.duplicate("Panel profile").unwrap();
+            p.shortcut_profiles.editor.custom.get_mut("Panel profile").unwrap().overrides.insert(canonical.clone(), "Cmd+Alt+9".into());
+        });
         let items = menu_items(&app);
-        assert!(!items.iter().any(|item| item.id == alias));
+        assert!(!items.iter().any(|item| item.id == old));
+        assert!(!is_live(&old), "old Type › Panels ID {old} is gone");
         assert_eq!(items.iter().filter(|item| item.id == canonical).count(), 1);
         assert_eq!(items.iter().find(|item| item.id == canonical).unwrap().shortcut.as_deref(), Some("Cmd+Alt+9"));
-        assert!(is_live(&alias));
         let before = checked(&app, &canonical).unwrap();
         let journal = app.session.journal.len();
         let ctx = egui::Context::default();
-        invoke(&mut app, &ctx, &alias, json!({})).unwrap();
+        invoke(&mut app, &ctx, &canonical, json!({})).unwrap();
         assert_eq!(checked(&app, &canonical), Some(!before));
         invoke(&mut app, &ctx, &canonical, json!({})).unwrap();
-        assert_eq!(checked(&app, &alias), Some(before));
+        assert_eq!(checked(&app, &canonical), Some(before));
         assert_eq!(app.session.journal.len(), journal);
     }
 }

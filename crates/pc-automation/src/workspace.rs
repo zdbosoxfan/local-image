@@ -294,7 +294,6 @@ pub fn authorize_engine_command(id: &str, params: &Value) -> Result<(), Automati
             id,
             "pattern.import"
                 | "pattern.export"
-                | "edit.presets.migratePresets"
                 | "measurementLog.export"
                 | "layer.videoLayers.newVideoLayerFromFile"
                 | "layer.videoLayers.replaceFootage"

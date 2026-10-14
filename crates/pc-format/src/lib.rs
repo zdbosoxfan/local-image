@@ -27,7 +27,6 @@ pub mod autosave;
 mod convert;
 mod finite;
 pub mod manifest;
-mod migrate;
 pub mod read;
 mod store;
 pub mod zip;
@@ -57,6 +56,8 @@ pub enum FormatError {
     Unsupported(String),
     #[error("bundle written by a newer version (format {found}, this build reads up to {supported})")]
     TooNew { found: u32, supported: u32 },
+    #[error("bundle uses an older format that is not supported (format {found}; this build reads only format {supported})")]
+    TooOld { found: u32, supported: u32 },
     #[error("limit exceeded: {0}")]
     LimitExceeded(String),
     #[error("`{path}` is NaN or infinite, which a .pcraft manifest cannot hold; reset that value and save again")]
@@ -173,7 +174,7 @@ pub fn load_path_with(path: &Path, opts: &LoadOptions) -> Result<Document> {
     }
 }
 
-/// Read and migrate only the manifest (fast: no tiles are decoded).
+/// Read only the manifest (fast: no tiles are decoded).
 pub fn read_manifest(bytes: &[u8]) -> Result<Manifest> {
     let src = store::ZipSource::new(bytes)?;
     store::read_manifest(&src, &LoadOptions::default())

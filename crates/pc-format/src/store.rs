@@ -145,7 +145,7 @@ pub(crate) fn read_manifest(src: &dyn Source, opts: &LoadOptions) -> Result<Mani
     de.disable_recursion_limit();
     let mut v = <serde_json::Value as serde::Deserialize>::deserialize(&mut de)?;
     de.end()?;
-    crate::migrate::migrate(&mut v)?;
+    crate::manifest::check_format_version(&v)?;
     let layers = take_array(&mut v, "/document/layers");
     let symbols = take_array(&mut v, "/document/symbols");
     let mut m: Manifest = serde_json::from_value(v)?;

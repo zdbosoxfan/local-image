@@ -469,13 +469,7 @@ impl Ex {
                     _ => adjust_map::Channels::Other,
                 };
                 let cged = raw.iter().find(|(k, _)| k == b"CgEd").map(|(_, d)| d.clone());
-                let keep = raw.iter().any(|(k, d)| {
-                    // A previously saved Photo Filter block may be 18 bytes. It parses here, but
-                    // Photoshop requires four-byte alignment, so repair that legacy record on
-                    // re-save rather than preserving the broken bytes.
-                    let legacy_phfl = k == b"phfl" && d.starts_with(&[0, 2]) && d.len() % 4 != 0;
-                    !legacy_phfl && adjust_map::ADJUSTMENT_KEYS.contains(&k) && adjust_map::parse(k, d, cged.as_deref(), channels) == *a
-                });
+                let keep = raw.iter().any(|(k, d)| adjust_map::ADJUSTMENT_KEYS.contains(&k) && adjust_map::parse(k, d, cged.as_deref(), channels) == *a);
                 if !keep {
                     raw.retain(|(k, _)| !adjust_map::ADJUSTMENT_KEYS.contains(&k) && k != b"CgEd");
                     let w = adjust_map::write(a);
@@ -1509,8 +1503,7 @@ mod tests {
         let adjustment = photocraft_doc::Adjustment::PhotoFilter { color, density: 0.14, preserve_luminosity: true };
         let mut doc =
             Document::with_background("Photo Filter PSD", photocraft_geom::Size::new(32, 24), ColorMode::Rgb, SampleType::U8, photocraft_doc::Color::WHITE);
-        let mut layer = Layer::new("Warming Filter", LayerContent::Adjustment(adjustment.clone()));
-        doc.layers.push(layer.clone());
+        doc.layers.push(Layer::new("Warming Filter", LayerContent::Adjustment(adjustment.clone())));
 
         let assert_phfl = |file: &PsdFile| {
             let records = &file.layer_info.as_ref().unwrap().layers;
@@ -1528,18 +1521,6 @@ mod tests {
         assert_phfl(&parsed);
         let (restored, _) = crate::psd_import::psd_to_document(&parsed);
         assert!(restored.layers.iter().any(|l| l.content == LayerContent::Adjustment(adjustment.clone())));
-
-        // Importing a legacy 18-byte block must still work; saving it again should repair it
-        // even when the adjustment values have not changed (normally raw blocks are reused).
-        let mut legacy = crate::adjust_map::write(&adjustment)[0].1.clone();
-        legacy.truncate(18);
-        layer.psd_blocks = vec![(*b"phfl", std::sync::Arc::new(legacy))];
-        doc.layers.pop();
-        doc.layers.push(layer);
-        let repaired = document_to_psd(&doc);
-        assert_phfl(&repaired);
-        let repaired_bytes = repaired.to_bytes().unwrap();
-        assert_phfl(&PsdFile::from_bytes(&repaired_bytes).unwrap());
     }
 
     #[test]

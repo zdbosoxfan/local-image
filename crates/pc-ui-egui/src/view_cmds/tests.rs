@@ -117,7 +117,7 @@ fn window_panels_select_dock_tabs() {
     // Again on the visible tab hides the panel.
     menu(&mut app, &ctx, "window.panel.paths", json!({})).unwrap();
     assert!(!app.ui.panels.layers);
-    menu(&mut app, &ctx, "type.panels.character", json!({})).unwrap();
+    menu(&mut app, &ctx, "window.panel.character", json!({})).unwrap();
     assert!(app.ui.panels.properties && app.ui.dock_tabs.properties == 0);
     for id in ["window.panel.channels", "window.panel.swatches", "window.panel.adjustments", "window.panel.paragraph"] {
         assert!(is_live(id), "{id}");

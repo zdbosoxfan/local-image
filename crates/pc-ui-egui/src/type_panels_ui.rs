@@ -50,14 +50,7 @@ pub struct SpellDialog {
     pub message: String,
 }
 
-const IDS: [&str; 6] = [
-    "type.panels.characterStyles",
-    "window.panel.characterStyles",
-    "type.panels.paragraphStyles",
-    "window.panel.paragraphStyles",
-    "type.panels.glyphs",
-    "window.panel.glyphs",
-];
+const IDS: [&str; 3] = ["window.panel.characterStyles", "window.panel.paragraphStyles", "window.panel.glyphs"];
 
 /// Menu ids handled here (live menu items).
 pub fn handles(id: &str) -> bool {
@@ -67,9 +60,9 @@ pub fn handles(id: &str) -> bool {
 pub fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     let p = &app.ui.type_panels;
     Some(match id {
-        "type.panels.characterStyles" | "window.panel.characterStyles" => p.styles && p.styles_tab == 0,
-        "type.panels.paragraphStyles" | "window.panel.paragraphStyles" => p.styles && p.styles_tab == 1,
-        "type.panels.glyphs" | "window.panel.glyphs" => p.glyphs,
+        "window.panel.characterStyles" => p.styles && p.styles_tab == 0,
+        "window.panel.paragraphStyles" => p.styles && p.styles_tab == 1,
+        "window.panel.glyphs" => p.glyphs,
         _ => return None,
     })
 }
@@ -879,8 +872,9 @@ mod tests {
     #[test]
     fn menu_toggles_panels() {
         let mut app = app_with_text("Hi");
-        assert!(handles("window.panel.glyphs") && crate::menus::is_live("type.panels.paragraphStyles"));
-        menu(&mut app, "type.panels.paragraphStyles", &json!({})).unwrap().unwrap();
+        assert!(handles("window.panel.glyphs") && crate::menus::is_live("window.panel.paragraphStyles"));
+        assert!(!crate::menus::is_live("type.panels.paragraphStyles"), "old Type › Panels IDs are gone");
+        menu(&mut app, "window.panel.paragraphStyles", &json!({})).unwrap().unwrap();
         assert!(app.ui.type_panels.styles && app.ui.type_panels.styles_tab == 1);
         assert_eq!(checked(&app, "window.panel.paragraphStyles"), Some(true));
         assert_eq!(checked(&app, "window.panel.characterStyles"), Some(false));

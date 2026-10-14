@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""One-time original contract fixtures (GPL-3.0-or-later), frozen 2026-10-11.
-Never run this to update old fixtures for a new schema: add a new version instead.
-The manifest extends the repository's existing vector-v1 fixture; catalog legacy
+"""Original contract fixtures (GPL-3.0-or-later), frozen 2026-10-11; native reference
+moved to format version 3 on 2026-10-14 (v2 reads only the current format).
+When FORMAT_VERSION changes, re-freeze the native reference at the new version.
+The manifest extends the repository's existing vector-basic fixture; catalog legacy
 records freeze src/tests_format_version.rs::legacy_parts and versionless cases.
 No application code or tests are executed to generate these bytes.
 """
@@ -13,11 +14,11 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[4]
 native = root / 'crates/pc-format/tests/fixtures/contracts'
 catalog = root / 'crates/lc-catalog/tests/fixtures/contracts'
-manifest = json.loads((native.parent / 'vector-v1.json').read_text())
-manifest['format_version'] = 2
-manifest['generator'] = 'Local Image contract fixture (hand-authored v2)'
+manifest = json.loads((native.parent / 'vector-basic.json').read_text())
+manifest['format_version'] = 3
+manifest['generator'] = 'Local Image contract fixture (hand-authored v3)'
 d = manifest['document']
-d['name'] = 'Contract reference v2'
+d['name'] = 'Contract reference v3'
 d['design_units'] = 'Millimeters'
 p = d['paths'][0]['path']
 black = d['layers'][0]['content']['fill']
@@ -41,8 +42,8 @@ child = copy.deepcopy(d['layers'][0]); child.pop('vector'); child['vector_mask']
 group = copy.deepcopy(base); group.update(id=6, name='Live blend', blend='PassThrough', content={'kind': 'group', 'children': [child], 'expanded': True, 'artboard': None}, vector={'live': {'kind': 'blend', 'spacing': {'Steps': 7}, 'orientation': 'AlignToPath', 'spine': p}})
 d['layers'].append(group)
 text = json.dumps(manifest, ensure_ascii=False, indent=2) + '\n'
-(native / 'document-v2.json').write_text(text)
-with zipfile.ZipFile(native / 'document-v2.pcraft', 'w', compression=zipfile.ZIP_STORED) as archive:
+(native / 'document-v3.json').write_text(text)
+with zipfile.ZipFile(native / 'document-v3.pcraft', 'w', compression=zipfile.ZIP_STORED) as archive:
     entry = zipfile.ZipInfo('manifest.json', (2026, 10, 11, 0, 0, 0))
     archive.writestr(entry, text.encode())
 def photo(i, current=False):

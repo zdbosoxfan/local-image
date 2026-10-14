@@ -1076,7 +1076,6 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::pick_cmds::specs());
     v.extend(crate::layer_nav_cmds::specs());
     v.extend(crate::frame_cmds::specs());
-    v.extend(crate::migrate_cmds::specs());
     v.extend(crate::trap_cmds::specs());
     v.extend(crate::timeline_cmds::specs());
     v.extend(crate::video_cmds::specs());

@@ -4,7 +4,7 @@
 use super::*;
 pub fn acceptance(hooks: Hooks) {
     let (mut s, ids) = super::tests::fixture();
-    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-v1.pcraft")).unwrap();
+    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-basic.pcraft")).unwrap();
     assert_eq!((hooks.read)(&old).unwrap(), Store::default());
     let before = s.active().unwrap().doc.clone();
     let r = capture(&s, vec![], Operation::New { source: ids[0], name: "Native Ink".into() }).unwrap();

@@ -1211,8 +1211,6 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, _params: &se
             app.trace_dialog.open(&mut app.session, &app.ui.trace_preferences);
             Ok(())
         }
-        "ui.svg.export" => crate::vector_packages::svg_export::open_dialog(app),
-        "ui.pdf.export" | "file.export.pdf" => crate::vector_packages::pdf_export::open_dialog(app),
         "vector.transform.again" => photocraft_engine::vector_packages::transform_tools::again_request(
             &app.session,
             &app.session.active().map(|s| s.selected_layers()).unwrap_or_default(),
@@ -1451,9 +1449,6 @@ pub fn disabled_reason(app: &PhotocraftApp, id: &str) -> Option<String> {
     if matches!(id, "layer.vectorize" | "ui.vectorize") {
         return app.session.disabled_reason("layer.vectorize").map(|raw| crate::command_feedback::message(&raw));
     }
-    if matches!(id, "ui.pdf.export" | "file.export.pdf") && (app.services.pick_save.is_none() || app.services.write.is_none()) {
-        return Some(tl!("Saving is unavailable in this session.").into());
-    }
     if object && ids.is_empty() {
         return Some(tl!("Select a vector object first.").into());
     }
@@ -1628,9 +1623,6 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
                     });
                 }
             }
-            if matches!(id, "ui.pdf.export" | "file.export.pdf") {
-                row.enabled &= app.services.pick_save.is_some() && app.services.write.is_some();
-            }
             row
         })
         .collect();
@@ -1679,15 +1671,7 @@ pub fn handles(id: &str) -> bool {
         || id.starts_with("object.compoundPath.")
         || matches!(
             id,
-            "object.path.join"
-                | "ui.svg.export"
-                | "ui.pdf.export"
-                | "file.export.pdf"
-                | "layer.vectorize"
-                | "vector.object.lock"
-                | "vector.object.hide"
-                | "vector.view.outline"
-                | "vector.snap.smartGuides"
+            "object.path.join" | "layer.vectorize" | "vector.object.lock" | "vector.object.hide" | "vector.view.outline" | "vector.snap.smartGuides"
         )
 }
 

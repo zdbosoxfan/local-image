@@ -17,7 +17,7 @@ corpus, brand assets, fonts, external application or proprietary fixture is requ
 - UI/full-app GPU: 512 x 320 RGB/U8, black rectangle `(30,30)..(42,40)`, grid
   `2 x 3`, gap `8`; count drag 24 screen points adds 2 columns, gap drag 7 document
   pixels gives second-column origin `57`. The full-app GPU gate reuses this source.
-- Old native compatibility: existing `pc-format/tests/fixtures/vector-v1.pcraft`,
+- Plain native document: existing `pc-format/tests/fixtures/vector-basic.pcraft`,
   provenance in that package; the native test uses the real format writer/reader.
 - Native field codec: radial `(count=5, center=(4,7), angle=0.3)`, grid
   `(rows=2, cols=3, gap=(4,6))`, mirror through `(4,7)` at `0.3`, blend Steps(3),

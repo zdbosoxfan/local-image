@@ -19,9 +19,9 @@ proprietary/owner/external corpus. No missing corpus is counted as a passed gate
   bow-tie contour, duplicate/invalid base indices, NaN/infinity, numeric/complexity budgets.
 - Compound: joined hole subpath, EvenOdd fill and inversion metadata retained unchanged.
 - Remapping: own explicit deletion/reorder/subpath maps, never projected knot indices.
-- Persistence: existing committed `pc-format/tests/fixtures/vector-v1.pcraft` from the vector
+- Persistence: existing committed `pc-format/tests/fixtures/vector-basic.pcraft` from the vector
   foundations, plus generated native ZIP bytes with corners. No extension field is required
-  by the legacy fixture. The persistence test also covers exact base path and undo/redo.
+  by the plain fixture. The persistence test also covers exact base path and undo/redo.
 - GPU: generated 5-point star in `[14,14,100,100]`, inner ratio 0.45, radius 12 Round; generated
   square with radius 12 Inverted, 128x128 RGB/F32, solid `(0.2,0.5,0.8,0.7)`. Compositor checks
   every premultiplied pixel against CPU and assert max diff <= 1/255.

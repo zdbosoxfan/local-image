@@ -15,21 +15,10 @@ pub(crate) fn persona_menus(app: &PhotocraftApp) -> &'static [&'static str] {
     if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector { &VECTOR_TOP_MENUS } else { &TOP_MENUS }
 }
 
-// Verified shell aliases: only the canonical ID has a visible menu location. Keep
-// these IDs live for saved shortcuts/automation, and show their effective shortcut
-// on the surviving row. The Type/Window pairs are the very same panel toggles;
-// the setup pairs call open_local_ai; both project links open links::GITHUB.
-const MENU_ALIASES: &[(&str, &str)] = &[
-    ("type.panels.character", "window.panel.character"),
-    ("type.panels.paragraph", "window.panel.paragraph"),
-    ("type.panels.glyphs", "window.panel.glyphs"),
-    ("type.panels.characterStyles", "window.panel.characterStyles"),
-    ("type.panels.paragraphStyles", "window.panel.paragraphStyles"),
-    ("li.aiModels", "li.localAi"),
-    ("edit.preferences.integrations", "li.localAi"),
-    ("help.website", "help.github"),
-    ("window.newWindowForDocument", "window.arrange.newWindowForDocument"),
-];
+// Hidden duplicates of Local AI setup. Both still have handlers in files owned by the
+// compatibility-removal job C (ai_ui.rs, pc-engine prefs.rs, prefs_ui.rs); delete these
+// rows with those handlers. No other old command IDs are kept.
+const MENU_ALIASES: &[(&str, &str)] = &[("li.aiModels", "li.localAi"), ("edit.preferences.integrations", "li.localAi")];
 
 /// UI-level commands (handled by the shell rather than the engine): id, label, menu, shortcut.
 pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
@@ -71,7 +60,6 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("view.zoomOut", "Zoom Out", &["View"], Some("Cmd+-")),
     ("view.fitOnScreen", "Fit on Screen", &["View"], Some("Cmd+0")),
     ("view.actualPixels", "100%", &["View"], Some("Cmd+1")),
-    ("window.newWindowForDocument", "New Window for Document", &[], None),
     ("window.toggle.layers", "Layers", &["Window"], Some("F7")),
     ("window.toggle.history", "History", &["Window"], None),
     ("window.toggle.properties", "Properties", &["Window"], None),
@@ -90,7 +78,6 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("edit.preferences.integrations", "AI Integrations…", &[], None),
     // local-image: AI setup, and credit to the projects Local Image is built on.
     ("li.aiModels", "AI Models & GPU…", &[], None),
-    ("help.website", "Local Image Website", &["Help"], None),
     ("help.github", "Local Image on GitHub", &["Help"], None),
     ("help.artcraftWebsite", "PhotoCraft and LightCraft (ArtCraft)", &["Help"], None),
     ("help.reportIssue", "Report an Issue…", &["Help"], None),
@@ -346,13 +333,6 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             }
             Ok(Value::Null)
         }
-        "window.newWindowForDocument" => {
-            let doc = app.session.active_index().ok_or("no document")?;
-            let wid = app.ui.alloc_id();
-            let view = app.ui.views[doc].clone();
-            app.ui.windows.push(crate::state::DocWindow { id: wid, document: doc, view, open: true });
-            Ok(json!({"window": wid}))
-        }
         "window.theme.toggle" => {
             let next = app.ui.theme.next();
             app.set_theme(ctx, next);
@@ -386,7 +366,14 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             let dialog = app.ui.open_dialog(DialogKind::About, fields);
             Ok(json!({"dialog": dialog, "info": crate::gpu_status::system_info_json(app)}))
         }
-        "file.export.exportAs" => Ok(json!({"dialog": crate::export_dialog::open(app)?})),
+        // `{"format": "pdf"}` (or any Export As format) opens the dialog on that format.
+        "file.export.exportAs" => {
+            let dialog = match params.get("format").and_then(Value::as_str) {
+                Some(format) => crate::export_dialog::open_format(app, format)?,
+                None => crate::export_dialog::open(app)?,
+            };
+            Ok(json!({ "dialog": dialog }))
+        }
         "file.export.quickExportAsPng" => crate::export_dialog::quick_export_png(app),
         // Layer › Export As… / Quick Export as PNG: the export pipeline on just the active layer.
         l if matches!(l, "layer.exportAs" | "layer.quickExportAsPng") && params.as_object().is_none_or(|o| o.is_empty()) => {
@@ -550,9 +537,6 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
     if id == "select.deselect" && app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector {
         return app.session.active().is_some();
     }
-    if matches!(id, "ui.pdf.export" | "file.export.pdf") {
-        return app.session.active().is_some() && app.services.pick_save.is_some() && app.services.write.is_some();
-    }
     if crate::vector_integration::handles(id) {
         return crate::vector_integration::disabled_reason(app, id).is_none();
     }
@@ -619,9 +603,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         "select.transformSelection" => app.ui.transform.is_none() && app.session.is_enabled("select.transformSelection"),
         // ⇧[ / ⇧] only step the hardness of a tool that paints with the brush tip, as in Photoshop.
         "tools.decreaseBrushHardness" | "tools.increaseBrushHardness" => app.ui.tool.is_brushlike(),
-        i if (i.starts_with("view.zoom") || i == "view.fitOnScreen" || i == "view.actualPixels") || i == "window.newWindowForDocument" => {
-            app.session.active().is_some()
-        }
+        i if i.starts_with("view.zoom") || i == "view.fitOnScreen" || i == "view.actualPixels" => app.session.active().is_some(),
         "edit.freeTransformCopy" => app.ui.transform.is_none() && app.session.active().and_then(|s| s.active_layer).is_some(),
         "edit.freeTransform"
         | "edit.transform.scale"
@@ -916,10 +898,8 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             },
         );
     }
-    // Legacy export aliases remain invokable; Export As owns the visible format chooser.
-    items.retain(|item| !matches!(item.id.as_str(), "ui.svg.export" | "ui.pdf.export" | "file.export.pdf"));
-    // Explicit, verified aliases only: keep every command ID invokable. Brushes opens
-    // presets, Brush Settings opens settings; the panel tabs are separate functions.
+    // Rows without a menu location and the hidden Local AI duplicates stay out of the menus.
+    // Brushes opens presets, Brush Settings opens settings; the panel tabs are separate functions.
     items.retain(|item| !item.path.is_empty() && !MENU_ALIASES.iter().any(|(alias, _)| *alias == item.id));
     let mut seen = std::collections::HashSet::new();
     items.retain(|item| item.id == "---" || seen.insert(item.id.clone()));

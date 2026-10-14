@@ -108,7 +108,7 @@ fn appearance_explicit_empty_preview_and_old_native_load() {
         assert_eq!(l.surface().unwrap().tile_count(), 0);
         assert_eq!(l.vector.appearance, Some(Appearance::default()));
     }
-    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-v1.pcraft")).unwrap();
+    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-basic.pcraft")).unwrap();
     assert!(old.layers.iter().all(|l| l.vector.appearance.is_none()));
 }
 #[test]

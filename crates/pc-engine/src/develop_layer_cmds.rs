@@ -48,7 +48,7 @@ pub fn document_of_photo(s: &Session, photo: u64) -> Option<usize> {
     document_of_photo_in(s, None, photo, None)
 }
 
-/// Qualified Library lookup; unbound legacy links never match a named catalog.
+/// Qualified Library lookup; links without a Library namespace never match a named catalog.
 pub fn document_of_photo_in(s: &Session, library: Option<&str>, photo: u64, path: Option<&str>) -> Option<usize> {
     s.documents().iter().position(|d| {
         d.doc.walk().iter().any(|(_, _, layer)| match &layer.content {

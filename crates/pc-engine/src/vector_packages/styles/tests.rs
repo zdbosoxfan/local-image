@@ -266,7 +266,7 @@ fn styles38_cpu_library_rename_duplicate_delete_and_old_defaults() {
     assert_eq!(p.document.layer(ids[0]).unwrap(), &old);
     assert!(p.store.links.is_empty());
     assert_eq!(serde_json::from_str::<Store>("{}").unwrap(), Store::default());
-    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-v1.pcraft")).unwrap();
+    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-basic.pcraft")).unwrap();
     assert_eq!(store(&old).unwrap(), Store::default());
     assert_eq!(serde_json::from_str::<Store>(&serde_json::to_string(&p.store).unwrap()).unwrap(), p.store);
 }

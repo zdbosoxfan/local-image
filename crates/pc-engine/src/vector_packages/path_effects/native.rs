@@ -5,7 +5,7 @@ use super::*;
 fn path_effects45_native_old_document_editable_roundtrip_and_one_journal() {
     crate::vector_integration::initialize();
     let a = access().expect("native path-effect field provider required");
-    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-v1.pcraft")).unwrap();
+    let old = photocraft_format::load_from_bytes(include_bytes!("../../../../pc-format/tests/fixtures/vector-basic.pcraft")).unwrap();
     for (_, _, l) in old.walk() {
         assert!((a.read)(l).unwrap().is_empty());
     }
