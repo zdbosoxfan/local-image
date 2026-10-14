@@ -2810,8 +2810,13 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
 fn batch_name(template: &str, input: &std::path::Path, counter: usize, format: &str) -> Result<String, String> {
     let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("image");
     let name = template.replace("{name}", stem).replace("{counter}", &counter.to_string());
-    if name.trim().is_empty() || matches!(name.as_str(), "." | "..") || name.contains(['/', '\\', '{', '}', ':']) || name.chars().any(char::is_control) {
-        return Err("Use a file name with {name} and/or {counter}, without folders or unknown tokens.".into());
+    if name.trim().is_empty()
+        || matches!(name.as_str(), "." | "..")
+        || name.contains(['/', '\\', '{', '}', ':', '*', '?', '"', '<', '>', '|'])
+        || invalid_windows_basename(&name)
+        || name.chars().any(char::is_control)
+    {
+        return Err("Use a file name with {name} and/or {counter}, without folders, unknown tokens, reserved names or invalid filename characters.".into());
     }
     if !["png", "tiff", "psd"].contains(&format) {
         return Err("Choose PNG, TIFF or PSD".into());
@@ -2971,11 +2976,31 @@ mod bg_batch_tests {
     }
 
     #[test]
+    // TEST-CHANGED F172: add Windows-invalid characters, device names and trailing dots/spaces.
     fn bg_batch_template_preview_and_conflicts() {
         let dir = directory();
         let name = batch_name("prefix-{name}-{counter}-suffix", std::path::Path::new("cat.photo.jpg"), 12, "psd").unwrap();
         assert_eq!(name, "prefix-cat.photo-12-suffix.psd");
-        for invalid in ["", "../{name}", "{unknown}", "foo/bar", "foo\\bar"] {
+        for invalid in [
+            "",
+            "../{name}",
+            "{unknown}",
+            "foo/bar",
+            "foo\\bar",
+            "a*b",
+            "a?b",
+            "a\"b",
+            "a<b",
+            "a>b",
+            "a|b",
+            "tail.",
+            "tail ",
+            "CON",
+            "NUL.txt",
+            "com1",
+            "LPT9",
+            "COM¹",
+        ] {
             assert!(batch_name(invalid, std::path::Path::new("cat.jpg"), 1, "png").is_err());
         }
         let dest = dir.join(&name);
@@ -3856,4 +3881,15 @@ fn generated_edit_returns_to_the_document_the_user_is_viewing() {
     assert!(crate::lasso_ui::active(&app), "background completion cancelled the viewed document's gesture");
     assert!(!app.ui.status_error, "{}", app.ui.status);
     library().delete(&[entry.id]).unwrap();
+}
+
+// Portable outputs also work when a batch is later copied to Windows.
+fn invalid_windows_basename(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+    name.ends_with([' ', '.'])
+        || matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || stem
+            .strip_prefix("COM")
+            .or_else(|| stem.strip_prefix("LPT"))
+            .is_some_and(|s| matches!(s, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"))
 }

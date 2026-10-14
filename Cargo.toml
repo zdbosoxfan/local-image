@@ -78,7 +78,6 @@ lightcraft-tiff = { path = "crates/lc-tiff" }
 lightcraft-ui-egui = { path = "crates/lc-ui-egui" }
 log = { version = "0.4" }
 miniz_oxide = { version = "0.8" }
-moxcms = { version = "0.9", default-features = false, features = ["lut"] }
 muda = { version = "0.21", default-features = false }
 photocraft-algo = { path = "crates/pc-algo" }
 photocraft-automation = { path = "crates/pc-automation" }
@@ -97,7 +96,6 @@ photocraft-paint = { path = "crates/pc-paint" }
 photocraft-plugins = { path = "crates/pc-plugins" }
 photocraft-psd = { path = "crates/pc-psd" }
 photocraft-raster = { path = "crates/pc-raster" }
-photocraft-raw = { path = "crates/pc-raw" }
 photocraft-tablet = { path = "crates/pc-tablet" }
 photocraft-testkit = { path = "crates/pc-testkit" }
 photocraft-text = { path = "crates/pc-text" }

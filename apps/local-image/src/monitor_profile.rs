@@ -18,6 +18,7 @@ pub type Detection = Result<Vec<Display>, String>;
 
 /// Snapshot cheap winit monitor metadata on the UI thread; all I/O happens in this worker.
 #[derive(Clone, Debug)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux consumes these snapshots; macOS reads its native display geometry.
 pub struct Output {
     pub name: String,
     pub frame: [f64; 4],

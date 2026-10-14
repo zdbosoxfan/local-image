@@ -1007,7 +1007,8 @@ pub fn specs() -> Vec<CommandSpec> {
                 let ids_of = |k: &str| -> Vec<u64> { report[k].as_array().map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default() };
                 let (imported, restored) = (ids_of("imported"), ids_of("restored"));
                 let n = s.undo.len().saturating_sub(undo0);
-                let (verb, count) = if imported.is_empty() && !restored.is_empty() { ("Restore", restored.len()) } else { ("Add", imported.len()) };
+                let (verb, count) =
+                    if imported.is_empty() && !restored.is_empty() { ("Restore", restored.len()) } else { ("Add", imported.len() + restored.len()) };
                 s.merge_undo(n, &format!("{verb} {count} Photo{}", if count == 1 { "" } else { "s" }));
                 let imported = if imported.is_empty() { restored } else { imported };
                 if let Some(f) = imported.first() {

@@ -27,7 +27,7 @@ pub use lightcraft_develop::DevelopSettings;
 use lightcraft_develop::{Hsl, VignetteStyle, WbMode, Wheel as LcWheel};
 use lightcraft_geom::Point;
 use photocraft_algo::camera_raw::{CameraRaw, Wheel};
-use photocraft_cms::{Builtin, ColorSpace, Curve, Profile, Transform, TransformOptions, math};
+use photocraft_cms::{ColorSpace, Curve, Profile, Transform, TransformOptions, math};
 use photocraft_geom::Rect;
 use photocraft_raster::{Surface, from_rgba_into};
 use serde_json::Value;
@@ -94,13 +94,7 @@ pub const HIDDEN_SECTIONS: [&str; 4] = ["calibration", "crop", "geometry", "lens
 
 /// Linear Rec.2020 (the develop engine's working space) as an ICC profile.
 pub fn linear_rec2020() -> &'static Profile {
-    static P: OnceLock<Profile> = OnceLock::new();
-    P.get_or_init(|| {
-        let mut p = Builtin::Rec2020.profile().clone();
-        p.trc = Some([Curve::Identity, Curve::Identity, Curve::Identity]);
-        p.description = "Linear Rec. 2020".into();
-        p.with_encoded_bytes()
-    })
+    photocraft_cms::builtin::linear_rec2020()
 }
 
 /// Converts between a document's RGB profile and linear Rec.2020.
@@ -472,6 +466,7 @@ pub fn beyond_camera_raw(s: &DevelopSettings) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use photocraft_cms::Builtin;
     use photocraft_color::{ColorMode, PixelFormat, SampleType};
 
     fn pattern(fmt: PixelFormat, w: i32, h: i32) -> Surface {

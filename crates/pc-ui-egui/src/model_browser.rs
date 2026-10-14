@@ -641,7 +641,7 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut open = true;
     let screen = ctx.content_rect().size();
     let size = vec2((screen.x - 160.0).clamp(640.0, 1120.0), (screen.y - 200.0).clamp(380.0, 680.0));
-    if crate::restoration_ui::model_browser_is_modal(app) {
+    if crate::restoration_ui::model_browser_is_modal(app) || app.ui.dialogs.iter().any(|dialog| crate::prefs_ui::is_preferences(&dialog.fields)) {
         let modal = egui::Modal::new(egui::Id::new("restoration-model-browser")).backdrop_color(Color32::TRANSPARENT).show(ctx, |ui| {
             ui.set_width(size.x);
             ui.horizontal(|ui| {

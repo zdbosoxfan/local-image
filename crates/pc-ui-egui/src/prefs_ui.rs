@@ -834,6 +834,9 @@ fn open_kind(app: &mut PhotocraftApp, kind: &str, label: &str, fields: Value) ->
 
 /// Revert the toolbar preview when the Shortcuts/Toolbar dialog is cancelled.
 pub(crate) fn cancel(app: &mut PhotocraftApp, fields: &Map<String, Value>) {
+    if is_preferences(fields) {
+        crate::ai_ui::settings_ui::reset();
+    }
     if fields.get("__prefsui").and_then(Value::as_str) == Some("shortcuts")
         && let Some(original) = fields.get("toolbarOriginal").and_then(|v| serde_json::from_value(v.clone()).ok())
     {
@@ -860,7 +863,9 @@ fn preference_values(p: &prefs::Preferences) -> Map<String, Value> {
 
 /// Compare the editable sections, excluding settings managed outside Preferences.
 pub fn preferences_changed(app: &PhotocraftApp, fields: &Map<String, Value>) -> bool {
-    is_preferences(fields) && fields.get("values").and_then(Value::as_object).is_some_and(|values| *values != preference_values(app.session.prefs()))
+    is_preferences(fields)
+        && (crate::ai_ui::settings_ui::changed()
+            || fields.get("values").and_then(Value::as_object).is_some_and(|values| *values != preference_values(app.session.prefs())))
 }
 
 /// Commit the working copy and keep the current section open. Failure leaves the draft intact.
@@ -890,7 +895,8 @@ pub fn width(fields: &Map<String, Value>) -> Option<f32> {
 
 /// Open Edit › Preferences on `section`.
 pub fn open_preferences(app: &mut PhotocraftApp, section: &str) -> u64 {
-    let known = SECTIONS.iter().any(|(id, _)| *id == section) || section == crate::attributions::SECTION;
+    crate::ai_ui::settings_ui::reset();
+    let known = SECTIONS.iter().any(|(id, _)| *id == section) || section == crate::attributions::SECTION || crate::ai_ui::settings_ui::owns(section);
     let section = if known && section != "integrations" { section } else { "general" };
     let working = preference_values(app.session.prefs());
     let order = field_order(app.session.prefs(), &working);
@@ -1038,7 +1044,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
         "prefs" => {
             f.insert("__gpuInfo".into(), json!(app.perf.gpu_info.lines()));
             f.insert("__gpuFailure".into(), json!(app.perf.gpu_info.failure()));
-            prefs_body(ui, f);
+            prefs_body(app, ui, f);
             if f.remove("openShortcuts").and_then(|v| v.as_bool()).unwrap_or(false) {
                 open_shortcuts(app, 0);
             }
@@ -1054,6 +1060,9 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
 }
 
 fn humanize(key: &str) -> String {
+    if key == "checkForUpdatesAtStartup" {
+        return "Check for updates at startup".into();
+    }
     if key == "tabletCompatibilityMode" {
         return "Pen tablet: use compatibility mode (XWayland)".into();
     }
@@ -1119,64 +1128,85 @@ fn color_of(s: &str) -> Color32 {
     prefs::parse_hex(s).map_or(Color32::GRAY, |c| Color32::from_rgb(c[0], c[1], c[2]))
 }
 
+fn prefs_nav_row(ui: &mut egui::Ui, title: &str, selected: bool, empty: bool) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
+    if selected || response.hovered() {
+        ui.painter().rect_filled(rect, t.radius_sm, if selected { t.row_selected } else { t.hover });
+    }
+    let color = if selected {
+        t.text
+    } else if empty {
+        t.text_faint
+    } else {
+        t.text_dim
+    };
+    let mut job = egui::text::LayoutJob::simple_singleline(title.to_owned(), crate::theme::medium(12.5), color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 12.0);
+    let galley = ui.painter().layout_job(job);
+    let elided = galley.elided;
+    ui.painter().galley(rect.left_center() + vec2(8.0, -galley.size().y / 2.0), galley, color);
+    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, title));
+    let response = if elided { response.on_hover_text(title) } else { response };
+    let seen = ui.id().with(("prefs-nav-seen", title));
+    if selected && !ui.data(|d| d.get_temp::<bool>(seen).unwrap_or(false)) {
+        response.scroll_to_me(Some(egui::Align::Center));
+        ui.data_mut(|d| d.insert_temp(seen, true));
+    }
+    response.clicked()
+}
+
 /// Preferences: section list on the left, the section's settings on the right.
-fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
+fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
     let mut section = f.get("section").and_then(Value::as_str).unwrap_or("general").to_string();
     let mut values = f.get("values").cloned().unwrap_or(Value::Null);
     // The dialog follows the language being edited, so a change shows before OK.
     let lang = crate::i18n::Lang::from_pref(values.pointer("/interface/language").and_then(Value::as_str).unwrap_or("auto"));
+    let available = (ui.ctx().content_rect().width() - 48.0).min(750.0);
+    let nav_width = (available * 0.23).clamp(130.0, 170.0);
+    let body_width = (available - nav_width - 24.0).max(280.0);
+    let body_height = (ui.ctx().content_rect().height() - 210.0).clamp(160.0, 390.0);
     ui.horizontal_top(|ui| {
         // Section list.
         ui.vertical(|ui| {
-            ui.set_width(170.0);
-            for (id, title) in SECTIONS {
-                if id == "integrations" {
-                    continue;
+            ui.set_width(nav_width);
+            egui::ScrollArea::vertical().max_height(body_height).id_salt("prefs-navigation").show(ui, |ui| {
+                for (id, title) in SECTIONS {
+                    if id == "integrations" {
+                        continue;
+                    }
+                    if prefs_nav_row(ui, tl!(title), section == id, !has_visible_fields(&values, id)) {
+                        section = id.to_string();
+                    }
                 }
-                let sel = section == id;
-                let empty = !has_visible_fields(&values, id);
-                let (rect, resp) = ui.allocate_exact_size(vec2(170.0, 22.0), Sense::click());
-                if sel {
-                    ui.painter().rect_filled(rect, t.radius_sm, t.row_selected);
-                } else if resp.hovered() {
-                    ui.painter().rect_filled(rect, t.radius_sm, t.hover);
+                ui.separator();
+                crate::widgets::section_label(ui, "AI");
+                for (id, title) in crate::ai_ui::settings_ui::PAGES {
+                    if prefs_nav_row(ui, tl!(title), section == id, false) {
+                        section = id.to_string();
+                    }
                 }
-                let color = if sel {
-                    t.text
-                } else if empty {
-                    t.text_faint
-                } else {
-                    t.text_dim
-                };
-                // Translated section names can be longer than the column: elide them (the full
-                // name is the tooltip) instead of drawing over the settings.
-                let mut job = egui::text::LayoutJob::simple_singleline(tl!(title).to_string(), crate::theme::medium(12.5), color);
-                job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 12.0);
-                let galley = ui.painter().layout_job(job);
-                let elided = galley.elided;
-                ui.painter().galley(rect.left_center() + vec2(8.0, -galley.size().y / 2.0), galley, color);
-                let resp = if elided { resp.on_hover_text(tl!(title)) } else { resp };
-                if resp.clicked() {
-                    section = id.to_string();
-                }
-            }
+            });
             ui.add_space(6.0);
             if crate::widgets::secondary_button(ui, "Keyboard Shortcuts…", 0.0).clicked() {
                 f.insert("openShortcuts".into(), json!(true));
             }
             crate::attributions::prefs_nav(ui, &mut section);
         });
-        crate::widgets::vline(ui, 420.0);
+        crate::widgets::vline(ui, body_height + 30.0);
         ui.vertical(|ui| {
-            ui.set_width(540.0);
+            ui.set_width(body_width);
+            if crate::ai_ui::settings_ui::page(app, ui, &section) {
+                return;
+            }
             if crate::attributions::prefs_page(ui, &section, f) {
                 return;
             }
             let title = SECTIONS.iter().find(|(id, _)| *id == section).map_or("General", |(_, t)| *t);
             ui.label(RichText::new(tl!(&title)).font(crate::theme::semibold(14.0)).color(t.text));
             ui.add_space(6.0);
-            egui::ScrollArea::vertical().max_height(390.0).id_salt("prefs-scroll").show(ui, |ui| {
+            egui::ScrollArea::vertical().max_height(body_height).id_salt("prefs-scroll").show(ui, |ui| {
                 let order: Vec<String> =
                     f.get("__order").and_then(|o| o.get(&section)).and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
                 if section == "tools" {
@@ -1594,15 +1624,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         if workspace.parent() == "Capture One" {
             ui.label(RichText::new("B / E / G / M apply with Develop Edit or Mask active. L also selects Linear Gradient.").color(t.text_dim));
         }
-        let mut working = app.session.prefs().clone();
-        working.shortcut_profiles = profiles.clone();
-        for (id, _, _, def) in &mut items {
-            *def = if id.starts_with("library::") {
-                crate::keymaps::library::default(profiles.library.parent(), id, true, def.as_deref()).map(str::to_string)
-            } else {
-                crate::keymaps::default(&working, id, def.as_deref()).map(str::to_string)
-            };
-        }
+        profile_defaults(app.session.prefs(), &profiles, &mut items);
     }
     let original_overrides = overrides.clone();
     // Menu path and command label as shown in the menus, in the UI language.
@@ -1944,7 +1966,12 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
     match f.get("__prefsui").and_then(Value::as_str).unwrap_or("") {
         "prefs" => {
             let values = f.get("values").cloned().unwrap_or(Value::Null);
-            app.run("prefs.set", json!({"path": "", "value": values}))
+            let result = app.run("prefs.set", json!({"path": "", "value": values}))?;
+            crate::ai_ui::settings_ui::apply()?;
+            if !app.ui.dialogs.iter().any(|dialog| is_preferences(&dialog.fields)) {
+                crate::ai_ui::settings_ui::reset();
+            }
+            Ok(result)
         }
         "shortcuts" => {
             let overrides = f.get("overrides").cloned().unwrap_or(json!({}));
@@ -1958,6 +1985,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
                 profiles.migrate(&ov);
                 let mut defaults = shortcut_items(app);
                 defaults.extend(f.get("__hostShortcuts").and_then(|v| serde_json::from_value::<Vec<HostShortcutItem>>(v.clone()).ok()).unwrap_or_default());
+                profile_defaults(app.session.prefs(), &profiles, &mut defaults);
                 let changed: Vec<_> = ov.iter().filter(|(_, key)| !key.is_empty()).map(|(id, key)| (id.clone(), key.clone())).collect();
                 for (id, key) in changed {
                     if crate::keymaps::global_conflict(&key).is_some() {
@@ -1971,7 +1999,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
                     {
                         return Err(reserved_message(action));
                     }
-                    if unchanged_library {
+                    if unchanged_library && profiles.library.parent() == app.session.prefs().shortcut_profiles.library.parent() {
                         continue;
                     }
                     for (other, _, _, default) in &defaults {
@@ -2163,6 +2191,14 @@ mod tests {
                 for k in obj.keys() {
                     let mut labels = vec![humanize(k)];
                     labels.extend(prefs::choices(&format!("{sec}.{k}")).into_iter().flatten().map(|c| choice_label(c)));
+                    if sec == "general" && k == "checkForUpdatesAtStartup" {
+                        // CODEX-TASK.md explicitly defers this new string to the pending list.
+                        // Keep every existing caption and all choice labels under the strict gate.
+                        let caption = humanize(k);
+                        let pending: &[&str] = include!("i18n/pending_vector.rs");
+                        assert!(pending.contains(&caption.as_str()), "new update preference must be registered for translation");
+                        labels.retain(|label| *label != caption);
+                    }
                     missing.extend(labels.into_iter().filter(|l| !crate::i18n::has(lang, l)));
                 }
             }
@@ -3004,5 +3040,18 @@ mod display_info_tests {
         assert_eq!(h.state()["gpuBackend"], "vulkan");
         assert!(!h.state().contains_key("outputDepth"));
         h.get_by_label_contains("Display output: 10-bit client surface");
+    }
+}
+
+/// Both the dialog and OK resolve defaults against the profile being edited.
+fn profile_defaults(prefs: &prefs::Preferences, profiles: &prefs::ShortcutProfiles, items: &mut [HostShortcutItem]) {
+    let mut working = prefs.clone();
+    working.shortcut_profiles = profiles.clone();
+    for (id, _, _, def) in items {
+        *def = if id.starts_with("library::") {
+            crate::keymaps::library::default(profiles.library.parent(), id, true, def.as_deref()).map(str::to_string)
+        } else {
+            crate::keymaps::default(&working, id, def.as_deref()).map(str::to_string)
+        };
     }
 }

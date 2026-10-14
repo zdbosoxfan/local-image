@@ -9,6 +9,7 @@ pub mod catalog;
 pub mod cloud;
 pub mod comfy;
 pub mod custom;
+pub mod discovery;
 pub mod download;
 pub mod enhance;
 pub mod family;
@@ -26,6 +27,7 @@ pub mod settings;
 pub mod setup;
 pub mod tls;
 pub mod trash;
+pub mod updates;
 pub mod workflows;
 
 pub use catalog::ModelId;

@@ -1344,6 +1344,11 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         return;
     }
     // Newly chosen gradients are drawn from the press origin before their handles take over.
+    if app.ui.pending_mask_shape.is_some() && !matches!(app.ui.tool.as_str(), "linear" | "radial") {
+        app.ui.pending_mask_shape = None;
+        app.ui.pending_mask_origin = None;
+        let _ = app.session.end_interaction();
+    }
     if let Some((mid, ci)) = app.ui.pending_mask_shape {
         if resp.drag_started() {
             app.ui.pending_mask_origin = ui.input(|i| i.pointer.press_origin()).map(|p| map.norm(p));
@@ -1367,7 +1372,7 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             };
             let _ = app.run("mask.update", json!({"id":mid,"component":ci,"shape":shape}));
         }
-        if resp.drag_stopped() {
+        if resp.drag_stopped() || resp.clicked() {
             app.ui.pending_mask_origin = None;
             app.ui.pending_mask_shape = None;
             let _ = app.run("develop.endInteraction", json!({}));

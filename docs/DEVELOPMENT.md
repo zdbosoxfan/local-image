@@ -1,11 +1,11 @@
 # Build, test and package Local Image 2
 
-Local Image 2 is one Rust workspace (edition 2024, stable toolchain). The 0.7 Python/WebView build
+Local Image 2 is one Rust workspace (edition 2024, Rust 1.98.1 toolchain). The 0.7 Python/WebView build
 lives on `main` until V2 replaces it.
 
 ## Prerequisites
 
-* Rust stable (`rustup default stable`) with `rustfmt` and `clippy`.
+* Rust 1.98.1 (`rustup toolchain install 1.98.1`) with `rustfmt` and `clippy`.
 * Linux: the windowing and dialog libraries egui, winit and rfd need:
   ```sh
   sudo apt-get install libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
@@ -22,10 +22,10 @@ lives on `main` until V2 replaces it.
   **pdftoppm** on `PATH`. These are independent test renderers, not runtime app requirements.
   On Ubuntu use the [official stable Inkscape PPA](https://wiki.inkscape.org/wiki/Installing_Inkscape)
   if the distribution package is too old, then install `inkscape poppler-utils`.
-  The Windows CI setup uses Chocolatey [Inkscape 1.4.4](https://community.chocolatey.org/packages/inkscape)
+  Experimental Windows test hosts can use Chocolatey [Inkscape 1.4.4](https://community.chocolatey.org/packages/inkscape)
   and [Poppler 26.7.0](https://community.chocolatey.org/packages/poppler/26.7.0).
   Set `LOCAL_IMAGE_INKSCAPE` to the executable when it is not on `PATH`; on Windows use
-  `C:\Program Files\Inkscape\bin\inkscape.com`. CI verifies both tools before starting Cargo tests.
+  `C:\Program Files\Inkscape\bin\inkscape.com`. Full nightly hosts must verify both tools before starting the workspace suite.
 
 ## Build and run
 
@@ -56,7 +56,8 @@ crates/li-seg          the CPU segmentation model behind Quick selection and bac
 ## Tests
 
 ```sh
-cargo test --workspace          # everything (what CI runs, with fmt and clippy -D warnings)
+cargo +1.98.1 xtask test-fast    # portable PR lane, warm cache target: < 5 minutes
+cargo +1.98.1 test --offline --workspace --no-fail-fast # nightly full lane
 cargo test -p li-ai             # AI: graphs, detection, profiles, browser, every operation vs the mock
 cargo test -p photocraft-engine -p photocraft-ui-egui --lib
 cargo fmt --all -- --check
@@ -67,8 +68,8 @@ During development, run focused regressions first (for example,
 `cargo test -p photocraft-engine --lib prefs::tests`), then affected suites at a stable integration
 boundary. Run the workspace suite and strict lint for the final candidate. Keep one Cargo build
 lane per target directory, retain its cache, and avoid routine `cargo clean` or overlapping full
-suites. CI limits compilation and test concurrency to two; larger local hosts can use a measured
-limit appropriate to their memory. Set `CARGO_INCREMENTAL=0` on machines short of disk space.
+suites. The launcher and fast CI use four build jobs; do not override the launcher’s concurrency.
+See [RELEASE.md](RELEASE.md) for the full nightly and mandatory hardware GPU lanes.
 
 ### The mock ComfyUI
 
@@ -111,7 +112,7 @@ Derived families set `base` and override only what differs. To add or change one
 Packaging is Rust too (`xtask/`, run through the `cargo xtask` alias):
 
 * **macOS:** `cargo xtask package macos` creates an ARM64 `.app` and `.pkg` installer with
-  HEIF and SAM Metal enabled, plus its checksum. See [MACOS.md](MACOS.md) for signing.
+  HEIF enabled and SAM off, plus its checksum. See [MACOS.md](MACOS.md) for signing.
 * **Linux:** `cargo xtask package linux` writes
   `dist/release/local-image-<version>-linux-<arch>.tar.gz` and its `.sha256` (app, CLI, README,
   licences and all referenced attribution texts). Run `cargo xtask attributions` after changing

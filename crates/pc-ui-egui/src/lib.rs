@@ -83,6 +83,7 @@ pub mod swatches_doc;
 pub mod symbols;
 #[path = "vector_packages/trace_dialog.rs"]
 pub mod trace_dialog;
+pub mod updates_ui;
 #[path = "vector_packages/width.rs"]
 pub mod width;
 // local-image: Local Image's AI tools, Generate panel and filmstrip.
@@ -482,6 +483,7 @@ pub struct Services {
 
 pub struct PhotocraftApp {
     pub session: Session,
+    pub updates: updates_ui::State,
     pub vector_runtime: vector_integration::State,
     pub shared_tools: crate::shared_tools::State,
     pub constructive_state: crate::constructive::State,
@@ -786,6 +788,7 @@ impl PhotocraftApp {
             started: None,
             perf: Default::default(),
             prefs_rt: Default::default(),
+            updates: Default::default(),
             discard: None,
             tiff_options: None,
             pending_save: None,
@@ -1424,6 +1427,7 @@ impl eframe::App for PhotocraftApp {
         self.collect_screenshots(ctx);
         self.issue_screenshots(ctx);
         prefs_ui::tick(self, ctx);
+        updates_ui::tick(self, ctx);
         monitor_status::poll(self, ctx);
         // Control requests and persisted preferences can change the language in this frame.
         i18n::sync_context(ctx, &self.session.prefs().interface.language);
@@ -1533,8 +1537,6 @@ impl eframe::App for PhotocraftApp {
             brush_panel::window(self, &ctx);
             preset_panels::windows(self, &ctx);
         }
-        // local-image: Local AI window and the AI prompt dialogs.
-        ai_ui::windows(self, &ctx);
         ai_remove_ui::show(self, &ctx);
         restoration_ui::show(self, &ctx);
         context_bar::show(self, &ctx);
@@ -1544,6 +1546,9 @@ impl eframe::App for PhotocraftApp {
         workspace_ui::windows(self, &ctx);
         palette::show(self, &ctx);
         dialogs::show(self, &ctx);
+        updates_ui::show(self, &ctx);
+        // AI resource browsers/confirmations are children of Preferences and Restore.
+        ai_ui::windows(self, &ctx);
         jobs_ui::dialog(self, &ctx);
         discard_ui::show(self, &ctx);
         tiff_options_ui::show(self, &ctx);
@@ -1795,6 +1800,7 @@ impl PhotocraftApp {
         }
         jobs_ui::tick_background(self, ctx);
         prefs_ui::persist_background(self, ctx);
+        updates_ui::tick(self, ctx);
         // local-image: the control channel keeps answering while another module is shown
         // (screenshots capture the whole window; `app.module` switches modules).
         self.collect_screenshots(ctx);

@@ -283,21 +283,12 @@ fn menus_ux_preferences_hide_empty_integrations_and_preserve_legacy_route() {
     invoke(h.state_mut(), &ctx, "edit.preferences.general", json!({})).unwrap();
     h.run_steps(4);
     assert!(h.query_by_label("AI Integrations").is_none());
-    assert!(h.query_by_label("General").is_some());
+    assert_eq!(h.get_by_role_and_label(egui::accesskit::Role::Button, "General").accesskit_node().toggled(), Some(egui::accesskit::Toggled::True));
     h.state_mut().ui.dialogs.clear();
     invoke(h.state_mut(), &ctx, "edit.preferences.integrations", json!({})).unwrap();
-    assert!(h.state().ui.dialogs.is_empty(), "alias opens existing Local AI rather than Preferences");
-    let mut setup = Harness::builder().with_size(egui::vec2(1440., 900.)).build_ui_state(
-        |ui, app| {
-            if fonts_ready(ui) {
-                crate::ai_ui::windows(app, ui.ctx());
-            }
-        },
-        self::app(false),
-    );
-    PhotocraftApp::setup_context(&setup.ctx, crate::theme::ThemeKind::Pro);
-    setup.run_steps(4);
-    assert!(setup.query_by_label("Local AI").is_some());
+    assert_eq!(h.state().ui.dialogs.last().unwrap().fields["section"], "ai.connection", "the legacy alias opens shared AI Preferences");
+    h.run_steps(4);
+    h.get_by_label("Find on LAN");
 }
 
 #[test]

@@ -171,6 +171,15 @@ impl Host {
 
     /// One persisted shortcut map and one editor across modules; Library only mirrors it.
     fn shared_shell(&mut self, ctx: &egui::Context) {
+        if self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_updates)) {
+            photocraft_ui_egui::updates_ui::start(&mut self.editor, ctx, true);
+        }
+        if self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_ai)) {
+            if let Some(lib) = self.library.as_mut() {
+                lib.ui.dialog = None;
+            }
+            photocraft_ui_egui::ai_ui::open_local_ai(&mut self.editor);
+        }
         photocraft_ui_egui::prefs_ui::set_host_shortcut_catalog(&mut self.editor, ctx, lightcraft_ui_egui::shortcuts::catalog::host_catalog());
         let request = self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_shortcuts));
         if request {
@@ -1299,6 +1308,8 @@ impl eframe::App for Host {
         }
         self.shared_shell(ui.ctx());
         photocraft_ui_egui::dialogs::show(&mut self.editor, ui.ctx());
+        photocraft_ui_egui::updates_ui::show(&mut self.editor, ui.ctx());
+        photocraft_ui_egui::ai_ui::windows(&mut self.editor, ui.ctx());
         photocraft_ui_egui::notices::show(&mut self.editor, ui.ctx());
         // The switched-to-CPU warning appears in every module, not only once Compositing is open.
         photocraft_ui_egui::gpu_status::show_fallback(&mut self.editor, ui.ctx());
@@ -4041,6 +4052,31 @@ mod tests {
         assert_eq!(h.host.editor.ui.dialogs.last().unwrap().fields["__prefsui"], "prefs");
         let id = h.host.editor.ui.dialogs.last().unwrap().id;
         photocraft_ui_egui::dialogs::cancel(&mut h.host.editor, id).unwrap();
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn shared_ai_preferences_open_from_library_and_develop_settings() {
+        let (dir, host) = workflow_host("shared-ai-preferences");
+        let mut h = RoundTripUi::new(host);
+        for mode in [Module::Library, Module::Develop] {
+            let ctx = h.view.ctx.clone();
+            h.host.switch(&ctx, mode);
+            for _ in 0..4 {
+                h.step(vec![]);
+            }
+            h.host.library.as_mut().unwrap().run("app.settings", json!({})).unwrap();
+            for _ in 0..3 {
+                h.step(vec![]);
+            }
+            h.click("button:settingsAI");
+            assert!(h.host.library.as_ref().unwrap().ui.dialog.is_none());
+            let dialog = h.host.editor.ui.dialogs.last().unwrap();
+            assert_eq!(dialog.fields["section"], "ai.connection");
+            let id = dialog.id;
+            photocraft_ui_egui::dialogs::cancel(&mut h.host.editor, id).unwrap();
+        }
         drop(h);
         std::fs::remove_dir_all(dir).unwrap();
     }

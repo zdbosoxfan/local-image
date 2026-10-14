@@ -14,7 +14,9 @@
 //! The engine commands are in `photocraft_engine::ai_cmds`; the ComfyUI client in `li-ai`.
 
 mod enhance_settings;
+mod lan_discovery;
 mod owned_engine;
+pub(crate) mod settings_ui;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -36,6 +38,8 @@ use crate::widgets;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiOptions {
+    /// Expanded model families in AI Preferences.
+    pub settings_families: std::collections::BTreeSet<String>,
     /// AI Remove engine: `klein`, `qwen-int8` or `qwen-bf16`.
     pub remove_engine: String,
     /// Apply a painted removal stroke on release. Off by default (owner decision): the user brushes,
@@ -70,6 +74,7 @@ pub struct AiOptions {
 impl Default for AiOptions {
     fn default() -> Self {
         Self {
+            settings_families: Default::default(),
             remove_engine: "klein".into(),
             remove_immediately: false,
             cutout_engine: "fast".into(),
@@ -179,6 +184,7 @@ thread_local! {
 
 /// Ask the poller to check again now.
 pub fn refresh() {
+    dialogs_mut(|d| d.subject_quality = None);
     shared().refresh.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
@@ -541,6 +547,7 @@ fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::P
 /// Settings › Local AI › On-device models: one row per function, including Smart Sort tagging.
 /// Mask/depth rows offer a custom ONNX flow; tagging uses its official bundle. "Remove old models"
 /// appears when models the app no longer uses are still on disk.
+#[cfg(test)]
 fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path) {
     for group in li_seg::Group::ALL {
         function_row(ui, t, dls, dir, group);
@@ -551,6 +558,10 @@ fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir
     if let Some(spec) = li_seg::spec("inspyrenet") {
         model_function_row(ui, t, dls, dir, li_seg::Group::Subject, spec, false);
     }
+    legacy_cleanup(ui, dir);
+}
+
+fn legacy_cleanup(ui: &mut egui::Ui, dir: &std::path::Path) {
     let old = li_seg::legacy_installed(dir);
     if !old.is_empty() {
         let size = li_ai::download::human_bytes(old.iter().map(|(_, b)| b).sum());
@@ -572,6 +583,7 @@ fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir
 }
 
 /// One function: its name and what it does, the model in use, and the custom-model controls.
+#[cfg(test)]
 fn function_row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path, group: li_seg::Group) {
     model_function_row(ui, t, dls, dir, group, group.official(), true);
 }
@@ -1247,7 +1259,7 @@ fn short_gpu(name: &str) -> String {
 
 #[derive(Default)]
 struct Dialogs {
-    local_ai: bool,
+    subject_quality: Option<String>,
     background: bool,
     fill: bool,
     fill_target: Option<crate::command_feedback::SelectionTarget>,
@@ -1255,6 +1267,10 @@ struct Dialogs {
     enhance_scale: f32,
     detected: Option<Vec<li_ai::setup::Installation>>,
     settings: Option<AiSettings>,
+    applied_settings: Option<AiSettings>,
+    model_search: String,
+    installed_only: Option<bool>,
+    lan: Option<li_ai::discovery::Scan>,
     message: String,
     remove: Option<RemoveAsk>,
     /// The custom-model options each on-device function shows.
@@ -1266,22 +1282,17 @@ fn dialogs_mut<R>(f: impl FnOnce(&mut Dialogs) -> R) -> R {
     D.with(|d| f(&mut d.borrow_mut()))
 }
 
-pub fn open_local_ai(_app: &mut PhotocraftApp) {
+pub fn open_local_ai(app: &mut PhotocraftApp) {
     refresh();
-    dialogs_mut(|d| {
-        d.local_ai = true;
-        d.settings = Some(AiSettings::load());
-    });
+    crate::prefs_ui::open_preferences(app, settings_ui::CONNECTION);
 }
 
 /// Floating windows: Local AI, Generate Background, Generative Fill, AI Enhance, batch.
 pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     li_seg::init_executor();
-    if matches!(app.ui.ai.cutout_engine.as_str(), "fast" | "quick" | "better") {
+    let changed = dialogs_mut(|d| subject_quality_changed(&mut d.subject_quality, &app.ui.ai.cutout_engine));
+    if changed && matches!(app.ui.ai.cutout_engine.as_str(), "fast" | "quick" | "better") {
         li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), app.ui.ai.cutout_engine == "better");
-    }
-    if dialogs_mut(|d| d.local_ai) {
-        local_ai_window(app, ctx);
     }
     if dialogs_mut(|d| d.background) {
         prompt_dialog(app, ctx, tl!("Generate Background"), tl!("Describe the empty scene behind your subject"), true);
@@ -1477,253 +1488,12 @@ fn enhance_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
-fn local_ai_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    let t = Tokens::get(ctx);
-    let st = status();
-    let mut open = true;
-    egui::Window::new(tl!("Local AI"))
-        .collapsible(false)
-        .resizable(true)
-        .default_size(vec2(640.0, 560.0))
-        .frame(window_frame(ctx))
-        .open(&mut open)
-        .anchor(egui::Align2::CENTER_CENTER, vec2(0.0, 0.0))
-        .show(ctx, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, true]).max_height(ctx.content_rect().height() - 160.0).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                // Status.
-                ui.horizontal(|ui| {
-                    let (dot, text) = if st.connected {
-                        (Color32::from_rgb(70, 190, 110), crate::i18n::fmt(tl!("Connected to ComfyUI at {host}"), &[("host", &st.host)]))
-                    } else if st.starting {
-                        (t.warning, tl!("Starting ComfyUI… (the first start can take a minute)").to_owned())
-                    } else {
-                        (t.text_faint, crate::i18n::fmt(tl!("ComfyUI is not running at {host}"), &[("host", &st.host)]))
-                    };
-                    let (r, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
-                    ui.painter().circle_filled(r.center(), 4.5, dot);
-                    ui.label(RichText::new(text).strong());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if crate::icons::button(ui, "rotate-cw", 24.0, false, tl!("Check again")).clicked() {
-                            refresh();
-                        }
-                    });
-                });
-                if let Some(g) = &st.gpu {
-                    ui.label(
-                        RichText::new(crate::i18n::fmt(
-                            tl!("{name} · {gb} GB GPU memory"),
-                            &[("name", &g.name), ("gb", &format!("{:.0}", g.vram_total as f64 / 1e9))],
-                        ))
-                        .color(t.text_dim),
-                    );
-                }
-                ui.add_space(10.0);
-                widgets::section_label(ui, tl!("AI ENGINE"));
-                let mut settings = dialogs_mut(|d| d.settings.clone()).unwrap_or_else(AiSettings::load);
-                let before = settings.clone();
-                let mut remote_mode = settings.is_remote();
-                if ui.checkbox(&mut remote_mode, tl!("Use a remote ComfyUI server")).changed() {
-                    settings.setup_mode = if remote_mode { "remote" } else { "discover" }.into();
-                    if !remote_mode { settings.comfy_host = "127.0.0.1".into(); }
-                }
-                ui.horizontal(|ui| {
-                    opt(ui, tl!("Address:"));
-                    ui.add(egui::TextEdit::singleline(&mut settings.comfy_host).desired_width(240.0).hint_text("192.168.1.20 / gpu.example.ts.net"));
-                    opt(ui, tl!("Port:"));
-                    let mut port = settings.comfy_port as f32;
-                    if widgets::value_field(ui, &mut port, 1.0..=65535.0, "", 70.0).changed() {
-                        settings.comfy_port = port as u16;
-                    }
-                });
-                let remote = settings.is_remote();
-                if remote {
-                    ui.label(RichText::new(tl!("Models and generation run on the server; images and results transfer automatically. Use its LAN or Tailscale address, or 127.0.0.1 with an SSH tunnel.")).color(t.text_dim));
-                    ui.label(RichText::new(tl!("Start ComfyUI and install generative models on the server. Local AI models below still run on this Mac.")).color(t.text_faint));
-                    if widgets::secondary_button(ui, tl!("Connect / Check Server"), 0.0).clicked() {
-                        let _ = settings.save();
-                        refresh();
-                    }
-                }
-                if !remote {
-                    ui.horizontal(|ui| {
-                        opt(ui, tl!("Installation:"));
-                        let label =
-                            if settings.comfy_directory.is_empty() { tl!("Not chosen — detected automatically").to_owned() } else { settings.comfy_directory.clone() };
-                        ui.label(RichText::new(label).color(t.text_dim));
-                    });
-                    ui.horizontal(|ui| {
-                        if widgets::secondary_button(ui, tl!("Detect"), 0.0).clicked() {
-                            let found = li_ai::setup::detect(&settings);
-                            dialogs_mut(|d| {
-                                d.message = if found.is_empty() {
-                                    tl!("No ComfyUI installation found in the usual places.").into()
-                                } else {
-                                    crate::i18n::fmt(tl!("Found {n} installation(s)."), &[("n", &found.len().to_string())])
-                                };
-                                d.detected = Some(found);
-                            });
-                        }
-                        #[cfg(not(target_arch = "wasm32"))]
-                        if widgets::secondary_button(ui, tl!("Choose Folder…"), 0.0).clicked()
-                            && let Some(dir) = crate::dialog_filter::file_dialog().set_title(tl!("Choose your ComfyUI folder")).pick_folder()
-                        {
-                            if li_ai::setup::installation(&dir, None).is_some() {
-                                settings.comfy_directory = dir.display().to_string();
-                                dialogs_mut(|d| d.message = tl!("ComfyUI installation found.").into());
-                            } else {
-                                dialogs_mut(|d| d.message = tl!("That folder has no ComfyUI (main.py and a Python environment).").into());
-                            }
-                        }
-                        let running_ours = CHILD.is_running().unwrap_or(true);
-                        if !st.connected && !st.starting && widgets::primary_button(ui, tl!("Start AI Engine"), 0.0).clicked() {
-                            let _ = settings.save();
-                            let m = match start_engine() {
-                                Ok(l) => crate::i18n::fmt(tl!("Starting {name}…"), &[("name", &l)]),
-                                Err(e) => e,
-                            };
-                            dialogs_mut(|d| d.message = m);
-                        }
-                        if running_ours && widgets::secondary_button(ui, tl!("Stop"), 0.0).clicked() {
-                            stop_engine();
-                        }
-                        if st.connected && widgets::secondary_button(ui, tl!("Free GPU Memory"), 0.0).clicked() {
-                            let m = match li_ai::service().client.free_memory() {
-                                Ok(()) => tl!("Models unloaded.").to_owned(),
-                                Err(e) => format!("{e:#}"),
-                            };
-                            dialogs_mut(|d| d.message = m);
-                        }
-                    });
-                    if let Some(found) = dialogs_mut(|d| d.detected.clone()) {
-                        for inst in found {
-                            ui.horizontal(|ui| {
-                                ui.label(RichText::new(inst.label()).color(t.text_dim));
-                                if widgets::secondary_button(ui, tl!("Use"), 0.0).clicked() {
-                                    settings.comfy_directory = inst.code.display().to_string();
-                                    settings.comfy_python = inst.python.display().to_string();
-                                }
-                            });
-                        }
-                    }
-                }
-                let msg = dialogs_mut(|d| d.message.clone());
-                if !msg.is_empty() {
-                    ui.label(RichText::new(msg).color(t.text_dim));
-                }
-                ui.add_space(10.0);
-                widgets::section_label(ui, tl!("MODELS"));
-                if !remote {
-                ui.horizontal(|ui| {
-                    opt(ui, tl!("Model folder:"));
-                    ui.label(RichText::new(settings.model_dir().display().to_string()).color(t.text_dim));
-                    #[cfg(not(target_arch = "wasm32"))]
-                    if widgets::secondary_button(ui, tl!("Change…"), 0.0).clicked()
-                        && let Some(dir) = crate::dialog_filter::file_dialog().set_title(tl!("Choose the model folder")).pick_folder()
-                    {
-                        settings.model_directory = dir.display().to_string();
-                    }
-                });
-                ui.label(
-                    RichText::new(tl!("Downloads are checked against the publisher's size and SHA-256, and ComfyUI's model list is refreshed after each install."))
-                        .color(t.text_faint)
-                        .size(11.0),
-                );
-                ui.add_space(4.0);
-                }
-                let dls = downloads();
-                // The curated models (the Model Browser has everything else).
-                for m in ModelId::all() {
-                    let info = m.info();
-                    if info.origin != catalog::Origin::Profile || !(info.starter || info.tool || ModelId::ORIGINAL.contains(&m)) {
-                        continue;
-                    }
-                    for p in catalog::presets_for(m) {
-                        model_row(ui, &t, info, p, &st, dls.get(&p.id()), &settings);
-                    }
-                }
-                if widgets::secondary_button(ui, tl!("Browse Models…"), 0.0).on_hover_text(tl!("Find, compare and install models and LoRAs for any family")).clicked() {
-                    crate::model_browser::open();
-                }
-                ui.add_space(8.0);
-                widgets::section_label(ui, tl!("CLOUD (OPTIONAL)"));
-                ui.label(
-                    RichText::new(tl!("With your own API key, Generate can also use cloud models (they appear under Cloud in the model picker). Your prompt and images then go from this computer to that provider and are billed to your account; nothing else is sent anywhere."))
-                        .color(t.text_faint)
-                        .size(11.0),
-                );
-                for p in li_ai::cloud::Provider::ALL {
-                    ui.horizontal(|ui| {
-                        opt(ui, &format!("{}:", p.label()));
-                        let mut v = settings.extra_string(p.key_name()).unwrap_or_default();
-                        if ui.add(egui::TextEdit::singleline(&mut v).password(true).hint_text(tl!("API key")).desired_width(220.0)).changed() {
-                            settings.set_extra_string(p.key_name(), &v);
-                        }
-                        if ui.link(RichText::new(tl!("Get a key")).size(11.0)).clicked() {
-                            ui.ctx().open_url(egui::OpenUrl::new_tab(p.keys_url()));
-                        }
-                    });
-                }
-                ui.add_space(8.0);
-                widgets::section_label(ui, tl!("ACCOUNTS (OPTIONAL)"));
-                ui.label(
-                    RichText::new(tl!("Tokens let the Model Browser download gated or sign-in-only models. They're sent only to their own site."))
-                        .color(t.text_faint)
-                        .size(11.0),
-                );
-                for (key, label, hint) in [("hf_token", tl!("Hugging Face token:"), "hf_…"), ("civitai_token", tl!("Civitai API key:"), "")] {
-                    ui.horizontal(|ui| {
-                        opt(ui, label);
-                        let mut v = settings.extra_string(key).unwrap_or_default();
-                        if ui.add(egui::TextEdit::singleline(&mut v).password(true).hint_text(hint).desired_width(260.0)).changed() {
-                            settings.set_extra_string(key, &v);
-                        }
-                    });
-                }
-                ui.add_space(8.0);
-                widgets::section_label(ui, tl!("ON-DEVICE MODELS (CPU)"));
-                ui.label(
-                    RichText::new(tl!(
-                        "Small models that run on this computer's processor: no ComfyUI or GPU needed, quick downloads, and your photos never leave the computer. Each function has one recommended model; you can use your own ONNX model instead."
-                    ))
-                    .color(t.text_faint)
-                    .size(11.0),
-                );
-                ui.add_space(4.0);
-                seg_rows(ui, &t, &dls, &photocraft_engine::seg::models_dir());
-                if settings != before {
-                    if let Err(e) = settings.save() {
-                        dialogs_mut(|d| d.message = crate::i18n::fmt(tl!("Could not save settings: {error}"), &[("error", &format!("{e:#}"))]));
-                    }
-                    refresh();
-                }
-                dialogs_mut(|d| d.settings = Some(settings));
-                ui.add_space(8.0);
-                widgets::section_label(ui, tl!("GPU MEMORY GUIDE"));
-                for (what, gb) in catalog::VRAM_GUIDE {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("{gb} GB")).font(crate::theme::mono(12.0)));
-                        ui.label(RichText::new(*what).color(t.text_dim));
-                    });
-                }
-            });
-        });
-    if !open {
-        dialogs_mut(|d| d.local_ai = false);
-    }
-    if dls_running() {
-        ctx.request_repaint_after(Duration::from_millis(250));
-    }
-    let _ = app;
-}
-
 fn dls_running() -> bool {
     downloads().values().any(|d| !d.finished)
 }
 
 fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catalog::Preset, st: &EngineStatus, dl: Option<&Download>, settings: &AiSettings) {
-    let frame = egui::Frame::NONE.fill(t.field).corner_radius(t.radius).inner_margin(egui::Margin::symmetric(10, 8));
-    frame.show(ui, |ui| {
+    ui.scope(|ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
@@ -1757,8 +1527,14 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
                         let frac = if d.total > 0 { d.done as f32 / d.total as f32 } else { 0.0 };
                         ui.add(egui::ProgressBar::new(frac).desired_width(140.0).text(format!("{:.0}%", frac * 100.0)));
                     }
-                    (_, Some(Ok(()))) => {
-                        ui.label(RichText::new(tl!("Ready")).color(Color32::from_rgb(70, 190, 110)));
+                    (_, Some(Ok(()))) if st.connected => {
+                        ui.label(RichText::new(tl!("Ready")).color(t.text_dim));
+                    }
+                    _ if settings.is_remote() && !st.connected => {
+                        ui.label(RichText::new(tl!("Server offline")).color(t.text_dim));
+                    }
+                    _ if settings.is_remote() && p.installed => {
+                        ui.label(RichText::new(tl!("Needs setup")).color(t.warning));
                     }
                     _ if settings.is_remote() => {
                         ui.label(RichText::new(tl!("Install on server")).color(t.text_dim));
@@ -2605,4 +2381,25 @@ fn reasons_ux_generative_fill_real_click_submits_captured_selection_to_existing_
         }
     }
     assert_eq!(result.generation.as_ref().unwrap()["bounds"], json!([8, 10, 20, 16]));
+}
+
+fn subject_quality_changed(previous: &mut Option<String>, engine: &str) -> bool {
+    if previous.as_deref() == Some(engine) {
+        return false;
+    }
+    *previous = Some(engine.to_owned());
+    true
+}
+
+#[test]
+fn dsfix_subject_quality_refresh_is_change_driven() {
+    let mut previous = None;
+    assert!(subject_quality_changed(&mut previous, "fast"));
+    for _ in 0..120 {
+        assert!(!subject_quality_changed(&mut previous, "fast"));
+    }
+    assert!(subject_quality_changed(&mut previous, "better"));
+    assert!(!subject_quality_changed(&mut previous, "better"));
+    previous = None; // Local AI settings refresh invalidates the cache.
+    assert!(subject_quality_changed(&mut previous, "better"));
 }

@@ -1,8 +1,8 @@
 # macOS on Apple Silicon
 
 Local Image 2 supports Apple Silicon (M1 or later) on macOS 13 or later. The native ARM64
-package needs no Rosetta, Python, Homebrew or Rust at runtime. HEIC/HEIF support and local
-SAM 3 masks are enabled in the macOS package; model weights are separate downloads.
+package needs no Rosetta, Python, Homebrew or Rust at runtime. HEIC/HEIF support is enabled in the macOS package; SAM 3 is off by default and model weights
+are separate downloads.
 
 ## Install
 
@@ -25,8 +25,9 @@ validate it using `xcrun stapler staple <package>` and `spctl -a -t install -vv 
   Capture sharpening uses reference CPU control planes to preserve zero-mask decisions, while
   its deconvolution iterations run on Metal. Unsupported operations keep their existing CPU paths.
   ARM64 SIMD and the shared Rayon thread pool accelerate CPU processing; the application respects the unified memory budget.
-* SAM 3 Object/Describe masks use Candle Metal with the `sam` feature in packaged builds.
-  Download/licence acceptance is required before using the actual checkpoint.
+* Optional builds with the `sam` feature can run SAM 3 Object/Describe masks through Candle
+  Metal. Default packages keep SAM 3 off. Download/licence acceptance is required before using
+  the actual checkpoint.
 * The small ONNX models use tract's native ARM64 CPU kernels. They do not use the Neural Engine.
 * CPU processing detects both performance and efficiency cores. Auto reserves one core of
   headroom (15 compute workers on a 16-core M4 Max); Preferences > Performance can override it.
@@ -43,8 +44,11 @@ validate it using `xcrun stapler staple <package>` and `spctl -a -t install -vv 
 
 1. On your GPU machine, install the models and run ComfyUI listening on an address reachable
    from your Mac, for example `python main.py --listen 0.0.0.0 --port 8188`.
-2. On the Mac open **Preferences > Local AI**, select **Use a remote ComfyUI server**, enter
-   the server's LAN IP or Tailscale hostname (without `http://`) and port, then click
+2. On the Mac open **Preferences > Local AI** and click **Find on LAN**, then select a detected
+   server. The background search checks port 8188 and the selected port, supports Cancel, and
+   reads only server status. On larger networks it searches the adjacent /24, with a 30-second
+   limit and at most two active private IPv4 networks. For another subnet or a Tailscale server,
+   select **Use a remote ComfyUI server**, enter its IP or hostname (without `http://`) and port, then click
    **Connect / Check Server**. The connected GPU and available models come from that server.
 3. Generate, fill, remove and enhance use the remote API. Source images/masks are uploaded and
    finished images are downloaded into the Mac's document/library. There is no shared folder
@@ -56,6 +60,9 @@ then use remote mode with `127.0.0.1` and port `8188`. The explicit remote check
 Local Image from starting a local server or placing generative weights on the wrong machine.
 Direct connections use HTTP/WebSocket; use a trusted LAN, Tailscale or SSH tunnel. The client
 currently does not provide HTTPS, proxy-path or authentication settings for a public endpoint.
+On macOS, allow Local Image's Local Network prompt. If a running server is not reachable, check
+**System Settings > Privacy & Security > Local Network** and allow Local Image there.
+The bundle declares its network purpose as required by [Apple's local-network guidance](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy).
 
 ## Build and validate
 
@@ -70,7 +77,7 @@ cargo xtask package macos
 ```
 
 `cargo xtask package macos --skip-build` packages existing native release binaries. The caller
-must ensure those binaries have `local-image/heif,local-image/sam,local-image-cli/heif` enabled.
+must ensure those binaries have `local-image/heif,local-image-cli/heif` enabled.
 It checks ARM64 architecture, rejects non-system dylibs, includes attribution texts, creates
 an icon and document associations, signs nested code, verifies the app signature, builds the
 Installer package and writes a SHA-256 file. It disables Installer bundle relocation so an
@@ -88,7 +95,7 @@ cargo test -p xtask
 ```
 
 The macOS workflow builds ARM64, runs portable integration/threading tests and strict lint, and
-uploads the `.pkg` and checksum. Standard hosted VMs are not hardware acceleration evidence.
+uploads the `.pkg` and checksum. The separate [release workflow](RELEASE.md) also produces a DMG and bundle ZIP and wires optional Developer ID signing/notarization secrets. Standard hosted VMs are not hardware acceleration evidence.
 For full workspace and mandatory Metal parity, manually dispatch it with `metal_runner` enabled
 on a trusted self-hosted Apple Silicon runner labelled `metal` (plus `macOS` and `ARM64`). The
 legacy RTX-named acceptance tests require hardware Metal on macOS and retain their original

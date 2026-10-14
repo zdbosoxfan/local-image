@@ -251,3 +251,29 @@ fn brush_import_procreate_sixteen_bit_shape_and_grain_are_exact() {
         assert_eq!(photocraft_paint::tile::b64_decode(&image.png).unwrap(), png);
     }
 }
+
+#[test]
+fn dsfix_procreate_direction_preserves_scatter_and_randomise() {
+    let original = photocraft_format::zip::ZipReader::new(BRUSH).unwrap();
+    let shape = original.read_by_name("Shape.png", MAX_ENTRY).unwrap();
+    for (archive, jitter) in [
+        (include_bytes!("../tests/fixtures/brushes/dsfix-direction-false.archive").as_slice(), 0.35),
+        (include_bytes!("../tests/fixtures/brushes/dsfix-direction-true.archive").as_slice(), 1.0),
+    ] {
+        let mut zip = photocraft_format::zip::ZipWriter::new();
+        zip.add("Brush.archive", archive).unwrap();
+        zip.add("Shape.png", &shape).unwrap();
+        let imported = load(&zip.finish().unwrap(), "brush");
+        let angle = &imported.presets[0].brush.shape_dynamics.angle;
+        assert_eq!(angle.control, photocraft_paint::Control::Direction);
+        assert_eq!(angle.jitter, jitter);
+    }
+}
+
+#[test]
+fn dsfix_krita_large_finite_radian_angle_stays_finite() {
+    let xml = r#"<Preset name="Rotation" paintopid="paintbrush"><param name="brush_definition"><![CDATA[<Brush type="auto_brush" angle="3e38"><MaskGenerator diameter="10" ratio="1" type="circle"/></Brush>]]></param></Preset>"#;
+    let imported = load(&kpp_xml(xml), "kpp");
+    let angle = imported.presets[0].brush.angle;
+    assert!(angle.is_finite() && (0.0..360.0).contains(&angle), "{angle}");
+}

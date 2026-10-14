@@ -62,7 +62,21 @@ pub fn explain_empty<T>(picked: Option<T>) -> Option<T> {
 
 /// Whether `program` is an executable file in one of the `path` directories.
 fn on_path(program: &str, path: &std::ffi::OsStr) -> bool {
-    std::env::split_paths(path).any(|dir| dir.join(program).is_file())
+    std::env::split_paths(path).any(|dir| {
+        let Ok(meta) = dir.join(program).metadata() else { return false };
+        if !meta.is_file() {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            meta.permissions().mode() & 0o111 != 0
+        }
+        #[cfg(not(unix))]
+        {
+            true
+        }
+    })
 }
 
 /// The portal backend folders under `xdg_data_dirs` (the XDG default when unset or empty).
@@ -132,12 +146,19 @@ mod tests {
     }
 
     #[test]
+    // TEST-CHANGED F001: a regular Unix file is unavailable until its executable bits are set.
     fn file_dialog_probe_finds_programs_and_portal_backends() {
         let dir = std::env::temp_dir().join(format!("local-image-probe-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("zenity"), b"").unwrap();
         let path = std::env::join_paths([Path::new("/nonexistent"), dir.as_path()]).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert!(!on_path("zenity", &path));
+            std::fs::set_permissions(dir.join("zenity"), std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
         assert!(on_path("zenity", &path));
         assert!(!on_path("kdialog", &path));
         // Portal backends: none installed, one without a file chooser, then KDE's.

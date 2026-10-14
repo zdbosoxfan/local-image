@@ -37,6 +37,9 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
                 *tab = id.to_string();
             }
         }
+        if app.hosted_menus && crate::widgets::text_button(ui, "settingsAI", "AI…", false).clicked() {
+            app.open_shared_ai = true;
+        }
     });
     ui.separator();
     ui.add_space(2.0);

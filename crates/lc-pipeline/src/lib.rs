@@ -747,7 +747,9 @@ pub fn finish_scene_stage(mut img: Arc<Rgb32f>, plan: &Plan<'_>, info: &SourceIn
         );
         let stacked = layers::stack(&prep, &background, original, info, req, primary::DEFAULT_HS_METHOD, key, &mut layers::Cache::default());
         prep.img = stacked.image;
+        let background_masks = std::mem::take(&mut prep.masks);
         prep.masks = stacked.masks;
+        prep.masks.extend(background_masks);
         return finish_stack(&prep, plan, info, req, stacked.diagnostic.as_ref());
     }
     let prep = local::prepare(img, &plan.settings, info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());

@@ -1061,7 +1061,7 @@ mod tests {
     fn format8_rejects_what_it_cannot_decode() {
         let (w, h) = (64usize, 30usize);
         let px = image(w, h, 520, 16000);
-        let case = |tag: u16, v: Value| crate::decode(&format8_file(w, h, &px, &[32, 32], &TABLE14, &|t| replace(t, tag, v.clone())));
+        let case = |tag: u16, v: Value| decode(&format8_file(w, h, &px, &[32, 32], &TABLE14, &|t| replace(t, tag, v.clone())), Mode::Full);
         // an auxiliary tag with a value no sample has
         assert!(matches!(case(0x003b, Value::Short(vec![4095])), Err(RawError::Unsupported(_))));
         // strips that don't tile the width, or extend past the file
@@ -1086,11 +1086,14 @@ mod tests {
     fn unsupported_and_truncated_files() {
         let payload = [0u8; 64];
         for (format, bits) in [(1u16, 12u16), (3, 12), (4, 14), (7, 12), (9, 12)] {
-            assert!(matches!(crate::decode(&rw2(28, 4, bits, format, 128, &payload)), Err(RawError::Unsupported(_))), "{format}/{bits}");
+            let bytes = rw2(28, 4, bits, format, 128, &payload);
+            assert!(matches!(decode(&bytes, Mode::Full), Err(RawError::Unsupported(_))), "{format}/{bits}");
+            assert!(crate::decode(&bytes).is_err());
         }
         let tags = [short(BITS, 12), short(COMPRESSION, 34826)];
         let bytes = file(28, 4, &tags, &payload, &|off| vec![(t::STRIP_OFFSETS, Value::Long(vec![off]))]);
-        assert!(matches!(crate::decode(&bytes), Err(RawError::Unsupported(_))));
+        assert!(matches!(decode(&bytes, Mode::Full), Err(RawError::Unsupported(_))));
+        assert!(crate::decode(&bytes).is_err());
         for format in [4u16, 5, 6] {
             let bytes = rw2(280, 20, 12, format, 128, &payload);
             assert!(matches!(crate::decode(&bytes), Err(RawError::Corrupt(_))), "{format}");

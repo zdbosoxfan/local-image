@@ -1,5 +1,23 @@
 // Translations paused by docs/wip/CODEX-TASK.md; vector package 00–47 English keys.
 &[
+    // Release hygiene: translations deferred by the owner.
+    "Check for Updates…",
+    "Check for updates at startup",
+    "Checking GitHub releases…",
+    "A newer release is available:",
+    "Open Release Page",
+    "No newer release is available for this build.",
+    "Could not check for updates.",
+    "Opens a release page. Nothing is downloaded or installed.",
+    "Update check stopped unexpectedly.",
+    "Update checks require the desktop app",
+    "Could not reach GitHub releases",
+    "Invalid GitHub releases response",
+    "This build has no comparable release version",
+    "GitHub returned {status}",
+    "{label} colour swatch",
+    "Use a file name with {name} and/or {counter}, without folders, unknown tokens, reserved names or invalid filename characters.",
+    "Select a shape with a stroke first.",
     "Rotate View Tool",
     "Rotate View",
     "View angle",

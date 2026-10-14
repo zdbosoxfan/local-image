@@ -1104,6 +1104,8 @@ pub struct ProbeInfo {
     pub format: String,
     pub kind: MediaKind,
     pub file_size: u64,
+    /// File timestamp sampled around probing; unknown timestamps are never reused on native hosts.
+    pub modified: Option<std::time::SystemTime>,
     pub captured: Option<String>,
     pub meta: lightcraft_catalog::Meta,
     pub as_shot_wb: Option<(f64, f64)>,

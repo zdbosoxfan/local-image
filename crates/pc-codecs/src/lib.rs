@@ -13,11 +13,14 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod avif;
+pub mod avif_input;
 mod codecs;
 mod error;
 mod fidelity;
 mod format;
 mod image;
+pub mod jpeg_par;
 mod options;
 pub mod orientation;
 pub mod web;
@@ -169,3 +172,13 @@ pub fn encode(image: &Image, format: Format, opts: &EncodeOptions) -> Result<Vec
         Format::Gif | Format::Bmp | Format::Tga | Format::Ico | Format::Qoi | Format::Hdr | Format::Avif => via_image::encode(format, image, plan, opts),
     }
 }
+
+/// Baseline JPEG with an explicit sampling mode (including Library's 4:2:2).
+pub fn encode_jpeg_with_sampling(image: &Image, opts: &EncodeOptions, sampling: ChromaSubsampling) -> Result<Vec<u8>, CodecError> {
+    if image.width() == 0 || image.height() == 0 {
+        return Err(CodecError::InvalidImage("cannot encode an empty image".into()));
+    }
+    jpeg::encode_with_sampling(image, fidelity::plan(image, Format::Jpeg, opts), opts, sampling)
+}
+
+pub use options::ChromaSubsampling;

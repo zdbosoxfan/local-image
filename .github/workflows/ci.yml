@@ -1,85 +1,53 @@
-name: CI
-
+name: Fast CI
 on:
   push:
     branches: [main, v2]
   pull_request:
   workflow_dispatch:
-
+permissions:
+  contents: read
 env:
   CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
-  CARGO_BUILD_JOBS: 2
+  CARGO_BUILD_JOBS: 4
   RUST_TEST_THREADS: 2
   CRAFT_FONTS_REQUIRED: 1
   CRAFT_FONTS_DIR: ${{ github.workspace }}/.cache/craft-fonts
-
 concurrency:
-  group: ci-${{ github.ref }}
-  # New v2 commits supersede older validation; the newest commit still runs every gate.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.ref == 'refs/heads/v2' }}
-
+  group: fast-ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  test:
-    name: test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  fast:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-22.04, macos-15]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Check out the verified release font input
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: storytold/craft-fonts
           ref: 3d9ab3a132ed0eff457e424226a435a901da30d3
           path: .cache/craft-fonts
           persist-credentials: false
-
-      - name: Install Linux system dependencies and rendering oracles
-        if: runner.os == 'Linux'
-        run: |
-          # The distro package may predate the SVG oracle's required --app-id-tag.
-          # https://wiki.inkscape.org/wiki/Installing_Inkscape
-          sudo add-apt-repository -y ppa:inkscape.dev/stable
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev \
-            libgl1-mesa-dev libgtk-3-dev mesa-vulkan-drivers inkscape poppler-utils
-          inkscape --app-id-tag=liCIVersion --version
-          pdftoppm -v
-
-      - name: Install Windows rendering oracles
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install inkscape --version=1.4.4 --yes --no-progress
-          if ($LASTEXITCODE -notin @(0, 3010)) { throw "Inkscape install failed: $LASTEXITCODE" }
-          choco install poppler --version=26.7.0 --yes --no-progress
-          if ($LASTEXITCODE -notin @(0, 3010)) { throw "Poppler install failed: $LASTEXITCODE" }
-          $inkscape = Join-Path $env:ProgramFiles 'Inkscape/bin/inkscape.com'
-          if (-not (Test-Path -LiteralPath $inkscape -PathType Leaf)) { throw 'Inkscape console executable was not installed' }
-          "LOCAL_IMAGE_INKSCAPE=$inkscape" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          $poppler = Get-ChildItem (Join-Path $env:ChocolateyInstall 'lib/poppler/tools') -Filter pdftoppm.exe -File -Recurse | Select-Object -First 1
-          if (-not $poppler) { throw 'Poppler pdftoppm executable was not installed' }
-          $poppler.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & $inkscape --app-id-tag=liCIVersion --version
-          if ($LASTEXITCODE -ne 0) { throw 'Inkscape command-line verification failed' }
-          & $poppler.FullName -v
-          if ($LASTEXITCODE -ne 0) { throw 'Poppler command-line verification failed' }
-
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify Apple Silicon
+        if: runner.os == 'macOS'
+        run: test "$(uname -m)" = arm64
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
-          components: clippy, rustfmt
-
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-
-      - name: Format
+      - name: Linux prerequisites
         if: runner.os == 'Linux'
-        run: cargo fmt --all -- --check
-
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+      - name: Fetch locked dependencies (all following Cargo work is offline)
+        run: cargo +1.98.1 fetch --locked
+      - name: Format
+        run: cargo +1.98.1 fmt --all -- --check
+      - name: Fast portable lane
+        run: cargo +1.98.1 xtask test-fast
       - name: Portable development queue tests
         if: runner.os == 'Linux'
         run: |
@@ -89,17 +57,9 @@ jobs:
             LI_BUILD_STATE_DIR="$queue_test_root/lanes" \
             LI_REPO="$GITHUB_WORKSPACE" \
             python3 -m unittest discover -s scripts/dev-queue/tests -v
-
-      - name: Haze shader numerical conformance (Vulkan, software allowed)
-        if: runner.os == 'Linux'
-        run: >-
-          cargo test --locked -p lightcraft-gpu --lib
-          render::remaining_tests::haze_selection_numerical_vulkan_matches_sorted_quantile
-          -- --ignored --exact --nocapture --test-threads=1
-
-      - name: Test
-        run: cargo test --workspace --locked
-
-      - name: Clippy
-        if: runner.os == 'Linux'
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Release signing secret gates
+        run: python3 -B -m unittest discover -s scripts/tests -p test_release_packaging.py -v
+      - name: Asset and dependency gates
+        run: |
+          cargo +1.98.1 xtask assets
+          cargo +1.98.1 xtask deps-pure

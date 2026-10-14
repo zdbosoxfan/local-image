@@ -1788,6 +1788,7 @@ fn pattern_path_stroke(
         for x0 in (bounds.x0..bounds.x1).step_by(128) {
             let rect = Rect::new(x0, y0, (x0 + 128).min(bounds.x1), (y0 + 128).min(bounds.y1));
             let mut pixels = surf.read_region(rect);
+            let mut touched = false;
             for (i, px) in pixels.chunks_exact_mut(channels).enumerate() {
                 let x = x0 + (i % rect.width() as usize) as i32;
                 let y = y0 + (i / rect.width() as usize) as i32;
@@ -1799,6 +1800,7 @@ fn pattern_path_stroke(
                 if cov <= 0.0 {
                     continue;
                 }
+                touched = true;
                 let (u, v) = place.map(f64::from(x) + 0.5, f64::from(y) + 0.5);
                 let mut src = tile.sample(u, v);
                 src[3] *= cov;
@@ -1809,8 +1811,11 @@ fn pattern_path_stroke(
                 }
                 photocraft_raster::from_rgba_into(&fmt, out, px);
             }
-            surf.write_region(rect, &pixels);
+            if touched {
+                surf.write_region(rect, &pixels);
+            }
         }
     }
+    surf.prune();
     bounds
 }

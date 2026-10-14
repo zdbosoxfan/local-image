@@ -168,8 +168,9 @@ pub(crate) fn settings(app: &mut PhotocraftApp, ui: &mut egui::Ui, inline: bool)
     let outputs: Vec<_> = OUTPUTS.iter().map(|(k, l)| ((*k).to_owned(), *l)).collect();
     let mut fields = |ui: &mut egui::Ui| {
         row(ui, inline, tl!("Model"), |ui, width| {
+            let previous = app.ui.ai.cutout_engine.clone();
             widgets::dropdown_with_tooltips(ui, "cutout-model", &mut app.ui.ai.cutout_engine, &models, width);
-            if cpu(&app.ui.ai.cutout_engine) {
+            if previous != app.ui.ai.cutout_engine && cpu(&app.ui.ai.cutout_engine) {
                 li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), app.ui.ai.cutout_engine == "better");
             }
         });

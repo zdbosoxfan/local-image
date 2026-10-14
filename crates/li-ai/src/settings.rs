@@ -94,8 +94,16 @@ impl AiSettings {
         if self.model_directory.trim().is_empty() { default_model_dir() } else { PathBuf::from(&self.model_directory) }
     }
 
+    /// Model folder for frame-time callers. Explicit settings loads and successful saves refresh it.
+    pub fn cached_model_dir() -> PathBuf {
+        cached_model_dir_for(&config_path(), default_model_dir())
+    }
+
     pub fn load() -> Self {
-        Self::load_from(&config_path())
+        let path = config_path();
+        let settings = Self::load_from(&path);
+        refresh_model_dir_cache(&path, &settings);
+        settings
     }
 
     pub fn load_from(path: &Path) -> Self {
@@ -144,7 +152,9 @@ impl AiSettings {
         m.insert("hardware_guide_dismissed".into(), self.hardware_guide_dismissed.into());
         m.insert("lora_show_adult_content".into(), self.lora_show_adult_content.into());
         m.insert("auto_start_comfy".into(), self.auto_start.into());
-        write_atomic(path, serde_json::to_string_pretty(&Value::Object(m))?.as_bytes())
+        write_atomic(path, serde_json::to_string_pretty(&Value::Object(m))?.as_bytes())?;
+        refresh_model_dir_cache(path, self);
+        Ok(())
     }
 }
 
@@ -195,4 +205,50 @@ mod tests {
         assert_eq!(AiSettings::load_from(&p).comfy_port, 8190);
         std::fs::remove_dir_all(dir).ok();
     }
+}
+
+struct ModelDirCache {
+    config: PathBuf,
+    fallback: PathBuf,
+    directory: PathBuf,
+}
+static MODEL_DIR: std::sync::Mutex<Option<ModelDirCache>> = std::sync::Mutex::new(None);
+
+fn cached_model_dir_for(path: &Path, fallback: PathBuf) -> PathBuf {
+    let mut cached = MODEL_DIR.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(c) = cached.as_ref().filter(|c| c.config == path && c.fallback == fallback) {
+        return c.directory.clone();
+    }
+    let settings = AiSettings::load_from(path);
+    let directory = if settings.model_directory.trim().is_empty() { fallback.clone() } else { PathBuf::from(&settings.model_directory) };
+    *cached = Some(ModelDirCache { config: path.into(), fallback, directory: directory.clone() });
+    directory
+}
+
+fn refresh_model_dir_cache(path: &Path, settings: &AiSettings) {
+    let mut cached = MODEL_DIR.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(c) = cached.as_mut().filter(|c| c.config == path) {
+        c.directory = if settings.model_directory.trim().is_empty() { c.fallback.clone() } else { PathBuf::from(&settings.model_directory) };
+    }
+}
+
+#[test]
+fn dsfix_model_dir_cache_avoids_frame_reads_and_refreshes_after_save() {
+    let dir = std::env::temp_dir().join(format!("li-dsfix-cache-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let config = dir.join("config.json");
+    std::fs::write(&config, br#"{"model_directory":"first"}"#).unwrap();
+    let fallback = dir.join("default");
+    assert_eq!(cached_model_dir_for(&config, fallback.clone()), PathBuf::from("first"));
+    // Removing the file makes an accidental per-frame load observable as a fallback.
+    std::fs::remove_file(&config).unwrap();
+    for _ in 0..120 {
+        assert_eq!(cached_model_dir_for(&config, fallback.clone()), PathBuf::from("first"));
+    }
+    let settings = AiSettings { model_directory: "second".into(), ..Default::default() };
+    settings.save_to(&config).unwrap();
+    assert_eq!(cached_model_dir_for(&config, fallback.clone()), PathBuf::from("second"));
+    AiSettings::default().save_to(&config).unwrap();
+    assert_eq!(cached_model_dir_for(&config, fallback.clone()), fallback);
+    std::fs::remove_dir_all(dir).unwrap();
 }

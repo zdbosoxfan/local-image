@@ -234,7 +234,10 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
 /// full-resolution pages, and a [`DecodeWarning::Truncated`] when image data is cut off.
 pub(crate) fn decode_page(bytes: &[u8], page: Option<usize>, limits: &Limits) -> Result<Image, CodecError> {
     if camera_raw(bytes) {
-        return Err(CodecError::unsupported(F, "camera raw files (such as CR2, NEF, ARW or DNG) are not flat images; decode them with photocraft-raw"));
+        return Err(CodecError::unsupported(
+            F,
+            "camera raw files (such as CR2, NEF, ARW or DNG) are not flat images; decode them with the shared Library/Develop raw pipeline",
+        ));
     }
     let file = File::parse(bytes).ok_or_else(|| err("not a TIFF or BigTIFF header"))?;
     let info = ifd::info_of(&file)?;
@@ -1049,6 +1052,16 @@ struct TagSet<'a> {
 
 /// Writes one image directory. (The `tiff` encoder only compresses through `write_data`, which
 /// takes every sample at once.)
+/// Canonical DPI fraction: integer resolutions use n/1; fractional values retain 0.001 dpi.
+fn dpi_rational(dpi: f32) -> Rational {
+    let n = (dpi * 1000.0).round() as u32;
+    let (mut a, mut b) = (n, 1000);
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    Rational { n: n / a, d: 1000 / a }
+}
+
 fn write_one<C, K>(enc: &mut TiffEncoder<&mut Cursor<Vec<u8>>, K>, w: u32, h: u32, data: &[C::Inner], tags: &TagSet<'_>) -> tiff::TiffResult<()>
 where
     C: TiffColorType,
@@ -1058,8 +1071,8 @@ where
     let mut im = enc.new_image::<C>(w, h)?;
     if let Some((x, y)) = tags.dpi {
         im.resolution_unit(ResolutionUnit::Inch);
-        im.x_resolution(Rational { n: (x * 1000.0).round() as u32, d: 1000 });
-        im.y_resolution(Rational { n: (y * 1000.0).round() as u32, d: 1000 });
+        im.x_resolution(dpi_rational(x));
+        im.y_resolution(dpi_rational(y));
     }
     let d = im.encoder();
     if tags.alpha {
@@ -1152,7 +1165,7 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
         Vec::new()
     };
     // TIFF writes no Orientation tag (= 1): keep the XMP from contradicting it.
-    let xmp = if opts.embed_metadata { img.meta.xmp.as_deref().map(crate::orientation::upright_xmp) } else { None };
+    let xmp = if opts.embed_metadata { img.meta.xmp.as_deref().map(|x| crate::orientation::encoded_xmp(x, opts.keep_orientation)) } else { None };
     let tags = TagSet {
         icc: if opts.embed_icc { img.icc.as_deref() } else { None },
         xmp: xmp.as_deref().map(str::as_bytes),

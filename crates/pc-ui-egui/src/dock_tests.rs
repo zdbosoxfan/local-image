@@ -979,6 +979,7 @@ fn vectorws_panel_drag_dock_restart_restore_and_hidden_placement() {
 }
 
 #[test]
+// TEST-CHANGED F223: restore and reselect through Window > Workspace > Vector.
 fn vectorws_workspace_and_personas_restore_custom_layouts_after_restart() {
     use photocraft_engine::toolsets::Persona;
     let (mut app, _, _) = app_with_layers();
@@ -995,10 +996,12 @@ fn vectorws_workspace_and_personas_restore_custom_layouts_after_restart() {
     assert_eq!(active_tab(&app, Place::Docked(Group::Custom(201))), Some(Tab::Brushes));
     app.ui.dock.heights.insert(Group::Custom(201), 281.);
     let vector = snapshot(&app);
+    crate::menus::invoke(&mut app, &ctx, "window.workspace.vector", json!({})).unwrap();
+    assert_eq!(snapshot(&app), vector, "selecting the current Vector workspace preserves customization");
     crate::toolsets_ui::persona::select(&mut app, &ctx, Persona::Pixel);
     assert_eq!(snapshot(&app), pixel);
-    crate::toolsets_ui::persona::select(&mut app, &ctx, Persona::Vector);
-    assert_eq!(snapshot(&app), vector);
+    crate::menus::invoke(&mut app, &ctx, "window.workspace.vector", json!({})).unwrap();
+    assert_eq!(snapshot(&app), vector, "Window > Workspace restores the saved Vector layout");
     persist(&mut app, &ctx);
     let mut s = photocraft_engine::Session::new();
     s.load_prefs_json(&app.session.prefs_to_json()).unwrap();
@@ -1017,4 +1020,41 @@ fn vectorws_workspace_and_personas_restore_custom_layouts_after_restart() {
     let mut prefs = app.session.prefs_value();
     prefs.as_object_mut().unwrap().remove("personaLayouts");
     app.session.load_prefs_json(&prefs.to_string()).unwrap();
+}
+
+#[test]
+fn dsfix_close_custom_group_preserves_placement_and_reopens() {
+    use egui_kittest::kittest::Queryable as _;
+    let (mut app, _, _) = app_with_layers();
+    let g = app.ui.dock.new_group(&[Tab::Swatches], Tab::Swatches, Some(Group::Layers), true);
+    app.ui.dock.heights.insert(g, 183.);
+    let mut h = harness(app, vec2(1200., 800.), ThemeKind::ProMedium);
+    let strip = last_strips(&h.ctx).into_iter().find(|s| s.group == g).unwrap();
+    drag(&mut h, strip.menu.center(), strip.menu.center());
+    h.get_by_label("Close Tab Group").click();
+    h.run();
+    assert!(h.state().ui.dock.hidden_tabs.contains(&Tab::Swatches));
+    assert_eq!(h.state().ui.dock.locate(Tab::Swatches, true), Place::Docked(g));
+    let ctx = h.ctx.clone();
+    crate::menus::invoke(h.state_mut(), &ctx, "window.panel.swatches", json!({})).unwrap();
+    h.run();
+    assert!(!h.state().ui.dock.hidden_tabs.contains(&Tab::Swatches));
+    assert_eq!(h.state().ui.dock.locate(Tab::Swatches, true), Place::Docked(g));
+    assert_eq!(h.state().ui.dock.heights.get(&g), Some(&183.));
+}
+
+#[test]
+fn dsfix_floating_hidden_tab_fallback_and_visible_drop_order() {
+    let (mut app, _, _) = app_with_layers();
+    let id = app.ui.dock.float(&[Tab::Channels, Tab::Histogram, Tab::Info], Some(Tab::Histogram), pos2(250., 200.), vec2(400., 300.), true);
+    app.ui.dock.hidden_tabs.push(Tab::Histogram);
+    let mut h = float_harness(app, vec2(1200., 800.), ThemeKind::ProMedium);
+    assert_eq!(h.state().ui.dock.floating(id).unwrap().active, Some(Tab::Channels));
+    let strip = last_strips(&h.ctx).into_iter().find(|s| s.group == Group::Layers).unwrap();
+    let path_index = h.state().ui.dock.group_tabs(Group::Layers, true).iter().position(|tab| *tab == Tab::Paths).unwrap();
+    let from = strip.tabs.iter().find(|(i, _)| *i == path_index).unwrap().1.center();
+    let floating = float::last_floats(&h.ctx).into_iter().find(|f| f.id == id).unwrap();
+    let before_info = floating.tabs[1].1.left() + 1.;
+    drag(&mut h, from, pos2(before_info, floating.strip.center().y));
+    assert_eq!(h.state().ui.dock.floating(id).unwrap().tabs, vec![Tab::Channels, Tab::Histogram, Tab::Paths, Tab::Info]);
 }

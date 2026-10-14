@@ -1,4 +1,4 @@
-# What's new in LightCraft
+# What's new in Local Image
 
 ## Local Image V2
 
@@ -31,7 +31,13 @@
 - Custom-model errors are translated.
 
 ### Smart Sort
-- Groundwork only: the tagging engine, face clustering, and burst/duplicate stacking are in place for Smart Sort; not shown in the interface yet.
+- **File → Smart Sort & Export…** exposes the guided Library workflow: tag photographs, group faces, stack bursts/duplicates, review and export. Models must be installed/configured for the selected AI steps.
+
+### Release and getting started
+- Help → Check for Updates… checks GitHub releases and offers a release-page link. No automatic downloads; startup checks are an opt-in General preference, off by default.
+- Linux x86_64 AppImage/tarball and Apple Silicon macOS 13+ app/DMG/installer artifact workflows; Developer ID signing and notarization activate when repository secrets are configured. Windows remains experimental.
+- [Coming from Lightroom Classic](COMING-FROM-LIGHTROOM-CLASSIC.md) and [Coming from Photoshop / Affinity](COMING-FROM-PHOTOSHOP-AFFINITY.md) guides.
+- SAM 3 remains off in the default release packages; AI models are separate downloads.
 
 ### Settings
 - New Settings → Attributions page for every sampled project.

@@ -1,5 +1,5 @@
 //! Formats delegated to the `image` crate (pure-Rust features only):
-//! GIF, BMP, TGA, ICO, QOI, Radiance HDR, and AVIF encode (feature `avif`).
+//! GIF, BMP, TGA, ICO, QOI and Radiance HDR. AVIF uses the shared native encoder.
 
 use std::io::Cursor;
 
@@ -133,6 +133,9 @@ fn to_dynamic(img: &Image) -> Result<DynamicImage, CodecError> {
 }
 
 pub(crate) fn encode(f: Format, src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Vec<u8>, CodecError> {
+    if f == Format::Avif {
+        return crate::avif::encode_image(src, opts.jpeg_quality, 8, opts);
+    }
     let fmt = image_format(f).ok_or_else(|| CodecError::unsupported(f, "not handled by image backend"))?;
     if let Some((mw, mh)) = f.max_dimensions()
         && (src.width() > mw || src.height() > mh)
@@ -142,16 +145,6 @@ pub(crate) fn encode(f: Format, src: &Image, plan: Plan, opts: &EncodeOptions) -
     let img = src.converted(plan.layout, plan.sample);
     let dynimg = to_dynamic(&img)?;
     let mut cursor = Cursor::new(Vec::new());
-    match f {
-        #[cfg(feature = "avif")]
-        Format::Avif => {
-            let enc = image::codecs::avif::AvifEncoder::new_with_speed_quality(&mut cursor, 8, opts.jpeg_quality.clamp(1, 100));
-            dynimg.write_with_encoder(enc).map_err(|e| CodecError::encode(f, e))?;
-        }
-        _ => {
-            let _ = opts;
-            dynimg.write_to(&mut cursor, fmt).map_err(|e| CodecError::encode(f, e))?;
-        }
-    }
+    dynimg.write_to(&mut cursor, fmt).map_err(|e| CodecError::encode(f, e))?;
     Ok(cursor.into_inner())
 }

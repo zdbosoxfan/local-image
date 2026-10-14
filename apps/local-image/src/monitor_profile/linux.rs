@@ -182,19 +182,19 @@ fn read_colord(displays: &mut [Display]) -> Result<(), zbus::Error> {
     let manager = Proxy::new(&conn, "org.freedesktop.ColorManager", "/org/freedesktop/ColorManager", "org.freedesktop.ColorManager")?;
     let devices: Vec<OwnedObjectPath> = manager.call("GetDevicesByKind", &("display",))?;
     for device in devices.into_iter().take(64) {
-        let p = Proxy::new(&conn, "org.freedesktop.ColorManager", device, "org.freedesktop.ColorManager.Device")?;
-        let metadata: HashMap<String, String> = p.get_property("Metadata")?;
+        let Ok(p) = Proxy::new(&conn, "org.freedesktop.ColorManager", device, "org.freedesktop.ColorManager.Device") else { continue };
+        let Ok(metadata) = p.get_property::<HashMap<String, String>>("Metadata") else { continue };
         if !displays.iter().any(|d| d.icc.is_none() && metadata.get("OutputName").or_else(|| metadata.get("XRANDR_name")) == Some(&d.name)) {
             continue;
         }
-        if !p.get_property::<bool>("Enabled")? {
+        if !p.get_property::<bool>("Enabled").unwrap_or(false) {
             continue;
         }
         // The Profiles property is not ordered by the selected default. The documented
         // wildcard qualifier returns that default and honours profiling inhibitors.
         let Ok(path) = p.call::<_, _, OwnedObjectPath>("GetProfileForQualifiers", &(vec!["*"],)) else { continue };
-        let p = Proxy::new(&conn, "org.freedesktop.ColorManager", path, "org.freedesktop.ColorManager.Profile")?;
-        let filename: String = p.get_property("Filename")?;
+        let Ok(p) = Proxy::new(&conn, "org.freedesktop.ColorManager", path, "org.freedesktop.ColorManager.Profile") else { continue };
+        let Ok(filename) = p.get_property::<String>("Filename") else { continue };
         for d in displays.iter_mut().filter(|d| d.icc.is_none()) {
             // Never assign one monitor's profile to an unrelated monitor by fuzzy model name.
             if metadata.get("OutputName").or_else(|| metadata.get("XRANDR_name")) == Some(&d.name) {

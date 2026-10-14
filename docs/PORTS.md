@@ -625,3 +625,12 @@ controls; its GPL source adaptations are recorded below.
 | `crates/lc-pipeline/src/match_look.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/exposure.c` | `0ef3dc0a9c81fb09e1e6c47ad598f9b0788cfa6f` | GPL-3.0-or-later | 2026-10-13 | Percentile/log-ratio exposure warm start; Oklab lightness is cubed to recover linear exposure scaling. |
 | `crates/lc-pipeline/src/match_look.rs` | [RawTherapee](https://github.com/Beep6581/RawTherapee) | `rtengine/histmatching.cc` | `0fdac3797aebbba4a751184e60278e5460bc56b7` | GPL-3.0-or-later | 2026-10-13 | Populated equal-CDF quantile knots -> sparse monotone map, slope guard, projection onto editable tone sliders (adapted; no raw pixel transfer). |
 | `crates/lc-pipeline/src/match_look.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/colormapping.c` | `efd77b42de8304cbc0368835802aeff605c49933` | GPL-3.0-or-later | 2026-10-13 | Deterministic soft a/b clustering and Shepard weighting, robust luminance-zone colour targets and neutral illuminant fallback (adapted). |
+
+## Unmodified RAW engine dependency
+
+This row records delegation and licence provenance, **not copied or patched decoder source**.
+All glue is in one adapter; rawler remains an ordinary crates.io dependency.
+
+| Our file | Upstream project | Upstream path | Upstream commit | Licence | Date | Used for |
+|---|---|---|---|---|---|---|
+| `crates/lc-raw/src/rawler_adapter.rs` | [rawler](https://github.com/dnglab/dnglab) | `rawler/Cargo.toml` | `ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7` | LGPL-2.1-only | 2026-10-13 | Unmodified crates.io 0.8.0 dependency for Canon CR3 RAW/C-RAW/dual-pixel, compressed Fujifilm RAF and Olympus/OM ORF; fallback for any native Unsupported variant, and runtime camera calibration missing from our first-choice table. |

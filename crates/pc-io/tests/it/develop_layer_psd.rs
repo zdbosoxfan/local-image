@@ -4,11 +4,11 @@
 
 use std::sync::Arc;
 
+use lightcraft_raw::testgen::{DngSpec, mosaic, scene};
 use photocraft_codecs::{ChannelLayout, EncodeOptions, Format, Image};
 use photocraft_doc::{DevelopLink, Document, LayerContent, SmartFilter, SmartObject, SmartSource};
 use photocraft_io::smart_map::{DEVELOP_LAYER_MARKER, filter_from_item, item_for_filter, parse_sold};
 use photocraft_io::{ExportOptions, export, import};
-use photocraft_raw::testgen::{DngSpec, mosaic, scene};
 use serde_json::Value;
 
 fn dng() -> Vec<u8> {

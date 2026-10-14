@@ -159,7 +159,8 @@ fn drop_tabs(app: &mut PhotocraftApp, tabs: &[Tab], lead: Tab, target: Target) {
     let shift = |list: &[Tab], at: usize| at - list.iter().take(at).filter(|t| tabs.contains(t)).count();
     match target {
         Target::Group(g, at) => {
-            let at = shift(&app.ui.dock.group_tabs(g, pro), at);
+            let list = app.ui.dock.group_tabs(g, pro);
+            let at = shift(&list, full_tab_index(&list, &app.ui.dock.hidden_tabs, at));
             app.ui.dock.insert(tabs, g, at, pro);
             g.set_shown(&mut app.ui.panels, true);
         }
@@ -168,7 +169,7 @@ fn drop_tabs(app: &mut PhotocraftApp, tabs: &[Tab], lead: Tab, target: Target) {
             g.set_shown(&mut app.ui.panels, true);
         }
         Target::Floating(id, at) => {
-            let at = app.ui.dock.floating(id).map_or(0, |f| shift(&f.tabs, at));
+            let at = app.ui.dock.floating(id).map_or(0, |f| shift(&f.tabs, full_tab_index(&f.tabs, &app.ui.dock.hidden_tabs, at)));
             app.ui.dock.merge_into_floating(tabs, id, at, pro);
             app.ui.dock.live.raise = Some(id);
         }
@@ -371,6 +372,9 @@ pub fn show_floating(app: &mut PhotocraftApp, ctx: &egui::Context, mut body: imp
         let Some(f) = app.ui.dock.floating(id).cloned() else { continue };
         let tabs: Vec<_> = f.tabs.iter().copied().filter(|tab| !app.ui.dock.hidden_tabs.contains(tab)).collect();
         let Some(active) = f.active.filter(|tab| tabs.contains(tab)).or_else(|| tabs.first().copied()) else { continue };
+        if let Some(f) = app.ui.dock.floating_mut(id) {
+            f.active = Some(active);
+        }
         let size = vec2(f.size[0], f.size[1]).max(MIN_SIZE).min(screen.size().max(MIN_SIZE));
         let rect = keep_on_screen(Rect::from_min_size(pos2(f.pos[0], f.pos[1]), size), screen);
 
@@ -524,4 +528,8 @@ fn panel(
         })
         .inner
         .into()
+}
+
+fn full_tab_index(tabs: &[Tab], hidden: &[Tab], visible_index: usize) -> usize {
+    tabs.iter().enumerate().filter(|(_, tab)| !hidden.contains(tab)).nth(visible_index).map_or(tabs.len(), |(index, _)| index)
 }

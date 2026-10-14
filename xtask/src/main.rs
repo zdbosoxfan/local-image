@@ -49,6 +49,7 @@ mod assets;
 mod attributions;
 mod icons;
 mod macos;
+mod test_lane;
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("xtask sits in the workspace").to_path_buf()
@@ -171,8 +172,19 @@ fn package_linux(skip_build: bool) -> Result<()> {
     println!("Local Image {v} for Linux {arch}");
     if !skip_build {
         let mut c = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
-        c.args(["build", "--release", "--locked", "-p", "local-image", "-p", "local-image-cli", "--features", "local-image/heif,local-image-cli/heif"])
-            .current_dir(root());
+        c.args([
+            "build",
+            "--offline",
+            "--release",
+            "--locked",
+            "-p",
+            "local-image",
+            "-p",
+            "local-image-cli",
+            "--features",
+            "local-image/heif,local-image-cli/heif",
+        ])
+        .current_dir(root());
         build_env(&mut c);
         run("cargo build", &mut c)?;
     }
@@ -228,8 +240,21 @@ fn package_windows(arch: &str, skip_build: bool) -> Result<()> {
     println!("Local Image {v} for Windows {arch} ({target})");
     if !skip_build {
         let mut c = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
-        c.args(["build", "--release", "--locked", "-p", "local-image", "-p", "local-image-cli", "--features", "local-image/heif", "--target", target])
-            .current_dir(root());
+        c.args([
+            "build",
+            "--offline",
+            "--release",
+            "--locked",
+            "-p",
+            "local-image",
+            "-p",
+            "local-image-cli",
+            "--features",
+            "local-image/heif",
+            "--target",
+            target,
+        ])
+        .current_dir(root());
         // Static CRT: no VC++ redistributable needed; scoped to the target so build scripts and
         // proc-macros are unaffected.
         c.env(format!("CARGO_TARGET_{}_RUSTFLAGS", target.to_uppercase().replace('-', "_")), "-C target-feature=+crt-static");
@@ -474,6 +499,7 @@ fn find_file(dir: &Path, name: &str, under: &str) -> Option<PathBuf> {
 // ------------------------------------------------------------------------------ main
 
 const USAGE: &str = "usage: cargo xtask <task>
+  test-fast
   package macos [--skip-build]
   package linux [--skip-build]
   package windows [--arch x64|x86|arm64] [--skip-build]
@@ -500,6 +526,7 @@ fn main() -> Result<()> {
         Some("check-icons") => check_icons(&args.get(1).map(PathBuf::from).unwrap_or_else(|| root().join("packaging").join("windows").join("local-image.wxs"))),
         Some("deps-pure") => deps_pure(),
         Some("upstream-check") => upstream_check(flag("--offline")),
+        Some("test-fast") => test_lane::fast(),
         Some("assets") => assets::run(&root()),
         Some("icons") => icons::run(&root()),
         Some("tool-icons") => run("render tool icon contact sheet", &mut tool_icon_command(&root())),

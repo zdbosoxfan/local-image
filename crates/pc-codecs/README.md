@@ -63,7 +63,7 @@ the same.
 ## Documented asymmetries and limitations
 
 * **Camera raw files** (DNG, CR2, NEF, ARW… which are TIFF-structured) are recognised and refused
-  with `CodecError::Unsupported`: they are sensor data, not flat images. `photocraft-raw` decodes
+  with `CodecError::Unsupported`: they are sensor data, not flat images. The shared Library/Develop raw pipeline decodes
   and develops them, and `photocraft-io` routes them there.
 
 * **HEIF/HEIC (read-only, feature `heif`).** Decoding lives in the optional `photocraft-heif` crate

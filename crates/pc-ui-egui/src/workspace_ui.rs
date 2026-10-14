@@ -219,9 +219,14 @@ fn select_workspace(app: &mut PhotocraftApp, p: &Value) -> Result<Value, String>
     let name = p.get("name").and_then(Value::as_str).ok_or("pass `name`")?.to_string();
     if name == "Vector" {
         sync_persona(app);
+        let already_vector = app.ui.shell.layout_persona == Some(photocraft_engine::toolsets::Persona::Vector);
+        let saved_vector = app.session.prefs().persona_layouts.contains_key("vector");
         app.session.edit_prefs(|prefs| prefs.toolbar.persona = photocraft_engine::toolsets::Persona::Vector);
         sync_persona(app);
-        apply_vector(app);
+        if already_vector && !saved_vector && app.ui.workspace != "Vector" {
+            apply_vector(app);
+        }
+        app.ui.workspace = "Vector".into();
         return Ok(json!({"workspace":name}));
     }
     if PRESETS.contains(&name.as_str()) {

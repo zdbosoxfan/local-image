@@ -123,6 +123,7 @@ fn design_system_editor_screens() {
 #[test]
 #[ignore = "offscreen hardware visual QA, run explicitly"]
 fn display_output_preferences_shots() {
+    let _gpu_gate = crate::gpu_test_support::lock();
     let info = crate::gpu_canvas::GpuInfo {
         output_depth: 8,
         output_note: "X11 / XWayland uses 8-bit output; pen tablet compatibility mode forces this backend".into(),

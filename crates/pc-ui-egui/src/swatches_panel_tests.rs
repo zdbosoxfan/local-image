@@ -611,3 +611,21 @@ fn ux_swatches_empty_ungrouped_appears_last_while_dragging() {
     h.run_steps(3);
     assert_eq!(user_book(&h).swatches.iter().find(|w| w.name == "Starter 1").unwrap().group, None);
 }
+
+#[test]
+fn dsfix_multiple_palette_drops_keep_earlier_error() {
+    let mut h = Harness::builder().with_size(egui::vec2(520., 760.)).build_ui_state(|ui, app| panel(app, ui), app());
+    h.run();
+    let at = h.get_by_label("Starter 1").rect().center();
+    h.hover_at(at);
+    h.run();
+    let bad: egui::DroppedFileHandle = std::sync::Arc::new(MemoryDrop { path: "Broken.gpl".into(), bytes: b"bad palette".to_vec() });
+    let good: egui::DroppedFileHandle =
+        std::sync::Arc::new(MemoryDrop { path: "Valid.gpl".into(), bytes: b"GIMP Palette\nName: Valid\n1 2 3 Good Ink\n".to_vec() });
+    h.input_mut().dropped_files.extend([bad, good]);
+    h.run_steps(1);
+    assert!(h.state().ui.status_error, "successful second palette must not erase the earlier failure");
+    let state: State = h.ctx.data(|d| d.get_temp(state_id()).unwrap());
+    assert!(state.error.is_some());
+    assert!(h.state().session.prefs().user_swatches.palette.swatches.iter().any(|s| s.name == "Good Ink"));
+}

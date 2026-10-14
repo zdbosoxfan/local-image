@@ -246,6 +246,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "app.github",
             "app.artcraft",
             "---",
+            "app.checkUpdates",
             "app.whatsNew",
             "app.shortcuts",
             "app.systemInfo",
@@ -804,6 +805,7 @@ fn nodes_ui(ui: &mut egui::Ui, nodes: &[MenuNode], mac: bool, clicked: &mut Opti
                     let c = egui::Rect::from_center_size(egui::pos2(r.rect.left() + 11.0, r.rect.center().y), egui::vec2(13.0, 13.0));
                     crate::icons::paint(ui.painter(), c, crate::icons::Icon::Check, if *enabled { t.text } else { t.text_disabled });
                 }
+                crate::widgets::register(ui.ctx(), format!("menuItem:{id}"), r.rect);
                 if r.clicked() {
                     *clicked = Some((id.clone(), params.clone()));
                     ui.close();

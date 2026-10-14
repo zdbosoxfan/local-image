@@ -129,6 +129,10 @@ fn sample_count(w: u32, h: u32, channels: usize) -> Result<usize, CodecError> {
 }
 
 fn read_binary(data: &[u8], n: usize, maxval: u32) -> Result<Samples, CodecError> {
+    let len = n.checked_mul(if maxval < 256 { 1 } else { 2 }).ok_or_else(|| err("truncated raster"))?;
+    if data.len() < len {
+        return Err(err("truncated raster"));
+    }
     let mut out = Samples::with_capacity(maxval, n)?;
     if maxval < 256 {
         let Some(raw) = data.get(..n) else {
@@ -353,5 +357,13 @@ mod ascii_budget_tests {
         assert!(decode(data.as_bytes(), &too_small).is_err());
         let exact = Limits { max_alloc: 64, ..Limits::default() };
         assert_eq!(decode(data.as_bytes(), &exact).unwrap().data().len(), 64);
+    }
+}
+
+#[test]
+fn dsfix_binary_truncation_precedes_allocation() {
+    for maxval in [255, 65535] {
+        let err = read_binary(&[], usize::MAX / 2, maxval).err().unwrap();
+        assert!(err.to_string().contains("truncated raster"), "{err}");
     }
 }

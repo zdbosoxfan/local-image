@@ -1168,3 +1168,58 @@ fn cancelling_a_parallel_import_keeps_only_what_was_finished() {
     assert!((1..19).contains(&imported), "{report}");
     assert!(photos.iter().filter(|p| p["deleted"] == false).count() >= imported);
 }
+
+#[test]
+fn dsfix_mixed_import_restore_undo_counts_all_photos() {
+    let (mut s, src, id) = trashed_photo("dsfix-mixed");
+    write_png(&src.join("new.png"), 2);
+    let r = s.execute("library.import", &json!({"paths":[src.to_string_lossy()]})).unwrap();
+    assert_eq!(ids(&r, "imported"), 1);
+    assert_eq!(r["restored"], json!([id]));
+    assert_eq!(s.undo.last().unwrap().label, "Add 2 Photos");
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.catalog.len(), 1);
+    assert!(s.catalog.photo(lightcraft_catalog::PhotoId(id)).unwrap().deleted);
+    std::fs::remove_dir_all(src).unwrap();
+}
+
+#[test]
+fn dsfix_cached_scan_reprobes_same_size_file_after_edit() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let src = temp_dir("dsfix-same-size");
+    let file = src.join("a.png");
+    std::fs::write(&file, b"old").unwrap();
+    let count = Arc::new(AtomicUsize::new(0));
+    let calls = count.clone();
+    let mut s = Session::new();
+    s.media.file_probe = Some(Arc::new(move |path| {
+        calls.fetch_add(1, Ordering::Relaxed);
+        let data = std::fs::read(path).unwrap();
+        Ok(crate::media::ProbeInfo {
+            width: 1,
+            height: 1,
+            format: "PNG".into(),
+            file_size: data.len() as u64,
+            content_hash: Some(lightcraft_preview::hash_bytes(&data).to_string()),
+            ..Default::default()
+        })
+    }));
+    let paths = vec![file.to_string_lossy().into_owned()];
+    let info = crate::import::probe_paths(&s, &paths).pop().unwrap().unwrap();
+    let original_hash = info.content_hash.clone();
+    assert!(info.modified.is_some());
+    s.import_probes.insert(paths[0].clone(), info);
+    std::fs::write(&file, b"new").unwrap();
+    let metadata = std::fs::metadata(&file).unwrap();
+    // Deterministic even on filesystems whose clock granularity exceeds the test duration.
+    let new_time = metadata.modified().unwrap() + std::time::Duration::from_secs(2);
+    std::fs::File::options().write(true).open(&file).unwrap().set_times(std::fs::FileTimes::new().set_modified(new_time)).unwrap();
+    let r = s.execute("library.import", &json!({"paths":paths})).unwrap();
+    assert_eq!(ids(&r, "imported"), 1);
+    assert_eq!(count.load(Ordering::Relaxed), 2);
+    assert_ne!(s.catalog.photos().next().unwrap().content_hash, original_hash);
+    std::fs::remove_dir_all(src).unwrap();
+}

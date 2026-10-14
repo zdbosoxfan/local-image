@@ -731,3 +731,15 @@ fn stroke_path_pattern_stamp_and_available_tool_commands() {
     assert!(surf.rgba(60, 5)[3] < 0.01);
     assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
 }
+
+#[test]
+fn dsfix_pattern_stroke_with_empty_selection_allocates_no_tiles() {
+    let mut s = session(512, 512, 8);
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("path.set", json!({"path":{"subpaths":[{"closed":false,"knots":[[10,10],[500,500]]}]}})).unwrap();
+    let st = s.active_mut().unwrap();
+    std::sync::Arc::make_mut(&mut st.doc).selection = Some(photocraft_raster::Surface::new(photocraft_color::PixelFormat::GRAY8));
+    s.execute("path.stroke", json!({"tool":"patternStamp","pattern":"Diagonal Lines","size":20})).unwrap();
+    let id = s.active().unwrap().active_layer.unwrap();
+    assert_eq!(doc(&s).layer(id).unwrap().surface().unwrap().tile_count(), 0);
+}

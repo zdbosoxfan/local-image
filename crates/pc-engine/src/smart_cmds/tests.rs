@@ -734,7 +734,7 @@ fn convert_to_layers_conforms_the_contents_to_the_document_mode_and_depth() {
 /// it gives, at the document's depth; at another depth it still flattens.
 #[test]
 fn developed_source_shortcut_matches_the_flatten() {
-    use photocraft_raw::testgen::{DngSpec, mosaic, scene};
+    use lightcraft_raw::testgen::{DngSpec, mosaic, scene};
     let (w, h) = (40, 24);
     let mut spec = DngSpec::cfa(w, h, mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535));
     spec.as_shot_neutral = Some([0.6, 1.0, 0.8]);
