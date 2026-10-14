@@ -63,16 +63,17 @@ impl MergeDialog {
     }
     pub fn title(&self) -> &'static str {
         match self.command.as_str() {
+            "merge.pixelShift" => "Sony Pixel Shift Merge Preview",
             "merge.panorama" => "Panorama Merge Preview",
             "merge.hdrPanorama" => "HDR Panorama Merge Preview",
             _ => "HDR Merge Preview",
         }
     }
     pub fn is_hdr(&self) -> bool {
-        self.command != "merge.panorama"
+        matches!(self.command.as_str(), "merge.hdr" | "merge.hdrPanorama")
     }
     pub fn is_pano(&self) -> bool {
-        self.command != "merge.hdr"
+        matches!(self.command.as_str(), "merge.panorama" | "merge.hdrPanorama")
     }
     pub fn params(&self) -> Value {
         serde_json::to_value(self).unwrap_or_default()
@@ -146,11 +147,16 @@ fn spawn(app: &LightcraftApp, options: &MergeDialog, ids: &[PhotoId], preview: b
 /// Open the merge dialog for the selection.
 pub fn open(app: &mut LightcraftApp, command: &str) -> Result<Value, String> {
     let ids = app.session.targets(&json!({}));
-    if ids.len() < 2 {
+    if command == "merge.pixelShift" {
+        if !matches!(ids.len(), 1 | 4 | 16) {
+            return Err("select one composed ARQ or all 4 or 16 original Pixel Shift shots".into());
+        }
+    } else if ids.len() < 2 {
         return Err("select at least 2 photos to merge".into());
     }
     app.merge.ids = ids;
     app.merge.error = None;
+    app.merge.failed_options = None;
     app.merge.preview = None;
     app.merge.preview_pixels = None;
     if let Some(t) = app.merge.preview_task.take() {
@@ -247,7 +253,9 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
         match t.rx.try_recv() {
             Ok(r) => {
                 let Some(t) = app.merge.final_task.take() else { return };
-                let what = if t.options.command == "merge.panorama" {
+                let what = if t.options.command == "merge.pixelShift" {
+                    "Pixel Shift"
+                } else if t.options.command == "merge.panorama" {
                     "Panorama"
                 } else if t.options.command == "merge.hdrPanorama" {
                     "HDR panorama"
@@ -309,7 +317,14 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut MergeDialog) 
             }
             let info = app.merge.preview.as_ref().map(|p| p.3.clone());
             if let Some(info) = info {
-                let txt = if opts.is_pano() {
+                let txt = if opts.command == "merge.pixelShift" {
+                    format!(
+                        "{} · {} {}",
+                        crate::i18n::tr_format!("{} photos", info["shots"].as_u64().unwrap_or(0)),
+                        info["motionPixels"].as_u64().unwrap_or(0),
+                        crate::i18n::tr("pixels use motion fallback")
+                    )
+                } else if opts.is_pano() {
                     format!(
                         "{} photos · {} · {:.0}° × {:.0}°",
                         info["used"].as_array().map_or(0, Vec::len),
@@ -328,7 +343,24 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut MergeDialog) 
         ui.add_space(12.0);
         // options
         ui.vertical(|ui| {
-            ui.set_width(220.0);
+            ui.set_width(if opts.command == "merge.pixelShift" { t.panel_w } else { 220.0 });
+            if opts.command == "merge.pixelShift" {
+                ui.label(egui::RichText::new(crate::i18n::tr("Measured full colour; 16 shots double width and height.")).color(t.text_label));
+                if app.merge.ids.len() == 1 {
+                    ui.label(
+                        egui::RichText::new(crate::i18n::tr(
+                            "Composed ARQ keeps its existing pixels. Motion correction requires the original shots.",
+                        ))
+                        .color(t.text_dim),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new(crate::i18n::tr("Moving areas use the first shot. Capture order comes from Sony metadata."))
+                            .color(t.text_dim),
+                    );
+                    crate::widgets::checkbox(ui, "merge.motionOverlay", &mut opts.show_overlay, "Show Motion Overlay");
+                }
+            }
             if opts.is_pano() {
                 ui.label(egui::RichText::new(crate::i18n::tr("Projection")).color(t.text_label));
                 for (v, l) in [("auto", "Auto Select"), ("spherical", "Spherical"), ("cylindrical", "Cylindrical"), ("perspective", "Perspective")] {
@@ -366,8 +398,8 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut MergeDialog) 
                 }
                 ui.add_space(4.0);
             }
-            ui.checkbox(&mut opts.auto_settings, crate::i18n::tr("Auto Settings"));
-            ui.checkbox(&mut opts.stack, crate::i18n::tr("Create Stack"));
+            crate::widgets::checkbox(ui, "merge.autoSettings", &mut opts.auto_settings, "Auto Settings");
+            crate::widgets::checkbox(ui, "merge.stack", &mut opts.stack, "Create Stack");
             ui.add_space(8.0);
             ui.label(egui::RichText::new(crate::i18n::tr_format!("{} photos", app.merge.ids.len())).color(t.text_dim));
         });
@@ -404,5 +436,70 @@ fn num(ui: &mut egui::Ui, spec: &lightcraft_develop::ControlSpec, v: &mut f64, o
             true
         }
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests_pixelshift {
+    use super::*;
+    use crate::headless::HeadlessView;
+
+    #[test]
+    fn pixelshift_dialog_clicks_motion_overlay_and_stack_in_both_themes() {
+        for dark in [true, false] {
+            for panel_width in [250.0, 400.0] {
+                let mut app = LightcraftApp::new(lightcraft_engine::Session::new(), crate::Services::default());
+                app.ui.settings.gpu = false;
+                app.ui.right_width = panel_width;
+                app.merge.ids = (1..=4).map(PhotoId).collect();
+                let mut tokens = if dark { crate::theme::Tokens::default() } else { crate::tests_develop_c::light() };
+                tokens.panel_w = panel_width;
+                app.set_host_theme(tokens);
+                let mut opts = MergeDialog::for_command("merge.pixelShift");
+                assert!(!opts.is_hdr() && !opts.is_pano());
+                let mut view = HeadlessView::new();
+                app.restyle(&view.ctx);
+                let mut frame = 0;
+                let mut draw = |events: Vec<egui::Event>, app: &mut LightcraftApp, opts: &mut MergeDialog, view: &mut HeadlessView| {
+                    frame += 1;
+                    let raw = HeadlessView::raw_input(egui::vec2(1100.0, 500.0), 1.0, frame as f64 / 60.0, events);
+                    view.run(raw, |ui| {
+                        egui::CentralPanel::default().show(ui, |ui| body(app, ui, opts));
+                        app.widgets = crate::widgets::take_registry(ui.ctx());
+                    });
+                };
+                draw(vec![], &mut app, &mut opts, &mut view);
+                for id in ["check:merge.motionOverlay", "check:merge.stack"] {
+                    let pos = app.widgets.iter().find(|(name, _)| name == id).unwrap().1.center();
+                    draw(
+                        vec![
+                            egui::Event::PointerMoved(pos),
+                            egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                        ],
+                        &mut app,
+                        &mut opts,
+                        &mut view,
+                    );
+                    draw(
+                        vec![egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: false,
+                            modifiers: egui::Modifiers::NONE,
+                        }],
+                        &mut app,
+                        &mut opts,
+                        &mut view,
+                    );
+                }
+                assert!(opts.show_overlay && opts.stack);
+                let image = view.paint(&std::collections::HashMap::new());
+                let rgba = lightcraft_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
+                let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&rgba), &Default::default()).unwrap();
+                let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system");
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(dir.join(format!("pixelshift-{}-{panel_width}.png", if dark { "dark" } else { "light" })), bytes).unwrap();
+            }
+        }
     }
 }

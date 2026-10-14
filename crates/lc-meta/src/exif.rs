@@ -16,8 +16,17 @@ pub fn read_exif(bytes: &[u8]) -> Metadata {
 
 /// Like [`read_exif`] but reports a structurally invalid TIFF header / IFD0.
 pub fn try_read_exif(bytes: &[u8]) -> Result<Metadata, TiffError> {
-    let tiff = Tiff::parse(strip_exif_header(bytes))?;
-    Ok(from_tiff(&tiff))
+    let bytes = strip_exif_header(bytes);
+    let tiff = Tiff::parse(bytes)?;
+    Ok(from_tiff_with_bytes(bytes, &tiff))
+}
+
+/// Build metadata from an existing TIFF parse and its original bytes, including Sony maker notes.
+/// Offsets in `tiff` must be relative to `bytes`' TIFF header (an Exif prefix is accepted).
+pub fn from_tiff_with_bytes(bytes: &[u8], tiff: &Tiff) -> Metadata {
+    let mut metadata = from_tiff(tiff);
+    crate::sony::read(strip_exif_header(bytes), tiff, &mut metadata);
+    metadata
 }
 
 fn text(ifd: Option<&Ifd>, tag: u16) -> Option<String> {
@@ -98,6 +107,11 @@ pub fn from_tiff(tiff: &Tiff) -> Metadata {
     m.height = exif.and_then(|e| e.u32(t::PIXEL_Y_DIMENSION)).filter(|&v| v > 0).or_else(|| ifd0.and_then(|i| i.u32(t::IMAGE_LENGTH)));
 
     m.gps = gps.and_then(read_gps);
+    if m.make.as_deref().is_some_and(|s| s.to_ascii_uppercase().contains("SONY"))
+        && let Some(lens) = crate::sony::lens_correction(tiff)
+    {
+        m.sony = Some(crate::SonyMetadata { lens_correction: Some(lens), ..Default::default() });
+    }
     if let Some(iptc) = ifd0.and_then(|i| i.value(t::IPTC_NAA)) {
         // IPTC-NAA is often typed LONG; re-serialise to bytes in file order.
         let bytes = match iptc {
@@ -112,6 +126,7 @@ pub fn from_tiff(tiff: &Tiff) -> Metadata {
         m.overlay_user_fields(&x.metadata);
         m.fill_missing(&x.metadata);
     }
+    m.fill_dji_gps();
     m
 }
 

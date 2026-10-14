@@ -971,6 +971,13 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     ui.menu_button(crate::i18n::tr("Photo Merge"), |ui| {
         let n = targets.len();
+        ui.add_enabled_ui(matches!(n, 1 | 4 | 16), |ui| {
+            let response = crate::widgets::text_button(ui, "mergePixelShift", "Sony Pixel Shift…", false);
+            if response.clicked() {
+                let _ = run_context(app, id, "dialog.mergePixelShift", json!({}));
+            }
+            response.on_disabled_hover_text(crate::i18n::tr("Select one composed ARQ or all 4 or 16 original Pixel Shift shots"));
+        });
         for (command, label) in [("dialog.mergeHdr", "HDR…"), ("dialog.mergePanorama", "Panorama…"), ("dialog.mergeHdrPanorama", "HDR Panorama…")]
         {
             if ui.add_enabled(n >= 2, egui::Button::new(label)).clicked() {

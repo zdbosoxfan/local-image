@@ -22,12 +22,17 @@ fn root() -> PathBuf {
 fn threads() -> usize {
     std::env::var("RAW_COMPARE_THREADS").unwrap_or_else(|_| "4".into()).parse().unwrap()
 }
-fn rows() -> impl Iterator<Item = Vec<&'static str>> {
+fn rows() -> impl Iterator<Item = Vec<String>> {
     let ids = std::env::var("RAW_COMPARE_IDS").unwrap_or_default();
-    include_str!("../tests/fixtures/decoder-comparison-samples.tsv")
+    let manifest = std::env::var_os("RAW_COMPARE_MANIFEST")
+        .map(|path| fs::read_to_string(path).expect("read comparison manifest"))
+        .unwrap_or_else(|| include_str!("../tests/fixtures/decoder-comparison-samples.tsv").to_owned());
+    manifest
         .lines()
         .skip(1)
-        .map(|line| line.split('\t').collect::<Vec<_>>())
+        .map(|line| line.split('\t').map(str::to_owned).collect::<Vec<_>>())
+        .collect::<Vec<_>>()
+        .into_iter()
         .filter(move |row| ids.is_empty() || ids.split(',').any(|id| id == row[0]))
 }
 struct Sensor {
@@ -317,7 +322,7 @@ fn decoder_compare_cc0() {
     let mut deltas = String::from("id\tpair\tmetric\tcount\tmax_abs\tmean_abs\tidentical_percent\tmetadata_mismatches\n");
     let mut metadata = String::new();
     for row in rows() {
-        let bytes = fs::read(dir.join(row[1])).expect("fetch CC0 files first");
+        let bytes = fs::read(dir.join(&row[1])).expect("fetch CC0 files first");
         let fmt = crate::probe(&bytes).unwrap();
         let label = if row[1].to_ascii_uppercase().ends_with(".NRW") {
             "Nrw".into()
@@ -362,7 +367,7 @@ fn decoder_compare_cc0() {
         ));
         let own = own.ok().map(Sensor::own);
         let theirs = theirs.ok().map(Sensor::rawler);
-        let reference = reference(&dir, row[0]);
+        let reference = reference(&dir, &row[0]);
         for (name, a, b) in [
             ("ours-rawler", own.as_ref(), theirs.as_ref()),
             ("ours-libraw", own.as_ref(), reference.as_ref()),
@@ -580,7 +585,7 @@ fn decoder_compare_routing_follows_reference_winners_and_keeps_fallback() {
 #[ignore = "CC0 files downloaded by permanent comparison driver"]
 fn decoder_compare_routing_cc0_native_and_fallback_samples() {
     for row in rows() {
-        let bytes = fs::read(root().join(row[1])).unwrap();
+        let bytes = fs::read(root().join(&row[1])).unwrap();
         let format = crate::probe(&bytes).unwrap();
         if crate::rawler_adapter::native_first_for(&bytes, format) {
             if let Ok(native) = crate::decode_native(&bytes, format, Mode::Full) {

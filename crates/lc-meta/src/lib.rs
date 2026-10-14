@@ -16,6 +16,10 @@ mod tiff_replace;
 pub use tiff_replace::preserve_tiff_metadata;
 pub mod cr3;
 mod datetime;
+mod dji;
+mod sony;
+pub use dji::{DJI_NS, DjiMetadata};
+pub use sony::{SonyLensCorrection, SonyMetadata, SonyPixelShift};
 mod exif;
 mod gpx;
 mod iptc;
@@ -25,7 +29,7 @@ mod xmp_merge;
 
 pub use container::{Embedded, embedded, jpeg_segments, png_chunks, webp_chunks};
 pub use datetime::DateTime;
-pub use exif::{from_tiff, read_exif, strip_exif_header, try_read_exif, write_exif};
+pub use exif::{from_tiff, from_tiff_with_bytes, read_exif, strip_exif_header, try_read_exif, write_exif};
 pub use gpx::{GpxError, Match, TrackPoint, Tracklog, parse_gpx};
 pub use iptc::parse_iptc;
 pub use lightcraft_geom::{Orientation, Rect};
@@ -88,6 +92,10 @@ pub struct Metadata {
     pub model: Option<String>,
     pub serial_number: Option<String>,
     pub software: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sony: Option<SonyMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dji: Option<DjiMetadata>,
     // lens
     pub lens_make: Option<String>,
     pub lens_model: Option<String>,
@@ -162,6 +170,17 @@ macro_rules! overlay {
 }
 
 impl Metadata {
+    /// DJI coordinates fill an absent standard GPS position. DJI altitude uses a camera-specific
+    /// datum (often ellipsoidal); it stays in DjiMetadata instead of becoming EXIF mean-sea-level.
+    pub(crate) fn fill_dji_gps(&mut self) {
+        if self.gps.is_none()
+            && let Some(dji) = &self.dji
+            && let (Some(latitude), Some(longitude)) = (dji.latitude, dji.longitude)
+        {
+            self.gps = Some(Gps { latitude, longitude, altitude: None });
+        }
+    }
+
     /// Intentionally replace the creator field with one literal name, or clear it.
     /// Unlike retaining the imported display value, this discards the source list.
     pub fn set_artist(&mut self, artist: Option<String>) {
@@ -182,6 +201,8 @@ impl Metadata {
             model,
             serial_number,
             software,
+            sony,
+            dji,
             lens_make,
             lens_model,
             lens_serial_number,
@@ -304,6 +325,7 @@ pub fn extract(bytes: &[u8]) -> Metadata {
         m.overlay_user_fields(&x.metadata);
         m.fill_missing(&x.metadata);
     }
+    m.fill_dji_gps();
     m
 }
 
@@ -381,5 +403,86 @@ mod region_auto_tests {
         let xmp = write_xmp(&metadata, None);
         assert!(!xmp.contains("Jane"));
         assert!(!xmp.contains("auto"));
+    }
+}
+
+#[cfg(test)]
+mod sony_dji_owner_tests {
+    #[test]
+    fn sony_dji_owner_metadata_matches_exiftool_reference_and_export() {
+        let Some(root) = std::env::var_os("LOCAL_IMAGE_OWNER_SHOTS") else {
+            return;
+        };
+        let root = std::path::PathBuf::from(root);
+        // Owner-derived reference values stay in ignored target/, never in repository fixtures.
+        let cache = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/sony-dji-reference/owner-metadata-reference.json");
+        let reference: Vec<serde_json::Value> = serde_json::from_slice(&std::fs::read(cache).unwrap()).unwrap();
+        assert_eq!(reference.len(), 2, "the local ExifTool cache must contain one Sony and one DJI reference");
+        for r in reference {
+            let original = std::path::Path::new(r["SourceFile"].as_str().unwrap());
+            let bytes = std::fs::read(root.join("Capture").join(original.file_name().unwrap())).unwrap();
+            let metadata = super::extract(&bytes);
+            if let Some(sony) = &metadata.sony {
+                assert_eq!(metadata.model.as_deref(), r["Model"].as_str());
+                assert_eq!(metadata.lens_model.as_deref(), r["LensModel"].as_str());
+                let count =
+                    r["ShutterCount"].as_str().and_then(|s| s.trim().parse::<u32>().ok()).or_else(|| r["ShutterCount"].as_u64().map(|v| v as u32));
+                assert_eq!(sony.shutter_count, count);
+                assert_eq!(sony.internal_serial_number.as_deref(), r["InternalSerialNumber"].as_str());
+                assert_eq!(sony.focus_mode.as_deref(), r["FocusMode"].as_str());
+                assert_eq!(sony.focus_area.as_deref(), r["AFAreaModeSetting"].as_str());
+                assert_eq!(sony.creative_style.as_deref(), r["CreativeStyle"].as_str());
+                assert_eq!(sony.picture_profile.as_deref(), r["PictureProfile"].as_str().map(|s| s.split(" (PP").next().unwrap()));
+            } else {
+                let d = metadata.dji.as_ref().unwrap();
+                assert_eq!(d.gimbal_yaw, r["GimbalYawDegree"].as_f64());
+                assert_eq!(
+                    d.relative_altitude,
+                    r["RelativeAltitude"].as_str().and_then(super::parse_number).or_else(|| r["RelativeAltitude"].as_f64())
+                );
+                assert_eq!(super::parse_xmp(&super::write_xmp(&metadata, None)).unwrap().metadata.dji, metadata.dji);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod sony_cc0_metadata_tests {
+    #[test]
+    fn sony_metadata_cc0_reference_across_body_generations() {
+        let Some(root) = std::env::var_os("LOCAL_IMAGE_SONY_METADATA_CC0") else {
+            return;
+        };
+        let root = std::path::PathBuf::from(root);
+        for (file, model, count, serial, focus) in [
+            ("2414.ARW", "ILCE-7M3", Some(10), Some("6eff0000aa09"), "AF-S"),
+            ("3480.ARW", "ILCE-7RM4", Some(35), Some("62ff00001a09"), "AF-A"),
+            ("1971.ARW", "ILCE-6000", Some(2687), Some("74ff030d"), "AF-A"),
+            ("2647.ARW", "DSC-RX1", None, None, "AF-S"),
+            ("8847.ARW", "ILCE-7M5", Some(665), Some("2fff0000e708"), "AF-S"),
+        ] {
+            let m = super::extract(&std::fs::read(root.join(file)).unwrap());
+            assert_eq!(m.model.as_deref(), Some(model));
+            let sony = m.sony.unwrap();
+            assert_eq!(sony.shutter_count, count, "{file}");
+            assert_eq!(sony.internal_serial_number.as_deref(), serial, "{file}");
+            assert_eq!(sony.focus_mode.as_deref(), Some(focus), "{file}");
+            assert_eq!(sony.picture_profile.as_deref(), Some("Gamma Still - Standard/Neutral"), "{file}");
+            if file == "2414.ARW" {
+                let lens = sony.lens_correction.as_ref().unwrap();
+                assert_eq!(sony.lens_id, Some(32831));
+                assert_eq!(lens.distortion, [5, 2, 2, 5, 11, 20, 32, 49, 68, 95, 128, 167, 216, 273, 340, 417]);
+                assert_eq!(lens.vignetting, [0, 32, 144, 320, 560, 864, 1216, 1632, 2096, 2608, 3152, 3728, 4320, 4928, 5536, 6144]);
+                assert_eq!(lens.ca_red, [128, 128, 128, 128, 128, 128, 128, 128, 256, 256, 384, 384, 384, 512, 512, 640]);
+                assert_eq!(lens.ca_blue, [512, 384, 384, 256, 128, 128, 128, 128, 0, 0, 0, -128, -128, -128, -256, -256]);
+            } else if file == "8847.ARW" {
+                assert_eq!(sony.lens_id, Some(50545));
+            } else if file == "3480.ARW" {
+                assert_eq!(
+                    sony.lens_correction.as_ref().unwrap().distortion,
+                    [7, 0, -20, -47, -86, -133, -192, -255, -327, -399, -474, -544, -611, -665, -708, -728]
+                );
+            }
+        }
     }
 }

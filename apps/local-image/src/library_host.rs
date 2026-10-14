@@ -1704,8 +1704,8 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter, saved: Option<
 /// ([`lightcraft_engine::import::EXTENSIONS`]) plus `heif`. On Linux they also match upper and
 /// mixed case (`DSC_0001.NEF`, `IMG_0001.JPG`): see [`photocraft_ui_egui::dialog_filter`].
 const ADD_PHOTOS_EXTS: &[&str] = &[
-    "jpg", "jpeg", "png", "tif", "tiff", "webp", "dng", "cr2", "cr3", "nef", "nrw", "arw", "raf", "orf", "rw2", "rwl", "raw", "pef", "psd", "jxl", "gif",
-    "bmp", "heic", "heif", "avif",
+    "jpg", "jpeg", "png", "tif", "tiff", "webp", "dng", "cr2", "cr3", "nef", "nrw", "arw", "arq", "sr2", "raf", "orf", "rw2", "rwl", "raw", "pef", "psd",
+    "jxl", "gif", "bmp", "heic", "heif", "avif",
 ];
 
 fn services(opens: Opens) -> Services {

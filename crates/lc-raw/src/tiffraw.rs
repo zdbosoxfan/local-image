@@ -6,6 +6,28 @@ use lightcraft_tiff::image::{Chunk, ImageInfo, chunk_bytes};
 use lightcraft_tiff::{ByteOrder, tags::compression as comp};
 use rayon::prelude::*;
 
+thread_local! {
+    // Standalone callers retain the established defensive limit. The app can
+    // supply its shared, live memory headroom without adding platform code here.
+    static DECODE_BUDGET: std::cell::Cell<usize> = const { std::cell::Cell::new(1 << 30) };
+}
+
+pub(crate) fn memory_budget() -> usize {
+    DECODE_BUDGET.get()
+}
+
+pub(crate) fn with_memory_budget<T>(budget: usize, run: impl FnOnce() -> T) -> T {
+    struct Restore(usize);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            DECODE_BUDGET.set(self.0);
+        }
+    }
+    let previous = DECODE_BUDGET.replace(budget);
+    let _restore = Restore(previous);
+    run()
+}
+
 /// Bit packing for uncompressed integer data with bit depths other than 8/16.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)] // vendor decoders use the other variants
@@ -85,16 +107,34 @@ pub fn read_image(data: &[u8], info: &ImageInfo, order: ByteOrder, packing: Pack
     let chunks = info.chunks(data.len() as u64);
     let planar = info.planar == 2 && cpp > 1;
     let ccpp = if planar { 1 } else { cpp };
-    let retained = chunks
-        .iter()
-        .fold(0usize, |sum, c| sum.saturating_add((c.width as usize).saturating_mul(c.height as usize).saturating_mul(ccpp).saturating_mul(4)));
-    if retained.saturating_add(total.saturating_mul(4)) > 1 << 30 {
+    let sample_bytes = if float { 4 } else { 2 };
+    let chunk_size = |c: &Chunk| (c.width as usize).saturating_mul(c.height as usize).saturating_mul(ccpp).saturating_mul(sample_bytes);
+    let retained = chunks.iter().fold(0usize, |sum, c| sum.saturating_add(chunk_size(c)));
+    let output_bytes = total.saturating_mul(sample_bytes);
+    let largest = chunks.iter().map(chunk_size).max().unwrap_or(0);
+    // Deflate unpacking retains inflated bytes and predictor scratch in addition
+    // to the decoded chunk. Decode it sequentially so this scratch stays bounded.
+    let deflate = matches!(info.compression, comp::ADOBE_DEFLATE | comp::DEFLATE);
+    let scratch = largest.saturating_mul(if deflate { 3 } else { 1 });
+    let budget = memory_budget();
+    if output_bytes.saturating_add(scratch) > budget {
         return Err(RawError::Limit("RAW import memory budget"));
     }
-    let decoded: Vec<Result<(Chunk, ChunkPx)>> =
-        chunks.par_iter().map(|c| decode_chunk(data, info, c, order, packing, ccpp, bits, float).map(|p| (*c, p))).collect();
-    let mut out_u16 = if float { Vec::new() } else { vec![0u16; total] };
-    let mut out_f32 = if float { vec![0f32; total] } else { Vec::new() };
+    let decode = |c: &Chunk| decode_chunk(data, info, c, order, packing, ccpp, bits, float).map(|p| (*c, p));
+    let stream = deflate || retained.saturating_add(output_bytes) > budget;
+    let mut out_u16 = Vec::new();
+    let mut out_f32 = Vec::new();
+    if float {
+        out_f32.try_reserve_exact(total).map_err(|_| RawError::Limit("RAW sample allocation"))?;
+        out_f32.resize(total, 0.0);
+    } else {
+        out_u16.try_reserve_exact(total).map_err(|_| RawError::Limit("RAW sample allocation"))?;
+        out_u16.resize(total, 0);
+    }
+    // Large linear Pixel Shift DNGs retain only the output plus one tile, rather
+    // than another entire decoded sensor. Small integer files keep parallel decode.
+    let decoded: Box<dyn Iterator<Item = Result<(Chunk, ChunkPx)>> + '_> =
+        if stream { Box::new(chunks.iter().map(decode)) } else { Box::new(chunks.par_iter().map(decode).collect::<Vec<_>>().into_iter()) };
     let mut ok = 0usize;
     let mut first_err = None;
     for r in decoded {
@@ -359,5 +399,42 @@ mod hostile_tile_tests {
         jpeg_encoder::Encoder::new(&mut bytes, 90).encode(&[128; 16 * 16 * 3], 16, 16, jpeg_encoder::ColorType::Rgb).unwrap();
         assert!(lossy_jpeg(&bytes, 3, 1, 1).is_err());
         assert!(lossy_jpeg(&bytes, 3, 16, 16).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod sony_dji_memory_tests {
+    use super::*;
+    use lightcraft_tiff::image::Layout;
+    #[test]
+    fn sony_dji_chunk_streaming_preserves_rgb_and_scoped_memory_limits() {
+        let words: Vec<u16> = (0..5 * 7 * 3).map(|i| 100 + i as u16 * 3).collect();
+        let data: Vec<_> = words.iter().flat_map(|v| v.to_le_bytes()).collect();
+        let info = ImageInfo {
+            width: 5,
+            height: 7,
+            bits_per_sample: vec![16; 3],
+            samples_per_pixel: 3,
+            compression: comp::NONE,
+            photometric: 34892,
+            planar: 1,
+            predictor: 1,
+            sample_format: 1,
+            new_subfile_type: 0,
+            layout: Layout::Strips { rows_per_strip: 2 },
+            offsets: vec![0, 60, 120, 180],
+            byte_counts: vec![60, 60, 60, 30],
+        };
+        let read = || read_image(&data, &info, ByteOrder::Little, Packing::Word16);
+        let parallel = read().unwrap();
+        // Output210bytes+one60byte strip fits. Retaining all strips would need420.
+        let streamed = with_memory_budget(280, read).unwrap();
+        assert_eq!(parallel, streamed);
+        assert_eq!(streamed, RawData::U16(words));
+        assert!(matches!(with_memory_budget(269, read), Err(RawError::Limit(_))));
+        assert_eq!(read().unwrap(), parallel, "scoped budget must be restored");
+        let old = DECODE_BUDGET.get();
+        let _ = std::panic::catch_unwind(|| with_memory_budget(12, || panic!("scope unwinding")));
+        assert_eq!(DECODE_BUDGET.get(), old);
     }
 }

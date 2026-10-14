@@ -156,6 +156,12 @@ impl CopyrightStatus {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Meta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serial_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sony: Option<lightcraft_meta::SonyMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dji: Option<lightcraft_meta::DjiMetadata>,
     pub camera: String,
     pub lens: String,
     pub focal_mm: Option<f32>,

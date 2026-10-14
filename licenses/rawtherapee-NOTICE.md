@@ -77,3 +77,17 @@ DCB Copyright (C) 2010 Jacek Gozdz (cuniek@kft.umcs.lublin.pl), BSD-3-Clause;
 RawTherapee integration GPL-3.0-or-later. Original DCB terms are reproduced in
 `rawtherapee-DCB-BSD-3-Clause.txt`. The Rust port uses normalized floating point,
 mirror padding, safe indexing and the shared Rayon pool. It adds no dependency.
+
+## Pixel Shift motion comparison
+
+`crates/lc-merge/src/pixelshift.rs` independently implements the repeated-green
+motion comparison method described by `rtengine/pixelshift.cc`, pinned at
+`5f486d3678b34c74ba0c63571c17babe20935019`.
+Copyright (C) 2016–2018 Ingo Weyrich <heckflosse67@gmx.de>, GPL version 3 or
+later. Static reconstruction follows Sony's measured lattice; variance comes
+from the existing complete camera/ISO profiles or bounded CFA noise estimates.
+The C++ implementation is reference-only and is never built into the app.
+
+Update with the pinned source row in `docs/PORTS.md`; compare the focused static,
+subtle-motion, chromatic-motion and real CC0 tests before changing thresholds,
+then regenerate app attributions. Preserve old failure/quality evidence.

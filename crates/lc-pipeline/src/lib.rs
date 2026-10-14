@@ -148,6 +148,9 @@ pub struct SourceInfo {
     pub camera_wb_presets: Vec<CameraWbPreset>,
     /// Lens corrections embedded in the file (DNG opcodes), relative to the EXIF-oriented source.
     pub lens: Option<lightcraft_develop::EmbeddedLens>,
+    /// Complete Sony vendor curves handed to the lens-correction boundary.
+    /// They are not approximated as DNG polynomials or baked into sensor samples.
+    pub sony_lens: Option<lightcraft_develop::SonyLensData>,
     /// Raw sources use absolute Kelvin white balance; rendered sources use a relative scale around
     /// their as-shot white.
     pub raw: bool,
@@ -191,6 +194,7 @@ impl Default for SourceInfo {
             as_shot_temp: 6500.0,
             as_shot_tint: 0.0,
             lens: None,
+            sony_lens: None,
             relative_wb: false,
             camera_color: None,
             camera_profile: None,
@@ -990,4 +994,26 @@ fn develop_c_full_overlay_keeps_scalar_alpha_even_when_hidden() {
     assert!(render(&src, &info, &s, &req).image.data.iter().all(|p| *p == [128, 128, 128, 255]));
     s.masks[0].visible = false;
     assert!(render(&src, &info, &s, &req).image.data.iter().all(|p| *p == [128, 128, 128, 255]));
+}
+
+#[cfg(test)]
+mod sony_dji_source_tests {
+    use super::*;
+    #[test]
+    fn sony_lens_boundary_retains_signed_curves_and_old_source_settings_load() {
+        let data = lightcraft_develop::SonyLensData {
+            distortion: vec![-100, 0, 120],
+            ca_red: vec![-8, 0, 9],
+            ca_blue: vec![2, 1, -4],
+            vignetting: vec![0, 16, 90],
+        };
+        let source = SourceInfo { sony_lens: Some(data), ..Default::default() };
+        let json = serde_json::to_value(&source).unwrap();
+        let back: SourceInfo = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(source.sony_lens, back.sony_lens);
+        let mut old = json;
+        old.as_object_mut().unwrap().remove("sony_lens");
+        let old: SourceInfo = serde_json::from_value(old).unwrap();
+        assert!(old.sony_lens.is_none());
+    }
 }

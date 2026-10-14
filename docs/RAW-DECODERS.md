@@ -30,6 +30,42 @@ very large files remain explicitly limited. The adapter supports integer single-
 X-Trans and monochrome sensors. Four-colour/linear RGB and rotated SuperCCD output remain
 Unsupported; CR3 filmrolls select the first image, and dual-pixel correction is not exposed.
 
+## Sony/DJI integration (2026-10-14)
+
+Native Sony handles uncompressed, ARW2, large lossless, M/S linear RGB, SR2,
+composed ARQ and ARW6 normal/HQ. ARW2 preserves inverse-curve values above nominal
+white; ARW6 keeps its codec black/white domain. Rawler remains unmodified and is
+used for legacy ARW1. The Sony MRI hybrid's root SubIFDs tag is a pixel pointer,
+so its bounded metadata is inspected structurally and its decoder is built using
+rawler's public IFD/ArwDecoder interfaces without parsing entropy as TIFF. It
+retains the same panic containment, file/geometry/metadata bounds and strict
+unknown-field guards for ordinary TIFF. No camera routing allow-list was added.
+
+`decode` retains its standalone 1 GiB pixel-buffer allowance. The engine passes
+live shared hardware/user headroom through `decode_with_memory_budget`; buffers
+use actual sample widths and large/Deflate images decode chunks sequentially,
+retaining only output plus bounded scratch. This supports real ARQ and large
+16-shot linear DNGs on machines with sufficient memory, with explicit limits on
+smaller machines. `decode_for_pixel_shift` applies static camera calibration
+without per-frame PDAF interpolation so fusion sees actual CFA observations.
+Single-photo Develop retains its usual repairs. New metadata/source fields have
+serde defaults; old stored metadata needs Reload/Relink to populate new fields.
+
+DJI built-in DNG operations execute in their original order in camera RGB before
+colour conversion, including when the editable lens-profile checkbox is off.
+Mixed lists, multiple corrections and per-plane warps are not split across the
+raw/develop boundary. Uncompressed terminal strips with a wrong byte count are
+recovered only when the complete declared image exactly occupies the remaining
+file bytes; ambiguous trailers and genuinely truncated pixels remain errors. Sony raw correction curves travel unchanged through typed
+metadata, the shared `SourceInfo.sony_lens` boundary and DNG numeric tags; their
+sampled optics implementation remains owned by the lens-corrections workstream.
+
+The bounded camera/variant evidence and format-specific reference domains are
+in [`wip/CODEX-REPORT-sony-dji.md`](wip/CODEX-REPORT-sony-dji.md). LibRaw ARW6
+references require the pinned external master revision because installed 0.22.2,
+darktable 5.6.2 and RawTherapee 5.13 lack that codec. No external reference tool,
+new dependency or C/-sys library enters the Cargo build.
+
 ## Exact update procedure
 
 1. Bump the normal pinned version in `crates/lc-raw/Cargo.toml`. Do not add a `[patch]` or path dependency.

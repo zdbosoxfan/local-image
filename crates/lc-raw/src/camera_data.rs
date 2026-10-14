@@ -412,9 +412,20 @@ fn scaling(ranges: &Value, f: f64) -> f32 {
 }
 /// Apply calibration once at the shared decode boundary, for native and rawler decodes.
 pub(crate) fn apply(raw: &mut RawImage, mode: Mode) {
-    if raw.format == RawFormat::Dng || raw.cpp != 1 || raw.cfa.is_none() {
+    // A composed Sony ARQ has the same camera-linear levels/profile as its CFA
+    // source observations. Downsized Sony YCbCr carries applied WB and keeps its
+    // codec calibration instead. The maker-note shot zero identifies the ARQ.
+    let arq =
+        raw.format == RawFormat::Arw && raw.cpp == 3 && raw.metadata.sony.as_ref().and_then(|s| s.pixel_shift).is_some_and(|s| s.shot_number == 0);
+    if raw.format == RawFormat::Dng || (!arq && (raw.cpp != 1 || raw.cfa.is_none())) {
         return;
     }
+    // ARW6's applied codec LUT changes the domain from ordinary 14-bit sensor
+    // values to black 1024 / white 39002. Ordinary camera tables cannot replace
+    // these levels. Preserve Sony's explicit per-site black calibration as well
+    // (DSC-R1 SR2 has distinct G1/G2 levels), while retaining useful ISO whites.
+    let codec_levels = raw.format == RawFormat::Arw && raw.linearized;
+    let file_black = raw.format == RawFormat::Arw && (codec_levels || arq || raw.black.values.len() == 4);
     let Some(db) = db() else {
         return;
     };
@@ -448,10 +459,10 @@ pub(crate) fn apply(raw: &mut RawImage, mode: Mode) {
             // Explicit ISO entries can correct a static fallback; nominal bit maxima
             // are also fallbacks. RT's detailed overrides remain the next priority.
             let calibrated_iso = !sensor.iso_list.is_empty() || sensor.iso_min != 0 || sensor.iso_max != 0;
-            if sensor.white > 0.0 && sensor.white <= stored_max && (calibrated_iso || raw.white.iter().all(|w| *w == stored_max)) {
+            if !codec_levels && sensor.white > 0.0 && sensor.white <= stored_max && (calibrated_iso || raw.white.iter().all(|w| *w == stored_max)) {
                 raw.white = vec![sensor.white];
             }
-            if sensor.black >= 0.0 && sensor.black < raw.white_at(0) {
+            if !file_black && sensor.black >= 0.0 && sensor.black < raw.white_at(0) {
                 let values: Vec<f32> = sensor.black_colors.split_whitespace().filter_map(|s| s.parse().ok()).collect();
                 raw.black = if values.len() == 4 {
                     phase_levels(raw, [values[0], values[1], values[2], values[3]])
@@ -483,7 +494,7 @@ pub(crate) fn apply(raw: &mut RawImage, mode: Mode) {
     }
     if let Some(rt) = rt {
         let ranges = &rt["ranges"];
-        if let Some(mut white) = iso_levels(&ranges["white"], iso) {
+        if let Some(mut white) = iso_levels(&ranges["white"], iso).filter(|_| !codec_levels) {
             let factor = scaling(ranges, raw.metadata.f_number.unwrap_or(0.0));
             let max = ranges["white_max"].as_f64().unwrap_or(65535.0) as f32;
             let stored_max = 2f32.powi(raw.bits.min(16) as i32) - 1.0;
@@ -500,7 +511,7 @@ pub(crate) fn apply(raw: &mut RawImage, mode: Mode) {
                 raw.white = white.to_vec();
             }
         }
-        if let Some(black) = iso_levels(&ranges["black"], iso) {
+        if let Some(black) = iso_levels(&ranges["black"], iso).filter(|_| !file_black) {
             // RT encodes absolute overrides as 65535+black. Nikon/Panasonic plain
             // entries are offsets from the decoder's frame black, not absolute values.
             let additive = name.starts_with("NIKON ") || name.starts_with("PANASONIC ");
@@ -549,18 +560,22 @@ pub(crate) fn apply(raw: &mut RawImage, mode: Mode) {
         // Black pattern is relative to the active origin. Reanchor when tables crop it.
         let old = raw.black.clone();
         let a = raw.active_area;
+        let cpp = raw.cpp;
         raw.black.values = (0..old.repeat_rows)
-            .flat_map(|y| (0..old.repeat_cols).map(move |x| (x, y)))
-            .map(|(x, y)| {
+            .flat_map(|y| (0..old.repeat_cols).flat_map(move |x| (0..cpp).map(move |sample| (x, y, sample))))
+            .map(|(x, y, sample)| {
                 let sx = (crop.x + x + old.repeat_cols - a.x % old.repeat_cols) % old.repeat_cols;
                 let sy = (crop.y + y + old.repeat_rows - a.y % old.repeat_rows) % old.repeat_rows;
-                old.at(sx, sy, 0, 1)
+                old.at(sx, sy, sample, cpp)
             })
             .collect();
         raw.black.delta_h.clear();
         raw.black.delta_v.clear();
         raw.active_area = crop;
         raw.crop = Rect::new(0, 0, crop.width, crop.height);
+    }
+    if arq && let [r, g1, b, g2] = raw.white.as_slice() {
+        raw.white = vec![*r, (*g1 + *g2) * 0.5, *b];
     }
     if mode == Mode::Full {
         if let Some(black) = measured_black(raw, &areas) {
@@ -676,6 +691,63 @@ mod tests {
             metadata: Default::default(),
         }
     }
+    #[test]
+    fn sony_arw6_calibration_preserves_codec_domain_and_camera_matrix() {
+        let mut image = raw(64, 48);
+        image.metadata.make = Some("SONY".into());
+        image.metadata.model = Some("ILCE-7M5".into());
+        image.bits = 16;
+        image.linearized = true;
+        image.black = BlackLevel::uniform(1024.0);
+        image.white = vec![39002.0];
+        apply(&mut image, Mode::Header);
+        assert_eq!(image.black.mean(), 1024.0);
+        assert_eq!(image.white, vec![39002.0]);
+        assert!(image.color.color_matrix[0].is_some());
+        let mut ordinary = image.clone();
+        ordinary.linearized = false;
+        ordinary.bits = 14;
+        ordinary.black = BlackLevel::uniform(512.0);
+        ordinary.white = vec![16383.0];
+        apply(&mut ordinary, Mode::Header);
+        assert_eq!(ordinary.white, vec![16300.0; 4]);
+    }
+
+    #[test]
+    fn sony_sr2_calibration_retains_file_black_levels() {
+        let mut image = raw(64, 48);
+        image.metadata.make = Some("SONY".into());
+        image.metadata.model = Some("DSC-R1".into());
+        image.cfa = crate::Cfa::bayer("GRBG");
+        image.black = BlackLevel { repeat_rows: 2, repeat_cols: 2, values: vec![511.0, 514.0, 512.0, 513.0], ..Default::default() };
+        apply(&mut image, Mode::Header);
+        for y in 0..2 {
+            for x in 0..2 {
+                let expected = [511.0, 514.0, 512.0, 513.0][((image.active_area.y + y) % 2) * 2 + (image.active_area.x + x) % 2];
+                assert_eq!(image.black.at(x, y, 0, 1), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn sony_arq_calibration_matches_source_white_and_preserves_rgb_black() {
+        let mut image = raw(64, 48);
+        image.metadata.make = Some("SONY".into());
+        image.metadata.model = Some("ILCE-7RM3".into());
+        image.metadata.sony = Some(lightcraft_meta::SonyMetadata {
+            pixel_shift: Some(lightcraft_meta::SonyPixelShift { group_id: 42, shot_number: 0, shot_count: 4 }),
+            ..Default::default()
+        });
+        image.cpp = 3;
+        image.cfa = None;
+        image.data = RawData::F32(vec![1000.0; 64 * 48 * 3]);
+        image.black = BlackLevel { values: vec![510.0, 513.0, 516.0], ..Default::default() };
+        apply(&mut image, Mode::Header);
+        assert_eq!(image.white, vec![16300.0; 3]);
+        assert_eq!(image.black.values, vec![510.0, 513.0, 516.0]);
+        assert!(image.color.color_matrix[0].is_some());
+    }
+
     #[test]
     fn camdata_whole_files_parse_and_aliases() {
         let db = parse().unwrap();

@@ -18,6 +18,83 @@
       "intro": "Algorithms re-implemented in Rust from other projects (docs/PORTS.md). No C, C++ or Python from them is compiled or shipped.",
       "entries": [
         {
+          "name": "LibRaw",
+          "used_for": "Bounds-checked pure-Rust Sony ARW6 normal/HQ packet, entropy, wavelet and complete inverse curve implementation.",
+          "upstream": "src/decoders/sony_arw6.cpp",
+          "commit": "830ac963b40223c6a25add5be65036fa8d56e2d6",
+          "ours": "crates/lc-raw/src/vendor/arw6.rs",
+          "licence": "LGPL-2.1-only (chosen over CDDL-1.0)",
+          "licence_files": [
+            "licenses/libraw-LICENSE.LGPL",
+            "licenses/libraw-NOTICE.md"
+          ],
+          "url": "https://github.com/LibRaw/LibRaw/blob/830ac963b40223c6a25add5be65036fa8d56e2d6/src/decoders/sony_arw6.cpp"
+        },
+        {
+          "name": "LibRaw",
+          "version": "0.22.2",
+          "used_for": "Sony per-file SR2 calibration cipher, ARQ sample layout and Sony RGB conversion reference.",
+          "upstream": "src/metadata/sony.cpp, src/decoders/decoders_libraw.cpp",
+          "commit": "b93f6e45c194f5df9b02a43b1af9a54b4f41f33f",
+          "ours": "crates/lc-raw/src/vendor/arw.rs",
+          "licence": "LGPL-2.1-only (chosen over CDDL-1.0)",
+          "licence_files": [
+            "licenses/libraw-LICENSE.LGPL",
+            "licenses/libraw-NOTICE.md"
+          ],
+          "url": "https://github.com/LibRaw/LibRaw/blob/b93f6e45c194f5df9b02a43b1af9a54b4f41f33f/src/metadata/sony.cpp"
+        },
+        {
+          "name": "ExifTool",
+          "version": "13.59 snapshot; 13.40 reference also retained",
+          "used_for": "Independently implemented Sony field layouts/cipher and DJI namespace semantics; reference-only Perl tool.",
+          "upstream": "lib/Image/ExifTool/Sony.pm, lib/Image/ExifTool/DJI.pm, lib/Image/ExifTool/Exif.pm",
+          "commit": "2200871d9cef988051d2a99d67df3bda6cbb30a8",
+          "ours": "crates/lc-meta/src/sony.rs, crates/lc-meta/src/dji.rs",
+          "licence": "GPL-1.0-or-later (Perl licence option)",
+          "licence_files": [
+            "licenses/exiftool-NOTICE.md"
+          ],
+          "url": "https://github.com/exiftool/exiftool/blob/2200871d9cef988051d2a99d67df3bda6cbb30a8/lib/Image/ExifTool/Sony.pm"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "Independent Rust noise-aware repeated-green motion comparison; measured/profiled variance and first-shot fallback.",
+          "upstream": "rtengine/pixelshift.cc",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-merge/src/pixelshift.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/pixelshift.cc"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Documented normalized sensor variance a×signal+b for motion thresholds.",
+          "upstream": "src/iop/denoiseprofile.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-merge/src/pixelshift.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/denoiseprofile.c"
+        },
+        {
+          "name": "make_arq",
+          "used_for": "Sony source shot displacement and half-pixel phase ordering (independent Rust reconstruction/motion implementation).",
+          "upstream": "make_arq.py",
+          "commit": "912069a8e6d3c6738cd76ba0fe6c62ed4d314fe3",
+          "ours": "crates/lc-merge/src/pixelshift.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/make_arq-NOTICE.md"
+          ],
+          "url": "https://github.com/agriggio/make_arq"
+        },
+        {
           "name": "SplitMix64",
           "used_for": "Stable seed-derived alternate conditioning for Z-Image Turbo Variety.",
           "upstream": "misc/splitmix64.c",
@@ -6941,7 +7018,7 @@
         },
         {
           "name": "rawler",
-          "used_for": "Unmodified crates.io 0.8.0 dependency for Canon CR3 RAW/C-RAW/dual-pixel, measured RAF/NRW/RW2 primary paths and compressed Olympus/OM ORF; fallback for any native Unsupported variant, and runtime camera calibration missing from our first-choice table.",
+          "used_for": "Unmodified crates.io 0.8.0 dependency for Canon CR3 RAW/C-RAW/dual-pixel, compressed Fujifilm RAF and Olympus/OM ORF; fallback for any native Unsupported variant, and runtime camera calibration missing from our first-choice table.",
           "upstream": "rawler/Cargo.toml",
           "commit": "ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7",
           "ours": "crates/lc-raw/src/rawler_adapter.rs",

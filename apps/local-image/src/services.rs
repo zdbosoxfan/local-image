@@ -19,7 +19,7 @@ use std::sync::Arc;
 /// images, and Photoshop brushes/gradients (which go to the preset libraries).
 const OPEN_EXTS: &[&str] = &[
     "pcraft", "psd", "psb", "psdt", "svg", "svgz", "pdf", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm",
-    "pgm", "ppm", "pam", "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd",
+    "pgm", "ppm", "pam", "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "arq", "sr2", "pef", "orf", "rw2", "raf", "abr", "grd",
 ];
 
 /// The File › Open dialog with its filters. On Linux each extension also matches upper and mixed
