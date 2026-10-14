@@ -10,6 +10,8 @@ workspace = true
 [dependencies]
 photocraft-geom = { workspace = true }
 photocraft-color = { workspace = true }
+# The shared job primitive (Interrupt / Cancelled live there, re-exported in `interrupt`).
+lightcraft-sysmem = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]

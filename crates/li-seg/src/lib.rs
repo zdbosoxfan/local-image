@@ -504,17 +504,10 @@ pub fn spec(id: &str) -> Option<&'static ModelSpec> {
 /// [`Cancelled`].
 type Runner = dyn Fn(Tensor, &dyn Fn() -> bool) -> TractResult<TVec<TValue>> + Send + Sync;
 
-/// The error of a run stopped through its cancel flag (see [`is_cancelled`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Cancelled;
-
-impl fmt::Display for Cancelled {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("cancelled")
-    }
-}
-
-impl std::error::Error for Cancelled {}
+/// The error of a run stopped through its cancel flag (see [`is_cancelled`]): the app's one cancel
+/// error (`lightcraft_sysmem::jobs`), shared with `li-ai` and `pc-raster`. The `&AtomicBool`
+/// cancel arguments below take a job's `JobCtl::cancel_flag()`.
+pub use lightcraft_sysmem::Cancelled;
 
 /// Did `e` come from a cancelled run?
 pub fn is_cancelled(e: &anyhow::Error) -> bool {

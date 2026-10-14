@@ -1,5 +1,6 @@
 //! The platform helper crate: the compute profile (cores, RAM, the one compute budget and rayon's
-//! global pool, [`profile`]), heavy-job permits by memory ([`permits`]), thread priority classes ([`priority`]) and giving memory the system
+//! global pool, [`profile`]), heavy-job permits by memory ([`permits`]), thread priority classes ([`priority`]), the one
+//! cancel + progress primitive for long jobs ([`jobs`]: [`JobCtl`], [`Interrupt`], [`Cancelled`]) and giving memory the system
 //! allocator keeps after frees back to the operating system ([`release_free_memory`]).
 //!
 //! macOS's allocator keeps freed large blocks mapped as "reusable": they no longer count in the
@@ -15,12 +16,14 @@
 
 pub mod app_dirs;
 pub mod gpu;
+pub mod jobs;
 pub mod permits;
 pub mod power;
 pub mod priority;
 pub mod profile;
 mod sys;
 
+pub use jobs::{Cancelled, Interrupt, JobCtl, JobStatus};
 pub use permits::{HeavyJobs, MemoryNow, Permit, heavy_job_cap, heavy_jobs};
 pub use priority::{ThreadClass, background_pool, in_background_pool, set_current_thread_class};
 pub use profile::{BackgroundPriority, ComputeProfile, Hardware, Overrides, ThreadSource, init, profile, ram_available};
