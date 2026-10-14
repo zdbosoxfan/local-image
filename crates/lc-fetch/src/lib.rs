@@ -1,52 +1,56 @@
-//! Downloading a model's files, only when the user asked for it: from an ordered list of mirrors
-//! (the next one when a mirror fails), resuming partial files, with connect and stall timeouts,
-//! a size cap, progress and cancellation, and checked (exact size, SHA-256 where pinned) before
-//! each file is moved into the model folder. Runs on whatever thread calls [`download`] (the
-//! engine uses a background thread; the UI thread never waits for the network). Pure Rust: the
-//! HTTPS client is rustls with the RustCrypto provider (see [`http`]).
+//! Downloading a model's files from an ordered list of mirrors, only when the user asked for it,
+//! through the app's one verified downloader. (A thin adapter over [`li_ai::download`]; audit D15,
+//! job J8.)
 //!
-//! Files are written to `<name>.part` next to their final place and renamed when verified, so a
-//! model folder never holds a half-written file under a real name, and an interrupted download
-//! resumes from where it stopped. A file that fails its check is deleted, never kept.
+//! What this crate adds is only what `li-ai` does not do itself: the list of mirrors (the next one
+//! when a mirror fails, see [`mirrors`]), tries per mirror, progress over several files, and an
+//! `AtomicBool` cancel flag. Every byte goes through `li-ai`: HTTPS to its host allow-list
+//! (checked on every redirect), the exact size and SHA-256 **required**, a `.part` file that is
+//! removed on any failure, the disk-space check, and a verified file linked into place without
+//! replacing anything. The hand-written HTTP/1.1 client this crate used to carry is gone.
 //!
-//! What to download and where from belongs to the caller: it passes the [`FileSpec`]s and the
-//! default mirrors (see [`mirrors`]). `lightcraft-segment` does so for the SAM 3 weights, which
-//! are never part of LightCraft (SAM License, see docs/ai-masks.md).
+//! Differences from the old client (SAM 3 only, which is off by owner decision):
+//! - a file without a pinned size and SHA-256 is never downloaded ([`DownloadError::Unpinned`]):
+//!   the user puts it in the model folder;
+//! - a mirror must be on `li-ai`'s allow-list (Hugging Face, GitHub, …);
+//! - an interrupted download starts over (no resume) and a stalled connection ends at `li-ai`'s
+//!   whole-body budget rather than after 30 s without bytes; cancelling stops it at once.
 //!
-//! Native only: on wasm32 this crate is empty (the web build downloads no models).
+//! Runs on whatever thread calls [`download`] (the engine uses a background thread). Native only:
+//! on wasm32 this crate is empty (the web build downloads no models).
 
 #![cfg(not(target_arch = "wasm32"))]
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-pub mod http;
-
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::cell::RefCell;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use sha2::{Digest, Sha256};
-
-use http::{HttpError, Limits, Url};
+use li_ai::{Cancelled, JobControl};
 
 /// One file of the model.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileSpec {
     pub name: &'static str,
-    /// Exact size in bytes, when pinned (then the download resumes and is checked against it).
+    /// Exact size in bytes, when pinned (required to download it).
     pub size: Option<u64>,
-    /// SHA-256 (lower-case hex), when pinned.
+    /// SHA-256 (lower-case hex), when pinned (required to download it).
     pub sha256: Option<&'static str>,
-    /// Largest size accepted when `size` is not pinned.
+    /// Largest size accepted for a file the user put in place when `size` is not pinned.
     pub max: u64,
 }
 
 /// Most mirrors used (a hostile list can't make a download loop forever).
 const MAX_MIRRORS: usize = 16;
-/// Redirects followed per request.
-const MAX_REDIRECTS: usize = 8;
+
+/// Whether `s` can be a mirror's base URL: `http(s)://host…`, no spaces, no user name.
+fn usable_base(s: &str) -> bool {
+    let Some(rest) = s.strip_prefix("https://").or_else(|| s.strip_prefix("http://")) else { return false };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    s.len() <= 16 * 1024 && !authority.is_empty() && !authority.contains('@') && !s.chars().any(|c| c.is_control() || c.is_whitespace())
+}
 
 /// The mirrors to try, in order: `env`'s (base URLs separated by commas, spaces or newlines), then
 /// the mirrors file's (one base URL per line, `#` comments), then `defaults`; duplicates and
@@ -55,7 +59,7 @@ pub fn mirrors(env: Option<&str>, file: Option<&Path>, defaults: &[&str]) -> Vec
     let mut out: Vec<String> = Vec::new();
     let mut add = |s: &str| {
         let s = s.trim().trim_end_matches('/');
-        if !s.is_empty() && Url::parse(s).is_ok() && !out.iter().any(|m| m == s) && out.len() < MAX_MIRRORS {
+        if usable_base(s) && !out.iter().any(|m| m == s) && out.len() < MAX_MIRRORS {
             out.push(s.to_string());
         }
     };
@@ -70,14 +74,10 @@ pub fn mirrors(env: Option<&str>, file: Option<&Path>, defaults: &[&str]) -> Vec
     out
 }
 
-/// Download settings.
+/// Download settings (connect and read timeouts are `li-ai`'s).
 #[derive(Clone, Debug)]
 pub struct Options {
-    /// Longest wait to connect to a mirror.
-    pub connect_timeout: Duration,
-    /// Longest wait for the next bytes once connected.
-    pub stall_timeout: Duration,
-    /// Tries per mirror and file (each resumes where the last one stopped).
+    /// Tries per mirror and file for transient failures (each starts the file over).
     pub attempts: u32,
     /// The environment variable holding a bearer token for the first mirror's host (sent only over
     /// https, never to a host a redirect leads to). `None`: nothing is ever sent, so one model's
@@ -87,7 +87,7 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options { connect_timeout: Duration::from_secs(15), stall_timeout: Duration::from_secs(30), attempts: 3, token_env: None }
+        Options { attempts: 3, token_env: None }
     }
 }
 
@@ -95,7 +95,7 @@ impl Default for Options {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Progress {
     pub file: String,
-    /// Bytes of all files on disk so far, and the total expected (pinned sizes + announced ones).
+    /// Bytes of all files on disk so far, and the total expected (pinned sizes).
     pub done: u64,
     pub total: u64,
     /// The mirror in use (without query).
@@ -115,6 +115,8 @@ pub enum DownloadError {
         file: String,
         errors: Vec<String>,
     },
+    /// `file` is missing and has no pinned size and SHA-256, so it is never downloaded.
+    Unpinned(String),
 }
 
 impl std::fmt::Display for DownloadError {
@@ -124,16 +126,65 @@ impl std::fmt::Display for DownloadError {
             DownloadError::Cancelled => write!(f, "the download was cancelled"),
             DownloadError::Disk(e) => write!(f, "{e}"),
             DownloadError::AllMirrorsFailed { file, errors } => write!(f, "could not download {file}: {}", errors.join("; ")),
+            DownloadError::Unpinned(file) => {
+                write!(f, "{file} has no pinned size and SHA-256, so Local Image does not download it: put it in the model folder yourself")
+            }
         }
     }
 }
 
-/// One mirror's failure for one file; `Retry` resumes on the same mirror.
+/// The bearer token to send for `url`: only a non-empty one, only over https. (`li-ai` sends it
+/// only to the first URL's host, never to the host a redirect leads to.)
+fn bearer<'a>(token: Option<&'a str>, url: &str) -> Option<&'a str> {
+    token.map(str::trim).filter(|t| !t.is_empty() && url.starts_with("https://"))
+}
+
+/// A mirror for messages (no query string: it may hold a token).
+fn short(m: &str) -> String {
+    m.split(['?', '#']).next().unwrap_or_default().to_string()
+}
+
+/// Whether `path` is already the right file. A pinned file with the wrong size or hash is deleted
+/// (never kept, never mistaken for the model); an unpinned one is accepted when non-empty and
+/// within `max`.
+fn verified(f: &FileSpec, path: &Path) -> Result<bool, DownloadError> {
+    let Ok(meta) = std::fs::metadata(path) else { return Ok(false) };
+    if !meta.is_file() {
+        return Ok(false);
+    }
+    let ok = match (f.size, f.sha256) {
+        (Some(size), Some(sha)) => {
+            meta.len() == size
+                && li_ai::download::hash_file(path).map_err(|e| DownloadError::Disk(format!("{}: {e}", path.display())))?.1.eq_ignore_ascii_case(sha)
+        }
+        _ => meta.len() > 0 && meta.len() <= f.max && f.size.is_none_or(|s| s == meta.len()),
+    };
+    if !ok && f.size.is_some() && f.sha256.is_some() {
+        std::fs::remove_file(path).map_err(|e| DownloadError::Disk(format!("{}: {e}", path.display())))?;
+    }
+    Ok(ok)
+}
+
+/// How one failed try ends.
 enum Fail {
     Retry(String),
     NextMirror(String),
-    Cancelled,
     Disk(String),
+}
+
+/// Sorts a `li-ai` download error: problems that another try at the same mirror cannot fix move
+/// on to the next mirror; a full disk stops the download.
+fn classify(msg: String) -> Fail {
+    if msg.contains("Not enough disk space") {
+        Fail::Disk(msg)
+    } else if ["Refusing to download", "HTTP 4", "checksum", "larger than expected", "user-installed only", "already exists", "redirect"]
+        .iter()
+        .any(|k| msg.contains(k))
+    {
+        Fail::NextMirror(msg)
+    } else {
+        Fail::Retry(msg)
+    }
 }
 
 /// Download `files` into `dir` from `mirrors` (in order; see [`mirrors`]). Files already there
@@ -160,240 +211,81 @@ pub fn download(
     if mirrors.is_empty() {
         return Err(DownloadError::NoMirrors);
     }
-    let total: u64 = files.iter().map(|f| f.size.unwrap_or(0)).sum();
+    if let Some(f) = todo.iter().find(|f| f.size.is_none() || f.sha256.is_none()) {
+        return Err(DownloadError::Unpinned(f.name.to_string()));
+    }
+    let total: u64 = files.iter().filter_map(|f| f.size).sum();
     let mut before: u64 = files.iter().filter(|f| !todo.contains(f)).filter_map(|f| f.size).sum();
-    for f in todo {
-        let mut errors = Vec::new();
-        let mut ok = false;
-        'mirrors: for m in mirrors {
-            let url = format!("{m}/{}", f.name);
-            for _ in 0..opts.attempts.clamp(1, 16) {
-                if cancel.load(Ordering::Relaxed) {
-                    return Err(DownloadError::Cancelled);
+    let token = opts.token_env.and_then(|name| std::env::var(name).ok());
+    let ctl = JobControl::new();
+    let finished = AtomicBool::new(false);
+    let progress = RefCell::new(progress);
+    std::thread::scope(|scope| {
+        // the caller's flag → `li-ai`'s cancel-aware transport
+        scope.spawn(|| {
+            while !finished.load(Ordering::SeqCst) {
+                if cancel.load(Ordering::SeqCst) {
+                    ctl.cancel();
+                    break;
                 }
-                let mut report = |n: u64, announced: u64| {
-                    let mirror = Url::parse(m).map(|u| u.display()).unwrap_or_default();
-                    progress(&Progress {
-                        file: f.name.to_string(),
-                        done: before.saturating_add(n),
-                        total: total.max(before.saturating_add(announced)),
-                        mirror,
-                    })
-                };
-                match fetch_file(f, &url, dir, opts, cancel, &mut report) {
-                    Ok(()) => {
-                        ok = true;
-                        break 'mirrors;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+        let r = (|| {
+            for f in todo {
+                let (Some(size), Some(sha)) = (f.size, f.sha256) else { return Err(DownloadError::Unpinned(f.name.to_string())) };
+                let dest = dir.join(f.name);
+                // the old client's resume file: never used again
+                let _ = std::fs::remove_file(dir.join(format!("{}.part", f.name)));
+                let mut errors = Vec::new();
+                let mut ok = false;
+                'mirrors: for m in mirrors {
+                    let url = format!("{m}/{}", f.name);
+                    let mirror = short(m);
+                    for _ in 0..opts.attempts.clamp(1, 16) {
+                        if cancel.load(Ordering::SeqCst) {
+                            return Err(DownloadError::Cancelled);
+                        }
+                        let report = |n: u64| {
+                            let p = Progress { file: f.name.to_string(), done: before.saturating_add(n), total, mirror: mirror.clone() };
+                            if let Ok(mut cb) = progress.try_borrow_mut() {
+                                cb(&p);
+                            }
+                        };
+                        report(0);
+                        match li_ai::download::download_file_with(&url, &dest, size, sha, bearer(token.as_deref(), &url), &ctl, &report) {
+                            Ok(()) => {
+                                ok = true;
+                                break 'mirrors;
+                            }
+                            Err(e) if e.is::<Cancelled>() || ctl.is_cancelled() || cancel.load(Ordering::SeqCst) => {
+                                return Err(DownloadError::Cancelled);
+                            }
+                            Err(e) => match classify(format!("{e:#}")) {
+                                Fail::Disk(e) => return Err(DownloadError::Disk(e)),
+                                Fail::Retry(e) => {
+                                    log::warn!("download of {}/{}: {e} (retrying)", mirror, f.name);
+                                    errors.push(format!("{mirror}: {e}"));
+                                }
+                                Fail::NextMirror(e) => {
+                                    log::warn!("download of {}/{}: {e}", mirror, f.name);
+                                    errors.push(format!("{mirror}: {e}"));
+                                    continue 'mirrors;
+                                }
+                            },
+                        }
                     }
-                    Err(Fail::Cancelled) => return Err(DownloadError::Cancelled),
-                    Err(Fail::Disk(e)) => return Err(DownloadError::Disk(e)),
-                    Err(Fail::Retry(e)) => {
-                        log::warn!("download of {url}: {e} (retrying)");
-                        errors.push(format!("{}: {e}", short(m)));
-                    }
-                    Err(Fail::NextMirror(e)) => {
-                        log::warn!("download of {url}: {e}");
-                        errors.push(format!("{}: {e}", short(m)));
-                        continue 'mirrors;
-                    }
                 }
-            }
-        }
-        if !ok {
-            return Err(DownloadError::AllMirrorsFailed { file: f.name.to_string(), errors });
-        }
-        before = before.saturating_add(std::fs::metadata(dir.join(f.name)).map(|m| m.len()).unwrap_or(0));
-    }
-    Ok(())
-}
-
-/// The bearer token to send to `url`: only a non-empty one, only over https, and only to the host
-/// the download began at (`origin`), never to the host a redirect leads to.
-fn bearer<'a>(token: Option<&'a str>, url: &Url, origin: &str) -> Option<&'a str> {
-    token.map(str::trim).filter(|t| !t.is_empty() && url.tls && url.host == origin)
-}
-
-/// A mirror for messages (no query string: it may hold a token).
-fn short(m: &str) -> String {
-    Url::parse(m).map(|u| u.display()).unwrap_or_else(|_| "mirror".into())
-}
-
-/// Whether `path` is already the right file (exact size and hash when pinned).
-fn verified(f: &FileSpec, path: &Path) -> Result<bool, DownloadError> {
-    let Ok(meta) = std::fs::metadata(path) else { return Ok(false) };
-    if !meta.is_file() || meta.len() == 0 {
-        return Ok(false);
-    }
-    if f.size.is_some_and(|s| s != meta.len()) || meta.len() > f.max {
-        return Ok(false);
-    }
-    match f.sha256 {
-        Some(want) => Ok(sha256_file(path).map_err(DownloadError::Disk)? == want),
-        None => Ok(true),
-    }
-}
-
-fn sha256_file(path: &Path) -> Result<String, String> {
-    let mut file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        let n = file.read(&mut buf).map_err(|e| format!("{}: {e}", path.display()))?;
-        if n == 0 {
-            break;
-        }
-        h.update(buf.get(..n).unwrap_or_default());
-    }
-    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
-}
-
-fn part_path(dir: &Path, name: &str) -> PathBuf {
-    dir.join(format!("{name}.part"))
-}
-
-/// Fetch one file from one mirror into `<name>.part` (resuming it when its size is pinned),
-/// check it and move it into place.
-fn fetch_file(f: &FileSpec, url: &str, dir: &Path, opts: &Options, cancel: &AtomicBool, report: &mut dyn FnMut(u64, u64)) -> Result<(), Fail> {
-    let part = part_path(dir, f.name);
-    let limit = f.size.unwrap_or(f.max);
-    let disk = |e: std::io::Error| Fail::Disk(format!("{}: {e}", part.display()));
-    // resume only a pinned file (an unpinned one can't be checked after resuming)
-    let mut have = match std::fs::metadata(&part) {
-        Ok(m) if f.size.is_some() && m.len() <= limit => m.len(),
-        Ok(_) => {
-            std::fs::remove_file(&part).map_err(disk)?;
-            0
-        }
-        Err(_) => 0,
-    };
-    let fetched = f.size != Some(have) || have == 0;
-    if fetched {
-        let limits = Limits { connect: opts.connect_timeout, stall: opts.stall_timeout, cancel };
-        let mut url = Url::parse(url).map_err(|e| Fail::NextMirror(e.to_string()))?;
-        let origin = url.host.clone();
-        let mut redirects = 0;
-        let mut resp = loop {
-            let mut headers = vec![];
-            if have > 0 {
-                headers.push(("Range", format!("bytes={have}-")));
-            }
-            // a token for the configured host only (never sent on to a redirect's host)
-            if let Some(t) = bearer(opts.token_env.and_then(|name| std::env::var(name).ok()).as_deref(), &url, &origin) {
-                headers.push(("Authorization", format!("Bearer {t}")));
-            }
-            let r = http::get(&url, &headers, &limits).map_err(http_fail)?;
-            match r.status {
-                301 | 302 | 303 | 307 | 308 => {
-                    redirects += 1;
-                    if redirects > MAX_REDIRECTS {
-                        return Err(Fail::NextMirror("too many redirects".into()));
-                    }
-                    let loc = r.header("location").ok_or_else(|| Fail::NextMirror("redirect without a location".into()))?;
-                    url = url.join(loc).map_err(|e| Fail::NextMirror(e.to_string()))?;
+                if !ok {
+                    return Err(DownloadError::AllMirrorsFailed { file: f.name.to_string(), errors });
                 }
-                _ => break r,
+                before = before.saturating_add(size);
             }
-        };
-        let mut file = match resp.status {
-            200 => {
-                // the whole file (from the start, also when a range was asked for)
-                if resp.content_length().is_some_and(|n| n > limit || f.size.is_some_and(|s| s != n)) {
-                    return Err(Fail::NextMirror(format!("the server's file has the wrong size ({:?} bytes)", resp.content_length())));
-                }
-                have = 0;
-                File::create(&part).map_err(disk)?
-            }
-            206 if have > 0 => {
-                let range = resp.header("content-range").unwrap_or_default();
-                let (start, total) = parse_content_range(range).ok_or_else(|| Fail::NextMirror(format!("bad Content-Range `{range}`")))?;
-                if start != have || total.is_some_and(|t| Some(t) != f.size) {
-                    return Err(Fail::NextMirror(format!("the server resumed at the wrong place ({range})")));
-                }
-                OpenOptions::new().append(true).open(&part).map_err(disk)?
-            }
-            416 => {
-                // the partial file doesn't fit what the server has: start over
-                std::fs::remove_file(&part).map_err(disk)?;
-                return Err(Fail::Retry("the partial download didn't match; starting over".into()));
-            }
-            401 | 403 => return Err(Fail::NextMirror(format!("access denied (HTTP {})", resp.status))),
-            404 | 410 => return Err(Fail::NextMirror(format!("not found (HTTP {})", resp.status))),
-            s if s >= 500 => return Err(Fail::Retry(format!("server error (HTTP {s})"))),
-            s => return Err(Fail::NextMirror(format!("HTTP {s}"))),
-        };
-        let announced = f.size.unwrap_or_else(|| resp.content_length().unwrap_or(0));
-        report(have, announced);
-        let mut buf = vec![0u8; 256 * 1024];
-        loop {
-            let n = match resp.read(&mut buf, &limits) {
-                Ok(n) => n,
-                Err(e) => {
-                    let _ = file.flush();
-                    if f.size.is_none() {
-                        drop(file);
-                        let _ = std::fs::remove_file(&part);
-                    }
-                    return Err(http_fail(e));
-                }
-            };
-            if n == 0 {
-                break;
-            }
-            if have.saturating_add(n as u64) > limit {
-                drop(file);
-                let _ = std::fs::remove_file(&part);
-                return Err(Fail::NextMirror(format!("the server sent more than the expected {limit} bytes")));
-            }
-            file.write_all(buf.get(..n).unwrap_or_default()).map_err(disk)?;
-            have = have.saturating_add(n as u64);
-            report(have, announced);
-        }
-        file.sync_all().map_err(disk)?;
-    }
-    // checks: exact size, hash
-    let len = std::fs::metadata(&part).map_err(disk)?.len();
-    if f.size.is_some_and(|s| s != len) {
-        return Err(Fail::Retry(format!("incomplete ({len} of {} bytes)", f.size.unwrap_or(0))));
-    }
-    if len == 0 {
-        let _ = std::fs::remove_file(&part);
-        return Err(Fail::NextMirror("the server sent an empty file".into()));
-    }
-    if let Some(want) = f.sha256 {
-        let got = sha256_file(&part).map_err(Fail::Disk)?;
-        if got != want {
-            std::fs::remove_file(&part).map_err(disk)?;
-            let why = format!("the file is damaged or not the official one (SHA-256 {got})");
-            // a damaged partial file from an earlier run isn't this mirror's fault
-            return Err(if fetched { Fail::NextMirror(why) } else { Fail::Retry(why) });
-        }
-    }
-    std::fs::rename(&part, dir.join(f.name)).map_err(disk)?;
-    Ok(())
-}
-
-fn http_fail(e: HttpError) -> Fail {
-    match e {
-        HttpError::Cancelled => Fail::Cancelled,
-        HttpError::Stalled | HttpError::Io(_) | HttpError::Protocol(_) => Fail::Retry(e.to_string()),
-        HttpError::BadUrl(_) | HttpError::Connect(_) | HttpError::Tls(_) => Fail::NextMirror(e.to_string()),
-    }
-}
-
-/// `bytes a-b/total` → (a, total) (`*` total → None).
-fn parse_content_range(v: &str) -> Option<(u64, Option<u64>)> {
-    let v = v.trim().strip_prefix("bytes")?.trim();
-    let (range, total) = v.split_once('/')?;
-    let (a, b) = range.split_once('-')?;
-    let (a, b) = (a.trim().parse::<u64>().ok()?, b.trim().parse::<u64>().ok()?);
-    if b < a {
-        return None;
-    }
-    let total = match total.trim() {
-        "*" => None,
-        t => Some(t.parse::<u64>().ok()?),
-    };
-    Some((a, total))
+            Ok(())
+        })();
+        finished.store(true, Ordering::SeqCst);
+        r
+    })
 }
 
 #[cfg(test)]

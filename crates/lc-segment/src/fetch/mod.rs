@@ -1,6 +1,8 @@
-//! Downloading the SAM 3 model, only when the user asked for it. The downloader itself (mirrors,
-//! resuming, checks, the pure-Rust HTTPS client) is the `lightcraft-fetch` crate; this module
-//! says what SAM 3 needs and where it may come from.
+//! Downloading the SAM 3 model, only when the user asked for it. The mirror list is the
+//! `lightcraft-fetch` crate, which downloads through the app's one downloader (`li-ai::download`:
+//! host allow-list, mandatory size + SHA-256); this module says what SAM 3 needs and where it may
+//! come from. Files without a pinned hash (the two tokenizer files, below) are never downloaded:
+//! the user puts them in the model folder.
 //!
 //! The weights are never part of LightCraft (SAM License, see docs/ai-masks.md); where they are
 //! downloaded from is configured by [`DEFAULT_MIRRORS`] and the user's own list.

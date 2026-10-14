@@ -1,6 +1,7 @@
 //! The model download as a background task the session starts, watches and cancels without
 //! ever blocking: progress lives in atomics, messages behind a mutex only ever `try_lock`ed
-//! by the session (the download thread holds it for a few instructions at a time).
+//! by the session (the download thread holds it for a few instructions at a time). The bytes go
+//! through `lightcraft-fetch`'s mirror list over the app's one downloader (`li-ai::download`).
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

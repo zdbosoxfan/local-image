@@ -581,7 +581,6 @@ ports of that commit (our code had diverged), not claims that the files match. L
 | `crates/lc-engine/src/segment/mod.rs` | [LightCraft](https://github.com/storytold/lightcraft) | `crates/engine/src/segment/mod.rs` | `4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f` | MIT OR Apache-2.0 | 2026-10-13 |
 | `crates/lc-fetch/src/lib.rs` | [LightCraft](https://github.com/storytold/lightcraft) | `crates/fetch/src/lib.rs` | `4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f` | Apache-2.0 | 2026-10-13 |
 | `crates/lc-fetch/src/tests.rs` | [LightCraft](https://github.com/storytold/lightcraft) | `crates/fetch/src/tests.rs` | `4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f` | Apache-2.0 | 2026-10-13 |
-| `crates/lc-fetch/src/http.rs` | [LightCraft](https://github.com/storytold/lightcraft) | `crates/fetch/src/http.rs` | `8dd3afce51d27d2625f8e094e6dd11b713cede01` | Apache-2.0 | 2026-10-13 |
 | `crates/lc-fetch/src/lib.rs` | [LightCraft](https://github.com/storytold/lightcraft) | `crates/fetch/src/lib.rs` | `8dd3afce51d27d2625f8e094e6dd11b713cede01` | Apache-2.0 | 2026-10-13 |
 | `crates/lc-fetch/src/tests.rs` | [LightCraft](https://github.com/storytold/lightcraft) | `crates/fetch/src/tests.rs` | `8dd3afce51d27d2625f8e094e6dd11b713cede01` | Apache-2.0 | 2026-10-13 |
 | `apps/local-image/src/services.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `apps/photocraft/src/services.rs` | `9b4562f2a054a104712d03c2ba11a3aa07e93614` | MIT OR Apache-2.0 | 2026-10-13 |

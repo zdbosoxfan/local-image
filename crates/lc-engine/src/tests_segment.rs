@@ -103,24 +103,38 @@ fn a_failing_download_ends_with_an_error_and_never_blocks() {
     // a second request while it runs starts nothing
     let again = s.execute("segment.model.download", &json!({"acknowledged": true})).unwrap();
     assert!(again["started"] == false || again["downloading"] == false);
-    let t = Instant::now();
-    while s.segmenter.download_status().running {
-        assert!(t.elapsed() < Duration::from_secs(30), "the download never ended");
-        // AI mask requests meanwhile: an error at once, never a wait
-        let q = Instant::now();
-        let e = s.execute("mask.add", &json!({"kind": "prompt", "text": "sky"})).unwrap_err().to_string();
-        assert!(e.contains(NOT_INSTALLED), "{e}");
-        assert!(q.elapsed() < Duration::from_millis(500));
-        std::thread::sleep(Duration::from_millis(20));
-    }
-    let st = s.segmenter.download_status();
+    let wait = |s: &mut Session| {
+        let t = Instant::now();
+        while s.segmenter.download_status().running {
+            assert!(t.elapsed() < Duration::from_secs(30), "the download never ended");
+            // AI mask requests meanwhile: an error at once, never a wait
+            let q = Instant::now();
+            let e = s.execute("mask.add", &json!({"kind": "prompt", "text": "sky"})).unwrap_err().to_string();
+            assert!(e.contains(NOT_INSTALLED), "{e}");
+            assert!(q.elapsed() < Duration::from_millis(500));
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        s.segmenter.download_status()
+    };
+    // TEST-CHANGED (J8): the shared downloader (li-ai) never fetches the unpinned tokenizer files…
+    let st = wait(&mut s);
     assert!(!st.finished);
     let e = st.error.unwrap();
-    assert!(e.contains("not found"), "{e}");
+    assert!(e.contains("vocab.json") && e.contains("model folder"), "{e}");
+    // …and with them in place, the weights only come from an allow-listed host (this local
+    // plain-http mirror is not one), with nothing left behind
+    std::fs::write(dir.join("vocab.json"), b"{}").unwrap();
+    std::fs::write(dir.join("merges.txt"), b"#version: 0.2\n").unwrap();
+    assert_eq!(s.execute("segment.model.download", &json!({"acknowledged": true})).unwrap()["started"], true);
+    let st = wait(&mut s);
+    assert!(!st.finished);
+    let e = st.error.unwrap();
+    assert!(e.contains("unexpected host"), "{e}");
     assert!(!s.segmenter.installed());
     // nothing was left behind under a real name, and no error page was saved
-    for f in ["model.safetensors", "vocab.json", "merges.txt", "vocab.json.part"] {
-        assert!(!dir.join(f).exists(), "{f}");
+    for f in std::fs::read_dir(&dir).unwrap() {
+        let name = f.unwrap().file_name().to_string_lossy().into_owned();
+        assert!(name == "vocab.json" || name == "merges.txt", "{name}");
     }
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_file(&mirrors);

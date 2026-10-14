@@ -6331,7 +6331,7 @@
         },
         {
           "name": "LightCraft",
-          "used_for": "AI masks: Object (clicks) and Describe (text) selections computed with SAM 3 (lightcraft-segment, cargo feature sam; the desktop app enables it).",
+          "used_for": "AI masks: Object (clicks) and Describe (text) selections computed with SAM 3 (lightcraft-segment, cargo feature sam; off by owner decision: no default build enables it).",
           "upstream": "crates/engine/src/segment/mod.rs",
           "commit": "4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f",
           "ours": "crates/lc-engine/src/segment/mod.rs",
@@ -6345,7 +6345,7 @@
         },
         {
           "name": "LightCraft",
-          "used_for": "Downloading a model's files, only when the user asked for it: from an ordered list of mirrors (the next one when a mirror fails), resuming partial files, with connect and stall timeouts, a size cap, progress and cancellation, and checked (exact size, SHA-256 where pinned) before each file is moved into the model folder.",
+          "used_for": "Downloading a model's files from an ordered list of mirrors, only when the user asked for it, through the app's one verified downloader.",
           "upstream": "crates/fetch/src/lib.rs",
           "commit": "4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f",
           "ours": "crates/lc-fetch/src/lib.rs",
@@ -6359,7 +6359,7 @@
         },
         {
           "name": "LightCraft",
-          "used_for": "The downloader against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, resuming, chunked bodies, stalls, hash mismatches, size caps, cancel.",
+          "used_for": "The mirror adapter over li-ai::download against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, chunked bodies, hash mismatches, size caps, unpinned files, stale files from the old client, cancel.",
           "upstream": "crates/fetch/src/tests.rs",
           "commit": "4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f",
           "ours": "crates/lc-fetch/src/tests.rs",
@@ -6373,21 +6373,7 @@
         },
         {
           "name": "LightCraft",
-          "used_for": "A small HTTP/1.1 GET client for model downloads, in pure Rust: std::net sockets and, for https://, rustls with the RustCrypto provider (rustls-rustcrypto; no ring or aws-lc-rs, so nothing is compiled from C or assembly) and the Mozilla root certificates (webpki-roots).",
-          "upstream": "crates/fetch/src/http.rs",
-          "commit": "8dd3afce51d27d2625f8e094e6dd11b713cede01",
-          "ours": "crates/lc-fetch/src/http.rs",
-          "licence": "Apache-2.0",
-          "licence_files": [
-            "licenses/lightcraft-LICENSE-APACHE",
-            "licenses/lightcraft-LICENSE-MIT",
-            "licenses/lightcraft-NOTICE"
-          ],
-          "url": "https://github.com/storytold/lightcraft/blob/8dd3afce51d27d2625f8e094e6dd11b713cede01/crates/fetch/src/http.rs"
-        },
-        {
-          "name": "LightCraft",
-          "used_for": "Downloading a model's files, only when the user asked for it: from an ordered list of mirrors (the next one when a mirror fails), resuming partial files, with connect and stall timeouts, a size cap, progress and cancellation, and checked (exact size, SHA-256 where pinned) before each file is moved into the model folder.",
+          "used_for": "Downloading a model's files from an ordered list of mirrors, only when the user asked for it, through the app's one verified downloader.",
           "upstream": "crates/fetch/src/lib.rs",
           "commit": "8dd3afce51d27d2625f8e094e6dd11b713cede01",
           "ours": "crates/lc-fetch/src/lib.rs",
@@ -6401,7 +6387,7 @@
         },
         {
           "name": "LightCraft",
-          "used_for": "The downloader against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, resuming, chunked bodies, stalls, hash mismatches, size caps, cancel.",
+          "used_for": "The mirror adapter over li-ai::download against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, chunked bodies, hash mismatches, size caps, unpinned files, stale files from the old client, cancel.",
           "upstream": "crates/fetch/src/tests.rs",
           "commit": "8dd3afce51d27d2625f8e094e6dd11b713cede01",
           "ours": "crates/lc-fetch/src/tests.rs",

@@ -51,7 +51,8 @@ photocraft-algo = { workspace = true }
 photocraft-raster = { workspace = true }
 
 [features]
-# AI masks with SAM 3 (Object / Describe). Off for the web and CLI builds.
+# AI masks with SAM 3 (Object / Describe). Off by owner decision: no default build enables it
+# (`local-image --features sam` opts in; the crate stays buildable).
 sam = ["dep:lightcraft-segment"]
 
 [dev-dependencies]
