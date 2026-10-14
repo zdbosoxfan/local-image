@@ -6,9 +6,33 @@ pub mod resample;
 pub mod resize_u8;
 pub use resample::Filter;
 pub use resize_u8::{resize_gray8, resize_rgb8, resize_rgba8, resize_u8};
+
+std::thread_local! {
+    static SEQUENTIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+/// Keep raster work on the calling thread when the caller already parallelizes images.
+/// Nested scopes and unwinding restore the previous mode; other threads are unaffected.
+pub fn sequential<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SEQUENTIAL.set(self.0);
+        }
+    }
+    let _restore = Restore(SEQUENTIAL.replace(true));
+    f()
+}
+/// Whether the calling thread has requested sequential raster work.
+pub fn is_sequential() -> bool {
+    SEQUENTIAL.get()
+}
 /// Independent rows; sequential on wasm or without the parallel feature.
 pub fn par_rows<T: Send>(data: &mut [T], row_len: usize, f: impl Fn(usize, &mut [T]) + Sync + Send) {
     if row_len == 0 {
+        return;
+    }
+    if is_sequential() {
+        data.chunks_mut(row_len).enumerate().for_each(|(y, row)| f(y, row));
         return;
     }
     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]

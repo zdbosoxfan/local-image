@@ -14,47 +14,20 @@ pub mod resample;
 
 pub use histogram::Histogram;
 
-std::thread_local! {
-    static SEQUENTIAL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
 /// Run raster kernels sequentially on this calling thread. A batch that already parallelizes
 /// images can avoid nested tiny row tasks without creating another pool or changing pixels.
 /// The previous mode is restored on normal return and on unwind; other threads are unaffected.
-pub fn sequential<R>(f: impl FnOnce() -> R) -> R {
-    struct Restore(bool);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            SEQUENTIAL.set(self.0);
-        }
-    }
-    let _restore = Restore(SEQUENTIAL.replace(true));
-    f()
-}
+pub use li_raster::sequential;
 
 /// Run `f` over row chunks, in parallel when the `parallel` feature is on.
 pub fn par_rows<T: Send>(data: &mut [T], row_len: usize, f: impl Fn(usize, &mut [T]) + Sync + Send) {
-    if row_len == 0 {
-        return;
-    }
-    if SEQUENTIAL.get() {
-        data.chunks_mut(row_len).enumerate().for_each(|(y, row)| f(y, row));
-        return;
-    }
-    #[cfg(feature = "parallel")]
-    {
-        use rayon::prelude::*;
-        data.par_chunks_mut(row_len).enumerate().for_each(|(y, row)| f(y, row));
-    }
-    #[cfg(not(feature = "parallel"))]
-    {
-        data.chunks_mut(row_len).enumerate().for_each(|(y, row)| f(y, row));
-    }
+    li_raster::par_rows(data, row_len, f);
 }
 
 /// Run `a` and `b` potentially in parallel (sequentially without the `parallel` feature). For
 /// independent passes that each scale poorly on their own (small images, short rows).
 pub fn par_join<A: Send, B: Send>(a: impl FnOnce() -> A + Send, b: impl FnOnce() -> B + Send) -> (A, B) {
-    if SEQUENTIAL.get() {
+    if li_raster::is_sequential() {
         return (a(), b());
     }
     #[cfg(feature = "parallel")]
@@ -291,17 +264,23 @@ mod tests {
         };
         let expected = render();
         let actual = sequential(|| {
-            assert!(SEQUENTIAL.get());
-            sequential(|| assert!(SEQUENTIAL.get()));
-            par_join(|| assert!(SEQUENTIAL.get()), || assert!(SEQUENTIAL.get()));
+            assert!(li_raster::is_sequential());
+            sequential(|| assert!(li_raster::is_sequential()));
+            par_join(|| assert!(li_raster::is_sequential()), || assert!(li_raster::is_sequential()));
+            let caller = std::thread::current().id();
+            let mut rows = [0; 32];
+            li_raster::par_rows(&mut rows, 1, |_, _| {
+                assert!(li_raster::is_sequential());
+                assert_eq!(std::thread::current().id(), caller);
+            });
             render()
         });
         assert_eq!(actual.data, expected.data);
-        assert!(!SEQUENTIAL.get());
+        assert!(!li_raster::is_sequential());
         let fail = || false;
         let failed = std::panic::catch_unwind(|| sequential(|| assert!(fail(), "exercise unwind restoration")));
         assert!(failed.is_err());
-        assert!(!SEQUENTIAL.get());
+        assert!(!li_raster::is_sequential());
     }
     #[test]
     fn crop_and_rotate() {
