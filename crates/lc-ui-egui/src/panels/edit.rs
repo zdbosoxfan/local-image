@@ -958,42 +958,61 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
 
 /// The Soft Proofing strip under the histogram: proof profile, gamut warnings, Create Proof Copy.
 fn soft_proofing(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
-    use lightcraft_engine::pipeline::OutputSpace;
-    let t = Tokens::get(ui.ctx());
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 8, bottom: 6 }).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(crate::i18n::tr("Soft Proofing")).color(t.text).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let mut dest = app.ui.proof.dest_warning;
-                let r = ui
-                    .toggle_value(&mut dest, RichText::new("■").color(Color32::from_rgb(255, 40, 40)))
-                    .on_hover_text(crate::i18n::tr("Show destination gamut warning"));
-                register(ui.ctx(), "button:proofDestWarning", r.rect);
-                let mut disp = app.ui.proof.display_warning;
-                let r2 = ui
-                    .toggle_value(&mut disp, RichText::new("■").color(Color32::from_rgb(40, 90, 255)))
-                    .on_hover_text(crate::i18n::tr("Show display gamut warning"));
-                register(ui.ctx(), "button:proofDisplayWarning", r2.rect);
-                if dest != app.ui.proof.dest_warning || disp != app.ui.proof.display_warning {
-                    let _ = app.run("view.softProof", json!({"destWarning": dest, "displayWarning": disp}));
-                }
-            });
-        });
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(crate::i18n::tr("Profile:")).color(t.text_label));
-            let cur = app.ui.proof.space;
-            egui::ComboBox::from_id_salt("proof-space").width(170.0).selected_text(cur.label()).show_ui(ui, |ui| {
-                for s in OutputSpace::ALL {
-                    if ui.selectable_label(cur == s, s.label()).clicked() {
-                        let _ = app.run("view.softProof", json!({"space": s}));
-                    }
-                }
-            });
-        });
-        let r = ui.button(crate::i18n::tr("Create Proof Copy"));
-        register(ui.ctx(), "button:createProofCopy", r.rect);
-        if r.clicked() {
-            let name = crate::i18n::tr_format!("Proof Copy ({})", app.ui.proof.space.label());
+    use crate::widgets::{checkbox, choice, develop_body, field_with_action, panel_note};
+    use lightcraft_engine::pipeline::{OutputSpace, ProofIntent};
+    develop_body(ui, |ui| {
+        panel_note(ui, "Soft Proofing");
+        panel_note(ui, app.ui.proof.label());
+        let mut space = app.ui.proof.profile.is_none().then_some(app.ui.proof.space);
+        let mut options: Vec<_> = OutputSpace::ALL.into_iter().map(|s| (Some(s), s.label())).collect();
+        if app.ui.proof.profile.is_some() {
+            options.push((None, app.ui.proof.label()));
+        }
+        if choice(ui, "proof-space", &mut space, &options)
+            && let Some(space) = space
+        {
+            let _ = app.run("view.softProof", json!({"space":space}));
+        }
+        let path_id = ui.id().with("proof-profile-path");
+        let mut path = ui.ctx().data_mut(|d| d.get_temp::<String>(path_id).unwrap_or_default());
+        if field_with_action(ui, "proof-profile", &mut path, "ICC profile path", "Load ICC Profile", true)
+            && let Err(error) = app.run("view.softProof", json!({"profilePath":path}))
+        {
+            app.toast(ui.ctx(), error);
+        }
+        ui.ctx().data_mut(|d| d.insert_temp(path_id, path));
+        let mut intent = app.ui.proof.intent;
+        if choice(
+            ui,
+            "proof-intent",
+            &mut intent,
+            &[
+                (ProofIntent::RelativeColorimetric, "Relative Colorimetric"),
+                (ProofIntent::Perceptual, "Perceptual"),
+                (ProofIntent::Saturation, "Saturation"),
+                (ProofIntent::AbsoluteColorimetric, "Absolute Colorimetric"),
+            ],
+        ) {
+            let _ = app.run("view.softProof", json!({"intent":intent}));
+        }
+        let mut bpc = app.ui.proof.bpc;
+        if checkbox(ui, "proofBpc", &mut bpc, "Black Point Compensation").changed() {
+            let _ = app.run("view.softProof", json!({"bpc":bpc}));
+        }
+        let mut paper = app.ui.proof.simulate_paper;
+        if checkbox(ui, "proofPaper", &mut paper, "Simulate Paper & Ink").changed() {
+            let _ = app.run("view.softProof", json!({"simulatePaper":paper}));
+        }
+        let mut dest = app.ui.proof.dest_warning;
+        if checkbox(ui, "proofDestWarning", &mut dest, "Destination Gamut Warning").changed() {
+            let _ = app.run("view.softProof", json!({"destWarning":dest}));
+        }
+        let mut display = app.ui.proof.display_warning;
+        if checkbox(ui, "proofDisplayWarning", &mut display, "Monitor Gamut Warning").changed() {
+            let _ = app.run("view.softProof", json!({"displayWarning":display}));
+        }
+        if text_button(ui, "createProofCopy", "Create Proof Copy", false).clicked() {
+            let name = crate::i18n::tr_format!("Proof Copy ({})", app.ui.proof.label());
             if app.run("photo.virtualCopy", json!({"ids": [id.0], "name": name})).is_ok() {
                 app.toast(ui.ctx(), "Proof copy created");
             }
@@ -1803,4 +1822,135 @@ fn quick_develop(app: &mut LightcraftApp, ui: &mut egui::Ui, n: usize) {
             }
         });
     });
+}
+
+#[cfg(test)]
+mod j22_tests {
+    use super::*;
+    use crate::{
+        Services,
+        headless::Headless,
+        state::{RightPanel, ViewMode},
+    };
+    use std::time::{Duration, Instant};
+    const WAIT: Duration = Duration::from_secs(40);
+    fn click(h: &mut Headless, id: &str) {
+        let r = h.request("ui.clickWidget", json!({"id":id}), WAIT);
+        assert_eq!(r["ok"], true, "{id}: {r}");
+        h.step();
+    }
+    #[test]
+    fn j22_proof_controls_click_load_icc_and_fit_all_themes() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/j22");
+        std::fs::create_dir_all(&dir).unwrap();
+        let profile_path = dir.join("test-printer.icc");
+        std::fs::write(&profile_path, include_bytes!("../../../pc-cms/profiles/photocraft-coated-cmyk.icc")).unwrap();
+        for dark in [true, false] {
+            for width in [250.0, 400.0] {
+                for scale in [1.0, 1.5] {
+                    let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Services { png: None, ..Default::default() });
+                    app.ui.view = ViewMode::Detail;
+                    app.ui.right = RightPanel::Edit;
+                    app.ui.soft_proof = true;
+                    app.ui.histogram = false;
+                    app.ui.left_panel = false;
+                    app.ui.filmstrip = false;
+                    app.ui.right_width = width;
+                    app.set_host_theme(if dark { Tokens::default() } else { crate::tests_develop_c::light() });
+                    let mut h = Headless::new(app, [1200.0, 1100.0], scale);
+                    h.step();
+                    h.step();
+                    click(&mut h, "dropdown:proof-intent");
+                    click(&mut h, "button:proof-intent-1");
+                    assert_eq!(h.app.ui.proof.intent, lightcraft_pipeline::ProofIntent::Perceptual);
+                    click(&mut h, "check:proofBpc");
+                    assert!(!h.app.ui.proof.bpc);
+                    click(&mut h, "check:proofPaper");
+                    assert!(h.app.ui.proof.simulate_paper);
+                    click(&mut h, "check:proofDestWarning");
+                    click(&mut h, "check:proofDisplayWarning");
+                    assert!(h.app.ui.proof.dest_warning && h.app.ui.proof.display_warning);
+                    click(&mut h, "field:proof-profile");
+                    let r = h.request("ui.text", json!({"text":profile_path.to_str().unwrap()}), WAIT);
+                    assert_eq!(r["ok"], true, "{r}");
+                    h.step();
+                    click(&mut h, "button:proof-profile");
+                    assert!(h.app.ui.proof.profile.is_some());
+                    let n = h.app.session.catalog.photos().count();
+                    click(&mut h, "button:createProofCopy");
+                    assert_eq!(h.app.session.catalog.photos().count(), n + 1);
+                    let copy = h.app.session.catalog.photos().max_by_key(|p| p.id.0).unwrap();
+                    assert_eq!(copy.copy_name.as_deref(), Some(format!("Proof Copy ({})", h.app.ui.proof.label()).as_str()));
+                    let before = h.app.ui.proof.clone();
+                    let r = h.request(
+                        "engine.execute",
+                        json!({"command":"view.softProof", "params":{"profilePath":dir.join("absent.icc"),"bpc":true}}),
+                        WAIT,
+                    );
+                    assert_ne!(r["ok"], true);
+                    assert_eq!(before, h.app.ui.proof);
+                    // The created copy retains the active proof view; ensure every control stays
+                    // within the actual narrow dock at both display scales.
+                    h.step();
+                    h.step();
+                    let panel = h.app.widgets.iter().find(|(id, _)| id == "panel:right_panel").unwrap().1;
+                    for (id, r) in &h.app.widgets {
+                        if id.contains("proof") || id == "button:createProofCopy" {
+                            assert!(
+                                r.left() >= panel.left() - 1.0 && r.right() <= panel.right() + 1.0,
+                                "{id} at width {width}: {r:?} outside {panel:?}"
+                            );
+                        }
+                    }
+                    assert!(h.settle(WAIT));
+                    let image = h.paint();
+                    let x0 = (panel.left() * scale) as usize;
+                    let x1 = (panel.right() * scale) as usize;
+                    let y1 = ((panel.top() + 500.0) * scale) as usize;
+                    let crop = lightcraft_raster::Rgba8::from_fn(x1 - x0, y1, |x, y| image.pixels[y * image.size[0] + x + x0].to_array());
+                    let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&crop), &Default::default()).unwrap();
+                    std::fs::write(dir.join(format!("proof-{}-{}-{scale}.png", if dark { "dark" } else { "light" }, width as u32)), png).unwrap();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn j22_proof_interactive_render_job_small_sample() {
+        let mut session = lightcraft_engine::Session::with_demo();
+        let id = session.active().unwrap_or(lightcraft_catalog::PhotoId(1));
+        session.selection = lightcraft_engine::Selection::single(id);
+        let stages = std::sync::Arc::new(lightcraft_pipeline::StageCache::default());
+        let start = Instant::now();
+        let ordinary = session.render_job(id, 192, 128, false, true).unwrap().with_stages(stages.clone()).run();
+        ordinary.rendered.as_ref().unwrap();
+        let ordinary_ms = start.elapsed().as_secs_f64() * 1000.0;
+        session.accept(&ordinary);
+        let proof = lightcraft_pipeline::Proof {
+            profile: Some(
+                lightcraft_pipeline::ProofProfile::try_from(std::sync::Arc::new(
+                    include_bytes!("../../../pc-cms/profiles/photocraft-coated-cmyk.icc").to_vec(),
+                ))
+                .unwrap(),
+            ),
+            ..Default::default()
+        };
+        let cold_start = Instant::now();
+        let cold = session.render_job(id, 192, 128, false, true).unwrap().with_stages(stages.clone()).with_proof(Some(proof.clone())).run();
+        cold.rendered.as_ref().unwrap();
+        let cold_ms = cold_start.elapsed().as_secs_f64() * 1000.0;
+        let warm_start = Instant::now();
+        let warm = session.render_job(id, 192, 128, false, true).unwrap().with_stages(stages.clone()).with_proof(Some(proof.clone())).run();
+        let warm_ms = warm_start.elapsed().as_secs_f64() * 1000.0;
+        assert_eq!(cold.rendered.unwrap().image, warm.rendered.unwrap().image);
+        let edit_start = Instant::now();
+        session.execute("develop.set", &json!({"control":"light.exposure", "value":0.2})).unwrap();
+        let edited = session.render_job(id, 192, 128, false, true).unwrap().with_stages(stages).with_proof(Some(proof)).draft().run();
+        edited.rendered.unwrap();
+        let edit_ms = edit_start.elapsed().as_secs_f64() * 1000.0;
+        println!(
+            "J22 real RenderJob (192x128 fit): ordinary preview {ordinary_ms:.3} ms; CPU CMYK proof cold {cold_ms:.3} ms; cached proof {warm_ms:.3} ms; exposure edit + draft {edit_ms:.3} ms; GPU adapter {:?}",
+            lightcraft_engine::gpu::adapter_name()
+        );
+    }
 }

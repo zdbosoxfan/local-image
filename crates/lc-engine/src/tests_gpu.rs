@@ -111,7 +111,7 @@ fn views(s: &mut Session, id: PhotoId, size: usize, stages: &Arc<StageCache>) ->
     let info: SourceInfo = decoded.info_or(job.info.clone());
     job.source = SourceRef::Loaded(Box::new(decoded.clone()));
     let (src, settings) = crate::enhance::for_render(&decoded.image, &job.settings, job.source_key);
-    let req: RenderRequest = job.request;
+    let req: RenderRequest = job.request.clone();
     let gpu = lightcraft_gpu::render(&src, &info, &settings, &req, None)
         .unwrap_or_else(|| panic!("gpu render ({:?})", lightcraft_gpu::last_fallback()))
         .image;
@@ -424,7 +424,7 @@ fn deep_corpus_raw_gpu_matches_cpu() {
         ..RenderRequest::fit(src.width, src.height)
     };
     let mut settings = lightcraft_develop::DevelopSettings::default();
-    assert_deep_close(src.clone(), &info, &settings, req);
+    assert_deep_close(src.clone(), &info, &settings, req.clone());
     settings.light.exposure = 0.3;
     settings.light.highlights = -40.0;
     settings.light.shadows = 30.0;

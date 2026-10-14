@@ -9,6 +9,8 @@ description = "LightCraft develop pipeline: scene-referred, float, resolution in
 workspace = true
 
 [dependencies]
+# Existing locked pure-Rust ICC backend, shared with Compositing.
+photocraft-cms = { workspace = true }
 # Reuse the already locked pure-Rust editor patch and Poisson backend.
 photocraft-algo = { workspace = true }
 photocraft-raster = { workspace = true }

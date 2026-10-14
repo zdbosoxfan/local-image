@@ -75,7 +75,7 @@ pub mod ucs;
 pub mod upright;
 pub mod visualize;
 
-pub use output::{DeepImage, DeepSamples, OutputDepth, OutputSpace, OutputTrc, Proof};
+pub use output::{DeepImage, DeepSamples, OutputDepth, OutputSpace, OutputTrc, Proof, ProofIntent, ProofProfile};
 pub use visualize::{MaskView, Overlay};
 
 use lightcraft_develop::{DevelopSettings, Treatment};
@@ -246,7 +246,7 @@ pub enum Quality {
     Full,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct RenderRequest {
     /// Output must fit in `max_w × max_h` (aspect preserved).
     pub max_w: usize,
@@ -654,15 +654,43 @@ fn presource_with(src: &Arc<Rgb32f>, p: &capture::CaptureParams, cache: Option<&
     out
 }
 
-/// Render `src` with settings `s`.
+/// Render `src` with settings `s`. Legacy infallible adapter: an unsupported proof
+/// yields an empty render. Custom ICC callers should use [`render_checked`] for the error.
 pub fn render(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Rendered {
-    render_impl(Src::Borrowed(src), info, s, req, None, primary::DEFAULT_HS_METHOD)
+    render_checked(src, info, s, req).unwrap_or_else(|_| empty_render())
 }
 
-/// [`render`], reusing (and refreshing) the intermediate results in `cache`. The output is
-/// identical to [`render`]'s.
+/// Render with explicit CMS linking errors (printer and monitor profiles are never substituted).
+pub fn render_checked(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Result<Rendered, photocraft_cms::CmsError> {
+    if let Some(proof) = &req.proof {
+        proof.try_params(req.space)?;
+    }
+    Ok(render_impl(Src::Borrowed(src), info, s, req, None, primary::DEFAULT_HS_METHOD))
+}
+
+/// [`render`], reusing the intermediate results in `cache`.
 pub fn render_cached(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, cache: &StageCache) -> Rendered {
-    render_impl(Src::Shared(src), info, s, req, Some(cache), primary::DEFAULT_HS_METHOD)
+    render_cached_checked(src, info, s, req, cache).unwrap_or_else(|_| empty_render())
+}
+
+/// [`render_checked`] with the app's intermediate stage cache.
+pub fn render_cached_checked(
+    src: &Arc<Rgb32f>,
+    info: &SourceInfo,
+    s: &DevelopSettings,
+    req: &RenderRequest,
+    cache: &StageCache,
+) -> Result<Rendered, photocraft_cms::CmsError> {
+    if let Some(proof) = &req.proof {
+        proof.try_params(req.space)?;
+    }
+    Ok(render_impl(Src::Shared(src), info, s, req, Some(cache), primary::DEFAULT_HS_METHOD))
+}
+
+fn empty_render() -> Rendered {
+    let image = Rgba8::new(0, 0);
+    let histogram = Histogram::of_srgb8(&image);
+    Rendered { image, histogram, deep: None }
 }
 
 /// Internal evaluation harness entry point; never persisted in photo settings.
@@ -826,9 +854,9 @@ pub fn finish_scene_stage(mut img: Arc<Rgb32f>, plan: &Plan<'_>, info: &SourceIn
 fn finish_stack(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest, diagnostic: Option<&Plane>) -> Rendered {
     let neutral = DevelopSettings::default();
     let deep = (req.depth != OutputDepth::U8)
-        .then(|| finish::finish_deep_mode(prep, &neutral, &plan.frame, info, req.space, req.depth, req.proof, finish::FinishMode::Output));
+        .then(|| finish::finish_deep_mode(prep, &neutral, &plan.frame, info, req.space, req.depth, req.proof.clone(), finish::FinishMode::Output));
     let mut image = deep.as_ref().map_or_else(
-        || finish::finish_mode(prep, &neutral, &plan.frame, info, req.space, req.proof, finish::FinishMode::Output),
+        || finish::finish_mode(prep, &neutral, &plan.frame, info, req.space, req.proof.clone(), finish::FinishMode::Output),
         DeepImage::to_rgba8,
     );
     let histogram = Histogram::of_srgb8(&image);
@@ -853,12 +881,12 @@ fn finish_prepared(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &Re
     let s = &*plan.settings;
     let frame = &plan.frame;
     if req.depth != OutputDepth::U8 {
-        let deep = finish::finish_deep(prep, s, frame, info, req.space, req.depth, req.proof);
+        let deep = finish::finish_deep(prep, s, frame, info, req.space, req.depth, req.proof.clone());
         let image = deep.to_rgba8();
         let histogram = Histogram::of_srgb8(&image);
         return Rendered { image, histogram, deep: Some(deep) };
     }
-    let image = finish::finish(prep, s, frame, info, req.space, req.proof);
+    let image = finish::finish(prep, s, frame, info, req.space, req.proof.clone());
     let histogram = Histogram::of_srgb8(&image);
     let mut image = image;
     let mask = overlay_alpha(req.overlay, plan, prep);

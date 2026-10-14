@@ -535,6 +535,8 @@ pub struct RenderResult {
     pub loaded: Option<DecodedSource>,
     /// Set for a [`QuickJob`]'s stand-in: where the image came from.
     pub quick: Option<QuickSource>,
+    /// Proof pixels already encoded for this monitor (skip a second display conversion).
+    pub proof_monitor: Option<u64>,
 }
 
 impl RenderJob {
@@ -566,12 +568,13 @@ impl RenderJob {
     /// never kept as the photo's cached preview.
     pub fn with_proof(mut self, proof: Option<lightcraft_pipeline::Proof>) -> Self {
         if self.request.proof != proof {
-            let k = |p: Option<lightcraft_pipeline::Proof>| p.map_or(0, |p| p.key()).wrapping_mul(0xc2b2_ae3d_27d4_eb4f);
-            self.key ^= k(self.request.proof) ^ k(proof);
+            let k = |p: &Option<lightcraft_pipeline::Proof>| p.as_ref().map_or(0, |p| p.key()).wrapping_mul(0xc2b2_ae3d_27d4_eb4f);
+            self.key ^= k(&self.request.proof) ^ k(&proof);
             self.request.proof = proof;
         }
-        if proof.is_some() {
+        if self.request.proof.is_some() {
             self.view_cache = None;
+            self.cache = None;
         }
         self
     }
@@ -587,10 +590,28 @@ impl RenderJob {
         let (source_key, level) = (self.source_key, self.level);
         match crate::guard::catch("Preview render", || self.run_inner()) {
             Ok(result) => result,
-            Err(error) => RenderResult { request_id, photo, key, source_key, level, rendered: Err(error), loaded: None, quick: None },
+            Err(error) => {
+                RenderResult { request_id, photo, key, source_key, level, rendered: Err(error), loaded: None, quick: None, proof_monitor: None }
+            }
         }
     }
     fn run_inner(self) -> RenderResult {
+        if let Some(proof) = &self.request.proof
+            && let Err(error) = proof.try_params(self.request.space)
+        {
+            return RenderResult {
+                request_id: self.request_id,
+                source_key: self.source_key,
+                photo: self.photo,
+                level: self.level,
+                key: self.key,
+                rendered: Err(format!("Cannot soft-proof selected profiles: {error}")),
+                loaded: None,
+                quick: None,
+                proof_monitor: None,
+            };
+        }
+
         if let Some((cache, key)) = &self.cache
             && let Some(img) = cache.get_at(self.cache_generation, *key)
         {
@@ -605,6 +626,7 @@ impl RenderJob {
                 rendered: Ok(Rendered { image, histogram, deep: None }),
                 loaded: None,
                 quick: None,
+                proof_monitor: None,
             };
         }
         let was_loaded = matches!(self.source, SourceRef::Loaded(_));
@@ -635,6 +657,7 @@ impl RenderJob {
                     rendered: Ok(rendered),
                     loaded: (!was_loaded).then_some(source),
                     quick: None,
+                    proof_monitor: self.request.proof.as_ref().and_then(|p| p.monitor.as_ref()).map(lightcraft_pipeline::ProofProfile::key),
                 }
             }
             Err(e) => RenderResult {
@@ -646,6 +669,7 @@ impl RenderJob {
                 rendered: Err(e),
                 loaded: None,
                 quick: None,
+                proof_monitor: None,
             },
         }
     }
@@ -728,9 +752,17 @@ impl QuickJob {
         let (request_id, photo, key) = (self.request_id, self.photo, self.key);
         match crate::guard::catch("Preview render", || self.run_inner()) {
             Ok(result) => result,
-            Err(error) => {
-                RenderResult { request_id, photo, key, source_key: None, level: SourceLevel::Thumb, rendered: Err(error), loaded: None, quick: None }
-            }
+            Err(error) => RenderResult {
+                request_id,
+                photo,
+                key,
+                source_key: None,
+                level: SourceLevel::Thumb,
+                rendered: Err(error),
+                loaded: None,
+                quick: None,
+                proof_monitor: None,
+            },
         }
     }
     fn run_inner(self) -> RenderResult {
@@ -745,6 +777,7 @@ impl QuickJob {
             rendered,
             loaded: None,
             quick,
+            proof_monitor: None,
         };
         let rendered = |image: Rgba8| {
             let histogram = Histogram::of_srgb8(&image);

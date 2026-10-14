@@ -2735,8 +2735,13 @@ mod tests {
             let src = lightcraft_raster::Rgb32f::filled(16, 16, [0.18; 3]);
             let base = lightcraft_pipeline::RenderRequest::fit(16, 16);
             move |space| {
-                lightcraft_pipeline::render(&src, &Default::default(), &Default::default(), &lightcraft_pipeline::RenderRequest { space, ..base })
-                    .image
+                lightcraft_pipeline::render(
+                    &src,
+                    &Default::default(),
+                    &Default::default(),
+                    &lightcraft_pipeline::RenderRequest { space, ..base.clone() },
+                )
+                .image
             }
         };
         let reference =

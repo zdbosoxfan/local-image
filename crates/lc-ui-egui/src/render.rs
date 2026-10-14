@@ -102,7 +102,11 @@ fn display_result(result: RenderResult, display: Option<&photocraft_engine::disp
     let color = result.rendered.as_ref().ok().map(|r| {
         let img = &r.image;
         let bytes = img.as_bytes();
-        let bytes = if let Some(d) = display.filter(|d| !d.is_identity()) { d.srgb8_to_display(img.width, &bytes) } else { bytes };
+        let bytes = if let Some(d) = display.filter(|d| !d.is_identity() && result.proof_monitor != Some(d.monitor.content_hash())) {
+            d.srgb8_to_display(img.width, &bytes)
+        } else {
+            bytes
+        };
         Arc::new(egui::ColorImage::from_rgba_unmultiplied([img.width, img.height], &bytes))
     });
     DisplayResult { result, color, display_key: display.map_or(0, |d| d.key) }
@@ -225,6 +229,12 @@ impl Renderer {
 }
 
 impl Renderer {
+    /// The active shared monitor profile, carried with a proof render to avoid
+    /// clipping through sRGB and applying monitor conversion twice.
+    pub fn proof_monitor(&self) -> Option<lightcraft_pipeline::ProofProfile> {
+        self.display.as_ref().map(|d| lightcraft_pipeline::ProofProfile::monitor(d.monitor.clone()))
+    }
+
     /// Change monitor transform and invalidate display textures, retaining processing stage caches.
     /// New uploads run on the existing bounded workers; old in-flight monitor results are discarded.
     pub fn set_display(&mut self, display: Arc<photocraft_engine::display_color::CanvasDisplay>) {
@@ -911,6 +921,24 @@ mod thumbnail_tests {
         }
         assert_eq!(app.renderer.thumb_jobs_built, 1);
         assert_eq!(app.renderer.queue.len(), 1);
+    }
+
+    #[test]
+    fn j22_proof_monitor_pixels_skip_second_display_conversion() {
+        let (mut app, _, _) = fixture();
+        let mut color = photocraft_engine::color_cmds::ColorState::default();
+        color.settings.monitor_profile = "display-p3".into();
+        let display = color.srgb_preview_display().unwrap();
+        app.renderer.set_display(display.clone());
+        let proof = lightcraft_pipeline::Proof { monitor: app.renderer.proof_monitor(), ..Default::default() };
+        let job = app.session.render_job(PhotoId(1), 64, 64, false, true).unwrap().with_proof(Some(proof));
+        let result = job.run();
+        assert_eq!(result.proof_monitor, Some(display.monitor.content_hash()));
+        let bytes = result.rendered.as_ref().unwrap().image.as_bytes();
+        let twice = display.srgb8_to_display(result.rendered.as_ref().unwrap().image.width, &bytes);
+        assert_ne!(bytes, twice, "sample detects a second monitor transform");
+        let converted = display_result(result, Some(&display));
+        assert_eq!(converted.color.unwrap().pixels.iter().flat_map(|p| p.to_array()).collect::<Vec<_>>(), bytes);
     }
 
     #[test]

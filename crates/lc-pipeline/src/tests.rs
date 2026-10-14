@@ -308,12 +308,17 @@ fn soft_proof_maps_into_the_proof_gamut_and_flags_what_does_not_fit() {
     let red = |img: &lightcraft_raster::Rgba8| img.data.iter().filter(|p| p[..3] == [255, 0, 0]).count();
     let blue = |img: &lightcraft_raster::Rgba8| img.data.iter().filter(|p| p[2] == 255 && p[0] == 0 && p[1] < 80).count();
 
-    // proofing sRGB on an sRGB render changes nothing but the warning
+    // CMS device clipping replaces the previous luminance-desaturation mapping.
     let plain = render(&src, &info, &s, &req(OutputSpace::Srgb, None)).image;
     let same = render(&src, &info, &s, &req(OutputSpace::Srgb, Some(Proof { space: OutputSpace::Srgb, ..Default::default() }))).image;
-    assert_eq!(plain, same);
-    let warned =
-        render(&src, &info, &s, &req(OutputSpace::Srgb, Some(Proof { space: OutputSpace::Srgb, dest_warning: true, display_warning: false }))).image;
+    assert_ne!(plain, same);
+    let warned = render(
+        &src,
+        &info,
+        &s,
+        &req(OutputSpace::Srgb, Some(Proof { space: OutputSpace::Srgb, dest_warning: true, display_warning: false, ..Default::default() })),
+    )
+    .image;
     let n = red(&warned);
     assert!(n > 0 && n < warned.len(), "{n}");
     // …and nothing is flagged on an unsaturated edit of a neutral ramp
@@ -322,7 +327,10 @@ fn soft_proof_maps_into_the_proof_gamut_and_flags_what_does_not_fit() {
         &grey,
         &info,
         &DevelopSettings::default(),
-        &RenderRequest { proof: Some(Proof { space: OutputSpace::Srgb, dest_warning: true, display_warning: true }), ..RenderRequest::fit(64, 8) },
+        &RenderRequest {
+            proof: Some(Proof { space: OutputSpace::Srgb, dest_warning: true, display_warning: true, ..Default::default() }),
+            ..RenderRequest::fit(64, 8)
+        },
     );
     assert_eq!(red(&g.image) + blue(&g.image), 0);
 
@@ -331,9 +339,13 @@ fn soft_proof_maps_into_the_proof_gamut_and_flags_what_does_not_fit() {
     let proofed = render(&src, &info, &s, &req(OutputSpace::DisplayP3, Some(Proof { space: OutputSpace::Srgb, ..Default::default() }))).image;
     assert_ne!(wide, proofed);
     // proofing a wider space than the display: what the display can't show is flagged blue
-    let pro =
-        render(&src, &info, &s, &req(OutputSpace::Srgb, Some(Proof { space: OutputSpace::ProPhoto, dest_warning: true, display_warning: true })))
-            .image;
+    let pro = render(
+        &src,
+        &info,
+        &s,
+        &req(OutputSpace::Srgb, Some(Proof { space: OutputSpace::ProPhoto, dest_warning: true, display_warning: true, ..Default::default() })),
+    )
+    .image;
     assert!(blue(&pro) > 0);
     assert!(red(&pro) < n, "ProPhoto holds more than sRGB");
 }
@@ -412,4 +424,47 @@ fn negative_conversion_renders() {
     assert_ne!(crate::plan(&src, &info, &on, &req).lin_key, p_off);
     // the GPU renderer takes the conversion from the CPU
     assert!(crate::lin_needs_cpu(&on) && !crate::lin_needs_cpu(&moved));
+}
+
+#[test]
+fn j22_proof_render_all_depths_matches_finished_float_edit() {
+    use crate::{DeepSamples, OutputDepth, OutputSpace, Proof, ProofProfile};
+    let src = Rgb32f::from_fn(24, 12, |x, y| [0.05 + x as f32 * 0.01, 0.1 + y as f32 * 0.01, 0.1 + (x + y) as f32 * 0.003]);
+    let info = SourceInfo::default();
+    let mut settings = DevelopSettings::default();
+    settings.grain.amount = 25.0;
+    let baseline =
+        render(&src, &info, &settings, &RenderRequest { space: OutputSpace::Rec2020, depth: OutputDepth::F32Linear, ..RenderRequest::fit(24, 12) });
+    let DeepSamples::F32(base) = baseline.deep.unwrap().samples else {
+        panic!("float baseline");
+    };
+    let proof =
+        Proof { profile: Some(ProofProfile::try_from(photocraft_cms::Builtin::CoatedCmyk.profile().to_bytes()).unwrap()), ..Default::default() };
+    let expected: Vec<_> =
+        base.as_chunks::<3>().0.iter().flat_map(|p| proof.params(OutputSpace::Srgb).unwrap().apply(*p).map(|v| v.clamp(0.0, 1.0))).collect();
+    let mut max_float_error = 0.0f32;
+    for depth in [OutputDepth::F32Linear, OutputDepth::U16, OutputDepth::U8] {
+        let actual = render(&src, &info, &settings, &RenderRequest { depth, proof: Some(proof.clone()), ..RenderRequest::fit(24, 12) });
+        match actual.deep {
+            Some(crate::DeepImage { samples: DeepSamples::F32(v), .. }) => {
+                for (a, e) in v.iter().zip(&expected) {
+                    max_float_error = max_float_error.max((a - lightcraft_color::transfer::srgb_to_linear(*e)).abs());
+                }
+                assert!(max_float_error < 2e-5, "finished grain is proofed: {max_float_error}");
+            }
+            Some(crate::DeepImage { samples: DeepSamples::U16(v), .. }) => {
+                for (a, e) in v.iter().zip(&expected) {
+                    assert!((*a as f32 / 65535.0 - e).abs() < 3e-5);
+                }
+            }
+            None => {
+                for (p, e) in actual.image.data.iter().zip(expected.as_chunks::<3>().0) {
+                    for c in 0..3 {
+                        assert!((p[c] as f32 / 255.0 - e[c]).abs() < 2.0 / 255.0, "actual {p:?} expected {e:?}");
+                    }
+                }
+            }
+        }
+    }
+    println!("J22 complete float edit→CMYK proof: 288 pixels × 3 depths; max linear-float error {max_float_error}");
 }

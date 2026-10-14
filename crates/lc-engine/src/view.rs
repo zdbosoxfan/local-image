@@ -207,3 +207,98 @@ fn date_label(d: &str) -> String {
         _ => d.to_string(),
     }
 }
+
+/// Apply a soft-proof patch atomically. Profiles are validated before any flags or
+/// view state change; the parsed bytes then travel with jobs instead of being reread.
+pub fn update_soft_proof(current: &lightcraft_pipeline::Proof, patch: &serde_json::Value) -> Result<lightcraft_pipeline::Proof, String> {
+    use lightcraft_pipeline::{OutputSpace, ProofIntent, ProofProfile};
+    let mut proof = current.clone();
+    if let Some(value) = patch.get("space") {
+        proof.space = value
+            .as_str()
+            .and_then(OutputSpace::parse)
+            .ok_or_else(|| "view.softProof: unknown space (srgb|displayP3|adobeRgb|proPhoto|rec2020)".to_string())?;
+        proof.profile = None;
+    }
+    if let Some(value) = patch.get("profilePath") {
+        if value.is_null() {
+            proof.profile = None;
+        } else {
+            use std::io::Read;
+            let path = value.as_str().filter(|p| !p.trim().is_empty()).ok_or("view.softProof: profilePath must be an ICC file path")?;
+            const LIMIT: u64 = 16 * 1024 * 1024;
+            let file = std::fs::File::open(path).map_err(|e| format!("Cannot open proof profile: {e}"))?;
+            if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+                return Err("Proof profile must be a regular file".into());
+            }
+            let mut bytes = Vec::new();
+            file.take(LIMIT + 1).read_to_end(&mut bytes).map_err(|e| format!("Cannot read proof profile: {e}"))?;
+            if bytes.len() as u64 > LIMIT {
+                return Err("Proof profile exceeds 16 MiB".into());
+            }
+            proof.profile = Some(ProofProfile::try_from(std::sync::Arc::new(bytes)).map_err(|e| format!("Invalid proof profile: {e}"))?);
+        }
+    }
+    if let Some(value) = patch.get("intent") {
+        proof.intent = match value.as_str() {
+            Some("perceptual") => ProofIntent::Perceptual,
+            Some("relativeColorimetric" | "relative") => ProofIntent::RelativeColorimetric,
+            Some("saturation") => ProofIntent::Saturation,
+            Some("absoluteColorimetric" | "absolute") => ProofIntent::AbsoluteColorimetric,
+            _ => return Err("view.softProof: unknown rendering intent".into()),
+        };
+    }
+    for (key, flag) in [
+        ("destWarning", &mut proof.dest_warning),
+        ("displayWarning", &mut proof.display_warning),
+        ("bpc", &mut proof.bpc),
+        ("simulatePaper", &mut proof.simulate_paper),
+    ] {
+        if let Some(value) = patch.get(key) {
+            *flag = value.as_bool().ok_or_else(|| format!("view.softProof: {key} must be a boolean"))?;
+        }
+    }
+    Ok(proof)
+}
+
+#[cfg(test)]
+mod proof_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn j22_proof_thumbnail_adapter_does_not_reuse_or_poison_normal_cache() {
+        use lightcraft_pipeline::{Proof, ProofProfile};
+        let mut session = crate::Session::with_demo();
+        let id = PhotoId(1);
+        let job = session.thumb_job(id, 64).unwrap();
+        let plain_key = job.key;
+        let plain = job.run();
+        session.accept(&plain);
+        let proof = Proof {
+            profile: Some(
+                ProofProfile::try_from(std::sync::Arc::new(include_bytes!("../../pc-cms/profiles/photocraft-coated-cmyk.icc").to_vec())).unwrap(),
+            ),
+            simulate_paper: true,
+            ..Default::default()
+        };
+        let proof_job = session.thumb_job(id, 64).unwrap().with_proof(Some(proof));
+        assert_ne!(proof_job.key, plain_key);
+        let proofed = proof_job.run();
+        assert_ne!(plain.rendered.as_ref().unwrap().image, proofed.rendered.as_ref().unwrap().image);
+        let next = session.thumb_job(id, 64).unwrap().run();
+        assert_eq!(plain.rendered.unwrap().image, next.rendered.unwrap().image);
+    }
+
+    #[test]
+    fn j22_proof_patch_is_atomic_and_legacy_settings_load() {
+        let old: lightcraft_pipeline::Proof = serde_json::from_value(json!({"space":"adobeRgb", "destWarning":true})).unwrap();
+        assert!(old.bpc);
+        assert!(old.profile.is_none());
+        let patched = update_soft_proof(&old, &json!({"intent":"perceptual", "simulatePaper":true, "bpc":false})).unwrap();
+        assert_ne!(old.key(), patched.key());
+        assert!(update_soft_proof(&old, &json!({"destWarning":false,"intent":"unknown"})).is_err());
+        assert!(old.dest_warning);
+        assert!(update_soft_proof(&old, &json!({"profilePath":"", "space":"srgb"})).is_err());
+        assert_eq!(old.space, lightcraft_pipeline::OutputSpace::AdobeRgb);
+    }
+}
