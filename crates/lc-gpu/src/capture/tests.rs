@@ -47,7 +47,7 @@ fn indices_f32(w: usize, h: usize, p: &CaptureParams, hypot: bool) -> Vec<u32> {
 }
 
 /// WGSL's gather mask and variance addition order, with the shared box blur's
-/// whole-row/32-row restart locations (identical to raster::blur::gaussian).
+/// whole-row/32-row restart locations and Develop's pinned box-blur policy.
 fn mask_f32(img: &Rgb32f, p: &CaptureParams) -> (Vec<f32>, Vec<f32>) {
     let (w, h) = (img.width, img.height);
     let lum: Vec<_> = img.data.iter().map(|c| lightcraft_color::luminance_2020(*c).max(0.0)).collect();
@@ -92,7 +92,7 @@ fn mask_f32(img: &Rgb32f, p: &CaptureParams) -> (Vec<f32>, Vec<f32>) {
         let weight = 1.0 / (1.0 + (offset - 200.0 * t).exp());
         (1.01011 * (weight - 0.01)).clamp(0.0, 1.0)
     });
-    let blurred = lightcraft_raster::blur::gaussian(&modified, 2.0);
+    let blurred = lightcraft_raster::blur::gaussian_with_policy(&modified, 2.0, lightcraft_raster::blur::GaussianPolicy::Boxes);
     let blend = modified
         .data
         .iter()

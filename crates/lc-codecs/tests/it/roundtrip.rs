@@ -308,11 +308,23 @@ fn build_psd(rle: bool, with_alpha: bool, icc: &[u8]) -> Vec<u8> {
     }
     b.extend_from_slice(&(res.len() as u32).to_be_bytes());
     b.extend_from_slice(&res);
-    // layer & mask info: layer info length + negative layer count
+    // A negative count marks merged transparency, but it still declares one real
+    // layer record. Keep that record valid for the shared hardened PSD parser.
     if with_alpha {
+        let mut layer = Vec::new();
+        for coordinate in [0i32, 0, h as i32, w as i32] {
+            layer.extend_from_slice(&coordinate.to_be_bytes());
+        }
+        layer.extend_from_slice(&0u16.to_be_bytes()); // empty layer: no channel data
+        layer.extend_from_slice(b"8BIMnorm");
+        layer.extend_from_slice(&[255, 0, 0, 0]); // opacity, clipping, flags, filler
+        layer.extend_from_slice(&12u32.to_be_bytes());
+        layer.extend_from_slice(&[0; 12]); // empty mask, blending ranges and padded name
         let mut lm = Vec::new();
-        lm.extend_from_slice(&2u32.to_be_bytes());
+        lm.extend_from_slice(&(2u32 + layer.len() as u32).to_be_bytes());
         lm.extend_from_slice(&(-1i16).to_be_bytes());
+        lm.extend_from_slice(&layer);
+        lm.extend_from_slice(&0u32.to_be_bytes()); // global layer mask
         b.extend_from_slice(&(lm.len() as u32).to_be_bytes());
         b.extend_from_slice(&lm);
     } else {

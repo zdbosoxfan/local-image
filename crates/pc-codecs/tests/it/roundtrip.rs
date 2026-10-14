@@ -190,7 +190,15 @@ fn tiff_all_compressions_lossless() {
             for comp in [TiffCompression::None, TiffCompression::Lzw, TiffCompression::Deflate, TiffCompression::PackBits] {
                 let opts = EncodeOptions { tiff_compression: comp, ..Default::default() };
                 let back = decode(&encode(&img, Format::Tiff, &opts).unwrap()).unwrap();
-                assert_eq!(back, img.clone().with_meta(back.meta.clone()), "{layout:?} {sample:?} {comp:?}");
+                let mut expected = img.clone().with_meta(back.meta.clone());
+                expected.source_bit_depth = Some(match sample {
+                    SampleType::U8 => 8,
+                    SampleType::U16 => 16,
+                    SampleType::F32 => 32,
+                    _ => unreachable!(),
+                });
+                expected.source_float = Some(sample == SampleType::F32);
+                assert_eq!(back, expected, "{layout:?} {sample:?} {comp:?}");
             }
         }
     }

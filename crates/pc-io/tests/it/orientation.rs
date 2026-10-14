@@ -136,6 +136,7 @@ fn nef(ifd0_orientation: u16, preview: Vec<u8>) -> Vec<u8> {
     ]);
     let ifd0 = t.ifd(vec![
         (271, Val::Ascii("NIKON CORPORATION".into())),
+        (272, Val::Ascii("UNSUPPORTED SYNTHETIC NEF".into())),
         (274, Val::Short(vec![ifd0_orientation])),
         (330, Val::Ifds(vec![raw])),
         (513, Val::Blobs(vec![preview])),

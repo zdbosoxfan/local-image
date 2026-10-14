@@ -718,6 +718,9 @@ fn ds2_clear_face_data_failure_is_displayed_in_settings() {
     h.app.ui.dialog = Some(Dialog::Settings { tab: "general".into() });
     h.step();
     h.step();
+    // Resolve the new scroll-window's hit testing before the down/up pair.
+    h.request("ui.hoverWidget", json!({"id":"button:settingsClearFaces"}), T);
+    h.step();
     click(&mut h, "button:settingsClearFaces");
     click(&mut h, "smartSort:clearFaceData");
     assert!(h.app.ui.people.error.contains("could not delete face cache"));

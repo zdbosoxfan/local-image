@@ -25,6 +25,35 @@ fn shared_decode_fixed_linear_goldens() {
         let start = std::time::Instant::now();
         let d = decode(&bytes, DecodeOptions::default()).unwrap();
         let elapsed = start.elapsed();
+        // Check the numerical contract on every platform. The native f32 powf
+        // path may differ from the captured Linux libm result by one ULP.
+        let raw = photocraft_codecs::decode(&bytes).unwrap();
+        let channels = raw.layout().channels();
+        let mut max_error = 0.0f64;
+        for (i, pixel) in d.image.data.iter().enumerate() {
+            for (c, value) in pixel.iter().enumerate() {
+                let input = raw.sample_normalized(i * channels + c) as f64;
+                let reference = d.space.trc.as_ref().map_or(input, |trcs| trcs[c].to_curve().eval64(input));
+                assert!(value.is_finite() && reference.is_finite(), "{name}: non-finite linear sample");
+                max_error = max_error.max((*value as f64 - reference).abs());
+            }
+        }
+        assert!(max_error <= f32::EPSILON as f64, "{name}: f64 linear-light reference error {max_error:e}");
+        assert_eq!(
+            (d.width, d.height),
+            if name.starts_with("rgba16") {
+                (7, 5)
+            } else if name == "rgb32f.tif" {
+                (5, 3)
+            } else {
+                (17, 11)
+            }
+        );
+        assert_eq!(d.has_alpha, name.starts_with("rgba16"));
+        if matches!(name, "rgb8.png" | "rgb8.tif" | "rgb8.webp") {
+            let original: Vec<u8> = (0..17 * 11 * 3).map(|i| (i * 37 + i / 7) as u8).collect();
+            assert_eq!(raw.data(), original, "{name}: lossless device samples changed");
+        }
         let h = hash(
             d.image
                 .data
@@ -33,8 +62,13 @@ fn shared_decode_fixed_linear_goldens() {
                 .flat_map(|v| v.to_bits().to_le_bytes())
                 .chain(d.alpha.iter().flat_map(|a| a.data.iter()).flat_map(|v| v.to_bits().to_le_bytes())),
         );
-        assert_eq!(h, expected, "{name}: linear pixels/alpha changed");
-        eprintln!("{name}: {h:#018x}, {}x{}, {:?}", d.width, d.height, elapsed);
+        // Retain every captured hash on its original Linux x86_64 baseline.
+        // Deep/float fixtures remain bit-exact everywhere; sRGB8's parametric
+        // powf is checked against f64 above on other targets.
+        if !name.starts_with("rgb8") || cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            assert_eq!(h, expected, "{name}: linear pixels/alpha changed");
+        }
+        eprintln!("{name}: {h:#018x}, {}x{}, {elapsed:?}, f64 max error={max_error:e}", d.width, d.height);
     }
 }
 
