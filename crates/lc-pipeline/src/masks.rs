@@ -626,11 +626,23 @@ mod tests {
     #[test]
     fn j14_develop_guided_golden() {
         let (w, h) = (39, 23);
-        let guide = Plane::from_fn(w, h, |x, y| (0.03 + (x * 7 + y * 11) as f32 / 400.0).log2());
         let mask = Plane::from_fn(w, h, |x, _| if x < 19 { 1.0 } else { 0.0 });
+        // Freeze guide words so native log2 implementations cannot change the input.
+        // The output was checked bit-for-bit against pre-li-matte Develop on Apple Silicon.
+        let bytes = include_bytes!("../tests/fixtures/j14-guided-log-guide.f32le");
+        assert_eq!(bytes.len(), w * h * 4);
+        let guide = Plane { width: w, height: h, data: bytes.as_chunks::<4>().0.iter().map(|v| f32::from_le_bytes(*v)).collect() };
         let q = guided_cross(&guide, &mask, 2.7, 0.02);
         let hash = q.data.iter().fold(0xcbf29ce484222325u64, |h, v| (h ^ u64::from(v.to_bits())).wrapping_mul(0x100000001b3));
-        assert_eq!(hash, 7702663797854729420);
+        assert_eq!(hash, 9236099489760829479);
+        // Keep the original Linux-native input and pre-migration snapshot as well.
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        {
+            let guide = Plane::from_fn(w, h, |x, y| (0.03 + (x * 7 + y * 11) as f32 / 400.0).log2());
+            let q = guided_cross(&guide, &mask, 2.7, 0.02);
+            let hash = q.data.iter().fold(0xcbf29ce484222325u64, |h, v| (h ^ u64::from(v.to_bits())).wrapping_mul(0x100000001b3));
+            assert_eq!(hash, 7702663797854729420);
+        }
     }
 
     #[test]

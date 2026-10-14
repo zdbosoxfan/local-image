@@ -36,7 +36,7 @@ pub fn read_abr(bytes: &[u8], group: &str) -> Result<AbrImport, String> {
 }
 
 /// [`read_abr`] that checks `ctl` before each brush (and reports progress): a cancelled import
-/// fails with "cancelled".
+/// fails with the shared, localized cancellation message.
 pub fn read_abr_with(bytes: &[u8], group: &str, ctl: &lightcraft_sysmem::jobs::Interrupt) -> Result<AbrImport, String> {
     let f = abr::parse(bytes).map_err(|e| format!("not a readable Photoshop brush file: {e}"))?;
     // Parsing is the small part; mapping (tip decoding) reports 10–100 %.

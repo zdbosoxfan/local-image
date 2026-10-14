@@ -4611,16 +4611,20 @@ mod tests {
                 let mut view = lightcraft_ui_egui::headless::HeadlessView::new();
                 app.set_host_theme(library_palette(kind));
                 app.restyle(&view.ctx);
+                view.ctx.global_style_mut(|style| style.animation_time = 0.0);
                 let canvas = egui::Rect::from_min_max(egui::pos2(10., 10.), egui::pos2(630., 300.));
                 app.canvas_rect = Some(canvas);
                 app.ui.toast = Some(("Versions Off".into(), 2.));
                 let mut rectangles = Vec::new();
-                let raw = lightcraft_ui_egui::headless::HeadlessView::raw_input(egui::vec2(640., 320.), 1., 0.1, vec![]);
-                view.run(raw, |ui| {
-                    ui.painter().rect_filled(canvas, 0., background);
-                    lightcraft_ui_egui::panels::toast(&mut app, ui.ctx());
-                    rectangles = lightcraft_ui_egui::widgets::take_registry(ui.ctx());
-                });
+                // Shared egui Areas need their sizing/font frames before visual assertions.
+                for _ in 0..4 {
+                    let raw = lightcraft_ui_egui::headless::HeadlessView::raw_input(egui::vec2(640., 320.), 1., 0.1, vec![]);
+                    view.run(raw, |ui| {
+                        ui.painter().rect_filled(canvas, 0., background);
+                        lightcraft_ui_egui::panels::toast(&mut app, ui.ctx());
+                        rectangles = lightcraft_ui_egui::widgets::take_registry(ui.ctx());
+                    });
+                }
                 let body = rectangles.iter().find(|(id, _)| id == "toast:body").unwrap().1;
                 let text = rectangles.iter().find(|(id, _)| id == "toast:text").unwrap().1;
                 assert!(canvas.contains_rect(body) && body.contains_rect(text));

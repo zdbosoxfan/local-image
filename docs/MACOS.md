@@ -87,6 +87,7 @@ Set `MACOS_SIGN_IDENTITY` and `MACOS_INSTALLER_SIGN_IDENTITY` for Developer ID s
 ```sh
 WGPU_BACKEND=metal LOCAL_IMAGE_REQUIRE_GPU=1 cargo test -p photocraft-gpu --test gpu --test vector_geometry
 LC_REQUIRE_GPU=1 cargo test -p lightcraft-gpu --lib ds_finding_native_haze_selection_matches_sorted_quantile -- --ignored --nocapture
+WGPU_BACKEND=metal LOCAL_IMAGE_DENOISE_MODELS="$HOME/Library/Application Support/Local Image/models" cargo test -p lightcraft-gpu --test denoise ai_denoise_real_models_match_tract_on_apple_silicon -- --ignored --exact --nocapture
 cargo test -p li-ai
 cargo test -p lightcraft-sysmem -- --nocapture
 cargo test -p li-seg --test threading -- --nocapture

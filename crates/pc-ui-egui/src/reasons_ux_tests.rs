@@ -116,7 +116,7 @@ fn click_at<T>(h: &mut Harness<'_, T>, p: egui::Pos2) {
     }
 }
 fn hover_reason(h: &mut Harness<'_, (PhotocraftApp, Surface)>, label: &str, reason: &str) {
-    let p = h.get_by_label_contains(label).rect().center();
+    let p = h.get_by_label(label).rect().center();
     h.hover_at(p);
     h.run_steps(6);
     assert!(h.query_by_label(reason).is_some(), "missing tooltip: {label} -> {reason}");
@@ -130,7 +130,10 @@ fn reasons_ux_disabled_main_panel_context_clicks_and_tooltips() {
     let mut h = harness(empty, Surface::Main);
     h.get_by_label("Edit").click();
     h.run_steps(4);
-    hover_reason(&mut h, if cfg!(target_os = "macos") { "Fill… ⇧F5" } else { "Fill… Shift+F5" }, "Open a photo first.");
+    let fill = menus::menu_items(&h.state().0).into_iter().find(|item| item.id == "edit.fill").unwrap();
+    assert_eq!(fill.shortcut.as_deref(), Some("Shift+F5"));
+    // Shared command rows expose the command name; shortcuts are separate visual hints.
+    hover_reason(&mut h, "Fill…", "Open a photo first.");
     let mut a = app();
     a.run("layer.setProps", json!({"locked":true})).unwrap();
     let mut h = harness(a, Surface::Panel);
@@ -312,7 +315,7 @@ fn reasons_ux_rtx5090_menu_and_tooltip_screenshots() {
         h.run_steps(4);
         h.get_by_label("Edit").click();
         h.run_steps(4);
-        h.get_by_label_contains(if cfg!(target_os = "macos") { "Fill… ⇧F5" } else { "Fill… Shift+F5" }).hover();
+        h.get_by_label("Fill…").hover();
         h.run_steps(6);
         assert!(h.query_by_label("Open a photo first.").is_some());
         h.render().unwrap().save(dir.join(format!("main-{theme_name}-reason.png"))).unwrap();
