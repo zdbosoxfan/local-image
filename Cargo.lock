@@ -3985,6 +3985,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-keys"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "egui",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "li-raster"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -4374,6 +4383,7 @@ dependencies = [
  "egui_extras",
  "li-attributions",
  "li-color",
+ "li-keys",
  "li-seg",
  "lightcraft-catalog",
  "lightcraft-codecs",
@@ -5759,6 +5769,7 @@ dependencies = [
  "image",
  "li-ai",
  "li-color",
+ "li-keys",
  "li-seg",
  "lightcraft-meta",
  "lightcraft-pipeline",
@@ -6071,6 +6082,7 @@ dependencies = [
  "li-attributions",
  "li-color",
  "li-gpu",
+ "li-keys",
  "li-seg",
  "lightcraft-codecs",
  "lightcraft-raw",

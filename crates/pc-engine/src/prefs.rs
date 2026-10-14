@@ -830,125 +830,8 @@ pub struct ToolbarCustomization {
     pub vector_tool: String,
 }
 
-/// Immutable application bindings. Undo/redo route to the focused workspace.
-pub const GLOBAL_SHORTCUTS: &[(&str, &str, &str)] = &[
-    ("file.exit", "Quit", "Cmd+Q"),
-    ("edit.preferences.general", "Preferences", "Cmd+K"),
-    ("edit.undo", "Undo", "Cmd+Z"),
-    ("edit.redo", "Redo", "Cmd+Shift+Z"),
-    ("view.screenMode.cycle", "Screen mode", "F"),
-    ("global.fullscreen", "Full screen", "Cmd+Shift+F"),
-    ("host.library", "Library workspace", "Cmd+Alt+1"),
-    ("host.develop", "Develop workspace", "Cmd+Alt+2"),
-    ("host.editor", "Editor workspace", "Cmd+Alt+3"),
-];
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ShortcutWorkspace {
-    pub active: String,
-    pub custom: BTreeMap<String, ShortcutProfile>,
-}
-impl Default for ShortcutWorkspace {
-    fn default() -> Self {
-        Self { active: "Photoshop".into(), custom: BTreeMap::new() }
-    }
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ShortcutProfile {
-    pub parent: String,
-    pub overrides: BTreeMap<String, String>,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ShortcutProfiles {
-    pub library: ShortcutWorkspace,
-    pub editor: ShortcutWorkspace,
-    /// Distinguishes first-run migration from a deliberately selected built-in.
-    pub migrated: bool,
-}
-impl Default for ShortcutProfiles {
-    fn default() -> Self {
-        Self { library: ShortcutWorkspace { active: "Lightroom".into(), ..Default::default() }, editor: ShortcutWorkspace::default(), migrated: false }
-    }
-}
-impl ShortcutWorkspace {
-    pub fn parent(&self) -> &str {
-        self.custom.get(&self.active).map_or(self.active.as_str(), |p| p.parent.as_str())
-    }
-    pub fn duplicate(&mut self, name: &str) -> std::result::Result<(), String> {
-        if name.trim().is_empty() || self.custom.contains_key(name) || ["Lightroom", "Capture One", "Photoshop", "Affinity Photo"].contains(&name) {
-            return Err("Choose a unique profile name".into());
-        }
-        let profile =
-            ShortcutProfile { parent: self.parent().into(), overrides: self.custom.get(&self.active).map(|p| p.overrides.clone()).unwrap_or_default() };
-        self.custom.insert(name.into(), profile);
-        self.active = name.into();
-        Ok(())
-    }
-    pub fn rename(&mut self, name: &str) -> std::result::Result<(), String> {
-        if name == self.active {
-            return Ok(());
-        }
-        if name.trim().is_empty() || self.custom.contains_key(name) || ["Lightroom", "Capture One", "Photoshop", "Affinity Photo"].contains(&name) {
-            return Err("Choose a unique profile name".into());
-        }
-        let profile = self.custom.remove(&self.active).ok_or("Duplicate a built-in before editing it")?;
-        self.custom.insert(name.into(), profile);
-        self.active = name.into();
-        Ok(())
-    }
-    pub fn delete_active(&mut self) {
-        if let Some(profile) = self.custom.remove(&self.active) {
-            self.active = profile.parent;
-        }
-    }
-}
-impl ShortcutProfiles {
-    pub fn workspace(&self, library: bool) -> &ShortcutWorkspace {
-        if library { &self.library } else { &self.editor }
-    }
-    pub fn workspace_mut(&mut self, library: bool) -> &mut ShortcutWorkspace {
-        if library { &mut self.library } else { &mut self.editor }
-    }
-    pub fn migrate(&mut self, legacy: &BTreeMap<String, String>) {
-        if self.migrated || legacy.is_empty() {
-            return;
-        }
-        for library in [false, true] {
-            let overrides: BTreeMap<_, _> =
-                legacy.iter().filter(|(id, _)| id.starts_with("library::") == library).map(|(k, v)| (k.clone(), v.clone())).collect();
-            let workspace = self.workspace_mut(library);
-            if !overrides.is_empty() && workspace.custom.is_empty() {
-                workspace.custom.insert("Custom (migrated)".into(), ShortcutProfile { parent: workspace.parent().into(), overrides });
-                workspace.active = "Custom (migrated)".into();
-            }
-        }
-        self.migrated = true;
-    }
-    fn validate(&self, previous: &Self) -> std::result::Result<(), String> {
-        for library in [false, true] {
-            let workspace = self.workspace(library);
-            let builtins = if library { ["Lightroom", "Capture One"] } else { ["Photoshop", "Affinity Photo"] };
-            if !builtins.contains(&workspace.active.as_str()) && !workspace.custom.contains_key(&workspace.active) {
-                return Err("Unknown active shortcut profile".into());
-            }
-            for (name, profile) in &workspace.custom {
-                if name.trim().is_empty() || builtins.contains(&name.as_str()) || !builtins.contains(&profile.parent.as_str()) {
-                    return Err("Invalid shortcut profile name or parent".into());
-                }
-                for (id, chord) in &profile.overrides {
-                    if id.is_empty() || id.starts_with("library::") != library {
-                        return Err("Shortcut belongs to another workspace".into());
-                    }
-                    let old = previous.workspace(library).custom.get(name).and_then(|p| p.overrides.get(id));
-                    checked_shortcut(&Value::String(chord.clone()), old)?;
-                }
-            }
-        }
-        Ok(())
-    }
-}
+// Compatibility path for existing callers and persisted Preferences.
+pub use li_keys::{GLOBAL_SHORTCUTS, ShortcutProfile, ShortcutProfiles, ShortcutWorkspace};
 
 fn get_path_mut_profile<'a>(root: &'a mut Value, path: &str) -> std::result::Result<&'a mut Value, String> {
     let (scope, rest) = path.split_once(".custom.").ok_or("Unknown profile path")?;
@@ -1539,10 +1422,7 @@ pub fn global_shortcut_conflict(chord: &str) -> bool {
     global_shortcut_owner(chord).is_some()
 }
 fn global_shortcut_owner(chord: &str) -> Option<&'static str> {
-    let canonical =
-        |s: &str| normalize_shortcut(s).map(|s| if cfg!(target_os = "macos") { s } else { s.replace("Cmd+Ctrl+", "Cmd+").replace("Ctrl+", "Cmd+") });
-    let key = canonical(chord)?;
-    GLOBAL_SHORTCUTS.iter().find(|(_, _, chord)| canonical(chord).as_ref() == Some(&key)).map(|(id, _, _)| *id)
+    li_keys::global_shortcut_owner(chord)
 }
 
 // Unchanged legacy spellings may survive a full dialog round trip; newly introduced
@@ -1558,134 +1438,7 @@ fn checked_shortcut(value: &Value, previous: Option<&String>) -> std::result::Re
     }
 }
 
-/// Canonical spelling of a shortcut: modifiers in `Cmd+Ctrl+Alt+Shift` order, key last
-/// (single characters upper-cased). `None` if it has no key or an unknown modifier.
-pub fn normalize_shortcut(s: &str) -> Option<String> {
-    let s = s.trim();
-    if s.is_empty() {
-        return None;
-    }
-    let (mut cmd, mut ctrl, mut alt, mut shift) = (false, false, false, false);
-    let mut key: Option<String> = None;
-    // A trailing "+" key is spelled "Cmd++".
-    let (body, plus_key) = if s.ends_with("++") || s == "+" { (s.trim_end_matches('+'), true) } else { (s, false) };
-    for part in body.split('+').filter(|p| !p.is_empty()) {
-        match part.to_ascii_lowercase().as_str() {
-            "cmd" | "command" | "⌘" | "meta" | "super" => cmd = true,
-            "ctrl" | "control" | "⌃" => ctrl = true,
-            "alt" | "option" | "opt" | "⌥" => alt = true,
-            "shift" | "⇧" => shift = true,
-            _ => {
-                if key.is_some() {
-                    return None;
-                }
-                key = Some(shortcut_key(part)?);
-            }
-        }
-    }
-    if plus_key {
-        if key.is_some() {
-            return None;
-        }
-        key = Some("+".into());
-    }
-    let key = key?;
-    let mut out = Vec::new();
-    if cmd {
-        out.push("Cmd");
-    }
-    if ctrl {
-        out.push("Ctrl");
-    }
-    if alt {
-        out.push("Alt");
-    }
-    if shift {
-        out.push("Shift");
-    }
-    let mut s = out.join("+");
-    if !s.is_empty() {
-        s.push('+');
-    }
-    s.push_str(&key);
-    Some(s)
-}
-
-/// Platform-independent key vocabulary. UI regression tests check every egui key against
-/// this table, so persisted spellings stay executable without making the engine depend on egui.
-fn shortcut_key(s: &str) -> Option<String> {
-    let lower = s.to_ascii_lowercase();
-    let canonical = match lower.as_str() {
-        "arrowdown" | "down" | "⏷" => "Down",
-        "arrowleft" | "left" | "⏴" => "Left",
-        "arrowright" | "right" | "⏵" => "Right",
-        "arrowup" | "up" | "⏶" => "Up",
-        "esc" | "escape" => "Escape",
-        "return" | "numpadenter" | "enter" => "Enter",
-        "help" | "insert" => "Insert",
-        "numpadcomma" | "comma" | "," => ",",
-        "numpadsubtract" | "minus" | "−" | "-" => "-",
-        "numpaddecimal" | "period" | "." => ".",
-        "numpadadd" | "plus" | "+" => "+",
-        "numpadequal" | "equal" | "equals" | "=" => "=",
-        "colon" | ":" => ":",
-        "semicolon" | ";" => ";",
-        "backslash" | "\\" => "\\",
-        "numpaddivide" | "slash" | "/" => "/",
-        "pipe" | "|" => "|",
-        "questionmark" | "?" => "?",
-        "exclamationmark" | "!" => "!",
-        "bracketleft" | "openbracket" | "[" => "[",
-        "bracketright" | "closebracket" | "]" => "]",
-        "opencurlybracket" | "{" => "OpenCurlyBracket",
-        "closecurlybracket" | "}" => "CloseCurlyBracket",
-        "backtick" | "backquote" | "grave" | "`" => "Backtick",
-        "quote" | "'" => "'",
-        "metaleft" | "osleft" => "SuperLeft",
-        "metaright" | "osright" => "SuperRight",
-        _ => {
-            const NAMES: &[&str] = &[
-                "Tab",
-                "Backspace",
-                "Delete",
-                "Home",
-                "End",
-                "PageUp",
-                "PageDown",
-                "Copy",
-                "Cut",
-                "Paste",
-                "Space",
-                "BrowserBack",
-                "ShiftLeft",
-                "ShiftRight",
-                "ControlLeft",
-                "ControlRight",
-                "AltLeft",
-                "AltRight",
-                "SuperLeft",
-                "SuperRight",
-                "IntlBackslash",
-            ];
-            if let Some(name) = NAMES.iter().find(|name| name.eq_ignore_ascii_case(s)) {
-                return Some((*name).into());
-            }
-            let digit = lower.strip_prefix("digit").or_else(|| lower.strip_prefix("numpad")).unwrap_or(&lower);
-            if digit.len() == 1 && digit.as_bytes()[0].is_ascii_digit() {
-                return Some(digit.into());
-            }
-            let letter = lower.strip_prefix("key").unwrap_or(&lower);
-            if letter.len() == 1 && letter.as_bytes()[0].is_ascii_alphabetic() {
-                return Some(letter.to_ascii_uppercase());
-            }
-            if let Some(number) = lower.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()).filter(|n| (1..=35).contains(n)) {
-                return Some(format!("F{number}"));
-            }
-            return None;
-        }
-    };
-    Some(canonical.into())
-}
+pub use li_keys::normalize_shortcut;
 
 /// Hold-and-release gestures (#249): temporary tools that last while their key is held and give
 /// the previous tool back on release. They are bound like shortcuts (Edit › Keyboard Shortcuts ›
@@ -1742,19 +1495,7 @@ fn bindable() -> impl Iterator<Item = (&'static str, Option<&'static str>)> {
     ids.into_iter()
 }
 
-/// Shortcuts bound to more than one command: (shortcut, ids). `bindings` are (id, shortcut).
-pub fn conflicts<'a>(bindings: impl IntoIterator<Item = (&'a str, &'a str)>) -> Vec<(String, Vec<String>)> {
-    let mut by: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for (id, sc) in bindings {
-        if let Some(n) = normalize_shortcut(sc) {
-            let ids = by.entry(n).or_default();
-            if !ids.iter().any(|i| i == id) {
-                ids.push(id.to_string());
-            }
-        }
-    }
-    by.into_iter().filter(|(_, ids)| ids.len() > 1).collect()
-}
+pub use li_keys::conflicts;
 
 // ------------------------------------------------------------------ store
 
@@ -2065,7 +1806,8 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
                     if c == id || m.contains_key(c) || GLOBAL_SHORTCUTS.iter().any(|(global, _, _)| *global == c) {
                         continue;
                     }
-                    if next.shortcut(c, def).and_then(normalize_shortcut).as_deref() == Some(sc.as_str()) {
+                    if next.shortcut(c, def).is_some_and(|key| li_keys::Chord::parse(key).zip(li_keys::Chord::parse(&sc)).is_some_and(|(a, b)| a.overlaps(&b)))
+                    {
                         next.shortcuts.insert(c.to_string(), String::new());
                     }
                 }
@@ -2398,5 +2140,28 @@ mod battery_compatibility_tests {
         let full = SystemResources { full_speed_on_battery: true, ..old };
         let round: SystemResources = serde_json::from_value(serde_json::to_value(&full).unwrap()).unwrap();
         assert_eq!(round, full);
+    }
+}
+
+#[cfg(test)]
+mod j20_tests {
+    use super::*;
+    #[test]
+    fn j20_legacy_settings_roundtrip_and_overlapping_transfer() {
+        let mut session = Session::new();
+        session.load_prefs_json(r#"{"shortcuts":{"edit.copy":"ctrl+f19","library::old":"ancient spelling","library::tool.brush":""}}"#).unwrap();
+        let prefs = session.prefs();
+        assert_eq!(prefs.shortcuts["edit.copy"], "Ctrl+F19");
+        assert_eq!(prefs.shortcut_profiles.library.custom["Custom (migrated)"].overrides["library::old"], "ancient spelling");
+        let saved = session.prefs_to_json();
+        let mut restored = Session::new();
+        restored.load_prefs_json(&saved).unwrap();
+        assert_eq!(restored.prefs().shortcut_profiles, session.prefs().shortcut_profiles);
+        restored.execute("edit.keyboardShortcuts", json!({"set":{"edit.copy":"Cmd+="}})).unwrap();
+        let result = restored.execute("edit.keyboardShortcuts", json!({"set":{"edit.cut":"Cmd++"}})).unwrap();
+        assert_eq!(restored.prefs().shortcut("edit.copy", Some("Cmd+C")), None, "the overlapping key was transferred from Copy to Cut");
+        assert!(result.is_object());
+        assert_eq!(normalize_shortcut("Shift+~").as_deref(), Some("Shift+Backtick"));
+        assert_eq!(conflicts([("a", "Cmd+="), ("b", "Cmd++")]).len(), 1);
     }
 }

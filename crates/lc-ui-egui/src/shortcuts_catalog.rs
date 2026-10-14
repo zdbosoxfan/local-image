@@ -140,9 +140,6 @@ pub fn effective(app: &LightcraftApp) -> Vec<(Binding, String)> {
         matches!(app.ui.right, crate::state::RightPanel::Edit | crate::state::RightPanel::Masking) && app.ui.view == crate::state::ViewMode::Detail;
     for b in &mut bindings {
         b.default = crate::keymaps::default(parent, &b.key, edit, b.default.as_deref()).map(str::to_string);
-        if parent == "Capture One" && edit && b.key == "library::alias/tool.linear/L" {
-            b.default = Some("L".into());
-        }
     }
     bindings.sort_by_key(|b| {
         (
@@ -150,23 +147,19 @@ pub fn effective(app: &LightcraftApp) -> Vec<(Binding, String)> {
             !app.shortcut_overrides.contains_key(&b.key),
         )
     });
-    let mut seen = Vec::new();
-    bindings
+    let mut effective: Vec<_> = bindings
         .into_iter()
         .filter_map(|b| {
             let global = matches!(b.command.as_str(), "app.quit" | "edit.undo" | "edit.redo" | "view.enterFullScreen" | "view.fullScreenPreview");
             let sc = if global { b.default.clone() } else { app.shortcut_overrides.get(&b.key).cloned().or_else(|| b.default.clone()) }?;
-            if !global && crate::keymaps::GLOBAL_CHORDS.iter().filter_map(|key| identity(key)).any(|key| Some(key) == identity(&sc)) {
+            if !global && li_keys::global_shortcut_owner(&sc).is_some() {
                 return None;
             }
-            let key = identity(&sc)?;
-            if seen.contains(&key) {
-                return None;
-            }
-            seen.push(key);
             Some((b, sc))
         })
-        .collect()
+        .collect();
+    li_keys::input::retain_first(&mut effective, |(_, key)| key);
+    effective
 }
 pub fn command_shortcut(app: &LightcraftApp, id: &str) -> Option<String> {
     effective(app).into_iter().find(|(b, _)| b.command == id && b.params.is_none()).map(|(_, s)| s)

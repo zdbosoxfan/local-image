@@ -717,44 +717,7 @@ pub fn shortcut_items(app: &PhotocraftApp) -> Vec<(String, String, Vec<String>, 
 }
 
 /// Text of a key press for the shortcut editor (`Cmd+Shift+K`), `None` for bare modifiers.
-pub fn shortcut_text(key: egui::Key, m: egui::Modifiers) -> Option<String> {
-    if is_modifier_key(key) {
-        return None;
-    }
-    let mut parts = Vec::new();
-    if m.command || m.mac_cmd {
-        parts.push("Cmd");
-    }
-    if m.ctrl && !m.command {
-        parts.push("Ctrl");
-    }
-    if m.alt {
-        parts.push("Alt");
-    }
-    if m.shift {
-        parts.push("Shift");
-    }
-    let name = match key {
-        egui::Key::Equals => "=",
-        egui::Key::Minus => "-",
-        egui::Key::OpenBracket => "[",
-        egui::Key::CloseBracket => "]",
-        egui::Key::Semicolon => ";",
-        egui::Key::Quote => "'",
-        egui::Key::Plus => "+",
-        k => k.name(),
-    };
-    parts.push(name);
-    prefs::normalize_shortcut(&parts.join("+"))
-}
-
-/// A modifier key on its own. egui reports Ctrl, Shift, Alt and ⌘ presses as key events too
-/// (`ControlLeft`…), before the key pressed with them: they are never a shortcut's key, so
-/// shortcut capture waits for the real key (#292: Ctrl+F was recorded as "Ctrl+ControlLeft").
-pub fn is_modifier_key(key: egui::Key) -> bool {
-    use egui::Key::*;
-    matches!(key, ShiftLeft | ShiftRight | ControlLeft | ControlRight | AltLeft | AltRight | SuperLeft | SuperRight)
-}
+pub use li_keys::input::{is_modifier_key, shortcut_text};
 
 // ------------------------------------------------------------------ menu routing
 
@@ -978,16 +941,10 @@ fn reserved_library_chord(id: &str, chord: &str) -> Option<&'static str> {
     if !id.starts_with("library::") {
         return None;
     }
-    let shortcut = crate::shortcuts::parse(chord)?;
-    let mut modifiers = shortcut.modifiers;
-    if !cfg!(target_os = "macos") && modifiers.ctrl {
-        modifiers.command = true;
-    }
-    if modifiers.matches_exact(egui::Modifiers::COMMAND | egui::Modifiers::ALT)
-        && matches!(shortcut.logical_key, egui::Key::Num1 | egui::Key::Num2 | egui::Key::Num3)
-    {
+    let shortcut = li_keys::Chord::parse(chord)?;
+    if ["Cmd+Alt+1", "Cmd+Alt+2", "Cmd+Alt+3"].iter().any(|key| li_keys::Chord::parse(key).is_some_and(|key| shortcut.overlaps(&key))) {
         Some("switching Library, Develop and Compositing")
-    } else if modifiers.matches_exact(egui::Modifiers::COMMAND) && shortcut.logical_key == egui::Key::S && id != "library::photo.saveMetadataToFile" {
+    } else if id != "library::photo.saveMetadataToFile" && li_keys::Chord::parse("Cmd+S").is_some_and(|key| shortcut.overlaps(&key)) {
         Some("saving the selected unsaved composite in Library")
     } else {
         None
@@ -998,18 +955,7 @@ fn reserved_message(action: &str) -> String {
 }
 
 fn same_chord_in_scope(_id: &str, a: &str, b: &str) -> bool {
-    let identity = |value: &str| {
-        let mut shortcut = crate::shortcuts::parse(value)?;
-        if shortcut.logical_key == egui::Key::Delete {
-            shortcut.logical_key = egui::Key::Backspace;
-        }
-        if !cfg!(target_os = "macos") && shortcut.modifiers.ctrl {
-            shortcut.modifiers.ctrl = false;
-            shortcut.modifiers.command = true;
-        }
-        Some(shortcut)
-    };
-    identity(a).is_some_and(|a| Some(a) == identity(b))
+    li_keys::Chord::parse(a).zip(li_keys::Chord::parse(b)).is_some_and(|(a, b)| a.overlaps(&b))
 }
 
 fn same_shortcut_scope(a: &str, b: &str) -> bool {
@@ -3169,5 +3115,64 @@ fn profile_defaults(prefs: &prefs::Preferences, profiles: &prefs::ShortcutProfil
         } else {
             crate::keymaps::default(&working, id, def.as_deref()).map(str::to_string)
         };
+    }
+}
+
+#[cfg(test)]
+mod j20_tests {
+    use super::*;
+    use egui_kittest::{
+        Harness,
+        kittest::{By, Queryable},
+    };
+
+    #[test]
+    fn j20_capture_widget_transfers_shifted_symbol_conflict() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let id = open_shortcuts(&mut app, 0);
+        let fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+        app.ui.dialogs.clear();
+        let mut h = Harness::builder().with_size(vec2(900., 760.)).with_max_steps(64).build_ui_state(
+            |ui, (app, fields): &mut (PhotocraftApp, Map<String, Value>)| {
+                let ready = egui::Id::new("j20-fonts-ready");
+                if !ui.ctx().data(|d| d.get_temp::<bool>(ready)).unwrap_or(false) {
+                    crate::theme::install_fonts(ui.ctx());
+                    crate::theme::apply(ui.ctx(), crate::theme::ThemeKind::Pro);
+                    ui.ctx().data_mut(|d| d.insert_temp(ready, true));
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                shortcuts_body(app, ui, fields);
+            },
+            (app, fields),
+        );
+        let items: Vec<HostShortcutItem> = vec![
+            ("library::tool.brush".into(), "Brush".into(), vec!["Library".into(), "Tools".into()], Some("Shift+[".into())),
+            ("library::view.maskOverlay".into(), "Mask overlay".into(), vec!["Library".into(), "View".into()], Some("O".into())),
+        ];
+        h.ctx.data_mut(|d| d.insert_temp(egui::Id::new("host-shortcut-catalog"), items));
+        h.run_steps(4);
+        h.get(By::new().role(egui::accesskit::Role::ComboBox).value("Editor")).click();
+        h.run();
+        h.get_by_label("Library + Develop").click();
+        h.run();
+        let pos = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new(("shortcut-capture", "library::view.maskOverlay")))).unwrap().center();
+        h.event(egui::Event::PointerMoved(pos));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            h.run_steps(1);
+        }
+        for pressed in [true, false] {
+            h.event(egui::Event::Key { key: egui::Key::OpenCurlyBracket, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::SHIFT });
+            h.run_steps(2);
+        }
+        assert_eq!(h.state().1["overrides"]["library::tool.brush"], "", "the shared matcher detects Shift+[ / Shift+{{ overlap");
+        assert_eq!(h.state().1["overrides"]["library::view.maskOverlay"], "Shift+OpenCurlyBracket");
+        assert!(h.state().1["message"].as_str().unwrap().contains("already in use"));
+        let (app, fields) = h.state_mut();
+        confirm(app, fields).unwrap();
+        let profiles = &app.session.prefs().shortcut_profiles;
+        assert_eq!(profiles.library.custom[&profiles.library.active].overrides["library::tool.brush"], "");
+        assert_eq!(profiles.editor.active, "Photoshop");
     }
 }
