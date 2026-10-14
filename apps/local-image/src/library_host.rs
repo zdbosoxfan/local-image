@@ -1703,10 +1703,11 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter, saved: Option<
 /// Library › Add Photos dialog extensions: everything the folder scan imports
 /// ([`lightcraft_engine::import::EXTENSIONS`]) plus `heif`. On Linux they also match upper and
 /// mixed case (`DSC_0001.NEF`, `IMG_0001.JPG`): see [`photocraft_ui_egui::dialog_filter`].
-const ADD_PHOTOS_EXTS: &[&str] = &[
-    "jpg", "jpeg", "png", "tif", "tiff", "webp", "dng", "cr2", "cr3", "nef", "nrw", "arw", "arq", "sr2", "raf", "orf", "rw2", "rwl", "raw", "pef", "psd",
-    "jxl", "gif", "bmp", "heic", "heif", "avif",
-];
+const ADD_PHOTOS_EXTS: &[&str] = lightcraft_codecs::PHOTO_EXTENSIONS;
+
+fn add_photos_extensions() -> Vec<&'static str> {
+    ADD_PHOTOS_EXTS.iter().copied().filter(|ext| lightcraft_codecs::is_readable_extension(ext, true)).collect()
+}
 
 fn services(opens: Opens) -> Services {
     Services {
@@ -1774,7 +1775,7 @@ fn services(opens: Opens) -> Services {
             open::that(target).map_err(|e| e.to_string())
         })),
         pick_files: Some(Box::new(|| {
-            crate::file_dialog_probe::explain_empty(file_dialog().add_filter_nocase("Photos", ADD_PHOTOS_EXTS).pick_files())
+            crate::file_dialog_probe::explain_empty(file_dialog().add_filter_nocase("Photos", &add_photos_extensions()).pick_files())
                 .unwrap_or_default()
                 .into_iter()
                 .map(|p| p.to_string_lossy().to_string())
@@ -1842,6 +1843,15 @@ mod tests {
 
     /// LightCraft e2d35de: Library › Add Photos offers everything the folder scan imports and
     /// shows DSC_0001.NEF / IMG_0001.JPG / .CR3 on Linux.
+    #[test]
+    fn shared_decode_add_photos_picker_uses_readable_registry() {
+        let extensions = add_photos_extensions();
+        for ext in ["heic", "heif", "hif", "jxl", "arq", "crw"] {
+            assert!(extensions.contains(&ext), "{ext}");
+        }
+        assert!(!extensions.contains(&"avif"));
+    }
+
     #[test]
     fn add_photos_filter_covers_import_extensions_in_any_case() {
         use photocraft_ui_egui::dialog_filter::{dialog_extensions_for, glob_ext};

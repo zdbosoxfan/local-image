@@ -23,12 +23,7 @@ pub fn disabled_reason(app: &PhotocraftApp, doc: DocId) -> Option<&'static str> 
     let Some(state) = app.session.documents().iter().find(|d| d.doc.id == doc) else { return Some("document was closed") };
     let Some((_, path)) = develop_layer::original_of(&state.doc) else { return Some(tl!("This document has no Library original")) };
     let ext = std::path::Path::new(&path).extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    if [
-        "dng", "cr2", "cr3", "nef", "nrw", "arw", "raf", "orf", "rw2", "rwl", "raw", "pef", "srw", "x3f", "3fr", "iiq", "erf", "mos", "srf", "sr2", "kdc",
-        "dcr", "mef", "mrw", "fff",
-    ]
-    .contains(&ext.as_str())
-    {
+    if photocraft_codecs::raw_from_extension(&ext) {
         return Some(tl!("Raw files can't be overwritten; save a copy instead"));
     }
     if !matches!(ext.as_str(), "psd" | "psb")

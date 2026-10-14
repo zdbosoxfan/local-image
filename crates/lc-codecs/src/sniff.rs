@@ -1,6 +1,6 @@
 //! Format detection from leading bytes.
 
-use crate::exif::Tiff;
+pub use photocraft_codecs::{PHOTO_EXTENSIONS, RAW_EXTENSIONS, is_readable_extension, raw_from_extension, readable_extensions, writable_extensions};
 use serde::{Deserialize, Serialize};
 
 /// Image container formats LightCraft recognises.
@@ -18,6 +18,12 @@ pub enum Format {
     Jxl,
     Gif,
     Bmp,
+    Tga,
+    Ico,
+    Pnm,
+    Qoi,
+    OpenExr,
+    Hdr,
     /// Photoshop PSD / PSB (merged composite).
     Psd,
     /// TIFF-structured camera raw (DNG, CR2, NEF, ARW, PEF, ORF, RW2, SRW, 3FR, IIQ, ERF, …):
@@ -40,6 +46,12 @@ impl Format {
             Format::Jxl => "jxl",
             Format::Gif => "gif",
             Format::Bmp => "bmp",
+            Format::Tga => "tga",
+            Format::Ico => "ico",
+            Format::Pnm => "pnm",
+            Format::Qoi => "qoi",
+            Format::OpenExr => "exr",
+            Format::Hdr => "hdr",
             Format::Psd => "psd",
             Format::RawTiffLike => "dng",
             Format::RawOther => "raw",
@@ -57,6 +69,12 @@ impl Format {
             Format::Jxl => "image/jxl",
             Format::Gif => "image/gif",
             Format::Bmp => "image/bmp",
+            Format::Tga => "image/x-tga",
+            Format::Ico => "image/x-icon",
+            Format::Pnm => "image/x-portable-anymap",
+            Format::Qoi => "image/qoi",
+            Format::OpenExr => "image/x-exr",
+            Format::Hdr => "image/vnd.radiance",
             Format::Psd => "image/vnd.adobe.photoshop",
             Format::RawTiffLike | Format::RawOther => "image/x-raw",
         }
@@ -64,11 +82,31 @@ impl Format {
 
     /// Whether [`crate::decode`] can decode this format in this build.
     pub fn can_decode(self) -> bool {
-        match self {
-            Format::Jxl => cfg!(feature = "jxl"),
-            Format::Avif | Format::Heif | Format::RawTiffLike | Format::RawOther => false,
-            _ => true,
-        }
+        self.raster().is_some_and(|f| f.caps().read)
+    }
+
+    /// Shared raster format, or `None` for a camera-raw container.
+    pub fn raster(self) -> Option<photocraft_codecs::Format> {
+        use photocraft_codecs::Format as F;
+        Some(match self {
+            Self::Jpeg => F::Jpeg,
+            Self::Png => F::Png,
+            Self::Tiff => F::Tiff,
+            Self::WebP => F::WebP,
+            Self::Avif => F::Avif,
+            Self::Heif => F::Heif,
+            Self::Jxl => F::Jxl,
+            Self::Gif => F::Gif,
+            Self::Bmp => F::Bmp,
+            Self::Psd => F::Psd,
+            Self::Tga => F::Tga,
+            Self::Ico => F::Ico,
+            Self::Pnm => F::Pnm,
+            Self::Qoi => F::Qoi,
+            Self::OpenExr => F::OpenExr,
+            Self::Hdr => F::Hdr,
+            Self::RawTiffLike | Self::RawOther => return None,
+        })
     }
 
     /// Camera raw formats (decode with `lightcraft-raw`).
@@ -77,139 +115,59 @@ impl Format {
     }
 }
 
-/// Detect the format from the first bytes of a file (a few KiB suffices; TIFF raw detection walks IFDs
-/// when more of the file is available).
-pub fn sniff(b: &[u8]) -> Option<Format> {
-    if b.len() < 4 {
-        return None;
-    }
-    if b.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        return Some(Format::Jpeg);
-    }
-    if b.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Some(Format::Png);
-    }
-    if b.starts_with(b"GIF87a") || b.starts_with(b"GIF89a") {
-        return Some(Format::Gif);
-    }
-    if b.len() >= 12 && &b[0..4] == b"RIFF" && &b[8..12] == b"WEBP" {
-        return Some(Format::WebP);
-    }
-    if b.starts_with(&[0xFF, 0x0A]) || b.starts_with(&[0, 0, 0, 0x0C, b'J', b'X', b'L', b' ', 0x0D, 0x0A, 0x87, 0x0A]) {
-        return Some(Format::Jxl);
-    }
-    if b.starts_with(b"8BPS") && b.len() >= 6 && matches!(u16::from_be_bytes([b[4], b[5]]), 1 | 2) {
-        return Some(Format::Psd);
-    }
-    if b.starts_with(b"FUJIFILMCCD-RAW") || b.starts_with(b"\0MRM") || b.starts_with(b"FOVb") {
-        return Some(Format::RawOther);
-    }
-    if b.len() >= 14 && &b[0..2] == b"II" && &b[6..14] == b"HEAPCCDR" {
-        return Some(Format::RawOther);
-    }
-    if b.len() >= 12 && &b[4..8] == b"ftyp" {
-        return sniff_bmff(b);
-    }
-    if b.starts_with(b"IIRO") || b.starts_with(b"IIRS") || b.starts_with(b"MMOR") || b.starts_with(b"IIU\0") {
-        // Olympus ORF / Panasonic RW2: TIFF-structured with a private magic.
-        return Some(Format::RawTiffLike);
-    }
-    if b.starts_with(b"II*\0") || b.starts_with(b"MM\0*") {
-        return Some(if tiff_is_raw(b) { Format::RawTiffLike } else { Format::Tiff });
-    }
-    if b.starts_with(b"II+\0") || b.starts_with(b"MM\0+") {
-        return Some(Format::Tiff);
-    }
-    if b.len() >= 26 && b.starts_with(b"BM") {
-        let dib = u32::from_le_bytes([b[14], b[15], b[16], b[17]]);
-        if matches!(dib, 12 | 16 | 40 | 52 | 56 | 64 | 108 | 124) {
-            return Some(Format::Bmp);
+impl From<photocraft_codecs::Format> for Format {
+    fn from(format: photocraft_codecs::Format) -> Self {
+        use photocraft_codecs::Format as F;
+        match format {
+            F::Jpeg => Self::Jpeg,
+            F::Png => Self::Png,
+            F::Tiff => Self::Tiff,
+            F::WebP => Self::WebP,
+            F::Avif => Self::Avif,
+            F::Heif => Self::Heif,
+            F::Jxl => Self::Jxl,
+            F::Gif => Self::Gif,
+            F::Bmp => Self::Bmp,
+            F::Psd => Self::Psd,
+            F::Tga => Self::Tga,
+            F::Ico => Self::Ico,
+            F::Pnm => Self::Pnm,
+            F::Qoi => Self::Qoi,
+            F::OpenExr => Self::OpenExr,
+            F::Hdr => Self::Hdr,
         }
     }
-    None
 }
 
-fn sniff_bmff(b: &[u8]) -> Option<Format> {
-    let size = u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize;
-    let end = size.clamp(12, b.len().min(4096));
-    let mut brands: Vec<&[u8]> = vec![&b[8..12]];
-    let mut p = 16;
-    while p + 4 <= end {
-        brands.push(&b[p..p + 4]);
-        p += 4;
-    }
-    let has = |x: &[u8]| brands.contains(&x);
-    if has(b"crx ") {
-        return Some(Format::RawOther);
-    }
-    if has(b"jxl ") {
-        return Some(Format::Jxl);
-    }
-    if has(b"avif") || has(b"avis") {
-        return Some(Format::Avif);
-    }
-    if [&b"heic"[..], b"heix", b"hevc", b"hevx", b"heim", b"heis", b"hevm", b"hevs", b"mif1", b"msf1"].iter().any(|x| has(x)) {
-        return Some(Format::Heif);
-    }
-    None
-}
-
-/// Heuristic camera-raw detection for classic TIFF: DNGVersion, the CR2 signature, CFA/LinearRaw
-/// photometric or raw-only compressions in IFD0 or its SubIFDs, or a camera Make with 10–16-bit data
-/// and no ordinary photometric.
-fn tiff_is_raw(b: &[u8]) -> bool {
-    if b.len() >= 10 && &b[8..10] == b"CR" {
-        return true;
-    }
-    let Some(t) = Tiff::new(b) else { return false };
-    let Some(ifd0) = t.first_ifd() else { return false };
-    let sony = t.ifd(ifd0).is_some_and(|(entries, _)| {
-        entries.iter().any(|e| e.tag == 0x010f && t.bytes(e).and_then(|v| v.get(..4)).is_some_and(|v| v.eq_ignore_ascii_case(b"SONY")))
-    });
-    let mut stack = vec![ifd0];
-    let mut seen = 0;
-    while let Some(pos) = stack.pop() {
-        seen += 1;
-        if seen > 16 {
-            break;
-        }
-        let Some((entries, _)) = t.ifd(pos) else { continue };
-        // Sony M/S lossless ARWs retain a dummy CFA pattern, but store linear YCbCr.
-        // Requiring the raw pattern plus this layout keeps ordinary Sony TIFFs as TIFFs.
-        let uint = |tag| entries.iter().find(|e| e.tag == tag).and_then(|e| t.uint(e));
-        if sony && entries.iter().any(|e| e.tag == 0x828e) && uint(0x0103) == Some(7) && uint(0x0106) == Some(6) && uint(0x0115) == Some(3) {
-            return true;
-        }
-        for e in &entries {
-            match e.tag {
-                0xC612 => return true, // DNGVersion
-                0x0106 if matches!(t.uint(e), Some(32803 | 34892)) => return true,
-                0x0103 if matches!(t.uint(e), Some(32767 | 32769 | 32770 | 34316 | 34713 | 65000 | 65535)) => return true,
-                0x014A => {
-                    // SubIFDs (LONG or IFD type): walk them.
-                    let n = e.count.min(8) as usize;
-                    if n == 1 {
-                        if let Some(p) = t.uint(e) {
-                            stack.push(p as usize);
-                        }
-                    } else if let Some(off) = t.u32_at(e.value_pos) {
-                        for i in 0..n {
-                            if let Some(p) = t.u32_at(off as usize + 4 * i) {
-                                stack.push(p as usize);
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    false
+/// Identify a shared raster format or route camera raw data to `lightcraft-raw`.
+pub fn sniff(bytes: &[u8]) -> Option<Format> {
+    use photocraft_codecs::DetectedFormat;
+    Some(match photocraft_codecs::identify(bytes)? {
+        DetectedFormat::Raster(f) => f.into(),
+        DetectedFormat::RawTiffLike => Format::RawTiffLike,
+        DetectedFormat::RawOther => Format::RawOther,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn j6_sniff_adapter_and_shared_capabilities_agree() {
+        for shared in photocraft_codecs::Format::ALL {
+            let adapter = Format::from(shared);
+            assert_eq!(adapter.raster(), Some(shared));
+            assert_eq!(adapter.can_decode(), shared.caps().read);
+        }
+        assert!(Format::RawTiffLike.is_raw());
+        assert!(Format::RawOther.is_raw());
+        assert_eq!(Format::RawOther.raster(), None);
+        assert!(!Format::RawOther.can_decode());
+        assert_eq!(sniff(&[0xff, 0x0a]), Some(Format::Jxl));
+        assert_eq!(sniff(b"qoif"), Some(Format::Qoi));
+        assert_eq!(sniff(b"#?RADIANCE"), Some(Format::Hdr));
+    }
 
     #[test]
     fn magic_numbers() {

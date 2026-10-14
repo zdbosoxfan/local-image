@@ -18,13 +18,8 @@ use crate::format::Format;
 
 /// At most this many directories are listed (main chain and SubIFDs together).
 pub(crate) const MAX_IFDS: usize = 10_000;
-/// Entries per directory: the classic format's own limit (a `u16` count), applied to BigTIFF too.
-const MAX_ENTRIES: u64 = u16::MAX as u64;
-/// SubIFD nesting depth that is followed (real files use one level).
+/// SubIFD nesting depth followed by the page listing.
 const MAX_SUB_DEPTH: usize = 4;
-/// SubIFD offsets followed per directory.
-const MAX_SUBIFDS: u64 = 256;
-
 pub(crate) const TAG_NEW_SUBFILE_TYPE: u16 = 254;
 pub(crate) const TAG_SUBFILE_TYPE: u16 = 255;
 pub(crate) const TAG_WIDTH: u16 = 256;
@@ -40,7 +35,6 @@ pub(crate) const TAG_COLOR_MAP: u16 = 320;
 pub(crate) const TAG_TILE_WIDTH: u16 = 322;
 pub(crate) const TAG_TILE_LENGTH: u16 = 323;
 pub(crate) const TAG_TILE_OFFSETS: u16 = 324;
-pub(crate) const TAG_SUB_IFDS: u16 = 330;
 pub(crate) const TAG_EXTRA_SAMPLES: u16 = 338;
 pub(crate) const TAG_SAMPLE_FORMAT: u16 = 339;
 
@@ -48,210 +42,8 @@ pub(crate) const TAG_SAMPLE_FORMAT: u16 = 339;
 /// hostile count can neither make it allocate nor read past the end.
 pub(crate) const STRUCTURAL_TAGS: &[u16] = &[256, 257, 258, 259, 262, 273, 277, 278, 279, 284, 317, 322, 323, 324, 325, 338, 339, 347, 530];
 
-/// Bytes per value of a TIFF field type; `None` for unknown types (whose entries are skipped).
-fn type_size(ty: u16) -> Option<u64> {
-    Some(match ty {
-        1 | 2 | 6 | 7 => 1,              // BYTE, ASCII, SBYTE, UNDEFINED
-        3 | 8 => 2,                      // SHORT, SSHORT
-        4 | 9 | 11 | 13 => 4,            // LONG, SLONG, FLOAT, IFD
-        5 | 10 | 12 | 16 | 17 | 18 => 8, // RATIONAL, SRATIONAL, DOUBLE, LONG8, SLONG8, IFD8
-        _ => return None,
-    })
-}
-
-/// One directory entry, located but not read.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Entry {
-    pub tag: u16,
-    pub ty: u16,
-    pub count: u64,
-    /// Position of the value: inside the entry when it fits, else the stored offset.
-    pub value_at: u64,
-}
-
-/// One directory: its entries in file order and the next-IFD offset (0 at the end of a chain).
-#[derive(Clone, Debug)]
-pub(crate) struct Ifd {
-    pub at: u64,
-    pub entries: Vec<Entry>,
-    pub next: u64,
-    /// Position of the next-IFD pointer field.
-    pub next_at: u64,
-}
-
-impl Ifd {
-    /// The first entry with this tag.
-    pub fn get(&self, tag: u16) -> Option<&Entry> {
-        self.entries.iter().find(|e| e.tag == tag)
-    }
-}
-
-/// A TIFF or BigTIFF file's header and bytes.
-#[derive(Clone, Copy)]
-pub(crate) struct File<'a> {
-    pub b: &'a [u8],
-    pub le: bool,
-    pub big: bool,
-    pub first_ifd: u64,
-}
-
-impl<'a> File<'a> {
-    /// The header, or `None` when this is not a (Big)TIFF.
-    pub fn parse(b: &'a [u8]) -> Option<Self> {
-        let le = match b.get(0..2)? {
-            b"II" => true,
-            b"MM" => false,
-            _ => return None,
-        };
-        let mut f = File { b, le, big: false, first_ifd: 0 };
-        match f.u16_at(2)? {
-            42 => f.first_ifd = u64::from(f.u32_at(4)?),
-            43 => {
-                // Bytesize of offsets (always 8) and a reserved zero.
-                if f.u16_at(4)? != 8 || f.u16_at(6)? != 0 {
-                    return None;
-                }
-                f.big = true;
-                f.first_ifd = f.u64_at(8)?;
-            }
-            _ => return None,
-        }
-        Some(f)
-    }
-
-    /// Length of the header; no directory can start inside it.
-    pub fn header_len(&self) -> u64 {
-        if self.big { 16 } else { 8 }
-    }
-
-    fn slice(&self, at: u64, len: u64) -> Option<&'a [u8]> {
-        let at = usize::try_from(at).ok()?;
-        let len = usize::try_from(len).ok()?;
-        self.b.get(at..at.checked_add(len)?)
-    }
-
-    pub fn u16_at(&self, at: u64) -> Option<u16> {
-        let s: [u8; 2] = self.slice(at, 2)?.try_into().ok()?;
-        Some(if self.le { u16::from_le_bytes(s) } else { u16::from_be_bytes(s) })
-    }
-
-    pub fn u32_at(&self, at: u64) -> Option<u32> {
-        let s: [u8; 4] = self.slice(at, 4)?.try_into().ok()?;
-        Some(if self.le { u32::from_le_bytes(s) } else { u32::from_be_bytes(s) })
-    }
-
-    pub fn u64_at(&self, at: u64) -> Option<u64> {
-        let s: [u8; 8] = self.slice(at, 8)?.try_into().ok()?;
-        Some(if self.le { u64::from_le_bytes(s) } else { u64::from_be_bytes(s) })
-    }
-
-    /// The declared entry count of the directory at `at`, before its table is parsed.
-    pub fn entry_count(&self, at: u64) -> Option<u64> {
-        if at < self.header_len() {
-            return None;
-        }
-        if self.big { self.u64_at(at) } else { self.u16_at(at).map(u64::from) }
-    }
-
-    /// The directory at `at`: its whole table, up to and including the next-IFD pointer, must
-    /// be inside the file and after the header.
-    pub fn ifd(&self, at: u64) -> Option<Ifd> {
-        if at < self.header_len() {
-            return None;
-        }
-        let (n, first, entry, inline) =
-            if self.big { (self.u64_at(at)?, at.checked_add(8)?, 20u64, 8u64) } else { (u64::from(self.u16_at(at)?), at.checked_add(2)?, 12, 4) };
-        if n > MAX_ENTRIES {
-            return None;
-        }
-        let next_at = first.checked_add(n.checked_mul(entry)?)?;
-        let next = if self.big { self.u64_at(next_at)? } else { u64::from(self.u32_at(next_at)?) };
-        let mut entries = Vec::with_capacity(usize::try_from(n).ok()?);
-        for i in 0..n {
-            let e = first.checked_add(i.checked_mul(entry)?)?;
-            let tag = self.u16_at(e)?;
-            let ty = self.u16_at(e.checked_add(2)?)?;
-            let count = if self.big { self.u64_at(e.checked_add(4)?)? } else { u64::from(self.u32_at(e.checked_add(4)?)?) };
-            let field = e.checked_add(if self.big { 12 } else { 8 })?;
-            // Unknown types are skipped, as the specification says.
-            let Some(size) = type_size(ty) else { continue };
-            let fits = count.checked_mul(size).is_some_and(|len| len <= inline);
-            let value_at = if fits {
-                field
-            } else if self.big {
-                self.u64_at(field)?
-            } else {
-                u64::from(self.u32_at(field)?)
-            };
-            entries.push(Entry { tag, ty, count, value_at });
-        }
-        Some(Ifd { at, entries, next, next_at })
-    }
-
-    /// The value bytes of an entry, when they are all inside the file.
-    pub fn data(&self, e: &Entry) -> Option<&'a [u8]> {
-        self.slice(e.value_at, e.count.checked_mul(type_size(e.ty)?)?)
-    }
-
-    /// Value `i` of an unsigned integer entry (BYTE, SHORT, LONG, LONG8, IFD, IFD8).
-    pub fn uint(&self, e: &Entry, i: u64) -> Option<u64> {
-        if i >= e.count {
-            return None;
-        }
-        let size = type_size(e.ty)?;
-        let at = e.value_at.checked_add(i.checked_mul(size)?)?;
-        match e.ty {
-            1 => self.slice(at, 1)?.first().map(|&v| u64::from(v)),
-            3 => self.u16_at(at).map(u64::from),
-            4 | 13 => self.u32_at(at).map(u64::from),
-            16 | 18 => self.u64_at(at),
-            _ => None,
-        }
-    }
-
-    /// The first value of an unsigned integer tag.
-    pub fn tag_uint(&self, ifd: &Ifd, tag: u16) -> Option<u64> {
-        self.uint(ifd.get(tag)?, 0)
-    }
-
-    /// Up to `max` values of an unsigned integer tag (`None` if any of them is unreadable).
-    pub fn tag_uints(&self, ifd: &Ifd, tag: u16, max: u64) -> Option<Vec<u64>> {
-        let e = ifd.get(tag)?;
-        (0..e.count.min(max)).map(|i| self.uint(e, i)).collect()
-    }
-
-    /// The first value of a numeric tag as a float: RATIONAL, FLOAT, DOUBLE or an integer.
-    pub fn tag_f64(&self, ifd: &Ifd, tag: u16) -> Option<f64> {
-        let e = ifd.get(tag)?;
-        if e.count == 0 {
-            return None;
-        }
-        match e.ty {
-            5 => {
-                let (n, d) = (self.u32_at(e.value_at)?, self.u32_at(e.value_at.checked_add(4)?)?);
-                (d != 0).then(|| f64::from(n) / f64::from(d))
-            }
-            11 => Some(f64::from(f32::from_bits(self.u32_at(e.value_at)?))),
-            12 => Some(f64::from_bits(self.u64_at(e.value_at)?)),
-            _ => self.uint(e, 0).map(|v| v as f64),
-        }
-    }
-
-    /// The bytes of a one-byte-per-value tag (BYTE, ASCII, SBYTE or UNDEFINED).
-    pub fn tag_bytes(&self, ifd: &Ifd, tag: u16) -> Option<&'a [u8]> {
-        let e = ifd.get(tag)?;
-        matches!(e.ty, 1 | 2 | 6 | 7).then(|| self.data(e)).flatten()
-    }
-
-    /// SubIFD offsets of a directory (tag 330 as LONG, IFD, LONG8 or IFD8).
-    fn sub_ifds(&self, ifd: &Ifd) -> Vec<u64> {
-        let Some(e) = ifd.get(TAG_SUB_IFDS) else { return Vec::new() };
-        if !matches!(e.ty, 4 | 13 | 16 | 18) {
-            return Vec::new();
-        }
-        (0..e.count.min(MAX_SUBIFDS)).map_while(|i| self.uint(e, i)).filter(|&o| o != 0).collect()
-    }
-}
+// Keep the codec's private names while the shared TIFF backend owns byte parsing.
+pub(crate) use lightcraft_tiff::directory::{File, Ifd};
 
 /// A directory's Orientation (1–8), with the rules of [`crate::exif_orientation`]: the first
 /// Orientation entry wins, it must be exactly one SHORT or LONG, and anything else reads as 1.
@@ -423,6 +215,56 @@ pub(crate) fn info_of(f: &File<'_>) -> Result<TiffInfo, CodecError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_directory_page_adapter_preserves_subifds_and_default_page() {
+        use lightcraft_tiff::{ByteOrder, IfdBuilder, TiffWriter, Value};
+        for order in [ByteOrder::Little, ByteOrder::Big] {
+            for big in [false, true] {
+                let image = |width, height| {
+                    IfdBuilder::new()
+                        .with(TAG_WIDTH, Value::Long(vec![width]))
+                        .with(TAG_HEIGHT, Value::Long(vec![height]))
+                        .with(TAG_BITS, Value::Short(vec![16]))
+                        .with(TAG_ORIENTATION, Value::Short(vec![6]))
+                };
+                let mut reduced = image(64, 48).with(TAG_NEW_SUBFILE_TYPE, Value::Long(vec![1]));
+                reduced.add_sub_ifd(image(32, 24).with(TAG_NEW_SUBFILE_TYPE, Value::Long(vec![4])));
+                let bytes = TiffWriter::new(order, big).write(&[reduced, image(640, 480)]).expect("valid fixture");
+                let info = tiff_info(&bytes).expect("shared parser accepts writer output");
+                assert_eq!(info.big_tiff, big);
+                assert_eq!(info.little_endian, order == ByteOrder::Little);
+                assert!(info.complete);
+                assert_eq!(info.pages.len(), 3);
+                assert_eq!(info.pages[0].kind, TiffPageKind::ReducedResolution);
+                assert_eq!(info.pages[1].kind, TiffPageKind::Mask);
+                assert_eq!(info.pages[1].parent, Some(0));
+                assert_eq!((info.pages[2].width, info.pages[2].height, info.pages[2].bits_per_sample), (640, 480, 16));
+                assert_eq!(info.default_page(), Some(2));
+                assert_eq!(info.page_count(), 1);
+                let file = File::parse(&bytes).expect("header");
+                let dir = file.ifd(file.first_ifd).expect("directory");
+                assert_eq!(orientation_of(&file, &dir), 6);
+            }
+        }
+    }
+
+    #[test]
+    fn shared_directory_page_adapter_retains_partial_chain_on_cycle() {
+        use lightcraft_tiff::{IfdBuilder, TiffWriter, Value};
+        let mut bytes = TiffWriter::default()
+            .write(&[IfdBuilder::new().with(TAG_WIDTH, Value::Long(vec![640])).with(TAG_HEIGHT, Value::Long(vec![480]))])
+            .expect("valid fixture");
+        let file = File::parse(&bytes).expect("header");
+        let dir = file.ifd(file.first_ifd).expect("directory");
+        let next_at = dir.next_at as usize;
+        let cycle = (file.first_ifd as u32).to_le_bytes();
+        bytes[next_at..next_at + 4].copy_from_slice(&cycle);
+        let info = tiff_info(&bytes).expect("a damaged tail retains its first page");
+        assert!(!info.complete);
+        assert_eq!(info.pages.len(), 1);
+        assert_eq!((info.pages[0].width, info.pages[0].height), (640, 480));
+    }
 
     /// 10,000 directories 4 bytes apart, each declaring 65,535 overlapping entries: the walk must
     /// stop after the file-size entry budget instead of parsing ~6.5e8 entries.

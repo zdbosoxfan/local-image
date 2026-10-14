@@ -17,15 +17,19 @@ use std::sync::Arc;
 
 /// File › Open formats: native/layered documents, editable SVG/SVGZ/PDF, flat/raw
 /// images, and Photoshop brushes/gradients (which go to the preset libraries).
-const OPEN_EXTS: &[&str] = &[
-    "pcraft", "psd", "psb", "psdt", "svg", "svgz", "pdf", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm",
-    "pgm", "ppm", "pam", "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "arq", "sr2", "pef", "orf", "rw2", "raf", "abr", "grd",
-];
+const OPEN_EXTS: &[&str] = photocraft_codecs::PHOTO_EXTENSIONS;
+
+fn open_extensions() -> Vec<&'static str> {
+    ["pcraft", "psdt", "svg", "svgz", "pdf", "abr", "grd"]
+        .into_iter()
+        .chain(OPEN_EXTS.iter().copied().filter(|ext| photocraft_codecs::is_readable_extension(ext, true)))
+        .collect()
+}
 
 /// The File › Open dialog with its filters. On Linux each extension also matches upper and mixed
 /// case (`IMG_0001.JPG`, `DSC_0001.NEF`): see [`photocraft_ui_egui::dialog_filter`].
 fn open_dialog() -> rfd::FileDialog {
-    file_dialog().add_filter_nocase("All Formats", OPEN_EXTS).add_filter_nocase("Local Image", &["pcraft"])
+    file_dialog().add_filter_nocase("All Formats", &open_extensions()).add_filter_nocase("Local Image", &["pcraft"])
 }
 
 /// File › Save As formats: (filter name, extensions). The filter matching the suggested name's
@@ -826,6 +830,15 @@ mod tests {
     use photocraft_format::list_recovery;
     use photocraft_ui_egui::{PhotocraftApp, prefs_ui};
     use serde_json::json;
+
+    #[test]
+    fn shared_decode_open_dialog_registry_includes_jxl_raw_and_native_documents() {
+        let extensions = open_extensions();
+        for ext in ["jxl", "heic", "heif", "hif", "arq", "crw", "pcraft", "svg", "pdf", "abr", "grd"] {
+            assert!(extensions.contains(&ext), "{ext}");
+        }
+        assert!(!extensions.contains(&"avif"));
+    }
 
     /// Upstream 9b4562f2 / LightCraft e2d35de: File › Open shows IMG_0001.JPG, DSC_0001.NEF and
     /// .CR3 on Linux, where the portal matches rfd's `*.ext` globs case-sensitively.

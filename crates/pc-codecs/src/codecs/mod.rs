@@ -9,3 +9,7 @@ pub(crate) mod tiff_ifd;
 pub(crate) mod via_image;
 pub(crate) mod vp8;
 pub(crate) mod webp;
+
+#[cfg(feature = "jxl")]
+pub(crate) mod jxl;
+pub(crate) mod psd;

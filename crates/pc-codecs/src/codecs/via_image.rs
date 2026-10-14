@@ -32,6 +32,11 @@ fn map_err(f: Format, e: image::ImageError) -> CodecError {
     }
 }
 
+pub(crate) fn dimensions(f: Format, bytes: &[u8]) -> Result<(u32, u32), CodecError> {
+    let fmt = image_format(f).ok_or_else(|| CodecError::unsupported(f, "dimension probing"))?;
+    image::ImageReader::with_format(Cursor::new(bytes), fmt).into_dimensions().map_err(|e| map_err(f, e))
+}
+
 pub(crate) fn decode(f: Format, bytes: &[u8], limits: &Limits) -> Result<Image, CodecError> {
     let fmt = image_format(f).ok_or_else(|| CodecError::unsupported(f, "not handled by image backend"))?;
     let mut reader = image::ImageReader::with_format(Cursor::new(bytes), fmt);
