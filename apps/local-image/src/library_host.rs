@@ -171,6 +171,9 @@ impl Host {
 
     /// One persisted shortcut map and one editor across modules; Library only mirrors it.
     fn shared_shell(&mut self, ctx: &egui::Context) {
+        if self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_updates)) {
+            photocraft_ui_egui::updates_ui::start(&mut self.editor, ctx, true);
+        }
         if self.library.as_mut().is_some_and(|lib| std::mem::take(&mut lib.open_shared_ai)) {
             if let Some(lib) = self.library.as_mut() {
                 lib.ui.dialog = None;
@@ -1305,6 +1308,7 @@ impl eframe::App for Host {
         }
         self.shared_shell(ui.ctx());
         photocraft_ui_egui::dialogs::show(&mut self.editor, ui.ctx());
+        photocraft_ui_egui::updates_ui::show(&mut self.editor, ui.ctx());
         photocraft_ui_egui::ai_ui::windows(&mut self.editor, ui.ctx());
         photocraft_ui_egui::notices::show(&mut self.editor, ui.ctx());
         // The switched-to-CPU warning appears in every module, not only once Compositing is open.

@@ -226,6 +226,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("app.settings", "Preferences…", Some("Cmd+,"), "Edit"),
     ("app.openLibrary", "Open Library…", None, "File"),
     ("app.about", "About Local Image", None, "Help"),
+    ("app.checkUpdates", "Check for Updates…", None, "Help"),
     ("app.systemInfo", "System Info…", None, "Help"),
     ("app.whatsNew", "What's New", None, "Help"),
     ("dialog.cull", "Assisted Culling…", None, "Photo"),
@@ -1048,6 +1049,10 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         "dialog.cull" => {
             app.ui.dialog = Some(Dialog::Cull { reject_below: 0.0, pick_best: true });
+            Ok(Value::Null)
+        }
+        "app.checkUpdates" => {
+            app.open_shared_updates = true;
             Ok(Value::Null)
         }
         "app.whatsNew" => {

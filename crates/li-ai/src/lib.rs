@@ -27,6 +27,7 @@ pub mod settings;
 pub mod setup;
 pub mod tls;
 pub mod trash;
+pub mod updates;
 pub mod workflows;
 
 pub use catalog::ModelId;

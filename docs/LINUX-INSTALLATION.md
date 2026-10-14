@@ -1,5 +1,8 @@
 # Install Local Image on Linux
 
+This page describes the legacy 0.7 Linux preview. For the V2 Rust app, AppImage/tarball
+artifacts and supported targets, see [RELEASE.md](RELEASE.md).
+
 The [0.7.3 Linux preview](https://github.com/zdbosoxfan/local-image/releases/tag/v0.7.3-linux-preview) includes the editor, its Python runtime and the Qt desktop window. You do not need to install Python, Node.js, Git or a web browser to run Local Image. ComfyUI and AI model weights are separate, optional installations.
 
 ## Download and install

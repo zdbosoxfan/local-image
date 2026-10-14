@@ -1,8 +1,5 @@
 name: macOS Apple Silicon
 on:
-  push:
-    branches: [v2]
-  pull_request:
   workflow_dispatch:
     inputs:
       metal_runner:
@@ -13,7 +10,7 @@ concurrency:
   group: macos-${{ github.ref }}
   cancel-in-progress: true
 env:
-  CARGO_BUILD_JOBS: 2
+  CARGO_BUILD_JOBS: 4
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
@@ -36,7 +33,7 @@ jobs:
           ref: 3d9ab3a132ed0eff457e424226a435a901da30d3
           path: .cache/craft-fonts
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
@@ -57,10 +54,10 @@ jobs:
         if: ${{ !inputs.metal_runner }}
         run: cargo test --locked -p li-ai -p li-seg -p lightcraft-sysmem -p xtask
       - name: Compile every macOS integration and feature
-        run: cargo check --workspace --all-targets --locked --features local-image/heif,local-image/sam,local-image-cli/heif
+        run: cargo check --workspace --all-targets --locked --features local-image/heif,local-image-cli/heif
       - name: Test full workspace on hardware
         if: ${{ inputs.metal_runner }}
-        run: cargo test --workspace --locked --features local-image/heif,local-image/sam,local-image-cli/heif
+        run: cargo test --workspace --locked --features local-image/heif,local-image-cli/heif
       - name: Require Metal compositor parity
         if: ${{ inputs.metal_runner }}
         env:
@@ -73,11 +70,9 @@ jobs:
           LC_REQUIRE_GPU: 1
         run: cargo test --locked -p lightcraft-gpu --lib ds_finding_native_haze_selection_matches_sorted_quantile -- --ignored --nocapture
       - name: Strict lint
-        run: cargo clippy --workspace --all-targets --locked --features local-image/heif,local-image/sam,local-image-cli/heif -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked --features local-image/heif,local-image-cli/heif -- -D warnings
       - name: Build Apple Silicon installer
-        env:
-          CARGO_BUILD_JOBS: 1
-        run: cargo xtask package macos
+        run: cargo +1.98.1 xtask package macos
       - uses: actions/upload-artifact@v4
         with:
           name: local-image-macos-arm64

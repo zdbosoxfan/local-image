@@ -28,6 +28,7 @@ pub fn package(skip_build: bool) -> Result<()> {
         cmd.current_dir(root())
             .args([
                 "build",
+                "--offline",
                 "--release",
                 "--locked",
                 "-p",
@@ -35,7 +36,7 @@ pub fn package(skip_build: bool) -> Result<()> {
                 "-p",
                 "local-image-cli",
                 "--features",
-                "local-image/heif,local-image/sam,local-image-cli/heif",
+                "local-image/heif,local-image-cli/heif",
             ])
             .env("MACOSX_DEPLOYMENT_TARGET", "13.0");
         build_env(&mut cmd);
