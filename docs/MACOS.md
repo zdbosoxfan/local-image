@@ -44,7 +44,7 @@ validate it using `xcrun stapler staple <package>` and `spctl -a -t install -vv 
 
 1. On your GPU machine, install the models and run ComfyUI listening on an address reachable
    from your Mac, for example `python main.py --listen 0.0.0.0 --port 8188`.
-2. On the Mac open **Preferences > Local AI** and click **Find on LAN**, then select a detected
+2. On the Mac open **Preferences > AI > Connection** and click **Find on LAN**, then select a detected
    server. The background search checks port 8188 and the selected port, supports Cancel, and
    reads only server status. On larger networks it searches the adjacent /24, with a 30-second
    limit and at most two active private IPv4 networks. For another subnet or a Tailscale server,
@@ -90,7 +90,7 @@ LC_REQUIRE_GPU=1 cargo test -p lightcraft-gpu --lib ds_finding_native_haze_selec
 cargo test -p li-ai
 cargo test -p lightcraft-sysmem -- --nocapture
 cargo test -p li-seg --test threading -- --nocapture
-cargo test -p local-image --features heif,sam
+cargo test -p local-image --features heif
 cargo test -p xtask
 ```
 
@@ -103,6 +103,21 @@ NVIDIA requirements elsewhere; image-accuracy tolerances are unchanged. An adapt
 software fallback is not proof of acceleration.
 Real generative model acceptance belongs on the remote server, not the Mac. Optional SAM model
 acceptance needs the checkpoint; small synthetic tensor tests can verify Metal without it.
+
+For the three installed on-device denoise models, run the dedicated Apple Silicon gate:
+
+```sh
+WGPU_BACKEND=metal LC_REQUIRE_GPU=1 LOCAL_IMAGE_REQUIRE_GPU=1 \
+LOCAL_IMAGE_DENOISE_MODELS="$HOME/Library/Application Support/Local Image/models" \
+cargo test --offline --locked -p lightcraft-gpu --test denoise \
+  ai_denoise_real_models_match_tract_on_apple_silicon -- --ignored --exact --nocapture
+```
+
+This requires an Apple hardware adapter on Metal and compares linear RAW, Bayer RAW and RGB
+outputs with tract at the same bounds as the existing RTX 5090 gate. It reads the already
+installed pinned models without downloading or changing them. The NVIDIA gate retains its
+original hardware assertion. GPU recovery checks retain the canvas for CPU presentation during
+recoverable compute backoff, then resume on the same device; genuine device loss still drops it.
 
 References: [Comfy Desktop for macOS](https://docs.comfy.org/installation/desktop/macos),
 [Rust Apple targets](https://doc.rust-lang.org/rustc/platform-support/apple-darwin.html),

@@ -425,7 +425,8 @@ mod tests {
         assert!(key_matches(&parse("Cmd+-").unwrap(), Key::Minus, cmd));
         assert!(key_matches(&parse("Cmd+0").unwrap(), Key::Num0, cmd));
         // Ctrl (Windows) is ⌘.
-        assert!(key_matches(&zoom_in, Key::Plus, Modifiers::CTRL | Modifiers { command: true, ..Default::default() }));
+        // On Mac, an extra physical Control must not match Command alone.
+        assert_eq!(key_matches(&zoom_in, Key::Plus, Modifiers::CTRL | Modifiers::COMMAND), !cfg!(target_os = "macos"));
         // Exact modifiers: ⌘⌥I is Image Size, never Invert (⌘I); ⇧⌘Z is not ⌘Z.
         let invert = parse("Cmd+I").unwrap();
         assert!(key_matches(&invert, Key::I, cmd));

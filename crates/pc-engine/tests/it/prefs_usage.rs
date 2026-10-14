@@ -11,8 +11,8 @@
 //!   … fh.autosave`;
 //! - or the JSON path as a string literal (`"fileHandling.autosave"`), for code that reads
 //!   preferences by path;
-//! - or `self.<snake_key>` in an inherent `impl` of the section's struct in `prefs.rs` (helpers
-//!   such as `TransparencyAndGamut::colors`).
+//! - or `self.<snake_key>` in an inherent `impl` of the section's struct, including shared
+//!   types reexported by `prefs.rs` (helpers such as `TransparencyAndGamut::colors`).
 
 use photocraft_engine::prefs::{HIDDEN_UNTIL_IMPLEMENTED, Preferences};
 use std::path::{Path, PathBuf};
@@ -145,8 +145,10 @@ fn every_preference_is_read_or_hidden() {
                 let field = snake(k);
                 let path = format!("{section}.{k}");
                 let ty = section_types.iter().find(|(f, _)| *f == section_rs).map(|(_, t)| t.clone()).unwrap_or_default();
-                let in_helpers =
-                    !ty.is_empty() && struct_fields(&prefs_rs, &ty).contains(&field) && has_ident(&inherent_impls(&prefs_rs, &ty), "self.", &field);
+                let in_helpers = !ty.is_empty()
+                    && std::iter::once(&prefs_rs)
+                        .chain(sources.iter())
+                        .any(|source| struct_fields(source, &ty).contains(&field) && has_ident(&inherent_impls(source, &ty), "self.", &field));
                 let read =
                     in_helpers || sources.iter().any(|t| (has_ident(t, ".", &field) && has_ident(t, "", &section_rs)) || t.contains(&format!("\"{path}\"")));
                 (path, read)

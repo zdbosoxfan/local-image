@@ -991,12 +991,19 @@ fn j12_shell_shared_sentinel_preserves_legacy_marker_format() {
 #[cfg(test)]
 #[test]
 fn j12_shell_legacy_override_configures_the_shared_instance() {
-    let override_value = li_gpu::backend::startup_environment(Some("vulkan"), None);
+    // Unsupported backends intentionally retain the native default. Exercise
+    // an available override (Vulkan is not compiled into the Apple build).
+    let enabled = wgpu::Instance::enabled_backend_features();
+    let (expected, name) = [(wgpu::Backends::VULKAN, "vulkan"), (wgpu::Backends::METAL, "metal"), (wgpu::Backends::DX12, "dx12"), (wgpu::Backends::GL, "gl")]
+        .into_iter()
+        .find(|(backend, _)| enabled.contains(*backend))
+        .expect("a native graphics backend");
+    let override_value = li_gpu::backend::startup_environment(Some(name), None);
     let plan = plan(GpuBackend::Auto, None, override_value.as_deref(), false, Os::Other);
     let mut setup = photocraft_ui_egui::gpu_canvas::wgpu_setup();
     configure(&mut setup, &plan, Os::Other, Arc::new(Mutex::new(None)), Arc::new(Mutex::new(None)));
     if let egui_wgpu::WgpuSetup::CreateNew(create) = setup {
-        assert_eq!(create.instance_descriptor.backends, wgpu::Backends::VULKAN);
+        assert_eq!(create.instance_descriptor.backends, expected);
     } else {
         panic!("expected configurable setup");
     }

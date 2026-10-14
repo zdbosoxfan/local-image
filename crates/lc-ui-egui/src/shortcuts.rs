@@ -451,7 +451,12 @@ mod j20_tests {
         assert!(ctx.input(|i| i.events.is_empty()));
         app.shortcut_overrides.insert("library::view.maskOverlay".into(), "control+shift+semicolon".into());
         let before = app.ui.mask_overlay;
-        frame(&mut app, vec![press(Key::Colon, Modifiers::CTRL | Modifiers::COMMAND | Modifiers::SHIFT)]);
+        if cfg!(target_os = "macos") {
+            frame(&mut app, vec![press(Key::Colon, Modifiers::CTRL | Modifiers::COMMAND | Modifiers::SHIFT)]);
+            assert_eq!(app.ui.mask_overlay, before, "Control+Command must not match a Control-only binding on Mac");
+        }
+        let control = if cfg!(target_os = "macos") { Modifiers::CTRL } else { Modifiers::CTRL | Modifiers::COMMAND };
+        frame(&mut app, vec![press(Key::Colon, control | Modifiers::SHIFT)]);
         assert_ne!(app.ui.mask_overlay, before, "lowercase aliases and shifted logical punctuation must dispatch");
         app.shortcut_overrides.insert("library::tool.linear".into(), "control+z".into());
         if !cfg!(target_os = "macos") {

@@ -547,19 +547,15 @@ fn legacy_cleanup(ui: &mut egui::Ui, dir: &std::path::Path) {
     let old = li_seg::legacy_installed(dir);
     if !old.is_empty() {
         let size = li_ai::download::human_bytes(old.iter().map(|(_, b)| b).sum());
-        let r = widgets::secondary_button(ui, &crate::i18n::fmt(tl!("Remove old models ({size})"), &[("size", &size)]), 0.0)
-            .on_hover_text(tl!("Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash."));
+        let r = widgets::secondary_button(ui, &crate::i18n::fmt(tl!("Remove old models ({size})"), &[("size", &size)]), 0.0).on_hover_text(
+            if li_ai::trash::available() {
+                tl!("Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash.").to_owned()
+            } else {
+                crate::i18n::fmt(tl!("This frees {size}. The files are deleted permanently."), &[("size", &size)])
+            },
+        );
         if r.clicked() {
-            let note = match li_seg::remove_legacy_with(dir, &dispose) {
-                Ok(freed) => (
-                    crate::i18n::fmt(tl!("Removed {name} ({size} freed)"), &[("name", tl!("the old models")), ("size", &li_ai::download::human_bytes(freed))]),
-                    false,
-                ),
-                Err(e) => (crate::i18n::fmt(tl!("Couldn't remove {name}: {error}"), &[("name", tl!("the old models")), ("error", &format!("{e:#}"))]), true),
-            };
-            if let Ok(mut n) = REMOVE_NOTE.lock() {
-                *n = Some(note);
-            }
+            ask_remove(tl!("the old models").into(), RemoveTarget::Legacy(dir.to_path_buf()));
         }
     }
 }
@@ -803,6 +799,8 @@ pub enum RemoveTarget {
     Presets(Vec<String>),
     /// One file ComfyUI lists (an installed model or LoRA), from the model folder.
     Listed { folders: Vec<&'static str>, name: String },
+    /// Retired on-device models in the folder shown when the user requested removal.
+    Legacy(std::path::PathBuf),
 }
 
 impl RemoveTarget {
@@ -811,6 +809,7 @@ impl RemoveTarget {
             RemoveTarget::Seg(s) => format!("seg:{}", s.id),
             RemoveTarget::Presets(ids) => ids.join("+"),
             RemoveTarget::Listed { name, .. } => format!("file:{name}"),
+            RemoveTarget::Legacy(root) => format!("legacy:{}", root.display()),
         }
     }
 }
@@ -872,6 +871,7 @@ pub fn plan_removal(mut what: String, target: RemoveTarget) -> RemoveAsk {
         RemoveTarget::Listed { folders, name } => {
             (li_ai::download::listed_file(&model_dir, folders, name).and_then(|p| std::fs::metadata(p).ok()).map_or(0, |m| m.len()), Vec::new())
         }
+        RemoveTarget::Legacy(root) => (li_seg::legacy_installed(root).iter().map(|(_, bytes)| bytes).sum(), Vec::new()),
     };
     RemoveAsk { what, bytes, kept, target }
 }
@@ -910,6 +910,7 @@ fn remove_now(ask: RemoveAsk) {
                 })
             }
             RemoveTarget::Listed { folders, name } => li_ai::download::remove_listed_file(&model_dir, folders, name, &dispose).map(|b| (b, Vec::new())),
+            RemoveTarget::Legacy(root) => li_seg::remove_legacy_with(root, &dispose).map(|bytes| (bytes, Vec::new())),
         };
         let note = match r {
             Ok((freed, kept)) => {
@@ -1969,33 +1970,6 @@ mod tests {
         settle(&mut h, &dir, li_seg::Group::Sky);
         let c = li_seg::custom(&dir, li_seg::Group::Sky).expect("class 2 of 3 fits");
         assert_eq!((c.classes, c.class), (3, 2));
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    /// Models the app no longer offers are never used; a button moves them out of the way.
-    #[test]
-    fn old_models_can_be_removed_from_settings() {
-        let dir = temp_dir("old");
-        let seg = dir.join("segmentation");
-        std::fs::write(seg.join("u2net.onnx"), vec![0u8; 3 * 1024 * 1024]).unwrap();
-        std::fs::write(seg.join("midas_v21_small_256.onnx"), vec![0u8; 1024 * 1024]).unwrap();
-        for file in li_seg::Group::Tagging.official().files() {
-            std::fs::write(li_seg::companion_path(&dir, file.file), b"clip file").unwrap();
-        }
-        let mut h = seg_harness(&dir, None);
-        assert!(li_seg::Group::ALL.iter().all(|g| g.in_use(&dir).is_none()), "old files serve nothing");
-        h.get_by_label_contains("Remove old models (").click();
-        h.run_steps(3);
-        assert!(li_seg::legacy_installed(&dir).is_empty());
-        for file in li_seg::Group::Tagging.official().files() {
-            assert_eq!(std::fs::read(li_seg::companion_path(&dir, file.file)).unwrap(), b"clip file");
-        }
-        assert!(h.query_by_label_contains("Remove old models").is_none());
-        // The status note is process-global; another test drawing the full app (which shows and consumes it) may run
-        // in parallel and take it first. The removal itself is asserted above; check the wording when it is still here.
-        if let Some(note) = REMOVE_NOTE.lock().unwrap().take() {
-            assert!(!note.1 && note.0.contains("the old models"), "{note:?}");
-        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

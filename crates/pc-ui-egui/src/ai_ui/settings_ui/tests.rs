@@ -5,6 +5,16 @@ use egui_kittest::{
 };
 
 fn harness(section: &str, size: egui::Vec2, scale: f32, theme: crate::theme::ThemeKind) -> Harness<'static, PhotocraftApp> {
+    harness_with_models(section, size, scale, theme, None)
+}
+
+fn harness_with_models(
+    section: &str,
+    size: egui::Vec2,
+    scale: f32,
+    theme: crate::theme::ThemeKind,
+    models: Option<std::path::PathBuf>,
+) -> Harness<'static, PhotocraftApp> {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
     crate::prefs_ui::open_preferences(&mut app, section);
     let mut settings = AiSettings::default();
@@ -25,6 +35,13 @@ fn harness(section: &str, size: egui::Vec2, scale: f32, theme: crate::theme::The
                 initialized = true;
                 ui.ctx().request_repaint();
                 return;
+            }
+            if let Some(models) = &models {
+                // The real status worker uses the process store; this offscreen
+                // fixture has a scoped store. Keep its test root stable per frame.
+                let mut settings = AiSettings::default();
+                settings.model_directory = models.to_string_lossy().into_owned();
+                li_ai::settings::publish(&settings);
             }
             crate::dialogs::show(app, ui.ctx());
             super::super::windows(app, ui.ctx());
@@ -53,6 +70,77 @@ fn ai_preferences_function_labels_hide_model_details_until_manage() {
     h.get_by_label("LaMa · On-device");
     reset();
     TEST_STATUS.with(|s| *s.borrow_mut() = None);
+}
+
+#[test]
+fn ai_preferences_old_model_cleanup_confirms_cancels_and_preserves_active_files() {
+    let _lock = AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    struct Restore(AiSettings);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            li_ai::settings::publish(&self.0);
+        }
+    }
+    let _restore = Restore(AiSettings::load());
+    let dir = std::env::temp_dir().join(format!("li-ai-cleanup-ui-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("segmentation")).unwrap();
+    std::fs::write(dir.join("segmentation/u2net.onnx"), b"retired subject model").unwrap();
+    std::fs::write(dir.join("segmentation/midas_v21_small_256.onnx"), b"retired depth model").unwrap();
+    for file in li_seg::Group::Tagging.official().files() {
+        std::fs::write(li_seg::companion_path(&dir, file.file), b"active clip file").unwrap();
+    }
+    let mut settings = AiSettings::default();
+    settings.model_directory = dir.to_string_lossy().into_owned();
+    let value = serde_json::to_value(&settings).unwrap();
+    let backend = li_ai::settings::StoreBackend {
+        load: std::sync::Arc::new(move || Ok(Some(value.clone()))),
+        save: std::sync::Arc::new(|_| panic!("cleanup must not change preferences")),
+    };
+    li_ai::settings::with_store_backend(backend, || {
+        li_ai::settings::publish(&settings);
+        let mut h = harness_with_models("ai.tools", vec2(1100.0, 850.0), 1.0, crate::theme::ThemeKind::StudioLight, Some(dir.clone()));
+        dialogs_mut(|d| {
+            d.settings.as_mut().unwrap().model_directory = dir.to_string_lossy().into_owned();
+            d.applied_settings = d.settings.clone();
+        });
+        h.run_steps(3);
+        h.get_by_label("Storage and cleanup").scroll_to_me();
+        h.run_steps(4);
+        h.get_by_label("Storage and cleanup").click();
+        h.run_steps(4);
+        h.get_by_label_contains("Remove old models (").scroll_to_me();
+        h.run_steps(4);
+        h.get_by_label_contains("Remove old models (").click();
+        h.run_steps(3);
+        h.get_by_label("Remove the old models?");
+        assert_eq!(li_seg::legacy_installed(&dir).len(), 2, "opening confirmation cannot delete files");
+        if !li_ai::trash::available() {
+            h.get_by_label_contains("The files are deleted permanently.");
+        }
+        // The removal modal's Cancel is above the Preferences footer's Cancel.
+        h.query_all_by_label("Cancel").min_by(|a, b| a.rect().bottom().total_cmp(&b.rect().bottom())).unwrap().click();
+        h.run_steps(3);
+        assert!(dialogs_mut(|d| d.remove.is_none()));
+        assert_eq!(li_seg::legacy_installed(&dir).len(), 2, "Cancel preserves both files");
+        assert_eq!(h.state().ui.dialogs.len(), 1, "Preferences remains open");
+        h.get_by_label_contains("Remove old models (").click();
+        h.run_steps(3);
+        h.get_by_label(if li_ai::trash::available() { "Move to Trash" } else { "Delete" }).click();
+        let start = std::time::Instant::now();
+        while !li_seg::legacy_installed(&dir).is_empty() && start.elapsed() < std::time::Duration::from_secs(10) {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        h.run_steps(3);
+        assert!(li_seg::legacy_installed(&dir).is_empty());
+        for file in li_seg::Group::Tagging.official().files() {
+            assert_eq!(std::fs::read(li_seg::companion_path(&dir, file.file)).unwrap(), b"active clip file");
+        }
+        assert!(h.query_by_label_contains("Remove old models (").is_none());
+        reset();
+        TEST_STATUS.with(|s| *s.borrow_mut() = None);
+    });
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

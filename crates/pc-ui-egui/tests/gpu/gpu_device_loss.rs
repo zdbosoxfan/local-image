@@ -176,10 +176,15 @@ fn single_validation_error_retries_on_cpu_and_recovers_gpu() {
     assert!(g.recover_transient_errors());
     let retried = g.refresh(key, &d, None, None);
     assert_eq!(retried.kind, "full");
-    assert!(retried.fallback.as_deref().unwrap().contains("retrying this frame on the CPU"));
+    assert!(retried.fallback.as_deref().unwrap().contains("CPU compositor"));
+    assert!(!g.health().can_render());
+    assert!(g.health().can_present());
     assert!(g.fault().is_none());
     assert_eq!(g.refresh(key, &d, None, None).kind, "full", "backoff keeps compute on CPU");
     std::thread::sleep(std::time::Duration::from_millis(4100));
+    g.resume_compute_after_backoff(); // The app's resource tick performs shared retry admission.
+    assert!(g.health().can_render());
+    assert_eq!(g.refresh(key, &d, None, None).kind, "full", "the invalidated frame is retried once on CPU");
     assert_eq!(g.refresh(key, &d, None, None).kind, "gpu-full", "automatic retry after backoff");
     assert!(!g.recover_transient_errors());
     let (_, _, pixels) = g.read_texels(key).unwrap();
@@ -187,7 +192,7 @@ fn single_validation_error_retries_on_cpu_and_recovers_gpu() {
 }
 
 #[test]
-fn validation_errors_in_three_frames_disable_the_canvas() {
+fn validation_errors_in_three_frames_pause_compute_and_keep_the_canvas() {
     let _gpu = gpu_lock();
     let Some(rs) = render_state() else { return };
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
@@ -199,8 +204,14 @@ fn validation_errors_in_three_frames_disable_the_canvas() {
             .uncaptured(&eframe::wgpu::Error::Validation { source: Box::new(std::io::Error::other("test")), description: "injected validation error".into() });
         app.frame = frame;
         app.check_gpu(&egui::Context::default());
-        assert_eq!(app.gpu_active(), frame < 2);
+        assert!(app.gpu_active(), "recoverable compute failures retain the presentation canvas");
     }
     assert_eq!(app.session.documents().len(), 1);
-    assert_eq!(app.ui.status, gpu_status::ERROR_MESSAGE);
+    assert!(health.can_present());
+    assert!(!health.can_render());
+    assert!(health.fault().is_some_and(|fault| !fault.is_lost()));
+    assert_ne!(app.ui.status, gpu_status::ERROR_MESSAGE);
+    health.retry_now();
+    assert!(health.can_render());
+    assert!(app.gpu_active());
 }
