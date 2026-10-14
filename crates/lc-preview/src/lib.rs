@@ -1,6 +1,7 @@
 //! Previews: everything that makes a big library show up instantly.
 //!
-//! - [`hash`]: 128-bit content hashes (file bytes → duplicate detection and cache keys).
+//! - [`hash`]: content identity ([`ContentId`], BLAKE3: duplicate detection, relinking, copy
+//!   verification) and 128-bit cache keys ([`Hash128`]).
 //! - [`Lru`]: a cost-bounded memory LRU (decoded sources, rendered thumbnails).
 //! - [`DiskCache`]: rendered thumbnails as JPEG files keyed by `(content hash, settings hash,
 //!   size, renderer version)`, bounded in bytes (least recently used files are pruned).
@@ -21,7 +22,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, RwLock};
 
 pub use disk::{DiskCache, decode_jpeg, encode_jpeg};
-pub use hash::{Hash128, Hasher128, hash_bytes};
+pub use hash::{ContentHasher, ContentId, Hash128, Hasher128, hash_bytes};
 use lightcraft_raster::Rgba8;
 pub use lru::{Lru, next_tick};
 pub use pool::JobPool;

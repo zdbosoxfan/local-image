@@ -72,6 +72,46 @@ fn hashes_are_stable_and_distinct() {
     assert_eq!(Hasher128::new().update(b"hel").update(b"lo").finish(), a);
 }
 
+/// J24 parity/golden: the content identity is standard BLAKE3 (the editor's linked-source hash,
+/// published test vectors), the legacy SipHash is bit-identical to what old catalogs stored,
+/// and streaming, both-at-once and parsing agree with the one-shot forms.
+#[test]
+fn j24_content_identity_is_blake3_and_reads_legacy() {
+    // BLAKE3 reference vectors (empty input, "abc")
+    assert_eq!(ContentId::of(b"").to_string(), "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262");
+    assert_eq!(ContentId::of(b"abc").to_string(), "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85");
+    let bytes: Vec<u8> = (0..300_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
+    let id = ContentId::of(&bytes);
+    // the editor's linked-source string for the same bytes
+    assert_eq!(id.to_string(), blake3::hash(&bytes).to_hex().to_string());
+    // legacy: the exact 32-hex string catalogs stored before J24 (golden)
+    let legacy = ContentId::from(hash_bytes(b"hello"));
+    assert_eq!(legacy.to_string(), LEGACY_HELLO);
+    // parse round trips; length tells the schemes apart; junk is not an identity
+    assert_eq!(ContentId::parse(&id.to_string()), Some(id));
+    assert_eq!(ContentId::parse(&id.to_string().to_uppercase()), Some(id));
+    assert_eq!(ContentId::parse(LEGACY_HELLO), Some(legacy));
+    assert!(legacy.is_legacy() && !id.is_legacy());
+    for junk in ["", "hash123", "ephemeral:00", &"g".repeat(64), &"+".repeat(32)] {
+        assert_eq!(ContentId::parse(junk), None, "{junk}");
+    }
+    // streaming in uneven chunks == one shot, both schemes in one pass
+    let mut h = ContentHasher::with_legacy(true);
+    for chunk in bytes.chunks(7919) {
+        h.update(chunk);
+    }
+    assert_eq!(h.finish(), id);
+    assert_eq!(h.finish_legacy(), Some(ContentId::Legacy(hash_bytes(&bytes))));
+    assert_eq!(ContentHasher::new().update(&bytes).finish_legacy(), None);
+    // checking bytes against a stored identity uses its scheme
+    assert_eq!(legacy.of_like(b"hello"), legacy);
+    assert_eq!(id.of_like(&bytes), id);
+    assert_eq!(legacy.hasher().update(b"hel").update(b"lo").finish(), legacy);
+    assert_eq!(id.hasher().update(&bytes).finish(), id);
+}
+
+const LEGACY_HELLO: &str = "53c495508d545b11b066c30b5fc951c1";
+
 #[test]
 fn lru_evicts_least_recent_by_cost() {
     let mut l = Lru::new(10);

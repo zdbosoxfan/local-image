@@ -87,7 +87,7 @@ fn convert(s: &mut Session, p: &Value) -> Result<Value> {
                 let file_name = Path::new(&out).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                 let bytes = std::fs::read(&out).map_err(|e| bad(C, e.to_string()))?;
                 let size = bytes.len() as u64;
-                let hash = lightcraft_preview::hash_bytes(&bytes).to_string();
+                let hash = lightcraft_preview::ContentId::of(&bytes).to_string();
                 drop(bytes);
                 let info = crate::import::probe_paths(s, std::slice::from_ref(&out)).pop().and_then(|r| r.ok());
                 for member in super::missing::family_ids(s, id) {
@@ -180,7 +180,9 @@ fn edit_external(s: &mut Session, p: &Value) -> Result<Value> {
 /// `None` when nothing changed. Covers a raw that became decodable (or stopped being: a different
 /// file relinked), i.e. a change of [`lightcraft_catalog::Photo::preview_only`].
 pub(crate) fn content_op(id: lightcraft_catalog::PhotoId, ph: &lightcraft_catalog::Photo, info: crate::media::ProbeInfo) -> Option<Op> {
-    let same = info.content_hash == ph.content_hash
+    // the same bytes keep their stored hash (a legacy one is re-keyed, its links kept: J24)
+    let content_hash = crate::media::rekeyed(ph.content_hash.as_deref(), &info);
+    let same = content_hash == ph.content_hash
         && info.file_size == ph.file_size
         && (info.width, info.height) == (ph.width, ph.height)
         && info.preview_only == ph.preview_only;
@@ -189,7 +191,7 @@ pub(crate) fn content_op(id: lightcraft_catalog::PhotoId, ph: &lightcraft_catalo
         width: info.width,
         height: info.height,
         file_size: info.file_size,
-        content_hash: info.content_hash,
+        content_hash,
         preview_only: info.preview_only,
     })
 }

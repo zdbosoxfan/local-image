@@ -954,7 +954,7 @@ fn bugfix_develop_dng_refreshes_content_identity_and_virtual_copies() {
     for target in [id, lightcraft_catalog::PhotoId(copy)] {
         let photo = s.catalog.photo(target).unwrap();
         assert_eq!(photo.file_size, bytes.len() as u64);
-        assert_eq!(photo.content_hash.as_deref(), Some(lightcraft_preview::hash_bytes(&bytes).to_string().as_str()));
+        assert_eq!(photo.content_hash.as_deref(), Some(lightcraft_preview::ContentId::of(&bytes).to_string().as_str()));
         assert_eq!(photo.file_name, "shot.dng");
     }
     s.execute("edit.undo", &json!({})).unwrap();

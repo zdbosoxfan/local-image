@@ -71,7 +71,7 @@ fn recursive_import_with_duplicates() {
     assert_eq!(r["duplicates"][0]["reason"], "content");
     assert_eq!(ids(&r, "failed"), 1, "{r}");
     assert_eq!(s.catalog.len(), 3);
-    assert!(s.catalog.photos().all(|p| p.content_hash.as_ref().is_some_and(|h| h.len() == 32) && p.width == 48));
+    assert!(s.catalog.photos().all(|p| p.content_hash.as_ref().is_some_and(|h| h.len() == 64) && p.width == 48));
 
     // importing again: everything is a duplicate (by path), one undo step for the first import
     let r2 = s.execute("library.import", &json!({"paths": [src.to_string_lossy()]})).unwrap();

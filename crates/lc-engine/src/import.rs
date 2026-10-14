@@ -30,7 +30,7 @@ use lightcraft_catalog::{MediaKind, Op, Photo, PhotoId, Source};
 use serde::{Deserialize, Serialize};
 
 use crate::Session;
-use crate::media::ProbeInfo;
+use crate::media::{LegacyIds, ProbeInfo};
 
 /// File extensions LightCraft imports (lower case).
 pub const EXTENSIONS: &[&str] = lightcraft_codecs::PHOTO_EXTENSIONS;
@@ -381,12 +381,20 @@ pub fn expand_within(paths: &[String], skip: Option<&Path>, limits: crate::walk:
     (out, truncated)
 }
 
-/// Probe files (headers + content hash) as an import would.
+/// Probe files (headers + content hash) as an import would. These are library photos read again
+/// (Reload, Relink, convert): while the library still has legacy identities, each probe also
+/// computes the legacy hash, so an unchanged file can be re-keyed ([`crate::media::rekeyed`]).
 pub(crate) fn probe_paths(s: &Session, paths: &[String]) -> Vec<Result<ProbeInfo, String>> {
-    probe_all(s.media.file_probe.as_ref(), paths, &ScanProgress::default())
+    let legacy = LegacyIds::of_catalog(&s.catalog).map(|_| LegacyIds::all());
+    probe_all(s.media.file_probe.as_ref(), paths, &ScanProgress::default(), legacy.as_ref())
 }
 
-fn probe_all(probe: Option<&crate::media::FileProbe>, paths: &[String], progress: &ScanProgress) -> Vec<Result<ProbeInfo, String>> {
+fn probe_all(
+    probe: Option<&crate::media::FileProbe>,
+    paths: &[String],
+    progress: &ScanProgress,
+    legacy: Option<&std::sync::Arc<LegacyIds>>,
+) -> Vec<Result<ProbeInfo, String>> {
     use std::sync::atomic::Ordering::Relaxed;
     let Some(probe) = probe.cloned() else {
         return paths
@@ -418,7 +426,7 @@ fn probe_all(probe: Option<&crate::media::FileProbe>, paths: &[String], progress
                             if progress.cancel.load(Relaxed) {
                                 break;
                             }
-                            let r = probe_file(&probe, &paths[i]);
+                            let r = crate::media::with_legacy_ids(legacy, || probe_file(&probe, &paths[i]));
                             progress.done.fetch_add(1, Relaxed);
                             out.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
                         }
@@ -434,7 +442,7 @@ fn probe_all(probe: Option<&crate::media::FileProbe>, paths: &[String], progress
             if progress.cancel.load(Relaxed) {
                 return Err("cancelled".into());
             }
-            let r = probe_file(&probe, p);
+            let r = crate::media::with_legacy_ids(legacy, || probe_file(&probe, p));
             progress.done.fetch_add(1, Relaxed);
             r
         })
@@ -451,7 +459,7 @@ fn copy_into(root: &Path, src: &str, folders: &[String], name: Option<&str>, pro
     let name = name
         .map(str::to_string)
         .unwrap_or_else(|| Path::new(src).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "photo".into()));
-    let expect = probe_hash.and_then(lightcraft_preview::Hash128::parse);
+    let expect = probe_hash.and_then(lightcraft_preview::ContentId::parse);
     crate::import_move::copy_new(Path::new(src), &dir, &name, expect).map(|p| p.to_string_lossy().to_string())
 }
 
@@ -462,8 +470,11 @@ pub struct ScanInput {
     skip: Option<PathBuf>,
     /// path → (photo, its summary) for files already in the library.
     by_path: HashMap<PathBuf, (PhotoId, ImportCandidate)>,
+    /// content identity ([`crate::media::content_identity`]) → photo
     by_hash: HashMap<String, PhotoId>,
     cache: HashMap<String, ProbeInfo>,
+    /// Files that also need the legacy identity (library photos not re-keyed yet).
+    legacy: Option<std::sync::Arc<LegacyIds>>,
 }
 
 /// Progress and cancellation of a running [`scan_with`].
@@ -503,10 +514,11 @@ impl ScanInput {
                 by_path.insert(PathBuf::from(path), (p.id, c));
             }
             if let Some(h) = &p.content_hash {
-                by_hash.insert(h.clone(), p.id);
+                by_hash.insert(crate::media::content_identity(h).into_owned(), p.id);
             }
         }
-        let input = ScanInput { probe: s.media.file_probe.clone(), skip, by_path, by_hash, cache: std::mem::take(&mut s.import_probes) };
+        let legacy = LegacyIds::of_catalog(&s.catalog);
+        let input = ScanInput { probe: s.media.file_probe.clone(), skip, by_path, by_hash, cache: std::mem::take(&mut s.import_probes), legacy };
         (input, paths.to_vec())
     }
 }
@@ -541,9 +553,15 @@ pub fn scan_with(mut input: ScanInput, paths: &[String], progress: &ScanProgress
         .collect();
     let missing: Vec<String> = todo.iter().zip(&cached).filter(|(_, c)| c.is_none()).map(|(f, _)| f.clone()).collect();
     progress.done.store(todo.len() - missing.len(), Relaxed);
-    let mut fresh = probe_all(input.probe.as_ref(), &missing, progress).into_iter();
-    let probed: Vec<Result<ProbeInfo, String>> =
-        cached.into_iter().map(|c| c.map(Ok).unwrap_or_else(|| fresh.next().unwrap_or_else(|| Err("not probed".into())))).collect();
+    let mut fresh = probe_all(input.probe.as_ref(), &missing, progress, input.legacy.as_ref()).into_iter();
+    let probed: Vec<Result<ProbeInfo, String>> = todo
+        .iter()
+        .zip(cached)
+        .map(|(f, c)| {
+            c.map(|info| Ok(with_legacy_hash(info, f, input.legacy.as_deref())))
+                .unwrap_or_else(|| fresh.next().unwrap_or_else(|| Err("not probed".into())))
+        })
+        .collect();
     crate::memory::release();
     let mut probes: HashMap<String, Result<ProbeInfo, String>> = todo.into_iter().zip(probed).collect();
     let mut seen_hash: HashMap<String, Option<u64>> = input.by_hash.into_iter().map(|(h, id)| (h, Some(id.0))).collect();
@@ -564,7 +582,7 @@ pub fn scan_with(mut input: ScanInput, paths: &[String], progress: &ScanProgress
                     (info.format.clone(), info.kind, info.width, info.height, info.file_size, info.captured.clone());
                 c.preview_only = info.preview_only.clone();
                 if let Some(h) = &info.content_hash {
-                    match seen_hash.get(h) {
+                    match identities(&info).find_map(|k| seen_hash.get(k)) {
                         Some(existing) => {
                             c.duplicate = Some("content".into());
                             c.existing = *existing;
@@ -614,8 +632,11 @@ pub struct ImportJob {
     copy_root: Option<PathBuf>,
     /// path → (photo, a Local browse record?)
     by_path: HashMap<String, (PhotoId, bool)>,
-    /// content hash → the photo that has it (`None`: a file earlier in this import)
+    /// content identity ([`crate::media::content_identity`]) → the photo that has it (`None`: a
+    /// file earlier in this import)
     by_hash: HashMap<String, Option<PhotoId>>,
+    /// Files that also need the legacy identity (library photos not re-keyed yet).
+    legacy: Option<std::sync::Arc<LegacyIds>>,
     probe: Option<crate::media::FileProbe>,
     file_bytes: Option<crate::merge::ByteReader>,
     /// Probes from a preceding scan (not read again).
@@ -685,7 +706,7 @@ impl Prepared {
 }
 
 /// Independent, verified original/sidecar copy, including Local records promoted on import.
-fn copy_second_original(path: &str, folder: &str, expected: Option<lightcraft_preview::Hash128>) -> Result<(), String> {
+fn copy_second_original(path: &str, folder: &str, expected: Option<lightcraft_preview::ContentId>) -> Result<(), String> {
     let src = Path::new(path);
     let root = Path::new(folder);
     if !root.is_dir() || crate::import_move::inside(src, root) {
@@ -755,10 +776,11 @@ impl ImportJob {
                 by_path.insert(path.clone(), (p.id, p.local));
             }
             if let Some(h) = &p.content_hash {
-                by_hash.insert(h.clone(), Some(p.id));
+                by_hash.insert(crate::media::content_identity(h).into_owned(), Some(p.id));
             }
         }
         Ok(ImportJob {
+            legacy: LegacyIds::of_catalog(&s.catalog),
             seq: opts.rename_start.max(1),
             opts,
             mode,
@@ -851,9 +873,15 @@ impl ImportJob {
             .collect();
         let missing: Vec<String> = todo.iter().zip(&cached).filter(|(_, c)| c.is_none()).map(|(f, _)| f.clone()).collect();
         let progress = ScanProgress::default();
-        let mut fresh = probe_all(self.probe.as_ref(), &missing, &progress).into_iter();
-        let probed: Vec<Result<ProbeInfo, String>> =
-            cached.into_iter().map(|c| c.map(Ok).unwrap_or_else(|| fresh.next().unwrap_or_else(|| Err("not probed".into())))).collect();
+        let mut fresh = probe_all(self.probe.as_ref(), &missing, &progress, self.legacy.as_ref()).into_iter();
+        let probed: Vec<Result<ProbeInfo, String>> = todo
+            .iter()
+            .zip(cached)
+            .map(|(f, c)| {
+                c.map(|info| Ok(with_legacy_hash(info, f, self.legacy.as_deref())))
+                    .unwrap_or_else(|| fresh.next().unwrap_or_else(|| Err("not probed".into())))
+            })
+            .collect();
         crate::memory::release();
         // Copies (copy, sync, verify; optional DNG conversion) run on a bounded group of threads
         // while this loop goes on in file order; everything that decides names, folders, sequence
@@ -901,12 +929,12 @@ impl ImportJob {
                 {
                     self.by_hash.insert(h.clone(), None);
                 }
-                if let Some(h) = &info.content_hash
+                if info.content_hash.is_some()
                     && !opts.local
-                    && let Some(existing) = self.by_hash.get(h)
+                    && let Some((h, existing)) = identities(&info).find_map(|k| self.by_hash.get(k).map(|e| (k.to_string(), *e)))
                 {
                     self.done.fetch_add(1, Relaxed);
-                    entries.push(Entry::Done(PreparedItem::Duplicate { path, existing: *existing, reason: "content", hash: Some(h.clone()) }));
+                    entries.push(Entry::Done(PreparedItem::Duplicate { path, existing, reason: "content", hash: Some(h) }));
                     continue;
                 }
                 // the XMP sidecar (or a raw's embedded XMP), read before copying: its capture time files
@@ -926,7 +954,7 @@ impl ImportJob {
                     info.captured = sidecar.as_ref().and_then(|sc| sc.captured.clone());
                 }
                 if let Some(folder) = &opts.second_copy {
-                    let result = copy_second_original(&path, folder, info.content_hash.as_deref().and_then(lightcraft_preview::Hash128::parse));
+                    let result = copy_second_original(&path, folder, info.content_hash.as_deref().and_then(lightcraft_preview::ContentId::parse));
                     if let Err(e) = result {
                         self.done.fetch_add(1, Relaxed);
                         entries.push(Entry::Done(PreparedItem::Failed(path, format!("second copy: {e}"))));
@@ -1309,7 +1337,12 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
             PreparedItem::Duplicate { path, existing, reason, hash } => {
                 let existing = existing.or_else(|| {
                     let h = hash?;
-                    new_hash.get(&h).copied().or_else(|| s.catalog.photos().find(|p| p.content_hash.as_deref() == Some(h.as_str())).map(|p| p.id))
+                    new_hash.get(&h).copied().or_else(|| {
+                        s.catalog
+                            .photos()
+                            .find(|p| p.content_hash.as_deref().is_some_and(|c| crate::media::content_identity(c) == h.as_str()))
+                            .map(|p| p.id)
+                    })
                 });
                 let trashed = existing.filter(|id| s.catalog.photo(*id).is_some_and(|p| p.deleted));
                 match trashed {
@@ -1516,6 +1549,24 @@ impl Session {
     }
 }
 
+/// The identities a probed file is matched by: its BLAKE3 one, then its legacy one (when
+/// computed) against library photos not re-keyed yet.
+fn identities(info: &ProbeInfo) -> impl Iterator<Item = &str> {
+    info.content_hash.as_deref().into_iter().chain(info.legacy_hash.as_deref())
+}
+
+/// A probe reused from earlier (a scan's, a merge's) that lacks the legacy identity a library
+/// photo of its size still needs: computed now from the file, so a duplicate is never missed.
+fn with_legacy_hash(mut info: ProbeInfo, path: &str, legacy: Option<&LegacyIds>) -> ProbeInfo {
+    let wanted = legacy.is_some_and(|l| l.wants(info.file_size))
+        && info.legacy_hash.is_none()
+        && info.content_hash.as_deref().and_then(lightcraft_preview::ContentId::parse).is_some_and(|id| !id.is_legacy());
+    if wanted && !cfg!(target_arch = "wasm32") {
+        info.legacy_hash = std::fs::read(path).ok().map(|b| lightcraft_preview::hash_bytes(&b).to_string());
+    }
+    info
+}
+
 fn probe_file(probe: &crate::media::FileProbe, path: &str) -> Result<ProbeInfo, String> {
     let before = std::fs::metadata(path).and_then(|m| m.modified()).ok();
     let mut info = probe(path)?;
@@ -1553,5 +1604,140 @@ mod shared_decode_registry_tests {
         }
         assert!(!super::is_supported(std::path::Path::new("photo.avif")));
         assert!(!super::is_supported(std::path::Path::new("notes.txt")));
+    }
+}
+
+/// J24 parity: one content identity (BLAKE3) without losing anything an old library stored —
+/// legacy (SipHash) catalogs open as they are, are re-keyed only when a scan proves the file
+/// unchanged, keep every link key, and never let a duplicate in.
+#[cfg(test)]
+mod j24_identity_tests {
+    use lightcraft_catalog::{Op, PhotoId};
+    use lightcraft_preview::{ContentId, hash_bytes};
+    use serde_json::json;
+
+    use crate::Session;
+    use crate::media::{ProbeInfo, content_identity, content_key, link_key, rekeyed};
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("lc-j24-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn png(seed: u8) -> Vec<u8> {
+        let (w, h) = (40usize, 24usize);
+        let data: Vec<[u8; 4]> = (0..w * h).map(|i| [(i % w * 6) as u8, (i / w * 9) as u8, seed, 255]).collect();
+        let img = lightcraft_raster::Rgba8 { width: w, height: h, data };
+        lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap()
+    }
+
+    fn probe(b3: &str, legacy: Option<&str>) -> ProbeInfo {
+        ProbeInfo { content_hash: Some(b3.into()), legacy_hash: legacy.map(str::to_string), ..Default::default() }
+    }
+
+    #[test]
+    fn j24_rekey_rules_keep_links_and_suffixes() {
+        let b3 = ContentId::of(b"bytes").to_string();
+        let other = ContentId::of(b"other bytes").to_string();
+        let old = hash_bytes(b"bytes").to_string();
+        let rekeyed_id = format!("{b3}~{old}");
+        // unchanged: the probe's own string, or the same BLAKE3 identity (re-keyed or with a suffix)
+        assert_eq!(rekeyed(Some(&b3), &probe(&b3, None)), Some(b3.clone()));
+        assert_eq!(rekeyed(Some(&rekeyed_id), &probe(&b3, Some(&old))), Some(rekeyed_id.clone()));
+        assert_eq!(rekeyed(Some(&format!("{b3}:dup7")), &probe(&b3, None)), Some(format!("{b3}:dup7")));
+        // legacy + confirmed by the legacy hash of the fresh bytes: re-keyed, suffix kept
+        assert_eq!(rekeyed(Some(&old), &probe(&b3, Some(&old))), Some(rekeyed_id.clone()));
+        assert_eq!(rekeyed(Some(&format!("{old}:dup7")), &probe(&b3, Some(&old))), Some(format!("{rekeyed_id}:dup7")));
+        // legacy the probe couldn't check: kept as it is (links are never dropped on a guess)
+        assert_eq!(rekeyed(Some(&old), &probe(&b3, None)), Some(old.clone()));
+        // changed files: the fresh identity
+        assert_eq!(rekeyed(Some(&old), &probe(&other, Some(&hash_bytes(b"other bytes").to_string()))), Some(other.clone()));
+        assert_eq!(rekeyed(Some(&rekeyed_id), &probe(&other, None)), Some(other.clone()));
+        assert_eq!(rekeyed(None, &probe(&b3, None)), Some(b3.clone()));
+        // hosts' own strings behave as before (exact comparison)
+        assert_eq!(rekeyed(Some("abc"), &probe("changed", None)), Some("changed".into()));
+        assert_eq!(rekeyed(Some("abc"), &ProbeInfo::default()), None);
+        // link key = the legacy key, identity = BLAKE3; only a real `<blake3>~<legacy>` is split
+        assert_eq!(link_key(&rekeyed_id), old);
+        assert_eq!(link_key(&format!("{rekeyed_id}:dup7")), format!("{old}:dup7"));
+        assert_eq!(content_identity(&format!("{rekeyed_id}:dup7")), format!("{b3}:dup7"));
+        assert_eq!(content_identity(&rekeyed_id), b3);
+        for own in ["/home/me/~photos/a.png", "~", &format!("{b3}~short"), &format!("x~{old}")] {
+            assert_eq!(link_key(own), own);
+            assert_eq!(content_identity(own), own);
+        }
+        assert!(crate::media::is_legacy_identity(&old) && crate::media::is_legacy_identity(&format!("{old}:dup2")));
+        assert!(!crate::media::is_legacy_identity(&rekeyed_id) && !crate::media::is_legacy_identity(&b3));
+    }
+
+    /// A photo from an old catalog (legacy hash): duplicates are still caught by it (scan and
+    /// import), Reload re-keys it to BLAKE3 while every link key stays the same, the next import of
+    /// the same bytes is caught by BLAKE3, Find Missing still finds it by content, and a real
+    /// change on disk gets a plain new identity.
+    #[test]
+    fn j24_legacy_catalog_migrates_on_scan_without_losing_links_or_duplicating() {
+        let dir = temp_dir("legacy");
+        let (a, bytes) = (dir.join("a.png"), png(1));
+        std::fs::write(&a, &bytes).unwrap();
+        let mut s = Session::new().with_fs();
+        s.execute("library.import", &json!({"paths": [a.to_string_lossy()]})).unwrap();
+        let id = s.active().unwrap();
+        let b3 = ContentId::of(&bytes).to_string();
+        assert_eq!(s.catalog.photo(id).unwrap().content_hash.as_deref(), Some(b3.as_str()), "new imports: BLAKE3");
+        // the photo as a catalog written before J24 stored it
+        let old = hash_bytes(&bytes).to_string();
+        let ph = s.catalog.photo(id).unwrap().clone();
+        let op =
+            Op::SetContent { id, width: ph.width, height: ph.height, file_size: ph.file_size, content_hash: Some(old.clone()), preview_only: None };
+        s.catalog.apply(op).unwrap();
+        let p = s.catalog.photo(id).unwrap();
+        let links = (content_key(p), crate::enhance::source_hash(p), crate::smart::file_name(p));
+        assert_eq!(links.0, old);
+
+        // duplicates against the legacy row: Review Import and the import itself
+        let b = dir.join("b.png");
+        std::fs::write(&b, &bytes).unwrap();
+        let c = crate::import::scan(&mut s, &[b.to_string_lossy().to_string()]);
+        assert_eq!((c[0].duplicate.as_deref(), c[0].existing), (Some("content"), Some(id.0)), "{c:?}");
+        let r = s.execute("library.import", &json!({"paths": [b.to_string_lossy()]})).unwrap();
+        assert_eq!(r["imported"], json!([]), "{r}");
+        assert_eq!((r["duplicates"][0]["reason"].as_str(), r["duplicates"][0]["existing"].as_u64()), (Some("content"), Some(id.0)), "{r}");
+
+        // the next scan of its file re-keys it; links keep their keys
+        s.execute("photo.reload", &json!({"ids": [id.0]})).unwrap();
+        let p = s.catalog.photo(id).unwrap();
+        assert_eq!(p.content_hash.as_deref(), Some(format!("{b3}~{old}").as_str()));
+        assert_eq!((content_key(p), crate::enhance::source_hash(p), crate::smart::file_name(p)), links, "no link lost");
+        assert_eq!(s.execute("photo.reload", &json!({"ids": [id.0]})).unwrap()["reloaded"], json!([]), "stable once re-keyed");
+        assert!(crate::media::LegacyIds::of_catalog(&s.catalog).is_none(), "nothing legacy left: probes hash BLAKE3 only");
+
+        // re-keyed: the same bytes are a duplicate by BLAKE3
+        let r = s.execute("library.import", &json!({"paths": [b.to_string_lossy()]})).unwrap();
+        assert_eq!((r["imported"].clone(), r["duplicates"][0]["existing"].as_u64()), (json!([]), Some(id.0)), "{r}");
+        assert_eq!(s.catalog.len(), 1);
+
+        // Find Missing: legacy and BLAKE3 identities both find a renamed file by content
+        let moved = dir.join("moved");
+        std::fs::create_dir_all(&moved).unwrap();
+        std::fs::write(moved.join("renamed.png"), &bytes).unwrap();
+        for hash in [old.clone(), b3.clone()] {
+            let lost = crate::cmd::missing::FindCandidate {
+                id: PhotoId(id.0),
+                path: dir.join("gone.png").to_string_lossy().into(),
+                size: bytes.len() as u64,
+                hash: Some(hash),
+            };
+            let plan = crate::cmd::missing::plan_find_missing(&[lost], &moved.to_string_lossy()).unwrap();
+            assert_eq!(plan.found.first().map(|f| f.by), Some(crate::cmd::missing::MatchBy::Content), "{plan:?}");
+        }
+
+        // a real change: a plain new identity (and new links, as before)
+        let changed = png(2);
+        std::fs::write(&a, &changed).unwrap();
+        s.execute("photo.reload", &json!({"ids": [id.0]})).unwrap();
+        assert_eq!(s.catalog.photo(id).unwrap().content_hash, Some(ContentId::of(&changed).to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

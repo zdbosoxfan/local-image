@@ -801,13 +801,141 @@ impl QuickJob {
     }
 }
 
-/// What identifies a photo's pixels for caching: its content hash, else its source.
+/// What identifies a photo's pixels for caching and for what is linked to them (faces, smart
+/// sort results, AI patches, smart previews): its content hash, else its source. A photo
+/// re-keyed from a legacy hash to BLAKE3 ([`rekeyed`]) keeps its legacy key here, so nothing
+/// keyed by it is lost.
 pub fn content_key(p: &Photo) -> String {
     match (&p.content_hash, &p.source) {
-        (Some(h), _) => h.clone(),
+        (Some(h), _) => link_key(h).to_string(),
         (None, Source::Demo { scene }) => format!("demo:{scene}"),
         (None, Source::File { path }) => format!("file:{path}:{}", p.file_size),
     }
+}
+
+// ---- content identity (J24) ----
+//
+// `Photo::content_hash` holds one of:
+// - `<blake3>` (64 hex): every photo probed since J24 ([`lightcraft_preview::ContentId::of`]);
+// - `<legacy>` (32 hex): catalogs written before, SipHash ([`lightcraft_preview::hash_bytes`]);
+// - `<blake3>~<legacy>`: a legacy photo whose file a later scan read again and found unchanged —
+//   identified by BLAKE3 from then on, linked by its old key ([`content_key`]);
+// - any of these plus a `:suffix` (`:dup7`, a Duplicate's own identity), or a host's own string.
+
+/// Splits a re-keyed stored hash `<blake3>~<legacy>[:suffix]` into `(blake3, "<legacy>[:suffix]")`.
+fn split_rekeyed(stored: &str) -> Option<(&str, &str)> {
+    let (id, rest) = stored.split_once('~')?;
+    let legacy = rest.get(..32)?;
+    let blake3 = matches!(lightcraft_preview::ContentId::parse(id), Some(lightcraft_preview::ContentId::Blake3(_)));
+    let legacy_ok = lightcraft_preview::ContentId::parse(legacy).is_some_and(|l| l.is_legacy());
+    (blake3 && legacy_ok && rest.get(32..).is_some_and(|s| s.is_empty() || s.starts_with(':'))).then_some((id, rest))
+}
+
+/// The key links use for a stored content hash (see [`content_key`]).
+pub fn link_key(stored: &str) -> &str {
+    split_rekeyed(stored).map_or(stored, |(_, key)| key)
+}
+
+/// The identity a stored content hash matches files by: a re-keyed one without the legacy key it
+/// keeps for links (`<blake3>~<legacy>:dup7` → `<blake3>:dup7`).
+pub fn content_identity(stored: &str) -> std::borrow::Cow<'_, str> {
+    match split_rekeyed(stored) {
+        Some((id, rest)) if rest.len() > 32 => std::borrow::Cow::Owned(format!("{id}{}", rest.get(32..).unwrap_or_default())),
+        Some((id, _)) => std::borrow::Cow::Borrowed(id),
+        None => std::borrow::Cow::Borrowed(stored),
+    }
+}
+
+/// Whether a stored content hash still identifies its photo by the legacy SipHash only (a file a
+/// new import must also be compared with by that hash).
+pub fn is_legacy_identity(stored: &str) -> bool {
+    let identity = content_identity(stored);
+    lightcraft_preview::ContentId::parse(identity.split(':').next().unwrap_or_default()).is_some_and(|id| id.is_legacy())
+}
+
+/// The content hash to store for a photo whose file a fresh probe (`info`) just read — the stored
+/// one (`stored`) when the bytes are the same:
+/// - the probe's string, or the same BLAKE3 identity: unchanged;
+/// - a legacy identity the probe's legacy hash confirms: re-keyed to `<blake3>~<legacy>` (and any
+///   `:suffix` kept), so links stay;
+/// - a legacy identity the probe could not check (no legacy hash): unchanged (links are never
+///   dropped on a guess);
+/// - anything else: the file changed, the probe's identity.
+pub fn rekeyed(stored: Option<&str>, info: &ProbeInfo) -> Option<String> {
+    let (Some(stored), Some(fresh)) = (stored, info.content_hash.as_deref()) else {
+        return info.content_hash.clone();
+    };
+    let identity = content_identity(stored);
+    let (head, suffix) = identity.split_once(':').map_or((&*identity, ""), |(h, _)| (h, identity.get(h.len()..).unwrap_or_default()));
+    if stored == fresh || head == fresh {
+        return Some(stored.to_string());
+    }
+    let fresh_is_blake3 = matches!(lightcraft_preview::ContentId::parse(fresh), Some(lightcraft_preview::ContentId::Blake3(_)));
+    match lightcraft_preview::ContentId::parse(head) {
+        Some(old) if old.is_legacy() && fresh_is_blake3 => match info.legacy_hash.as_deref() {
+            Some(legacy) if legacy == head => Some(format!("{fresh}~{head}{suffix}")),
+            Some(_) => Some(fresh.to_string()),
+            None => Some(stored.to_string()),
+        },
+        _ => Some(fresh.to_string()),
+    }
+}
+
+/// Which files a probe also gives the legacy identity ([`ProbeInfo::legacy_hash`]): those a
+/// library photo still identified by it could match (same size; any size for photos of unknown
+/// size). Hashing both costs about 1.6× BLAKE3 alone, so files no legacy photo could match
+/// skip it.
+#[derive(Clone, Debug, Default)]
+pub struct LegacyIds {
+    any: bool,
+    sizes: std::collections::HashSet<u64>,
+}
+
+impl LegacyIds {
+    /// For a catalog: `None` once no photo is identified by a legacy hash.
+    pub fn of_catalog(cat: &lightcraft_catalog::Catalog) -> Option<Arc<LegacyIds>> {
+        let mut ids = LegacyIds::default();
+        for p in cat.photos().filter(|p| p.content_hash.as_deref().is_some_and(is_legacy_identity)) {
+            if p.file_size == 0 {
+                ids.any = true;
+            } else {
+                ids.sizes.insert(p.file_size);
+            }
+        }
+        (ids.any || !ids.sizes.is_empty()).then(|| Arc::new(ids))
+    }
+    /// Every file (re-reading library photos: Reload, Relink).
+    pub fn all() -> Arc<LegacyIds> {
+        Arc::new(LegacyIds { any: true, sizes: Default::default() })
+    }
+    pub fn wants(&self, file_size: u64) -> bool {
+        self.any || self.sizes.contains(&file_size)
+    }
+}
+
+thread_local! {
+    static LEGACY_IDS: std::cell::RefCell<Option<Arc<LegacyIds>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` (a [`FileProbe`] call) with probes on this thread computing the legacy identity for
+/// the files `ids` names. The probe signature stays `Fn(&str)`, so hosts need no change.
+pub fn with_legacy_ids<R>(ids: Option<&Arc<LegacyIds>>, f: impl FnOnce() -> R) -> R {
+    let before = LEGACY_IDS.with(|l| l.replace(ids.cloned()));
+    let r = f();
+    LEGACY_IDS.with(|l| *l.borrow_mut() = before);
+    r
+}
+
+/// A file's identities as a probe records them: BLAKE3, and the legacy SipHash in the same pass
+/// when [`with_legacy_ids`] asks for this file's size.
+pub fn probe_ids(bytes: &[u8]) -> (String, Option<String>) {
+    let legacy = LEGACY_IDS.with(|l| l.borrow().as_ref().is_some_and(|ids| ids.wants(bytes.len() as u64)));
+    if !legacy {
+        return (lightcraft_preview::ContentId::of(bytes).to_string(), None);
+    }
+    let mut h = lightcraft_preview::ContentHasher::with_legacy(true);
+    h.update(bytes);
+    (h.finish().to_string(), h.finish_legacy().map(|l| l.to_string()))
 }
 
 /// [`source_info`] with what the settings `s` add to it (the lens database's correction).
@@ -1153,10 +1281,14 @@ pub struct ProbeInfo {
     pub meta: lightcraft_catalog::Meta,
     pub as_shot_wb: Option<(f64, f64)>,
     pub measured_wb: bool,
-    /// Hash of the file's bytes (hex), for duplicate detection. When it is a 32-digit
-    /// [`lightcraft_preview::hash_bytes`] of the whole file (as the native probe computes it),
-    /// Import → Copy verifies each copy against it instead of reading the source again.
+    /// The file's content identity (hex), for duplicate detection: BLAKE3 as the native probe
+    /// computes it ([`lightcraft_preview::ContentId`]; a 32-digit legacy hash from a host that
+    /// still sends one is understood too). Import → Copy verifies each copy against it instead
+    /// of reading the source again.
     pub content_hash: Option<String>,
+    /// The legacy identity of the same bytes ([`lightcraft_preview::hash_bytes`]), computed only
+    /// while a library photo still identified by one could match ([`with_legacy_ids`]).
+    pub legacy_hash: Option<String>,
     /// Lens corrections embedded in the file (DNG opcodes).
     pub embedded_lens: Option<lightcraft_develop::EmbeddedLens>,
     /// The file's embedded XMP packet (raw/DNG files), for develop settings stored inside the file.
