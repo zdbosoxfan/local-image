@@ -30,7 +30,7 @@ fn finish_inline(s: &mut Session, c: &str, job: &super::Job) -> Result<Value> {
     if let Some((_, e)) = p.job_errors.into_iter().find(|(id, _)| *id == job.id) {
         return Err(other(c, e));
     }
-    if job.ctl.cancelled() {
+    if job.ctl.is_cancelled() {
         return Err(other(c, CANCELLED.into()));
     }
     Ok(json!({"job": job.id, "done": true, "activeSpot": s.active_spot}))

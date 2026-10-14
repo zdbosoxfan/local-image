@@ -1,4 +1,6 @@
 //! Face inference and headshot decoding run on workers; only the session thread persists data.
+//! The task carries one `JobCtl` (`step` = photos done / total) that the Smart Sort dialog and the
+//! Library's task panel read and cancel.
 use crate::{LightcraftApp, i18n::tr, state::Dialog};
 use lightcraft_catalog::{MediaKind, PhotoId};
 use lightcraft_engine::smart_sort::{
@@ -6,10 +8,10 @@ use lightcraft_engine::smart_sort::{
     faces_store::StoredFace,
     people::{self, PeopleData},
 };
+use lightcraft_sysmem::JobCtl;
 use serde_json::json;
 use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
+    Arc,
     mpsc::{Receiver, channel},
 };
 
@@ -20,16 +22,22 @@ enum Event {
     Done(Result<(), String>),
 }
 pub struct PeopleTask {
-    pub cancel: Arc<AtomicBool>,
-    pub progress: Arc<Mutex<(usize, usize)>>,
+    /// Cancel and progress: `step` = photos (or headshots) done / total.
+    pub job: JobCtl,
     rx: Receiver<Event>,
     model: String,
     seed: bool,
     failed: bool,
 }
+impl PeopleTask {
+    /// Stop face analysis after the photos in flight; what was analysed stays cached.
+    pub fn cancel(&self) {
+        self.job.cancel();
+    }
+}
 impl Drop for PeopleTask {
     fn drop(&mut self) {
-        self.cancel.store(true, Ordering::Relaxed);
+        self.job.cancel();
     }
 }
 fn missing_inputs(todo: Vec<PhotoId>, prepared: impl IntoIterator<Item = PhotoId>) -> Vec<PhotoId> {
@@ -61,9 +69,9 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId], headshots: Option<String>
     let inputs = if headshots.is_none() { smart_sort::prepare_inputs(&mut app.session, &todo) } else { Vec::new() };
     let missing = missing_inputs(todo, inputs.iter().map(|j| j.id));
     let seed = headshots.is_some();
-    let cancel = Arc::new(AtomicBool::new(false));
-    let progress = Arc::new(Mutex::new((0, inputs.len() + missing.len())));
-    let (c, p) = (cancel.clone(), progress.clone());
+    let job = JobCtl::new();
+    job.set_step(0, u32::try_from(inputs.len() + missing.len()).unwrap_or(u32::MAX));
+    let c = job.clone();
     let (tx, rx) = channel();
     let work = move || {
         let result = (|| {
@@ -75,11 +83,11 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId], headshots: Option<String>
                 let mut worker = lightcraft_engine::Session::new();
                 worker.smart.prefs.faces_enabled = true;
                 worker.smart.people.tagger = Some(tagger);
-                if c.load(Ordering::Relaxed) {
+                if c.is_cancelled() {
                     return Ok(());
                 }
                 let result = worker.execute("smartSort.peopleSeedHeadshots", &json!({"dir":dir})).map_err(|e| e.to_string())?;
-                if !c.load(Ordering::Relaxed) {
+                if !c.is_cancelled() {
                     let data = worker.smart.people.data.clone();
                     let records = data
                         .seed_sources
@@ -88,22 +96,19 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId], headshots: Option<String>
                         .collect();
                     let skipped = result["skipped"].as_array().map_or(0, Vec::len);
                     let total = data.seed_sources.len() + skipped;
-                    if let Ok(mut progress) = p.lock() {
-                        *progress = (total, total);
-                    }
+                    let total = u32::try_from(total).unwrap_or(u32::MAX);
+                    c.set_step(total, total);
                     let _ = tx.send(Event::Seeds(data, records, skipped));
                 }
             } else {
                 for id in missing {
                     let _ = tx.send(Event::Row(id, String::new(), Err(tr("Could not prepare photo").to_string())));
-                    if let Ok(mut progress) = p.lock() {
-                        progress.0 += 1;
-                    }
+                    c.add_step(1);
                 }
                 use rayon::prelude::*;
                 let mut inputs = inputs.into_iter();
                 loop {
-                    if !lightcraft_sysmem::power::wait_background(&|| c.load(Ordering::Relaxed)) {
+                    if !lightcraft_sysmem::power::wait_background(&|| c.is_cancelled()) {
                         break;
                     }
                     let batch: Vec<_> = inputs.by_ref().take(32).collect();
@@ -112,15 +117,13 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId], headshots: Option<String>
                     }
                     lightcraft_sysmem::in_background_pool(|| {
                         batch.into_par_iter().for_each(|input| {
-                            if c.load(Ordering::Relaxed) {
+                            if c.is_cancelled() {
                                 return;
                             }
                             let (id, key) = (input.id, input.key.clone());
                             let value = people::detect_input(input, sizes.get(&id).copied().unwrap_or((1, 1)), tagger.as_ref());
                             let _ = tx.send(Event::Row(id, key, value));
-                            if let Ok(mut p) = p.lock() {
-                                p.0 += 1;
-                            }
+                            c.add_step(1);
                         })
                     });
                 }
@@ -140,7 +143,7 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId], headshots: Option<String>
         .map_err(|e| e.to_string())?;
     #[cfg(target_arch = "wasm32")]
     work();
-    app.people_task = Some(PeopleTask { cancel, progress, rx, model, seed, failed: false });
+    app.people_task = Some(PeopleTask { job, rx, model, seed, failed: false });
     Ok(())
 }
 pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
@@ -239,7 +242,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
         if !task.seed
             && !task.failed
             && app.smart_sort.is_none()
-            && !task.cancel.load(Ordering::Relaxed)
+            && !task.job.is_cancelled()
             && let Some(Dialog::SmartSort { state }) = &mut app.ui.dialog
         {
             state.step = 1;
@@ -373,12 +376,12 @@ mod ds2_tests {
         app.session.smart.prefs.faces_enabled = true;
         app.session.smart.people.tagger = Some(Arc::new(lightcraft_engine::smart_sort::people::MockFaces));
         start(&mut app, &[], Some(dir.to_string_lossy().into_owned())).unwrap();
-        let progress = app.people_task.as_ref().unwrap().progress.clone();
+        let job = app.people_task.as_ref().unwrap().job.clone();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-        while *progress.lock().unwrap() != (2, 2) && std::time::Instant::now() < deadline {
+        while job.status().step != Some((2, 2)) && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
-        assert_eq!(*progress.lock().unwrap(), (2, 2));
+        assert_eq!(job.status().step, Some((2, 2)));
         poll(&mut app, &egui::Context::default());
         assert_eq!(app.session.smart.people.data.people.len(), 1);
         std::fs::remove_dir_all(dir).unwrap();
@@ -392,14 +395,9 @@ mod ds2_tests {
         app.ui.dialog = Some(Dialog::SmartSort { state: Box::default() });
         let (tx, rx) = channel();
         drop(tx);
-        app.people_task = Some(PeopleTask {
-            cancel: Arc::new(AtomicBool::new(false)),
-            progress: Arc::new(Mutex::new((0, 1))),
-            rx,
-            model: "mock-faces".into(),
-            seed: false,
-            failed: false,
-        });
+        let job = JobCtl::new();
+        job.set_step(0, 1);
+        app.people_task = Some(PeopleTask { job, rx, model: "mock-faces".into(), seed: false, failed: false });
         poll(&mut app, &egui::Context::default());
         assert!(app.people_task.is_none());
         assert!(app.ui.people.error.contains("stopped unexpectedly"));

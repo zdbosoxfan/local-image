@@ -412,14 +412,14 @@ fn photomerge(s: &mut Session, p: &Value) -> Result<Value> {
         "Photomerge",
         false,
         move |ctx| {
-            ctx.progress(0.0, "Photomerge: aligning images");
+            ctx.report(0.0, "Photomerge: aligning images");
             let focal35 = focal_param.or_else(|| exif_focal(&srcs));
             let images: Vec<(&Surface, Rect)> = srcs.iter().map(|s| (&s.surf, Rect::new(0, 0, s.w as i32, s.h as i32))).collect();
             let al = register(&images, layout, None, geometric, focal35)
                 .ok_or_else(|| EngineError::Other("Photomerge couldn't find enough matching detail between the images".into()))?;
             let t_reg = t0.ms() / 1000.0;
             ctx.check()?;
-            ctx.progress(0.35, "Photomerge: warping images");
+            ctx.report(0.35, "Photomerge: warping images");
             let placed: Vec<usize> = (0..srcs.len()).filter(|&i| al.placements[i].is_some()).collect();
             // Parallel to `placed`.
             let placements: Vec<&Placement> = placed.iter().filter_map(|&i| al.placements[i].as_ref()).collect();
@@ -446,14 +446,14 @@ fn photomerge(s: &mut Session, p: &Value) -> Result<Value> {
                     .enumerate()
                     .map(|(k, (&i, pl))| {
                         ctx.check()?;
-                        ctx.progress(0.35 + 0.25 * k as f32 / placed.len().max(1) as f32, "");
+                        ctx.report(0.35 + 0.25 * k as f32 / placed.len().max(1) as f32, "");
                         Ok(warp_placed(&srcs[i].surf, Rect::new(0, 0, srcs[i].w as i32, srcs[i].h as i32), (0.0, 0.0), pl, offset, Interp::Bicubic))
                     })
                     .collect::<Result<Vec<Surface>>>()?
             };
             let t_warp = t0.ms() / 1000.0;
             ctx.check()?;
-            ctx.progress(0.6, "Photomerge: blending images");
+            ctx.report(0.6, "Photomerge: blending images");
             let mut doc = Document::new(doc_name, Size::new(cw as u32, ch as u32), fmt.mode, fmt.sample);
             doc.icc_profile = icc;
             let mut info = json!({});
@@ -474,7 +474,7 @@ fn photomerge(s: &mut Session, p: &Value) -> Result<Value> {
                 info = json!({"gains": b.gains, "vignette": b.vignette});
                 ctx.check()?;
                 if fill {
-                    ctx.progress(0.85, "Photomerge: filling edges");
+                    ctx.report(0.85, "Photomerge: filling edges");
                     let filled = content_aware_fill(&b.composite, canvas);
                     doc.layers.push(Layer::new("Content-Aware Fill", LayerContent::Raster(filled)));
                 }
@@ -485,7 +485,7 @@ fn photomerge(s: &mut Session, p: &Value) -> Result<Value> {
             }
             let n = doc.layers.len();
             ctx.check()?;
-            ctx.progress(1.0, "");
+            ctx.report(1.0, "");
             Ok((
                 doc,
                 json!({
@@ -614,11 +614,11 @@ fn merge_hdr_document(
     p: &Value,
     name: &str,
     t0: Stopwatch,
-    ctx: &crate::jobs::JobCtx,
+    ctx: &lightcraft_sysmem::JobCtl,
 ) -> Result<(Document, Value)> {
     let cmd = "file.automate.mergeToHdrPro";
     ctx.check()?;
-    ctx.progress(0.0, "HDR: preparing exposures");
+    ctx.report(0.0, "HDR: preparing exposures");
     let (w, h) = (srcs[0].w, srcs[0].h);
     if srcs.iter().any(|s| s.w != w || s.h != h) {
         return Err(EngineError::Other("the exposures must have the same pixel dimensions".into()));
@@ -648,7 +648,7 @@ fn merge_hdr_document(
         return Err(bad(cmd, "exposures must be positive"));
     }
     ctx.check()?;
-    ctx.progress(0.15, "HDR: aligning exposures");
+    ctx.report(0.15, "HDR: aligning exposures");
     // Shared feature registration handles sub-pixel translation, rotation and scale.
     // Keep Ward MTB as a fallback for brackets without enough matching texture.
     let mut order: Vec<usize> = (0..srcs.len()).collect();
@@ -678,7 +678,7 @@ fn merge_hdr_document(
                 continue;
             }
             ctx.check()?;
-            ctx.progress(0.15 + 0.2 * i as f32 / srcs.len() as f32, "HDR: aligning exposures");
+            ctx.report(0.15 + 0.2 * i as f32 / srcs.len() as f32, "HDR: aligning exposures");
             if let Some(pl) = registered.as_ref().and_then(|a| a.placements[i].as_ref()) {
                 let warped = warp_placed(&srcs[i].surf, area, (0.0, 0.0), pl, (0.0, 0.0), Interp::Bicubic);
                 warped.read_rgba_into(area, &mut imgs[i]);
@@ -702,7 +702,7 @@ fn merge_hdr_document(
         return Err(bad(cmd, "`ghostBase` is an image index"));
     }
     ctx.check()?;
-    ctx.progress(0.4, "HDR: merging radiance");
+    ctx.report(0.4, "HDR: merging radiance");
     let refs: Vec<&[[f32; 4]]> = imgs.iter().map(Vec::as_slice).collect();
     let merged = hdr::merge_with_progress(
         w,
@@ -715,13 +715,13 @@ fn merge_hdr_document(
             response: None,
         },
         &|fraction, stage| {
-            ctx.progress(0.4 + 0.4 * fraction, stage);
-            !ctx.cancelled()
+            ctx.report(0.4 + 0.4 * fraction, stage);
+            !ctx.is_cancelled()
         },
     )
     .map_err(|e| bad(cmd, e))?;
     ctx.check()?;
-    ctx.progress(0.8, "HDR: preparing document");
+    ctx.report(0.8, "HDR: preparing document");
     let mode = p.get("mode").and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_u64().map(|n| n.to_string()))).unwrap_or_else(|| "32".into());
     let (depth, mut px) = match mode.as_str() {
         "32" => (SampleType::F32, merged.px.clone()),
@@ -767,7 +767,7 @@ fn merge_hdr_document(
     surf.write_region(area, &data);
     doc.layers.push(Layer::new("Background", LayerContent::Raster(surf)));
     ctx.check()?;
-    ctx.progress(1.0, "HDR: done");
+    ctx.report(1.0, "HDR: done");
     let ev0 = exposures[order[0]];
     Ok((
         doc,

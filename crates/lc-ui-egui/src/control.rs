@@ -320,7 +320,7 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
         },
         "ui.dialog.cancel" => {
             if let Some(task) = &app.smart_sort {
-                task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                task.cancel();
             }
             app.session.smart.tagger = None;
             app.ui.dialog = None;

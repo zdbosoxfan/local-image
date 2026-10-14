@@ -677,7 +677,7 @@ fn cancelled_filters_return_none_and_progress_never_regresses() {
     let yes = || true;
     assert!(apply_tiled_with(&s, &p, area, R, None, 16, Some(R), &photocraft_raster::Interrupt::cancel_only(&yes)).is_none());
     // Tile workers report progress from their own threads, so values can arrive out of order;
-    // consumers keep the high-water mark (as `JobCtx::progress` does with `fetch_max`).
+    // consumers keep the high-water mark (as `JobCtl::report` does).
     // Non-negative f32s order like their bits, so `fetch_max` on the bits needs no lock.
     let high = AtomicU32::new(0);
     let calls = AtomicU32::new(0);

@@ -11,10 +11,10 @@ impl crate::enhance::AiHost for EnhanceHost {
     fn remove_engines(&self) -> Vec<crate::enhance::RemoveEngine> {
         vec![]
     }
-    fn remove(&self, _: &crate::enhance::RemoveRequest, _: &crate::enhance::JobCtl) -> Result<crate::enhance::RemoveResult, String> {
+    fn remove(&self, _: &crate::enhance::RemoveRequest, _: &lightcraft_sysmem::JobCtl) -> Result<crate::enhance::RemoveResult, String> {
         Err("unused".into())
     }
-    fn upscale(&self, req: &crate::enhance::UpscaleRequest, ctl: &crate::enhance::JobCtl) -> Result<Vec<[u8; 4]>, String> {
+    fn upscale(&self, req: &crate::enhance::UpscaleRequest, ctl: &lightcraft_sysmem::JobCtl) -> Result<Vec<[u8; 4]>, String> {
         ctl.check()?;
         self.0.lock().unwrap().push(req.clone());
         Ok(vec![[50, 120, 200, 255]; req.target.0 * req.target.1])
@@ -52,7 +52,7 @@ fn enhance_export_restores_native_pixels_before_encoding_and_defaults_load() {
     let smaller = ExportOptions::from_json(&json!({"percent": 50, "enhance": "rescue"}));
     export_photo(&mut s, id, &smaller, 1).unwrap();
     assert_eq!(calls.lock().unwrap().len(), old_count);
-    let ctl = crate::enhance::JobCtl::new();
+    let ctl = lightcraft_sysmem::JobCtl::new();
     ctl.cancel();
     let opts = ExportOptions::from_json(&json!({"percent": 200, "dontEnlarge": false, "enhance": "faithful"}));
     let prepared = crate::export::prepare_export(&mut s, id, &opts, 1).unwrap();

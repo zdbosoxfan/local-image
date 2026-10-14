@@ -6,7 +6,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use lightcraft_engine::enhance::{AiHost, JobCtl, RemoveEngine, RemoveRequest, RemoveResult};
+use lightcraft_engine::enhance::{AiHost, RemoveEngine, RemoveRequest, RemoveResult};
+use lightcraft_sysmem::JobCtl;
 use photocraft_ui_egui::ai_ui;
 
 /// The AI Remove engines, as Compositing's AI Remove tool offers them.
@@ -53,11 +54,11 @@ impl AiHost for DevelopAi {
         let out = std::thread::scope(|scope| {
             scope.spawn(|| {
                 while !done.load(Ordering::Relaxed) {
-                    if ctl.cancelled() {
+                    if ctl.is_cancelled() {
                         lctl.cancel();
                     }
                     let progress = lctl.progress();
-                    ctl.set(progress.fraction().unwrap_or(0.0), progress.stage.label());
+                    ctl.report(progress.fraction().unwrap_or(0.0), progress.stage.label());
                     std::thread::sleep(Duration::from_millis(50));
                 }
             });
@@ -113,7 +114,7 @@ impl AiHost for DevelopAi {
         let out = std::thread::scope(|scope| {
             scope.spawn(|| {
                 while !done.load(Ordering::SeqCst) {
-                    if ctl.cancelled() {
+                    if ctl.is_cancelled() {
                         lctl.cancel();
                     }
                     let p = lctl.progress();
@@ -122,7 +123,7 @@ impl AiHost for DevelopAi {
                         li_ai::Stage::Decoding | li_ai::Stage::Saving | li_ai::Stage::Finishing | li_ai::Stage::Done => 0.88,
                         _ => 0.12,
                     };
-                    ctl.set(frac, p.stage.label());
+                    ctl.report(frac, p.stage.label());
                     std::thread::sleep(Duration::from_millis(100));
                 }
             });

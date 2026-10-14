@@ -70,11 +70,11 @@ fn select_sky(s: &mut Session, p: &Value) -> Result<Value> {
         "Select Sky",
         true,
         move |ctx| {
-            ctx.progress(0.0, "Selecting sky");
+            ctx.report(0.0, "Selecting sky");
             let canvas = doc.bounds();
             let layer = active.and_then(|id| doc.layer(id)).and_then(|l| l.surface());
             let region = if let Some(model) = &sky_model {
-                crate::seg::sky_probability_with(model, &doc, active, all || layer.is_none(), ctx.cancellation_flag()).and_then(|(area, mut prob)| {
+                crate::seg::sky_probability_with(model, &doc, active, all || layer.is_none(), ctx.cancel_flag()).and_then(|(area, mut prob)| {
                     crate::seg::shape(&mut prob, params.threshold, params.softness);
                     crate::seg::region(area, &prob)
                 })

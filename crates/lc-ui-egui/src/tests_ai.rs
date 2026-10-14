@@ -4,7 +4,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use lightcraft_engine::enhance::{AiHost, JobCtl, RemoveEngine, RemoveRequest, RemoveResult};
+use lightcraft_engine::enhance::{AiHost, RemoveEngine, RemoveRequest, RemoveResult};
+use lightcraft_sysmem::JobCtl;
 use serde_json::json;
 
 use crate::headless::Headless;

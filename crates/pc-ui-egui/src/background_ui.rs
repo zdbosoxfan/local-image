@@ -280,7 +280,7 @@ pub(crate) fn apply_cutout(
     doc: &mut photocraft_doc::Document,
     id: photocraft_doc::LayerId,
     options: &crate::ai_ui::AiOptions,
-    ctx: &photocraft_engine::jobs::JobCtx,
+    ctx: &lightcraft_sysmem::JobCtl,
 ) -> photocraft_engine::Result<photocraft_doc::LayerId> {
     use photocraft_engine::{EngineError, ai_cmds, cutout_cmds};
     let bounds = doc.bounds();
@@ -303,7 +303,7 @@ pub(crate) fn apply_cutout(
     let mut alpha = ai_cmds::bridged(ctx, |ctl| li_ai::service().cutout(&img, variant, &hint, li_ai::ops::new_seed(), ctl))?;
     ctx.check()?;
     if options.cutout_refine {
-        ctx.progress(0.9, "Refining edges");
+        ctx.report(0.9, "Refining edges");
         alpha = refine_matte(&img, &alpha);
         ctx.check()?;
     }

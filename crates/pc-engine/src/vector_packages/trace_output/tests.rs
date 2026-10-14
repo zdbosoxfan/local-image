@@ -79,7 +79,7 @@ fn trace28_expand_connected_islands_preserves_counter_and_coverage() {
     let island = Subpath::polygon(&[(20., 2.), (24., 2.), (24., 6.), (20., 6.)]).with_op(photocraft_doc::PathOp::Join);
     let path = Path::new(vec![outer, hole, island]);
     let p = synthetic(&s, path.clone());
-    let prepared = prepare(&s.active().unwrap().doc, &p, &Output { expand: true, ..Default::default() }, &JobCtx::new()).unwrap();
+    let prepared = prepare(&s.active().unwrap().doc, &p, &Output { expand: true, ..Default::default() }, &JobCtl::new()).unwrap();
     assert_eq!(prepared.children.len(), 2, "hole belongs to its enclosing island");
     let result = publish(&mut s, &p.capture, prepared).unwrap();
     let group = s.active().unwrap().doc.layer(LayerId(result["group"].as_u64().unwrap())).unwrap();
@@ -135,7 +135,7 @@ fn trace28_cancel_apply_and_stale_revision_targets_document_never_publish() {
     assert!(s.journal.is_empty());
     let path = photocraft_vector::shapes::rect(1., 1., 4., 4.);
     let p = synthetic(&s, path);
-    let prepared = prepare(&before, &p, &Output::default(), &JobCtx::new()).unwrap();
+    let prepared = prepare(&before, &p, &Output::default(), &JobCtl::new()).unwrap();
     s.edit("Concurrent edit", |doc, _| {
         doc.name = "New name".into();
         Ok(())
@@ -172,10 +172,10 @@ fn trace28_cached_smart_selection_odd_preview_coordinates_and_alpha() {
     doc.selection = Some(selection);
     let capture = capture(&s, None).unwrap();
     let params = Params::for_preset(Preset::PixelArt);
-    let p = trace(&s.active().unwrap().doc, &capture, &params, &Output::default(), 0.5, &JobCtx::new()).unwrap();
+    let p = trace(&s.active().unwrap().doc, &capture, &params, &Output::default(), 0.5, &JobCtl::new()).unwrap();
     assert_eq!(p.bounds, [7, 9, 5, 7]);
     assert_eq!(p.scale_xy, [0.6, 4. / 7.]);
-    let prepared = prepare(&s.active().unwrap().doc, &p, &Output::default(), &JobCtx::new()).unwrap();
+    let prepared = prepare(&s.active().unwrap().doc, &p, &Output::default(), &JobCtl::new()).unwrap();
     let LayerContent::Shape(shape) = &prepared.children[0].content else { panic!("shape") };
     let bounds = shape.path.control_bounds().unwrap();
     for (actual, expected) in [bounds.0, bounds.1, bounds.2, bounds.3].into_iter().zip([7., 9., 12., 16.]) {
@@ -190,16 +190,16 @@ fn trace28_palette_merge_remove_and_fixed_document_swatches() {
     let c = capture(&s, None).unwrap();
     let params = Params::for_preset(Preset::PixelArt);
     let output = Output { palette_edits: vec![PaletteEdit { from: [255, 0, 0], to: Some([0, 0, 255]) }], ..Default::default() };
-    let p = trace(&s.active().unwrap().doc, &c, &params, &output, 1., &JobCtx::new()).unwrap();
+    let p = trace(&s.active().unwrap().doc, &c, &params, &output, 1., &JobCtl::new()).unwrap();
     assert_eq!(p.trace.layers.len(), 1);
     assert_eq!(p.trace.layers[0].color, [0, 0, 255, 255]);
     assert_eq!(&p.result_rgba[(3 * 32 + 3) * 4..(3 * 32 + 3) * 4 + 4], &[0, 0, 255, 255]);
     let remove = Output { palette_edits: vec![PaletteEdit { from: [255, 0, 0], to: None }], ..Default::default() };
-    let p = trace(&s.active().unwrap().doc, &c, &params, &remove, 1., &JobCtx::new()).unwrap();
+    let p = trace(&s.active().unwrap().doc, &c, &params, &remove, 1., &JobCtl::new()).unwrap();
     assert_eq!(p.trace.layers.len(), 1);
     let mut params = params;
     params.palette = vec![[0, 255, 0]];
-    let p = trace(&s.active().unwrap().doc, &c, &params, &Output::default(), 1., &JobCtx::new()).unwrap();
+    let p = trace(&s.active().unwrap().doc, &c, &params, &Output::default(), 1., &JobCtl::new()).unwrap();
     assert_eq!(p.trace.layers[0].color, [0, 255, 0, 255]);
 }
 #[test]
@@ -219,7 +219,7 @@ fn trace28_invalid_empty_nonpixel_and_locked_destination_no_mutation() {
         assert_eq!(s.active().unwrap().revision, revision);
     }
     let empty = synthetic(&s, Path::default());
-    let ctx = JobCtx::new();
+    let ctx = JobCtl::new();
     let prepared = prepare(&before, &empty, &Output::default(), &ctx).unwrap();
     assert!(publish(&mut s, &empty.capture, prepared).is_err());
     assert_eq!(s.active().unwrap().doc, before);
@@ -275,8 +275,8 @@ fn trace28_selection_clip_survives_ignoring_transparent_source_alpha() {
     let mut params = Params::for_preset(Preset::PixelArt);
     params.use_alpha = false;
     let c = capture(&s, None).unwrap();
-    let p = trace(&s.active().unwrap().doc, &c, &params, &Output::default(), 1., &JobCtx::new()).unwrap();
-    let prepared = prepare(&s.active().unwrap().doc, &p, &Output::default(), &JobCtx::new()).unwrap();
+    let p = trace(&s.active().unwrap().doc, &c, &params, &Output::default(), 1., &JobCtl::new()).unwrap();
+    let prepared = prepare(&s.active().unwrap().doc, &p, &Output::default(), &JobCtl::new()).unwrap();
     let group = Layer::group("Preview", prepared.children);
     let image = photocraft_compose::render_layer(&group, s.active().unwrap().doc.bounds());
     assert_eq!(image.get(13, 13)[3], 0.);
@@ -294,7 +294,7 @@ fn trace28_centreline_preview_and_publication_use_editable_width_profiles() {
     params.mode = Some(pc_trace::Mode::Centerline);
     params.speckle = 0;
     let output = Output::default();
-    let ctx = JobCtx::new();
+    let ctx = JobCtl::new();
     let preview = trace(&session.active().unwrap().doc, &capture, &params, &output, 1., &ctx).unwrap();
     assert!(!preview.trace.strokes.is_empty());
     assert!(preview.trace.layers.is_empty());
@@ -317,7 +317,7 @@ fn trace28_cleanup_statistics_reach_the_shared_preview() {
     let session = pixels();
     let capture = capture(&session, None).unwrap();
     let output = Output { cleanup: Some(pc_trace::cleanup::Options::default()), ..Default::default() };
-    let preview = trace(&session.active().unwrap().doc, &capture, &Params::for_preset(pc_trace::Preset::PixelArt), &output, 1., &JobCtx::new()).unwrap();
+    let preview = trace(&session.active().unwrap().doc, &capture, &Params::for_preset(pc_trace::Preset::PixelArt), &output, 1., &JobCtl::new()).unwrap();
     let stats = preview.cleanup_stats.unwrap();
     assert_eq!(stats.scale, 1);
     assert_eq!(stats.nodes_after, preview.trace.nodes);

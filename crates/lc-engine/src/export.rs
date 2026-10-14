@@ -1347,10 +1347,10 @@ fn file_cost(size: (usize, usize), dng: bool) -> u64 {
 
 impl PreparedExport {
     pub fn run(self) -> Result<Exported, String> {
-        self.run_with_ctl(&crate::enhance::JobCtl::new())
+        self.run_with_ctl(&lightcraft_sysmem::JobCtl::new())
     }
 
-    pub fn run_with_ctl(self, ctl: &crate::enhance::JobCtl) -> Result<Exported, String> {
+    pub fn run_with_ctl(self, ctl: &lightcraft_sysmem::JobCtl) -> Result<Exported, String> {
         let (file_name, developed) = self.develop(ctl)?;
         encode_developed(file_name, developed, ctl)
     }
@@ -1366,8 +1366,8 @@ impl PreparedExport {
     /// The render stage: read and decode the original, develop it (the GPU one batch item at a
     /// time, [`pipeline::run_render_job`]), enlarge it with AI if asked; or read the original /
     /// decode the raw data of an `Original` / `Dng` export. Encoding is [`encode_developed`].
-    pub(crate) fn develop(self, ctl: &crate::enhance::JobCtl) -> Result<(String, Developed), String> {
-        if ctl.cancelled() {
+    pub(crate) fn develop(self, ctl: &lightcraft_sysmem::JobCtl) -> Result<(String, Developed), String> {
+        if ctl.is_cancelled() {
             return Err(crate::enhance::CANCELLED.to_owned());
         }
         let file_name = self.file_name;
@@ -1376,7 +1376,7 @@ impl PreparedExport {
                 let RenderWork { job, upscale, meta, opts, resample, cost: _ } = *w;
                 let mut r = pipeline::run_render_job(job).rendered?;
                 if let Some((kernel, size)) = resample {
-                    if ctl.cancelled() {
+                    if ctl.is_cancelled() {
                         return Err(crate::enhance::CANCELLED.to_owned());
                     }
                     let wants_deep = opts.source_encoding.is_some() || opts.effective_depth() != OutputDepth::U8;
@@ -1436,11 +1436,11 @@ impl PreparedExport {
 }
 
 /// The encode stage of one export: the file's bytes from its [`Developed`] result.
-pub(crate) fn encode_developed(file_name: String, developed: Developed, ctl: &crate::enhance::JobCtl) -> Result<Exported, String> {
+pub(crate) fn encode_developed(file_name: String, developed: Developed, ctl: &lightcraft_sysmem::JobCtl) -> Result<Exported, String> {
     match developed {
         Developed::Image(img) => {
             let RenderedExport { r, meta, opts } = *img;
-            if ctl.cancelled() {
+            if ctl.is_cancelled() {
                 return Err(crate::enhance::CANCELLED.to_owned());
             }
             let bytes = encode_rendered(&r, &opts, meta.as_ref())?;
@@ -1657,7 +1657,7 @@ pub fn run_batch(
     stop_on_error: bool,
     progress: &mut dyn FnMut(usize, &str) -> bool,
 ) -> Result<Vec<serde_json::Value>, String> {
-    run_batch_with_ctl(items, o, to, write, exists, stop_on_error, progress, &crate::enhance::JobCtl::new())
+    run_batch_with_ctl(items, o, to, write, exists, stop_on_error, progress, &lightcraft_sysmem::JobCtl::new())
 }
 
 /// The background export uses this control for cancellation within a restoration tile/job.
@@ -1678,7 +1678,7 @@ pub fn run_batch_with_ctl(
     exists: &dyn Fn(&str) -> bool,
     stop_on_error: bool,
     progress: &mut dyn FnMut(usize, &str) -> bool,
-    ctl: &crate::enhance::JobCtl,
+    ctl: &lightcraft_sysmem::JobCtl,
 ) -> Result<Vec<serde_json::Value>, String> {
     let permits = lightcraft_sysmem::heavy_jobs();
     let shape = pipeline::Shape::auto(items.len(), permits.max_jobs(), lightcraft_sysmem::profile().threads);
@@ -1705,7 +1705,7 @@ pub(crate) fn run_batch_shaped(
     exists: &dyn Fn(&str) -> bool,
     stop_on_error: bool,
     progress: &mut dyn FnMut(usize, &str) -> bool,
-    ctl: &crate::enhance::JobCtl,
+    ctl: &lightcraft_sysmem::JobCtl,
     permits: &lightcraft_sysmem::HeavyJobs,
     shape: pipeline::Shape,
 ) -> Result<Vec<serde_json::Value>, String> {
@@ -1755,7 +1755,7 @@ pub(crate) fn run_batch_shaped(
         return write_stage(&mut next, &slots, &heads, o, to, single, write, exists, stop_on_error, progress, ctl, &flow, &join);
     }
     let stop = AtomicBool::new(false);
-    let stopped = || stop.load(Ordering::Relaxed) || ctl.cancelled();
+    let stopped = || stop.load(Ordering::Relaxed) || ctl.is_cancelled();
     std::thread::scope(|sc| {
         let outputs = pipeline::spawn(sc, work, shape, permits, &flow, &stopped, ctl);
         let r = {
@@ -1801,7 +1801,7 @@ fn write_stage(
     exists: &dyn Fn(&str) -> bool,
     stop_on_error: bool,
     progress: &mut dyn FnMut(usize, &str) -> bool,
-    ctl: &crate::enhance::JobCtl,
+    ctl: &lightcraft_sysmem::JobCtl,
     flow: &pipeline::Flow,
     join: &dyn Fn(&str, &str) -> String,
 ) -> Result<Vec<serde_json::Value>, String> {
@@ -1809,7 +1809,7 @@ fn write_stage(
     let mut taken = std::collections::HashSet::new();
     let mut out = Vec::new();
     for (i, (slot, (photo, name, guard))) in slots.iter().zip(heads).enumerate() {
-        if ctl.cancelled() || !progress(i, name) {
+        if ctl.is_cancelled() || !progress(i, name) {
             break;
         }
         let photo = *photo;
@@ -1862,7 +1862,7 @@ fn write_stage(
                 }
             }
         };
-        if ctl.cancelled() {
+        if ctl.is_cancelled() {
             break;
         }
         let file = path.clone().unwrap_or_else(|_| name.clone());
@@ -2032,7 +2032,7 @@ pub mod pipeline {
         permits: &'e HeavyJobs,
         flow: &'e Flow,
         stopped: &'e (dyn Fn() -> bool + Sync),
-        ctl: &'e crate::enhance::JobCtl,
+        ctl: &'e lightcraft_sysmem::JobCtl,
     ) -> Receiver<Output<'e>> {
         type Admitted<'p> = (usize, PreparedExport, Permit<'p>);
         type Developed<'p> = (usize, Result<(String, super::Developed), String>, Permit<'p>);
@@ -2219,7 +2219,7 @@ mod tests {
                 calls.push(done);
                 true
             },
-            &crate::enhance::JobCtl::new(),
+            &lightcraft_sysmem::JobCtl::new(),
             permits,
             shape,
         )
@@ -2315,7 +2315,7 @@ mod tests {
             &|_| false,
             true,
             &mut |_, _| true,
-            &crate::enhance::JobCtl::new(),
+            &lightcraft_sysmem::JobCtl::new(),
             &wide_open(),
             parallel(),
         )
@@ -2334,7 +2334,7 @@ mod tests {
         let reference = shaped_run(rendered_batch(&mut session, 8, &o), &o, &wide_open(), pipeline::Shape::serial()).1;
         for cancel_by_ctl in [false, true] {
             let _ = std::fs::remove_dir_all(&dir);
-            let ctl = crate::enhance::JobCtl::new();
+            let ctl = lightcraft_sysmem::JobCtl::new();
             let mut count = 0;
             let files = run_batch_shaped(
                 rendered_batch(&mut session, 8, &o),
@@ -2390,7 +2390,7 @@ mod tests {
             &|_| false,
             false,
             &mut |_, _| true,
-            &crate::enhance::JobCtl::new(),
+            &lightcraft_sysmem::JobCtl::new(),
             &tight,
             parallel(),
         )

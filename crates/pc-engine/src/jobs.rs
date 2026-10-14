@@ -2,7 +2,10 @@
 //! (#210).
 //!
 //! A command opts in by doing its heavy work through [`run`] (or [`edit_job`] for a plain document
-//! edit). The work closure gets a [`JobCtx`] (progress plus a cancellation flag) and runs against
+//! edit). The work closure gets the app's one job handle, [`lightcraft_sysmem::JobCtl`]
+//! (`report(fraction, message)` — progress never goes backwards —, `check()?`, `stage` for an
+//! algorithm's [`Interrupt`](photocraft_raster::Interrupt), `cancel_flag` for `&AtomicBool`
+//! APIs; duplicate-systems audit D14), and runs against
 //! a snapshot: documents are copy-on-write, so cloning one is O(layers). Its result is applied on
 //! the UI thread as one undo step, through the same path as [`Session::execute`], so the journal,
 //! history, damage and post-command hooks all behave as for a synchronous command.
@@ -19,11 +22,11 @@
 //!   message naming the job (queries and document-independent commands still run).
 
 use std::any::Any;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Weak};
+
+use lightcraft_sysmem::JobCtl;
 
 use photocraft_doc::{DocId, Document, LayerId};
-use photocraft_raster::Interrupt;
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -33,83 +36,10 @@ use crate::{EngineError, Result, Session};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
 pub struct JobId(pub u64);
 
-/// What a job's work closure sees: report progress, check for cancellation. Cheap to clone; all
-/// clones share the same state.
-#[derive(Clone, Default)]
-pub struct JobCtx {
-    shared: Arc<Shared>,
-}
-
-#[derive(Default)]
-struct Shared {
-    cancel: AtomicBool,
-    /// `f32` bits of the progress fraction. Non-negative floats order like their bits, so
-    /// `fetch_max` keeps progress monotonic even with several reporting threads.
-    progress: AtomicU32,
-    message: Mutex<String>,
-}
-
-impl std::fmt::Debug for JobCtx {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("JobCtx").field("progress", &self.fraction()).field("cancelled", &self.cancelled()).finish()
-    }
-}
-
-impl JobCtx {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Report progress in `0.0..=1.0` with a short status (empty keeps the previous one).
-    /// Progress never goes backwards: a lower value than already reported is ignored.
-    pub fn progress(&self, fraction: f32, message: &str) {
-        if fraction.is_finite() {
-            self.shared.progress.fetch_max(fraction.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-        }
-        if !message.is_empty() {
-            let mut m = self.shared.message.lock().unwrap_or_else(PoisonError::into_inner);
-            if *m != message {
-                message.clone_into(&mut m);
-            }
-        }
-    }
-
-    /// Has the job been cancelled? Long loops check this and stop early.
-    pub fn cancelled(&self) -> bool {
-        self.shared.cancel.load(Ordering::Relaxed)
-    }
-
-    pub fn cancellation_flag(&self) -> &AtomicBool {
-        &self.shared.cancel
-    }
-
-    /// Ask the job to stop (idempotent).
-    pub fn cancel(&self) {
-        self.shared.cancel.store(true, Ordering::Relaxed);
-    }
-
-    /// `Err(Cancelled)` once cancelled, for `?` between stages.
-    pub fn check(&self) -> Result<()> {
-        if self.cancelled() { Err(EngineError::Cancelled) } else { Ok(()) }
-    }
-
-    /// Progress reported so far (`0.0..=1.0`).
-    pub fn fraction(&self) -> f32 {
-        f32::from_bits(self.shared.progress.load(Ordering::Relaxed))
-    }
-
-    /// The latest status message.
-    pub fn message(&self) -> String {
-        self.shared.message.lock().unwrap_or_else(PoisonError::into_inner).clone()
-    }
-
-    /// Run `f` with an algorithm-level [`Interrupt`] whose progress maps onto `lo..hi` of this
-    /// job (with `message`) and whose cancellation is this job's.
-    pub fn stage<R>(&self, lo: f32, hi: f32, message: &str, f: impl FnOnce(&Interrupt) -> R) -> R {
-        self.progress(lo, message);
-        let cancel = || self.cancelled();
-        let progress = |p: f32| self.progress(lo + (hi - lo) * p, "");
-        f(&Interrupt::new(&cancel, &progress))
+/// A cancelled job's check (`job.check()?`) is the engine's [`EngineError::Cancelled`].
+impl From<lightcraft_sysmem::Cancelled> for EngineError {
+    fn from(_: lightcraft_sysmem::Cancelled) -> Self {
+        EngineError::Cancelled
     }
 }
 
@@ -186,7 +116,7 @@ struct Running {
     snapshot: Option<Weak<Document>>,
     /// Explicitly acknowledged disclosure changes must survive a snapshot-based result.
     preserve_group_view: bool,
-    ctx: JobCtx,
+    ctx: JobCtl,
     started_ms: f64,
     coalesce: Option<String>,
     color_restrict: Option<usize>,
@@ -204,8 +134,8 @@ impl Running {
             label: self.label.clone(),
             document: self.doc,
             state: "running",
-            progress: self.ctx.fraction(),
-            message: self.ctx.message(),
+            progress: self.ctx.fraction().unwrap_or(0.0),
+            message: self.ctx.status().message,
             elapsed_ms: now_ms() - self.started_ms,
             result: None,
             error: None,
@@ -324,11 +254,11 @@ pub fn run<T: Send + 'static>(
     s: &mut Session,
     label: &str,
     lock_document: bool,
-    work: impl FnOnce(&JobCtx) -> Result<T> + Send + 'static,
+    work: impl FnOnce(&JobCtl) -> Result<T> + Send + 'static,
     apply: impl FnOnce(&mut Session, T) -> Result<Value> + Send + 'static,
 ) -> Result<Value> {
     if !s.jobs.spawn || cfg!(target_arch = "wasm32") {
-        let t = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&JobCtx::new())))
+        let t = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&JobCtl::new())))
             .map_err(|_| EngineError::Other("Import or job failed unexpectedly; the document is unchanged".into()))??;
         return apply(s, t);
     }
@@ -340,7 +270,7 @@ pub fn run<T: Send + 'static>(
         (true, None) => return Err(EngineError::NoDocument),
         (false, _) => (None, None),
     };
-    let ctx = JobCtx::new();
+    let ctx = JobCtl::new();
     let (tx, rx) = std::sync::mpsc::channel::<Result<Payload>>();
     let erased: Apply = Box::new(move |s, any| {
         let t = any.downcast::<T>().map_err(|_| EngineError::Other("internal error: job result type mismatch".into()))?;
@@ -398,7 +328,7 @@ pub(crate) fn run_latest<T: Send + 'static>(
     s: &mut Session,
     label: &str,
     keys: Vec<String>,
-    work: impl FnOnce(&JobCtx) -> Result<T> + Send + 'static,
+    work: impl FnOnce(&JobCtl) -> Result<T> + Send + 'static,
     apply: impl FnOnce(&mut Session, T) -> Result<Value> + Send + 'static,
 ) -> Result<Value> {
     cancel_latest(s, &keys);
@@ -426,12 +356,12 @@ pub(crate) fn cancel_latest(s: &mut Session, keys: &[String]) {
 pub fn edit_job<R: Send + 'static>(
     s: &mut Session,
     label: &str,
-    f: impl FnOnce(&mut Document, &mut Option<LayerId>, &JobCtx) -> Result<R> + Send + 'static,
+    f: impl FnOnce(&mut Document, &mut Option<LayerId>, &JobCtl) -> Result<R> + Send + 'static,
     finish: impl FnOnce(R) -> Value + Send + 'static,
 ) -> Result<Value> {
     if !s.jobs.spawn || cfg!(target_arch = "wasm32") {
         // Inline: exactly `Session::edit`, as before jobs existed.
-        let ctx = JobCtx::new();
+        let ctx = JobCtl::new();
         let r = s.edit(label, |doc, active| f(doc, active, &ctx))?;
         return Ok(finish(r));
     }
@@ -501,14 +431,14 @@ impl Session {
             &label,
             false,
             move |ctx| {
-                ctx.progress(0.0, "Reading");
+                ctx.report(0.0, "Reading");
                 let bytes = match source {
                     OpenSource::Bytes(b) => b,
                     OpenSource::Path(p) => Arc::new(read_path(&p)?),
                 };
                 ctx.check()?;
-                ctx.progress(0.02, "Decoding");
-                if let Some(result) = crate::vector_integration::read_vector_file(&name_w, &bytes, ctx.cancellation_flag()) {
+                ctx.report(0.02, "Decoding");
+                if let Some(result) = crate::vector_integration::read_vector_file(&name_w, &bytes, ctx.cancel_flag()) {
                     return result.map(|r| (r, true));
                 }
                 ctx.stage(0.02, 1.0, "Decoding", |ctl| photocraft_io::import_with(&name_w, &bytes, ctl))
@@ -539,7 +469,7 @@ impl Session {
         params: Value,
         label: &str,
         lock_document: bool,
-        work: impl FnOnce(&JobCtx) -> Result<T> + Send + 'static,
+        work: impl FnOnce(&JobCtl) -> Result<T> + Send + 'static,
         apply: impl FnOnce(&mut Session, T) -> Result<Value> + Send + 'static,
     ) -> Result<Started> {
         self.jobs.spawn = true;
@@ -761,7 +691,7 @@ impl Session {
         let outcome = match r {
             Err(EngineError::Cancelled) => JobOutcome::Cancelled,
             Err(e) => JobOutcome::Failed(e.to_string()),
-            Ok(_) if job.ctx.cancelled() => JobOutcome::Cancelled,
+            Ok(_) if job.ctx.is_cancelled() => JobOutcome::Cancelled,
             Ok(payload) => match self.apply_job(&job, apply, payload) {
                 Ok(v) => JobOutcome::Done(v),
                 Err(EngineError::Cancelled) => JobOutcome::Cancelled,

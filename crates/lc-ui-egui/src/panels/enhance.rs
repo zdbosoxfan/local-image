@@ -44,7 +44,8 @@ pub fn is_local(sp: &Spot) -> bool {
 /// Progress (and Cancel) of the active photo's removals and heals being made.
 pub fn remove_jobs(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let Some(id) = app.session.active() else { return };
-    let running: Vec<(u64, f32, String)> = app.session.enhance.running_for(id).map(|j| (j.id, j.ctl.progress(), j.label.clone())).collect();
+    let running: Vec<(u64, f32, String)> =
+        app.session.enhance.running_for(id).map(|j| (j.id, j.ctl.fraction().unwrap_or(0.0), j.label.clone())).collect();
     if running.is_empty() {
         return;
     }
@@ -138,7 +139,8 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
             });
         }
         // removals being generated
-        let running: Vec<(u64, f32, String)> = app.session.enhance.running_for(id).map(|j| (j.id, j.ctl.progress(), j.label.clone())).collect();
+        let running: Vec<(u64, f32, String)> =
+            app.session.enhance.running_for(id).map(|j| (j.id, j.ctl.fraction().unwrap_or(0.0), j.label.clone())).collect();
         for (job, frac, label) in running {
             progress(app, ui, &format!("removeJob{job}"), &label, frac, job);
         }
@@ -239,7 +241,7 @@ pub fn denoise_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
             .enhance
             .running_for(id)
             .filter(|j| matches!(j.kind, JobKind::Denoise | JobKind::DenoiseExport))
-            .map(|j| (j.id, j.ctl.progress(), j.label.clone()))
+            .map(|j| (j.id, j.ctl.fraction().unwrap_or(0.0), j.label.clone()))
             .collect();
         if !jobs.is_empty() {
             for (job, frac, label) in jobs {

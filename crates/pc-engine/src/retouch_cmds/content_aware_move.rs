@@ -211,7 +211,7 @@ fn fill_options() -> FillOptions {
 
 /// The new target surface and the rectangle it changed: the content pasted at the offset, then
 /// (`move`) its old place filled. Works on `doc`, a copy of the document.
-fn run_move(doc: &mut Document, sel: &Surface, plan: &Plan, p: &Value, ctx: &crate::jobs::JobCtx, label: &str) -> Result<(Surface, Rect)> {
+fn run_move(doc: &mut Document, sel: &Surface, plan: &Plan, p: &Value, ctx: &lightcraft_sysmem::JobCtl, label: &str) -> Result<(Surface, Rect)> {
     let (dx, dy) = plan.offset;
     let opts = fill_options();
     let split = if plan.mode == Mode::Move { 0.4 } else { 1.0 };
@@ -289,7 +289,7 @@ pub(super) fn content_aware_move(s: &mut Session, p: &Value) -> Result<Value> {
         {
             let p = p.clone();
             move |ctx| {
-                ctx.progress(0.0, label);
+                ctx.report(0.0, label);
                 let mut work = (*doc).clone();
                 let sel = doc.selection.as_ref().ok_or_else(|| bad(CMD, "select the area to move first"))?;
                 run_move(&mut work, sel, &plan, &p, ctx, label)

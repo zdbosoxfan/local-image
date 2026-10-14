@@ -425,10 +425,10 @@ fn people_ui_analysis_worker_cache_cancel_and_opt_out() {
     assert!(h.step_until(T, |h| h.app.people_task.is_none()));
     assert_eq!(h.app.session.smart.people.store.len("mock-faces"), 3);
     crate::people_task::start(&mut h.app, &ids, None).unwrap();
-    assert_eq!(h.app.people_task.as_ref().unwrap().progress.lock().unwrap().1, 0);
+    assert_eq!(h.app.people_task.as_ref().unwrap().job.status().step.map_or(0, |s| s.1), 0);
     assert!(h.step_until(T, |h| h.app.people_task.is_none()));
     crate::people_task::start(&mut h.app, &ids, None).unwrap();
-    h.app.people_task.as_ref().unwrap().cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    h.app.people_task.as_ref().unwrap().cancel();
     assert!(h.step_until(T, |h| h.app.people_task.is_none()));
     h.app.session.execute("smartSort.facesEnable", &json!({"enabled":false})).unwrap();
     assert!(crate::people_task::start(&mut h.app, &ids, None).is_err());

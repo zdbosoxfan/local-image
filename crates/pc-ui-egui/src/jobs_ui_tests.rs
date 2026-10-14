@@ -40,7 +40,7 @@ fn slow_job(app: &mut PhotocraftApp, gate: &Arc<AtomicBool>) -> JobId {
             "Slow Filter",
             true,
             move |ctx| {
-                ctx.progress(0.4, "Filtering tiles");
+                ctx.report(0.4, "Filtering tiles");
                 while !gate.load(Ordering::Relaxed) {
                     ctx.check()?;
                     std::thread::sleep(Duration::from_millis(1));

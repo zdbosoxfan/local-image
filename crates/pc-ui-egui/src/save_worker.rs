@@ -98,8 +98,8 @@ pub(crate) fn begin(app: &mut PhotocraftApp, path: String, settings: &ExportSett
             false,
             move |ctx| {
                 let _guard = guard;
-                let cancelled = || ctx.cancelled() || worker_cancel.load(Ordering::Relaxed);
-                let progress = |p| ctx.progress(p, if p < 0.8 { "Encoding document" } else { "Writing temporary save" });
+                let cancelled = || ctx.is_cancelled() || worker_cancel.load(Ordering::Relaxed);
+                let progress = |p| ctx.report(p, if p < 0.8 { "Encoding document" } else { "Writing temporary save" });
                 let interrupt = photocraft_raster::Interrupt::new(&cancelled, &progress);
                 ctx.check()?;
                 let snapshot = reset_snapshot(snapshot, worker_reset.as_ref());

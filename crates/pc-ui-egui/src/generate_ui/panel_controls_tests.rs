@@ -144,9 +144,9 @@ fn pending(app: &mut PhotocraftApp, own: bool) -> JobId {
             "SF07 controlled job",
             false,
             |ctx| {
-                ctx.progress(0.4, "Working on the fixture");
+                ctx.report(0.4, "Working on the fixture");
                 let until = Instant::now() + Duration::from_secs(20);
-                while !ctx.cancelled() && Instant::now() < until {
+                while !ctx.is_cancelled() && Instant::now() < until {
                     std::thread::sleep(Duration::from_millis(2));
                 }
                 ctx.check()?;

@@ -5,11 +5,9 @@ use egui_kittest::{
     Harness,
     kittest::{NodeT, Queryable},
 };
+use lightcraft_sysmem::JobCtl;
 use photocraft_doc::{Color, ColorMode, Document, LayerId, SampleType, Size};
-use photocraft_engine::{
-    cutout_cmds::{BackgroundOutput, apply_output},
-    jobs::JobCtx,
-};
+use photocraft_engine::cutout_cmds::{BackgroundOutput, apply_output};
 use photocraft_geom::Rect as ImageRect;
 use photocraft_raster::Surface;
 
@@ -32,7 +30,7 @@ pub(super) fn injected_result(app: &mut PhotocraftApp, cmd: &str, p: &Value) -> 
         let result = app
             .session
             .edit("Remove Background", |doc, active| {
-                let id = apply_output(doc, id, matte, &output, &JobCtx::new())?;
+                let id = apply_output(doc, id, matte, &output, &JobCtl::new())?;
                 *active = Some(id);
                 Ok(id)
             })
@@ -457,7 +455,7 @@ fn background_ui_real_app_tier_timing() {
             let id = doc.insert_above(None, layer);
             let options = crate::ai_ui::AiOptions { cutout_engine: engine.into(), ..Default::default() };
             let start = std::time::Instant::now();
-            apply_cutout(&mut doc, id, &options, &JobCtx::new()).unwrap();
+            apply_cutout(&mut doc, id, &options, &JobCtl::new()).unwrap();
             times.push(start.elapsed().as_secs_f64());
             assert!(doc.layer(id).unwrap().mask.is_some());
         }

@@ -43,6 +43,13 @@ impl std::fmt::Display for Cancelled {
 
 impl std::error::Error for Cancelled {}
 
+/// For workers whose errors are plain strings (Develop's AI jobs, export): `job.check()?`.
+impl From<Cancelled> for String {
+    fn from(c: Cancelled) -> String {
+        c.to_string()
+    }
+}
+
 /// Bit pattern of the stored fraction meaning "unknown" (a NaN, never produced by a store).
 const UNKNOWN: u32 = u32::MAX;
 
@@ -152,10 +159,60 @@ impl<S> JobCtl<S> {
         store_fraction(&self.shared.fraction, fraction);
     }
 
+    /// Report overall progress that never goes backwards: a lower value than already reported is
+    /// ignored (several threads reporting parts of one job; the editor's job runner). Clamped,
+    /// NaN ignored.
+    pub fn advance(&self, fraction: f32) {
+        if fraction.is_finite() {
+            // Non-negative floats order like their bits, and "unknown" (`u32::MAX`) is replaced
+            // by the first report.
+            let bits = fraction.clamp(0.0, 1.0).to_bits();
+            let _ = self.shared.fraction.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| (old == UNKNOWN || bits > old).then_some(bits));
+        }
+    }
+
+    /// Report progress with a short status, the way long jobs do between and inside stages: the
+    /// fraction never goes backwards ([`JobCtl::advance`]) and an empty `message` keeps the
+    /// previous one.
+    pub fn report(&self, fraction: f32, message: &str) {
+        self.advance(fraction);
+        if !message.is_empty() {
+            let mut status = self.lock();
+            if status.message != message {
+                message.clone_into(&mut status.message);
+            }
+        }
+    }
+
+    /// Run `f` with an algorithm-level [`Interrupt`] whose progress maps onto `lo..hi` of this
+    /// job (shown with `message`) and whose cancellation is this job's.
+    pub fn stage<R>(&self, lo: f32, hi: f32, message: &str, f: impl FnOnce(&Interrupt) -> R) -> R
+    where
+        S: Send,
+    {
+        self.report(lo, message);
+        let cancel = || self.is_cancelled();
+        let progress = |p: f32| self.report(lo + (hi - lo) * p, "");
+        f(&Interrupt::new(&cancel, &progress))
+    }
+
     /// Report step `value / max`; also sets the fraction (unknown when `max` is 0).
     pub fn set_step(&self, value: u32, max: u32) {
         let mut status = self.lock();
         status.step = Some((value, max));
+        match status.fraction() {
+            Some(f) => store_fraction(&self.shared.fraction, f),
+            None => self.shared.fraction.store(UNKNOWN, Ordering::Relaxed),
+        }
+    }
+
+    /// Count `done` more steps of the current `step` (one more photo finished), safe from several
+    /// workers at once; also sets the fraction. Without a step yet, counts from 0 of an unknown
+    /// total.
+    pub fn add_step(&self, done: u32) {
+        let mut status = self.lock();
+        let (value, max) = status.step.unwrap_or((0, 0));
+        status.step = Some((value.saturating_add(done), max));
         match status.fraction() {
             Some(f) => store_fraction(&self.shared.fraction, f),
             None => self.shared.fraction.store(UNKNOWN, Ordering::Relaxed),
@@ -291,6 +348,65 @@ mod tests {
         assert!(worker.cancel_flag().load(Ordering::Relaxed));
         assert_eq!(worker.check(), Err(Cancelled));
         assert_eq!(Cancelled.to_string(), "Cancelled");
+    }
+
+    #[test]
+    fn jobctl_advance_never_goes_backwards() {
+        let job = JobCtl::new();
+        job.advance(f32::NAN);
+        assert_eq!(job.fraction(), None);
+        job.advance(0.0);
+        assert_eq!(job.fraction(), Some(0.0), "the first report replaces unknown");
+        let views = [job.clone(), job.clone(), job.clone(), job.clone()];
+        std::thread::scope(|s| {
+            for (i, v) in views.iter().enumerate() {
+                s.spawn(move || {
+                    for k in 0..=100 {
+                        v.advance((k as f32 / 100.0) * (i + 1) as f32 / 4.0);
+                    }
+                });
+            }
+        });
+        assert_eq!(job.fraction(), Some(1.0));
+        job.advance(0.5);
+        assert_eq!(job.fraction(), Some(1.0));
+        job.set_fraction(0.25);
+        assert_eq!(job.fraction(), Some(0.25), "set_fraction still moves freely");
+    }
+
+    #[test]
+    fn jobctl_report_and_stage_map_progress_into_their_range() {
+        let job = JobCtl::new();
+        job.report(0.5, "Decoding");
+        job.report(0.25, "");
+        assert_eq!((job.fraction(), job.status().message.as_str()), (Some(0.5), "Decoding"));
+        let r = job.stage(0.5, 1.0, "Filtering", |i| {
+            i.progress(0.5);
+            i.check()
+        });
+        assert_eq!(r, Ok(()));
+        assert_eq!((job.fraction(), job.status().message.as_str()), (Some(0.75), "Filtering"));
+        job.cancel();
+        assert_eq!(job.stage(0.0, 1.0, "", |i| i.check()), Err(Cancelled));
+        let text: Result<(), String> = (|| Ok(job.check()?))();
+        assert_eq!(text, Err("Cancelled".to_string()));
+    }
+
+    #[test]
+    fn jobctl_add_step_counts_from_parallel_workers() {
+        let job = JobCtl::new();
+        job.set_step(0, 400);
+        std::thread::scope(|s| {
+            for _ in 0..4 {
+                let job = &job;
+                s.spawn(move || (0..100).for_each(|_| job.add_step(1)));
+            }
+        });
+        assert_eq!(job.status().step, Some((400, 400)));
+        assert_eq!(job.fraction(), Some(1.0));
+        let fresh = JobCtl::new();
+        fresh.add_step(2);
+        assert_eq!((fresh.status().step, fresh.fraction()), (Some((2, 0)), None));
     }
 
     #[test]

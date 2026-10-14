@@ -1,7 +1,7 @@
 //! local-image: Local Image's AI commands, run on a local ComfyUI through `li-ai`.
 //!
 //! Every command snapshots the document, does the AI work on a background job (progress and
-//! cancel go through [`JobCtx`]) and applies the result as one history step:
+//! cancel go through [`JobCtl`]) and applies the result as one history step:
 //!
 //! | Command | Result |
 //! |---|---|
@@ -31,8 +31,8 @@ use photocraft_raster::Surface;
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
-use crate::jobs::JobCtx;
 use crate::{EngineError, Result, Session};
+use lightcraft_sysmem::JobCtl;
 
 fn bad(cmd: &str, msg: &str) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
@@ -76,7 +76,7 @@ fn seed(p: &Value) -> u64 {
 }
 
 /// Runs `f` with a `li-ai` job control mirrored onto `ctx`: progress out, cancellation in.
-pub fn bridged<T>(ctx: &JobCtx, f: impl FnOnce(&JobControl) -> anyhow::Result<T>) -> Result<T> {
+pub fn bridged<T>(ctx: &JobCtl, f: impl FnOnce(&JobControl) -> anyhow::Result<T>) -> Result<T> {
     let ctl = JobControl::new();
     // Drop runs before the scope joins, including when the callback unwinds.
     struct StopWatcher(mpsc::Sender<()>);
@@ -90,7 +90,7 @@ pub fn bridged<T>(ctx: &JobCtx, f: impl FnOnce(&JobControl) -> anyhow::Result<T>
         let c = &ctl;
         scope.spawn(move || {
             loop {
-                if ctx.cancelled() {
+                if ctx.is_cancelled() {
                     c.cancel();
                 }
                 let p = c.progress();
@@ -113,7 +113,7 @@ pub fn bridged<T>(ctx: &JobCtx, f: impl FnOnce(&JobControl) -> anyhow::Result<T>
                 if !p.message.is_empty() {
                     msg = format!("{} · {msg}", p.message);
                 }
-                ctx.progress(frac, &msg);
+                ctx.report(frac, &msg);
                 if stopped.recv_timeout(Duration::from_millis(100)) != Err(mpsc::RecvTimeoutError::Timeout) {
                     break;
                 }
@@ -469,7 +469,7 @@ fn remove_background(s: &mut Session, p: &Value) -> Result<Value> {
         move |doc, active, ctx| {
             let mut alpha = bridged(ctx, |ctl| li_ai::service().cutout(&img, &variant, &hint, seed, ctl))?;
             if refine {
-                ctx.progress(0.97, "Refining edges");
+                ctx.report(0.97, "Refining edges");
                 alpha = refine_matte(&img, &alpha);
             }
             // Keep the layer's own transparency out of the matte's job: the mask only hides.
@@ -497,7 +497,7 @@ fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
         move |ctx| {
             let mut alpha = bridged(ctx, |ctl| li_ai::service().cutout(&img, &variant, &hint, seed, ctl))?;
             if refine {
-                ctx.progress(0.97, "Refining edges");
+                ctx.report(0.97, "Refining edges");
                 alpha = refine_matte(&img, &alpha);
             }
             Ok(gray_surface(bounds, &alpha))
@@ -926,7 +926,7 @@ mod tests {
 
     #[test]
     fn final_review_bridge_stops_on_unwind_and_preserves_results() {
-        let ctx = JobCtx::new();
+        let ctx = JobCtl::new();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _: Result<()> = bridged(&ctx, |_| {
                 std::thread::sleep(Duration::from_millis(120));
@@ -934,11 +934,11 @@ mod tests {
             });
         }));
         assert!(result.is_err());
-        ctx.progress(1.0, "sentinel");
+        ctx.report(1.0, "sentinel");
         std::thread::sleep(Duration::from_millis(150));
-        assert_eq!(ctx.message(), "sentinel", "no watcher may survive callback unwinding");
-        assert_eq!(bridged(&JobCtx::new(), |_| Ok(vec![4, 9, 16])).unwrap(), [4, 9, 16]);
-        let ctx = JobCtx::new();
+        assert_eq!(ctx.status().message, "sentinel", "no watcher may survive callback unwinding");
+        assert_eq!(bridged(&JobCtl::new(), |_| Ok(vec![4, 9, 16])).unwrap(), [4, 9, 16]);
+        let ctx = JobCtl::new();
         ctx.cancel();
         assert!(matches!(
             bridged(&ctx, |ctl| {

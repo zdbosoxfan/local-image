@@ -9,11 +9,13 @@ pub mod store;
 
 pub use session::{PatchState, Polled, for_render, patch_state};
 
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use lightcraft_catalog::PhotoId;
 use lightcraft_geom::Point;
+/// Every AI job reports and is cancelled through the app's one job handle (audit D14).
+use lightcraft_sysmem::JobCtl;
 use serde::Serialize;
 
 // ------------------------------------------------------------------------------ host
@@ -73,47 +75,9 @@ pub trait AiHost: Send + Sync {
 
 // ------------------------------------------------------------------------------ jobs
 
-/// Progress and cancellation of a running job (shared with its worker).
-#[derive(Debug, Default)]
-pub struct JobCtl {
-    progress: AtomicU32,
-    cancel: AtomicBool,
-    message: Mutex<String>,
-}
-
-impl JobCtl {
-    pub fn new() -> Arc<JobCtl> {
-        Arc::new(JobCtl::default())
-    }
-    /// Report `frac` (0..1) done, doing `msg`.
-    pub fn set(&self, frac: f32, msg: &str) {
-        self.progress.store(frac.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
-        if let Ok(mut m) = self.message.try_lock()
-            && *m != msg
-        {
-            msg.clone_into(&mut m);
-        }
-    }
-    pub fn progress(&self) -> f32 {
-        f32::from_bits(self.progress.load(Ordering::Relaxed))
-    }
-    pub fn message(&self) -> String {
-        self.message.lock().map(|m| m.clone()).unwrap_or_default()
-    }
-    pub fn cancel(&self) {
-        self.cancel.store(true, Ordering::SeqCst);
-    }
-    pub fn cancelled(&self) -> bool {
-        self.cancel.load(Ordering::SeqCst)
-    }
-    /// `Err("cancelled")` once cancelled (for `?` in workers).
-    pub fn check(&self) -> Result<(), String> {
-        if self.cancelled() { Err(CANCELLED.into()) } else { Ok(()) }
-    }
-}
-
-/// The error of a cancelled job.
-pub const CANCELLED: &str = "cancelled";
+/// The error of a cancelled job, as Develop's string errors carry it: the text of the shared
+/// [`lightcraft_sysmem::Cancelled`] (`job.check()?` in a `Result<_, String>` worker yields it).
+pub const CANCELLED: &str = "Cancelled";
 
 /// Where an AI removal is and how it is blended, as painted (normalized transformed coordinates,
 /// like spots).
@@ -181,7 +145,7 @@ pub struct Job {
     pub photo: PhotoId,
     pub kind: JobKind,
     pub label: String,
-    pub ctl: Arc<JobCtl>,
+    pub ctl: JobCtl,
     pub(crate) target_patch: Option<String>,
     result: Mutex<Option<Result<Outcome, String>>>,
     finished: AtomicBool,
@@ -204,10 +168,10 @@ impl Job {
             "photo": self.photo.0,
             "job": self.kind,
             "label": self.label,
-            "progress": self.ctl.progress(),
-            "message": self.ctl.message(),
+            "progress": self.ctl.fraction().unwrap_or(0.0),
+            "message": self.ctl.status().message,
             "running": !self.finished(),
-            "cancelled": self.ctl.cancelled(),
+            "cancelled": self.ctl.is_cancelled(),
         })
     }
 }
@@ -266,7 +230,7 @@ impl Enhance {
             move || {
                 let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&job.ctl)))
                     .unwrap_or_else(|_| Err("the AI job failed unexpectedly".to_string()));
-                let r = if job.ctl.cancelled() { Err(CANCELLED.to_string()) } else { r };
+                let r = if job.ctl.is_cancelled() { Err(CANCELLED.to_string()) } else { r };
                 job.finish(r);
             }
         };
@@ -379,7 +343,7 @@ mod tests {
             "Saving",
             true,
             Box::new(|ctl| {
-                ctl.set(0.99, "Saving");
+                ctl.report(0.99, "Saving");
                 ctl.cancel();
                 Ok(Outcome::DenoiseExport("already-written.tif".into()))
             }),
@@ -397,12 +361,12 @@ mod tests {
             "Regenerate",
             true,
             Box::new(|ctl| {
-                ctl.set(0.5, "half");
+                ctl.report(0.5, "half");
                 Ok(done())
             }),
         );
         assert!(j.finished());
-        assert_eq!((j.ctl.progress(), j.ctl.message()), (0.5, "half".to_string()));
+        assert_eq!((j.ctl.fraction().unwrap_or(0.0), j.ctl.status().message), (0.5, "half".to_string()));
         assert_eq!(j.json()["job"]["kind"], "regenerate");
         let got = e.take_finished();
         assert_eq!(got.len(), 1);
@@ -419,10 +383,10 @@ mod tests {
             "x",
             false,
             Box::new(|ctl| {
-                while !ctl.cancelled() {
+                while !ctl.is_cancelled() {
                     std::thread::sleep(std::time::Duration::from_millis(2));
                 }
-                ctl.check().map(|_| done())
+                ctl.check().map(|_| done()).map_err(String::from)
             }),
         );
         assert!(e.busy() && e.running_for(PhotoId(1)).count() == 1);

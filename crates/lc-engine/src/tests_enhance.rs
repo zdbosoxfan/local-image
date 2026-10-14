@@ -7,7 +7,8 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::Session;
-use crate::enhance::{AiHost, JobCtl, PatchState, RemoveEngine, RemoveRequest, RemoveResult, patch_state};
+use crate::enhance::{AiHost, PatchState, RemoveEngine, RemoveRequest, RemoveResult, patch_state};
+use lightcraft_sysmem::JobCtl;
 
 /// Paints the masked area magenta.
 struct Mock;
@@ -20,7 +21,7 @@ impl AiHost for Mock {
         ]
     }
     fn remove(&self, req: &RemoveRequest, ctl: &JobCtl) -> Result<RemoveResult, String> {
-        ctl.set(0.5, "Sampling");
+        ctl.report(0.5, "Sampling");
         let rgb = req.rgb.iter().zip(&req.mask).map(|(c, m)| if *m > 127 { [250, 0, 250] } else { *c }).collect();
         Ok(RemoveResult { rgb, alpha: req.mask.iter().map(|m| if *m > 127 { 255 } else { 0 }).collect() })
     }
@@ -297,7 +298,7 @@ fn final_review_remove_rejects_replaced_photo_and_library_jobs_are_discarded() {
     let job = s.enhance.spawn(id, JobKind::DenoiseExport, "Export", true, Box::new(|_| Ok(Outcome::DenoiseExport("old.tif".into()))));
     s.open_library(&dir, true).unwrap();
     assert!(s.enhance.jobs().is_empty(), "opening must discard both pending and completed old jobs");
-    assert!(job.ctl.cancelled());
+    assert!(job.ctl.is_cancelled());
     s.enhance.spawn(id, JobKind::DenoiseExport, "Export", true, Box::new(|_| Ok(Outcome::DenoiseExport("old.tif".into()))));
     s.close_library().unwrap();
     assert!(s.enhance.jobs().is_empty());

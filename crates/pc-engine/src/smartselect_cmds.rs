@@ -13,8 +13,8 @@ use photocraft_geom::Rect;
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
-use crate::jobs::JobCtx;
 use crate::{EngineError, Result, Session};
+use lightcraft_sysmem::JobCtl;
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
@@ -108,11 +108,11 @@ fn quick_selection(s: &mut Session, p: &Value) -> Result<Value> {
     // The model runs once per pixel state: only the stroke that has to run it becomes a job
     // (later strokes reuse the map and stay as immediate as before).
     let needs_model = model.as_ref().is_some_and(|m| crate::seg::cached_probability(m, &doc, layer, all).is_none());
-    let work = move |ctx: &JobCtx| -> Result<Option<Region>> {
+    let work = move |ctx: &JobCtl| -> Result<Option<Region>> {
         if needs_model {
-            ctx.progress(0.0, "Selecting");
+            ctx.report(0.0, "Selecting");
         }
-        let prior = model.as_ref().and_then(|m| crate::seg::probability_with(m, &doc, layer, all, ctx.cancellation_flag()));
+        let prior = model.as_ref().and_then(|m| crate::seg::probability_with(m, &doc, layer, all, ctx.cancel_flag()));
         ctx.check()?;
         Ok(with_doc_sampler(&doc, layer, all, |smp, doc| {
             let canvas = doc.bounds();
@@ -125,7 +125,7 @@ fn quick_selection(s: &mut Session, p: &Value) -> Result<Value> {
     if needs_model {
         crate::jobs::run(s, "Quick Selection", true, work, finish)
     } else {
-        let region = work(&JobCtx::new())?;
+        let region = work(&JobCtl::new())?;
         finish(s, region)
     }
 }
@@ -162,14 +162,14 @@ fn learned(
     doc: &Document,
     layer: Option<LayerId>,
     all_layers: bool,
-    ctx: &JobCtx,
+    ctx: &JobCtl,
     find: impl FnOnce(&Document, Option<LayerId>) -> Option<Region>,
 ) -> Result<Option<Region>> {
     // A cancelled model run also finds nothing: report the cancel, not "no subject".
     let found = find(doc, layer);
     ctx.check()?;
     let Some(r) = found else { return Ok(None) };
-    ctx.progress(0.7, "Refining edge");
+    ctx.report(0.7, "Refining edge");
     Ok(Some(with_doc_sampler(doc, layer, all_layers, |smp, doc| {
         let canvas = doc.bounds();
         let refined = matting::refine_mask(smp, &matting::region_reader(&r), r.bbox, canvas, &learned_refine(canvas));
@@ -195,8 +195,8 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
             "Object Selection",
             true,
             move |ctx| {
-                ctx.progress(0.0, "Selecting object");
-                learned(&doc, layer, all, ctx, |doc, layer| crate::seg::object_at_with(&model, doc, layer, all, x, y, ctx.cancellation_flag()))
+                ctx.report(0.0, "Selecting object");
+                learned(&doc, layer, all, ctx, |doc, layer| crate::seg::object_at_with(&model, doc, layer, all, x, y, ctx.cancel_flag()))
             },
             move |s, region| apply(s, "Object Selection", region, m),
         );
@@ -219,9 +219,9 @@ fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
         "Select Subject",
         true,
         move |ctx| {
-            ctx.progress(0.0, "Selecting subject");
+            ctx.report(0.0, "Selecting subject");
             if let Some(model) = model
-                && let Some(r) = learned(&doc, layer, all, ctx, |doc, layer| crate::seg::subject_with(&model, doc, layer, all, ctx.cancellation_flag()))?
+                && let Some(r) = learned(&doc, layer, all, ctx, |doc, layer| crate::seg::subject_with(&model, doc, layer, all, ctx.cancel_flag()))?
             {
                 return Ok(Some(r));
             }
