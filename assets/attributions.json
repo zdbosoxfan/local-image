@@ -6233,7 +6233,7 @@
         },
         {
           "name": "LightCraft",
-          "used_for": "Headless UI rendering: run the app's UI in an offscreen [egui::Context] and rasterize it on the CPU ([crate::softpaint]) — no window or native compositor.",
+          "used_for": "Headless UI rendering: run the app's UI in an offscreen [egui::Context] and rasterize it on the CPU ([li_testkit::softpaint]) — no window or native compositor.",
           "upstream": "crates/ui-egui/src/headless.rs",
           "commit": "3285e0282d9bddd9e24263dfdb0d8e0f83d78ea6",
           "ours": "crates/lc-ui-egui/src/headless.rs",
