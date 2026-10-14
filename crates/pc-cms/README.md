@@ -1,7 +1,7 @@
 # photocraft-cms
 
-Pure-Rust ICC colour management for Photocraft. No workspace dependencies (L0, publishable),
-no C, no `unsafe`. Implemented from the public ICC.1:2010 (v4.3) and ICC.1:2001-04 (v2)
+Pure-Rust ICC colour management for Local Image, using the shared `li-color` formula crate.
+No C, no `unsafe`. Implemented from the public ICC.1:2010 (v4.3) and ICC.1:2001-04 (v2)
 specifications, CIE 15, and Adobe's published black point compensation paper.
 
 ## API

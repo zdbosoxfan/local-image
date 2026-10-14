@@ -571,8 +571,35 @@ pub struct SolveWork {
     looks: Arc<[Look]>,
     opts: Options,
     shared_color: Option<Arc<DevelopSettings>>,
+    preview_id: Option<PhotoId>,
+    selection_ids: Vec<PhotoId>,
     report_progress: bool,
     failed: Vec<Value>,
+}
+/// A preview's shared style depends on its complete target batch, including photos
+/// that are not rendered in the dialog. Keep that dependency after worker results are
+/// consumed so changing another target or the selection requires a fresh preview.
+#[derive(Clone, Debug)]
+pub struct PreviewContext {
+    generation: u64,
+    identities: Vec<Identity>,
+    looks: Arc<[Look]>,
+    selection_ids: Vec<PhotoId>,
+    preview_id: PhotoId,
+}
+impl PreviewContext {
+    pub fn current(&self, session: &Session) -> bool {
+        fn members(mut ids: Vec<PhotoId>) -> Vec<PhotoId> {
+            ids.sort_unstable();
+            ids.dedup();
+            ids
+        }
+        session.library_generation == self.generation
+            && session.active() == Some(self.preview_id)
+            && members(session.targets(&Value::Null)) == members(self.selection_ids.clone())
+            && self.identities.iter().all(|identity| unchanged(session, identity))
+            && selected_looks(session).as_deref() == Some(self.looks.as_ref())
+    }
 }
 pub struct Matched {
     pub decoded: Vec<(PhotoId, DecodedSource)>,
@@ -583,6 +610,7 @@ pub struct Matched {
     pub failed: Vec<Value>,
     pub preview: Option<lightcraft_raster::Rgba8>,
     pub preview_before: Option<lightcraft_raster::Rgba8>,
+    pub preview_context: Option<PreviewContext>,
     pub elapsed_ms: f64,
     pub load_ms: f64,
     pub solve_ms: f64,
@@ -616,6 +644,14 @@ pub fn prepare(s: &mut Session, p: &Value) -> Result<SolveWork> {
     if inputs.is_empty() {
         return Err(bad(C, "No still photos in the selection"));
     }
+    let preview_id = p
+        .get("previewId")
+        .filter(|value| !value.is_null())
+        .map(|value| value.as_u64().map(PhotoId).ok_or_else(|| bad(C, "Preview target must be a photo ID")))
+        .transpose()?;
+    if preview_id.is_some_and(|id| !inputs.iter().any(|input| input.identity.id == id)) {
+        return Err(bad(C, "Preview target must belong to the target selection"));
+    }
     Ok(SolveWork {
         generation: s.library_generation,
         inputs,
@@ -623,6 +659,8 @@ pub fn prepare(s: &mut Session, p: &Value) -> Result<SolveWork> {
         looks: selected_looks(s).ok_or_else(|| bad(C, "Analyze first"))?.into(),
         opts,
         shared_color: None,
+        preview_id,
+        selection_ids: s.targets(&Value::Null),
         report_progress: true,
     })
 }
@@ -642,7 +680,7 @@ fn representative_color(candidates: &[(PhotoId, DevelopSettings)], opts: Options
         }
         if opts.color_tone {
             for points in [&settings.curve.red, &settings.curve.green, &settings.curve.blue] {
-                let curve = lightcraft_color::spline::MonotoneCurve::new(&points.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>());
+                let curve = li_color::spline::MonotoneCurve::new(&points.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>());
                 values.extend([0.25, 0.5, 0.75].map(|x| (curve.eval(x) - x) / 0.15));
             }
             for wheel in [settings.grading.shadows, settings.grading.midtones, settings.grading.highlights, settings.grading.global] {
@@ -683,17 +721,48 @@ impl SolveWork {
     pub fn run(self, c: &Control, preview: bool) -> Matched {
         self.run_with_mode(c, preview, true)
     }
-    fn run_with_mode(self, c: &Control, preview: bool, parallel: bool) -> Matched {
+    fn shares_color(&self) -> bool {
         let zero_without_normalization = self.opts.strength == 0.0 && !self.opts.exposure_enabled() && !self.opts.white_balance_enabled();
-        if self.opts.consistent_batch
+        self.opts.consistent_batch
             && (self.opts.color_enabled() || self.opts.tone_enabled())
             && self.shared_color.is_none()
             && !zero_without_normalization
-        {
+    }
+    /// Preview fits the full shared-style context, then refines/renders one target.
+    /// Applying still reports one completed item per final target.
+    pub fn progress_len(&self, preview: bool) -> usize {
+        if preview { if self.shares_color() { self.inputs.len() + 1 } else { 1 } } else { self.len() }
+    }
+    fn run_with_mode(mut self, c: &Control, preview: bool, parallel: bool) -> Matched {
+        let shares_color = self.shares_color();
+        let context = if preview {
+            self.preview_id = self.preview_id.or_else(|| self.inputs.first().map(|input| input.identity.id));
+            self.preview_id.map(|preview_id| PreviewContext {
+                generation: self.generation,
+                identities: self.inputs.iter().map(|input| input.identity.clone()).collect(),
+                looks: self.looks.clone(),
+                selection_ids: self.selection_ids.clone(),
+                preview_id,
+            })
+        } else {
+            None
+        };
+        let mut result = if shares_color {
             self.run_consistent(c, preview, parallel)
         } else {
+            if preview {
+                self.inputs.retain(|input| Some(input.identity.id) == self.preview_id);
+            }
             self.run_independent(c, preview, parallel)
+        };
+        result.preview_context = context;
+        if preview && c.cancel.load(Ordering::Relaxed) {
+            result.rows.clear();
+            result.applications.clear();
+            result.preview = None;
+            result.preview_before = None;
         }
+        result
     }
     /// App semantics, rather than an assertion about Capture One's unpublished lock list:
     /// selected Color Adjustment/Tone controls share one robust representative solution;
@@ -707,7 +776,9 @@ impl SolveWork {
             looks: self.looks.clone(),
             opts: Options { strength: 100.0, ..self.opts },
             shared_color: None,
-            report_progress: false,
+            preview_id: None,
+            selection_ids: self.selection_ids.clone(),
+            report_progress: preview && self.report_progress,
             failed: Vec::new(),
         }
         .run_independent(c, false, parallel);
@@ -721,7 +792,7 @@ impl SolveWork {
             .collect::<Vec<_>>();
         let Some((representative, shared)) = representative_color(&candidates, self.opts) else {
             if self.report_progress && !c.cancel.load(Ordering::Relaxed) {
-                c.completed.fetch_add(self.inputs.len(), Ordering::Relaxed);
+                c.completed.fetch_add(if preview { 1 } else { self.inputs.len() }, Ordering::Relaxed);
             }
             first.failed.extend(self.failed);
             return first;
@@ -737,8 +808,14 @@ impl SolveWork {
         let decoded = first.decoded.iter().cloned().collect::<std::collections::BTreeMap<_, _>>();
         let initial_count = self.inputs.len();
         self.inputs.retain(|input| first.applications.contains_key(&input.identity.id));
-        if self.report_progress {
+        if self.report_progress && !preview {
             c.completed.fetch_add(initial_count - self.inputs.len(), Ordering::Relaxed);
+        }
+        if preview {
+            self.inputs.retain(|input| Some(input.identity.id) == self.preview_id);
+            if self.inputs.is_empty() && self.report_progress {
+                c.completed.fetch_add(1, Ordering::Relaxed);
+            }
         }
         for input in &mut self.inputs {
             if let Some(source) = decoded.get(&input.identity.id) {
@@ -809,6 +886,8 @@ impl SolveWork {
                             looks: work.looks.clone(),
                             opts: work.opts,
                             shared_color: work.shared_color.clone(),
+                            preview_id: None,
+                            selection_ids: Vec::new(),
                             report_progress: work.report_progress,
                             failed: Vec::new(),
                         }
@@ -836,6 +915,7 @@ impl SolveWork {
             failed: self.failed,
             preview: None,
             preview_before: None,
+            preview_context: None,
             elapsed_ms: 0.0,
             load_ms: 0.0,
             solve_ms: 0.0,
@@ -873,6 +953,7 @@ impl SolveWork {
             failed: self.failed,
             preview: None,
             preview_before: None,
+            preview_context: None,
             elapsed_ms: 0.0,
             load_ms: 0.0,
             solve_ms: 0.0,
@@ -913,8 +994,6 @@ impl SolveWork {
                                 shared,
                                 &stop,
                             )
-                        } else if preview {
-                            match_look::solve_with_faces(&src.image, &info, &i.baseline, &self.looks, target_opts, &i.faces, &stop)
                         } else {
                             match_look::solve_batch_with_faces(&src.image, &info, &i.baseline, &self.looks, target_opts, &i.faces, &stop)
                         }
@@ -1030,7 +1109,13 @@ impl SolveWork {
 pub fn retain_decoded(s: &mut Session, result: &mut Matched) {
     if s.library_generation == result.generation {
         for (id, src) in result.decoded.drain(..) {
-            if result.rows.iter().any(|(captured, _)| captured.id == id && identity(s, id).is_some_and(|now| now.key == captured.key)) {
+            let captured = result
+                .rows
+                .iter()
+                .map(|(identity, _)| identity)
+                .chain(result.preview_context.iter().flat_map(|context| context.identities.iter()))
+                .find(|captured| captured.id == id);
+            if captured.is_some_and(|captured| identity(s, id).is_some_and(|now| now.key == captured.key)) {
                 s.media.insert_source(id, SourceLevel::Thumb, src);
             }
         }
@@ -1457,6 +1542,10 @@ pub fn specs() -> Vec<CommandSpec> {
 }
 
 #[cfg(test)]
+#[path = "match_look_preview_tests.rs"]
+mod preview_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use lightcraft_catalog::{MemStore, Store};
@@ -1546,6 +1635,8 @@ mod tests {
                 looks: looks.clone(),
                 opts,
                 shared_color: None,
+                preview_id: None,
+                selection_ids: Vec::new(),
                 report_progress: true,
                 failed: Vec::new(),
             };
@@ -1594,6 +1685,8 @@ mod tests {
                 looks: looks.clone(),
                 opts: Options { strength: 0.0, normalize: false, ..opts },
                 shared_color: None,
+                preview_id: None,
+                selection_ids: Vec::new(),
                 report_progress: true,
                 failed: Vec::new(),
             }
@@ -1620,6 +1713,8 @@ mod tests {
                 looks: looks.clone(),
                 opts,
                 shared_color: None,
+                preview_id: None,
+                selection_ids: Vec::new(),
                 report_progress: true,
                 failed: Vec::new(),
             }
@@ -1633,6 +1728,8 @@ mod tests {
                 looks,
                 opts,
                 shared_color: None,
+                preview_id: None,
+                selection_ids: Vec::new(),
                 report_progress: true,
                 failed: Vec::new(),
             }

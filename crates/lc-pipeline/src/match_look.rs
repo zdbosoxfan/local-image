@@ -8,8 +8,8 @@
 //! (Alberto Griggio, 2018: populated-CDF matching -> sparse curve). See docs/PORTS.md and
 //! licenses/{darktable,rawtherapee}-NOTICE.md. No upstream C/C++ is built or shipped.
 use crate::{RenderRequest, SourceInfo, StageCache};
-use lightcraft_color::spline::MonotoneCurve;
-use lightcraft_color::{REC2020, SRGB, perceptual::oklab_from_2020, transfer::srgb_to_linear};
+use li_color::spline::MonotoneCurve;
+use li_color::{REC2020, SRGB, perceptual::oklab_from_2020, transfer::srgb_to_linear};
 use lightcraft_develop::{CurveMode, ToneCurve};
 use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskShape, Treatment, WbMode, controls};
 use lightcraft_geom::Point;
@@ -21,6 +21,7 @@ use std::sync::Arc;
 mod adjustments_tests;
 mod appearance;
 mod content;
+mod order_statistics;
 #[cfg(test)]
 mod quality_tests;
 mod regularization;
@@ -451,6 +452,18 @@ fn measure_samples(
     descriptor: bool,
     membership: Option<&appearance::Membership>,
 ) -> Look {
+    measure_samples_with_quantiles(width, height, pixels, faces, descriptor, membership, order_statistics::luminance)
+}
+#[allow(clippy::too_many_arguments)]
+fn measure_samples_with_quantiles(
+    width: usize,
+    height: usize,
+    pixels: impl Iterator<Item = [f64; 3]>,
+    faces: &[[f32; 4]],
+    descriptor: bool,
+    membership: Option<&appearance::Membership>,
+    quantiles: impl FnOnce(&mut [f64]) -> [f64; 7],
+) -> Look {
     let mut l = Vec::with_capacity(width * height);
     let mut sums = [0.0; FEATURES];
     let mut mass = [0.0; FEATURES];
@@ -526,12 +539,12 @@ fn measure_samples(
     let mean_chroma = labs.iter().map(|p| p[1].hypot(p[2])).sum::<f64>() / labs.len().max(1) as f64;
     let chroma_variation =
         (labs.iter().map(|p| (p[1].hypot(p[2]) - mean_chroma).powi(2)).sum::<f64>() / labs.len().max(1) as f64).sqrt() / mean_chroma.max(1e-9);
-    l.sort_by(f64::total_cmp);
+    let quantiles = quantiles(&mut l);
     let mut features = [0.0; FEATURES];
     let mut support = [0.0; FEATURES];
     if !l.is_empty() {
-        for (i, q) in [0.05, 0.25, 0.5, 0.75, 0.95].iter().enumerate() {
-            features[i] = l[((l.len() - 1) as f64 * q) as usize];
+        for (i, value) in quantiles[1..6].iter().enumerate() {
+            features[i] = *value;
             support[i] = 1.0;
         }
         for i in 5..FEATURES {
@@ -542,8 +555,8 @@ fn measure_samples(
         }
     }
     if !l.is_empty() {
-        for (i, q) in [(30, 0.01), (31, 0.99)] {
-            features[i] = l[((l.len() - 1) as f64 * q) as usize];
+        for (i, value) in [(30, quantiles[0]), (31, quantiles[6])] {
+            features[i] = value;
             support[i] = 1.0;
         }
         // Summed-area box mean: same clipped 5×5 support, linear work in pixel count.
@@ -825,7 +838,7 @@ fn region_masks(
     });
     let log = lightcraft_raster::Plane::from_fn(rgb.width, rgb.height, |x, y| {
         let p = rgb.get(x, y);
-        (0.2627 * p[0] + 0.678 * p[1] + 0.0593 * p[2]).max(1e-6).log2()
+        li_color::luminance_2020(p).max(1e-6).log2()
     });
     let frame = crate::frame_for(src, info, settings, true);
     let stored = |sky: bool| {
@@ -3288,7 +3301,7 @@ mod revision3_tests {
     }
     #[test]
     fn match_look_revision3_palette_hue_and_luminance_joint_directions() {
-        use lightcraft_color::perceptual::hsv_to_rgb;
+        use li_color::perceptual::hsv_to_rgb;
         let matrix = SRGB.to_space(&REC2020);
         let src = Arc::new(Rgb32f::from_fn(256, 128, |x, y| {
             let hue = lightcraft_develop::MIXER_HUES[(x / 32).min(7)] as f32;

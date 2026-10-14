@@ -116,40 +116,7 @@ impl Clut {
     /// Tetrahedral interpolation inside one cube of three dimensions.
     #[inline]
     fn tetra(&self, base: usize, s: [usize; 3], r: [f32; 3], out: &mut [f32]) {
-        let d = &self.data;
-        let [rx, ry, rz] = r;
-        let [sx, sy, sz] = s;
-        let c000 = base;
-        let c100 = base + sx;
-        let c010 = base + sy;
-        let c001 = base + sz;
-        let c110 = base + sx + sy;
-        let c101 = base + sx + sz;
-        let c011 = base + sy + sz;
-        let c111 = base + sx + sy + sz;
-        // Pick the tetrahedron containing (rx, ry, rz) and the path through the cube corners.
-        let (p1, p2, p3, w1, w2, w3) = if rx >= ry {
-            if ry >= rz {
-                (c100, c110, c111, rx, ry, rz)
-            } else if rx >= rz {
-                (c100, c101, c111, rx, rz, ry)
-            } else {
-                (c001, c101, c111, rz, rx, ry)
-            }
-        } else if rx >= rz {
-            (c010, c110, c111, ry, rx, rz)
-        } else if ry >= rz {
-            (c010, c011, c111, ry, rz, rx)
-        } else {
-            (c001, c011, c111, rz, ry, rx)
-        };
-        for (k, o) in out.iter_mut().enumerate().take(self.outputs) {
-            let v0 = d[c000 + k];
-            let v1 = d[p1 + k];
-            let v2 = d[p2 + k];
-            let v3 = d[p3 + k];
-            *o = v0 + (v1 - v0) * w1 + (v2 - v1) * w2 + (v3 - v2) * w3;
-        }
+        li_color::lut::tetrahedral_strided(&self.data, base, s, r, &mut out[..self.outputs]);
     }
 
     /// Trilinear interpolation (3 inputs), kept as a reference for accuracy comparisons.

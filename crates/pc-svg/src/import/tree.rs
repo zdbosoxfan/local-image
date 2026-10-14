@@ -384,7 +384,7 @@ impl State<'_, '_> {
                 .map(|(i, p)| {
                     let mut v = p[3] * region_coverage[i];
                     if mask.kind() == usvg::MaskType::Luminance {
-                        v *= 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+                        v *= li_color::luminance_709([p[0], p[1], p[2]]);
                     }
                     if let Some(next) = &next {
                         v *= next.value(band.x0 + (i % band.width() as usize) as i32, band.y0 + (i / band.width() as usize) as i32);

@@ -18,7 +18,7 @@ pub const WORK_PX: usize = 1_000_000;
 /// Per-pixel normalised sharpness (`0..=1`) of `img`.
 pub fn sharpness(img: &super::RgbImage, noise: f32) -> Vec<f32> {
     let (w, h) = (img.w, img.h);
-    let y: Vec<f32> = img.px.iter().map(|p| 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]).collect();
+    let y: Vec<f32> = img.px.iter().map(|p| li_color::convert::rgb_to_gray([p[0], p[1], p[2]])).collect();
     let at = |x: usize, yy: usize| y[yy * w + x];
     let mut lap = vec![0.0f32; w * h];
     for yy in 0..h {

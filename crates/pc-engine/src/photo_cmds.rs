@@ -113,7 +113,7 @@ pub(crate) fn luma_alpha(surf: &Surface, area: Rect, k: usize) -> (usize, usize,
         for x in 0..w {
             let p = to_rgba(&fmt, &row[x * n..(x + 1) * n]);
             let i = (y / k) * sw + x / k;
-            l[i] += (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) * p[3] + (1.0 - p[3]) * 0.0;
+            l[i] += (li_color::luminance_709([p[0], p[1], p[2]])) * p[3] + (1.0 - p[3]) * 0.0;
             a[i] += p[3];
             cnt[i] += 1.0;
         }

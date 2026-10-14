@@ -209,7 +209,7 @@ fn svg_brush_tip(bytes: &[u8]) -> std::result::Result<photocraft_paint::GrayTile
     let mut data = Vec::with_capacity(image.px.len());
     for p in &image.px {
         let alpha = p[3];
-        let light = p[0] * 0.2126 + p[1] * 0.7152 + p[2] * 0.0722;
+        let light = li_color::luminance_709([p[0], p[1], p[2]]);
         data.push(((alpha - light).clamp(0.0, 1.0) * 65535.0).round() as u16);
     }
     Ok(photocraft_paint::GrayTile { width: doc.size.width, height: doc.size.height, data })
@@ -244,36 +244,12 @@ pub fn specs() -> Vec<CommandSpec> {
 // ------------------------------------------------------------------ gradients (.grd)
 
 fn hsb_to_rgb([h, s, v]: [f32; 3]) -> [f32; 3] {
-    let h = h.rem_euclid(360.0) / 60.0;
-    let c = v * s;
-    let x = c * (1.0 - (h % 2.0 - 1.0).abs());
-    let (r, g, b) = match h as u32 {
-        0 => (c, x, 0.0),
-        1 => (x, c, 0.0),
-        2 => (0.0, c, x),
-        3 => (0.0, x, c),
-        4 => (x, 0.0, c),
-        _ => (c, 0.0, x),
-    };
-    let m = v - c;
-    [r + m, g + m, b + m]
+    li_color::perceptual::hsv_to_rgb(h, s, v)
 }
 
 /// CIE Lab (D50, as Photoshop stores it) to sRGB through XYZ with Bradford adaptation to D65.
 fn lab_to_rgb([l, a, b]: [f32; 3]) -> [f32; 3] {
-    let fy = (l + 16.0) / 116.0;
-    let (fx, fz) = (fy + a / 500.0, fy - b / 200.0);
-    let inv = |t: f32| if t > 6.0 / 29.0 { t * t * t } else { 3.0 * (6.0f32 / 29.0).powi(2) * (t - 4.0 / 29.0) };
-    let (x, y, z) = (0.9642 * inv(fx), inv(fy), 0.8249 * inv(fz));
-    // XYZ (D50) → linear sRGB (D65), Bradford-adapted matrix.
-    let r = 3.1339 * x - 1.6169 * y - 0.4906 * z;
-    let g = -0.9788 * x + 1.9161 * y + 0.0335 * z;
-    let bb = 0.0719 * x - 0.2290 * y + 1.4052 * z;
-    let gamma = |c: f32| {
-        let c = c.clamp(0.0, 1.0);
-        if c <= 0.003_130_8 { 12.92 * c } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
-    };
-    [gamma(r), gamma(g), gamma(bb)]
+    li_color::convert::lab_to_srgb_with_white([l, a, b], li_color::cms_math::D50)
 }
 
 fn stop_color(c: photocraft_psd::grd::GrdColor) -> crate::presets::gradients::StopColor {

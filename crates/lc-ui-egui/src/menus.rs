@@ -1323,12 +1323,12 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if paths.is_empty() {
                 return Some(Ok(Value::Null));
             }
-            // .cube LUTs (and those inside zips / folders) become profiles
+            // LUTs (and those inside zips / folders) become profiles
             let lut_paths: Vec<&String> = paths
                 .iter()
                 .filter(|p| {
                     let l = p.to_ascii_lowercase();
-                    l.ends_with(".cube") || l.ends_with(".zip") || std::path::Path::new(p.as_str()).is_dir()
+                    crate::is_lut_file(p) || l.ends_with(".zip") || std::path::Path::new(p.as_str()).is_dir()
                 })
                 .collect();
             let profiles = if lut_paths.is_empty() {
@@ -1340,7 +1340,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                     .and_then(|v| v["imported"].as_array().map(Vec::len))
                     .unwrap_or(0)
             };
-            let preset_paths: Vec<&String> = paths.iter().filter(|p| !p.to_ascii_lowercase().ends_with(".cube")).collect();
+            let preset_paths: Vec<&String> = paths.iter().filter(|p| !crate::is_lut_file(p)).collect();
             let r = if preset_paths.is_empty() {
                 Ok(json!({"imported": [], "failed": [], "skipped": 0}))
             } else {
@@ -1514,7 +1514,10 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         }),
         "photo.tagFromTracklog" => app.session.active().is_some() && app.services.pick_tracklog.is_some(),
         "app.exportPrevious" => app.session.active().is_some() && app.session.last_export.is_some(),
-        "develop.analyzeLook" => !app.session.match_look.references.is_empty() && app.match_look.control.is_none(),
+        "develop.analyzeLook" => {
+            (!app.session.match_look.references.is_empty() || !app.session.match_look.external_references.is_empty())
+                && app.match_look.control.is_none()
+        }
         "dialog.matchLook" => lightcraft_engine::cmd::match_look::ready(&app.session).is_ok(),
         "dialog.syncSettings" => app.session.active().is_some() && app.session.selection.ids.len() > 1,
         "dialog.pasteSettings" => app.session.active().is_some() && app.session.clipboard.is_some(),

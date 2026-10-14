@@ -360,11 +360,15 @@ fn parse_lookup(d: &[u8]) -> Option<Adjustment> {
         Some(b"LUTFormatLOOK") => "x.look",
         _ => "x.cube",
     };
-    let lut = photocraft_cms::lutfile::parse(ext, bytes).ok()?;
+    let parsed = li_color::lutfile::parse_with_domain(ext, bytes).ok()?;
+    let domain = (parsed.domain_min != [0.0; 3] || parsed.domain_max != [1.0; 3])
+        .then_some(photocraft_doc::LutDomain { min: parsed.domain_min, max: parsed.domain_max });
+    let lut = parsed.lut;
     let name = desc_text(&desc, "LUT3DFileName").or_else(|| desc_text(&desc, "NM  ")).unwrap_or_default();
     Some(Adjustment::ColorLookup {
         name,
         size: lut.size as u32,
+        domain,
         lut: Some(std::sync::Arc::new(lut.data)),
         tetrahedral: false,
         dither: desc_bool(&desc, "Dthr").unwrap_or(false),
@@ -601,16 +605,25 @@ pub fn write(adj: &Adjustment) -> Vec<([u8; 4], Vec<u8>)> {
             }
             return vec![(*b"selc", v)];
         }
-        Adjustment::ColorLookup { name, lut, size, dither, .. } => {
+        Adjustment::ColorLookup { name, lut, size, dither, domain, .. } => {
             // A lookup without a usable table (none chosen yet, or a bad size) renders as the
             // identity, so it is written as a 2³ identity cube rather than dropped.
             let n = *size as usize;
-            let (file, dither) = match lut {
-                Some(table) if (2..=256).contains(&n) && table.len() >= n * n * n * 3 => {
-                    (photocraft_cms::lutfile::LutFile { title: String::new(), size: n, data: table[..n * n * n * 3].to_vec() }, *dither)
-                }
-                _ => (photocraft_cms::lutfile::LutFile { title: String::new(), ..photocraft_cms::lutfile::LutFile::identity(2) }, false),
+            let (file, dither, domain) = match lut {
+                Some(table) if (2..=256).contains(&n) && table.len() >= n * n * n * 3 => (
+                    photocraft_cms::lutfile::LutFile { title: String::new(), size: n, data: table[..n * n * n * 3].to_vec() },
+                    *dither,
+                    domain.filter(|d| d.valid()),
+                ),
+                _ => (photocraft_cms::lutfile::LutFile { title: String::new(), ..photocraft_cms::lutfile::LutFile::identity(2) }, false, None),
             };
+            let mut cube = photocraft_cms::lutfile::write_cube(&file);
+            if let Some(domain) = domain {
+                cube = format!(
+                    "DOMAIN_MIN {} {} {}\nDOMAIN_MAX {} {} {}\n{}",
+                    domain.min[0], domain.min[1], domain.min[2], domain.max[0], domain.max[1], domain.max[2], cube
+                );
+            }
             let en =
                 |t: &str, val: &str| Value::Enumerated { type_id: photocraft_psd::descriptor::Id::new(t), value: photocraft_psd::descriptor::Id::new(val) };
             let text = |t: &str| Value::Text(photocraft_psd::descriptor::UnicodeString::new_nul(t));
@@ -622,7 +635,7 @@ pub fn write(adj: &Adjustment) -> Vec<([u8; 4], Vec<u8>)> {
                 .with("LUTFormat", en("LUTFormatType", "LUTFormatCUBE"))
                 .with("dataOrder", en("colorLookupOrder", "rgbOrder"))
                 .with("tableOrder", en("colorLookupOrder", "bgrOrder"))
-                .with("LUT3DFileData", Value::RawData(photocraft_cms::lutfile::write_cube(&file).into_bytes()))
+                .with("LUT3DFileData", Value::RawData(cube.into_bytes()))
                 .with("LUT3DFileName", text(name));
             put16(&mut v, 1);
             v.extend_from_slice(&VersionedDescriptor::new(d).to_bytes());
@@ -709,6 +722,21 @@ pub fn write(adj: &Adjustment) -> Vec<([u8; 4], Vec<u8>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lookup_cube_input_domain_round_trips_through_psd() {
+        let table = photocraft_cms::lutfile::LutFile::identity(2);
+        let domain = photocraft_doc::LutDomain { min: [-1.0, 0.0, 0.25], max: [1.0, 2.0, 0.75] };
+        let adjustment = Adjustment::ColorLookup {
+            name: "Domain.cube".into(),
+            lut: Some(std::sync::Arc::new(table.data)),
+            size: 2,
+            tetrahedral: false,
+            dither: false,
+            domain: Some(domain),
+        };
+        rt(adjustment);
+    }
 
     #[test]
     fn gradient_map_v3_methods_and_smoothness() {
@@ -811,7 +839,14 @@ mod tests {
         rt(Adjustment::ChannelMixer { matrix: [[0.5, 0.3, 0.2, 0.0], [0.1, 0.8, 0.1, 0.05], [0.0, 0.2, 0.9, -0.05]], monochrome: false });
         rt(Adjustment::ChannelMixer { matrix: [[0.4, 0.4, 0.2, 0.1], [0.0, 1.0, 0.0, 0.0], [-2.0, 0.0, 2.0, 0.0]], monochrome: true });
         let id = photocraft_cms::lutfile::LutFile::identity(5);
-        rt(Adjustment::ColorLookup { name: "Look.cube".into(), lut: Some(std::sync::Arc::new(id.data)), size: 5, tetrahedral: false, dither: true });
+        rt(Adjustment::ColorLookup {
+            domain: None,
+            name: "Look.cube".into(),
+            lut: Some(std::sync::Arc::new(id.data)),
+            size: 5,
+            tetrahedral: false,
+            dither: true,
+        });
     }
 
     #[test]
@@ -1054,7 +1089,7 @@ mod tests {
         }
         // A colour lookup without a (usable) table becomes an identity cube, without dither.
         for lut in [None, Some(std::sync::Arc::new(vec![0.5; 7]))] {
-            let b = write(&Adjustment::ColorLookup { name: "L".into(), lut, size: 3, tetrahedral: false, dither: true });
+            let b = write(&Adjustment::ColorLookup { domain: None, name: "L".into(), lut, size: 3, tetrahedral: false, dither: true });
             let back = parse(&b[0].0, &b[0].1, None, Channels::Rgb);
             let Adjustment::ColorLookup { lut: Some(t), size: 2, dither: false, name, .. } = back else { panic!("{back:?}") };
             assert_eq!(name, "L");

@@ -96,7 +96,7 @@ pub fn sharpness(img: &Rgba8) -> f32 {
             for y in gy * step..(gy + 1) * step {
                 for x in gx * step..(gx + 1) * step {
                     let [r, g, b, _] = img.data[y * w + x];
-                    sum += 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
+                    sum += li_color::convert::rgb_to_gray([r as f32, g as f32, b as f32]);
                 }
             }
             gray[gy * gw + gx] = sum / (step * step) as f32;

@@ -6,18 +6,13 @@ use lightcraft_pipeline::match_look::{self as pipeline, Options};
 use serde_json::{Value, json};
 use std::sync::{Arc, atomic::Ordering};
 
-#[cfg(not(test))]
-#[rustfmt::skip]
-#[allow(dead_code)]
-#[path = "../../../apps/local-image/src/app_dirs.rs"]
-mod app_dirs;
-
 pub struct Preview {
     options: Options,
     photo: lightcraft_catalog::PhotoId,
     identity: engine::Identity,
     generation: u64,
     looks: Vec<pipeline::Look>,
+    context: Option<engine::PreviewContext>,
     texture: egui::TextureHandle,
     pixels: egui::ColorImage,
     before_texture: egui::TextureHandle,
@@ -83,7 +78,7 @@ impl Drop for Runtime {
 }
 pub fn open_global_store(session: &mut lightcraft_engine::Session) {
     #[cfg(not(test))]
-    if let Some(dir) = app_dirs::config_dir() {
+    if let Some(dir) = lightcraft_sysmem::app_dirs::config_dir() {
         let result = lightcraft_catalog::FsStore::open(dir.join("Presets"))
             .map_err(|e| e.to_string())
             .and_then(|store| session.saved_looks.open(Box::new(store)));
@@ -153,7 +148,12 @@ pub fn start(app: &mut LightcraftApp, params: Value, preview: bool) -> Result<Va
     }
     let mut params = params;
     if preview {
-        params["ids"] = json!([app.session.active().ok_or("Select a target photo")?.0]);
+        let active = app.session.active().ok_or("Select a target photo")?;
+        if params["consistentBatch"].as_bool().unwrap_or(false) {
+            params["previewId"] = json!(active.0);
+        } else {
+            params["ids"] = json!([active.0]);
+        }
     }
     let options: Options = serde_json::from_value(params.clone()).map_err(|e| e.to_string())?;
     let looks = engine::selected_looks(&app.session).ok_or("Analyze references or choose a saved look first")?;
@@ -162,7 +162,7 @@ pub fn start(app: &mut LightcraftApp, params: Value, preview: bool) -> Result<Va
     let identity = active.and_then(|id| engine::identity(&app.session, id));
     let work = engine::prepare(&mut app.session, &params).map_err(|e| e.to_string())?;
     let label = if preview { "Preview Match Look" } else { "Match Look" };
-    let c = start_control(app, label, work.len())?;
+    let c = start_control(app, label, work.progress_len(preview))?;
     let worker = c.clone();
     let result = crate::tasks::spawn(
         app,
@@ -182,6 +182,7 @@ pub fn start(app: &mut LightcraftApp, params: Value, preview: bool) -> Result<Va
                     if identity.as_ref() != app.session.active().and_then(|id| engine::identity(&app.session, id)).as_ref()
                         || generation != app.session.library_generation
                         || engine::selected_looks(&app.session) != Some(looks.clone())
+                        || r.preview_context.as_ref().is_some_and(|context| !context.current(&app.session))
                     {
                         app.match_look.error = tr("Target or look changed — Preview again").into();
                         #[cfg(test)]
@@ -194,6 +195,7 @@ pub fn start(app: &mut LightcraftApp, params: Value, preview: bool) -> Result<Va
                         return;
                     }
                     engine::retain_decoded(&mut app.session, &mut r);
+                    let context = r.preview_context.take();
                     if let (Some(image), Some(photo), Some(identity)) = (r.preview.take(), active, identity) {
                         let pixels = egui::ColorImage::from_rgba_unmultiplied(
                             [image.width, image.height],
@@ -218,6 +220,7 @@ pub fn start(app: &mut LightcraftApp, params: Value, preview: bool) -> Result<Va
                             identity,
                             generation,
                             looks,
+                            context,
                             texture,
                             pixels,
                             before_texture,
@@ -299,6 +302,7 @@ pub fn preview_ready(app: &LightcraftApp, opts: Options) -> bool {
             && engine::identity(&app.session, p.photo).as_ref() == Some(&p.identity)
             && p.generation == app.session.library_generation
             && engine::selected_looks(&app.session) == Some(p.looks.clone())
+            && p.context.as_ref().is_none_or(|context| context.current(&app.session))
     })
 }
 /// Shared jobs progress/Cancel, also drawn while the panel/dialog is closed.
@@ -675,6 +679,12 @@ fn prompt(app: &mut LightcraftApp, title: &str, value: &str, action: &str, id: O
         key: "name".into(),
     });
 }
+/// Keep Match Look automation IDs while using the shared v2 checkbox and theme.
+fn option_checkbox(ui: &mut egui::Ui, id: &str, value: &mut bool, label: &str) -> egui::Response {
+    let response = widgets::checkbox(ui, value, label);
+    widgets::register(ui.ctx(), format!("check:{id}"), response.rect);
+    response
+}
 /// Group switches are masters: expanding a disabled group still reveals its remembered
 /// tool selection, while subordinate controls cannot accidentally re-enable the group.
 fn adjustment_group(
@@ -687,7 +697,7 @@ fn adjustment_group(
 ) -> egui::Response {
     let response = ui
         .horizontal(|ui| {
-            let check = widgets::checkbox(ui, id, enabled, label);
+            let check = option_checkbox(ui, id, enabled, label);
             let icon = if *expanded { crate::icons::Icon::ChevronDown } else { crate::icons::Icon::ChevronRight };
             let tooltip = tr("Choose adjustments");
             // The chevron already conveys expansion. Keep the standard icon color;
@@ -703,7 +713,7 @@ fn adjustment_group(
             ui.add_enabled_ui(*enabled, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     for (id, label, value) in tools {
-                        widgets::checkbox(ui, id, value, label);
+                        option_checkbox(ui, id, value, label);
                     }
                 });
             });
@@ -792,10 +802,10 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
         options.strength = value;
     }
     ui.horizontal_wrapped(|ui| {
-        widgets::checkbox(ui, "matchSkin", &mut options.protect_skin, "Protect skin").on_hover_text(tr(
+        option_checkbox(ui, "matchSkin", &mut options.protect_skin, "Protect skin").on_hover_text(tr(
             "Protect skin color in cached People faces and limit hue shifts. Without faces, warm neutrals are measured without a skin constraint.",
         ));
-        widgets::checkbox(ui, "matchContrastGuard", &mut options.contrast_guard, "Contrast guard")
+        option_checkbox(ui, "matchContrastGuard", &mut options.contrast_guard, "Contrast guard")
             .on_hover_text(tr("Give Contrast a smaller share of the correction; prefer Whites, Blacks and the curve."));
         if widgets::text_action(ui, "matchColourOnly", "Color only", None).clicked() {
             options.normalize = false;
@@ -805,12 +815,12 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, options: &mut Options) {
         }
     });
     ui.horizontal_wrapped(|ui| {
-        widgets::checkbox(ui, "matchNewLayer", &mut options.new_layer, "Apply as new layer");
-        widgets::checkbox(ui, "matchConsistent", &mut options.consistent_batch, "Consistent batch")
+        option_checkbox(ui, "matchNewLayer", &mut options.new_layer, "Apply as new layer");
+        option_checkbox(ui, "matchConsistent", &mut options.consistent_batch, "Consistent batch")
             .on_hover_text(tr("Share selected color controls across the batch; adapt exposure, white balance and Light per photo. Partial Strength fades shared colors from neutral; zero restores original colors."));
     });
-    widgets::checkbox(ui, "matchRegions", &mut options.region_aware, "Match supported regions (experimental)");
-    widgets::checkbox(ui, "matchAppearance", &mut options.appearance_aware, "Match supported color groups (experimental)");
+    option_checkbox(ui, "matchRegions", &mut options.region_aware, "Match supported regions (experimental)");
+    option_checkbox(ui, "matchAppearance", &mut options.appearance_aware, "Match supported color groups (experimental)");
     if before != *options
         && (app.match_look.preview.is_some()
             || app.match_look.auto_preview_at.is_some()

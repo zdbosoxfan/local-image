@@ -71,7 +71,7 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 
 #[inline]
 fn lum(p: &Px) -> f32 {
-    0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]
+    li_color::convert::rgb_to_gray([p[0], p[1], p[2]])
 }
 #[inline]
 fn mix(a: Px, b: Px, t: f32) -> Px {

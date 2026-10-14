@@ -51,7 +51,7 @@ pub fn wb_matrix_for(info: &SourceInfo, s: &DevelopSettings) -> Option<[[f32; 3]
     };
     // Normalize so neutral luminance is preserved (WB shouldn't change exposure).
     let g = m.apply([1.0, 1.0, 1.0]);
-    let y = g[0] * 0.2627 + g[1] * 0.6780 + g[2] * 0.0593;
+    let y = li_color::luminance_2020_f64(g);
     Some(m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
 }
 
@@ -63,7 +63,7 @@ fn colorcal_matrix(info: &SourceInfo, cc: &crate::colorcal::ColorCal) -> [[f32; 
     let undo = shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY);
     let m = if cc.is_linear() { lightcraft_color::Mat3(cc.matrix.map(|r| r.map(f64::from))).mul(&undo) } else { undo };
     let g = m.apply([1.0, 1.0, 1.0]);
-    let y = g[0] * 0.2627 + g[1] * 0.6780 + g[2] * 0.0593;
+    let y = li_color::luminance_2020_f64(g);
     m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32()
 }
 
@@ -77,7 +77,7 @@ pub fn wb_change(from: (f64, f64), to: (f64, f64)) -> Option<[[f32; 3]; 3]> {
     let shot = wb_matrix(&REC2020, temp_tint_to_xy(from.0, from.1));
     let m = set.mul(&shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY));
     let g = m.apply([1.0, 1.0, 1.0]);
-    let y = g[0] * 0.2627 + g[1] * 0.6780 + g[2] * 0.0593;
+    let y = li_color::luminance_2020_f64(g);
     Some(m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
 }
 

@@ -403,6 +403,7 @@ fn match_look_ui_external_reference_picker_analyze_pin_and_remove_without_import
     assert_eq!(h.app.session.catalog.photos().count(), count, "Finished reference files must not be imported as target photos");
     assert!(h.app.session.match_look.references.is_empty());
     assert_eq!(h.app.session.match_look.external_references.len(), 1);
+    assert!(crate::menus::ui_enabled(&h.app, "develop.analyzeLook"), "External-only references must enable Analyze from the menu too");
     let reference = h.app.session.match_look.external_references[0].id;
     assert!(
         h.view.shapes().iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text().contains("finished-exterior.png"))),
@@ -411,6 +412,7 @@ fn match_look_ui_external_reference_picker_analyze_pin_and_remove_without_import
     click(&mut h, &format!("icon:matchReferencePin-{reference}"));
     assert_eq!(h.app.session.match_look.external_references[0].importance, 2.0);
     click(&mut h, "button:matchLookAnalyze");
+    assert!(!crate::menus::ui_enabled(&h.app, "develop.analyzeLook"), "Analyze stays disabled while its reference job runs");
     wait(&mut h);
     assert!(engine::current_ready(&h.app.session));
     assert_eq!(h.app.session.match_look.analysis.as_ref().unwrap().previews.len(), 1);
@@ -429,6 +431,52 @@ fn match_look_ui_external_reference_picker_analyze_pin_and_remove_without_import
     assert!(!engine::current_ready(&h.app.session));
     assert_eq!(h.app.session.catalog.photos().count(), count);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn match_look_ui_consistent_preview_uses_full_batch_and_rejects_stale_other_targets() {
+    let mut h = setup(400.0, true, 1.0);
+    analyze(&mut h, 2);
+    let ids = h
+        .app
+        .session
+        .catalog
+        .photos()
+        .filter(|photo| !h.app.session.match_look.references.contains(&photo.id))
+        .take(3)
+        .map(|photo| photo.id)
+        .collect::<Vec<_>>();
+    request(&mut h, "library.select", json!({"ids":ids}));
+    let active = h.app.session.active().unwrap();
+    let other = *ids.iter().find(|id| **id != active).unwrap();
+    let before = ids.iter().map(|id| h.app.session.develop_of(*id).unwrap()).collect::<Vec<_>>();
+    let revision = h.app.session.catalog.revision;
+    let undo = h.app.session.undo.len();
+    click(&mut h, "button:matchLook");
+    click(&mut h, "check:matchConsistent");
+    let options = match h.app.ui.dialog.as_ref().unwrap() {
+        crate::state::Dialog::MatchLook { options } => *options,
+        _ => panic!("wrong dialog"),
+    };
+    click(&mut h, "button:matchLookPreview");
+    assert_eq!(
+        h.app.match_look.control.as_ref().unwrap().total,
+        ids.len() + 1,
+        "Consistent Preview fits the complete batch then renders the active target"
+    );
+    wait(&mut h);
+    assert!(crate::match_look::preview_ready(&h.app, options));
+    assert_eq!(h.app.session.catalog.revision, revision);
+    assert_eq!(h.app.session.undo.len(), undo);
+    assert_eq!(ids.iter().map(|id| h.app.session.develop_of(*id).unwrap()).collect::<Vec<_>>(), before);
+    request(&mut h, "develop.set", json!({"ids":[other.0],"control":"light.contrast","value":37.0}));
+    assert_eq!(h.app.session.active(), Some(active));
+    assert!(!crate::match_look::preview_ready(&h.app, options), "A shared-style preview depends on the other batch targets too");
+    click(&mut h, "button:matchLookPreview");
+    wait(&mut h);
+    assert!(crate::match_look::preview_ready(&h.app, options));
+    request(&mut h, "library.select", json!({"ids":[active.0]}));
+    assert!(!crate::match_look::preview_ready(&h.app, options), "Changing batch membership requires a fresh consistent Preview");
 }
 
 #[test]

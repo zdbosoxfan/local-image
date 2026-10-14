@@ -13,7 +13,7 @@ fn fmt(ctx: &Ctx) -> PixelFormat {
 
 fn luma(ctx: &Ctx, px: &[f32]) -> f32 {
     let c = to_rgba(&fmt(ctx), px);
-    0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+    li_color::convert::rgb_to_gray([c[0], c[1], c[2]])
 }
 
 /// Replaces the colour with gray `g` in the pixel's own model (alpha kept).

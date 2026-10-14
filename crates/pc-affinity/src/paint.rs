@@ -193,19 +193,8 @@ fn color_at(r: &mut Reader, id: ObjId, depth: usize, remaining: &mut usize) -> O
 }
 
 fn hsl(h: f64, s: f64, l: f64) -> (f64, f64, f64) {
-    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let hp = (h.rem_euclid(1.0)) * 6.0;
-    let x = c * (1.0 - (hp % 2.0 - 1.0).abs());
-    let (r, g, b) = match hp as u32 {
-        0 => (c, x, 0.0),
-        1 => (x, c, 0.0),
-        2 => (0.0, c, x),
-        3 => (0.0, x, c),
-        4 => (x, 0.0, c),
-        _ => (c, 0.0, x),
-    };
-    let m = l - c / 2.0;
-    (r + m, g + m, b + m)
+    let [r, g, b] = li_color::perceptual::hsl_turns_to_rgb_f64(h, s, l);
+    (r, g, b)
 }
 
 /// A fill descriptor (`FDsc`) or, in Affinity 1 files, a bare `FilS`; `local` maps the node's

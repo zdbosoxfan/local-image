@@ -420,34 +420,11 @@ fn scalar(d: &Dynamic, s: &StepInput, r: f32) -> f32 {
 }
 
 fn rgb_to_hsv(c: [f32; 3]) -> [f32; 3] {
-    let mx = c[0].max(c[1]).max(c[2]);
-    let mn = c[0].min(c[1]).min(c[2]);
-    let d = mx - mn;
-    let h = if d <= 0.0 {
-        0.0
-    } else if mx == c[0] {
-        ((c[1] - c[2]) / d).rem_euclid(6.0)
-    } else if mx == c[1] {
-        (c[2] - c[0]) / d + 2.0
-    } else {
-        (c[0] - c[1]) / d + 4.0
-    } / 6.0;
-    [h, if mx > 0.0 { d / mx } else { 0.0 }, mx]
+    li_color::perceptual::rgb_to_hsv_turns(c)
 }
 
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
-    let h6 = h.rem_euclid(1.0) * 6.0;
-    let i = h6.floor();
-    let f = h6 - i;
-    let (p, q, t) = (v * (1.0 - s), v * (1.0 - s * f), v * (1.0 - s * (1.0 - f)));
-    match i as i32 {
-        0 => [v, t, p],
-        1 => [q, v, p],
-        2 => [p, v, t],
-        3 => [p, q, v],
-        4 => [t, p, v],
-        _ => [v, p, q],
-    }
+    li_color::perceptual::hsv_turns_to_rgb(h, s, v)
 }
 
 /// Colour Dynamics for one dab (or once per stroke, with `index = 0`).

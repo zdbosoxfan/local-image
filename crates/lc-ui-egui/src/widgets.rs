@@ -910,14 +910,6 @@ mod access_tests {
     }
 }
 
-/// Shared checkbox for Library dialogs. Uses the host's themed egui visuals, translates its
-/// accessible name and exposes a stable automation ID. Used by Match Look options.
-pub fn checkbox(ui: &mut Ui, id: &str, value: &mut bool, label: &str) -> Response {
-    let r = ui.checkbox(value, crate::i18n::tr(label));
-    register(ui.ctx(), format!("check:{id}"), r.rect);
-    r
-}
-
 /// Shared enabled/disabled text action, with an explanation when unavailable.
 pub fn text_action(ui: &mut Ui, id: &str, label: &str, reason: Option<&str>) -> Response {
     let r = text_button_enabled(ui, id, crate::i18n::tr(label), false, reason.is_none() && ui.is_enabled());

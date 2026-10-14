@@ -327,7 +327,7 @@ fn brush_texture(s: &mut Session, p: &Value) -> Result<Value> {
     let lum: Vec<f32> = px
         .iter()
         .map(|q| {
-            let l = 0.299 * q[0] + 0.587 * q[1] + 0.114 * q[2];
+            let l = li_color::convert::rgb_to_gray([q[0], q[1], q[2]]);
             l * q[3] + (1.0 - q[3])
         })
         .collect();

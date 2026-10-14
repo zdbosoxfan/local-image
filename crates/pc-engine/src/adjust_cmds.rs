@@ -69,33 +69,38 @@ pub fn selective_from_params(p: &Value, base: Option<&Adjustment>) -> Adjustment
 /// layer, as Photoshop does. Unspecified fields keep `base`'s values.
 pub fn lookup_from_params(p: &Value, base: Option<&Adjustment>) -> Result<Adjustment> {
     const CMD: &str = "colorLookup";
-    let (mut name, mut lut, mut size, mut tetrahedral, mut dither) = match base {
-        Some(Adjustment::ColorLookup { name, lut, size, tetrahedral, dither }) => (name.clone(), lut.clone(), *size, *tetrahedral, *dither),
-        _ => (String::new(), None, 0, false, false),
+    let (mut name, mut lut, mut size, mut tetrahedral, mut dither, mut domain) = match base {
+        Some(Adjustment::ColorLookup { name, lut, size, tetrahedral, dither, domain }) => (name.clone(), lut.clone(), *size, *tetrahedral, *dither, *domain),
+        _ => (String::new(), None, 0, true, false, None),
     };
-    let mut loaded: Option<(photocraft_cms::lutfile::LutFile, String)> = None;
+    let mut loaded: Option<(photocraft_cms::lutfile::LutFile, String, Option<photocraft_doc::LutDomain>)> = None;
     if let Some(id) = p.get("lut").and_then(Value::as_str) {
         if id == "none" || id.is_empty() {
             name.clear();
             lut = None;
             size = 0;
+            domain = None;
         } else {
             let f = photocraft_cms::lutfile::builtin(id).ok_or_else(|| bad(CMD, format!("unknown look `{id}` (built-ins: {})", builtin_ids())))?;
             let label = f.title.clone();
-            loaded = Some((f, label));
+            loaded = Some((f, label, None));
         }
     }
     if let Some(text) = p.get("data").and_then(Value::as_str) {
         let file_name = p.get("fileName").and_then(Value::as_str).unwrap_or("lut.cube");
-        let f = photocraft_cms::lutfile::parse(file_name, text.as_bytes()).map_err(|e| bad(CMD, e.0))?;
-        loaded = Some((f, base_name(file_name)));
+        let f = li_color::lutfile::parse_with_domain(file_name, text.as_bytes()).map_err(|e| bad(CMD, e.0))?;
+        loaded = Some((f.lut, base_name(file_name), lut_domain(f.domain_min, f.domain_max)));
     }
     if let Some(path) = p.get("file").and_then(Value::as_str).filter(|s| !s.is_empty()) {
         let bytes = read_file(path).ok_or_else(|| bad(CMD, format!("can't read {path}")))?;
-        let f = photocraft_cms::lutfile::parse(path, &bytes).map_err(|e| bad(CMD, format!("{path}: {}", e.0)))?;
-        loaded = Some((f, base_name(path)));
+        let f = li_color::lutfile::parse_with_domain(path, &bytes).map_err(|e| bad(CMD, format!("{path}: {}", e.0)))?;
+        loaded = Some((f.lut, base_name(path), lut_domain(f.domain_min, f.domain_max)));
     }
-    if let Some((f, label)) = loaded {
+    if let Some((f, label, input_domain)) = loaded {
+        if !(2..=li_color::lutfile::MAX_SIZE).contains(&f.size) {
+            return Err(bad(CMD, format!("unsupported LUT size {}", f.size)));
+        }
+        domain = input_domain;
         name = label;
         size = f.size as u32;
         lut = Some(std::sync::Arc::new(f.data));
@@ -109,7 +114,11 @@ pub fn lookup_from_params(p: &Value, base: Option<&Adjustment>) -> Result<Adjust
     if let Some(b) = p.get("dither").and_then(Value::as_bool) {
         dither = b;
     }
-    Ok(Adjustment::ColorLookup { name, lut, size, tetrahedral, dither })
+    Ok(Adjustment::ColorLookup { name, lut, size, tetrahedral, dither, domain })
+}
+
+fn lut_domain(min: [f32; 3], max: [f32; 3]) -> Option<photocraft_doc::LutDomain> {
+    (min != [0.0; 3] || max != [1.0; 3]).then_some(photocraft_doc::LutDomain { min, max })
 }
 
 fn builtin_ids() -> String {

@@ -213,13 +213,15 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
             }
         }),
         Adjustment::SelectiveColor { relative, adjustments } => map_rgb(buf, |c| selective_color(c, *relative, adjustments)),
-        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if lut3d_len(*size).is_some_and(|len| table.len() >= len) => {
+        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, domain, .. } if lut3d_len(*size).is_some_and(|len| table.len() >= len) => {
             let (n, w, x0, y0) = (*size as usize, buf.rect.width().max(1) as usize, buf.rect.x0, buf.rect.y0);
             for (i, p) in buf.px.iter_mut().enumerate() {
                 if p[3] <= 0.0 {
                     continue;
                 }
-                let mut o = lut3d_sample(table, n, [p[0], p[1], p[2]], *tetrahedral);
+                let input = [p[0], p[1], p[2]];
+                let input = domain.map_or(input, |domain| li_color::lut::normalize_domain(input, domain.min, domain.max));
+                let mut o = lut3d_sample(table, n, input, *tetrahedral);
                 if *dither {
                     let d = bayer4(x0 + (i % w) as i32, y0 + (i / w) as i32) / 255.0;
                     o = o.map(|v| (v + d).clamp(0.0, 1.0));
@@ -370,45 +372,7 @@ pub fn bayer4(x: i32, y: i32) -> f32 {
 
 /// Samples a 3D LUT (`n`³ RGB triplets, red fastest) at `c`, trilinear or tetrahedral.
 pub fn lut3d_sample(lut: &[f32], n: usize, c: [f32; 3], tetrahedral: bool) -> [f32; 3] {
-    // Upstream 2842973d: a degenerate or short table can't be sampled: leave the colour alone.
-    if n < 2 || n.checked_pow(3).and_then(|c| c.checked_mul(3)).is_none_or(|len| lut.len() < len) {
-        return c;
-    }
-    let m = (n - 1) as f32;
-    let pos = c.map(|v| v.clamp(0.0, 1.0) * m);
-    let i0 = pos.map(|p| (p.floor() as usize).min(n - 2));
-    let f: [f32; 3] = std::array::from_fn(|k| pos[k] - i0[k] as f32);
-    let at = |dr: usize, dg: usize, db: usize| -> [f32; 3] {
-        let idx = (((i0[2] + db) * n + i0[1] + dg) * n + i0[0] + dr) * 3;
-        [lut[idx], lut[idx + 1], lut[idx + 2]]
-    };
-    let mix = |w: &[(f32, [f32; 3])]| -> [f32; 3] { std::array::from_fn(|k| w.iter().map(|(a, v)| a * v[k]).sum()) };
-    let (fr, fg, fb) = (f[0], f[1], f[2]);
-    if tetrahedral {
-        let (c000, c111) = (at(0, 0, 0), at(1, 1, 1));
-        if fr > fg {
-            if fg > fb {
-                mix(&[(1.0 - fr, c000), (fr - fg, at(1, 0, 0)), (fg - fb, at(1, 1, 0)), (fb, c111)])
-            } else if fr > fb {
-                mix(&[(1.0 - fr, c000), (fr - fb, at(1, 0, 0)), (fb - fg, at(1, 0, 1)), (fg, c111)])
-            } else {
-                mix(&[(1.0 - fb, c000), (fb - fr, at(0, 0, 1)), (fr - fg, at(1, 0, 1)), (fg, c111)])
-            }
-        } else if fb > fg {
-            mix(&[(1.0 - fb, c000), (fb - fg, at(0, 0, 1)), (fg - fr, at(0, 1, 1)), (fr, c111)])
-        } else if fb > fr {
-            mix(&[(1.0 - fg, c000), (fg - fb, at(0, 1, 0)), (fb - fr, at(0, 1, 1)), (fr, c111)])
-        } else {
-            mix(&[(1.0 - fg, c000), (fg - fr, at(0, 1, 0)), (fr - fb, at(1, 1, 0)), (fb, c111)])
-        }
-    } else {
-        let lerp = |a: [f32; 3], b: [f32; 3], t: f32| -> [f32; 3] { std::array::from_fn(|k| a[k] + (b[k] - a[k]) * t) };
-        let c00 = lerp(at(0, 0, 0), at(1, 0, 0), fr);
-        let c10 = lerp(at(0, 1, 0), at(1, 1, 0), fr);
-        let c01 = lerp(at(0, 0, 1), at(1, 0, 1), fr);
-        let c11 = lerp(at(0, 1, 1), at(1, 1, 1), fr);
-        lerp(lerp(c00, c10, fg), lerp(c01, c11, fg), fb)
-    }
+    li_color::lut::sample_rgb(lut, n, c, tetrahedral)
 }
 
 /// How much a colour belongs to each Selective Color range: reds, yellows, greens, cyans,
@@ -655,43 +619,15 @@ fn gradient(stops: &[(f32, [f32; 3])], t: f32) -> [f32; 3] {
 }
 
 pub fn rgb_to_hsl(c: [f32; 3]) -> (f32, f32, f32) {
-    let max = c[0].max(c[1]).max(c[2]);
-    let min = c[0].min(c[1]).min(c[2]);
-    let l = (max + min) / 2.0;
-    if (max - min).abs() < 1e-7 {
-        return (0.0, 0.0, l);
-    }
-    let d = max - min;
-    let s = if l > 0.5 { d / (2.0 - max - min) } else { d / (max + min) };
-    let h = if max == c[0] {
-        ((c[1] - c[2]) / d).rem_euclid(6.0)
-    } else if max == c[1] {
-        (c[2] - c[0]) / d + 2.0
-    } else {
-        (c[0] - c[1]) / d + 4.0
-    };
-    (h / 6.0, s, l)
+    let [h, s, l] = li_color::perceptual::rgb_to_hsl_turns(c);
+    (h, s, l)
 }
 
 pub fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [f32; 3] {
     if s <= 0.0 {
         return [l; 3];
     }
-    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
-    let p = 2.0 * l - q;
-    let f = |mut t: f32| {
-        t = t.rem_euclid(1.0);
-        if t < 1.0 / 6.0 {
-            p + (q - p) * 6.0 * t
-        } else if t < 0.5 {
-            q
-        } else if t < 2.0 / 3.0 {
-            p + (q - p) * (2.0 / 3.0 - t) * 6.0
-        } else {
-            p
-        }
-    };
-    [f(h + 1.0 / 3.0), f(h), f(h - 1.0 / 3.0)]
+    li_color::perceptual::hsl_turns_to_rgb(h, s, l)
 }
 
 #[cfg(test)]
@@ -759,7 +695,14 @@ mod tone_tests {
         // Upstream 5049a1d0: a stored document's size is untrusted: (2²²)³ × 3 overflows, which once
         // wrapped past the table-length guard and indexed out of bounds.
         for size in [1 << 22, u32::MAX] {
-            let a = Adjustment::ColorLookup { name: "x".into(), lut: Some(std::sync::Arc::new(vec![0.5; 24])), size, tetrahedral: false, dither: false };
+            let a = Adjustment::ColorLookup {
+                domain: None,
+                name: "x".into(),
+                lut: Some(std::sync::Arc::new(vec![0.5; 24])),
+                size,
+                tetrahedral: false,
+                dither: false,
+            };
             let mut b = ramp();
             apply(&a, &mut b);
             assert_eq!(b.px, ramp().px, "size {size}");

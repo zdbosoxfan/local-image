@@ -251,11 +251,7 @@ pub fn apply_tokens(ctx: &egui::Context, t: Tokens) {
 }
 
 fn luminance(color: Color32) -> f32 {
-    let linear = |v: u8| {
-        let v = f32::from(v) / 255.0;
-        if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
-    };
-    0.2126 * linear(color.r()) + 0.7152 * linear(color.g()) + 0.0722 * linear(color.b())
+    li_color::luminance_709([color.r(), color.g(), color.b()].map(|v| li_color::transfer::srgb_to_linear(f32::from(v) / 255.0)))
 }
 /// Choose a readable foreground on an opaque UI fill, not a document/image colour.
 pub fn text_on(background: Color32) -> Color32 {

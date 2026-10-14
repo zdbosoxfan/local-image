@@ -92,7 +92,7 @@ fn targeted(s: &mut Session, p: &Value) -> Result<Value> {
             let channel = p.get("channel").and_then(Value::as_str).unwrap_or("parametric");
             label = "Tone Curve";
             if channel == "parametric" {
-                let v = (0.2126 * e[0] + 0.7152 * e[1] + 0.0722 * e[2]) as f64 * 100.0;
+                let v = li_color::luminance_709(e) as f64 * 100.0;
                 let cv = &d.curve;
                 let region = if v < cv.split_shadows {
                     "curve.shadows"
@@ -110,7 +110,7 @@ fn targeted(s: &mut Session, p: &Value) -> Result<Value> {
                     "red" => (&mut d.curve.red, e[0]),
                     "green" => (&mut d.curve.green, e[1]),
                     "blue" => (&mut d.curve.blue, e[2]),
-                    _ => (&mut d.curve.master, 0.2126 * e[0] + 0.7152 * e[1] + 0.0722 * e[2]),
+                    _ => (&mut d.curve.master, li_color::luminance_709(e)),
                 };
                 let v = v as f64;
                 if pts.is_empty() {

@@ -296,7 +296,7 @@ fn max_square(src: &[f32], w: usize, h: usize, r: usize, max: bool) -> Vec<f32> 
 /// gradient over a window of radius `r` (a sharp step gives ~2, a ramp of width L gives ~L).
 pub fn edge_width(img: &RgbImage, r: usize) -> Vec<f32> {
     let (w, h) = (img.w, img.h);
-    let y: Vec<f32> = img.px.iter().map(|p| 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]).collect();
+    let y: Vec<f32> = img.px.iter().map(|p| li_color::convert::rgb_to_gray([p[0], p[1], p[2]])).collect();
     let mut g = vec![0.0f32; w * h];
     for yy in 0..h {
         for xx in 0..w {

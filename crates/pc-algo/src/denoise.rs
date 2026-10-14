@@ -173,7 +173,7 @@ pub(crate) fn reduce_noise(src: &Image, out: Rect, ctx: &Ctx, spec: &DenoiseSpec
             }
             Model::Ycc | Model::ViaRgb => {
                 let c = if model == Model::Ycc { [px[0], px[1], px[2], 1.0] } else { rgba(ctx, &px[..n]) };
-                let l = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+                let l = li_color::convert::rgb_to_gray([c[0], c[1], c[2]]);
                 *yy = l;
                 c1[i] = c[2] - l;
                 c2[i] = c[0] - l;
@@ -239,7 +239,7 @@ pub(crate) fn reduce_noise(src: &Image, out: Rect, ctx: &Ctx, spec: &DenoiseSpec
             Model::Ycc | Model::ViaRgb => {
                 let l = yv[k];
                 let (b, r) = (c1[k] + l, c2[k] + l);
-                let g = (l - 0.299 * r - 0.114 * b) / 0.587;
+                let g = li_color::convert::green_from_luma_601(l, r, b);
                 if model == Model::Ycc {
                     p[0] = r;
                     p[1] = g;

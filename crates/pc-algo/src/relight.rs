@@ -51,7 +51,7 @@ fn light_color(warmth: f32) -> [f32; 3] {
 }
 
 fn rec709_y(c: [f32; 4]) -> f32 {
-    0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+    li_color::luminance_709([c[0], c[1], c[2]])
 }
 
 fn finite_all(v: &[f32]) -> bool {
@@ -251,7 +251,7 @@ mod tests {
     }
 
     fn luma(px: &[f32]) -> f32 {
-        0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]
+        li_color::luminance_709([px[0], px[1], px[2]])
     }
 
     fn shaded_sphere(st: SampleType, size: i32) -> Surface {

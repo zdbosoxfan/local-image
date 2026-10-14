@@ -561,7 +561,7 @@ fn pattern_tile(p: &PsdPattern) -> Option<GrayTile> {
     let gray: Vec<f32> = match p.mode {
         3 => {
             let (r, g, b) = (plane(0)?, plane(1)?, plane(2)?);
-            (0..n).map(|i| 0.299 * r[i] + 0.587 * g[i] + 0.114 * b[i]).collect()
+            (0..n).map(|i| li_color::convert::rgb_to_gray([r[i], g[i], b[i]])).collect()
         }
         2 => {
             let pal = p.palette.as_deref()?;
@@ -570,7 +570,7 @@ fn pattern_tile(p: &PsdPattern) -> Option<GrayTile> {
                 .map(|i| {
                     let k = usize::from(idx.get(i).copied().unwrap_or(0)) * 3;
                     let c = |o: usize| f32::from(pal.get(k + o).copied().unwrap_or(0)) / 255.0;
-                    0.299 * c(0) + 0.587 * c(1) + 0.114 * c(2)
+                    li_color::convert::rgb_to_gray([c(0), c(1), c(2)])
                 })
                 .collect()
         }

@@ -705,31 +705,6 @@ impl Clut {
     /// Tetrahedral interpolation in one cube (crate-internal fast paths).
     #[inline]
     pub(crate) fn tetra_pub(&self, base: usize, s: [usize; 3], r: [f32; 3], out: &mut [f32; 16]) {
-        let d = &self.data;
-        let [rx, ry, rz] = r;
-        let [sx, sy, sz] = s;
-        let (p1, p2, p3, w1, w2, w3) = if rx >= ry {
-            if ry >= rz {
-                (sx, sx + sy, sx + sy + sz, rx, ry, rz)
-            } else if rx >= rz {
-                (sx, sx + sz, sx + sy + sz, rx, rz, ry)
-            } else {
-                (sz, sx + sz, sx + sy + sz, rz, rx, ry)
-            }
-        } else if rx >= rz {
-            (sy, sx + sy, sx + sy + sz, ry, rx, rz)
-        } else if ry >= rz {
-            (sy, sy + sz, sx + sy + sz, ry, rz, rx)
-        } else {
-            (sz, sy + sz, sx + sy + sz, rz, ry, rx)
-        };
-        let o = self.outputs.min(MAX_CHANNELS);
-        for k in 0..o {
-            let v0 = d[base + k];
-            let v1 = d[base + p1 + k];
-            let v2 = d[base + p2 + k];
-            let v3 = d[base + p3 + k];
-            out[k] = v0 + (v1 - v0) * w1 + (v2 - v1) * w2 + (v3 - v2) * w3;
-        }
+        li_color::lut::tetrahedral_strided(&self.data, base, s, r, &mut out[..self.outputs.min(MAX_CHANNELS)]);
     }
 }

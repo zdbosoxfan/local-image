@@ -49,7 +49,7 @@ pub fn encode_avif(img: &EncodeImage, quality: u8, speed: u8, meta: &EncodeMeta)
 /// 16-bit RGB(A) → 10-bit BT.601 full-range YCbCr planes (the matrix `ravif` uses for 8-bit input).
 #[cfg(all(feature = "avif", not(target_arch = "wasm32")))]
 fn avif_10bit(enc: &ravif::Encoder, img: &EncodeImage, s: &[u16]) -> Result<Vec<u8>, CodecError> {
-    const K: [f32; 3] = [0.299, 0.587, 0.114];
+    const K: [f32; 3] = li_color::convert::LUMA_601;
     let n = img.width as usize * img.height as usize;
     let ch = img.channels as usize;
     let rgb = |c: &[u16]| -> [f32; 3] {
@@ -61,7 +61,7 @@ fn avif_10bit(enc: &ravif::Encoder, img: &EncodeImage, s: &[u16]) -> Result<Vec<
     };
     let planes = s.chunks_exact(ch).take(n).map(|c| {
         let [r, g, b] = rgb(c);
-        let y = K[0] * r + K[1] * g + K[2] * b;
+        let y = li_color::convert::rgb_to_gray([r, g, b]);
         let cb = (b - y) * (0.5 / (1.0 - K[2])) + 512.0;
         let cr = (r - y) * (0.5 / (1.0 - K[0])) + 512.0;
         [y, cb, cr].map(|v| v.round().clamp(0.0, 1023.0) as u16)
