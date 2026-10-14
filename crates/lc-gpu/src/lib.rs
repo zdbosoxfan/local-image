@@ -70,6 +70,10 @@ pub fn unavailable_reason() -> Option<String> {
         return Some("disabled by the GPU rendering preference (app.gpu)".into());
     }
     #[cfg(not(target_arch = "wasm32"))]
+    if !li_gpu::device::compute_allowed() {
+        return Some("GPU compute disabled by the shell's CPU rendering policy".into());
+    }
+    #[cfg(not(target_arch = "wasm32"))]
     {
         match GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
             Some(Err(e)) => Some(e.reason.clone()),
@@ -170,6 +174,7 @@ pub fn enabled() -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
         allowed
+            && li_gpu::device::compute_allowed()
             && health_state().is_none_or(|h| {
                 !h.needs_retry()
                     || (!lightcraft_sysmem::gpu::pressured() && h.retry_ready(std::time::Instant::now(), Some(lightcraft_sysmem::gpu::idle_epoch())))
@@ -196,12 +201,16 @@ fn env_disabled() -> bool {
 static GPU: Mutex<Option<Result<Arc<ctx::Gpu>, InitFailure>>> = Mutex::new(None);
 #[cfg(not(target_arch = "wasm32"))]
 struct InitFailure {
+    service_id: Option<u64>,
     reason: String,
-    health: photocraft_gpu::DeviceHealth,
+    health: li_gpu::DeviceHealth,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn health_state() -> Option<photocraft_gpu::DeviceHealth> {
+fn health_state() -> Option<li_gpu::DeviceHealth> {
+    if let Some(shared) = li_gpu::device::current() {
+        return Some(shared.health.clone());
+    }
     GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().map(|r| match r {
         Ok(gpu) => gpu.health.clone(),
         Err(error) => error.health.clone(),
@@ -213,17 +222,30 @@ fn health_state() -> Option<photocraft_gpu::DeviceHealth> {
 fn cached_device() -> Option<Option<Arc<ctx::Gpu>>> {
     let cache = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let result = cache.as_ref()?;
+    if let Ok(gpu) = result
+        && li_gpu::device::current().is_some_and(|shared| shared.id() != gpu.service_id)
+    {
+        return None;
+    }
+    if let Err(error) = result
+        && error.service_id != li_gpu::device::current().map(|shared| shared.id())
+    {
+        return None;
+    }
     let health = match result {
         Ok(gpu) => &gpu.health,
         Err(error) => &error.health,
     };
     if !health.needs_retry() {
-        return Some(result.as_ref().ok().cloned());
+        return if result.is_err() { None } else { Some(result.as_ref().ok().cloned()) };
     }
     let now = std::time::Instant::now();
     let epoch = Some(lightcraft_sysmem::gpu::idle_epoch());
     if lightcraft_sysmem::gpu::pressured() || !health.retry_ready(now, epoch) {
         return Some(None);
+    }
+    if result.is_err() {
+        return None;
     }
     if health.resume_retry(now, epoch) {
         return Some(result.as_ref().ok().cloned());
@@ -278,7 +300,7 @@ impl Drop for TestGpu {
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn device() -> Option<Arc<ctx::Gpu>> {
     // turned off (preference, environment): don't even load the driver (issue #136)
-    if env_disabled() || !ENABLED.load(Ordering::Relaxed) {
+    if env_disabled() || !ENABLED.load(Ordering::Relaxed) || !li_gpu::device::compute_allowed() {
         return existing_device();
     }
     if let Some(result) = cached_device() {
@@ -289,20 +311,18 @@ pub(crate) fn device() -> Option<Arc<ctx::Gpu>> {
     if let Some(result) = cached_device() {
         return result;
     }
-    let health = health_state().map_or_else(photocraft_gpu::DeviceHealth::new, |previous| previous.replacement());
+    let health = health_state().map_or_else(li_gpu::DeviceHealth::new, |previous| previous.replacement());
     let old = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     GENERATION.fetch_add(1, Ordering::AcqRel);
     drop(old);
     let result = (|| {
         let Some(backends) = backend::compute_backends() else { return Err("disabled by LIGHTCRAFT_GPU_BACKEND=off".into()) };
-        backend::with_init_marker(backends, || {
-            std::panic::catch_unwind(|| ctx::Gpu::new(backends, health.clone())).unwrap_or_else(|_| Err("device creation panicked".into()))
-        })
+        std::panic::catch_unwind(|| ctx::Gpu::new(backends, health.clone())).unwrap_or_else(|_| Err("device creation panicked".into()))
     })()
     .map(Arc::new)
     .map_err(|reason| {
-        health.mark(photocraft_gpu::Fault::Error(reason.clone()));
-        InitFailure { reason, health }
+        health.mark(li_gpu::Fault::Error(reason.clone()));
+        InitFailure { service_id: li_gpu::device::current().map(|shared| shared.id()), reason, health }
     });
     let gpu = result.as_ref().ok().cloned();
     *GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
@@ -327,6 +347,7 @@ pub fn warm_up() {
         static STARTED: AtomicBool = AtomicBool::new(false);
         if !env_disabled()
             && ENABLED.load(Ordering::Relaxed)
+            && li_gpu::device::compute_allowed()
             && !ready()
             && STARTED.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok()
         {
@@ -363,7 +384,7 @@ fn spawn_init_worker(init: impl FnOnce() + Send + 'static) -> std::io::Result<st
 pub fn ready() -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        env_disabled() || GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
+        env_disabled() || !li_gpu::device::compute_allowed() || GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -406,6 +427,7 @@ pub fn shutdown(timeout: std::time::Duration) -> bool {
         // Dropping buffers may consult the cache: never destroy the context
         // while holding the cache mutex.
         drop(gpu);
+        li_gpu::device::release_headless();
     }
     true
 }
@@ -626,7 +648,7 @@ pub fn render_hs_candidate(
             }
             (Ok(r), None) => {
                 if r.is_some() {
-                    gpu.health.operation_succeeded();
+                    gpu.health.operation_succeeded_since(errors_before);
                 }
                 if let Some(e) = &ext
                     && e.bytes() as u64 > lightcraft_sysmem::gpu::cache_budget(1 << 30)
@@ -806,4 +828,108 @@ mod cr_float_recovery_tests {
         drop(old);
         assert!(shutdown(Duration::from_secs(120)));
     }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[allow(clippy::unwrap_used)]
+mod j12_shared_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn j12_window_handoff_render_parity_recovery_and_replacement() {
+        let _lock = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(shutdown(Duration::from_secs(120)));
+        let shared = li_gpu::device::create_headless(wgpu::Backends::PRIMARY, false, li_gpu::DeviceHealth::new()).unwrap();
+        assert!(shared.compute_reason().is_none());
+        let baseline = ctx::Gpu::from_shared(&shared, false).unwrap();
+        li_gpu::reserve_window();
+        assert!(device().is_none(), "compute waits for the shell, without requesting a private device");
+        let installed = li_gpu::install_window(&shared.instance, &shared.adapter, &shared.device, &shared.queue);
+        let repeated = li_gpu::install_window(&shared.instance, &shared.adapter, &shared.device, &shared.queue);
+        assert!(Arc::ptr_eq(&installed, &repeated));
+        assert!(existing_device().is_none());
+        shared.queue.submit([shared.device.create_command_encoder(&Default::default()).finish()]);
+        assert!(quiesce(Duration::from_secs(120)), "the window queue drains even without Develop kernels");
+        let compute = device().unwrap();
+        assert_eq!(compute.device, shared.device, "Develop must use the window device");
+        assert_eq!(compute.queue, shared.queue, "Develop must submit to the window queue");
+        eprintln!(
+            "J12 shared adapter: {} ({:?}), storage buffers={}",
+            compute.info.name,
+            compute.info.backend,
+            shared.device.limits().max_storage_buffers_per_shader_stage
+        );
+        let src = Arc::new(lightcraft_scenes::demo_library()[0].render(192, 128));
+        let info = SourceInfo::default();
+        let mut settings = DevelopSettings::default();
+        settings.light.exposure = 0.35;
+        let request = RenderRequest::fit(192, 128);
+        let reference = {
+            let _scope = ctx::RenderScope::new(&baseline);
+            render::render(&baseline, &src, &info, &settings, &request, None, None, lightcraft_pipeline::primary::DEFAULT_HS_METHOD).unwrap()
+        };
+        let cpu = lightcraft_pipeline::render(&src, &info, &settings, &request);
+        let stages = StageCache::default();
+        let start = Instant::now();
+        let output = super::render(&src, &info, &settings, &request, Some(&stages)).unwrap();
+        let initial_ms = start.elapsed().as_secs_f64() * 1000.0;
+        assert_eq!(reference.image.data, output.image.data, "device handoff changes no preview pixels");
+        let mut sum = 0u64;
+        let mut max = 0u8;
+        for (a, b) in cpu.image.data.iter().zip(&output.image.data) {
+            for channel in 0..3 {
+                let delta = a[channel].abs_diff(b[channel]);
+                sum += u64::from(delta);
+                max = max.max(delta);
+            }
+        }
+        let mean = sum as f64 / (192 * 128 * 3) as f64;
+        assert!(mean < 0.5 && max <= 3, "CPU parity mean {mean}, max {max}");
+        settings.light.exposure = 0.45;
+        let start = Instant::now();
+        let changed = super::render(&src, &info, &settings, &request, Some(&stages)).unwrap();
+        let slider_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let expected = lightcraft_pipeline::render(&src, &info, &settings, &request);
+        assert!(changed.image.data.iter().zip(&expected.image.data).all(|(a, b)| a[..3].iter().zip(&b[..3]).all(|(x, y)| x.abs_diff(*y) <= 3)));
+        eprintln!(
+            "J12 production Develop 192x128: handoff delta=0; CPU mean={mean:.6} max={max} LSB; first cached render={initial_ms:.3} ms; exposure change={slider_ms:.3} ms"
+        );
+        installed.health.operation_failed("test transient out of memory", 7);
+        assert_eq!(installed.health.errors(), compute.health.errors());
+        assert!(!compute.health.can_render());
+        installed.health.retry_now();
+        assert!(compute.health.can_render());
+        installed.health.mark(li_gpu::Fault::Lost("test driver reset".into()));
+        assert!(!compute.health.is_ok());
+        super::trim_pool(0); // UI recovery can evict pooled buffers without polling a lost device.
+        assert!(shutdown(Duration::from_secs(120)));
+        assert!(device().is_none(), "never create a second device around a lost window");
+        let replacement = li_gpu::device::create_headless(wgpu::Backends::PRIMARY, false, installed.health.replacement()).unwrap();
+        li_gpu::install_window(&replacement.instance, &replacement.adapter, &replacement.device, &replacement.queue);
+        let new = device().unwrap();
+        assert_eq!(new.device, replacement.device);
+        assert_ne!(new.service_id, compute.service_id);
+        assert_ne!(new.service_id, installed.id());
+        assert!(new.health.can_render());
+        installed.health.mark(li_gpu::Fault::Lost("late old callback".into()));
+        assert!(new.health.can_render());
+        drop(stages);
+        assert!(shutdown(Duration::from_secs(120)));
+        li_gpu::device::release_window();
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[test]
+fn j12_failed_initialization_retries_after_backoff() {
+    let _lock = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(shutdown(std::time::Duration::from_secs(120)));
+    let health = li_gpu::DeviceHealth::new();
+    health.mark(li_gpu::Fault::Error("test initialization failed".into()));
+    health.retry_now();
+    *GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some(Err(InitFailure { service_id: None, reason: "test initialization failed".into(), health }));
+    assert!(cached_device().is_none(), "a ready failed initialization must create a context rather than cache None");
+    assert!(shutdown(std::time::Duration::from_secs(120)));
 }

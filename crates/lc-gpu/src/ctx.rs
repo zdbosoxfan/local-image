@@ -340,25 +340,35 @@ pub(crate) fn quiesce(timeout: std::time::Duration) -> bool {
         n = RUNNING.1.wait_timeout(n, left).unwrap_or_else(|e| e.into_inner()).0;
     }
     drop(n);
-    if let Some(g) = crate::existing_device() {
-        // A lost device has no queue left to drain. wgpu can panic when it is polled;
-        // all recording/init work was already drained above, so teardown can proceed.
-        if g.health.fault().is_some_and(|fault| fault.is_lost()) {
-            return true;
-        }
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
-        return match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            g.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(left) })
-        })) {
-            Ok(Ok(_)) => true,
-            Ok(Err(_)) => g.health.fault().is_some_and(|fault| fault.is_lost()),
-            Err(_) => {
-                g.health.mark(photocraft_gpu::Fault::Lost("the device stopped responding during teardown".into()));
-                true
-            }
-        };
+    let shared = li_gpu::device::current();
+    if let Some(shared) = &shared
+        && !drain_device(&shared.device, &shared.health, deadline)
+    {
+        return false;
+    }
+    if let Some(g) = crate::existing_device()
+        && shared.as_ref().is_none_or(|shared| shared.id() != g.service_id)
+    {
+        return drain_device(&g.device, &g.health, deadline);
     }
     true
+}
+
+fn drain_device(device: &wgpu::Device, health: &li_gpu::DeviceHealth, deadline: std::time::Instant) -> bool {
+    // A lost device has no queue left to drain; recording/init work was drained first.
+    if health.fault().is_some_and(|fault| fault.is_lost()) {
+        return true;
+    }
+    let left = deadline.saturating_duration_since(std::time::Instant::now());
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(left) })))
+    {
+        Ok(Ok(_)) => true,
+        Ok(Err(_)) => health.fault().is_some_and(|fault| fault.is_lost()),
+        Err(_) => {
+            health.mark(li_gpu::Fault::Lost("the device stopped responding during teardown".into()));
+            true
+        }
+    }
 }
 
 /// Count background device/kernel initialization before spawning its thread, so even an
@@ -429,10 +439,11 @@ pub struct Gpu {
     // wgpu handle IDs are local to an Instance and can compare equal across
     // distinct instances. Use our own identity for buffer-pool ownership.
     id: u64,
+    pub service_id: u64,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub info: wgpu::AdapterInfo,
-    pub health: photocraft_gpu::DeviceHealth,
+    pub health: li_gpu::DeviceHealth,
     kernels: HashMap<&'static str, Kernel>,
     dummy: wgpu::Buffer,
     /// Recycled buffers (see [`Buf`]).
@@ -453,7 +464,7 @@ impl Drop for Gpu {
 
 /// WGSL constants shared by every module (generated from the CPU pipeline's values).
 fn constants() -> String {
-    use lightcraft_pipeline::finish::{DITHER_HASH, GRAIN_HASH, MASK_SUMS, MASK_TERMS, SRGB_LUT_N};
+    use lightcraft_pipeline::finish::{GRAIN_HASH, MASK_SUMS, MASK_TERMS, SRGB_LUT_N};
     use lightcraft_pipeline::tone::{CHROMA_N, LUT_MAX_EV, LUT_MIN_EV, LUT_N};
     let mut s = String::new();
     let [to_lms, from_lms, to_lab, from_lab] = lightcraft_color::perceptual::oklab_matrices();
@@ -492,9 +503,6 @@ fn constants() -> String {
     for (i, h) in GRAIN_HASH.iter().enumerate() {
         s += &format!("const GRAIN_H{i}: u32 = {h}u;\n");
     }
-    for (i, h) in DITHER_HASH.iter().enumerate() {
-        s += &format!("const DITHER_H{i}: u32 = {h}u;\n");
-    }
     for (name, idx) in crate::params::finish_fields() {
         s += &format!("const F_{name}: u32 = {idx}u;\n");
     }
@@ -508,6 +516,7 @@ fn module_source(m: &Module, consts: &str) -> String {
         let access = if *write { "read_write" } else { "read" };
         s += &format!("@group(0) @binding({}) var<storage, {access}> {name}: array<{ty}>;\n", i + 1);
     }
+    s += li_gpu::wgsl::COMMON;
     s += include_str!("wgsl/common.wgsl");
     if m.entries.contains(&"p_deriche")
         || m.entries.contains(&"toneeq_lum")
@@ -525,7 +534,7 @@ fn module_source(m: &Module, consts: &str) -> String {
 
 impl Gpu {
     /// Create a device on the best available adapter (no software fallback), or why there is none.
-    pub fn new(backends: wgpu::Backends, health: photocraft_gpu::DeviceHealth) -> Result<Gpu, String> {
+    pub fn new(backends: wgpu::Backends, health: li_gpu::DeviceHealth) -> Result<Gpu, String> {
         Self::new_inner(backends, false, health)
     }
 
@@ -536,46 +545,39 @@ impl Gpu {
         // The caller holds TEST_INIT_LOCK through rendering and teardown, also
         // excluding the crash-marker test's process-wide configuration.
         let backends = crate::backend::default_compute_backends(std::env::consts::OS);
-        let device = Self::new_inner(backends, false, photocraft_gpu::DeviceHealth::new()).or_else(|e| {
-            if std::env::var_os("LC_REQUIRE_GPU").is_some() { Err(e) } else { Self::new_inner(backends, true, photocraft_gpu::DeviceHealth::new()) }
+        let device = Self::new_inner(backends, false, li_gpu::DeviceHealth::new()).or_else(|e| {
+            if std::env::var_os("LC_REQUIRE_GPU").is_some() { Err(e) } else { Self::new_inner(backends, true, li_gpu::DeviceHealth::new()) }
         })?;
         eprintln!("numerical test device: {} ({:?})", device.info.name, device.info.backend);
         Ok(device)
     }
 
-    fn new_inner(backends: wgpu::Backends, software_test: bool, health: photocraft_gpu::DeviceHealth) -> Result<Gpu, String> {
-        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
-        // only these drivers are loaded (`crate::backend`: never Vulkan on Windows unless asked)
-        desc.backends = backends;
-        let instance = wgpu::Instance::new(desc);
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: software_test,
-            ..Default::default()
-        }))
-        .map_err(|e| format!("no GPU adapter among {backends:?} ({e})"))?;
-        let info = adapter.get_info();
-        if info.device_type == wgpu::DeviceType::Cpu && !software_test {
-            log::info!("gpu: only a software adapter ({}), using the CPU pipeline", info.name);
-            return Err(format!("software adapter ({}) skipped: the CPU pipeline is faster", info.name));
+    fn new_inner(backends: wgpu::Backends, software_test: bool, health: li_gpu::DeviceHealth) -> Result<Gpu, String> {
+        let shared = if software_test {
+            std::sync::Arc::new(li_gpu::device::create_headless(backends, true, health)?)
+        } else {
+            li_gpu::device::acquire(backends, health)?
+        };
+        Self::from_shared(&shared, software_test)
+    }
+
+    /// Compile Develop kernels on the shell/CLI device; callbacks and queue ownership stay shared.
+    pub(crate) fn from_shared(shared: &li_gpu::SharedDevice, software_test: bool) -> Result<Gpu, String> {
+        if !software_test && let Some(reason) = shared.compute_reason() {
+            return Err(reason);
         }
-        let mut limits = adapter.limits();
-        if limits.max_storage_buffers_per_shader_stage < 10 {
-            log::info!("gpu: {} has too few storage buffers per stage", info.name);
-            return Err(format!("{} has too few storage buffers per shader stage ({} < 10)", info.name, limits.max_storage_buffers_per_shader_stage));
+        if !shared.health.is_ok() {
+            return Err(shared.health.fault().map_or_else(|| "shared device faulted".into(), |f| f.to_string()));
         }
+        let device = shared.device.clone();
+        let queue = shared.queue.clone();
+        let health = shared.health.clone();
+        let info = shared.adapter.get_info();
+        let mut limits = device.limits();
         if let Some((binding, buffer)) = limits_override() {
             limits.max_storage_buffer_binding_size = limits.max_storage_buffer_binding_size.min(binding);
             limits.max_buffer_size = limits.max_buffer_size.min(buffer);
-            log::info!("gpu: LIGHTCRAFT_GPU_LIMITS: storage bindings ≤ {} MiB, buffers ≤ {} MiB", binding >> 20, buffer >> 20);
         }
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("lightcraft"),
-            required_limits: limits.clone(),
-            ..Default::default()
-        }))
-        .map_err(|e| format!("{}: device creation failed ({e})", info.name))?;
-        health.attach(&device);
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let consts = constants();
         let mut kernels = HashMap::new();
@@ -617,6 +619,7 @@ impl Gpu {
         static NEXT_CONTEXT: AtomicU64 = AtomicU64::new(1);
         Ok(Gpu {
             id: NEXT_CONTEXT.fetch_add(1, Ordering::Relaxed),
+            service_id: shared.id(),
             device,
             queue,
             info,
@@ -711,7 +714,7 @@ impl Gpu {
         if !dropped.is_empty() {
             drop(dropped);
             // let wgpu release the memory now rather than at its next maintenance
-            let _ = self.device.poll(wgpu::PollType::Poll);
+            self.health.poll(&self.device);
         }
     }
 

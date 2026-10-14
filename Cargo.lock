@@ -3972,6 +3972,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-gpu"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "bytemuck",
+ "lightcraft-pipeline",
+ "log",
+ "photocraft-color",
+ "pollster 1.0.1",
+ "web-time",
+ "wgpu",
+]
+
+[[package]]
 name = "li-raster"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -4189,6 +4202,7 @@ name = "lightcraft-gpu"
 version = "2.0.0-alpha.1"
 dependencies = [
  "bytemuck",
+ "li-gpu",
  "li-seg",
  "lightcraft-color",
  "lightcraft-develop",
@@ -4198,7 +4212,6 @@ dependencies = [
  "lightcraft-scenes",
  "lightcraft-sysmem",
  "log",
- "photocraft-gpu",
  "pollster 1.0.1",
  "wgpu",
 ]
@@ -4436,6 +4449,7 @@ dependencies = [
  "image",
  "li-ai",
  "li-fs",
+ "li-gpu",
  "li-seg",
  "lightcraft-catalog",
  "lightcraft-codecs",
@@ -5815,6 +5829,7 @@ name = "photocraft-gpu"
 version = "2.0.0-alpha.1"
 dependencies = [
  "half",
+ "li-gpu",
  "log",
  "photocraft-cms",
  "photocraft-color",
@@ -6055,6 +6070,7 @@ dependencies = [
  "li-ai",
  "li-attributions",
  "li-color",
+ "li-gpu",
  "li-seg",
  "lightcraft-codecs",
  "lightcraft-raw",

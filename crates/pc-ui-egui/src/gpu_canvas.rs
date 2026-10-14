@@ -105,10 +105,9 @@ enum HighPolicy {
 
 /// Uploads documents to the GPU and paints them. Cheap to clone.
 ///
-/// Once the device is lost or keeps reporting uncaptured errors (see [`GpuCanvas::fault`]),
-/// every method is a no-op or an `Err`, so nothing reaches the GPU again; the app then switches
-/// to the CPU canvas (#243). A single uncaptured error only makes the refresh that raised it
-/// redo its work on the CPU (see `photocraft_gpu::health`).
+/// A lost device stops presentation and returns the app to its CPU canvas (#243).
+/// Recoverable errors pause accelerated compositing; CPU composites continue uploading and
+/// displaying through the same window device until the shared recovery policy permits retry.
 #[derive(Clone)]
 pub struct GpuCanvas {
     rs: RenderState,
@@ -145,7 +144,8 @@ impl GpuCanvas {
             _ => HighPolicy::Budget,
         };
         // Device loss and uncaptured errors mark this flag instead of panicking (#243).
-        let health = photocraft_gpu::DeviceHealth::watch(&rs.device);
+        let shared = li_gpu::install_window(&rs.instance, &rs.adapter, &rs.device, &rs.queue);
+        let health = shared.health.clone();
         let mut res = Resources::new(&rs.device, &rs.queue, rs.target_format, high != HighPolicy::Off);
         res.health = health.clone();
         rs.renderer.write().callback_resources.insert(res);
@@ -174,9 +174,10 @@ impl GpuCanvas {
         &self.health
     }
 
-    /// Why the GPU can't be used any more (`None` while it can).
+    /// Terminal presentation fault: recoverable compute errors keep the canvas alive so
+    /// CPU-composited textures remain visible while acceleration waits for its retry.
     pub fn fault(&self) -> Option<photocraft_gpu::Fault> {
-        self.health.fault()
+        self.health.fault().filter(photocraft_gpu::Fault::is_lost)
     }
 
     /// Advance strikes once per app frame, even when the host checks health twice.
@@ -190,7 +191,7 @@ impl GpuCanvas {
     /// at the next frame boundary and retry once through the CPU without dropping the device.
     pub fn recover_transient_errors(&self) -> bool {
         let count = self.health.errors();
-        if !self.health.is_ok() || self.seen_errors.swap(count, std::sync::atomic::Ordering::AcqRel) == count {
+        if !self.health.can_present() || self.seen_errors.swap(count, std::sync::atomic::Ordering::AcqRel) == count {
             return false;
         }
         let mut r = self.rs.renderer.write();
@@ -387,7 +388,7 @@ impl GpuCanvas {
 
     /// Replace the whole document image with a `format` texture of premultiplied `texels`.
     fn upload_full_as(&self, doc: u64, size: [u32; 2], format: wgpu::TextureFormat, texels: &[u8]) {
-        if size[0] == 0 || size[1] == 0 || texels.len() as u64 != size[0] as u64 * size[1] as u64 * texel_bytes(format) || !self.health.is_ok() {
+        if size[0] == 0 || size[1] == 0 || texels.len() as u64 != size[0] as u64 * size[1] as u64 * texel_bytes(format) || !self.health.can_present() {
             return;
         }
         let (device, queue) = (&self.rs.device, &self.rs.queue);
@@ -406,7 +407,7 @@ impl GpuCanvas {
     /// in its texture format (`size[0] * size[1]` texels: RGBA8 or RGBA16F). Returns false if the
     /// document isn't uploaded, the rectangle doesn't fit or the buffer has the wrong size.
     pub fn upload_rect(&self, doc: u64, origin: [u32; 2], size: [u32; 2], texels: &[u8]) -> bool {
-        if !self.health.is_ok() {
+        if !self.health.can_present() {
             return false;
         }
         let (device, queue) = (&self.rs.device, &self.rs.queue);
@@ -472,8 +473,9 @@ impl GpuCanvas {
         }
         #[cfg(debug_assertions)]
         let _span = photocraft_engine::paint::profiling::span(photocraft_engine::paint::profiling::Stage::GpuUpload);
-        if let Some(f) = self.fault() {
-            return Err(photocraft_gpu::Unsupported(f.to_string()));
+        if !self.health.can_render() {
+            let why = self.health.fault().map_or_else(|| "GPU acceleration paused for recovery; using the CPU compositor".into(), |f| f.to_string());
+            return Err(photocraft_gpu::Unsupported(why));
         }
         let errors = self.health.errors();
         let mut renderer = self.rs.renderer.write();
@@ -603,7 +605,7 @@ impl GpuCanvas {
             return Err(photocraft_gpu::Unsupported("GPU device lost".into()));
         };
         // Lost during the refresh: its output can't be trusted.
-        let result = match self.fault() {
+        let result = match self.health.fault() {
             Some(f) => Err(photocraft_gpu::Unsupported(f.to_string())),
             None => result,
         };
@@ -624,7 +626,7 @@ impl GpuCanvas {
         }
         let result = match result {
             Ok(_) if errored => {
-                let why = self.fault().map_or_else(|| format!("GPU error: {}", self.health.last_error().unwrap_or_default()), |f| f.to_string());
+                let why = self.health.fault().map_or_else(|| format!("GPU error: {}", self.health.last_error().unwrap_or_default()), |f| f.to_string());
                 log::warn!("{why}; this refresh is redone on the CPU");
                 Err(photocraft_gpu::Unsupported(why))
             }
@@ -738,7 +740,7 @@ impl GpuCanvas {
     /// never needs a full-size float composite or texture-format copy in memory.
     pub fn upload_composite(&self, key: u64, doc: &photocraft_doc::Document, display: Option<&photocraft_engine::display_color::CanvasDisplay>) {
         let size = [doc.size.width, doc.size.height];
-        if size[0] == 0 || size[1] == 0 || !self.health.is_ok() {
+        if size[0] == 0 || size[1] == 0 || !self.health.can_present() {
             return;
         }
         let format = self.format_for(doc.depth, size);
@@ -753,7 +755,7 @@ impl GpuCanvas {
         }
         let mut rgba = Vec::new();
         let _ = photocraft_compose::render_bands(doc, doc.bounds(), 0, |band| -> Result<(), ()> {
-            if !self.health.is_ok() {
+            if !self.health.can_present() {
                 return Err(());
             }
             texels_into(format, &texture_buffer(display, &band).px, &mut rgba);
@@ -766,7 +768,7 @@ impl GpuCanvas {
             self.health.poll(device);
             Ok(())
         });
-        if !self.health.is_ok() {
+        if !self.health.can_present() {
             return;
         }
         let mut renderer = self.rs.renderer.write();
@@ -841,7 +843,7 @@ impl GpuCanvas {
     }
 
     pub fn set_display_lut_format(&self, doc: u64, output: u32, size: u32, rgba: Option<&[u8]>, format: wgpu::TextureFormat) {
-        if !self.health.is_ok() {
+        if !self.health.can_present() {
             return;
         }
         let (device, queue) = (&self.rs.device, &self.rs.queue);
@@ -868,7 +870,7 @@ impl GpuCanvas {
     /// and debugging.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn read_texels(&self, key: u64) -> Option<(wgpu::TextureFormat, [u32; 2], Vec<[f32; 4]>)> {
-        if !self.health.is_ok() {
+        if !self.health.can_present() {
             return None;
         }
         let (device, queue) = (&self.rs.device, &self.rs.queue);
@@ -898,7 +900,7 @@ impl GpuCanvas {
             queue.submit([enc.finish()]);
             let slice = buf.slice(..);
             slice.map_async(wgpu::MapMode::Read, |_| {});
-            if !self.health.wait(device, None) {
+            if !self.health.wait_present(device, None) {
                 return None;
             }
             let data = slice.get_mapped_range().ok()?;
@@ -978,9 +980,7 @@ pub fn use_adapter_limits_with(setup: &mut egui_wgpu::WgpuSetup, on_adapter: imp
 
 /// egui's base limits (WebGL2's on GL) with the adapter's maximum texture and buffer sizes.
 pub fn device_limits(adapter: &wgpu::Adapter) -> wgpu::Limits {
-    let base = if adapter.get_info().backend == wgpu::Backend::Gl { wgpu::Limits::downlevel_webgl2_defaults() } else { wgpu::Limits::default() };
-    let a = adapter.limits();
-    wgpu::Limits { max_texture_dimension_2d: a.max_texture_dimension_2d, max_buffer_size: a.max_buffer_size, ..base }
+    li_gpu::device_limits(adapter)
 }
 
 /// Milliseconds since first call (monotonic). Always 0 on wasm, where `std::time` is unavailable.
@@ -1581,8 +1581,10 @@ fn pipeline(
 
 impl Resources {
     fn new(device: &wgpu::Device, queue: &wgpu::Queue, target: wgpu::TextureFormat, high: bool) -> Self {
-        let module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("pc_canvas"), source: wgpu::ShaderSource::Wgsl(CANVAS_WGSL.into()) });
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("pc_canvas"),
+            source: wgpu::ShaderSource::Wgsl(li_gpu::wgsl::source(CANVAS_WGSL).into()),
+        });
         let vis = wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT;
         let view_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pc_canvas_view"),
@@ -1627,10 +1629,12 @@ impl Resources {
             },
         };
         let shadow_pipeline = pipeline(device, "pc_canvas_shadow", &shadow_layout, &module, ("vs_shadow", "fs_shadow"), target, Some(blend));
-        let tile_pipeline = pipeline(device, "pc_canvas_tile", &layout, &module, ("vs_tile", "fs_tile"), target, Some(blend));
+        // The final shader composites its checker/background and returns alpha=1. Opaque
+        // stores are equivalent to "over" and avoid an extra fixed-function precision step.
+        let tile_pipeline = pipeline(device, "pc_canvas_tile", &layout, &module, ("vs_tile", "fs_tile"), target, None);
         let move_format = if high { FORMAT_HIGH } else { FORMAT };
         let move_plane_pipeline = pipeline(device, "pc_move_plane", &layout, &module, ("vs_tile", "fs_plane"), move_format, Some(blend));
-        let move_final_pipeline = pipeline(device, "pc_move_final", &layout, &module, ("vs_move", "fs_move"), target, Some(blend));
+        let move_final_pipeline = pipeline(device, "pc_move_final", &layout, &module, ("vs_move", "fs_move"), target, None);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("pc_canvas_trilinear"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -1653,8 +1657,10 @@ impl Resources {
             ..Default::default()
         });
         // Compositor output (straight RGBA32F chunk) -> premultiplied RGBA8 display tile.
-        let encode_module =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("pc_encode"), source: wgpu::ShaderSource::Wgsl(ENCODE_WGSL.into()) });
+        let encode_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("pc_encode"),
+            source: wgpu::ShaderSource::Wgsl(li_gpu::wgsl::source(ENCODE_WGSL).into()),
+        });
         let unfilterable = wgpu::BindGroupLayoutEntry {
             binding: 0,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -1941,7 +1947,7 @@ impl CallbackTrait for MoveCallback {
         }
         let Some(res) = resources.get_mut::<Resources>() else { return Vec::new() };
         let size = screen.size_in_pixels;
-        if !res.health.is_ok() || size.contains(&0) {
+        if !res.health.can_present() || size.contains(&0) {
             return Vec::new();
         }
         let key = self.base.params.view_key;
@@ -2037,7 +2043,7 @@ impl CallbackTrait for MoveCallback {
 
     fn paint(&self, info: egui::PaintCallbackInfo, pass: &mut wgpu::RenderPass<'static>, resources: &CallbackResources) {
         let Some(res) = resources.get::<Resources>() else { return };
-        if !res.health.is_ok() {
+        if !res.health.can_present() {
             return;
         }
         let key = self.base.params.view_key;
@@ -2073,6 +2079,11 @@ fn filter_mode(scale: f32) -> (f32, f32) {
 
 impl CanvasCallback {
     fn prepare_scaled(&self, device: &wgpu::Device, queue: &wgpu::Queue, screen: &ScreenDescriptor, res: &mut Resources) -> f64 {
+        // Scaled projection/compositing is acceleration work; the existing CPU-composited
+        // document texture still presents at any zoom while the shared circuit is paused.
+        if !res.health.can_render() {
+            return 1.0;
+        }
         use photocraft_geom::Rect;
         use scaled_view::cpu::{ProjectionCache, ViewRequest, scaled_rect};
         if res.pixel_previews.contains(&self.params.doc) {
@@ -2420,7 +2431,7 @@ impl CallbackTrait for CanvasCallback {
         resources: &mut CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         let Some(res) = resources.get_mut::<Resources>() else { return Vec::new() };
-        if !res.health.is_ok() {
+        if !res.health.can_present() {
             return Vec::new();
         }
         let scaled = self.prepare_scaled(device, queue, screen, res);
@@ -2466,7 +2477,7 @@ impl CallbackTrait for CanvasCallback {
 
     fn paint(&self, info: egui::PaintCallbackInfo, pass: &mut wgpu::RenderPass<'static>, resources: &CallbackResources) {
         let Some(res) = resources.get::<Resources>() else { return };
-        if !res.health.is_ok() {
+        if !res.health.can_present() {
             return;
         }
         let Some(view) = res.views.get(&self.params.view_key) else { return };
@@ -2552,34 +2563,6 @@ fn doc_min() -> vec2<f32> {
 }
 fn doc_max() -> vec2<f32> {
     return max(max(doc_to_px(vec2(0.0)), doc_to_px(view.b.zw)), max(doc_to_px(vec2(view.b.z, 0.0)), doc_to_px(vec2(0.0, view.b.w))));
-}
-
-fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
-    let lo = c / 12.92;
-    let hi = pow((c + 0.055) / 1.055, vec3(2.4));
-    return select(hi, lo, c <= vec3(0.04045));
-}
-
-fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
-    let hi = 1.055 * pow(max(c, vec3(1e-12)), vec3(1.0 / 2.4)) - 0.055;
-    return select(hi, c * 12.92, c <= vec3(0.0031308));
-}
-
-// --- drop shadow ---------------------------------------------------------------------------
-
-fn erf2(x: vec2<f32>) -> vec2<f32> {
-    let s = sign(x);
-    let a = abs(x);
-    var t = 1.0 + (0.278393 + (0.230389 + 0.078108 * (a * a)) * a) * a;
-    t = t * t;
-    return s - s / (t * t);
-}
-
-// Coverage of the box [lo, hi] blurred by a Gaussian of std-dev `sigma`, at point p.
-fn box_blur(p: vec2<f32>, lo: vec2<f32>, hi: vec2<f32>, sigma: f32) -> f32 {
-    let k = 0.70710678 / sigma;
-    let q = (erf2((p - lo) * k) - erf2((p - hi) * k)) * 0.5;
-    return q.x * q.y;
 }
 
 @vertex
@@ -2706,8 +2689,8 @@ fn display_color(input: vec4<f32>, p: vec2<f32>) -> vec4<f32> {
         // View › 32-bit Preview Options: exposure and gamma in linear light on the sRGB-encoded
         // texture value, before the display LUT. A float canvas keeps values above 1.0, so they
         // are brought into range by the exposure instead of clipped.
-        let lin = srgb_to_linear(max(col.rgb / col.a, vec3(0.0))) * view.f.w;
-        let v = linear_to_srgb(min(pow(max(lin, vec3(1e-12)), vec3(view.g.w)), vec3(1.0)));
+        let lin = srgb_to_linear3(max(col.rgb / col.a, vec3(0.0))) * view.f.w;
+        let v = linear_to_srgb3(min(pow(max(lin, vec3(1e-12)), vec3(view.g.w)), vec3(1.0)));
         col = vec4(v * col.a, col.a);
     }
     if (view.d.z > 0.5 && col.a > 0.0) {
@@ -2729,16 +2712,14 @@ fn display_color(input: vec4<f32>, p: vec2<f32>) -> vec4<f32> {
     }
     if (view.i.x > 0.0) {
         let xy = vec2<u32>(p);
-        var rank = 0u;
-        for (var bit = 0u; bit < 3u; bit++) {
-            let xb = (xy.x >> bit) & 1u;
-            let yb = (xy.y >> bit) & 1u;
-            rank = rank * 4u + ((xb ^ yb) * 2u + yb);
-        }
-        rgb = clamp(rgb + vec3((f32(rank) + 0.5) / 64.0 - 0.5) / view.i.x, vec3(0.0), vec3(1.0));
+        rgb = vec3(
+            li_dither_display(rgb.x, xy, view.i.x),
+            li_dither_display(rgb.y, xy, view.i.x),
+            li_dither_display(rgb.z, xy, view.i.x)
+        );
     }
     if (view.d.w > 0.5) {
-        rgb = srgb_to_linear(rgb);
+        rgb = srgb_to_linear3(rgb);
     }
     return vec4(rgb, 1.0);
 }
@@ -2775,10 +2756,6 @@ fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
     return vec4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0);
 }
 
-fn srgb_encode(c: vec3<f32>) -> vec3<f32> {
-    return select(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3(0.0031308));
-}
-
 @fragment
 fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let c = textureLoad(acc, vec2<i32>(floor(pos.xy)) - offset.xy, 0);
@@ -2789,7 +2766,7 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     }
     if (offset.z != 0) {
         // Linear composite: store its sRGB encoding (8-bit precision where it matters).
-        rgb = srgb_encode(rgb);
+        rgb = linear_to_srgb3(rgb);
     }
     return vec4(rgb * a, a);
 }
@@ -2879,7 +2856,8 @@ mod tests {
         let _gpu_gate = crate::gpu_test_support::lock();
         use wgpu::naga;
         for (name, src) in [("canvas", CANVAS_WGSL), ("mip", MIP_WGSL), ("encode", ENCODE_WGSL)] {
-            let module = naga::front::wgsl::parse_str(src).unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));
+            let src = if name == "mip" { src.to_string() } else { li_gpu::wgsl::source(src) };
+            let module = naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(&src)));
             naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty())
                 .validate(&module)
                 .unwrap_or_else(|e| panic!("{name}: {e:?}"));
@@ -2894,3 +2872,602 @@ mod view_tests;
 #[cfg(test)]
 #[path = "display_output_tests.rs"]
 mod display_output_tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod j12_tests {
+    use super::*;
+
+    #[test]
+    fn j12_soft_circuit_breaker_displays_cpu_and_recovers_same_device() {
+        let _gate = crate::gpu_test_support::lock();
+        let mut rs = egui_kittest::wgpu::create_render_state(wgpu_setup(), Default::default());
+        rs.target_format = wgpu::TextureFormat::Rgba8Unorm;
+        let info = rs.adapter.get_info();
+        assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "physical GPU required: {info:?}");
+        let mut app = crate::PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.set_wgpu(rs.clone());
+        let gpu = app.gpu.clone().expect("production canvas must be installed");
+        let shared = li_gpu::device::current().unwrap();
+        let device = shared.device.clone();
+        let ctx = egui::Context::default();
+        let doc = photocraft_doc::Document::with_background(
+            "j12 CPU recovery white",
+            photocraft_doc::Size::new(256, 16),
+            photocraft_doc::ColorMode::Rgb,
+            photocraft_doc::SampleType::U16,
+            photocraft_doc::Color::WHITE,
+        );
+        app.session.add_document(doc.clone(), None);
+        gpu.upload_composite(doc.id.0, &doc, None);
+        assert!(gpu.has(doc.id.0, [256, 16]));
+        for frame in 1..=3 {
+            app.frame = frame;
+            gpu.begin_frame(frame);
+            gpu.health.operation_failed("j12 repeated recoverable allocation failure", 71);
+            crate::gpu_status::check(&mut app, &ctx);
+            assert!(app.gpu_active(), "soft error at frame {frame} must retain the production canvas");
+            assert_eq!(li_gpu::device::current().unwrap().device, device);
+        }
+        assert!(matches!(gpu.health.fault(), Some(Fault::Error(_))));
+        assert!(gpu.fault().is_none(), "only a lost device removes the shell canvas");
+        assert!(gpu.health.can_present());
+        assert!(!gpu.health.can_render());
+        assert!(!gpu.has(doc.id.0, [256, 16]), "failed-operation textures were invalidated");
+        let refresh = gpu.refresh(doc.id.0, &doc, None, None);
+        assert_eq!(refresh.kind, "full", "paused acceleration uses the CPU composite/upload path");
+        assert!(refresh.fallback.as_deref().is_some_and(|reason| reason.contains("j12 repeated recoverable allocation failure")));
+        let (_, size, pixels) = app.read_canvas_texels(doc.id.0).expect("CPU fallback remains readable while the circuit is paused");
+        assert_eq!(size, [256, 16]);
+        assert!(pixels.iter().all(|pixel| *pixel == [1.0; 4]), "production CPU upload preserves white exactly");
+        let cb = CanvasCallback {
+            rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(256.0, 16.0)),
+            params: ViewParams {
+                doc: doc.id.0,
+                doc_size: size,
+                zoom: 1.0,
+                center: [128.0, 8.0],
+                shadow: false,
+                pixel_grid: false,
+                view_key: 71,
+                display: 0,
+                output: 0,
+                hdr: None,
+                flip: false,
+                rotation: 0.0,
+            },
+        };
+        let shown = float_capture(&gpu, &cb, CANVAS_WGSL, 0.0);
+        assert_eq!(shown, pixels, "actual production callback must paint the CPU fallback during soft backoff");
+        assert!(gpu.health.can_present() && !gpu.health.can_render());
+        gpu.health.retry_now();
+        assert!(gpu.health.can_render());
+        assert!(app.gpu_active());
+        assert_eq!(li_gpu::device::current().unwrap().device, device, "retry reuses the same window device");
+        assert!(shared.health.can_render(), "Develop/compositor observe the same successful retry");
+        eprintln!(
+            "j12 soft circuit breaker {:?}/{:?}: 3 failed frames, live CPU white upload + 4096 exact callback pixels, retry on the same device",
+            info.name, info.backend
+        );
+        li_gpu::device::release_window();
+    }
+
+    // Independent CPU oracle: the established Develop TPDF hash, generalized to output depth.
+    fn expected_code(v: f32, x: u32, y: u32, levels: u32) -> u32 {
+        let mut h = x.wrapping_mul(0x9e37_79b9) ^ y.wrapping_mul(0x7feb_352d);
+        h ^= h >> 16;
+        h = h.wrapping_mul(0x7feb_352d);
+        h ^= h >> 15;
+        h = h.wrapping_mul(0x846c_a68b);
+        h ^= h >> 16;
+        let noise = (h & 65535) as f32 / 65536.0 - (h >> 16) as f32 / 65536.0;
+        let q = v.clamp(0.0, 1.0) * levels as f32;
+        let fade = q.min(levels as f32 - q).clamp(0.0, 1.0);
+        (q + noise * fade + 0.5).clamp(0.0, levels as f32) as u32
+    }
+
+    // Execute the production compositor-to-canvas encode pipeline, then let the production
+    // callback consume those same tiles. No replacement shader or alternate final renderer.
+    fn encode_ramp(gpu: &GpuCanvas, size: [u32; 2], ramp: &[[f32; 4]], previous: bool) {
+        let (device, queue) = (&gpu.rs.device, &gpu.rs.queue);
+        let source = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("j12 linear composite sample"),
+            size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let bytes: Vec<_> = ramp
+            .iter()
+            .flat_map(|p| {
+                let v = photocraft_color::convert::srgb_to_linear(p[0]);
+                [v, v, v, 1.0].into_iter().flat_map(f32::to_le_bytes)
+            })
+            .collect();
+        queue.write_texture(
+            source.as_image_copy(),
+            &bytes,
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size[0] * 16), rows_per_image: Some(size[1]) },
+            wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+        );
+        let source_view = source.create_view(&Default::default());
+        let offset =
+            init_buffer(device, "j12 encode offset", &[0_i32, 0, 1, 0].into_iter().flat_map(i32::to_le_bytes).collect::<Vec<_>>(), wgpu::BufferUsages::UNIFORM);
+        let renderer = gpu.rs.renderer.read();
+        let res = renderer.callback_resources.get::<Resources>().unwrap();
+        let bindings = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("j12 production encode"),
+            layout: &res.encode_bgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&source_view) },
+                wgpu::BindGroupEntry { binding: 1, resource: offset.as_entire_binding() },
+            ],
+        });
+        // Original vector transfer helper from HEAD, used only as an independent golden.
+        let previous_body = ENCODE_WGSL.replace("linear_to_srgb3(rgb)", "srgb_encode(rgb)");
+        let previous_source = format!(
+            r#"
+fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
+    return select(1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3(0.0031308));
+}}
+{previous_body}
+"#
+        );
+        let previous_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("j12 original vector encode"),
+            source: wgpu::ShaderSource::Wgsl(previous_source.into()),
+        });
+        let previous_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("j12 original encode bindings"),
+            bind_group_layouts: &[Some(&res.encode_bgl)],
+            immediate_size: 0,
+        });
+        let previous_pipeline = pipeline(device, "j12 original vector encode", &previous_layout, &previous_module, ("vs", "fs"), FORMAT_HIGH, None);
+        let doc = res.docs.get(&1).unwrap();
+        assert_eq!(doc.tiles.len(), 1);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("j12 production encode"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &doc.tiles[0].levels[0],
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(if previous { &previous_pipeline } else { res.encode_pipeline(FORMAT_HIGH).unwrap() });
+            pass.set_bind_group(0, &bindings, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        queue.submit([encoder.finish()]);
+        assert!(gpu.health.wait(device, None));
+    }
+
+    // Capture the actual callback's fragment value in float storage. This separates texture
+    // sampling/dither arithmetic from the fixed-function UNORM target conversion.
+    fn float_capture(gpu: &GpuCanvas, cb: &CanvasCallback, body: &str, levels: f32) -> Vec<[f32; 4]> {
+        let rs = &gpu.rs;
+        let size = cb.params.doc_size;
+        let module = rs.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("j12 final float diagnostic"),
+            source: wgpu::ShaderSource::Wgsl(li_gpu::wgsl::source(body).into()),
+        });
+        let mut renderer = rs.renderer.write();
+        let res = renderer.callback_resources.get_mut::<Resources>().unwrap();
+        let layout = rs.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(&res.view_bgl), Some(&res.tile_bgl), Some(&res.lut_bgl)],
+            immediate_size: 0,
+        });
+        let pipe = pipeline(&rs.device, "j12 float diagnostic", &layout, &module, ("vs_tile", "fs_tile"), wgpu::TextureFormat::Rgba32Float, None);
+        let original = std::mem::replace(&mut res.tile_pipeline, pipe);
+        let original_levels = std::mem::replace(&mut res.depth_levels, levels);
+        let texture = rs.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("j12 final float diagnostic"),
+            size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        let mut encoder = rs.device.create_command_encoder(&Default::default());
+        let extra = cb.prepare(
+            &rs.device,
+            &rs.queue,
+            &ScreenDescriptor { size_in_pixels: size, pixels_per_point: 1.0 },
+            &mut encoder,
+            &mut renderer.callback_resources,
+        );
+        rs.queue.submit(extra);
+        {
+            let mut pass = encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                })
+                .forget_lifetime();
+            cb.paint(
+                egui::PaintCallbackInfo { viewport: cb.rect, clip_rect: cb.rect, pixels_per_point: 1.0, screen_size_px: size },
+                &mut pass,
+                &renderer.callback_resources,
+            );
+        }
+        let res = renderer.callback_resources.get_mut::<Resources>().unwrap();
+        res.tile_pipeline = original;
+        res.depth_levels = original_levels;
+        drop(renderer);
+        let read = rs.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: u64::from(size[0] * size[1] * 16),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            texture.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &read,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size[0] * 16), rows_per_image: Some(size[1]) },
+            },
+            wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+        );
+        rs.queue.submit([encoder.finish()]);
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        read.slice(..).map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
+        assert!(gpu.health.wait_present(&rs.device, None));
+        rx.recv().unwrap().unwrap();
+        let data = read.slice(..).get_mapped_range().unwrap();
+        let result =
+            data.as_chunks::<16>().0.iter().map(|pixel| std::array::from_fn(|c| f32::from_le_bytes(pixel[c * 4..c * 4 + 4].try_into().unwrap()))).collect();
+        drop(data);
+        read.unmap();
+        result
+    }
+
+    #[test]
+    fn j12_final_canvas_tpdf_endpoints_neutral_ramp_and_shared_health() {
+        let _gate = crate::gpu_test_support::lock();
+        for body in [CANVAS_WGSL, ENCODE_WGSL] {
+            let source = li_gpu::wgsl::source(body);
+            let module = wgpu::naga::front::wgsl::parse_str(&source).unwrap();
+            wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::empty()).validate(&module).unwrap();
+        }
+        let base = egui_kittest::wgpu::create_render_state(wgpu_setup(), Default::default());
+        let info = base.adapter.get_info();
+        assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "physical GPU required: {info:?}");
+        assert!(supports_f16_canvas(&base.adapter), "hardware float canvas required: {info:?}");
+        let first = GpuCanvas::new(&base);
+        let second = GpuCanvas::new(&base);
+        let shared = li_gpu::device::current().unwrap();
+        assert_eq!(shared.device, base.device);
+        let errors = first.health.errors();
+        first.health.operation_failed("j12 injected recoverable allocation failure", 17);
+        for health in [&first.health, &second.health, &shared.health] {
+            assert_eq!(health.errors(), errors + 1);
+            assert_eq!(health.strikes(), 1);
+            assert!(!health.can_render());
+            assert!(health.needs_retry());
+            assert!(health.is_ok());
+        }
+        second.health.retry_now();
+        assert!(first.health.can_render() && shared.health.can_render());
+        second.health.operation_succeeded();
+
+        let size = [256_u32, 16_u32];
+        let mut buf = photocraft_compose::Buffer::transparent(photocraft_geom::Rect::new(0, 0, 256, 16));
+        for (i, p) in buf.px.iter_mut().enumerate() {
+            let x = i % 256;
+            // Exact half-float samples, including pure black and white in every row.
+            let v = if x == 255 { 1.0 } else { x as f32 / 256.0 };
+            *p = [v, v, v, 1.0];
+        }
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(256.0, 16.0));
+        let cb = CanvasCallback {
+            rect,
+            params: ViewParams {
+                doc: 1,
+                doc_size: size,
+                zoom: 1.0,
+                center: [128.0, 8.0],
+                shadow: false,
+                pixel_grid: false,
+                view_key: 7,
+                display: 0,
+                output: 0,
+                hdr: None,
+                flip: false,
+                rotation: 0.0,
+            },
+        };
+        for format in [wgpu::TextureFormat::Rgba8Unorm, wgpu::TextureFormat::Rgb10a2Unorm] {
+            let mut rs = base.clone();
+            rs.target_format = format;
+            let gpu = GpuCanvas::new(&rs);
+            gpu.upload_buffer_full(1, &buf, photocraft_doc::SampleType::U16);
+            gpu.set_pixel_preview(1, true);
+            encode_ramp(&gpu, size, &buf.px, true);
+            let (_, _, previous_encoded) = gpu.read_texels(1).unwrap();
+            encode_ramp(&gpu, size, &buf.px, false);
+            let (source_format, source_size, encoded) = gpu.read_texels(1).unwrap();
+            assert_eq!((source_format, source_size), (FORMAT_HIGH, size));
+            for (i, (actual, previous)) in encoded.iter().zip(&previous_encoded).enumerate() {
+                if i % 256 == 255 {
+                    assert_eq!(*actual, [1.0; 4], "mathematical white is exact after shared encoding");
+                    assert!(previous[0] <= actual[0], "white endpoint accuracy cannot regress");
+                } else {
+                    assert_eq!(actual, previous, "non-white half texel {i} must remain bit-exact to original vector helper");
+                }
+            }
+            eprintln!(
+                "j12 encode white: before={}, after={} (exact mathematical endpoint); all 4080 nonwhite texels bit-exact",
+                previous_encoded[255][0], encoded[255][0]
+            );
+            let mut worst_encode = 0.0_f32;
+            let mut worst_storage_ulps = 0_u16;
+            for (actual, expected) in encoded.iter().zip(&buf.px) {
+                worst_encode = worst_encode.max((actual[0] - expected[0]).abs());
+                // An exact representable fixture eliminates input/storage uncertainty. One
+                // adjacent half code permits only the measured floating-point transfer plus
+                // render-target conversion; exact old/new texel equality above is the gate
+                // against regression. This bound scales with exponent, unlike a float epsilon.
+                let actual_half = f32_to_f16(actual[0]);
+                let expected_half = f32_to_f16(expected[0]);
+                let ulps = actual_half.abs_diff(expected_half);
+                worst_storage_ulps = worst_storage_ulps.max(ulps);
+                assert!(ulps <= 1, "encode exceeds one adjacent half storage code: actual={actual:?}, expected={expected:?}");
+            }
+            eprintln!(
+                "j12 production encode nonwhite bit-exact and white exact, CPU maximum error={worst_encode:.9}, max half storage code difference={worst_storage_ulps}"
+            );
+            let levels = if format == wgpu::TextureFormat::Rgb10a2Unorm { 1023 } else { 255 };
+            let texture = rs.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("j12 final canvas"),
+                size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let target = texture.create_view(&Default::default());
+            let read = rs.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("j12 final canvas readback"),
+                size: u64::from(size[0] * size[1] * 4),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            // The before sample changes only the final dither block back to the previous
+            // Bayer shader. Every production binding, callback, texture and encode path stays
+            // the same, so these timings compare this slice rather than an alternate renderer.
+            let mut before_body = CANVAS_WGSL.to_owned();
+            let from = before_body.find("        let xy = vec2<u32>(p);").unwrap();
+            let to = from + before_body[from..].find("        );").unwrap() + "        );".len();
+            before_body.replace_range(
+                from..to,
+                r#"
+        let xy = vec2<u32>(p);
+        var rank = 0u;
+        for (var bit = 0u; bit < 3u; bit++) {
+            let xb = (xy.x >> bit) & 1u;
+            let yb = (xy.y >> bit) & 1u;
+            rank = rank * 4u + ((xb ^ yb) * 2u + yb);
+        }
+        rgb = clamp(rgb + vec3((f32(rank) + 0.5) / 64.0 - 0.5) / view.i.x, vec3(0.0), vec3(1.0));
+"#,
+            );
+            let module = rs.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("j12 previous Bayer final pass"),
+                source: wgpu::ShaderSource::Wgsl(li_gpu::wgsl::source(&before_body).into()),
+            });
+            let mut renderer = rs.renderer.write();
+            let res = renderer.callback_resources.get_mut::<Resources>().unwrap();
+            let layout = rs.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("j12 previous final-pass bindings"),
+                bind_group_layouts: &[Some(&res.view_bgl), Some(&res.tile_bgl), Some(&res.lut_bgl)],
+                immediate_size: 0,
+            });
+            let current = res.tile_pipeline.clone();
+            let previous = pipeline(
+                &rs.device,
+                "j12 previous Bayer",
+                &layout,
+                &module,
+                ("vs_tile", "fs_tile"),
+                format,
+                Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::OneMinusDstAlpha,
+                        dst_factor: wgpu::BlendFactor::One,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
+            );
+            drop(renderer);
+            let sampled = float_capture(&gpu, &cb, CANVAS_WGSL, 0.0);
+            assert_eq!(sampled, encoded, "actual production textureLoad samples must equal stored encoded texels before dither");
+            for before in [true, false] {
+                let final_float = float_capture(&gpu, &cb, if before { &before_body } else { CANVAS_WGSL }, levels as f32);
+                eprintln!(
+                    "j12 float diagnostic {format:?} before={before}, x4,y0: stored={}, sampled={}, final_float={} (code={}); x255,y0: stored={}, final_float={}",
+                    encoded[4][0],
+                    sampled[4][0],
+                    final_float[4][0],
+                    final_float[4][0] * levels as f32,
+                    encoded[255][0],
+                    final_float[255][0]
+                );
+                rs.renderer.write().callback_resources.get_mut::<Resources>().unwrap().tile_pipeline = if before { previous.clone() } else { current.clone() };
+                let mut render_ms = Vec::new();
+                let mut readback_ms = Vec::new();
+                let mut baseline_error_sum = 0_u64;
+                let mut baseline_error_max = 0_u32;
+                let mut baseline_count = 0_u64;
+                // One warm-up and three measured final passes: a small sample, no timing gate.
+                for frame in 0..4 {
+                    let start = std::time::Instant::now();
+                    let mut encoder = rs.device.create_command_encoder(&Default::default());
+                    let mut renderer = rs.renderer.write();
+                    let extra = cb.prepare(
+                        &rs.device,
+                        &rs.queue,
+                        &ScreenDescriptor { size_in_pixels: size, pixels_per_point: 1.0 },
+                        &mut encoder,
+                        &mut renderer.callback_resources,
+                    );
+                    rs.queue.submit(extra);
+                    {
+                        let mut pass = encoder
+                            .begin_render_pass(&wgpu::RenderPassDescriptor {
+                                label: Some("j12 production final pass"),
+                                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                    view: &target,
+                                    resolve_target: None,
+                                    depth_slice: None,
+                                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                                })],
+                                depth_stencil_attachment: None,
+                                timestamp_writes: None,
+                                occlusion_query_set: None,
+                                multiview_mask: None,
+                            })
+                            .forget_lifetime();
+                        cb.paint(
+                            egui::PaintCallbackInfo { viewport: rect, clip_rect: rect, pixels_per_point: 1.0, screen_size_px: size },
+                            &mut pass,
+                            &renderer.callback_resources,
+                        );
+                    }
+                    drop(renderer);
+                    rs.queue.submit([encoder.finish()]);
+                    assert!(gpu.health.wait(&rs.device, None));
+                    let render = start.elapsed().as_secs_f64() * 1000.0;
+                    let start = std::time::Instant::now();
+                    let mut encoder = rs.device.create_command_encoder(&Default::default());
+                    encoder.copy_texture_to_buffer(
+                        texture.as_image_copy(),
+                        wgpu::TexelCopyBufferInfo {
+                            buffer: &read,
+                            layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(size[0] * 4), rows_per_image: Some(size[1]) },
+                        },
+                        wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+                    );
+                    rs.queue.submit([encoder.finish()]);
+                    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+                    read.slice(..).map_async(wgpu::MapMode::Read, move |result| {
+                        let _ = tx.send(result);
+                    });
+                    assert!(gpu.health.wait(&rs.device, None));
+                    rx.recv().unwrap().unwrap();
+                    let data = read.slice(..).get_mapped_range().unwrap();
+                    let readback = start.elapsed().as_secs_f64() * 1000.0;
+                    for (i, pixel) in data.as_chunks::<4>().0.iter().enumerate() {
+                        let actual = if levels == 1023 {
+                            let packed = u32::from_le_bytes(*pixel);
+                            [packed & 1023, (packed >> 10) & 1023, (packed >> 20) & 1023]
+                        } else {
+                            [u32::from(pixel[0]), u32::from(pixel[1]), u32::from(pixel[2])]
+                        };
+                        let x = (i % 256) as u32;
+                        let y = (i / 256) as u32;
+                        let expected = if before {
+                            let mut rank = 0_u32;
+                            for bit in 0..3 {
+                                let xb = (x >> bit) & 1;
+                                let yb = (y >> bit) & 1;
+                                rank = rank * 4 + ((xb ^ yb) * 2 + yb);
+                            }
+                            let noise = (rank as f32 + 0.5) / 64.0 - 0.5;
+                            ((encoded[i][0] + noise / levels as f32).clamp(0.0, 1.0) * levels as f32).round() as u32
+                        } else {
+                            expected_code(encoded[i][0], x, y, levels)
+                        };
+                        assert_eq!(actual[0], actual[1], "neutral green {format:?} before={before} ({x},{y})");
+                        assert_eq!(actual[0], actual[2], "neutral blue {format:?} before={before} ({x},{y})");
+                        if before {
+                            // Vulkan permits either adjacent integer for float->UNORM,
+                            // and blending precision may be only destination precision:
+                            // https://docs.vulkan.org/spec/latest/chapters/fundamentals.html#fundamentals-fixedfpconv
+                            // The legacy shader leaves rounding to that conversion; measure
+                            // it against nearest without treating its hardware choice as a
+                            // regression. The new shader must still match the CPU exactly.
+                            let code = (final_float[i][0] * levels as f32).clamp(0.0, levels as f32);
+                            assert!(
+                                actual[0] >= code.floor() as u32 && actual[0] <= code.ceil() as u32,
+                                "legacy conversion outside adjacent integers {format:?} ({x},{y}): actual={} fragment_code={code}",
+                                actual[0]
+                            );
+                            let error = actual[0].abs_diff(expected);
+                            assert!(error <= 1, "legacy conversion differs by more than one code from nearest");
+                            baseline_error_max = baseline_error_max.max(error);
+                            baseline_error_sum += u64::from(error);
+                            baseline_count += 1;
+                        } else {
+                            assert_eq!(
+                                actual,
+                                [expected; 3],
+                                "final {format:?} pixel ({x},{y}), frame {frame}, stored={} sampled={} final_float={} final_code={}",
+                                encoded[i][0],
+                                sampled[i][0],
+                                final_float[i][0],
+                                final_float[i][0] * levels as f32
+                            );
+                            if x == 0 {
+                                assert_eq!(actual, [0; 3]);
+                            }
+                            if x == 255 {
+                                assert_eq!(actual, [levels; 3]);
+                            }
+                        }
+                    }
+                    drop(data);
+                    read.unmap();
+                    if frame != 0 {
+                        render_ms.push(render);
+                        readback_ms.push(readback);
+                    }
+                }
+                assert_eq!(gpu.health.errors(), errors + 1, "production shaders raised an error");
+                if before {
+                    eprintln!(
+                        "j12 previous Bayer native conversion {format:?}: nearest-code mean absolute error={:.9}, max={baseline_error_max}; new TPDF requires exact nearest-code equality",
+                        baseline_error_sum as f64 / baseline_count as f64
+                    );
+                }
+                eprintln!(
+                    "j12 production final canvas {:?}/{:?} {format:?}, {} 256x16: 16384 RGB pixels, neutral exact (old adjacent native conversion / new exact CPU codes and endpoints); encode max={worst_encode:.9}; three warm frame+GPU-wait ms={render_ms:?}; separate copy+readback ms={readback_ms:?}",
+                    info.name,
+                    info.backend,
+                    if before { "before Bayer" } else { "after TPDF" }
+                );
+            }
+        }
+        li_gpu::device::release_window();
+    }
+}

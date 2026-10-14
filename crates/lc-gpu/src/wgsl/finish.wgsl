@@ -340,14 +340,9 @@ fn grain_noise(x: f32, y: f32, seed: u32) -> f32 {
     return a + (b - a) * v;
 }
 
+// Compatibility adapter: Develop's bytes retain the CPU reference's exact TPDF hash.
 fn enc8(v: f32, x: u32, y: u32, channel: u32) -> u32 {
-    var h = x * DITHER_H2 ^ y * DITHER_H0;
-    h = h ^ (h >> 16u); h = h * DITHER_H0;
-    h = h ^ (h >> 15u); h = h * DITHER_H1; h = h ^ (h >> 16u);
-    let noise = f32(h & 65535u) / 65536.0 - f32(h >> 16u) / 65536.0;
-    let q = clamp(v, 0.0, 1.0) * 255.0;
-    let fade = clamp(min(q, 255.0-q), 0.0, 1.0);
-    return u32(clamp(q+noise*fade+0.5, 0.0, 255.0));
+    return li_dither8(v, vec2(x, y));
 }
 
 fn soft_gamut(r: vec3<f32>) -> vec3<f32> {
@@ -368,14 +363,6 @@ fn soft_gamut(r: vec3<f32>) -> vec3<f32> {
     return result;
 }
 
-fn linear_to_srgb(v: f32) -> f32 {
-    if (v <= 0.0031308) { return v*12.92; }
-    return 1.055*pow(v,1.0/2.4)-0.055;
-}
-fn srgb_to_linear(v: f32) -> f32 {
-    if (v <= 0.04045) { return v/12.92; }
-    return pow((v+0.055)/1.055,2.4);
-}
 
 fn working_curve(channel:u32, x:f32)->f32 {
     let q=curve(channel,x);

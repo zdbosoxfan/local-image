@@ -476,14 +476,6 @@ fn fs_blend_if(in: VOut) -> @location(0) vec4<f32> {
 
 // ---- adjustments (compose::adjust) ----------------------------------------------------------
 
-fn srgb_to_linear(v: f32) -> f32 {
-    if (v <= 0.04045) { return v / 12.92; }
-    return pow((v + 0.055) / 1.055, 2.4);
-}
-fn linear_to_srgb(v: f32) -> f32 {
-    if (v <= 0.0031308) { return v * 12.92; }
-    return 1.055 * pow(v, 1.0 / 2.4) - 0.055;
-}
 fn t_decode(v: f32, g: f32) -> f32 {
     if (g <= 0.0) { return srgb_to_linear(max(v, 0.0)); }
     return pow(max(v, 0.0), g);
