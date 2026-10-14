@@ -31,30 +31,16 @@ impl Lut3d {
         Lut3d { size, data }
     }
 
-    /// Trilinear lookup (what GPU filtering computes).
+    /// Shared precise tetrahedral lookup. GPU texture filtering remains trilinear.
     pub fn sample(&self, rgb: [f32; 3]) -> [f32; 3] {
         let n = self.size;
-        let loc = |v: f32| {
-            let p = v.clamp(0.0, 1.0) * (n - 1) as f32;
-            let i = (p as usize).min(n - 2);
-            (i, p - i as f32)
-        };
-        let (r0, fr) = loc(rgb[0]);
-        let (g0, fg) = loc(rgb[1]);
-        let (b0, fb) = loc(rgb[2]);
-        let at = |r: usize, g: usize, b: usize| self.data[r + g * n + b * n * n];
-        let mut o = [0.0f32; 3];
-        for (k, ov) in o.iter_mut().enumerate() {
-            let c = |r, g, b| at(r, g, b)[k];
-            let x00 = c(r0, g0, b0) + (c(r0 + 1, g0, b0) - c(r0, g0, b0)) * fr;
-            let x10 = c(r0, g0 + 1, b0) + (c(r0 + 1, g0 + 1, b0) - c(r0, g0 + 1, b0)) * fr;
-            let x01 = c(r0, g0, b0 + 1) + (c(r0 + 1, g0, b0 + 1) - c(r0, g0, b0 + 1)) * fr;
-            let x11 = c(r0, g0 + 1, b0 + 1) + (c(r0 + 1, g0 + 1, b0 + 1) - c(r0, g0 + 1, b0 + 1)) * fr;
-            let y0 = x00 + (x10 - x00) * fg;
-            let y1 = x01 + (x11 - x01) * fg;
-            *ov = y0 + (y1 - y0) * fb;
+        if n.checked_pow(3).is_none_or(|len| self.data.len() < len) {
+            return rgb;
         }
-        o
+        li_color::lut::sample(n, rgb, true, |r, g, b| {
+            let c = self.data[r + g * n + b * n * n];
+            [c[0], c[1], c[2]]
+        })
     }
 
     /// Little-endian RGBA16F texels (8 bytes each), e.g. for `wgpu::TextureFormat::Rgba16Float`.

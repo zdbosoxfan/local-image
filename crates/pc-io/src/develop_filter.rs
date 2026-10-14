@@ -178,7 +178,7 @@ impl Conv {
             }
             Conv::Gray { trc } => {
                 for p in px.iter_mut() {
-                    let y = 0.2627 * p[0] + 0.6780 * p[1] + 0.0593 * p[2];
+                    let y = li_color::luminance_2020(*p);
                     *p = [trc.eval_inverse(y.max(0.0)); 3];
                 }
             }

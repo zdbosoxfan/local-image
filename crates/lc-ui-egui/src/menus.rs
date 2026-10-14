@@ -1279,12 +1279,12 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if paths.is_empty() {
                 return Some(Ok(Value::Null));
             }
-            // .cube LUTs (and those inside zips / folders) become profiles
+            // LUTs (and those inside zips / folders) become profiles
             let lut_paths: Vec<&String> = paths
                 .iter()
                 .filter(|p| {
                     let l = p.to_ascii_lowercase();
-                    l.ends_with(".cube") || l.ends_with(".zip") || std::path::Path::new(p.as_str()).is_dir()
+                    crate::is_lut_file(p) || l.ends_with(".zip") || std::path::Path::new(p.as_str()).is_dir()
                 })
                 .collect();
             let profiles = if lut_paths.is_empty() {
@@ -1296,7 +1296,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                     .and_then(|v| v["imported"].as_array().map(Vec::len))
                     .unwrap_or(0)
             };
-            let preset_paths: Vec<&String> = paths.iter().filter(|p| !p.to_ascii_lowercase().ends_with(".cube")).collect();
+            let preset_paths: Vec<&String> = paths.iter().filter(|p| !crate::is_lut_file(p)).collect();
             let r = if preset_paths.is_empty() {
                 Ok(json!({"imported": [], "failed": [], "skipped": 0}))
             } else {

@@ -727,7 +727,7 @@ impl Compositor {
     /// surface's tiles within the region's page cells, in their texture format).
     pub fn working_set(&self, doc: &Document, region: Rect) -> u64 {
         let Ok(plan) = self.cached_plan(doc) else { return 0 };
-        let precise = precise_inputs(&plan);
+        let precise = precise_inputs(&plan, doc.depth);
         let grid = tile_grid(doc.bounds());
         let cells = grid_rects(region.intersect(&doc.bounds()), self.page)
             .into_iter()
@@ -1050,7 +1050,7 @@ impl Compositor {
         let canvas = doc.bounds();
         let region = region.intersect(&canvas);
         let plan = self.cached_plan(doc)?;
-        self.precise_inputs = precise_inputs(&plan);
+        self.precise_inputs = precise_inputs(&plan, doc.depth);
         let mut stats = Stats { passes: plan.passes.len(), slots: plan.slots, ..Default::default() };
         if region.is_empty() {
             return Ok(stats);
@@ -2078,8 +2078,10 @@ fn write_tile(queue: &wgpu::Queue, r: &Resident, c: TileCoord, bytes: &[u8]) {
     );
 }
 
-fn precise_inputs(plan: &Plan<'_>) -> bool {
-    plan.passes.iter().any(|p| p.kernel == Kernel::BlendIf || (p.kernel == Kernel::Adjust && matches!(p.adjust_kind, 17 | 18)))
+fn precise_inputs(plan: &Plan<'_>, depth: SampleType) -> bool {
+    plan.passes.iter().any(|p| {
+        p.kernel == Kernel::BlendIf || (p.kernel == Kernel::Adjust && (matches!(p.adjust_kind, 17 | 18) || (p.adjust_kind == 16 && depth != SampleType::U8)))
+    })
 }
 
 /// Tile pixels in the texture's format. `tile = None` gives the default pixel everywhere.
@@ -2277,6 +2279,31 @@ pub fn render_to_vec_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn color_lookup_uses_precise_inputs_only_at_high_document_depth() {
+        for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let mut doc = Document::new("Lookup", photocraft_geom::Size::new(1, 1), photocraft_color::ColorMode::Rgb, depth);
+            doc.layers.push(Layer::new("Source", LayerContent::Fill(photocraft_doc::Fill::Solid(photocraft_color::Color::BLACK))));
+            doc.layers.push(Layer::new(
+                "LUT",
+                LayerContent::Adjustment(photocraft_doc::Adjustment::ColorLookup {
+                    name: "Test".into(),
+                    lut: Some(Arc::new(vec![0.5; 24])),
+                    size: 2,
+                    tetrahedral: true,
+                    dither: false,
+                    domain: None,
+                }),
+            ));
+            let mut plan = plan(&doc).unwrap();
+            assert_eq!(precise_inputs(&plan, depth), depth != SampleType::U8);
+            for kind in [17, 18] {
+                plan.passes.iter_mut().find(|p| p.kernel == Kernel::Adjust).unwrap().adjust_kind = kind;
+                assert!(precise_inputs(&plan, depth), "existing native tone policy at {depth:?}");
+            }
+        }
+    }
 
     #[test]
     fn threshold_sources_upload_cpu_decoded_sample_bits() {
