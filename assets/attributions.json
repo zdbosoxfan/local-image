@@ -6359,7 +6359,7 @@
         },
         {
           "name": "LightCraft",
-          "used_for": "The mirror adapter over li-ai::download against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, chunked bodies, hash mismatches, size caps, unpinned files, stale files from the old client, cancel.",
+          "used_for": "The mirror adapter over li-ai::download against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, chunked bodies, hash mismatches, size caps, unpinned files, damaged files, cancel.",
           "upstream": "crates/fetch/src/tests.rs",
           "commit": "4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f",
           "ours": "crates/lc-fetch/src/tests.rs",
@@ -6387,7 +6387,7 @@
         },
         {
           "name": "LightCraft",
-          "used_for": "The mirror adapter over li-ai::download against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, chunked bodies, hash mismatches, size caps, unpinned files, stale files from the old client, cancel.",
+          "used_for": "The mirror adapter over li-ai::download against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, chunked bodies, hash mismatches, size caps, unpinned files, damaged files, cancel.",
           "upstream": "crates/fetch/src/tests.rs",
           "commit": "8dd3afce51d27d2625f8e094e6dd11b713cede01",
           "ours": "crates/lc-fetch/src/tests.rs",
