@@ -6,9 +6,9 @@ Historical reports describe earlier checkpoints and are not current completion c
 
 ## Integration and workflow
 
-The feature branch incorporates published v2 through `dda820a4`, including the shared
+The feature branch incorporates published v2 through `0ad93000`, including the shared
 codec/CMS and RAW Develop path, camera data, DeviceHealth recovery, Camera Raw preview
-unification, library safety, shared `li-color` and shared `li-raster`. J2 was independently
+unification and full-precision GPU bridge, library safety, shared `li-color` and shared `li-raster`. J2 was independently
 submitted and merged as PR #15; its report is `CODEX-REPORT-j02-li-color.md`.
 
 Current Match Look workflow includes twenty mixed catalog/external references, portable
@@ -27,6 +27,13 @@ Uncached native RAW admission now forecasts full-frame decoder work even for a s
 requested source. A cached thumbnail no longer hides the separate cost of cold native
 verification. Catalog dimensions remain an estimate; this is not a universal allocation
 cap or proof of four-gigabyte native decoding.
+
+Temporary decoded-source retention is now byte-bounded before parallel results accumulate,
+as well as in sequential work and between stages. Source cost includes confidence/profile
+and white-balance allocations. Retention eviction is deterministic under differing completion
+orders. Evicted stage-two sources must match recorded pixel and effective-decoder evidence;
+changed or unverifiable sources discard the shared-style result. No source is downsampled
+to obtain these savings. Reuse of the shared representative analysis is separate ongoing work.
 
 ## Photographic evidence and rejected experiments
 
@@ -56,7 +63,21 @@ The installed Depth Anything V2 Small backbone executes through the existing pur
 tract stack with intermediate token outputs and a pruned depth head. Synthetic runtime
 checks establish deterministic, finite outputs and technical feasibility only. Its
 depth-trained descriptors are not unchanged standard DINOv2, and correspondence quality
-must be assessed independently before any solver integration.
+was subsequently assessed independently. The tested cosine/reciprocal/margin/neighborhood
+gates admitted structural false matches across unrelated scenes and did not establish useful
+sofa/floor support. That specific depth-trained route stays out of the solver.
+
+A separate pristine standard DINOv2-S/14 diagnostic uses a backbone-only implementation with
+the existing Candle CPU dependencies and correct positional interpolation. Synthetic comparisons
+against pinned official source passed for final and selected intermediate patch tensors,
+including rectangular inputs. Four-thread warm p95 at 224 pixels was 79.1 ms, with approximately
+174 MiB process peak memory and cancellation acknowledgment below 3.4 ms. These are diagnostic
+measurements, not app throughput or evidence of photographic matching quality. No model or
+experimental runner is included in this checkpoint's production behavior.
+
+Implementation input separation and provenance are documented in
+`MATCHLOOK-CLEAN-ROOM.md`. Feature work remains in the existing fork; target-derived proprietary
+research material is excluded from the implementation inputs.
 
 ## Validation and remaining gates
 
@@ -66,12 +87,15 @@ At the shared-raster integration checkpoint:
 - Shared/Library raster suites: thirty-four passed, one intentionally ignored.
 - Match Look pipeline suite: sixty passed.
 - Native-RAW admission: three focused tests passed.
+- Engine Match Look/source-retention/key checks: forty passed, four intentionally ignored.
+- Source metadata heap-cost regression: one passed. UI Match Look checks: sixteen passed,
+  four intentionally ignored. The full app check passed after the latest GPU bridge merge.
 - Native benchmark extrapolation corrected: parallel batch wall time must not be divided
   by worker count a second time. An extrapolation is not an actual five-hundred-photo run.
 
 Remaining work includes automatic evidence that separates material, composition and
 illumination; stable color/tone fitting with regional and output-resolution safeguards;
-held-out native photographic acceptance; bounded decoded-source retention; exact
+held-out native photographic acceptance; measured low-memory acceptance of bounded retention; exact
 shared-style caching across Preview/Apply; and current native, proxy, low-memory and UI
 responsiveness measurements. Historical eighty/ninety-second targets remain unresolved;
 a longer watchdog does not replace them.
