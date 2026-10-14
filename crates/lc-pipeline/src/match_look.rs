@@ -20,6 +20,7 @@ use std::sync::Arc;
 #[cfg(test)]
 mod adjustments_tests;
 mod appearance;
+mod audit_measurement;
 mod chroma_statistics;
 mod content;
 mod descriptor;
@@ -352,6 +353,13 @@ impl Look {
 
 pub fn measure(image: &Rgba8) -> Look {
     measure_with_faces(image, &[])
+}
+
+/// Internal near-match audit statistics, not reference analysis or saved Looks.
+/// Legacy fields stay complete. Disabled appearance axes have zero audit weight;
+/// enabling appearance preserves the full public measurement exactly.
+pub fn measure_for_audit(image: &Rgba8, opts: Options) -> Look {
+    audit_measurement::measure(image, opts)
 }
 fn measure_with_faces(image: &Rgba8, faces: &[[f32; 4]]) -> Look {
     measure_impl(image, faces, true)

@@ -446,8 +446,8 @@ fn near_match_errors(
 ) -> (f64, f64) {
     let edge = 1024.min(src.width.max(src.height));
     let req = lightcraft_pipeline::RenderRequest::fit(edge, edge);
-    let a = match_look::measure(&lightcraft_pipeline::render(src, info, before, &req).image);
-    let b = match_look::measure(&lightcraft_pipeline::render(src, info, after, &req).image);
+    let a = match_look::measure_for_audit(&lightcraft_pipeline::render(src, info, before, &req).image, opts);
+    let b = match_look::measure_for_audit(&lightcraft_pipeline::render(src, info, after, &req).image, opts);
     let (goal, _) = match_look::reachable_goal(&a, &match_look::blend(refs, weights), opts, similarity);
     (match_look::distance(&a, &goal, opts), match_look::distance(&b, &goal, opts))
 }

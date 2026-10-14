@@ -499,7 +499,7 @@ fn larger_verification_resource_transition_preserves_near_match_results_failure_
     let solved = match_look::solve_batch_with_faces(&source.image, &info, &input.baseline, &references, opts, &input.faces, &|| false).unwrap();
     assert!(solved.before_error < 0.05 && solved.settings != *input.identity.settings, "fixture must enter the actual audit branch");
     let errors = lightcraft_raster::sequential(|| {
-        near_match_errors(&verified, &info, &input.identity.settings, &solved.settings, &references, &solved.weights, opts, solved.similarity)
+        legacy_near_match_errors(&verified, &info, &input.identity.settings, &solved.settings, &references, &solved.weights, opts, solved.similarity)
     });
     let (expected, expected_full) = if errors.1 >= errors.0 {
         ((*input.identity.settings).clone(), (*input.identity.settings).clone())
@@ -555,4 +555,85 @@ fn larger_verification_resource_transition_preserves_near_match_results_failure_
     assert!(result.rows.is_empty() && result.applications.is_empty());
     assert_eq!(apply(&mut session, result).unwrap()["changed"], 0);
     assert_eq!(session.undo.len(), undo);
+}
+
+// Original complete public-measure audit, retained independently as an exact oracle.
+#[allow(clippy::too_many_arguments)]
+fn legacy_near_match_errors(
+    src: &Arc<lightcraft_raster::Rgb32f>,
+    info: &SourceInfo,
+    before: &DevelopSettings,
+    after: &DevelopSettings,
+    refs: &[Look],
+    weights: &[f64],
+    opts: Options,
+    similarity: f64,
+) -> (f64, f64) {
+    let edge = 1024.min(src.width.max(src.height));
+    let req = lightcraft_pipeline::RenderRequest::fit(edge, edge);
+    let a = match_look::measure(&lightcraft_pipeline::render(src, info, before, &req).image);
+    let b = match_look::measure(&lightcraft_pipeline::render(src, info, after, &req).image);
+    let (goal, _) = match_look::reachable_goal(&a, &match_look::blend(refs, weights), opts, similarity);
+    (match_look::distance(&a, &goal, opts), match_look::distance(&b, &goal, opts))
+}
+#[test]
+fn options_aware_near_audit_matches_original_full_measure_errors_and_decisions() {
+    let src = Arc::new(lightcraft_raster::Rgb32f::from_fn(80, 60, |x, y| {
+        let v = 0.02 + x as f32 / 120.0;
+        if y < 30 { [v; 3] } else { [v * 1.2, v * 0.7, v * 0.5] }
+    }));
+    let info = SourceInfo {
+        raw: true,
+        sensor_scale: 7.0,
+        raw_clip_level: Some(0.99),
+        clip_confidence: Some(Arc::new(lightcraft_pipeline::ClipConfidence { width: 19, height: 13, data: vec![0.7; 19 * 13] })),
+        ..Default::default()
+    };
+    let before = DevelopSettings::default();
+    let mut edited = before.clone();
+    edited.light.exposure = 0.04;
+    edited.light.highlights = -15.0;
+    let mut layered = before.clone();
+    layered.masks.push(lightcraft_develop::Mask {
+        id: 7,
+        name: "Audit layer".into(),
+        components: vec![lightcraft_develop::MaskComponent {
+            shape: lightcraft_develop::MaskShape::Full,
+            op: Default::default(),
+            invert: false,
+            name: None,
+        }],
+        tools: lightcraft_develop::LayerTools { light: Some(edited.light), ..Default::default() },
+        ..Default::default()
+    });
+    let mut mono = edited.clone();
+    mono.treatment = lightcraft_develop::Treatment::Bw;
+    let refs = [match_look::analyze(&src, &info, &edited), match_look::analyze(&src, &info, &mono)];
+    for appearance_aware in [false, true] {
+        for (index, after) in [&before, &edited, &layered, &mono].into_iter().enumerate() {
+            let opts = Options {
+                appearance_aware,
+                consistent_batch: index % 2 == 0,
+                region_aware: index % 2 != 0,
+                new_layer: index == 2,
+                normalize: index != 3,
+                keep_exposure: index == 3,
+                keep_white_balance: index == 2,
+                strength: [0.0, 57.0, 100.0, 125.0][index],
+                ..Default::default()
+            };
+            let (new, old) = lightcraft_raster::sequential(|| {
+                (
+                    near_match_errors(&src, &info, &before, after, &refs, &[0.3, 0.7], opts, 0.91),
+                    legacy_near_match_errors(&src, &info, &before, after, &refs, &[0.3, 0.7], opts, 0.91),
+                )
+            });
+            assert_eq!([new.0, new.1].map(f64::to_bits), [old.0, old.1].map(f64::to_bits));
+            assert_eq!(new.1 >= new.0, old.1 >= old.0);
+            if index == 0 {
+                assert_eq!(new.0.to_bits(), new.1.to_bits());
+                assert!(new.1 >= new.0);
+            }
+        }
+    }
 }
