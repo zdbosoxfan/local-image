@@ -4,7 +4,7 @@
 //! - [`Method::Bilinear`] — average of same-colour neighbours (drafts / thumbnails); works for any pattern.
 //! - [`Method::Ppg`] — Patterned Pixel Grouping (Chuan-kai Lin): gradient-selected green, colour-difference R/B.
 //! - [`Method::Ahd`] — Adaptive Homogeneity-Directed (Hirakawa & Parks, IEEE TIP 2005): horizontal/vertical
-//!   candidates chosen per pixel by CIELab homogeneity. The quality default for Bayer sensors.
+//!   candidates chosen per pixel by CIELab homogeneity. Retained for explicit overrides.
 //! - [`Method::Rcd`] — Ratio Corrected Demosaicing (Luis Sanz Rodríguez), ported from darktable (`rcd`):
 //!   ratio-corrected directional green, diagonal-discriminated red/blue. Sharp, few artefacts, fast.
 //! - [`Method::DualRcd`] — RCD where the image has detail, bilinear in flat areas, blended by a
@@ -13,15 +13,19 @@
 //! - [`Method::Amaze`] — Emil Martinec's full AMaZE kernel, including Nyquist refinement.
 //! - [`Method::DualRcdVng`] / [`Method::DualAmazeVng`] — upstream VNG-linear with two median
 //!   colour-smoothing passes in flat areas, RCD/AMaZE in detail; legacy bilinear dual is preserved.
-//! - Non-Bayer patterns (X-Trans, …) always use `xtrans::directional`, our own edge-weighted colour-difference
-//!   interpolation.
+//! - X-Trans uses darktable Markesteijn three-pass (or its dual VNG-linear blend).
+//! - LMMSE and DCB are additional Bayer methods; Auto uses measured noise curves.
+//! - Other CFA layouts retain generic edge-weighted interpolation.
 //!
 //! Every method reproduces a constant-colour mosaic exactly.
 
 mod ahd;
 mod amaze;
 mod bilinear;
+mod dcb;
 mod dual;
+mod lmmse;
+mod markesteijn;
 mod ppg;
 mod rcd;
 mod vng;
@@ -48,6 +52,14 @@ pub enum Method {
     DualAmazeVng,
     /// RCD with darktable four-colour linear VNG and colour smoothing in flat areas.
     DualRcdVng,
+    /// Choose by measured sensor noise (Bayer) or Markesteijn three-pass (X-Trans).
+    Auto,
+    Lmmse,
+    Dcb,
+    Markesteijn3,
+    DualMarkesteijnVng,
+    /// Original edge-weighted X-Trans method, retained for comparison/override.
+    XtransDirectional,
 }
 
 /// Parameters of the demosaic methods that have any.
@@ -121,17 +133,34 @@ pub fn demosaic_with(n: &Normalized, method: Method, opts: &DemosaicOptions) -> 
             if !cfa.is_bayer() {
                 return match method {
                     Method::Bilinear => bilinear::bilinear(&m),
+                    Method::XtransDirectional => xtrans::directional(&m),
+                    _ if markesteijn::supported(&m) => {
+                        let high = markesteijn::markesteijn(&m);
+                        if matches!(method, Method::DualMarkesteijnVng | Method::DualRcd | Method::DualRcdVng | Method::DualAmazeVng) {
+                            dual::dual_vng(&m, high, opts.dual_threshold)
+                        } else {
+                            high
+                        }
+                    }
                     _ => xtrans::directional(&m),
                 };
             }
             if w < 4 || h < 4 {
                 return bilinear::bilinear(&m);
             }
+            let auto = method == Method::Auto;
+            let method = if auto { automatic_method(n) } else { method };
+            let auto_opts = DemosaicOptions::default();
+            let opts = if auto { &auto_opts } else { opts };
             match method {
+                Method::Lmmse => lmmse::lmmse(&m),
+                Method::Dcb => dcb::dcb(&m),
+                Method::Markesteijn3 | Method::XtransDirectional => rcd::rcd(&m),
+                Method::DualMarkesteijnVng => dual::dual_vng(&m, rcd::rcd(&m), opts.dual_threshold),
                 Method::Bilinear => bilinear::bilinear(&m),
                 Method::Ppg => ppg::ppg(&m),
                 Method::Ahd => ahd::ahd(&m),
-                Method::Rcd => rcd::rcd(&m),
+                Method::Auto | Method::Rcd => rcd::rcd(&m),
                 Method::DualRcd => dual::dual(&m, rcd::rcd(&m), opts.dual_threshold),
                 Method::Vng4 => vng::vng(&m, false),
                 Method::Amaze => amaze::amaze(&m),
@@ -140,6 +169,46 @@ pub fn demosaic_with(n: &Normalized, method: Method, opts: &DemosaicOptions) -> 
             }
         }
     }
+}
+
+/// Robust noise estimate on same-colour second differences. Lowest quartile rejects
+/// edges/texture; scale by sqrt(6) and Gaussian MAD. Sensor-relative, so ISO and
+/// camera gain differences are reflected in the actual normalized noise.
+pub fn noise_sigma(n: &Normalized) -> f32 {
+    let Some(cfa) = &n.cfa else {
+        return 0.0;
+    };
+    if !cfa.is_bayer() || n.cpp != 1 || n.width < 8 || n.height < 8 {
+        return 0.0;
+    }
+    use rayon::prelude::*;
+    let positions: Vec<(usize, usize)> = (2..n.height - 3).step_by(32).flat_map(|y| (2..n.width - 3).step_by(32).map(move |x| (x, y))).collect();
+    let mut blocks: Vec<f32> = positions
+        .par_iter()
+        .map(|&(bx, by)| {
+            let mut v = Vec::with_capacity(2048);
+            for y in by..(by + 32).min(n.height - 2) {
+                for x in bx..(bx + 32).min(n.width - 2) {
+                    let i = y * n.width + x;
+                    v.push((n.data[i - 2] - 2.0 * n.data[i] + n.data[i + 2]).abs());
+                    v.push((n.data[i - 2 * n.width] - 2.0 * n.data[i] + n.data[i + 2 * n.width]).abs());
+                }
+            }
+            v.sort_unstable_by(f32::total_cmp);
+            v[v.len() / 2] / 1.652
+        })
+        .collect();
+    blocks.sort_unstable_by(f32::total_cmp);
+    if blocks.is_empty() { 0.0 } else { blocks[blocks.len() / 4] }
+}
+/// Measured noisy re-mosaic crossover: RCD below sigma 0.0035, dual RCD/VNG
+/// above (dual threshold 0.2). The bracket [0.002, 0.005] comes from eight CC0
+/// natural crops, not an ISO assumption. See the quality harness/report.
+pub fn automatic_method(n: &Normalized) -> Method {
+    if n.cfa.as_ref().is_some_and(|c| !c.is_bayer()) {
+        return Method::Markesteijn3;
+    }
+    if noise_sigma(n) >= 0.0035 { Method::DualRcdVng } else { Method::Rcd }
 }
 
 /// Build a mosaic from an RGB image by sampling each pixel's CFA colour (for tests and synthetic data).
@@ -198,7 +267,9 @@ mod tests {
         })
     }
 
-    const ALL: [Method; 9] = [
+    const ALL: [Method; 11] = [
+        Method::Lmmse,
+        Method::Dcb,
         Method::Bilinear,
         Method::Ppg,
         Method::Ahd,
@@ -356,3 +427,6 @@ mod tests {
         println!("X-Trans directional: {:.1} MP/s", (w * h) as f64 / 1e6 / t.elapsed().as_secs_f64());
     }
 }
+
+#[cfg(test)]
+mod tests_new;

@@ -299,6 +299,42 @@ mod tests {
     }
 
     #[test]
+    fn demosaic_new_overrides_click_shared_raw_controls() {
+        let mut h = demo([1400.0, 1100.0]);
+        if !h.app.ui.section_open("raw") {
+            h.app.ui.toggle_section("raw");
+        }
+        // Test the real panel and shared widgets in a headless frame.
+        for key in ["lmmse", "dcb", "markesteijn3", "dualMarkesteijnVng", "auto"] {
+            let draw = |h: &mut Headless, events: Vec<egui::Event>| {
+                let raw = HeadlessView::raw_input(h.size, 1.0, h.time, events);
+                let settings = h.app.session.develop_of(h.app.session.selection.active.unwrap()).unwrap();
+                h.view.run(raw, |ui| {
+                    ui.set_width(crate::theme::Tokens::get(ui.ctx()).panel_w);
+                    crate::panels::develop_tools::raw_section(&mut h.app, ui, &settings);
+                });
+                h.time += FRAME_DT;
+            };
+            draw(&mut h, vec![]);
+            let id = format!("button:rawDemosaic-{key}");
+            let rect = crate::widgets::take_registry(&h.view.ctx).into_iter().find(|w| w.0 == id).expect("shared raw control").1;
+            let p = rect.center();
+            draw(
+                &mut h,
+                vec![
+                    egui::Event::PointerMoved(p),
+                    egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() },
+                ],
+            );
+            draw(
+                &mut h,
+                vec![egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }],
+            );
+            assert_eq!(serde_json::to_value(h.app.session.develop_of(h.app.session.selection.active.unwrap()).unwrap().raw.demosaic).unwrap(), key);
+        }
+    }
+
+    #[test]
     fn demo_grid_snapshot_has_ui_pixels() {
         let t0 = Instant::now();
         let mut h = demo([1200.0, 760.0]);

@@ -144,7 +144,7 @@ pub fn raw_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
     }
     let methods: Vec<(&str, String)> = available.iter().map(|m| (m.label(), key_of(*m))).collect();
     let items: Vec<(&str, &str)> = methods.iter().map(|(l, k)| (*l, k.as_str())).collect();
-    choice(app, ui, "rawDemosaic", "Demosaic", &items, available.iter().position(|m| *m == r.demosaic), 3, |k| json!({"raw": {"demosaic": k}}));
+    choice(app, ui, "rawDemosaic", "Demosaic", &items, available.iter().position(|m| *m == r.demosaic), 2, |k| json!({"raw": {"demosaic": k}}));
     if r.demosaic.is_dual() {
         control(app, ui, d, "raw.dualThreshold", true);
     }

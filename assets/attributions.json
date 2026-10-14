@@ -172,6 +172,55 @@
         },
         {
           "name": "darktable",
+          "used_for": "Frank Markesteijn's three-pass X-Trans demosaic, ported from darktable xtrans.c at 733bd69f32cac7ff5e41025115942772add1f088 (GPL-3.0-or-later).",
+          "upstream": "src/iop/demosaicing/xtrans.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/demosaic/markesteijn.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/xtrans.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Frank Markesteijn's three-pass X-Trans demosaic, ported from darktable xtrans.c at 733bd69f32cac7ff5e41025115942772add1f088 (GPL-3.0-or-later).",
+          "upstream": "src/iop/demosaicing/vng.c, src/iop/demosaicing/dual.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/demosaic/markesteijn.rs, crates/lc-raw/src/demosaic/dual.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/vng.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "L.",
+          "upstream": "src/iop/demosaicing/lmmse.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/demosaic/lmmse.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/lmmse.c"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "DCB by Jacek Gozdz (BSD-3-Clause), Rust port of RawTherapee rtengine/demosaic_algos.cc at 5f486d3678b34c74ba0c63571c17babe20935019.",
+          "upstream": "rtengine/demosaic_algos.cc",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/src/demosaic/dcb.rs",
+          "licence": "BSD-3-Clause AND GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/demosaic_algos.cc"
+        },
+        {
+          "name": "darktable",
           "used_for": "VNG4, including the four-colour linear pass and all 64 gradient terms.",
           "upstream": "src/iop/demosaicing/vng.c",
           "commit": "733bd69f32cac7ff5e41025115942772add1f088",
@@ -468,6 +517,7 @@
           "ours": "crates/lc-raw/src/camera_matrices.rs",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
             "licenses/rawtherapee-NOTICE.md"
           ],
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/camconst.json"
@@ -480,6 +530,7 @@
           "ours": "crates/lc-color/src/profile.rs, camera.rs",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
             "licenses/rawtherapee-NOTICE.md"
           ],
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/dcp.cc"
@@ -491,6 +542,7 @@
           "ours": "crates/lc-raw/data/dcp/",
           "licence": "CC0-1.0 / public domain; per-file rights + SHA-256 in manifest",
           "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
             "licenses/rawtherapee-NOTICE.md"
           ],
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtdata/dcpprofiles/"
@@ -6908,6 +6960,7 @@
           "ours": "crates/lc-raw/data/cameras/camconst.json",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
             "licenses/rawtherapee-NOTICE.md"
           ],
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/camconst.json"
@@ -6957,6 +7010,7 @@
           "ours": "crates/lc-raw/src/camera_data.rs",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
             "licenses/rawtherapee-NOTICE.md"
           ],
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/camconst.cc"
@@ -6969,6 +7023,7 @@
           "ours": "crates/lc-raw/src/camera_data.rs",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
             "licenses/rawtherapee-NOTICE.md"
           ],
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/rawimage.cc"
@@ -6981,6 +7036,7 @@
           "ours": "crates/lc-raw/src/camera_data.rs",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
             "licenses/rawtherapee-NOTICE.md"
           ],
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/pdaflinesfilter.cc"
