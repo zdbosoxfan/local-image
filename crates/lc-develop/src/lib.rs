@@ -43,6 +43,8 @@ impl DevelopSettings {
     pub fn to_json_full(&self) -> Value {
         let mut v = self.to_json();
         if let Some(o) = v.as_object_mut() {
+            o.entry("camera_profile").or_insert_with(|| serde_json::json!(self.camera_profile));
+            o.entry("lens_profile").or_insert_with(|| serde_json::json!(self.lens_profile));
             o.entry("negative").or_insert_with(|| serde_json::to_value(self.negative).unwrap_or(Value::Null));
             o.entry("raw").or_insert_with(|| serde_json::to_value(self.raw).unwrap_or(Value::Null));
             o.entry("lens_db").or_insert_with(|| serde_json::to_value(&self.lens_db).unwrap_or(Value::Null));

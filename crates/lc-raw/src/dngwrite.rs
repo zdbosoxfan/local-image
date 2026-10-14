@@ -106,7 +106,11 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
     ifd.set(t::SAMPLES_PER_PIXEL, Value::Short(vec![cpp as u16]));
     ifd.set(t::PLANAR_CONFIGURATION, Value::Short(vec![1]));
     ifd.set(t::PHOTOMETRIC, Value::Short(vec![if raw.cfa.is_some() { photometric::CFA } else { photometric::LINEAR_RAW }]));
-    ifd.set(t::DNG_VERSION, Value::Byte(vec![1, 4, 0, 0]));
+    let extended_color = raw.color.color_matrix_3.is_some()
+        || raw.color.illuminant_3 != 0
+        || raw.color.illuminant.contains(&255)
+        || raw.color.profile.hue_sat_map_3.is_some();
+    ifd.set(t::DNG_VERSION, Value::Byte(vec![1, if extended_color { 6 } else { 4 }, 0, 0]));
     ifd.set(t::DNG_BACKWARD_VERSION, Value::Byte(vec![1, 3, 0, 0]));
     let make = raw.metadata.make.clone().unwrap_or_default();
     let model = raw.metadata.model.clone().unwrap_or_default();
@@ -154,10 +158,44 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
     ifd.set(t::DEFAULT_CROP_SIZE, Value::Long(vec![raw.crop.width as u32, raw.crop.height as u32]));
 
     let c = &raw.color;
+    for (signature, tag) in
+        [(&c.camera_calibration_signature, t::CAMERA_CALIBRATION_SIGNATURE), (&c.profile_calibration_signature, t::PROFILE_CALIBRATION_SIGNATURE)]
+    {
+        if !signature.is_empty() {
+            ifd.set(tag, Value::Ascii(signature.clone()));
+        }
+    }
     for (i, tag) in [t::CALIBRATION_ILLUMINANT_1, t::CALIBRATION_ILLUMINANT_2].into_iter().enumerate() {
         if c.color_matrix[i].is_some() {
             ifd.set(tag, Value::Short(vec![c.illuminant[i]]));
         }
+    }
+    if c.color_matrix_3.is_some() {
+        ifd.set(t::CALIBRATION_ILLUMINANT_3, Value::Short(vec![c.illuminant_3]));
+    }
+    for (matrix, tag) in
+        [(c.color_matrix_3, t::COLOR_MATRIX_3), (c.forward_matrix_3, t::FORWARD_MATRIX_3), (c.camera_calibration_3, t::CAMERA_CALIBRATION_3)]
+    {
+        if let Some(matrix) = matrix {
+            ifd.set(tag, srat_mat(&matrix));
+        }
+    }
+    for (i, tag) in [t::ILLUMINANT_DATA_1, t::ILLUMINANT_DATA_2, t::ILLUMINANT_DATA_3].into_iter().enumerate() {
+        if [c.illuminant[0], c.illuminant[1], c.illuminant_3][i] == 255
+            && let Some(xy) = c.illuminant_white_xy[i]
+        {
+            let mut bytes = Vec::with_capacity(18);
+            opts.order.put_u16(&mut bytes, 0);
+            for value in [xy.x, xy.y] {
+                let (numerator, denominator) = rational(value);
+                opts.order.put_u32(&mut bytes, numerator);
+                opts.order.put_u32(&mut bytes, denominator);
+            }
+            ifd.set(tag, Value::Undefined(bytes));
+        }
+    }
+    if c.illuminant.contains(&255) {
+        ifd.set(t::DNG_BACKWARD_VERSION, Value::Byte(vec![1, 6, 0, 0]));
     }
     for (pair, tags) in [
         (&c.color_matrix, [t::COLOR_MATRIX_1, t::COLOR_MATRIX_2]),
@@ -206,6 +244,13 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
             ifd.set(t::PROFILE_HUE_SAT_MAP_DATA_1, flat(b));
         }
         [None, None] => {}
+    }
+    if let Some(third) = &p.hue_sat_map_3
+        && let Some(first) = &p.hue_sat_map[0]
+        && (third.hue_divisions, third.sat_divisions, third.val_divisions, third.srgb_value)
+            == (first.hue_divisions, first.sat_divisions, first.val_divisions, first.srgb_value)
+    {
+        ifd.set(52537, flat(third));
     }
     if let Some(l) = &p.look_table {
         table_tags(&mut ifd, l, t::PROFILE_LOOK_TABLE_DIMS, t::PROFILE_LOOK_TABLE_ENCODING);
@@ -353,4 +398,91 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
         }
     }
     Ok(TiffWriter::new(opts.order, false).write(&[ifd])?)
+}
+
+#[cfg(test)]
+mod triple_illuminant_tests {
+    use super::*;
+    use crate::{ColorData, RawFormat, Rect};
+    use lightcraft_color::{D50, D65, Xy};
+
+    fn triple_raw() -> RawImage {
+        let table = |shift| crate::profile::HsvTable::from_tags(&[1, 2, 1], &[shift, 1.0, 1.0, shift, 1.0, 1.0], 0).unwrap();
+        RawImage {
+            format: RawFormat::Dng,
+            width: 2,
+            height: 2,
+            cpp: 3,
+            data: RawData::U16(vec![1000; 12]),
+            cfa: None,
+            bits: 16,
+            black: Default::default(),
+            white: vec![65535.0; 3],
+            active_area: Rect::new(0, 0, 2, 2),
+            crop: Rect::new(0, 0, 2, 2),
+            orientation: Default::default(),
+            color: ColorData {
+                illuminant: [17, 21],
+                illuminant_3: 255,
+                illuminant_white_xy: [None, None, Some(Xy::new(0.3457, 0.39))],
+                color_matrix: [Some(Mat3::diag(1.0, 2.0, 3.0)), Some(Mat3::diag(2.0, 3.0, 4.0))],
+                color_matrix_3: Some(Mat3::diag(4.0, 5.0, 6.0)),
+                forward_matrix: [Some(Mat3::diag(D50.to_xyz()[0], 1.0, D50.to_xyz()[2])); 2],
+                forward_matrix_3: Some(Mat3::diag(D50.to_xyz()[0], 1.0, D50.to_xyz()[2])),
+                camera_calibration_3: Some(Mat3::diag(1.1, 0.9, 1.0)),
+                camera_calibration_signature: "calibration-body".into(),
+                profile_calibration_signature: "calibration-body".into(),
+                as_shot_white_xy: Some(D65),
+                profile: crate::profile::ProfileLook {
+                    hue_sat_map: [Some(table(10.0)), Some(table(-10.0))],
+                    hue_sat_map_3: Some(table(30.0)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            wb_multipliers: None,
+            linearized: false,
+            opcodes: Default::default(),
+            metadata: Default::default(),
+        }
+    }
+
+    #[test]
+    fn triple_illuminant_dng_export_and_dcp_roundtrip() {
+        for order in [ByteOrder::Little, ByteOrder::Big] {
+            let raw = triple_raw();
+            let mut bytes = write_dng(&raw, &DngWriteOptions { compression: DngCompression::Uncompressed, order, xmp: None }).unwrap();
+            let parsed = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
+            assert_eq!(parsed.ifds[0].bytes(t::DNG_VERSION), Some(&[1, 6, 0, 0][..]));
+            assert_eq!(parsed.ifds[0].bytes(t::DNG_BACKWARD_VERSION), Some(&[1, 3, 0, 0][..]));
+            let decoded = crate::decode(&bytes).unwrap();
+            assert_eq!(decoded.color.illuminant_3, 255);
+            assert_eq!(decoded.color.illuminant_white_xy, raw.color.illuminant_white_xy);
+            assert_eq!(decoded.color.color_matrix_3, raw.color.color_matrix_3);
+            assert_eq!(decoded.color.camera_calibration_3, raw.color.camera_calibration_3);
+            assert_eq!(decoded.color.profile, raw.color.profile);
+            assert_eq!(decoded.color.camera_calibration_signature, "calibration-body");
+            assert_eq!(decoded.color.profile_calibration_signature, "calibration-body");
+            assert_eq!(crate::color::camera_color(&decoded.color).camera_calibration_3, decoded.color.camera_calibration_3);
+            let mut mismatched = decoded.color.clone();
+            mismatched.profile_calibration_signature = "different-profile-space".into();
+            let calibration = crate::color::camera_color(&mismatched);
+            assert_eq!(calibration.camera_calibration, [None; 2]);
+            assert_eq!(calibration.camera_calibration_3, None);
+            let xy = Xy::new(0.38, 0.36);
+            let expected = crate::color::camera_to_xyz_d50(&raw.color, xy);
+            let actual = crate::color::camera_to_xyz_d50(&decoded.color, xy);
+            for (a, b) in actual.0.iter().flatten().zip(expected.0.iter().flatten()) {
+                assert!((a - b).abs() < 1e-6);
+            }
+            bytes[2..4].copy_from_slice(if order == ByteOrder::Little { b"RC" } else { b"CR" });
+            let dcp = crate::dcp::Dcp::parse(&bytes).unwrap();
+            assert_eq!(dcp.color.color_matrix_3, raw.color.color_matrix_3);
+            let mut malformed = triple_raw();
+            malformed.color.forward_matrix_3 = None;
+            let mut bytes = write_dng(&malformed, &DngWriteOptions { compression: DngCompression::Uncompressed, order, xmp: None }).unwrap();
+            bytes[2..4].copy_from_slice(if order == ByteOrder::Little { b"RC" } else { b"CR" });
+            assert!(crate::dcp::Dcp::parse(&bytes).is_err());
+        }
+    }
 }

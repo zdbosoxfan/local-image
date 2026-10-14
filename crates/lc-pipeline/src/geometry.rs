@@ -53,6 +53,20 @@ impl Frame {
         lens: Option<&EmbeddedLens>,
         lensdb: Option<&crate::lensdb::LensCorrection>,
     ) -> Frame {
+        Self::with_lcp(src_w, src_h, s, apply_crop, lens, lensdb, None)
+    }
+
+    /// Frame with a user-imported LCP. Its correction replaces embedded/lensfun data.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_lcp(
+        src_w: usize,
+        src_h: usize,
+        s: &DevelopSettings,
+        apply_crop: bool,
+        lens: Option<&EmbeddedLens>,
+        lensdb: Option<&crate::lensdb::LensCorrection>,
+        lcp: Option<&crate::lcp::LcpCorrection>,
+    ) -> Frame {
         let orient = s.orientation;
         let (ow, oh) = if orient.swaps_axes() { (src_h as f64, src_w as f64) } else { (src_w as f64, src_h as f64) };
         let crop = if apply_crop { s.crop.geometry } else { CropGeometry::default() };
@@ -60,6 +74,9 @@ impl Frame {
         let mut warp = Warp::from_settings(ow, oh, s, lens.as_ref());
         if let Some(c) = lensdb {
             warp.set_lensdb(c, orient, src_w as f64, src_h as f64, s);
+        }
+        if let Some(c) = lcp {
+            warp.set_lcp(c, orient, src_w as f64, src_h as f64, s);
         }
         let persp = perspective(s, ow, oh);
         if persp != Homography::IDENTITY
@@ -115,7 +132,7 @@ impl Frame {
 
     /// Whether the GPU's geometry kernel can sample this frame, including lens database models.
     pub fn gpu_samplable(&self) -> bool {
-        true
+        self.warp.as_ref().is_none_or(|w| w.lcp.is_none())
     }
 
     /// Add automatically estimated lateral CA (`[α_R, α_B]`, see [`crate::optics::estimate_lateral_ca`]).

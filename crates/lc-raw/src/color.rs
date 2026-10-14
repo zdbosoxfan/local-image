@@ -1,7 +1,7 @@
 //! DNG colour model (Adobe DNG Specification 1.7, chapter 6 "Mapping Camera Color Space to CIE XYZ Space").
 //!
-//! - `ColorMatrix1/2` (XYZ → reference camera) and `CameraCalibration1/2` / `ForwardMatrix1/2` are interpolated
-//!   between the two calibration illuminants by inverse correlated colour temperature of the white point.
+//! - `ColorMatrix1/2/3` (XYZ → reference camera) and `CameraCalibration1/2` / `ForwardMatrix1/2` are interpolated
+//!   with inverse-CCT dual weights or DNG 1.6 scaled temperature/tint triple weights.
 //! - `XYZtoCamera = AnalogBalance · CameraCalibration · ColorMatrix`.
 //! - White balance multipliers are the reciprocal of the camera neutral for the chosen white.
 //! - Camera → XYZ(D50): through `ForwardMatrix` when present, else the inverse of `XYZtoCamera` followed by
@@ -12,116 +12,63 @@
 //! "camera RGB ≈ linear sRGB" model and are flagged with `matrix_is_fallback`.
 
 use crate::{ColorData, Mat3, RawImage};
-use lightcraft_color::{D50, D65, REC2020, SRGB, Xy, bradford, cct};
+use lightcraft_color::{D50, D65, REC2020, Xy, bradford};
 use serde::{Deserialize, Serialize};
 
-/// Correlated colour temperature (K) of an Exif `LightSource` / DNG `CalibrationIlluminant` code.
-pub fn illuminant_temperature(code: u16) -> Option<f64> {
-    Some(match code {
-        1 | 4 | 9 => 5500.0,
-        2 | 14 => 4150.0,
-        3 => 2850.0,
-        10 => 6500.0,
-        11 => 7500.0,
-        12 => 6430.0,
-        13 => 5000.0,
-        15 => 3450.0,
-        16 => 2940.0,
-        17 => 2856.0,
-        18 => 4874.0,
-        19 => 6774.0,
-        20 => 5503.0,
-        21 => 6504.0,
-        22 => 7504.0,
-        23 => 5003.0,
-        24 => 3200.0,
-        _ => return None,
-    })
-}
-
-fn lerp(a: &Mat3, b: &Mat3, g: f64) -> Mat3 {
-    let mut r = [[0.0; 3]; 3];
-    for i in 0..3 {
-        for j in 0..3 {
-            r[i][j] = g * a.0[i][j] + (1.0 - g) * b.0[i][j];
-        }
+/// Shared camera calibration, carried through the develop white-balance stage unchanged.
+pub fn camera_color(color: &ColorData) -> lightcraft_color::camera::CameraColor {
+    // DNG chapter 6 / SDK dng_color_spec: calibrations belong to the profile's
+    // reference camera space only when both calibration signatures match.
+    let calibration_matches = color.camera_calibration_signature == color.profile_calibration_signature;
+    lightcraft_color::camera::CameraColor {
+        illuminant: color.illuminant,
+        illuminant_3: color.illuminant_3,
+        illuminant_white_xy: color.illuminant_white_xy,
+        color_matrix: color.color_matrix,
+        color_matrix_3: color.color_matrix_3,
+        forward_matrix: color.forward_matrix,
+        forward_matrix_3: color.forward_matrix_3,
+        camera_calibration: if calibration_matches { color.camera_calibration } else { [None; 2] },
+        camera_calibration_3: if calibration_matches { color.camera_calibration_3 } else { None },
+        analog_balance: color.analog_balance,
     }
-    Mat3(r)
 }
 
-/// Weight of calibration 1 for white `xy` (1 = use matrix 1 only).
+pub use lightcraft_color::camera::illuminant_temperature;
+
+/// Weight of calibration 1 for legacy dual-profile callers.
 pub fn illuminant_weight(color: &ColorData, white: Xy) -> f64 {
-    let t = cct::xy_to_temp_tint(white).0;
-    let (t1, t2) = (illuminant_temperature(color.illuminant[0]).unwrap_or(2856.0), illuminant_temperature(color.illuminant[1]).unwrap_or(6504.0));
-    if (t1 - t2).abs() < 1.0 {
-        return 1.0;
-    }
-    let g = (1.0 / t - 1.0 / t2) / (1.0 / t1 - 1.0 / t2);
-    g.clamp(0.0, 1.0)
+    lightcraft_color::camera::illuminant_weight(&camera_color(color), white)
 }
 
-fn interp(pair: &[Option<Mat3>; 2], g: f64) -> Option<Mat3> {
-    match pair {
-        [Some(a), Some(b)] => Some(lerp(a, b, g)),
-        [Some(a), None] | [None, Some(a)] => Some(*a),
-        [None, None] => None,
-    }
+/// DNG single/dual/triple calibration weights, shared by matrices and hue/saturation maps.
+pub fn illuminant_weights(color: &ColorData, white: Xy) -> [f64; 3] {
+    lightcraft_color::camera::illuminant_weights(&camera_color(color), white)
 }
 
-/// `AnalogBalance · CameraCalibration` for white `xy`.
-fn ab_cc(color: &ColorData, g: f64) -> Mat3 {
-    let ab = color.analog_balance.map(|a| Mat3::diag(a[0], a[1], a[2])).unwrap_or(Mat3::IDENTITY);
-    let cc = interp(&color.camera_calibration, g).unwrap_or(Mat3::IDENTITY);
-    ab.mul(&cc)
-}
-
-/// Whether the file carries a usable colour matrix.
+/// Whether a usable primary colour matrix is available.
 pub fn has_matrix(color: &ColorData) -> bool {
-    color.color_matrix.iter().any(|m| m.is_some())
+    lightcraft_color::camera::has_matrix(&camera_color(color))
 }
 
-/// `XYZtoCamera` for white `xy` (fallback: XYZ → linear sRGB).
+/// `AnalogBalance · CameraCalibration · ColorMatrix` for the chosen white.
 pub fn xyz_to_camera(color: &ColorData, white: Xy) -> Mat3 {
-    let g = illuminant_weight(color, white);
-    match interp(&color.color_matrix, g) {
-        Some(cm) => ab_cc(color, g).mul(&cm),
-        None => SRGB.from_xyz(),
-    }
+    lightcraft_color::camera::xyz_to_camera(&camera_color(color), white)
 }
 
-/// Camera neutral (raw camera values of a neutral surface under white `xy`), normalised to max 1.
+/// Camera neutral for the chosen white, normalized to max 1.
 pub fn camera_neutral(color: &ColorData, white: Xy) -> [f64; 3] {
-    let n = xyz_to_camera(color, white).apply(white.to_xyz());
-    let mx = n.iter().cloned().fold(f64::MIN, f64::max);
-    if mx > 0.0 { n.map(|v| v / mx) } else { [1.0; 3] }
+    lightcraft_color::camera::camera_neutral(&camera_color(color), white)
 }
 
-/// White-balance multipliers for white `xy` (reciprocal camera neutral, minimum 1).
+/// White-balance multipliers, minimum 1.
 pub fn wb_multipliers(color: &ColorData, white: Xy) -> [f64; 3] {
-    let n = camera_neutral(color, white);
-    let m = n.map(|v| if v > 1e-9 { 1.0 / v } else { 1.0 });
-    let mn = m.iter().cloned().fold(f64::MAX, f64::min);
-    m.map(|v| v / mn)
+    lightcraft_color::camera::wb_multipliers(&camera_color(color), white)
 }
 
-/// Convert a camera neutral to a white xy (DNG spec iteration: xy → XYZtoCamera(xy) → xy until stable).
+/// DNG iterative inverse from camera neutral to chromaticity.
 pub fn neutral_to_xy(color: &ColorData, neutral: [f64; 3]) -> Xy {
-    let mut xy = D50;
-    for _ in 0..50 {
-        let Some(inv) = xyz_to_camera(color, xy).inverse() else { return xy };
-        let xyz = inv.apply(neutral);
-        let next = Xy::from_xyz(xyz);
-        if !(next.x.is_finite() && next.y.is_finite()) || next.y <= 0.0 {
-            return xy;
-        }
-        let next = Xy::new(next.x.clamp(0.1, 0.7), next.y.clamp(0.1, 0.7));
-        let done = (next.x - xy.x).abs() < 1e-9 && (next.y - xy.y).abs() < 1e-9;
-        xy = next;
-        if done {
-            break;
-        }
-    }
-    xy
+    lightcraft_color::camera::neutral_to_xy(&camera_color(color), neutral)
 }
 
 /// The as-shot white point: `AsShotWhiteXY`, `AsShotNeutral`, vendor multipliers, else D65.
@@ -149,21 +96,7 @@ fn as_shot_white(c: &ColorData, wb_multipliers: Option<[f32; 3]>) -> Xy {
 
 /// Camera (raw, not white balanced) → XYZ relative to D50, for scene white `xy`.
 pub fn camera_to_xyz_d50(color: &ColorData, white: Xy) -> Mat3 {
-    let g = illuminant_weight(color, white);
-    if has_matrix(color)
-        && let Some(fm) = interp(&color.forward_matrix, g)
-    {
-        let abcc = ab_cc(color, g);
-        if let Some(abcc_inv) = abcc.inverse() {
-            let n = camera_neutral(color, white);
-            let rn = abcc_inv.apply(n);
-            if rn.iter().all(|v| *v > 1e-9) {
-                return fm.mul(&Mat3::diag(1.0 / rn[0], 1.0 / rn[1], 1.0 / rn[2])).mul(&abcc_inv);
-            }
-        }
-    }
-    let cam_to_xyz = xyz_to_camera(color, white).inverse().unwrap_or(Mat3::IDENTITY);
-    bradford(white, D50).mul(&cam_to_xyz)
+    lightcraft_color::camera::camera_to_xyz_d50(&camera_color(color), white)
 }
 
 /// Everything the pipeline needs to go from raw camera RGB to the working space.
@@ -220,6 +153,7 @@ pub fn grey_world(img: &lightcraft_raster::Rgb32f) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightcraft_color::{SRGB, cct};
 
     /// A plausible camera: XYZ → camera matrix (rows sum to something sensible), invertible.
     fn cam_a() -> Mat3 {
@@ -291,7 +225,7 @@ mod tests {
         let expect = (1.0 / 4000.0 - 1.0 / 6504.0) / (1.0 / 2856.0 - 1.0 / 6504.0);
         assert!((g - expect).abs() < 0.02, "{g} vs {expect}");
         let m = xyz_to_camera(&color, mid);
-        let l = lerp(&cam_a(), &cam_b(), g);
+        let l = Mat3(std::array::from_fn(|i| std::array::from_fn(|j| g * cam_a().0[i][j] + (1.0 - g) * cam_b().0[i][j])));
         assert!(close(m.0[0], l.0[0], 1e-12));
     }
 

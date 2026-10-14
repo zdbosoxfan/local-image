@@ -58,6 +58,9 @@ pub struct Tokens {
     pub slider_row_h: f32,
     pub section_h: f32,
     pub film_h: f32,
+    /// Develop content inset, shared by profile choices.
+    pub panel_inset_left: i8,
+    pub panel_inset_right: i8,
 }
 
 impl Default for Tokens {
@@ -104,6 +107,8 @@ impl Default for Tokens {
             slider_row_h: 45.0,
             section_h: 57.0,
             film_h: 142.0,
+            panel_inset_left: 24,
+            panel_inset_right: 22,
         }
     }
 }

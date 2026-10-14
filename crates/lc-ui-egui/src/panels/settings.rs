@@ -239,7 +239,7 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             ui.data_mut(|data| data.remove::<String>(edit_id));
         }
         let (choose, choosing) = if app.services.has_folder_picker() {
-            let r = ui.button(crate::i18n::tr("Choose…"));
+            let r = crate::widgets::text_button(ui, "cameraFolderChoose", "Choose…", false);
             crate::widgets::register(ui.ctx(), "settings:cameraFolderChoose", r.rect);
             (r.clicked(), r.is_pointer_button_down_on())
         } else {
@@ -254,7 +254,25 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
         }
     });
-    hint(ui, t, crate::i18n::tr("Read DCP profiles for matching cameras from this folder."));
+    hint(
+        ui,
+        t,
+        crate::i18n::tr("Read your DCP camera and LCP lens profiles here, including subfolders. Adobe install folders are detected automatically."),
+    );
+    if crate::widgets::text_button(ui, "profilesReload", "Reload Profiles", false).clicked() {
+        let _ = app.run("library.preferences", json!({"reloadProfiles":true}));
+    }
+    let (camera, lens, skipped) = lightcraft_engine::dcp_profiles::counts();
+    hint(
+        ui,
+        t,
+        &format!(
+            "{}: {camera}; {}: {lens}; {}: {skipped}",
+            crate::i18n::tr("Camera Profiles"),
+            crate::i18n::tr("Lens Profiles"),
+            crate::i18n::tr("Skipped")
+        ),
+    );
     let mut per = d.per_camera;
     row(ui, t, "", |ui| {
         if check(ui, "settings.perCamera", &mut per, "Use camera-specific defaults") {

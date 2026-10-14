@@ -11,6 +11,12 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub struct DevelopSettings {
     pub version: u32,
     pub profile: Profile,
+    /// Camera input profile: empty = automatic, "matrix" = matrix only, otherwise an imported DCP id.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub camera_profile: String,
+    /// Imported lens profile: empty = automatic; otherwise an LCP id.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub lens_profile: String,
     /// The base rendition of a raw photo ([`Look`]). Left out at its default.
     #[serde(default, skip_serializing_if = "Look::is_default")]
     pub look: Look,
@@ -71,6 +77,8 @@ impl Default for DevelopSettings {
         Self {
             version: SCHEMA_VERSION,
             profile: Profile::default(),
+            camera_profile: String::new(),
+            lens_profile: String::new(),
             look: Look::default(),
             look_options: LookOptions::default(),
             treatment: Treatment::Color,
@@ -834,7 +842,7 @@ impl Default for Optics {
 /// Lens corrections embedded in a DNG file (`OpcodeList3`: `WarpRectilinear`, `FixVignetteRadial`), converted
 /// to the oriented, default-cropped image. This is camera/file data (stored on the photo record, not in the develop
 /// settings); "Enable Profile Corrections" applies it, scaled by the profile distortion/vignetting amounts.
-/// LightCraft never uses Adobe LCP lens profiles.
+/// User-imported Adobe LCP profiles are carried separately by the render source.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EmbeddedLens {
@@ -1695,5 +1703,27 @@ mod filled_compat_tests {
             ..Default::default()
         };
         assert_eq!(tools.used_keys(), vec!["light"]);
+    }
+}
+
+#[cfg(test)]
+mod colorprofiles_tests {
+    use super::*;
+    #[test]
+    fn colorprofiles_old_settings_and_profile_copy_roundtrip() {
+        let old: DevelopSettings = serde_json::from_str(r#"{"light":{"exposure":1}}"#).unwrap();
+        assert!(old.camera_profile.is_empty());
+        assert!(old.lens_profile.is_empty());
+        let mut custom = old.clone();
+        custom.camera_profile = "dcp:custom".into();
+        custom.lens_profile = "lcp:custom".into();
+        assert_eq!(serde_json::from_str::<DevelopSettings>(&serde_json::to_string(&custom).unwrap()).unwrap(), custom);
+        let copy = crate::extract_groups(&custom, &[crate::SettingsGroup::Profile, crate::SettingsGroup::Optics]);
+        assert_eq!(old.merged(&copy).unwrap().camera_profile, "dcp:custom");
+        let reset = crate::extract_groups(&old, &[crate::SettingsGroup::Profile, crate::SettingsGroup::Optics]);
+        let restored = custom.merged(&reset).unwrap();
+        assert!(restored.camera_profile.is_empty());
+        assert!(restored.lens_profile.is_empty());
+        assert_ne!(old.hash64(), custom.hash64());
     }
 }

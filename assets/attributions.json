@@ -496,6 +496,32 @@
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtdata/dcpprofiles/"
         },
         {
+          "name": "CIE",
+          "version": "DOI 10.25039/CIE.DS.xvudnb9b; SHA-256",
+          "upstream": "CIE 018:2019 Table 6, complete CIE_xyz_1931_2deg.csv and metadata",
+          "commit": "fa663e3535a7e0763a745993a1f0a192eb0275ac46ad2d1befd7626841e713c1",
+          "ours": "crates/lc-raw/data/color/",
+          "licence": "CC-BY-SA-4.0 (separate data work)",
+          "licence_files": [
+            "licenses/cie-LICENSE-CC-BY-SA-4.0.txt",
+            "licenses/cie-NOTICE.md"
+          ],
+          "url": "https://cie.co.at/datatable/cie-1931-colour-matching-functions-2-degree-observer"
+        },
+        {
+          "name": "RawTherapee",
+          "version": "Adobe Camera Model 2010 PDF",
+          "used_for": "Read-only Adobe Lens Correction Profile (LCP) import.",
+          "upstream": "rtengine/lcp.cc, interpretation of Adobe Camera Model (2010); original XML parser",
+          "commit": "c6d04960e14fed89e531cbbdf680021d131b4685",
+          "ours": "crates/lc-raw/src/lcp.rs, crates/lc-pipeline/src/lcp.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/c6d04960e14fed89e531cbbdf680021d131b4685/rtengine/lcp.cc"
+        },
+        {
           "name": "VectorCraft",
           "used_for": "Adapted from VectorCraft crates/geom/src/path.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.",
           "upstream": "crates/geom/src/path.rs",
@@ -7011,6 +7037,18 @@
             "licenses/model-system-NOTICE.md"
           ],
           "url": "https://github.com/ltdrdata/ComfyUI-Manager"
+        },
+        {
+          "name": "CIE 1931 standard colorimetric observer (2 degree)",
+          "author": "CIE 2019, International Commission on Illumination, Vienna, AT",
+          "used_for": "Whole 471-row observer dataset for DNG IlluminantData spectral whites; CIE 018:2019 Table 6, DOI 10.25039/CIE.DS.xvudnb9b. CSV and metadata retained unmodified.",
+          "ours": "crates/lc-raw/data/color/",
+          "licence": "CC-BY-SA-4.0 (separate data work)",
+          "licence_files": [
+            "licenses/cie-NOTICE.md",
+            "licenses/cie-LICENSE-CC-BY-SA-4.0.txt"
+          ],
+          "url": "https://doi.org/10.25039/CIE.DS.xvudnb9b"
         }
       ]
     },

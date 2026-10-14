@@ -87,8 +87,9 @@ fn wb_gain(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings, gain: f32) 
     let cc = crate::colorcal::of(info, s).filter(|c| !c.is_linear());
     let tables = info.camera_profile.as_ref().and_then(|profile| {
         let (t, tint) = effective_wb(info, s);
-        let g = info.camera_color.map_or(1.0, |camera| lightcraft_color::camera::illuminant_weight(&camera.color, temp_tint_to_xy(t, tint)));
-        lightcraft_color::profile::ProfileTables::new(profile, g)
+        let weights =
+            info.camera_color.map_or([1.0, 0.0, 0.0], |camera| lightcraft_color::camera::illuminant_weights(&camera.color, temp_tint_to_xy(t, tint)));
+        lightcraft_color::profile::ProfileTables::new_weighted(profile, weights)
     });
     let baseline = info.baseline_gain.max(1e-9);
     let w = img.width;

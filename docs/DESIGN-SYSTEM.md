@@ -261,3 +261,7 @@ In practice: no `Color32::from_rgb` or `from_gray` in chrome, no `rect_filled` f
 `ui.checkbox`/`ComboBox`/`ui.button` where `widgets::` has one, no private copy of a widget in a panel file.
 A new widget goes in `widgets.rs` with a doc comment saying what it is for and where it is used, themes
 through tokens, names itself for accessibility, and replaces every ad hoc copy in the same change.
+
+`widgets::profile_choice` is the shared camera/lens profile picker: a labelled, width-bounded
+combo using theme text and panel inset tokens. Its choices carry group headings and automation
+ids (`combo:<id>` / `choice:<id>:<profile>`), and it is used in Develop and the profile browser.

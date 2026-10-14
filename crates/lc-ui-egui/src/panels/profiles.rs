@@ -41,6 +41,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         ui.add_space(6.0);
     }
     divider(ui);
+    camera_profile_row(app, ui, id, &d);
     let mut sections: Vec<(&str, &str, Vec<&'static ProfileInfo>)> = Vec::new();
     let favs: Vec<&'static ProfileInfo> = app.session.profile_favorites.iter().filter_map(|f| profile(f)).collect();
     if !favs.is_empty() {
@@ -151,5 +152,38 @@ fn cell_ui(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: 
             let _ = app.run("develop.profile", json!({"id": p.id, "amount": 100}));
             ui.data_mut(|m| m.remove::<(PhotoId, String)>(egui::Id::new("last-profile-hover")));
         }
+    }
+}
+
+/// Camera input calibration choices available for this photo's camera.
+pub(super) fn camera_profile_row(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &DevelopSettings) {
+    let Some(p) = app.session.catalog.photo(id).filter(|p| p.develops_raw()) else {
+        return;
+    };
+    let mut choices = vec![
+        (String::new(), crate::i18n::tr("Automatic").into(), "Camera Profiles".into()),
+        ("matrix".into(), crate::i18n::tr("Matrix Only").into(), "Camera Profiles".into()),
+    ];
+    choices.extend(lightcraft_engine::dcp_profiles::available("", &p.meta.camera).into_iter().map(|p| (p.id, p.name, p.group)));
+    if let Some(selected) = crate::widgets::profile_choice(ui, "cameraProfile", "Camera Profile", &d.camera_profile, &choices) {
+        let _ = app.run("develop.merge", json!({"settings":{"camera_profile":selected},"label":"Camera Profile"}));
+    }
+}
+
+pub(super) fn lens_profile_row(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &DevelopSettings) {
+    let Some(p) = app.session.catalog.photo(id) else {
+        return;
+    };
+    let mut choices = vec![
+        (String::new(), crate::i18n::tr("Automatic").into(), "Lens Profiles".into()),
+        ("none".into(), crate::i18n::tr("Embedded / Lens Database").into(), "Lens Profiles".into()),
+    ];
+    choices.extend(
+        lightcraft_engine::dcp_profiles::available_lenses(&p.meta.camera, &p.meta.lens, p.develops_raw())
+            .into_iter()
+            .map(|p| (p.id, p.name, p.group)),
+    );
+    if let Some(selected) = crate::widgets::profile_choice(ui, "lensProfile", "Lens Profile", &d.lens_profile, &choices) {
+        let _ = app.run("develop.merge", json!({"settings":{"lens_profile":selected},"label":"Lens Profile"}));
     }
 }

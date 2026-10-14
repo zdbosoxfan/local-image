@@ -62,7 +62,7 @@ impl SettingsHashes {
 }
 
 /// Bump when the pipeline's output changes, to invalidate cached thumbnails.
-pub const RENDER_CACHE_VERSION: u64 = 17;
+pub const RENDER_CACHE_VERSION: u64 = 18;
 
 /// Thumbnails render at one of these long edges (so window/cell size changes reuse the cache).
 pub const THUMB_SIZES: [usize; 4] = [128, 256, 384, 512];
@@ -138,6 +138,10 @@ impl DecodedSource {
     pub fn info_or(&self, header: SourceInfo) -> SourceInfo {
         let mut i = self.info.clone().unwrap_or(SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header });
         i.lens_db = header.lens_db;
+        i.lcp = header.lcp;
+        if let Some(lcp) = &mut i.lcp {
+            lcp.exif_orientation = i.source_orientation;
+        }
         i
     }
 }
@@ -777,7 +781,7 @@ pub fn content_key(p: &Photo) -> String {
 
 /// [`source_info`] with what the settings `s` add to it (the lens database's correction).
 pub fn job_info(p: &Photo, s: &DevelopSettings) -> SourceInfo {
-    SourceInfo { lens_db: crate::lens_db::for_photo(p, s), ..source_info(p) }
+    SourceInfo { lens_db: crate::lens_db::for_photo(p, s), lcp: crate::dcp_profiles::lens_for_photo(p, s), ..source_info(p) }
 }
 
 pub fn source_info(p: &Photo) -> SourceInfo {

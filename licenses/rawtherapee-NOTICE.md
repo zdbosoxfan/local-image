@@ -58,3 +58,13 @@ read-only robustness reference. **No code was ported from it.** Our existing spa
 held-out JPEG fit uses median bins, isotonic regression and validation instead of global CDF
 matching: this preserves correspondences and rejects unrelated previews. Low-colour photos
 with valid camera calibration can fit tone/chroma without fitting a new colour matrix.
+
+
+## User LCP interpretation (2026-10-14)
+
+The original safe Rust LCP reader and geometry evaluator follow Adobe Camera Model (2010),
+https://download.macromedia.com/pub/labs/lensprofile_creator/lensprofile_creator_cameramodel.pdf,
+and RawTherapee rtengine/lcp.cc at c6d04960e14fed89e531cbbdf680021d131b4685 (Oliver Duis and RawTherapee contributors, GPL-3.0-or-later).
+Perspective radial/tangential, chromatic and vignette equations are retained; interpolation is
+implementation-defined by Adobe. Unlike RT's optional Taylor vignette approximation, Local Image
+uses the exact reciprocal model. Adobe profiles remain in the user's install and are not shipped.

@@ -259,6 +259,9 @@ impl ToneCurve {
 pub struct ProfileLook {
     /// `ProfileHueSatMapData1/2` (same shape, `ProfileHueSatMapDims`).
     pub hue_sat_map: [Option<HsvTable>; 2],
+    /// DNG 1.6 `ProfileHueSatMapData3`; additive so existing documents still load.
+    #[serde(default)]
+    pub hue_sat_map_3: Option<HsvTable>,
     /// `ProfileLookTableData`.
     pub look_table: Option<HsvTable>,
     /// `ProfileToneCurve`.
@@ -267,7 +270,7 @@ pub struct ProfileLook {
 
 impl ProfileLook {
     pub fn is_empty(&self) -> bool {
-        self.hue_sat_map.iter().all(Option::is_none) && self.look_table.is_none() && self.tone_curve.is_none()
+        self.hue_sat_map.iter().all(Option::is_none) && self.hue_sat_map_3.is_none() && self.look_table.is_none() && self.tone_curve.is_none()
     }
 
     /// Stable content fingerprint for stage-cache invalidation without allocating a debug
@@ -279,7 +282,7 @@ impl ProfileLook {
                 h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
             }
         };
-        for t in [&self.hue_sat_map[0], &self.hue_sat_map[1], &self.look_table] {
+        for t in [&self.hue_sat_map[0], &self.hue_sat_map[1], &self.hue_sat_map_3, &self.look_table] {
             word(u64::from(t.is_some()));
             if let Some(t) = t {
                 for v in [t.hue_divisions, t.sat_divisions, t.val_divisions, usize::from(t.srgb_value)] {
@@ -298,10 +301,40 @@ impl ProfileLook {
         h
     }
 
-    /// The hue/saturation map for calibration-1 weight `g` (one table: used for any white).
+    /// The hue/saturation map for calibration-1 weight `g` (legacy dual profiles).
     pub fn hue_sat_for(&self, g: f64) -> Option<HsvTable> {
+        self.hue_sat_for_weights([g, 1.0 - g, 0.0])
+    }
+
+    /// Entry-wise interpolation with the same three weights used by the colour matrices.
+    pub fn hue_sat_for_weights(&self, weights: [f64; 3]) -> Option<HsvTable> {
+        if let [Some(a), Some(b), Some(c)] = [self.hue_sat_map[0].as_ref(), self.hue_sat_map[1].as_ref(), self.hue_sat_map_3.as_ref()] {
+            let maps = [a, b, c];
+            let mut result = a.clone();
+            for map in &maps[1..] {
+                if (a.hue_divisions, a.sat_divisions, a.val_divisions, a.srgb_value)
+                    != (map.hue_divisions, map.sat_divisions, map.val_divisions, map.srgb_value)
+                {
+                    return None;
+                }
+            }
+            let weights = weights.map(|w| if w.is_finite() { w.max(0.0) } else { 0.0 });
+            let sum: f64 = weights.iter().sum();
+            if sum <= 0.0 {
+                return None;
+            }
+            for (i, entry) in result.data.iter_mut().enumerate() {
+                *entry = std::array::from_fn(|j| maps.iter().zip(weights).map(|(map, w)| f64::from(map.data[i][j]) * w / sum).sum::<f64>() as f32);
+            }
+            return Some(result);
+        }
+        // DNG triple profiles require either three matching maps or no maps. Avoid
+        // silently selecting a different illuminant when an incomplete set is encountered.
+        if weights[2] > 0.0 {
+            return None;
+        }
         match &self.hue_sat_map {
-            [Some(a), Some(b)] => HsvTable::blend(a, b, g).or_else(|| Some(a.clone())),
+            [Some(a), Some(b)] => HsvTable::blend(a, b, weights[0]).or_else(|| Some(a.clone())),
             [Some(a), None] | [None, Some(a)] => Some(a.clone()),
             [None, None] => None,
         }
@@ -320,7 +353,12 @@ pub struct ProfileTables {
 impl ProfileTables {
     /// `None` when the profile has no hue/saturation map and no look table.
     pub fn new(look: &ProfileLook, illuminant_weight: f64) -> Option<ProfileTables> {
-        let hue_sat = look.hue_sat_for(illuminant_weight);
+        Self::new_weighted(look, [illuminant_weight, 1.0 - illuminant_weight, 0.0])
+    }
+
+    /// Resolve a DNG 1.6 triple-illuminant profile for the chosen white balance.
+    pub fn new_weighted(look: &ProfileLook, weights: [f64; 3]) -> Option<ProfileTables> {
+        let hue_sat = look.hue_sat_for_weights(weights);
         if hue_sat.is_none() && look.look_table.is_none() {
             return None;
         }
@@ -357,6 +395,29 @@ mod tests {
 
     fn close(a: [f32; 3], b: [f32; 3], tol: f32) -> bool {
         a.iter().zip(&b).all(|(x, y)| (x - y).abs() <= tol)
+    }
+
+    #[test]
+    fn triple_illuminant_hue_sat_maps_use_all_three_weights_and_hash() {
+        let table = |shift, sat, val| HsvTable::from_tags(&[1, 2, 1], &[shift, sat, val, shift, sat, val], 0).unwrap();
+        let mut look = ProfileLook {
+            hue_sat_map: [Some(table(10.0, 1.0, 1.0)), Some(table(-10.0, 0.5, 0.8))],
+            hue_sat_map_3: Some(table(30.0, 1.5, 0.6)),
+            ..Default::default()
+        };
+        let map = look.hue_sat_for_weights([0.2, 0.3, 0.5]).unwrap();
+        let expected = [14.0, 1.1, 0.74];
+        for (actual, expected) in map.data[0].into_iter().zip(expected) {
+            assert!((actual - expected).abs() < 1e-6);
+        }
+        assert_eq!(look.hue_sat_for_weights([0.0, 0.0, 1.0]).unwrap(), *look.hue_sat_map_3.as_ref().unwrap());
+        assert!(ProfileTables::new_weighted(&look, [0.2, 0.3, 0.5]).is_some());
+        let hash = look.hash64();
+        look.hue_sat_map_3.as_mut().unwrap().data[0][0] += 1.0;
+        assert_ne!(hash, look.hash64());
+        let third_only = ProfileLook { hue_sat_map_3: look.hue_sat_map_3, ..Default::default() };
+        assert!(!third_only.is_empty());
+        assert!(third_only.hue_sat_for_weights([0.0, 0.0, 1.0]).is_none());
     }
 
     #[test]
@@ -450,7 +511,7 @@ mod tests {
             (a.hue_divisions, a.sat_divisions, a.val_divisions, a.srgb_value)
         );
         assert!(HsvTable::blend(&a, &identity(3, 2, 1), 0.5).is_none());
-        let look = ProfileLook { hue_sat_map: [Some(a.clone()), None], look_table: Some(a), tone_curve: None };
+        let look = ProfileLook { hue_sat_map: [Some(a.clone()), None], look_table: Some(a), tone_curve: None, ..Default::default() };
         let t = ProfileTables::new(&look, 0.5).unwrap();
         let c = [0.3, 0.2, 0.1];
         assert!(close(t.apply(c, 2.0), [0.6, 0.4, 0.2], 1e-4), "{:?}", t.apply(c, 2.0));

@@ -32,8 +32,13 @@ fn raw_options_of_default_settings_is_default() {
 
 #[test]
 fn raw_options_non_default_key_odd() {
-    let opts =
-        RawOptions { demosaic: develop::Demosaic::Amaze, dual_threshold: 0.5, highlights: develop::HighlightMode::Reconstruct, capture_radius: true };
+    let opts = RawOptions {
+        demosaic: develop::Demosaic::Amaze,
+        dual_threshold: 0.5,
+        highlights: develop::HighlightMode::Reconstruct,
+        capture_radius: true,
+        ..Default::default()
+    };
     assert!(!opts.is_default());
     let key = opts.key();
     assert_ne!(key, 0);
@@ -42,7 +47,13 @@ fn raw_options_non_default_key_odd() {
 
 #[test]
 fn raw_options_key_deterministic() {
-    let a = RawOptions { demosaic: develop::Demosaic::Ppg, dual_threshold: 0.2, highlights: develop::HighlightMode::Opposed, capture_radius: false };
+    let a = RawOptions {
+        demosaic: develop::Demosaic::Ppg,
+        dual_threshold: 0.2,
+        highlights: develop::HighlightMode::Opposed,
+        capture_radius: false,
+        ..Default::default()
+    };
     let b = a;
     assert_eq!(a.key(), b.key());
 }

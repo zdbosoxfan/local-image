@@ -54,6 +54,8 @@ updated to a newer upstream commit, update its row (commit and date) rather than
 | `crates/lc-raw/src/camera_matrices.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/camconst.json` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-color/src/profile.rs`, `camera.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/dcp.cc` (table interpolation, matrix blending) | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-raw/data/dcp/` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtdata/dcpprofiles/` (explicit embedded-rights allowlist) | `5f486d3678b34c74ba0c63571c17babe20935019` | CC0-1.0 / public domain; per-file rights + SHA-256 in manifest | 2026-10-09 |
+| `crates/lc-raw/data/color/` | [CIE](https://cie.co.at/datatable/cie-1931-colour-matching-functions-2-degree-observer) | CIE 018:2019 Table 6, complete CIE_xyz_1931_2deg.csv and metadata | DOI 10.25039/CIE.DS.xvudnb9b; SHA-256 fa663e3535a7e0763a745993a1f0a192eb0275ac46ad2d1befd7626841e713c1 | CC-BY-SA-4.0 (separate data work) | 2026-10-14 |
+| `crates/lc-raw/src/lcp.rs`, `crates/lc-pipeline/src/lcp.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | rtengine/lcp.cc, interpretation of Adobe Camera Model (2010); original XML parser | `c6d04960e14fed89e531cbbdf680021d131b4685`; Adobe Camera Model 2010 PDF | GPL-3.0-or-later | 2026-10-14 |
 | `crates/pc-pathops/src/geom/path.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/path.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
 | `crates/pc-pathops/src/adapter.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/path.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
 | `crates/pc-pathops/src/geom/bez.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/bez.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
@@ -623,3 +625,19 @@ All glue is in one adapter; rawler remains an ordinary crates.io dependency.
 | Our file | Upstream project | Upstream path | Upstream commit | Licence | Date | Used for |
 |---|---|---|---|---|---|---|
 | `crates/lc-raw/src/rawler_adapter.rs` | [rawler](https://github.com/dnglab/dnglab) | `rawler/Cargo.toml` | `ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7` | LGPL-2.1-only | 2026-10-13 | Unmodified crates.io 0.8.0 dependency for Canon CR3 RAW/C-RAW/dual-pixel, compressed Fujifilm RAF and Olympus/OM ORF; fallback for any native Unsupported variant, and runtime camera calibration missing from our first-choice table. |
+
+
+## User camera/lens profile imports (2026-10-14)
+
+Adobe DCP/LCP data is **never bundled or redistributed**. Runtime import reads the user's own
+DNG Converter/Camera Raw install or chosen folder; original files remain whole and unchanged.
+Keep the user's installer/version and originals for reproducibility, replace with a new licensed
+install to update, then use Settings → Import → Reload Profiles. Content-based ids invalidate
+changed selections/caches. See [CAMERA-PROFILES.md](CAMERA-PROFILES.md) for locations and custom
+GPL-3 dcamprof profiles; no dcamprof/Adobe SDK/C reference dependency enters Cargo.lock.
+
+Triple-illuminant matrices and hue/saturation weighting follow DNG 1.6/1.7 chapter 6 and
+[Adobe SDK](https://android.googlesource.com/platform/external/dng_sdk/+/de700ad461e35af50b28b861943a0b0753b10929/source/dng_color_spec.cpp)
+reference algorithms at `de700ad461e35af50b28b861943a0b0753b10929`. SDK numeric reference
+vectors are produced externally under target/refvec; no SDK source is compiled in the app.
+CIE data update instructions are [with the whole pinned data](../crates/lc-raw/data/color/README.md).

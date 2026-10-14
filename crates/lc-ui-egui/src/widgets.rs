@@ -720,6 +720,42 @@ pub fn dropdown(ui: &mut Ui, id: &str, text: &str, font: egui::FontId, color: Co
     resp
 }
 
+/// A labelled, width-bounded profile choice, shared by camera and lens profile pickers.
+/// Rows register both the combo and each choice for headless and accessibility tests.
+pub fn profile_choice(ui: &mut Ui, id: &str, label: &str, selected: &str, choices: &[(String, String, String)]) -> Option<String> {
+    let t = Tokens::get(ui.ctx());
+    let mut picked = None;
+    egui::Frame::NONE.inner_margin(egui::Margin { left: t.panel_inset_left, right: t.panel_inset_right, top: 0, bottom: 0 }).show(ui, |ui| {
+        ui.label(egui::RichText::new(crate::i18n::tr(label)).color(t.text_dim));
+        let name = choices
+            .iter()
+            .find(|(key, _, _)| key == selected)
+            .map(|(_, name, _)| name.as_str())
+            .unwrap_or_else(|| crate::i18n::tr("Missing Profile"));
+        let r = egui::ComboBox::from_id_salt(id).selected_text(name).width(ui.available_width()).truncate().show_ui(ui, |ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+            let mut group = String::new();
+            for (key, name, section) in choices {
+                if group != *section {
+                    if !group.is_empty() {
+                        ui.separator();
+                    }
+                    ui.label(egui::RichText::new(crate::i18n::tr(section)).color(t.text_dim));
+                    group = section.clone();
+                }
+                let r = ui.selectable_label(key == selected, name);
+                register(ui.ctx(), format!("choice:{id}:{key}"), r.rect);
+                if r.clicked() {
+                    picked = Some(key.clone());
+                }
+            }
+        });
+        r.response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("{}: {name}", crate::i18n::tr(label))));
+        register(ui.ctx(), format!("combo:{id}"), r.response.rect);
+    });
+    picked
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -747,6 +783,26 @@ mod tests {
 #[cfg(test)]
 mod access_tests {
     use super::*;
+
+    #[test]
+    fn colorprofiles_shared_picker_names_its_camera_field() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        crate::theme::install_fonts(&ctx);
+        let mut names = Vec::new();
+        for _ in 0..3 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.set_width(250.);
+                let choices = vec![(String::new(), "Automatic".into(), "Camera Profiles".into())];
+                profile_choice(ui, "testProfile", "Camera Profile", "", &choices);
+            });
+            out.textures_delta.clear();
+            if let Some(update) = out.platform_output.accesskit_update.take() {
+                names = update.nodes.iter().map(|(_, n)| n.label().unwrap_or_default().to_string()).collect();
+            }
+        }
+        assert!(names.iter().any(|n| n == "Camera Profile: Automatic"), "{names:?}");
+    }
 
     /// Screen readers see the custom widgets: sliders by control name with their value, buttons
     /// by label or tooltip.

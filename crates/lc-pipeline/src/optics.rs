@@ -56,6 +56,9 @@ pub struct Warp {
     pub lensdb_dist: f64,
     pub lensdb_tca: f64,
     pub lensdb_vig: f64,
+    pub lcp: Option<crate::lcp::LcpMap>,
+    pub lcp_dist: f64,
+    pub lcp_vig: f64,
 }
 
 impl Warp {
@@ -76,6 +79,9 @@ impl Warp {
             lensdb_dist: 0.0,
             lensdb_tca: 0.0,
             lensdb_vig: 0.0,
+            lcp: None,
+            lcp_dist: 0.0,
+            lcp_vig: 0.0,
         }
     }
 
@@ -97,6 +103,22 @@ impl Warp {
         self.lens = None;
         self.lens_dist = 0.0;
         self.lens_vig = 0.0;
+    }
+
+    /// An imported LCP replaces other profile corrections, preserving manual controls.
+    pub fn set_lcp(&mut self, c: &crate::lcp::LcpCorrection, o: Orientation, src_w: f64, src_h: f64, s: &DevelopSettings) {
+        if !s.optics.lens_profile || !s.section_enabled("optics") || !c.valid() {
+            return;
+        }
+        let mut correction = *c;
+        if !s.optics.remove_ca {
+            correction.chromatic = None;
+        }
+        self.lcp = Some(crate::lcp::LcpMap { correction, orientation: o, source_w: src_w, source_h: src_h });
+        self.lcp_dist = (s.optics.profile_distortion / 100.0).clamp(0.0, 2.0);
+        self.lcp_vig = (s.optics.profile_vignetting / 100.0).clamp(0.0, 2.0);
+        self.lens = None;
+        self.lensdb = None;
     }
 
     /// The lens part of the warp from the settings (optics section) and optional embedded lens data.
@@ -130,7 +152,10 @@ impl Warp {
 
     /// Whether pixels move at all.
     pub fn moves_pixels(&self) -> bool {
-        self.persp != Homography::IDENTITY
+        self.lcp.is_some_and(|m| {
+            (self.lcp_dist != 0.0 && m.correction.geometric_model().is_some_and(|d| d.radial != [0.0; 3] || d.tangential != [0.0; 2]))
+                || m.correction.per_channel()
+        }) || self.persp != Homography::IDENTITY
             || self.k1 != 0.0
             || self.ca.iter().any(|c| *c != 0.0)
             || (self.lens_dist != 0.0 && self.lens.is_some_and(|l| l.warp.is_some()))
@@ -141,14 +166,16 @@ impl Warp {
 
     /// Whether the colour planes are sampled at different positions.
     pub fn per_channel(&self) -> bool {
-        self.ca[0] != self.ca[1]
+        self.lcp.is_some_and(|m| m.correction.per_channel())
+            || self.ca[0] != self.ca[1]
             || self.ca[1] != self.ca[2]
             || (self.lens_dist != 0.0 && self.lens.and_then(|l| l.warp).is_some_and(|w| w.planes[0] != w.planes[1] || w.planes[1] != w.planes[2]))
             || (self.lensdb_tca != 0.0 && self.lensdb.is_some_and(|m| m.c.per_channel()))
     }
 
     pub fn has_gain(&self) -> bool {
-        self.vig_stops != 0.0
+        (self.lcp_vig != 0.0 && self.lcp.is_some_and(|m| m.correction.has_gain()))
+            || self.vig_stops != 0.0
             || (self.lens_vig != 0.0 && self.lens.is_some_and(|l| l.vignette.is_some()))
             || (self.lensdb_vig != 0.0 && self.lensdb.is_some_and(|m| m.c.vignetting.is_some_and(|k| k != [0.0; 3])))
     }
@@ -209,6 +236,9 @@ impl Warp {
         if let Some(m) = &self.lensdb {
             (qx, qy) = m.to_source_real(qx, qy, ch, self.lensdb_dist, self.lensdb_tca);
         }
+        if let Some(m) = &self.lcp {
+            (qx, qy) = m.to_source_real(qx, qy, ch, self.lcp_dist);
+        }
         let k = self.ca[ch];
         if k != 0.0 {
             (qx, qy) = ((qx - c.x) * (1.0 + k) + c.x, (qy - c.y) * (1.0 + k) + c.y);
@@ -238,6 +268,11 @@ impl Warp {
             && let Some(m) = &self.lensdb
         {
             g *= m.gain(src.x, src.y, self.lensdb_vig);
+        }
+        if self.lcp_vig != 0.0
+            && let Some(m) = &self.lcp
+        {
+            g *= m.gain(src.x, src.y, self.lcp_vig);
         }
         g as f32
     }
