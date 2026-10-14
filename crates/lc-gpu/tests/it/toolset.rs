@@ -133,6 +133,7 @@ fn lenses() -> Vec<(&'static str, LensCorrection)> {
 }
 
 fn lens_on(s: &mut DevelopSettings, strength: f64) {
+    s.optics.lens_profile = true;
     s.lens_db.enabled = true;
     s.lens_db.distortion = strength;
     s.lens_db.tca = strength;
@@ -292,7 +293,7 @@ fn lens_profiles_at_borders_all_orientations_match() {
 }
 
 #[test]
-fn lens_profiles_replace_embedded_and_zero_strength_matches_disabled() {
+fn embedded_profiles_precede_database_and_zero_strength_matches_disabled() {
     let _gpu = crate::support::lock();
     use lightcraft_develop::{EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
     if !gpu() {
@@ -301,24 +302,27 @@ fn lens_profiles_replace_embedded_and_zero_strength_matches_disabled() {
     let src = scene(2, 301, 199);
     let req = RenderRequest::fit(301, 301);
     let lens = EmbeddedLens {
-        warp: Some(EmbeddedWarp { planes: [[1.0, 0.3, 0.0, 0.0, 0.01, -0.01]; 3], center: Point::new(0.4, 0.6), radius: 0.6 }),
+        warp: Some(EmbeddedWarp { fisheye: false, planes: [[1.0, 0.3, 0.0, 0.0, 0.01, -0.01]; 3], center: Point::new(0.4, 0.6), radius: 0.6 }),
         vignette: Some(EmbeddedVignette { k: [0.4, 0.0, 0.0, 0.0, 0.0], center: Point::new(0.4, 0.6), radius: 0.6 }),
+        radial: None,
     };
     let info = SourceInfo { lens_db: Some(barrel()), lens: Some(lens), ..raw() };
     let mut s = DevelopSettings::default();
     s.optics.lens_profile = true;
     for strength in [0.0, 100.0, 200.0] {
         lens_on(&mut s, strength);
-        let g = check(&format!("db replaces embedded {strength}%"), &src, &info, &s, &req);
-        let without_embedded = SourceInfo { lens: None, ..info.clone() };
-        assert_eq!(g, gpu_render(&src, &without_embedded, &s, &req, None));
+        s.optics.profile_distortion = strength;
+        s.optics.profile_vignetting = strength;
+        let g = check(&format!("embedded precedes db {strength}%"), &src, &info, &s, &req);
+        let without_database = SourceInfo { lens_db: None, ..info.clone() };
+        assert_eq!(g, gpu_render(&src, &without_database, &s, &req, None));
         if strength == 0.0 {
             let disabled = SourceInfo { lens: None, lens_db: None, ..info.clone() };
             assert_eq!(g, gpu_render(&src, &disabled, &s, &req, None), "zero strengths take the ordinary copy path");
         }
     }
     // A PA polynomial at/below its guard returns unity, including at 200%.
-    s.optics.lens_profile = false;
+    s.optics.lens_profile = true;
     let info = SourceInfo {
         lens_db: Some(LensCorrection { distortion: Distortion::None, tca: Tca::None, vignetting: Some([-8.0, 0.0, 0.0]), ..barrel() }),
         ..raw()

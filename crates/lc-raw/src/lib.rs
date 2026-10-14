@@ -31,6 +31,7 @@ pub mod color;
 pub mod demosaic;
 mod dng;
 pub mod dngwrite;
+pub mod embedded_lens;
 pub mod highlight;
 pub mod ljpeg;
 mod numerics;
@@ -54,6 +55,7 @@ mod vendor;
 
 pub use demosaic::{DemosaicOptions, Method, demosaic, demosaic_with};
 pub use dngwrite::{DngCompression, DngWriteOptions, write_dng};
+pub use embedded_lens::VendorLens;
 pub use lightcraft_color::Mat3;
 pub use lightcraft_geom::Orientation;
 pub use lightcraft_meta::Metadata;
@@ -204,7 +206,7 @@ fn decode_with(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         RawFormat::Orf => vendor::orf::decode(bytes, mode),
         other => Err(RawError::Unsupported(format!("{other:?} files are not decoded yet"))),
     };
-    match native {
+    let decoded = match native {
         Err(RawError::Unsupported(_)) => rawler_adapter::decode(bytes, format, mode),
         result => result.map(|mut image| {
             rawler_adapter::fill_color(
@@ -214,7 +216,11 @@ fn decode_with(bytes: &[u8], mode: Mode) -> Result<RawImage> {
             );
             image
         }),
-    }
+    };
+    decoded.map(|mut image| {
+        image.vendor_lens = embedded_lens::extract(bytes, format);
+        image
+    })
 }
 
 /// DNG writers state a white level the sensor may never reach; samples stuck at the real saturation point are
@@ -241,6 +247,9 @@ pub struct RawInfo {
     pub color: ColorData,
     pub wb_multipliers: Option<[f32; 3]>,
     pub opcodes: OpcodeLists,
+    /// Camera-embedded correction data, available with either pixel decoder.
+    #[serde(default)]
+    pub vendor_lens: Option<VendorLens>,
     pub metadata: Metadata,
 }
 
@@ -464,6 +473,9 @@ pub struct RawImage {
     /// Whether a `LinearizationTable` was applied to `data`.
     pub linearized: bool,
     pub opcodes: OpcodeLists,
+    /// Camera-embedded correction data, available with either pixel decoder.
+    #[serde(default)]
+    pub vendor_lens: Option<VendorLens>,
     pub metadata: Metadata,
 }
 
@@ -519,6 +531,7 @@ impl RawImage {
             color: self.color.clone(),
             wb_multipliers: self.wb_multipliers,
             opcodes: self.opcodes.clone(),
+            vendor_lens: self.vendor_lens.clone(),
             metadata: self.metadata.clone(),
         }
     }
@@ -538,6 +551,7 @@ impl RawImage {
             color: self.color,
             wb_multipliers: self.wb_multipliers,
             opcodes: self.opcodes,
+            vendor_lens: self.vendor_lens,
             metadata: self.metadata,
         }
     }

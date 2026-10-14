@@ -44,7 +44,7 @@ impl Frame {
     }
 
     /// Like [`Frame::with_lens`], with the lens database's correction too (used instead of the
-    /// embedded one when the settings turn it on).
+    /// embedded one is absent and the profile switch is on).
     pub fn with_lenses(
         src_w: usize,
         src_h: usize,
@@ -83,6 +83,29 @@ impl Frame {
             f.constrain_to_image();
         }
         f
+    }
+
+    /// The green-plane geometry for scalar sensor metadata. Shading, channel
+    /// mixing and CA must not alter clip confidence or other scalar facts.
+    pub fn for_metadata(&self) -> Frame {
+        let mut frame = self.clone();
+        if let Some(warp) = frame.warp.as_mut() {
+            warp.camera_basis = None;
+            warp.ca = [0.0; 3];
+            warp.vig_stops = 0.0;
+            warp.lens_vig = 0.0;
+            warp.lensdb_vig = 0.0;
+            warp.lensdb_tca = 0.0;
+            if let Some(lens) = warp.lens.as_mut() {
+                if let Some(w) = lens.warp.as_mut() {
+                    w.planes = [w.planes[1]; 3];
+                }
+                if let Some(r) = lens.radial.as_mut() {
+                    r.scales = [r.scales[1]; 3];
+                }
+            }
+        }
+        frame
     }
 
     /// "Constrain Crop": shrink the crop about its centre until it contains no area outside the warped source.
@@ -309,9 +332,22 @@ fn sample_warped(base: &Rgb32f, sx: f64, sy: f64, wp: &Warp, o2t: Affine, w: usi
             };
             let mut v = base.sample_bilinear((g.x * sx) as f32, (g.y * sy) as f32);
             if per_channel {
-                for ch in [0usize, 2] {
-                    let q = wp.corrected_to_source(c, ch);
-                    v[ch] = base.sample_bilinear((q.x * sx) as f32, (q.y * sy) as f32)[ch];
+                if let Some([undo, forward]) = wp.camera_basis {
+                    // Colour mixing and channel-dependent resampling do not
+                    // commute. Reconstruct each camera plane at its own source
+                    // position before applying the forward colour transform.
+                    v = undo.apply_f32(v);
+                    for ch in [0usize, 2] {
+                        let q = wp.corrected_to_source(c, ch);
+                        let rgb = base.sample_bilinear((q.x * sx) as f32, (q.y * sy) as f32);
+                        v[ch] = undo.apply_f32(rgb)[ch];
+                    }
+                    v = forward.apply_f32(v);
+                } else {
+                    for ch in [0usize, 2] {
+                        let q = wp.corrected_to_source(c, ch);
+                        v[ch] = base.sample_bilinear((q.x * sx) as f32, (q.y * sy) as f32)[ch];
+                    }
                 }
             }
             if gain {
@@ -347,6 +383,7 @@ mod tests {
         use crate::lensdb::{Distortion, LensCorrection, Tca};
         let mut s = DevelopSettings::default();
         s.lens_db.enabled = true;
+        s.optics.lens_profile = true;
         let active = LensCorrection {
             diag_norm: 2.0,
             distortion: Distortion::Poly3 { k1: -0.3 },

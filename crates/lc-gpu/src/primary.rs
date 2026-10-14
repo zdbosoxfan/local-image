@@ -1135,6 +1135,7 @@ pub(crate) mod tests {
         s.raw.capture.threshold = 25.;
         s.raw.capture.iterations = 2.;
         s.lens_db.enabled = true;
+        s.optics.lens_profile = true;
         s.light.highlights = -60.;
         s.light.shadows = 35.;
         s.effects.clarity = 20.;

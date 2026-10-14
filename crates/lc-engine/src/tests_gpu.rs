@@ -217,6 +217,7 @@ fn lens_database_profiles_render_on_the_gpu() {
     let req = RenderRequest::fit(720, 720);
     let mut s = lightcraft_develop::DevelopSettings::default();
     s.lens_db.enabled = true;
+    s.optics.lens_profile = true;
     s.lens_db.lens = Some(lightcraft_develop::LensName { maker: lens.maker.clone(), model: lens.model.clone() });
     let info = SourceInfo { raw: true, ..crate::media::job_info(&p, &s) };
     let c = info.lens_db.expect("a correction");

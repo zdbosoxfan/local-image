@@ -1,8 +1,9 @@
 //! DNG opcode lists (`OpcodeList1/2/3`, DNG 1.7 chapter 7). Opcode lists are always big-endian.
 //!
-//! Parsed: every opcode (unknown ones are kept as [`Opcode::Unknown`]). Applied: `WarpRectilinear`,
+//! Parsed: every opcode (unknown ones are kept as [`Opcode::Unknown`]). Applied: `WarpRectilinear`, `WarpFisheye`,
 //! `FixVignetteRadial`, `FixBadPixelsConstant`, `FixBadPixelsList`, `MapTable`, `MapPolynomial`, `GainMap`,
-//! `DeltaPerRow/Column`, `ScalePerRow/Column`. `TrimBounds` and `WarpFisheye` are recorded but not applied.
+//! `DeltaPerRow/Column`, `ScalePerRow/Column`. `TrimBounds` is recorded but not applied.
+//! Geometric warps are applied to the demosaiced image in list 3 only.
 //!
 //! Value convention: list 1 runs on raw sample values (16-bit scale), lists 2 and 3 on values normalised to
 //! [0, 1]; table/polynomial/delta opcodes are defined on the normalised range and are rescaled accordingly.
@@ -94,9 +95,10 @@ pub enum Opcode {
 }
 
 impl Opcode {
-    /// Whether [`apply_list`] / [`apply_list3`] implement this opcode.
+    /// Whether [`apply_list`] / [`apply_list3`] implement this opcode. The two
+    /// geometric warp opcodes are implemented only by [`apply_list3`].
     pub fn is_applied(&self) -> bool {
-        !matches!(self, Opcode::Unknown { .. } | Opcode::TrimBounds { .. } | Opcode::WarpFisheye { .. })
+        !matches!(self, Opcode::Unknown { .. } | Opcode::TrimBounds { .. })
     }
 }
 
@@ -513,7 +515,8 @@ pub fn apply_list3(list: &[Opcode], img: &mut Rgb32f) {
     for op in list {
         match op {
             Opcode::WarpRectilinear { planes, center } => *img = warp_rectilinear(img, planes, *center),
-            Opcode::WarpFisheye { .. } | Opcode::TrimBounds { .. } | Opcode::Unknown { .. } => {}
+            Opcode::WarpFisheye { planes, center } => *img = warp_fisheye(img, planes, *center),
+            Opcode::TrimBounds { .. } | Opcode::Unknown { .. } => {}
             other => {
                 let mut flat: Vec<f32> = img.data.iter().flat_map(|p| *p).collect();
                 apply_list(std::slice::from_ref(other), &mut flat, w, h, 3, None, 1.0);
@@ -549,6 +552,43 @@ pub fn warp_rectilinear(img: &Rgb32f, planes: &[[f64; 6]], center: [f64; 2]) -> 
         }
     });
     out
+}
+
+/// DNG 1.7.1 `WarpFisheye` (pp. 108–110): transform an output radius `r`,
+/// normalised to the farthest corner, to `theta = atan(r)` and evaluate the
+/// per-plane odd polynomial in `theta`. Sampling uses the same pixel centres
+/// and bilinear kernel as [`warp_rectilinear`].
+pub fn warp_fisheye(img: &Rgb32f, planes: &[[f64; 4]], center: [f64; 2]) -> Rgb32f {
+    if img.width == 0 || img.height == 0 || !matches!(planes.len(), 1 | 3) || !center.iter().chain(planes.iter().flatten()).all(|v| v.is_finite()) {
+        return img.clone();
+    }
+    let (w, h) = (img.width, img.height);
+    let (cx, cy) = (center[0] * (w as f64 - 1.0), center[1] * (h as f64 - 1.0));
+    let m = max_radius(cx, cy, w as f64 - 1.0, h as f64 - 1.0);
+    let mut out = Rgb32f::new(w, h);
+    lightcraft_raster::par_rows(&mut out.data, w, |y, row| {
+        for (x, px) in row.iter_mut().enumerate() {
+            let dx = x as f64 - cx;
+            let dy = y as f64 - cy;
+            let r = dx.hypot(dy) / m;
+            for (c, value) in px.iter_mut().enumerate() {
+                let k = planes[if planes.len() == 1 { 0 } else { c }];
+                let scale = fisheye_scale(k, r);
+                let (sx, sy) = (cx + dx * scale, cy + dy * scale);
+                *value = img.sample_bilinear(sx as f32 + 0.5, sy as f32 + 0.5)[c];
+            }
+        }
+    });
+    out
+}
+
+fn fisheye_scale([kr0, kr1, kr2, kr3]: [f64; 4], r: f64) -> f64 {
+    if r == 0.0 {
+        return kr0;
+    }
+    let theta = r.atan();
+    let theta2 = theta * theta;
+    theta / r * (kr0 + theta2 * (kr1 + theta2 * (kr2 + theta2 * kr3)))
 }
 
 #[cfg(test)]
@@ -708,6 +748,53 @@ pub(crate) mod tests {
         let out = warp_rectilinear(&img, &[[1.0, -0.6, 0.0, 0.0, 0.0, 0.0]], [0.5, 0.5]);
         let (bx, _) = (0..31).map(|x| (x, out.get(x, 15)[0])).fold((0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
         assert!(bx >= 25, "{bx}");
+    }
+
+    #[test]
+    fn warp_fisheye_dng_coordinate_ramps_and_center_limit() {
+        let original = Rgb32f::from_fn(41, 31, |x, y| [x as f32 / 40.0, y as f32 / 30.0, (x + 2 * y) as f32 / 100.0]);
+        let coefficients = [[0.87, 0.025, -0.02, 0.01], [0.92, -0.01, 0.03, -0.005], [0.97, 0.015, -0.01, 0.002]];
+        // Off-centre optical axis is exactly at pixel (10, 12). The farthest
+        // corner is (40, 30), independently giving sqrt(30² + 18²).
+        let m = (30.0f64.powi(2) + 18.0f64.powi(2)).sqrt();
+        for planes in [vec![coefficients[0]], coefficients.to_vec()] {
+            let op = Opcode::WarpFisheye { planes: planes.clone(), center: [0.25, 0.4] };
+            assert!(op.is_applied());
+            // Exercise binary opcode parsing and the actual list-3 entry point.
+            let parsed = parse_list(&write_list(&[op]));
+            let mut warped = original.clone();
+            apply_list3(&parsed, &mut warped);
+            for y in 0..31 {
+                for x in 0..41 {
+                    let dx = x as f64 - 10.0;
+                    let dy = y as f64 - 12.0;
+                    let r = (dx * dx + dy * dy).sqrt() / m;
+                    let theta = r.atan();
+                    for channel in 0..3 {
+                        let k = planes[if planes.len() == 1 { 0 } else { channel }];
+                        let scale =
+                            if r == 0.0 { k[0] } else { (k[0] * theta + k[1] * theta.powi(3) + k[2] * theta.powi(5) + k[3] * theta.powi(7)) / r };
+                        let sx = 10.0 + dx * scale;
+                        let sy = 12.0 + dy * scale;
+                        let expected = match channel {
+                            0 => sx / 40.0,
+                            1 => sy / 30.0,
+                            _ => (sx + 2.0 * sy) / 100.0,
+                        };
+                        assert!((f64::from(warped.get(x, y)[channel]) - expected).abs() < 2e-6, "pixel ({x},{y}), plane {channel}");
+                    }
+                }
+            }
+            assert_eq!(warped.get(10, 12), original.get(10, 12));
+        }
+        for k in coefficients {
+            assert_eq!(fisheye_scale(k, 0.0), k[0]);
+            assert!((fisheye_scale(k, 1e-12) - k[0]).abs() < 1e-12);
+        }
+        let singleton = Rgb32f::filled(1, 1, [0.2, 0.4, 0.6]);
+        assert_eq!(warp_fisheye(&singleton, &[coefficients[0]], [0.5, 0.5]), singleton);
+        assert_eq!(warp_fisheye(&original, &[], [0.5, 0.5]), original);
+        assert_eq!(warp_fisheye(&original, &coefficients[..2], [0.5, 0.5]), original);
     }
 
     #[test]

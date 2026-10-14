@@ -78,3 +78,13 @@ No ureq, TLS or network dependency is enabled by rawler. Its mandatory JPEG XL a
 libraries (`jxl-oxide`, `libflate`) are Rust. Its build script joins camera/lens TOML data in Rust.
 Existing unrelated workspace dependencies are outside this addition; do not mistake the whole
 workspace tree for the new rawler closure.
+
+Camera-embedded lens metadata is read independently of the pixel decoder by
+`lc-raw::embedded_lens`, including rawler fallback files. Develop uses one shared
+lens model: embedded data first, then lensfun, then a user profile when a provider
+is available (no LCP provider is present in this revision). Enable Lens
+Corrections gates automatic profiles. Vendor data is not baked into decoded
+pixels; CPU and WGSL apply the same inverse map and source attenuation. DNG
+WarpRectilinear/FixVignetteRadial are likewise deferred to this switch. Calibrated
+CA samples camera planes before colour mixing; the fitted nonlinear camera look
+runs afterwards. See `docs/wip/CODEX-REPORT-lenscorr.md` for sources and validation.

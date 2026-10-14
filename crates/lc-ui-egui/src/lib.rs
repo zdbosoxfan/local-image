@@ -65,6 +65,8 @@ mod tests_grid;
 #[cfg(test)]
 mod tests_host_composite;
 #[cfg(test)]
+mod tests_lenscorr;
+#[cfg(test)]
 mod tests_library_problem;
 #[cfg(test)]
 mod tests_masking;

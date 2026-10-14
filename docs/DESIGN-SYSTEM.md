@@ -261,3 +261,11 @@ In practice: no `Color32::from_rgb` or `from_gray` in chrome, no `rect_filled` f
 `ui.checkbox`/`ComboBox`/`ui.button` where `widgets::` has one, no private copy of a widget in a panel file.
 A new widget goes in `widgets.rs` with a doc comment saying what it is for and where it is used, themes
 through tokens, names itself for accessibility, and replaces every ad hoc copy in the same change.
+
+Optics uses `lc-ui-egui::widgets::checkbox` (registered accessibility/test ID),
+`develop_body` (theme `DEVELOP_INSET`) and `panel_note` (token small type/dim text).
+These shared helpers style the profile master, lens-database switch and profile
+availability note in both themes. Dropdowns elide labels to the available width.
+The RAW Look row uses the same eliding dropdown and parameter slider widgets;
+it keeps their widths within the available panel body instead of fixed ComboBox
+minimum widths. The headless lens test verifies declared panel/window bounds.

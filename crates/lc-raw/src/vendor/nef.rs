@@ -152,6 +152,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<RawImage> {
         wb_multipliers: wb,
         linearized: false,
         opcodes: OpcodeLists::default(),
+        vendor_lens: None,
         metadata,
     };
     img.validate()?;

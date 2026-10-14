@@ -17,7 +17,7 @@
 use std::sync::Mutex;
 
 use lightcraft_color::perceptual::{oklab_from_2020, oklab_to_2020};
-use lightcraft_develop::{DevelopSettings, EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
+use lightcraft_develop::{DevelopSettings, EmbeddedLens, EmbeddedRadial, EmbeddedVignette, EmbeddedWarp};
 use lightcraft_geom::{Affine, Homography, Interval, Orientation, Point, Real};
 use lightcraft_raster::{Plane, Rgb32f};
 
@@ -51,11 +51,13 @@ pub struct Warp {
     pub lens_dist: f64,
     pub lens_vig: f64,
     /// Lens database correction (in this oriented frame) and its strengths (1 = as calibrated):
-    /// distortion, TCA, vignetting. Replaces the embedded correction when both exist.
+    /// distortion, TCA, vignetting. Embedded data takes precedence when both exist.
     pub lensdb: Option<crate::lensdb::LensMap>,
     pub lensdb_dist: f64,
     pub lensdb_tca: f64,
     pub lensdb_vig: f64,
+    /// Camera-plane sampling basis: working -> camera, then camera -> working.
+    pub camera_basis: Option<[lightcraft_color::Mat3; 2]>,
 }
 
 impl Warp {
@@ -76,15 +78,16 @@ impl Warp {
             lensdb_dist: 0.0,
             lensdb_tca: 0.0,
             lensdb_vig: 0.0,
+            camera_basis: None,
         }
     }
 
     /// Use the lens database correction `c` (relative to the EXIF-oriented source of
-    /// `src_w × src_h`, shown with orientation `o`) with the settings' strengths; it replaces the
-    /// embedded correction.
+    /// `src_w × src_h`, shown with orientation `o`) with the settings' strengths.
+    /// The embedded correction takes precedence.
     pub fn set_lensdb(&mut self, c: &crate::lensdb::LensCorrection, o: Orientation, src_w: f64, src_h: f64, s: &DevelopSettings) {
         let l = &s.lens_db;
-        if !l.enabled || !s.section_enabled("optics") || c.is_identity() {
+        if !s.optics.lens_profile || !l.enabled || self.lens.is_some() || !s.section_enabled("optics") || c.is_identity() {
             return;
         }
         let mut m = c.on(src_w, src_h);
@@ -133,7 +136,7 @@ impl Warp {
         self.persp != Homography::IDENTITY
             || self.k1 != 0.0
             || self.ca.iter().any(|c| *c != 0.0)
-            || (self.lens_dist != 0.0 && self.lens.is_some_and(|l| l.warp.is_some()))
+            || (self.lens_dist != 0.0 && self.lens.is_some_and(|l| l.warp.is_some() || l.radial.is_some_and(|r| r.count > 0)))
             || self
                 .lensdb
                 .is_some_and(|m| (self.lensdb_dist != 0.0 && !m.c.distortion.is_identity()) || (self.lensdb_tca != 0.0 && m.c.per_channel()))
@@ -141,15 +144,20 @@ impl Warp {
 
     /// Whether the colour planes are sampled at different positions.
     pub fn per_channel(&self) -> bool {
-        self.ca[0] != self.ca[1]
-            || self.ca[1] != self.ca[2]
-            || (self.lens_dist != 0.0 && self.lens.and_then(|l| l.warp).is_some_and(|w| w.planes[0] != w.planes[1] || w.planes[1] != w.planes[2]))
+        self.ca[0] != self.ca[1] || self.ca[1] != self.ca[2] || self.profile_ca()
+    }
+
+    /// Calibrated lateral CA is available and enabled (independent of manual CA).
+    pub fn profile_ca(&self) -> bool {
+        (self.lens_dist != 0.0 && self.lens.and_then(|l| l.warp).is_some_and(|w| w.planes[0] != w.planes[1] || w.planes[1] != w.planes[2]))
+            || (self.lens_dist != 0.0
+                && self.lens.and_then(|l| l.radial).is_some_and(|r| r.count > 0 && (r.scales[0] != r.scales[1] || r.scales[1] != r.scales[2])))
             || (self.lensdb_tca != 0.0 && self.lensdb.is_some_and(|m| m.c.per_channel()))
     }
 
     pub fn has_gain(&self) -> bool {
         self.vig_stops != 0.0
-            || (self.lens_vig != 0.0 && self.lens.is_some_and(|l| l.vignette.is_some()))
+            || (self.lens_vig != 0.0 && self.lens.is_some_and(|l| l.vignette.is_some() || l.radial.is_some_and(|r| r.vig_count > 0)))
             || (self.lensdb_vig != 0.0 && self.lensdb.is_some_and(|m| m.c.vignetting.is_some_and(|k| k != [0.0; 3])))
     }
 
@@ -190,7 +198,7 @@ impl Warp {
     }
 
     /// [`Warp::corrected_to_source`] for any [`Real`].
-    fn corrected_to_source_real<T: Real>(&self, x: T, y: T, ch: usize) -> (T, T) {
+    fn corrected_to_source_real<T: LensReal>(&self, x: T, y: T, ch: usize) -> (T, T) {
         let c = self.centre();
         let hd = (self.w.hypot(self.h) / 2.0).max(1e-9);
         let (mut qx, mut qy) = (x, y);
@@ -205,6 +213,16 @@ impl Warp {
         {
             let (sx, sy) = embedded_warp_real(&wp, qx, qy, ch, self.w, self.h);
             (qx, qy) = (qx + (sx - qx) * self.lens_dist, qy + (sy - qy) * self.lens_dist);
+        }
+        if self.lens_dist != 0.0
+            && let Some(r) = self.lens.and_then(|l| l.radial).filter(|r| r.count > 0)
+        {
+            let (cx, cy) = (r.center.x * self.w, r.center.y * self.h);
+            let radius = (r.radius * self.w.max(self.h)).max(1e-9);
+            let (dx, dy) = (qx - cx, qy - cy);
+            let rn = ((dx * dx + dy * dy) / (radius * radius)).sqrt_nonneg();
+            let scale = (rn.spline(&r.knots, &r.scales[ch.min(2)], r.count) - 1.0) * self.lens_dist + 1.0;
+            (qx, qy) = (dx * scale + cx, dy * scale + cy);
         }
         if let Some(m) = &self.lensdb {
             (qx, qy) = m.to_source_real(qx, qy, ch, self.lensdb_dist, self.lensdb_tca);
@@ -234,6 +252,14 @@ impl Warp {
         {
             g *= 1.0 + (embedded_vignette_gain(&v, src, self.w, self.h) - 1.0) * self.lens_vig;
         }
+        if self.lens_vig != 0.0
+            && let Some(r) = self.lens.and_then(|l| l.radial).filter(|r| r.vig_count > 0)
+        {
+            let radius = (r.radius * self.w.max(self.h)).max(1e-9);
+            let rn = src.dist(Point::new(r.center.x * self.w, r.center.y * self.h)) / radius;
+            let attenuation = interpolate_radial(&r.vig_knots, &r.attenuation, r.vig_count, rn);
+            g /= (1.0 - self.lens_vig * (1.0 - attenuation)).max(1e-6);
+        }
         if self.lensdb_vig != 0.0
             && let Some(m) = &self.lensdb
         {
@@ -255,7 +281,7 @@ impl Warp {
 
     /// The framing chain of output position `(x, y)` (`o2t`: output px → transformed px): its lens-corrected
     /// position and its green-plane source position.
-    fn framing<T: Real>(&self, o2t: &Affine, x: T, y: T) -> ((T, T), (T, T)) {
+    fn framing<T: LensReal>(&self, o2t: &Affine, x: T, y: T) -> ((T, T), (T, T)) {
         let (tx, ty) = o2t.apply_real(x, y);
         let (cx, cy) = self.to_corrected_real(tx, ty);
         ((cx, cy), self.corrected_to_source_real(cx, cy, 1))
@@ -311,14 +337,21 @@ pub fn embedded_warp(wp: &EmbeddedWarp, p: Point, ch: usize, w: f64, h: f64) -> 
 }
 
 /// [`embedded_warp`] for any [`Real`].
-fn embedded_warp_real<T: Real>(wp: &EmbeddedWarp, x: T, y: T, ch: usize, w: f64, h: f64) -> (T, T) {
+fn embedded_warp_real<T: LensReal>(wp: &EmbeddedWarp, x: T, y: T, ch: usize, w: f64, h: f64) -> (T, T) {
     let (cx, cy) = (wp.center.x * w, wp.center.y * h);
     let m = (wp.radius * w.max(h)).max(1e-9);
     let [kr0, kr1, kr2, kr3, kt0, kt1] = wp.planes[ch.min(2)];
     let dx = (x - cx) / m;
     let dy = (y - cy) / m;
     let r2 = dx * dx + dy * dy;
-    let f = (((r2 * kr3 + kr2) * r2 + kr1) * r2) + kr0;
+    let f = if wp.fisheye {
+        let (theta, theta_over_r) = r2.sqrt_nonneg().fisheye_radius();
+        let t2 = theta * theta;
+        theta_over_r * (t2 * (t2 * (t2 * kr3 + kr2) + kr1) + kr0)
+    } else {
+        (((r2 * kr3 + kr2) * r2 + kr1) * r2) + kr0
+    };
+    let (kt0, kt1) = if wp.fisheye { (0.0, 0.0) } else { (kt0, kt1) };
     let sx = dx * f + dx * (kt0 * 2.0) * dy + (r2 + dx * 2.0 * dx) * kt1;
     let sy = dy * f + dx * (kt1 * 2.0) * dy + (r2 + dy * 2.0 * dy) * kt0;
     (sx * m + cx, sy * m + cy)
@@ -357,10 +390,77 @@ pub fn reorient_lens(lens: &EmbeddedLens, o: Orientation, w: f64, h: f64) -> Emb
             let e = o.map(c.x + kt1, c.y + kt0, w, h);
             [a, b, cc, d, e.1 - c2.1, e.0 - c2.0]
         });
-        EmbeddedWarp { planes, center: map_pt(wp.center), radius: wp.radius * long_ratio }
+        EmbeddedWarp { fisheye: wp.fisheye, planes, center: map_pt(wp.center), radius: wp.radius * long_ratio }
     });
     let vignette = lens.vignette.map(|v| EmbeddedVignette { k: v.k, center: map_pt(v.center), radius: v.radius * long_ratio });
-    EmbeddedLens { warp, vignette }
+    let radial = lens.radial.map(|r| EmbeddedRadial { center: map_pt(r.center), radius: r.radius * long_ratio, ..r });
+    EmbeddedLens { warp, vignette, radial }
+}
+
+/// Clamp-ended linear interpolation, shared by the metadata adapter and the CPU map.
+pub fn interpolate_radial(knots: &[f64; 16], values: &[f64; 16], count: usize, x: f64) -> f64 {
+    let n = count.min(16);
+    if n == 0 {
+        return 1.0;
+    }
+    if x < knots[0] {
+        return values[0];
+    }
+    for i in 1..n {
+        if x <= knots[i] {
+            return values[i - 1] + (x - knots[i - 1]) * (values[i] - values[i - 1]) / (knots[i] - knots[i - 1]);
+        }
+    }
+    values[n - 1]
+}
+
+// A spline can cross several segments within an interval. Bound its extrema at
+// both endpoints and every enclosed knot so block coverage remains conservative.
+trait LensReal: Real {
+    /// atan(r) and atan(r)/r, with the removable singularity at zero.
+    fn fisheye_radius(self) -> (Self, Self);
+    fn spline(self, knots: &[f64; 16], values: &[f64; 16], count: usize) -> Self;
+}
+impl LensReal for f64 {
+    fn fisheye_radius(self) -> (Self, Self) {
+        let theta = self.atan();
+        (theta, if self == 0.0 { 1.0 } else { theta / self })
+    }
+    fn spline(self, knots: &[f64; 16], values: &[f64; 16], count: usize) -> Self {
+        interpolate_radial(knots, values, count, self)
+    }
+}
+impl LensReal for Interval {
+    fn fisheye_radius(self) -> (Self, Self) {
+        if !self.is_decided() {
+            return (Interval::new(f64::NAN, f64::NAN), Interval::new(f64::NAN, f64::NAN));
+        }
+        let (lo, hi) = (self.lo().max(0.0), self.hi().max(0.0));
+        // atan is increasing; atan(r)/r is decreasing for r >= 0.
+        let ratio = |r: f64| if r == 0.0 { 1.0 } else { r.atan() / r };
+        (
+            Interval::new(lo.atan().next_down(), hi.atan().next_up()),
+            Interval::new((ratio(hi) - 4.0 * f64::EPSILON).next_down(), (ratio(lo) + 4.0 * f64::EPSILON).next_up()),
+        )
+    }
+    fn spline(self, knots: &[f64; 16], values: &[f64; 16], count: usize) -> Self {
+        if !self.is_decided() {
+            return Interval::new(f64::NAN, f64::NAN);
+        }
+        let a = interpolate_radial(knots, values, count, self.lo());
+        let b = interpolate_radial(knots, values, count, self.hi());
+        let (mut lo, mut hi) = (a.min(b), a.max(b));
+        for i in 0..count.min(16) {
+            if knots[i] >= self.lo() && knots[i] <= self.hi() {
+                lo = lo.min(values[i]);
+                hi = hi.max(values[i]);
+            }
+        }
+        // Interpolation is several floating point operations; round each bound
+        // outward with margin for all intermediate rounding errors.
+        let margin = 16.0 * f64::EPSILON * lo.abs().max(hi.abs()).max(1.0);
+        Interval::new((lo - margin).next_down(), (hi + margin).next_up())
+    }
 }
 
 // ------------------------------------------------------------------------------------------ lateral CA
@@ -633,6 +733,169 @@ fn min_filter(p: &Plane, r: usize, max: bool) -> Plane {
 mod tests {
     use super::*;
 
+    #[test]
+    fn lenscorr_embedded_precedes_database_and_master_disables_both() {
+        use crate::lensdb::{Distortion, LensCorrection};
+        let mut s = DevelopSettings::default();
+        s.lens_db.enabled = true;
+        let c = LensCorrection { diag_norm: 2.0, distortion: Distortion::Poly3 { k1: -0.1 }, ..Default::default() };
+        let lens = EmbeddedLens {
+            vignette: Some(EmbeddedVignette { k: [0.2, 0.0, 0.0, 0.0, 0.0], center: Point::new(0.5, 0.5), radius: 0.6 }),
+            ..Default::default()
+        };
+        let off = crate::geometry::Frame::with_lenses(300, 200, &s, true, Some(&lens), Some(&c));
+        assert!(off.warp.is_none());
+        s.optics.lens_profile = true;
+        let embedded = crate::geometry::Frame::with_lenses(300, 200, &s, true, Some(&lens), Some(&c)).warp.unwrap();
+        assert_eq!(embedded.lens, Some(lens));
+        assert!(embedded.lensdb.is_none(), "partial embedded data still selects a single profile");
+        let fallback = crate::geometry::Frame::with_lenses(300, 200, &s, true, None, Some(&c)).warp.unwrap();
+        assert!(fallback.lensdb.is_some());
+        s.set_section_enabled("optics", false);
+        assert!(crate::geometry::Frame::with_lenses(300, 200, &s, true, Some(&lens), Some(&c)).warp.is_none());
+    }
+
+    #[test]
+    fn lenscorr_radial_block_bounds_include_knots_and_reorient_correctly() {
+        let mut radial = EmbeddedRadial { count: 4, vig_count: 3, center: Point::new(0.45, 0.53), radius: 0.7, ..Default::default() };
+        radial.knots[..4].copy_from_slice(&[0.0, 0.12, 0.4, 0.8]);
+        radial.scales[0][..4].copy_from_slice(&[1.01, 0.93, 1.02, 0.97]);
+        radial.scales[1][..4].copy_from_slice(&[1.0, 0.93, 1.02, 0.97]);
+        radial.scales[2][..4].copy_from_slice(&[0.99, 0.93, 1.02, 0.97]);
+        radial.vig_knots[..3].copy_from_slice(&[0.0, 0.3, 0.8]);
+        radial.attenuation[..3].copy_from_slice(&[1.0, 0.9, 0.8]);
+        let lens = EmbeddedLens { radial: Some(radial), ..Default::default() };
+        let mut s = DevelopSettings::default();
+        s.optics.lens_profile = true;
+        let warp = Warp::from_settings(300.0, 200.0, &s, Some(&lens));
+        for y in (0..200).step_by(7) {
+            for x in (0..300).step_by(7) {
+                let x1 = (x + 7).min(300);
+                let y1 = (y + 7).min(200);
+                let (_, (bx, by)) =
+                    warp.framing(&Affine::IDENTITY, Interval::new(x as f64 + 0.5, x1 as f64 - 0.5), Interval::new(y as f64 + 0.5, y1 as f64 - 0.5));
+                assert!(bx.is_decided() && by.is_decided());
+                for yy in y..y1 {
+                    for xx in x..x1 {
+                        let p = warp.to_source(Point::new(xx as f64 + 0.5, yy as f64 + 0.5), 1);
+                        assert!(bx.lo() <= p.x && bx.hi() >= p.x && by.lo() <= p.y && by.hi() >= p.y);
+                    }
+                }
+            }
+        }
+        for o in [Orientation::Rotate90, Orientation::Rotate270, Orientation::FlipH, Orientation::Transverse] {
+            let r = reorient_lens(&lens, o, 300.0, 200.0);
+            let (w, h) = if o.swaps_axes() { (200.0, 300.0) } else { (300.0, 200.0) };
+            let transformed = Warp::from_settings(w, h, &s, Some(&r));
+            let p = Point::new(13.0, 28.0);
+            let map = |p: Point| {
+                let (x, y) = o.map(p.x, p.y, 300.0, 200.0);
+                Point::new(x, y)
+            };
+            for ch in 0..3 {
+                assert!(transformed.to_source(map(p), ch).dist(map(warp.to_source(p, ch))) < 1e-10);
+            }
+            assert!((transformed.gain(map(p)) - warp.gain(p)).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn lenscorr_camera_plane_ca_precedes_colour_mixing_without_double_estimation() {
+        let (w, h) = (301usize, 201usize);
+        let c = Point::new(w as f64 / 2.0, h as f64 / 2.0);
+        let matrix = lightcraft_color::Mat3([[1.4, -0.3, -0.1], [-0.2, 1.3, -0.1], [0.1, -0.4, 1.3]]);
+        let scales = [1.02, 1.0, 0.98];
+        let camera = |x: f64, y: f64| {
+            let f = 0.25 + x * 0.0008 + y * 0.0005;
+            [f as f32, (f * 0.9) as f32, (f * 0.8) as f32]
+        };
+        let source = Rgb32f::from_fn(w, h, |x, y| {
+            let mut raw = [0.0; 3];
+            for ch in 0..3 {
+                raw[ch] = camera(c.x + (x as f64 + 0.5 - c.x) / scales[ch], c.y + (y as f64 + 0.5 - c.y) / scales[ch])[ch];
+            }
+            matrix.apply_f32(raw)
+        });
+        let mut radial = EmbeddedRadial { count: 2, center: Point::new(0.5, 0.5), radius: 0.6, ..Default::default() };
+        radial.knots[..2].copy_from_slice(&[0.0, 1.5]);
+        for ch in 0..3 {
+            radial.scales[ch] = [scales[ch]; 16];
+        }
+        let info = crate::SourceInfo {
+            lens: Some(EmbeddedLens { radial: Some(radial), ..Default::default() }),
+            lens_camera_to_working: Some(matrix),
+            ..Default::default()
+        };
+        let mut s = DevelopSettings::default();
+        s.optics.lens_profile = true;
+        s.optics.remove_ca = true;
+        let frame = crate::frame_for(&source, &info, &s, false);
+        assert_eq!(frame.warp.as_ref().unwrap().ca, [0.0; 3], "calibrated profile must not be corrected twice");
+        let corrected = frame.sample(&source, w, h);
+        let mut max = 0.0_f32;
+        for y in 4..h - 4 {
+            for x in 4..w - 4 {
+                let expected = matrix.apply_f32(camera(x as f64 + 0.5, y as f64 + 0.5));
+                for ch in 0..3 {
+                    max = max.max((corrected.get(x, y)[ch] - expected[ch]).abs());
+                }
+            }
+        }
+        println!("Camera-plane CA independent linear-scene max residual {max}");
+        assert!(max < 2e-6, "camera-space CA residual {max}");
+    }
+
+    #[test]
+    fn lenscorr_metadata_keeps_scalar_facts_under_gain_and_ca() {
+        let mut s = DevelopSettings::default();
+        s.optics.lens_profile = true;
+        s.optics.vignetting = 100.0;
+        s.optics.ca_red = 20.0;
+        let mut r = EmbeddedRadial { count: 2, vig_count: 2, center: Point::new(0.5, 0.5), radius: 0.7, ..Default::default() };
+        r.knots[..2].copy_from_slice(&[0.0, 1.0]);
+        r.vig_knots[..2].copy_from_slice(&[0.0, 1.0]);
+        r.attenuation[..2].copy_from_slice(&[1.0, 0.6]);
+        r.scales[0] = [0.99; 16];
+        r.scales[1] = [1.0; 16];
+        r.scales[2] = [1.01; 16];
+        let lens = EmbeddedLens { radial: Some(r), ..Default::default() };
+        let frame = crate::geometry::Frame::with_lens(64, 48, &s, false, Some(&lens)).for_metadata();
+        assert!(!frame.warp.as_ref().unwrap().has_gain());
+        assert!(!frame.warp.as_ref().unwrap().per_channel());
+        let samples = frame.sample(&Rgb32f::filled(64, 48, [0.5; 3]), 64, 48);
+        assert!(samples.data.iter().all(|p| *p == [0.5; 3]));
+    }
+
+    #[test]
+    fn lenscorr_fisheye_exact_opcode_map_center_and_interval_bounds() {
+        let coeff = [1.01, -0.04, 0.008, -0.001, 0.0, 0.0];
+        let lens = EmbeddedLens {
+            warp: Some(EmbeddedWarp { fisheye: true, planes: [coeff; 3], center: Point::new(0.43, 0.57), radius: 0.7 }),
+            ..Default::default()
+        };
+        let mut s = DevelopSettings::default();
+        s.optics.lens_profile = true;
+        let w = Warp::from_settings(5000.0, 3000.0, &s, Some(&lens));
+        let center = Point::new(2150.0, 1710.0);
+        assert_eq!(w.to_source(center, 1), center);
+        let radius = 3500.0;
+        for p in [Point::new(0.5, 0.5), Point::new(4800.5, 2700.5), center] {
+            let r = p.dist(center) / radius;
+            let t = r.atan();
+            let f = if r == 0.0 { coeff[0] } else { (coeff[0] * t + coeff[1] * t.powi(3) + coeff[2] * t.powi(5) + coeff[3] * t.powi(7)) / r };
+            let expected = Point::new(center.x + (p.x - center.x) * f, center.y + (p.y - center.y) * f);
+            assert!(w.to_source(p, 1).dist(expected) < 1e-9);
+        }
+        let (_, (bx, by)) = w.framing(&Affine::IDENTITY, Interval::new(2100.0, 2200.0), Interval::new(1660.0, 1760.0));
+        assert!(bx.is_decided() && by.is_decided());
+        for y in 1660..1760 {
+            for x in 2100..2200 {
+                let p = w.to_source(Point::new(x as f64 + 0.5, y as f64 + 0.5), 1);
+                assert!(bx.lo() <= p.x && bx.hi() >= p.x && by.lo() <= p.y && by.hi() >= p.y);
+            }
+        }
+    }
+
     /// splitmix64: deterministic pseudo-random numbers for the warp tests.
     struct Rng(u64);
 
@@ -689,8 +952,8 @@ mod tests {
                 ]
             };
             let planes = [plane(), plane(), plane()];
-            let warp = EmbeddedWarp { planes, center: Point::new(r.range(0.4, 0.6), r.range(0.4, 0.6)), radius: r.range(0.5, 0.8) };
-            wp.lens = Some(EmbeddedLens { warp: Some(warp), vignette: None });
+            let warp = EmbeddedWarp { fisheye: false, planes, center: Point::new(r.range(0.4, 0.6), r.range(0.4, 0.6)), radius: r.range(0.5, 0.8) };
+            wp.lens = Some(EmbeddedLens { warp: Some(warp), vignette: None, radial: None });
             wp.lens_dist = r.maybe(0.0, 2.0);
         }
         wp
@@ -797,11 +1060,13 @@ mod tests {
     fn block_coverage_agrees_with_every_pixel() {
         let lens = EmbeddedLens {
             warp: Some(EmbeddedWarp {
+                fisheye: false,
                 planes: [[1.0, -0.03, 0.01, 0.0, 0.001, -0.002], [1.0, -0.028, 0.01, 0.0, 0.001, -0.002], [1.0, -0.026, 0.01, 0.0, 0.001, -0.002]],
                 center: Point::new(0.52, 0.48),
                 radius: 0.6,
             }),
             vignette: None,
+            radial: None,
         };
         let mut cases: Vec<DevelopSettings> = Vec::new();
         let mut s = DevelopSettings::default();
@@ -905,8 +1170,9 @@ mod tests {
     #[test]
     fn reorient_keeps_centre_mapping() {
         let lens = EmbeddedLens {
-            warp: Some(EmbeddedWarp { planes: [[1.0, 0.01, 0.0, 0.0, 0.001, 0.002]; 3], center: Point::new(0.4, 0.5), radius: 0.6 }),
+            warp: Some(EmbeddedWarp { fisheye: false, planes: [[1.0, 0.01, 0.0, 0.0, 0.001, 0.002]; 3], center: Point::new(0.4, 0.5), radius: 0.6 }),
             vignette: Some(EmbeddedVignette { k: [0.2, 0.0, 0.0, 0.0, 0.0], center: Point::new(0.4, 0.5), radius: 0.6 }),
+            radial: None,
         };
         let r = reorient_lens(&lens, Orientation::Rotate90, 300.0, 200.0);
         // rotate 90° cw: (x, y) → (h − y, x)

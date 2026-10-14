@@ -6,6 +6,8 @@ use std::sync::Arc;
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, Visuals};
 
 pub const FONT_SEMIBOLD: &str = "semibold";
+/// Shared inset for controls in a Develop section, matching the inherited panel grammar.
+pub const DEVELOP_INSET: egui::Margin = egui::Margin { left: 24, right: 22, top: 4, bottom: 4 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {

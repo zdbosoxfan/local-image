@@ -48,11 +48,13 @@ fn fnv(img: &Rgba8) -> u64 {
 fn embedded() -> EmbeddedLens {
     EmbeddedLens {
         warp: Some(EmbeddedWarp {
+            fisheye: false,
             planes: [[1.0, -0.02, 0.004, 0.0, 0.0, 0.0], [1.0, -0.021, 0.004, 0.0, 0.0, 0.0], [1.0, -0.022, 0.004, 0.0, 0.0, 0.0]],
             center: Point::new(0.5, 0.5),
             radius: 0.6,
         }),
         vignette: Some(EmbeddedVignette { k: [0.3, 0.05, 0.0, 0.0, 0.0], center: Point::new(0.5, 0.5), radius: 0.6 }),
+        radial: None,
     }
 }
 
@@ -177,7 +179,7 @@ fn tools_off_or_neutral_change_nothing() {
         assert_eq!(fnv(&shot(&with(v.clone()), &info)), reference, "{v}");
     }
     // a lens correction the settings don't ask for is ignored
-    let lensed = SourceInfo { lens_db: Some(barrel()), ..info.clone() };
+    let lensed = SourceInfo { lens: None, lens_db: Some(barrel()), ..info.clone() };
     assert_eq!(fnv(&shot(&base, &lensed)), reference);
     // capture sharpening is for raw sources only
     let cs = with(json!({"raw": {"capture": {"enabled": true, "radius": 1.0}}}));
@@ -199,13 +201,13 @@ fn barrel() -> crate::lensdb::LensCorrection {
 fn each_tool_changes_the_render() {
     let info = raw_info();
     let reference = shot(&DevelopSettings::default(), &info);
-    let lensed = SourceInfo { lens_db: Some(barrel()), ..info.clone() };
+    let lensed = SourceInfo { lens: None, lens_db: Some(barrel()), ..info.clone() };
     let cases: Vec<(&str, DevelopSettings, SourceInfo)> = vec![
         ("tone eq", with(json!({"tone_eq": {"enabled": true, "ev6": 1.5, "ev5": 1.0, "ev1": -0.8}})), info.clone()),
         ("capture", with(json!({"raw": {"capture": {"enabled": true, "radius": 1.0}}})), info.clone()),
         ("color cal", with(json!({"color_cal": {"enabled": true, "illuminant": "a"}})), info.clone()),
         ("color cal linear", with(json!({"color_cal": {"enabled": true, "illuminant": "f11", "gamut": 0.0, "clip": false}})), info.clone()),
-        ("lens db", with(json!({"lens_db": {"enabled": true}})), lensed),
+        ("lens db", with(json!({"lens_db": {"enabled": true}, "optics": {"lens_profile": true}})), lensed),
         ("film look", with(json!({"profile": {"id": "lc.filmsim.portrait-negative", "amount": 100.0}})), info.clone()),
     ];
     for (name, s, i) in cases {
@@ -235,12 +237,13 @@ fn tone_equalizer_lifts_its_zone_and_shows_its_mask() {
 
 #[test]
 fn cached_renders_with_new_tools_match_uncached() {
-    let info = SourceInfo { lens_db: Some(barrel()), ..raw_info() };
+    let info = SourceInfo { lens: None, lens_db: Some(barrel()), ..raw_info() };
     let s = with(json!({
         "tone_eq": {"enabled": true, "ev4": 0.7},
         "raw": {"capture": {"enabled": true, "radius": 0.9}},
         "color_cal": {"enabled": true, "illuminant": "d50"},
-        "lens_db": {"enabled": true, "distortion": 80.0}
+        "lens_db": {"enabled": true, "distortion": 80.0},
+        "optics": {"lens_profile": true}
     }));
     let src = std::sync::Arc::new(scene());
     let cache = crate::StageCache::default();

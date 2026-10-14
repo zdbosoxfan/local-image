@@ -387,6 +387,30 @@
           "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/channelmixerrgb.c"
         },
         {
+          "name": "darktable",
+          "used_for": "Camera-embedded lens correction metadata, independent of the pixel decoder.",
+          "upstream": "src/common/exif.cc (_check_lens_correction_data; vendor metadata layouts)",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/embedded_lens.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/exif.cc"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Vendor metadata adapter for the shared Develop lens model.",
+          "upstream": "src/iop/lens.cc (_init_coeffs_md_v2, _process_md; Sony/Fuji/Olympus/Panasonic radial models)",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-engine/src/embedded_lens.rs, crates/lc-pipeline/src/optics.rs, crates/lc-gpu/src/wgsl/geom.wgsl",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/lens.cc"
+        },
+        {
           "name": "LensFun",
           "used_for": "Lens profile corrections from the lensfun database: distortion, transverse chromatic aberration (TCA) and vignetting, as the inverse map the geometry resample needs (a point of the corrected image → where it is in the source) plus the vignetting gain at a source point.",
           "upstream": "libs/lensfun/mod-coord.cpp, mod-subpix.cpp, mod-color.cpp (correction models) (via the lensfun crate 0.7.0)",

@@ -1,6 +1,6 @@
 //! Per-photo looks and default look preferences.
 
-use lightcraft_develop::{DevelopSettings, Look};
+use lightcraft_develop::{ControlSpec, DevelopSettings, Look, Section, Track};
 use serde_json::json;
 
 use crate::LightcraftApp;
@@ -10,36 +10,57 @@ use crate::widgets::register;
 /// The Look picker (Soft Film · Sigmoid · Camera) for a raw photo.
 pub fn look_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
     let t = Tokens::get(ui.ctx());
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 12 }).show(ui, |ui| {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    crate::widgets::develop_body(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(crate::i18n::tr("Look")).font(t.font(13.0)).color(t.text_dim));
+            ui.label(egui::RichText::new(crate::i18n::tr("Look")).text_style(egui::TextStyle::Body).color(t.text_dim));
             let mut pick = None;
-            let r = egui::ComboBox::from_id_salt("developLook").width(170.0).selected_text(crate::i18n::tr(d.look.label())).show_ui(ui, |ui| {
+            let r = crate::widgets::dropdown(ui, "developLook", crate::i18n::tr(d.look.label()), font.clone(), t.text_label);
+            register(ui.ctx(), "combo:developLook", r.rect);
+            egui::Popup::menu(&r).show(|ui| {
                 for l in Look::ALL {
-                    if ui.selectable_label(d.look == l, crate::i18n::tr(l.label())).on_hover_text(crate::i18n::tr(look_hint(l))).clicked() {
+                    let choice = ui.selectable_label(d.look == l, crate::i18n::tr(l.label())).on_hover_text(crate::i18n::tr(look_hint(l)));
+                    register(ui.ctx(), format!("look:{}", l.id()), choice.rect);
+                    if choice.clicked() {
                         pick = Some(l);
+                        ui.close();
                     }
                 }
             });
-            register(ui.ctx(), "combo:developLook", r.response.rect);
             if let Some(l) = pick.filter(|l| *l != d.look) {
                 let _ = app.run("develop.look", json!({"look": l.id()}));
             }
         });
         let mut base = d.look_options.base;
-        egui::ComboBox::from_id_salt("lookBase").selected_text(base.label()).show_ui(ui, |ui| {
+        let r = crate::widgets::dropdown(ui, "lookBase", crate::i18n::tr(base.label()), font, t.text_label);
+        egui::Popup::menu(&r).show(|ui| {
             for b in lightcraft_develop::ToneBase::ALL {
-                ui.selectable_value(&mut base, b, b.label());
+                let choice = ui.selectable_label(base == b, crate::i18n::tr(b.label()));
+                register(ui.ctx(), format!("lookBase:{}", b.label()), choice.rect);
+                if choice.clicked() {
+                    base = b;
+                    ui.close();
+                }
             }
         });
         if base != d.look_options.base {
             let _ = app.run("develop.merge", json!({"settings":{"look_options":{"base":base}},"label":"Base Curve"}));
         }
-        let mut hue = d.look_options.hue_preservation;
-        if ui.add(egui::Slider::new(&mut hue, 0.0..=100.0).text(crate::i18n::tr("Hue Preservation"))).changed() {
-            let _ = app.run("develop.merge", json!({"settings":{"look_options":{"hue_preservation":hue}},"label":"Hue Preservation"}));
-        }
     });
+    let hue_spec = ControlSpec {
+        id: "look.huePreservation",
+        label: "Hue Preservation",
+        section: Section::Profile,
+        min: 0.0,
+        max: 100.0,
+        default: lightcraft_develop::LookOptions::default().hue_preservation,
+        step: 1.0,
+        decimals: 0,
+        track: Track::Plain,
+    };
+    if let Some(hue) = crate::widgets::slider(ui, &hue_spec, d.look_options.hue_preservation, true, None).value {
+        let _ = app.run("develop.merge", json!({"settings":{"look_options":{"hue_preservation":hue}},"label":"Hue Preservation"}));
+    }
 }
 
 /// What each look does (tooltips, the Settings hint).

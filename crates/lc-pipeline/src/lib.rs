@@ -61,6 +61,7 @@ pub mod patches;
 pub mod primary;
 pub mod profiles;
 pub mod redeye;
+pub mod source_color;
 pub mod spots;
 pub mod tone;
 pub mod tone2;
@@ -137,8 +138,13 @@ pub struct SourceInfo {
     /// Sensor fraction of clipped channels, before reconstruction and camera conversion.
     pub clip_confidence: Option<Arc<ClipConfidence>>,
     pub raw_clip_level: Option<f32>,
-    /// Lens corrections embedded in the file (DNG opcodes), relative to the EXIF-oriented source.
+    /// Lens corrections embedded in the file (DNG opcodes or vendor metadata), relative to the EXIF-oriented source.
     pub lens: Option<lightcraft_develop::EmbeddedLens>,
+    /// Linear camera -> working conversion, for sampling calibrated CA in
+    /// camera planes before colour mixing. Baseline exposure is a scalar.
+    pub lens_camera_to_working: Option<lightcraft_color::Mat3>,
+    /// Fitted nonlinear camera look, deferred until after calibrated CA.
+    pub source_hue_sat: Option<Arc<lightcraft_color::profile::HsvTable>>,
     /// Raw sources use absolute Kelvin white balance; rendered sources use a relative scale around
     /// their as-shot white.
     pub raw: bool,
@@ -180,6 +186,8 @@ impl Default for SourceInfo {
             as_shot_temp: 6500.0,
             as_shot_tint: 0.0,
             lens: None,
+            lens_camera_to_working: None,
+            source_hue_sat: None,
             relative_wb: false,
             camera_color: None,
             camera_profile: None,
@@ -288,7 +296,16 @@ pub fn native_output_size(src_w: usize, src_h: usize, s: &DevelopSettings) -> (f
 /// The geometric frame `render` uses for `src` (lens data, automatic CA estimate included).
 pub fn frame_for(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, apply_crop: bool) -> geometry::Frame {
     let mut frame = geometry::Frame::with_lenses(src.width, src.height, s, apply_crop, info.lens.as_ref(), info.lens_db.as_ref());
-    if s.optics.remove_ca && s.section_enabled("optics") {
+    let profile_ca = frame.warp.as_ref().is_some_and(|w| w.profile_ca());
+    if let Some(warp) = frame.warp.as_mut().filter(|_| profile_ca)
+        && let Some(forward) = info.lens_camera_to_working
+        && let Some(undo) = forward.inverse()
+    {
+        warp.camera_basis = Some([undo, forward]);
+    }
+    // The estimator sees the uncorrected source. Applying it on top of a
+    // calibrated CA profile would correct the same displacement twice.
+    if s.optics.remove_ca && s.section_enabled("optics") && !profile_ca {
         frame.add_lateral_ca(optics::estimate_lateral_ca(src));
     }
     frame
@@ -491,7 +508,7 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         // colour calibration runs with the white balance
         format!("{:?}", colorcal::of(info, s)),
         format!("{:?}", info.camera_color),
-        info.camera_profile.as_ref().map(|p| p.hash64()),
+        (info.camera_profile.as_ref().map(|p| p.hash64()), info.source_hue_sat.as_ref().map(|p| Arc::as_ptr(p) as usize)),
         (info.baseline_gain.to_bits(), info.sensor_scale.to_bits()),
     ));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
@@ -524,6 +541,11 @@ pub fn layers_need_cpu(_s: &DevelopSettings) -> bool {
 /// the positive image.
 pub fn lin_cpu(img: &mut Rgb32f, info: &SourceInfo, p: &Plan<'_>) {
     let s = &*p.settings;
+    if let Some(table) = info.source_hue_sat.as_ref()
+        && let Some(look) = source_color::HueSat::new(table)
+    {
+        img.map_in_place(|rgb| look.apply(rgb));
+    }
     // AI removals first: their patches are in the source's own light (before white balance)
     patches::apply_spots(img, &s.spots, &p.frame);
     local::white_balance(img, info, s);

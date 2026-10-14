@@ -47,7 +47,7 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
 }
 
 /// Lens corrections embedded in a DNG's `OpcodeList3` (`WarpRectilinear`, `FixVignetteRadial`), re-expressed for
-/// the default-cropped, EXIF-oriented image. These are the only "profile" corrections LightCraft applies.
+/// the default-cropped, EXIF-oriented image. Vendor metadata uses the same shared model.
 pub fn embedded_lens(raw: &lightcraft_raw::RawInfo) -> Option<lightcraft_develop::EmbeddedLens> {
     use lightcraft_develop::{EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
     use lightcraft_geom::Point;
@@ -72,10 +72,18 @@ pub fn embedded_lens(raw: &lightcraft_raw::RawInfo) -> Option<lightcraft_develop
     let mut lens = EmbeddedLens::default();
     for op in &raw.opcodes.list3 {
         match op {
-            lightcraft_raw::Opcode::WarpRectilinear { planes, center } if !planes.is_empty() && lens.warp.is_none() => {
+            lightcraft_raw::Opcode::WarpRectilinear { planes, center } if matches!(planes.len(), 1 | 3) && lens.warp.is_none() => {
                 let (center, radius) = centre(*center);
                 let p = |i: usize| planes[i.min(planes.len() - 1)];
-                lens.warp = Some(EmbeddedWarp { planes: [p(0), p(1), p(2)], center, radius });
+                lens.warp = Some(EmbeddedWarp { fisheye: false, planes: [p(0), p(1), p(2)], center, radius });
+            }
+            lightcraft_raw::Opcode::WarpFisheye { planes, center } if matches!(planes.len(), 1 | 3) && lens.warp.is_none() => {
+                let (center, radius) = centre(*center);
+                let p = |i: usize| {
+                    let c = planes[i.min(planes.len() - 1)];
+                    [c[0], c[1], c[2], c[3], 0.0, 0.0]
+                };
+                lens.warp = Some(EmbeddedWarp { fisheye: true, planes: [p(0), p(1), p(2)], center, radius });
             }
             lightcraft_raw::Opcode::FixVignetteRadial { k, center } if lens.vignette.is_none() => {
                 let (center, radius) = centre(*center);
@@ -85,13 +93,19 @@ pub fn embedded_lens(raw: &lightcraft_raw::RawInfo) -> Option<lightcraft_develop
         }
     }
     if lens.warp.is_none() && lens.vignette.is_none() {
-        return None;
+        lens.radial = raw.vendor_lens.as_ref().and_then(|data| crate::embedded_lens::radial(data, cw, ch));
+        lens.radial?;
     }
     Some(lightcraft_pipeline::optics::reorient_lens(&lens, raw.orientation, cw, ch))
 }
 
-fn is_lens_opcode(op: &lightcraft_raw::Opcode) -> bool {
-    matches!(op, lightcraft_raw::Opcode::WarpRectilinear { .. } | lightcraft_raw::Opcode::FixVignetteRadial { .. })
+pub(crate) fn is_lens_opcode(op: &lightcraft_raw::Opcode) -> bool {
+    matches!(
+        op,
+        lightcraft_raw::Opcode::WarpRectilinear { .. }
+            | lightcraft_raw::Opcode::WarpFisheye { .. }
+            | lightcraft_raw::Opcode::FixVignetteRadial { .. }
+    )
 }
 
 fn ext_upper(name: &str) -> String {
@@ -352,11 +366,12 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         );
         let xy = lightcraft_raw::color::as_shot_white_xy(&raw);
         let t = lightcraft_raw::color::camera_transform(&raw, xy);
-        let camera_look = crate::camera_preview::fit_preview(&raw, &bytes, &t);
-        drop(bytes);
-        // Embedded lens corrections are applied by the pipeline ("Enable Profile Corrections"), not baked in.
+        // Keep the actual source uncorrected. Only the private camera-look
+        // fitting proxy is corrected to match the camera's processed JPEG.
         let lens = embedded_lens(&raw.info());
         raw.opcodes.list3.retain(|op| !is_lens_opcode(op));
+        let camera_look = crate::camera_preview::fit_preview(&raw, &bytes, &t, lens.as_ref());
+        drop(bytes);
         // Previews and thumbnails bin the mosaic straight to (about) the size they need; only
         // larger levels (exports, 1:1) demosaic the whole sensor.
         let t0 = web_time::Instant::now();
@@ -411,10 +426,12 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         }
         stages.push(("highlights", t0.elapsed()));
         let m = camera_look.as_ref().map(|p| p.matrix.mul(&t.matrix)).unwrap_or(t.matrix).to_f32();
-        let hue_sat = camera_look.as_ref().and_then(|p| p.hue_sat.as_ref()).and_then(crate::camera_preview::HueSat::new);
+        // Nonlinear colour adjustments must follow camera-plane lens sampling.
+        // Lensfun CA can be enabled later even when no embedded profile exists.
+        let source_hue_sat = camera_look.as_ref().and_then(|p| p.hue_sat.clone()).map(Arc::new);
         let gain = 2f32.powf(t.baseline_exposure as f32);
         let wb = t.wb;
-        // A DNG's own profile look (hue/saturation map, look table), DNG spec chapter 6.
+        // Linear camera conversion precedes deferred nonlinear profile looks.
         img.map_in_place(|p| {
             let c = [p[0] * wb[0], p[1] * wb[1], p[2] * wb[2]];
             let rgb = [
@@ -422,9 +439,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 m[1][0] * c[0] + m[1][1] * c[1] + m[1][2] * c[2],
                 m[2][0] * c[0] + m[2][1] * c[1] + m[2][2] * c[2],
             ];
-            let rgb = rgb.map(|v| v * gain);
-            // after the baseline exposure, as when it was fitted
-            hue_sat.as_ref().map_or(rgb, |h| h.apply(rgb))
+            rgb.map(|v| v * gain)
         });
         stages.push(("colour", t0.elapsed()));
         let img = fit(&img, max_edge, max_edge, Filter::Box);
@@ -461,6 +476,12 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 as_shot_temp: temp,
                 as_shot_tint: tint,
                 lens,
+                lens_camera_to_working: Some(lightcraft_color::Mat3(m.map(|r| r.map(f64::from))).mul(&lightcraft_color::Mat3::diag(
+                    wb[0] as f64,
+                    wb[1] as f64,
+                    wb[2] as f64,
+                ))),
+                source_hue_sat,
                 relative_wb: relative,
                 camera_tone,
                 look_curve: camera_look.as_ref().map(|p| p.tone).or_else(|| {

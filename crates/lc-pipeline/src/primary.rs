@@ -339,7 +339,8 @@ fn clips(info: &SourceInfo, plan: &Plan<'_>) -> Option<Plane> {
         return None;
     }
     let rgb = Rgb32f { width: c.width, height: c.height, data: c.data.iter().map(|v| [*v; 3]).collect() };
-    Some(plan.frame.sample(&rgb, plan.w, plan.h).map(|c| c[0].clamp(0., 1.)))
+    let frame = plan.frame.for_metadata();
+    Some(frame.sample(&rgb, plan.w, plan.h).map(|c| c[0].clamp(0., 1.)))
 }
 
 /// Apply global and layer tools at their stage, using the shared mask alpha/opacity.

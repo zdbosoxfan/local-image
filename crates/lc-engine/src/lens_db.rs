@@ -190,11 +190,12 @@ fn resolve(q: &Query) -> Option<LensCorrection> {
     correction_for(lens, q.focal, crop, q.aperture, q.distance)
 }
 
-/// The correction a photo's settings ask for (`lens_db` on, Optics not switched off), from its
+/// The fallback correction a photo's settings ask for (profile master and lens
+/// database on, Optics enabled, no embedded profile), from its
 /// EXIF camera, lens, focal length and aperture and the user's picks.
 pub fn for_photo(p: &lightcraft_catalog::Photo, s: &lightcraft_develop::DevelopSettings) -> Option<LensCorrection> {
     let l = &s.lens_db;
-    if !l.enabled || !s.section_enabled("optics") {
+    if !s.optics.lens_profile || !l.enabled || !s.section_enabled("optics") || p.embedded_lens.is_some() {
         return None;
     }
     let named = |n: &lightcraft_develop::LensName| Named { maker: n.maker.clone(), model: n.model.clone() };

@@ -524,6 +524,20 @@ fn warp_params(
     p.push(f(wp.lensdb_tca));
     p.push(f(wp.lensdb_vig));
     debug_assert_eq!(p.len(), 85);
+    let radial = wp.lens.and_then(|l| l.radial).unwrap_or_default();
+    p.extend([radial.count.min(16) as u32, radial.vig_count.min(16) as u32]);
+    p.extend(radial.knots.map(f));
+    p.extend(radial.scales.iter().flatten().map(|v| f(*v)));
+    p.extend(radial.vig_knots.map(f));
+    p.extend(radial.attenuation.map(f));
+    p.extend([f(radial.center.x), f(radial.center.y), f(radial.radius)]);
+    debug_assert_eq!(p.len(), 186);
+    p.push(wp.camera_basis.is_some() as u32);
+    let basis = wp.camera_basis.unwrap_or([lightcraft_color::Mat3::IDENTITY; 2]);
+    p.extend(basis.iter().flat_map(|matrix| matrix.0.iter().flatten()).map(|v| f(*v)));
+    debug_assert_eq!(p.len(), 205);
+    p.push(w.fisheye as u32);
+    debug_assert_eq!(p.len(), 206);
     p
 }
 
@@ -767,7 +781,9 @@ pub fn render(
                         native_primary.clip(plan.geo, Arc::as_ptr(c) as usize, || {
                             let metadata = Arc::new(Rgb32f { width: c.width, height: c.height, data: c.data.iter().map(|v| [*v; 3]).collect() });
                             let source = Arc::new(gpu.upload(rgb_words(&metadata)));
-                            let sampled = sample(&mut cx, &metadata, source, &plan);
+                            let mut clip_plan = plan.clone();
+                            clip_plan.frame = plan.frame.for_metadata();
+                            let sampled = sample(&mut cx, &metadata, source, &clip_plan);
                             crate::primary::clip_plane(&mut cx, &sampled, n)
                         })
                     });
@@ -1051,7 +1067,7 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
     let (w, h) = (plan.w, plan.h);
     let n = w * h;
     let s = &*plan.settings;
-    let img = if lightcraft_pipeline::lin_needs_cpu(s) || info.camera_profile.is_some() {
+    let img = if lightcraft_pipeline::lin_needs_cpu(s) || info.camera_profile.is_some() || info.source_hue_sat.is_some() {
         crate::record_cpu_stage("linear stage");
         // film negative conversion / defringe / spot removal: CPU
         let mut img = match host.sampled.take() {
@@ -1748,6 +1764,10 @@ fn haze_select(cx: &mut Cx<'_>, scratch: &Buf, n: usize, phase: u32, total: &Buf
 mod lensdb_tests;
 
 #[cfg(test)]
+#[path = "embedded_tests.rs"]
+mod embedded_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1790,11 +1810,13 @@ mod tests {
         use lightcraft_develop::{EmbeddedLens, EmbeddedWarp};
         let lens = EmbeddedLens {
             warp: Some(EmbeddedWarp {
+                fisheye: false,
                 planes: [[1.0, -0.03, 0.01, 0.0, 0.001, -0.002]; 3],
                 center: lightcraft_geom::Point::new(0.52, 0.48),
                 radius: 0.6,
             }),
             vignette: None,
+            radial: None,
         };
         let mut s = DevelopSettings::default();
         s.optics.lens_profile = true;

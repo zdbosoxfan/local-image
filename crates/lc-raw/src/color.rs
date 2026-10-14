@@ -251,6 +251,7 @@ mod tests {
             wb_multipliers: None,
             linearized: false,
             opcodes: Default::default(),
+            vendor_lens: None,
             metadata: Default::default(),
         }
     }

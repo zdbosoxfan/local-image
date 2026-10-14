@@ -23,6 +23,25 @@ pub fn take_registry(ctx: &egui::Context) -> Vec<(String, Rect)> {
     ctx.data_mut(|d| std::mem::take(&mut d.get_temp_mut_or_default::<Registry>(egui::Id::new("lc-registry")).0))
 }
 
+/// Standard Develop content inset, used by Optics and its lens database rows.
+pub fn develop_body(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    egui::Frame::NONE.inner_margin(crate::theme::DEVELOP_INSET).show(ui, add);
+}
+
+/// The shared, keyboard-accessible checkbox with a stable automation id. `label` is translated
+/// by the caller; egui supplies the check mark, focus and disabled treatment from the theme.
+pub fn checkbox(ui: &mut Ui, id: &str, checked: &mut bool, label: &str) -> Response {
+    let response = ui.add(egui::Checkbox::new(checked, label));
+    register(ui.ctx(), id, response.rect);
+    response
+}
+
+/// Wrapping secondary text inside a Develop section, using the theme's Small type style.
+pub fn panel_note(ui: &mut Ui, text: &str) -> Response {
+    let t = Tokens::get(ui.ctx());
+    ui.add(egui::Label::new(egui::RichText::new(text).small().color(t.text_dim)).wrap())
+}
+
 // ------------------------------------------------------------------ preview-only raws
 
 /// The decoder's reason why a raw is shown from its embedded preview, shortened for the UI
@@ -709,7 +728,12 @@ pub fn stars(ui: &mut Ui, id: &str, rating: u8, size: f32) -> Option<u8> {
 /// A borderless dropdown button: `text` followed by a painted chevron (no font glyph needed).
 pub fn dropdown(ui: &mut Ui, id: &str, text: &str, font: egui::FontId, color: Color32) -> Response {
     let t = Tokens::get(ui.ctx());
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font, color);
+    // Keep long lens/profile names inside narrow panels; the accessible name remains complete.
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), font, color);
+    job.wrap.max_width = (ui.available_width() - ui.spacing().interact_size.y).max(0.0);
+    job.wrap.max_rows = 1;
+    job.wrap.break_anywhere = true;
+    let galley = ui.painter().layout_job(job);
     let size = vec2(galley.size().x + 20.0, galley.size().y.max(20.0));
     let (r, resp) = ui.allocate_exact_size(size, Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, text));

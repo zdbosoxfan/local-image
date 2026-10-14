@@ -149,6 +149,20 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn lenscorr_old_embedded_records_load_and_radial_tables_roundtrip() {
+        let old: EmbeddedLens = serde_json::from_value(json!({"warp": null, "vignette": null})).unwrap();
+        assert_eq!(old, EmbeddedLens::default());
+        let old_warp: EmbeddedWarp = serde_json::from_value(json!({"planes": [[1.0,0.0,0.0,0.0,0.0,0.0], [1.0,0.0,0.0,0.0,0.0,0.0], [1.0,0.0,0.0,0.0,0.0,0.0]], "center": {"x": 0.5,"y": 0.5}, "radius": 0.6})).unwrap();
+        assert!(!old_warp.fisheye);
+        let mut radial = EmbeddedRadial { count: 2, vig_count: 2, radius: 0.6, ..Default::default() };
+        radial.knots[..2].copy_from_slice(&[0.0, 1.0]);
+        radial.scales = [[1.0; 16]; 3];
+        radial.attenuation = [0.8; 16];
+        let lens = EmbeddedLens { radial: Some(radial), ..Default::default() };
+        assert_eq!(serde_json::from_value::<EmbeddedLens>(serde_json::to_value(lens).unwrap()).unwrap(), lens);
+    }
+
+    #[test]
     fn serde_roundtrip_default_and_edited() {
         let mut s = DevelopSettings::default();
         controls::set(&mut s, "light.exposure", 1.25);
