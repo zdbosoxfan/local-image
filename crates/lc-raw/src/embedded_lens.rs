@@ -19,18 +19,23 @@ pub enum VendorLens {
     Panasonic { coefficients: [f64; 3], scale: f64 },
 }
 
-pub(crate) fn extract(bytes: &[u8], format: RawFormat) -> Option<VendorLens> {
+pub(crate) fn extract(bytes: &[u8], format: RawFormat, metadata: &crate::Metadata) -> Option<VendorLens> {
+    // lc-meta is the sole reader of Sony tags. Retain the legacy RawInfo
+    // representation as a lossless adapter for existing serialized callers.
+    if let Some(lens) = metadata.sony.as_ref().and_then(|s| s.lens_correction.as_ref()) {
+        let values = |v: &[i16]| v.iter().map(|v| f64::from(*v)).collect();
+        return Some(VendorLens::Sony {
+            distortion: values(&lens.distortion),
+            ca_red: values(&lens.ca_red),
+            ca_blue: values(&lens.ca_blue),
+            vignetting: values(&lens.vignetting),
+        });
+    }
     if format == RawFormat::Raf {
         return extract_raf(bytes);
     }
     let opts = ParseOptions { max_ifds: 64, max_depth: 8, ..Default::default() };
     let tiff = Tiff::parse_with(bytes, &opts).ok()?;
-    // Sony's SubImage1 data may also appear in IFD0 after a DNG round trip.
-    for ifd in tiff.all_ifds() {
-        if let Some(lens) = sony(ifd) {
-            return Some(lens);
-        }
-    }
     let ifd0 = tiff.ifds.first()?;
     if let Some(lens) = panasonic(ifd0, format) {
         return Some(lens);
@@ -117,26 +122,6 @@ fn numbers(ifd: &Ifd, tag: u16) -> Option<Vec<f64>> {
     (0..value.count()).map(|i| value.get_f64(i).filter(|v| v.is_finite())).collect()
 }
 
-fn sony(ifd: &Ifd) -> Option<VendorLens> {
-    let d = numbers(ifd, 0x7037)?;
-    let c = numbers(ifd, 0x7035)?;
-    let v = numbers(ifd, 0x7032)?;
-    let count = *d.first()?;
-    if !(2.0..=16.0).contains(&count) || count.fract() != 0.0 {
-        return None;
-    }
-    let n = count as usize;
-    if c.first() != Some(&(2.0 * count)) || v.first() != Some(&count) || d.len() < n + 1 || c.len() < 2 * n + 1 || v.len() < n + 1 {
-        return None;
-    }
-    Some(VendorLens::Sony {
-        distortion: d[1..=n].to_vec(),
-        ca_red: c[1..=n].to_vec(),
-        ca_blue: c[n + 1..=2 * n].to_vec(),
-        vignetting: v[1..=n].to_vec(),
-    })
-}
-
 fn fuji(ifd: &Ifd) -> Option<VendorLens> {
     let d = numbers(ifd, 0xf00b)?;
     let c = numbers(ifd, 0xf00f)?;
@@ -220,6 +205,10 @@ fn panasonic(ifd: &Ifd, format: RawFormat) -> Option<VendorLens> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn extract(bytes: &[u8], format: RawFormat) -> Option<VendorLens> {
+        super::extract(bytes, format, &lightcraft_meta::extract(bytes))
+    }
     use lightcraft_tiff::{ByteOrder, IfdBuilder, ImageData, TiffWriter};
 
     fn write(ifd: IfdBuilder) -> Vec<u8> {
@@ -232,6 +221,33 @@ mod tests {
         ifd.set(0x7035, Value::SShort(vec![2 * n, 1, 2, -3, -4]));
         ifd.set(0x7032, Value::SShort(vec![n, 100, 200]));
         ifd
+    }
+
+    #[test]
+    fn lenscorr_merge_sony_adapter_consumes_metadata_without_reparsing_bytes() {
+        let metadata = crate::Metadata {
+            sony: Some(lightcraft_meta::SonyMetadata {
+                lens_correction: Some(lightcraft_meta::SonyLensCorrection {
+                    distortion: vec![-100, 20],
+                    ca_red: vec![-2, 3],
+                    ca_blue: vec![5, -6],
+                    vignetting: vec![100, 200],
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        // Deliberately not TIFF: an adapter must consume the already-read facts.
+        assert_eq!(
+            super::extract(b"not a raw container", RawFormat::Arw, &metadata),
+            Some(VendorLens::Sony {
+                distortion: vec![-100.0, 20.0],
+                ca_red: vec![-2.0, 3.0],
+                ca_blue: vec![5.0, -6.0],
+                vignetting: vec![100.0, 200.0]
+            })
+        );
+        assert!(super::extract(b"not a raw container", RawFormat::Arw, &crate::Metadata::default()).is_none());
     }
 
     #[test]

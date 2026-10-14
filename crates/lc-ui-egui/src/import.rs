@@ -53,6 +53,9 @@ pub struct ImportDialog {
     pub metadata_preset: String,
     /// Copy: raws are copied as DNG.
     pub dng: bool,
+    pub previews: String,
+    pub second_copy_enabled: bool,
+    pub second_copy: String,
     /// Per candidate: the library already has it in Recently Deleted ([`ImportDialog::set_trashed`]):
     /// importing it restores that photo with its edits (the engine's default `onDeleted: restore`).
     pub trashed: Vec<bool>,
@@ -72,6 +75,9 @@ pub struct ImportPreferences {
     pub rename: String,
     pub metadata_preset: String,
     pub dng: bool,
+    pub previews: String,
+    pub second_copy_enabled: bool,
+    pub second_copy: String,
 }
 impl ImportPreferences {
     pub fn from_dialog(d: &ImportDialog) -> Self {
@@ -86,6 +92,9 @@ impl ImportPreferences {
             rename: d.rename.clone(),
             metadata_preset: d.metadata_preset.clone(),
             dng: d.dng,
+            previews: d.previews.clone(),
+            second_copy_enabled: d.second_copy_enabled,
+            second_copy: d.second_copy.clone(),
         }
     }
     pub fn review(&self, candidates: Vec<ImportCandidate>) -> ImportDialog {
@@ -100,6 +109,9 @@ impl ImportPreferences {
             rename: self.rename.clone(),
             metadata_preset: self.metadata_preset.clone(),
             dng: self.dng,
+            previews: self.previews.clone(),
+            second_copy_enabled: self.second_copy_enabled,
+            second_copy: self.second_copy.clone(),
             ..ImportDialog::new(candidates)
         }
     }
@@ -178,10 +190,12 @@ pub struct ImportTask {
     /// The library photos the skipped duplicates match (shown when nothing new was added).
     existing: Vec<u64>,
     pub failed: usize,
+    second_copy_failed: usize,
     /// Move: originals moved, and sources left in place (reported by the engine with a reason).
     pub moved: usize,
     pub kept: usize,
     first: Option<u64>,
+    preview_ids: Vec<u64>,
     /// Reading a folder for the Local view: the photos stay out of the library, and nothing is
     /// selected or announced as added.
     browse: bool,
@@ -606,6 +620,13 @@ pub fn start(app: &mut LightcraftApp, d: &ImportDialog) -> Result<Value, String>
             params["dng"] = json!(true);
         }
     }
+    params["previews"] = json!(d.previews);
+    if d.second_copy_enabled {
+        if d.second_copy.trim().is_empty() {
+            return Err("Choose a folder for the second copy".into());
+        }
+        params["secondCopy"] = json!(d.second_copy.trim());
+    }
     let total = queue.len();
     app.ui.settings.import_defaults = ImportPreferences::from_dialog(d);
     app.import = Some(ImportTask::new(queue, params, app.session.library_generation, false));
@@ -626,6 +647,7 @@ pub fn start_paths(app: &mut LightcraftApp, paths: Vec<String>) -> Result<Value,
 /// Advance the import in progress (called every frame): start its worker, then add the batches it
 /// has readied to the catalog.
 pub fn tick(app: &mut LightcraftApp, ctx: &egui::Context) {
+    tick_previews(app, ctx);
     let Some(mut task) = app.import.take() else { return };
     if task.library_generation != app.session.library_generation {
         app.toast_error(ctx, "Import stopped because the library changed; original files were kept");
@@ -690,11 +712,20 @@ fn commit_batch(app: &mut LightcraftApp, task: &mut ImportTask, prepared: lightc
                 run.album = Some(a);
             }
             let len = |k: &str| v[k].as_array().map_or(0, Vec::len);
+            task.preview_ids
+                .extend(["imported", "restored"].iter().flat_map(|key| v[*key].as_array().into_iter().flatten().filter_map(Value::as_u64)));
             task.imported += len("imported");
             task.restored += len("restored");
             task.duplicates += len("duplicates");
             task.existing.extend(v["duplicates"].as_array().into_iter().flatten().filter_map(|d| d["existing"].as_u64()));
             task.failed += len("failed");
+            for failure in v["failed"].as_array().into_iter().flatten() {
+                let reason = failure[1].as_str().unwrap_or("");
+                if reason.starts_with("second copy:") {
+                    task.second_copy_failed += 1;
+                }
+                log::warn!("import {}: {reason}", failure[0]);
+            }
             task.moved += len("moved");
             task.kept += len("kept");
             for k in v["kept"].as_array().into_iter().flatten() {
@@ -712,10 +743,35 @@ fn commit_batch(app: &mut LightcraftApp, task: &mut ImportTask, prepared: lightc
     }
 }
 
+/// Import preview requests share the existing builder, waiting for any current manual build.
+fn tick_previews(app: &mut LightcraftApp, ctx: &egui::Context) {
+    app.import_preview_queue.retain(|(generation, _, _)| *generation == app.session.library_generation);
+    if app.session.preview_build.as_ref().is_some_and(|b| !b.finished.load(Ordering::Relaxed)) {
+        return;
+    }
+    let Some((_, mode, ids)) = app.import_preview_queue.pop_front() else { return };
+    let command = if mode == "smart" { "library.smartPreviews" } else { "library.buildPreviews" };
+    let size = match mode.as_str() {
+        "full" => "full",
+        "standard" => "standard",
+        _ => "embedded",
+    };
+    if let Err(e) = app.run(command, json!({"ids":ids,"size":size,"background":true})) {
+        app.toast_error(ctx, format!("Preview build: {e}"));
+    }
+}
+
 /// The import is done (or cancelled): select the first photo if appropriate and say what happened.
 fn finish(app: &mut LightcraftApp, ctx: &egui::Context, task: ImportTask) {
     if task.library_generation != app.session.library_generation {
         return;
+    }
+    if !task.preview_ids.is_empty() && !task.auto && !task.browse {
+        app.import_preview_queue.push_back((
+            task.library_generation,
+            task.params["previews"].as_str().unwrap_or("").to_string(),
+            task.preview_ids.clone(),
+        ));
     }
     if task.auto {
         if task.imported > 0 {
@@ -764,10 +820,14 @@ fn finish(app: &mut LightcraftApp, ctx: &egui::Context, task: ImportTask) {
             msg.push_str(&crate::i18n::tr_format!(" ({} in Recently Deleted)", deleted));
         }
     }
-    if task.failed > 0 {
-        msg.push_str(&crate::i18n::tr_format!(" · {} not readable", task.failed));
+    if task.second_copy_failed > 0 {
+        msg.push_str(&format!(" · {} {}", task.second_copy_failed, crate::i18n::tr("not imported: second copy could not be verified")));
+    }
+    if task.failed > task.second_copy_failed {
+        msg.push_str(&crate::i18n::tr_format!(" · {} not readable", task.failed - task.second_copy_failed));
     }
     app.toast(ctx, msg);
+    tick_previews(app, ctx);
 }
 
 /// The photos among `ids` that are in Recently Deleted (each once).
@@ -943,6 +1003,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
         .small(),
     );
     register(ui.ctx(), "label:importModeHelp", r.rect);
+    safety_options(app, ui, d);
     if d.copy {
         field(ui, if d.move_files { "Move to" } else { "Copy to" }, |ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
@@ -1043,10 +1104,10 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
         v.sort_by_key(|(_, n)| n.to_lowercase());
         v
     };
-    field(ui, "Album", |ui| {
+    field(ui, "Collection", |ui| {
         let cur = match d.album {
             Some(a) => albums.iter().find(|x| x.0 == a).map(|x| x.1.clone()).unwrap_or_default(),
-            None if !d.new_album.is_empty() => "New album".into(),
+            None if !d.new_album.is_empty() => "New collection".into(),
             None => "None".into(),
         };
         egui::ComboBox::from_id_salt("import-album").selected_text(cur).show_ui(ui, |ui| {
@@ -1054,7 +1115,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
                 d.album = None;
                 d.new_album.clear();
             }
-            if ui.selectable_label(d.album.is_none() && !d.new_album.is_empty(), crate::i18n::tr("New album…")).clicked() {
+            if ui.selectable_label(d.album.is_none() && !d.new_album.is_empty(), crate::i18n::tr("New collection…")).clicked() {
                 d.album = None;
                 if d.new_album.is_empty() {
                     d.new_album = "Imported Photos".into();
@@ -1253,6 +1314,34 @@ pub(crate) fn tag_help(ui: &mut egui::Ui, key: &str, text: &mut String, edit_id:
             }
         });
     });
+}
+
+/// Import safety options, shared by the review dialog and narrow/HiDPI visual acceptance.
+pub(crate) fn safety_options(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(crate::i18n::tr("Build previews"));
+        crate::widgets::choice(
+            ui,
+            "importPreviews",
+            &mut d.previews,
+            &[(String::new(), "Embedded"), ("standard".into(), "Standard"), ("full".into(), "1:1"), ("smart".into(), "Smart")],
+        );
+    });
+    crate::widgets::checkbox(ui, "importSecondCopy", &mut d.second_copy_enabled, "Make a second copy to…");
+    if d.second_copy_enabled {
+        if crate::widgets::field_with_action(
+            ui,
+            "importSecondCopyFolder",
+            &mut d.second_copy,
+            "Second copy folder",
+            "Choose…",
+            app.services.has_folder_picker(),
+        ) && let Some(folder) = app.services.choose_folder("Choose Second Copy Folder")
+        {
+            d.second_copy = folder;
+        }
+        ui.label(crate::i18n::tr("Original files and sidecars are verified before importing. Use a separate backup drive."));
+    }
 }
 
 /// The folder template the Custom choice starts with (`2026/20260114/`).

@@ -279,7 +279,7 @@ fn mask_view_with(img: &mut Rgba8, view: MaskView, color: [u8; 3], opacity: u8, 
         for (x, px) in row.iter_mut().enumerate() {
             let a = alpha(y * w + x).clamp(0.0, 1.0);
             let p = [px[0] as f32, px[1] as f32, px[2] as f32];
-            let grey = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+            let grey = li_color::luminance_709(p);
             let out: [f32; 3] = match view {
                 MaskView::Color => std::array::from_fn(|c| p[c] + (col[c] - p[c]) * a * op),
                 MaskView::ColorOnBw => std::array::from_fn(|c| grey + (col[c] - grey) * a * op),
@@ -310,7 +310,7 @@ fn spots(img: &mut Rgba8, t: u8, ppl: f64) {
     }
     let l = lightcraft_raster::Plane::from_fn(w, h, |x, y| {
         let p = img.data[y * w + x];
-        (0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32) / 255.0
+        (li_color::luminance_709([p[0] as f32, p[1] as f32, p[2] as f32])) / 255.0
     });
     let b = lightcraft_raster::blur::gaussian(&l, (SPOT_SIGMA * ppl).max(0.8) as f32);
     let thr = spot_threshold(t);
@@ -329,7 +329,7 @@ fn selected_range(img: &mut Rgba8, alpha: &Plane) {
     for_rows(&mut img.data, w, |y, row| {
         for (x, px) in row.iter_mut().enumerate() {
             let a = alpha.data[y * w + x];
-            let grey = 0.2126 * px[0] as f32 + 0.7152 * px[1] as f32 + 0.0722 * px[2] as f32;
+            let grey = li_color::luminance_709([px[0] as f32, px[1] as f32, px[2] as f32]);
             for value in &mut px[..3] {
                 *value = (grey + (*value as f32 - grey) * a).round().clamp(0.0, 255.0) as u8;
             }
@@ -347,7 +347,7 @@ fn point_color_range(img: &mut Rgba8, k: &PointK) {
             let c = std::array::from_fn(|r| m[r][0] * lin[0] + m[r][1] * lin[1] + m[r][2] * lin[2]);
             let [l, ch, h] = lab_to_lch(oklab_from_2020(c));
             let a = k.weight(l, ch, h);
-            let grey = 0.2126 * px[0] as f32 + 0.7152 * px[1] as f32 + 0.0722 * px[2] as f32;
+            let grey = li_color::luminance_709([px[0] as f32, px[1] as f32, px[2] as f32]);
             for c in 0..3 {
                 px[c] = (grey + (px[c] as f32 - grey) * a).round().clamp(0.0, 255.0) as u8;
             }

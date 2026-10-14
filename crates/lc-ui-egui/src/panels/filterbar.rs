@@ -1,6 +1,6 @@
 //! The library filter bar above the grid: rating (≥ / = / ≤), flags, colour labels, kind,
 //! edited state and camera / lens / keyword pickers — every control drives `library.filter`.
-//! "Save as Smart Album…" keeps the current view as a live album; "Clear" resets the filter.
+//! "Save as Smart Collection…" keeps the current view as a live album; "Clear" resets the filter.
 
 use egui::{Color32, Rect, Sense, Stroke, StrokeKind, vec2};
 use lightcraft_catalog::{ColorLabel, Flag, MediaKind, RatingOp};
@@ -262,7 +262,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // save / clear
     ui.add_space(14.0);
     let filtering = app.session.filter != Default::default();
-    let save = ui.add_enabled(filtering, egui::Button::new(egui::RichText::new(crate::i18n::tr("Save as Smart Album…")).font(t.font(12.5))));
+    let save = ui.add_enabled(filtering, egui::Button::new(egui::RichText::new(crate::i18n::tr("Save as Smart Collection…")).font(t.font(12.5))));
     register(ui.ctx(), "button:filterSave", save.rect);
     if save.clicked() {
         let _ = app.run("dialog.newSmartAlbum", json!({}));

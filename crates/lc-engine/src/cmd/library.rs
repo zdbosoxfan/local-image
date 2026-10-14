@@ -77,6 +77,7 @@ pub fn import_params(s: &Session, p: &Value) -> Result<ImportRequest> {
         preset,
         keywords: strs(p, "keywords"),
         destination: str_param(p, "destination").map(str::to_string),
+        second_copy: str_param(p, "secondCopy").map(str::to_string),
         organize,
         rename: str_param(p, "rename").map(str::to_string),
         rename_start: p.get("renameStart").and_then(Value::as_u64).unwrap_or(1) as usize,

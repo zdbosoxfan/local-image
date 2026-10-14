@@ -31,6 +31,11 @@ pub(crate) fn header(data: &[u8]) -> Result<(ByteOrder, bool, u64)> {
     header_with(data, true)
 }
 
+/// Strict image-codec header parsing; raw-container magic remains available to metadata readers.
+pub(crate) fn strict_header(data: &[u8]) -> Result<(ByteOrder, bool, u64)> {
+    header_with(data, false)
+}
+
 fn header_with(data: &[u8], raw_magic: bool) -> Result<(ByteOrder, bool, u64)> {
     let order = match data.get(0..2) {
         Some(b"II") => ByteOrder::Little,

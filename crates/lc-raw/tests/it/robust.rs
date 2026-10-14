@@ -5,7 +5,7 @@ use lightcraft_raw::{
 };
 use proptest::prelude::*;
 
-fn sample(comp: DngCompression) -> Vec<u8> {
+pub(crate) fn sample(comp: DngCompression) -> Vec<u8> {
     let (w, h) = (24usize, 16usize);
     let data: Vec<u16> = (0..w * h).map(|i| (i * 97 % 4000) as u16).collect();
     let raw = RawImage {

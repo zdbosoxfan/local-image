@@ -522,6 +522,7 @@ fn info(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let t = Tokens::get(ui.ctx());
     padded(ui, |ui| {
         camera_card(ui, &p);
+        camera_metadata(ui, &p.meta);
         ui.add_space(6.0);
         if let Some(why) = &p.preview_only {
             crate::widgets::preview_only_notice(ui, "info", why);
@@ -738,6 +739,73 @@ fn camera_card(ui: &mut egui::Ui, p: &lightcraft_catalog::Photo) {
             });
         }
     });
+}
+
+/// Read-only capture fields use the shared disclosure and the installed theme's text styles.
+fn camera_metadata(ui: &mut egui::Ui, meta: &lightcraft_catalog::Meta) {
+    let t = Tokens::get(ui.ctx());
+    let mut camera = Vec::new();
+    if let Some(serial) = &meta.serial_number {
+        camera.push(("Body Serial Number", serial.clone()));
+    }
+    if let Some(sony) = &meta.sony {
+        for (label, value) in [
+            ("Internal Serial Number", sony.internal_serial_number.clone()),
+            ("Shutter Count", sony.shutter_count.map(|v| v.to_string())),
+            ("Lens ID", sony.lens_id.map(|v| v.to_string())),
+            ("Creative Style / Look", sony.creative_style.clone()),
+            ("Picture Profile", sony.picture_profile.clone()),
+            ("Focus Mode", sony.focus_mode.clone()),
+            ("Focus Area", sony.focus_area.clone()),
+            ("Flexible Spot Position", sony.flexible_spot.map(|p| format!("{}, {} (640 × 480)", p[0], p[1]))),
+            ("Pixel Shift", sony.pixel_shift.map(|p| format!("{} / {} · {}", p.shot_number, p.shot_count, p.group_id))),
+        ] {
+            if let Some(value) = value {
+                camera.push((label, value));
+            }
+        }
+    }
+    let mut drone = Vec::new();
+    if let Some(dji) = &meta.dji {
+        for (label, value, unit) in [
+            ("Absolute Altitude", dji.absolute_altitude, " m"),
+            ("Relative Altitude", dji.relative_altitude, " m"),
+            ("Gimbal Yaw", dji.gimbal_yaw, "°"),
+            ("Gimbal Pitch", dji.gimbal_pitch, "°"),
+            ("Gimbal Roll", dji.gimbal_roll, "°"),
+            ("Flight Yaw", dji.flight_yaw, "°"),
+            ("Flight Pitch", dji.flight_pitch, "°"),
+            ("Flight Roll", dji.flight_roll, "°"),
+            ("Speed X", dji.speed_x, " m/s"),
+            ("Speed Y", dji.speed_y, " m/s"),
+            ("Speed Z", dji.speed_z, " m/s"),
+        ] {
+            if let Some(value) = value {
+                drone.push((label, format!("{value:.3}{unit}")));
+            }
+        }
+        if let (Some(lat), Some(lon)) = (dji.latitude, dji.longitude) {
+            drone.push(("Drone GPS", format!("{lat:.6}, {lon:.6}")));
+        }
+    }
+    for (id, title, rows) in [("infoCameraMetadata", "Camera Metadata", camera), ("infoDroneTelemetry", "Drone Telemetry", drone)] {
+        if rows.is_empty() {
+            continue;
+        }
+        let state = egui::Id::new(id);
+        let mut open = ui.data(|d| d.get_temp::<bool>(state)).unwrap_or(false);
+        if crate::widgets::disclosure(ui, id, crate::i18n::tr(title), open, ui.available_width(), false).clicked() {
+            open = !open;
+            ui.data_mut(|d| d.insert_temp(state, open));
+        }
+        if open {
+            for (label, value) in rows {
+                ui.label(egui::RichText::new(crate::i18n::tr(label)).color(t.text_dim));
+                let response = ui.label(egui::RichText::new(value).color(t.text_label));
+                register(ui.ctx(), format!("metadata:{label}"), response.rect);
+            }
+        }
+    }
 }
 
 fn human_size(bytes: u64) -> String {

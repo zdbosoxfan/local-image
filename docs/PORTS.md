@@ -11,6 +11,12 @@ updated to a newer upstream commit, update its row (commit and date) rather than
 
 | Our file | Upstream project | Upstream path | Upstream commit | Licence | Date | Used for |
 |---|---|---|---|---|---|---|
+| `crates/lc-raw/src/vendor/arw6.rs` | [LibRaw](https://github.com/LibRaw/LibRaw) | `src/decoders/sony_arw6.cpp` | `830ac963b40223c6a25add5be65036fa8d56e2d6` | LGPL-2.1-only (chosen over CDDL-1.0) | 2026-10-14 | Bounds-checked pure-Rust Sony ARW6 normal/HQ packet, entropy, wavelet and complete inverse curve implementation. |
+| `crates/lc-raw/src/vendor/arw.rs` | [LibRaw](https://github.com/LibRaw/LibRaw) | `src/metadata/sony.cpp`, `src/decoders/decoders_libraw.cpp` | `b93f6e45c194f5df9b02a43b1af9a54b4f41f33f` (0.22.2) | LGPL-2.1-only (chosen over CDDL-1.0) | 2026-10-14 | Sony per-file SR2 calibration cipher, ARQ sample layout and Sony RGB conversion reference. |
+| `crates/lc-meta/src/sony.rs`, `crates/lc-meta/src/dji.rs` | [ExifTool](https://github.com/exiftool/exiftool) | `lib/Image/ExifTool/Sony.pm`, `lib/Image/ExifTool/DJI.pm`, `lib/Image/ExifTool/Exif.pm` | `2200871d9cef988051d2a99d67df3bda6cbb30a8` (13.59 snapshot; 13.40 reference also retained) | GPL-1.0-or-later (Perl licence option) | 2026-10-14 | Independently implemented Sony field layouts/cipher and DJI namespace semantics; reference-only Perl tool. |
+| `crates/lc-merge/src/pixelshift.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/pixelshift.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | 2026-10-14 | Independent Rust noise-aware repeated-green motion comparison; measured/profiled variance and first-shot fallback. |
+| `crates/lc-merge/src/pixelshift.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/denoiseprofile.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-14 | Documented normalized sensor variance a×signal+b for motion thresholds. |
+| `crates/lc-merge/src/pixelshift.rs` | [make_arq](https://github.com/agriggio/make_arq) | `make_arq.py` | `912069a8e6d3c6738cd76ba0fe6c62ed4d314fe3` | GPL-3.0-or-later | 2026-10-14 | Sony source shot displacement and half-pixel phase ordering (independent Rust reconstruction/motion implementation). |
 | `crates/li-ai/src/builders.rs`, `crates/li-ai/examples/zimage_variety_check.rs` | [SplitMix64](https://github.com/svaarala/duktape) | `misc/splitmix64.c` | `84131700dfd32d9d1063f99b5b0a900f5935a613` | CC0-1.0 | 2026-10-10 | Stable seed-derived alternate conditioning for Z-Image Turbo Variety. |
 
 | Our file | Upstream project | Upstream path | Upstream commit | Licence | Date |
@@ -27,6 +33,10 @@ updated to a newer upstream commit, update its row (commit and date) rather than
 | `crates/lc-pipeline/src/detail/haze.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/common/guided_filter.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-pipeline/src/detail/haze.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/common/box_filters.cc` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-pipeline/src/negative.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/negadoctor.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-08 |
+| `crates/lc-raw/src/demosaic/markesteijn.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/xtrans.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-13 |
+| `crates/lc-raw/src/demosaic/markesteijn.rs`, `crates/lc-raw/src/demosaic/dual.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/vng.c`, `src/iop/demosaicing/dual.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-13 |
+| `crates/lc-raw/src/demosaic/lmmse.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/lmmse.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-13 |
+| `crates/lc-raw/src/demosaic/dcb.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/demosaic_algos.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | BSD-3-Clause AND GPL-3.0-or-later | 2026-10-13 |
 | `crates/lc-raw/src/demosaic/vng.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/vng.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-raw/src/demosaic/vng.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/basics.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-raw/src/demosaic/amaze.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/amaze.cc` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
@@ -54,8 +64,10 @@ updated to a newer upstream commit, update its row (commit and date) rather than
 | `crates/lc-pipeline/src/basecurves.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/common/curve_tools.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-raw/src/camera_matrices.rs` | [rawler](https://github.com/dnglab/dnglab) | `rawler/data/cameras/**/*.toml` | v0.8.0; immutable tree `ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7` (offline archive has no commit metadata) | LGPL-2.1-only → GPL-3.0-or-later via §3 | 2026-10-09 |
 | `crates/lc-raw/src/camera_matrices.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/camconst.json` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | 2026-10-09 |
-| `crates/lc-color/src/profile.rs`, `camera.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/dcp.cc` (table interpolation, matrix blending) | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | 2026-10-09 |
+| `crates/li-color/src/profile.rs`, `camera.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/dcp.cc` (table interpolation, matrix blending) | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-raw/data/dcp/` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtdata/dcpprofiles/` (explicit embedded-rights allowlist) | `5f486d3678b34c74ba0c63571c17babe20935019` | CC0-1.0 / public domain; per-file rights + SHA-256 in manifest | 2026-10-09 |
+| `crates/lc-raw/data/color/` | [CIE](https://cie.co.at/datatable/cie-1931-colour-matching-functions-2-degree-observer) | CIE 018:2019 Table 6, complete CIE_xyz_1931_2deg.csv and metadata | DOI 10.25039/CIE.DS.xvudnb9b; SHA-256 fa663e3535a7e0763a745993a1f0a192eb0275ac46ad2d1befd7626841e713c1 | CC-BY-SA-4.0 (separate data work) | 2026-10-14 |
+| `crates/lc-raw/src/lcp.rs`, `crates/lc-pipeline/src/lcp.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | rtengine/lcp.cc, interpretation of Adobe Camera Model (2010); original XML parser | `c6d04960e14fed89e531cbbdf680021d131b4685`; Adobe Camera Model 2010 PDF | GPL-3.0-or-later | 2026-10-14 |
 | `crates/pc-pathops/src/geom/path.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/path.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
 | `crates/pc-pathops/src/adapter.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/path.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
 | `crates/pc-pathops/src/geom/bez.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/bez.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-09 |
@@ -625,3 +637,57 @@ All glue is in one adapter; rawler remains an ordinary crates.io dependency.
 | Our file | Upstream project | Upstream path | Upstream commit | Licence | Date | Used for |
 |---|---|---|---|---|---|---|
 | `crates/lc-raw/src/rawler_adapter.rs` | [rawler](https://github.com/dnglab/dnglab) | `rawler/Cargo.toml` | `ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7` | LGPL-2.1-only | 2026-10-13 | Unmodified crates.io 0.8.0 dependency for Canon CR3 RAW/C-RAW/dual-pixel, compressed Fujifilm RAF and Olympus/OM ORF; fallback for any native Unsupported variant, and runtime camera calibration missing from our first-choice table. |
+
+## Whole camera calibration data (2026-10-13)
+
+| Our file | Upstream project | Upstream path | Upstream commit | Licence | Used for |
+|---|---|---|---|---|---|
+| `crates/lc-raw/data/cameras/camconst.json` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/camconst.json` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | Whole camera white/black levels, crops and PDAF patterns |
+| `crates/lc-raw/data/cameras/cameras.xml` | [rawspeed](https://github.com/darktable-org/rawspeed) | `data/cameras.xml` | `0c16fee7772594e98897bded01fc31bc3409b4cb` | CC-BY-SA-3.0 | Whole ISO sensor calibration, crops, black areas and matrices |
+| `crates/lc-raw/data/cameras/noiseprofiles.json` | [darktable](https://github.com/darktable-org/darktable) | `data/noiseprofiles.json` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | Whole per-camera measured noise fits |
+| `crates/lc-raw/data/cameras/wb_presets.json` | [darktable](https://github.com/darktable-org/darktable) | `data/wb_presets.json` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-2.0-or-later | Whole camera WB presets |
+
+
+Files remain whole and byte-identical to upstream. [Camera-data contract](CAMERA-DATA.md) defines
+precedence, mode guards, refresh steps and validation. `camera_data.rs` follows RT `camconst.cc` and
+`pdaflinesfilter.cc`, rawspeed `Camera.cpp` and darktable `noiseprofiles.c`; the runtime and algorithms
+remain Rust. Notices are in `licenses/{rawtherapee,darktable,rawspeed}-NOTICE.md`.
+
+| Our file | Upstream project | Upstream path | Upstream commit | Licence | Used for |
+|---|---|---|---|---|---|
+| `crates/lc-raw/src/camera_data.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/camconst.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | ISO/aperture camera constant semantics |
+| `crates/lc-raw/src/camera_data.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/rawimage.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | Integer TIFF-bit-depth white mapping and absolute black flags |
+| `crates/lc-raw/src/camera_data.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/pdaflinesfilter.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | PDAF periods and green-triplet detection; host clean-row interpolation |
+| `crates/lc-raw/src/camera_data.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/common/noiseprofiles.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | Profile skip/interpolation semantics |
+### Demosaic extension (2026-10-13)
+Markesteijn three-pass uses upstream YPbPr homogeneity voting and eight directional buffers.
+DCB uses three correction iterations with standard final chroma interpolation. LMMSE uses three
+median passes, without EECI refinement (upstream mode 2). These are safe Rust ports, with no
+C/C++ linkage, new dependencies, or modified rawler source. rawler 0.8.0 is a second reference
+in the offline quality example only. See `docs/wip/CODEX-REPORT-demosaic.md` for measured choices.
+Update procedure: change the pin in `scripts/demosaic_refvec.py`, download whole upstream source
+files into `target/refvec/demosaic/upstream`, inspect algorithm changes, rerun the scalar harness
+and measured noisy re-mosaic curves, then update ports, licence notices and reviewed fixtures.
+Do not regenerate existing fixtures without investigating differences. Reference exports are
+pinned to the installed darktable 5.6.2 and retained under `target/`; they are not runtime data.
+The reference-only Poisson-Gaussian harness reads darktable's whole, unmodified
+`data/noiseprofiles.json` at the same pin (GPL-3.0-or-later, SHA-256
+`e22730cf69ead3534b2d2e7500ab24af6da99834250b852ca1831002ba2450f8`).
+`scripts/demosaic_profiles.py` retains and verifies that JSON under `target/refvec/demosaic/`
+and extracts eight D750 ISO entries into a reference TSV. It is not runtime camera data.
+Updating it requires reviewing the source pin/hash and rerunning the profile curves at a
+coordinator-approved benchmark milestone. The ten-file CC0 camera corpus is pinned separately
+in `crates/lc-raw/tests/fixtures/demosaic-corpus.tsv`; `scripts/demosaic_samples.py` verifies every
+source SHA-256 and stores files under `target/demosaic-corpus/`.
+## User camera/lens profile imports (2026-10-14)
+Adobe DCP/LCP data is **never bundled or redistributed**. Runtime import reads the user's own
+DNG Converter/Camera Raw install or chosen folder; original files remain whole and unchanged.
+Keep the user's installer/version and originals for reproducibility, replace with a new licensed
+install to update, then use Settings → Import → Reload Profiles. Content-based ids invalidate
+changed selections/caches. See [CAMERA-PROFILES.md](CAMERA-PROFILES.md) for locations and custom
+GPL-3 dcamprof profiles; no dcamprof/Adobe SDK/C reference dependency enters Cargo.lock.
+Triple-illuminant matrices and hue/saturation weighting follow DNG 1.6/1.7 chapter 6 and
+[Adobe SDK](https://android.googlesource.com/platform/external/dng_sdk/+/de700ad461e35af50b28b861943a0b0753b10929/source/dng_color_spec.cpp)
+reference algorithms at `de700ad461e35af50b28b861943a0b0753b10929`. SDK numeric reference
+vectors are produced externally under target/refvec; no SDK source is compiled in the app.
+CIE data update instructions are [with the whole pinned data](../crates/lc-raw/data/color/README.md).

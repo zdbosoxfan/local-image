@@ -182,11 +182,11 @@ fn lookup_builtin_success() {
     let first = adjust_cmds::LOOKS[0];
     let adj = adjust_cmds::lookup_from_params(&json!({"lut": first.0}), None).unwrap();
     match adj {
-        Adjustment::ColorLookup { name, lut, size, tetrahedral, dither } => {
+        Adjustment::ColorLookup { name, lut, size, tetrahedral, dither, .. } => {
             assert_eq!(name, first.1);
             assert!(lut.is_some());
             assert!(size > 0);
-            assert!(!tetrahedral);
+            assert!(tetrahedral);
             assert!(!dither);
         }
         _ => panic!("expected ColorLookup"),
@@ -233,7 +233,7 @@ fn lookup_base_preserve_with_partial_params() {
     let base = adjust_cmds::lookup_from_params(&json!({"lut": first_id}), None).unwrap();
     let adj = adjust_cmds::lookup_from_params(&json!({"interpolation":"tetrahedral","dither":true}), Some(&base)).unwrap();
     match (base, adj) {
-        (Adjustment::ColorLookup { name: n1, lut: l1, size: s1, .. }, Adjustment::ColorLookup { name: n2, lut: l2, size: s2, tetrahedral, dither }) => {
+        (Adjustment::ColorLookup { name: n1, lut: l1, size: s1, .. }, Adjustment::ColorLookup { name: n2, lut: l2, size: s2, tetrahedral, dither, .. }) => {
             assert_eq!(n1, n2);
             assert!(l1.is_some());
             assert!(l2.is_some());
@@ -269,7 +269,7 @@ fn update_adjustment_color_lookup_merges() {
     let p = json!({"interpolation":"tetrahedral","dither":true});
     let res = adjust_cmds::update_adjustment(&base, &p).unwrap().unwrap();
     match res {
-        Adjustment::ColorLookup { tetrahedral, dither, name, lut, size } => {
+        Adjustment::ColorLookup { tetrahedral, dither, name, lut, size, .. } => {
             assert!(tetrahedral);
             assert!(dither);
             assert_eq!(name, adjust_cmds::LOOKS[0].1);

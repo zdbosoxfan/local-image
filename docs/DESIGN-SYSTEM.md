@@ -104,12 +104,15 @@ file `crates/pc-ui-egui/src/widgets.rs` (`pc`), library file `crates/lc-ui-egui/
 | Widget | Purpose and usage | Line |
 | --- | --- | --- |
 | `card` / `card_ex` | Dock card with pill-tab header, collapsible; `card(ui, id, &tabs, &mut sel, \|ui, i\| ..)` | 37 / 59 |
+| `module_switcher` | Shared title-bar module picker; the first control in the right-to-left group in every module/persona | widgets.rs |
+| `preferences_tab` | Shared accessible Preferences navigation for application, Library/Develop and AI pages | widgets.rs |
 | `pill_tab` (`_translated`) | One tab in a strip or a two-way switch: `pill_tab(ui, "Layers", on)` | 141 |
 | `surface` | Flat or Classic-bevelled box behind custom content | 22 |
 | `drop_line` | Accent insertion line while dragging onto a row | 10 |
 | `slider` / `slider_row` (`_translated`) | Thin slider; labelled row with value field and optional gradient track | 251 / 312 |
 | `value_field` (`_with_precision`) | Monospace number field with unit suffix, drag to scrub | 168 / 174 |
 | `toggle` | Switch for an immediate on/off setting | 346 |
+| `cpu_estimate` / `cpu_batch_estimate` | Shared CPU-AI preflight notices; hardware/tensor-sized estimate, theme warning/caution, interactive refusal vs cancellable batch warning | widgets.rs |
 | `checkbox` | The only checkbox: `widgets::checkbox(ui, &mut on, "Label")` | 705 |
 | `primary_button` / `secondary_button` | Filled main action / outlined action, `(ui, label, min_width)` | 375 / 380 |
 | `dialog_buttons`, `DialogButton`, `ButtonRole` | Every modal's button row, in the platform's order (Default, Alternate, Cancel, Apply) | 435 / 414 / 387 |
@@ -138,22 +141,31 @@ Also in `pc-ui-egui/src/icons.rs`: `icons::button` (`:235`, square icon button),
 | Widget | Purpose and usage | Line |
 | --- | --- | --- |
 | `slider` / `numeric_slider` | Lightroom slider row: label, value, ring thumb; double-click resets, Shift fine | 147 / 162 |
-| `section_header` | Collapsible 52 pt panel section: `section_header(ui, id, "Light", open, enabled)` | 355 |
+| `section_header` | Collapsible 52 pt panel section: `section_header(ui, id, "Basic", open, enabled)` | 355 |
 | `disclosure` | One-line chevron + title for a fold inside a panel; `DISCLOSURE_H` 24 | 548 |
 | `flyout_row` | Inset row with icon tile that opens a sub-editor (Curve, Color Mixer) | 396 |
 | `text_button` | Small bordered text button (Auto, B&W) | 421 |
 | `segmented` | Equal-width segmented control, `per_row` wraps | 445 |
 | `icon_button` / `icon_button_as` | Icon-only button; `_as` keeps a legacy automation id like `button:layerNew` | 480 / 486 |
 | `tool_button` | Tool-strip button with tool image | 490 |
+| `modal` | Shared Preferences fallback with a stable top anchor and egui modal focus/backdrop | widgets.rs |
+| `panel_content` | Standard inset for Develop section content and Add tool actions (`theme::PANEL_CONTENT_MARGIN`) | widgets.rs |
+| `checkbox`, `choice_menu` | Shared Preferences checkbox and dropdown shell; callers retain legacy automation IDs | widgets.rs |
 | `dropdown` | Borderless text + chevron button that opens a menu | 710 |
 | `color_swatch` | Colour sample tile, optionally a selectable choice; `SWATCH_RADIUS` 3 | 587 |
 | `range_strip` | Caption over a colour strip with selected window(s) outlined; `RANGE_STRIP_H` 14 | 620 |
 | `image_badge` | Badge over photo pixels (`overlay_bg`/`overlay_fg`); `BADGE_H` 24, `BADGE_RADIUS` 6 | 654 |
 | `stars` | Five-star rating row | 685 |
 | `divider` | Thin divider between groups | 388 |
+| `cpu_estimate` / `cpu_batch_estimate` | Shared CPU-AI preflight notices, styled with `text_dim` / `caution`; mask and Smart Sort controls | widgets.rs |
 | `preview_only_notice` | Amber panel notice for a raw shown from its embedded preview | 45 |
 | `register` / `take_registry` | Record a widget's automation id and rect for the control protocol and tests | 17 / 22 |
 | `hex`, `lerp`, `BAND_COLORS`, `nudged` | Colour and value helpers | 70 / 75 / 82 / 348 |
+
+Library also provides `checkbox(ui, id, value, label)`, `choice(ui, id, value, options)` and
+`text_field(ui, id, value, label)` and `field_with_action` in `widgets.rs`. Import safety, catalog backup preferences and
+proof-sheet dialogs use these shared controls. They inherit the active light/dark theme, expose
+accessible labels, register automation IDs, and text fields adapt to the available width. Fields with an action stack the button below at narrow widths.
 
 ### Duplicates across the crates (consolidation later)
 
@@ -269,3 +281,11 @@ availability note in both themes. Dropdowns elide labels to the available width.
 The RAW Look row uses the same eliding dropdown and parameter slider widgets;
 it keeps their widths within the available panel body instead of fixed ComboBox
 minimum widths. The headless lens test verifies declared panel/window bounds.
+Shared navigation metrics retain the existing pill typography/padding/height as
+`PILL_TAB_FONT_SIZE`, `PILL_TAB_PADDING`, `PILL_TAB_HEIGHT`. Preferences navigation uses
+`PREFERENCES_TAB_HEIGHT`, `PREFERENCES_TAB_INSET`, `PREFERENCES_TAB_TEXT_MARGIN`.
+Library Preferences rows share `PREFERENCES_BODY_WIDTH`; choices use `BUTTON_FONT_SIZE`,
+`CONTROL_FONT_SIZE` and `DROPDOWN_ARROW_SPACE`. These metrics preserve the existing visual sizes.
+`widgets::profile_choice` is the shared camera/lens profile picker: a labelled, width-bounded
+combo using theme text and panel inset tokens. Its choices carry group headings and automation
+ids (`combo:<id>` / `choice:<id>:<profile>`), and it is used in Develop and the profile browser.

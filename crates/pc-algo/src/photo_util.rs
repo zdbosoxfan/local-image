@@ -1,66 +1,8 @@
-//! Small numeric helpers shared by the computational-photography modules (panorama, HDR, lens,
-//! wide angle, Camera Raw): dense and sparse least squares, parallel row loops, sampling.
+//! Sparse mesh least squares, parallel row loops and sampling for editor algorithms.
+//! Dense response/bundle solvers live in the shared merge backend.
 
-/// Solves the dense `n × n` system `a · x = b` (row-major) by Gaussian elimination with partial
-/// pivoting. `None` when singular.
-pub(crate) fn solve_dense(n: usize, mut a: Vec<f64>, mut b: Vec<f64>) -> Option<Vec<f64>> {
-    for col in 0..n {
-        let piv = (col..n).max_by(|&i, &j| a[i * n + col].abs().total_cmp(&a[j * n + col].abs()))?;
-        if a[piv * n + col].abs() < 1e-14 {
-            return None;
-        }
-        if piv != col {
-            for k in 0..n {
-                a.swap(col * n + k, piv * n + k);
-            }
-            b.swap(col, piv);
-        }
-        let d = a[col * n + col];
-        for r in col + 1..n {
-            let f = a[r * n + col] / d;
-            if f == 0.0 {
-                continue;
-            }
-            for k in col..n {
-                a[r * n + k] -= f * a[col * n + k];
-            }
-            b[r] -= f * b[col];
-        }
-    }
-    let mut x = vec![0.0; n];
-    for r in (0..n).rev() {
-        let s: f64 = (r + 1..n).map(|k| a[r * n + k] * x[k]).sum();
-        x[r] = (b[r] - s) / a[r * n + r];
-    }
-    x.iter().all(|v| v.is_finite()).then_some(x)
-}
-
-/// Accumulates weighted rows into normal equations `AᵀA x = Aᵀb` for a dense least-squares
-/// problem with `n` unknowns.
-pub(crate) struct Normal {
-    pub n: usize,
-    pub ata: Vec<f64>,
-    pub atb: Vec<f64>,
-}
-
-impl Normal {
-    pub fn new(n: usize) -> Self {
-        Normal { n, ata: vec![0.0; n * n], atb: vec![0.0; n] }
-    }
-    /// Adds the sparse row `Σ coef·x[idx] = rhs` with weight `w` (applied squared).
-    pub fn add(&mut self, row: &[(usize, f64)], rhs: f64, w: f64) {
-        let w2 = w * w;
-        for &(i, a) in row {
-            self.atb[i] += w2 * a * rhs;
-            for &(j, b) in row {
-                self.ata[i * self.n + j] += w2 * a * b;
-            }
-        }
-    }
-    pub fn solve(self) -> Option<Vec<f64>> {
-        solve_dense(self.n, self.ata, self.atb)
-    }
-}
+#[cfg(test)]
+pub(crate) use lightcraft_merge::editor::support::{Normal, solve_dense};
 
 /// A sparse least-squares problem `min Σ w²(row·x − rhs)²`, solved by conjugate gradients on the
 /// normal equations (CGLS). Used for mesh warps with thousands of unknowns.
@@ -160,7 +102,9 @@ pub(crate) fn par_map<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -
 }
 
 /// Deterministic 64-bit generator (SplitMix64).
+#[cfg(test)]
 pub(crate) struct Rng(pub u64);
+#[cfg(test)]
 impl Rng {
     pub fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -169,12 +113,10 @@ impl Rng {
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
         z ^ (z >> 31)
     }
-    pub fn below(&mut self, n: usize) -> usize {
-        (self.next() % n.max(1) as u64) as usize
-    }
 }
 
 /// Integer hash → `0..1` (position-keyed noise, independent of tiling).
+#[cfg(test)]
 pub(crate) fn hash01(x: i64, y: i64, seed: u64) -> f32 {
     let mut z = (x as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ (y as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F) ^ seed.wrapping_mul(0x1656_67B1_9E37_79F9);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
@@ -185,15 +127,16 @@ pub(crate) fn hash01(x: i64, y: i64, seed: u64) -> f32 {
 
 /// sRGB transfer function, decode (extended linearly below 0 and as a power above 1).
 pub(crate) fn srgb_to_linear(v: f32) -> f32 {
-    if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    li_color::transfer::srgb_to_linear(v)
 }
 
 /// sRGB transfer function, encode.
 pub(crate) fn linear_to_srgb(v: f32) -> f32 {
-    if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
+    li_color::transfer::linear_to_srgb(v)
 }
 
 /// Bilinear sample of channel `c` of a `w × h × ch` buffer, clamped to the edges.
+#[cfg(test)]
 pub(crate) fn bilinear(buf: &[f32], w: usize, h: usize, ch: usize, c: usize, x: f32, y: f32) -> f32 {
     let x = x.clamp(0.0, (w - 1) as f32);
     let y = y.clamp(0.0, (h - 1) as f32);

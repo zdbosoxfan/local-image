@@ -341,8 +341,22 @@ pub(crate) fn quiesce(timeout: std::time::Duration) -> bool {
     }
     drop(n);
     if let Some(g) = crate::existing_device() {
+        // A lost device has no queue left to drain. wgpu can panic when it is polled;
+        // all recording/init work was already drained above, so teardown can proceed.
+        if g.health.fault().is_some_and(|fault| fault.is_lost()) {
+            return true;
+        }
         let left = deadline.saturating_duration_since(std::time::Instant::now());
-        return g.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(left) }).is_ok();
+        return match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            g.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(left) })
+        })) {
+            Ok(Ok(_)) => true,
+            Ok(Err(_)) => g.health.fault().is_some_and(|fault| fault.is_lost()),
+            Err(_) => {
+                g.health.mark(photocraft_gpu::Fault::Lost("the device stopped responding during teardown".into()));
+                true
+            }
+        };
     }
     true
 }
@@ -418,6 +432,7 @@ pub struct Gpu {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub info: wgpu::AdapterInfo,
+    pub health: photocraft_gpu::DeviceHealth,
     kernels: HashMap<&'static str, Kernel>,
     dummy: wgpu::Buffer,
     /// Recycled buffers (see [`Buf`]).
@@ -510,8 +525,8 @@ fn module_source(m: &Module, consts: &str) -> String {
 
 impl Gpu {
     /// Create a device on the best available adapter (no software fallback), or why there is none.
-    pub fn new(backends: wgpu::Backends) -> Result<Gpu, String> {
-        Self::new_inner(backends, false)
+    pub fn new(backends: wgpu::Backends, health: photocraft_gpu::DeviceHealth) -> Result<Gpu, String> {
+        Self::new_inner(backends, false, health)
     }
 
     /// Numerical tests prefer hardware, with CPU Vulkan available on CI. LC_REQUIRE_GPU makes
@@ -521,13 +536,14 @@ impl Gpu {
         // The caller holds TEST_INIT_LOCK through rendering and teardown, also
         // excluding the crash-marker test's process-wide configuration.
         let backends = crate::backend::default_compute_backends(std::env::consts::OS);
-        let device = Self::new_inner(backends, false)
-            .or_else(|e| if std::env::var_os("LC_REQUIRE_GPU").is_some() { Err(e) } else { Self::new_inner(backends, true) })?;
+        let device = Self::new_inner(backends, false, photocraft_gpu::DeviceHealth::new()).or_else(|e| {
+            if std::env::var_os("LC_REQUIRE_GPU").is_some() { Err(e) } else { Self::new_inner(backends, true, photocraft_gpu::DeviceHealth::new()) }
+        })?;
         eprintln!("numerical test device: {} ({:?})", device.info.name, device.info.backend);
         Ok(device)
     }
 
-    fn new_inner(backends: wgpu::Backends, software_test: bool) -> Result<Gpu, String> {
+    fn new_inner(backends: wgpu::Backends, software_test: bool, health: photocraft_gpu::DeviceHealth) -> Result<Gpu, String> {
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
         // only these drivers are loaded (`crate::backend`: never Vulkan on Windows unless asked)
         desc.backends = backends;
@@ -559,17 +575,7 @@ impl Gpu {
             ..Default::default()
         }))
         .map_err(|e| format!("{}: device creation failed ({e})", info.name))?;
-        // Errors outside a render's error scopes (see `ErrorScopes`): log, and stop using the GPU.
-        device.on_uncaptured_error(std::sync::Arc::new(|e| {
-            log::error!("gpu: {e}");
-            crate::mark_broken(&format!("device error: {e}"));
-        }));
-        // wgpu reports a lost device (driver reset, GPU hang, watchdog) only here — never as an
-        // error — so without this callback a lost device went unnoticed.
-        device.set_device_lost_callback(|reason, msg| {
-            log::error!("gpu: device lost ({reason:?}): {msg}");
-            crate::mark_broken(&format!("device lost ({reason:?}): {msg}"));
-        });
+        health.attach(&device);
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let consts = constants();
         let mut kernels = HashMap::new();
@@ -609,7 +615,17 @@ impl Gpu {
         let max_buffer = limits.max_storage_buffer_binding_size.min(limits.max_buffer_size);
         log::info!("gpu: {} ({:?}), buffers ≤ {} MiB", info.name, info.backend, max_buffer >> 20);
         static NEXT_CONTEXT: AtomicU64 = AtomicU64::new(1);
-        Ok(Gpu { id: NEXT_CONTEXT.fetch_add(1, Ordering::Relaxed), device, queue, info, kernels, dummy, free: Default::default(), max_buffer })
+        Ok(Gpu {
+            id: NEXT_CONTEXT.fetch_add(1, Ordering::Relaxed),
+            device,
+            queue,
+            info,
+            health,
+            kernels,
+            dummy,
+            free: Default::default(),
+            max_buffer,
+        })
     }
 
     /// A buffer of `len` 32-bit values with undefined contents (a recycled one when possible).
@@ -865,7 +881,8 @@ pub(crate) enum FailKind {
     OutOfMemory,
     /// The image came back entirely black: redone on the CPU in case the GPU dropped work.
     Blank,
-    /// Device error or loss, readback failure, incomplete image: the GPU is not used again.
+    /// Device error or loss, readback failure, incomplete image: discard this operation and
+    /// let DeviceHealth govern backoff/replacement.
     Fatal,
 }
 

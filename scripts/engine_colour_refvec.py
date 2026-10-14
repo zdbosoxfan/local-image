@@ -87,7 +87,7 @@ std::vector<HsbModify> data; for(int v=0;v<dims;v++) for(int h=0;h<4;h++) for(in
 for(int i=0;i<24;i++) {float h0=(i*17%360)/60.f,s0=.01f+.012f*i,v0=.05f+.02f*i;float h=h0,s=s0,v=v0; hsdApply(t,data,h,s,v); printf("%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\\n",dims,h0*60.f,s0,v0,h*60.f,s,v);}}
 }
 '''
-build('dcp',code,'crates/lc-color/tests/fixtures/dcp.csv',True)
+build('dcp',code,'crates/li-color/tests/fixtures/dcp.csv',True)
 # Exact RawTherapee matrix blending and reciprocal-CCT weighting, supplied temperatures.
 fn=function(s,'DCPProfile::Matrix mix3x3(').replace('DCPProfile::Matrix','Matrix')
 code='''#include <array>
@@ -99,7 +99,7 @@ for(double t: {2000.,2856.,3200.,4500.,5500.,6504.,9000.}) {double mix;
 if(t<=2856.) mix=1.;else if(t>=6504.) mix=0.;else { const double invT=1./t; mix=(invT-(1./6504.))/((1./2856.)-(1./6504.)); }
 Matrix m=mix3x3(a,mix,b,1.-mix);printf("%.17g,%.17g",t,mix);for(auto r:m)for(double v:r)printf(",%.17g",v);puts("");}}
 '''
-build('illuminants',code,'crates/lc-color/tests/fixtures/illuminants.csv',True)
+build('illuminants',code,'crates/li-color/tests/fixtures/illuminants.csv',True)
 # Independent camera-data spots: read original TOMLs, never the generated Rust table.
 camera_root=sources/'dnglab/dnglab-0.8.0/rawler/data/cameras'
 with (root/'crates/lc-raw/tests/fixtures/camera-matrices.csv').open('w', newline='') as out:

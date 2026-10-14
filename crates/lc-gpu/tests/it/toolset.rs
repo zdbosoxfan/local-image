@@ -1185,8 +1185,14 @@ fn dual_illuminant_wb_and_dcp_inside_gpu_render() {
     let stages = StageCache::default();
     let req = RenderRequest::fit(192, 128);
     for use_profile in [false, true] {
-        info.camera_profile = use_profile
-            .then(|| Arc::new(ProfileLook { hue_sat_map: [Some(a.clone()), Some(b.clone())], look_table: Some(a.clone()), tone_curve: None }));
+        info.camera_profile = use_profile.then(|| {
+            Arc::new(ProfileLook {
+                hue_sat_map: [Some(a.clone()), Some(b.clone())],
+                look_table: Some(a.clone()),
+                tone_curve: None,
+                ..Default::default()
+            })
+        });
         for temp in [2856., 4500., 6504., 9000.] {
             for tint in [-15., 0., 25.] {
                 let mut s = DevelopSettings::default();

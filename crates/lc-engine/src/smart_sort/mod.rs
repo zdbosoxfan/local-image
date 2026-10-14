@@ -227,6 +227,9 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
     // Indexing work: the shared low-priority background pool (threading rules 2 and 7), not a
     // private pool of its own.
     for batch in todo.chunks(32) {
+        if !lightcraft_sysmem::power::wait_background(&|| cancel.load(Ordering::Relaxed)) {
+            break;
+        }
         if cancel.load(Ordering::Relaxed) {
             break;
         }
@@ -281,14 +284,24 @@ pub fn run_inputs(
     result: &(dyn Fn(PhotoId, String, InputResult) + Send + Sync),
 ) -> Result<(), String> {
     use rayon::prelude::*;
-    // The shared low-priority background pool (threading rules 2 and 7).
-    lightcraft_sysmem::in_background_pool(|| {
-        inputs.into_par_iter().for_each(|input| {
-            if !cancel.load(std::sync::atomic::Ordering::Relaxed) {
-                let (id, key) = (input.id, input.key.clone());
-                result(id, key, input.analyze(tagger.as_ref()));
-            }
-        })
-    });
+    let mut inputs = inputs.into_iter();
+    loop {
+        // Pause between bounded batches on the coordinator, never occupy rayon workers.
+        if !lightcraft_sysmem::power::wait_background(&|| cancel.load(std::sync::atomic::Ordering::Relaxed)) {
+            break;
+        }
+        let batch: Vec<_> = inputs.by_ref().take(32).collect();
+        if batch.is_empty() {
+            break;
+        }
+        lightcraft_sysmem::in_background_pool(|| {
+            batch.into_par_iter().for_each(|input| {
+                if !cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                    let (id, key) = (input.id, input.key.clone());
+                    result(id, key, input.analyze(tagger.as_ref()));
+                }
+            })
+        });
+    }
     Ok(())
 }

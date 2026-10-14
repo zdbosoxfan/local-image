@@ -101,20 +101,29 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId], headshots: Option<String>
                     }
                 }
                 use rayon::prelude::*;
-                // Face indexing: the shared low-priority background pool (threading rules 2 and 7).
-                lightcraft_sysmem::in_background_pool(|| {
-                    inputs.into_par_iter().for_each(|input| {
-                        if c.load(Ordering::Relaxed) {
-                            return;
-                        }
-                        let (id, key) = (input.id, input.key.clone());
-                        let value = people::detect_input(input, sizes.get(&id).copied().unwrap_or((1, 1)), tagger.as_ref());
-                        let _ = tx.send(Event::Row(id, key, value));
-                        if let Ok(mut p) = p.lock() {
-                            p.0 += 1;
-                        }
-                    })
-                });
+                let mut inputs = inputs.into_iter();
+                loop {
+                    if !lightcraft_sysmem::power::wait_background(&|| c.load(Ordering::Relaxed)) {
+                        break;
+                    }
+                    let batch: Vec<_> = inputs.by_ref().take(32).collect();
+                    if batch.is_empty() {
+                        break;
+                    }
+                    lightcraft_sysmem::in_background_pool(|| {
+                        batch.into_par_iter().for_each(|input| {
+                            if c.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            let (id, key) = (input.id, input.key.clone());
+                            let value = people::detect_input(input, sizes.get(&id).copied().unwrap_or((1, 1)), tagger.as_ref());
+                            let _ = tx.send(Event::Row(id, key, value));
+                            if let Ok(mut p) = p.lock() {
+                                p.0 += 1;
+                            }
+                        })
+                    });
+                }
             }
             Ok(())
         })();

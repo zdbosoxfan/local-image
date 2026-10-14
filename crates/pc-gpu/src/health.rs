@@ -1,7 +1,8 @@
 //! Device health (#243): notices a lost wgpu device or uncaptured wgpu errors so callers stop
 //! issuing GPU work and fall back to the CPU compositor instead of panicking.
 //!
-//! A device loss is final. An uncaptured error (a validation or internal error, out of memory)
+//! A device loss requires a replacement device. Retry/backoff lives on the same health object
+//! as strike/decay; it never makes a lost device usable again. An uncaptured error (a validation or internal error, out of memory)
 //! is not on its own: it is logged and counted, the operation that raised it is redone on the
 //! CPU by its caller (compare [`DeviceHealth::errors`] before and after), and only errors in
 //! [`STRIKE_LIMIT`] separate frames (see [`DeviceHealth::tick`]) without [`DECAY_FRAMES`] clean
@@ -19,6 +20,7 @@
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use web_time::{Duration, Instant};
 
 /// Why the GPU can't be used any more.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +62,13 @@ pub const STRIKE_LIMIT: u64 = 3;
 /// Clean frames after which earlier error frames are forgotten.
 pub const DECAY_FRAMES: u64 = 600;
 
+#[derive(Clone, Default)]
+struct Retry {
+    until: Option<Instant>,
+    failures: u32,
+    epoch: u64,
+}
+
 #[derive(Default)]
 struct Inner {
     faulted: AtomicBool,
@@ -69,6 +78,7 @@ struct Inner {
     /// (current frame, strikes since decay, last error frame + 1).
     strike_state: Mutex<(u64, u64, u64)>,
     last_error: Mutex<Option<String>>,
+    retry: Mutex<Retry>,
 }
 
 /// Shared health flag of one wgpu device. Cheap to clone; every clone sees the same state.
@@ -91,6 +101,14 @@ impl DeviceHealth {
     /// instead of panicking. Replaces any handler set before (wgpu keeps one of each).
     pub fn watch(device: &wgpu::Device) -> Self {
         let health = Self::new();
+        health.attach(device);
+        health
+    }
+
+    /// Attach this health (including replacement/backoff history) to a newly created device.
+    /// Call once per device. Late callbacks from its predecessor affect only that predecessor.
+    pub fn attach(&self, device: &wgpu::Device) {
+        let health = self;
         let lost = health.clone();
         // Called by wgpu with its own locks held: only record, never call back into wgpu.
         device.set_device_lost_callback(move |reason, message| {
@@ -104,7 +122,6 @@ impl DeviceHealth {
         });
         let errors = health.clone();
         device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| errors.uncaptured(&e)));
-        health
     }
 
     /// Record an uncaptured wgpu error. Errors explicitly naming a lost/destroyed device can
@@ -141,6 +158,7 @@ impl DeviceHealth {
             state.1 = state.1.saturating_add(1);
             let strikes = state.1;
             drop(state);
+            self.schedule_retry(Instant::now());
             if strikes >= STRIKE_LIMIT {
                 self.mark(Fault::Error(format!("{line} (errors in {strikes} frames)")));
             } else {
@@ -180,6 +198,77 @@ impl DeviceHealth {
             *slot = Some(fault);
         }
         self.0.faulted.store(true, Ordering::Release);
+        drop(slot);
+        self.schedule_retry(Instant::now());
+    }
+
+    fn schedule_retry(&self, now: Instant) {
+        let mut retry = self.0.retry.lock().unwrap_or_else(PoisonError::into_inner);
+        if retry.until.is_none() {
+            retry.failures = retry.failures.saturating_add(1);
+            retry.until = Some(now + Duration::from_secs((2u64 << retry.failures.min(5)).min(60)));
+        }
+    }
+
+    /// Start a compute operation with the current idle-VRAM observation generation. A new
+    /// idle observation can shorten backoff. Never call this to relabel an already paused job.
+    pub fn begin_operation(&self, idle_epoch: u64) {
+        let mut retry = self.0.retry.lock().unwrap_or_else(PoisonError::into_inner);
+        if retry.until.is_none() {
+            retry.epoch = idle_epoch;
+        }
+    }
+
+    /// A captured operation error uses the same one-strike-per-frame policy as uncaptured
+    /// errors. Only this operation's output is discarded; repeated faults close the device.
+    pub fn operation_failed(&self, reason: &str, idle_epoch: u64) {
+        self.begin_operation(idle_epoch);
+        self.error_text(reason);
+    }
+
+    /// A clean operation resets the retry delay; strike decay still uses DECAY_FRAMES.
+    pub fn operation_succeeded(&self) {
+        if self.is_ok() {
+            *self.0.retry.lock().unwrap_or_else(PoisonError::into_inner) = Retry::default();
+        }
+    }
+
+    /// Compute admission (displaying a CPU fallback on a healthy device remains permitted).
+    pub fn can_render(&self) -> bool {
+        self.is_ok() && self.0.retry.lock().unwrap_or_else(PoisonError::into_inner).until.is_none()
+    }
+    pub fn needs_retry(&self) -> bool {
+        !self.is_ok() || self.0.retry.lock().unwrap_or_else(PoisonError::into_inner).until.is_some()
+    }
+    /// None = only a time-based retry; Some = also retry after a new idle-VRAM observation.
+    pub fn retry_ready(&self, now: Instant, idle_epoch: Option<u64>) -> bool {
+        let retry = self.0.retry.lock().unwrap_or_else(PoisonError::into_inner);
+        retry.until.is_none_or(|until| now >= until || idle_epoch.is_some_and(|epoch| epoch != retry.epoch))
+    }
+    /// Resume a recoverable operation on the same device. A lost/faulted device stays closed
+    /// even when its timer expires; its owner must create a replacement instead.
+    pub fn resume_retry(&self, now: Instant, idle_epoch: Option<u64>) -> bool {
+        if self.is_ok() && self.retry_ready(now, idle_epoch) {
+            self.0.retry.lock().unwrap_or_else(PoisonError::into_inner).until = None;
+            true
+        } else {
+            false
+        }
+    }
+    /// Health for a replacement device. Keeps repeated-failure backoff, resets per-device
+    /// strikes and faults, and never shares callback state with the predecessor.
+    pub fn replacement(&self) -> Self {
+        let new = Self::new();
+        let mut retry = self.0.retry.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        retry.until = None;
+        *new.0.retry.lock().unwrap_or_else(PoisonError::into_inner) = retry;
+        new
+    }
+    /// Test fault injection can request an immediate retry, but cannot revive a lost device.
+    #[doc(hidden)]
+    pub fn retry_now(&self) {
+        self.0.retry.lock().unwrap_or_else(PoisonError::into_inner).until = Some(Instant::now());
+        self.resume_retry(Instant::now(), None);
     }
 
     /// Whether the device may still be used.
@@ -329,5 +418,43 @@ fn ds_finding_error_and_decay_are_serialized() {
         h.error_text("validation");
         assert!(!h.is_ok());
         assert_eq!(h.errors(), 4);
+    }
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::*;
+    #[test]
+    fn device_health_backoff_idle_epoch_strikes_and_decay() {
+        let h = DeviceHealth::new();
+        let now = Instant::now();
+        h.operation_failed("out of device memory", 3);
+        assert!(h.is_ok(), "one operation failure is one strike, not device loss");
+        assert!(!h.can_render());
+        assert!(!h.retry_ready(now, Some(3)));
+        assert!(h.retry_ready(now + Duration::from_secs(5), Some(3)));
+        assert!(h.resume_retry(now, Some(4)), "fresh idle VRAM permits early retry");
+        assert!(h.can_render());
+        assert_eq!(h.strikes(), 1);
+        h.operation_succeeded();
+        for _ in 0..DECAY_FRAMES {
+            h.tick();
+        }
+        assert_eq!(h.strikes(), 0);
+    }
+    #[test]
+    fn lost_device_stays_closed_and_late_callback_cannot_fault_replacement() {
+        let h = DeviceHealth::new();
+        h.begin_operation(8);
+        h.mark(Fault::Lost("driver reset".into()));
+        let after = Instant::now() + Duration::from_secs(61);
+        assert!(h.retry_ready(after, Some(8)));
+        assert!(!h.resume_retry(after, Some(8)));
+        let replacement = h.replacement();
+        assert!(replacement.can_render());
+        h.mark(Fault::Lost("late callback".into()));
+        assert!(replacement.can_render());
+        replacement.operation_failed("OOM again", 8);
+        assert!(!replacement.retry_ready(Instant::now() + Duration::from_secs(7), Some(8)), "second consecutive failure waits 8 seconds");
     }
 }

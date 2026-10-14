@@ -334,6 +334,8 @@ pub const PENDING_FILE_INPUT_TRANSLATIONS: &[&str] = &[
 
 /// Library/Develop final-review additions awaiting translation.
 pub const PENDING_DEVELOP_TRANSLATIONS: &[&str] = &[
+    "Built-in DNG lens corrections are already applied.",
+    "Imported lens correction profile available.",
     "Embedded lens corrections available. These take priority over the lens database.",
     "No embedded lens corrections. Use the lens database for a fallback profile.",
     "Enable Lens Corrections to apply the lens database profile.",
@@ -391,7 +393,135 @@ pub const PENDING_SAVE_TRANSLATIONS: &[&str] = &[
 ];
 
 /// Library final-review polish: tracked English fallback until translated.
+/// Lightroom Classic terminology and unified Preferences; translation work is deferred.
+pub const PENDING_LRC_UX_TRANSLATIONS: &[&str] = &[
+    "Basic",
+    "Tone",
+    "Loupe",
+    "Add tool",
+    "The Library is not available for Preferences.",
+    "Some Library settings used defaults: {fields}. Original values were kept in Preferences for recovery.",
+    "Catalog settings and maintenance actions apply immediately.",
+    "The stored Catalog path could not be recovered. Choose your existing Library folder.",
+    "The stored Library settings could not be read. Choose your existing Library.",
+    "The stored Library settings could not be read: {path}. Choose your existing Library.",
+    "@Add to Collection",
+    "Add to Collection",
+    "Add {local_n} to Catalog",
+    "Added {n} photo{} to Catalog",
+    "Also create a smart collection for each folder",
+    "Catalog",
+    "Catalog Panel",
+    "Collection",
+    "Collections",
+    "Collections group photos; adding a photo does not move its file.",
+    "Create Collection",
+    "Create Collection…",
+    "Create Smart Collection",
+    "Create Smart Collection from Filter…",
+    "Create Smart Collection…",
+    "Edit Smart Collection",
+    "Edit Smart Collection…",
+    "Export Collection with Preset",
+    "Export Collection…",
+    "Largest long edge the Loupe view renders at; larger is sharper on big displays but slower.",
+    "New Collection…",
+    "New Smart Collection",
+    "New Smart Collection from Filter…",
+    "New Smart Collection…",
+    "New collection",
+    "New collection…",
+    "Open in Loupe",
+    "Remove from Collection",
+    "Rename Collection",
+    "Save as Smart Collection…",
+    "Scores stay on the photos: filter or make smart collections with Focus and Best of Similar Shots.",
+    "Set as Collection Cover",
+    "Set as Target Collection (B adds to it)",
+    "Show/hide Catalog panel",
+    "Smart Collection",
+    "Smart collection: {}",
+    "Stop Using as Target Collection",
+    "no image on screen (switch to Loupe view)",
+    "smart collection",
+];
+
 pub const PENDING_LIBRARY_UX_TRANSLATIONS: &[&str] = &[
+    "Check for Updates…",
+    "Paused on battery",
+    "CPU estimate: about {min}–{max} s (first run may take longer)",
+    "CPU estimate: about {min}–{max} s (based on recent runs)",
+    "CPU estimate: about {min}–{max} min. This may take a while; cancellation remains available.",
+    "CPU estimate: about {min}–{max} min. Too slow for an interactive CPU job; use a GPU or a smaller input.",
+    "CPU estimate: about {min}–{max} s. This may take a while; cancellation remains available.",
+    "Estimated CPU analysis: {min}–{max} min. Runs in the background; you can cancel at any time.",
+    "Estimated CPU analysis: {min}–{max} s. Runs in the background; you can cancel at any time.",
+    "Second copy folder",
+    "Page",
+    "Proof sheet exceeds available memory; export fewer photos at a time",
+    "Last catalog backup failed",
+    "Catalog Backup Preferences",
+    "Verify / Optimize Library",
+    "Back Up Catalog Now",
+    "a proof sheet is already exporting",
+    "Enter a PDF filename without folder separators",
+    "Choose an existing output folder",
+    "A file already exists with that name; choose another filename",
+    "Proof sheet worker stopped",
+    "Proof sheet cancelled",
+    "grid rows and columns must be 1..12",
+    "grid is too dense for this page size",
+    "select photos for the proof sheet",
+    "backup folder is unavailable; connect the backup drive",
+    "choose a separate folder for the second copy",
+    "second copy needs an existing absolute folder (connect the backup drive)",
+    "second copy folder is unavailable or contains the source",
+    "keep must be 1..100",
+    "folder must be absolute",
+    "Preview build",
+    "not imported: second copy could not be verified",
+    "Build previews",
+    "Embedded",
+    "Standard",
+    "1:1",
+    "Smart",
+    "Make a second copy to…",
+    "Choose Second Copy Folder",
+    "Choose a folder for the second copy",
+    "Original files and sidecars are verified before importing. Use a separate backup drive.",
+    "Folder picker is not available here",
+    "Catalog backup on quit",
+    "Never",
+    "Every quit",
+    "Daily",
+    "Weekly",
+    "Keep",
+    "Library Backups folder",
+    "Choose Catalog Backup Folder",
+    "Verify / Optimize library",
+    "Back up now",
+    "Library safety check completed",
+    "Open a library on disk first",
+    "Catalog backups contain edits and metadata. Back up original photos separately.",
+    "Export Proof Sheet…",
+    "Export Proof Sheet",
+    "Export selected photos as a PDF contact sheet",
+    "Page size",
+    "A4",
+    "A3",
+    "Letter",
+    "Landscape",
+    "Columns",
+    "Rows",
+    "Photo info",
+    "Filename",
+    "Filename and title",
+    "Watermark (optional)",
+    "Output folder",
+    "PDF filename",
+    "Pages",
+    "Choose Proof Sheet Folder",
+    "Proof sheet exported",
     "AI…",
     "Back",
     "Photo Grid",
@@ -482,6 +612,7 @@ mod tests {
             .iter()
             .flat_map(|language| language.catalog().keys().map(String::as_str))
             .chain(PENDING_LIBRARY_UX_TRANSLATIONS.iter().copied())
+            .chain(PENDING_LRC_UX_TRANSLATIONS.iter().copied())
             .collect();
         for language in &translated {
             let catalog = language.catalog();
@@ -740,18 +871,18 @@ mod tests {
         let english_ids = ids(&app);
         for language in Locale::ALL {
             let text = painted_text(&ctx, &mut app, *language);
-            for label in ["My Photos", "All Photos"] {
+            for label in ["Catalog", "All Photos"] {
                 assert!(text.contains(language.tr(label)), "{language:?}: {label} -> {:?} not in\n{text}", language.tr(label));
             }
             assert_eq!(app.font_language, *language, "the fonts follow the language");
             assert_eq!(ids(&app), english_ids, "{language:?}: command ids are presentation-independent");
         }
         let text = painted_text(&ctx, &mut app, Locale::Ja);
-        assert!(text.contains("マイフォト") && text.contains("すべての写真"), "{text}");
+        assert!(text.contains(Locale::Ja.tr("Catalog")) && text.contains("すべての写真"), "{text}");
         let text = painted_text(&ctx, &mut app, Locale::ZhHans);
-        assert!(text.contains("我的照片") && text.contains("所有照片"), "{text}");
+        assert!(text.contains(Locale::ZhHans.tr("Catalog")) && text.contains("所有照片"), "{text}");
         let text = painted_text(&ctx, &mut app, Locale::PtBr);
-        assert!(text.contains("Minhas fotos") && text.contains("Todas as fotos"), "{text}");
+        assert!(text.contains(Locale::PtBr.tr("Catalog")) && text.contains("Todas as fotos"), "{text}");
         set_language(Locale::En);
     }
 

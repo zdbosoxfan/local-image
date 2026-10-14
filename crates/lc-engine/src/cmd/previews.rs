@@ -38,6 +38,7 @@ impl PreviewBuild {
             "done": self.done.load(Ordering::Relaxed),
             "failed": self.failed.load(Ordering::Relaxed),
             "running": !self.finished.load(Ordering::Relaxed),
+            "pausedOnBattery": !self.finished.load(Ordering::Relaxed) && lightcraft_sysmem::power::conserving(),
             "cancelled": self.cancel.load(Ordering::Relaxed),
             "what": if self.what.is_empty() { "previews" } else { self.what },
             "repaired": self.repaired.load(Ordering::Relaxed),
@@ -79,7 +80,7 @@ pub(crate) fn for_each_bounded<T: Send>(
     let queue = std::sync::Mutex::new(items.into_iter().enumerate());
     let run = || {
         loop {
-            if cancelled() {
+            if !lightcraft_sysmem::power::wait_background(cancelled) {
                 break;
             }
             let Some((i, (cost, item))) = queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner).next() else { break };
@@ -137,6 +138,7 @@ fn run_all(jobs: Vec<(u64, Vec<RenderJob>)>, state: &PreviewBuild, permits: &lig
 fn build(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "library.buildPreviews";
     let edge = match str_param(p, "size").unwrap_or("standard") {
+        "embedded" => Some(0),
         "standard" => Some(p.get("edge").and_then(Value::as_u64).map_or(STANDARD_EDGE, |e| e.clamp(256, 8192) as usize)),
         "full" | "1:1" => None,
         other => return Err(bad(C, format!("unknown size `{other}` (standard|full)"))),
@@ -150,7 +152,7 @@ fn build(s: &mut Session, p: &Value) -> Result<Value> {
         .iter()
         .map(|id| {
             let cost = s.catalog.photo(*id).map_or(0, |p| preview_cost(p.width, p.height, edge.unwrap_or(usize::MAX)));
-            (cost, jobs_for(s, *id, edge))
+            (cost, if edge == Some(0) { s.thumb_job(*id, THUMB_SIZES[THUMB_SIZES.len() - 1]).into_iter().collect() } else { jobs_for(s, *id, edge) })
         })
         .filter(|(_, j)| !j.is_empty())
         .collect();

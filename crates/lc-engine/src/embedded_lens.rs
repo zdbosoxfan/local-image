@@ -20,21 +20,7 @@ pub(crate) fn radial(data: &VendorLens, w: f64, h: f64) -> Option<EmbeddedRadial
     };
     match data {
         VendorLens::Sony { distortion, ca_red, ca_blue, vignetting } => {
-            let n = distortion.len();
-            if !(2..=16).contains(&n) || [ca_red.len(), ca_blue.len(), vignetting.len()].iter().any(|&l| l != n) {
-                return None;
-            }
-            out.count = n;
-            out.vig_count = n;
-            for i in 0..n {
-                out.knots[i] = (i as f64 + 0.5) / (n - 1) as f64;
-                out.vig_knots[i] = out.knots[i];
-                let d = 1.0 + distortion[i] / 16384.0;
-                out.scales[0][i] = d * (1.0 + ca_red[i] / 2097152.0);
-                out.scales[1][i] = d;
-                out.scales[2][i] = d * (1.0 + ca_blue[i] / 2097152.0);
-                out.attenuation[i] = (0.5 - (vignetting[i] / 8192.0 - 1.0).exp2()).exp2();
-            }
+            return lightcraft_pipeline::optics::sony_radial(distortion, ca_red, ca_blue, vignetting, w, h);
         }
         VendorLens::Fuji { knots, distortion, ca_red, ca_blue, vignetting, crop_factor } => {
             let n = knots.len();
@@ -137,33 +123,7 @@ pub(crate) fn radial(data: &VendorLens, w: f64, h: f64) -> Option<EmbeddedRadial
             }
         }
     }
-    // Reject invalid/non-monotone tables before either render backend sees them.
-    let n = out.count;
-    if out.knots[..n].iter().any(|x| !x.is_finite())
-        || out.knots[..n].windows(2).any(|x| x[0] >= x[1])
-        || out.scales.iter().any(|c| c[..n].iter().any(|x| !x.is_finite() || *x <= 0.0))
-        || out.attenuation[..out.vig_count].iter().any(|x| !x.is_finite() || *x <= 0.0)
-        || out.vig_knots[..out.vig_count].windows(2).any(|x| x[0] >= x[1])
-    {
-        return None;
-    }
-    // Darktable v2 autoscale: retain the largest usable image without blank
-    // borders in any colour channel. Vignetting remains in source coordinates.
-    let short_radius = w.min(h) / w.hypot(h);
-    let mut scale = 0.0_f64;
-    for i in 0..200 {
-        let x = short_radius + (1.0 - short_radius) * i as f64 / 199.0;
-        for channel in &out.scales {
-            scale = scale.max(interpolate(&out.knots, channel, n, x));
-        }
-    }
-    for i in 0..n {
-        out.knots[i] *= scale;
-        for channel in &mut out.scales {
-            channel[i] /= scale;
-        }
-    }
-    Some(out)
+    lightcraft_pipeline::optics::finish_radial(out, w, h)
 }
 
 fn invert_panasonic(r: f64, [a, b, c]: [f64; 3], scale: f64) -> Option<f64> {
@@ -275,8 +235,8 @@ mod tests {
             wb_multipliers: None,
             opcodes: lightcraft_raw::OpcodeLists {
                 list3: vec![
-                    lightcraft_raw::Opcode::WarpRectilinear { planes: vec![coeff], center: [0.4, 0.6] },
                     lightcraft_raw::Opcode::FixVignetteRadial { k: [0.2, 0.0, 0.0, 0.0, 0.0], center: [0.4, 0.6] },
+                    lightcraft_raw::Opcode::WarpRectilinear { planes: vec![coeff], center: [0.4, 0.6] },
                 ],
                 ..Default::default()
             },
@@ -285,19 +245,20 @@ mod tests {
         };
         let lens = crate::files::embedded_lens(&raw).unwrap();
         assert!(lens.radial.is_none(), "DNG opcode takes precedence over vendor round-trip data");
-        let m = (71.4_f64).hypot(47.4);
+        let m = (72.0_f64).hypot(48.0);
         let p = Point::new(20.5, 10.5);
-        let dx = (p.x + 10.0 - 48.1) / m;
-        let dy = (p.y + 10.0 - 47.9) / m;
+        let dx = (p.x + 10.0 - 48.5) / m;
+        let dy = (p.y + 10.0 - 48.5) / m;
         let r2 = dx * dx + dy * dy;
         let radial = 1.0 - 0.03 * r2 + 0.01 * r2 * r2;
-        let sx = 48.1 + m * (dx * radial + 0.001 * 2.0 * dx * dy - 0.002 * (r2 + 2.0 * dx * dx)) - 10.0;
-        let sy = 47.9 + m * (dy * radial - 0.002 * 2.0 * dx * dy + 0.001 * (r2 + 2.0 * dy * dy)) - 10.0;
+        let sx = 48.5 + m * (dx * radial + 0.001 * 2.0 * dx * dy - 0.002 * (r2 + 2.0 * dx * dx)) - 10.0;
+        let sy = 48.5 + m * (dy * radial - 0.002 * 2.0 * dx * dy + 0.001 * (r2 + 2.0 * dy * dy)) - 10.0;
         let rotated = Point::new(60.0 - p.y, p.x);
         let actual = lightcraft_pipeline::optics::embedded_warp(&lens.warp.unwrap(), rotated, 0, 60.0, 100.0);
         assert!(actual.dist(Point::new(60.0 - sy, sx)) < 1e-9);
         let gain = lightcraft_pipeline::optics::embedded_vignette_gain(&lens.vignette.unwrap(), rotated, 60.0, 100.0);
-        assert!((gain - (1.0 + 0.2 * r2)).abs() < 1e-12);
+        let vg_r2 = ((p.x + 10.0 - 48.0).powi(2) + (p.y + 10.0 - 48.0).powi(2)) / (m * m);
+        assert!((gain - (1.0 + 0.2 * vg_r2)).abs() < 1e-12);
         let mut fisheye = raw.clone();
         fisheye.opcodes.list3 = vec![lightcraft_raw::Opcode::WarpFisheye { planes: vec![[1.0, 0.0, 0.0, 0.0]], center: [0.4, 0.6] }];
         let lens = crate::files::embedded_lens(&fisheye).unwrap();

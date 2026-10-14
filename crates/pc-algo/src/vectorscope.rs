@@ -36,21 +36,9 @@ impl Vectorscope {
 }
 
 /// Hue as turns and saturation in 0..1; achromatic pixels have zero saturation.
-pub fn hue_saturation([r, g, b]: [f32; 3]) -> (f32, f32) {
-    let high = r.max(g).max(b);
-    let low = r.min(g).min(b);
-    let delta = high - low;
-    if delta <= f32::EPSILON || high <= 0.0 {
-        return (0.0, 0.0);
-    }
-    let h = if high == r {
-        (g - b) / delta
-    } else if high == g {
-        2.0 + (b - r) / delta
-    } else {
-        4.0 + (r - g) / delta
-    };
-    ((h / 6.0).rem_euclid(1.0), delta / high)
+pub fn hue_saturation(rgb: [f32; 3]) -> (f32, f32) {
+    let [h, s, _] = li_color::perceptual::rgb_to_hsv_scope_turns(rgb);
+    (h, s)
 }
 
 #[cfg(test)]

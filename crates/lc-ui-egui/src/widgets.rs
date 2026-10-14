@@ -31,8 +31,12 @@ pub fn develop_body(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 /// The shared, keyboard-accessible checkbox with a stable automation id. `label` is translated
 /// by the caller; egui supplies the check mark, focus and disabled treatment from the theme.
 pub fn checkbox(ui: &mut Ui, id: &str, checked: &mut bool, label: &str) -> Response {
-    let response = ui.add(egui::Checkbox::new(checked, label));
+    let response = ui.add(egui::Checkbox::new(checked, crate::i18n::tr(label)));
     register(ui.ctx(), id, response.rect);
+    // Preserve both jobs' public automation IDs with one widget implementation.
+    if !id.starts_with("check:") {
+        register(ui.ctx(), format!("check:{id}"), response.rect);
+    }
     response
 }
 
@@ -403,6 +407,8 @@ pub fn section_header(ui: &mut Ui, id: &str, title: &str, open: bool, enabled: O
     (resp, toggled)
 }
 
+/// Shared settings checkbox, translated and sized by the installed theme. Used in Preferences
+/// and other Library controls; callers retain their stable automation registration.
 /// Thin divider between groups.
 pub fn divider(ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
@@ -436,26 +442,31 @@ pub fn flyout_row(ui: &mut Ui, id: &str, title: &str, icon: Icon, open: bool) ->
     resp
 }
 
+fn text_button_size(label_width: f32) -> egui::Vec2 {
+    vec2((label_width + 18.0).max(37.0), 24.0)
+}
+
 /// A small bordered text button (Auto, B&W, HDR…).
 pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response {
     let label = if id.starts_with("labelSet-") { label } else { crate::i18n::tr(label) };
     let t = Tokens::get(ui.ctx());
+    let text = if ui.is_enabled() { t.text } else { t.text_disabled };
     let font = t.semibold(11.5);
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font, t.text);
-    let size = vec2((galley.size().x + 18.0).max(37.0), 24.0);
+    let galley = ui.painter().layout_no_wrap(label.to_string(), font, text);
+    let size = text_button_size(galley.size().x);
     let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, label));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), active, label));
     register(ui.ctx(), format!("button:{id}"), r);
     let fill = if active {
         t.pressed
-    } else if resp.hovered() {
+    } else if resp.hovered() || resp.has_focus() {
         t.hover
     } else {
         t.button
     };
     let p = ui.painter();
     p.rect(r, CornerRadius::same(4), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
-    p.galley(r.center() - galley.size() / 2.0, galley, t.text);
+    p.galley(r.center() - galley.size() / 2.0, galley, text);
     resp
 }
 
@@ -728,20 +739,58 @@ pub fn stars(ui: &mut Ui, id: &str, rating: u8, size: f32) -> Option<u8> {
 /// A borderless dropdown button: `text` followed by a painted chevron (no font glyph needed).
 pub fn dropdown(ui: &mut Ui, id: &str, text: &str, font: egui::FontId, color: Color32) -> Response {
     let t = Tokens::get(ui.ctx());
-    // Keep long lens/profile names inside narrow panels; the accessible name remains complete.
+    let color = if ui.is_enabled() { color } else { t.text_disabled };
     let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), font, color);
-    job.wrap.max_width = (ui.available_width() - ui.spacing().interact_size.y).max(0.0);
-    job.wrap.max_rows = 1;
-    job.wrap.break_anywhere = true;
+    job.wrap = egui::text::TextWrapping::truncate_at_width((ui.available_width() - crate::theme::DROPDOWN_ARROW_SPACE).max(0.0));
     let galley = ui.painter().layout_job(job);
-    let size = vec2(galley.size().x + 20.0, galley.size().y.max(20.0));
+    let size = vec2(
+        (galley.size().x + crate::theme::DROPDOWN_ARROW_SPACE).min(ui.available_width()),
+        galley.size().y.max(crate::theme::DROPDOWN_ARROW_SPACE),
+    );
     let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, text));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), text));
     register(ui.ctx(), format!("dropdown:{id}"), r);
-    let c = if resp.hovered() { t.text } else { color };
+    let resp = if galley.elided { resp.on_hover_text(text) } else { resp };
+    let c = if resp.hovered() || resp.has_focus() { t.text } else { color };
     ui.painter().galley(pos2(r.left(), r.center().y - galley.size().y / 2.0), galley, c);
     paint(ui.painter(), Rect::from_center_size(pos2(r.right() - 7.0, r.center().y + 1.0), vec2(12.0, 12.0)), Icon::ChevronDown, c);
     resp
+}
+
+/// A labelled, width-bounded profile choice, shared by camera and lens profile pickers.
+/// Rows register both the combo and each choice for headless and accessibility tests.
+pub fn profile_choice(ui: &mut Ui, id: &str, label: &str, selected: &str, choices: &[(String, String, String)]) -> Option<String> {
+    let t = Tokens::get(ui.ctx());
+    let mut picked = None;
+    egui::Frame::NONE.inner_margin(egui::Margin { left: t.panel_inset_left, right: t.panel_inset_right, top: 0, bottom: 0 }).show(ui, |ui| {
+        ui.label(egui::RichText::new(crate::i18n::tr(label)).color(t.text_dim));
+        let name = choices
+            .iter()
+            .find(|(key, _, _)| key == selected)
+            .map(|(_, name, _)| name.as_str())
+            .unwrap_or_else(|| crate::i18n::tr("Missing Profile"));
+        let r = egui::ComboBox::from_id_salt(id).selected_text(name).width(ui.available_width()).truncate().show_ui(ui, |ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+            let mut group = String::new();
+            for (key, name, section) in choices {
+                if group != *section {
+                    if !group.is_empty() {
+                        ui.separator();
+                    }
+                    ui.label(egui::RichText::new(crate::i18n::tr(section)).color(t.text_dim));
+                    group = section.clone();
+                }
+                let r = ui.selectable_label(key == selected, name);
+                register(ui.ctx(), format!("choice:{id}:{key}"), r.rect);
+                if r.clicked() {
+                    picked = Some(key.clone());
+                }
+            }
+        });
+        r.response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("{}: {name}", crate::i18n::tr(label))));
+        register(ui.ctx(), format!("combo:{id}"), r.response.rect);
+    });
+    picked
 }
 
 #[cfg(test)]
@@ -771,6 +820,26 @@ mod tests {
 #[cfg(test)]
 mod access_tests {
     use super::*;
+
+    #[test]
+    fn colorprofiles_shared_picker_names_its_camera_field() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        crate::theme::install_fonts(&ctx);
+        let mut names = Vec::new();
+        for _ in 0..3 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.set_width(250.);
+                let choices = vec![(String::new(), "Automatic".into(), "Camera Profiles".into())];
+                profile_choice(ui, "testProfile", "Camera Profile", "", &choices);
+            });
+            out.textures_delta.clear();
+            if let Some(update) = out.platform_output.accesskit_update.take() {
+                names = update.nodes.iter().map(|(_, n)| n.label().unwrap_or_default().to_string()).collect();
+            }
+        }
+        assert!(names.iter().any(|n| n == "Camera Profile: Automatic"), "{names:?}");
+    }
 
     /// Screen readers see the custom widgets: sliders by control name with their value, buttons
     /// by label or tooltip.
@@ -874,4 +943,100 @@ mod access_tests {
         run(vec![egui::Event::Text("1.25".into())]);
         assert!(seen, "focused numeric TextInput must expose its control name and current draft to accessibility");
     }
+}
+
+/// Inset body for Develop sections and optional tool actions, using the shared panel metrics.
+pub fn panel_content<R>(ui: &mut Ui, body: impl FnOnce(&mut Ui) -> R) -> R {
+    egui::Frame::NONE.inner_margin(crate::theme::PANEL_CONTENT_MARGIN).show(ui, body).inner
+}
+
+/// A Preferences choice menu, using the shared dropdown chrome and the installed theme.
+/// Callers supply catalog/preset rows and keep their legacy `combo:` automation aliases.
+pub fn choice_menu(ui: &mut Ui, id: &str, selected: &str, body: impl FnOnce(&mut Ui)) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let response = dropdown(ui, id, selected, t.font(crate::theme::CONTROL_FONT_SIZE), t.text_label);
+    egui::Popup::menu(&response).show(body);
+    response
+}
+
+/// The shared Library modal shell, themed by the installed tokens. Unlike a dimmed Window,
+/// egui Modal owns backdrop input and keeps custom controls clickable. Used by Preferences.
+pub fn modal<R>(ctx: &egui::Context, id: &str, body: impl FnOnce(&mut Ui) -> R) -> egui::ModalResponse<R> {
+    let area = egui::Modal::default_area(egui::Id::new(id)).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, Tokens::get(ctx).top_bar_h));
+    egui::Modal::new(egui::Id::new(id)).area(area).show(ctx, body)
+}
+
+/// Preflight notice for on-device CPU AI. Shared by mask and batch analysis controls.
+/// Returns whether the model fits the interactive CPU time limit; warnings use theme tokens.
+pub fn cpu_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimate) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let color = if estimate.warning() { t.caution } else { t.text_dim };
+    ui.label(egui::RichText::new(estimate.label()).color(color));
+    estimate.allowed()
+}
+
+/// Total CPU estimate for cancellable background AI batches (Smart Sort and indexing).
+/// The per-model inference guard still applies; a large batch shows a warning and can run.
+pub fn cpu_batch_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimate) {
+    let t = Tokens::get(ui.ctx());
+    ui.label(egui::RichText::new(estimate.batch_label()).color(if estimate.warning() { t.caution } else { t.text_dim }));
+}
+
+/// A reusable choice dropdown: themed shell and menu rows, translated accessible labels.
+/// Import, backup preferences and proof sheet options use `dropdown:{id}` and `button:{id}-{i}`.
+pub fn choice<T: PartialEq + Clone>(ui: &mut Ui, id: &str, value: &mut T, options: &[(T, &str)]) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let label = options.iter().find(|(v, _)| *v == *value).map_or("Choose…", |(_, l)| *l);
+    let response = dropdown(ui, id, crate::i18n::tr(label), t.font(12.), t.text);
+    let mut changed = false;
+    egui::Popup::menu(&response).show(|ui| {
+        for (i, (v, label)) in options.iter().enumerate() {
+            if text_button(ui, &format!("{id}-{i}"), label, *value == *v).clicked() {
+                changed = *value != *v;
+                *value = v.clone();
+                ui.close();
+            }
+        }
+    });
+    changed
+}
+
+/// A labelled, width-adaptive text field for dialogs and settings. Registers `field:{id}`.
+/// Used for PDF captions/destinations; retains the native theme, keyboard and screen-reader behavior.
+pub fn text_field(ui: &mut Ui, id: &str, value: &mut String, label: &str) -> Response {
+    // TextEdit's desired width excludes its frame padding. Bound the complete field so an
+    // auto-sized window doesn't grow on every frame, moving targets between down and up.
+    let padding = ui.spacing().button_padding;
+    let width = (ui.available_width().min(ui.spacing().text_edit_width) - padding.x * 2.).max(0.);
+    let response = ui.add(egui::TextEdit::singleline(value).margin(padding).desired_width(width).hint_text(crate::i18n::tr(label)));
+    response.widget_info(|| {
+        let mut info = egui::WidgetInfo::text_edit(ui.is_enabled(), value.as_str(), value.as_str(), "");
+        info.label = Some(crate::i18n::tr(label).to_string());
+        info
+    });
+    register(ui.ctx(), format!("field:{id}"), response.rect);
+    response
+}
+
+/// A text field with a labelled action, stacked when the row cannot fit. Import backup folders
+/// and proof-sheet output use this so a narrow panel never clips its Choose button.
+pub fn field_with_action(ui: &mut Ui, id: &str, value: &mut String, label: &str, action: &str, enabled: bool) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let action_width = text_button_size(ui.painter().layout_no_wrap(crate::i18n::tr(action).to_string(), t.semibold(11.5), t.text).size().x).x;
+    let fits = ui.available_width() >= ui.spacing().text_edit_width + action_width + ui.spacing().item_spacing.x;
+    let mut clicked = false;
+    if !fits {
+        text_field(ui, id, value, label);
+    }
+    ui.horizontal(|ui| {
+        if fits {
+            text_field(ui, id, value, label);
+        }
+        clicked = ui
+            .add_enabled_ui(enabled, |ui| text_button(ui, id, action, false))
+            .inner
+            .on_disabled_hover_text(crate::i18n::tr("Folder picker is not available here"))
+            .clicked();
+    });
+    clicked
 }

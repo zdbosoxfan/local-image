@@ -92,3 +92,31 @@ fn panorama_command_with_auto_crop() {
     assert!(s.execute("merge.panorama", &json!({"ids": [ids[0]]})).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn pixelshift_command_rejects_ordinary_bursts_without_writing_output() {
+    let dir = temp_dir("pixelshift-invalid");
+    let mut paths = Vec::new();
+    for (i, bytes) in lightcraft_merge::synth::bracket_dngs(48, 32, &[0.0, 0.0, 0.0, 0.0]).unwrap().into_iter().enumerate() {
+        let path = dir.join(format!("shot{i}.dng"));
+        std::fs::write(&path, bytes).unwrap();
+        paths.push(path.to_string_lossy().to_string());
+    }
+    let mut session = Session::new().with_fs();
+    let ids = import(&mut session, paths);
+    let error = session.execute("merge.pixelShift", &json!({"ids": ids})).unwrap_err();
+    assert!(error.to_string().contains("Pixel Shift capture information"), "{error}");
+    assert_eq!(session.catalog.photos().count(), 4);
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 4);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn pixelshift_memory_estimate_scales_with_sensor_and_rejects_overflow() {
+    let four = crate::merge::pixelshift_memory_bytes(8000, 5320, 4).unwrap();
+    let sixteen = crate::merge::pixelshift_memory_bytes(8000, 5320, 16).unwrap();
+    assert!(sixteen > 2 * four);
+    assert_eq!((crate::merge::pixelshift_memory_bytes(4000, 2660, 4).unwrap() - (8 << 20)) * 4, four - (8 << 20));
+    assert!(crate::merge::pixelshift_memory_bytes(usize::MAX, usize::MAX, 16).is_err());
+    assert!(crate::merge::pixelshift_memory_bytes(8000, 5320, 3).is_err());
+}

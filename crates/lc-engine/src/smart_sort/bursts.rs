@@ -96,7 +96,7 @@ pub fn sharpness(img: &Rgba8) -> f32 {
             for y in gy * step..(gy + 1) * step {
                 for x in gx * step..(gx + 1) * step {
                     let [r, g, b, _] = img.data[y * w + x];
-                    sum += 0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32;
+                    sum += li_color::convert::rgb_to_gray([r as f32, g as f32, b as f32]);
                 }
             }
             gray[gy * gw + gx] = sum / (step * step) as f32;
@@ -414,15 +414,10 @@ mod tests {
     }
 
     fn box_blur(img: &Rgba8, r: isize) -> Rgba8 {
+        let mut plane: Vec<f32> = img.data.iter().map(|p| p[0] as f32).collect();
+        li_raster::blur::box_blur_n(&mut plane, img.width, img.height, 1, r.max(0) as usize);
         Rgba8::from_fn(img.width, img.height, |x, y| {
-            let (mut s, mut n) = (0u32, 0u32);
-            for dy in -r..=r {
-                for dx in -r..=r {
-                    s += img.get_clamped(x as isize + dx, y as isize + dy)[0] as u32;
-                    n += 1;
-                }
-            }
-            let v = (s / n) as u8;
+            let v = plane[y * img.width + x] as u8;
             [v, v, v, 255]
         })
     }
@@ -441,4 +436,20 @@ mod tests {
         let big = checker(600, 8);
         assert!(sharpness(&big) > sharpness(&box_blur(&big, 3)));
     }
+}
+
+#[cfg(test)]
+#[test]
+fn j01_final_burst_blur_keeps_sharpness_order() {
+    let sharp = lightcraft_raster::Rgba8::from_fn(48, 32, |x, y| {
+        let v = if (x / 4 + y / 4).is_multiple_of(2) { 235 } else { 20 };
+        [v, v, v, 255]
+    });
+    let mut samples: Vec<f32> = sharp.data.iter().map(|p| f32::from(p[0])).collect();
+    li_raster::blur::box_blur_n(&mut samples, sharp.width, sharp.height, 1, 2);
+    let soft = lightcraft_raster::Rgba8::from_fn(sharp.width, sharp.height, |x, y| {
+        let v = samples[y * sharp.width + x] as u8;
+        [v, v, v, 255]
+    });
+    assert!(sharpness(&sharp) > sharpness(&soft));
 }

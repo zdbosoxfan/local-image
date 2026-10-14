@@ -1,6 +1,7 @@
 //! PNG via the `png` crate directly: 8/16-bit, Adam7 read (and write),
 //! iCCP, eXIf, tEXt/zTXt/iTXt (XMP in `XML:com.adobe.xmp`), pHYs.
 
+use li_color::{Mat3, NamedSpace, RgbSpace, Trc, Xy};
 use std::io::{Cursor, Write};
 
 use crate::Format;
@@ -67,6 +68,9 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
     }
     let info = reader.info();
     let mut img = Image::from_raw(out.width, out.height, layout, sample, buf)?;
+    img.source_bit_depth = Some(info.bit_depth as u8);
+    img.source_float = Some(false);
+    img.color_hint = container_hint(info);
     img.icc = info.icc_profile.as_ref().map(|c| c.to_vec());
     let mut meta = Metadata { exif: info.exif_metadata.as_ref().map(|c| c.to_vec()), ..Default::default() };
     if let Some(d) = info.pixel_dims
@@ -628,4 +632,66 @@ mod parallel_tests {
             }
         }
     }
+}
+
+fn named_hint(n: li_color::NamedSpace) -> crate::ColorHint {
+    let t = n.trc();
+    crate::ColorHint { named: Some(n), to_xyz_d50: n.to_xyz_d50(), trc: [t.clone(), t.clone(), t], already_linear: false }
+}
+fn container_hint(info: &png::Info) -> Option<crate::ColorHint> {
+    if let Some(c) = &info.coding_independent_code_points {
+        let named = match c.color_primaries {
+            1 => Some(NamedSpace::Srgb),
+            9 => Some(NamedSpace::Rec2020),
+            12 => Some(NamedSpace::DisplayP3),
+            _ => None,
+        };
+        let trc = match c.transfer_function {
+            13 => Some(Trc::Srgb),
+            1 | 6 | 14 | 15 => Some(Trc::Rec709),
+            8 => Some(Trc::Linear),
+            4 => Some(Trc::Gamma(2.2)),
+            _ => None,
+        };
+        if let (Some(n), Some(t)) = (named, trc) {
+            let mut s = named_hint(n);
+            s.trc = [t.clone(), t.clone(), t];
+            return Some(s);
+        }
+    }
+    if info.srgb.is_some() {
+        return Some(named_hint(NamedSpace::Srgb));
+    }
+    let gamma = info.gama_chunk.or(info.source_gamma).map(|g| g.into_value()).filter(|g| *g > 0.0 && g.is_finite());
+    let chrm = info.chrm_chunk.or(info.source_chromaticities);
+    if gamma.is_none() && chrm.is_none() {
+        return None;
+    }
+    let trc = match gamma {
+        Some(g) if (g - 1.0).abs() < 1e-3 => Trc::Linear,
+        Some(g) => Trc::Gamma(1.0 / g),
+        None => Trc::Srgb,
+    };
+    let mut s = named_hint(NamedSpace::Srgb);
+    if let Some(c) = chrm {
+        let xy = |p: (png::ScaledFloat, png::ScaledFloat)| Xy::new(p.0.into_value() as f64, p.1.into_value() as f64);
+        let space = RgbSpace { name: "PNG cHRM", r: xy(c.red), g: xy(c.green), b: xy(c.blue), white: xy(c.white) };
+        let valid = [space.r, space.g, space.b, space.white].iter().all(|p| p.y > 1e-4 && p.x >= 0.0 && p.x + p.y <= 1.0 + 1e-6);
+        let m = if valid { rgb_to_xyz_d50_checked(&space) } else { None };
+        if let Some(m) = m {
+            s.to_xyz_d50 = m;
+            s.named = NamedSpace::recognize(&m);
+        }
+    }
+    s.trc = [trc.clone(), trc.clone(), trc];
+    Some(s)
+}
+
+fn rgb_to_xyz_d50_checked(space: &RgbSpace) -> Option<Mat3> {
+    let p = [space.r.to_xyz(), space.g.to_xyz(), space.b.to_xyz()];
+    let m = Mat3([[p[0][0], p[1][0], p[2][0]], [p[0][1], p[1][1], p[2][1]], [p[0][2], p[1][2], p[2][2]]]);
+    if m.determinant().abs() < 1e-9 {
+        return None;
+    }
+    Some(li_color::space::rgb_to_xyz_d50(space))
 }

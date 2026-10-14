@@ -6,27 +6,34 @@
 //! - [`pano`]: overlapping photos → one panorama (features, matching, RANSAC, rotation bundle
 //!   adjustment, spherical/cylindrical/perspective projection, exposure compensation, seams,
 //!   multi-band blending, boundary warp, auto crop, fill edges).
-//! - [`output`]: results as linear DNGs (16-bit float for HDR) with the source's colour tags.
+//! - [`output`]: results as linear DNGs (32-bit float for HDR) with the source's colour tags.
 //!
-//! Every algorithm here is our own implementation from published papers (cited in each module);
-//! no code from GPL projects was consulted.
+//! Algorithm and format provenance is cited in each module and `docs/PORTS.md`.
+//! Pixel Shift uses Sony's published source-order mapping from the GPL-3.0-or-later
+//! `make_arq` project; reconstruction and motion fallback are implemented independently.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod align;
+pub mod brackets;
+pub mod editor;
 pub mod features;
 pub mod frame;
 pub mod hdr;
 pub mod linalg;
 pub mod output;
 pub mod pano;
+pub mod pixelshift;
 pub mod ransac;
+pub mod raw_hdr;
 pub mod synth;
 
 pub use frame::{Frame, FrameColor, load_frame};
 pub use hdr::{Deghost, HdrOptions, HdrResult, merge_hdr};
 pub use output::{DngSamples, write_linear_dng};
 pub use pano::{PanoOptions, PanoResult, Projection, stitch};
+pub use pixelshift::{PixelShiftResult, merge_pixel_shift};
+pub use raw_hdr::merge_raw_hdr;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum MergeError {

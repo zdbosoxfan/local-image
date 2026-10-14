@@ -169,7 +169,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
     (
         "Photo",
         &[
-            "@Add to Album",
+            "@Add to Collection",
             "photo.addToLibrary",
             "library.findSimilar",
             "dialog.cull",
@@ -243,6 +243,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "app.github",
             "app.artcraft",
             "---",
+            "app.checkUpdates",
             "app.whatsNew",
             "app.shortcuts",
             "app.systemInfo",
@@ -348,12 +349,16 @@ pub fn checked(app: &LightcraftApp, id: &str) -> Option<bool> {
 fn live_label(app: &LightcraftApp, id: &str, label: &str) -> String {
     let n = app.session.selection.ids.len();
     match id {
-        "edit.undo" => {
-            app.session.undo_entry().map(|e| crate::i18n::tr_format!("Undo {}", crate::i18n::tr(&e.label))).unwrap_or_else(|| "Undo".into())
-        }
-        "edit.redo" => {
-            app.session.redo_entry().map(|e| crate::i18n::tr_format!("Redo {}", crate::i18n::tr(&e.label))).unwrap_or_else(|| "Redo".into())
-        }
+        "edit.undo" => app
+            .session
+            .undo_entry()
+            .map(|e| crate::i18n::tr_format!("Undo {}", crate::i18n::tr(&crate::menus::action_label(&e.label))))
+            .unwrap_or_else(|| "Undo".into()),
+        "edit.redo" => app
+            .session
+            .redo_entry()
+            .map(|e| crate::i18n::tr_format!("Redo {}", crate::i18n::tr(&crate::menus::action_label(&e.label))))
+            .unwrap_or_else(|| "Redo".into()),
         "photo.delete" if n > 1 => crate::i18n::tr_format!("Delete {n} Photos", n = n),
         "photo.virtualCopy" if n > 1 => crate::i18n::tr_format!("Create {n} Virtual Copies", n = n),
         "dialog.rename" if n > 1 => crate::i18n::tr_format!("Rename {n} Photos…", n = n),
@@ -573,7 +578,7 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
             v.push(item("dialog.export", Value::Null, "Custom…", None, sel, None));
             v
         }
-        "Add to Album" => {
+        "Add to Collection" => {
             let sel = !app.session.selection.ids.is_empty() || has;
             let mut albums: Vec<_> = app.session.catalog.albums().filter(|a| !a.folder && !a.is_smart()).map(|a| (a.name.clone(), a.id.0)).collect();
             albums.sort_by_key(|(n, _)| n.to_lowercase());
@@ -582,7 +587,7 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
             if !v.is_empty() {
                 v.push(MenuNode::Separator);
             }
-            v.push(item("dialog.newAlbum", Value::Null, "New Album…", None, true, None));
+            v.push(item("dialog.newAlbum", Value::Null, "New Collection…", None, true, None));
             v
         }
         _ => return None,
@@ -801,6 +806,7 @@ fn nodes_ui(ui: &mut egui::Ui, nodes: &[MenuNode], mac: bool, clicked: &mut Opti
                     let c = egui::Rect::from_center_size(egui::pos2(r.rect.left() + 11.0, r.rect.center().y), egui::vec2(13.0, 13.0));
                     crate::icons::paint(ui.painter(), c, crate::icons::Icon::Check, if *enabled { t.text } else { t.text_disabled });
                 }
+                crate::widgets::register(ui.ctx(), format!("menuItem:{id}"), r.rect);
                 if r.clicked() {
                     *clicked = Some((id.clone(), params.clone()));
                     ui.close();

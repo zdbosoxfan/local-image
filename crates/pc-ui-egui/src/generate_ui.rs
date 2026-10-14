@@ -30,6 +30,7 @@ use crate::widgets;
 
 pub(crate) mod draft_refine;
 mod panel_controls;
+mod thumbs;
 pub use draft_refine::Settings as DraftRefineSettings;
 
 #[cfg(not(test))]
@@ -237,7 +238,7 @@ struct Runtime {
     capture_panel_start: bool,
     #[cfg(test)]
     panel_start_clicks: usize,
-    textures: HashMap<String, TextureHandle>,
+    gallery_thumbs: thumbs::Thumbs,
     library: Arc<Vec<Entry>>,
     library_loaded: Option<Instant>,
     selected: Option<String>,
@@ -668,14 +669,7 @@ fn size_for(aspect: &str, s: &GenerateState, native: u32) -> (u32, u32) {
 }
 
 fn thumb_texture(ctx: &egui::Context, key: &str, path: &std::path::Path) -> Option<TextureHandle> {
-    if let Some(t) = rt(|r| r.textures.get(key).cloned()) {
-        return Some(t);
-    }
-    let img = image::open(path).ok()?.to_rgba8();
-    let ci = egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw());
-    let tex = ctx.load_texture(format!("gen-{key}"), ci, egui::TextureOptions::LINEAR);
-    rt(|r| r.textures.insert(key.to_owned(), tex.clone()));
-    Some(tex)
+    rt(|r| r.gallery_thumbs.get(ctx, key, path))
 }
 
 fn image_texture(ctx: &egui::Context, key: &str, img: &RgbaImage) -> TextureHandle {
@@ -1675,7 +1669,7 @@ fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_im
             ui.add_enabled_ui(!full, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
                 if crate::icons::button(ui, "folder-open", 22.0, false, tl!("Add an image file")).clicked()
-                    && let Some(path) = file_dialog().add_filter_nocase(tl!("Images"), &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_file()
+                    && let Some(path) = file_dialog().add_filter_nocase(tl!("Images"), &photocraft_codecs::readable_extensions()).pick_file()
                 {
                     match photocraft_engine::ai_cmds::file_rgba_srgb(&path) {
                         Ok(img) => {
@@ -2339,6 +2333,7 @@ fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>]
             ui.painter().rect_filled(rect, t.radius, t.field);
             match item {
                 Some(e) => {
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, if e.prompt().is_empty() { &e.name } else { e.prompt() }));
                     if let Some(tex) = thumb_texture(ui.ctx(), &e.id, &lib.thumbnail_path(&e.id)) {
                         let sz = tex.size_vec2();
                         let k = (size / sz.x).min(size / sz.y);
@@ -2505,7 +2500,7 @@ fn entry_action(app: &mut PhotocraftApp, ctx: &egui::Context, e: &Entry, act: &s
             rt(|r| {
                 r.results.retain(|t| !matches!(t, Tile::Done(x) if x.id == e.id));
                 Arc::make_mut(&mut r.library).retain(|x| x.id != e.id);
-                r.textures.remove(&e.id);
+                r.gallery_thumbs.remove(&e.id);
             });
         }
         _ => {}
@@ -2564,17 +2559,20 @@ pub fn open_folder(app: &mut PhotocraftApp) -> Result<Value, String> {
     }
 }
 
-pub const IMAGE_EXTS: &[&str] = &[
-    "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "heic", "heif", "dng", "cr2", "cr3", "nef", "nrw",
-    "arw", "pef", "orf", "rw2", "raf",
-];
+/// Compatibility alias; opening filters consult the shared capability registry.
+pub const IMAGE_EXTS: &[&str] = photocraft_codecs::PHOTO_EXTENSIONS;
 
 pub fn folder_images(dir: &std::path::Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|rd| {
             rd.flatten()
                 .map(|e| e.path())
-                .filter(|p| p.is_file() && p.extension().and_then(|e| e.to_str()).is_some_and(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str())))
+                .filter(|p| {
+                    p.is_file()
+                        && p.extension()
+                            .and_then(|e| e.to_str())
+                            .is_some_and(|e| e.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(e, true))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -2692,18 +2690,18 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         if widgets::secondary_button(ui, tl!("Add Images…"), 0.0).clicked()
-                            && let Some(paths) = file_dialog().add_filter_nocase(tl!("Images"), &["png", "jpg", "jpeg", "webp", "tif", "tiff"]).pick_files()
+                            && let Some(paths) = file_dialog().add_filter_nocase(tl!("Images"), &photocraft_codecs::readable_extensions()).pick_files()
                         {
                             b.files.extend(paths);
                         }
                         if widgets::secondary_button(ui, tl!("Add Folder…"), 0.0).clicked()
                             && let Some(dir) = file_dialog().pick_folder()
                         {
-                            b.files.extend(folder_images(&dir).into_iter().filter(|p| {
-                                p.extension()
-                                    .and_then(|e| e.to_str())
-                                    .is_some_and(|e| ["png", "jpg", "jpeg", "webp", "tif", "tiff"].contains(&e.to_ascii_lowercase().as_str()))
-                            }));
+                            b.files.extend(
+                                folder_images(&dir)
+                                    .into_iter()
+                                    .filter(|p| p.extension().and_then(|e| e.to_str()).is_some_and(|e| photocraft_codecs::is_readable_extension(e, false))),
+                            );
                         }
                     }
                     ui.label(RichText::new(crate::i18n::fmt(tl!("{n} images"), &[("n", &b.files.len().to_string())])).color(t.text_dim));
@@ -2976,6 +2974,21 @@ mod bg_batch_tests {
     }
 
     #[test]
+    fn j6_generate_folder_uses_shared_readable_registry() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!("j6-generate-extension-registry-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        for name in ["a.CRW", "b.QOI", "c.PSB", "d.pcraft", "unsupported.avif", "notes.txt"] {
+            std::fs::write(dir.join(name), [])?;
+        }
+        let files = folder_images(&dir);
+        for (name, included) in [("a.CRW", true), ("b.QOI", true), ("c.PSB", true), ("d.pcraft", true), ("unsupported.avif", false), ("notes.txt", false)] {
+            assert_eq!(files.contains(&dir.join(name)), included, "{name}");
+        }
+        std::fs::remove_dir_all(dir)?;
+        Ok(())
+    }
+
+    #[test]
     // TEST-CHANGED F172: add Windows-invalid characters, device names and trailing dots/spaces.
     fn bg_batch_template_preview_and_conflicts() {
         let dir = directory();
@@ -3155,6 +3168,41 @@ mod bg_batch_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gallery_click_selects_while_thumbnail_decodes_off_thread() {
+        use egui_kittest::kittest::Queryable;
+        let entry = library().add(&RgbaImage::from_pixel(401, 203, image::Rgba([80, 90, 100, 255])), "gpu-resource-gallery-fixture", None, None).unwrap();
+        let id = entry.id.clone();
+        let accessible_name = entry.name.clone();
+        rt(|r| r.selected = None);
+        let items = vec![Some(entry)];
+        let mut first = true;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(400.0, 240.0)).build_ui_state(
+            move |ui, app: &mut PhotocraftApp| {
+                if first {
+                    PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Pro);
+                    first = false;
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                tile_grid(app, ui, &items, &[], "async-gallery-test");
+            },
+            PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default()),
+        );
+        h.run_steps(4);
+        h.get_by_label(&accessible_name).click();
+        h.run_steps(2);
+        assert_eq!(rt(|r| r.selected.clone()), Some(id.clone()));
+        let start = Instant::now();
+        while !rt(|r| r.gallery_thumbs.loaded(&id)) {
+            assert!(start.elapsed() < Duration::from_secs(10));
+            std::thread::sleep(Duration::from_millis(10));
+            h.run_steps(1);
+        }
+        library().delete(std::slice::from_ref(&id)).unwrap();
+        rt(|r| r.gallery_thumbs.remove(&id));
+    }
 
     #[test]
     fn enhance_generate_upscale_clicks_three_methods_and_scale() {

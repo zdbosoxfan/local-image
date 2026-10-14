@@ -1,0 +1,71 @@
+name: Release artifacts (no publication)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: release-artifacts-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  CARGO_BUILD_JOBS: 4
+  MACOSX_DEPLOYMENT_TARGET: '13.0'
+  CRAFT_FONTS_REQUIRED: 1
+  CRAFT_FONTS_DIR: ${{ github.workspace }}/.cache/craft-fonts
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: storytold/craft-fonts
+          ref: 3d9ab3a132ed0eff457e424226a435a901da30d3
+          path: .cache/craft-fonts
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux build prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+      - name: Fetch locked dependencies
+        run: cargo +1.98.1 fetch --locked
+      - name: Audit assets and dependencies
+        run: |
+          cargo +1.98.1 xtask assets
+          cargo +1.98.1 xtask deps-pure
+      - name: Build Linux payload and AppImage
+        if: runner.os == 'Linux'
+        env:
+          APPIMAGETOOL: ${{ runner.temp }}/appimagetool.AppImage
+          APPIMAGE_RUNTIME: ${{ runner.temp }}/runtime-x86_64
+        run: |
+          cargo +1.98.1 xtask package linux
+          curl --fail --location --retry 2 https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage -o "$APPIMAGETOOL"
+          echo "95cbe7cce9717fce90c484e34052ee7c7f1d7635b33c12525b4776826a7d29b6  $APPIMAGETOOL" | sha256sum --check
+          curl --fail --location --retry 2 https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64 -o "$APPIMAGE_RUNTIME"
+          echo "156f4bdbde9c52d01814600013e0a273f0118dc2de98975f3c8c63427ec79074  $APPIMAGE_RUNTIME" | sha256sum --check
+          chmod +x "$APPIMAGETOOL"
+          packaging/linux/appimage.sh
+      - name: Build Apple Silicon app and disk image
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          MACOS_INSTALLER_SIGN_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGN_IDENTITY }}
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+        run: packaging/macos/release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: local-image-${{ runner.os }}-${{ runner.arch }}
+          path: dist/release/*
+          if-no-files-found: error

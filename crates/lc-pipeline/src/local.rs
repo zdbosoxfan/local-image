@@ -51,7 +51,7 @@ pub fn wb_matrix_for(info: &SourceInfo, s: &DevelopSettings) -> Option<[[f32; 3]
     };
     // Normalize so neutral luminance is preserved (WB shouldn't change exposure).
     let g = m.apply([1.0, 1.0, 1.0]);
-    let y = g[0] * 0.2627 + g[1] * 0.6780 + g[2] * 0.0593;
+    let y = li_color::luminance_2020_f64(g);
     Some(m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
 }
 
@@ -63,7 +63,7 @@ fn colorcal_matrix(info: &SourceInfo, cc: &crate::colorcal::ColorCal) -> [[f32; 
     let undo = shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY);
     let m = if cc.is_linear() { lightcraft_color::Mat3(cc.matrix.map(|r| r.map(f64::from))).mul(&undo) } else { undo };
     let g = m.apply([1.0, 1.0, 1.0]);
-    let y = g[0] * 0.2627 + g[1] * 0.6780 + g[2] * 0.0593;
+    let y = li_color::luminance_2020_f64(g);
     m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32()
 }
 
@@ -77,7 +77,7 @@ pub fn wb_change(from: (f64, f64), to: (f64, f64)) -> Option<[[f32; 3]; 3]> {
     let shot = wb_matrix(&REC2020, temp_tint_to_xy(from.0, from.1));
     let m = set.mul(&shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY));
     let g = m.apply([1.0, 1.0, 1.0]);
-    let y = g[0] * 0.2627 + g[1] * 0.6780 + g[2] * 0.0593;
+    let y = li_color::luminance_2020_f64(g);
     Some(m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
 }
 
@@ -87,8 +87,9 @@ fn wb_gain(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings, gain: f32) 
     let cc = crate::colorcal::of(info, s).filter(|c| !c.is_linear());
     let tables = info.camera_profile.as_ref().and_then(|profile| {
         let (t, tint) = effective_wb(info, s);
-        let g = info.camera_color.map_or(1.0, |camera| lightcraft_color::camera::illuminant_weight(&camera.color, temp_tint_to_xy(t, tint)));
-        lightcraft_color::profile::ProfileTables::new(profile, g)
+        let weights =
+            info.camera_color.map_or([1.0, 0.0, 0.0], |camera| lightcraft_color::camera::illuminant_weights(&camera.color, temp_tint_to_xy(t, tint)));
+        lightcraft_color::profile::ProfileTables::new_weighted(profile, weights)
     });
     let baseline = info.baseline_gain.max(1e-9);
     let w = img.width;
@@ -180,6 +181,31 @@ pub fn denoise(img: &mut Rgb32f, s: &DevelopSettings, src_long: usize, px_per_lo
     if let Some(p) = crate::detail::nr_params(s, scale) {
         crate::timed("wavelet NR", || crate::detail::denoise(img, &p));
     }
+}
+
+/// Resolve the calibrated sensor model through the same WB matrix as the rendered pixels.
+pub fn denoise_source(img: &mut Rgb32f, s: &DevelopSettings, src_long: usize, px_per_long: f64, info: &SourceInfo) {
+    let scale = crate::detail::out_per_orig(px_per_long, src_long, info.sensor_scale);
+    let Some(p) = crate::detail::nr_params(s, scale) else {
+        return;
+    };
+    if let Some(profile) = noise_calibration(info, s) {
+        crate::timed("profiled wavelet NR", || crate::detail::nr::denoise_profiled(img, &p, &profile));
+    } else {
+        crate::timed("wavelet NR", || crate::detail::denoise(img, &p));
+    }
+}
+
+/// Noise calibration in the same current WB coordinates as the pixels.
+pub fn noise_calibration(info: &SourceInfo, s: &DevelopSettings) -> Option<crate::detail::nr::NoiseCalibration> {
+    let nonlinear = crate::negative::params(s).is_some() || crate::colorcal::of(info, s).is_some_and(|c| !c.is_linear());
+    let mut profile = info.camera_noise.filter(|_| !nonlinear)?;
+    if let Some(wb) = wb_matrix_for(info, s) {
+        let wb = lightcraft_color::Mat3(wb.map(|r| r.map(f64::from)));
+        let camera = lightcraft_color::Mat3(profile.camera_to_working.map(|r| r.map(f64::from)));
+        profile.camera_to_working = wb.mul(&camera).to_f32();
+    }
+    Some(profile)
 }
 
 pub fn log_lum(c: [f32; 3]) -> f32 {

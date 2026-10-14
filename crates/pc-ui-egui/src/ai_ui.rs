@@ -40,7 +40,7 @@ use crate::widgets;
 pub struct AiOptions {
     /// Expanded model families in AI Preferences.
     pub settings_families: std::collections::BTreeSet<String>,
-    /// AI Remove engine: `klein`, `qwen-int8` or `qwen-bf16`.
+    /// AI Remove engine: `auto`, `lama`, `klein`, `qwen-int8` or `qwen-bf16`.
     pub remove_engine: String,
     /// Apply a painted removal stroke on release. Off by default (owner decision): the user brushes,
     /// adjusts the mask, then confirms with Remove.
@@ -75,7 +75,7 @@ impl Default for AiOptions {
     fn default() -> Self {
         Self {
             settings_families: Default::default(),
-            remove_engine: "klein".into(),
+            remove_engine: "auto".into(),
             remove_immediately: false,
             cutout_engine: "fast".into(),
             cutout_refine: true,
@@ -182,6 +182,16 @@ thread_local! {
     pub(crate) static TEST_STATUS: std::cell::RefCell<Option<EngineStatus>> = const { std::cell::RefCell::new(None) };
 }
 
+/// Start resource telemetry even when Generate/Local AI is closed. The existing status worker
+/// performs the network probes; a changed pressure sample wakes all host views.
+pub(crate) fn watch_resources(ctx: &egui::Context) {
+    let repaint = ctx.clone();
+    lightcraft_sysmem::gpu::set_waker(Arc::new(move || repaint.request_repaint()));
+    if let Ok(mut c) = shared().ctx.lock() {
+        *c = Some(ctx.clone());
+    }
+}
+
 /// Ask the poller to check again now.
 pub fn refresh() {
     dialogs_mut(|d| d.subject_quality = None);
@@ -194,7 +204,7 @@ fn poll_loop(s: Arc<Shared>) {
     loop {
         let forced = s.refresh.swap(false, std::sync::atomic::Ordering::SeqCst);
         let connected_before = s.status.lock().map(|x| x.connected).unwrap_or(false);
-        let interval = if connected_before { Duration::from_secs(5) } else { Duration::from_secs(3) };
+        let interval = if connected_before { Duration::from_secs(2) } else { Duration::from_secs(3) };
         if !forced && last.elapsed() < interval {
             std::thread::sleep(Duration::from_millis(200));
             continue;
@@ -203,6 +213,23 @@ fn poll_loop(s: Arc<Shared>) {
         let ai = li_ai::service();
         let host = ai.client.host().to_owned();
         let stats = ai.client.system_stats().ok();
+        let old_sample = lightcraft_sysmem::gpu::sample();
+        let was_pressured = lightcraft_sysmem::gpu::pressured();
+        let old_host = s.status.lock().map(|x| x.host.clone()).unwrap_or_default();
+        if old_host != host {
+            lightcraft_sysmem::gpu::clear_sample();
+        }
+        if let Some(stats) = &stats
+            && let Ok(queue) = ai.client.queue_state()
+            && ai.client.host() == li_ai::service().client.host()
+        {
+            if let Some(sample) = li_ai::resources::parse(&host, stats, &queue) {
+                lightcraft_sysmem::gpu::publish(sample);
+            } else {
+                lightcraft_sysmem::gpu::clear_sample();
+            }
+        }
+        let pressure_changed = old_sample != lightcraft_sysmem::gpu::sample() || was_pressured != lightcraft_sysmem::gpu::pressured();
         let connected = stats.is_some();
         let gpu = stats.as_ref().and_then(|st| li_ai::setup::gpus_from_stats(st).into_iter().next());
         let mut presets = s.status.lock().map(|x| x.presets.clone()).unwrap_or_default();
@@ -251,7 +278,9 @@ fn poll_loop(s: Arc<Shared>) {
         let changed;
         if let Ok(mut st) = s.status.lock() {
             let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected, limits, object_info };
-            changed = st.connected != new.connected
+            changed = pressure_changed
+                || st.host != new.host
+                || st.connected != new.connected
                 || st.presets != new.presets
                 || st.starting != new.starting
                 || st.limits != new.limits
@@ -607,6 +636,9 @@ fn model_function_row(
         ui.set_width(ui.available_width());
         let title = if custom_controls_enabled { group.label() } else { crate::background_ui::MODELS[1].1 };
         ui.label(RichText::new(tl!(title)).size(13.0).strong().color(t.text));
+        if !matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
+            widgets::cpu_estimate(ui, li_seg::estimate::estimate(spec.id, (spec.size * spec.size) as u64));
+        }
         if custom_controls_enabled {
             ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
         }
@@ -626,12 +658,12 @@ fn model_function_row(
                             Err(e) => set_custom_job(dir, group, Some(CustomJob::Failed(format!("{e:#}")))),
                         }
                     }
-                    ui.label(RichText::new(tl!("In use")).color(Color32::from_rgb(70, 190, 110)));
+                    ui.label(RichText::new(tl!("In use")).color(t.accent));
                 });
             });
             ui.label(
                 RichText::new(if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
-                    tl!("Your selected restoration model, with CPU fallback.")
+                    tl!("Your selected restoration model. Requires a GPU/NPU.")
                 } else {
                     tl!("Your own model, run on the CPU instead of the official one.")
                 })
@@ -667,7 +699,7 @@ fn model_function_row(
                         ask_remove(spec.label.to_owned(), RemoveTarget::Seg(spec));
                     }
                     let text = if official_in_use { tl!("In use") } else { tl!("Installed") };
-                    ui.label(RichText::new(text).color(Color32::from_rgb(70, 190, 110)));
+                    ui.label(RichText::new(text).color(t.accent));
                 }
                 _ => {
                     if widgets::secondary_button(ui, tl!("Download"), 0.0).clicked() {
@@ -680,7 +712,7 @@ fn model_function_row(
         ui.label(
             RichText::new(crate::i18n::fmt(
                 if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
-                    tl!("{name} · {size} download · GPU with CPU fallback · {licence}")
+                    tl!("{name} · {size} download · GPU/NPU required · {licence}")
                 } else {
                     tl!("{name} · {size} download · runs on the CPU · {licence}")
                 },
@@ -772,7 +804,7 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
             li_seg::Group::RawDenoise => {
                 ui.label(tl!("Custom Raw Denoise models use three-channel linear Rec.2020 input and output."));
             }
-            li_seg::Group::Depth | li_seg::Group::Tagging | li_seg::Group::Faces => {}
+            li_seg::Group::Depth | li_seg::Group::Tagging | li_seg::Group::Faces | li_seg::Group::Remove => {}
         }
         if job == Some(CustomJob::Testing) {
             ui.horizontal(|ui| {
@@ -1052,6 +1084,43 @@ pub(crate) const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
     ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
     ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
 ];
+#[cfg(test)]
+thread_local! { pub(crate) static TEST_LAMA_READY: std::cell::RefCell<Option<bool>> = const { std::cell::RefCell::new(None) }; }
+
+/// Resolve Automatic from the background connection status. Explicit choices persist.
+pub fn effective_remove_key(key: &str) -> &str {
+    if key == "auto" || key.is_empty() { if status().connected { "klein" } else { "lama" } } else { key }
+}
+
+/// Shared readiness for Remove, selection actions and the Develop host.
+pub fn remove_ready(key: &str) -> Result<(), String> {
+    let key = effective_remove_key(key);
+    if key == "lama" {
+        #[cfg(test)]
+        if let Some(ready) = TEST_LAMA_READY.with(|r| *r.borrow()) {
+            return if ready { Ok(()) } else { Err("Download AI Remove in Preferences › AI › On-device Tools first.".into()) };
+        }
+        if li_seg::installed_bytes(&photocraft_engine::seg::models_dir(), catalog::on_device_default(li_seg::Group::Remove)).is_some() {
+            Ok(())
+        } else {
+            Err(tl!("Download AI Remove in Preferences › AI › On-device Tools first.").into())
+        }
+    } else {
+        let (model, variant) = remove_engine(key);
+        status().ready(model, variant)
+    }
+}
+
+pub(crate) fn remove_readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    if let Err(why) = remove_ready(&app.ui.ai.remove_engine) {
+        if effective_remove_key(&app.ui.ai.remove_engine) == "lama" {
+            readiness_warning_to(app, ui, &why, tl!("On-device Tools…"), "ai.tools");
+        } else {
+            readiness_warning(app, ui, &why, status().connected);
+        }
+    }
+}
+
 /// The model behind an AI Remove engine key (`klein`, `qwen-int8`, `qwen-bf16`).
 pub fn remove_engine(key: &str) -> (ModelId, &'static str) {
     engine_for(key)
@@ -1074,6 +1143,11 @@ pub(crate) fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: Model
 }
 
 pub(crate) fn readiness_warning(app: &mut PhotocraftApp, ui: &mut egui::Ui, why: &str, connected: bool) {
+    let label = if connected { tl!("Get models…") } else { tl!("Set up AI…") };
+    readiness_warning_to(app, ui, why, label, settings_ui::CONNECTION);
+}
+
+fn readiness_warning_to(app: &mut PhotocraftApp, ui: &mut egui::Ui, why: &str, label: &str, section: &str) {
     let t = Tokens::get(ui.ctx());
     let compact = ui.layout().main_dir().is_horizontal();
     let mut warning = |ui: &mut egui::Ui| {
@@ -1083,9 +1157,8 @@ pub(crate) fn readiness_warning(app: &mut PhotocraftApp, ui: &mut egui::Ui, why:
         if !compact {
             ui.label(RichText::new(why).color(t.warning));
         }
-        let label = if connected { tl!("Get models…") } else { tl!("Set up AI…") };
         if widgets::secondary_button(ui, label, 0.0).clicked() {
-            open_local_ai(app);
+            crate::prefs_ui::open_preferences(app, section);
         }
     };
     if compact {
@@ -1383,18 +1456,9 @@ pub(crate) fn enhance_controls(ui: &mut egui::Ui, method: &mut li_ai::enhance::M
     if !matches!(*scale, 2.0 | 4.0) {
         *scale = 2.0;
     }
-    if *method == Method::Generative {
-        *backend = Backend::Auto;
-    } else {
-        ui.horizontal(|ui| {
-            for (b, label) in [(Backend::Auto, tl!("Auto")), (Backend::Cpu, "CPU"), (Backend::Gpu, "GPU")] {
-                ui.selectable_value(backend, b, label);
-            }
-        });
-        let Some(spec) = enhance_settings::selected_spec(&photocraft_engine::seg::models_dir(), *method) else { return };
-        let downloads = shared().downloads.lock().map(|d| d.clone()).unwrap_or_default();
-        enhance_settings::download_controls(ui, &downloads, &photocraft_engine::seg::models_dir(), spec);
-    }
+    // Legacy CPU selections still deserialize, but all enlargement routes require GPU/NPU.
+    *backend = Backend::Gpu;
+    ui.label(tl!("AI enlargement requires a GPU/NPU."));
 }
 
 fn custom_seed_ready(status: &EngineStatus, unet: &str, vae: &str) -> bool {
@@ -1424,26 +1488,12 @@ pub(crate) fn enhance_ready(method: li_ai::enhance::Method, backend: li_ai::enha
         }
         return status().ready(ModelId::SeedVr2, "fp16");
     }
+    if backend == Backend::Cpu {
+        return Err(tl!("AI enlargement requires a GPU/NPU.").into());
+    }
     let dir = photocraft_engine::seg::models_dir();
-    let choice = li_ai::enhance::selection::load(&dir, method);
-    let Some(spec) = enhance_settings::selected_spec(&dir, method) else {
-        if backend == Backend::Gpu {
-            return Err(tl!("Custom ONNX restoration models run on the CPU.").into());
-        }
-        return li_ai::enhance::selection::custom_path(&dir, &choice)
-            .ok()
-            .filter(|p| p.is_file())
-            .map(|_| ())
-            .ok_or_else(|| tl!("Choose the custom model again in Settings › Local AI.").into());
-    };
-    let cpu = li_seg::installed_bytes(&dir, spec).is_some();
-    if backend != Backend::Gpu && cpu {
-        return Ok(());
-    }
-    if backend != Backend::Cpu {
-        return status().ready(ModelId::intern(spec.id), "default");
-    }
-    Err(tl!("Download the CPU model first.").to_owned())
+    let spec = enhance_settings::selected_spec(&dir, method).ok_or_else(|| tl!("Choose a GPU enlargement model in Settings › Local AI.").to_owned())?;
+    status().ready(ModelId::intern(spec.id), "default")
 }
 
 fn enhance_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
@@ -1709,9 +1759,9 @@ mod tests {
         h.get_by_label("Faithful").click();
         h.run_steps(2);
         assert_eq!(h.state().ui.ai.enhance_method, li_ai::enhance::Method::Faithful);
-        h.get_by_label("CPU").click();
-        h.run_steps(2);
-        assert_eq!(h.state().ui.ai.enhance_backend, li_ai::enhance::Backend::Cpu);
+        assert!(h.query_by_label("CPU").is_none());
+        h.get_by_label("AI enlargement requires a GPU/NPU.");
+        assert_eq!(h.state().ui.ai.enhance_backend, li_ai::enhance::Backend::Gpu);
         h.get_by_label("4×").click();
         h.run_steps(2);
         assert_eq!(dialogs_mut(|d| d.enhance_scale), 4.0);
@@ -1817,7 +1867,7 @@ mod tests {
     fn settings_lists_one_row_per_function() {
         let dir = temp_dir("rows");
         let h = seg_harness(&dir, None);
-        for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)", "Faces", "Raw Denoise", "RGB Denoise"] {
+        for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)", "Faces", "Raw Denoise", "RGB Denoise", "AI Remove"] {
             h.get_by_label(title);
         }
         for model in [
@@ -1827,6 +1877,7 @@ mod tests {
             "Depth Anything V2 Small",
             "CLIP ViT-B-32 LAION",
             "YuNet + SFace",
+            "LaMa · On-device",
         ] {
             h.get_by_label(model);
         }
@@ -1834,7 +1885,7 @@ mod tests {
             assert!(h.query_by_label(gone).is_none(), "{gone} is still listed");
         }
         assert_eq!(h.get_all_by_label("Custom model…").count(), 3);
-        assert_eq!(h.get_all_by_label("Download").count(), 8);
+        assert_eq!(h.get_all_by_label("Download").count(), 9);
         for title in ["Upscale Faithful", "Upscale Rescue", "Generative"] {
             h.get_by_label(title);
         }
@@ -1859,6 +1910,8 @@ mod tests {
             settle(&mut h, &dir, group);
             assert!(li_seg::custom(&dir, group).is_some());
             h.get_by_label("Custom: restore.onnx");
+            h.get_by_label("Your selected restoration model. Requires a GPU/NPU.");
+            assert!(h.query_by_label_contains("CPU fallback").is_none());
             h.get_by_label("Use default").click();
             h.run_steps(3);
             assert!(li_seg::custom(&dir, group).is_none());
@@ -2402,4 +2455,45 @@ fn dsfix_subject_quality_refresh_is_change_driven() {
     assert!(!subject_quality_changed(&mut previous, "better"));
     previous = None; // Local AI settings refresh invalidates the cache.
     assert!(subject_quality_changed(&mut previous, "better"));
+}
+
+#[cfg(test)]
+mod lama_screens {
+    use super::*;
+    use egui_kittest::Harness;
+    #[test]
+    #[ignore = "real RTX 5090 offscreen screenshots; run explicitly"]
+    fn lama_model_manager_rtx5090_screens() {
+        let _gpu_gate = crate::gpu_test_support::lock();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/lama/ui");
+        std::fs::create_dir_all(&root).unwrap();
+        for theme in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::StudioLight] {
+            for width in [250.0, 400.0] {
+                for scale in [1.0, 1.5] {
+                    let mut h = Harness::builder()
+                        .with_size(vec2(width, 460.0))
+                        .with_pixels_per_point(scale)
+                        .renderer(crate::prefs_ui::design_system_shots::renderer())
+                        .build_ui(|ui| {
+                            if !crate::prefs_ui::design_system_shots::fonts_ready(ui) {
+                                return;
+                            }
+                            crate::theme::apply(ui.ctx(), theme);
+                            let t = Tokens::get(ui.ctx());
+                            model_function_row(
+                                ui,
+                                &t,
+                                &BTreeMap::new(),
+                                std::path::Path::new("/nonexistent-lama-screens"),
+                                li_seg::Group::Remove,
+                                &li_seg::lama::MODEL,
+                                true,
+                            );
+                        });
+                    h.run_steps(6);
+                    h.render().unwrap().save(root.join(format!("model-{theme:?}-{width}-{scale}.png"))).unwrap();
+                }
+            }
+        }
+    }
 }

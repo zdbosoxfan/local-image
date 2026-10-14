@@ -6,6 +6,8 @@
 //! kurtosis are standardised (kurtosis is excess-free, a normal sample gives ≈ 3), scaled into
 //! 0..=1 for display; entropy is the Shannon entropy (bits) of the 8-bit values over log2(N).
 
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,12 +59,13 @@ fn stat(v: &mut [f32], s: Stat) -> f32 {
             if v.len() < 2 {
                 return 0.0;
             }
-            let mut counts: std::collections::HashMap<u8, u32> = std::collections::HashMap::new();
+            let mut counts = [0u32; 256];
             for x in v.iter() {
-                *counts.entry((x.clamp(0.0, 1.0) * 255.0).round() as u8).or_default() += 1;
+                counts[(x.clamp(0.0, 1.0) * 255.0).round() as usize] += 1;
             }
             let h: f32 = counts
-                .values()
+                .iter()
+                .filter(|&&c| c > 0)
                 .map(|&c| {
                     let p = c as f32 / n;
                     -p * p.log2()
@@ -77,8 +80,7 @@ fn stat(v: &mut [f32], s: Stat) -> f32 {
 pub fn combine(layers: &[Vec<[f32; 4]>], s: Stat) -> Vec<[f32; 4]> {
     let len = layers.iter().map(Vec::len).max().unwrap_or(0);
     let mut out = vec![[0.0f32; 4]; len];
-    let mut samples: [Vec<f32>; 3] = Default::default();
-    for (i, o) in out.iter_mut().enumerate() {
+    let run = |samples: &mut [Vec<f32>; 3], (i, o): (usize, &mut [f32; 4])| {
         for v in samples.iter_mut() {
             v.clear();
         }
@@ -94,12 +96,21 @@ pub fn combine(layers: &[Vec<[f32; 4]>], s: Stat) -> Vec<[f32; 4]> {
             }
         }
         if alpha <= 0.0 {
-            continue;
+            return;
         }
         for c in 0..3 {
             o[c] = stat(&mut samples[c], s).clamp(0.0, 1.0);
         }
         o[3] = alpha;
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    out.par_iter_mut().enumerate().for_each_init(<[Vec<f32>; 3]>::default, run);
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut samples = <[Vec<f32>; 3]>::default();
+        for pixel in out.iter_mut().enumerate() {
+            run(&mut samples, pixel);
+        }
     }
     out
 }
@@ -110,6 +121,39 @@ mod tests {
 
     fn px(v: f32) -> Vec<[f32; 4]> {
         vec![[v, v, v, 1.0]]
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn stack_all_statistics_byte_identical_across_thread_counts() {
+        let layers: Vec<_> = (0..7)
+            .map(|l| {
+                (0..4099)
+                    .map(|i| {
+                        let v = ((i * 17 + l * 31) % 256) as f32 / 255.0;
+                        [v, 1.0 - v, v * v, if (i + l) % 5 == 0 { 0.0 } else { 0.7 }]
+                    })
+                    .collect()
+            })
+            .collect();
+        let one = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+        let four = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+        for s in [
+            Stat::Entropy,
+            Stat::Kurtosis,
+            Stat::Maximum,
+            Stat::Mean,
+            Stat::Median,
+            Stat::Minimum,
+            Stat::Range,
+            Stat::Skewness,
+            Stat::StandardDeviation,
+            Stat::Summation,
+            Stat::Variance,
+        ] {
+            let bits = |out: Vec<[f32; 4]>| out.into_iter().flat_map(|p| p.map(f32::to_bits)).collect::<Vec<_>>();
+            assert_eq!(bits(one.install(|| combine(&layers, s))), bits(four.install(|| combine(&layers, s))), "{s:?}");
+        }
     }
 
     #[test]

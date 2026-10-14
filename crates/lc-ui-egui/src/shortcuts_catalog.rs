@@ -43,7 +43,7 @@ pub fn catalog() -> Vec<Binding> {
         out.push(Binding {
             key: format!("{PREFIX}{}", c.id),
             command: c.id.into(),
-            label: crate::i18n::tr(c.label).into(),
+            label: crate::i18n::tr(&crate::menus::action_label(c.label)).into(),
             menu: vec!["Library".into(), c.menu.first().copied().unwrap_or("Other").into()],
             default,
             params: None,

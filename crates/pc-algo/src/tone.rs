@@ -6,7 +6,7 @@
 //! per-pixel adjustments). Formulas are documented approximations of Photoshop's behaviour,
 //! derived from its manual and observation, not from its implementation.
 
-use photocraft_color::convert::{lab_to_srgb, srgb_to_lab};
+use li_color::convert::{lab_to_srgb, srgb_to_lab};
 use serde::{Deserialize, Serialize};
 
 use crate::fxutil::gauss_blur_n;
@@ -14,7 +14,7 @@ use crate::other2::{hsl_to_rgb, rgb_to_hsl};
 use crate::photo_util::{par_map, par_rows};
 
 fn luma(c: [f32; 3]) -> f32 {
-    0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+    li_color::convert::rgb_to_gray([c[0], c[1], c[2]])
 }
 
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {

@@ -31,6 +31,7 @@ const NAMESPACES: &[(&str, &str)] = &[
     ("lr", "http://ns.adobe.com/lightroom/1.0/"),
     ("Iptc4xmpCore", "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"),
     ("lc", LC_NS),
+    ("drone-dji", crate::DJI_NS),
     // Read-only: develop settings written by other raw developers (interchange; see docs/xmp-interop.md).
     ("crs", CRS_NS),
     // Read-only: face/pet/focus regions written by Lightroom, digiKam, Picasa and others (MWG Region
@@ -545,6 +546,7 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
         let altitude = num("exif:GPSAltitude").map(|a| if first("exif:GPSAltitudeRef").as_deref() == Some("1") { -a } else { a });
         m.gps = Some(Gps { latitude: lat, longitude: lon, altitude });
     }
+    m.dji = crate::DjiMetadata::from_properties(&props);
     m.regions = values.get("mwg-rs:Regions").map(parse_regions).unwrap_or_default();
     let lc_settings = props.get("lc:settings").and_then(|v| v.first()).cloned();
     Ok(XmpData { metadata: m, lc_settings, properties: props, values })
@@ -629,6 +631,11 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
     x.push_str(">\n");
     for (k, v) in &simple {
         x.push_str(&format!("   <{k}>{}</{k}>\n", escape(v.as_str())));
+    }
+    if let Some(dji) = &meta.dji {
+        for (k, v) in dji.interchange_properties() {
+            x.push_str(&format!("   <drone-dji:{k}>{}</drone-dji:{k}>\n", escape(v.as_str())));
+        }
     }
     for (k, v) in lc {
         if !k.is_empty() && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
@@ -738,6 +745,8 @@ mod tests {
             // write_xmp doesn't emit regions yet (read-only interchange; see docs/xmp-interop.md), so the
             // roundtrip fixture must leave this empty or `roundtrip_all_fields` can't round-trip it.
             regions: Vec::new(),
+            sony: None,
+            dji: None,
             make: Some("Maker & Sons".into()),
             model: Some("X <1>".into()),
             serial_number: Some("SN1".into()),
@@ -1093,5 +1102,79 @@ mod tests {
         let mut a = Metadata::default();
         a.overlay_user_fields(&b);
         assert_eq!(a.regions, vec![with_region]);
+    }
+}
+
+#[cfg(test)]
+mod sony_dji_tests {
+    use super::*;
+    #[test]
+    fn dji_namespace_aliases_telemetry_and_verbatim_export_roundtrip() {
+        let x = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:d="http://www.dji.com/drone-dji/1.0/" d:AbsoluteAltitude="+100.0" d:RelativeAltitude="+12.500" d:GimbalYawDegree="-45.25" d:FlightYawDegree="+98.1" d:GpsLatitude="43.5" d:GpsLongtitude="-110.4" d:FlightXSpeed="1.2" d:FlightYSpeed="-2.3" d:FlightZSpeed="0.5" d:RtkStdLat="0.012"><d:GimbalPitchDegree>-90</d:GimbalPitchDegree><d:GimbalRollDegree>0</d:GimbalRollDegree><d:CustomValue>a &amp; b</d:CustomValue></rdf:Description>"#;
+        let m = parse_xmp(x).unwrap().metadata;
+        let d = m.dji.as_ref().unwrap();
+        assert_eq!(d.absolute_altitude, Some(100.0));
+        assert_eq!(d.relative_altitude, Some(12.5));
+        assert_eq!(d.gimbal_yaw, Some(-45.25));
+        assert_eq!(d.gimbal_pitch, Some(-90.));
+        assert_eq!(d.gimbal_roll, Some(0.));
+        assert_eq!(d.flight_yaw, Some(98.1));
+        assert_eq!((d.speed_x, d.speed_y, d.speed_z), (Some(1.2), Some(-2.3), Some(0.5)));
+        assert!(m.gps.is_none(), "DJI geodetic altitude is not EXIF altitude above sea level");
+        let export = write_xmp(&m, None);
+        assert!(export.contains("<drone-dji:RelativeAltitude>+12.500"));
+        assert!(export.contains("<drone-dji:GpsLongtitude>-110.4"));
+        let back = parse_xmp(&export).unwrap().metadata;
+        assert_eq!(back.dji, m.dji);
+        let aliases = x
+            .replace("GpsLatitude", "GPSLatitude")
+            .replace("GpsLongtitude", "GPSLongtitude")
+            .replace("FlightXSpeed", "SpeedX")
+            .replace("FlightYSpeed", "SpeedY")
+            .replace("FlightZSpeed", "SpeedZ");
+        let alias_metadata = parse_xmp(&aliases).unwrap().metadata;
+        let alias_back = parse_xmp(&write_xmp(&alias_metadata, None)).unwrap().metadata;
+        assert_eq!(alias_back.dji, alias_metadata.dji, "source aliases must not gain duplicate canonical fields");
+    }
+    #[test]
+    fn dji_invalid_numbers_do_not_poison_gps_and_old_metadata_loads() {
+        let x = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:d="http://www.dji.com/drone-dji/1.0/" d:AbsoluteAltitude="NaN" d:GpsLatitude="91" d:GpsLongitude="181" d:GimbalYawDegree="inf"/>"#;
+        let m = parse_xmp(x).unwrap().metadata;
+        let d = m.dji.as_ref().unwrap();
+        assert!(d.absolute_altitude.is_none() && d.latitude.is_none() && d.longitude.is_none() && d.gimbal_yaw.is_none());
+        assert!(m.gps.is_none());
+        let mut old = serde_json::to_value(Metadata::default()).unwrap();
+        old.as_object_mut().unwrap().remove("sony");
+        old.as_object_mut().unwrap().remove("dji");
+        let old: Metadata = serde_json::from_value(old).unwrap();
+        assert!(old.sony.is_none() && old.dji.is_none());
+        let mut target = Metadata::default();
+        target.fill_missing(&m);
+        assert_eq!(target.dji, m.dji);
+    }
+}
+
+#[cfg(test)]
+mod dji_gps_tests {
+    #[test]
+    fn dji_coordinates_fill_missing_gps_without_changing_standard_position_or_altitude() {
+        use lightcraft_tiff::{IfdBuilder, TiffWriter, Value, tags};
+        let packet = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:d="http://www.dji.com/drone-dji/1.0/" d:GpsLatitude="12" d:GpsLongitude="34" d:AbsoluteAltitude="100"/>"#;
+        let mut root = IfdBuilder::new();
+        root.set(tags::XMP, Value::Byte(packet.as_bytes().to_vec()));
+        let bytes = TiffWriter::default().write(&[root.clone()]).unwrap();
+        let missing = crate::extract(&bytes);
+        assert_eq!(missing.gps, Some(crate::Gps { latitude: 12., longitude: 34., altitude: None }));
+        assert_eq!(missing.dji.as_ref().unwrap().absolute_altitude, Some(100.));
+        let mut gps = IfdBuilder::new();
+        gps.set(tags::GPS_LATITUDE, Value::Rational(vec![(15, 1), (0, 1), (0, 1)]));
+        gps.set(tags::GPS_LATITUDE_REF, Value::Ascii("N".into()));
+        gps.set(tags::GPS_LONGITUDE, Value::Rational(vec![(30, 1), (0, 1), (0, 1)]));
+        gps.set(tags::GPS_LONGITUDE_REF, Value::Ascii("W".into()));
+        gps.set(tags::GPS_ALTITUDE, Value::Rational(vec![(25, 2)]));
+        root.set_child(tags::GPS_IFD, gps);
+        let standard = crate::extract(&TiffWriter::default().write(&[root]).unwrap());
+        assert_eq!(standard.gps, Some(crate::Gps { latitude: 15., longitude: -30., altitude: Some(12.5) }));
+        assert_eq!(standard.dji.as_ref().unwrap().latitude, Some(12.));
     }
 }

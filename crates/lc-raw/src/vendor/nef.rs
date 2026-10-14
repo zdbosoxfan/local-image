@@ -252,7 +252,9 @@ mod tests {
             let at = nef.windows(10).position(|b| b == b"NIKON TEST").unwrap();
             let name = format!("{model:<10}");
             nef[at..at + 10].copy_from_slice(name.as_bytes());
-            crate::decode(&nef).unwrap()
+            // This is the native decoder's measured-body contract. The shared
+            // camera-data layer has separate mode/crop precedence coverage.
+            decode(&nef).unwrap()
         };
         let d4 = decode_as("NIKON D4", 14);
         assert_eq!(d4.crop, Rect::new(8, 6, 4928, 3280));

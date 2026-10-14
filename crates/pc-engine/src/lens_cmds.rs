@@ -4,17 +4,17 @@
 //! The three filters act on the active pixel layer (inside the selection) or, on a smart
 //! object, record a smart filter whose params are fully resolved (EXIF-derived values are
 //! written into them), so re-rendering is deterministic. Algorithms: [`photocraft_algo::lens`],
-//! [`photocraft_algo::wideangle`], [`photocraft_algo::camera_raw`].
+//! [`photocraft_algo::wideangle`], [`photocraft_io::develop_filter`].
 
-use photocraft_algo::camera_raw::{self, CameraRaw};
+use photocraft_algo::camera_raw::CameraRaw;
 use photocraft_algo::exif;
 use photocraft_algo::lens::{self, EdgeMode, LensCorrection};
 use photocraft_algo::transform::Interp;
 use photocraft_algo::wideangle::{self, WideAngle};
-use photocraft_color::{ColorMode, SampleType};
+use photocraft_color::ColorMode;
 use photocraft_doc::{Document, LayerContent, LayerId, SmartFilter};
 use photocraft_geom::Rect;
-use photocraft_raster::{Surface, from_rgba_into};
+use photocraft_raster::Surface;
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
@@ -152,36 +152,15 @@ pub fn raw_params(cmd: &str, p: &Value) -> Result<CameraRaw> {
 
 // ---------- pixels ----------
 
-fn rgba_region(surf: &Surface, area: Rect) -> Vec<[f32; 4]> {
-    let mut v = vec![[0.0f32; 4]; (area.width() * area.height()) as usize];
-    surf.read_rgba_into(area, &mut v);
-    v
+/// Compatibility adapter for callers without a document profile (sRGB).
+/// Document commands and smart filters use [`camera_raw_surface_in`].
+pub fn camera_raw_surface(surf: &Surface, area: Rect, p: &CameraRaw) -> Surface {
+    camera_raw_surface_in(surf, area, p, photocraft_cms::Builtin::Srgb.profile()).unwrap_or_else(|_| surf.clone())
 }
 
-/// Camera Raw on a surface over `area` (RGB / Gray via RGBA, at the surface's depth).
-pub fn camera_raw_surface(surf: &Surface, area: Rect, p: &CameraRaw) -> Surface {
-    let area = area.intersect(&surf.content_bounds().union(&area));
-    if area.is_empty() || p.is_identity() {
-        return surf.clone();
-    }
-    let fmt = surf.format();
-    let (w, h) = (area.width() as usize, area.height() as usize);
-    let mut px = rgba_region(surf, area);
-    camera_raw::develop(&mut px, w, h, p, fmt.sample == SampleType::F32);
-    let n = fmt.channels();
-    let orig = surf.read_region(area);
-    let mut data = vec![0.0f32; w * h * n];
-    for (i, (q, o)) in px.iter().zip(data.chunks_exact_mut(n)).enumerate() {
-        from_rgba_into(&fmt, *q, o);
-        if fmt.alpha {
-            // Alpha is untouched.
-            o[n - 1] = orig[i * n + n - 1];
-        }
-    }
-    let mut out = surf.clone();
-    out.write_region(area, &data);
-    out.prune();
-    out
+/// The shared Develop engine, with the same RGB profile used by preview and commit.
+pub fn camera_raw_surface_in(surf: &Surface, area: Rect, p: &CameraRaw, profile: &photocraft_cms::Profile) -> Result<Surface> {
+    photocraft_io::develop_filter::camera_raw_surface(surf, area, p, profile).map_err(EngineError::Other)
 }
 
 /// Mixes `new` over `old` by the selection's coverage.
@@ -220,10 +199,21 @@ pub(crate) fn mix_by_selection(old: &Surface, new: &Surface, sel: &Surface) -> S
 
 /// Smart-filter hook: re-applies a stored filter of this module (`None` for other ids).
 pub fn apply_to_surface(id: &str, params: &Value, surf: &Surface, canvas: Rect) -> Option<Surface> {
+    apply_to_surface_in(id, params, surf, canvas, None)
+}
+
+/// Smart-filter adapter with the document's RGB profile; `None` retains the sRGB API.
+pub fn apply_to_surface_in(id: &str, params: &Value, surf: &Surface, canvas: Rect, profile: Option<&photocraft_cms::Profile>) -> Option<Surface> {
     match id {
         LENS => Some(lens::correct(surf, canvas, &lens_params(id, params, canvas, None).ok()?)),
         WIDE => Some(wideangle::apply(surf, canvas, &wide_params(id, params, None).ok()?, Interp::Bicubic)),
-        RAW => Some(camera_raw_surface(surf, canvas, &raw_params(id, params).ok()?)),
+        RAW => camera_raw_surface_in(
+            surf,
+            canvas.union(&surf.content_bounds()),
+            &raw_params(id, params).ok()?,
+            profile.unwrap_or_else(|| photocraft_cms::Builtin::Srgb.profile()),
+        )
+        .ok(),
         _ => None,
     }
 }
@@ -262,7 +252,7 @@ pub(crate) fn raw_enabled(s: &Session) -> std::result::Result<(), String> {
 
 /// Runs `f` on the target layer (pixel layer edited in place inside the selection; smart object
 /// gets a smart filter with `stored` params).
-fn run_filter(s: &mut Session, cmd: &str, label: &str, stored: Value, float_bg: bool, f: &dyn Fn(&Surface, Rect) -> Surface) -> Result<LayerId> {
+fn run_filter(s: &mut Session, cmd: &str, label: &str, stored: Value, float_bg: bool, f: &dyn Fn(&Surface, Rect) -> Result<Surface>) -> Result<LayerId> {
     let id = target(s, &stored)?;
     let mut stored = stored;
     if let Value::Object(m) = &mut stored {
@@ -289,7 +279,7 @@ fn run_filter(s: &mut Session, cmd: &str, label: &str, stored: Value, float_bg: 
         let LayerContent::Raster(surf) = &mut l.content else {
             return Err(EngineError::Other(format!("{label} needs a pixel layer")));
         };
-        let out = f(surf, canvas);
+        let out = f(surf, canvas)?;
         *surf = match &selection {
             Some(sel) => mix_by_selection(surf, &out, sel),
             None => out,
@@ -306,8 +296,9 @@ fn lens_correction(s: &mut Session, p: &Value) -> Result<Value> {
     let lc = lens_params(LENS, p, frame, info.as_ref())?;
     let stored = resolved_lens_params(p, &lc);
     let t0 = Stopwatch::start();
-    let id =
-        run_filter(s, LENS, "Lens Correction", stored.clone(), matches!(lc.edge, EdgeMode::Transparency), &|surf, canvas| lens::correct(surf, canvas, &lc))?;
+    let id = run_filter(s, LENS, "Lens Correction", stored.clone(), matches!(lc.edge, EdgeMode::Transparency), &|surf, canvas| {
+        Ok(lens::correct(surf, canvas, &lc))
+    })?;
     Ok(json!({"layer": id.0, "profile": lc.profile.as_ref().map(|p| p.name.clone()), "angle": lc.angle, "scale": lc.scale, "params": stored, "ms": t0.ms()}))
 }
 
@@ -326,11 +317,11 @@ fn adaptive_wide_angle(s: &mut Session, p: &Value) -> Result<Value> {
     let interp = Interp::parse(p.get("interpolation").and_then(Value::as_str).unwrap_or("bicubic"));
     let id = run_filter(s, WIDE, "Adaptive Wide Angle", stored.clone(), true, &|surf, canvas| {
         let tris = mesh.triangles();
-        if canvas == frame {
+        Ok(if canvas == frame {
             photocraft_algo::warp::warp_triangles(surf, canvas, &mesh.verts, &tris, interp)
         } else {
             wideangle::apply(surf, canvas, &wa, interp)
-        }
+        })
     })?;
     let model = match cam.model {
         wideangle::WideModel::Fisheye => "fisheye",
@@ -357,8 +348,11 @@ fn camera_raw_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     let cr = raw_params(RAW, p)?;
     // New settings are strict; stored Smart Filters re-apply through the lenient `raw_params`.
     cr.validate().map_err(|e| bad(RAW, e))?;
+    let profile = crate::color_cmds::composite_profile(&s.active().ok_or(EngineError::NoDocument)?.doc);
     let t0 = Stopwatch::start();
-    let id = run_filter(s, RAW, "Camera Raw Filter", p.clone(), false, &|surf, canvas| camera_raw_surface(surf, canvas.union(&surf.content_bounds()), &cr))?;
+    let id = run_filter(s, RAW, "Camera Raw Filter", p.clone(), false, &|surf, canvas| {
+        camera_raw_surface_in(surf, canvas.union(&surf.content_bounds()), &cr, &profile)
+    })?;
     Ok(json!({"layer": id.0, "identity": cr.is_identity(), "ms": t0.ms()}))
 }
 
@@ -578,5 +572,42 @@ mod tests {
         assert!(r["errors"].as_array().unwrap().is_empty());
         assert!(dir.join("out").join("shot0.png").is_file());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod j04_tests {
+    use super::*;
+    use photocraft_color::{PixelFormat, SampleType};
+
+    #[test]
+    fn j04_smart_filter_profile_and_depth_match_shared_commit() {
+        let area = Rect::new(-3, 4, 21, 20);
+        let cr = CameraRaw { exposure: 0.4, dehaze: 20.0, texture: 15.0, noise_color: 20.0, grain_amount: 30.0, seed: 27, ..Default::default() };
+        let params = serde_json::to_value(&cr).unwrap();
+        for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            for mode in [ColorMode::Rgb, ColorMode::Grayscale] {
+                let mut source = Surface::new(PixelFormat { mode, sample, alpha: true });
+                let n = source.channels();
+                let pixels: Vec<f32> = (0..24 * 16)
+                    .flat_map(|i| {
+                        let q = [0.2 + (i % 5) as f32 * 0.1, 0.3, 0.6, (i % 4) as f32 / 3.0];
+                        photocraft_raster::from_rgba(&source.format(), q)
+                    })
+                    .collect();
+                source.write_region(area, &pixels);
+                for builtin in [photocraft_cms::Builtin::Srgb, photocraft_cms::Builtin::DisplayP3, photocraft_cms::Builtin::LinearSrgb] {
+                    let profile = builtin.profile();
+                    let expected = photocraft_io::develop_filter::camera_raw_surface(&source, area, &cr, profile).unwrap();
+                    let filtered = crate::filters::apply_filter_to_surface_in(RAW, &params, &source, area, None, area, Some(profile)).unwrap();
+                    assert_eq!(filtered, expected, "{sample:?}/{mode:?}/{builtin:?}");
+                    let original = source.read_region(area);
+                    let result = filtered.read_region(area);
+                    for (a, b) in original.chunks_exact(n).zip(result.chunks_exact(n)) {
+                        assert_eq!(a[n - 1], b[n - 1]);
+                    }
+                }
+            }
+        }
     }
 }

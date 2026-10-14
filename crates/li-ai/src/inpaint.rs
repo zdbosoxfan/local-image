@@ -142,7 +142,7 @@ pub const GREEN_INSTRUCTION: &str = "Fill the green area so it fits the rest of 
 /// Composites `result` (the context crop, any size) back onto `canvas` through `comp`.
 pub fn composite(canvas: &RgbImage, result: &RgbImage, p: &Plan, comp: &GrayImage) -> RgbImage {
     let r = if result.dimensions() != (p.context.width(), p.context.height()) {
-        imageops::resize(result, p.context.width(), p.context.height(), imageops::FilterType::Lanczos3)
+        li_raster::resize_rgb8(result, p.context.width(), p.context.height(), li_raster::Filter::Lanczos3)
     } else {
         result.clone()
     };

@@ -34,6 +34,8 @@
 
 #[cfg(test)]
 mod test_vectors;
+#[cfg(test)]
+mod tests_lenscorr_merge;
 
 pub mod auto;
 pub mod balance;
@@ -48,6 +50,7 @@ pub mod eigf;
 pub mod finish;
 pub mod geometry;
 pub mod layers;
+pub mod lcp;
 pub mod lensdb;
 pub mod llf;
 pub mod local;
@@ -131,6 +134,13 @@ fn deserialize_clip_runs<'de, D: serde::Deserializer<'de>>(deserializer: D) -> R
     }
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CameraWbPreset {
+    pub name: String,
+    pub temp: f64,
+    pub tint: f64,
+}
+
 /// Facts about the source the settings are interpreted against.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
@@ -138,13 +148,20 @@ pub struct SourceInfo {
     /// Sensor fraction of clipped channels, before reconstruction and camera conversion.
     pub clip_confidence: Option<Arc<ClipConfidence>>,
     pub raw_clip_level: Option<f32>,
-    /// Lens corrections embedded in the file (DNG opcodes or vendor metadata), relative to the EXIF-oriented source.
+    pub camera_noise: Option<detail::nr::NoiseCalibration>,
+    pub camera_wb_presets: Vec<CameraWbPreset>,
+    /// Embedded DNG/vendor correction relative to the EXIF-oriented source.
     pub lens: Option<lightcraft_develop::EmbeddedLens>,
-    /// Linear camera -> working conversion, for sampling calibrated CA in
-    /// camera planes before colour mixing. Baseline exposure is a scalar.
+    /// Original Sony curves from the single lc-meta reader; converted only if no embedded map exists.
+    pub sony_lens: Option<lightcraft_develop::SonyLensData>,
+    pub source_orientation: lightcraft_geom::Orientation,
+    /// Linear camera -> working basis for calibrated per-plane CA.
     pub lens_camera_to_working: Option<lightcraft_color::Mat3>,
-    /// Fitted nonlinear camera look, deferred until after calibrated CA.
+    /// Nonlinear fitted look is evaluated after lens geometry.
     pub source_hue_sat: Option<Arc<lightcraft_color::profile::HsvTable>>,
+    /// Ordered built-in DNG lens operations already applied in camera RGB.
+    pub embedded_lens_baked: bool,
+    pub embedded_ca_baked: bool,
     /// Raw sources use absolute Kelvin white balance; rendered sources use a relative scale around
     /// their as-shot white.
     pub raw: bool,
@@ -162,6 +179,9 @@ pub struct SourceInfo {
     /// ask for it; relative to the EXIF-oriented source).
     #[serde(skip)]
     pub lens_db: Option<lensdb::LensCorrection>,
+    /// User-imported Adobe LCP, interpolated for the shot.
+    #[serde(skip)]
+    pub lcp: Option<lcp::LcpCorrection>,
     /// Sensor pixels per source pixel (a binned or downscaled raw preview is > 1), for tools
     /// sized in sensor pixels (capture sharpening).
     pub sensor_scale: f32,
@@ -177,23 +197,37 @@ pub struct SourceInfo {
     pub profile_curve: Option<tone::CameraTone>,
 }
 
+impl SourceInfo {
+    /// Prefer the decoded embedded model; otherwise consume the metadata-only Sony handoff.
+    pub fn embedded_lens(&self, w: f64, h: f64) -> Option<lightcraft_develop::EmbeddedLens> {
+        self.lens.or_else(|| self.sony_lens.as_ref().and_then(|data| optics::sony_embedded_lens(data, w, h)))
+    }
+}
+
 impl Default for SourceInfo {
     fn default() -> Self {
         Self {
             raw: false,
             clip_confidence: None,
             raw_clip_level: None,
+            camera_noise: None,
+            camera_wb_presets: vec![],
             as_shot_temp: 6500.0,
             as_shot_tint: 0.0,
             lens: None,
             lens_camera_to_working: None,
             source_hue_sat: None,
+            embedded_lens_baked: false,
+            embedded_ca_baked: false,
+            sony_lens: None,
+            source_orientation: lightcraft_geom::Orientation::Normal,
             relative_wb: false,
             camera_color: None,
             camera_profile: None,
             baseline_gain: 1.0,
             camera_tone: None,
             lens_db: None,
+            lcp: None,
             sensor_scale: 1.0,
             capture_radius: None,
             capture_threshold: 0.4,
@@ -295,7 +329,18 @@ pub fn native_output_size(src_w: usize, src_h: usize, s: &DevelopSettings) -> (f
 
 /// The geometric frame `render` uses for `src` (lens data, automatic CA estimate included).
 pub fn frame_for(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, apply_crop: bool) -> geometry::Frame {
-    let mut frame = geometry::Frame::with_lenses(src.width, src.height, s, apply_crop, info.lens.as_ref(), info.lens_db.as_ref());
+    let embedded = info.embedded_lens(src.width as f64, src.height as f64);
+    // Built-in ordered DNG corrections have already run before colour conversion.
+    // Suppress all automatic fallbacks, while preserving manual Optics controls.
+    let settings = if info.embedded_lens_baked && s.optics.lens_profile {
+        let mut disabled = s.clone();
+        disabled.optics.lens_profile = false;
+        Cow::Owned(disabled)
+    } else {
+        Cow::Borrowed(s)
+    };
+    let mut frame =
+        geometry::Frame::with_lcp(src.width, src.height, &settings, apply_crop, embedded.as_ref(), info.lens_db.as_ref(), info.lcp.as_ref());
     let profile_ca = frame.warp.as_ref().is_some_and(|w| w.profile_ca());
     if let Some(warp) = frame.warp.as_mut().filter(|_| profile_ca)
         && let Some(forward) = info.lens_camera_to_working
@@ -305,7 +350,7 @@ pub fn frame_for(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, apply_cro
     }
     // The estimator sees the uncorrected source. Applying it on top of a
     // calibrated CA profile would correct the same displacement twice.
-    if s.optics.remove_ca && s.section_enabled("optics") && !profile_ca {
+    if s.optics.remove_ca && s.section_enabled("optics") && !profile_ca && !info.embedded_ca_baked {
         frame.add_lateral_ca(optics::estimate_lateral_ca(src));
     }
     frame
@@ -508,7 +553,11 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         // colour calibration runs with the white balance
         format!("{:?}", colorcal::of(info, s)),
         format!("{:?}", info.camera_color),
-        (info.camera_profile.as_ref().map(|p| p.hash64()), info.source_hue_sat.as_ref().map(|p| Arc::as_ptr(p) as usize)),
+        (
+            info.camera_profile.as_ref().map(|p| p.hash64()),
+            info.source_hue_sat.as_ref().map(|p| Arc::as_ptr(p) as usize),
+            info.camera_noise.map(|n| (n.a.map(f32::to_bits), n.b.map(f32::to_bits), n.camera_to_working.map(|r| r.map(f32::to_bits)))),
+        ),
         (info.baseline_gain.to_bits(), info.sensor_scale.to_bits()),
     ));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
@@ -685,7 +734,7 @@ fn render_impl(
             // Without a cache the resampled buffer is ours: work on it in place.
             let mut img = if shared.is_some() { (*sampled).clone() } else { Arc::unwrap_or_clone(sampled.clone()) };
             lin_cpu(&mut img, info, &plan);
-            local::denoise(&mut img, s, src_long, px_per_long, info.sensor_scale);
+            local::denoise_source(&mut img, s, src_long, px_per_long, info);
             Arc::new(img)
         }
     };
@@ -998,4 +1047,26 @@ fn develop_c_full_overlay_keeps_scalar_alpha_even_when_hidden() {
     assert!(render(&src, &info, &s, &req).image.data.iter().all(|p| *p == [128, 128, 128, 255]));
     s.masks[0].visible = false;
     assert!(render(&src, &info, &s, &req).image.data.iter().all(|p| *p == [128, 128, 128, 255]));
+}
+
+#[cfg(test)]
+mod sony_dji_source_tests {
+    use super::*;
+    #[test]
+    fn sony_lens_boundary_retains_signed_curves_and_old_source_settings_load() {
+        let data = lightcraft_develop::SonyLensData {
+            distortion: vec![-100, 0, 120],
+            ca_red: vec![-8, 0, 9],
+            ca_blue: vec![2, 1, -4],
+            vignetting: vec![0, 16, 90],
+        };
+        let source = SourceInfo { sony_lens: Some(data), ..Default::default() };
+        let json = serde_json::to_value(&source).unwrap();
+        let back: SourceInfo = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(source.sony_lens, back.sony_lens);
+        let mut old = json;
+        old.as_object_mut().unwrap().remove("sony_lens");
+        let old: SourceInfo = serde_json::from_value(old).unwrap();
+        assert!(old.sony_lens.is_none());
+    }
 }

@@ -3,6 +3,19 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+/// Optional input coordinates for a 3D lookup. Omission preserves legacy unit-domain documents.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LutDomain {
+    pub min: [f32; 3],
+    pub max: [f32; 3],
+}
+
+impl LutDomain {
+    pub fn valid(self) -> bool {
+        (0..3).all(|i| self.min[i].is_finite() && self.max[i].is_finite() && self.max[i] > self.min[i] && (self.max[i] - self.min[i]).is_finite())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CurvePoint {
     pub input: f32,
@@ -190,6 +203,8 @@ pub enum Adjustment {
         name: String,
         lut: Option<Arc<Vec<f32>>>,
         size: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        domain: Option<LutDomain>,
         /// Tetrahedral instead of trilinear interpolation.
         #[serde(default)]
         tetrahedral: bool,
@@ -264,6 +279,17 @@ impl Adjustment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn legacy_lookup_document_has_unit_domain_and_keeps_interpolation() {
+        let old = serde_json::json!({"ColorLookup": {
+            "name": "old", "lut": null, "size": 2, "tetrahedral": false, "dither": false
+        }});
+        let parsed: Adjustment = serde_json::from_value(old.clone()).unwrap();
+        assert!(matches!(parsed, Adjustment::ColorLookup { domain: None, tetrahedral: false, .. }));
+        assert_eq!(serde_json::to_value(parsed).unwrap(), old);
+    }
 
     #[test]
     fn hue_range_weights() {

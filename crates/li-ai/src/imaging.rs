@@ -185,7 +185,7 @@ pub fn klein_highlight(crop: &RgbImage, region_in_crop: Rect) -> RgbImage {
     let scale = 1f64.min((1536.0 * 1536.0 / (cw as f64 * ch as f64)).sqrt()).min(2048.0 / cw.max(ch) as f64);
     let tw = 16.max(((cw as f64 * scale / 16.0).round() * 16.0) as u32);
     let th = 16.max(((ch as f64 * scale / 16.0).round() * 16.0) as u32);
-    let mut img = imageops::resize(crop, tw, th, imageops::FilterType::Lanczos3);
+    let mut img = li_raster::resize_rgb8(crop, tw, th, li_raster::Filter::Lanczos3);
     let (sx, sy) = (tw as f64 / cw as f64, th as f64 / ch as f64);
     let l = ((region_in_crop.x0 as f64 * sx).round() as i64 - 3).max(0) as u32;
     let t = ((region_in_crop.y0 as f64 * sy).round() as i64 - 3).max(0) as u32;
@@ -389,7 +389,7 @@ pub fn over_white(img: &RgbaImage) -> RgbaImage {
 pub fn pad_to(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
     let scale = (w as f64 / img.width() as f64).min(h as f64 / img.height() as f64);
     let (nw, nh) = (((img.width() as f64 * scale).round() as u32).max(1), ((img.height() as f64 * scale).round() as u32).max(1));
-    let r = imageops::resize(img, nw, nh, imageops::FilterType::Lanczos3);
+    let r = li_raster::resize_rgba8(img, nw, nh, li_raster::Filter::Lanczos3);
     let mut out = RgbaImage::new(w, h);
     imageops::overlay(&mut out, &r, ((w - nw) / 2) as i64, ((h - nh) / 2) as i64);
     out
@@ -399,7 +399,7 @@ pub fn pad_to(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
 pub fn fit_cover(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
     let scale = (w as f64 / img.width() as f64).max(h as f64 / img.height() as f64);
     let (nw, nh) = (((img.width() as f64 * scale).ceil() as u32).max(w), ((img.height() as f64 * scale).ceil() as u32).max(h));
-    let r = imageops::resize(img, nw, nh, imageops::FilterType::Lanczos3);
+    let r = li_raster::resize_rgba8(img, nw, nh, li_raster::Filter::Lanczos3);
     imageops::crop_imm(&r, (nw - w) / 2, (nh - h) / 2, w, h).to_image()
 }
 
@@ -419,6 +419,53 @@ pub fn decode_rgba(bytes: &[u8]) -> anyhow::Result<RgbaImage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn j01_shared_resize_cc0_cutout_preserves_colour_at_transparent_edges() {
+        // Original synthetic cutout authored for this regression, dedicated to CC0-1.0.
+        // The disc's visible colour is constant, so its exact composite at every alpha
+        // is known. Hidden black deliberately reproduces the old dark-fringe failure.
+        const COLOUR: [u8; 3] = [224, 176, 96];
+        let source = RgbaImage::from_fn(128, 96, |x, y| {
+            let distance = ((x as f32 - 63.5).powi(2) + (y as f32 - 47.5).powi(2)).sqrt();
+            let alpha = ((35.5 - distance).clamp(0.0, 1.0) * 255.0).round() as u8;
+            if alpha == 0 { Rgba([0, 0, 0, 0]) } else { Rgba([COLOUR[0], COLOUR[1], COLOUR[2], alpha]) }
+        });
+        let fringe_error = |img: &RgbaImage| {
+            let white = over_white(img);
+            let mut total = 0u64;
+            let mut samples = 0u64;
+            for (x, y, p) in img.enumerate_pixels() {
+                if !(2..254).contains(&p[3]) {
+                    continue;
+                }
+                let alpha = f32::from(p[3]) / 255.0;
+                for (c, colour) in COLOUR.iter().enumerate() {
+                    let expected = (f32::from(*colour) * alpha + 255.0 * (1.0 - alpha)).round() as u8;
+                    total += u64::from(white.get_pixel(x, y)[c].abs_diff(expected));
+                    samples += 1;
+                }
+            }
+            assert!(samples > 30, "must sample actual antialiased edges");
+            total as f64 / samples as f64
+        };
+        for (w, h) in [(257, 193), (65, 49)] {
+            // These matching aspect ratios round to exactly w × h in pad_to's fit.
+            let scale = (f64::from(w) / 128.0).min(f64::from(h) / 96.0);
+            let nw = (128.0 * scale).round() as u32;
+            let nh = (96.0 * scale).round() as u32;
+            let old_resize = imageops::resize(&source, nw, nh, imageops::FilterType::Lanczos3);
+            let mut old = RgbaImage::new(w, h);
+            imageops::overlay(&mut old, &old_resize, i64::from((w - nw) / 2), i64::from((h - nh) / 2));
+            let new = pad_to(&source, w, h);
+            assert_eq!(new.dimensions(), (w, h));
+            let before = fringe_error(&old);
+            let after = fringe_error(&new);
+            eprintln!("CC0 cutout {w}x{h}: white-composite edge MAE {before:.6} -> {after:.6} u8 levels");
+            assert!(before > 1.0, "fixture must expose the old fringe: {before}");
+            assert!(after < 0.1 && after < before * 0.1, "premultiplied resize must remove the fringe: {before} -> {after}");
+        }
+    }
 
     #[test]
     fn regions_split_at_wide_gaps() {

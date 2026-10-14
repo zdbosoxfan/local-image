@@ -18,6 +18,9 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
     let shutter = m.exposure_time.map(|t| if t >= 1.0 { format!("{t:.0}") } else { format!("1/{:.0}", 1.0 / t) }).unwrap_or_default();
     let camera = [m.make.clone().unwrap_or_default(), m.model.clone().unwrap_or_default()].join(" ").trim().to_string();
     let meta = Meta {
+        serial_number: m.serial_number.clone(),
+        sony: m.sony.clone(),
+        dji: m.dji.clone(),
         camera,
         lens: m.lens_model.clone().unwrap_or_default(),
         focal_mm: m.focal_length.map(|f| f as f32),
@@ -46,11 +49,64 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
     (meta, m.capture_time.as_ref().map(|d| d.to_iso()))
 }
 
+/// Lossless handoff of Sony's raw-IFD sample curves to the shared lens boundary.
+pub fn sony_lens(sony: Option<&lightcraft_meta::SonyMetadata>) -> Option<lightcraft_develop::SonyLensData> {
+    let lens = sony?.lens_correction.as_ref()?;
+    Some(lightcraft_develop::SonyLensData {
+        distortion: lens.distortion.clone(),
+        ca_red: lens.ca_red.clone(),
+        ca_blue: lens.ca_blue.clone(),
+        vignetting: lens.vignetting.clone(),
+    })
+}
+
+fn built_in_dji_dng(format: lightcraft_raw::RawFormat, metadata: &lightcraft_meta::Metadata) -> bool {
+    let make = metadata.make.as_deref().unwrap_or_default();
+    let model = metadata.model.as_deref().unwrap_or_default();
+    format == lightcraft_raw::RawFormat::Dng
+        && (make.eq_ignore_ascii_case("DJI")
+            || metadata.dji.is_some()
+            || (make.eq_ignore_ascii_case("Hasselblad") && model.starts_with('L') && model.contains("D-")))
+}
+
 /// Lens corrections embedded in a DNG's `OpcodeList3` (`WarpRectilinear`, `FixVignetteRadial`), re-expressed for
 /// the default-cropped, EXIF-oriented image. Vendor metadata uses the same shared model.
 pub fn embedded_lens(raw: &lightcraft_raw::RawInfo) -> Option<lightcraft_develop::EmbeddedLens> {
     use lightcraft_develop::{EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
     use lightcraft_geom::Point;
+    // A mixed list must execute in its declared order in the raw pipeline.
+    // Splitting warp/vignette out would move them past GainMap or other operations.
+    // Multiple warps/vignettes likewise cannot be represented by a single profile.
+    // DJI's built-in DNG operations define the developed camera image. Apply
+    // them in camera RGB in the raw path, even when the editable lens-profile
+    // checkbox is off. Splitting them into a later working-RGB correction would
+    // change per-plane CA, GainMap order, and profile-table interpolation.
+    let dji_dng = built_in_dji_dng(raw.format, &raw.metadata);
+    if dji_dng {
+        return None;
+    }
+    let warps = raw
+        .opcodes
+        .list3
+        .iter()
+        .filter(|op| matches!(op, lightcraft_raw::Opcode::WarpRectilinear { .. } | lightcraft_raw::Opcode::WarpFisheye { .. }))
+        .count();
+    let vignettes = raw.opcodes.list3.iter().filter(|op| matches!(op, lightcraft_raw::Opcode::FixVignetteRadial { .. })).count();
+    let per_plane_warp = raw.opcodes.list3.iter().any(|op| match op {
+        lightcraft_raw::Opcode::WarpRectilinear { planes, .. } => planes.first().is_some_and(|first| planes.iter().any(|p| p != first)),
+        lightcraft_raw::Opcode::WarpFisheye { planes, .. } => planes.windows(2).any(|p| p[0] != p[1]),
+        _ => false,
+    });
+    let warp_before_vignette = raw
+        .opcodes
+        .list3
+        .iter()
+        .position(|op| matches!(op, lightcraft_raw::Opcode::WarpRectilinear { .. } | lightcraft_raw::Opcode::WarpFisheye { .. }))
+        .zip(raw.opcodes.list3.iter().position(|op| matches!(op, lightcraft_raw::Opcode::FixVignetteRadial { .. })))
+        .is_some_and(|(warp, vignette)| warp < vignette);
+    if raw.opcodes.list3.iter().any(|op| !is_lens_opcode(op)) || warps > 1 || vignettes > 1 || warp_before_vignette || per_plane_warp {
+        return None;
+    }
     let (aw, ah) = (raw.active_area.width as f64, raw.active_area.height as f64);
     if aw < 2.0 || ah < 2.0 {
         return None;
@@ -59,26 +115,26 @@ pub fn embedded_lens(raw: &lightcraft_raw::RawInfo) -> Option<lightcraft_develop
     let (cx0, cy0, cw, ch) =
         if c.width == 0 || c.height == 0 { (0.0, 0.0, aw, ah) } else { (c.x as f64, c.y as f64, c.width as f64, c.height as f64) };
     let long = cw.max(ch);
-    // opcode centres are relative to the (uncropped) active area, in pixel-index units
-    let centre = |rel: [f64; 2]| -> (Point, f64) {
-        let (px, py) = (rel[0] * (aw - 1.0), rel[1] * (ah - 1.0));
-        let m = [(0.0, 0.0), (aw - 1.0, 0.0), (0.0, ah - 1.0), (aw - 1.0, ah - 1.0)]
-            .iter()
-            .map(|&(x, y)| (x - px).hypot(y - py))
-            .fold(0.0, f64::max)
-            .max(1e-9);
-        (Point::new((px + 0.5 - cx0) / cw, (py + 0.5 - cy0) / ch), m / long)
+    // Adobe SDK uses half-open image bounds for both opcodes. Warp evaluates
+    // integer indices; vignette evaluates pixel centres. Our geometry uses centres.
+    let centre = |rel: [f64; 2], index_offset: f64| -> (Point, f64) {
+        let (px, py) = (rel[0] * aw, rel[1] * ah);
+        let m = [(0.0, 0.0), (aw, 0.0), (0.0, ah), (aw, ah)].iter().map(|&(x, y)| (x - px).hypot(y - py)).fold(0.0, f64::max).max(1e-9);
+        (Point::new((px + index_offset - cx0) / cw, (py + index_offset - cy0) / ch), m / long)
     };
     let mut lens = EmbeddedLens::default();
     for op in &raw.opcodes.list3 {
         match op {
             lightcraft_raw::Opcode::WarpRectilinear { planes, center } if matches!(planes.len(), 1 | 3) && lens.warp.is_none() => {
-                let (center, radius) = centre(*center);
+                let (center, radius) = centre(*center, 0.5);
                 let p = |i: usize| planes[i.min(planes.len() - 1)];
                 lens.warp = Some(EmbeddedWarp { fisheye: false, planes: [p(0), p(1), p(2)], center, radius });
             }
             lightcraft_raw::Opcode::WarpFisheye { planes, center } if matches!(planes.len(), 1 | 3) && lens.warp.is_none() => {
-                let (center, radius) = centre(*center);
+                let (px, py) = (center[0] * (aw - 1.0), center[1] * (ah - 1.0));
+                let m = px.max(aw - 1.0 - px).hypot(py.max(ah - 1.0 - py));
+                let center = Point::new((px + 0.5 - cx0) / cw, (py + 0.5 - cy0) / ch);
+                let radius = m / long;
                 let p = |i: usize| {
                     let c = planes[i.min(planes.len() - 1)];
                     [c[0], c[1], c[2], c[3], 0.0, 0.0]
@@ -86,7 +142,7 @@ pub fn embedded_lens(raw: &lightcraft_raw::RawInfo) -> Option<lightcraft_develop
                 lens.warp = Some(EmbeddedWarp { fisheye: true, planes: [p(0), p(1), p(2)], center, radius });
             }
             lightcraft_raw::Opcode::FixVignetteRadial { k, center } if lens.vignette.is_none() => {
-                let (center, radius) = centre(*center);
+                let (center, radius) = centre(*center, 0.0);
                 lens.vignette = Some(EmbeddedVignette { k: *k, center, radius });
             }
             _ => {}
@@ -261,8 +317,8 @@ pub fn bin_factor(raw: &lightcraft_raw::RawImage, max_edge: usize) -> Option<usi
 }
 
 /// How a raw file is decoded: the photo's Raw Processing settings that change decoding
-/// (demosaic, highlight reconstruction, measuring the capture-sharpening radius). The default
-/// decodes exactly as before those settings existed.
+/// (demosaic, highlight reconstruction, measuring the capture-sharpening radius).
+/// Automatic chooses from measured sensor noise; explicit saved methods retain their meaning.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct RawOptions {
     pub demosaic: lightcraft_develop::Demosaic,
@@ -271,6 +327,9 @@ pub struct RawOptions {
     pub highlights: lightcraft_develop::HighlightMode,
     /// Measure the capture-sharpening radius from the mosaic ([`SourceInfo::capture_radius`]).
     pub capture_radius: bool,
+    /// Stable identifier of the selected camera profile (0 = automatic, 1 = matrix).
+    pub camera_profile: u64,
+    pub profile_generation: u64,
 }
 
 impl RawOptions {
@@ -278,9 +337,15 @@ impl RawOptions {
     pub fn of(s: &lightcraft_develop::DevelopSettings) -> RawOptions {
         let r = &s.raw;
         if !s.section_enabled("raw") {
-            return RawOptions::default();
+            return RawOptions {
+                camera_profile: crate::dcp_profiles::selection_key(&s.camera_profile),
+                profile_generation: crate::dcp_profiles::cache_key(),
+                ..Default::default()
+            };
         }
         RawOptions {
+            camera_profile: crate::dcp_profiles::selection_key(&s.camera_profile),
+            profile_generation: crate::dcp_profiles::cache_key(),
             demosaic: r.demosaic,
             dual_threshold: if r.demosaic.is_dual() { (r.dual_threshold / 100.0).clamp(0.0, 1.0) as f32 } else { 0.0 },
             highlights: r.highlights,
@@ -309,7 +374,13 @@ impl RawOptions {
             return M::Bilinear;
         }
         match self.demosaic {
-            D::Auto | D::Ahd => M::Ahd,
+            D::Auto => M::Auto,
+            D::Lmmse => M::Lmmse,
+            D::Dcb => M::Dcb,
+            D::Markesteijn3 => M::Markesteijn3,
+            D::DualMarkesteijnVng => M::DualMarkesteijnVng,
+            D::XtransDirectional => M::XtransDirectional,
+            D::Ahd => M::Ahd,
             D::Rcd => M::Rcd,
             D::DualRcd => M::DualRcd,
             D::DualRcdVng => M::DualRcdVng,
@@ -350,7 +421,8 @@ pub fn load_vec_with(bytes: Vec<u8>, max_edge: usize, opts: &RawOptions) -> Resu
 
 fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &RawOptions) -> Result<(Rgb32f, SourceInfo), String> {
     if lightcraft_raw::probe(&bytes).is_some() {
-        let mut raw = match lightcraft_raw::decode(&bytes) {
+        let allowance = lightcraft_sysmem::heavy_jobs().headroom().min(usize::MAX as u64) as usize;
+        let mut raw = match lightcraft_raw::decode_with_memory_budget(&bytes, allowance) {
             Ok(r) => r,
             Err(lightcraft_raw::RawError::Unsupported(why)) => {
                 // show the camera's embedded JPEG (rendered, not raw) until the variant is supported
@@ -358,7 +430,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             }
             Err(e) => return Err(e.to_string()),
         };
-        crate::dcp_profiles::apply(&mut raw);
+        crate::dcp_profiles::apply_selected(&mut raw, opts.camera_profile);
         lightcraft_raw::camera_matrices::fill(
             &mut raw.color,
             raw.metadata.make.as_deref().unwrap_or_default(),
@@ -369,7 +441,24 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         // Keep the actual source uncorrected. Only the private camera-look
         // fitting proxy is corrected to match the camera's processed JPEG.
         let lens = embedded_lens(&raw.info());
-        raw.opcodes.list3.retain(|op| !is_lens_opcode(op));
+        let builtin_shading = built_in_dji_dng(raw.format, &raw.metadata)
+            && raw
+                .opcodes
+                .list1
+                .iter()
+                .chain(&raw.opcodes.list2)
+                .chain(&raw.opcodes.list3)
+                .any(|op| matches!(op, lightcraft_raw::Opcode::GainMap { .. } | lightcraft_raw::Opcode::FixVignetteRadial { .. }));
+        let embedded_lens_baked = builtin_shading || (lens.is_none() && raw.opcodes.list3.iter().any(is_lens_opcode));
+        let embedded_ca_baked = embedded_lens_baked
+            && raw.opcodes.list3.iter().any(|op| match op {
+                lightcraft_raw::Opcode::WarpRectilinear { planes, .. } => planes.windows(2).any(|p| p[0] != p[1]),
+                lightcraft_raw::Opcode::WarpFisheye { planes, .. } => planes.windows(2).any(|p| p[0] != p[1]),
+                _ => false,
+            });
+        if lens.is_some() {
+            raw.opcodes.list3.retain(|op| !is_lens_opcode(op));
+        }
         let camera_look = crate::camera_preview::fit_preview(&raw, &bytes, &t, lens.as_ref());
         drop(bytes);
         // Previews and thumbnails bin the mosaic straight to (about) the size they need; only
@@ -467,12 +556,56 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         let relative = crate::camera_preview::file_local_look(raw.format) && t.matrix_is_fallback;
         let camera_tone = camera_look.as_ref().map(|p| p.tone).or_else(|| raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve));
         let (temp, tint) = if relative { (6500.0, 0.0) } else { (temp.round(), tint.round()) };
+        let normalized_color = lightcraft_raw::color::normalized_color(&raw);
+        let normalization_ratio = lightcraft_raw::color::normalization_ratios(&raw);
         return Ok((
             img,
             SourceInfo {
                 raw: true,
+                camera_wb_presets: if !relative {
+                    lightcraft_raw::camera_data::wb_presets(
+                        raw.metadata.make.as_deref().unwrap_or_default(),
+                        raw.metadata.model.as_deref().unwrap_or_default(),
+                    )
+                    .iter()
+                    .filter(|p| p.tuning == 0)
+                    .map(|p| {
+                        let mut neutral = p.multipliers.map(|v| 1.0 / v as f64);
+                        for i in 0..3 {
+                            neutral[i] *= normalization_ratio[i];
+                        }
+                        let xy = lightcraft_raw::color::neutral_to_xy(&normalized_color, neutral);
+                        let (temp, tint) = xy_to_temp_tint(xy);
+                        lightcraft_pipeline::CameraWbPreset {
+                            name: p.name.clone(),
+                            temp: temp.clamp(2000.0, 50000.0),
+                            tint: tint.clamp(-150.0, 150.0),
+                        }
+                    })
+                    .collect()
+                } else {
+                    vec![]
+                },
+                source_orientation: raw.orientation,
+                embedded_lens_baked,
+                embedded_ca_baked,
+                lcp: None,
                 clip_confidence,
                 raw_clip_level: Some(HIGHLIGHT_CLIP),
+                camera_noise: if source_hue_sat.is_none() && raw.color.profile.is_empty() {
+                    lightcraft_raw::camera_data::noise_profile(
+                        raw.metadata.make.as_deref().unwrap_or_default(),
+                        raw.metadata.model.as_deref().unwrap_or_default(),
+                        raw.metadata.iso.unwrap_or(0),
+                    )
+                    .map(|p| lightcraft_pipeline::detail::nr::NoiseCalibration {
+                        a: std::array::from_fn(|i| p.a[i] * normalization_ratio[i] as f32),
+                        b: std::array::from_fn(|i| p.b[i] * normalization_ratio[i] as f32),
+                        camera_to_working: std::array::from_fn(|i| std::array::from_fn(|j| m[i][j] * wb[j] * gain)),
+                    })
+                } else {
+                    None
+                },
                 as_shot_temp: temp,
                 as_shot_tint: tint,
                 lens,
@@ -482,6 +615,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                     wb[2] as f64,
                 ))),
                 source_hue_sat,
+                sony_lens: sony_lens(raw.metadata.sony.as_ref()),
                 relative_wb: relative,
                 camera_tone,
                 look_curve: camera_look.as_ref().map(|p| p.tone).or_else(|| {
@@ -496,13 +630,8 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 camera_color: if t.matrix_is_fallback {
                     None
                 } else {
-                    let color = lightcraft_color::camera::CameraColor {
-                        illuminant: raw.color.illuminant,
-                        color_matrix: raw.color.color_matrix,
-                        forward_matrix: raw.color.forward_matrix,
-                        camera_calibration: raw.color.camera_calibration,
-                        analog_balance: raw.color.analog_balance,
-                    };
+                    let mut color = lightcraft_raw::color::camera_color(&raw.color);
+                    color.analog_balance = normalized_color.analog_balance;
                     let total = lightcraft_color::Mat3(m.map(|r| r.map(f64::from))).mul(&lightcraft_color::Mat3::diag(
                         wb[0] as f64,
                         wb[1] as f64,
@@ -521,7 +650,10 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
     drop(bytes);
     let img = d.to_working();
     let img = if img.width.max(img.height) > max_edge { fit(&img, max_edge, max_edge, Filter::Mitchell) } else { img };
-    Ok((img.into_oriented(Orientation::from_exif(d.orientation)), SourceInfo::default()))
+    Ok((
+        img.into_oriented(Orientation::from_exif(d.orientation)),
+        SourceInfo { source_orientation: Orientation::from_exif(d.orientation), ..Default::default() },
+    ))
 }
 
 /// A DNG `ProfileToneCurve` (linear in, linear out, 1.0 = white after exposure compensation) as the
@@ -690,8 +822,12 @@ mod tests {
         assert!(info.camera_tone.is_none());
         // a map that removes all saturation, and a tone curve
         let grey = HsvTable { hue_divisions: 4, sat_divisions: 2, val_divisions: 1, data: vec![[0.0, 0.0, 1.0]; 8], srgb_value: false };
-        raw.color.profile =
-            ProfileLook { hue_sat_map: [Some(grey), None], look_table: None, tone_curve: ToneCurve::from_tag(&[0.0, 0.0, 0.18, 0.3, 1.0, 1.0]) };
+        raw.color.profile = ProfileLook {
+            hue_sat_map: [Some(grey), None],
+            look_table: None,
+            tone_curve: ToneCurve::from_tag(&[0.0, 0.0, 0.18, 0.3, 1.0, 1.0]),
+            ..Default::default()
+        };
         let with = lightcraft_raw::write_dng(&raw, &Default::default()).unwrap();
         let (mut after, info) = load_bytes(&with, 64).unwrap();
         lightcraft_pipeline::local::white_balance(&mut after, &info, &Default::default());
@@ -813,5 +949,203 @@ mod tests {
         assert!(s.quick_thumb_job(&job).is_none());
         assert_eq!(s.quick_view_job(id, 1600, true).unwrap().run().quick, Some(QuickSource::Small));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod camdata_tests {
+    #[test]
+    #[ignore = "fetch CC0 rawdecode and licensed RawNIND reference samples under target/"]
+    fn camdata_real_raw_sources_use_profiles_and_camera_presets() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        for path in [root.join("rawdecode/2414.ARW"), root.join("rawnind/Bayer_7D-1_ISO6400_sha1=733cb095be69607aa14eca55b1f9f471bd0f00a3.cr2")] {
+            let (image, info) = super::load_bytes(&std::fs::read(&path).unwrap(), 512).unwrap();
+            assert!(info.raw && image.width > 0 && image.height > 0);
+            assert!(info.camera_noise.is_some(), "{}: profiled NR must reach the app path", path.display());
+            assert!(!info.camera_wb_presets.is_empty(), "{}: camera WB presets", path.display());
+            assert!(info.camera_color.is_some());
+        }
+    }
+}
+
+#[cfg(test)]
+mod sony_dji_opcode_tests {
+    use super::*;
+    use lightcraft_raw::{Opcode, OpcodeLists, RawFormat, RawInfo, Rect};
+
+    fn raw_info(list3: Vec<Opcode>) -> RawInfo {
+        RawInfo {
+            format: RawFormat::Dng,
+            width: 8,
+            height: 6,
+            cpp: 1,
+            cfa: None,
+            bits: 16,
+            active_area: Rect::new(0, 0, 8, 6),
+            crop: Rect::new(1, 1, 6, 4),
+            orientation: Orientation::Normal,
+            color: Default::default(),
+            wb_multipliers: None,
+            vendor_lens: None,
+            opcodes: OpcodeLists { list3, ..Default::default() },
+            metadata: Default::default(),
+        }
+    }
+
+    #[test]
+    fn lenscorr_merge_dji_loader_keeps_builtins_and_suppresses_profile_fallbacks() {
+        let raw = lightcraft_raw::RawImage {
+            format: RawFormat::Dng,
+            width: 4,
+            height: 3,
+            cpp: 3,
+            cfa: None,
+            bits: 32,
+            data: lightcraft_raw::RawData::F32(vec![0.25; 36]),
+            black: lightcraft_raw::BlackLevel::uniform(0.0),
+            white: vec![1.0; 3],
+            active_area: Rect::new(0, 0, 4, 3),
+            crop: Rect::new(0, 0, 4, 3),
+            orientation: Orientation::Normal,
+            color: lightcraft_raw::ColorData {
+                color_matrix: [Some(lightcraft_color::Mat3::IDENTITY), None],
+                illuminant: [21, 0],
+                ..Default::default()
+            },
+            wb_multipliers: None,
+            linearized: false,
+            vendor_lens: None,
+            opcodes: OpcodeLists {
+                list3: vec![
+                    Opcode::WarpRectilinear { planes: vec![[0.9, 0.0, 0.0, 0.0, 0.0, 0.0]], center: [0.5, 0.5] },
+                    Opcode::GainMap {
+                        area: lightcraft_raw::opcodes::Area { bottom: 3, right: 4, planes: 3, row_pitch: 1, col_pitch: 1, ..Default::default() },
+                        points_v: 1,
+                        points_h: 1,
+                        spacing: [1.0; 2],
+                        origin: [0.0; 2],
+                        map_planes: 1,
+                        gains: vec![2.0],
+                    },
+                ],
+                ..Default::default()
+            },
+            metadata: lightcraft_meta::Metadata { make: Some("DJI".into()), model: Some("L3D-100c".into()), ..Default::default() },
+        };
+        let bytes = lightcraft_raw::write_dng(
+            &raw,
+            &lightcraft_raw::DngWriteOptions { compression: lightcraft_raw::DngCompression::Uncompressed, ..Default::default() },
+        )
+        .unwrap();
+        let (image, mut source) = load_bytes(&bytes, 8).unwrap();
+        assert!(source.embedded_lens_baked && !source.embedded_ca_baked);
+        assert!(source.lens.is_none());
+        assert_eq!(source.source_orientation, Orientation::Normal);
+        source.lcp = Some(lightcraft_pipeline::lcp::LcpCorrection {
+            vignette: Some(lightcraft_pipeline::lcp::LcpModel {
+                focal: [1.0; 2],
+                center: [0.5; 2],
+                radial: [-0.2, 0.0, 0.0],
+                tangential: [0.0; 2],
+                scale: 1.0,
+            }),
+            ..Default::default()
+        });
+        let mut settings = lightcraft_develop::DevelopSettings::default();
+        settings.optics.lens_profile = true;
+        assert!(lightcraft_pipeline::frame_for(&image, &source, &settings, false).warp.is_none());
+        let mut only_gain = raw.clone();
+        only_gain.opcodes.list3.remove(0);
+        let gain_bytes = lightcraft_raw::write_dng(
+            &only_gain,
+            &lightcraft_raw::DngWriteOptions { compression: lightcraft_raw::DngCompression::Uncompressed, ..Default::default() },
+        )
+        .unwrap();
+        let (_, gain_source) = load_bytes(&gain_bytes, 8).unwrap();
+        assert!(gain_source.embedded_lens_baked, "built-in DJI shading alone must suppress another vignette profile");
+        let mut list2_vignette = raw.clone();
+        list2_vignette.opcodes.list3.clear();
+        list2_vignette.opcodes.list2 = vec![Opcode::FixVignetteRadial { k: [0.2, 0.0, 0.0, 0.0, 0.0], center: [0.5, 0.5] }];
+        let vignette_bytes = lightcraft_raw::write_dng(
+            &list2_vignette,
+            &lightcraft_raw::DngWriteOptions { compression: lightcraft_raw::DngCompression::Uncompressed, ..Default::default() },
+        )
+        .unwrap();
+        assert!(load_bytes(&vignette_bytes, 8).unwrap().1.embedded_lens_baked, "list-2 DJI shading must not receive another vignette profile");
+        // The ordered GainMap did run: compare against an independent constant
+        // camera RGB value, transformed only after the built-in operations.
+        let decoded = lightcraft_raw::decode(&bytes).unwrap();
+        let t = lightcraft_raw::color::camera_transform(&decoded, lightcraft_raw::color::as_shot_white_xy(&decoded));
+        let expected = t.matrix.apply_f32(std::array::from_fn(|ch| 0.5 * t.wb[ch]));
+        for p in image.data {
+            for ch in 0..3 {
+                assert!((p[ch] - expected[ch]).abs() < 1e-5);
+            }
+        }
+    }
+
+    #[test]
+    fn sony_dji_lens_handoff_preserves_opcode_order_and_sdk_origin() {
+        let warp = Opcode::WarpRectilinear { planes: vec![[0.5, 0.0, 0.0, 0.0, 0.0, 0.0]], center: [0.25, 0.75] };
+        let vignette = Opcode::FixVignetteRadial { k: [1.0, 0.0, 0.0, 0.0, 0.0], center: [0.25, 0.75] };
+        let info = raw_info(vec![vignette.clone(), warp.clone()]);
+        let lens = embedded_lens(&info).unwrap();
+        let w = lens.warp.unwrap();
+        let v = lens.vignette.unwrap();
+        assert_eq!(w.center, lightcraft_geom::Point::new(1.5 / 6.0, 4.0 / 4.0));
+        assert_eq!(v.center, lightcraft_geom::Point::new(1.0 / 6.0, 3.5 / 4.0));
+        assert_eq!(w.radius, 7.5 / 6.0);
+        let mut drone = info.clone();
+        drone.metadata.make = Some("DJI".into());
+        assert!(embedded_lens(&drone).is_none(), "built-in DJI operations must run with the profile checkbox off");
+        let mut multi = raw_info(vec![warp.clone()]);
+        multi.opcodes.list3 =
+            vec![Opcode::WarpRectilinear { planes: vec![[0.5, 0.0, 0.0, 0.0, 0.0, 0.0], [0.6, 0.0, 0.0, 0.0, 0.0, 0.0]], center: [0.25, 0.75] }];
+        assert!(embedded_lens(&multi).is_none(), "camera-plane CA cannot move after a colour matrix");
+        // Source-space vignette-before-warp is representable. The reverse is not.
+        assert!(embedded_lens(&raw_info(vec![warp.clone(), vignette.clone()])).is_none());
+        // Duplicate warps and mixed lists must stay ordered in raw development.
+        assert!(embedded_lens(&raw_info(vec![warp.clone(), warp.clone()])).is_none());
+        assert!(
+            embedded_lens(&raw_info(vec![
+                warp,
+                Opcode::GainMap {
+                    area: Default::default(),
+                    points_v: 1,
+                    points_h: 1,
+                    spacing: [1.0; 2],
+                    origin: [0.0; 2],
+                    map_planes: 1,
+                    gains: vec![1.25]
+                },
+                vignette
+            ]))
+            .is_none()
+        );
+    }
+}
+
+#[cfg(test)]
+mod sony_dji_app_tests {
+    use super::*;
+    #[test]
+    #[ignore = "small real DJI source-path validation; fetch scripts/sony_dji_samples.py --supplemental"]
+    fn sony_dji_real_sources_keep_embedded_color_and_apply_builtin_operations() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/sony-dji");
+        for id in ["3214", "7823", "mini4pro"] {
+            let bytes = std::fs::read(dir.join(format!("{id}.DNG"))).unwrap();
+            let raw = lightcraft_raw::probe_info(&bytes).unwrap();
+            assert!(raw.color.color_matrix.iter().all(Option::is_some), "{id}: preserve dual embedded colour");
+            assert!(raw.color.as_shot_neutral.is_some(), "{id}: embedded as-shot WB");
+            assert!(!raw.opcodes.list3.is_empty() && raw.opcodes.list3.iter().all(lightcraft_raw::Opcode::is_applied));
+            assert!(embedded_lens(&raw).is_none(), "{id}: built-in opcodes stay before colour conversion");
+            let probe = probe_bytes(&format!("{id}.DNG"), &bytes).unwrap();
+            assert!(probe.preview_only.is_none(), "{id}: normal raw import");
+            let (image, source) = load_bytes(&bytes, 32).unwrap();
+            assert!(source.raw && source.camera_color.is_some(), "{id}: app source uses embedded calibration");
+            assert!(source.lens.is_none(), "{id}: do not apply built-in corrections twice");
+            assert!(image.width > 0 && image.height > 0 && image.width.max(image.height) <= 32);
+            assert!(image.data.iter().flatten().all(|v| v.is_finite()), "{id}: finite developed image");
+        }
     }
 }

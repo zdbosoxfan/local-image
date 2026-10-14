@@ -24,7 +24,9 @@ use tract_onnx::tract_hir::infer::Factoid;
 
 pub mod denoise;
 pub mod enhance;
+pub mod estimate;
 pub mod faces;
+pub mod lama;
 pub mod restoration;
 pub mod restoration_graph;
 
@@ -69,10 +71,11 @@ pub enum Group {
     Faces,
     RawDenoise,
     RgbDenoise,
+    Remove,
 }
 
 impl Group {
-    pub const ALL: [Group; 7] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging, Group::Faces, Group::RawDenoise, Group::RgbDenoise];
+    pub const ALL: [Group; 8] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging, Group::Faces, Group::RawDenoise, Group::RgbDenoise, Group::Remove];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -83,6 +86,7 @@ impl Group {
             Group::Faces => "Faces",
             Group::RawDenoise => "Raw Denoise",
             Group::RgbDenoise => "RGB Denoise",
+            Group::Remove => "AI Remove",
         }
     }
 
@@ -96,6 +100,7 @@ impl Group {
             Group::Faces => "faces",
             Group::RawDenoise => "raw-denoise",
             Group::RgbDenoise => "rgb-denoise",
+            Group::Remove => "remove",
         }
     }
 
@@ -115,8 +120,9 @@ impl Group {
                 "Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer."
             }
             Group::RawDenoise => {
-                "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Uses the GPU when available, with a CPU fallback."
+                "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Requires a GPU/NPU."
             }
+            Group::Remove => "Repairs brushed areas with LaMa on this computer. No AI server needed; photos stay on this device.",
             Group::RgbDenoise => "Removes noise from JPEG, TIFF and edited RGB images locally with NIND UNet.",
             Group::Faces => {
                 "Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library."
@@ -137,6 +143,7 @@ impl Group {
             Group::Faces => "sface",
             Group::RawDenoise => denoise::DENOISE_ID,
             Group::RgbDenoise => "denoise-nind",
+            Group::Remove => lama::MODEL_ID,
         };
         MODELS.iter().find(|m| m.id == id).expect("the official model is in MODELS")
     }
@@ -153,6 +160,14 @@ impl Group {
 pub enum InUse {
     Official(&'static ModelSpec),
     Custom(Custom),
+}
+impl InUse {
+    pub fn cpu_estimate(&self) -> estimate::Estimate {
+        match self {
+            Self::Official(spec) => estimate::estimate(spec.id, (spec.size * spec.size) as u64),
+            Self::Custom(custom) => estimate::estimate(&format!("custom:{}", custom.file), (custom.size as u64).saturating_mul(custom.size as u64)),
+        }
+    }
 }
 
 /// How a subject model wants its input normalised.
@@ -214,6 +229,8 @@ pub enum Task {
     FaceEmbed,
     /// RGB restoration and enlargement, through the dedicated enhance API.
     Upscale,
+    /// Masked RGB reconstruction, through the dedicated LaMa API.
+    Inpaint,
     /// A verified ONNX inside an official darktable-ai ZIP package.
     Denoise {
         companion_inners: &'static [&'static str],
@@ -224,6 +241,7 @@ pub enum Task {
 }
 
 pub const MODELS: &[ModelSpec] = &[
+    lama::MODEL,
     ModelSpec {
         id: "rmbg-1.4",
         label: "Fast · BRIA RMBG-1.4",
@@ -441,7 +459,7 @@ pub const MODELS: &[ModelSpec] = &[
             inner_sha256: "df957efadcc152c007d5d3b0917bdff9e41c0d4a0efe56584ef30b36393cd181",
         },
         group: Some(Group::RawDenoise),
-        about: "Raw denoising and Bayer demosaic on the GPU, with CPU fallback. Linear Rec.2020 variant for other sensors.",
+        about: "Raw denoising and Bayer demosaic requires a GPU/NPU. Linear Rec.2020 variant for other sensors.",
     },
     ModelSpec {
         id: "denoise-nind",
@@ -461,7 +479,7 @@ pub const MODELS: &[ModelSpec] = &[
             inner_sha256: "5d615c5026a3c579455b9082f72b91e109adb54f4125b5b5cde45983bd6776b2",
         },
         group: Some(Group::RgbDenoise),
-        about: "Local denoising for JPEG, TIFF and edited RGB images. Uses the GPU with a CPU fallback.",
+        about: "Local denoising for JPEG, TIFF and edited RGB images. Requires a GPU/NPU.",
     },
 ];
 
@@ -504,11 +522,13 @@ pub fn is_cancelled(e: &anyhow::Error) -> bool {
 /// stage instead of after the whole network. API: tract-core 0.23.8 `SimpleState::run_plan_with_eval`.
 fn run_checked(plan: &Arc<TypedRunnableModel>, inputs: TVec<TValue>, stop: &dyn Fn() -> bool) -> TractResult<TVec<TValue>> {
     let mut state = plan.spawn()?;
-    state.run_plan_with_eval(inputs, |ctx, op_state, node, input| {
-        if stop() {
-            return Err(anyhow::Error::new(Cancelled));
-        }
-        tract_onnx::tract_core::plan::eval(ctx, op_state, node, input)
+    cpu_compute(|| {
+        state.run_plan_with_eval(inputs, |ctx, op_state, node, input| {
+            if stop() {
+                return Err(anyhow::Error::new(Cancelled));
+            }
+            tract_onnx::tract_core::plan::eval(ctx, op_state, node, input)
+        })
     })
 }
 
@@ -578,9 +598,10 @@ impl Segmenter {
     }
 
     fn load_cfg(cfg: Config, path: &Path) -> Result<Self> {
-        if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed | Task::Upscale | Task::Denoise { .. }) {
+        if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed | Task::Upscale | Task::Inpaint | Task::Denoise { .. }) {
             bail!("use the dedicated embedding or face inference API");
         }
+        estimate::estimate(&cfg.id, (cfg.size as u64).saturating_mul(cfg.size as u64)).check()?;
         init_executor();
         let s = cfg.size;
         // the dynamic-shape depth export declares symbolic intermediate shapes that conflict
@@ -636,7 +657,7 @@ impl Segmenter {
     fn predict_checked(&self, rgba: &[u8], w: usize, h: usize, stop: &dyn Fn() -> bool) -> Result<Option<Vec<f32>>> {
         check(stop)?;
         let input = self.input(rgba, w, h, self.cfg.post == Post::MinMax)?;
-        let out = (self.run)(input.into(), stop)?;
+        let out = estimate::run(&self.cfg.id, (self.cfg.size * self.cfg.size) as u64, || (self.run)(input.into(), stop))?;
         check(stop)?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("The model's output {:?} isn't a single map", map.shape()) };
@@ -678,7 +699,7 @@ impl Segmenter {
         anyhow::ensure!(classes > 0 && class < classes, "sky class is outside the model output");
         check(stop)?;
         let input = self.input(rgba, w, h, false)?;
-        let out = (self.run)(input.into(), stop)?;
+        let out = estimate::run(&self.cfg.id, (self.cfg.size * self.cfg.size) as u64, || (self.run)(input.into(), stop))?;
         check(stop)?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let shape = map.shape().to_vec();
@@ -711,7 +732,7 @@ impl Segmenter {
             bail!("not a depth model");
         }
         let input = self.input(rgba, w, h, false)?;
-        let out = (self.run)(input.into(), &never)?;
+        let out = estimate::run(&self.cfg.id, (self.cfg.size * self.cfg.size) as u64, || (self.run)(input.into(), &never))?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("unexpected depth model output {:?}", map.shape()) };
         let vals: Vec<f32> = map.iter().copied().collect();
@@ -855,7 +876,7 @@ impl Custom {
             Group::Depth => Task::Depth,
             Group::Tagging => Task::ImageText,
             Group::Faces => Task::FaceEmbed,
-            Group::RawDenoise | Group::RgbDenoise => self.group.official().task,
+            Group::RawDenoise | Group::RgbDenoise | Group::Remove => self.group.official().task,
         };
         Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task, post: Post::MinMax }
     }
@@ -1058,7 +1079,7 @@ fn validate(custom: &Custom, path: &Path) -> Result<(), CustomModelError> {
     let seg = Segmenter::load_cfg(custom.config(), path).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     let shape = seg.output_shape().map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     match custom.group {
-        Group::Tagging | Group::Faces | Group::RawDenoise | Group::RgbDenoise => return Err(CustomModelError::UnsupportedFunction),
+        Group::Tagging | Group::Faces | Group::RawDenoise | Group::RgbDenoise | Group::Remove => return Err(CustomModelError::UnsupportedFunction),
         Group::Subject => {
             if single_map(&shape).is_none() {
                 return Err(CustomModelError::NotSubjectModel);
@@ -1318,7 +1339,7 @@ pub fn file_installed(models_dir: &Path, file: Companion) -> bool {
 
 /// Size of the installed copy of `spec`, when it is installed.
 pub fn installed_bytes(models_dir: &Path, spec: &ModelSpec) -> Option<u64> {
-    bundle_bytes(models_dir, spec, !matches!(spec.task, Task::Denoise { .. }))
+    bundle_bytes(models_dir, spec, !matches!(spec.task, Task::Denoise { .. } | Task::Inpaint))
 }
 /// Restoration hashes run on the inference/download worker, never the Settings paint thread.
 pub fn verified_denoise_bytes(models_dir: &Path, spec: &ModelSpec) -> Option<u64> {
@@ -1330,13 +1351,17 @@ fn bundle_bytes(models_dir: &Path, spec: &ModelSpec, verify: bool) -> Option<u64
     for file in spec.files() {
         let path = companion_path(models_dir, file.file);
         let m = std::fs::metadata(&path).ok()?;
-        if !m.is_file() || ((!spec.companions.is_empty() || matches!(spec.task, Task::Upscale | Task::Denoise { .. })) && m.len() != file.bytes) {
+        if !m.is_file() || ((!spec.companions.is_empty() || matches!(spec.task, Task::Upscale | Task::Inpaint | Task::Denoise { .. })) && m.len() != file.bytes)
+        {
             return None;
         }
         total += m.len();
         stamp.push((path, m.len(), m.modified().ok(), file.sha256));
     }
-    if verify && (!spec.companions.is_empty() || matches!(spec.task, Task::Upscale | Task::Denoise { .. })) && !stamp.into_iter().all(verified_file) {
+    if verify
+        && (!spec.companions.is_empty() || matches!(spec.task, Task::Upscale | Task::Inpaint | Task::Denoise { .. }))
+        && !stamp.into_iter().all(verified_file)
+    {
         return None;
     }
     Some(total)
@@ -1396,6 +1421,9 @@ pub fn remove_bundle_with(models_dir: &Path, spec: &ModelSpec, dispose: &dyn Fn(
 
 /// Drops the process-wide loaded copy of `spec` (after it is removed).
 fn forget(spec: &ModelSpec) {
+    if spec.task == Task::Inpaint {
+        lama::forget();
+    }
     if matches!(spec.task, Task::ImageText) {
         clip::forget();
     }
@@ -1474,7 +1502,7 @@ fn slot(group: Group) -> Option<&'static Slot> {
         Group::Subject => Some(&SUBJECT),
         Group::Sky => Some(&SKY),
         Group::Depth => Some(&DEPTH),
-        Group::Tagging | Group::Faces | Group::RawDenoise | Group::RgbDenoise => None,
+        Group::Tagging | Group::Faces | Group::RawDenoise | Group::RgbDenoise | Group::Remove => None,
     }
 }
 
@@ -1507,4 +1535,43 @@ fn ds2_shared_model_removal_requires_explicit_bundle() {
     assert_eq!(remove_bundle_with(&dir, spec, &|p| std::fs::remove_file(p)).unwrap(), 14);
     assert!(!path.exists());
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Lower the tract matmul budget on battery without changing its process-wide executor.
+/// The override is scoped to this inference; foreground/global settings stay intact.
+pub(crate) fn cpu_compute<R>(f: impl FnOnce() -> R) -> R {
+    cpu_compute_policy(lightcraft_sysmem::power::conserving(), f)
+}
+fn cpu_compute_policy<R>(saving: bool, f: impl FnOnce() -> R) -> R {
+    if !saving {
+        return f();
+    }
+    // tract's scoped executor restores TLS only on normal return. Catch within the scope,
+    // restore it, then propagate a panic to the existing job guard; never leave a shared
+    // worker permanently in battery mode after one failed model.
+    let result = tract_linalg::multithread::multithread_tract_scope(tract_linalg::multithread::Executor::SingleThread, || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+    });
+    match result {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+#[cfg(test)]
+mod battery_executor_tests {
+    #[test]
+    fn battery_executor_override_restores_after_model_panic() {
+        use tract_linalg::multithread::{Executor, current_tract_executor, multithread_tract_scope};
+        multithread_tract_scope(Executor::RayonGlobal, || {
+            let result = std::panic::catch_unwind(|| {
+                super::cpu_compute_policy(true, || {
+                    assert!(matches!(current_tract_executor(), Executor::SingleThread));
+                    panic!("injected model panic");
+                })
+            });
+            assert!(result.is_err());
+            assert!(matches!(current_tract_executor(), Executor::RayonGlobal));
+        });
+    }
 }

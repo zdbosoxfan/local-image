@@ -24,7 +24,7 @@ pub fn detect(img: &Rgba8, sensitivity: f32) -> Vec<DustSpot> {
     let long = w.max(h) as f32;
     let l = Plane::from_fn(w, h, |x, y| {
         let p = img.data[y * w + x];
-        (0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32) / 255.0
+        (li_color::luminance_709([p[0] as f32, p[1] as f32, p[2] as f32])) / 255.0
     });
     let around = gaussian(&l, (0.012 * long).max(2.0));
     // texture: local mean of the fine detail (what isn't explained by the surroundings)

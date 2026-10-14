@@ -43,8 +43,7 @@ impl Frame {
         Frame::with_lenses(src_w, src_h, s, apply_crop, lens, None)
     }
 
-    /// Like [`Frame::with_lens`], with the lens database's correction too (used instead of the
-    /// embedded one is absent and the profile switch is on).
+    /// Embedded data takes precedence over the lens database when the master switch is on.
     pub fn with_lenses(
         src_w: usize,
         src_h: usize,
@@ -53,6 +52,20 @@ impl Frame {
         lens: Option<&EmbeddedLens>,
         lensdb: Option<&crate::lensdb::LensCorrection>,
     ) -> Frame {
+        Self::with_lcp(src_w, src_h, s, apply_crop, lens, lensdb, None)
+    }
+
+    /// Frame with one automatic source: embedded data, lensfun, then user LCP.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_lcp(
+        src_w: usize,
+        src_h: usize,
+        s: &DevelopSettings,
+        apply_crop: bool,
+        lens: Option<&EmbeddedLens>,
+        lensdb: Option<&crate::lensdb::LensCorrection>,
+        lcp: Option<&crate::lcp::LcpCorrection>,
+    ) -> Frame {
         let orient = s.orientation;
         let (ow, oh) = if orient.swaps_axes() { (src_h as f64, src_w as f64) } else { (src_w as f64, src_h as f64) };
         let crop = if apply_crop { s.crop.geometry } else { CropGeometry::default() };
@@ -60,6 +73,9 @@ impl Frame {
         let mut warp = Warp::from_settings(ow, oh, s, lens.as_ref());
         if let Some(c) = lensdb {
             warp.set_lensdb(c, orient, src_w as f64, src_h as f64, s);
+        }
+        if let Some(c) = lcp {
+            warp.set_lcp(c, orient, src_w as f64, src_h as f64, s);
         }
         let persp = perspective(s, ow, oh);
         if persp != Homography::IDENTITY
@@ -96,6 +112,10 @@ impl Frame {
             warp.lens_vig = 0.0;
             warp.lensdb_vig = 0.0;
             warp.lensdb_tca = 0.0;
+            warp.lcp_vig = 0.0;
+            if let Some(lcp) = warp.lcp.as_mut() {
+                lcp.correction.chromatic = lcp.correction.chromatic.map(|m| [m[1]; 3]);
+            }
             if let Some(lens) = warp.lens.as_mut() {
                 if let Some(w) = lens.warp.as_mut() {
                     w.planes = [w.planes[1]; 3];
@@ -138,7 +158,7 @@ impl Frame {
 
     /// Whether the GPU's geometry kernel can sample this frame, including lens database models.
     pub fn gpu_samplable(&self) -> bool {
-        true
+        self.warp.as_ref().is_none_or(|w| w.lcp.is_none())
     }
 
     /// Add automatically estimated lateral CA (`[α_R, α_B]`, see [`crate::optics::estimate_lateral_ca`]).

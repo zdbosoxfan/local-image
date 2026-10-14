@@ -183,7 +183,9 @@ impl Headless {
             || self.app.merge.busy()
             || self.app.scan.is_some()
             || self.app.import.is_some()
+            || !self.app.import_preview_queue.is_empty()
             || self.app.export.is_some()
+            || self.app.proof.is_some()
             || self.app.smart_sort.is_some()
             || self.app.people_task.is_some()
             || !self.app.tasks.is_empty()
@@ -297,6 +299,133 @@ mod tests {
     }
 
     #[test]
+    fn demosaic_new_overrides_click_shared_raw_controls() {
+        let mut h = demo([1400.0, 1100.0]);
+        if !h.app.ui.section_open("raw") {
+            h.app.ui.toggle_section("raw");
+        }
+        // Test the real panel and shared widgets in a headless frame.
+        for key in ["lmmse", "dcb", "markesteijn3", "dualMarkesteijnVng", "auto"] {
+            let draw = |h: &mut Headless, events: Vec<egui::Event>| {
+                let raw = HeadlessView::raw_input(h.size, 1.0, h.time, events);
+                let settings = h.app.session.develop_of(h.app.session.selection.active.unwrap()).unwrap();
+                h.view.run(raw, |ui| {
+                    ui.set_width(crate::theme::Tokens::get(ui.ctx()).panel_w);
+                    crate::panels::develop_tools::raw_section(&mut h.app, ui, &settings);
+                });
+                h.time += FRAME_DT;
+            };
+            draw(&mut h, vec![]);
+            let id = format!("button:rawDemosaic-{key}");
+            let rect = crate::widgets::take_registry(&h.view.ctx).into_iter().find(|w| w.0 == id).expect("shared raw control").1;
+            let p = rect.center();
+            draw(
+                &mut h,
+                vec![
+                    egui::Event::PointerMoved(p),
+                    egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() },
+                ],
+            );
+            draw(
+                &mut h,
+                vec![egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }],
+            );
+            assert_eq!(serde_json::to_value(h.app.session.develop_of(h.app.session.selection.active.unwrap()).unwrap().raw.demosaic).unwrap(), key);
+        }
+    }
+
+    #[test]
+    fn colorprofiles_picker_clicks_persist_and_fit_both_themes() {
+        use lightcraft_catalog::{MediaKind, Op};
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/colorprofiles-ui");
+        std::fs::create_dir_all(&dir).unwrap();
+        let imports = dir.join("imports");
+        std::fs::create_dir_all(&imports).unwrap();
+        std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../lc-raw/data/dcp/NIKON_D7500.dcp"), imports.join("custom.dcp")).unwrap();
+        std::fs::write(imports.join("custom.lcp"),r#"<rdf:RDF><rdf:Description stCamera:ProfileName='Test Lens Calibration' stCamera:Make='Nikon' stCamera:Model='D7500' stCamera:Lens='Test Lens'><stCamera:CameraProfiles><rdf:Seq><rdf:li><rdf:Description stCamera:FocalLength='35' stCamera:ApertureValue='4'><stCamera:PerspectiveModel stCamera:FocalLengthX='1' stCamera:FocalLengthY='0.8' stCamera:RadialDistortParam1='-0.1'><stCamera:VignetteModel stCamera:VignetteModelParam1='-0.2' /></stCamera:PerspectiveModel></rdf:Description></rdf:li></rdf:Seq></stCamera:CameraProfiles></rdf:Description></rdf:RDF>"#).unwrap();
+        for dark in [true, false] {
+            for width in [250.0, 400.0] {
+                let mut h = demo([1100.0, 850.0]);
+                let id = h.app.session.active().unwrap();
+                let mut p = (**h.app.session.catalog.photo(id).unwrap()).clone();
+                p.kind = MediaKind::Raw;
+                p.meta.camera = "NIKON D7500".into();
+                p.meta.lens = "Test Lens".into();
+                p.meta.focal_mm = Some(35.);
+                p.meta.aperture = Some(4.);
+                h.app.session.catalog.apply(Op::RemovePhoto { id }).unwrap();
+                h.app.session.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+                h.app.ui.view = crate::state::ViewMode::Detail;
+                h.app.ui.right = crate::state::RightPanel::Edit;
+                h.app.ui.right_width = width;
+                h.app.ui.histogram = false;
+                h.app.ui.left_panel = false;
+                h.app.ui.filmstrip = false;
+                h.app.ui.settings.gpu = false;
+                h.app.set_host_theme(if dark { crate::theme::Tokens::default() } else { crate::tests_develop_c::light() });
+                for _ in 0..4 {
+                    h.step();
+                }
+                let timeout = Duration::from_secs(10);
+                let click = |h: &mut Headless, key: &str| {
+                    let r = h.request("ui.clickWidget", json!({"id":key}), timeout);
+                    assert_eq!(r["ok"], true, "{key}: {r}");
+                    h.step();
+                };
+                let picked = imports.to_string_lossy().into_owned();
+                h.app.services.pick_folder = Some(Box::new(move || Some(picked.clone())));
+                h.app.ui.dialog = Some(crate::state::Dialog::Settings { tab: "import".into() });
+                h.step();
+                h.step();
+                click(&mut h, "settings:cameraFolderChoose");
+                assert!(h.app.session.import_defaults.camera_profiles_folder.ends_with("imports"));
+                h.app.ui.dialog = None;
+                h.step();
+                h.step();
+                let imported =
+                    lightcraft_engine::dcp_profiles::available("Nikon", "D7500").into_iter().find(|p| p.id.starts_with("dcp:")).unwrap().id;
+                click(&mut h, "combo:cameraProfile");
+                click(&mut h, &format!("choice:cameraProfile:{imported}"));
+                assert_eq!(h.app.session.develop_of(id).unwrap().camera_profile, imported);
+                click(&mut h, "combo:cameraProfile");
+                click(&mut h, "choice:cameraProfile:matrix");
+                assert_eq!(h.app.session.develop_of(id).unwrap().camera_profile, "matrix");
+                click(&mut h, "combo:cameraProfile");
+                click(&mut h, "choice:cameraProfile:bundled");
+                assert_eq!(h.app.session.develop_of(id).unwrap().camera_profile, "bundled");
+                h.app.ui.open_sections = vec!["optics".into()];
+                h.step();
+                h.step();
+                let imported_lens =
+                    lightcraft_engine::dcp_profiles::available_lenses("NIKON D7500", "Test Lens", true).into_iter().next().unwrap().id;
+                click(&mut h, "combo:lensProfile");
+                click(&mut h, &format!("choice:lensProfile:{imported_lens}"));
+                assert_eq!(h.app.session.develop_of(id).unwrap().lens_profile, imported_lens);
+                h.app.run("develop.merge", json!({"settings":{"optics":{"lens_profile":true}}})).unwrap();
+                h.step();
+                let photo = h.app.session.catalog.photo(id).unwrap();
+                assert!(lightcraft_engine::media::job_info(photo, &photo.develop).lcp.is_some());
+                click(&mut h, "combo:lensProfile");
+                click(&mut h, "choice:lensProfile:none");
+                assert_eq!(h.app.session.develop_of(id).unwrap().lens_profile, "none");
+                let panel = h.app.widgets.iter().find(|(id, _)| id == "panel:right_panel").unwrap().1;
+                for key in ["combo:cameraProfile", "combo:lensProfile"] {
+                    let r = h.app.widgets.iter().find(|(id, _)| id == key).unwrap().1;
+                    let t = crate::theme::Tokens::get(&h.view.ctx);
+                    assert!(
+                        r.left() >= panel.left() + f32::from(t.panel_inset_left) && r.right() <= panel.right() - f32::from(t.panel_inset_right) + 1.0,
+                        "{key} {r:?} {panel:?}"
+                    );
+                }
+                let image = h.paint();
+                let out = lightcraft_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
+                let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&out), &Default::default()).unwrap();
+                std::fs::write(dir.join(format!("{}-{}.png", if dark { "dark" } else { "light" }, width as u32)), bytes).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn demo_grid_snapshot_has_ui_pixels() {
         let t0 = Instant::now();
         let mut h = demo([1200.0, 760.0]);
@@ -326,7 +455,7 @@ mod tests {
             assert_eq!(r["ok"], true, "{r}");
             // Compare only fully settled frames: a timed-out settle would compare half-rendered
             // pictures and fail as a misleading pixel diff (seen on loaded CI machines).
-            assert!(h.settle(Duration::from_secs(300)), "the demo detail view did not settle within 300 s");
+            assert!(h.settle(Duration::from_secs(300)), "the demo Loupe view did not settle within 300 s");
             h.paint()
         };
         let (a, b) = (shot(), shot());
@@ -514,7 +643,7 @@ mod tests {
         assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::NewSmartAlbum { .. })));
         let r = h.request("ui.dialog.confirm", json!({}), t);
         assert_eq!(r["ok"], true, "{r}");
-        let smart = h.app.session.catalog.albums().find(|a| a.is_smart()).expect("smart album").id;
+        let smart = h.app.session.catalog.albums().find(|a| a.is_smart()).expect("smart collection").id;
         assert_eq!(h.app.session.catalog.album_count(smart), n);
         h.request("ui.clickWidget", json!({"id": "button:filterClear"}), t);
         assert_eq!(h.app.session.filter, Default::default());
@@ -2228,7 +2357,7 @@ mod tests {
         assert!(shown(&h.view.ctx).is_none(), "no tip remains after a canvas drag");
         h.request("ui.clickWidget", json!({"id": "icon:edit"}), t);
         assert!(h.app.widgets.iter().any(|(id, _)| id == "slider:ui.brushSize"), "brush settings remain available in Edit");
-        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:layer-color"}), t)["ok"], true);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:layer-light"}), t)["ok"], true);
         assert_eq!(h.request("ui.hoverWidget", json!({"id": "icon:wbPicker"}), t)["ok"], true);
         assert!(h.step_until(t, |h| shown(&h.view.ctx).is_some_and(|s| s.tool == "wbPicker")));
         assert!(shown(&h.view.ctx).unwrap().text.starts_with("White Balance Selector (W)"));

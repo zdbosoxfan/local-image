@@ -14,7 +14,7 @@ use serde_json::Value;
 
 /// Where segmentation models live: `<AI model folder>/segmentation/`.
 pub fn models_dir() -> PathBuf {
-    std::env::var_os("LOCAL_IMAGE_SEG_MODELS").map(PathBuf::from).unwrap_or_else(li_ai::AiSettings::cached_model_dir)
+    li_ai::AiSettings::cached_model_dir()
 }
 
 /// The installed model the commands would use, if any.

@@ -147,7 +147,7 @@ pub fn pill_tab_translated(ui: &mut Ui, label: &str, selected: bool) -> Response
     let t = Tokens::get(ui.ctx());
     let font = theme::medium(12.5);
     let galley = ui.painter().layout_no_wrap(label.to_owned(), font, t.text);
-    let size = vec2(galley.size().x + 20.0, 24.0);
+    let size = vec2(galley.size().x + crate::theme::PILL_TAB_PADDING, crate::theme::PILL_TAB_HEIGHT);
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     // the label is painted, not a widget: tell accessibility (and kittest) what the tab says
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, ui.is_enabled(), selected, label));
@@ -456,6 +456,7 @@ pub fn dialog_buttons(ui: &mut Ui, buttons: &[DialogButton]) -> Option<ButtonRol
                         if b.role == ButtonRole::Default { primary_button(ui, b.label, b.min_width) } else { secondary_button(ui, b.label, b.min_width) }
                     })
                     .inner;
+                ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new(("dialog-button-role", b.role as u8)), r.rect));
                 if r.clicked() {
                     hit = Some(b.role);
                 }
@@ -1146,4 +1147,80 @@ fn dsfix_color_tile_click_opens_picker() {
     h.get_by_label("Paint colour swatch").click();
     h.run();
     assert!(h.query_by_label("Hex colour").is_some(), "the color tile opens the ordinary picker");
+}
+
+/// The app's module picker, placed first in the title bar's right-to-left controls in every
+/// module/persona. Measures the shared pill tabs before reversing layout so it never eats the
+/// title/drag gap. Host automation rectangles remain `host-mode-rect` + module digit.
+pub fn module_switcher(ui: &mut Ui, current: crate::Module) -> Option<crate::Module> {
+    let labels = crate::Module::ALL.map(|m| crate::i18n::tr(crate::i18n::current(), m.label()));
+    let t = Tokens::get(ui.ctx());
+    let width = labels
+        .iter()
+        .map(|label| {
+            ui.painter().layout_no_wrap(label.to_string(), crate::theme::medium(crate::theme::PILL_TAB_FONT_SIZE), t.text).size().x
+                + crate::theme::PILL_TAB_PADDING
+        })
+        .sum::<f32>()
+        + (labels.len() - 1) as f32 * ui.spacing().item_spacing.x;
+    let mut picked = None;
+    ui.allocate_ui_with_layout(vec2(width, crate::theme::PILL_TAB_HEIGHT), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+        for (module, label) in crate::Module::ALL.into_iter().zip(labels) {
+            let r = pill_tab_translated(ui, label, module == current);
+            ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new(("host-mode-rect", module.digit())), r.rect));
+            let key = crate::shortcuts::pretty(&format!("Cmd+Alt+{}", module.digit()));
+            if r.on_hover_text(format!("{} ({key})", crate::i18n::tr(crate::i18n::current(), module.tip()))).clicked() && module != current {
+                picked = Some(module);
+            }
+        }
+    });
+    picked
+}
+
+/// The shared Preferences navigation tab: themed, accessible and elided, with keyboard focus.
+/// Used by both editor and hosted Library/Develop pages in the one Preferences window.
+pub fn preferences_tab(ui: &mut egui::Ui, title: &str, selected: bool, empty: bool) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), crate::theme::PREFERENCES_TAB_HEIGHT), Sense::click());
+    if selected || response.hovered() || response.has_focus() {
+        ui.painter().rect_filled(rect, t.radius_sm, if selected { t.row_selected } else { t.hover });
+    }
+    let color = if selected {
+        t.text
+    } else if empty {
+        t.text_faint
+    } else {
+        t.text_dim
+    };
+    let mut job = egui::text::LayoutJob::simple_singleline(title.to_owned(), crate::theme::medium(crate::theme::PILL_TAB_FONT_SIZE), color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - crate::theme::PREFERENCES_TAB_TEXT_MARGIN);
+    let galley = ui.painter().layout_job(job);
+    let elided = galley.elided;
+    ui.painter().galley(rect.left_center() + vec2(crate::theme::PREFERENCES_TAB_INSET, -galley.size().y / 2.0), galley, color);
+    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, title));
+    let response = if elided { response.on_hover_text(title) } else { response };
+    let seen = ui.id().with(("prefs-nav-seen", title));
+    if selected && !ui.is_sizing_pass() && !ui.data(|d| d.get_temp::<bool>(seen).unwrap_or(false)) {
+        response.scroll_to_me(Some(egui::Align::Center));
+        ui.data_mut(|d| d.insert_temp(seen, true));
+    } else if !selected {
+        ui.data_mut(|d| d.remove::<bool>(seen));
+    }
+    response
+}
+
+/// Preflight notice for on-device CPU AI. Shared by Restore and selection/model controls.
+/// Returns whether the model fits the interactive CPU time limit; warnings use theme tokens.
+pub fn cpu_estimate(ui: &mut Ui, estimate: li_seg::estimate::Estimate) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let color = if estimate.warning() { t.warning } else { t.text_dim };
+    ui.label(egui::RichText::new(estimate.label()).color(color));
+    estimate.allowed()
+}
+
+/// Total CPU estimate for cancellable background AI batches (Smart Sort and indexing).
+/// The per-model inference guard still applies; a large batch shows a warning and can run.
+pub fn cpu_batch_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimate) {
+    let t = Tokens::get(ui.ctx());
+    ui.label(egui::RichText::new(estimate.batch_label()).color(if estimate.warning() { t.warning } else { t.text_dim }));
 }

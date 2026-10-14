@@ -83,6 +83,7 @@ pub mod swatches_doc;
 pub mod symbols;
 #[path = "vector_packages/trace_dialog.rs"]
 pub mod trace_dialog;
+pub mod updates_ui;
 #[path = "vector_packages/width.rs"]
 pub mod width;
 // local-image: Local Image's AI tools, Generate panel and filmstrip.
@@ -482,6 +483,7 @@ pub struct Services {
 
 pub struct PhotocraftApp {
     pub session: Session,
+    pub updates: updates_ui::State,
     pub vector_runtime: vector_integration::State,
     pub shared_tools: crate::shared_tools::State,
     pub constructive_state: crate::constructive::State,
@@ -559,6 +561,11 @@ pub struct PhotocraftApp {
     pub custom_titlebar: bool,
     /// local-image: the host shows its modes (Library | Editor) in the title bar.
     pub host_modes: bool,
+    /// Host pages use this editor's Preferences shell. The app installs the renderer only during
+    /// UI drawing; cached values also let keyboard/menu commands open it during logic.
+    pub host_preferences: Option<Box<dyn prefs_ui::HostPreferencesPages>>,
+    pub host_preferences_pages: &'static [(&'static str, &'static str)],
+    pub host_preferences_values: Value,
     /// local-image: the Library mode was asked for (the title bar's switch); the host takes it.
     /// local-image: a module the user picked in the title bar (Library, Develop, Compositing); the
     /// host switches to it.
@@ -737,6 +744,9 @@ impl PhotocraftApp {
             integrated_titlebar: false,
             custom_titlebar: false,
             host_modes: false,
+            host_preferences: None,
+            host_preferences_pages: &[],
+            host_preferences_values: Value::Null,
             switch_module: None,
             browse_in_library: None,
             develop_request: None,
@@ -786,6 +796,7 @@ impl PhotocraftApp {
             started: None,
             perf: Default::default(),
             prefs_rt: Default::default(),
+            updates: Default::default(),
             discard: None,
             tiff_options: None,
             pending_save: None,
@@ -1392,6 +1403,7 @@ impl eframe::App for PhotocraftApp {
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.resource_policy_tick(ctx);
         i18n::set_current(i18n::Lang::from_pref(&self.session.prefs().interface.language));
         if !self.styled {
             Self::setup_context(ctx, self.ui.theme);
@@ -1424,6 +1436,7 @@ impl eframe::App for PhotocraftApp {
         self.collect_screenshots(ctx);
         self.issue_screenshots(ctx);
         prefs_ui::tick(self, ctx);
+        updates_ui::tick(self, ctx);
         monitor_status::poll(self, ctx);
         // Control requests and persisted preferences can change the language in this frame.
         i18n::sync_context(ctx, &self.session.prefs().interface.language);
@@ -1542,6 +1555,7 @@ impl eframe::App for PhotocraftApp {
         workspace_ui::windows(self, &ctx);
         palette::show(self, &ctx);
         dialogs::show(self, &ctx);
+        updates_ui::show(self, &ctx);
         // AI resource browsers/confirmations are children of Preferences and Restore.
         ai_ui::windows(self, &ctx);
         jobs_ui::dialog(self, &ctx);
@@ -1789,12 +1803,31 @@ impl PhotocraftApp {
 
     /// local-image: work that goes on while the host shows another mode: finished background
     /// jobs are applied.
+    fn resource_policy_tick(&self, ctx: &egui::Context) {
+        lightcraft_sysmem::power::set_full_speed(self.session.prefs().performance.system.full_speed_on_battery);
+        ai_ui::watch_resources(ctx);
+        if let Some(gpu) = &self.gpu {
+            gpu.resume_compute_after_backoff();
+        }
+        if lightcraft_sysmem::gpu::pressured()
+            && let Some(gpu) = &self.gpu
+            && let Some(budget) = gpu.memory_budget()
+        {
+            let reduced = lightcraft_sysmem::gpu::cache_budget(budget);
+            if reduced < budget {
+                gpu.set_memory_budget(reduced);
+            }
+        }
+    }
+
     pub fn background_tick(&mut self, ctx: &egui::Context) {
+        self.resource_policy_tick(ctx);
         if !self.styled {
             return;
         }
         jobs_ui::tick_background(self, ctx);
         prefs_ui::persist_background(self, ctx);
+        updates_ui::tick(self, ctx);
         // local-image: the control channel keeps answering while another module is shown
         // (screenshots capture the whole window; `app.module` switches modules).
         self.collect_screenshots(ctx);

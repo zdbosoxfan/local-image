@@ -3928,6 +3928,7 @@ dependencies = [
  "dirs",
  "hex",
  "image",
+ "li-raster",
  "li-seg",
  "lightcraft-sysmem",
  "log",
@@ -3954,11 +3955,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-color"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "proptest",
+ "serde",
+]
+
+[[package]]
+name = "li-raster"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "image",
+ "rayon",
+ "serde",
+]
+
+[[package]]
 name = "li-seg"
 version = "2.0.0-alpha.1"
 dependencies = [
  "anyhow",
  "image",
+ "li-color",
  "lightcraft-sysmem",
  "log",
  "miniz_oxide 0.8.9",
@@ -4058,13 +4077,13 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "bytemuck",
  "image",
- "image-webp",
  "jpeg-decoder",
  "jpeg-encoder",
- "jxl-oxide",
+ "li-color",
  "lightcraft-color",
  "lightcraft-geom",
  "lightcraft-raster",
+ "lightcraft-tiff",
  "photocraft-cms",
  "photocraft-codecs",
  "png 0.18.1",
@@ -4073,17 +4092,13 @@ dependencies = [
  "serde",
  "thiserror 2.0.21",
  "tiff",
- "zune-core",
- "zune-jpeg",
 ]
 
 [[package]]
 name = "lightcraft-color"
 version = "2.0.0-alpha.1"
 dependencies = [
- "lightcraft-geom",
- "proptest",
- "serde",
+ "li-color",
 ]
 
 [[package]]
@@ -4103,7 +4118,10 @@ name = "lightcraft-engine"
 version = "2.0.0-alpha.1"
 dependencies = [
  "ab_glyph",
+ "krilla",
  "lensfun",
+ "li-color",
+ "li-raster",
  "li-seg",
  "libc",
  "lightcraft-catalog",
@@ -4124,7 +4142,10 @@ dependencies = [
  "log",
  "miniz_oxide 0.8.9",
  "photocraft-algo",
+ "photocraft-doc",
+ "photocraft-geom",
  "photocraft-raster",
+ "photocraft-text",
  "rayon",
  "serde",
  "serde_json",
@@ -4164,7 +4185,9 @@ dependencies = [
  "lightcraft-pipeline",
  "lightcraft-raster",
  "lightcraft-scenes",
+ "lightcraft-sysmem",
  "log",
+ "photocraft-gpu",
  "pollster 1.0.1",
  "wgpu",
 ]
@@ -4184,6 +4207,7 @@ dependencies = [
 name = "lightcraft-merge"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-raster",
  "lightcraft-codecs",
  "lightcraft-color",
  "lightcraft-geom",
@@ -4213,6 +4237,7 @@ name = "lightcraft-pipeline"
 version = "2.0.0-alpha.1"
 dependencies = [
  "image",
+ "li-color",
  "lightcraft-color",
  "lightcraft-develop",
  "lightcraft-geom",
@@ -4240,6 +4265,8 @@ dependencies = [
 name = "lightcraft-raster"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-color",
+ "li-raster",
  "libc",
  "lightcraft-color",
  "lightcraft-geom",
@@ -4260,9 +4287,11 @@ dependencies = [
  "lightcraft-tiff",
  "miniz_oxide 0.8.9",
  "proptest",
+ "quick-xml 0.38.4",
  "rawler",
  "rayon",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "zune-core",
  "zune-jpeg",
@@ -4317,6 +4346,8 @@ dependencies = [
  "egui",
  "egui_extras",
  "li-attributions",
+ "li-color",
+ "li-seg",
  "lightcraft-catalog",
  "lightcraft-codecs",
  "lightcraft-color",
@@ -5449,6 +5480,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "image",
  "kurbo 0.13.1",
+ "li-color",
  "photocraft-color",
  "photocraft-compose",
  "photocraft-doc",
@@ -5567,6 +5599,7 @@ dependencies = [
  "crc32fast",
  "flate2",
  "image",
+ "li-color",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",
@@ -5580,6 +5613,9 @@ dependencies = [
 name = "photocraft-algo"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-color",
+ "li-raster",
+ "lightcraft-merge",
  "photocraft-color",
  "photocraft-geom",
  "photocraft-raster",
@@ -5614,6 +5650,7 @@ dependencies = [
 name = "photocraft-cms"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-color",
  "moxcms",
  "rayon",
 ]
@@ -5629,7 +5666,11 @@ dependencies = [
  "image-webp",
  "jpeg-decoder",
  "jpeg-encoder",
+ "jxl-oxide",
+ "li-color",
+ "lightcraft-tiff",
  "photocraft-heif",
+ "photocraft-psd",
  "png 0.18.1",
  "proptest",
  "ravif",
@@ -5644,6 +5685,7 @@ dependencies = [
 name = "photocraft-color"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-color",
  "photocraft-cms",
  "serde",
 ]
@@ -5653,6 +5695,8 @@ name = "photocraft-compose"
 version = "2.0.0-alpha.1"
 dependencies = [
  "criterion",
+ "li-color",
+ "li-raster",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",
@@ -5683,7 +5727,9 @@ dependencies = [
  "flate2",
  "image",
  "li-ai",
+ "li-color",
  "li-seg",
+ "lightcraft-pipeline",
  "lightcraft-raw",
  "lightcraft-sysmem",
  "pc-trace",
@@ -5761,6 +5807,7 @@ dependencies = [
  "photocraft-vector",
  "pollster 1.0.1",
  "rayon",
+ "web-time",
  "wgpu",
 ]
 
@@ -5776,6 +5823,7 @@ name = "photocraft-io"
 version = "2.0.0-alpha.1"
 dependencies = [
  "blake3",
+ "li-color",
  "lightcraft-codecs",
  "lightcraft-develop",
  "lightcraft-engine",
@@ -5785,6 +5833,7 @@ dependencies = [
  "lightcraft-pipeline",
  "lightcraft-raster",
  "lightcraft-raw",
+ "lightcraft-tiff",
  "photocraft-algo",
  "photocraft-cms",
  "photocraft-codecs",
@@ -5815,6 +5864,7 @@ dependencies = [
 name = "photocraft-paint"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-color",
  "photocraft-color",
  "photocraft-geom",
  "photocraft-raster",
@@ -5908,6 +5958,7 @@ dependencies = [
  "flate2",
  "image",
  "kurbo 0.13.1",
+ "li-color",
  "photocraft-cms",
  "photocraft-compose",
  "photocraft-doc",
@@ -5945,6 +5996,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "image",
  "kurbo 0.13.1",
+ "li-color",
  "memory-stats",
  "photocraft-color",
  "photocraft-doc",
@@ -5983,6 +6035,7 @@ dependencies = [
  "image",
  "li-ai",
  "li-attributions",
+ "li-color",
  "li-seg",
  "lightcraft-codecs",
  "lightcraft-raw",
@@ -6022,6 +6075,7 @@ name = "photocraft-vecfx"
 version = "2.0.0-alpha.1"
 dependencies = [
  "kurbo 0.13.1",
+ "li-color",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",
@@ -6431,6 +6485,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
 dependencies = [
  "memchr",
+ "serde",
 ]
 
 [[package]]

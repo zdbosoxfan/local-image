@@ -98,7 +98,7 @@ impl SettingsGroup {
     /// Top-level JSON keys of `DevelopSettings` that belong to the group.
     pub fn keys(self) -> &'static [&'static str] {
         match self {
-            SettingsGroup::Profile => &["profile", "look", "look_options"],
+            SettingsGroup::Profile => &["profile", "camera_profile", "look", "look_options"],
             SettingsGroup::Treatment => &["treatment"],
             SettingsGroup::WhiteBalance => &["wb"],
             SettingsGroup::Light => &["light", "tone_eq"],
@@ -110,7 +110,7 @@ impl SettingsGroup {
             SettingsGroup::Vignette => &["vignette"],
             SettingsGroup::Grain => &["grain"],
             SettingsGroup::Detail => &["detail", "enhance", "raw"],
-            SettingsGroup::Optics => &["optics", "lens_db"],
+            SettingsGroup::Optics => &["optics", "lens_db", "lens_profile"],
             SettingsGroup::Geometry => &["geometry"],
             SettingsGroup::Crop => &["crop", "orientation"],
             SettingsGroup::Masks => &["masks"],

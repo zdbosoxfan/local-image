@@ -727,12 +727,15 @@ fn folder_header(app: &mut LightcraftApp, ui: &mut egui::Ui, hr: Rect, b: &light
         ui.add_space(10.0);
         // counted once per view (cached); the ids are only gathered on a click
         if local_n > 0 {
-            let label = crate::i18n::tr_format!("Add {local_n} to My Photos", local_n = local_n);
+            let label = crate::i18n::tr("Add {local_n} to Catalog").replace("{local_n}", &local_n.to_string());
             if crate::widgets::text_button(ui, "addToLibrary", &label, false).clicked() {
                 let local: Vec<u64> = ids.iter().filter(|id| app.session.catalog.photo(**id).is_some_and(|p| p.local)).map(|id| id.0).collect();
                 let n = local.len();
                 match app.run("photo.addToLibrary", json!({"ids": local})) {
-                    Ok(_) => app.toast(ui.ctx(), crate::i18n::tr_format!("Added {n} photo{} to My Photos", if n == 1 { "" } else { "s" }, n = n)),
+                    Ok(_) => app.toast(
+                        ui.ctx(),
+                        crate::i18n::tr("Added {n} photo{} to Catalog").replace("{n}", &n.to_string()).replace("{}", if n == 1 { "" } else { "s" }),
+                    ),
                     Err(e) => app.toast(ui.ctx(), e),
                 }
             }
@@ -861,7 +864,7 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     let targets = if app.session.selection.contains(id) { app.session.targets(&json!({})) } else { vec![id] };
     let deleted = targets.iter().any(|id| app.session.catalog.photo(*id).is_some_and(|p| p.deleted));
-    if ui.button(crate::i18n::tr("Open in Detail")).clicked() {
+    if ui.button(crate::i18n::tr("Open in Loupe")).clicked() {
         let _ = run_context(app, id, "view.detail", json!({}));
     }
     if ui.button(crate::i18n::tr("Find Similar Photos")).clicked() {
@@ -900,7 +903,7 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         }
     });
     ui.menu_button(crate::i18n::tr("Set Color Label"), |ui| label_menu_for(app, ui, Some(id)));
-    ui.menu_button(crate::i18n::tr("Add to Album"), |ui| {
+    ui.menu_button(crate::i18n::tr("Add to Collection"), |ui| {
         let albums: Vec<_> = app.session.catalog.albums().filter(|a| !a.folder && !a.is_smart()).map(|a| (a.id.0, a.name.clone())).collect();
         for (aid, name) in albums {
             if ui.button(name).clicked() {
@@ -912,10 +915,10 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     if let lightcraft_engine::LibrarySource::Album(aid) = app.session.source
         && app.session.catalog.album(aid).is_some_and(|a| !a.folder && !a.is_smart())
     {
-        if ui.button(crate::i18n::tr("Remove from Album")).clicked() {
+        if ui.button(crate::i18n::tr("Remove from Collection")).clicked() {
             let _ = run_context(app, id, "album.removePhotos", json!({"id": aid.0}));
         }
-        if ui.button(crate::i18n::tr("Set as Album Cover")).clicked() {
+        if ui.button(crate::i18n::tr("Set as Collection Cover")).clicked() {
             let _ = run_context(app, id, "album.setCover", json!({"id": aid.0, "photo": id.0}));
         }
     }
@@ -968,6 +971,13 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     ui.menu_button(crate::i18n::tr("Photo Merge"), |ui| {
         let n = targets.len();
+        ui.add_enabled_ui(matches!(n, 1 | 4 | 16), |ui| {
+            let response = crate::widgets::text_button(ui, "mergePixelShift", "Sony Pixel Shift…", false);
+            if response.clicked() {
+                let _ = run_context(app, id, "dialog.mergePixelShift", json!({}));
+            }
+            response.on_disabled_hover_text(crate::i18n::tr("Select one composed ARQ or all 4 or 16 original Pixel Shift shots"));
+        });
         for (command, label) in [("dialog.mergeHdr", "HDR…"), ("dialog.mergePanorama", "Panorama…"), ("dialog.mergeHdrPanorama", "HDR Panorama…")]
         {
             if ui.add_enabled(n >= 2, egui::Button::new(label)).clicked() {

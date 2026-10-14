@@ -17,15 +17,19 @@ use std::sync::Arc;
 
 /// File › Open formats: native/layered documents, editable SVG/SVGZ/PDF, flat/raw
 /// images, and Photoshop brushes/gradients (which go to the preset libraries).
-const OPEN_EXTS: &[&str] = &[
-    "pcraft", "psd", "psb", "psdt", "svg", "svgz", "pdf", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm",
-    "pgm", "ppm", "pam", "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd",
-];
+const OPEN_EXTS: &[&str] = photocraft_codecs::PHOTO_EXTENSIONS;
+
+fn open_extensions() -> Vec<&'static str> {
+    ["pcraft", "psdt", "svg", "svgz", "pdf", "abr", "grd"]
+        .into_iter()
+        .chain(OPEN_EXTS.iter().copied().filter(|ext| photocraft_codecs::is_readable_extension(ext, true)))
+        .collect()
+}
 
 /// The File › Open dialog with its filters. On Linux each extension also matches upper and mixed
 /// case (`IMG_0001.JPG`, `DSC_0001.NEF`): see [`photocraft_ui_egui::dialog_filter`].
 fn open_dialog() -> rfd::FileDialog {
-    file_dialog().add_filter_nocase("All Formats", OPEN_EXTS).add_filter_nocase("Local Image", &["pcraft"])
+    file_dialog().add_filter_nocase("All Formats", &open_extensions()).add_filter_nocase("Local Image", &["pcraft"])
 }
 
 /// File › Save As formats: (filter name, extensions). The filter matching the suggested name's
@@ -217,7 +221,13 @@ fn matching_prefs_backup(path: &Path, bytes: &[u8]) -> Result<Option<PathBuf>, S
 
 /// The original is never replaced until both its exact-byte backup and recovery record
 /// have reached stable storage. Ordinary read failures block saving, rather than looking absent.
+static PREFERENCES_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+#[cfg(test)]
 fn save_editor_prefs(path: &Path, text: &str) -> Result<(), String> {
+    let _write = PREFERENCES_WRITE_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    save_editor_prefs_inner(path, text)
+}
+fn save_editor_prefs_inner(path: &Path, text: &str) -> Result<(), String> {
     use photocraft_format::atomic::{AtomicFs, RealFs};
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -283,19 +293,188 @@ fn save_editor_prefs(path: &Path, text: &str) -> Result<(), String> {
     if current != original {
         return Err("Preferences changed while preparing the save; retrying will merge the new version. The original was not changed".into());
     }
-    write_atomic(path, text.as_bytes())
+    write_atomic(path, text.as_bytes())?;
+    if let Ok(root) = serde_json::from_str::<serde_json::Value>(text)
+        && let Some(ai) = root.get("ai")
+    {
+        li_ai::settings::publish(&li_ai::AiSettings::from_value(ai.clone()));
+    }
+    Ok(())
+}
+
+/// Migrate legacy stores into named sections without replacing any legacy source. The regular
+/// checked preferences writer handles fsync, backups, damaged root recovery and concurrent writes.
+fn read_unified_preferences(path: &Path, legacy_ai: &Path) -> Result<Option<String>, photocraft_ui_egui::PrefsLoadError> {
+    let original = read_editor_prefs(path)?;
+    let mut root = match original.as_deref() {
+        Some(text) => match serde_json::from_str::<serde_json::Value>(text) {
+            Ok(serde_json::Value::Object(root)) => root,
+            _ => return Ok(original), // Existing lenient/root recovery owns damaged preferences.
+        },
+        None => serde_json::Map::new(),
+    };
+    if let Some(value) = root.get("library").filter(|value| !value.is_object()).cloned() {
+        root.insert(
+            "library".into(),
+            serde_json::json!({
+                "migrationError":"The stored Library settings could not be read. Choose your existing Library.",
+                "recoveredOriginal":value,
+            }),
+        );
+    }
+    if !root.contains_key("library") {
+        let old = root.get("dialogs").and_then(|dialogs| dialogs.get("host.libraryUi")).and_then(serde_json::Value::as_object).cloned();
+        let library_file = path.with_file_name("library-ui.json");
+        let mut library = match old {
+            Some(library) => library,
+            None => read_legacy_section(path, &library_file, "library")?.and_then(|value| value.as_object().cloned()).unwrap_or_default(),
+        };
+        if let Some(module) = root
+            .get("dialogs")
+            .and_then(|dialogs| dialogs.get("host.module"))
+            .cloned()
+            .or_else(|| std::fs::read_to_string(path.with_file_name("mode")).ok().map(|text| serde_json::json!(text.trim())))
+        {
+            library.insert("module".into(), module);
+        }
+        if !library.is_empty() {
+            root.insert("library".into(), serde_json::Value::Object(library));
+        }
+    }
+    if !root.contains_key("ai")
+        && let Some(value) = read_legacy_section(path, legacy_ai, "ai")?
+            .or_else(|| legacy_ai.parent().filter(|parent| parent.join("models").is_dir()).map(|_| serde_json::json!({})))
+    {
+        let mut settings = li_ai::AiSettings::from_value(value.clone());
+        if settings.model_directory.trim().is_empty()
+            && let Some(parent) = legacy_ai.parent().filter(|parent| parent.join("models").is_dir())
+        {
+            settings.model_directory = parent.join("models").to_string_lossy().into_owned();
+        }
+        let mut ai = value.as_object().cloned().unwrap_or_default();
+        // Retain bad typed fields for the central lenient loader/recovery notice.
+        if ai.get("model_directory").is_none_or(|value| value.as_str().is_none_or(|directory| directory.trim().is_empty())) {
+            ai.insert("model_directory".into(), serde_json::json!(settings.model_directory));
+        }
+        root.insert("ai".into(), serde_json::Value::Object(ai));
+    }
+    if let Some(ai) = root.get("ai") {
+        li_ai::settings::publish(&li_ai::AiSettings::from_value(ai.clone()));
+    }
+    if original.is_none() && root.is_empty() {
+        return Ok(None);
+    }
+    serde_json::to_string_pretty(&root).map(Some).map_err(|error| photocraft_ui_egui::PrefsLoadError::Damaged(error.to_string()))
+}
+fn read_legacy_section(preferences: &Path, legacy: &Path, section: &str) -> Result<Option<serde_json::Value>, photocraft_ui_egui::PrefsLoadError> {
+    let bytes = match std::fs::read(legacy) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(photocraft_ui_egui::PrefsLoadError::Unreadable(format!("{}: {error}", legacy.display()))),
+    };
+    let value = std::str::from_utf8(&bytes).ok().and_then(|text| serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}')).ok());
+    // Preserve the exact source before a migration can ever become durable.
+    let directory = prefs_backup_dir(preferences);
+    let backup = directory.join(format!("legacy-{section}-{}.json", uuidless_stamp()));
+    write_atomic(&backup, &bytes).map_err(photocraft_ui_egui::PrefsLoadError::Unreadable)?;
+    Ok(Some(value.filter(serde_json::Value::is_object).unwrap_or_else(|| {
+        if section=="library" {serde_json::json!({"migrationError":format!("The stored Library settings could not be read: {}. Choose your existing Library.",legacy.display()),"recoveryBackup":backup})}
+        else {serde_json::json!({"auto_start_comfy":false,"setup_mode":"later","recoveryBackup":backup})}
+    })))
+}
+fn uuidless_stamp() -> u128 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()
+}
+/// First native launch makes the migration durable through the same checked writer. Unknown AI
+/// fields and Library state survive; invalid fields use defaults while exact legacy backups remain.
+fn initialize_unified_preferences(path: &Path, legacy_ai: &Path) -> Result<(), String> {
+    let _write = PREFERENCES_WRITE_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let original = read_editor_prefs(path).map_err(|error| error.to_string())?;
+    let migrated = read_unified_preferences(path, legacy_ai).map_err(|error| error.to_string())?;
+    let Some(text) = migrated else {
+        return Ok(());
+    };
+    let value: serde_json::Value = serde_json::from_str(&text).map_err(|error| error.to_string())?;
+    if original.as_ref().and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok()).as_ref() == Some(&value) {
+        return Ok(());
+    }
+    let (mut preferences, rejected) = photocraft_engine::prefs::lenient::<photocraft_engine::prefs::Preferences>(value).map_err(|error| error.to_string())?;
+    if !rejected.is_empty() {
+        preferences.dialogs.insert("migrations.rejectedFields".into(), serde_json::json!(rejected));
+    }
+    save_editor_prefs_inner(path, &serde_json::to_string_pretty(&preferences).map_err(|error| error.to_string())?)
+}
+
+fn install_ai_preferences_store(path: PathBuf, legacy_ai: PathBuf) {
+    li_ai::settings::install_store_backend(ai_preferences_backend(path, legacy_ai));
+}
+fn ai_preferences_backend(path: PathBuf, legacy_ai: PathBuf) -> li_ai::settings::StoreBackend {
+    let load = path.clone();
+    let save = path;
+    let old = legacy_ai.clone();
+    li_ai::settings::StoreBackend {
+        load: Arc::new(move || {
+            read_unified_preferences(&load, &old)
+                .map_err(|error| error.to_string())?
+                .map(|text| serde_json::from_str::<serde_json::Value>(&text).map_err(|error| error.to_string()))
+                .transpose()
+                .map(|root| root.and_then(|root| root.get("ai").cloned()))
+        }),
+        save: Arc::new(move |ai| {
+            let _write = PREFERENCES_WRITE_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let text = read_unified_preferences(&save, &legacy_ai).map_err(|error| error.to_string())?;
+            let mut root = text
+                .map(|text| serde_json::from_str::<serde_json::Value>(&text).map_err(|error| error.to_string()))
+                .transpose()?
+                .unwrap_or_else(|| serde_json::json!({}));
+            root.as_object_mut().ok_or("Preferences must be an object; the original was not changed")?.insert("ai".into(), ai);
+            save_editor_prefs_inner(&save, &serde_json::to_string_pretty(&root).map_err(|error| error.to_string())?)
+        }),
+    }
 }
 
 /// Path-injected preference services keep native recovery tests isolated from user config.
+#[cfg(test)]
 fn preferences_services(path: Option<PathBuf>) -> Services {
+    preferences_services_with_legacy(path, None)
+}
+fn preferences_services_with_legacy(path: Option<PathBuf>, legacy_ai: Option<PathBuf>) -> Services {
     let load = path.clone();
     let save = path.clone();
+    let snapshot = Arc::new(std::sync::Mutex::new(None::<Option<Vec<u8>>>));
+    let before = snapshot.clone();
     Services {
-        load_prefs_checked: Some(Box::new(move || match &load {
-            Some(path) => read_editor_prefs(path),
-            None => Ok(None),
+        load_prefs_checked: Some(Box::new(move || {
+            let _write = PREFERENCES_WRITE_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let result = match &load {
+                Some(path) => match &legacy_ai {
+                    Some(legacy) => read_unified_preferences(path, legacy),
+                    None => read_editor_prefs(path),
+                },
+                None => Ok(None),
+            };
+            if result.is_ok() {
+                *snapshot.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(load.as_ref().and_then(|path| std::fs::read(path).ok()));
+            }
+            result
         })),
-        save_prefs: Some(Box::new(move |text| save_editor_prefs(save.as_deref().ok_or("no config directory")?, text))),
+        save_prefs: Some(Box::new(move |text| {
+            let path = save.as_deref().ok_or("no config directory")?;
+            let _write = PREFERENCES_WRITE_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(expected) = &*before.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+                let current = match std::fs::read(path) {
+                    Ok(bytes) => Some(bytes),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error.to_string()),
+                };
+                if *expected != current {
+                    return Err("Preferences changed after the merge read; retrying will preserve the new version".into());
+                }
+            }
+            save_editor_prefs_inner(path, text)?;
+            *before.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Some(text.as_bytes().to_vec()));
+            Ok(())
+        })),
         prefs_recovery: Some(Box::new(move || {
             let path = path.as_ref()?;
             let record = prefs_recovery(path)?;
@@ -430,7 +609,16 @@ fn image_from_files(paths: &[PathBuf]) -> Option<(u32, u32, Vec<u8>)> {
 
 pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) -> Services {
     let clip: Rc<RefCell<Option<arboard::Clipboard>>> = Rc::default();
-    let preferences = preferences_services(prefs_file());
+    let legacy = li_ai::settings::legacy_config_path();
+    let preferences = preferences_services_with_legacy(prefs_file(), Some(legacy.clone()));
+    if !cfg!(test)
+        && let Some(path) = prefs_file()
+    {
+        if let Err(error) = initialize_unified_preferences(&path, &legacy) {
+            log::warn!("Preferences migration: {error}");
+        }
+        install_ai_preferences_store(path, legacy);
+    }
     let automation_read = automation.clone().map(|workspace| {
         Box::new(move |path: &str| {
             let bytes = workspace.read(path).map_err(|error| error.to_string())?;
@@ -642,6 +830,15 @@ mod tests {
     use photocraft_format::list_recovery;
     use photocraft_ui_egui::{PhotocraftApp, prefs_ui};
     use serde_json::json;
+
+    #[test]
+    fn shared_decode_open_dialog_registry_includes_jxl_raw_and_native_documents() {
+        let extensions = open_extensions();
+        for ext in ["jxl", "heic", "heif", "hif", "arq", "crw", "pcraft", "svg", "pdf", "abr", "grd"] {
+            assert!(extensions.contains(&ext), "{ext}");
+        }
+        assert!(!extensions.contains(&"avif"));
+    }
 
     /// Upstream 9b4562f2 / LightCraft e2d35de: File › Open shows IMG_0001.JPG, DSC_0001.NEF and
     /// .CR3 on Linux, where the portal matches rfd's `*.ext` globs case-sensitively.
@@ -1394,5 +1591,107 @@ mod save_worker_native_tests {
         std::fs::write(&path, b"another application created this").unwrap();
         assert!((prepared.write.commit)().is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"another application created this");
+    }
+}
+
+#[cfg(test)]
+mod j16_tests {
+    use super::*;
+    use serde_json::{Value, json};
+    fn fixture(tag: &str) -> PathBuf {
+        let directory =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/j16-tests").join(format!("{tag}-{}-{}", std::process::id(), uuidless_stamp()));
+        std::fs::create_dir_all(&directory).unwrap();
+        directory
+    }
+    #[test]
+    fn j16_migrates_library_ai_and_mode_leniently_into_one_store_preserving_sources() {
+        let directory = fixture("migrate");
+        let prefs = directory.join("preferences.json");
+        let ai = directory.join("old-ai/config.json");
+        std::fs::create_dir_all(ai.parent().unwrap().join("models")).unwrap();
+        let library = json!({"settings":{"libraryPath":directory.join("catalog"),"previewEdge":3840},"language":"retired-language","autoAdvance":true});
+        let old_ai = json!({"comfy_host":"server.example","comfy_port":51247,"model_directory":"  ","future_provider":{"token":"test-only"}});
+        let library_bytes = serde_json::to_vec(&library).unwrap();
+        let ai_bytes = serde_json::to_vec(&old_ai).unwrap();
+        std::fs::write(directory.join("library-ui.json"), &library_bytes).unwrap();
+        std::fs::write(&ai, &ai_bytes).unwrap();
+        std::fs::write(directory.join("mode"), "develop").unwrap();
+        let text = read_unified_preferences(&prefs, &ai).unwrap().unwrap();
+        let root: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(root["library"]["settings"]["libraryPath"], directory.join("catalog").to_string_lossy().as_ref());
+        assert_eq!(root["library"]["module"], "develop");
+        assert_eq!(root["ai"]["future_provider"], old_ai["future_provider"]);
+        let (loaded, rejected) = photocraft_engine::prefs::lenient::<photocraft_engine::prefs::Preferences>(root).unwrap();
+        assert_eq!(loaded.ai.comfy_port, 8188);
+        assert!(!rejected.is_empty());
+        assert_eq!(loaded.ai.model_dir(), ai.parent().unwrap().join("models"));
+        initialize_unified_preferences(&prefs, &ai).unwrap();
+        let durable: Value = serde_json::from_slice(&std::fs::read(&prefs).unwrap()).unwrap();
+        assert_eq!(durable["ai"]["comfy_port"], 8188);
+        assert!(durable["dialogs"]["migrations.rejectedFields"].is_array());
+        assert_eq!(std::fs::read(directory.join("library-ui.json")).unwrap(), library_bytes);
+        assert_eq!(std::fs::read(&ai).unwrap(), ai_bytes);
+        assert!(prefs_backup_dir(&prefs).read_dir().unwrap().count() >= 2);
+        let mut service = preferences_services_with_legacy(Some(prefs.clone()), Some(ai.clone()));
+        let text = service.load_prefs_checked.as_mut().unwrap()().unwrap().unwrap();
+        let mut value: Value = serde_json::from_str(&text).unwrap();
+        value["general"]["autoUpdateOpenDocuments"] = json!(true);
+        service.save_prefs.as_mut().unwrap()(&serde_json::to_string(&value).unwrap()).unwrap();
+        // Consecutive local saves work without confusing our own last write for an external edit.
+        service.save_prefs.as_mut().unwrap()(&serde_json::to_string(&value).unwrap()).unwrap();
+        let store = ai_preferences_backend(prefs.clone(), ai);
+        li_ai::settings::with_store_backend(store, || {
+            let mut settings = li_ai::AiSettings::load();
+            assert_eq!(settings.comfy_host, "server.example");
+            settings.comfy_port = 8190;
+            settings.save().unwrap();
+            assert_eq!(li_ai::AiSettings::load().comfy_port, 8190);
+        });
+        let root: Value = serde_json::from_slice(&std::fs::read(&prefs).unwrap()).unwrap();
+        assert_eq!(root["library"]["autoAdvance"], true);
+        assert_eq!(root["ai"]["comfy_port"], 8190);
+        // A general/UI writer read before that AI save must retry, never replace the new AI data.
+        assert!(service.save_prefs.as_mut().unwrap()(&text).is_err());
+        assert_eq!(serde_json::from_slice::<Value>(&std::fs::read(&prefs).unwrap()).unwrap()["ai"]["comfy_port"], 8190);
+    }
+    #[test]
+    fn j16_existing_models_without_legacy_config_are_preserved_on_first_launch() {
+        let directory = fixture("models-only");
+        let prefs = directory.join("preferences.json");
+        let legacy = directory.join("old-ai/config.json");
+        let models = legacy.parent().unwrap().join("models");
+        std::fs::create_dir_all(&models).unwrap();
+        initialize_unified_preferences(&prefs, &legacy).unwrap();
+        let root: Value = serde_json::from_slice(&std::fs::read(&prefs).unwrap()).unwrap();
+        assert_eq!(root["ai"]["model_directory"], models.to_string_lossy().as_ref());
+        assert!(!legacy.exists());
+        initialize_unified_preferences(&prefs, &legacy).unwrap();
+        assert_eq!(serde_json::from_slice::<Value>(&std::fs::read(&prefs).unwrap()).unwrap(), root);
+    }
+
+    #[test]
+    fn j16_invalid_unified_library_section_blocks_catalog_substitution() {
+        let directory = fixture("invalid-section");
+        let prefs = directory.join("preferences.json");
+        std::fs::write(&prefs, br#"{"library":["bad section"],"ai":{"comfy_port":8190}}"#).unwrap();
+        let original = std::fs::read(&prefs).unwrap();
+        let text = read_unified_preferences(&prefs, &directory.join("absent.json")).unwrap().unwrap();
+        let root: Value = serde_json::from_str(&text).unwrap();
+        assert!(root["library"]["migrationError"].is_string());
+        assert_eq!(root["library"]["recoveredOriginal"], json!(["bad section"]));
+        assert_eq!(root["ai"]["comfy_port"], 8190);
+        assert_eq!(std::fs::read(&prefs).unwrap(), original);
+    }
+
+    #[test]
+    fn j16_damaged_legacy_library_blocks_fallback_and_keeps_exact_bytes() {
+        let directory = fixture("damaged");
+        let prefs = directory.join("preferences.json");
+        let legacy = directory.join("library-ui.json");
+        std::fs::write(&legacy, b"{invalid old settings").unwrap();
+        let root: Value = serde_json::from_str(&read_unified_preferences(&prefs, &directory.join("config.json")).unwrap().unwrap()).unwrap();
+        assert!(root["library"]["migrationError"].as_str().unwrap().contains("could not be read"));
+        assert_eq!(std::fs::read(root["library"]["recoveryBackup"].as_str().unwrap()).unwrap(), std::fs::read(&legacy).unwrap());
     }
 }

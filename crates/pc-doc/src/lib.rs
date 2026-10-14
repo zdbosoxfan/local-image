@@ -28,7 +28,7 @@ pub mod video;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub use adjust::Adjustment;
+pub use adjust::{Adjustment, LutDomain};
 pub use analysis::{CountGroup, Measurement, MeasurementScale, Note, Ruler};
 pub use blend_if::{BlendIf, BlendRange};
 pub use comps::{Artboard, ArtboardBackground, CompAppearance, CompLayerState, LayerComp};

@@ -44,23 +44,11 @@ mod render;
 pub use render::GpuStages;
 
 static ENABLED: AtomicBool = AtomicBool::new(true);
-/// Set when a GPU render failed: the process stays on the CPU from then on.
-static BROKEN: AtomicBool = AtomicBool::new(false);
+#[cfg(not(target_arch = "wasm32"))]
+static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Why the GPU stopped being used (the first fatal failure).
-static BROKEN_REASON: Mutex<Option<String>> = Mutex::new(None);
 /// The latest render that fell back to the CPU, and why.
 static LAST_FALLBACK: Mutex<Option<String>> = Mutex::new(None);
-
-/// Stop using the GPU for the rest of the process (after a device error).
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-fn mark_broken(reason: &str) {
-    let mut r = BROKEN_REASON.lock().unwrap_or_else(|e| e.into_inner());
-    if r.is_none() {
-        *r = Some(reason.to_string());
-    }
-    BROKEN.store(true, Ordering::Relaxed);
-}
 
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn record_fallback(reason: String) {
@@ -81,20 +69,32 @@ pub fn unavailable_reason() -> Option<String> {
     if !ENABLED.load(Ordering::Relaxed) {
         return Some("disabled by the GPU rendering preference (app.gpu)".into());
     }
-    if BROKEN.load(Ordering::Relaxed) {
-        let r = BROKEN_REASON.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_else(|| "device error".into());
-        return Some(format!("stopped after a GPU failure: {r}"));
-    }
     #[cfg(not(target_arch = "wasm32"))]
     {
         match GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
-            Some(Err(e)) => Some(e.clone()),
+            Some(Err(e)) => Some(e.reason.clone()),
+            Some(Ok(gpu)) if gpu.health.needs_retry() => Some(format!(
+                "waiting to retry after a GPU failure: {}",
+                gpu.health.fault().map_or_else(|| gpu.health.last_error().unwrap_or_default(), |f| f.to_string())
+            )),
             _ => None,
         }
     }
     #[cfg(target_arch = "wasm32")]
     {
         Some("the browser build has no GPU path yet".into())
+    }
+}
+
+/// A device failure awaiting a fresh context (not a user/environment GPU-off preference).
+pub fn recovering() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        health_state().is_some_and(|h| h.needs_retry())
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        false
     }
 }
 
@@ -151,8 +151,10 @@ fn take_fault() -> Option<Fault> {
 /// Use the GPU again after a failure (tests that inject faults).
 #[doc(hidden)]
 pub fn reset_failures() {
-    BROKEN.store(false, Ordering::Relaxed);
-    *BROKEN_REASON.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(h) = health_state() {
+        h.retry_now();
+    }
     *LAST_FALLBACK.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
@@ -164,7 +166,19 @@ pub fn set_enabled(on: bool) {
 
 /// Whether GPU rendering is allowed (environment, preference, no earlier failure).
 pub fn enabled() -> bool {
-    ENABLED.load(Ordering::Relaxed) && !BROKEN.load(Ordering::Relaxed) && !env_disabled()
+    let allowed = ENABLED.load(Ordering::Relaxed) && !env_disabled();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        allowed
+            && health_state().is_none_or(|h| {
+                !h.needs_retry()
+                    || (!lightcraft_sysmem::gpu::pressured() && h.retry_ready(std::time::Instant::now(), Some(lightcraft_sysmem::gpu::idle_epoch())))
+            })
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        allowed
+    }
 }
 
 /// `LIGHTCRAFT_GPU=0` (or `LIGHTCRAFT_GPU_BACKEND=off`): no GPU for the whole process.
@@ -179,9 +193,47 @@ fn env_disabled() -> bool {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-static GPU: Mutex<Option<Result<Arc<ctx::Gpu>, String>>> = Mutex::new(None);
+static GPU: Mutex<Option<Result<Arc<ctx::Gpu>, InitFailure>>> = Mutex::new(None);
+#[cfg(not(target_arch = "wasm32"))]
+struct InitFailure {
+    reason: String,
+    health: photocraft_gpu::DeviceHealth,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn health_state() -> Option<photocraft_gpu::DeviceHealth> {
+    GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref().map(|r| match r {
+        Ok(gpu) => gpu.health.clone(),
+        Err(error) => error.health.clone(),
+    })
+}
+
+/// None means initialization/replacement is needed; Some(None) means backoff/VRAM blocks it.
+#[cfg(not(target_arch = "wasm32"))]
+fn cached_device() -> Option<Option<Arc<ctx::Gpu>>> {
+    let cache = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let result = cache.as_ref()?;
+    let health = match result {
+        Ok(gpu) => &gpu.health,
+        Err(error) => &error.health,
+    };
+    if !health.needs_retry() {
+        return Some(result.as_ref().ok().cloned());
+    }
+    let now = std::time::Instant::now();
+    let epoch = Some(lightcraft_sysmem::gpu::idle_epoch());
+    if lightcraft_sysmem::gpu::pressured() || !health.retry_ready(now, epoch) {
+        return Some(None);
+    }
+    if health.resume_retry(now, epoch) {
+        return Some(result.as_ref().ok().cloned());
+    }
+    None
+}
 #[cfg(not(target_arch = "wasm32"))]
 static GPU_INIT: Mutex<()> = Mutex::new(());
+#[cfg(not(target_arch = "wasm32"))]
+static POOL_REQUESTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(ctx::DEFAULT_POOL_BYTES);
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 static TEST_INIT_LOCK: Mutex<()> = Mutex::new(());
@@ -229,23 +281,29 @@ pub(crate) fn device() -> Option<Arc<ctx::Gpu>> {
     if env_disabled() || !ENABLED.load(Ordering::Relaxed) {
         return existing_device();
     }
-    if let Some(result) = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
-        return result.as_ref().ok().cloned();
+    if let Some(result) = cached_device() {
+        return result;
     }
-    // Foreground diagnostic/device callers need the same exit barrier as
-    // warm-up workers, including the time they wait for another initializer.
     let _work = ctx::InitWork::new();
     let _init = GPU_INIT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some(result) = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
-        return result.as_ref().ok().cloned();
+    if let Some(result) = cached_device() {
+        return result;
     }
+    let health = health_state().map_or_else(photocraft_gpu::DeviceHealth::new, |previous| previous.replacement());
+    let old = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    GENERATION.fetch_add(1, Ordering::AcqRel);
+    drop(old);
     let result = (|| {
         let Some(backends) = backend::compute_backends() else { return Err("disabled by LIGHTCRAFT_GPU_BACKEND=off".into()) };
         backend::with_init_marker(backends, || {
-            std::panic::catch_unwind(|| ctx::Gpu::new(backends)).unwrap_or_else(|_| Err("device creation panicked".into()))
+            std::panic::catch_unwind(|| ctx::Gpu::new(backends, health.clone())).unwrap_or_else(|_| Err("device creation panicked".into()))
         })
     })()
-    .map(Arc::new);
+    .map(Arc::new)
+    .map_err(|reason| {
+        health.mark(photocraft_gpu::Fault::Error(reason.clone()));
+        InitFailure { reason, health }
+    });
     let gpu = result.as_ref().ok().cloned();
     *GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
     gpu
@@ -344,6 +402,7 @@ pub fn shutdown(timeout: std::time::Duration) -> bool {
     {
         let _init = GPU_INIT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let gpu = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+        GENERATION.fetch_add(1, Ordering::AcqRel);
         // Dropping buffers may consult the cache: never destroy the context
         // while holding the cache mutex.
         drop(gpu);
@@ -405,11 +464,18 @@ pub fn memory() -> GpuMemory {
 pub fn set_pool_limit(bytes: u64) {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        ctx::POOL_LIMIT.store(bytes, Ordering::Relaxed);
-        trim_pool(bytes);
+        POOL_REQUESTED.store(bytes, Ordering::Relaxed);
+        apply_pool_budget(bytes);
     }
     #[cfg(target_arch = "wasm32")]
     let _ = bytes;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn apply_pool_budget(requested: u64) {
+    let bytes = lightcraft_sysmem::gpu::cache_budget(requested);
+    ctx::POOL_LIMIT.store(bytes, Ordering::Relaxed);
+    trim_pool(bytes);
 }
 
 /// Free recycled buffers until at most `keep` bytes stay pooled (e.g. when the app goes idle).
@@ -420,6 +486,20 @@ pub fn trim_pool(keep: u64) {
     }
     #[cfg(target_arch = "wasm32")]
     let _ = keep;
+}
+
+/// Release a view's device caches without waiting for a render worker. Used when local AI
+/// reserves VRAM while the Develop view is idle. Returns false if a cache is currently busy.
+pub fn trim_stages(stages: &StageCache) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        stages.peek_extension::<GpuStages>().is_none_or(|g| g.try_clear())
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = stages;
+        true
+    }
 }
 
 /// Device bytes held by a view's GPU stages (kept with its [`StageCache`]); 0 when it has none.
@@ -453,12 +533,28 @@ pub fn render_hs_candidate(
     CPU_STAGES.with(|stages| stages.borrow_mut().clear());
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // Linear float exports and soft proofs still use the CPU.
-        if !enabled() || req.depth == lightcraft_pipeline::OutputDepth::F32Linear || req.proof.is_some() {
+        // Soft proofs still use the CPU.
+        if !enabled() || req.proof.is_some() {
+            return None;
+        }
+        let ext = stages.map(|c| c.extension::<GpuStages>());
+        if lightcraft_sysmem::gpu::pressured() {
+            if let Some(e) = &ext {
+                e.clear();
+            }
+            ctx::POOL_LIMIT.store(0, Ordering::Relaxed);
+            trim_pool(0);
+            record_fallback("GPU memory reserved for a local ComfyUI job; using CPU temporarily".into());
             return None;
         }
         let gpu = device()?;
-        let ext = stages.map(|c| c.extension::<GpuStages>());
+        gpu.health.tick();
+        gpu.health.begin_operation(lightcraft_sysmem::gpu::idle_epoch());
+        let errors_before = gpu.health.errors();
+        if let Some(e) = &ext {
+            e.prepare(GENERATION.load(Ordering::Acquire));
+        }
+        apply_pool_budget(POOL_REQUESTED.load(Ordering::Relaxed));
         let fault = take_fault();
         let _ = ctx::take_failure(); // nothing left over from an earlier render on this thread
         let (r, scoped) = {
@@ -475,9 +571,13 @@ pub fn render_hs_candidate(
         };
         match (r, failure) {
             (Err(_), _) => {
-                log::error!("gpu: render failed; using the CPU pipeline from now on");
-                mark_broken("a GPU render panicked");
-                record_fallback("a GPU render panicked; the GPU is not used again".into());
+                log::error!("gpu: render failed; using the CPU pipeline until retry");
+                gpu.health.operation_failed("a GPU render panicked", lightcraft_sysmem::gpu::idle_epoch());
+                if let Some(e) = &ext {
+                    e.clear();
+                }
+                gpu.trim(0);
+                record_fallback("a GPU render panicked; GPU retry pending".into());
                 None
             }
             (Ok(r), Some(f)) => {
@@ -502,11 +602,12 @@ pub fn render_hs_candidate(
                 };
                 let reason = match f.kind {
                     ctx::FailKind::Fatal => {
-                        mark_broken(&f.reason);
-                        format!("{what}: {}; the GPU is not used again", f.reason)
+                        gpu.health.operation_failed(&f.reason, lightcraft_sysmem::gpu::idle_epoch());
+                        format!("{what}: {}; GPU retry pending", f.reason)
                     }
                     ctx::FailKind::OutOfMemory => {
                         gpu.trim(0);
+                        gpu.health.operation_failed(&f.reason, lightcraft_sysmem::gpu::idle_epoch());
                         format!("{what}: {}", f.reason)
                     }
                     ctx::FailKind::Limit | ctx::FailKind::Blank => format!("{what}: {}", f.reason),
@@ -519,11 +620,21 @@ pub fn render_hs_candidate(
                 None
             }
             // a device error on another thread or a lost device during the render
-            (Ok(Some(_)), None) if BROKEN.load(Ordering::Relaxed) => {
+            (Ok(Some(_)), None) if !gpu.health.is_ok() || gpu.health.errors() != errors_before => {
                 record_fallback(format!("device failure during the render: {}", unavailable_reason().unwrap_or_default()));
                 None
             }
-            (Ok(r), None) => r,
+            (Ok(r), None) => {
+                if r.is_some() {
+                    gpu.health.operation_succeeded();
+                }
+                if let Some(e) = &ext
+                    && e.bytes() as u64 > lightcraft_sysmem::gpu::cache_budget(1 << 30)
+                {
+                    e.clear();
+                }
+                r
+            }
         }
     }
     #[cfg(target_arch = "wasm32")]
@@ -622,5 +733,77 @@ mod context_exit_tests {
         assert!(shutdown(Duration::from_secs(120)));
         drop(new);
         assert_eq!(ctx::memory().allocated, 0);
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod recovery_tests {
+    #[test]
+    #[ignore = "real device-loss recovery; run explicitly with LC_REQUIRE_GPU=1"]
+    fn gpu_device_loss_recreates_context_and_invalidates_view_buffers() {
+        use super::*;
+        use std::time::Duration;
+        let _guard = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset_failures();
+        let old = device().expect("real GPU required");
+        assert_ne!(old.info.device_type, wgpu::DeviceType::Cpu);
+        eprintln!("device-loss recovery adapter: {} ({:?})", old.info.name, old.info.backend);
+        let src = Arc::new(lightcraft_scenes::demo_library()[0].render(513, 337));
+        let info = SourceInfo::default();
+        let settings = DevelopSettings::default();
+        let req = RenderRequest::fit(513, 337);
+        let stages = StageCache::default();
+        let reference = render(&src, &info, &settings, &req, Some(&stages)).expect("initial GPU render");
+        let generation = GENERATION.load(Ordering::Acquire);
+        old.device.destroy();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| old.device.poll(wgpu::PollType::Poll)));
+        assert!(!old.health.is_ok(), "device-lost callback must close admission");
+        assert!(quiesce(Duration::ZERO), "a known lost device must not be polled during teardown");
+        assert!(render(&src, &info, &settings, &req, Some(&stages)).is_none());
+        std::thread::sleep(Duration::from_millis(4100));
+        let recovered = render(&src, &info, &settings, &req, Some(&stages)).expect("automatic retry recreates device");
+        assert!(GENERATION.load(Ordering::Acquire) > generation);
+        assert_eq!(reference.image, recovered.image);
+        drop(stages);
+        drop(old);
+        assert!(shutdown(Duration::from_secs(120)));
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod cr_float_recovery_tests {
+    #[test]
+    #[ignore = "requires a real hardware GPU; destroys only this test process's compute device"]
+    fn cr_gpu_float_device_loss_recovers_cached_deep_output() {
+        use super::*;
+        use std::time::Duration;
+        let _guard = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let old = device().expect("real GPU required");
+        assert_ne!(old.info.device_type, wgpu::DeviceType::Cpu);
+        println!("Float device-loss adapter: {} ({:?})", old.info.name, old.info.backend);
+        let src = Arc::new(lightcraft_scenes::demo_library()[0].render(192, 128));
+        let info = SourceInfo::default();
+        let mut settings = DevelopSettings::default();
+        settings.light.exposure = 0.5;
+        settings.effects.texture = 25.0;
+        let req = RenderRequest {
+            space: lightcraft_pipeline::OutputSpace::Rec2020,
+            depth: lightcraft_pipeline::OutputDepth::F32Linear,
+            ..RenderRequest::fit(192, 128)
+        };
+        let stages = StageCache::default();
+        let reference = render(&src, &info, &settings, &req, Some(&stages)).expect("initial float GPU render");
+        let generation = GENERATION.load(Ordering::Acquire);
+        old.device.destroy();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| old.device.poll(wgpu::PollType::Poll)));
+        assert!(!old.health.is_ok(), "the device-loss callback must close admission");
+        assert!(render(&src, &info, &settings, &req, Some(&stages)).is_none(), "caller must use CPU while device is lost");
+        std::thread::sleep(Duration::from_millis(4100));
+        let recovered = render(&src, &info, &settings, &req, Some(&stages)).expect("automatic retry must recreate device");
+        assert!(GENERATION.load(Ordering::Acquire) > generation);
+        assert_eq!(reference.deep.unwrap().samples, recovered.deep.unwrap().samples, "replacement must invalidate/rebuild cached float stages");
+        drop(stages);
+        drop(old);
+        assert!(shutdown(Duration::from_secs(120)));
     }
 }

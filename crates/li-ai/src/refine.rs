@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
-use image::{Rgb, RgbImage, RgbaImage, imageops};
+use image::{Rgb, RgbImage, RgbaImage};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -45,8 +45,8 @@ pub fn test_image() -> RgbImage {
 }
 
 pub fn mean_abs_difference(a: &RgbImage, b: &RgbImage) -> f64 {
-    let a = imageops::resize(a, 64, 36, imageops::FilterType::Triangle);
-    let b = imageops::resize(b, 64, 36, imageops::FilterType::Triangle);
+    let a = li_raster::resize_rgb8(a, 64, 36, li_raster::Filter::Triangle);
+    let b = li_raster::resize_rgb8(b, 64, 36, li_raster::Filter::Triangle);
     a.as_raw().iter().zip(b.as_raw()).map(|(a, b)| f64::from(a.abs_diff(*b))).sum::<f64>() / (64 * 36 * 3) as f64
 }
 
@@ -286,7 +286,7 @@ impl Recipe {
             h = (f64::from(h) * scale) as u32;
         }
         let (w, h) = crate::imaging::snap_size(w, h, defaults.grid);
-        let source = imageops::resize(&crate::imaging::over_white(source), w, h, imageops::FilterType::Lanczos3);
+        let source = li_raster::resize_rgba8(&crate::imaging::over_white(source), w, h, li_raster::Filter::Lanczos3);
         let png = crate::imaging::encode_png(&source)?;
         self.validate_loras(p.loras)?;
         let p = Params { width: w, height: h, references: 0, ..p.clone() };
@@ -294,7 +294,7 @@ impl Recipe {
         let uploads = slots.into_iter().map(|n| (n, png.clone())).collect::<Vec<_>>();
         let bytes = if idle_only { client.run_when_idle(graph, &uploads, ctl)? } else { client.run(graph, &uploads, ctl)? };
         let out = crate::imaging::decode_rgba(&bytes)?;
-        Ok(imageops::resize(&out, requested.0, requested.1, imageops::FilterType::Lanczos3))
+        Ok(li_raster::resize_rgba8(&out, requested.0, requested.1, li_raster::Filter::Lanczos3))
     }
 }
 

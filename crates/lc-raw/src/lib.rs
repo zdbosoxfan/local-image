@@ -26,6 +26,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod binned;
+pub mod camera_data;
 pub mod capture;
 pub mod color;
 pub mod demosaic;
@@ -138,7 +139,8 @@ pub fn probe(bytes: &[u8]) -> Option<RawFormat> {
     if ifd0.contains(lightcraft_tiff::tags::DNG_VERSION) {
         return Some(RawFormat::Dng);
     }
-    let make = t.find(lightcraft_tiff::tags::MAKE).and_then(|e| e.value.as_str()).unwrap_or_default().to_ascii_uppercase();
+    let make_tag = t.find(lightcraft_tiff::tags::MAKE).and_then(|e| e.value.as_str()).unwrap_or_default();
+    let make = make_tag.to_ascii_uppercase();
     let has_cfa = t.all_ifds().iter().any(|i| {
         i.u16(lightcraft_tiff::tags::PHOTOMETRIC) == Some(lightcraft_tiff::tags::photometric::CFA)
             || i.u16(lightcraft_tiff::tags::COMPRESSION).is_some_and(|c| c == 34713 || c == 32767 || c == 32769 || c == 32770)
@@ -147,7 +149,9 @@ pub fn probe(bytes: &[u8]) -> Option<RawFormat> {
         return Some(RawFormat::Cr2);
     }
     if make.starts_with("NIKON") {
-        return Some(if has_cfa || t.all_ifds().len() > 1 { RawFormat::Nef } else { RawFormat::Nrw });
+        // rawler's container dispatch identifies NRW by the exact "NIKON" maker string.
+        // Keep the same container distinction; no camera-model list is involved.
+        return Some(if make_tag.trim_end() == "NIKON" || !(has_cfa || t.all_ifds().len() > 1) { RawFormat::Nrw } else { RawFormat::Nef });
     }
     if make.starts_with("SONY") {
         return Some(RawFormat::Arw);
@@ -167,6 +171,27 @@ pub fn probe(bytes: &[u8]) -> Option<RawFormat> {
 /// Decode a raw file.
 pub fn decode(bytes: &[u8]) -> Result<RawImage> {
     decode_with(bytes, Mode::Full)
+}
+
+/// Decode with the caller's current memory allowance for TIFF pixel buffers.
+/// The app passes its shared hardware/user budget; standalone [`decode`] keeps
+/// the defensive 1 GiB default. The allowance is scoped to this calling thread,
+/// restored on errors and unwinding, and never changes process-global settings.
+/// Format/container safety bounds still apply independently.
+pub fn decode_with_memory_budget(bytes: &[u8], max_bytes: usize) -> Result<RawImage> {
+    tiffraw::with_memory_budget(max_bytes, || decode(bytes))
+}
+
+/// Sony Pixel Shift needs the original measured CFA observations, before
+/// frame-specific PDAF interpolation or saturation estimation. Apply the same
+/// static camera calibration as ordinary development, preserving those samples
+/// for fusion. Only the merge path should use this entry point.
+pub fn decode_for_pixel_shift(bytes: &[u8], max_bytes: usize) -> Result<RawImage> {
+    tiffraw::with_memory_budget(max_bytes, || {
+        let mut raw = decode_impl(bytes, Mode::Full, false)?;
+        camera_data::apply(&mut raw, Mode::Header);
+        Ok(raw)
+    })
 }
 
 /// Everything [`decode`] learns about a raw file except its samples: geometry, orientation, CFA,
@@ -193,8 +218,46 @@ pub(crate) enum Mode {
     Header,
 }
 
+/// Decoder-only baseline for reproducible camera-data quality audits. Never used by the app.
+#[cfg(feature = "testgen")]
+pub fn decode_without_camera_data(bytes: &[u8]) -> Result<RawImage> {
+    decode_impl(bytes, Mode::Full, false)
+}
+/// Decoder-only headers for the pinned rawler boundary contract.
+#[cfg(feature = "testgen")]
+pub fn probe_info_without_camera_data(bytes: &[u8]) -> Result<RawInfo> {
+    decode_impl(bytes, Mode::Header, false).map(RawImage::into_info)
+}
+
 fn decode_with(bytes: &[u8], mode: Mode) -> Result<RawImage> {
+    decode_impl(bytes, mode, true)
+}
+fn decode_impl(bytes: &[u8], mode: Mode, calibrate: bool) -> Result<RawImage> {
     let format = probe(bytes).ok_or(RawError::NotRaw)?;
+    let result = if !rawler_adapter::native_first_for(bytes, format) {
+        match rawler_adapter::decode(bytes, format, mode) {
+            Ok(raw) => Ok(raw),
+            Err(limit @ RawError::Limit(_)) => Err(limit),
+            Err(error) => decode_native(bytes, format, mode).or(Err(error)),
+        }
+    } else {
+        match decode_native(bytes, format, mode) {
+            Err(RawError::Unsupported(_)) => rawler_adapter::decode(bytes, format, mode),
+            result => result,
+        }
+    };
+    // Per-camera calibration (camera_data) applies after whichever decoder produced the image.
+    result.map(|mut image| {
+        if calibrate {
+            camera_data::apply(&mut image, mode);
+        }
+        image.vendor_lens = embedded_lens::extract(bytes, format, &image.metadata);
+        image
+    })
+}
+
+/// Native-only path: comparison and fallback must never measure the same decoder twice.
+pub(crate) fn decode_native(bytes: &[u8], format: RawFormat, mode: Mode) -> Result<RawImage> {
     let native = match format {
         RawFormat::Dng => dng::decode(bytes, mode).map(lift_clipped),
         RawFormat::Cr2 => vendor::cr2::decode(bytes, mode),
@@ -206,19 +269,12 @@ fn decode_with(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         RawFormat::Orf => vendor::orf::decode(bytes, mode),
         other => Err(RawError::Unsupported(format!("{other:?} files are not decoded yet"))),
     };
-    let decoded = match native {
-        Err(RawError::Unsupported(_)) => rawler_adapter::decode(bytes, format, mode),
-        result => result.map(|mut image| {
-            rawler_adapter::fill_color(
-                &mut image.color,
-                image.metadata.make.as_deref().unwrap_or_default(),
-                image.metadata.model.as_deref().unwrap_or_default(),
-            );
-            image
-        }),
-    };
-    decoded.map(|mut image| {
-        image.vendor_lens = embedded_lens::extract(bytes, format);
+    native.map(|mut image| {
+        rawler_adapter::fill_color(
+            &mut image.color,
+            image.metadata.make.as_deref().unwrap_or_default(),
+            image.metadata.model.as_deref().unwrap_or_default(),
+        );
         image
     })
 }
@@ -428,12 +484,30 @@ impl BlackLevel {
 pub struct ColorData {
     /// `CalibrationIlluminant1/2` (Exif LightSource codes; 0 = unknown).
     pub illuminant: [u16; 2],
+    /// DNG 1.6 third calibration illuminant; additive for old catalogs.
+    #[serde(default)]
+    pub illuminant_3: u16,
+    /// Custom `IlluminantData1/2/3` whites (used only for code 255).
+    #[serde(default)]
+    pub illuminant_white_xy: [Option<Xy>; 3],
+    #[serde(default)]
+    pub color_matrix_3: Option<Mat3>,
+    #[serde(default)]
+    pub forward_matrix_3: Option<Mat3>,
+    #[serde(default)]
+    pub camera_calibration_3: Option<Mat3>,
     /// `ColorMatrix1/2`: XYZ → reference camera.
     pub color_matrix: [Option<Mat3>; 2],
     /// `ForwardMatrix1/2`: white-balanced camera → XYZ D50.
     pub forward_matrix: [Option<Mat3>; 2],
     /// `CameraCalibration1/2`.
     pub camera_calibration: [Option<Mat3>; 2],
+    /// CameraCalibration matrices are applicable only when this equals the selected profile signature.
+    #[serde(default)]
+    pub camera_calibration_signature: String,
+    /// DNG/DCP ProfileCalibrationSignature (empty is the default in older files).
+    #[serde(default)]
+    pub profile_calibration_signature: String,
     pub analog_balance: Option<[f64; 3]>,
     pub as_shot_neutral: Option<[f64; 3]>,
     pub as_shot_white_xy: Option<Xy>,
@@ -510,7 +584,8 @@ impl NormalizedSamples<'_> {
         } else {
             let a = self.raw.active_area;
             let i = ((a.y + y) * self.raw.width + a.x + x) * self.cpp + sample;
-            (self.raw.data.get(i) - self.raw.black.at(x, y, sample, self.cpp)) * self.scale[sample]
+            (self.raw.data.get(i) - self.raw.black.at(x, y, sample, self.cpp))
+                * self.raw.normalization_scale(x, y, sample).unwrap_or(self.scale[sample])
         }
     }
 }
@@ -590,6 +665,29 @@ impl RawImage {
         self.white.get(s).or_else(|| self.white.first()).copied().unwrap_or(65535.0)
     }
 
+    /// CFA channel white, anchored in full sensor coordinates. Four-entry vendor tables
+    /// use R/G1/B/G2 order; ordinary DNG/sample whites retain their original semantics.
+    pub fn sensor_white(&self, x: usize, y: usize, sample: usize) -> f32 {
+        if self.format != RawFormat::Dng
+            && self.cpp == 1
+            && self.white.len() == 4
+            && let Some(cfa) = &self.cfa
+        {
+            let c = cfa.color_at(x, y) as usize;
+            self.white_at(if c == 1 && cfa.is_bayer() && y % 2 == 1 { 3 } else { c.min(2) })
+        } else {
+            self.white_at(sample)
+        }
+    }
+    fn normalization_scale(&self, x: usize, y: usize, sample: usize) -> Option<f32> {
+        if self.format == RawFormat::Dng || self.cpp != 1 || self.white.len() != 4 || self.cfa.is_none() {
+            return None;
+        }
+        let a = self.active_area;
+        let range = self.sensor_white(a.x + x, a.y + y, sample) - self.black.at(x, y, sample, self.cpp);
+        Some(if range > 0.0 { 1.0 / range } else { 1.0 })
+    }
+
     pub fn normalized_samples(&self) -> Result<NormalizedSamples<'_>> {
         self.validate()?;
         let prepared = if self.opcodes.list1.is_empty() && self.opcodes.list2.is_empty() { None } else { Some(self.normalized()?) };
@@ -642,7 +740,7 @@ impl RawImage {
                 for s in 0..cpp {
                     let v = src(base + x * cpp + s);
                     let b = self.black.at(x, y, s, cpp);
-                    row[x * cpp + s] = (v - b) * scale[s];
+                    row[x * cpp + s] = (v - b) * self.normalization_scale(x, y, s).unwrap_or(scale[s]);
                 }
             }
         });
@@ -731,6 +829,12 @@ mod tests {
 pub mod camera_matrices;
 pub mod dcp;
 mod dcp_bundled;
+pub mod lcp;
 
 #[cfg(test)]
 mod tests_camera_matrices;
+
+#[cfg(test)]
+extern crate self as lightcraft_raw;
+#[cfg(test)]
+mod decoder_comparison;

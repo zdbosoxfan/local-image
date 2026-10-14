@@ -1,8 +1,10 @@
 # RAW decoder boundary and updates
 
-`lc-raw` keeps its native decoders. A native `RawError::Unsupported` is delegated to **unmodified
-crates.io rawler**, pinned to `=0.8.0` with default features disabled. Corrupt input and resource-limit
-errors are retained. There are no model lists, vendored sources, forks, path dependencies or patches.
+`lc-raw` uses measured per-format routing. Native DNG/CR2/NEF/ARW/PEF/uncompressed ORF and
+RW2/RWL packing 4 stay first. RAF, NRW and other RW2/RWL packings use **unmodified crates.io
+rawler** first, pinned to `=0.8.0` with default features disabled. Native Unsupported results use
+rawler; rawler-primary files can use native code when rawler cannot decode them. Safety Limit
+errors never fall through. See `wip/RAW-DECODER-COMPARISON.md` for numbers and the permanent harness. There are no model lists, vendored sources, forks, path dependencies or patches.
 All integration code lives in `crates/lc-raw/src/rawler_adapter.rs`.
 
 The adapter carries sensor samples, CFA, black/white levels, as-shot WB, matrices, active area,
@@ -28,6 +30,42 @@ very large files remain explicitly limited. The adapter supports integer single-
 X-Trans and monochrome sensors. Four-colour/linear RGB and rotated SuperCCD output remain
 Unsupported; CR3 filmrolls select the first image, and dual-pixel correction is not exposed.
 
+## Sony/DJI integration (2026-10-14)
+
+Native Sony handles uncompressed, ARW2, large lossless, M/S linear RGB, SR2,
+composed ARQ and ARW6 normal/HQ. ARW2 preserves inverse-curve values above nominal
+white; ARW6 keeps its codec black/white domain. Rawler remains unmodified and is
+used for legacy ARW1. The Sony MRI hybrid's root SubIFDs tag is a pixel pointer,
+so its bounded metadata is inspected structurally and its decoder is built using
+rawler's public IFD/ArwDecoder interfaces without parsing entropy as TIFF. It
+retains the same panic containment, file/geometry/metadata bounds and strict
+unknown-field guards for ordinary TIFF. No camera routing allow-list was added.
+
+`decode` retains its standalone 1 GiB pixel-buffer allowance. The engine passes
+live shared hardware/user headroom through `decode_with_memory_budget`; buffers
+use actual sample widths and large/Deflate images decode chunks sequentially,
+retaining only output plus bounded scratch. This supports real ARQ and large
+16-shot linear DNGs on machines with sufficient memory, with explicit limits on
+smaller machines. `decode_for_pixel_shift` applies static camera calibration
+without per-frame PDAF interpolation so fusion sees actual CFA observations.
+Single-photo Develop retains its usual repairs. New metadata/source fields have
+serde defaults; old stored metadata needs Reload/Relink to populate new fields.
+
+DJI built-in DNG operations execute in their original order in camera RGB before
+colour conversion, including when the editable lens-profile checkbox is off.
+Mixed lists, multiple corrections and per-plane warps are not split across the
+raw/develop boundary. Uncompressed terminal strips with a wrong byte count are
+recovered only when the complete declared image exactly occupies the remaining
+file bytes; ambiguous trailers and genuinely truncated pixels remain errors. Sony raw correction curves travel unchanged through typed
+metadata, the shared `SourceInfo.sony_lens` boundary and DNG numeric tags; their
+sampled optics implementation remains owned by the lens-corrections workstream.
+
+The bounded camera/variant evidence and format-specific reference domains are
+in [`wip/CODEX-REPORT-sony-dji.md`](wip/CODEX-REPORT-sony-dji.md). LibRaw ARW6
+references require the pinned external master revision because installed 0.22.2,
+darktable 5.6.2 and RawTherapee 5.13 lack that codec. No external reference tool,
+new dependency or C/-sys library enters the Cargo build.
+
 ## Exact update procedure
 
 1. Bump the normal pinned version in `crates/lc-raw/Cargo.toml`. Do not add a `[patch]` or path dependency.
@@ -44,7 +82,7 @@ Unsupported; CR3 filmrolls select the first image, and dual-pixel correction is 
 5. Run the adapter contract and raw quality checks:
 
    ```sh
-   PATH=~/.cargo/bin:$PATH cargo +1.98.1 test --offline -p lightcraft-raw rawler_contract -- --include-ignored --nocapture
+   PATH=~/.cargo/bin:$PATH cargo +1.98.1 test --offline -p lightcraft-raw --features testgen rawler_contract -- --include-ignored --nocapture
    PATH=~/.cargo/bin:$PATH cargo +1.98.1 test --offline -p lightcraft-raw quality
    PATH=~/.cargo/bin:$PATH cargo +1.98.1 run --offline -p lightcraft-raw --example quality
    ```
@@ -80,11 +118,26 @@ Existing unrelated workspace dependencies are outside this addition; do not mist
 workspace tree for the new rawler closure.
 
 Camera-embedded lens metadata is read independently of the pixel decoder by
-`lc-raw::embedded_lens`, including rawler fallback files. Develop uses one shared
-lens model: embedded data first, then lensfun, then a user profile when a provider
-is available (no LCP provider is present in this revision). Enable Lens
+`lc-raw::embedded_lens`, including rawler fallback files. Sony tags have one
+reader in `lc-meta::sony`; the raw adapter and render-source handoff consume
+those metadata curves. Develop selects one profile: embedded vendor/DNG data,
+then lensfun, then user-imported Adobe LCP. Enable Lens
 Corrections gates automatic profiles. Vendor data is not baked into decoded
 pixels; CPU and WGSL apply the same inverse map and source attenuation. DNG
-WarpRectilinear/FixVignetteRadial are likewise deferred to this switch. Calibrated
+WarpRectilinear/FixVignetteRadial are deferred only when the list can be
+represented without changing opcode order. Built-in DJI, mixed, repeated, or
+per-plane DNG lens operations stay in camera-RGB raw development. The render
+source records that they are baked and suppresses automatic profile fallbacks.
+Rectilinear and GainMap retain the Sony/DJI job's SDK coordinate fixes. Calibrated
 CA samples camera planes before colour mixing; the fitted nonlinear camera look
 runs afterwards. See `docs/wip/CODEX-REPORT-lenscorr.md` for sources and validation.
+Camera data calibration is applied after this decoder boundary. The `testgen` contract uses
+decoder-only samples/headers so per-camera calibration does not silently regenerate sensor
+goldens. The calibrated header/full geometry and levels are audited separately by
+[`CAMERA-DATA.md`](CAMERA-DATA.md).
+
+
+The permanent comparison driver is `scripts/raw_decoder_comparison.py`; its sample manifest,
+new ignored tests and cached reference protocol are documented in `wip/RAW-DECODER-COMPARISON.md`.
+Rerun correctness and robustness after every bump; five-run timing requires explicit authorization
+under the current owner testing rule. CFA conversion uses rawler's row/column argument order.

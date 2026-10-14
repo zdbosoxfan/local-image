@@ -29,6 +29,7 @@ pub mod import;
 mod import_move;
 pub mod lens_db;
 pub mod library;
+pub mod library_safety;
 pub mod media;
 pub mod memory;
 pub mod merge;
@@ -36,6 +37,7 @@ pub mod originals;
 pub mod preset_import;
 pub mod preset_luminar;
 pub mod presets;
+pub mod proof_sheet;
 pub mod quickseg;
 pub mod rename;
 pub mod segment;
@@ -251,6 +253,7 @@ pub struct Session {
     /// Untouched Local records of folders not browsed for this many days are forgotten when the
     /// library opens (0 = never; persisted in prefs.json). See `cmd/browse.rs`.
     pub forget_local_days: u32,
+    pub backup_preferences: library_safety::BackupPreferences,
     /// local-image: the Camera Raw Filter's temporary photo (see [`ephemeral`]).
     pub(crate) ephemeral: Option<ephemeral::Ephemeral>,
     /// local-image: AI Remove — the host's AI services and the running jobs (see
@@ -333,6 +336,7 @@ impl Session {
             cache_mb: 0,
             smart_previews_dir: None,
             forget_local_days: lightcraft_catalog::DEFAULT_FORGET_DAYS,
+            backup_preferences: Default::default(),
             ephemeral: None,
             enhance: enhance::Enhance::default(),
         }
@@ -886,4 +890,4 @@ mod tests_toolset;
 #[cfg(test)]
 mod tests_xmp;
 
-mod dcp_profiles;
+pub mod dcp_profiles;

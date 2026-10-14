@@ -71,7 +71,7 @@ impl RawImage {
                 let dst = &mut rows[dy * wlen..(dy + 1) * wlen];
                 match (&norm, &self.data) {
                     (Some(nm), _) => dst.copy_from_slice(&nm.data[y * nm.width + c.x..][..wlen]),
-                    (None, RawData::U16(d)) if uniform_black => {
+                    (None, RawData::U16(d)) if uniform_black && self.white.len() != 4 => {
                         let src = &d[(a.y + y) * self.width + a.x + c.x..][..wlen];
                         for (o, &v) in dst.iter_mut().zip(src) {
                             *o = (v as f32 - black0) * scale;
@@ -80,7 +80,7 @@ impl RawImage {
                     (None, data) => {
                         let base = (a.y + y) * self.width + a.x + c.x;
                         for (x, o) in dst.iter_mut().enumerate() {
-                            *o = (data.get(base + x) - self.black.at(c.x + x, y, 0, 1)) * scale;
+                            *o = (data.get(base + x) - self.black.at(c.x + x, y, 0, 1)) * self.normalization_scale(c.x + x, y, 0).unwrap_or(scale);
                         }
                     }
                 }

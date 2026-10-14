@@ -1223,3 +1223,68 @@ fn dsfix_cached_scan_reprobes_same_size_file_after_edit() {
     assert_ne!(s.catalog.photos().next().unwrap().content_hash, original_hash);
     std::fs::remove_dir_all(src).unwrap();
 }
+
+#[test]
+fn safety_second_copy_move_add_collision_and_failure_keep_source() {
+    let root = temp_dir("safety-second-copy");
+    let second = root.join("second");
+    std::fs::create_dir(&second).unwrap();
+    let primary = root.join("primary");
+    for mode in ["add", "copy", "move"] {
+        let source = root.join(format!("{mode}.png"));
+        write_png(
+            &source,
+            if mode == "add" {
+                41
+            } else if mode == "copy" {
+                42
+            } else {
+                43
+            },
+        );
+        let original = std::fs::read(&source).unwrap();
+        std::fs::write(source.with_extension("xmp"), b"sidecar test bytes").unwrap();
+        let mut s = Session::new().with_fs();
+        let result = s.execute("library.import", &json!({"paths":[source],"mode":mode,"destination":primary,"secondCopy":second})).unwrap();
+        assert_eq!(ids(&result, "imported"), 1, "{result}");
+        let backup = second.join(format!("{mode}.png"));
+        assert_eq!(std::fs::read(&backup).unwrap(), original);
+        if source.exists() {
+            assert!(!lightcraft_catalog::safe_file::same_file(&source, &backup), "backup must be an independent copy");
+        }
+        assert_eq!(std::fs::read(backup.with_extension("xmp")).unwrap(), b"sidecar test bytes");
+        assert_eq!(source.exists(), mode != "move");
+        if mode == "add" {
+            let mut other = Session::new().with_fs();
+            other.execute("library.import", &json!({"paths":[source],"secondCopy":second})).unwrap();
+            assert_eq!(std::fs::read(second.join("add-1.png")).unwrap(), original);
+        }
+    }
+    for mode in ["add", "copy", "move"] {
+        let source = root.join(format!("fail-{mode}.png"));
+        write_png(&source, 99);
+        let mut s = Session::new().with_fs();
+        let fault = lightcraft_catalog::safe_file::fail_writes_after(5);
+        let result = s.execute("library.import", &json!({"paths":[source],"mode":mode,"destination":primary,"secondCopy":second})).unwrap();
+        drop(fault);
+        assert_eq!(ids(&result, "failed"), 1, "{result}");
+        assert!(source.is_file());
+        assert_eq!(s.catalog.len(), 0);
+        assert!(!second.join(format!("fail-{mode}.png")).exists());
+    }
+    let local = root.join("local.png");
+    write_png(&local, 77);
+    let mut session = Session::new().with_fs();
+    session.execute("library.import", &json!({"paths":[local],"local":true})).unwrap();
+    assert!(session.catalog.photos().next().unwrap().local);
+    let fault = lightcraft_catalog::safe_file::fail_writes_after(5);
+    let failed = session.execute("library.import", &json!({"paths":[local],"secondCopy":second})).unwrap();
+    drop(fault);
+    assert_eq!(ids(&failed, "failed"), 1);
+    assert!(session.catalog.photos().next().unwrap().local);
+    let promoted = session.execute("library.import", &json!({"paths":[local],"secondCopy":second})).unwrap();
+    assert_eq!(ids(&promoted, "imported"), 1);
+    assert!(!session.catalog.photos().next().unwrap().local);
+    assert_eq!(std::fs::read(second.join("local.png")).unwrap(), std::fs::read(local).unwrap());
+    std::fs::remove_dir_all(root).unwrap();
+}

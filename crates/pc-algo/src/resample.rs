@@ -1,299 +1,61 @@
-//! High-quality separable resampling of surfaces (Image Size).
-
+//! High-quality separable resampling; shared kernels with tile-aware Surface adapters.
+pub use li_raster::resample::Resample;
 use photocraft_geom::{Rect, TILE_SIZE};
 use photocraft_raster::Surface;
-use serde::{Deserialize, Serialize};
-
-use crate::image::{premultiply, unpremultiply};
-
-/// Resampling method (Photoshop's Image Size options).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub enum Resample {
-    Nearest,
-    Bilinear,
-    #[default]
-    Bicubic,
-    Lanczos,
-    /// Lanczos followed by a light sharpening when enlarging.
-    PreserveDetails,
-    /// local-image: Photoshop's Bicubic Smoother, for enlarging: the Mitchell–Netravali cubic
-    /// (B = C = 1/3), which trades a little sharpness for no ringing or jaggies.
-    BicubicSmoother,
-    /// local-image: Photoshop's Bicubic Sharper, for reducing: a Keys cubic with a = -0.75, which
-    /// keeps more edge contrast than Catmull–Rom.
-    BicubicSharper,
+fn region(r: Rect) -> li_raster::Region {
+    li_raster::Region::new(r.x0, r.y0, r.x1, r.y1)
 }
-
-impl Resample {
-    fn support(self) -> f64 {
-        match self {
-            Resample::Nearest => 0.5,
-            Resample::Bilinear => 1.0,
-            Resample::Bicubic | Resample::BicubicSmoother | Resample::BicubicSharper => 2.0,
-            Resample::Lanczos | Resample::PreserveDetails => 3.0,
-        }
+fn rect(r: li_raster::Region) -> Rect {
+    Rect::new(r.x0, r.y0, r.x1, r.y1)
+}
+struct Source<'a>(&'a Surface);
+impl li_raster::resample::Source for Source<'_> {
+    fn channels(&self) -> usize {
+        self.0.channels()
     }
-    fn weight(self, x: f64) -> f64 {
-        let x = x.abs();
-        match self {
-            Resample::Nearest => {
-                if x <= 0.5 {
-                    1.0
-                } else {
-                    0.0
-                }
-            }
-            Resample::Bilinear => (1.0 - x).max(0.0),
-            Resample::Bicubic | Resample::BicubicSharper => {
-                // Keys cubic, a = -0.5 (Catmull-Rom); Sharper uses a = -0.75.
-                let a = if self == Resample::BicubicSharper { -0.75 } else { -0.5 };
-                if x < 1.0 {
-                    (a + 2.0) * x * x * x - (a + 3.0) * x * x + 1.0
-                } else if x < 2.0 {
-                    a * x * x * x - 5.0 * a * x * x + 8.0 * a * x - 4.0 * a
-                } else {
-                    0.0
-                }
-            }
-            Resample::BicubicSmoother => {
-                // Mitchell–Netravali, B = C = 1/3.
-                let (b, c) = (1.0 / 3.0, 1.0 / 3.0);
-                if x < 1.0 {
-                    ((12.0 - 9.0 * b - 6.0 * c) * x * x * x + (-18.0 + 12.0 * b + 6.0 * c) * x * x + (6.0 - 2.0 * b)) / 6.0
-                } else if x < 2.0 {
-                    ((-b - 6.0 * c) * x * x * x + (6.0 * b + 30.0 * c) * x * x + (-12.0 * b - 48.0 * c) * x + (8.0 * b + 24.0 * c)) / 6.0
-                } else {
-                    0.0
-                }
-            }
-            Resample::Lanczos | Resample::PreserveDetails => {
-                if x < 1e-9 {
-                    1.0
-                } else if x < 3.0 {
-                    let px = std::f64::consts::PI * x;
-                    3.0 * px.sin() * (px / 3.0).sin() / (px * px)
-                } else {
-                    0.0
-                }
-            }
-        }
+    fn alpha(&self) -> bool {
+        self.0.format().alpha
+    }
+    fn default_pixel(&self) -> Vec<f32> {
+        self.0.default_pixel()
+    }
+    fn content_bounds(&self) -> li_raster::Region {
+        region(self.0.content_bounds())
+    }
+    fn tile_size(&self) -> i32 {
+        TILE_SIZE
+    }
+    fn has_tiles_in(&self, r: li_raster::Region) -> bool {
+        self.0.has_tiles_in(rect(r))
+    }
+    fn read_region_into(&self, r: li_raster::Region, out: &mut Vec<f32>) {
+        self.0.read_region_into(rect(r), out);
     }
 }
-
-/// Per-output-sample source window and normalized weights.
-struct Taps {
-    start: i32,
-    weights: Vec<f32>,
-    /// Total weight of taps outside the source's content, which all read the default pixel.
-    outside: f32,
-}
-
-/// Taps for mapping output coordinate `o` (in `[dst0, dst1)`) to the source
-/// via `u = (o + 0.5) / scale - 0.5`. With `edge` (`[first, last]` source index), taps outside it
-/// read the nearest sample inside it: the image repeats its edge instead of fading out.
-/// Taps outside `content` (`[first, last]`) all read the default pixel, so they are folded into
-/// `outside` instead of being read: the read window never grows past the content, however small
-/// the scale (#713).
-fn taps(dst0: i32, dst1: i32, scale: f64, filter: Resample, edge: Option<(i32, i32)>, content: (i32, i32)) -> Vec<Taps> {
-    let stretch = if scale < 1.0 { 1.0 / scale } else { 1.0 };
-    let support = filter.support() * stretch;
-    let clamp = |i: i32| edge.map_or(i, |(a, b)| i.clamp(a, b));
-    (dst0..dst1)
-        .map(|o| {
-            let u = (o as f64 + 0.5) / scale - 0.5;
-            if filter == Resample::Nearest && scale >= 1.0 {
-                let i = clamp((u + 0.5).floor() as i32);
-                return if (content.0..=content.1).contains(&i) {
-                    Taps { start: i, weights: vec![1.0], outside: 0.0 }
-                } else {
-                    Taps { start: content.0, weights: Vec::new(), outside: 1.0 }
-                };
-            }
-            let lo = (u - support).ceil() as i32;
-            let hi = (u + support).floor() as i32;
-            let mut w: Vec<f64> = (lo..=hi).map(|i| filter.weight((i as f64 - u) / stretch)).collect();
-            let s: f64 = w.iter().sum();
-            if s.abs() > 1e-12 {
-                for v in &mut w {
-                    *v /= s;
-                }
-            }
-            // Fold the weights of taps beyond the edge onto the edge sample.
-            let start = clamp(lo);
-            let mut folded = vec![0.0f32; (clamp(hi) - start + 1).max(1) as usize];
-            for (i, v) in (lo..=hi).zip(w) {
-                if let Some(slot) = folded.get_mut((clamp(i) - start) as usize) {
-                    *slot += v as f32;
-                }
-            }
-            // Keep the part inside the content; the rest reads the default pixel.
-            let (a, b) = (start.max(content.0), (start + folded.len() as i32 - 1).min(content.1));
-            if a > b {
-                return Taps { start: content.0, weights: Vec::new(), outside: folded.iter().sum() };
-            }
-            let (i0, i1) = ((a - start) as usize, (b - start) as usize + 1);
-            let outside = folded.get(..i0).unwrap_or(&[]).iter().chain(folded.get(i1..).unwrap_or(&[])).sum();
-            Taps { start: a, weights: folded.get(i0..i1).unwrap_or(&[]).to_vec(), outside }
-        })
-        .collect()
-}
-
-/// Output rectangle for `r` scaled by `(sx, sy)` about the origin.
 pub fn scaled_rect(r: Rect, sx: f64, sy: f64) -> Rect {
-    if r.is_empty() {
-        return Rect::EMPTY;
-    }
-    Rect::new((r.x0 as f64 * sx).floor() as i32, (r.y0 as f64 * sy).floor() as i32, (r.x1 as f64 * sx).ceil() as i32, (r.y1 as f64 * sy).ceil() as i32)
+    rect(li_raster::resample::scaled_rect(region(r), sx, sy))
 }
-
-/// Resizes a surface by `(sx, sy)` about the document origin. The surface's
-/// default pixel is kept (masks keep their "reveal all" background).
 pub fn resize_surface(s: &Surface, sx: f64, sy: f64, filter: Resample) -> Surface {
     resize(s, sx, sy, filter, None)
 }
-
-/// [`resize_surface`] for a layer, mask or channel of a document whose canvas is `canvas`
-/// (Image Size): at the canvas edges the pixels repeat outwards, so content that reaches an edge
-/// keeps it (an opaque layer stays opaque to the border) instead of fading into the default pixel.
-/// Pixels beyond the canvas count as the surface's own, and inside the canvas nothing changes.
 pub fn resize_surface_in_canvas(s: &Surface, sx: f64, sy: f64, filter: Resample, canvas: Rect) -> Surface {
     let area = s.content_bounds().union(&canvas);
     resize(s, sx, sy, filter, (!area.is_empty()).then_some(area))
 }
-
-/// Samples one source read may hold (64 MB of `f32`); larger windows are read in row chunks.
 const READ_BUDGET: usize = 1 << 24;
-
 fn resize(s: &Surface, sx: f64, sy: f64, filter: Resample, edge: Option<Rect>) -> Surface {
     resize_with_budget(s, sx, sy, filter, edge, READ_BUDGET)
 }
-
 fn resize_with_budget(s: &Surface, sx: f64, sy: f64, filter: Resample, edge: Option<Rect>, budget: usize) -> Surface {
-    let fmt = s.format();
-    let mut out = Surface::with_default(fmt, &s.default_pixel());
-    let src = s.content_bounds();
-    let dst = scaled_rect(src, sx, sy);
-    if dst.is_empty() {
+    let mut out = Surface::with_default(s.format(), &s.default_pixel());
+    if !sx.is_finite() || !sy.is_finite() || sx <= 0.0 || sy <= 0.0 {
         return out;
     }
-    let n = fmt.channels();
-    let alpha = fmt.alpha;
-    // With `edge`, every tap is clamped into the edge area, which holds the content.
-    let area = edge.unwrap_or(src);
-    let hx = taps(dst.x0, dst.x1, sx, filter, edge.map(|r| (r.x0, r.x1 - 1)), (area.x0, area.x1 - 1));
-    let vy = taps(dst.y0, dst.y1, sy, filter, edge.map(|r| (r.y0, r.y1 - 1)), (area.y0, area.y1 - 1));
-    let x_lo = hx.iter().filter(|t| !t.weights.is_empty()).map(|t| t.start).min().unwrap_or(area.x0);
-    let x_hi = hx.iter().map(|t| t.start + t.weights.len() as i32).max().unwrap_or(area.x0).max(x_lo);
-    let mut def = s.default_pixel();
-    premultiply(&mut def, n, alpha);
-    let dw = dst.width() as usize;
-    const BAND: usize = 64;
-    let bands: Vec<(usize, usize)> = (0..vy.len()).step_by(BAND).map(|b| (b, (b + BAND).min(vy.len()))).collect();
-    // Horizontal pass of one source row (`row` spans `x_lo..x_hi`) into `dw` samples.
-    let horizontal = |row: &[f32], out: &mut [f32]| {
-        for (t, d) in hx.iter().zip(out.chunks_exact_mut(n)) {
-            for (k, w) in t.weights.iter().enumerate() {
-                let sx_ = (t.start + k as i32 - x_lo) as usize;
-                if let Some(sp) = row.get(sx_ * n..(sx_ + 1) * n) {
-                    for c in 0..n {
-                        d[c] += sp[c] * w;
-                    }
-                }
-            }
-            for c in 0..n {
-                d[c] += def[c] * t.outside;
-            }
-        }
-    };
-    // A source row of nothing but the default pixel, after the horizontal pass.
-    let def_row = {
-        let row: Vec<f32> = def.iter().copied().cycle().take((x_hi - x_lo) as usize * n).collect();
-        let mut out = vec![0.0f32; dw * n];
-        horizontal(&row, &mut out);
-        out
-    };
-    // At most one tile row per read anyway, so this always fits an `i32`.
-    let rows_per_read = (budget / ((x_hi - x_lo).max(1) as usize * n).max(dw * n)).clamp(1, TILE_SIZE as usize) as i32;
-    let run = |&(b0, b1): &(usize, usize)| -> (Rect, Vec<f32>) {
-        let band = vy.get(b0..b1).unwrap_or(&[]);
-        let y_lo = band.iter().filter(|t| !t.weights.is_empty()).map(|t| t.start).min().unwrap_or(area.y0);
-        let y_hi = band.iter().map(|t| t.start + t.weights.len() as i32).max().unwrap_or(area.y0).max(y_lo);
-        let mut res = vec![0.0f32; band.len() * dw * n];
-        // Source rows stream through in bounded reads and go straight into the output rows that
-        // use them, so memory is the read budget plus this band's output, whatever the scale or
-        // the source size (#713). In ascending row order, as one read of the whole window would.
-        let add = |res: &mut [f32], y: i32, row: &[f32]| {
-            for (t, d) in band.iter().zip(res.chunks_exact_mut(dw * n)) {
-                if let Some(w) = t.weights.get((y - t.start) as usize).filter(|_| y >= t.start) {
-                    for (dv, sv) in d.iter_mut().zip(row) {
-                        *dv += sv * w;
-                    }
-                }
-            }
-        };
-        let mut rows = Vec::new();
-        let mut hrows = Vec::new();
-        let mut y = y_lo;
-        while y < y_hi {
-            let y1 = ((y.div_euclid(TILE_SIZE) + 1) * TILE_SIZE).min(y_hi);
-            if s.has_tiles_in(Rect::new(x_lo, y, x_hi, y1)) {
-                let mut c0 = y;
-                while c0 < y1 {
-                    let c1 = (c0 + rows_per_read).min(y1);
-                    let read = Rect::new(x_lo, c0, x_hi, c1);
-                    s.read_region_into(read, &mut rows);
-                    premultiply(&mut rows, n, alpha);
-                    hrows.clear();
-                    hrows.resize((c1 - c0) as usize * dw * n, 0.0);
-                    let rw = read.width() as usize * n;
-                    for (row, out) in rows.chunks_exact(rw.max(1)).zip(hrows.chunks_exact_mut(dw * n)) {
-                        horizontal(row, out);
-                    }
-                    for (r, h) in (c0..c1).zip(hrows.chunks_exact(dw * n)) {
-                        add(&mut res, r, h);
-                    }
-                    c0 = c1;
-                }
-            } else {
-                // Nothing stored in this tile row: every row in it is the default row, so each
-                // output row takes it once, with the summed weight of those rows.
-                for (t, d) in band.iter().zip(res.chunks_exact_mut(dw * n)) {
-                    let (a, b) = ((y - t.start).max(0) as usize, (y1 - t.start).max(0) as usize);
-                    let w: f32 = t.weights.get(a.min(t.weights.len())..b.min(t.weights.len())).unwrap_or(&[]).iter().sum();
-                    if w != 0.0 {
-                        for (dv, sv) in d.iter_mut().zip(&def_row) {
-                            *dv += sv * w;
-                        }
-                    }
-                }
-            }
-            y = y1;
-        }
-        for (t, d) in band.iter().zip(res.chunks_exact_mut(dw * n)) {
-            for (dv, sv) in d.iter_mut().zip(&def_row) {
-                *dv += sv * t.outside;
-            }
-        }
-        if alpha {
-            for px in res.chunks_exact_mut(n) {
-                px[n - 1] = px[n - 1].clamp(0.0, 1.0);
-            }
-        }
-        unpremultiply(&mut res, n, alpha);
-        (Rect::new(dst.x0, dst.y0 + b0 as i32, dst.x1, dst.y0 + b1 as i32), res)
-    };
-    #[cfg(not(target_arch = "wasm32"))]
-    let parts: Vec<(Rect, Vec<f32>)> = {
-        use rayon::prelude::*;
-        bands.par_iter().map(run).collect()
-    };
-    #[cfg(target_arch = "wasm32")]
-    let parts: Vec<(Rect, Vec<f32>)> = bands.iter().map(run).collect();
-    for (r, d) in parts {
-        out.write_region(r, &d);
+    for (r, d) in li_raster::resample::resize_source(&Source(s), sx, sy, filter, edge.map(region), budget) {
+        out.write_region(rect(r), &d);
     }
-    if filter == Resample::PreserveDetails && (sx > 1.0 || sy > 1.0) {
+    let dst = scaled_rect(s.content_bounds(), sx, sy);
+    if filter == Resample::PreserveDetails && (sx > 1.0 || sy > 1.0) && !dst.is_empty() {
         let p = crate::FilterParams::UnsharpMask { amount: 30.0, radius: 0.6 * sx.max(sy) as f32, threshold: 0.0 };
         let area = crate::output_area(&p, out.content_bounds(), dst, None);
         out = crate::apply(&out, &p, area, dst, None);
@@ -301,7 +63,6 @@ fn resize_with_budget(s: &Surface, sx: f64, sy: f64, filter: Resample, edge: Opt
     out.prune();
     out
 }
-
 /// Moves a surface by whole pixels (default pixel kept).
 pub fn translate_surface(s: &Surface, dx: i32, dy: i32) -> Surface {
     let mut out = Surface::with_default(s.format(), &s.default_pixel());
@@ -500,5 +261,43 @@ mod tests {
         assert_eq!(t.pixel(15, 7), s.pixel(10, 10));
         let c = crop_surface(&s, Rect::new(0, 0, 10, 10));
         assert_eq!(c.content_bounds(), Rect::new(0, 0, 10, 10));
+    }
+}
+
+#[cfg(test)]
+mod j01_golden {
+    use super::*;
+    #[test]
+    fn j01_resample_adapter_byte_goldens() {
+        for (f, expected) in [
+            Resample::Nearest,
+            Resample::Bilinear,
+            Resample::Bicubic,
+            Resample::Lanczos,
+            Resample::PreserveDetails,
+            Resample::BicubicSmoother,
+            Resample::BicubicSharper,
+        ]
+        .into_iter()
+        .zip([
+            563068684180865877,
+            5414249057966356400,
+            5388069458813282607,
+            11391420477039446530,
+            16432942863708755085,
+            9794917783319206443,
+            10994775549111290735,
+        ]) {
+            let mut s = Surface::new(photocraft_color::PixelFormat::RGBA8);
+            let r = Rect::new(-2, -1, 7, 6);
+            let d: Vec<_> = (0..63)
+                .flat_map(|i| [(i * 17 % 255) as f32 / 255.0, (i * 31 % 255) as f32 / 255.0, (i * 7 % 255) as f32 / 255.0, (i * 11 % 255) as f32 / 255.0])
+                .collect();
+            s.write_region(r, &d);
+            let o = resize_surface_in_canvas(&s, 0.73, 1.37, f, r);
+            let data = o.read_region(scaled_rect(r, 0.73, 1.37));
+            let hash = data.iter().flat_map(|v| v.to_bits().to_le_bytes()).fold(14695981039346656037u64, |h, b| (h ^ u64::from(b)).wrapping_mul(1099511628211));
+            assert_eq!(hash, expected, "{f:?}");
+        }
     }
 }

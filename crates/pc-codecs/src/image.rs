@@ -140,6 +140,28 @@ impl Metadata {
     }
 }
 
+/// Container-level RGB encoding when no ICC profile supersedes it.
+/// Samples retain their precision and encoding; interpretation belongs to the colour adapter.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ColorHint {
+    pub named: Option<li_color::NamedSpace>,
+    pub to_xyz_d50: li_color::Mat3,
+    pub trc: [li_color::Trc; 3],
+    /// The decoder rendered directly into this linear space (for JPEG XL).
+    pub already_linear: bool,
+}
+
+impl ColorHint {
+    pub fn linear_rec2020() -> Self {
+        Self {
+            named: Some(li_color::NamedSpace::Rec2020),
+            to_xyz_d50: li_color::NamedSpace::Rec2020.to_xyz_d50(),
+            trc: [li_color::Trc::Linear, li_color::Trc::Linear, li_color::Trc::Linear],
+            already_linear: true,
+        }
+    }
+}
+
 /// Something a decoder noticed about the file that the decoded pixels don't show: the file
 /// held more than was decoded, or less than it should.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +257,15 @@ pub struct Image {
     /// What the decoder noticed about the file: empty for a complete, single image and for
     /// images built in memory. Encoders ignore it.
     pub warnings: Vec<DecodeWarning>,
+    pub color_hint: Option<ColorHint>,
+    /// Stored precision may differ from the expanded sample type (e.g. palette PNG/JXL).
+    pub source_bit_depth: Option<u8>,
+    pub source_float: Option<bool>,
+    /// Device samples still carry associated alpha, for a caller that linearizes them.
+    /// Ordinary decode APIs always return straight alpha.
+    pub associated_alpha: bool,
+    /// Orientation of these stored pixels; 1 after applying the container transform.
+    pub orientation: u16,
 }
 
 fn byte_len(width: u32, height: u32, layout: ChannelLayout, sample: SampleType) -> Option<usize> {
@@ -245,7 +276,21 @@ impl Image {
     /// A zero-filled image, or an error if the byte size overflows `usize`.
     pub fn new(width: u32, height: u32, layout: ChannelLayout, sample: SampleType) -> Result<Self, CodecError> {
         let len = byte_len(width, height, layout, sample).ok_or_else(|| CodecError::InvalidImage("image size overflows usize".into()))?;
-        Ok(Image { width, height, layout, sample, data: vec![0; len], icc: None, meta: Metadata::default(), warnings: Vec::new() })
+        Ok(Image {
+            width,
+            height,
+            layout,
+            sample,
+            data: vec![0; len],
+            icc: None,
+            meta: Metadata::default(),
+            warnings: Vec::new(),
+            color_hint: None,
+            source_bit_depth: None,
+            source_float: None,
+            associated_alpha: false,
+            orientation: 1,
+        })
     }
 
     /// Wrap raw interleaved, native-endian bytes.
@@ -254,7 +299,21 @@ impl Image {
         if data.len() != expected {
             return Err(CodecError::InvalidImage(format!("buffer has {} bytes, expected {expected} for {width}x{height} {layout:?} {sample:?}", data.len())));
         }
-        Ok(Image { width, height, layout, sample, data, icc: None, meta: Metadata::default(), warnings: Vec::new() })
+        Ok(Image {
+            width,
+            height,
+            layout,
+            sample,
+            data,
+            icc: None,
+            meta: Metadata::default(),
+            warnings: Vec::new(),
+            color_hint: None,
+            source_bit_depth: None,
+            source_float: None,
+            associated_alpha: false,
+            orientation: 1,
+        })
     }
 
     pub fn from_u8(width: u32, height: u32, layout: ChannelLayout, data: Vec<u8>) -> Result<Self, CodecError> {
@@ -423,6 +482,11 @@ impl Image {
             icc: if layout.same_model(self.layout) { self.icc.clone() } else { None },
             meta: self.meta.clone(),
             warnings: self.warnings.clone(),
+            color_hint: if layout.same_model(self.layout) { self.color_hint.clone() } else { None },
+            source_bit_depth: self.source_bit_depth,
+            source_float: self.source_float,
+            associated_alpha: self.associated_alpha,
+            orientation: self.orientation,
         }
     }
 
@@ -485,20 +549,12 @@ pub(crate) fn quantize(values: &[f32], sample: SampleType) -> Vec<u8> {
     }
 }
 
-/// Rec. 709 luma weights applied to encoded values.
-const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
-
 fn cmyk_to_rgb(c: f32, m: f32, y: f32, k: f32) -> [f32; 3] {
-    [(1.0 - c) * (1.0 - k), (1.0 - m) * (1.0 - k), (1.0 - y) * (1.0 - k)]
+    li_color::convert::cmyk_to_rgb_naive([c, m, y, k])
 }
 
 fn rgb_to_cmyk(r: f32, g: f32, b: f32) -> [f32; 4] {
-    let k = 1.0 - r.max(g).max(b);
-    if k >= 1.0 {
-        return [0.0, 0.0, 0.0, 1.0];
-    }
-    let d = 1.0 - k;
-    [(1.0 - r - k) / d, (1.0 - g - k) / d, (1.0 - b - k) / d, k]
+    li_color::convert::rgb_to_cmyk_naive_with_black_threshold([r, g, b], 1.0)
 }
 
 /// Convert normalized interleaved samples between layouts. Naive
@@ -525,7 +581,7 @@ pub(crate) fn convert_layout(src: &[f32], from: ChannelLayout, to: ChannelLayout
             };
             match to {
                 ChannelLayout::Gray | ChannelLayout::GrayA => {
-                    out.push(rgb[0] * LUMA[0] + rgb[1] * LUMA[1] + rgb[2] * LUMA[2]);
+                    out.push(li_color::luminance_709(rgb));
                 }
                 ChannelLayout::Rgb | ChannelLayout::Rgba => out.extend_from_slice(&rgb),
                 ChannelLayout::Cmyk | ChannelLayout::CmykA => out.extend_from_slice(&rgb_to_cmyk(rgb[0], rgb[1], rgb[2])),

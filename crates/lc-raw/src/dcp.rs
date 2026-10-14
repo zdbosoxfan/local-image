@@ -24,9 +24,22 @@ impl Dcp {
         }
         let t = Tiff::parse(&data)?;
         let i = t.ifds.first().ok_or_else(|| RawError::Corrupt("empty DCP".into()))?;
-        let color = crate::dng::color_data(i, i);
+        let color = crate::dng::color_data(i, i, t.order);
         if !crate::color::has_matrix(&color) {
             return Err(RawError::Corrupt("DCP without a color matrix".into()));
+        }
+        if color.illuminant_3 != 0 {
+            if lightcraft_color::camera::triple_illuminant_whites(&crate::color::camera_color(&color)).is_none() {
+                return Err(RawError::Corrupt("DCP triple illuminants require distinct whites and all three color matrices".into()));
+            }
+            let forward = [color.forward_matrix[0], color.forward_matrix[1], color.forward_matrix_3];
+            if forward.iter().any(Option::is_some) && forward.iter().any(Option::is_none) {
+                return Err(RawError::Corrupt("DCP triple forward matrices must be all present or all absent".into()));
+            }
+            let maps = [&color.profile.hue_sat_map[0], &color.profile.hue_sat_map[1], &color.profile.hue_sat_map_3];
+            if maps.iter().any(|m| m.is_some()) && (maps.iter().any(|m| m.is_none()) || color.profile.hue_sat_for_weights([1.0 / 3.0; 3]).is_none()) {
+                return Err(RawError::Corrupt("DCP triple hue/saturation maps must be all present with matching dimensions".into()));
+            }
         }
         Ok(Self {
             model: i.string(50708).unwrap_or_default(),

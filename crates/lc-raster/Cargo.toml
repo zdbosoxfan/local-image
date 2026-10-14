@@ -9,6 +9,8 @@ description = "LightCraft raster (L0)"
 workspace = true
 
 [dependencies]
+li-color = { workspace = true }
+li-raster = { path = "../li-raster", default-features = false }
 serde = { workspace = true }
 lightcraft-geom = { workspace = true }
 lightcraft-color = { workspace = true }
@@ -16,7 +18,7 @@ rayon = { workspace = true, optional = true }
 
 [features]
 default = ["parallel"]
-parallel = ["dep:rayon"]
+parallel = ["dep:rayon", "li-raster/parallel"]
 
 [dev-dependencies]
 proptest = { workspace = true }

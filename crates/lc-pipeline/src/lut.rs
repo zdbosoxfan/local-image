@@ -17,69 +17,34 @@ pub struct Lut3d {
 }
 
 impl Lut3d {
-    /// Parse a `.cube` file.
+    /// Parse a `.cube` file using the shared format parser.
     pub fn parse_cube(text: &str) -> Result<Lut3d, String> {
-        let (mut size, mut title) = (0usize, None);
-        let (mut min, mut max) = ([0.0f32; 3], [1.0f32; 3]);
-        let mut data = Vec::new();
-        let three = |rest: &str| -> Option<[f32; 3]> {
-            let v: Vec<f32> = rest.split_whitespace().filter_map(|x| x.parse().ok()).collect();
-            (v.len() == 3).then(|| [v[0], v[1], v[2]])
-        };
-        for line in text.lines() {
-            let l = line.trim();
-            if l.is_empty() || l.starts_with('#') {
-                continue;
-            }
-            if let Some(r) = l.strip_prefix("TITLE") {
-                title = Some(r.trim().trim_matches('"').to_string());
-            } else if let Some(r) = l.strip_prefix("LUT_3D_SIZE") {
-                size = r.trim().parse().map_err(|_| format!("bad LUT_3D_SIZE `{}`", r.trim()))?;
-                if !(2..=256).contains(&size) {
-                    return Err(format!("LUT_3D_SIZE {size} out of range"));
-                }
-            } else if l.starts_with("LUT_1D_SIZE") {
-                return Err("1D LUTs are not supported (only 3D .cube files)".into());
-            } else if let Some(r) = l.strip_prefix("DOMAIN_MIN") {
-                min = three(r).ok_or("bad DOMAIN_MIN")?;
-            } else if let Some(r) = l.strip_prefix("DOMAIN_MAX") {
-                max = three(r).ok_or("bad DOMAIN_MAX")?;
-            } else if l.starts_with(|c: char| c.is_ascii_alphabetic()) {
-                // other keywords (LUT_IN_VIDEO_RANGE…) are ignored
-            } else {
-                data.push(three(l).ok_or_else(|| format!("bad line `{l}`"))?);
-            }
-        }
-        if size == 0 {
-            return Err("not a 3D .cube LUT (no LUT_3D_SIZE)".into());
-        }
-        if data.len() != size * size * size {
-            return Err(format!("expected {} entries, found {}", size * size * size, data.len()));
-        }
-        Ok(Lut3d { size, data, domain_min: min, domain_max: max, title })
+        li_color::lutfile::parse_cube_with_domain(text).map(Self::from_parsed).map_err(|e| e.to_string())
     }
 
-    /// Look up `c` (trilinear).
+    /// Parse a Cube, Autodesk 3DL or SpeedGrade Look file.
+    pub fn parse(file_name: &str, bytes: &[u8]) -> Result<Lut3d, String> {
+        li_color::lutfile::parse_with_domain(file_name, bytes).map(Self::from_parsed).map_err(|e| e.to_string())
+    }
+
+    fn from_parsed(parsed: li_color::lutfile::ParsedLut) -> Self {
+        Self {
+            size: parsed.lut.size,
+            data: parsed.lut.data.as_chunks::<3>().0.to_vec(),
+            domain_min: parsed.domain_min,
+            domain_max: parsed.domain_max,
+            title: parsed.title,
+        }
+    }
+
+    /// Look up a colour with shared precise tetrahedral interpolation.
     pub fn apply(&self, c: [f32; 3]) -> [f32; 3] {
         let n = self.size;
-        let s = (n - 1) as f32;
-        let mut idx = [0usize; 3];
-        let mut frac = [0.0f32; 3];
-        for k in 0..3 {
-            let span = (self.domain_max[k] - self.domain_min[k]).max(1e-6);
-            let x = (((c[k] - self.domain_min[k]) / span).clamp(0.0, 1.0)) * s;
-            let i = (x.floor() as usize).min(n - 2);
-            idx[k] = i;
-            frac[k] = x - i as f32;
+        if n < 2 || n.checked_pow(3).is_none_or(|len| self.data.len() < len) {
+            return c;
         }
-        let at = |r: usize, g: usize, b: usize| self.data[r + n * (g + n * b)];
-        let lerp = |a: [f32; 3], b: [f32; 3], t: f32| [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-        let (r, g, b) = (idx[0], idx[1], idx[2]);
-        let c00 = lerp(at(r, g, b), at(r + 1, g, b), frac[0]);
-        let c10 = lerp(at(r, g + 1, b), at(r + 1, g + 1, b), frac[0]);
-        let c01 = lerp(at(r, g, b + 1), at(r + 1, g, b + 1), frac[0]);
-        let c11 = lerp(at(r, g + 1, b + 1), at(r + 1, g + 1, b + 1), frac[0]);
-        lerp(lerp(c00, c10, frac[1]), lerp(c01, c11, frac[1]), frac[2])
+        let normalized = li_color::lut::normalize_domain(c, self.domain_min, self.domain_max);
+        li_color::lut::sample(n, normalized, true, |r, g, b| self.data[r + n * (g + n * b)])
     }
 }
 
@@ -139,5 +104,39 @@ mod tests {
         assert!((v[0] - 0.8).abs() < 1e-5 && (v[2] - 0.1).abs() < 1e-5, "{v:?}");
         assert!(Lut3d::parse_cube("LUT_1D_SIZE 4\n0 0 0").is_err());
         assert!(Lut3d::parse_cube("LUT_3D_SIZE 2\n0 0 0\n").is_err(), "too few entries");
+    }
+    #[test]
+    fn shared_parser_and_sampler_forward_bit_identically() {
+        let text = format!("DOMAIN_MIN -1 -1 -1\nDOMAIN_MAX 1 1 1\n{}", cube(|c| [c[0] * c[1], c[1].sqrt(), c[2].powi(2)], 3));
+        let parsed = li_color::lutfile::parse_cube_with_domain(&text).unwrap();
+        let profile = Lut3d::parse_cube(&text).unwrap();
+        assert_eq!(
+            profile.data.as_flattened().iter().copied().map(f32::to_bits).collect::<Vec<_>>(),
+            parsed.lut.data.iter().copied().map(f32::to_bits).collect::<Vec<_>>()
+        );
+        for c in [[-1.; 3], [1.; 3], [-0.5, 0.5, 0.], [0.75, -0.25, 0.5]] {
+            let normalized = c.map(|v| (v + 1.) / 2.);
+            assert_eq!(profile.apply(c).map(f32::to_bits), li_color::lut::sample_rgb(&parsed.lut.data, 3, normalized, true).map(f32::to_bits));
+        }
+    }
+
+    #[test]
+    fn develop_accepts_3dl_and_look_with_shared_data() {
+        let id = li_color::lutfile::LutFile::identity(2);
+        let mut three_dl = String::new();
+        for r in 0..2 {
+            for g in 0..2 {
+                for b in 0..2 {
+                    three_dl.push_str(&format!("{} {} {}\n", r * 4095, g * 4095, b * 4095));
+                }
+            }
+        }
+        let hex: String = id.data.iter().flat_map(|v| v.to_le_bytes()).map(|b| format!("{b:02X}")).collect();
+        let look = format!("<look><size>2</size><data>{hex}</data></look>");
+        for (name, text) in [("identity.3dl", three_dl), ("identity.look", look)] {
+            let parsed = Lut3d::parse(name, text.as_bytes()).unwrap();
+            assert_eq!(parsed.data.as_flattened(), id.data.as_slice());
+            assert_eq!(parsed.apply([0.25, 0.5, 0.75]), [0.25, 0.5, 0.75]);
+        }
     }
 }

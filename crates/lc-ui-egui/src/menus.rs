@@ -120,7 +120,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("compare.makeSelect", "Make Candidate the Select", None, "View"),
     ("view.autoAdvance", "Auto Advance", None, "Photo"),
     ("view.filmstrip", "Filmstrip", Some("/"), "View"),
-    ("view.leftPanel", "My Photos Panel", Some("Cmd+Shift+L"), "View"),
+    ("view.leftPanel", "Catalog Panel", Some("Cmd+Shift+L"), "View"),
     ("view.beforeAfter", "Compare Before and After", Some("Y"), "View"),
     ("view.beforeAfterSplit", "Before/After Split", Some("Shift+Y"), "View"),
     ("view.beforeAfterTopBottom", "Before/After Top/Bottom", Some("Alt+Y"), "View"),
@@ -182,27 +182,29 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("brush.larger", "Increase Brush Size", Some("]"), "Window>Tools"),
     ("brush.featherLess", "Decrease Brush Feather", Some("Shift+["), "Window>Tools"),
     ("brush.featherMore", "Increase Brush Feather", Some("Shift+]"), "Window>Tools"),
-    ("dialog.newAlbum", "New Album…", None, "File"),
+    ("dialog.newAlbum", "New Collection…", None, "File"),
     ("dialog.newFolder", "New Folder…", Some("Cmd+Shift+N"), "File"),
-    ("dialog.smartAlbum", "New Smart Album…", None, "File"),
+    ("dialog.smartAlbum", "New Smart Collection…", None, "File"),
     ("view.photoCounts", "Show Photo Counts", None, "View"),
     ("view.slideshow", "Slideshow", Some("Cmd+Alt+Enter"), "View"),
     ("view.secondWindow", "Second Window", Some("Cmd+F11"), "Window"),
     ("tool.keywordPainter", "Keyword Painter", None, ""),
     ("view.gridInfo", "Grid Info", None, ""),
     ("dialog.allMetadata", "All Metadata…", None, "Photo"),
-    ("dialog.newSmartAlbum", "New Smart Album from Filter…", Some("Cmd+Alt+N"), "File"),
+    ("dialog.newSmartAlbum", "New Smart Collection from Filter…", Some("Cmd+Alt+N"), "File"),
     ("dialog.createPreset", "Create Preset…", Some("Cmd+Shift+P"), "Photo"),
     ("dialog.autoStack", "Auto-Stack by Capture Time…", None, "Photo>Stack"),
     ("dialog.copySettings", "Choose Edit Settings to Copy…", Some("Cmd+Shift+C"), "Edit"),
     ("dialog.pasteSettings", "Paste Selected Settings…", Some("Cmd+Shift+V"), "Edit"),
     ("dialog.syncSettings", "Sync Settings…", Some("Cmd+Shift+S"), "Photo"),
     ("view.focusSearch", "Find…", Some("Cmd+F"), "Edit"),
+    ("dialog.proofSheet", "Export Proof Sheet…", None, "File"),
     ("dialog.export", "Export…", Some("Cmd+Shift+E"), "File"),
     ("dialog.smartSort", "Smart Sort & Export…", None, "File"),
     // replace the original with the edited render (asks first; raws get a JPEG beside them)
     ("dialog.saveOverOriginal", "Save Over Original…", Some("Cmd+Alt+S"), "File"),
     ("photo.editInExternal", "Edit In…", Some("Cmd+E"), "Photo"),
+    ("dialog.mergePixelShift", "Sony Pixel Shift…", None, "Photo>Photo Merge"),
     ("dialog.mergeHdr", "HDR…", Some("Ctrl+H"), "Photo>Photo Merge"),
     ("dialog.mergePanorama", "Panorama…", Some("Ctrl+M"), "Photo>Photo Merge"),
     ("dialog.mergeHdrPanorama", "HDR Panorama…", None, "Photo>Photo Merge"),
@@ -226,6 +228,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("app.settings", "Preferences…", Some("Cmd+,"), "Edit"),
     ("app.openLibrary", "Open Library…", None, "File"),
     ("app.about", "About Local Image", None, "Help"),
+    ("app.checkUpdates", "Check for Updates…", None, "Help"),
     ("app.systemInfo", "System Info…", None, "Help"),
     ("app.whatsNew", "What's New", None, "Help"),
     ("dialog.cull", "Assisted Culling…", None, "Photo"),
@@ -320,6 +323,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
     }
     if let Some(language) = language_from_command(id) {
         app.ui.language = language;
+        if app.hosted_menus {
+            app.open_shared_language = Some(language);
+        }
         // Immediately, not on the next frame: the reply and anything else run this frame
         // (menus rebuilt from it, toasts) are already in the new language.
         crate::i18n::set_language(app.ui.language);
@@ -521,7 +527,11 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if !crate::panels::settings::TABS.iter().any(|(id, _)| *id == tab) {
                 return Some(Err(format!("unknown settings tab `{tab}` (general|import|performance|interface)")));
             }
-            app.ui.dialog = Some(Dialog::Settings { tab: tab.into() });
+            if app.hosted_menus {
+                app.open_shared_preferences = Some(tab.into());
+            } else {
+                app.ui.dialog = Some(Dialog::Settings { tab: tab.into() });
+            }
             Ok(Value::Null)
         }
         "app.openLibrary" => {
@@ -1003,6 +1013,11 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             crate::panels::smart_sort::open(app, p["selectedOnly"] == true);
             Ok(Value::Null)
         }
+        "dialog.proofSheet" => {
+            app.ui.dialog =
+                Some(Dialog::ProofSheet { opts: Default::default(), folder: crate::control::default_export_dir(), name: "Proof Sheet.pdf".into() });
+            Ok(Value::Null)
+        }
         "dialog.export" => {
             let prev = app.session.last_export.clone().unwrap_or_default();
             let dir = prev.get("dir").and_then(Value::as_str).map(str::to_string).unwrap_or_else(crate::control::default_export_dir);
@@ -1015,6 +1030,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "merge.hdrLast" => crate::merge::start_last(app, "merge.hdr"),
         "merge.panoramaLast" => crate::merge::start_last(app, "merge.panorama"),
         "merge.hdrPanoramaLast" => crate::merge::start_last(app, "merge.hdrPanorama"),
+        "dialog.mergePixelShift" => crate::merge::open(app, "merge.pixelShift"),
         "dialog.mergeHdr" => crate::merge::open(app, "merge.hdr"),
         "dialog.mergePanorama" => crate::merge::open(app, "merge.panorama"),
         "dialog.mergeHdrPanorama" => crate::merge::open(app, "merge.hdrPanorama"),
@@ -1050,6 +1066,10 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             app.ui.dialog = Some(Dialog::Cull { reject_below: 0.0, pick_best: true });
             Ok(Value::Null)
         }
+        "app.checkUpdates" => {
+            app.open_shared_updates = true;
+            Ok(Value::Null)
+        }
         "app.whatsNew" => {
             app.ui.dialog = Some(Dialog::WhatsNew);
             Ok(json!({"text": crate::panels::dialogs::WHATS_NEW}))
@@ -1073,7 +1093,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 ("Memory budget".to_string(), mb(lightcraft_engine::memory::default_budget() as u64)),
                 ("Preview size".to_string(), format!("{} px", app.ui.settings.preview_edge)),
                 ("Photos".to_string(), info["photos"].to_string()),
-                ("Albums".to_string(), info["albums"].to_string()),
+                ("Collections".to_string(), info["albums"].to_string()),
             ];
             if let Some(dir) = info["dir"].as_str().or(info["path"].as_str()) {
                 rows.push(("Library".into(), dir.to_string()));
@@ -1261,12 +1281,12 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if paths.is_empty() {
                 return Some(Ok(Value::Null));
             }
-            // .cube LUTs (and those inside zips / folders) become profiles
+            // LUTs (and those inside zips / folders) become profiles
             let lut_paths: Vec<&String> = paths
                 .iter()
                 .filter(|p| {
                     let l = p.to_ascii_lowercase();
-                    l.ends_with(".cube") || l.ends_with(".zip") || std::path::Path::new(p.as_str()).is_dir()
+                    crate::is_lut_file(p) || l.ends_with(".zip") || std::path::Path::new(p.as_str()).is_dir()
                 })
                 .collect();
             let profiles = if lut_paths.is_empty() {
@@ -1278,7 +1298,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                     .and_then(|v| v["imported"].as_array().map(Vec::len))
                     .unwrap_or(0)
             };
-            let preset_paths: Vec<&String> = paths.iter().filter(|p| !p.to_ascii_lowercase().ends_with(".cube")).collect();
+            let preset_paths: Vec<&String> = paths.iter().filter(|p| !crate::is_lut_file(p)).collect();
             let r = if preset_paths.is_empty() {
                 Ok(json!({"imported": [], "failed": [], "skipped": 0}))
             } else {
@@ -1442,9 +1462,13 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         "view.back" => can_go_back(app),
         "file.addPhotos" => app.services.pick_files.is_some(),
         s if s.starts_with("panel.") || s.starts_with("tool.") || s.starts_with("section.") => app.session.active().is_some() || s == "panel.close",
-        "app.export" | "dialog.export" | "dialog.createPreset" | "dialog.rename" | "dialog.captureTime" | "dialog.copySettings" => {
-            app.session.active().is_some()
-        }
+        "dialog.proofSheet"
+        | "app.export"
+        | "dialog.export"
+        | "dialog.createPreset"
+        | "dialog.rename"
+        | "dialog.captureTime"
+        | "dialog.copySettings" => app.session.active().is_some(),
         "dialog.saveOverOriginal" => app.session.active().and_then(|id| app.session.catalog.photo(id)).is_some_and(|p| {
             matches!(p.source, lightcraft_engine::catalog::Source::File { .. })
                 && p.copy_of.is_none()
@@ -1470,6 +1494,7 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         "file.backupLibrary" => app.services.backup_library.is_some(),
         "file.restoreLibrary" => app.services.restore_library.is_some(),
         "compare.swap" | "compare.makeSelect" => app.ui.view == ViewMode::Compare,
+        "dialog.mergePixelShift" => matches!(app.session.targets(&serde_json::json!({})).len(), 1 | 4 | 16) && app.merge.final_task.is_none(),
         s if s.starts_with("dialog.merge") || (s.starts_with("merge.") && s.ends_with("Last")) => {
             app.session.targets(&serde_json::json!({})).len() >= 2 && app.merge.final_task.is_none()
         }
@@ -1484,6 +1509,11 @@ pub struct MenuEntry {
     pub menu: Vec<String>,
     pub shortcut: Option<String>,
     pub enabled: bool,
+}
+
+/// Lightroom Classic names for legacy engine action labels (never catalog names or IDs).
+pub fn action_label(label: &str) -> String {
+    label.replace("Albums", "Collections").replace("Album", "Collection").replace("albums", "collections").replace("album", "collection")
 }
 
 /// The flattened menu model (UI commands + engine commands with menu paths).
@@ -1504,7 +1534,7 @@ pub fn menu_entries(app: &LightcraftApp) -> Vec<MenuEntry> {
         if !c.menu.is_empty() {
             v.push(MenuEntry {
                 id: c.id.into(),
-                label: c.label.into(),
+                label: action_label(c.label),
                 menu: c.menu.iter().map(|s| s.to_string()).collect(),
                 shortcut: effective.get(c.id).cloned(),
                 enabled: crate::panels::smart_sort::review_history_enabled(app, c.id).unwrap_or(c.enabled),

@@ -9,7 +9,7 @@ rust-version.workspace = true
 [features]
 # Real-file corpus tests (opt-in; `cargo xtask test-corpus`). Fail when the corpus is missing.
 corpus = []
-default = []
+default = ["jxl", "parallel"]
 # AVIF *encode* via ravif (pure Rust). Decoding AVIF needs dav1d (C), so AVIF
 # stays read-unsupported and therefore asymmetric; it is off by default.
 avif = ["dep:ravif"]
@@ -18,7 +18,15 @@ avif = ["dep:ravif"]
 # apps). Without it HEIF files are still recognised and opening one is a clear "unsupported" error.
 heif = ["dep:photocraft-heif"]
 
+jxl = ["dep:jxl-oxide"]
+parallel = ["jpeg-decoder/rayon"]
+
 [dependencies]
+photocraft-psd.workspace = true
+jxl-oxide = { workspace = true, optional = true }
+jpeg-decoder.workspace = true
+lightcraft-tiff = { workspace = true }
+li-color.workspace = true
 thiserror.workspace = true
 image = { workspace = true, features = ["gif", "bmp", "tga", "ico", "qoi", "hdr"] }
 png = "0.18"

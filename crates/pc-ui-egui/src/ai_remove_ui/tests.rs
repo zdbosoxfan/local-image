@@ -717,3 +717,144 @@ fn reasons_ux_selection_context_remove_adjusts_then_confirms_captured_mask() {
     assert_eq!(calls.borrow().as_slice(), &[adjusted]);
     assert!(h.state().ai_remove.is_none());
 }
+
+#[test]
+fn lama_offline_brush_adjust_confirm_and_explicit_qwen_choice() {
+    let mut h = harness();
+    crate::ai_ui::TEST_STATUS.with(|s| s.borrow_mut().as_mut().unwrap().connected = false);
+    crate::ai_ui::TEST_LAMA_READY.with(|r| *r.borrow_mut() = Some(true));
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let observed = calls.clone();
+    TEST_REMOVE.with(|m| {
+        *m.borrow_mut() = Some(Box::new(move |_, params| {
+            assert_eq!(params["engine"], "lama");
+            observed.set(observed.get() + 1);
+            Ok(json!({"layer": 999}))
+        }))
+    });
+    stroke(&mut h, 60.0, 80.0, Modifiers::NONE);
+    assert_eq!(calls.get(), 0, "brushing never submits");
+    let initial = h.state().ai_remove.as_ref().unwrap().mask.clone();
+    stroke(&mut h, 75.0, 80.0, Modifiers::ALT);
+    assert_ne!(initial, h.state().ai_remove.as_ref().unwrap().mask);
+    assert_eq!(calls.get(), 0, "adjusting never submits");
+    h.get_all_by_label("Remove").next().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(calls.get(), 1);
+    assert!(h.state().ai_remove.is_none());
+    // Choosing a generative engine remains explicit and is not silently substituted.
+    h.get_by_value("Automatic").click();
+    h.run_steps(2);
+    h.get_by_label("Qwen Compact").click();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.ai.remove_engine, "qwen-int8");
+    assert!(!ready(h.state()));
+    crate::ai_ui::TEST_LAMA_READY.with(|r| *r.borrow_mut() = None);
+    TEST_REMOVE.with(|m| *m.borrow_mut() = None);
+}
+
+#[test]
+fn lama_missing_download_preserves_painted_mask_and_opens_tools() {
+    let mut h = harness();
+    crate::ai_ui::TEST_STATUS.with(|s| s.borrow_mut().as_mut().unwrap().connected = false);
+    crate::ai_ui::TEST_LAMA_READY.with(|r| *r.borrow_mut() = Some(false));
+    stroke(&mut h, 60.0, 80.0, Modifiers::NONE);
+    let mask = h.state().ai_remove.as_ref().unwrap().mask.clone();
+    assert!(!ready(h.state()));
+    h.key_press(Key::Enter);
+    h.run_steps(3);
+    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, mask);
+    h.get_all_by_label("On-device Tools…").last().unwrap().click();
+    h.run_steps(3);
+    assert!(h.state().ui.dialogs.iter().any(|d| d.fields.get("section").and_then(serde_json::Value::as_str) == Some("ai.tools")));
+    crate::ai_ui::TEST_LAMA_READY.with(|r| *r.borrow_mut() = None);
+}
+
+#[test]
+fn lama_old_ai_options_load_and_explicit_engine_persists() {
+    let empty: crate::ai_ui::AiOptions = serde_json::from_value(json!({})).unwrap();
+    assert_eq!(empty.remove_engine, "auto");
+    assert!(!empty.remove_immediately);
+    for key in ["klein", "qwen-int8", "qwen-bf16", "lama"] {
+        let options: crate::ai_ui::AiOptions = serde_json::from_value(json!({"remove_engine":key})).unwrap();
+        assert_eq!(options.remove_engine, key);
+    }
+}
+
+#[test]
+#[ignore = "real local model and RTX 5090 offscreen app interaction; run explicitly"]
+fn lama_real_brush_gpu_confirm_stays_responsive_and_undoes() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(crate::ai_ui::EngineStatus { checked: true, connected: false, ..Default::default() }));
+    crate::ai_ui::TEST_LAMA_READY.with(|r| *r.borrow_mut() = None);
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/lama/photos/interior.jpg");
+    let input = image::imageops::resize(&image::open(source).unwrap().to_rgba8(), 640, 480, image::imageops::FilterType::Lanczos3);
+    let format = photocraft_color::PixelFormat::RGBA8;
+    let mut doc =
+        photocraft_doc::Document::new("CC0 interior", photocraft_geom::Size::new(640, 480), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
+    let mut layer = photocraft_doc::Layer::raster("CC0 source", format);
+    *layer.surface_mut().unwrap() = photocraft_raster::Surface::from_interleaved(format, doc.bounds(), input.as_raw());
+    doc.layers.push(layer);
+    let mut session = photocraft_engine::Session::new();
+    session.add_document(doc, None);
+    let mut setup = crate::gpu_canvas::wgpu_setup();
+    crate::gpu_canvas::use_adapter_limits_with(&mut setup, |adapter| {
+        let info = adapter.get_info();
+        assert_eq!(info.backend, eframe::wgpu::Backend::Vulkan);
+        assert_eq!(info.device_type, eframe::wgpu::DeviceType::DiscreteGpu);
+        assert!(info.name.contains("RTX 5090"), "{info:?}");
+        eprintln!("LaMa real app adapter: {info:?}");
+    });
+    let mut h = Harness::builder().with_size(vec2(1280.0, 800.0)).with_max_steps(64).wgpu_setup(setup).build_eframe(move |cc| {
+        PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+        let mut app = PhotocraftApp::new(session, crate::Services::default());
+        app.set_wgpu(cc.wgpu_render_state.as_ref().unwrap().clone());
+        app.ui.tool = Tool::AiRemove;
+        app.ui.ai.remove_engine = "lama".into();
+        app.session.tools.brush.size = 32.0;
+        app.background_jobs = true;
+        app
+    });
+    h.run_steps(6);
+    let before = h.state().session.active().unwrap().doc.clone();
+    stroke(&mut h, 280.0, 220.0, Modifiers::NONE);
+    stroke(&mut h, 290.0, 220.0, Modifiers::ALT);
+    assert_eq!(h.state().session.active().unwrap().doc, before, "brush/adjust are transient");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/lama/ui");
+    std::fs::create_dir_all(&root).unwrap();
+    h.render().unwrap().save(root.join("real-confirm.png")).unwrap();
+    let start = std::time::Instant::now();
+    h.get_all_by_label("Remove").next().unwrap().click();
+    h.run_steps(1);
+    let submit = start.elapsed();
+    assert!(submit.as_secs_f64() < 1.0, "submission must not wait for inference: {submit:?}");
+    let mut frames_ms = Vec::new();
+    while h.state().ai_remove.is_some() {
+        assert!(start.elapsed().as_secs() < 120, "real local removal timed out: {}", h.state().ui.status);
+        let frame = std::time::Instant::now();
+        h.run_steps(1);
+        h.render().unwrap();
+        frames_ms.push(frame.elapsed().as_secs_f64() * 1000.0);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let total = start.elapsed();
+    assert!(h.state().gpu_active() && h.state().perf.gpu, "real GPU canvas must remain active");
+    assert!(h.state().perf.gpu_fallback.is_none(), "{:?}", h.state().perf.gpu_fallback);
+    assert!(!frames_ms.is_empty(), "inference must span interactive frames");
+    let mean_frame = frames_ms.iter().sum::<f64>() / frames_ms.len() as f64;
+    frames_ms.sort_by(f64::total_cmp);
+    let p95_frame = frames_ms[(frames_ms.len() - 1) * 95 / 100];
+    let slowest_frame = frames_ms.last().copied().unwrap_or(0.0);
+    let repaired = h.state().session.active().unwrap().doc.clone();
+    assert_eq!(repaired.layers.len(), before.layers.len() + 1);
+    h.render().unwrap().save(root.join("real-repaired.png")).unwrap();
+    h.state_mut().run("edit.undo", json!({})).unwrap();
+    assert_eq!(h.state().session.active().unwrap().doc, before);
+    h.state_mut().run("edit.redo", json!({})).unwrap();
+    assert_eq!(h.state().session.active().unwrap().doc, repaired);
+    eprintln!(
+        "LaMa real app 640x480: submit_ms={} total_s={:.3} gpu_render_readback_mean_ms={mean_frame:.3} p95_ms={p95_frame:.3} max_ms={slowest_frame:.3}; brush/adjust/confirm/undo/redo passed",
+        submit.as_millis(),
+        total.as_secs_f64()
+    );
+}

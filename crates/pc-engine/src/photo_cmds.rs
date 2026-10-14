@@ -113,7 +113,7 @@ pub(crate) fn luma_alpha(surf: &Surface, area: Rect, k: usize) -> (usize, usize,
         for x in 0..w {
             let p = to_rgba(&fmt, &row[x * n..(x + 1) * n]);
             let i = (y / k) * sw + x / k;
-            l[i] += (0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) * p[3] + (1.0 - p[3]) * 0.0;
+            l[i] += (li_color::luminance_709([p[0], p[1], p[2]])) * p[3] + (1.0 - p[3]) * 0.0;
             a[i] += p[3];
             cnt[i] += 1.0;
         }
@@ -139,10 +139,10 @@ pub(crate) fn register(images: &[(&Surface, Rect)], layout: Layout, reference: O
             (w, h, l, valid)
         })
         .collect();
-    let feats = panorama::detect_many(&prepared, 800);
-    let matches = panorama::match_pairs(&feats);
+    let feats = panorama::detect_mops_many(&prepared, 800);
+    let matches = panorama::match_mops_pairs(&feats);
     let focal = focal35.map(|f| f / 36.0 * side as f64 / k as f64);
-    let a = panorama::align(&feats, &matches, &AlignOptions { layout, focal, reference, geometric })?;
+    let a = panorama::align_mops(&feats, &matches, &AlignOptions { layout, focal, reference, geometric })?;
     let kf = k as f64;
     Some(Alignment { placements: a.placements.iter().map(|p| p.as_ref().map(|p| p.scaled(kf))).collect(), focal: a.focal * kf, rms: a.rms * kf, ..a })
 }
@@ -582,7 +582,7 @@ fn shift_rgba(px: &[[f32; 4]], w: usize, h: usize, dx: i32, dy: i32) -> Vec<[f32
     (0..w * h)
         .map(|i| {
             let (x, y) = ((i % w) as i32 - dx, (i / w) as i32 - dy);
-            px[(y.clamp(0, h as i32 - 1) as usize) * w + x.clamp(0, w as i32 - 1) as usize]
+            if x < 0 || y < 0 || x >= w as i32 || y >= h as i32 { [0.0; 4] } else { px[y as usize * w + x as usize] }
         })
         .collect()
 }
@@ -594,6 +594,31 @@ fn merge_to_hdr(s: &mut Session, p: &Value) -> Result<Value> {
     if srcs.len() < 2 {
         return Err(bad(cmd, "Merge to HDR Pro needs two or more exposures"));
     }
+    let name = format!("Untitled_HDR{}", s.documents().len() + 1);
+    let params = p.clone();
+    crate::jobs::run(
+        s,
+        "Merge to HDR Pro",
+        false,
+        move |ctx| merge_hdr_document(srcs, icc, &params, &name, t0, ctx),
+        |s, (doc, mut info)| {
+            info["document"] = json!(s.add_document(doc, None));
+            Ok(info)
+        },
+    )
+}
+
+fn merge_hdr_document(
+    srcs: Vec<Source>,
+    icc: Option<std::sync::Arc<Vec<u8>>>,
+    p: &Value,
+    name: &str,
+    t0: Stopwatch,
+    ctx: &crate::jobs::JobCtx,
+) -> Result<(Document, Value)> {
+    let cmd = "file.automate.mergeToHdrPro";
+    ctx.check()?;
+    ctx.progress(0.0, "HDR: preparing exposures");
     let (w, h) = (srcs[0].w, srcs[0].h);
     if srcs.iter().any(|s| s.w != w || s.h != h) {
         return Err(EngineError::Other("the exposures must have the same pixel dimensions".into()));
@@ -622,12 +647,19 @@ fn merge_to_hdr(s: &mut Session, p: &Value) -> Result<Value> {
     if exposures.iter().any(|e| !(e.is_finite() && *e > 0.0)) {
         return Err(bad(cmd, "exposures must be positive"));
     }
-    // Alignment (Ward's MTB) to the middle exposure, on a downsampled grey copy.
+    ctx.check()?;
+    ctx.progress(0.15, "HDR: aligning exposures");
+    // Shared feature registration handles sub-pixel translation, rotation and scale.
+    // Keep Ward MTB as a fallback for brackets without enough matching texture.
     let mut order: Vec<usize> = (0..srcs.len()).collect();
     order.sort_by(|&a, &b| exposures[a].total_cmp(&exposures[b]));
     let mid = order[order.len() / 2];
     let mut offsets = vec![(0, 0); srcs.len()];
+    let mut alignment = vec![json!({"model": "identity"}); srcs.len()];
     if p.get("align").and_then(Value::as_bool).unwrap_or(true) {
+        let images: Vec<(&Surface, Rect)> = srcs.iter().map(|s| (&s.surf, area)).collect();
+        let registered = register(&images, Layout::Collage, Some(mid), false, None);
+        ctx.check()?;
         let k = w.max(h).div_ceil(1536).max(1);
         let grey = |im: &[[f32; 4]]| -> (usize, usize, Vec<f32>) {
             let (sw, sh) = (w.div_ceil(k), h.div_ceil(k));
@@ -645,9 +677,21 @@ fn merge_to_hdr(s: &mut Session, p: &Value) -> Result<Value> {
             if i == mid {
                 continue;
             }
+            ctx.check()?;
+            ctx.progress(0.15 + 0.2 * i as f32 / srcs.len() as f32, "HDR: aligning exposures");
+            if let Some(pl) = registered.as_ref().and_then(|a| a.placements[i].as_ref()) {
+                let warped = warp_placed(&srcs[i].surf, area, (0.0, 0.0), pl, (0.0, 0.0), Interp::Bicubic);
+                warped.read_rgba_into(area, &mut imgs[i]);
+                let centre = (w as f64 / 2.0, h as f64 / 2.0);
+                let mapped = pl.forward(centre.0, centre.1);
+                offsets[i] = ((mapped.0 - centre.0).round() as i32, (mapped.1 - centre.1).round() as i32);
+                alignment[i] = json!({"model": "similarity", "matrix": plane_matrix(pl, (0.0, 0.0)).map(|h| h.0), "rmsPx": registered.as_ref().map(|a| a.rms)});
+                continue;
+            }
             let (_, _, gi) = grey(&imgs[i]);
             let (dx, dy) = hdr::mtb_offset(sw, sh, &gref, &gi, 5);
             offsets[i] = (dx * k as i32, dy * k as i32);
+            alignment[i] = json!({"model": "mtb", "offset": offsets[i]});
             if offsets[i] != (0, 0) {
                 imgs[i] = shift_rgba(&imgs[i], w, h, offsets[i].0, offsets[i].1);
             }
@@ -657,8 +701,10 @@ fn merge_to_hdr(s: &mut Session, p: &Value) -> Result<Value> {
     if ghost_base.is_some_and(|g| g >= srcs.len()) {
         return Err(bad(cmd, "`ghostBase` is an image index"));
     }
+    ctx.check()?;
+    ctx.progress(0.4, "HDR: merging radiance");
     let refs: Vec<&[[f32; 4]]> = imgs.iter().map(Vec::as_slice).collect();
-    let merged = hdr::merge(
+    let merged = hdr::merge_with_progress(
         w,
         h,
         &refs,
@@ -668,8 +714,14 @@ fn merge_to_hdr(s: &mut Session, p: &Value) -> Result<Value> {
             ghost_base,
             response: None,
         },
+        &|fraction, stage| {
+            ctx.progress(0.4 + 0.4 * fraction, stage);
+            !ctx.cancelled()
+        },
     )
     .map_err(|e| bad(cmd, e))?;
+    ctx.check()?;
+    ctx.progress(0.8, "HDR: preparing document");
     let mode = p.get("mode").and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_u64().map(|n| n.to_string()))).unwrap_or_else(|| "32".into());
     let (depth, mut px) = match mode.as_str() {
         "32" => (SampleType::F32, merged.px.clone()),
@@ -703,7 +755,7 @@ fn merge_to_hdr(s: &mut Session, p: &Value) -> Result<Value> {
     for q in px.iter_mut() {
         q[3] = 1.0;
     }
-    let mut doc = Document::new(format!("Untitled_HDR{}", s.documents().len() + 1), Size::new(w as u32, h as u32), ColorMode::Rgb, depth);
+    let mut doc = Document::new(name, Size::new(w as u32, h as u32), ColorMode::Rgb, depth);
     doc.icc_profile = if depth == SampleType::F32 { Some(photocraft_cms::builtin::Builtin::LinearSrgb.profile().to_bytes()) } else { icc };
     let fmt = doc.pixel_format();
     let n = fmt.channels();
@@ -714,19 +766,24 @@ fn merge_to_hdr(s: &mut Session, p: &Value) -> Result<Value> {
     let mut surf = Surface::new(fmt);
     surf.write_region(area, &data);
     doc.layers.push(Layer::new("Background", LayerContent::Raster(surf)));
-    let idx = s.add_document(doc, None);
+    ctx.check()?;
+    ctx.progress(1.0, "HDR: done");
     let ev0 = exposures[order[0]];
-    Ok(json!({
-        "document": idx,
-        "mode": mode,
-        "exposureSource": source,
-        "ev": exposures.iter().map(|e| (e / ev0).log2()).collect::<Vec<_>>(),
-        "offsets": offsets,
-        "ghostBase": merged.ghost_base,
-        "ghostFraction": merged.ghost_fraction,
-        "stops": merged.stops,
-        "ms": t0.ms(),
-    }))
+    Ok((
+        doc,
+        json!({
+            "document": Value::Null,
+            "mode": mode,
+            "exposureSource": source,
+            "ev": exposures.iter().map(|e| (e / ev0).log2()).collect::<Vec<_>>(),
+            "offsets": offsets,
+            "alignment": alignment,
+            "ghostBase": merged.ghost_base,
+            "ghostFraction": merged.ghost_fraction,
+            "stops": merged.stops,
+            "ms": t0.ms(),
+        }),
+    ))
 }
 
 // ---------- Crop and Straighten Photos ----------
@@ -1018,6 +1075,71 @@ mod tests {
 
     fn photocraft_algo_srgb(v: f32) -> f32 {
         if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
+    }
+
+    #[test]
+    fn j19_hdr_alignment_keeps_uncovered_pixels_transparent() {
+        let pixels = vec![[0.3, 0.4, 0.5, 1.0]; 4 * 3];
+        let shifted = shift_rgba(&pixels, 4, 3, 1, -1);
+        assert_eq!(shifted[0], [0.0; 4]);
+        assert_eq!(shifted[1], pixels[5]);
+        assert_eq!(shifted[9], [0.0; 4]);
+    }
+
+    #[test]
+    fn j19_shared_registration_retains_subpixel_layer_coordinates() {
+        let (sw, sh) = (280usize, 220usize);
+        let source = scene(sw, sh, 31);
+        let (w, h) = (220usize, 160usize);
+        let sample = |x: f64, y: f64| {
+            let (x0, y0) = (x.floor() as usize, y.floor() as usize);
+            let (tx, ty) = ((x - x0 as f64) as f32, (y - y0 as f64) as f32);
+            let mut q = [0.0; 4];
+            for (c, value) in q.iter_mut().enumerate() {
+                let a = source[y0 * sw + x0][c] * (1.0 - tx) + source[y0 * sw + x0 + 1][c] * tx;
+                let b = source[(y0 + 1) * sw + x0][c] * (1.0 - tx) + source[(y0 + 1) * sw + x0 + 1][c] * tx;
+                *value = a * (1.0 - ty) + b * ty;
+            }
+            q
+        };
+        let frames: Vec<_> = [(20.0, 25.0), (23.25, 22.5)]
+            .into_iter()
+            .map(|(x0, y0)| {
+                let pixels: Vec<_> = (0..w * h).map(|i| sample(x0 + (i % w) as f64, y0 + (i / w) as f64)).collect();
+                let doc = doc_from("bracket", &pixels, w, h, SampleType::U16);
+                flattened(&doc, doc.pixel_format()).unwrap()
+            })
+            .collect();
+        let area = Rect::new(0, 0, w as i32, h as i32);
+        let images = [(&frames[0], area), (&frames[1], area)];
+        let alignment = register(&images, Layout::Collage, Some(0), false, None).unwrap();
+        let placement = alignment.placements[1].as_ref().unwrap();
+        let (x, y) = placement.forward(110.0, 80.0);
+        assert!((x - 113.25).hypot(y - 77.5) < 0.5, "{x}, {y}, rms={}", alignment.rms);
+        assert!(plane_matrix(placement, (0.0, 0.0)).is_some());
+    }
+
+    #[test]
+    fn j19_hdr_background_job_cancellation_leaves_sources_untouched() {
+        let mut session = Session::new();
+        let pixels = scene(96, 64, 19);
+        for ev in [-2.0f32, 0.0, 2.0] {
+            let pixels: Vec<_> = pixels.iter().map(|q| [q[0] * 2f32.powf(ev), q[1] * 2f32.powf(ev), q[2] * 2f32.powf(ev), 1.0]).collect();
+            session.add_document(doc_from("source", &pixels, 96, 64, SampleType::U8), None);
+        }
+        let started = session.start("file.automate.mergeToHdrPro", json!({"useOpenDocuments": true, "exposures": [-2, 0, 2], "align": false})).unwrap();
+        let crate::jobs::Started::Job(id) = started else { panic!("HDR must register a background worker") };
+        assert!(session.cancel_job(id));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            if let Some(event) = session.poll_jobs().into_iter().find(|event| event.id == id) {
+                assert_eq!(event.outcome, crate::jobs::JobOutcome::Cancelled);
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "cancelled HDR worker did not finish");
+            std::thread::yield_now();
+        }
+        assert_eq!(session.documents().len(), 3);
     }
 
     #[test]

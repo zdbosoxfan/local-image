@@ -9,6 +9,7 @@ description = "LightCraft Photo Merge: HDR merge (align, deghost) and panorama s
 workspace = true
 
 [dependencies]
+li-raster = { path = "../li-raster" }
 lightcraft-geom = { workspace = true }
 lightcraft-color = { workspace = true }
 lightcraft-raster = { workspace = true }

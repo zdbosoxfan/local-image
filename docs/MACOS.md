@@ -1,8 +1,8 @@
 # macOS on Apple Silicon
 
 Local Image 2 supports Apple Silicon (M1 or later) on macOS 13 or later. The native ARM64
-package needs no Rosetta, Python, Homebrew or Rust at runtime. HEIC/HEIF support and local
-SAM 3 masks are enabled in the macOS package; model weights are separate downloads.
+package needs no Rosetta, Python, Homebrew or Rust at runtime. HEIC/HEIF support is enabled in the macOS package; SAM 3 is off by default and model weights
+are separate downloads.
 
 ## Install
 
@@ -25,8 +25,9 @@ validate it using `xcrun stapler staple <package>` and `spctl -a -t install -vv 
   Capture sharpening uses reference CPU control planes to preserve zero-mask decisions, while
   its deconvolution iterations run on Metal. Unsupported operations keep their existing CPU paths.
   ARM64 SIMD and the shared Rayon thread pool accelerate CPU processing; the application respects the unified memory budget.
-* SAM 3 Object/Describe masks use Candle Metal with the `sam` feature in packaged builds.
-  Download/licence acceptance is required before using the actual checkpoint.
+* Optional builds with the `sam` feature can run SAM 3 Object/Describe masks through Candle
+  Metal. Default packages keep SAM 3 off. Download/licence acceptance is required before using
+  the actual checkpoint.
 * The small ONNX models use tract's native ARM64 CPU kernels. They do not use the Neural Engine.
 * CPU processing detects both performance and efficiency cores. Auto reserves one core of
   headroom (15 compute workers on a 16-core M4 Max); Preferences > Performance can override it.
@@ -76,7 +77,7 @@ cargo xtask package macos
 ```
 
 `cargo xtask package macos --skip-build` packages existing native release binaries. The caller
-must ensure those binaries have `local-image/heif,local-image/sam,local-image-cli/heif` enabled.
+must ensure those binaries have `local-image/heif,local-image-cli/heif` enabled.
 It checks ARM64 architecture, rejects non-system dylibs, includes attribution texts, creates
 an icon and document associations, signs nested code, verifies the app signature, builds the
 Installer package and writes a SHA-256 file. It disables Installer bundle relocation so an
@@ -94,7 +95,7 @@ cargo test -p xtask
 ```
 
 The macOS workflow builds ARM64, runs portable integration/threading tests and strict lint, and
-uploads the `.pkg` and checksum. Standard hosted VMs are not hardware acceleration evidence.
+uploads the `.pkg` and checksum. The separate [release workflow](RELEASE.md) also produces a DMG and bundle ZIP and wires optional Developer ID signing/notarization secrets. Standard hosted VMs are not hardware acceleration evidence.
 For full workspace and mandatory Metal parity, manually dispatch it with `metal_runner` enabled
 on a trusted self-hosted Apple Silicon runner labelled `metal` (plus `macOS` and `ARM64`). The
 legacy RTX-named acceptance tests require hardware Metal on macOS and retain their original

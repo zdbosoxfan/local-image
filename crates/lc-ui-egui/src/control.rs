@@ -227,7 +227,7 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
         }
         "ui.pointer" => {
             // events in normalized image coordinates of the displayed photo frame
-            let Some(img) = app.image_rect else { return err("no image on screen (switch to Detail view)") };
+            let Some(img) = app.image_rect else { return err("no image on screen (switch to Loupe view)") };
             let Some(events) = p.get("events").and_then(Value::as_array) else { return err("missing `events`") };
             let m = modifiers(p);
             for e in events {
@@ -301,7 +301,8 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
                 if (r.is_err()
                     && matches!(
                         d,
-                        crate::state::Dialog::Import { .. }
+                        crate::state::Dialog::ProofSheet { .. }
+                            | crate::state::Dialog::Import { .. }
                             | crate::state::Dialog::Export { .. }
                             | crate::state::Dialog::SaveOverOriginal { .. }
                             | crate::state::Dialog::SamModel { .. }

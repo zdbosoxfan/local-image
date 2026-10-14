@@ -5,6 +5,15 @@ use std::sync::Arc;
 
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, Visuals};
 
+/// Standard Develop section content inset.
+pub const PANEL_CONTENT_MARGIN: egui::Margin = egui::Margin { left: 24, right: 22, top: 4, bottom: 4 };
+
+/// Existing Library Preferences body width, shared by standalone and hosted rows.
+pub const PREFERENCES_BODY_WIDTH: f32 = 560.0;
+pub const CONTROL_FONT_SIZE: f32 = 13.0;
+pub const BUTTON_FONT_SIZE: f32 = 11.5;
+pub const DROPDOWN_ARROW_SPACE: f32 = 20.0;
+
 pub const FONT_SEMIBOLD: &str = "semibold";
 /// Shared inset for controls in a Develop section, matching the inherited panel grammar.
 pub const DEVELOP_INSET: egui::Margin = egui::Margin { left: 24, right: 22, top: 4, bottom: 4 };
@@ -60,6 +69,9 @@ pub struct Tokens {
     pub slider_row_h: f32,
     pub section_h: f32,
     pub film_h: f32,
+    /// Develop content inset, shared by profile choices.
+    pub panel_inset_left: i8,
+    pub panel_inset_right: i8,
 }
 
 impl Default for Tokens {
@@ -106,6 +118,8 @@ impl Default for Tokens {
             slider_row_h: 45.0,
             section_h: 57.0,
             film_h: 142.0,
+            panel_inset_left: 24,
+            panel_inset_right: 22,
         }
     }
 }
@@ -244,11 +258,7 @@ pub fn apply_tokens(ctx: &egui::Context, t: Tokens) {
 }
 
 fn luminance(color: Color32) -> f32 {
-    let linear = |v: u8| {
-        let v = f32::from(v) / 255.0;
-        if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
-    };
-    0.2126 * linear(color.r()) + 0.7152 * linear(color.g()) + 0.0722 * linear(color.b())
+    li_color::luminance_709([color.r(), color.g(), color.b()].map(|v| li_color::transfer::srgb_to_linear(f32::from(v) / 255.0)))
 }
 /// Choose a readable foreground on an opaque UI fill, not a document/image colour.
 pub fn text_on(background: Color32) -> Color32 {

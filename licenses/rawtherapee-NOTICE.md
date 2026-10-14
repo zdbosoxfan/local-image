@@ -37,8 +37,8 @@ Upstream: <https://github.com/RawTherapee/RawTherapee>, snapshot
   Copyright RawTherapee developers and camera calibration contributors, **GPL-3.0-or-later**.
   The dcraw matrix integers are divided by 10000; only cameras absent from rawler are added.
   A single daylight matrix stays single; no second illuminant is inferred.
-- `rtengine/dcp.cc` → DCP table interpolation in `crates/lc-color/src/profile.rs` and
-  dual-illuminant blending in `crates/lc-color/src/camera.rs`: Copyright (c) 2012
+- `rtengine/dcp.cc` → DCP table interpolation in `crates/li-color/src/profile.rs` and
+  dual-illuminant blending in `crates/li-color/src/camera.rs`: Copyright (c) 2012
   **Oliver Duis**, RawTherapee developers, **GPL-3.0-or-later**.
   DNG chapter 6 supplies the independent colour model/container definitions; our TIFF reader
   reads profile tags without an SDK. C++ extracted reference harnesses test numeric parity.
@@ -58,3 +58,43 @@ read-only robustness reference. **No code was ported from it.** Our existing spa
 held-out JPEG fit uses median bins, isotonic regression and validation instead of global CDF
 matching: this preserves correspondences and rejects unrelated previews. Low-colour photos
 with valid camera calibration can fit tone/chroma without fitting a new colour matrix.
+
+## Whole camera constants
+
+`crates/lc-raw/data/cameras/camconst.json` is distributed whole and unmodified from commit
+`5f486d3678b34c74ba0c63571c17babe20935019` (GPL-3.0-or-later). Its comments and contributor credits
+are intact. `camera_data.rs` follows `rtengine/camconst.cc` lookup/aperture conventions and
+`rtengine/pdaflinesfilter.cc` green-triplet outlier detection (copyright 2018 Alberto Griggio).
+Same-colour clean-row interpolation and robust phase medians are Local Image host adaptations.
+Hashes, precedence and refresh procedure are in `docs/CAMERA-DATA.md` and the data manifest.
+
+The camera reader also follows `rtengine/rawimage.cc` at the same pin for integer white-level
+mapping to TIFF bits per sample and the low-16-bit absolute black flag. No C++ is built or linked.
+### DCB demosaic (2026-10-13)
+`crates/lc-raw/src/demosaic/dcb.rs` ports RawTherapee's DCB integration from
+`rtengine/demosaic_algos.cc` at `5f486d3678b34c74ba0c63571c17babe20935019`.
+DCB Copyright (C) 2010 Jacek Gozdz (cuniek@kft.umcs.lublin.pl), BSD-3-Clause;
+RawTherapee integration GPL-3.0-or-later. Original DCB terms are reproduced in
+`rawtherapee-DCB-BSD-3-Clause.txt`. The Rust port uses normalized floating point,
+mirror padding, safe indexing and the shared Rayon pool. It adds no dependency.
+
+## Pixel Shift motion comparison
+
+`crates/lc-merge/src/pixelshift.rs` independently implements the repeated-green
+motion comparison method described by `rtengine/pixelshift.cc`, pinned at
+`5f486d3678b34c74ba0c63571c17babe20935019`.
+Copyright (C) 2016–2018 Ingo Weyrich <heckflosse67@gmx.de>, GPL version 3 or
+later. Static reconstruction follows Sony's measured lattice; variance comes
+from the existing complete camera/ISO profiles or bounded CFA noise estimates.
+The C++ implementation is reference-only and is never built into the app.
+
+Update with the pinned source row in `docs/PORTS.md`; compare the focused static,
+subtle-motion, chromatic-motion and real CC0 tests before changing thresholds,
+then regenerate app attributions. Preserve old failure/quality evidence.
+## User LCP interpretation (2026-10-14)
+The original safe Rust LCP reader and geometry evaluator follow Adobe Camera Model (2010),
+https://download.macromedia.com/pub/labs/lensprofile_creator/lensprofile_creator_cameramodel.pdf,
+and RawTherapee rtengine/lcp.cc at c6d04960e14fed89e531cbbdf680021d131b4685 (Oliver Duis and RawTherapee contributors, GPL-3.0-or-later).
+Perspective radial/tangential, chromatic and vignette equations are retained; interpolation is
+implementation-defined by Adobe. Unlike RT's optional Taylor vignette approximation, Local Image
+uses the exact reciprocal model. Adobe profiles remain in the user's install and are not shipped.

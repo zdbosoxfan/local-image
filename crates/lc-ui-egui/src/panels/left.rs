@@ -1,4 +1,4 @@
-//! The left "My Photos" panel: library sources, albums tree, and date groups.
+//! The left "Catalog" panel: library sources, albums tree, and date groups.
 
 use egui::{Align2, Rect, Sense, pos2, vec2};
 use lightcraft_catalog::{Album, AlbumId, KeywordNode};
@@ -67,7 +67,7 @@ fn sidebar_section_header(app: &mut LightcraftApp, ui: &mut egui::Ui, id: &str, 
         app.ui.toggle_sidebar_section(id);
     }
     let tip = match id {
-        "albums" => "Albums are collections of photos; adding a photo does not move its file.",
+        "albums" => "Collections group photos; adding a photo does not move its file.",
         "local" => "Browse folders on this device.",
         _ => title,
     };
@@ -94,7 +94,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.y = 0.0;
         let (hr, header) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
         header.on_hover_text(crate::i18n::tr("Catalog of imported photos."));
-        ui.painter().text(pos2(hr.left() + 18.0, hr.center().y), Align2::LEFT_CENTER, crate::i18n::tr("My Photos"), t.semibold(15.0), t.text);
+        ui.painter().text(pos2(hr.left() + 18.0, hr.center().y), Align2::LEFT_CENTER, crate::i18n::tr("Catalog"), t.semibold(15.0), t.text);
         let counts = app.caches.counts(&app.session.catalog);
         let (total, picks, deleted) = (counts.total, counts.picks, counts.deleted);
         egui::ScrollArea::vertical().id_salt("left-scroll").auto_shrink([false, false]).show(ui, |ui| {
@@ -117,25 +117,25 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             }
             ui.add_space(10.0);
             // Albums header
-            let (ar, albums_open) = sidebar_section_header(app, ui, "albums", "Albums");
+            let (ar, albums_open) = sidebar_section_header(app, ui, "albums", "Collections");
             let mut hdr = ui.new_child(
                 egui::UiBuilder::new()
                     .max_rect(Rect::from_min_max(pos2(ar.right() - 50.0, ar.top()), ar.right_bottom()))
                     .layout(egui::Layout::right_to_left(egui::Align::Center)),
             );
-            let plus = icon_button(&mut hdr, "albumNew", Icon::Plus, vec2(26.0, 26.0), false, true, "Create Album");
+            let plus = icon_button(&mut hdr, "albumNew", Icon::Plus, vec2(26.0, 26.0), false, true, "Create Collection");
             egui::Popup::menu(&plus).show(|ui| {
-                if ui.button(crate::i18n::tr("Create Album…")).clicked() {
+                if ui.button(crate::i18n::tr("Create Collection…")).clicked() {
                     app.ui.dialog = Some(crate::state::Dialog::NewAlbum { name: String::new(), folder: false });
                 }
-                if ui.button(crate::i18n::tr("Create Smart Album…")).clicked() {
+                if ui.button(crate::i18n::tr("Create Smart Collection…")).clicked() {
                     app.ui.dialog = Some(crate::state::Dialog::SmartRules {
                         id: None,
                         name: String::new(),
                         rules: lightcraft_catalog::RuleSet { rules: vec![crate::panels::rules_editor::new_rule()], ..Default::default() },
                     });
                 }
-                if ui.button(crate::i18n::tr("Create Smart Album from Filter…")).clicked() {
+                if ui.button(crate::i18n::tr("Create Smart Collection from Filter…")).clicked() {
                     app.ui.dialog = Some(crate::state::Dialog::NewSmartAlbum { name: String::new() });
                 }
                 if ui.button(crate::i18n::tr("Create Folder…")).clicked() {
@@ -599,7 +599,7 @@ fn albums_tree(app: &mut LightcraftApp, ui: &mut egui::Ui, all: &[Album], parent
             }
         } else {
             let sel = app.session.source == LibrarySource::Album(a.id);
-            let icon = if a.is_smart() { Icon::SmartAlbum } else { Icon::Album };
+            let icon = if a.is_smart() { Icon::SmartCollection } else { Icon::Collection };
             // cached: a smart album's count scans the catalog
             let now = (app.session.clock)();
             let n = app.caches.album_counts(&app.session.catalog, &now).get(&a.id).copied().unwrap_or(0);
@@ -612,7 +612,7 @@ fn albums_tree(app: &mut LightcraftApp, ui: &mut egui::Ui, all: &[Album], parent
                 drop_target(app, ui, &resp, a);
             }
             if let Some(rules) = &a.smart {
-                resp = resp.on_hover_text(crate::i18n::tr_format!("Smart album: {}", rules.describe()));
+                resp = resp.on_hover_text(crate::i18n::tr("Smart collection: {}").replace("{}", &rules.describe()));
             }
             if resp.clicked() {
                 let _ = app.run("library.source", json!({"kind": "album", "id": a.id.0}));
@@ -649,17 +649,17 @@ fn folder_menu(app: &mut LightcraftApp, resp: &egui::Response, a: &Album) {
         }
         if !a.folder && !a.is_smart() {
             let is_target = app.session.target_album == Some(a.id) || (app.session.target_album.is_none() && a.quick);
-            if !is_target && ui.button(crate::i18n::tr("Set as Target Album (B adds to it)")).clicked() {
+            if !is_target && ui.button(crate::i18n::tr("Set as Target Collection (B adds to it)")).clicked() {
                 let _ = app.run("album.setTarget", json!({"id": if a.quick { serde_json::Value::Null } else { json!(a.id.0) }}));
             }
-            if is_target && !a.quick && ui.button(crate::i18n::tr("Stop Using as Target Album")).clicked() {
+            if is_target && !a.quick && ui.button(crate::i18n::tr("Stop Using as Target Collection")).clicked() {
                 let _ = app.run("album.setTarget", json!({"id": null}));
             }
         }
         if a.quick && ui.button(crate::i18n::tr("Clear Quick Collection")).clicked() {
             let _ = app.run("album.clearQuick", json!({}));
         }
-        if a.is_smart() && ui.button(crate::i18n::tr("Edit Smart Album…")).clicked() {
+        if a.is_smart() && ui.button(crate::i18n::tr("Edit Smart Collection…")).clicked() {
             // older smart albums keep their filter fields; the editor works on the rule set
             let rules = a.smart.as_ref().and_then(|f| f.rule_set.clone()).unwrap_or_default();
             app.ui.dialog = Some(crate::state::Dialog::SmartRules { id: Some(a.id.0), name: a.name.clone(), rules });
@@ -674,12 +674,12 @@ fn folder_menu(app: &mut LightcraftApp, resp: &egui::Response, a: &Album) {
                 let _ = app.run("library.selectAll", json!({}));
             };
             let has_photos = app.session.catalog.album_count(a.id) > 0;
-            if ui.add_enabled(has_photos, egui::Button::new(crate::i18n::tr("Export Album…"))).clicked() {
+            if ui.add_enabled(has_photos, egui::Button::new(crate::i18n::tr("Export Collection…"))).clicked() {
                 show_all(app);
                 let _ = app.run("dialog.export", json!({}));
             }
             ui.add_enabled_ui(has_photos, |ui| {
-                ui.menu_button(crate::i18n::tr("Export Album with Preset"), |ui| {
+                ui.menu_button(crate::i18n::tr("Export Collection with Preset"), |ui| {
                     for (p, _) in app.session.all_export_presets() {
                         if ui.button(&p.name).clicked() {
                             show_all(app);

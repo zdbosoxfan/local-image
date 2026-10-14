@@ -893,7 +893,7 @@ fn grain_px(e: [f32; 3], (amt, cell, rough, seed): (f32, f32, f32, u32), n: Poin
     let sc = fp.px_per_long as f32 / cell;
     let mut g = grain_noise(gx * sc, gy * sc, seed);
     g = g * (1.0 - rough * 0.5) + grain_noise(gx * sc * 2.3, gy * sc * 2.3, seed ^ 0x55) * rough * 0.7;
-    let lum = 0.2126 * e[0] + 0.7152 * e[1] + 0.0722 * e[2];
+    let lum = li_color::luminance_709(e);
     let k = amt * g * (0.35 + 2.6 * lum * (1.0 - lum));
     e.map(|v| v + k)
 }
@@ -978,7 +978,7 @@ pub fn defringe_weight(c: [f32; 3], det: f32) -> f32 {
 /// `(s_curve / s_before)^refine`, so 1 keeps the curve, 0 restores the original saturation.
 #[inline]
 pub fn refine_saturation(before: [f32; 3], after: [f32; 3], refine: f32) -> [f32; 3] {
-    let luma = |e: [f32; 3]| 0.2126 * e[0] + 0.7152 * e[1] + 0.0722 * e[2];
+    let luma = li_color::luminance_709;
     let chroma = |e: [f32; 3]| e[0].max(e[1]).max(e[2]) - e[0].min(e[1]).min(e[2]);
     let (y0, y1) = (luma(before), luma(after));
     let s0 = chroma(before) / y0.max(1e-4);

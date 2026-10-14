@@ -43,6 +43,8 @@ impl DevelopSettings {
     pub fn to_json_full(&self) -> Value {
         let mut v = self.to_json();
         if let Some(o) = v.as_object_mut() {
+            o.entry("camera_profile").or_insert_with(|| serde_json::json!(self.camera_profile));
+            o.entry("lens_profile").or_insert_with(|| serde_json::json!(self.lens_profile));
             o.entry("negative").or_insert_with(|| serde_json::to_value(self.negative).unwrap_or(Value::Null));
             o.entry("raw").or_insert_with(|| serde_json::to_value(self.raw).unwrap_or(Value::Null));
             o.entry("lens_db").or_insert_with(|| serde_json::to_value(&self.lens_db).unwrap_or(Value::Null));
@@ -411,5 +413,26 @@ mod tests {
         assert_eq!(s.disabled_sections.len(), 1);
         s.set_section_enabled("effects", true);
         assert!(s.section_enabled("effects"));
+    }
+}
+
+#[cfg(test)]
+mod demosaic_compatibility_tests {
+    use super::*;
+    #[test]
+    fn demosaic_old_settings_and_new_overrides_round_trip() {
+        let old: DevelopSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.raw.demosaic, Demosaic::Auto);
+        for method in Demosaic::ALL.into_iter().chain([Demosaic::DualRcd]) {
+            let mut settings = old.clone();
+            settings.raw.demosaic = method;
+            let text = serde_json::to_string(&settings).unwrap();
+            assert_eq!(serde_json::from_str::<DevelopSettings>(&text).unwrap().raw.demosaic, method);
+        }
+        for key in ["auto", "ahd", "rcd", "dualRcd", "dualRcdVng", "vng4", "amaze", "dualAmazeVng", "ppg", "bilinear"] {
+            let old: DevelopSettings = serde_json::from_value(serde_json::json!({"raw":{"demosaic":key}})).unwrap();
+            assert_eq!(serde_json::to_value(old.raw.demosaic).unwrap(), key);
+        }
+        assert!(Demosaic::DualMarkesteijnVng.is_dual());
     }
 }

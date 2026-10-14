@@ -11,6 +11,12 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub struct DevelopSettings {
     pub version: u32,
     pub profile: Profile,
+    /// Camera input profile: empty = automatic, "matrix" = matrix only, otherwise an imported DCP id.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub camera_profile: String,
+    /// Imported lens profile: empty = automatic; otherwise an LCP id.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub lens_profile: String,
     /// The base rendition of a raw photo ([`Look`]). Left out at its default.
     #[serde(default, skip_serializing_if = "Look::is_default")]
     pub look: Look,
@@ -71,6 +77,8 @@ impl Default for DevelopSettings {
         Self {
             version: SCHEMA_VERSION,
             profile: Profile::default(),
+            camera_profile: String::new(),
+            lens_profile: String::new(),
             look: Look::default(),
             look_options: LookOptions::default(),
             treatment: Treatment::Color,
@@ -835,6 +843,7 @@ impl Default for Optics {
 /// to the oriented, default-cropped image. This is camera/file data (stored on the photo record, not in the develop
 /// settings); "Enable Profile Corrections" applies it, scaled by the profile distortion/vignetting amounts.
 /// Embedded data takes precedence over lensfun and any user profile.
+/// User-imported Adobe LCP profiles are carried separately by the render source.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EmbeddedLens {
@@ -859,7 +868,19 @@ pub struct EmbeddedRadial {
     pub radius: f64,
 }
 
-/// DNG `WarpRectilinear`: per plane (R, G, B) `[kr0, kr1, kr2, kr3, kt0, kt1]`. For an output (corrected) point at
+/// Sony's embedded radial correction samples, in the original vendor units.
+/// Kept whole at the lens boundary: these are sampled curves, not DNG polynomials.
+/// The lens-correction implementation decides their interpolation and reference geometry.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SonyLensData {
+    pub distortion: Vec<i16>,
+    pub ca_red: Vec<i16>,
+    pub ca_blue: Vec<i16>,
+    pub vignetting: Vec<i16>,
+}
+
+/// DNG warp: per plane (R, G, B) `[kr0, kr1, kr2, kr3, kt0, kt1]`. For an output (corrected) point at
 /// offset `d = (p − center) / radius`, the source point is `center + radius · (d·f(r²) + tangential(d))`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EmbeddedWarp {
@@ -870,6 +891,7 @@ pub struct EmbeddedWarp {
     /// Optical centre, normalized to the oriented image (0..1).
     pub center: Point,
     /// Normalisation radius as a fraction of the oriented image's long edge.
+    /// Rectilinear uses SDK half-open bounds; fisheye follows the raw opcode evaluator.
     pub radius: f64,
 }
 
@@ -1715,5 +1737,27 @@ mod filled_compat_tests {
             ..Default::default()
         };
         assert_eq!(tools.used_keys(), vec!["light"]);
+    }
+}
+
+#[cfg(test)]
+mod colorprofiles_tests {
+    use super::*;
+    #[test]
+    fn colorprofiles_old_settings_and_profile_copy_roundtrip() {
+        let old: DevelopSettings = serde_json::from_str(r#"{"light":{"exposure":1}}"#).unwrap();
+        assert!(old.camera_profile.is_empty());
+        assert!(old.lens_profile.is_empty());
+        let mut custom = old.clone();
+        custom.camera_profile = "dcp:custom".into();
+        custom.lens_profile = "lcp:custom".into();
+        assert_eq!(serde_json::from_str::<DevelopSettings>(&serde_json::to_string(&custom).unwrap()).unwrap(), custom);
+        let copy = crate::extract_groups(&custom, &[crate::SettingsGroup::Profile, crate::SettingsGroup::Optics]);
+        assert_eq!(old.merged(&copy).unwrap().camera_profile, "dcp:custom");
+        let reset = crate::extract_groups(&old, &[crate::SettingsGroup::Profile, crate::SettingsGroup::Optics]);
+        let restored = custom.merged(&reset).unwrap();
+        assert!(restored.camera_profile.is_empty());
+        assert!(restored.lens_profile.is_empty());
+        assert_ne!(old.hash64(), custom.hash64());
     }
 }

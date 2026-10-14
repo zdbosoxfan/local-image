@@ -72,10 +72,10 @@ pub(crate) fn luma(ctx: &Ctx, px: &[f32]) -> f32 {
     match ctx.mode {
         ColorMode::Grayscale | ColorMode::Bitmap | ColorMode::Duotone => px[0],
         ColorMode::Lab => px[0],
-        ColorMode::Rgb => 0.299 * px[0] + 0.587 * px[1] + 0.114 * px[2],
+        ColorMode::Rgb => li_color::convert::rgb_to_gray([px[0], px[1], px[2]]),
         _ => {
             let c = rgba(ctx, px);
-            0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+            li_color::convert::rgb_to_gray([c[0], c[1], c[2]])
         }
     }
 }
@@ -109,96 +109,11 @@ pub(crate) fn unpremul_px(px: &mut [f32], alpha: bool) {
     }
 }
 
-/// In-place running-sum box blur of every row of a `w × h × n` interleaved
-/// buffer with radius `r` (edges clamped). `scratch` must hold `w × n`.
-fn box_rows_n(buf: &mut [f32], w: usize, n: usize, r: usize, scratch: &mut Vec<f32>) {
-    if r == 0 || w == 0 {
-        return;
-    }
-    let norm = 1.0 / (2 * r + 1) as f64;
-    for row in buf.chunks_exact_mut(w * n) {
-        scratch.clear();
-        scratch.extend_from_slice(row);
-        // f64 sums: rounding must not depend on where a window starts (tile independence).
-        let at = |x: isize, c: usize| scratch[(x.clamp(0, w as isize - 1) as usize) * n + c] as f64;
-        for c in 0..n {
-            let mut acc: f64 = (-(r as isize)..=r as isize).map(|x| at(x, c)).sum();
-            for x in 0..w {
-                row[x * n + c] = (acc * norm) as f32;
-                acc += at(x as isize + r as isize + 1, c) - at(x as isize - r as isize, c);
-            }
-        }
-    }
-}
+pub(crate) use li_raster::blur::{box_blur_n, box_radii as gauss_box_radii};
 
-/// Same as [`box_rows_n`] over columns (no transpose; walks with a stride).
-fn box_cols_n(buf: &mut [f32], w: usize, h: usize, n: usize, r: usize, scratch: &mut Vec<f32>) {
-    if r == 0 || h == 0 {
-        return;
-    }
-    let norm = 1.0 / (2 * r + 1) as f64;
-    for x in 0..w {
-        scratch.clear();
-        for y in 0..h {
-            scratch.extend_from_slice(&buf[(y * w + x) * n..(y * w + x + 1) * n]);
-        }
-        let at = |y: isize, c: usize| scratch[(y.clamp(0, h as isize - 1) as usize) * n + c] as f64;
-        for c in 0..n {
-            let mut acc: f64 = (-(r as isize)..=r as isize).map(|y| at(y, c)).sum();
-            for y in 0..h {
-                buf[(y * w + x) * n + c] = (acc * norm) as f32;
-                acc += at(y as isize + r as isize + 1, c) - at(y as isize - r as isize, c);
-            }
-        }
-    }
-}
-
-/// Box blur of an interleaved buffer (radius `r` in both directions).
-pub(crate) fn box_blur_n(buf: &mut [f32], w: usize, h: usize, n: usize, r: usize) {
-    let mut scratch = Vec::with_capacity(w.max(h) * n);
-    box_rows_n(buf, w, n, r, &mut scratch);
-    box_cols_n(buf, w, h, n, r, &mut scratch);
-}
-
-/// Odd box widths whose 3-fold convolution approximates a Gaussian of `sigma`
-/// (Kovesi 2010), returned as radii.
-pub(crate) fn gauss_box_radii(sigma: f32) -> [usize; 3] {
-    let n = 3.0f32;
-    let w_ideal = (12.0 * sigma * sigma / n + 1.0).sqrt();
-    let mut wl = w_ideal.floor() as i32;
-    if wl % 2 == 0 {
-        wl -= 1;
-    }
-    let wl = wl.max(1);
-    let wu = wl + 2;
-    let m = ((12.0 * sigma * sigma - n * (wl * wl) as f32 - 4.0 * n * wl as f32 - 3.0 * n) / (-4.0 * wl as f32 - 4.0)).round().clamp(0.0, n) as usize;
-    let mut radii = std::array::from_fn(|i| if i < m { (wl as usize - 1) / 2 } else { (wu as usize - 1) / 2 });
-    // Kovesi's rounded triple degenerates below sigma ~ 0.577: `wl` floors to 1 and every
-    // radius becomes 0, so the passes would be no-ops and callers with documented small
-    // sigmas (Camera Raw `sharpenRadius` 0.5, colour noise, HDR Toning `radius` 1) would
-    // silently change nothing (issue #706). One radius-1 pass is the smallest real blur;
-    // it only engages where the ideal widths are already at their floor, leaving larger
-    // sigmas exactly as the paper prescribes.
-    if radii.iter().all(|&r| r == 0) {
-        radii[0] = 1;
-    }
-    radii
-}
-
-/// Approximate Gaussian blur (three box passes) of an interleaved buffer.
-/// Exact small kernels are not needed here: callers use it for smoothing
-/// fields and blur levels, where cost independent of `sigma` matters more.
+/// Shared running-sum field Gaussian; its halo is derived from the three box radii.
 pub(crate) fn gauss_blur_n(buf: &mut [f32], w: usize, h: usize, n: usize, sigma: f32) {
-    if sigma < 0.3 {
-        return;
-    }
-    let mut scratch = Vec::with_capacity(w.max(h) * n);
-    for r in gauss_box_radii(sigma) {
-        box_rows_n(buf, w, n, r, &mut scratch);
-    }
-    for r in gauss_box_radii(sigma) {
-        box_cols_n(buf, w, h, n, r, &mut scratch);
-    }
+    li_raster::blur::gaussian_boxes_n(buf, w, h, n, sigma);
 }
 
 /// Jittered feature point of grid cell `(cx, cy)` (cells of `cell` px anchored at `origin`).

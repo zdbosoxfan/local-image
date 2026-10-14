@@ -1078,6 +1078,13 @@ pub fn export_metadata(photo: &lightcraft_catalog::Photo, o: &ExportOptions) -> 
         out.gps = m.gps.map(|(latitude, longitude)| Gps { latitude, longitude, altitude: None });
     }
     if o.metadata == MetadataPolicy::All {
+        out.serial_number = m.serial_number.clone();
+        out.sony = m.sony.clone();
+        // All DJI telemetry may reveal location, including retained RTK/custom properties.
+        // The existing Remove Location control must also suppress that namespace.
+        if !o.remove_location {
+            out.dji = m.dji.clone();
+        }
         out.model = text(&m.camera);
         out.lens_model = text(&m.lens);
         out.focal_length = m.focal_mm.map(f64::from);
@@ -1804,8 +1811,8 @@ pub mod pipeline {
     use super::{Exported, PreparedExport};
 
     /// Batch renders that would use the GPU take this one at a time: concurrent full-size GPU
-    /// renders could exhaust video memory, and a failed GPU render turns the GPU off for the
-    /// process. Their decoding runs in parallel outside it. Interactive renders (loupe, grid)
+    /// renders could exhaust video memory. Device errors now use bounded recovery; local
+    /// ComfyUI pressure temporarily selects CPU rendering. Their decoding runs in parallel outside it. Interactive renders (loupe, grid)
     /// never take it.
     pub static GPU_GATE: Mutex<()> = Mutex::new(());
     /// AI enlargement (CPU inference or the ComfyUI GPU queue) in an export: one at a time.
@@ -2356,6 +2363,40 @@ mod tests {
     }
 
     #[test]
+    fn sony_dji_metadata_export_preserves_telemetry_and_respects_policies() {
+        use lightcraft_catalog::{Photo, PhotoId, Source};
+        let mut p = Photo::new(PhotoId(1), Source::Demo { scene: 0 }, "a.jpg", "jpeg", 10, 10, "2026-09-30T00:00:00");
+        let packet = r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:d="http://www.dji.com/drone-dji/1.0/" d:RelativeAltitude="+12.500" d:GimbalYawDegree="-45.25" d:FlightXSpeed="1.2" d:CustomLocation="retained source"/>"#;
+        p.meta.dji = lightcraft_meta::parse_xmp(packet).unwrap().metadata.dji;
+        p.meta.serial_number = Some("BODY123".into());
+        p.meta.sony = Some(lightcraft_meta::SonyMetadata { shutter_count: Some(42), ..Default::default() });
+        let all = export_metadata(&p, &ExportOptions::default()).unwrap();
+        assert_eq!(all.dji, p.meta.dji);
+        assert_eq!(all.sony, p.meta.sony);
+        assert_eq!(all.serial_number, p.meta.serial_number);
+        let sidecar = crate::sidecar::sidecar_packet(&p, &lightcraft_catalog::Catalog::default());
+        assert_eq!(lightcraft_meta::parse_xmp(&sidecar).unwrap().metadata.dji, p.meta.dji);
+        let scrubbed_photo = photo_for_sidecar(&p, false, true);
+        assert!(scrubbed_photo.meta.dji.is_none());
+
+        let jpeg = encode_with_metadata(&test_image(), &ExportOptions::default(), Some(&all)).unwrap();
+        assert_eq!(lightcraft_meta::extract(&jpeg).dji, p.meta.dji);
+        for policy in [MetadataPolicy::AllExceptCamera, MetadataPolicy::Copyright] {
+            let m = export_metadata(&p, &ExportOptions { metadata: policy, ..Default::default() }).unwrap();
+            assert!(m.dji.is_none() && m.sony.is_none() && m.serial_number.is_none());
+        }
+        let removed = export_metadata(&p, &ExportOptions { remove_location: true, ..Default::default() }).unwrap();
+        assert!(removed.dji.is_none());
+        assert!(!lightcraft_meta::write_xmp(&removed, None).contains("CustomLocation"));
+        let mut old = serde_json::to_value(&p.meta).unwrap();
+        for field in ["sony", "dji", "serial_number"] {
+            old.as_object_mut().unwrap().remove(field);
+        }
+        let old: lightcraft_catalog::Meta = serde_json::from_value(old).unwrap();
+        assert!(old.sony.is_none() && old.dji.is_none() && old.serial_number.is_none());
+    }
+
+    #[test]
     fn metadata_policies() {
         use lightcraft_catalog::{Photo, PhotoId, Source};
         let mut p = Photo::new(PhotoId(1), Source::Demo { scene: 0 }, "a.jpg", "jpeg", 10, 10, "2026-09-30T00:00:00");
@@ -2844,9 +2885,10 @@ fn photo_for_sidecar(
         add_people_keywords(&mut copy.meta.keywords, &copy.meta.regions);
     }
     let m = &photo.meta;
-    if remove_location && (m.gps.is_some() || [&m.location, &m.city, &m.state, &m.country].iter().any(|s| !s.trim().is_empty())) {
+    if remove_location && (m.dji.is_some() || m.gps.is_some() || [&m.location, &m.city, &m.state, &m.country].iter().any(|s| !s.trim().is_empty())) {
         let m = &mut photo.to_mut().meta;
         m.gps = None;
+        m.dji = None;
         m.location.clear();
         m.city.clear();
         m.state.clear();
@@ -2878,7 +2920,9 @@ fn ds2_original_export_borrows_photo_unless_people_keywords_are_requested() {
 /// Original files cannot be scrubbed while preserving their bytes. Include textual XMP/IPTC places.
 fn original_embeds_location(bytes: &[u8]) -> bool {
     let m = lightcraft_meta::extract(bytes);
-    m.gps.is_some() || [&m.sublocation, &m.city, &m.state, &m.country].into_iter().any(|s| s.as_deref().is_some_and(|s| !s.trim().is_empty()))
+    m.dji.is_some()
+        || m.gps.is_some()
+        || [&m.sublocation, &m.city, &m.state, &m.country].into_iter().any(|s| s.as_deref().is_some_and(|s| !s.trim().is_empty()))
 }
 
 #[test]

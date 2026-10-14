@@ -1,10 +1,11 @@
 //! Standard image codecs for LightCraft (layer L1).
 //!
 //! - [`sniff`] detects the container format (and flags camera raws for `lightcraft-raw`).
-//! - [`decode`] decodes JPEG, PNG, TIFF, WebP, GIF, BMP, PSD (merged composite) and JPEG XL into
+//! - [`decode`] adapts the shared JPEG, PNG, TIFF, WebP, HEIC, JPEG XL, PSD composite and other raster decoders to
 //!   **linear-light** [`Rgb32f`] in the source's own primaries, described by [`SourceSpace`]; ICC
 //!   profiles (matrix/TRC exactly, LUT/CMYK via the shared `photocraft-cms` CMS), 16-bit and float precision are
-//!   preserved. EXIF/XMP/ICC blobs are passed through untouched; orientation is reported, never applied.
+//!   preserved. Metadata stays opaque; orientation is reported for the caller, except HEIF/JXL
+//!   container transforms, which their decoders apply and normalize to prevent a second turn.
 //! - [`to_working`] converts a decode result to linear Rec.2020 D65 (the pipeline working space).
 //! - [`decode_thumbnail`] is the fast path for grid thumbnails (EXIF thumbnail or DCT-scaled decode).
 //! - [`encode`] writes JPEG, PNG, TIFF, lossless WebP and (native, feature `avif`) AVIF, embedding
@@ -20,20 +21,14 @@ pub mod exif;
 pub mod icc;
 mod jpeg;
 pub mod jpeg_par;
-#[cfg(feature = "jxl")]
-mod jxl;
-mod other;
-mod png_codec;
-mod psd;
 mod sniff;
 pub mod space;
-mod tiff_codec;
-mod webp;
 
 pub use encode::{
     ChromaSubsampling, EncodeImage, EncodeMeta, Samples, TiffCompression, encode_avif, encode_jpeg, encode_png, encode_tiff, encode_webp_lossless,
 };
 pub use sniff::{Format, sniff};
+pub use sniff::{PHOTO_EXTENSIONS, RAW_EXTENSIONS, is_readable_extension, raw_from_extension, readable_extensions, writable_extensions};
 pub use space::{NamedSpace, SourceSpace, SpaceOrigin, Trc};
 
 use lightcraft_raster::{Plane, Rgb32f, Rgba8};
@@ -62,7 +57,7 @@ pub struct DecodeOptions {
     /// Fit the result within this box (never upscales). JPEG uses DCT-domain scaling (1/2, 1/4,
     /// 1/8) before a final linear-light resample; other formats decode fully then resample.
     pub max_size: Option<(u32, u32)>,
-    /// Refuse images with more pixels than this (default 1 Gpx).
+    /// Refuse images with more pixels than this (default 32 Mi pixels).
     pub max_pixels: u64,
 }
 
@@ -159,22 +154,17 @@ pub fn decode(bytes: &[u8], opts: DecodeOptions) -> Result<Decoded> {
 /// [`decode`] without the panic guard (for fuzzing our own code paths).
 #[doc(hidden)]
 pub fn decode_unguarded(bytes: &[u8], format: Format, opts: &DecodeOptions) -> Result<Decoded> {
-    let opts = *opts;
-    match format {
-        Format::Jpeg => jpeg::decode(bytes, &opts),
-        Format::Png => png_codec::decode(bytes, &opts),
-        Format::Tiff => tiff_codec::decode(bytes, &opts),
-        Format::WebP => webp::decode(bytes, &opts),
-        Format::Gif | Format::Bmp => other::decode(bytes, format, &opts),
-        Format::Psd => psd::decode(bytes, &opts),
-        #[cfg(feature = "jxl")]
-        Format::Jxl => jxl::decode(bytes, &opts),
-        #[cfg(not(feature = "jxl"))]
-        Format::Jxl => Err(Error::Unsupported(format, "built without the `jxl` feature")),
-        Format::Avif => Err(Error::Unsupported(format, "no pure-Rust, permissively licensed AV1 decoder yet")),
-        Format::Heif => Err(Error::Unsupported(format, "no pure-Rust, permissively licensed HEVC decoder yet")),
-        Format::RawTiffLike | Format::RawOther => Err(Error::Unsupported(format, "camera raw: decode with lightcraft-raw")),
+    if format.is_raw() {
+        return Err(Error::Unsupported(format, "camera raw: decode with lightcraft-raw"));
     }
+    if format == Format::Jpeg {
+        return jpeg::decode(bytes, opts);
+    }
+    let shared_format = format.raster().ok_or(Error::UnknownFormat)?;
+    let limits = convert::shared_limits(opts);
+    let image = photocraft_codecs::decode_as_for_color(shared_format, bytes, &limits).map_err(|e| convert::shared_error(format, bytes, e))?;
+    let dims = image.dimensions();
+    convert::from_shared(format, image, dims, opts)
 }
 
 /// Convert a decode result to linear Rec.2020 D65 (Bradford-adapted), the develop working space.

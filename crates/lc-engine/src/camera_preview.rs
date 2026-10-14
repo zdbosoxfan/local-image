@@ -100,8 +100,10 @@ fn proxies(
     let mut sensor = fit(&sensor, size, size, Filter::Box);
     let reference = fit(&reference.into_oriented(raw.orientation), sensor.width, sensor.height, Filter::Box);
     let gain = 2f32.powf(transform.baseline_exposure as f32);
-    let tables =
-        lightcraft_raw::profile::ProfileTables::new(&raw.color.profile, lightcraft_raw::color::illuminant_weight(&raw.color, transform.white_xy));
+    let tables = lightcraft_raw::profile::ProfileTables::new_weighted(
+        &raw.color.profile,
+        lightcraft_raw::color::illuminant_weights(&raw.color, transform.white_xy),
+    );
     sensor.map_in_place(|p| {
         let p = transform.matrix.apply_f32(std::array::from_fn(|i| p[i] * transform.wb[i]));
         tables.as_ref().map_or_else(|| p.map(|v| v * gain), |t| t.apply(p, gain))
@@ -132,7 +134,7 @@ pub(crate) fn fit_profile(pairs: &[([f64; 3], [f64; 3])]) -> Option<(Mat3, Optio
 }
 
 fn sensor_proxy(raw: &RawImage, k: usize, edge: usize) -> Option<Rgb32f> {
-    let unbaked = raw.opcodes.list3.iter().any(crate::files::is_lens_opcode).then(|| {
+    let unbaked = (raw.opcodes.list3.iter().any(crate::files::is_lens_opcode) && crate::files::embedded_lens(&raw.info()).is_some()).then(|| {
         let mut source = raw.clone();
         source.opcodes.list3.retain(|op| !crate::files::is_lens_opcode(op));
         source
@@ -167,7 +169,7 @@ const MIN_IMPROVEMENT: f64 = 0.7;
 const MAX_HOLDOUT_RMS: f64 = 0.10;
 
 fn luma(p: [f64; 3]) -> f64 {
-    p[0] * 0.2627 + p[1] * 0.6780 + p[2] * 0.0593
+    li_color::luminance_2020_f64(p)
 }
 
 /// The finish stage's tone map and chroma curve (`lightcraft_pipeline::finish`).

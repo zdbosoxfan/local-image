@@ -9,6 +9,7 @@ description = "LightCraft develop pipeline: scene-referred, float, resolution in
 workspace = true
 
 [dependencies]
+li-color = { workspace = true }
 lightcraft-geom = { workspace = true }
 lightcraft-color = { workspace = true }
 lightcraft-raster = { workspace = true }

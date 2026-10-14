@@ -62,7 +62,7 @@ impl SettingsHashes {
 }
 
 /// Bump when the pipeline's output changes, to invalidate cached thumbnails.
-pub const RENDER_CACHE_VERSION: u64 = 18;
+pub const RENDER_CACHE_VERSION: u64 = 19;
 
 /// Thumbnails render at one of these long edges (so window/cell size changes reuse the cache).
 pub const THUMB_SIZES: [usize; 4] = [128, 256, 384, 512];
@@ -138,6 +138,10 @@ impl DecodedSource {
     pub fn info_or(&self, header: SourceInfo) -> SourceInfo {
         let mut i = self.info.clone().unwrap_or(SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header });
         i.lens_db = header.lens_db;
+        i.lcp = header.lcp;
+        if let Some(lcp) = &mut i.lcp {
+            lcp.exif_orientation = i.source_orientation;
+        }
         i
     }
 }
@@ -658,8 +662,6 @@ pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &
             "mask refinement requires CPU processing".to_string()
         } else if req.proof.is_some() {
             "soft proofing requires CPU processing".to_string()
-        } else if req.depth == lightcraft_pipeline::OutputDepth::F32Linear {
-            "linear float output requires CPU processing".to_string()
         } else if let Some(r) = lightcraft_gpu::render(src, info, s, req, stages) {
             log_develop_backend(&format!("GPU: {}", lightcraft_gpu::adapter_name().unwrap_or_default()));
             return r;
@@ -668,10 +670,10 @@ pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &
         };
         log_develop_backend(&format!("CPU: {cpu_reason}"));
     }
-    match stages {
+    lightcraft_sysmem::power::compute(|| match stages {
         Some(st) => lightcraft_pipeline::render_cached(src, info, s, req, st),
         None => lightcraft_pipeline::render(src, info, s, req),
-    }
+    })
 }
 
 #[cfg(test)]
@@ -777,7 +779,7 @@ pub fn content_key(p: &Photo) -> String {
 
 /// [`source_info`] with what the settings `s` add to it (the lens database's correction).
 pub fn job_info(p: &Photo, s: &DevelopSettings) -> SourceInfo {
-    SourceInfo { lens_db: crate::lens_db::for_photo(p, s), ..source_info(p) }
+    SourceInfo { lens_db: crate::lens_db::for_photo(p, s), lcp: crate::dcp_profiles::lens_for_photo(p, s), ..source_info(p) }
 }
 
 pub fn source_info(p: &Photo) -> SourceInfo {
@@ -789,7 +791,15 @@ pub fn source_info(p: &Photo) -> SourceInfo {
     // balance and the display tone curve, like any other rendered file.
     if p.develops_raw() {
         let (temp, tint) = if p.relative_wb() { (6500.0, 0.0) } else { p.as_shot_wb.unwrap_or((5500.0, 0.0)) };
-        SourceInfo { raw: true, as_shot_temp: temp, as_shot_tint: tint, lens: p.embedded_lens, relative_wb: p.relative_wb(), ..Default::default() }
+        SourceInfo {
+            raw: true,
+            as_shot_temp: temp,
+            as_shot_tint: tint,
+            lens: p.embedded_lens,
+            sony_lens: crate::files::sony_lens(p.meta.sony.as_ref()),
+            relative_wb: p.relative_wb(),
+            ..Default::default()
+        }
     } else {
         SourceInfo::default()
     }

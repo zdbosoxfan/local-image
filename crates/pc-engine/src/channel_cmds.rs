@@ -206,7 +206,7 @@ fn materialize(s: &mut Surface, r: Rect) {
 }
 
 fn luminosity(rgba: [f32; 4]) -> f32 {
-    0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
+    li_color::convert::rgb_to_gray([rgba[0], rgba[1], rgba[2]])
 }
 
 // ---------------------------------------------------------------------------------------------

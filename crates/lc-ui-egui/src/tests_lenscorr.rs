@@ -182,3 +182,24 @@ fn lenscorr_master_and_database_switches_click_and_preserve_precedence() {
         }
     }
 }
+
+#[test]
+fn lenscorr_merge_profile_picker_and_master_share_the_optics_panel() {
+    let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Services { png: None, ..Default::default() });
+    app.ui.settings.gpu = false;
+    app.ui.view = ViewMode::Detail;
+    app.ui.right = RightPanel::Edit;
+    app.ui.histogram = false;
+    app.ui.left_panel = false;
+    app.ui.filmstrip = false;
+    app.ui.open_sections = vec!["optics".into()];
+    let mut h = Headless::new(app, [1000.0, 1600.0], 1.0);
+    h.step();
+    h.step();
+    click(&mut h, "combo:lensProfile");
+    click(&mut h, "choice:lensProfile:none");
+    assert_eq!(settings(&h).lens_profile, "none");
+    click(&mut h, "optics:lensProfile");
+    assert!(settings(&h).optics.lens_profile);
+    assert_eq!(settings(&h).lens_profile, "none", "master must preserve imported profile choice");
+}

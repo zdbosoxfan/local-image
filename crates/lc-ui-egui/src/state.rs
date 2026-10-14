@@ -159,7 +159,7 @@ impl InfoOverlay {
 }
 
 /// App-level preferences (Settings dialog). They belong to the app, not a library, and are
-/// saved with the UI state in the app's config folder (`ui.json`, key `settings`); library
+/// saved with the UI state in the shared application Preferences store; library
 /// preferences (import defaults, XMP, cache size) live in the library's `prefs.json`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -286,6 +286,8 @@ pub struct UiState {
     pub thumb_size: f32,
     /// Open Edit sections by id.
     pub open_sections: Vec<String>,
+    /// Reveal the optional Negative tool without enabling conversion. Older UI states hide it.
+    pub negative_tool_visible: bool,
     /// Open flyouts (curve, mixer, grading…).
     pub open_flyouts: Vec<String>,
     /// Single-panel mode: opening one section closes the others.
@@ -491,6 +493,11 @@ impl Dialog {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Dialog {
+    ProofSheet {
+        opts: lightcraft_engine::proof_sheet::ProofOptions,
+        folder: String,
+        name: String,
+    },
     SmartSort {
         state: Box<crate::panels::smart_sort::SmartSortDialog>,
     },
@@ -690,6 +697,7 @@ impl Default for UiState {
             smart_sort_destination: String::new(),
             thumb_size: 220.0,
             open_sections: vec!["light".into()],
+            negative_tool_visible: false,
             open_flyouts: vec![],
             single_panel: false,
             show_clipping: false,

@@ -23,6 +23,10 @@ pub enum Format {
     Avif,
     /// HEIF/HEIC (HEVC-coded): read-only; see [`ASYMMETRIC_EXCEPTIONS`].
     Heif,
+    /// JPEG XL (read-only, behind `jxl`).
+    Jxl,
+    /// Photoshop PSD / PSB merged composite (read-only).
+    Psd,
 }
 
 /// What a format can hold **and** what this crate reads/writes for it.
@@ -59,6 +63,8 @@ pub const ASYMMETRIC_EXCEPTIONS: &[(Format, &str)] = &[
         "AVIF encode uses ravif (pure Rust) but decoding requires dav1d (C); read stays unsupported \
          until a pure-Rust AV1 decoder is viable. Only enabled with the non-default `avif` feature.",
     ),
+    (Format::Jxl, "JPEG XL decoding uses jxl-oxide behind the jxl feature; no JPEG XL encoder is available."),
+    (Format::Psd, "Photoshop merged composites are decoded here; layered PSD/PSB writing is provided by photocraft-psd."),
     (
         Format::Heif,
         "HEIC decode uses heic-rs (pure Rust, in the optional photocraft-heif crate behind the \
@@ -76,7 +82,7 @@ const ALL_LAYOUTS: &[ChannelLayout] = &[L::Gray, L::GrayA, L::Rgb, L::Rgba, L::C
 
 impl Format {
     /// Every format known to the crate (enabled or not).
-    pub const ALL: [Format; 14] = [
+    pub const ALL: [Format; 16] = [
         Format::Png,
         Format::Jpeg,
         Format::Tiff,
@@ -91,6 +97,8 @@ impl Format {
         Format::Hdr,
         Format::Avif,
         Format::Heif,
+        Format::Jxl,
+        Format::Psd,
     ];
 
     pub fn caps(self) -> FormatCaps {
@@ -119,27 +127,8 @@ impl Format {
             Format::Hdr => "Radiance HDR",
             Format::Avif => "AVIF",
             Format::Heif => "HEIF",
-        }
-    }
-
-    /// Recognized file extensions (lowercase, without dot); the first one is
-    /// the preferred extension for writing.
-    pub fn extensions(self) -> &'static [&'static str] {
-        match self {
-            Format::Png => &["png", "apng"],
-            Format::Jpeg => &["jpg", "jpeg", "jpe", "jfif"],
-            Format::Tiff => &["tif", "tiff"],
-            Format::WebP => &["webp"],
-            Format::Gif => &["gif"],
-            Format::Bmp => &["bmp", "dib"],
-            Format::Tga => &["tga", "icb", "vda", "vst"],
-            Format::Ico => &["ico"],
-            Format::Pnm => &["pnm", "pbm", "pgm", "ppm", "pam", "pfm"],
-            Format::Qoi => &["qoi"],
-            Format::OpenExr => &["exr"],
-            Format::Hdr => &["hdr"],
-            Format::Avif => &["avif"],
-            Format::Heif => &["heic", "heif", "hif"],
+            Format::Jxl => "JPEG XL",
+            Format::Psd => "Photoshop",
         }
     }
 
@@ -159,6 +148,8 @@ impl Format {
             Format::Hdr => "image/vnd.radiance",
             Format::Avif => "image/avif",
             Format::Heif => "image/heif",
+            Format::Jxl => "image/jxl",
+            Format::Psd => "image/vnd.adobe.photoshop",
         }
     }
 
@@ -212,6 +203,17 @@ pub fn caps(format: Format) -> FormatCaps {
             lossy: true,
             ..base
         },
+        Format::Jxl => FormatCaps {
+            read: cfg!(feature = "jxl"),
+            write: false,
+            depths: &[S::U8, S::U16, S::F32],
+            layouts: RGB_GRAY,
+            icc: true,
+            exif: true,
+            xmp: true,
+            ..base
+        },
+        Format::Psd => FormatCaps { write: false, depths: &[S::U8, S::U16, S::F32], layouts: RGB_GRAY, icc: true, ..base },
         Format::Heif => {
             FormatCaps { read: cfg!(feature = "heif"), write: false, depths: &[S::U8, S::U16], icc: true, exif: true, xmp: true, lossy: true, ..base }
         }
@@ -220,7 +222,7 @@ pub fn caps(format: Format) -> FormatCaps {
 
 /// Identify a format from its leading bytes (magic numbers). TGA has no
 /// magic and is recognized last, by header plausibility.
-pub fn detect(bytes: &[u8]) -> Option<Format> {
+fn detect_raster(bytes: &[u8]) -> Option<Format> {
     let b = bytes;
     if b.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Some(Format::Png);
@@ -269,22 +271,20 @@ pub fn detect(bytes: &[u8]) -> Option<Format> {
     None
 }
 
-/// The `ftyp` brands: the major brand, then the compatible ones (the minor version between them is skipped).
+/// ISO BMFF ftyp major and compatible brands (skip the minor version).
+/// Limit sniffing to the supplied prefix, with checked handling of malformed box sizes.
 fn ftyp_brands(b: &[u8]) -> impl Iterator<Item = &[u8; 4]> {
     let size = u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize;
-    let end = size.clamp(12, b.len().min(64));
-    b[8..end].as_chunks::<4>().0.iter().enumerate().filter(|(i, _)| *i != 1).map(|(_, c)| c)
+    let end = if size == 0 { b.len().min(4096) } else { size.min(b.len()).min(4096) };
+    b.get(8..end).unwrap_or_default().as_chunks::<4>().0.iter().enumerate().filter(|(i, _)| *i != 1).map(|(_, c)| c)
 }
 
 fn is_avif_ftyp(b: &[u8]) -> bool {
-    ftyp_brands(b).any(|c| c == b"avif" || c == b"avis")
+    ftyp_brands(b).any(|c| matches!(c, b"avif" | b"avis"))
 }
 
-/// HEVC-coded HEIF (`heic`, `heix`, ...) or a generic HEIF file (`mif1`, `msf1`, `miaf`) that is
-/// not AVIF (checked first). Sequence-only files (`hevc`, `msf1`) are recognised so that opening
-/// one says what is unsupported instead of "unrecognized format".
 fn is_heif_ftyp(b: &[u8]) -> bool {
-    ftyp_brands(b).any(|c| matches!(c, b"heic" | b"heix" | b"heim" | b"heis" | b"hevc" | b"hevx" | b"mif1" | b"msf1" | b"miaf"))
+    ftyp_brands(b).any(|c| matches!(c, b"heic" | b"heix" | b"heim" | b"heis" | b"hevc" | b"hevx" | b"hevm" | b"hevs" | b"mif1" | b"msf1" | b"miaf"))
 }
 
 fn looks_like_tga(b: &[u8]) -> bool {
@@ -321,4 +321,182 @@ fn looks_like_tga(b: &[u8]) -> bool {
 pub fn from_extension(ext: &str) -> Option<Format> {
     let ext = ext.rsplit(['.', '/', '\\']).next().unwrap_or(ext).to_ascii_lowercase();
     Format::ALL.into_iter().find(|f| f.extensions().contains(&ext.as_str()))
+}
+
+/// Container classification shared by raster and camera-raw callers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetectedFormat {
+    Raster(Format),
+    RawTiffLike,
+    RawOther,
+}
+
+/// Detect camera-raw containers as well as raster formats. A TIFF prefix may need
+/// its SubIFDs to distinguish raw sensor data from an ordinary TIFF preview.
+pub fn identify(b: &[u8]) -> Option<DetectedFormat> {
+    if b.starts_with(b"FUJIFILMCCD-RAW")
+        || b.starts_with(b"\0MRM")
+        || b.starts_with(b"FOVb")
+        || (b.len() >= 14 && b.starts_with(b"II") && &b[6..14] == b"HEAPCCDR")
+    {
+        return Some(DetectedFormat::RawOther);
+    }
+    if b.starts_with(b"IIRO") || b.starts_with(b"IIRS") || b.starts_with(b"MMOR") || b.starts_with(b"IIU\0") {
+        return Some(DetectedFormat::RawTiffLike);
+    }
+    if b.starts_with(&[0xff, 0x0a]) || b.starts_with(b"\0\0\0\x0cJXL \r\n\x87\n") {
+        return Some(DetectedFormat::Raster(Format::Jxl));
+    }
+    if b.len() >= 6 && b.starts_with(b"8BPS") && matches!(u16::from_be_bytes([b[4], b[5]]), 1 | 2) {
+        return Some(DetectedFormat::Raster(Format::Psd));
+    }
+    if b.len() >= 12 && &b[4..8] == b"ftyp" {
+        if ftyp_brands(b).any(|c| c == b"crx ") {
+            return Some(DetectedFormat::RawOther);
+        }
+        if ftyp_brands(b).any(|c| c == b"jxl ") {
+            return Some(DetectedFormat::Raster(Format::Jxl));
+        }
+    }
+    let format = detect_raster(b)?;
+    if format == Format::Tiff && tiff_is_raw(b) { Some(DetectedFormat::RawTiffLike) } else { Some(DetectedFormat::Raster(format)) }
+}
+
+/// Raster-only compatibility API. TIFF-structured raw files retain their TIFF
+/// container classification; callers routing raw files should use [`identify`].
+pub fn detect(b: &[u8]) -> Option<Format> {
+    match identify(b)? {
+        DetectedFormat::Raster(f) => Some(f),
+        DetectedFormat::RawTiffLike if b.starts_with(b"II*\0") || b.starts_with(b"MM\0*") || b.starts_with(b"II+\0") || b.starts_with(b"MM\0+") => {
+            Some(Format::Tiff)
+        }
+        DetectedFormat::RawTiffLike | DetectedFormat::RawOther => None,
+    }
+}
+
+// TIFF raw policy is shared with the pixel decoder, including the main IFD chain.
+fn tiff_is_raw(b: &[u8]) -> bool {
+    crate::codecs::tiff_ifd::File::parse(b).is_some_and(|file| file.is_camera_raw())
+}
+
+// Define each extension once. Consumers select readable or writable formats;
+// raw routing and folder scans share the same camera extension inventory.
+macro_rules! extension_registry {
+    ($( $format:ident => [$($ext:literal),+]),+; raw [$($raw:literal),+]) => {
+        impl Format {
+            /// Lowercase extensions, preferred writing extension first.
+            pub fn extensions(self) -> &'static [&'static str] {
+                match self { $(Self::$format => &[$($ext),+]),+ }
+            }
+        }
+        pub const RAW_EXTENSIONS: &[&str] = &[$($raw),+];
+        /// Known photo extensions; use capability filtering before opening.
+        pub const PHOTO_EXTENSIONS: &[&str] = &[$($($ext),+,)+ $($raw),+];
+    };
+}
+extension_registry! {
+    Png => ["png", "apng"],
+    Jpeg => ["jpg", "jpeg", "jpe", "jfif"],
+    Tiff => ["tif", "tiff"],
+    WebP => ["webp"],
+    Gif => ["gif"],
+    Bmp => ["bmp", "dib"],
+    Tga => ["tga", "icb", "vda", "vst"],
+    Ico => ["ico"],
+    Pnm => ["pnm", "pbm", "pgm", "ppm", "pam", "pfm"],
+    Qoi => ["qoi"],
+    OpenExr => ["exr"],
+    Hdr => ["hdr"],
+    Avif => ["avif"],
+    Heif => ["heic", "heif", "hif"],
+    Jxl => ["jxl"],
+    Psd => ["psd", "psb"];
+    raw ["dng", "cr2", "cr3", "nef", "nrw", "arw", "arq", "raf", "orf", "rw2", "rwl", "raw", "pef", "srw", "x3f", "3fr", "iiq", "erf", "mos", "srf", "sr2", "kdc", "dcr", "mef", "mrw", "fff", "crw"]
+}
+
+/// Camera raw extension (case-insensitive, also accepts file names).
+pub fn raw_from_extension(ext: &str) -> bool {
+    let ext = ext.rsplit(['.', '/', '\\']).next().unwrap_or(ext);
+    RAW_EXTENSIONS.iter().any(|known| ext.eq_ignore_ascii_case(known))
+}
+
+/// Extensions decoded by this build. Raw files use a separate camera decoder.
+pub fn readable_extensions() -> Vec<&'static str> {
+    Format::ALL.into_iter().filter(|f| f.caps().read).flat_map(Format::extensions).copied().collect()
+}
+
+/// Extensions encoded by this build; excludes read-only formats and camera raw.
+pub fn writable_extensions() -> Vec<&'static str> {
+    Format::ALL.into_iter().filter(|f| f.caps().write).flat_map(Format::extensions).copied().collect()
+}
+
+/// A format this build can read, optionally including camera raw files.
+pub fn is_readable_extension(ext: &str, include_raw: bool) -> bool {
+    (include_raw && raw_from_extension(ext)) || from_extension(ext).is_some_and(|f| f.caps().read)
+}
+
+#[cfg(test)]
+mod registry_tests {
+    use super::*;
+
+    #[test]
+    fn j6_registry_keeps_open_and_export_capabilities_separate() {
+        let read = readable_extensions();
+        let write = writable_extensions();
+        for format in Format::ALL {
+            for ext in format.extensions() {
+                assert_eq!(from_extension(ext), Some(format));
+                assert_eq!(from_extension(&format!("image.{}", ext.to_ascii_uppercase())), Some(format));
+                assert_eq!(read.contains(ext), format.caps().read);
+                assert_eq!(write.contains(ext), format.caps().write);
+                assert!(PHOTO_EXTENSIONS.contains(ext));
+            }
+        }
+        assert!(read.contains(&"psb"));
+        assert!(!write.contains(&"psb"));
+        assert!(!write.contains(&"jxl"));
+        assert!(!write.contains(&"heic"));
+        assert!(!read.contains(&"avif"));
+        for ext in RAW_EXTENSIONS {
+            assert!(raw_from_extension(&ext.to_ascii_uppercase()));
+            assert!(is_readable_extension(ext, true));
+            assert!(!is_readable_extension(ext, false));
+            assert!(!write.contains(ext));
+            assert!(PHOTO_EXTENSIONS.contains(ext));
+        }
+        let mut unique = PHOTO_EXTENSIONS.to_vec();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), PHOTO_EXTENSIONS.len());
+    }
+
+    #[test]
+    fn j6_shared_detection_handles_extended_bmff_and_malformed_sizes() {
+        let mut bmff = vec![0; 84];
+        bmff[..4].copy_from_slice(&84u32.to_be_bytes());
+        bmff[4..8].copy_from_slice(b"ftyp");
+        bmff[8..12].copy_from_slice(b"mif1");
+        bmff[80..84].copy_from_slice(b"avif");
+        assert_eq!(identify(&bmff), Some(DetectedFormat::Raster(Format::Avif)));
+        bmff[80..84].copy_from_slice(b"crx ");
+        assert_eq!(identify(&bmff), Some(DetectedFormat::RawOther));
+        for declared in [1u32, 8, 11] {
+            bmff[..4].copy_from_slice(&declared.to_be_bytes());
+            assert_eq!(identify(&bmff), None);
+        }
+        assert_eq!(identify(&[0xff, 0x0a]), Some(DetectedFormat::Raster(Format::Jxl)));
+        assert_eq!(identify(b"8BPS\0\x02"), Some(DetectedFormat::Raster(Format::Psd)));
+        assert_eq!(identify(b"8BPS\0\x03"), None);
+    }
+
+    #[test]
+    fn j6_shared_detection_keeps_raw_routing_and_tiff_compatibility() {
+        let raw = b"II*\0\x10\0\0\0CR\x02\0";
+        assert_eq!(identify(raw), Some(DetectedFormat::RawTiffLike));
+        assert_eq!(detect(raw), Some(Format::Tiff));
+        for raw in [b"FUJIFILMCCD-RAW".as_slice(), b"\0MRM", b"FOVb", b"IIRO"] {
+            assert!(matches!(identify(raw), Some(DetectedFormat::RawOther | DetectedFormat::RawTiffLike)));
+            assert_eq!(detect(raw), None);
+        }
+    }
 }

@@ -148,6 +148,9 @@ struct ViewFile {
 }
 
 impl Library {
+    pub(crate) fn finish_snapshot(&mut self) -> Result<()> {
+        self.journal.wait().map_err(Into::into)
+    }
     pub fn journal(&self) -> &Journal {
         &self.journal
     }
@@ -197,6 +200,7 @@ struct PrefsFile {
     /// Days after which untouched Local records of unbrowsed folders are forgotten (missing =
     /// the default, 0 = never).
     forget_local_days: Option<u32>,
+    backup: crate::library_safety::BackupPreferences,
 }
 
 fn presets_json(s: &Session) -> String {
@@ -398,6 +402,7 @@ impl Session {
         self.keyword_sets = prefs.keyword_sets;
         self.keyword_set = prefs.keyword_set;
         self.recent_keywords = prefs.recent_keywords;
+        self.backup_preferences = prefs.backup;
         self.import_defaults = prefs.import;
         crate::dcp_profiles::configure(&self.import_defaults.camera_profiles_folder);
         self.cache_mb = prefs.cache_mb;
@@ -558,7 +563,7 @@ impl Session {
             lib.last_error = None;
         }
         match (persisted, snapshot) {
-            (_, Ok(())) => Ok(()),
+            (_, Ok(())) => self.backup_library_after_snapshot(false).map(|_| ()),
             // neither the log nor the snapshot took the queued ops
             (Err(EngineError::NotSaved(e)), Err(s)) if lib.journal.seq() == before => Err(EngineError::NotSaved(format!("{e}; snapshot: {s}"))),
             (_, Err(s)) => Err(s.into()),
@@ -612,6 +617,7 @@ impl Session {
             keyword_set: self.keyword_set.clone(),
             recent_keywords: self.recent_keywords.clone(),
             import: self.import_defaults.clone(),
+            backup: self.backup_preferences.clone(),
             cache_mb: self.cache_mb,
             smart_previews_dir: self.smart_previews_dir.as_ref().map(|d| d.to_string_lossy().to_string()),
             forget_local_days: Some(self.forget_local_days),

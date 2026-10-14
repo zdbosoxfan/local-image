@@ -63,21 +63,34 @@ impl CameraProfile {
 
 /// LightCraft's configuration folder (settings, GPU marker, camera profiles).
 pub fn config_dir() -> Option<PathBuf> {
-    if cfg!(target_os = "macos") {
-        std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support/LightCraft"))
-    } else if cfg!(windows) {
-        std::env::var_os("APPDATA").map(|a| PathBuf::from(a).join("LightCraft"))
-    } else {
-        std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-            .map(|c| c.join("lightcraft"))
-    }
+    lightcraft_sysmem::app_dirs::config_dir()
 }
 
 /// Where camera profiles are read from and written to.
 pub fn dir() -> Option<PathBuf> {
     std::env::var_os("LIGHTCRAFT_CAMERA_PROFILES").map(PathBuf::from).or_else(|| config_dir().map(|d| d.join("camera-profiles")))
+}
+
+/// Legacy LightCraft profiles remain readable after unifying config directories. The canonical
+/// directory is always first and remains the only default write destination; an explicit profile
+/// override is exclusive. Legacy folders are migration inputs, not another settings directory.
+fn profile_read_dirs(primary: Option<PathBuf>, env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Vec<PathBuf> {
+    let mut directories: Vec<_> = primary.into_iter().collect();
+    if env("LIGHTCRAFT_CAMERA_PROFILES").is_none()
+        && let Some(legacy) = lightcraft_sysmem::app_dirs::platform_dir(&env)
+    {
+        let legacy = legacy.with_file_name(if cfg!(target_os = "linux") { "lightcraft" } else { "LightCraft" }).join("camera-profiles");
+        if !directories.contains(&legacy) {
+            directories.push(legacy);
+        }
+    }
+    directories
+}
+fn read_dirs() -> Vec<PathBuf> {
+    profile_read_dirs(dir(), |key| std::env::var_os(key))
+}
+fn profile_path(directories: Vec<PathBuf>, model: &str) -> Option<PathBuf> {
+    directories.into_iter().map(|directory| directory.join(file_name(model))).find(|path| path.is_file())
 }
 
 /// File name of `model`'s profile: letters, digits, `-` and `_` kept, anything else `_`.
@@ -137,7 +150,7 @@ pub fn get(model: &str) -> Option<Arc<CameraProfile>> {
     if let Some(hit) = cache.get(model) {
         return hit.clone();
     }
-    let path = dir().map(|d| d.join(file_name(model)));
+    let path = profile_path(read_dirs(), model);
     let profile = match path {
         Some(path) if path.is_file() => match load(&path) {
             Ok(p) if p.model.trim() == model => Some(Arc::new(p)),
@@ -162,7 +175,7 @@ pub fn get(model: &str) -> Option<Arc<CameraProfile>> {
 pub fn cache_key() -> u64 {
     static KEY: OnceLock<u64> = OnceLock::new();
     *KEY.get_or_init(|| {
-        let entries = dir().and_then(|d| std::fs::read_dir(d).ok());
+        let entries = read_dirs().into_iter().filter_map(|directory| std::fs::read_dir(directory).ok());
         let mut files: Vec<(String, u64, u64)> = entries
             .into_iter()
             .flatten()
@@ -247,6 +260,34 @@ mod tests {
     fn profile() -> CameraProfile {
         let table = HsvTable { hue_divisions: 4, sat_divisions: 2, val_divisions: 1, data: vec![[5.0, 1.2, 1.0]; 8], srgb_value: false };
         CameraProfile::new("ILCE-7M4", 12, 3456, Mat3([[1.6, -0.5, -0.1], [-0.2, 1.3, -0.1], [-0.1, -0.2, 1.3]]), Some(table))
+    }
+
+    #[test]
+    fn j16_legacy_profiles_remain_readable_and_canonical_writes_take_precedence() {
+        let root = std::env::temp_dir().join(format!("lc-j16-profiles-{}", std::process::id()));
+        let canonical = root.join("canonical/camera-profiles");
+        let env = |key: &str| match key {
+            "HOME" | "APPDATA" | "XDG_CONFIG_HOME" => Some(root.join("old-home").into_os_string()),
+            _ => None,
+        };
+        let directories = profile_read_dirs(Some(canonical.clone()), env);
+        let legacy = directories.last().unwrap();
+        assert_ne!(legacy, &canonical);
+        let old_path = save(&profile(), legacy).unwrap();
+        let bytes = std::fs::read(&old_path).unwrap();
+        let path = profile_path(directories.clone(), "ILCE-7M4").unwrap();
+        assert_eq!(path, old_path);
+        assert_eq!(load(&path).unwrap(), profile());
+        let mut updated = profile();
+        updated.files += 1;
+        let new_path = save(&updated, &canonical).unwrap();
+        assert_eq!(profile_path(directories, "ILCE-7M4"), Some(new_path));
+        assert_eq!(std::fs::read(&old_path).unwrap(), bytes);
+        let exclusive = profile_read_dirs(Some(canonical.clone()), |key| {
+            if key == "LIGHTCRAFT_CAMERA_PROFILES" { Some(canonical.clone().into_os_string()) } else { env(key) }
+        });
+        assert_eq!(exclusive, vec![canonical]);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

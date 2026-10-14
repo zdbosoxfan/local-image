@@ -17,10 +17,12 @@ pub mod headless;
 pub mod i18n;
 pub mod icons;
 pub mod import;
+mod library_safety_ui;
 pub mod links;
 pub mod menubar;
 pub mod menus;
 pub mod merge;
+pub mod proof_sheet;
 #[rustfmt::skip] // Keep shared artwork code under Compositing's rustfmt configuration.
 #[path = "../../pc-ui-egui/src/mono_tool_icons.rs"]
 mod mono_tool_icons;
@@ -211,8 +213,14 @@ pub struct LightcraftApp {
     pub hosted_menus: bool,
     pub shared_shortcuts: bool,
     pub open_shared_shortcuts: bool,
+    /// The host owns the read-only update worker/window.
+    pub open_shared_updates: bool,
     /// Open the host's shared AI resource preferences from Library or Develop.
     pub open_shared_ai: bool,
+    /// Hosted Preferences request (legacy command/tab ids are unchanged).
+    pub open_shared_preferences: Option<String>,
+    /// Legacy language commands update the shared Interface preference when hosted.
+    pub open_shared_language: Option<i18n::Locale>,
     pub host_modal: bool,
     /// Runtime mirror of the host's single persisted shortcut authority.
     pub shortcut_overrides: std::collections::BTreeMap<String, String>,
@@ -262,10 +270,12 @@ pub struct LightcraftApp {
     pub merge: merge::MergeState,
     /// An import in progress (the import review dialog's batches).
     pub import: Option<import::ImportTask>,
+    pub(crate) import_preview_queue: std::collections::VecDeque<(u64, String, Vec<u64>)>,
     /// A folder scan in progress (feeds the import review).
     pub scan: Option<import::ScanTask>,
     /// A background export in progress.
     pub export: Option<export_task::ExportTask>,
+    pub proof: Option<proof_sheet::ProofTask>,
     pub smart_sort: Option<smart_sort_task::SmartSortTask>,
     pub people_task: Option<people_task::PeopleTask>,
     pub people_images: people_task::SeedImages,
@@ -331,7 +341,10 @@ impl LightcraftApp {
             hosted_menus: false,
             shared_shortcuts: false,
             open_shared_shortcuts: false,
+            open_shared_updates: false,
             open_shared_ai: false,
+            open_shared_preferences: None,
+            open_shared_language: None,
             host_modal: false,
             shortcut_overrides: Default::default(),
             native_shortcuts: Default::default(),
@@ -359,8 +372,10 @@ impl LightcraftApp {
             loupe_shown: None,
             merge: merge::MergeState::default(),
             import: None,
+            import_preview_queue: Default::default(),
             scan: None,
             export: None,
+            proof: None,
             smart_sort: None,
             people_task: None,
             people_images: Default::default(),
@@ -995,6 +1010,7 @@ impl LightcraftApp {
         panels::enhance::poll(self, &ctx);
         // Completion/failure collection continues even while interactive windows are suspended.
         export_task::poll(self, &ctx);
+        proof_sheet::poll(self, &ctx);
         if self.ui.fullscreen {
             // full-screen preview: the photo alone on black
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::BLACK)).show(ui, |ui| panels::detail::show(self, ui));
@@ -1115,7 +1131,12 @@ pub fn is_bw(d: &lightcraft_develop::DevelopSettings) -> bool {
 /// Files dropped on the window that are presets rather than photos.
 pub fn is_preset_file(path: &str) -> bool {
     let ext = std::path::Path::new(path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    ["lcpreset", "lrtemplate", "xmp", "zip", "cube", "lmp", "mplumpack"].contains(&ext.as_str())
+    ["lcpreset", "lrtemplate", "xmp", "zip", "cube", "3dl", "look", "lmp", "mplumpack"].contains(&ext.as_str())
+}
+
+/// Formats routed through the shared LUT profile importer rather than the preset parser.
+pub(crate) fn is_lut_file(path: &str) -> bool {
+    std::path::Path::new(path).extension().is_some_and(|extension| ["cube", "3dl", "look"].iter().any(|kind| extension.eq_ignore_ascii_case(kind)))
 }
 
 /// Splits dropped files into presets and everything else. An `.xmp` dropped next to a photo with the
@@ -1156,7 +1177,18 @@ mod drop_tests {
 
     #[test]
     fn dropped_presets_are_told_apart_from_photos() {
-        for p in ["/a/Look.lrtemplate", "/a/b.XMP", "/a/pack.zip", "/a/x.lcpreset", "/a/Magic Hour.mplumpack", "/a/Pop.lmp", "/a/Bundle.LMP"] {
+        for p in [
+            "/a/Look.lrtemplate",
+            "/a/b.XMP",
+            "/a/pack.zip",
+            "/a/x.lcpreset",
+            "/a/Magic Hour.mplumpack",
+            "/a/Pop.lmp",
+            "/a/Bundle.LMP",
+            "/a/Warm.cube",
+            "/a/Drone.3DL",
+            "/a/Final.LOOK",
+        ] {
             assert!(super::is_preset_file(p), "{p}");
         }
         for p in ["/a/IMG_1.CR2", "/a/b.dng", "/a/c.jpg", "/a/folder"] {
@@ -1450,3 +1482,15 @@ mod tests_library_navigation;
 
 #[cfg(test)]
 mod shared_shell_tests;
+
+#[cfg(test)]
+mod tests_updates;
+
+#[cfg(test)]
+mod tests_lrc_ux;
+
+#[cfg(test)]
+mod tests_camera_data;
+
+#[cfg(test)]
+mod library_safety_tests;

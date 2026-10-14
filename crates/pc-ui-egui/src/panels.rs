@@ -472,6 +472,11 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 controls_left = {
                     let ui = &mut group_ui;
                     ui.spacing_mut().item_spacing.x = 6.0;
+                    if app.host_modes
+                        && let Some(m) = widgets::module_switcher(ui, app.current_module)
+                    {
+                        app.switch_module = Some(m);
+                    }
                     let mut ws = app.ui.workspace.clone();
                     let opts = [
                         // Keys stay English (`apply_workspace` matches them); the dropdown
@@ -507,12 +512,6 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         let next = app.ui.theme.next();
                         app.set_theme(ui.ctx(), next);
                     }
-                    // local-image: the host's modes, left of the workspace switcher.
-                    if app.host_modes
-                        && let Some(m) = mode_switch(ui, &t, crate::Module::Compositing, custom)
-                    {
-                        app.switch_module = Some(m);
-                    }
                     ui.min_rect().left()
                 };
             });
@@ -533,51 +532,6 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if custom {
         crate::titlebar::caption_buttons(app, ui, bar.response.rect);
     }
-}
-
-/// local-image: the module buttons with the current module selected.
-/// Laid out right to left (the title bar's right-hand group).
-fn mode_switch(ui: &mut egui::Ui, t: &Tokens, current: crate::Module, compact: bool) -> Option<crate::Module> {
-    let mut go = None;
-    egui::Frame::NONE.fill(t.field).corner_radius(5.0).inner_margin(egui::Margin::same(2)).show(ui, |ui| {
-        let labels = crate::Module::ALL.map(|m| (m, egui::RichText::new(tl!(m.label())).size(12.0).color(if m == current { t.text } else { t.text_dim })));
-        // with_layout retains the whole right-to-left parent's rect. Switching its direction
-        // starts at the far left, making min_rect span the bar and consuming the entire drag gap.
-        // Allocate only the buttons' measured width before changing direction. Keep the native
-        // title-bar path (macOS) unchanged.
-        let width = if compact {
-            labels
-                .iter()
-                .map(|(_, text)| {
-                    let galley = egui::WidgetText::from(text.clone()).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Button);
-                    (galley.size().x + 2.0 * ui.spacing().button_padding.x).max(58.0)
-                })
-                .sum::<f32>()
-                + 4.0
-        } else {
-            0.0
-        };
-        let buttons = |ui: &mut egui::Ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            for (m, text) in labels {
-                let on = m == current;
-                let fill = if on { t.chrome } else { egui::Color32::TRANSPARENT };
-                let r = ui.add(egui::Button::new(text).fill(fill).corner_radius(4.0).min_size(vec2(58.0, 22.0)));
-                ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("host-mode-rect", m.digit())), r.rect));
-                let key = crate::shortcuts::pretty(&format!("Cmd+Alt+{}", m.digit()));
-                if r.on_hover_text(format!("{}  ({key})", tl!(m.tip()))).clicked() && !on {
-                    go = Some(m);
-                }
-            }
-        };
-        let layout = egui::Layout::left_to_right(egui::Align::Center);
-        if compact {
-            ui.allocate_ui_with_layout(vec2(width, 22.0), layout, buttons);
-        } else {
-            ui.with_layout(layout, buttons);
-        }
-    });
-    go
 }
 
 /// local-image: the title bar over the hosted Library and Develop modules: the brand mark, `title`,
@@ -614,7 +568,7 @@ pub fn library_title_bar_with_menus(
                 crate::brand::paint_mark(ui, mark);
                 let group = egui::Rect::from_min_max(egui::pos2(ui.cursor().left() + TITLE_GAP, full.top()), egui::pos2(right_edge, full.bottom()));
                 let mut g = ui.new_child(egui::UiBuilder::new().max_rect(group).layout(egui::Layout::right_to_left(egui::Align::Center)));
-                go = mode_switch(&mut g, &t, current, true);
+                go = widgets::module_switcher(&mut g, current);
                 // CPU mode after a GPU failure, visible in the Library and Develop too.
                 crate::gpu_status::status_pill(app, &mut g);
                 controls_left = g.min_rect().left();

@@ -394,3 +394,33 @@ fn library_ux_persisted_detail_switches_to_empty_grid_but_cancel_keeps_current_l
     assert!(previous.catalog.photo(PhotoId(1)).is_some(), "switch preserves the saved old Library");
     previous.close_library().unwrap();
 }
+
+#[test]
+fn sony_dji_metadata_disclosures_click_to_reveal_capture_fields() {
+    let mut session = photos(1);
+    let mut p = (**session.catalog.photo(PhotoId(1)).unwrap()).clone();
+    p.meta.serial_number = Some("BODY123".into());
+    p.meta.sony = Some(lightcraft_meta::SonyMetadata {
+        shutter_count: Some(42),
+        lens_id: Some(77),
+        creative_style: Some("Standard".into()),
+        ..Default::default()
+    });
+    p.meta.dji = Some(lightcraft_meta::DjiMetadata { relative_altitude: Some(12.5), gimbal_yaw: Some(-45.25), ..Default::default() });
+    session.catalog.apply(Op::SetMeta { id: PhotoId(1), meta: Box::new(p.meta) }).unwrap();
+    let mut h = headless(session, Services::default(), [1400., 1100.]);
+    h.app.ui.right = RightPanel::Info;
+    h.app.ui.left_panel = false;
+    h.step();
+    h.step();
+    assert!(!h.app.widgets.iter().any(|(id, _)| id == "metadata:Shutter Count"));
+    click(&mut h, "infoCameraMetadata");
+    assert!(h.app.widgets.iter().any(|(id, _)| id == "metadata:Shutter Count"));
+    assert!(h.app.widgets.iter().any(|(id, _)| id == "metadata:Body Serial Number"));
+    assert!(h.app.widgets.iter().any(|(id, _)| id == "metadata:Lens ID"));
+    click(&mut h, "infoDroneTelemetry");
+    assert!(h.app.widgets.iter().any(|(id, _)| id == "metadata:Relative Altitude"));
+    assert!(h.app.widgets.iter().any(|(id, _)| id == "metadata:Gimbal Yaw"));
+    click(&mut h, "infoCameraMetadata");
+    assert!(!h.app.widgets.iter().any(|(id, _)| id == "metadata:Shutter Count"));
+}

@@ -154,6 +154,35 @@ fn new_cfa_methods_and_segmentation_render_on_the_gpu() {
 }
 
 #[test]
+fn demosaic_quality_methods_real_gpu_parity() {
+    let _state = gpu_state();
+    assert!(gpu(), "a hardware GPU is required for this demosaic parity test");
+    let adapter = lightcraft_gpu::adapter_name().unwrap();
+    assert!(!adapter.to_lowercase().contains("llvmpipe") && !adapter.to_lowercase().contains("lavapipe"), "software adapter {adapter}");
+    eprintln!("demosaic GPU adapter: {adapter}");
+    let bayer = crate::tests_toolset::textured_dng();
+    let mut raw = lightcraft_raw::decode(&bayer).unwrap();
+    raw.cfa = Some(lightcraft_raw::Cfa::xtrans().shifted(2, 5));
+    // Procedural sensor data; X-Trans phase must survive DNG decode and normalization.
+    let xt = lightcraft_raw::write_dng(&raw, &Default::default()).unwrap();
+    for (bytes, methods) in [
+        (&bayer, vec![lightcraft_develop::Demosaic::Auto, lightcraft_develop::Demosaic::Lmmse, lightcraft_develop::Demosaic::Dcb]),
+        (&xt, vec![lightcraft_develop::Demosaic::Auto, lightcraft_develop::Demosaic::Markesteijn3, lightcraft_develop::Demosaic::DualMarkesteijnVng]),
+    ] {
+        for method in methods {
+            let opts = crate::files::RawOptions { demosaic: method, dual_threshold: 0.2, ..Default::default() };
+            let (src, info) = crate::files::load_bytes_with(bytes, usize::MAX, &opts).unwrap();
+            let src = Arc::new(src);
+            let settings = lightcraft_develop::DevelopSettings::default();
+            let req = RenderRequest::fit(src.width, src.height);
+            let cpu = lightcraft_pipeline::render(&src, &info, &settings, &req).image;
+            let gpu = lightcraft_gpu::render(&src, &info, &settings, &req, None).expect("hardware GPU render").image;
+            assert_close(&format!("demosaic quality {method:?}"), &cpu, &gpu);
+        }
+    }
+}
+
+#[test]
 fn raw_options_decode_again_and_render_on_the_gpu() {
     let _gpu = gpu_state();
     if !gpu() {

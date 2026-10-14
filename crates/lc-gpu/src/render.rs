@@ -21,6 +21,7 @@ use crate::params::{Present, finish_block};
 #[derive(Default)]
 pub struct GpuStages {
     entries: Mutex<Vec<Entry>>,
+    generation: std::sync::atomic::AtomicU64,
     /// The uploaded source and last capture result (shared by all output sizes).
     source: Mutex<Option<Source>>,
     primary_dispatches: std::sync::atomic::AtomicUsize,
@@ -74,6 +75,12 @@ struct Planes {
 }
 
 impl GpuStages {
+    /// Cached buffers from a previous device may never be bound on its replacement.
+    pub(crate) fn prepare(&self, generation: u64) {
+        if self.generation.swap(generation, std::sync::atomic::Ordering::AcqRel) != generation {
+            self.clear();
+        }
+    }
     fn get(&self, src: &Arc<Rgb32f>, geo: u64, capture: Option<CaptureParams>) -> Option<Entry> {
         self.lock().iter().find(|e| e.geo == geo && e.capture == capture && Arc::ptr_eq(&e.src, src)).cloned()
     }
@@ -194,6 +201,18 @@ impl GpuStages {
         *self.source.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
+    pub(crate) fn try_clear(&self) -> bool {
+        let Ok(mut entries) = self.entries.try_lock() else {
+            return false;
+        };
+        let Ok(mut source) = self.source.try_lock() else {
+            return false;
+        };
+        entries.clear();
+        *source = None;
+        true
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -207,7 +226,7 @@ pub(crate) struct Cx<'a> {
     /// Kernel invocations recorded since the last submit.
     pending: u64,
     primary_dispatches: usize,
-    /// U16 needs exact weight boundaries and the CPU's variance-transform powers.
+    /// Deep output needs exact weight boundaries and the CPU's variance-transform powers.
     precise_nr: bool,
 }
 
@@ -319,10 +338,25 @@ pub(crate) fn rgb_words(img: &Rgb32f) -> &[f32] {
 /// priming sum stays a small share of the work).
 const CHUNK: usize = 16;
 
-/// Gaussian blur of a `w × h` image of `nc` interleaved channels: three box passes each way
-/// (`lightcraft_raster::blur::gaussian`).
+/// Gaussian twin of the shared CPU policy: exact sampled taps at sigma <= 4,
+/// Kovesi running-sum boxes above it. Reuses the existing convolution shaders.
 pub(crate) fn gaussian(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sigma: f32) -> Buf {
-    if sigma <= 0.3 || w * h == 0 {
+    if sigma <= 0.05 || !sigma.is_finite() || w * h == 0 {
+        return cx.copy(src);
+    }
+    if sigma > lightcraft_raster::blur::EXACT_SIGMA {
+        return gaussian_boxes(cx, src, w, h, nc, sigma);
+    }
+    let taps = sampled_gaussian_taps(sigma);
+    gaussian_convolve(cx, src, w, h, nc, &taps)
+}
+fn sampled_gaussian_taps(sigma: f32) -> Vec<f32> {
+    let kernel = lightcraft_raster::blur::gaussian_kernel(sigma);
+    kernel[kernel.len() / 2..].to_vec()
+}
+/// Box-only policy retained for gaussian_fine above its GPU-compatible fine threshold.
+fn gaussian_boxes(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sigma: f32) -> Buf {
+    if sigma <= 0.05 || !sigma.is_finite() || w * h == 0 {
         return cx.copy(src);
     }
     let radii = lightcraft_raster::blur::box_radii(sigma);
@@ -670,7 +704,7 @@ pub fn render(
         return None;
     }
     let mut cx = Cx::new(gpu);
-    cx.precise_nr = req.depth == lightcraft_pipeline::OutputDepth::U16;
+    cx.precise_nr = req.depth != lightcraft_pipeline::OutputDepth::U8;
     // The CPU plans automatic Upright and detects pupils AFTER capture. These
     // uncommon source analyses need the same sharpened pixels; ordinary renders
     // plan from dimensions/settings alone and leave the source entirely on device.
@@ -698,8 +732,10 @@ pub fn render(
     let (w, h) = (plan.w, plan.h);
     // checked: an absurd request (e.g. a fit into `usize::MAX`) must not wrap into a size that
     // passes the check and then dispatches bands forever
-    let Some(n) = w.checked_mul(h).filter(|n| n.checked_mul(12).is_some() && gpu.fits(n * 3)) else {
-        let mib = (w as u128).saturating_mul(h as u128).saturating_mul(12).div_ceil(1 << 20);
+    let Some(n) =
+        w.checked_mul(h).filter(|n| n.checked_mul(output_words(req.depth).max(3) * 4).is_some() && gpu.fits(n * output_words(req.depth).max(3)))
+    else {
+        let mib = (w as u128).saturating_mul(h as u128).saturating_mul((output_words(req.depth).max(3) * 4) as u128).div_ceil(1 << 20);
         fail(FailKind::Limit, format!("{w}×{h} needs {mib} MiB buffers, over the device's {} MiB storage-buffer limit", gpu.limit() >> 20));
         return None;
     };
@@ -924,11 +960,11 @@ pub fn render(
     }
     let aux = gpu.upload(&aux);
     // cleared, so that work which never ran cannot pass for an image (see the check below)
-    let deep_output = req.depth == lightcraft_pipeline::OutputDepth::U16;
+    let output_words = output_words(req.depth);
     if let Some(i) = crate::params::index("DEPTH") {
-        p[i] = u32::from(deep_output);
+        p[i] = output_depth(req.depth);
     }
-    let out = cx.zeroed(if deep_output { 3 * n } else { n });
+    let out = cx.zeroed(output_words * n);
     if fault == Some(crate::Fault::Validation) {
         // a dispatch the device rejects (too many workgroups)
         cx.run("box_h", &[0; 5], &[Some(&aux), Some(&out)], [gpu.device.limits().max_compute_workgroups_per_dimension + 1, 1, 1]);
@@ -998,16 +1034,9 @@ pub fn render(
             }
         })
     };
-    let words: Vec<u32> = cx.read(&out, if deep_output { 3 * n } else { n });
+    let words: Vec<u32> = cx.read(&out, output_words * n);
     let data = words.iter().take(n).map(|p| p.to_le_bytes()).collect();
-    let deep = deep_output.then(|| lightcraft_pipeline::DeepImage {
-        width: w,
-        height: h,
-        space: req.space,
-        samples: lightcraft_pipeline::DeepSamples::U16(
-            words[n..].as_chunks::<2>().0.iter().flat_map(|p| [p[0] as u16, (p[0] >> 16) as u16, p[1] as u16]).collect(),
-        ),
-    });
+    let deep = deep_image(&words[n..], w, h, req);
     let image = Rgba8 { width: w, height: h, data };
     lap("finish + readback", &mut t, &mut cx);
     if crate::ctx::failed() {
@@ -1057,6 +1086,31 @@ fn source_buffer(cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CapturePara
     }
 }
 
+// The first word per pixel is the preview/completion sentinel; deep samples follow.
+fn output_words(depth: lightcraft_pipeline::OutputDepth) -> usize {
+    match depth {
+        lightcraft_pipeline::OutputDepth::U8 => 1,
+        lightcraft_pipeline::OutputDepth::U16 => 3,
+        lightcraft_pipeline::OutputDepth::F32Linear => 4,
+    }
+}
+fn output_depth(depth: lightcraft_pipeline::OutputDepth) -> u32 {
+    match depth {
+        lightcraft_pipeline::OutputDepth::U8 => 0,
+        lightcraft_pipeline::OutputDepth::U16 => 1,
+        lightcraft_pipeline::OutputDepth::F32Linear => 2,
+    }
+}
+fn deep_image(words: &[u32], w: usize, h: usize, req: &RenderRequest) -> Option<lightcraft_pipeline::DeepImage> {
+    use lightcraft_pipeline::{DeepImage, DeepSamples, OutputDepth};
+    let samples = match req.depth {
+        OutputDepth::U8 => return None,
+        OutputDepth::U16 => DeepSamples::U16(words.as_chunks::<2>().0.iter().flat_map(|p| [p[0] as u16, (p[0] >> 16) as u16, p[1] as u16]).collect()),
+        OutputDepth::F32Linear => DeepSamples::F32(words.iter().copied().map(f32::from_bits).collect()),
+    };
+    Some(DeepImage { width: w, height: h, space: req.space, samples })
+}
+
 /// Pixels whose alpha is not 255 (cheap: no early exit, so it vectorizes).
 fn unwritten(data: &[[u8; 4]]) -> usize {
     data.chunks(4096).filter(|c| c.iter().fold(255u8, |a, p| a & p[3]) != 255).map(|c| c.iter().filter(|p| p[3] != 255).count()).sum()
@@ -1101,28 +1155,69 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
             eyed
         }
     };
-    denoise(cx, img, plan, info.sensor_scale)
+    denoise(cx, img, plan, info)
 }
 
 /// Native wavelet NR, including robust noise estimation and recursive band statistics.
-fn denoise(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>, sensor_scale: f32) -> Buf {
+fn denoise(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>, info: &SourceInfo) -> Buf {
     use lightcraft_pipeline::detail::nr::*;
     let (w, h) = (plan.w, plan.h);
-    let scale = lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, sensor_scale);
+    let scale = lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, info.sensor_scale);
     let Some(p) = nr_params(&plan.settings, scale) else { return img };
-    denoise_native(cx, img, w, h, &p)
+    if let Some(calibration) = local::noise_calibration(info, &plan.settings) {
+        denoise_native_with(cx, img, w, h, &p, Some(calibration))
+    } else {
+        denoise_native(cx, img, w, h, &p)
+    }
 }
 fn denoise_native(cx: &mut Cx<'_>, img: Buf, w: usize, h: usize, p: &lightcraft_pipeline::detail::nr::NrParams) -> Buf {
+    denoise_native_with(cx, img, w, h, p, None)
+}
+#[derive(Clone)]
+enum NrTransform {
+    Generic(lightcraft_pipeline::detail::nr::Vst),
+    Calibrated(Box<lightcraft_pipeline::detail::nr::ProfiledVst>),
+}
+impl NrTransform {
+    fn forward(&self, v: [f32; 3]) -> [f32; 3] {
+        match self {
+            Self::Generic(t) => t.forward(v),
+            Self::Calibrated(t) => t.forward(v),
+        }
+    }
+    fn backward(&self, v: [f32; 3]) -> [f32; 3] {
+        match self {
+            Self::Generic(t) => t.backward(v),
+            Self::Calibrated(t) => t.backward(v),
+        }
+    }
+}
+fn denoise_native_with(
+    cx: &mut Cx<'_>,
+    img: Buf,
+    w: usize,
+    h: usize,
+    p: &lightcraft_pipeline::detail::nr::NrParams,
+    calibration: Option<lightcraft_pipeline::detail::nr::NoiseCalibration>,
+) -> Buf {
     use lightcraft_pipeline::detail::nr::*;
     let n = w * h;
     let mut profile = None;
     let mut vst = None;
+    let previous_precise = cx.precise_nr;
+    if calibration.is_some() {
+        cx.precise_nr = true;
+    }
     let mut coarse = if cx.precise_nr {
         // Native power approximations amplify at EAW's discontinuous bit-interpolated
         // weights. Only the forward/backward transform uses the host; wavelets stay native.
-        crate::record_cpu_stage("NR variance transform");
+        crate::record_cpu_stage(if calibration.is_some() { "profiled camera NR" } else { "NR variance transform" });
         let pixels = cx.read_rgb(&img, w, h);
-        let transform = Vst::new(estimate_noise(&pixels), p);
+        let transform = calibration
+            .as_ref()
+            .and_then(|c| ProfiledVst::new(&pixels, p, c))
+            .map(|t| NrTransform::Calibrated(Box::new(t)))
+            .unwrap_or_else(|| NrTransform::Generic(Vst::new(estimate_noise(&pixels), p)));
         let forward = pixels.map(|v| transform.forward(v));
         profile = Some(transform);
         cx.gpu.upload(rgb_words(&forward))
@@ -1190,6 +1285,7 @@ fn denoise_native(cx: &mut Cx<'_>, img: Buf, w: usize, h: usize, p: &lightcraft_
     };
     let out = cx.gpu.buffer(n * 3);
     map(cx, "nr_join", n, &[(p.lum > 0.0) as u32, (p.col > 0.0) as u32], [Some(&img), Some(&back), None], &out);
+    cx.precise_nr = previous_precise;
     out
 }
 
@@ -1572,12 +1668,15 @@ fn masks_impl(
 fn gaussian_fine(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sigma: f32) -> Buf {
     use lightcraft_raster::blur::{FINE_SIGMA, gauss_taps};
     if sigma >= FINE_SIGMA {
-        return gaussian(cx, src, w, h, nc, sigma);
+        return gaussian_boxes(cx, src, w, h, nc, sigma);
     }
-    if sigma <= 0.05 {
+    if sigma <= 0.05 || !sigma.is_finite() {
         return cx.copy(src);
     }
     let taps = gauss_taps(sigma);
+    gaussian_convolve(cx, src, w, h, nc, &taps)
+}
+fn gaussian_convolve(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, taps: &[f32]) -> Buf {
     let mut p = vec![w as u32, h as u32, nc as u32, (taps.len() - 1) as u32];
     p.extend(taps.iter().map(|v| v.to_bits()));
     let tmp = cx.gpu.buffer(w * h * nc);
@@ -2050,7 +2149,7 @@ fn layer_buffers(
         if let Some(nr) = nr {
             nr_off = offset as u32;
             let input = cx.copy(lin);
-            let image = denoise_native(cx, input, w, h, &nr);
+            let image = denoise_native_with(cx, input, w, h, &nr, local::noise_calibration(info, &view));
             offset += image.len;
             planes.push(image);
         }
@@ -2230,11 +2329,11 @@ fn stack_finish(
     };
     let aux = gpu.upload(&aux);
     // cleared, so that work which never ran cannot pass for an image (see the check below)
-    let deep_output = req.depth == lightcraft_pipeline::OutputDepth::U16 && matches!(mode, FinishMode::Display | FinishMode::Output);
+    let final_output = matches!(mode, FinishMode::Display | FinishMode::Output);
     if let Some(i) = crate::params::index("DEPTH") {
-        p[i] = u32::from(deep_output);
+        p[i] = if final_output { output_depth(req.depth) } else { 0 };
     }
-    let out = cx.zeroed(if deep_output || matches!(mode, FinishMode::Working | FinishMode::Layer) { 3 * n } else { n });
+    let out = cx.zeroed(n * if final_output { output_words(req.depth) } else { 3 });
     if fault == Some(crate::Fault::Validation) {
         // a dispatch the device rejects (too many workgroups)
         cx.run("box_h", &[0; 5], &[Some(&aux), Some(&out)], [gpu.device.limits().max_compute_workgroups_per_dimension + 1, 1, 1]);
@@ -2412,7 +2511,7 @@ fn render_stack(
                 let scale = lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, info.sensor_scale);
                 if lightcraft_pipeline::detail::nr::nr_params(&d, scale).is_some() {
                     let copy = cx.copy(&q);
-                    q = Arc::new(denoise(cx, copy, &lp, info.sensor_scale));
+                    q = Arc::new(denoise(cx, copy, &lp, info));
                     lp.lin_key = cache_key((lp.lin_key, format!("{:?}", d.detail)));
                 }
                 if d.light.whites != 0.0 || d.light.blacks != 0.0 {
@@ -2492,8 +2591,8 @@ fn render_stack(
         eyes: Vec::new(),
     };
     let (out, _) = stack_finish(cx, input, prep, &op, info, req, FinishMode::Output, fault, None);
-    let deep_output = req.depth == lightcraft_pipeline::OutputDepth::U16;
-    let words: Vec<u32> = cx.read(&out, if deep_output { 3 * n } else { n });
+    let output_words = output_words(req.depth);
+    let words: Vec<u32> = cx.read(&out, output_words * n);
     if crate::ctx::failed() {
         return (None, keep, counts);
     }
@@ -2502,14 +2601,7 @@ fn render_stack(
         fail(FailKind::Fatal, "incomplete GPU layer stack".into());
         return (None, keep, counts);
     }
-    let deep = deep_output.then(|| lightcraft_pipeline::DeepImage {
-        width: w,
-        height: h,
-        space: req.space,
-        samples: lightcraft_pipeline::DeepSamples::U16(
-            words[n..].as_chunks::<2>().0.iter().flat_map(|p| [p[0] as u16, (p[0] >> 16) as u16, p[1] as u16]).collect(),
-        ),
-    });
+    let deep = deep_image(&words[n..], w, h, req);
     let histogram = Histogram::of_srgb8(&image);
     let overlay = overlay.as_ref().map(|b| cx.read_plane(b, w, h));
     let vp = Plan { settings: std::borrow::Cow::Borrowed(original), ..op };
@@ -2573,4 +2665,20 @@ fn stack_skin_range(cx: &mut Cx<'_>, input: &Buf, skin: &lightcraft_develop::Ski
     let out = cx.gpu.buffer(n);
     cx.run("p_skin_range", &p, &[Some(input), None, None, None, None, Some(&out)], groups1(n));
     out
+}
+
+#[cfg(test)]
+#[test]
+fn j01_final_gpu_gaussian_host_taps_match_cpu_policy() {
+    // Check the existing conv_h/conv_v shader's centre/pair host layout without a device run.
+    // Device acceptance is intentionally deferred to the owner's merged run.
+    for sigma in [0.3, 0.5, 1.0, 2.0, 4.0] {
+        let taps = sampled_gaussian_taps(sigma);
+        let kernel = lightcraft_raster::blur::gaussian_kernel(sigma);
+        assert_eq!(taps, &kernel[kernel.len() / 2..]);
+        let mass = taps[0] + 2.0 * taps.iter().skip(1).sum::<f32>();
+        assert!((mass - 1.0).abs() < 1e-6);
+    }
+    assert!(sampled_gaussian_taps(0.5)[0] < 0.8);
+    assert_eq!(lightcraft_raster::blur::FINE_SIGMA, 2.0);
 }

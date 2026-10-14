@@ -94,14 +94,76 @@ pub(crate) struct Meta {
     pub already_linear: Option<SourceSpace>,
 }
 
-pub(crate) fn check_size(format: Format, w: u64, h: u64, opts: &DecodeOptions) -> Result<()> {
-    if w == 0 || h == 0 {
-        return Err(Error::Malformed(format, "zero dimension".into()));
+pub(crate) fn shared_limits(opts: &DecodeOptions) -> photocraft_codecs::Limits {
+    photocraft_codecs::Limits {
+        max_pixels: opts.max_pixels,
+        max_width: u32::MAX,
+        max_height: u32::MAX,
+        // Preserve the Library's explicit source-pixel override, including large 16-bit
+        // captures. Bound decoder work to that request; never tune to the host's RAM.
+        max_alloc: opts.max_pixels.saturating_mul(32).max(photocraft_codecs::Limits::default().max_alloc),
     }
-    if w.saturating_mul(h) > opts.max_pixels {
-        return Err(Error::TooLarge(w, h));
+}
+
+pub(crate) fn shared_error(format: Format, bytes: &[u8], error: photocraft_codecs::CodecError) -> Error {
+    match error {
+        photocraft_codecs::CodecError::UnknownFormat => Error::UnknownFormat,
+        photocraft_codecs::CodecError::Unsupported { .. } => {
+            Error::Unsupported(format, "unsupported by shared decoder (format, encoding, or build feature)")
+        }
+        error @ photocraft_codecs::CodecError::LimitExceeded(_) => {
+            if let Some(f) = format.raster()
+                && let Ok((w, h)) = photocraft_codecs::dimensions(f, bytes)
+            {
+                return Error::TooLarge(u64::from(w), u64::from(h));
+            }
+            Error::Malformed(format, error.to_string())
+        }
+        error => Error::Malformed(format, error.to_string()),
     }
-    Ok(())
+}
+
+/// Preserve device precision until ICC/TRC interpretation; no RGBA8 detour.
+pub(crate) fn from_shared(format: Format, mut image: photocraft_codecs::Image, source_dims: (u32, u32), opts: &DecodeOptions) -> Result<Decoded> {
+    use photocraft_codecs::{ChannelLayout as L, SampleType as S};
+    let layout = image.layout();
+    let sample = image.sample_type();
+    let hint = image.color_hint.as_ref().map(|h| SourceSpace {
+        named: h.named,
+        to_xyz_d50: h.to_xyz_d50,
+        trc: Some(h.trc.clone()),
+        origin: SpaceOrigin::Container,
+    });
+    let meta = Meta {
+        icc: image.icc.take(),
+        exif: image.meta.exif.take(),
+        xmp: image.meta.xmp.take(),
+        orientation: Some(image.orientation),
+        already_linear: if image.color_hint.as_ref().is_some_and(|h| h.already_linear) { hint.clone() } else { None },
+        hint,
+    };
+    let source_float = image.source_float.unwrap_or(sample.is_float());
+    let raw = Raw {
+        width: image.width() as usize,
+        height: image.height() as usize,
+        model: match layout {
+            L::Gray | L::GrayA => Model::Gray,
+            L::Cmyk | L::CmykA => Model::Cmyk,
+            _ => Model::Rgb,
+        },
+        alpha: layout.has_alpha(),
+        premultiplied: image.associated_alpha,
+        bit_depth: image.source_bit_depth.unwrap_or((sample.bytes() * 8) as u8),
+        buf: match sample {
+            S::U8 => Buf::U8(image.into_data()),
+            S::U16 => Buf::U16(image.to_u16_samples().unwrap_or_default()),
+            S::F16 => Buf::F32(image.to_f16_samples().unwrap_or_default().into_iter().map(|v| v.to_f32()).collect()),
+            S::F32 => Buf::F32(image.to_f32_samples().unwrap_or_default()),
+        },
+    };
+    let mut decoded = finish(format, raw, meta, source_dims, opts)?;
+    decoded.float = source_float;
+    Ok(decoded)
 }
 
 pub(crate) fn finish(format: Format, raw: Raw, meta: Meta, source_dims: (u32, u32), opts: &DecodeOptions) -> Result<Decoded> {
@@ -358,15 +420,7 @@ fn cmyk(raw: &Raw, ch: usize, icc_bytes: Option<&[u8]>, info: Option<&icc::IccIn
         return (from_vec(raw.width, raw.height, px), s);
     }
     // Naive: RGB = (1 - C)(1 - K) … treated as sRGB-encoded.
-    let px = samples
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|c| {
-            let k = 1.0 - c[3];
-            [(1.0 - c[0]) * k, (1.0 - c[1]) * k, (1.0 - c[2]) * k].map(lightcraft_color::transfer::srgb_to_linear)
-        })
-        .collect();
+    let px = samples.as_chunks::<4>().0.iter().map(|c| li_color::convert::cmyk_to_rgb_naive(*c).map(li_color::transfer::srgb_to_linear)).collect();
     let origin = if icc_bytes.is_some() { SpaceOrigin::IccUnsupported } else { SpaceOrigin::Naive };
     (from_vec(raw.width, raw.height, px), SourceSpace::named(NamedSpace::Srgb, origin))
 }
@@ -378,6 +432,17 @@ mod alpha_tests {
     fn input(model: Model, buf: Buf, associated: bool) -> Raw {
         Raw { width: buf.len() / (model.channels() + 1), height: 1, model, alpha: true, premultiplied: associated, buf, bit_depth: 32 }
     }
+    #[test]
+    fn j6_limits_preserve_explicit_large_capture_budget_without_allocating_pixels() {
+        use photocraft_codecs::{ChannelLayout, SampleType};
+        let options = DecodeOptions { max_pixels: 100_000_000, ..Default::default() };
+        let limits = shared_limits(&options);
+        assert!(limits.check(10_000, 10_000, ChannelLayout::Rgb, SampleType::U16).is_ok());
+        assert!(limits.check(10_001, 10_000, ChannelLayout::Rgb, SampleType::U16).is_err());
+        assert_eq!(limits.max_width, u32::MAX);
+        assert_eq!(limits.max_alloc, 3_200_000_000);
+    }
+
     #[test]
     fn associated_integer_samples_reach_cms_unassociated() {
         let rgb = input(Model::Rgb, Buf::U8(vec![32, 64, 96, 128]), true);

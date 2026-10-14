@@ -1,4 +1,7 @@
-# Install Local Image on another Windows PC
+# Install Local Image 0.7 on another Windows PC
+
+This page describes the legacy 0.7 Windows build. For V2 supported targets and artifacts,
+see [RELEASE.md](RELEASE.md); V2 Windows builds are experimental.
 
 For the bundled Linux preview, use the [Linux installation guide](LINUX-INSTALLATION.md). The portable ComfyUI installer described below is a Windows feature.
 

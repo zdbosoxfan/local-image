@@ -23,8 +23,8 @@ or CC-BY-SA camera data is used.
 
 `crates/lc-raw/Cargo.toml` pins the **unmodified crates.io `rawler = 0.8.0`** release, with
 `default-features = false`. There is no vendored source, path dependency, fork or `[patch]`.
-The only integration module is `crates/lc-raw/src/rawler_adapter.rs`. It handles any variant
-our native decoders report as unsupported, including Canon CR3 RAW/C-RAW and dual-pixel
+The only integration module is `crates/lc-raw/src/rawler_adapter.rs`. Measured format/compression routing selects it as the primary RAF/NRW/RW2 reader where it wins,
+and as fallback for variants our native decoders report as unsupported, including Canon CR3 RAW/C-RAW and dual-pixel
 files, compressed Fujifilm Bayer/X-Trans RAF, and compressed Olympus/OM ORF. The adapter
 also uses rawler's public camera database for calibration missing from our first-choice table.
 

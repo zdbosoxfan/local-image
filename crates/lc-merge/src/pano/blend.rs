@@ -22,41 +22,45 @@ impl Buf {
     pub fn new(w: usize, h: usize, c: usize) -> Buf {
         Buf { w, h, c, data: vec![0.0; w * h * c] }
     }
-    #[inline]
-    fn at(&self, x: isize, y: isize, ch: usize) -> f32 {
-        let x = x.clamp(0, self.w as isize - 1) as usize;
-        let y = y.clamp(0, self.h as isize - 1) as usize;
-        self.data[(y * self.w + x) * self.c + ch]
-    }
 }
 
 const K: [f32; 5] = [1.0 / 16.0, 4.0 / 16.0, 6.0 / 16.0, 4.0 / 16.0, 1.0 / 16.0];
 
 /// Binomial 5-tap blur then decimate by 2 (output `⌈w/2⌉ × ⌈h/2⌉`).
 pub fn down(b: &Buf) -> Buf {
-    let (w2, h2) = (b.w.div_ceil(2), b.h.div_ceil(2));
+    down_samples(b.w, b.h, b.c, &b.data)
+}
+
+/// Borrowed multi-channel pyramid reduction shared with the editor ROI blender.
+pub fn down_samples(w: usize, h: usize, c: usize, data: &[f32]) -> Buf {
+    let at = |x: isize, y: isize, ch: usize| {
+        let x = x.clamp(0, w as isize - 1) as usize;
+        let y = y.clamp(0, h as isize - 1) as usize;
+        data[(y * w + x) * c + ch]
+    };
+    let (w2, h2) = (w.div_ceil(2), h.div_ceil(2));
     // horizontal pass at decimated x
-    let mut tmp = Buf::new(w2, b.h, b.c);
-    tmp.data.par_chunks_mut(w2 * b.c).enumerate().for_each(|(y, row)| {
+    let mut tmp = Buf::new(w2, h, c);
+    tmp.data.par_chunks_mut(w2 * c).enumerate().for_each(|(y, row)| {
         for x in 0..w2 {
-            for ch in 0..b.c {
+            for ch in 0..c {
                 let mut s = 0.0;
                 for (k, wk) in K.iter().enumerate() {
-                    s += wk * b.at(2 * x as isize + k as isize - 2, y as isize, ch);
+                    s += wk * at(2 * x as isize + k as isize - 2, y as isize, ch);
                 }
-                row[x * b.c + ch] = s;
+                row[x * c + ch] = s;
             }
         }
     });
-    let mut out = Buf::new(w2, h2, b.c);
-    out.data.par_chunks_mut(w2 * b.c).enumerate().for_each(|(y, row)| {
+    let mut out = Buf::new(w2, h2, c);
+    out.data.par_chunks_mut(w2 * c).enumerate().for_each(|(y, row)| {
         for x in 0..w2 {
-            for ch in 0..b.c {
+            for ch in 0..c {
                 let mut s = 0.0;
                 for (k, wk) in K.iter().enumerate() {
-                    s += wk * tmp.at(x as isize, 2 * y as isize + k as isize - 2, ch);
+                    s += wk * tmp.data[(((2 * y as isize + k as isize - 2).clamp(0, h as isize - 1) as usize) * w2 + x) * c + ch];
                 }
-                row[x * b.c + ch] = s;
+                row[x * c + ch] = s;
             }
         }
     });
@@ -65,8 +69,18 @@ pub fn down(b: &Buf) -> Buf {
 
 /// Expand to `w × h` (bilinear, pixel-centre aligned with [`down`]'s grid).
 pub fn up(b: &Buf, w: usize, h: usize) -> Buf {
-    let mut out = Buf::new(w, h, b.c);
-    out.data.par_chunks_mut(w * b.c).enumerate().for_each(|(y, row)| {
+    up_samples(b.w, b.h, b.c, &b.data, w, h)
+}
+
+/// Borrowed multi-channel pyramid expansion shared with the editor ROI blender.
+pub fn up_samples(sw: usize, sh: usize, c: usize, data: &[f32], w: usize, h: usize) -> Buf {
+    let at = |x: isize, y: isize, ch: usize| {
+        let x = x.clamp(0, sw as isize - 1) as usize;
+        let y = y.clamp(0, sh as isize - 1) as usize;
+        data[(y * sw + x) * c + ch]
+    };
+    let mut out = Buf::new(w, h, c);
+    out.data.par_chunks_mut(w * c).enumerate().for_each(|(y, row)| {
         let fy = (y as f32 + 0.5) / 2.0 - 0.5;
         let y0 = fy.floor();
         let ty = fy - y0;
@@ -76,14 +90,14 @@ pub fn up(b: &Buf, w: usize, h: usize) -> Buf {
             let x0 = fx.floor();
             let tx = fx - x0;
             let x0 = x0 as isize;
-            for ch in 0..b.c {
-                let a = b.at(x0, y0, ch);
-                let bb = b.at(x0 + 1, y0, ch);
-                let c = b.at(x0, y0 + 1, ch);
-                let d = b.at(x0 + 1, y0 + 1, ch);
+            for ch in 0..c {
+                let a = at(x0, y0, ch);
+                let bb = at(x0 + 1, y0, ch);
+                let lower_left = at(x0, y0 + 1, ch);
+                let d = at(x0 + 1, y0 + 1, ch);
                 let top = a + (bb - a) * tx;
-                let bot = c + (d - c) * tx;
-                row[x * b.c + ch] = top + (bot - top) * ty;
+                let bot = lower_left + (d - lower_left) * tx;
+                row[x * c + ch] = top + (bot - top) * ty;
             }
         }
     });
@@ -156,11 +170,19 @@ pub struct Blender {
 impl Blender {
     /// A blender for a `w × h` canvas (both multiples of 2^levels).
     pub fn new(w: usize, h: usize, levels: usize) -> Blender {
+        Self::for_channels(w, h, levels, 3)
+    }
+
+    /// Shared accumulator for camera RGB or arbitrary editor channels. `levels` is
+    /// the number of reductions (one extra coarsest band). Odd extents round upward.
+    pub fn for_channels(w: usize, h: usize, levels: usize, channels: usize) -> Blender {
         let mut acc = Vec::new();
         let mut wsum = Vec::new();
-        for l in 0..=levels {
-            acc.push(Buf::new(w >> l, h >> l, 3));
-            wsum.push(Buf::new(w >> l, h >> l, 1));
+        let (mut lw, mut lh) = (w, h);
+        for _ in 0..=levels {
+            acc.push(Buf::new(lw, lh, channels));
+            wsum.push(Buf::new(lw, lh, 1));
+            (lw, lh) = (lw.div_ceil(2), lh.div_ceil(2));
         }
         Blender { levels, w, h, acc, wsum }
     }
@@ -184,34 +206,39 @@ impl Blender {
                 }
                 None => g.clone(),
             };
-            let (acc, ws) = (&mut self.acc[l], &mut self.wsum[l]);
-            let aw = acc.w;
-            let tw = lap.w;
-            acc.data.par_chunks_mut(aw * 3).zip(ws.data.par_chunks_mut(aw)).enumerate().for_each(|(y, (arow, wrow))| {
-                if y < oy || y >= oy + lap.h {
-                    return;
-                }
-                let ty = y - oy;
-                for tx in 0..tw {
-                    let x = ox + tx;
-                    if x >= aw {
-                        break;
-                    }
-                    let mk = m.data[ty * tw + tx];
-                    if mk <= 0.0 {
-                        continue;
-                    }
-                    for ch in 0..3 {
-                        arow[x * 3 + ch] += lap.data[(ty * tw + tx) * 3 + ch] * mk;
-                    }
-                    wrow[x] += mk;
-                }
-            });
+            self.add_band(l, ox, oy, lap.w, lap.h, &lap.data, &m.data);
             if let (Some(gn), Some(mn)) = (gn, mn) {
                 g = gn;
                 m = mn;
             }
         }
+    }
+
+    /// Accumulate a precomputed ROI band. Offsets are expressed in this band's
+    /// resolution. Adapters retain their padding/push-pull policies and colour domain.
+    pub fn add_band(&mut self, level: usize, x0: usize, y0: usize, width: usize, height: usize, samples: &[f32], weights: &[f32]) {
+        let (acc, ws) = (&mut self.acc[level], &mut self.wsum[level]);
+        let (canvas_width, channels) = (acc.w, acc.c);
+        acc.data.par_chunks_mut(canvas_width * channels).zip(ws.data.par_chunks_mut(canvas_width)).enumerate().for_each(|(y, (row, wrow))| {
+            if y < y0 || y >= y0 + height {
+                return;
+            }
+            let sy = y - y0;
+            for sx in 0..width {
+                let x = x0 + sx;
+                if x >= canvas_width {
+                    break;
+                }
+                let weight = weights[sy * width + sx];
+                if weight <= 0.0 {
+                    continue;
+                }
+                for c in 0..channels {
+                    row[x * channels + c] += samples[(sy * width + sx) * channels + c] * weight;
+                }
+                wrow[x] += weight;
+            }
+        });
     }
 
     /// Normalise and collapse the pyramid into the canvas.
@@ -222,8 +249,8 @@ impl Blender {
             let ws = &self.wsum[l];
             for i in 0..b.w * b.h {
                 let s = ws.data[i];
-                for ch in 0..3 {
-                    b.data[i * 3 + ch] = if s > 1e-8 { b.data[i * 3 + ch] / s } else { 0.0 };
+                for ch in 0..b.c {
+                    b.data[i * b.c + ch] = if s > 1e-8 { b.data[i * b.c + ch] / s } else { 0.0 };
                 }
             }
             if let Some(r) = res {
@@ -235,7 +262,7 @@ impl Blender {
             res = Some(b);
         }
         // `0..=levels` always yields level 0
-        res.unwrap_or_else(|| Buf::new(self.w, self.h, 3))
+        res.unwrap_or_else(|| Buf::new(self.w, self.h, self.acc.first().map_or(3, |b| b.c)))
     }
 }
 

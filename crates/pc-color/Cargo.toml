@@ -8,5 +8,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+li-color = { workspace = true }
 photocraft-cms = { workspace = true }
 serde = { workspace = true }

@@ -1,0 +1,61 @@
+name: Nightly full and hardware GPU
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+# Only trusted branches run on the owner's opt-in, dedicated acceptance runners.
+# No pull_request trigger; an external PR must never execute on these machines.
+concurrency:
+  group: local-image-hardware-acceptance
+  cancel-in-progress: false
+env:
+  CARGO_BUILD_JOBS: 4
+  RUST_TEST_THREADS: 2
+  CRAFT_FONTS_REQUIRED: 1
+  CRAFT_FONTS_DIR: ${{ github.workspace }}/.cache/craft-fonts
+jobs:
+  full:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - [self-hosted, Linux, X64, local-image-nightly, vulkan]
+          - [self-hosted, macOS, ARM64, local-image-nightly, metal]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: storytold/craft-fonts
+          ref: 3d9ab3a132ed0eff457e424226a435a901da30d3
+          path: .cache/craft-fonts
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: clippy
+      - name: Fetch locked inputs
+        run: cargo +1.98.1 fetch --locked
+      - name: Full unfiltered suite
+        run: cargo +1.98.1 test --offline --locked --workspace --no-fail-fast
+      - name: Strict workspace lint
+        run: cargo +1.98.1 clippy --offline --locked --workspace --all-targets -- -D warnings
+      - name: Require native hardware compositor
+        env:
+          LOCAL_IMAGE_REQUIRE_GPU: 1
+        run: cargo +1.98.1 test --offline --locked -p photocraft-gpu --test gpu --test vector_geometry -- --test-threads=1
+      - name: Require native hardware Develop conformance
+        env:
+          LC_REQUIRE_GPU: 1
+        run: cargo +1.98.1 test --offline --locked -p lightcraft-gpu --lib ds_finding_native_haze_selection_matches_sorted_quantile -- --ignored --nocapture --test-threads=1
+      - name: Vulkan haze shader numerical conformance
+        if: runner.os == 'Linux'
+        env:
+          LC_REQUIRE_GPU: 1
+        run: >-
+          cargo +1.98.1 test --offline --locked -p lightcraft-gpu --lib
+          render::remaining_tests::haze_selection_numerical_vulkan_matches_sorted_quantile
+          -- --ignored --exact --nocapture --test-threads=1
+      - name: Asset audit after test outputs
+        run: cargo +1.98.1 xtask assets

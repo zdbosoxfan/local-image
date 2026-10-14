@@ -274,18 +274,33 @@ impl GpuCanvas {
         Some((d.format, bytes))
     }
 
+    /// Shared DeviceHealth admission: fresh idle VRAM may shorten a recoverable error's backoff.
+    /// Device loss itself still needs the host's replacement device (future li-gpu handoff).
+    pub fn resume_compute_after_backoff(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.health.resume_retry(std::time::Instant::now(), Some(lightcraft_sysmem::gpu::idle_epoch()));
+        self.health.begin_operation(lightcraft_sysmem::gpu::idle_epoch());
+    }
+
     /// Set the GPU memory the wgpu compositor may hold for layer pages and effect maps (see
     /// [`memory_budget`]); pages beyond it are evicted least recently used first.
     pub fn set_memory_budget(&self, bytes: u64) {
         let mut r = self.rs.renderer.write();
         if let Some(res) = r.callback_resources.get_mut::<Resources>() {
+            let shrinking = res.compositor_budget.is_some_and(|old| bytes < old);
             res.compositor_budget = Some(bytes);
             let share = bytes / (res.scaled_frames.len() as u64 + 1);
             if let Some(comp) = &mut res.compositor {
+                if shrinking {
+                    comp.forget_all();
+                }
                 comp.set_memory_budget(share);
             }
             for frame in res.scaled_frames.values_mut() {
                 if let Some(comp) = &mut frame.compositor {
+                    if shrinking {
+                        comp.forget_all();
+                    }
                     comp.set_memory_budget(share);
                 }
             }
@@ -2652,6 +2667,37 @@ fn sample_tile(p: vec2<f32>) -> vec4<f32> {
     return col;
 }
 
+// CPU counterpart: li_color::lut::sample, tetrahedral branch. GPU uses f32 because
+// portable WGSL has no f64; interpolate four exact texels rather than hardware trilinear.
+fn display_lut_tetra(c: vec3<f32>) -> vec4<f32> {
+    let n = i32(textureDimensions(lut).x);
+    let pos = clamp(c, vec3(0.0), vec3(1.0)) * f32(n - 1);
+    let lo = min(vec3<i32>(floor(pos)), vec3(n - 2));
+    let f = pos - vec3<f32>(lo);
+    var order = vec3(0, 1, 2);
+    if (f.x >= f.y) {
+        if (f.y >= f.z) { order = vec3(0, 1, 2); }
+        else if (f.x >= f.z) { order = vec3(0, 2, 1); }
+        else { order = vec3(2, 0, 1); }
+    } else {
+        if (f.x >= f.z) { order = vec3(1, 0, 2); }
+        else if (f.y >= f.z) { order = vec3(1, 2, 0); }
+        else { order = vec3(2, 1, 0); }
+    }
+    var d1 = vec3(0);
+    d1[order.x] = 1;
+    var d2 = d1;
+    d2[order.y] = 1;
+    let a = textureLoad(lut, lo, 0);
+    let b = textureLoad(lut, lo + d1, 0);
+    let c1 = textureLoad(lut, lo + d2, 0);
+    let d = textureLoad(lut, lo + vec3(1), 0);
+    let x = f[order.x];
+    let y = f[order.y];
+    let z = f[order.z];
+    return a * (1.0 - x) + b * (x - y) + c1 * (y - z) + d * z;
+}
+
 fn display_color(input: vec4<f32>, p: vec2<f32>) -> vec4<f32> {
     var col = input;
     let d = px_to_doc(p);
@@ -2667,9 +2713,8 @@ fn display_color(input: vec4<f32>, p: vec2<f32>) -> vec4<f32> {
     if (view.d.z > 0.5 && col.a > 0.0) {
         // Colour management, Proof Colors, Gamut Warning: the document's display LUT (alpha flags
         // out-of-gamut colours).
-        let n = f32(textureDimensions(lut).x);
         let c = clamp(col.rgb / col.a, vec3(0.0), vec3(1.0));
-        let l = textureSampleLevel(lut, samp, (c * (n - 1.0) + 0.5) / n, 0.0);
+        let l = display_lut_tetra(c);
         let shown = select(l.rgb, mix(l.rgb, view.g.xyz, view.e.w), view.d.z > 1.5 && l.a > 0.5);
         col = vec4(shown * col.a, col.a);
     }

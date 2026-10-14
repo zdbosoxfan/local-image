@@ -451,14 +451,14 @@ fn shrink(img: &RgbaImage, max: u32) -> RgbaImage {
         return img.clone();
     }
     let k = max as f32 / w.max(h) as f32;
-    image::imageops::resize(img, ((w as f32 * k).round() as u32).max(1), ((h as f32 * k).round() as u32).max(1), image::imageops::FilterType::Lanczos3)
+    li_raster::resize_rgba8(img, ((w as f32 * k).round() as u32).max(1), ((h as f32 * k).round() as u32).max(1), li_raster::Filter::Lanczos3)
 }
 
 fn shrink_gray(img: &GrayImage, w: u32, h: u32) -> GrayImage {
     if img.dimensions() == (w, h) {
         return img.clone();
     }
-    image::imageops::resize(img, w, h, image::imageops::FilterType::Triangle)
+    li_raster::resize_gray8(img, w, h, li_raster::Filter::Triangle)
 }
 
 fn prompt_for(req: &CloudRequest, green: bool) -> String {
@@ -669,7 +669,7 @@ pub fn generate(req: &CloudRequest, settings: &AiSettings, ctl: &JobControl) -> 
     };
     let Some(src) = req.source.as_ref().filter(|_| req.mode != CloudMode::Create) else { return Ok(raw) };
     let (w, h) = src.dimensions();
-    let fit = |img: RgbaImage| if img.dimensions() == (w, h) { img } else { image::imageops::resize(&img, w, h, image::imageops::FilterType::Lanczos3) };
+    let fit = |img: RgbaImage| if img.dimensions() == (w, h) { img } else { li_raster::resize_rgba8(&img, w, h, li_raster::Filter::Lanczos3) };
     if req.mode == CloudMode::Fill
         && let Some(mask) = &req.mask
     {

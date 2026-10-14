@@ -1,13 +1,11 @@
 //! One restoration service for Compositing, Generate and Library/Develop export.
 use crate::{Ai, JobControl, ModelId, Stage};
 use anyhow::{Context, Result, bail};
-use image::{RgbaImage, imageops};
+use image::RgbaImage;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use std::path::Path;
 
 pub mod selection;
 
@@ -63,9 +61,6 @@ pub enum Backend {
     Cpu,
     Gpu,
 }
-
-type Loaded = Option<(PathBuf, String, li_seg::enhance::Upscaler)>;
-static LOADED: Mutex<Loaded> = Mutex::new(None);
 
 pub fn native_scale(input: (u32, u32), output: (u32, u32)) -> Result<u32> {
     let (sw, sh) = input;
@@ -125,15 +120,21 @@ impl Ai {
         height: u32,
         method: Method,
         backend: Backend,
-        models_dir: &Path,
+        _models_dir: &Path,
         seed: u64,
         ctl: &JobControl,
         choice: &selection::Choice,
     ) -> Result<RgbaImage> {
         use selection::Choice;
         ctl.check()?;
+        if backend == Backend::Cpu {
+            bail!("AI enlargement requires a GPU/NPU; CPU inference is disabled.");
+        }
         native_scale(input.dimensions(), (width, height))?;
         selection::validate(method, choice)?;
+        if !crate::resources::accelerator(&self.client.system_stats()?) {
+            bail!("AI enlargement requires ComfyUI with a GPU/NPU; the server reports CPU-only.");
+        }
         if method == Method::Generative {
             if backend == Backend::Cpu {
                 bail!("Generative enlargement requires the GPU backend.");
@@ -147,7 +148,7 @@ impl Ai {
             let files = [(crate::family::Role::Unet, unet.clone()), (crate::family::Role::Vae, vae.clone())].into_iter().collect();
             let out = self.upscale_with_files(input, even_w, even_h, seed, ctl, Some(&files))?;
             ctl.check()?;
-            let out = if out.dimensions() == (width, height) { out } else { imageops::resize(&out, width, height, imageops::FilterType::Lanczos3) };
+            let out = if out.dimensions() == (width, height) { out } else { crate::resize::lanczos3(&out, width, height) };
             ctl.check()?;
             ctl.set_stage(Stage::Done);
             return Ok(out);
@@ -166,34 +167,18 @@ impl Ai {
         if u64::from(input.width()) * u64::from(input.height()) * u64::from(scale * scale) > 400_000_000 {
             bail!("The selected model's native output exceeds 400 megapixels.");
         }
-        let gpu = if backend == Backend::Cpu || spec.is_none() {
-            if backend == Backend::Gpu && spec.is_none() {
-                bail!("Custom ONNX restoration models run on the CPU.");
-            }
-            None
-        } else {
-            let spec = spec.context("No GPU model preset")?;
-            let preset = crate::catalog::preset(ModelId::intern(spec.id), "default").context("No GPU model preset")?;
-            match self.client.object_info() {
-                Ok(info) => {
-                    let available = crate::catalog::availability(preset, &info);
-                    if available.available {
-                        Some(available.files)
-                    } else if backend == Backend::Gpu {
-                        bail!("{}", available.reason);
-                    } else {
-                        None
-                    }
-                }
-                Err(e) if backend == Backend::Gpu => return Err(e),
-                Err(_) => None,
-            }
-        };
+        let spec = spec.context("AI enlargement requires a GPU model; custom CPU ONNX models cannot run here.")?;
+        let preset = crate::catalog::preset(ModelId::intern(spec.id), "default").context("No GPU model preset")?;
+        let info = self.client.object_info().context("AI enlargement requires ComfyUI with a GPU/NPU")?;
+        let gpu = crate::catalog::availability(preset, &info);
+        if !gpu.available {
+            bail!("{}", gpu.reason);
+        }
         ctl.set_stage(Stage::Preparing);
         // Both engines see sRGB on white; alpha and soft-edge colours are restored once below.
         let rgb = image::DynamicImage::ImageRgba8(crate::imaging::over_white(input)).to_rgb8();
-        let enlarged = if let Some(files) = gpu {
-            let name = files.get(&crate::family::Role::Upscaler).context("GPU model file missing")?;
+        let enlarged = {
+            let name = gpu.files.get(&crate::family::Role::Upscaler).context("GPU model file missing")?;
             let graph = json!({
                 "1": {"class_type": "UpscaleModelLoader", "inputs": {"model_name": name}},
                 "2": {"class_type": "LoadImage", "inputs": {"image": ""}},
@@ -202,39 +187,20 @@ impl Ai {
             });
             let png = crate::imaging::encode_png(&rgb)?;
             image::load_from_memory(&self.client.run(graph, &[("2".into(), png)], ctl)?)?.to_rgb8()
-        } else {
-            ctl.set_stage(Stage::Loading);
-            let mut cache = LOADED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(spec) = spec
-                && li_seg::installed_bytes(models_dir, spec).is_none()
-            {
-                bail!("Download {} in Settings › Local AI first.", spec.label);
-            }
-            let path = if let Some(spec) = spec { li_seg::model_path(models_dir, spec) } else { selection::custom_path(models_dir, choice)? };
-            let metadata = std::fs::metadata(path)?;
-            let key = format!("{}:{}:{:?}", serde_json::to_string(choice)?, metadata.len(), metadata.modified().ok());
-            if cache.as_ref().is_none_or(|(dir, id, _)| dir != models_dir || *id != key) {
-                let model =
-                    if let Some(spec) = spec { li_seg::enhance::Upscaler::load(spec, models_dir)? } else { selection::load_custom(models_dir, choice)? };
-                *cache = Some((models_dir.to_owned(), key, model));
-            }
-            ctl.check()?;
-            let model = cache.as_ref().context("Model cache empty")?.2.clone();
-            drop(cache);
-            model.run(&rgb, &|| ctl.check(), &|done, total| ctl.set_step(done as u32, total as u32))?
         };
         ctl.check()?;
         if enlarged.dimensions() != (input.width() * scale, input.height() * scale) {
             bail!("Restoration model returned an unexpected size");
         }
         ctl.set_stage(Stage::Finishing);
-        let output = imageops::resize(&enlarged, width, height, imageops::FilterType::Lanczos3);
-        let source = imageops::resize(input, width, height, imageops::FilterType::Lanczos3);
-        let out = RgbaImage::from_fn(width, height, |x, y| {
-            let s = source.get_pixel(x, y);
-            let p = output.get_pixel(x, y);
+        let output = crate::resize::lanczos3(&enlarged, width, height);
+        let source = crate::resize::lanczos3(input, width, height);
+        let mut out = source.clone();
+        out.as_mut().par_chunks_exact_mut(4).zip(output.as_raw().par_chunks_exact(3)).for_each(|(s, p)| {
             let a = (s[3] as f32 / 255.0).powi(4);
-            image::Rgba([0, 1, 2, 3].map(|c| if c == 3 { s[3] } else { (p[c] as f32 * a + s[c] as f32 * (1.0 - a)).round() as u8 }))
+            for c in 0..3 {
+                s[c] = (p[c] as f32 * a + s[c] as f32 * (1.0 - a)).round() as u8;
+            }
         });
         ctl.check()?;
         ctl.set_stage(Stage::Done);
@@ -245,6 +211,16 @@ impl Ai {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    #[test]
+    fn enlargement_cpu_is_refused_before_network_or_model_loading() {
+        let ai = Ai::new("127.0.0.1:1");
+        let input = RgbaImage::from_pixel(2, 2, image::Rgba([80, 90, 100, 255]));
+        for method in Method::ALL {
+            let error = ai.enhance(&input, 4, 4, method, Backend::Cpu, Path::new("not-installed"), 1, &JobControl::new()).unwrap_err();
+            assert!(error.to_string().contains("CPU inference is disabled"));
+        }
+    }
     #[test]
     fn enhance_dimensions_odd_edges_and_old_settings() {
         assert_eq!(native_scale((101, 73), (202, 146)).unwrap(), 2);

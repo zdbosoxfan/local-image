@@ -120,15 +120,12 @@ fn orient(img: image::RgbaImage, o: u16) -> image::RgbaImage {
 /// The folder edited copies go to (Save & Next's default).
 pub const EDITED_DIR: &str = "Edited";
 
-/// Raw files can't be written back: their edited copies are TIFFs.
-const RAW_EXTS: &[&str] = &["dng", "cr2", "cr3", "nef", "nrw", "arw", "raf", "orf", "rw2", "rwl", "raw", "pef", "srw", "x3f", "3fr", "iiq", "erf", "mos"];
-
 /// Where Save & Next puts the edited copy of `original`: `Edited/<name>` beside it (raw files
 /// become `Edited/<stem>.tif`).
 pub fn edited_path(original: &Path) -> PathBuf {
     let dir = original.parent().unwrap_or(Path::new("")).join(EDITED_DIR);
     let ext = original.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    if RAW_EXTS.contains(&ext.as_str()) {
+    if photocraft_codecs::raw_from_extension(&ext) {
         let stem = original.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         dir.join(format!("{stem}.tif"))
     } else {
@@ -610,6 +607,15 @@ fn options_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn j6_filmstrip_raw_copy_paths_use_complete_shared_registry() {
+        for ext in photocraft_codecs::RAW_EXTENSIONS {
+            let source = PathBuf::from(format!("/fixture/photo.{}", ext.to_ascii_uppercase()));
+            assert_eq!(edited_path(&source), PathBuf::from("/fixture/Edited/photo.tif"));
+        }
+        assert_eq!(edited_path(Path::new("/fixture/photo.png")), PathBuf::from("/fixture/Edited/photo.png"));
+    }
 
     #[test]
     fn bugfix_save_o007_filmstrip_waits_for_tiff_then_steps_from_original_file() {

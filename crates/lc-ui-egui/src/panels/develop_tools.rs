@@ -144,7 +144,7 @@ pub fn raw_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
     }
     let methods: Vec<(&str, String)> = available.iter().map(|m| (m.label(), key_of(*m))).collect();
     let items: Vec<(&str, &str)> = methods.iter().map(|(l, k)| (*l, k.as_str())).collect();
-    choice(app, ui, "rawDemosaic", "Demosaic", &items, available.iter().position(|m| *m == r.demosaic), 3, |k| json!({"raw": {"demosaic": k}}));
+    choice(app, ui, "rawDemosaic", "Demosaic", &items, available.iter().position(|m| *m == r.demosaic), 2, |k| json!({"raw": {"demosaic": k}}));
     if r.demosaic.is_dual() {
         control(app, ui, d, "raw.dualThreshold", true);
     }
@@ -242,7 +242,9 @@ pub fn lens_db_rows(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: 
     });
     let reason = if !d.optics.lens_profile {
         Some("Enable Lens Corrections to apply the lens database profile.")
-    } else if app.session.source_info(id).lens.is_some() {
+    } else if app.session.source_info(id).embedded_lens_baked {
+        Some("Built-in DNG lens corrections are already applied.")
+    } else if app.session.source_info(id).embedded_lens(f64::from(photo.width), f64::from(photo.height)).is_some() {
         Some("Embedded lens corrections take priority; lens database amounts are inactive.")
     } else {
         None

@@ -594,7 +594,36 @@ mod tests {
         "The Library shows a preview of your layers. Save a copy or overwrite the original to keep this edit.",
     ];
 
+    const PENDING_LRC_UX_TRANSLATIONS: &[&str] = &["Library & Develop"];
+
     const PENDING_AI_TRANSLATIONS: &[&str] = &[
+        "Automatic",
+        "Loading on-device AI Remove",
+        "Removing on this computer",
+        "LaMa · On-device",
+        "AI Remove (On-device)",
+        "On-device · LaMa",
+        "On-device Tools…",
+        "Download AI Remove in Preferences › AI › On-device Tools first.",
+        "Repair brushed areas on this computer, without an AI server.",
+        "Repairs brushed areas with LaMa on this computer. No AI server needed; photos stay on this device.",
+        "Repairs brushed areas locally using the surrounding texture and structure. Runs on the CPU, including Macs; no GPU or AI server needed. Large areas use a resized context crop.",
+        "Keep full speed on battery",
+        "CPU estimate: about {min}–{max} s (first run may take longer)",
+        "CPU estimate: about {min}–{max} s (based on recent runs)",
+        "CPU estimate: about {min}–{max} min. This may take a while; cancellation remains available.",
+        "Your selected restoration model. Requires a GPU/NPU.",
+        "{name} · {size} download · GPU/NPU required · {licence}",
+        "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Requires a GPU/NPU.",
+        "Raw denoising and Bayer demosaic requires a GPU/NPU. Linear Rec.2020 variant for other sensors.",
+        "Local denoising for JPEG, TIFF and edited RGB images. Requires a GPU/NPU.",
+        "CPU estimate: about {min}–{max} min. Too slow for an interactive CPU job; use a GPU or a smaller input.",
+        "CPU estimate: about {min}–{max} s. This may take a while; cancellation remains available.",
+        "Estimated CPU analysis: {min}–{max} min. Runs in the background; you can cancel at any time.",
+        "Estimated CPU analysis: {min}–{max} s. Runs in the background; you can cancel at any time.",
+        "Otherwise use fewer compute threads and pause indexing, Smart Sort and background preview builds on battery.",
+        "AI enlargement requires a GPU/NPU.",
+        "Choose a GPU enlargement model in Settings › Local AI.",
         "The job is no longer in ComfyUI's queue or history. The server may have restarted; try again.",
         "Cannot read the ComfyUI queue: {error}",
         "Cannot read ComfyUI job history: {error}",
@@ -774,7 +803,8 @@ mod tests {
             let missing: Vec<_> = strings
                 .iter()
                 .filter(|s| {
-                    !PENDING_AI_TRANSLATIONS.contains(s)
+                    !PENDING_LRC_UX_TRANSLATIONS.contains(s)
+                        && !PENDING_AI_TRANSLATIONS.contains(s)
                         && !PENDING_OVERWRITE_TRANSLATIONS.contains(s)
                         && !PENDING_VECTOR_TRANSLATIONS.contains(s)
                         && cat.plain(s).is_none()
@@ -890,6 +920,7 @@ mod tests {
                 .filter(|s| {
                     !KEEP_AS_IS.contains(&s.as_str())
                         && !PENDING_BACKGROUND_TRANSLATIONS.contains(&s.as_str())
+                        && !PENDING_LRC_UX_TRANSLATIONS.contains(&s.as_str())
                         && !PENDING_AI_TRANSLATIONS.contains(&s.as_str())
                         && !PENDING_OVERWRITE_TRANSLATIONS.contains(&s.as_str())
                         && !PENDING_VECTOR_TRANSLATIONS.contains(&s.as_str())

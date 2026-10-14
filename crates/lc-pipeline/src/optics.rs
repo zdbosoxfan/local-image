@@ -58,6 +58,9 @@ pub struct Warp {
     pub lensdb_vig: f64,
     /// Camera-plane sampling basis: working -> camera, then camera -> working.
     pub camera_basis: Option<[lightcraft_color::Mat3; 2]>,
+    pub lcp: Option<crate::lcp::LcpMap>,
+    pub lcp_dist: f64,
+    pub lcp_vig: f64,
 }
 
 impl Warp {
@@ -79,6 +82,9 @@ impl Warp {
             lensdb_tca: 0.0,
             lensdb_vig: 0.0,
             camera_basis: None,
+            lcp: None,
+            lcp_dist: 0.0,
+            lcp_vig: 0.0,
         }
     }
 
@@ -93,6 +99,11 @@ impl Warp {
         let mut m = c.on(src_w, src_h);
         let (cx, cy) = o.map(m.cx, m.cy, src_w, src_h);
         (m.cx, m.cy) = (cx, cy);
+        // Higher-priority lensfun also replaces an LCP installed by a caller
+        // before this setter; never leave two active profile maps.
+        self.lcp = None;
+        self.lcp_dist = 0.0;
+        self.lcp_vig = 0.0;
         self.lensdb = Some(m);
         self.lensdb_dist = (l.distortion / 100.0).clamp(0.0, 2.0);
         self.lensdb_tca = (l.tca / 100.0).clamp(0.0, 2.0);
@@ -100,6 +111,22 @@ impl Warp {
         self.lens = None;
         self.lens_dist = 0.0;
         self.lens_vig = 0.0;
+    }
+
+    /// Imported LCP is the final fallback: embedded data, then lensfun, then LCP.
+    pub fn set_lcp(&mut self, c: &crate::lcp::LcpCorrection, o: Orientation, src_w: f64, src_h: f64, s: &DevelopSettings) {
+        if !s.optics.lens_profile || !s.section_enabled("optics") || self.lens.is_some() || self.lensdb.is_some() || !c.valid() {
+            return;
+        }
+        let mut correction = *c;
+        if !s.optics.remove_ca {
+            correction.chromatic = None;
+        }
+        self.lcp = Some(crate::lcp::LcpMap { correction, orientation: o, source_w: src_w, source_h: src_h });
+        self.lcp_dist = (s.optics.profile_distortion / 100.0).clamp(0.0, 2.0);
+        self.lcp_vig = (s.optics.profile_vignetting / 100.0).clamp(0.0, 2.0);
+        self.lens = None;
+        self.lensdb = None;
     }
 
     /// The lens part of the warp from the settings (optics section) and optional embedded lens data.
@@ -133,7 +160,10 @@ impl Warp {
 
     /// Whether pixels move at all.
     pub fn moves_pixels(&self) -> bool {
-        self.persp != Homography::IDENTITY
+        self.lcp.is_some_and(|m| {
+            (self.lcp_dist != 0.0 && m.correction.geometric_model().is_some_and(|d| d.radial != [0.0; 3] || d.tangential != [0.0; 2]))
+                || m.correction.per_channel()
+        }) || self.persp != Homography::IDENTITY
             || self.k1 != 0.0
             || self.ca.iter().any(|c| *c != 0.0)
             || (self.lens_dist != 0.0 && self.lens.is_some_and(|l| l.warp.is_some() || l.radial.is_some_and(|r| r.count > 0)))
@@ -149,14 +179,16 @@ impl Warp {
 
     /// Calibrated lateral CA is available and enabled (independent of manual CA).
     pub fn profile_ca(&self) -> bool {
-        (self.lens_dist != 0.0 && self.lens.and_then(|l| l.warp).is_some_and(|w| w.planes[0] != w.planes[1] || w.planes[1] != w.planes[2]))
+        self.lcp.is_some_and(|m| m.correction.per_channel())
+            || (self.lens_dist != 0.0 && self.lens.and_then(|l| l.warp).is_some_and(|w| w.planes[0] != w.planes[1] || w.planes[1] != w.planes[2]))
             || (self.lens_dist != 0.0
                 && self.lens.and_then(|l| l.radial).is_some_and(|r| r.count > 0 && (r.scales[0] != r.scales[1] || r.scales[1] != r.scales[2])))
             || (self.lensdb_tca != 0.0 && self.lensdb.is_some_and(|m| m.c.per_channel()))
     }
 
     pub fn has_gain(&self) -> bool {
-        self.vig_stops != 0.0
+        (self.lcp_vig != 0.0 && self.lcp.is_some_and(|m| m.correction.has_gain()))
+            || self.vig_stops != 0.0
             || (self.lens_vig != 0.0 && self.lens.is_some_and(|l| l.vignette.is_some() || l.radial.is_some_and(|r| r.vig_count > 0)))
             || (self.lensdb_vig != 0.0 && self.lensdb.is_some_and(|m| m.c.vignetting.is_some_and(|k| k != [0.0; 3])))
     }
@@ -227,6 +259,9 @@ impl Warp {
         if let Some(m) = &self.lensdb {
             (qx, qy) = m.to_source_real(qx, qy, ch, self.lensdb_dist, self.lensdb_tca);
         }
+        if let Some(m) = &self.lcp {
+            (qx, qy) = m.to_source_real(qx, qy, ch, self.lcp_dist);
+        }
         let k = self.ca[ch];
         if k != 0.0 {
             (qx, qy) = ((qx - c.x) * (1.0 + k) + c.x, (qy - c.y) * (1.0 + k) + c.y);
@@ -264,6 +299,11 @@ impl Warp {
             && let Some(m) = &self.lensdb
         {
             g *= m.gain(src.x, src.y, self.lensdb_vig);
+        }
+        if self.lcp_vig != 0.0
+            && let Some(m) = &self.lcp
+        {
+            g *= m.gain(src.x, src.y, self.lcp_vig);
         }
         g as f32
     }
@@ -395,6 +435,71 @@ pub fn reorient_lens(lens: &EmbeddedLens, o: Orientation, w: f64, h: f64) -> Emb
     let vignette = lens.vignette.map(|v| EmbeddedVignette { k: v.k, center: map_pt(v.center), radius: v.radius * long_ratio });
     let radial = lens.radial.map(|r| EmbeddedRadial { center: map_pt(r.center), radius: r.radius * long_ratio, ..r });
     EmbeddedLens { warp, vignette, radial }
+}
+
+/// Sony metadata handoff uses the same map as decoded vendor profiles.
+pub fn sony_embedded_lens(data: &lightcraft_develop::SonyLensData, w: f64, h: f64) -> Option<EmbeddedLens> {
+    let values = |v: &[i16]| v.iter().map(|v| f64::from(*v)).collect::<Vec<_>>();
+    let radial = sony_radial(&values(&data.distortion), &values(&data.ca_red), &values(&data.ca_blue), &values(&data.vignetting), w, h)?;
+    Some(EmbeddedLens { radial: Some(radial), ..Default::default() })
+}
+
+/// Legacy raw-data adapters and the current metadata handoff share this evaluator.
+pub fn sony_radial(distortion: &[f64], ca_red: &[f64], ca_blue: &[f64], vignetting: &[f64], w: f64, h: f64) -> Option<EmbeddedRadial> {
+    let mut out = EmbeddedRadial {
+        center: Point::new(0.5, 0.5),
+        radius: 0.5 * w.hypot(h) / w.max(h),
+        scales: [[1.0; 16]; 3],
+        attenuation: [1.0; 16],
+        ..Default::default()
+    };
+    let n = distortion.len();
+    if !(2..=16).contains(&n) || [ca_red.len(), ca_blue.len(), vignetting.len()].iter().any(|&l| l != n) {
+        return None;
+    }
+    out.count = n;
+    out.vig_count = n;
+    for i in 0..n {
+        out.knots[i] = (i as f64 + 0.5) / (n - 1) as f64;
+        out.vig_knots[i] = out.knots[i];
+        let d = 1.0 + distortion[i] / 16384.0;
+        out.scales[0][i] = d * (1.0 + ca_red[i] / 2097152.0);
+        out.scales[1][i] = d;
+        out.scales[2][i] = d * (1.0 + ca_blue[i] / 2097152.0);
+        out.attenuation[i] = (0.5 - (vignetting[i] / 8192.0 - 1.0).exp2()).exp2();
+    }
+    finish_radial(out, w, h)
+}
+
+/// Validate a vendor map and perform darktable v2 autoscale once per profile.
+pub fn finish_radial(mut out: EmbeddedRadial, w: f64, h: f64) -> Option<EmbeddedRadial> {
+    // Reject invalid/non-monotone tables before either render backend sees them.
+    let n = out.count;
+    if out.knots[..n].iter().any(|x| !x.is_finite())
+        || out.knots[..n].windows(2).any(|x| x[0] >= x[1])
+        || out.scales.iter().any(|c| c[..n].iter().any(|x| !x.is_finite() || *x <= 0.0))
+        || out.attenuation[..out.vig_count].iter().any(|x| !x.is_finite() || *x <= 0.0)
+        || out.vig_knots[..out.vig_count].windows(2).any(|x| x[0] >= x[1])
+    {
+        return None;
+    }
+    // Darktable v2 autoscale: retain the largest usable image without blank
+    // borders in any colour channel. Vignetting remains in source coordinates.
+    let short_radius = w.min(h) / w.hypot(h);
+    let mut scale = 0.0_f64;
+    for i in 0..200 {
+        let x = short_radius + (1.0 - short_radius) * i as f64 / 199.0;
+        for channel in &out.scales {
+            scale = scale.max(interpolate_radial(&out.knots, channel, n, x));
+        }
+    }
+    for i in 0..n {
+        out.knots[i] *= scale;
+        for channel in &mut out.scales {
+            channel[i] /= scale;
+        }
+    }
+    Some(out)
 }
 
 /// Clamp-ended linear interpolation, shared by the metadata adapter and the CPU map.

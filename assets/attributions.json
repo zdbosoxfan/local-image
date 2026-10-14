@@ -18,6 +18,83 @@
       "intro": "Algorithms re-implemented in Rust from other projects (docs/PORTS.md). No C, C++ or Python from them is compiled or shipped.",
       "entries": [
         {
+          "name": "LibRaw",
+          "used_for": "Bounds-checked pure-Rust Sony ARW6 normal/HQ packet, entropy, wavelet and complete inverse curve implementation.",
+          "upstream": "src/decoders/sony_arw6.cpp",
+          "commit": "830ac963b40223c6a25add5be65036fa8d56e2d6",
+          "ours": "crates/lc-raw/src/vendor/arw6.rs",
+          "licence": "LGPL-2.1-only (chosen over CDDL-1.0)",
+          "licence_files": [
+            "licenses/libraw-LICENSE.LGPL",
+            "licenses/libraw-NOTICE.md"
+          ],
+          "url": "https://github.com/LibRaw/LibRaw/blob/830ac963b40223c6a25add5be65036fa8d56e2d6/src/decoders/sony_arw6.cpp"
+        },
+        {
+          "name": "LibRaw",
+          "version": "0.22.2",
+          "used_for": "Sony per-file SR2 calibration cipher, ARQ sample layout and Sony RGB conversion reference.",
+          "upstream": "src/metadata/sony.cpp, src/decoders/decoders_libraw.cpp",
+          "commit": "b93f6e45c194f5df9b02a43b1af9a54b4f41f33f",
+          "ours": "crates/lc-raw/src/vendor/arw.rs",
+          "licence": "LGPL-2.1-only (chosen over CDDL-1.0)",
+          "licence_files": [
+            "licenses/libraw-LICENSE.LGPL",
+            "licenses/libraw-NOTICE.md"
+          ],
+          "url": "https://github.com/LibRaw/LibRaw/blob/b93f6e45c194f5df9b02a43b1af9a54b4f41f33f/src/metadata/sony.cpp"
+        },
+        {
+          "name": "ExifTool",
+          "version": "13.59 snapshot; 13.40 reference also retained",
+          "used_for": "Independently implemented Sony field layouts/cipher and DJI namespace semantics; reference-only Perl tool.",
+          "upstream": "lib/Image/ExifTool/Sony.pm, lib/Image/ExifTool/DJI.pm, lib/Image/ExifTool/Exif.pm",
+          "commit": "2200871d9cef988051d2a99d67df3bda6cbb30a8",
+          "ours": "crates/lc-meta/src/sony.rs, crates/lc-meta/src/dji.rs",
+          "licence": "GPL-1.0-or-later (Perl licence option)",
+          "licence_files": [
+            "licenses/exiftool-NOTICE.md"
+          ],
+          "url": "https://github.com/exiftool/exiftool/blob/2200871d9cef988051d2a99d67df3bda6cbb30a8/lib/Image/ExifTool/Sony.pm"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "Independent Rust noise-aware repeated-green motion comparison; measured/profiled variance and first-shot fallback.",
+          "upstream": "rtengine/pixelshift.cc",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-merge/src/pixelshift.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/pixelshift.cc"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Documented normalized sensor variance a×signal+b for motion thresholds.",
+          "upstream": "src/iop/denoiseprofile.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-merge/src/pixelshift.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/denoiseprofile.c"
+        },
+        {
+          "name": "make_arq",
+          "used_for": "Sony source shot displacement and half-pixel phase ordering (independent Rust reconstruction/motion implementation).",
+          "upstream": "make_arq.py",
+          "commit": "912069a8e6d3c6738cd76ba0fe6c62ed4d314fe3",
+          "ours": "crates/lc-merge/src/pixelshift.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/make_arq-NOTICE.md"
+          ],
+          "url": "https://github.com/agriggio/make_arq"
+        },
+        {
           "name": "SplitMix64",
           "used_for": "Stable seed-derived alternate conditioning for Z-Image Turbo Variety.",
           "upstream": "misc/splitmix64.c",
@@ -169,6 +246,55 @@
             "licenses/darktable-NOTICE.md"
           ],
           "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/negadoctor.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Frank Markesteijn's three-pass X-Trans demosaic, ported from darktable xtrans.c at 733bd69f32cac7ff5e41025115942772add1f088 (GPL-3.0-or-later).",
+          "upstream": "src/iop/demosaicing/xtrans.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/demosaic/markesteijn.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/xtrans.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Frank Markesteijn's three-pass X-Trans demosaic, ported from darktable xtrans.c at 733bd69f32cac7ff5e41025115942772add1f088 (GPL-3.0-or-later).",
+          "upstream": "src/iop/demosaicing/vng.c, src/iop/demosaicing/dual.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/demosaic/markesteijn.rs, crates/lc-raw/src/demosaic/dual.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/vng.c"
+        },
+        {
+          "name": "darktable",
+          "used_for": "L.",
+          "upstream": "src/iop/demosaicing/lmmse.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/demosaic/lmmse.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/iop/demosaicing/lmmse.c"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "DCB by Jacek Gozdz (BSD-3-Clause), Rust port of RawTherapee rtengine/demosaic_algos.cc at 5f486d3678b34c74ba0c63571c17babe20935019.",
+          "upstream": "rtengine/demosaic_algos.cc",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/src/demosaic/dcb.rs",
+          "licence": "BSD-3-Clause AND GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/demosaic_algos.cc"
         },
         {
           "name": "darktable",
@@ -492,6 +618,7 @@
           "ours": "crates/lc-raw/src/camera_matrices.rs",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
             "licenses/rawtherapee-NOTICE.md"
           ],
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/camconst.json"
@@ -501,9 +628,10 @@
           "used_for": "DNG camera-profile look data carried by the file itself (Adobe DNG Specification 1.6/1.7, chapter 6 and the ProfileHueSatMap, ProfileLookTable and ProfileToneCurve tags).",
           "upstream": "rtengine/dcp.cc (table interpolation, matrix blending)",
           "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
-          "ours": "crates/lc-color/src/profile.rs, camera.rs",
+          "ours": "crates/li-color/src/profile.rs, camera.rs",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
             "licenses/rawtherapee-NOTICE.md"
           ],
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/dcp.cc"
@@ -515,9 +643,37 @@
           "ours": "crates/lc-raw/data/dcp/",
           "licence": "CC0-1.0 / public domain; per-file rights + SHA-256 in manifest",
           "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
             "licenses/rawtherapee-NOTICE.md"
           ],
           "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtdata/dcpprofiles/"
+        },
+        {
+          "name": "CIE",
+          "version": "DOI 10.25039/CIE.DS.xvudnb9b; SHA-256",
+          "upstream": "CIE 018:2019 Table 6, complete CIE_xyz_1931_2deg.csv and metadata",
+          "commit": "fa663e3535a7e0763a745993a1f0a192eb0275ac46ad2d1befd7626841e713c1",
+          "ours": "crates/lc-raw/data/color/",
+          "licence": "CC-BY-SA-4.0 (separate data work)",
+          "licence_files": [
+            "licenses/cie-LICENSE-CC-BY-SA-4.0.txt",
+            "licenses/cie-NOTICE.md"
+          ],
+          "url": "https://cie.co.at/datatable/cie-1931-colour-matching-functions-2-degree-observer"
+        },
+        {
+          "name": "RawTherapee",
+          "version": "Adobe Camera Model 2010 PDF",
+          "used_for": "Read-only Adobe Lens Correction Profile (LCP) import.",
+          "upstream": "rtengine/lcp.cc, interpretation of Adobe Camera Model (2010); original XML parser",
+          "commit": "c6d04960e14fed89e531cbbdf680021d131b4685",
+          "ours": "crates/lc-raw/src/lcp.rs, crates/lc-pipeline/src/lcp.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/c6d04960e14fed89e531cbbdf680021d131b4685/rtengine/lcp.cc"
         },
         {
           "name": "VectorCraft",
@@ -6925,6 +7081,107 @@
           "url": "https://github.com/dnglab/dnglab/blob/ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7/rawler/Cargo.toml"
         },
         {
+          "name": "RawTherapee",
+          "used_for": "Whole camera white/black levels, crops and PDAF patterns",
+          "upstream": "rtengine/camconst.json",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/data/cameras/camconst.json",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/camconst.json"
+        },
+        {
+          "name": "rawspeed",
+          "used_for": "Whole ISO sensor calibration, crops, black areas and matrices",
+          "upstream": "data/cameras.xml",
+          "commit": "0c16fee7772594e98897bded01fc31bc3409b4cb",
+          "ours": "crates/lc-raw/data/cameras/cameras.xml",
+          "licence": "CC-BY-SA-3.0",
+          "licence_files": [
+            "licenses/rawspeed-LICENSE.txt",
+            "licenses/rawspeed-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/rawspeed/blob/0c16fee7772594e98897bded01fc31bc3409b4cb/data/cameras.xml"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Whole per-camera measured noise fits",
+          "upstream": "data/noiseprofiles.json",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/data/cameras/noiseprofiles.json",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/data/noiseprofiles.json"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Whole camera WB presets",
+          "upstream": "data/wb_presets.json",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/data/cameras/wb_presets.json",
+          "licence": "GPL-2.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/data/wb_presets.json"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "ISO/aperture camera constant semantics",
+          "upstream": "rtengine/camconst.cc",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/src/camera_data.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/camconst.cc"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "Integer TIFF-bit-depth white mapping and absolute black flags",
+          "upstream": "rtengine/rawimage.cc",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/src/camera_data.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/rawimage.cc"
+        },
+        {
+          "name": "RawTherapee",
+          "used_for": "PDAF periods and green-triplet detection; host clean-row interpolation",
+          "upstream": "rtengine/pdaflinesfilter.cc",
+          "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
+          "ours": "crates/lc-raw/src/camera_data.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/rawtherapee-DCB-BSD-3-Clause.txt",
+            "licenses/rawtherapee-NOTICE.md"
+          ],
+          "url": "https://github.com/RawTherapee/RawTherapee/blob/5f486d3678b34c74ba0c63571c17babe20935019/rtengine/pdaflinesfilter.cc"
+        },
+        {
+          "name": "darktable",
+          "used_for": "Profile skip/interpolation semantics",
+          "upstream": "src/common/noiseprofiles.c",
+          "commit": "733bd69f32cac7ff5e41025115942772add1f088",
+          "ours": "crates/lc-raw/src/camera_data.rs",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "licenses/darktable-NOTICE.md"
+          ],
+          "url": "https://github.com/darktable-org/darktable/blob/733bd69f32cac7ff5e41025115942772add1f088/src/common/noiseprofiles.c"
+        },
+        {
           "name": "vkdt",
           "author": "Johannes Hanika",
           "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
@@ -7035,6 +7292,18 @@
             "licenses/model-system-NOTICE.md"
           ],
           "url": "https://github.com/ltdrdata/ComfyUI-Manager"
+        },
+        {
+          "name": "CIE 1931 standard colorimetric observer (2 degree)",
+          "author": "CIE 2019, International Commission on Illumination, Vienna, AT",
+          "used_for": "Whole 471-row observer dataset for DNG IlluminantData spectral whites; CIE 018:2019 Table 6, DOI 10.25039/CIE.DS.xvudnb9b. CSV and metadata retained unmodified.",
+          "ours": "crates/lc-raw/data/color/",
+          "licence": "CC-BY-SA-4.0 (separate data work)",
+          "licence_files": [
+            "licenses/cie-NOTICE.md",
+            "licenses/cie-LICENSE-CC-BY-SA-4.0.txt"
+          ],
+          "url": "https://doi.org/10.25039/CIE.DS.xvudnb9b"
         }
       ]
     },
@@ -7339,6 +7608,18 @@
             "licenses/restoration-scratches-NOTICE.md"
           ],
           "url": "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/blob/33875eccf4ebcd3665cf38cc56f3a0ce563d3a9c/LICENSE"
+        },
+        {
+          "name": "LaMa · On-device",
+          "author": "Samsung Research; Carve-Photos ONNX export",
+          "used_for": "On-device AI Remove in Compositing and Develop: unmodified FP32 big-LaMa ONNX through tract, with brush → adjust → confirm and the existing undo/patch store. Downloaded separately; no weights bundled.",
+          "ours": "crates/li-seg/src/lama.rs; crates/li-ai/src/ops.rs",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/lama-Apache-2.0.txt",
+            "licenses/lama-NOTICE.md"
+          ],
+          "url": "https://huggingface.co/Carve/LaMa-ONNX/tree/c3c0c9e468934d62e79c329e35d82dd09ff8c444"
         }
       ]
     },

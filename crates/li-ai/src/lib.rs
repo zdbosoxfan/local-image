@@ -22,11 +22,14 @@ pub mod mock_hub;
 pub mod ops;
 pub mod presets;
 pub mod refine;
+pub mod resize;
+pub mod resources;
 pub mod restoration;
 pub mod settings;
 pub mod setup;
 pub mod tls;
 pub mod trash;
+pub mod updates;
 pub mod workflows;
 
 pub use catalog::ModelId;
