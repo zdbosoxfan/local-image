@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 li-keys = { workspace = true, features = ["egui"] }
+li-ui-kit.workspace = true
 li-color = { workspace = true }
 li-seg = { workspace = true }
 # The editor owns the shared display transform (existing workspace package).

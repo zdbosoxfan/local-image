@@ -1,0 +1,18 @@
+[package]
+name = "li-ui-kit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared Local Image UI tokens, font registration and sourced SVG icons"
+
+[lints]
+workspace = true
+
+[dependencies]
+egui.workspace = true
+egui_extras = { workspace = true, features = ["svg"] }
+li-color.workspace = true
+photocraft-text.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true

@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 li-gpu.workspace = true
 li-keys = { workspace = true, features = ["egui"] }
+li-ui-kit.workspace = true
 li-color.workspace = true
 photocraft-svg = { workspace = true, features = ["svg-import-integrated"] }
 photocraft-pdf.workspace = true

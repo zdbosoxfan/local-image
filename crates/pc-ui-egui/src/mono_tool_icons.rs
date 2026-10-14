@@ -1,51 +1,7 @@
-//! Theme-tinted monochrome tool icons: the line SVGs in assets/icons/tools, drawn white and tinted
-//! by egui with the theme colour (the active tool keeps the accent treatment from the button).
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
-
-use crate::tool_icon_data::TOOL_ICONS;
-use egui::{Color32, Image, Vec2};
-
-/// Every tool icon by name: the Compositing tools plus the vector persona's table.
-pub fn svg(name: &str) -> Option<&'static [u8]> {
-    TOOL_ICONS
-        .iter()
-        .copied()
-        .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, name, svg)| (*name, *svg)))
-        .find(|(n, _)| *n == name)
-        .map(|(_, svg)| svg)
-}
-
-fn white_icons() -> &'static HashMap<&'static str, Arc<[u8]>> {
-    static MAP: OnceLock<HashMap<&'static str, Arc<[u8]>>> = OnceLock::new();
-    MAP.get_or_init(|| {
-        TOOL_ICONS
-            .iter()
-            .copied()
-            .chain(crate::vector_tool_icon_data::ICONS.iter().map(|(_, name, svg)| (*name, *svg)))
-            .map(|(name, bytes)| {
-                let svg = String::from_utf8_lossy(bytes).replace("currentColor", "#ffffff");
-                (name, Arc::from(svg.into_bytes().into_boxed_slice()))
-            })
-            .collect()
-    })
-}
-
-pub fn exists(name: &str) -> bool {
-    white_icons().contains_key(name)
-}
-
-pub fn image(name: &str, size: f32, tint: Color32) -> Option<Image<'static>> {
-    let bytes = white_icons().get(name)?.clone();
-    Some(Image::from_bytes(format!("bytes://sourced-tool-icons/{name}.svg"), egui::load::Bytes::Shared(bytes)).fit_to_exact_size(Vec2::splat(size)).tint(tint))
-}
-
+//! Compatibility API for shared sourced tool icons.
 #[cfg(test)]
-pub fn raster(name: &str, pixels: u32) -> Result<egui::ColorImage, String> {
-    let bytes = white_icons().get(name).ok_or_else(|| format!("unknown monochrome tool: {name}"))?;
-    egui_extras::image::load_svg_bytes_with_size(bytes, egui::load::SizeHint::Width(pixels), &Default::default())
-}
-
+use crate::tool_icon_data::TOOL_ICONS;
+pub use li_ui_kit::mono_tool_icons::*;
 #[cfg(test)]
 mod tests {
     use super::*;
