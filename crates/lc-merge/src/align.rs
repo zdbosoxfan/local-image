@@ -44,6 +44,7 @@ pub struct Alignment {
     pub h: Homography,
     pub model: &'static str,
     pub inliers: usize,
+    /// Feature-fitting RMS before optional direct photometric refinement.
     pub rms: f64,
 }
 
@@ -100,6 +101,125 @@ pub fn align_pair(ref_feat: &Features, feat: &Features, scale: f64, full_w: usiz
     // the fit with `most` inliers always qualifies
     let Some((name, f)) = fits.into_iter().find(|(_, f)| f.inliers.len() as f64 >= most as f64 * 0.97) else { return Alignment::identity() };
     Alignment { h: scale_homography(&f.h, scale), model: name, inliers: f.inliers.len(), rms: f.rms / scale }
+}
+
+/// Refine a feature initialization by robust direct registration (Lucas–Kanade,
+/// IJCAI 1981). Four small similarity increments are composed in source coordinates;
+/// an initial homography retains its perspective terms. Exposure-normalized perceptual
+/// proxies are required. Every accepted step lowers the robust photometric residual.
+/// This removes sparse-corner fitting bias without resampling full sensor images.
+pub fn refine_registration(reference: &Plane, moving: &Plane, initial: &Homography) -> Homography {
+    if reference.width < 8
+        || reference.height < 8
+        || reference.width != moving.width
+        || reference.height != moving.height
+        || reference.width.checked_mul(reference.height) != Some(reference.data.len())
+        || moving.width.checked_mul(moving.height) != Some(moving.data.len())
+        || initial.0.iter().any(|v| !v.is_finite())
+    {
+        return *initial;
+    }
+    let (w, h) = (reference.width, reference.height);
+    let step = (w.saturating_mul(h) / 40_000).max(1);
+    let diagonal = (w as f64).hypot(h as f64);
+    let centre = (w as f64 / 2.0, h as f64 / 2.0);
+    let objective = |matrix: &Homography| {
+        let (mut error, mut count) = (0.0, 0usize);
+        for i in (0..w * h).step_by(step) {
+            let target = reference.data[i] as f64;
+            let q = matrix.apply(Point::new((i % w) as f64 + 0.5, (i / w) as f64 + 0.5));
+            if !(0.02..0.98).contains(&target) || q.x < 2.0 || q.y < 2.0 || q.x > w as f64 - 2.0 || q.y > h as f64 - 2.0 {
+                continue;
+            }
+            let source = crate::features::bilinear(moving, q.x as f32, q.y as f32) as f64;
+            if !(0.02..0.98).contains(&source) {
+                continue;
+            }
+            let residual = source - target;
+            error += (1.0 + (residual / 0.1).powi(2)).ln();
+            count += 1;
+        }
+        (error / count.max(1) as f64, count)
+    };
+    let mut current = *initial;
+    let (mut score, coverage) = objective(&current);
+    if coverage < 64 {
+        return current;
+    }
+    for _ in 0..20 {
+        let (mut normal, mut rhs, mut used) = (vec![0.0; 16], vec![0.0; 4], 0usize);
+        for i in (0..w * h).step_by(step) {
+            let target = reference.data[i] as f64;
+            let q = current.apply(Point::new((i % w) as f64 + 0.5, (i / w) as f64 + 0.5));
+            if !(0.02..0.98).contains(&target) || q.x < 2.0 || q.y < 2.0 || q.x > w as f64 - 2.0 || q.y > h as f64 - 2.0 {
+                continue;
+            }
+            let sample = |x: f64, y: f64| crate::features::bilinear(moving, x as f32, y as f32) as f64;
+            let source = sample(q.x, q.y);
+            if !(0.02..0.98).contains(&source) {
+                continue;
+            }
+            let neighbors = [sample(q.x + 1.0, q.y), sample(q.x - 1.0, q.y), sample(q.x, q.y + 1.0), sample(q.x, q.y - 1.0)];
+            if neighbors.iter().any(|v| !(0.02..0.98).contains(v)) {
+                continue;
+            }
+            let (gx, gy) = ((neighbors[0] - neighbors[1]) * 0.5, (neighbors[2] - neighbors[3]) * 0.5);
+            let (x, y) = ((q.x - centre.0) / diagonal, (q.y - centre.1) / diagonal);
+            let jacobian = [gx, gy, gx * x + gy * y, -gx * y + gy * x];
+            let residual = source - target;
+            let weight = 1.0 / (1.0 + (residual / 0.1).powi(2));
+            for r in 0..4 {
+                rhs[r] -= weight * jacobian[r] * residual;
+                for c in 0..4 {
+                    normal[r * 4 + c] += weight * jacobian[r] * jacobian[c];
+                }
+            }
+            used += 1;
+        }
+        if used < 64 {
+            break;
+        }
+        for i in 0..4 {
+            normal[i * 4 + i] += 1e-8;
+        }
+        let Some(delta) = crate::linalg::solve(normal, rhs, 4) else {
+            break;
+        };
+        if delta.iter().any(|v| !v.is_finite()) {
+            break;
+        }
+        let mut accepted = None;
+        for fraction in [1.0, 0.5, 0.25, 0.125] {
+            let d: Vec<_> = delta.iter().map(|v| v.clamp(-2.0, 2.0) * fraction).collect();
+            let (scale, rotation) = (d[2] / diagonal, d[3] / diagonal);
+            let update = Homography([
+                1.0 + scale,
+                -rotation,
+                d[0] - scale * centre.0 + rotation * centre.1,
+                rotation,
+                1.0 + scale,
+                d[1] - rotation * centre.0 - scale * centre.1,
+                0.0,
+                0.0,
+                1.0,
+            ]);
+            let candidate = update.mul(&current);
+            let (error, count) = objective(&candidate);
+            if count >= coverage * 95 / 100 && error.is_finite() && error < score && plausible(&candidate, w as f64, h as f64, 0.12) {
+                accepted = Some((candidate, error));
+                break;
+            }
+        }
+        let Some((candidate, error)) = accepted else {
+            break;
+        };
+        current = candidate;
+        score = error;
+        if delta.iter().all(|d| d.abs() < 1e-3) {
+            break;
+        }
+    }
+    current
 }
 
 /// Resample `img` into the reference geometry: `out(p) = img(h(p))`. Returns the warped image and

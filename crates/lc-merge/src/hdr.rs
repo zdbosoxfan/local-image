@@ -41,7 +41,7 @@ pub enum Deghost {
 
 impl Deghost {
     /// (log-ratio threshold, dilation/feather radius in deghost-map pixels).
-    fn params(self) -> Option<(f32, usize)> {
+    pub(crate) fn params(self) -> Option<(f32, usize)> {
         match self {
             Deghost::None => None,
             Deghost::Low => Some((1.0, 2)),
@@ -103,6 +103,18 @@ pub fn merge_hdr(mut frames: Vec<Frame>, opts: &HdrOptions, progress: &Progress)
         return Err(MergeError::TooFew(n, 2));
     }
     let (w, h) = (frames[0].width(), frames[0].height());
+    if w == 0 || h == 0 || w.checked_mul(h).is_none() {
+        return Err(MergeError::Mismatch("HDR merge needs nonempty images with valid dimensions".into()));
+    }
+    if frames.iter().any(|f| {
+        f.image.data.len() != f.width().saturating_mul(f.height())
+            || !f.clip.is_finite()
+            || f.clip <= 0.0
+            || f.exposure.is_some_and(|e| !e.is_finite())
+            || f.image.data.iter().flatten().any(|v| !v.is_finite())
+    }) {
+        return Err(MergeError::Mismatch("HDR input has invalid pixels, exposure or clipping level".into()));
+    }
     if frames.iter().any(|f| f.width() != w || f.height() != h) {
         return Err(MergeError::Mismatch("HDR merge needs photos of the same size".into()));
     }
@@ -150,10 +162,20 @@ pub fn merge_hdr(mut frames: Vec<Frame>, opts: &HdrOptions, progress: &Progress)
             })
             .collect();
         check(progress, 0.25, "Aligning")?;
+        let (ref_plane, refine_scale) = refinement_image(&frames[reference], g0);
         let al: Vec<(usize, Alignment)> = (0..n)
             .into_par_iter()
             .filter(|&i| i != reference)
-            .map(|i| (i, align::align_pair(&feats[reference].0, &feats[i].0, feats[i].1, w, h, i as u64 + 1)))
+            .map(|i| {
+                let mut alignment = align::align_pair(&feats[reference].0, &feats[i].0, feats[i].1, w, h, i as u64 + 1);
+                if alignment.model != "identity" {
+                    let (moving_plane, _) = refinement_image(&frames[i], g0 * rel[i]);
+                    let work_h = align::scale_homography(&alignment.h, 1.0 / refine_scale);
+                    let refined = align::refine_registration(&ref_plane, &moving_plane, &work_h);
+                    alignment.h = align::scale_homography(&refined, refine_scale);
+                }
+                (i, alignment)
+            })
             .collect();
         for (i, a) in al {
             alignments[i] = a;
@@ -194,6 +216,9 @@ pub fn merge_hdr(mut frames: Vec<Frame>, opts: &HdrOptions, progress: &Progress)
         ln_k[order[p]] = ln_k[order[p - 1]] + step_ln[p - 1];
     }
     let k: Vec<f32> = ln_k.iter().map(|v| v.exp() as f32).collect();
+    if k.iter().any(|v| !v.is_finite() || *v <= 0.0) {
+        return Err(MergeError::Mismatch("HDR exposure ratio exceeds the supported finite range".into()));
+    }
     let ev: Vec<f64> = ln_k.iter().map(|v| v / std::f64::consts::LN_2).collect();
     let ev_exif = exif.as_ref().map(|e| e.iter().map(|v| v - e[reference]).collect());
 
@@ -280,6 +305,22 @@ pub fn merge_hdr(mut frames: Vec<Frame>, opts: &HdrOptions, progress: &Progress)
     })
 }
 
+/// Photometric refinement must ignore sensor clipping, even when a saturated colour
+/// has a moderate luminance. Otherwise optimization can explain clipped brightness
+/// differences by introducing a false scale/rotation at bright window boundaries.
+fn refinement_image(frame: &Frame, gain: f32) -> (Plane, f64) {
+    use lightcraft_raster::resample::{Filter, fit};
+    let small = if frame.width().max(frame.height()) > align::WORK_EDGE {
+        fit(&frame.image, align::WORK_EDGE, align::WORK_EDGE, Filter::Box)
+    } else {
+        frame.image.clone()
+    };
+    let scale = small.width as f64 / frame.width() as f64;
+    let plane = small
+        .map(|p| if maxc(p) >= frame.clip * 0.8 { 0.0 } else { ((0.25 * p[0] + 0.6 * p[1] + 0.15 * p[2]) * gain).clamp(0.0, 1.0).powf(1.0 / 2.2) });
+    (plane, scale)
+}
+
 /// Bilinear sample of a plane at continuous coordinates (pixel centres at +0.5).
 pub(crate) fn sample_plane(p: &Plane, x: f32, y: f32) -> f32 {
     if p.width == 0 || p.height == 0 {
@@ -348,7 +389,7 @@ fn shrink(img: &Rgb32f, valid: Option<&[bool]>, fac: usize) -> (Rgb32f, Vec<f32>
 }
 
 /// Per-frame ghost masks (0..1) at 1/`fac` scale; the reference's is all zero.
-fn deghost_maps(
+pub(crate) fn deghost_maps(
     frames: &[Frame],
     valid: &[Option<Vec<bool>>],
     k: &[f32],
@@ -446,4 +487,29 @@ fn dilate(p: &Plane, r: usize) -> Plane {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod j19_validation {
+    use super::*;
+
+    #[test]
+    fn j19_hdr_rejects_empty_and_nonfinite_inputs() {
+        let f = Frame::from_linear_rec2020(Rgb32f::new(0, 0), Some(0.0));
+        assert!(matches!(merge_hdr(vec![f.clone(), f], &HdrOptions::default(), &crate::no_progress), Err(MergeError::Mismatch(_))));
+        let good = Frame::from_linear_rec2020(Rgb32f::from_fn(8, 8, |_, _| [0.2; 3]), Some(0.0));
+        for kind in 0..5 {
+            let mut bad = good.clone();
+            match kind {
+                0 => bad.clip = 0.0,
+                1 => bad.exposure = Some(f64::NAN),
+                2 => bad.image.data[0][0] = f32::INFINITY,
+                3 => bad.exposure = Some(1e300),
+                _ => {
+                    bad.image.data.pop();
+                }
+            }
+            assert!(matches!(merge_hdr(vec![good.clone(), bad], &HdrOptions::default(), &crate::no_progress), Err(MergeError::Mismatch(_))));
+        }
+    }
 }

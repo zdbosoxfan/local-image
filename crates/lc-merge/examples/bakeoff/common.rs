@@ -152,7 +152,7 @@ fn decode(bytes: &[u8]) -> Result<Image> {
     Ok(Image { w, h, rgb })
 }
 
-fn load(path: &Path) -> Result<Image> {
+pub fn load(path: &Path) -> Result<Image> {
     let file = std::fs::File::open(path)?;
     let mut bytes = Vec::new();
     file.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
@@ -198,9 +198,7 @@ fn pair(image: &Image, dx: f64, dy: f64, angle: f64, scale: f64, gain: f32) -> P
     let truth = [c, -s, tx, s, c, ty, 0.0, 0.0, 1.0];
     let det = c * c + s * s;
     let inv = [c / det, s / det, -(c * tx + s * ty) / det, -s / det, c / det, (s * tx - c * ty) / det, 0.0, 0.0, 1.0];
-    let b = (0..image.w * image.h)
-        .map(|i| (sample(&a, image.w, image.h, apply(&inv, [(i % image.w) as f64, (i / image.w) as f64])) * gain).min(1.0))
-        .collect();
+    let b = (0..image.w * image.h).map(|i| (sample(&a, image.w, image.h, apply(&inv, [(i % image.w) as f64, (i / image.w) as f64])) * gain).min(1.0)).collect();
     Pair { w: image.w, h: image.h, a, b, truth }
 }
 
@@ -227,9 +225,8 @@ fn match_quality(pair: &Pair, r: &Registration) -> MatchQuality {
         })
         .count();
     let residual = r.fit.and_then(|h| {
-        (!r.inliers.is_empty()).then(|| {
-            (r.inliers.iter().map(|&i| distance(apply(&h, r.matches[i].0), r.matches[i].1).powi(2)).sum::<f64>() / r.inliers.len() as f64).sqrt()
-        })
+        (!r.inliers.is_empty())
+            .then(|| (r.inliers.iter().map(|&i| distance(apply(&h, r.matches[i].0), r.matches[i].1).powi(2)).sum::<f64>() / r.inliers.len() as f64).sqrt())
     });
     let grid = r.fit.and_then(|h| {
         let mut errors = Vec::new();
@@ -255,7 +252,7 @@ fn noise(i: usize, frame: usize, c: usize) -> f32 {
     (((z ^ (z >> 31)) >> 40) as f32 / 16_777_216.0 - 0.5) * 12f32.sqrt()
 }
 
-fn bracket(image: &Image, moving: bool) -> Bracket {
+pub fn bracket(image: &Image, moving: bool) -> Bracket {
     let (w, h) = (256.min(image.w), 128.min(image.h));
     let mut rgb: Vec<[f32; 3]> = (0..w * h).map(|i| image.rgb[(i / w * image.h / h) * image.w + i % w * image.w / w]).collect();
     let k = 0.18 / median(rgb.iter().map(|q| q[1]).collect()).max(1e-6);
