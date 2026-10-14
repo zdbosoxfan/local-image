@@ -80,7 +80,7 @@ matches CPU output exactly.
 Measured the actual `PhotocraftApp` Camera Raw dialog in the existing offscreen
 `egui_kittest` eframe harness, with real pointer presses, three successive Exposure drag
 positions per workload and a verified Cancel click. The source is the authorized Sony A1
-`Capture/_DSC3194.ARW`: **8640×5760 (49.77 MP)**, imported through the app's existing raw
+an owner Sony A1 raw (local test shot, not in the repository): **8640×5760 (49.77 MP)**, imported through the app's existing raw
 service; the dialog's existing box proxy is **864×576**. The source and settings are the
 same in both processes.
 
