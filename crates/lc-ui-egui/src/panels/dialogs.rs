@@ -120,6 +120,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::SyncSettings { .. } => "Sync Settings",
         Dialog::PasteSettings { .. } => "Paste Selected Settings",
         Dialog::Export { .. } => "Export",
+        Dialog::ProofSheet { .. } => "Export Proof Sheet",
         Dialog::SaveOverOriginal { plan, .. } if plan["mode"] == "beside" => "Save JPEG Beside Original",
         Dialog::SaveOverOriginal { .. } => "Save Over Original",
         Dialog::Merge { opts } => opts.title(),
@@ -523,6 +524,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 Dialog::SaveOverOriginal { plan, dont_ask, .. } => save_over_body(ui, plan, dont_ask),
                 Dialog::Merge { opts } => crate::merge::body(app, ui, opts),
                 Dialog::Import { opts } => crate::import::body(app, ui, opts),
+                Dialog::ProofSheet { opts, folder, name } => crate::proof_sheet::body(app, ui, opts, folder, name),
                 Dialog::Settings { tab } => crate::panels::settings::body(app, ui, tab),
                 Dialog::SamModel { error, .. } => sam_model_body(app, ui, error.as_deref()),
                 Dialog::ConfirmDelete { count, .. } => {
@@ -704,7 +706,9 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             }
             // the import review stays open on an error (e.g. an unusable folder template), and so
             // does Export (e.g. no folder chosen) so the choices aren't lost
-            Err(e) if matches!(dlg, Dialog::Import { .. } | Dialog::Export { .. } | Dialog::SaveOverOriginal { .. }) => app.toast_error(ctx, e),
+            Err(e) if matches!(dlg, Dialog::ProofSheet { .. } | Dialog::Import { .. } | Dialog::Export { .. } | Dialog::SaveOverOriginal { .. }) => {
+                app.toast_error(ctx, e)
+            }
             // the SAM 3 dialog stays open to show the download (or why it can't start)
             Err(e) if matches!(dlg, Dialog::SamModel { .. }) => {
                 if let Dialog::SamModel { error, .. } = &mut dlg {
@@ -966,6 +970,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         }
         Dialog::Merge { opts } => crate::merge::start_final(app, opts),
         Dialog::Import { opts } => crate::import::start(app, opts),
+        Dialog::ProofSheet { opts, folder, name } => crate::proof_sheet::start(app, opts, folder, name),
         Dialog::ConfirmDelete { ids, disk, .. } => crate::menus::remove_photos(app, ids, *disk),
         Dialog::About | Dialog::Shortcuts | Dialog::Settings { .. } => Ok(serde_json::Value::Null),
     }

@@ -676,7 +676,7 @@ fn negative_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSetti
     }
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
         let mut v = on;
-        let r = crate::widgets::checkbox(ui, &mut v, "Convert Negative");
+        let r = crate::widgets::checkbox(ui, "negativeEnabled", &mut v, "Convert Negative");
         register(ui.ctx(), "negative:enabled", r.rect);
         if r.changed() {
             set_on(app, v);

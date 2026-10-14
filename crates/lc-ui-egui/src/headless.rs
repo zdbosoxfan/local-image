@@ -183,7 +183,9 @@ impl Headless {
             || self.app.merge.busy()
             || self.app.scan.is_some()
             || self.app.import.is_some()
+            || !self.app.import_preview_queue.is_empty()
             || self.app.export.is_some()
+            || self.app.proof.is_some()
             || self.app.smart_sort.is_some()
             || self.app.people_task.is_some()
             || !self.app.tasks.is_empty()
@@ -294,6 +296,42 @@ mod tests {
         let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), services);
         app.ui.view = crate::state::ViewMode::PhotoGrid;
         Headless::new(app, size, 1.0)
+    }
+
+    #[test]
+    fn demosaic_new_overrides_click_shared_raw_controls() {
+        let mut h = demo([1400.0, 1100.0]);
+        if !h.app.ui.section_open("raw") {
+            h.app.ui.toggle_section("raw");
+        }
+        // Test the real panel and shared widgets in a headless frame.
+        for key in ["lmmse", "dcb", "markesteijn3", "dualMarkesteijnVng", "auto"] {
+            let draw = |h: &mut Headless, events: Vec<egui::Event>| {
+                let raw = HeadlessView::raw_input(h.size, 1.0, h.time, events);
+                let settings = h.app.session.develop_of(h.app.session.selection.active.unwrap()).unwrap();
+                h.view.run(raw, |ui| {
+                    ui.set_width(crate::theme::Tokens::get(ui.ctx()).panel_w);
+                    crate::panels::develop_tools::raw_section(&mut h.app, ui, &settings);
+                });
+                h.time += FRAME_DT;
+            };
+            draw(&mut h, vec![]);
+            let id = format!("button:rawDemosaic-{key}");
+            let rect = crate::widgets::take_registry(&h.view.ctx).into_iter().find(|w| w.0 == id).expect("shared raw control").1;
+            let p = rect.center();
+            draw(
+                &mut h,
+                vec![
+                    egui::Event::PointerMoved(p),
+                    egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() },
+                ],
+            );
+            draw(
+                &mut h,
+                vec![egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() }],
+            );
+            assert_eq!(serde_json::to_value(h.app.session.develop_of(h.app.session.selection.active.unwrap()).unwrap().raw.demosaic).unwrap(), key);
+        }
     }
 
     #[test]

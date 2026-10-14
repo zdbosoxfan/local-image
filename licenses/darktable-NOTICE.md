@@ -249,3 +249,11 @@ per-camera contributors recorded in each file. Noise profile handling follows
 White-balance data originated in `src/external/wb_presets.c` (GPL-2.0-or-later); the distributed JSON
 retains all names and measurements. Local Image is GPL-3.0-or-later. See the data manifest and
 `docs/CAMERA-DATA.md` for exact hashes, precedence and the whole-file refresh procedure.
+### Demosaic extension (2026-10-13)
+`lc-raw/src/demosaic/markesteijn.rs` ports Frank Markesteijn's X-Trans three-pass algorithm
+from darktable `xtrans.c`; `markesteijn.rs`/`dual.rs` use the X-Trans VNG-linear/dual branch.
+`lc-raw/src/demosaic/lmmse.rs` ports `lmmse.c`: L. Zhang and X. Wu's directional LMMSE,
+adapted by Jacques Desmis and Ingo Weyrich for RawTherapee and by Hanno Schwalm for darktable.
+Copyright (C) 2010–2026 darktable developers, GPL-3.0-or-later. All ports use commit
+`733bd69f32cac7ff5e41025115942772add1f088`; see docs/PORTS.md. Rayon output bands replace
+OpenMP and raw pointer writes; the LMMSE/DCB image border is mirror-reflected.

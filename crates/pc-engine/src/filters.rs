@@ -175,7 +175,7 @@ pub fn apply_filter_to_surface_in(
         return Some(out);
     }
     // Lens Correction / Adaptive Wide Angle / Camera Raw smart filters (lens_cmds).
-    if let Some(out) = crate::lens_cmds::apply_to_surface(id, params, surf, canvas) {
+    if let Some(out) = crate::lens_cmds::apply_to_surface_in(id, params, surf, canvas, profile) {
         return Some(out);
     }
     // Image › Adjustments recorded as smart filters (Levels, Curves, Shadows/Highlights… from PSD).

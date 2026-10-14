@@ -68,7 +68,7 @@ pub(crate) fn dual_vng(m: &Mosaic, high: Rgb32f, threshold: f32) -> Rgb32f {
         return high;
     }
     let mask = upstream_detail_mask(&high, threshold);
-    let mut low = super::vng::vng(m, true);
+    let mut low = if m.cfa.is_bayer() { super::vng::vng(m, true) } else { super::markesteijn::linear(m) };
     super::vng::color_smoothing(&mut low, 2);
     let mut out = high;
     par_rows(&mut out.data, m.w, |y, row| {

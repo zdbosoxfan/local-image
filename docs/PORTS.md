@@ -27,6 +27,10 @@ updated to a newer upstream commit, update its row (commit and date) rather than
 | `crates/lc-pipeline/src/detail/haze.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/common/guided_filter.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-pipeline/src/detail/haze.rs`, `crates/lc-gpu/src/wgsl/detail.wgsl` | [darktable](https://github.com/darktable-org/darktable) | `src/common/box_filters.cc` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-pipeline/src/negative.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/negadoctor.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-08 |
+| `crates/lc-raw/src/demosaic/markesteijn.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/xtrans.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-13 |
+| `crates/lc-raw/src/demosaic/markesteijn.rs`, `crates/lc-raw/src/demosaic/dual.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/vng.c`, `src/iop/demosaicing/dual.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-13 |
+| `crates/lc-raw/src/demosaic/lmmse.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/lmmse.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-13 |
+| `crates/lc-raw/src/demosaic/dcb.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/demosaic_algos.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | BSD-3-Clause AND GPL-3.0-or-later | 2026-10-13 |
 | `crates/lc-raw/src/demosaic/vng.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/vng.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-raw/src/demosaic/vng.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/basics.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
 | `crates/lc-raw/src/demosaic/amaze.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/demosaicing/amaze.cc` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | 2026-10-09 |
@@ -656,3 +660,23 @@ remain Rust. Notices are in `licenses/{rawtherapee,darktable,rawspeed}-NOTICE.md
 | `crates/lc-raw/src/camera_data.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/rawimage.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | Integer TIFF-bit-depth white mapping and absolute black flags |
 | `crates/lc-raw/src/camera_data.rs` | [RawTherapee](https://github.com/RawTherapee/RawTherapee) | `rtengine/pdaflinesfilter.cc` | `5f486d3678b34c74ba0c63571c17babe20935019` | GPL-3.0-or-later | PDAF periods and green-triplet detection; host clean-row interpolation |
 | `crates/lc-raw/src/camera_data.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/common/noiseprofiles.c` | `733bd69f32cac7ff5e41025115942772add1f088` | GPL-3.0-or-later | Profile skip/interpolation semantics |
+### Demosaic extension (2026-10-13)
+Markesteijn three-pass uses upstream YPbPr homogeneity voting and eight directional buffers.
+DCB uses three correction iterations with standard final chroma interpolation. LMMSE uses three
+median passes, without EECI refinement (upstream mode 2). These are safe Rust ports, with no
+C/C++ linkage, new dependencies, or modified rawler source. rawler 0.8.0 is a second reference
+in the offline quality example only. See `docs/wip/CODEX-REPORT-demosaic.md` for measured choices.
+Update procedure: change the pin in `scripts/demosaic_refvec.py`, download whole upstream source
+files into `target/refvec/demosaic/upstream`, inspect algorithm changes, rerun the scalar harness
+and measured noisy re-mosaic curves, then update ports, licence notices and reviewed fixtures.
+Do not regenerate existing fixtures without investigating differences. Reference exports are
+pinned to the installed darktable 5.6.2 and retained under `target/`; they are not runtime data.
+The reference-only Poisson-Gaussian harness reads darktable's whole, unmodified
+`data/noiseprofiles.json` at the same pin (GPL-3.0-or-later, SHA-256
+`e22730cf69ead3534b2d2e7500ab24af6da99834250b852ca1831002ba2450f8`).
+`scripts/demosaic_profiles.py` retains and verifies that JSON under `target/refvec/demosaic/`
+and extracts eight D750 ISO entries into a reference TSV. It is not runtime camera data.
+Updating it requires reviewing the source pin/hash and rerunning the profile curves at a
+coordinator-approved benchmark milestone. The ten-file CC0 camera corpus is pinned separately
+in `crates/lc-raw/tests/fixtures/demosaic-corpus.tsv`; `scripts/demosaic_samples.py` verifies every
+source SHA-256 and stores files under `target/demosaic-corpus/`.

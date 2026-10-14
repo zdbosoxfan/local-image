@@ -258,8 +258,8 @@ pub fn bin_factor(raw: &lightcraft_raw::RawImage, max_edge: usize) -> Option<usi
 }
 
 /// How a raw file is decoded: the photo's Raw Processing settings that change decoding
-/// (demosaic, highlight reconstruction, measuring the capture-sharpening radius). The default
-/// decodes exactly as before those settings existed.
+/// (demosaic, highlight reconstruction, measuring the capture-sharpening radius).
+/// Automatic chooses from measured sensor noise; explicit saved methods retain their meaning.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct RawOptions {
     pub demosaic: lightcraft_develop::Demosaic,
@@ -306,7 +306,13 @@ impl RawOptions {
             return M::Bilinear;
         }
         match self.demosaic {
-            D::Auto | D::Ahd => M::Ahd,
+            D::Auto => M::Auto,
+            D::Lmmse => M::Lmmse,
+            D::Dcb => M::Dcb,
+            D::Markesteijn3 => M::Markesteijn3,
+            D::DualMarkesteijnVng => M::DualMarkesteijnVng,
+            D::XtransDirectional => M::XtransDirectional,
+            D::Ahd => M::Ahd,
             D::Rcd => M::Rcd,
             D::DualRcd => M::DualRcd,
             D::DualRcdVng => M::DualRcdVng,

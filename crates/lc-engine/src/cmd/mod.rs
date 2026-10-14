@@ -16,6 +16,7 @@ mod export;
 pub mod filters;
 pub mod keywords;
 pub mod library;
+mod library_safety;
 pub mod lut_profiles;
 pub mod manage;
 mod masks;
@@ -133,6 +134,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(keywords::specs());
         v.extend(manage::specs());
         v.extend(previews::specs());
+        v.extend(library_safety::specs());
         v.extend(lut_profiles::specs());
         v.extend(cull::specs());
         v.extend(smart_sort::specs());

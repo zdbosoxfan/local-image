@@ -81,3 +81,10 @@ Hashes, precedence and refresh procedure are in `docs/CAMERA-DATA.md` and the da
 
 The camera reader also follows `rtengine/rawimage.cc` at the same pin for integer white-level
 mapping to TIFF bits per sample and the low-16-bit absolute black flag. No C++ is built or linked.
+### DCB demosaic (2026-10-13)
+`crates/lc-raw/src/demosaic/dcb.rs` ports RawTherapee's DCB integration from
+`rtengine/demosaic_algos.cc` at `5f486d3678b34c74ba0c63571c17babe20935019`.
+DCB Copyright (C) 2010 Jacek Gozdz (cuniek@kft.umcs.lublin.pl), BSD-3-Clause;
+RawTherapee integration GPL-3.0-or-later. Original DCB terms are reproduced in
+`rawtherapee-DCB-BSD-3-Clause.txt`. The Rust port uses normalized floating point,
+mirror padding, safe indexing and the shared Rayon pool. It adds no dependency.

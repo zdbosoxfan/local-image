@@ -4112,6 +4112,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "ab_glyph",
  "base64 0.22.1",
+ "krilla",
  "lensfun",
  "li-color",
  "li-seg",
@@ -4134,7 +4135,10 @@ dependencies = [
  "log",
  "miniz_oxide 0.8.9",
  "photocraft-algo",
+ "photocraft-doc",
+ "photocraft-geom",
  "photocraft-raster",
+ "photocraft-text",
  "rayon",
  "serde",
  "serde_json",

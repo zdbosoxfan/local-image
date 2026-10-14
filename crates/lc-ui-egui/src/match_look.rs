@@ -681,9 +681,7 @@ fn prompt(app: &mut LightcraftApp, title: &str, value: &str, action: &str, id: O
 }
 /// Keep Match Look automation IDs while using the shared v2 checkbox and theme.
 fn option_checkbox(ui: &mut egui::Ui, id: &str, value: &mut bool, label: &str) -> egui::Response {
-    let response = widgets::checkbox(ui, value, label);
-    widgets::register(ui.ctx(), format!("check:{id}"), response.rect);
-    response
+    widgets::checkbox(ui, id, value, label)
 }
 /// Group switches are masters: expanding a disabled group still reveals its remembered
 /// tool selection, while subordinate controls cannot accidentally re-enable the group.

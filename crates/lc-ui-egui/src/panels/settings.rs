@@ -136,8 +136,7 @@ fn hint(ui: &mut egui::Ui, t: &Tokens, text: &str) {
 
 /// A checkbox addressable as `check:{id}`; true when toggled.
 fn check(ui: &mut egui::Ui, id: &str, value: &mut bool, label: &str) -> bool {
-    let r = crate::widgets::checkbox(ui, value, label);
-    register(ui.ctx(), format!("check:{id}"), r.rect);
+    let r = crate::widgets::checkbox(ui, id, value, label);
     r.changed()
 }
 
@@ -195,6 +194,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     if app.hosted_menus && crate::widgets::text_button(ui, "settingsAI", "AI…", false).clicked() {
         app.open_shared_ai = true;
     }
+    crate::library_safety_ui::settings(app, ui);
     heading(ui, t, "Face recognition");
     hint(ui, t, "Face data stays in this library. Clearing it does not load face models.");
     if crate::widgets::text_button(ui, "settingsClearFaces", crate::i18n::tr("Clear face data…"), false).clicked() {
@@ -467,7 +467,7 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         if d.auto_folder.is_some() {
             row(ui, t, "", |ui| {
                 let mut copy = d.auto_copy;
-                if crate::widgets::checkbox(ui, &mut copy, "Copy into the library (else use the files where they are)").changed() {
+                if crate::widgets::checkbox(ui, "copyIntoLibrary", &mut copy, "Copy into the library (else use the files where they are)").changed() {
                     let _ = app.run("library.autoImport", json!({"copy": copy}));
                 }
             });

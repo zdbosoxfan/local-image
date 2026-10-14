@@ -192,13 +192,18 @@ impl Conv {
 /// Develops linear Rec.2020 pixels (`w × h`) with `s` as a rendered (non-raw) photo, at full
 /// size. The result is linear Rec.2020 (0..1).
 pub fn render_working(rgb: Vec<[f32; 3]>, w: usize, h: usize, s: &DevelopSettings) -> Result<Vec<[f32; 3]>, String> {
+    render_working_scaled(rgb, w, h, s, 1.0)
+}
+
+fn render_working_scaled(rgb: Vec<[f32; 3]>, w: usize, h: usize, s: &DevelopSettings, pixel_scale: f32) -> Result<Vec<[f32; 3]>, String> {
     use lightcraft_pipeline::{DeepSamples, OutputDepth, OutputSpace, RenderRequest, SourceInfo};
-    if rgb.len() != w * h || w == 0 || h == 0 {
+    if w.checked_mul(h) != Some(rgb.len()) || w == 0 || h == 0 {
         return Err("develop: bad image size".into());
     }
     let src = lightcraft_raster::Rgb32f { width: w, height: h, data: rgb };
     let req = RenderRequest { space: OutputSpace::Rec2020, depth: OutputDepth::F32Linear, ..RenderRequest::fit(w, h) };
-    let out = lightcraft_pipeline::render(&src, &SourceInfo::default(), s, &req);
+    let info = SourceInfo { sensor_scale: pixel_scale.recip(), ..Default::default() };
+    let out = lightcraft_pipeline::render(&src, &info, s, &req);
     match out.deep {
         Some(d) if d.width == w && d.height == h => match d.samples {
             DeepSamples::F32(v) => Ok(v.as_chunks::<3>().0.to_vec()),
@@ -210,9 +215,24 @@ pub fn render_working(rgb: Vec<[f32; 3]>, w: usize, h: usize, s: &DevelopSetting
 }
 
 /// Develops straight RGBA pixels in the document's colour space (`profile`) in place; alpha is
-/// left alone. Always runs the pipeline (previews; see [`develop_surface`] for the identity
-/// shortcut).
+/// left alone. Identity settings preserve the input exactly, as in [`develop_surface`].
 pub fn develop_rgba(px: &mut [[f32; 4]], w: usize, h: usize, s: &DevelopSettings, profile: &Profile) -> Result<(), String> {
+    develop_rgba_scaled(px, w, h, s, profile, 1.0)
+}
+
+/// The same engine on a proxy: `pixel_scale` is proxy pixels per original pixel.
+/// Spatial/detail stages use the pipeline's existing original-pixel scale; colour settings,
+/// normalized masks and the filter frame are unchanged. A proxy remains approximate.
+pub fn develop_rgba_scaled(px: &mut [[f32; 4]], w: usize, h: usize, s: &DevelopSettings, profile: &Profile, pixel_scale: f32) -> Result<(), String> {
+    if w.checked_mul(h) != Some(px.len()) || w == 0 || h == 0 {
+        return Err("develop: bad image size".into());
+    }
+    if !pixel_scale.is_finite() || !(0.0..=1.0).contains(&pixel_scale) || pixel_scale == 0.0 {
+        return Err("develop: bad proxy scale".into());
+    }
+    if s == identity() {
+        return Ok(());
+    }
     let conv = Conv::new(profile)?;
     let mut rgb: Vec<[f32; 3]> = px.iter().map(|p| [p[0], p[1], p[2]]).collect();
     conv.to_working(&mut rgb);
@@ -220,7 +240,7 @@ pub fn develop_rgba(px: &mut [[f32; 4]], w: usize, h: usize, s: &DevelopSettings
     // edge; the part outside it is added back, so unchanged settings keep them.
     let clipped: Vec<[f32; 3]> = rgb.iter().map(|p| p.map(|v| v.clamp(0.0, 1.0))).collect();
     let residual: Vec<[f32; 3]> = rgb.iter().zip(&clipped).map(|(p, c)| [p[0] - c[0], p[1] - c[1], p[2] - c[2]]).collect();
-    let mut out = render_working(clipped, w, h, s)?;
+    let mut out = render_working_scaled(clipped, w, h, s, pixel_scale)?;
     for (o, r) in out.iter_mut().zip(&residual) {
         for c in 0..3 {
             o[c] += r[c];
@@ -278,6 +298,29 @@ pub fn develop_surface_always(surf: &Surface, area: Rect, s: &DevelopSettings, p
     out.write_region(area, &data);
     out.prune();
     Ok(out)
+}
+
+/// Legacy Camera Raw descriptor rendered by the shared Develop engine, in a known RGB profile.
+/// The descriptor remains a serialization model; all processing lives in the Develop pipeline.
+pub fn camera_raw_surface(surf: &Surface, area: Rect, cr: &CameraRaw, profile: &Profile) -> Result<Surface, String> {
+    if cr.is_identity() || area.is_empty() {
+        return Ok(surf.clone());
+    }
+    let mut settings = from_camera_raw(cr, identity());
+    sanitize(&mut settings);
+    develop_surface(surf, area, &settings, profile)
+}
+
+/// Point-curve graph sampled from the pipeline's own curve tables (including parametric regions).
+pub fn camera_raw_curve_lut(cr: &CameraRaw, n: usize) -> Vec<f32> {
+    let s = from_camera_raw(cr, identity());
+    let tables = lightcraft_pipeline::finish::curve_luts(&s.curve);
+    (0..n)
+        .map(|i| {
+            let x = i as f32 / n.saturating_sub(1).max(1) as f32;
+            tables.as_ref().map_or(x, |t| t.tables[0].eval(x))
+        })
+        .collect()
 }
 
 // ------------------------------------------------------------------------------ Camera Raw subset
@@ -457,6 +500,126 @@ pub fn from_camera_raw(cr: &CameraRaw, base: &DevelopSettings) -> DevelopSetting
     s
 }
 
+/// Apply only edited descriptor controls, preserving the precision and range of untouched
+/// full Develop settings (including custom WB and tools outside the PSD descriptor).
+pub fn edit_camera_raw(cr: &CameraRaw, base: &DevelopSettings) -> DevelopSettings {
+    let original = to_camera_raw(base);
+    let mut s = from_camera_raw(cr, base);
+    macro_rules! keep {
+        ($section:ident.$field:ident, $control:ident) => {
+            if cr.$control == original.$control {
+                s.$section.$field.clone_from(&base.$section.$field);
+            }
+        };
+    }
+    if cr.temperature == original.temperature && cr.tint == original.tint {
+        s.wb = base.wb;
+    } else {
+        if cr.temperature == original.temperature {
+            s.wb.temp = base.wb.temp;
+        }
+        if cr.tint == original.tint {
+            s.wb.tint = base.wb.tint;
+        }
+    }
+    keep!(light.exposure, exposure);
+    keep!(light.contrast, contrast);
+    keep!(light.highlights, highlights);
+    keep!(light.shadows, shadows);
+    keep!(light.whites, whites);
+    keep!(light.blacks, blacks);
+    keep!(effects.texture, texture);
+    keep!(effects.clarity, clarity);
+    keep!(effects.dehaze, dehaze);
+    keep!(color.vibrance, vibrance);
+    keep!(color.saturation, saturation);
+    keep!(curve.highlights, curve_highlights);
+    keep!(curve.lights, curve_lights);
+    keep!(curve.darks, curve_darks);
+    keep!(curve.shadows, curve_shadows);
+    keep!(curve.master, point_curve);
+    keep!(curve.red, point_curve_red);
+    keep!(curve.green, point_curve_green);
+    keep!(curve.blue, point_curve_blue);
+    if cr.curve_splits[0] == original.curve_splits[0] {
+        s.curve.split_shadows = base.curve.split_shadows;
+    }
+    if cr.curve_splits[1] == original.curve_splits[1] {
+        s.curve.split_mid = base.curve.split_mid;
+    }
+    if cr.curve_splits[2] == original.curve_splits[2] {
+        s.curve.split_highlights = base.curve.split_highlights;
+    }
+    for (i, (h, old)) in bands_mut(&mut s.mixer).into_iter().zip(bands(&base.mixer)).enumerate() {
+        if cr.hsl_hue[i] == original.hsl_hue[i] {
+            h.hue = old.hue;
+        }
+        if cr.hsl_sat[i] == original.hsl_sat[i] {
+            h.sat = old.sat;
+        }
+        if cr.hsl_lum[i] == original.hsl_lum[i] {
+            h.lum = old.lum;
+        }
+    }
+    if cr.grade_shadows.hue == original.grade_shadows.hue {
+        s.grading.shadows.hue = base.grading.shadows.hue;
+    }
+    if cr.grade_shadows.sat == original.grade_shadows.sat {
+        s.grading.shadows.sat = base.grading.shadows.sat;
+    }
+    if cr.grade_shadows.lum == original.grade_shadows.lum {
+        s.grading.shadows.lum = base.grading.shadows.lum;
+    }
+    if cr.grade_midtones.hue == original.grade_midtones.hue {
+        s.grading.midtones.hue = base.grading.midtones.hue;
+    }
+    if cr.grade_midtones.sat == original.grade_midtones.sat {
+        s.grading.midtones.sat = base.grading.midtones.sat;
+    }
+    if cr.grade_midtones.lum == original.grade_midtones.lum {
+        s.grading.midtones.lum = base.grading.midtones.lum;
+    }
+    if cr.grade_highlights.hue == original.grade_highlights.hue {
+        s.grading.highlights.hue = base.grading.highlights.hue;
+    }
+    if cr.grade_highlights.sat == original.grade_highlights.sat {
+        s.grading.highlights.sat = base.grading.highlights.sat;
+    }
+    if cr.grade_highlights.lum == original.grade_highlights.lum {
+        s.grading.highlights.lum = base.grading.highlights.lum;
+    }
+    if cr.grade_global.hue == original.grade_global.hue {
+        s.grading.global.hue = base.grading.global.hue;
+    }
+    if cr.grade_global.sat == original.grade_global.sat {
+        s.grading.global.sat = base.grading.global.sat;
+    }
+    if cr.grade_global.lum == original.grade_global.lum {
+        s.grading.global.lum = base.grading.global.lum;
+    }
+    keep!(grading.blending, grade_blending);
+    keep!(grading.balance, grade_balance);
+    keep!(detail.sharpen_amount, sharpen_amount);
+    keep!(detail.sharpen_radius, sharpen_radius);
+    keep!(detail.sharpen_detail, sharpen_detail);
+    keep!(detail.sharpen_masking, sharpen_masking);
+    keep!(detail.nr_luminance, noise_luminance);
+    keep!(detail.nr_detail, noise_luminance_detail);
+    keep!(detail.nr_color, noise_color);
+    keep!(detail.nr_color_detail, noise_color_detail);
+    keep!(grain.amount, grain_amount);
+    keep!(grain.size, grain_size);
+    keep!(grain.roughness, grain_roughness);
+    keep!(grain.seed, seed);
+    keep!(vignette.amount, vignette_amount);
+    keep!(vignette.midpoint, vignette_midpoint);
+    keep!(vignette.roundness, vignette_roundness);
+    keep!(vignette.feather, vignette_feather);
+    keep!(vignette.highlights, vignette_highlights);
+    keep!(vignette.style, vignette_style);
+    s
+}
+
 /// Whether `s` holds anything the [`CameraRaw`] subset can't express (masks, point colour, a
 /// profile, B&W, optics…): then the full settings must be stored beside a Photoshop descriptor.
 pub fn beyond_camera_raw(s: &DevelopSettings) -> bool {
@@ -623,5 +786,79 @@ mod tests {
         let ours = render_working(rgb, w, h, &s).unwrap();
         let worst = lib.iter().zip(ours.as_flattened()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
         assert!(worst < 2e-3, "Library vs Camera Raw Filter differ by {worst}");
+    }
+}
+
+#[cfg(test)]
+mod j04_tests {
+    use super::*;
+
+    #[test]
+    fn j04_edits_preserve_unrepresented_and_precise_settings() {
+        let mut base = identity().clone();
+        base.wb.mode = WbMode::Custom;
+        base.wb.temp = 30000.123456789;
+        base.wb.tint = 145.123456789;
+        base.curve.master = vec![Point::new(0.0, 0.0), Point::new(0.345678912345, 0.456789123456), Point::new(1.0, 1.0)];
+        base.treatment = lightcraft_develop::Treatment::Bw;
+        base.detail.nr_contrast = 42.123456789;
+        base.curve.split_highlights = 80.123456789;
+        let mut controls = to_camera_raw(&base);
+        assert_eq!(edit_camera_raw(&controls, &base), base);
+        controls.exposure = 0.75;
+        let mut expected = base.clone();
+        expected.light.exposure = 0.75;
+        assert_eq!(edit_camera_raw(&controls, &base), expected);
+        controls.grade_shadows.sat = 25.0;
+        expected.grading.shadows.sat = 25.0;
+        assert_eq!(edit_camera_raw(&controls, &base), expected);
+        controls.curve_splits[0] = 30.0;
+        expected.curve.split_shadows = 30.0;
+        assert_eq!(edit_camera_raw(&controls, &base), expected);
+    }
+
+    #[test]
+    fn j04_proxy_scale_matches_pipeline_and_rejects_bad_sizes() {
+        use lightcraft_pipeline::{DeepSamples, OutputDepth, OutputSpace, RenderRequest, SourceInfo};
+        let (w, h) = (32, 24);
+        let px: Vec<_> = (0..w * h).map(|i| [0.2 + (i % 7) as f32 * 0.08, 0.3, 0.6, 0.7]).collect();
+        let mut settings = identity().clone();
+        settings.detail.sharpen_amount = 60.0;
+        settings.detail.sharpen_radius = 2.0;
+        settings.detail.nr_luminance = 35.0;
+        let profile = linear_rec2020();
+        let mut preview = px.clone();
+        develop_rgba_scaled(&mut preview, w, h, &settings, profile, 0.25).unwrap();
+        let source = lightcraft_raster::Rgb32f { width: w, height: h, data: px.iter().map(|p| [p[0], p[1], p[2]]).collect() };
+        let request = RenderRequest { space: OutputSpace::Rec2020, depth: OutputDepth::F32Linear, ..RenderRequest::fit(w, h) };
+        let reference = lightcraft_pipeline::render(&source, &SourceInfo { sensor_scale: 4.0, ..Default::default() }, &settings, &request);
+        let DeepSamples::F32(reference) = reference.deep.unwrap().samples else { panic!() };
+        for (p, q) in preview.iter().zip(reference.as_chunks::<3>().0) {
+            for c in 0..3 {
+                assert!((p[c] - q[c]).abs() < 2e-6);
+            }
+            assert_eq!(p[3], 0.7);
+        }
+        for scale in [0.0, -1.0, 2.0, f32::NAN] {
+            assert!(develop_rgba_scaled(&mut preview, w, h, &settings, profile, scale).is_err());
+        }
+        assert!(develop_rgba_scaled(&mut preview, w + 1, h, identity(), profile, 1.0).is_err());
+        let mut unchanged = px.clone();
+        develop_rgba(&mut unchanged, w, h, identity(), profile).unwrap();
+        assert_eq!(unchanged, px);
+    }
+
+    #[test]
+    fn j04_legacy_curves_render_with_shared_interpolation() {
+        let cr = CameraRaw { point_curve: vec![[255.0, 255.0], [128.0, 200.0], [128.0, 150.0], [0.0, 0.0]], exposure: 0.25, ..Default::default() };
+        assert!(cr.validate().is_err());
+        let lut = camera_raw_curve_lut(&cr, 256);
+        assert!(lut.iter().all(|v| v.is_finite()));
+        assert!(lut.windows(2).all(|p| p[0] <= p[1]));
+        let mut source = Surface::new(photocraft_color::PixelFormat::RGBA32F);
+        source.write_region(Rect::new(0, 0, 4, 4), &[0.25, 0.4, 0.6, 0.7].repeat(16));
+        let result = camera_raw_surface(&source, Rect::new(0, 0, 4, 4), &cr, photocraft_cms::Builtin::Srgb.profile()).unwrap();
+        assert!(result.read_region(Rect::new(0, 0, 4, 4)).iter().all(|v| v.is_finite()));
+        assert_eq!(result.rgba(1, 1)[3], source.rgba(1, 1)[3]);
     }
 }

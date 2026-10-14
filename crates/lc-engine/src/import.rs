@@ -105,6 +105,8 @@ pub struct ImportOptions {
     pub local: bool,
     /// Copy: where the copies go (default: the library's `Originals/`).
     pub destination: Option<String>,
+    /// Verified, independent copy of the original before import or Move removes it.
+    pub second_copy: Option<String>,
     /// Copy: the folders inside the destination.
     pub organize: Organize,
     /// Copy: a file-name template for the copies ([`crate::rename::expand`] tokens: `{name}`,
@@ -685,6 +687,35 @@ impl Prepared {
     }
 }
 
+/// Independent, verified original/sidecar copy, including Local records promoted on import.
+fn copy_second_original(path: &str, folder: &str, expected: Option<lightcraft_preview::Hash128>) -> Result<(), String> {
+    let src = Path::new(path);
+    let root = Path::new(folder);
+    if !root.is_dir() || crate::import_move::inside(src, root) {
+        return Err("second copy folder is unavailable or contains the source".to_string());
+    }
+    let name = src.file_name().ok_or("source has no filename")?.to_string_lossy();
+    let dst = crate::import_move::copy_new(src, root, &name, expected)?;
+    // Keep the sidecars under the collision-resolved backup name.
+    let mut sidecar_copies = Vec::new();
+    for (sidecar, stem) in crate::import_move::sidecars_of(src) {
+        let extension = sidecar.extension().unwrap_or_default().to_string_lossy();
+        let target = if stem { dst.with_extension(extension.as_ref()) } else { PathBuf::from(format!("{}.{extension}", dst.display())) };
+        if target.exists() && crate::import_move::same_bytes(&sidecar, &target).unwrap_or(false) {
+            continue;
+        }
+        if let Err(e) = crate::import_move::copy_verified(&sidecar, &target, None) {
+            for copy in sidecar_copies {
+                let _ = std::fs::remove_file(copy);
+            }
+            let _ = std::fs::remove_file(&dst);
+            return Err(format!("second copy sidecar: {e}"));
+        }
+        sidecar_copies.push(target);
+    }
+    Ok(())
+}
+
 impl ImportJob {
     /// Snapshot what an import with `opts` needs from the session (no file-system calls). Takes
     /// the probes a preceding scan left ([`Session::import_probes`]).
@@ -707,6 +738,18 @@ impl ImportJob {
             .or_else(|| lib_dir.as_ref().map(|l| l.join("Originals")));
         if matches!(mode, ImportMode::Copy | ImportMode::Move) && copy_root.is_none() {
             return Err(crate::EngineError::Other("copying or moving needs a destination folder or an open library".into()));
+        }
+        if let Some(folder) = &opts.second_copy {
+            let root = Path::new(folder);
+            if !root.is_absolute() || !root.is_dir() {
+                return Err(crate::EngineError::Other("second copy needs an existing absolute folder (connect the backup drive)".into()));
+            }
+            if copy_root
+                .as_ref()
+                .is_some_and(|primary| primary == root || primary.canonicalize().ok().is_some_and(|p| root.canonicalize().ok() == Some(p)))
+            {
+                return Err(crate::EngineError::Other("choose a separate folder for the second copy".into()));
+            }
         }
         let mut by_path = HashMap::new();
         let mut by_hash = HashMap::new();
@@ -769,6 +812,13 @@ impl ImportJob {
             match self.by_path.get(f.as_str()).copied() {
                 Some((id, true)) if !opts.local => {
                     // a file that was only browsed (Local) joins the library when it is imported for real
+                    if let Some(folder) = &opts.second_copy
+                        && let Err(error) = copy_second_original(&f, folder, None)
+                    {
+                        out.items.push(PreparedItem::Failed(f, format!("second copy: {error}")));
+                        self.done.fetch_add(1, Relaxed);
+                        continue;
+                    }
                     self.by_path.insert(f, (id, false));
                     out.items.push(PreparedItem::Promote(id));
                     self.done.fetch_add(1, Relaxed);
@@ -877,6 +927,14 @@ impl ImportJob {
                 });
                 if info.captured.is_none() {
                     info.captured = sidecar.as_ref().and_then(|sc| sc.captured.clone());
+                }
+                if let Some(folder) = &opts.second_copy {
+                    let result = copy_second_original(&path, folder, info.content_hash.as_deref().and_then(lightcraft_preview::Hash128::parse));
+                    if let Err(e) = result {
+                        self.done.fetch_add(1, Relaxed);
+                        entries.push(Entry::Done(PreparedItem::Failed(path, format!("second copy: {e}"))));
+                        continue;
+                    }
                 }
                 let mut placed = None;
                 let stored = match (mode, &self.copy_root) {

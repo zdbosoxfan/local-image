@@ -1,6 +1,6 @@
 //! Toolset upgrades in the engine: the raw loader's default path (demosaic, highlight
 //! reconstruction, no capture sharpening, no lens database) has colour/tone golden hashes;
-//! raw options change what they should without changing their neutral defaults.
+//! raw options preserve explicit methods; Automatic is checked against measured noise selection.
 
 use lightcraft_raster::Rgb32f;
 
@@ -65,15 +65,20 @@ pub(crate) fn hash_img(img: &Rgb32f) -> u64 {
 }
 
 /// Loader output hashes at a binned preview size, a bilinear thumbnail size and full size
-/// (AHD), recorded on x86_64 Linux. The 200px colour/tone golden retains negative scene channels.
+/// (explicit legacy AHD), recorded on x86_64 Linux. The 200px colour/tone golden retains negative scene channels.
 const GOLDEN: [(usize, u64); 3] = [(200, 0x1ce5_8e40_d2f5_4b2d), (500, 0x1cc8_83f3_9dae_2c30), (usize::MAX, 0x96a3_63c6_ffd0_f874)];
 
 #[test]
-fn default_raw_loading_matches_colour_tone_goldens() {
+fn legacy_ahd_raw_loading_matches_colour_tone_goldens() {
     let dng = textured_dng();
     let mut got = Vec::new();
     for (edge, _) in GOLDEN {
-        let (img, _) = crate::files::load_bytes(&dng, edge).unwrap();
+        let (img, _) = crate::files::load_bytes_with(
+            &dng,
+            edge,
+            &crate::files::RawOptions { demosaic: lightcraft_develop::Demosaic::Ahd, ..Default::default() },
+        )
+        .unwrap();
         got.push((edge, hash_img(&img)));
     }
     if std::env::var_os("LC_GOLDEN_PRINT").is_some() {
@@ -91,7 +96,7 @@ fn raw_options_change_the_decoding() {
     use crate::files::{RawOptions, load_bytes, load_bytes_with};
     use lightcraft_develop::{Demosaic, HighlightMode};
     let dng = textured_dng();
-    let (base, info) = load_bytes(&dng, usize::MAX).unwrap();
+    let (base, info) = load_bytes_with(&dng, usize::MAX, &RawOptions { demosaic: Demosaic::Ahd, ..Default::default() }).unwrap();
     assert_eq!((info.sensor_scale, info.capture_radius), (1.0, None));
     assert!((0.2..=0.5).contains(&info.capture_threshold), "{}", info.capture_threshold);
     for opts in [
@@ -200,4 +205,22 @@ fn new_raw_option_keys_and_preview_highlights() {
         assert_ne!(hash_img(&a), hash_img(&b), "segmentation hook at {edge}");
         assert!(info.sensor_scale >= 1.0);
     }
+}
+
+#[test]
+fn automatic_demosaic_matches_measured_noise_selection() {
+    let bytes = textured_dng();
+    let raw = lightcraft_raw::decode(&bytes).unwrap();
+    let n = raw.normalized().unwrap();
+    let selected = lightcraft_raw::demosaic::automatic_method(&n);
+    let method = match selected {
+        lightcraft_raw::Method::Rcd => lightcraft_develop::Demosaic::Rcd,
+        lightcraft_raw::Method::DualRcdVng => lightcraft_develop::Demosaic::DualRcdVng,
+        _ => panic!("unexpected Bayer auto choice"),
+    };
+    let (auto, _) = crate::files::load_bytes(&bytes, usize::MAX).unwrap();
+    let (manual, _) =
+        crate::files::load_bytes_with(&bytes, usize::MAX, &crate::files::RawOptions { demosaic: method, dual_threshold: 0.2, ..Default::default() })
+            .unwrap();
+    assert_eq!(auto.data, manual.data);
 }

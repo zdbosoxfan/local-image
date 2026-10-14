@@ -1,5 +1,6 @@
 //! Crash-safe writes of user-visible files: exports, renders, DNG conversions, smart previews and
-//! XMP sidecars all go through here (the catalog's own files use [`crate::store::FsStore`]).
+//! XMP sidecars all go through here, including atomic catalog/settings replacements via
+//! [`crate::store::FsStore`].
 //!
 //! **Write policy** (issue #134): what can't be recreated — originals, XMP sidecars, the catalog,
 //! settings, DNGs that replace raws, smart previews (the only stand-in while an original is
@@ -107,6 +108,20 @@ pub fn sync_dir(dir: &Path) {
     }
 }
 
+/// Sync directory metadata and propagate failures on POSIX. Complete catalog-backup directories
+/// use this before pruning older copies. Windows uses the existing NTFS rename-journal policy.
+pub fn sync_dir_checked(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        sync_file(&File::open(dir)?)
+    }
+    #[cfg(not(unix))]
+    {
+        sync_dir(dir);
+        Ok(())
+    }
+}
+
 /// A new, empty temp file next to `path` (hidden, unique in this process and folder).
 fn create_temp(path: &Path) -> io::Result<(PathBuf, File)> {
     static N: AtomicU64 = AtomicU64::new(0);
@@ -186,6 +201,25 @@ fn replace_with(path: &Path, sync: bool, fill: &mut dyn FnMut(&mut dyn Write) ->
 /// the file only appears once it is complete, synced and read back identical.
 pub fn write_new(path: &Path, data: &[u8]) -> io::Result<()> {
     write_new_unique(&mut std::iter::once(path.to_path_buf()), data).map(|_| ())
+}
+
+/// Stream a new durable file and verify its temporary bytes before publishing its name.
+/// Used for original copies and catalog backups; `verify` must read back the entire file.
+/// A failure leaves no destination or temporary file. Never overwrites an existing file.
+pub fn write_new_with(
+    path: &Path,
+    fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>,
+    verify: &mut dyn FnMut(&Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let (tmp, _) = write_temp(path, true, fill)?;
+    let result = (|| {
+        verify(&tmp)?;
+        publish_new(&tmp, path)?;
+        sync_dir(parent_of(path));
+        Ok(())
+    })();
+    let _ = fs::remove_file(tmp);
+    result
 }
 
 /// [`write_new`] under the first free name of `candidates` (all in the same folder, e.g.
@@ -384,5 +418,53 @@ mod tests {
         assert!(!same_file(&p, &d.join("y.jpg")));
         assert!(!same_file(&p, &d.join("missing.jpg")));
         let _ = fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod streaming_tests {
+    use super::*;
+    #[test]
+    fn streaming_new_file_checks_bytes_before_publication_and_cleans_failures() {
+        let root = std::env::temp_dir().join(format!("li-stream-new-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("original.raw");
+        let before = syncs_on_this_thread();
+        write_new_with(&path, &mut |w| w.write_all(b"original"), &mut |tmp| {
+            assert!(!path.exists());
+            assert_eq!(fs::read(tmp)?, b"original");
+            Ok(())
+        })
+        .unwrap();
+        assert!(syncs_on_this_thread() > before);
+        assert_eq!(write_new_with(&path, &mut |w| w.write_all(b"replacement"), &mut |_| Ok(())).unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&path).unwrap(), b"original");
+        let corrupt = root.join("corrupt.raw");
+        assert!(write_new_with(&corrupt, &mut |w| w.write_all(b"bad copy"), &mut |_| Err(io::Error::other("different"))).is_err());
+        assert!(!corrupt.exists());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod store_writer_tests {
+    use super::*;
+    use crate::Store;
+    #[test]
+    fn fs_store_uses_shared_atomic_writer_for_settings_and_snapshots() {
+        let root = std::env::temp_dir().join(format!("li-store-safe-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let mut store = crate::FsStore::open(&root).unwrap();
+        store.write_atomic("prefs.json", b"previous").unwrap();
+        let fault = fail_writes_after(3);
+        assert!(store.write_atomic("prefs.json", b"replacement").is_err());
+        assert!(store.write_atomic_with("prefs.json", &mut |w| w.write_all(b"snapshot")).is_err());
+        drop(fault);
+        assert_eq!(store.read("prefs.json").unwrap().unwrap(), b"previous");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
     }
 }
