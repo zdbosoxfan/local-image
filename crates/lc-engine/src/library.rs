@@ -29,19 +29,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{EngineError, LibrarySource, Result, Selection, Session};
 
-/// Library directory name inside the user's Pictures folder.
-pub const DEFAULT_NAME: &str = "Local Image Library";
-
-/// The default library location: `$LIGHTCRAFT_LIBRARY` if set, else `~/Pictures/LightCraft Library`
-/// (`%USERPROFILE%\Pictures\LightCraft Library` on Windows).
-pub fn default_dir() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("LIGHTCRAFT_LIBRARY").filter(|p| !p.is_empty()) {
-        return Some(PathBuf::from(p));
-    }
-    let home = if cfg!(windows) { std::env::var_os("USERPROFILE") } else { std::env::var_os("HOME") }?;
-    Some(PathBuf::from(home).join("Pictures").join(DEFAULT_NAME))
-}
-
 pub struct Library {
     /// Stable catalog identity qualified by its storage location. A copied catalog
     /// at another location is independent; moved libraries require explicit relinking.
@@ -173,7 +160,6 @@ struct PrefsFile {
     #[serde(default)]
     smart_sort: crate::smart_sort::SmartSortPrefs,
     /// Parameters of the last export (for Export with Previous).
-    #[serde(alias = "last_export")]
     last_export: Option<serde_json::Value>,
     /// The user's export presets.
     export_presets: Vec<crate::export::ExportPreset>,

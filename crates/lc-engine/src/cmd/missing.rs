@@ -95,20 +95,15 @@ fn relink(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"id": id.0, "path": abs}))
 }
 
-/// The stored content identity of a photo ([`crate::media::content_identity`]), without the
-/// `:dupN` suffix duplicates get.
+/// The stored content identity of a photo, without the `:dupN` suffix duplicates get.
 fn stored_hash(p: &Photo) -> Option<String> {
-    let id = crate::media::content_identity(p.content_hash.as_deref()?).into_owned();
-    Some(id.split(':').next().unwrap_or(&id).to_string()).filter(|h| !h.is_empty())
+    let id = p.content_hash.as_deref()?;
+    Some(id.split(':').next().unwrap_or(id).to_string()).filter(|h| !h.is_empty())
 }
 
-/// The content identities of the file at `path` (as import computes them: BLAKE3, and the legacy
-/// one when `legacy`), if it can be read.
-fn file_hash(path: &str, legacy: bool) -> Option<(String, Option<String>)> {
-    let bytes = std::fs::read(path).ok()?;
-    let mut h = lightcraft_preview::ContentHasher::with_legacy(legacy);
-    h.update(&bytes);
-    Some((h.finish().to_string(), h.finish_legacy().map(|l| l.to_string())))
+/// The content identity of the file at `path` (BLAKE3, as import computes it), if it can be read.
+fn file_hash(path: &str) -> Option<String> {
+    std::fs::read(path).ok().map(|bytes| lightcraft_preview::ContentId::of(&bytes).to_string())
 }
 
 /// An in-scope photo ([`checked_path`]) as Find Missing Photos sees it: its file, the size and
@@ -247,12 +242,8 @@ pub fn plan_find_missing(candidates: &[FindCandidate], folder: &str) -> std::res
         }
     }
     let mut by_size: Option<HashMap<u64, Vec<String>>> = None;
-    let mut hashes: HashMap<String, Option<(String, Option<String>)>> = HashMap::new();
-    // a photo still identified by a legacy hash is matched by it (BLAKE3 for all the others)
-    let legacy = lost.iter().any(|c| c.hash.as_deref().is_some_and(crate::media::is_legacy_identity));
-    let mut hash_of = |f: &str, h: &str| {
-        hashes.entry(f.to_string()).or_insert_with(|| file_hash(f, legacy)).as_ref().is_some_and(|(b3, old)| b3 == h || old.as_deref() == Some(h))
-    };
+    let mut hashes: HashMap<String, Option<String>> = HashMap::new();
+    let mut hash_of = |f: &str, h: &str| hashes.entry(f.to_string()).or_insert_with(|| file_hash(f)).as_deref() == Some(h);
     let size_of = |f: &str| std::fs::metadata(f).map(|m| m.len()).ok();
     let mut used: HashSet<String> = HashSet::new();
     let mut plan = FindPlan::default();

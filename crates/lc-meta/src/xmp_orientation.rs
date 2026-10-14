@@ -1,4 +1,4 @@
-//! Byte-preserving orientation normalization, including legacy editor XMP fragments.
+//! Byte-preserving orientation normalization, lenient with malformed XMP fragments.
 use std::borrow::Cow;
 
 use quick_xml::events::Event;
@@ -12,7 +12,7 @@ fn orientation(raw: &str, scopes: &[Vec<(String, String)>]) -> bool {
     }
     match scopes.iter().rev().flat_map(|s| s.iter().rev()).find(|(p, _)| p == prefix) {
         Some((_, uri)) => uri == TIFF_NS,
-        // Earlier versions stored fragments without namespace declarations.
+        // Malformed fragments (seen in third-party XMP) omit the namespace declaration.
         None => prefix == "tiff",
     }
 }
@@ -127,7 +127,7 @@ fn edits(packet: &str) -> Option<Vec<(usize, usize)>> {
 
 /// Set real TIFF orientation attributes/elements to 1, keeping all unrelated bytes unchanged.
 /// Namespace aliases work; foreign namespaces, comments and ordinary text are never rewritten.
-/// Undeclared `tiff:` prefixes and standalone attributes remain supported for old documents.
+/// Undeclared `tiff:` prefixes and standalone attributes (malformed XMP) are accepted too.
 /// Unreadable XML is returned unchanged. Borrowed when no value needs rewriting.
 pub fn upright_xmp(packet: &str) -> Cow<'_, str> {
     let bare = packet.trim_start().starts_with("tiff:Orientation") && !packet.contains('<');

@@ -171,14 +171,14 @@ fn any_user_change_keeps_a_record() {
     assert_eq!(plan(&c, 30).evict, vec![id]);
 }
 
-/// Catalogs from before last-browsed times (and baselines): nothing is forgotten on the first
-/// run — the folders are stamped now — and baseline-less records are judged by their data.
+/// A folder without a browse time is never forgotten (nothing is stamped for it), and a Local
+/// record without a browse baseline is always kept, even in an old folder.
 #[test]
-fn upgrade_without_times_forgets_nothing_then_counts_from_then() {
+fn folders_without_times_and_records_without_baselines_are_kept() {
     let mut c = Catalog::new();
     let a = local(&mut c, "a", 1);
-    // legacy records: no baseline
-    let legacy = |c: &mut Catalog, i: u32, f: fn(&mut Photo)| {
+    // records not catalogued by a browse: no baseline
+    let unbased = |c: &mut Catalog, i: u32, f: fn(&mut Photo)| {
         let id = c.alloc_photo_id();
         let mut p = Photo::new(id, Source::File { path: format!("/pics/a/L{i}.JPG") }, "L.JPG", "JPEG", 6, 4, OLD);
         p.meta.camera = "Cam".into();
@@ -187,33 +187,19 @@ fn upgrade_without_times_forgets_nothing_then_counts_from_then() {
         c.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
         id
     };
-    let clean = legacy(&mut c, 1, |_| {});
-    let rated = legacy(&mut c, 2, |p| p.rating = 1);
-    let with_creator = legacy(&mut c, 3, |p| p.meta.creator = "maybe the user".into());
+    let clean = unbased(&mut c, 1, |_| {});
+    let rated = unbased(&mut c, 2, |p| p.rating = 1);
     let p = run(&mut c, 30);
     assert!(p.evict.is_empty(), "{p:?}");
-    assert_eq!(p.stamp, vec!["/pics/a".to_string()]);
-    assert_eq!(c.last_browsed("/pics/a"), Some(NOW));
-    // 30+ days later
-    let later = c.forget_local_plan("2026-11-06T10:00:00", 30, &|_| false);
-    let mut evict = later.evict.clone();
-    evict.sort();
-    assert_eq!(evict, vec![a, clean]);
-    assert_eq!(later.kept_touched, 2, "{rated:?} {with_creator:?}");
+    assert_eq!(p.kept_recent, 3, "{p:?}");
+    assert_eq!(c.last_browsed("/pics/a"), None, "nothing stamped");
+    // once the folder has an old browse time: the browsed record goes, the unbased ones stay
+    browsed(&mut c, "a", OLD);
+    let later = plan(&c, 30);
+    assert_eq!(later.evict, vec![a]);
+    assert_eq!(later.kept_touched, 2, "{clean:?} {rated:?}");
 }
 
-#[test]
-fn in_use_records_are_kept() {
-    let mut c = Catalog::new();
-    let a = local(&mut c, "old", 1);
-    let b = local(&mut c, "old", 2);
-    browsed(&mut c, "old", OLD);
-    let p = c.forget_local_plan(NOW, 30, &|p| p.id == a);
-    assert_eq!((p.evict.clone(), p.kept_in_use), (vec![b], 1));
-}
-
-/// The ops are journaled: a crash right after forgetting reloads the same catalog, and a
-/// fingerprint survives the snapshot round trip (a reloaded record is still untouched).
 #[test]
 fn forgetting_is_journaled_and_replays() {
     let m = MemStore::new();

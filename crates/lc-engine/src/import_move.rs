@@ -291,7 +291,7 @@ pub(crate) fn copy_verified(src: &Path, dst: &Path, expect: Option<lightcraft_pr
             Ok(())
         },
         &mut |tmp| match expect {
-            Some(h) if hash_file(tmp, &h)? != h => {
+            Some(h) if hash_file(tmp)? != h => {
                 Err(io::Error::other("the copy differs from the original as it was read for the import (a bad copy, or the file changed meanwhile)"))
             }
             Some(_) => Ok(()),
@@ -305,10 +305,10 @@ pub(crate) fn copy_verified(src: &Path, dst: &Path, expect: Option<lightcraft_pr
     Ok(())
 }
 
-/// The content identity of a file, in the scheme of `like` (BLAKE3, or a legacy one), read in chunks.
-fn hash_file(path: &Path, like: &lightcraft_preview::ContentId) -> io::Result<lightcraft_preview::ContentId> {
+/// The content identity of a file (BLAKE3), read in chunks.
+fn hash_file(path: &Path) -> io::Result<lightcraft_preview::ContentId> {
     let mut f = File::open(path)?;
-    let mut h = like.hasher();
+    let mut h = lightcraft_preview::ContentHasher::new();
     let mut buf = vec![0u8; 1 << 20];
     loop {
         let n = fill(&mut f, &mut buf)?;

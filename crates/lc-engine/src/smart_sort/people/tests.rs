@@ -901,7 +901,7 @@ fn offline_cropped_thumbnail_analysis_stores_uncropped_face_rects() {
 }
 
 #[test]
-fn clear_without_remove_names_keeps_names_and_legacy_people_centroids_load() {
+fn clear_without_remove_names_keeps_names_and_people_without_centroids_load() {
     let dir = temp();
     let mut s = session();
     s.smart.people = PeopleEngine::new(Some(&dir));
@@ -910,7 +910,7 @@ fn clear_without_remove_names_keeps_names_and_legacy_people_centroids_load() {
     let b = add(&mut s, &[[255, 0, 0]]);
     let id = pick(&mut s, a, "Jane");
     s.smart.people.save().unwrap();
-    let data = json!({"version":1,"people":[{"id":id,"name":"Jane","faces":[[crate::media::content_key(s.catalog.photo(a).unwrap()),0]],"rejected":[]}],"nextId":id+1});
+    let data = json!({"version":1,"people":[{"id":id,"name":"Jane","confirmedFaces":[[crate::media::content_key(s.catalog.photo(a).unwrap()),0]],"rejectedFaces":[]}],"nextId":id+1});
     std::fs::write(dir.join("AI/people.json"), serde_json::to_vec(&data).unwrap()).unwrap();
     let mut loaded = PeopleEngine::new(Some(&dir));
     loaded.tagger = Some(Arc::new(MockFaces));

@@ -4,7 +4,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::journal::LOG;
+use crate::journal::{LOG, SNAPSHOT};
 use crate::*;
 
 /// A store whose next append writes only a prefix of its data, then fails.
@@ -95,7 +95,7 @@ fn partial_append_then_retry_loads_cleanly() {
 
         let (_, loaded, r) = Journal::open(Box::new(t.clone())).unwrap();
         assert!(r.damaged.is_none(), "tear at {tear}: {r:?}");
-        assert_eq!((r.torn_bytes, r.torn_fragments, r.replayed), (0, 0, 5), "tear at {tear}");
+        assert_eq!((r.torn_bytes, r.replayed), (0, 5), "tear at {tear}");
         assert_eq!(loaded.to_snapshot(), c.to_snapshot(), "tear at {tear}");
     }
 }
@@ -128,17 +128,19 @@ fn failed_cut_back_is_done_before_the_next_append() {
     assert_eq!(loaded.to_snapshot(), c.to_snapshot());
 }
 
-/// Logs written before the fix: the fragment of the failed append is glued to the first retried
-/// record on one line, followed by the rest of the retry. They load in full (the fragment is
-/// skipped), instead of stopping at the fragment and setting the later records aside as damage.
+/// A fragment glued to a whole record on one line (which this build never writes: a failed append
+/// is cut back before anything else is appended) is not resynced: it is damage like any other bad
+/// record followed by good ones — the log is preserved whole and the state recovered up to it.
 #[test]
-fn legacy_fragment_glued_to_the_retry_is_skipped() {
+fn fragment_glued_to_a_record_is_damage() {
     let m = MemStore::new();
     let (mut j, mut c, _) = Journal::open(Box::new(m.clone())).unwrap();
     let add = add_photo(&mut c);
     let first = apply(&mut c, vec![add]);
     j.append(&first).unwrap();
+    let after_first = c.clone();
     let good = m.get(LOG).unwrap();
+    let snap = m.get(SNAPSHOT).unwrap();
     let id = c.photos().next().unwrap().id;
     let batch = apply(
         &mut c,
@@ -151,34 +153,34 @@ fn legacy_fragment_glued_to_the_retry_is_skipped() {
     j.append(&batch).unwrap();
     let full = m.get(LOG).unwrap();
     let batch_bytes = &full[good.len()..];
+    let first_len = batch_bytes.iter().position(|b| *b == b'\n').unwrap();
     let later = apply(&mut c, vec![Op::SetRating { id, rating: 1 }]);
     j.append(&later).unwrap();
     let later_bytes = m.get(LOG).unwrap()[full.len()..].to_vec();
     drop(j);
 
-    // every tear (inside the first record, after it, inside a multi-byte character…)
-    for tear in 1..batch_bytes.len() {
-        if batch_bytes[tear - 1] == b'\n' {
-            continue; // a tear on a record boundary leaves no fragment
-        }
+    // every tear inside the first record of the batch
+    for tear in 1..first_len {
         let mut log = good.clone();
         log.extend_from_slice(&batch_bytes[..tear]);
         log.extend_from_slice(batch_bytes);
         log.extend_from_slice(&later_bytes);
         let t = MemStore::new();
-        t.set(LOG, log);
-        let (_, loaded, r) = Journal::open(Box::new(t)).unwrap();
-        assert!(r.damaged.is_none(), "tear at {tear}: {r:?}");
-        assert_eq!(r.torn_fragments, 1, "tear at {tear}");
-        assert_eq!(loaded.to_snapshot(), c.to_snapshot(), "tear at {tear}");
+        t.set(SNAPSHOT, snap.clone());
+        t.set(LOG, log.clone());
+        let (_, loaded, r) = Journal::open(Box::new(t.clone())).unwrap();
+        let name = r.damaged.clone().unwrap_or_else(|| panic!("tear at {tear}: {r:?}"));
+        assert_eq!(t.get(&name).unwrap(), log, "tear at {tear}: the whole log is kept");
+        assert_eq!(loaded.to_snapshot(), after_first.to_snapshot(), "tear at {tear}");
     }
 
-    // a damaged record whose tail happens to be a whole record from the future is still damage
+    // a damaged record whose tail happens to be a whole record from the future is damage too
     let mut log = good.clone();
     log.extend_from_slice(b"garbage");
     log.extend_from_slice(&later_bytes);
     log.extend_from_slice(&later_bytes);
     let t = MemStore::new();
+    t.set(SNAPSHOT, snap);
     t.set(LOG, log);
     let (_, _, r) = Journal::open(Box::new(t)).unwrap();
     assert!(r.damaged.is_some(), "{r:?}");

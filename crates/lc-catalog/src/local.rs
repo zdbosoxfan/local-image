@@ -7,8 +7,7 @@
 //!
 //! - it is a Local record ([`Photo::local`]) of a file, not deleted, not a virtual copy;
 //! - its folder was last browsed more than `days` ago ([`Catalog::last_browsed`]). A folder with
-//!   no recorded time (a catalog from before this existed) counts as browsed *now*: it is stamped
-//!   with the current time and nothing in it is forgotten this time;
+//!   no recorded time (never browsed, e.g. a temporary record) is never forgotten;
 //! - it is **untouched** ([`Photo::untouched_local`]): nothing about it changed since it was
 //!   browsed — see below;
 //! - nothing refers to it: no album holds it or shows it as cover, no stack holds it, no virtual
@@ -19,12 +18,8 @@
 //! that moment ([`Photo::local_baseline`]). It is untouched while its state still hashes to that
 //! fingerprint, i.e. *any* change since — develop settings or history, versions, rating, flag,
 //! label, any metadata (title, caption, keywords, location, copyright…), capture time, crop,
-//! rename or relink, culling scores, file content — keeps it. Records without a fingerprint
-//! (browsed before fingerprints existed) are judged by their data alone and kept unless every
-//! user-editable field is still empty / default: no rating, flag or label; develop settings equal
-//! to the import defaults with no history, versions or edit time; no title, caption, alt text,
-//! description, keywords, creator, copyright, rights, location or GPS; no culling scores.
-//! When in doubt a record is kept.
+//! rename or relink, culling scores, file content — keeps it. A record without a fingerprint (not
+//! catalogued by a browse) is always kept. When in doubt a record is kept.
 //!
 //! Browsing the folder again catalogues its files afresh (new records, new fingerprints).
 
@@ -97,38 +92,8 @@ impl Photo {
         if !self.local || self.deleted || self.copy_of.is_some() || self.copy_name.is_some() || folder_of(self).is_none() {
             return false;
         }
-        match self.local_baseline {
-            Some(b) => self.fingerprint() == b,
-            None => self.looks_unedited(),
-        }
-    }
-
-    /// Every user-editable field is still empty / default (records without a baseline).
-    fn looks_unedited(&self) -> bool {
-        let m = &self.meta;
-        self.rating == 0
-            && self.flag == crate::Flag::None
-            && self.label.is_none()
-            && self.edited.is_none()
-            && self.history.is_empty()
-            && self.versions.is_empty()
-            && *self.develop == self.import_defaults()
-            && self.analysis.is_none()
-            && m.title.is_empty()
-            && m.caption.is_empty()
-            && m.alt_text.is_empty()
-            && m.extended_description.is_empty()
-            && m.keywords.is_empty()
-            && m.creator.is_empty()
-            && m.copyright.is_empty()
-            && m.copyright_status.is_unknown()
-            && m.usage_terms.is_empty()
-            && m.copyright_url.is_empty()
-            && m.location.is_empty()
-            && m.city.is_empty()
-            && m.state.is_empty()
-            && m.country.is_empty()
-            && m.gps.is_none()
+        // no baseline: not catalogued by a browse, so nothing says it is untouched
+        self.local_baseline.is_some_and(|b| self.fingerprint() == b)
     }
 }
 
@@ -140,26 +105,21 @@ pub struct ForgetPlan {
     pub local: usize,
     /// Records to forget.
     pub evict: Vec<PhotoId>,
-    /// Kept: their folder was browsed within the period (or has no time yet).
+    /// Kept: their folder was browsed within the period (or has no browse time).
     pub kept_recent: usize,
     /// Kept: changed by the user since they were browsed.
     pub kept_touched: usize,
     /// Kept: in an album, a stack, the source of a virtual copy, or in use.
     pub kept_in_use: usize,
-    /// Folders with Local records but no last-browsed time: stamped now.
-    pub stamp: Vec<String>,
     /// Folders whose last Local record goes: their time is dropped.
     pub unstamp: Vec<String>,
-    /// The time stamps are given.
-    #[serde(skip)]
-    pub now: String,
 }
 
 impl ForgetPlan {
     /// The ops that carry the plan out (empty when there is nothing to do).
     pub fn ops(&self) -> Vec<Op> {
-        let mut ops: Vec<Op> = self.stamp.iter().map(|f| Op::SetBrowsed { folder: f.clone(), at: Some(self.now.clone()) }).collect();
-        ops.extend(self.evict.chunks(BATCH).map(|c| Op::Batch { ops: c.iter().map(|id| Op::RemovePhoto { id: *id }).collect() }));
+        let mut ops: Vec<Op> =
+            self.evict.chunks(BATCH).map(|c| Op::Batch { ops: c.iter().map(|id| Op::RemovePhoto { id: *id }).collect() }).collect();
         ops.extend(self.unstamp.iter().map(|f| Op::SetBrowsed { folder: f.clone(), at: None }));
         ops
     }
@@ -180,7 +140,7 @@ impl Catalog {
     /// `now`, ISO 8601). `in_use` keeps records the caller still needs. `days == 0` (never) or an
     /// unreadable `now` forgets nothing. See the module docs.
     pub fn forget_local_plan(&self, now: &str, days: u32, in_use: &dyn Fn(&Photo) -> bool) -> ForgetPlan {
-        let mut plan = ForgetPlan { now: now.to_string(), ..Default::default() };
+        let mut plan = ForgetPlan::default();
         let now_s = crate::stacks::iso_seconds(now);
         let max_age = i64::from(days) * 86_400;
         let mut referenced: HashSet<PhotoId> = HashSet::new();
@@ -201,7 +161,6 @@ impl Catalog {
             .map(|p| &**p)
             .collect();
         let untouched: HashSet<PhotoId> = untouched_of(&candidates);
-        let mut stamp = BTreeSet::new();
         let mut remaining: BTreeSet<String> = BTreeSet::new();
         for p in self.photos.values().filter(|p| p.local) {
             plan.local += 1;
@@ -209,13 +168,8 @@ impl Catalog {
                 plan.kept_in_use += 1;
                 continue;
             };
-            let recent = match (self.browsed.get(&folder), now_s) {
-                (None, _) => {
-                    stamp.insert(folder.clone());
-                    true
-                }
-                (Some(at), _) => !is_old(at, now_s, days, max_age),
-            };
+            // a folder without a browse time is never forgotten
+            let recent = self.browsed.get(&folder).is_none_or(|at| !is_old(at, now_s, days, max_age));
             let keep = if recent {
                 plan.kept_recent += 1;
                 true
@@ -233,7 +187,6 @@ impl Catalog {
                 remaining.insert(folder);
             }
         }
-        plan.stamp = stamp.into_iter().collect();
         plan.unstamp = self.browsed.keys().filter(|f| !remaining.contains(*f)).cloned().collect();
         plan
     }

@@ -6,7 +6,7 @@
 //! are removed down to 80 % of the budget.
 //!
 //! The cache only ever lists, counts or deletes files of its own name shape
-//! (`<2 hex>/<32 hex>.jpg` and shared/legacy temp files of [`DiskCache::put`], see
+//! (`<2 hex>/<32 hex>.jpg` and the shared temp files of [`DiskCache::put`], see
 //! [`is_cache_file`]): the directory may be shared with other files (e.g. a library opened on a
 //! photo folder that already has a `thumbs/` folder), and those are never touched (issue #98).
 
@@ -181,7 +181,7 @@ fn is_shard_name(s: &str) -> bool {
 }
 
 /// Whether `name` inside shard directory `shard` is a file this cache wrote: `<32 hex>.jpg`
-/// (whose first two digits are the shard) or shared `.lightcraft-<pid>-<counter>.<key>.jpg.pcsave.tmp` / legacy `<32 hex>.tmp<alphanumeric>` staging from
+/// (whose first two digits are the shard) or a shared `.lightcraft-<pid>-<counter>.<key>.jpg.pcsave.tmp` staging file from
 /// [`DiskCache::put`]. Anything else in the cache directory belongs to someone else.
 pub fn is_cache_file(shard: &str, name: &str) -> bool {
     if !is_shard_name(shard) {
@@ -196,11 +196,7 @@ pub fn is_cache_file(shard: &str, name: &str) -> bool {
         });
         return valid_numbers && hint.strip_suffix(".jpg").is_some_and(|key| key.len() == 32 && is_lower_hex(key) && key.starts_with(shard));
     }
-    let Some((stem, ext)) = name.split_once('.') else { return false };
-    if stem.len() != 32 || !is_lower_hex(stem) || !stem.starts_with(shard) {
-        return false;
-    }
-    ext == "jpg" || ext.strip_prefix("tmp").is_some_and(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_alphanumeric()))
+    name.strip_suffix(".jpg").is_some_and(|stem| stem.len() == 32 && is_lower_hex(stem) && stem.starts_with(shard))
 }
 
 /// Encode a thumbnail as the cache stores it (JPEG, RGB, 4:2:0).

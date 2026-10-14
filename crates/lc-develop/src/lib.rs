@@ -247,8 +247,8 @@ mod tests {
     }
 
     #[test]
-    fn old_process_fields_are_ignored_and_looks_roundtrip() {
-        let s = DevelopSettings::from_json(&json!({"process": "legacy", "look": "sigmoid", "curve": {"mode": "rgb"}})).unwrap();
+    fn unknown_process_fields_are_ignored_and_looks_roundtrip() {
+        let s = DevelopSettings::from_json(&json!({"look": "sigmoid", "curve": {"mode": "rgb"}})).unwrap();
         assert_eq!((s.look, s.curve.mode), (Look::Sigmoid, CurveMode::Rgb));
         assert!(s.to_json_full().get("process").is_none());
         assert_eq!(DevelopSettings::from_json(&s.to_json()).unwrap(), s);

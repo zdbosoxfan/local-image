@@ -145,7 +145,6 @@ fn forget_local(s: &mut Session, p: &Value) -> Result<Value> {
         "keptRecent": plan.kept_recent,
         "keptTouched": plan.kept_touched,
         "keptInUse": plan.kept_in_use,
-        "foldersStamped": plan.stamp.len(),
     }))
 }
 
@@ -211,7 +210,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Forget Unchanged Local Photos",
             [],
             None,
-            "{dryRun?: bool, days?: n (default: the library preference, 0 = never)} — remove Local (browsed, not added) photos nobody changed, of folders not browsed for `days`, from the catalog; files and sidecars stay, browsing the folder again brings them back; not an undo step → {local, forgotten, keptRecent, keptTouched, keptInUse, foldersStamped, days, dryRun}",
+            "{dryRun?: bool, days?: n (default: the library preference, 0 = never)} — remove Local (browsed, not added) photos nobody changed, of folders not browsed for `days`, from the catalog; files and sidecars stay, browsing the folder again brings them back; not an undo step → {local, forgotten, keptRecent, keptTouched, keptInUse, days, dryRun}",
             always,
             forget_local
         ),

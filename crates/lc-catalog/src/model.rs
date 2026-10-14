@@ -189,7 +189,7 @@ pub struct Meta {
     pub copyright_url: String,
     pub creator: String,
     /// Preserved multi-creator sequence while `creator` is its joined display value.
-    /// Explicit scalar edits clear this; older catalogs default to a literal creator.
+    /// Explicit scalar edits clear this; when it is empty `creator` is taken literally.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub creators: Vec<String>,
     pub keywords: Vec<String>,

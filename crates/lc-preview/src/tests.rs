@@ -72,11 +72,11 @@ fn hashes_are_stable_and_distinct() {
     assert_eq!(Hasher128::new().update(b"hel").update(b"lo").finish(), a);
 }
 
-/// J24 parity/golden: the content identity is standard BLAKE3 (the editor's linked-source hash,
-/// published test vectors), the legacy SipHash is bit-identical to what old catalogs stored,
-/// and streaming, both-at-once and parsing agree with the one-shot forms.
+/// J24 golden: the content identity is standard BLAKE3 (the editor's linked-source hash,
+/// published test vectors), and streaming and parsing agree with the one-shot form. The SipHash
+/// cache key of the same bytes is unchanged (cache file names are derived from it).
 #[test]
-fn j24_content_identity_is_blake3_and_reads_legacy() {
+fn j24_content_identity_is_blake3() {
     // BLAKE3 reference vectors (empty input, "abc")
     assert_eq!(ContentId::of(b"").to_string(), "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262");
     assert_eq!(ContentId::of(b"abc").to_string(), "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85");
@@ -84,33 +84,25 @@ fn j24_content_identity_is_blake3_and_reads_legacy() {
     let id = ContentId::of(&bytes);
     // the editor's linked-source string for the same bytes
     assert_eq!(id.to_string(), blake3::hash(&bytes).to_hex().to_string());
-    // legacy: the exact 32-hex string catalogs stored before J24 (golden)
-    let legacy = ContentId::from(hash_bytes(b"hello"));
-    assert_eq!(legacy.to_string(), LEGACY_HELLO);
-    // parse round trips; length tells the schemes apart; junk is not an identity
+    // cache key (golden): stable, and never taken for an identity
+    assert_eq!(hash_bytes(b"hello").to_string(), SIPHASH_HELLO);
+    assert_eq!(ContentId::parse(SIPHASH_HELLO), None);
+    // parse round trips; junk is not an identity
     assert_eq!(ContentId::parse(&id.to_string()), Some(id));
     assert_eq!(ContentId::parse(&id.to_string().to_uppercase()), Some(id));
-    assert_eq!(ContentId::parse(LEGACY_HELLO), Some(legacy));
-    assert!(legacy.is_legacy() && !id.is_legacy());
     for junk in ["", "hash123", "ephemeral:00", &"g".repeat(64), &"+".repeat(32)] {
         assert_eq!(ContentId::parse(junk), None, "{junk}");
     }
-    // streaming in uneven chunks == one shot, both schemes in one pass
-    let mut h = ContentHasher::with_legacy(true);
+    // streaming in uneven chunks == one shot
+    let mut h = ContentHasher::new();
     for chunk in bytes.chunks(7919) {
         h.update(chunk);
     }
     assert_eq!(h.finish(), id);
-    assert_eq!(h.finish_legacy(), Some(ContentId::Legacy(hash_bytes(&bytes))));
-    assert_eq!(ContentHasher::new().update(&bytes).finish_legacy(), None);
-    // checking bytes against a stored identity uses its scheme
-    assert_eq!(legacy.of_like(b"hello"), legacy);
-    assert_eq!(id.of_like(&bytes), id);
-    assert_eq!(legacy.hasher().update(b"hel").update(b"lo").finish(), legacy);
-    assert_eq!(id.hasher().update(&bytes).finish(), id);
+    assert_eq!(ContentHasher::new().update(b"hel").update(b"lo").finish(), ContentId::of(b"hello"));
 }
 
-const LEGACY_HELLO: &str = "53c495508d545b11b066c30b5fc951c1";
+const SIPHASH_HELLO: &str = "53c495508d545b11b066c30b5fc951c1";
 
 #[test]
 fn lru_evicts_least_recent_by_cost() {
@@ -253,13 +245,15 @@ fn disk_cache_never_touches_foreign_files() {
         dir.join("01").join("0123456789ABCDEF0123456789ABCDEF.jpg"), // upper case
         dir.join("01").join("0123456789abcdef0123456789abcdef.jpeg"),
         dir.join("01").join("0123456789abcdef0123456789abcdef.tmp"),
+        // staging name of builds before the shared writer: not this cache's any more
+        dir.join("01").join("0123456789abcdef0123456789abcdef.tmpThreadId9"),
     ];
     for p in &foreign {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, vec![7u8; 50_000]).unwrap();
     }
     // a stale temp file of our own is cleaned up
-    let own_tmp = dir.join("01").join("0123456789abcdef0123456789abcdef.tmpThreadId9");
+    let own_tmp = dir.join("01").join(".lightcraft-4242-7.0123456789abcdef0123456789abcdef.jpg.pcsave.tmp");
     std::fs::write(&own_tmp, b"partial").unwrap();
     let d = DiskCache::new(&dir, 40_000);
     assert_eq!(d.size(), 7, "only the cache's own temp file counts");

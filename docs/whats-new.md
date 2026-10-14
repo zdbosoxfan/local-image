@@ -18,6 +18,9 @@
 - Live round trip between Library and Compositing — no intermediate save needed.
 - Tear-off panels: dock tabs can be torn off and docked back magnetically.
 - Long exports no longer time out.
+- V2 starts with a fresh Library: catalogs, Library settings and caches from earlier Local Image / LightCraft
+  versions are not opened or migrated (an older catalog is refused and left unchanged). Create a new Library and
+  import your photos again.
 
 ### Compositing
 - Blend If, noisy effects, CMYK/Lab tones and wide blurs run on the GPU.

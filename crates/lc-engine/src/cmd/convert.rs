@@ -180,8 +180,8 @@ fn edit_external(s: &mut Session, p: &Value) -> Result<Value> {
 /// `None` when nothing changed. Covers a raw that became decodable (or stopped being: a different
 /// file relinked), i.e. a change of [`lightcraft_catalog::Photo::preview_only`].
 pub(crate) fn content_op(id: lightcraft_catalog::PhotoId, ph: &lightcraft_catalog::Photo, info: crate::media::ProbeInfo) -> Option<Op> {
-    // the same bytes keep their stored hash (a legacy one is re-keyed, its links kept: J24)
-    let content_hash = crate::media::rekeyed(ph.content_hash.as_deref(), &info);
+    // the same bytes keep their stored hash (and any `:dupN` suffix)
+    let content_hash = crate::media::refreshed_hash(ph.content_hash.as_deref(), &info);
     let same = content_hash == ph.content_hash
         && info.file_size == ph.file_size
         && (info.width, info.height) == (ph.width, ph.height)

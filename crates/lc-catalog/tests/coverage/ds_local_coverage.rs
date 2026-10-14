@@ -50,13 +50,12 @@ fn forget_plan_empty_catalog() {
     assert_eq!(plan.kept_recent, 0);
     assert_eq!(plan.kept_touched, 0);
     assert_eq!(plan.kept_in_use, 0);
-    assert!(plan.stamp.is_empty());
     assert!(plan.unstamp.is_empty());
 }
 
 #[test]
 fn forget_plan_no_browsed_time_noops() {
-    // No local photos exist, so nothing is stamped or unstamped even with no browsed times.
+    // No local photos exist and no browsed times: nothing is unstamped.
     let c = Catalog::new();
     let plan = c.forget_local_plan("2024-01-01T00:00:00Z", DEFAULT_FORGET_DAYS, &|_| false);
     assert_eq!(plan.local, 0);
@@ -64,7 +63,6 @@ fn forget_plan_no_browsed_time_noops() {
     assert_eq!(plan.kept_recent, 0);
     assert_eq!(plan.kept_touched, 0);
     assert_eq!(plan.kept_in_use, 0);
-    assert!(plan.stamp.is_empty());
     assert!(plan.unstamp.is_empty());
 }
 
@@ -80,7 +78,6 @@ fn forget_plan_days_zero_noops() {
     assert_eq!(plan.kept_recent, 0);
     assert_eq!(plan.kept_touched, 0);
     assert_eq!(plan.kept_in_use, 0);
-    assert!(plan.stamp.is_empty());
     assert_eq!(plan.unstamp, vec!["/old".to_string()]);
 }
 
@@ -94,7 +91,6 @@ fn forget_plan_invalid_now_noops() {
     assert_eq!(plan.kept_recent, 0);
     assert_eq!(plan.kept_touched, 0);
     assert_eq!(plan.kept_in_use, 0);
-    assert!(plan.stamp.is_empty());
     assert_eq!(plan.unstamp, vec!["/old".to_string()]);
 }
 
@@ -110,28 +106,12 @@ fn forget_plan_unstamps_empty_browsed_folder() {
 
 #[test]
 fn forget_plan_ops_construction() {
-    let plan = ForgetPlan {
-        local: 1,
-        evict: vec![PhotoId(1)],
-        kept_recent: 0,
-        kept_touched: 0,
-        kept_in_use: 0,
-        stamp: vec!["/stamped".to_string()],
-        unstamp: vec!["/unstamped".to_string()],
-        now: "2024-01-01T00:00:00Z".to_string(),
-    };
+    let plan =
+        ForgetPlan { local: 1, evict: vec![PhotoId(1)], kept_recent: 0, kept_touched: 0, kept_in_use: 0, unstamp: vec!["/unstamped".to_string()] };
     let ops = plan.ops();
-    assert_eq!(ops.len(), 3);
+    assert_eq!(ops.len(), 2);
 
     match &ops[0] {
-        Op::SetBrowsed { folder, at } => {
-            assert_eq!(folder, "/stamped");
-            assert_eq!(at, &Some("2024-01-01T00:00:00Z".to_string()));
-        }
-        other => panic!("expected SetBrowsed, got {:?}", other),
-    }
-
-    match &ops[1] {
         Op::Batch { ops: batch } => {
             assert_eq!(batch.len(), 1);
             match &batch[0] {
@@ -142,7 +122,7 @@ fn forget_plan_ops_construction() {
         other => panic!("expected Batch, got {:?}", other),
     }
 
-    match &ops[2] {
+    match &ops[1] {
         Op::SetBrowsed { folder, at } => {
             assert_eq!(folder, "/unstamped");
             assert_eq!(at, &None);

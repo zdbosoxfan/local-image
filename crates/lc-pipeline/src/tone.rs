@@ -35,9 +35,7 @@ impl<'de> serde::Deserialize<'de> for CameraTone {
         #[derive(serde::Deserialize)]
         struct Wire {
             knots: [[f32; 2]; 32],
-            // absent in smart previews written before the chroma curve existed
-            #[serde(default)]
-            chroma: Option<[f32; CHROMA_N]>,
+            chroma: [f32; CHROMA_N],
             #[serde(default)]
             preset: Option<usize>,
         }
@@ -49,10 +47,7 @@ impl<'de> serde::Deserialize<'de> for CameraTone {
             }
             tone.preset = Some(index);
         }
-        match w.chroma {
-            Some(c) => tone.with_chroma(c).ok_or_else(|| serde::de::Error::custom("invalid camera chroma curve")),
-            None => Ok(tone),
-        }
+        tone.with_chroma(w.chroma).ok_or_else(|| serde::de::Error::custom("invalid camera chroma curve"))
     }
 }
 
@@ -206,9 +201,11 @@ mod tests {
         let map = ToneMap::camera(&plain, 0.0, 0.0, 0.0);
         assert!([0.0, 0.3, 0.77, 1.0, 2.0].iter().all(|o| map.chroma_scale(*o) == 1.0));
         assert!([0.0, 0.5, 1.0].iter().all(|o| ToneMap::new(0.0, 0.0, 0.0).chroma_scale(*o) == 1.0));
-        // smart previews written before the chroma curve existed still load (identity)
+        // the chroma curve is part of the format: a curve without one is refused (and a smart
+        // preview holding it renders without the stored camera tone)
         let old = serde_json::json!({ "knots": knots() });
-        assert_eq!(serde_json::from_value::<CameraTone>(old).unwrap(), plain);
+        assert!(serde_json::from_value::<CameraTone>(old).is_err());
+        assert_eq!(serde_json::from_value::<CameraTone>(serde_json::to_value(plain).unwrap()).unwrap(), plain);
         let tone = plain.with_chroma([1.4, 1.3, 1.1, 1.0, 0.7, 0.4, 0.25, 0.2]).unwrap();
         let back: CameraTone = serde_json::from_value(serde_json::to_value(tone).unwrap()).unwrap();
         assert_eq!(back, tone);
