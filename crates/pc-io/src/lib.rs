@@ -281,3 +281,6 @@ mod brush_import_mypaint;
 mod brush_import_plist;
 mod brush_import_procreate;
 mod brush_import_xml;
+
+#[cfg(test)]
+mod tests_cr_gpu;
