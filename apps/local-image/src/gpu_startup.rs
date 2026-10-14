@@ -279,8 +279,8 @@ pub fn with_recovery(mut plan: Plan, recovery: Option<&Recovery>, os: Os) -> Pla
     plan
 }
 
-/// Resolve the rendering policy before the window exists. Explicit GPU/Automatic selections
-/// reset a legacy CPU backend to automatic; CPU keeps software-preferred window presentation.
+/// Resolve the rendering policy before the window exists. GPU/Automatic win over a CPU graphics
+/// backend (it becomes automatic); CPU keeps software-preferred window presentation.
 pub fn plan_with_mode(pref: GpuBackend, mode: RenderingMode, crashed: Option<&Marker>, env: Option<&str>, safe_gpu: bool, os: Os) -> Plan {
     let backend = match mode {
         RenderingMode::Cpu => GpuBackend::Cpu,
@@ -400,7 +400,7 @@ pub fn configure(setup: &mut egui_wgpu::WgpuSetup, plan: &Plan, os: Os, sentinel
         if create.instance_descriptor.backends.is_empty() {
             create.instance_descriptor.backends = wgpu::Backends::PRIMARY | wgpu::Backends::GL;
         }
-        // Apply the parsed override explicitly: the legacy variable is not read by egui.
+        // Apply the parsed override explicitly: LOCAL_IMAGE_GPU_BACKEND is not read by egui.
         let override_backends = plan
             .env
             .as_deref()
@@ -538,14 +538,12 @@ impl Sentinel {
     }
 }
 
-/// Read the policy leniently at startup, including old settings without renderingMode.
+/// Read the policy leniently at startup: a missing or unreadable value is the default.
 pub fn read_rendering_prefs(path: Option<&Path>) -> (GpuBackend, RenderingMode) {
     let v: Value = path.and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
     let perf = v.get("performance");
     let backend = perf.and_then(|p| p.get("gpuBackend")).and_then(Value::as_str).and_then(GpuBackend::parse).unwrap_or_default();
-    let use_gpu = perf.and_then(|p| p.get("useGpu")).and_then(Value::as_bool).unwrap_or(true);
-    let explicit = perf.and_then(|p| p.get("renderingMode")).and_then(Value::as_str).and_then(RenderingMode::parse);
-    let mode = explicit.unwrap_or(if !use_gpu || backend == GpuBackend::Cpu { RenderingMode::Cpu } else { RenderingMode::Auto });
+    let mode = perf.and_then(|p| p.get("renderingMode")).and_then(Value::as_str).and_then(RenderingMode::parse).unwrap_or_default();
     (backend, mode)
 }
 
@@ -752,7 +750,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_policy_overrides_legacy_cpu_backend() {
+    fn explicit_policy_overrides_cpu_backend() {
         assert_eq!(plan_with_mode(Cpu, RenderingMode::Gpu, None, None, false, Os::Mac).backend, Auto);
         assert_eq!(plan_with_mode(Metal, RenderingMode::Cpu, None, None, false, Os::Mac).backend, Cpu);
         assert_eq!(plan_with_mode(Auto, RenderingMode::Gpu, None, None, true, Os::Mac).backend, Cpu);
@@ -924,11 +922,13 @@ mod tests {
         let p = dir.join("preferences.json");
         assert_eq!(read_rendering_prefs(None), (Auto, RenderingMode::Auto));
         assert_eq!(read_rendering_prefs(Some(&p)), (Auto, RenderingMode::Auto));
-        std::fs::write(&p, r#"{"performance": {"gpuBackend": "dx12", "useGpu": false}, "interface": {}}"#).unwrap();
+        std::fs::write(&p, r#"{"performance": {"gpuBackend": "dx12", "renderingMode": "cpu"}, "interface": {}}"#).unwrap();
         assert_eq!(read_rendering_prefs(Some(&p)), (Dx12, RenderingMode::Cpu));
+        std::fs::write(&p, r#"{"performance": {"gpuBackend": "cpu"}}"#).unwrap();
+        assert_eq!(read_rendering_prefs(Some(&p)), (Cpu, RenderingMode::Auto), "the mode, not the backend, is the policy");
         std::fs::write(&p, r#"{"performance": {"gpuBackend": "quantum"}}"#).unwrap();
         assert_eq!(read_rendering_prefs(Some(&p)), (Auto, RenderingMode::Auto));
-        std::fs::write(&p, r#"{"performance": {"useGpu": false, "renderingMode": "gpu"}}"#).unwrap();
+        std::fs::write(&p, r#"{"performance": {"renderingMode": "gpu"}}"#).unwrap();
         assert_eq!(read_rendering_prefs(Some(&p)), (Auto, RenderingMode::Gpu));
         std::fs::write(&p, "{not json").unwrap();
         assert_eq!(read_rendering_prefs(Some(&p)), (Auto, RenderingMode::Auto));
@@ -990,7 +990,7 @@ fn j12_shell_shared_sentinel_preserves_legacy_marker_format() {
 
 #[cfg(test)]
 #[test]
-fn j12_shell_legacy_override_configures_the_shared_instance() {
+fn j12_shell_local_image_override_configures_the_shared_instance() {
     let override_value = li_gpu::backend::startup_environment(Some("vulkan"), None);
     let plan = plan(GpuBackend::Auto, None, override_value.as_deref(), false, Os::Other);
     let mut setup = photocraft_ui_egui::gpu_canvas::wgpu_setup();

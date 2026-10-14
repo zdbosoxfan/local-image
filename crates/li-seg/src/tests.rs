@@ -194,9 +194,6 @@ fn one_official_model_per_function() {
         assert!(group.official().companions.is_empty());
     }
     assert!(!Group::Tagging.supports_custom());
-    for (file, _) in LEGACY {
-        assert!(MODELS.iter().all(|m| m.file != *file), "{file} is still offered");
-    }
 }
 
 #[test]
@@ -372,32 +369,6 @@ fn replacing_a_custom_model_puts_the_old_copy_away() {
     // a custom model whose file has gone is ignored
     std::fs::remove_file(custom(&dir, Group::Subject).unwrap().path(&dir)).unwrap();
     assert!(custom(&dir, Group::Subject).is_none());
-    let _ = std::fs::remove_dir_all(dir);
-}
-
-#[test]
-fn old_models_are_listed_never_used_and_can_be_removed() {
-    let dir = temp_models();
-    assert!(legacy_installed(&dir).is_empty());
-    let seg = dir.join("segmentation");
-    std::fs::write(seg.join("u2netp.onnx"), vec![0u8; 100]).unwrap();
-    std::fs::write(seg.join("midas_v21_small_256.onnx"), vec![0u8; 50]).unwrap();
-    std::fs::write(seg.join("unrelated.onnx"), vec![0u8; 7]).unwrap();
-    for file in Group::Tagging.official().files() {
-        std::fs::write(companion_path(&dir, file.file), b"clip file").unwrap();
-    }
-    assert_eq!(legacy_installed(&dir).iter().map(|(_, b)| b).sum::<u64>(), 150);
-    for g in Group::ALL {
-        assert!(!available(g, &dir), "old files don't serve {g:?}");
-    }
-    let trash = dir.join("trash");
-    std::fs::create_dir_all(&trash).unwrap();
-    let freed = remove_legacy_with(&dir, &|p| std::fs::rename(p, trash.join(p.file_name().unwrap()))).unwrap();
-    assert_eq!(freed, 150);
-    assert!(legacy_installed(&dir).is_empty() && seg.join("unrelated.onnx").is_file());
-    for file in Group::Tagging.official().files() {
-        assert_eq!(std::fs::read(companion_path(&dir, file.file)).unwrap(), b"clip file");
-    }
     let _ = std::fs::remove_dir_all(dir);
 }
 

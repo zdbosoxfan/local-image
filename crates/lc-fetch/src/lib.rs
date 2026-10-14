@@ -7,14 +7,14 @@
 //! `AtomicBool` cancel flag. Every byte goes through `li-ai`: HTTPS to its host allow-list
 //! (checked on every redirect), the exact size and SHA-256 **required**, a `.part` file that is
 //! removed on any failure, the disk-space check, and a verified file linked into place without
-//! replacing anything. The hand-written HTTP/1.1 client this crate used to carry is gone.
+//! replacing anything.
 //!
-//! Differences from the old client (SAM 3 only, which is off by owner decision):
+//! In practice:
 //! - a file without a pinned size and SHA-256 is never downloaded ([`DownloadError::Unpinned`]):
 //!   the user puts it in the model folder;
 //! - a mirror must be on `li-ai`'s allow-list (Hugging Face, GitHub, …);
 //! - an interrupted download starts over (no resume) and a stalled connection ends at `li-ai`'s
-//!   whole-body budget rather than after 30 s without bytes; cancelling stops it at once.
+//!   whole-body budget; cancelling stops it at once.
 //!
 //! Runs on whatever thread calls [`download`] (the engine uses a background thread). Native only:
 //! on wasm32 this crate is empty (the web build downloads no models).
@@ -235,8 +235,6 @@ pub fn download(
             for f in todo {
                 let (Some(size), Some(sha)) = (f.size, f.sha256) else { return Err(DownloadError::Unpinned(f.name.to_string())) };
                 let dest = dir.join(f.name);
-                // the old client's resume file: never used again
-                let _ = std::fs::remove_file(dir.join(format!("{}.part", f.name)));
                 let mut errors = Vec::new();
                 let mut ok = false;
                 'mirrors: for m in mirrors {

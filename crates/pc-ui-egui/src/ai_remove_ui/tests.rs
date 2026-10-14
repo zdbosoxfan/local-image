@@ -375,7 +375,7 @@ fn retained_remove_mask_keys_are_dormant_in_rotate_and_resume_in_remove() {
     assert_eq!(h.state().ai_remove.as_ref().unwrap().undo.len(), mask_undo);
     assert!(calls.borrow().is_empty());
     h.state_mut().session.edit_prefs(|p| {
-        p.shortcuts.insert("tools.select.AiRemove".into(), "F14".into());
+        p.set_shortcut("tools.select.AiRemove", Some("F14"));
     });
     h.key_press(Key::F14);
     h.run_steps(3);

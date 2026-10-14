@@ -1,6 +1,5 @@
 //! AI settings live in the application `preferences.json` under `ai`.
-//! Legacy `config.json` is a read-only migration input; generated resources keep their data root.
-//! Unknown settings and existing model directories are preserved.
+//! Generated resources keep their data root. Unknown settings are preserved.
 
 use std::path::{Path, PathBuf};
 
@@ -10,21 +9,16 @@ use serde_json::{Map, Value};
 /// The per-user data root: `LOCAL_IMAGE_DATA_DIR`, else `%LOCALAPPDATA%\Local Image` (Windows),
 /// `~/Library/Application Support/Local Image` (macOS), `$XDG_DATA_HOME/local-image` (Linux).
 pub fn data_root() -> PathBuf {
-    for var in ["LOCAL_IMAGE_DATA_DIR", "LOCAL_REMOVE_DATA_DIR"] {
-        if let Some(v) = std::env::var_os(var).filter(|v| !v.is_empty()) {
-            return PathBuf::from(v);
-        }
+    if let Some(v) = std::env::var_os("LOCAL_IMAGE_DATA_DIR").filter(|v| !v.is_empty()) {
+        return PathBuf::from(v);
     }
     let base = dirs::data_local_dir().unwrap_or_else(|| PathBuf::from("."));
     if cfg!(target_os = "linux") { base.join("local-image") } else { base.join("Local Image") }
 }
 
-/// The single application preferences file. `config.json` is a migration input only.
+/// The single application preferences file.
 pub fn config_path() -> PathBuf {
     lightcraft_sysmem::app_dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("preferences.json")
-}
-pub fn legacy_config_path() -> PathBuf {
-    data_root().join("config.json")
 }
 pub fn state_dir() -> PathBuf {
     data_root().join("state")
@@ -33,7 +27,7 @@ pub fn default_model_dir() -> PathBuf {
     lightcraft_sysmem::app_dirs::default_models_root()
 }
 
-/// The AI-related settings. Field names match 0.7's `config.json`.
+/// The AI-related settings, stored as the `ai` section of `preferences.json`.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct AiSettings {
@@ -49,7 +43,7 @@ pub struct AiSettings {
     pub hardware_guide_dismissed: bool,
     pub lora_show_adult_content: bool,
     /// Start ComfyUI with Local Image when an installation is configured.
-    #[serde(rename = "auto_start_comfy", alias = "auto_start")]
+    #[serde(rename = "auto_start_comfy")]
     pub auto_start: bool,
     #[serde(flatten)]
     rest: Map<String, Value>,
@@ -90,7 +84,7 @@ impl AiSettings {
     }
 
     /// Remote mode can also use loopback via an SSH tunnel. A non-loopback host is always
-    /// remote so older configs cannot accidentally start/download into a local installation.
+    /// remote so a non-local host can never start or download into a local installation.
     pub fn is_remote(&self) -> bool {
         let host = self.comfy_host.trim().trim_start_matches('[').trim_end_matches(']');
         self.setup_mode == "remote" || !(host.eq_ignore_ascii_case("localhost") || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback()))
@@ -114,10 +108,10 @@ impl AiSettings {
     pub fn load() -> Self {
         let path = config_path();
         let settings = match store_backend() {
-            Some(store) => (store.load)().ok().flatten().map(Self::from_value).unwrap_or_else(Self::load_legacy),
+            Some(store) => (store.load)().ok().flatten().map(Self::from_value).unwrap_or_default(),
             None => {
                 let value = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
-                value.and_then(|root| root.get("ai").cloned()).map(Self::from_value).unwrap_or_else(Self::load_legacy)
+                value.and_then(|root| root.get("ai").cloned()).map(Self::from_value).unwrap_or_default()
             }
         };
         publish(&settings);
@@ -141,13 +135,11 @@ impl AiSettings {
         let comfy_python = take_str("comfy_python", "");
         let model_directory = take_str("model_directory", "");
         let setup_mode = take_str("setup_mode", &d.setup_mode);
-        let comfy_port = m.remove("comfy_port").and_then(|v| v.as_u64()).filter(|p| (1..=65535).contains(p) && *p != 51247).unwrap_or(8188) as u16;
+        let comfy_port = m.remove("comfy_port").and_then(|v| v.as_u64()).filter(|p| (1..=65535).contains(p)).unwrap_or(8188) as u16;
         let mut take_bool = |k: &str, def: bool| m.remove(k).and_then(|v| v.as_bool()).unwrap_or(def);
         let hardware_guide_dismissed = take_bool("hardware_guide_dismissed", false);
         let lora_show_adult_content = take_bool("lora_show_adult_content", false);
-        let auto_start = m.remove("auto_start_comfy").and_then(|value| value.as_bool());
-        let legacy_auto_start = m.remove("auto_start").and_then(|value| value.as_bool());
-        let auto_start = auto_start.or(legacy_auto_start).unwrap_or(d.auto_start);
+        let auto_start = m.remove("auto_start_comfy").and_then(|value| value.as_bool()).unwrap_or(d.auto_start);
         Self {
             comfy_host,
             comfy_port,
@@ -180,14 +172,6 @@ impl AiSettings {
         refresh_model_dir_cache(&config_path(), self);
         SETTINGS_REV.fetch_add(1, std::sync::atomic::Ordering::Release);
         Ok(())
-    }
-    pub fn load_legacy() -> Self {
-        let mut settings = Self::load_from(&legacy_config_path());
-        let legacy_models = data_root().join("models");
-        if settings.model_directory.trim().is_empty() && legacy_models.is_dir() {
-            settings.model_directory = legacy_models.to_string_lossy().into_owned();
-        }
-        settings
     }
 
     /// Atomic write (temp file + rename), keeping keys this version doesn't know.
@@ -254,11 +238,11 @@ mod tests {
     }
 
     #[test]
-    fn round_trip_keeps_unknown_keys_and_rejects_the_app_port() {
+    fn round_trip_keeps_unknown_keys_and_rejects_port_zero() {
         let dir = std::env::temp_dir().join(format!("li-settings-{}", uuid::Uuid::new_v4()));
         let p = dir.join("config.json");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(&p, "\u{feff}{\"comfy_port\": 51247, \"model_directory\": \"/m\", \"future_key\": [1,2]}").unwrap();
+        std::fs::write(&p, "\u{feff}{\"comfy_port\": 0, \"model_directory\": \"/m\", \"future_key\": [1,2]}").unwrap();
         let mut s = AiSettings::load_from(&p);
         assert_eq!(s.comfy_port, 8188);
         assert_eq!(s.model_dir(), PathBuf::from("/m"));
@@ -356,21 +340,18 @@ pub fn publish(settings: &AiSettings) {
 
 fn checked_port<'de, D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<u16, D::Error> {
     let port = <u16 as serde::Deserialize>::deserialize(deserializer)?;
-    if port == 0 || port == 51247 {
+    if port == 0 {
         return Err(serde::de::Error::custom("not a usable ComfyUI port"));
     }
     Ok(port)
 }
 
 #[test]
-fn j16_ai_aliases_normalize_without_duplicate_fields_and_preserve_unknowns() {
-    for (value, expected) in
-        [(serde_json::json!({"auto_start":false,"future":[1,2]}), false), (serde_json::json!({"auto_start_comfy":true,"auto_start":false}), true)]
-    {
+fn ai_auto_start_comfy_normalizes_without_duplicate_fields_and_preserves_unknowns() {
+    for (value, expected) in [(serde_json::json!({"auto_start_comfy":false,"future":[1,2]}), false), (serde_json::json!({"future":[1,2]}), true)] {
         let settings = AiSettings::from_value(value.clone());
         let normalized = serde_json::to_value(&settings).unwrap();
         assert_eq!(normalized["auto_start_comfy"], expected);
-        assert!(normalized.get("auto_start").is_none());
         assert_eq!(normalized.get("future"), value.get("future"));
         assert_eq!(serde_json::from_value::<AiSettings>(normalized).unwrap(), settings);
     }

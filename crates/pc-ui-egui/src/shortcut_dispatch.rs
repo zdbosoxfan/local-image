@@ -95,7 +95,7 @@ pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
     let mut explicit: Vec<_> = custom.into_iter().filter(|(_, key)| !key.is_empty()).map(|(id, key)| (id.clone(), key.clone())).collect();
     explicit.extend(result);
     explicit.retain(|(id, key)| crate::keymaps::is_global(id) || crate::keymaps::global_conflict(key).is_none());
-    for (id, _, key) in photocraft_engine::prefs::GLOBAL_SHORTCUTS {
+    for (id, _, key) in li_keys::GLOBAL_SHORTCUTS {
         if !id.starts_with("host.") {
             explicit.retain(|(command, _)| command != id);
             explicit.insert(0, ((*id).into(), (*key).into()));

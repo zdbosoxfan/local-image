@@ -928,7 +928,7 @@ mod tests {
         let ctx = h.ctx.clone();
         crate::menus::invoke(h.state_mut(), &ctx, "filter.cameraRaw", json!({})).unwrap();
         h.state_mut().session.edit_prefs(|p| {
-            p.shortcuts.insert("tools.cameraRaw.sampler".into(), "F6".into());
+            p.set_shortcut("tools.cameraRaw.sampler", Some("F6"));
         });
         h.run_steps(4);
         h.get_all_by_label("Color Sampler Tool").last().unwrap().hover();
@@ -944,7 +944,7 @@ mod tests {
         h.run_steps(3);
         crate::menus::invoke(h.state_mut(), &ctx, "filter.liquify", json!({})).unwrap();
         h.state_mut().session.edit_prefs(|p| {
-            p.shortcuts.insert("tools.liquify.Freeze".into(), "F6".into());
+            p.set_shortcut("tools.liquify.Freeze", Some("F6"));
         });
         h.run_steps(4);
         h.get_by_label(tl!(LiquifyTool::Freeze.label())).hover();

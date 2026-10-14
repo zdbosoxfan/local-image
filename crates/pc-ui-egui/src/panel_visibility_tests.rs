@@ -203,7 +203,7 @@ fn tab_keeps_timeline_and_background_jobs_running_and_is_not_persisted() {
 fn tab_binding_override_and_visible_menu_action_are_respected() {
     let mut h = harness(ThemeKind::ProMedium, Persona::Pixel, vec2(1440., 900.), 1.);
     h.state_mut().session.edit_prefs(|p| {
-        p.shortcuts.insert("view.togglePanels".into(), "F8".into());
+        p.set_shortcut("view.togglePanels", Some("F8"));
     });
     tab(&mut h);
     assert!(!h.state().ui.view.panels_hidden);

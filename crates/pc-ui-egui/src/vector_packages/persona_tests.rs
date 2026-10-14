@@ -329,7 +329,7 @@ fn persona_unbound_pixel_keys_and_saved_pixel_overrides_do_not_leave_vector() {
         let mut h = harness();
         h.state_mut().session.edit_prefs(|p| {
             p.toolbar.vector_keyboard.preset = preset;
-            p.shortcuts.insert("tools.select.SpotHealing".into(), "J".into());
+            p.set_shortcut("tools.select.SpotHealing", Some("J"));
         });
         h.get_by_label("Vector persona").click();
         h.run_steps(3);
@@ -345,7 +345,7 @@ fn persona_unbound_pixel_keys_and_saved_pixel_overrides_do_not_leave_vector() {
         }
         assert!(crate::shortcuts::tool_shortcut(&h.state().session, Tool::SpotHealing).is_none());
         h.state_mut().session.edit_prefs(|p| {
-            p.shortcuts.insert("tools.select.SpotHealing".into(), "V".into());
+            p.set_shortcut("tools.select.SpotHealing", Some("V"));
         });
         h.get_by_label("Pen Tool").click();
         h.run_steps(3);

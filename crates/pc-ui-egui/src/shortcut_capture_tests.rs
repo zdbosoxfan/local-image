@@ -134,7 +134,7 @@ fn every_named_key_remains_dispatchable_after_preference_normalization() {
             assert_eq!(crate::shortcuts::parse(&captured).unwrap().logical_key, *key, "capture {key:?}");
         }
         let raw = format!("Alt+{}", key.name());
-        let normalized = photocraft_engine::prefs::normalize_shortcut(&raw).unwrap_or_else(|| panic!("key vocabulary missing {raw}"));
+        let normalized = li_keys::normalize_shortcut(&raw).unwrap_or_else(|| panic!("key vocabulary missing {raw}"));
         assert_eq!(crate::shortcuts::parse(&normalized).unwrap().logical_key, *key, "{raw}");
         assert_eq!(crate::shortcuts::parse(&raw.to_ascii_lowercase()).unwrap().logical_key, *key, "old persisted {raw}");
     }
@@ -173,17 +173,25 @@ fn named_shortcuts_capture_persist_reload_and_dispatch() {
 }
 
 #[test]
-fn shortcut_dialog_preserves_unknown_legacy_entries_without_clearing_other_bindings() {
+fn shortcut_dialog_preserves_unknown_entries_without_clearing_other_bindings() {
     for change in [false, true] {
         let (mut h, id) = dialog(1.0, "edit.search", "search…");
-        h.state_mut().session.load_prefs_json(r#"{"shortcuts":{"edit.search":"Alt+F35","edit.undo":"","future.command":"Alt+FutureKey"}}"#).unwrap();
-        let mut overrides = h.state().session.prefs().shortcuts.clone();
+        h.state_mut()
+            .session
+            .load_prefs_json(r#"{"shortcutProfiles":{"editor":{"active":"Mine","custom":{"Mine":{"parent":"Photoshop","overrides":{"edit.search":"Alt+F35","edit.undo":"","future.command":"Alt+FutureKey"}}}}}}"#)
+            .unwrap();
+        let mut overrides = h.state().session.prefs().shortcut_overrides(false).clone();
         if change {
             overrides.insert("edit.search".into(), "Alt+F34".into());
         }
-        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!(overrides));
+        // The dialog shows the profiles as loaded (it reads them when it opens).
+        let profiles = json!(h.state().session.prefs().shortcut_profiles);
+        let fields = &mut h.state_mut().ui.dialog_mut(id).unwrap().fields;
+        fields.insert("profiles".into(), profiles);
+        fields.insert("overrides".into(), json!(overrides));
         crate::dialogs::confirm(h.state_mut(), id).unwrap();
-        assert_eq!(h.state().session.prefs().shortcuts, overrides);
+        assert_eq!(h.state().session.prefs().shortcut_profiles.editor.active, "Mine");
+        assert_eq!(h.state().session.prefs().shortcut_overrides(false), &overrides);
         assert_eq!(h.state().session.prefs().shortcut("layer.new.layerViaCopy", Some("Cmd+J")), Some("Cmd+J"));
     }
 }

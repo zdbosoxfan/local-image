@@ -119,7 +119,7 @@ def main():
     _, hard = resource.getrlimit(resource.RLIMIT_CORE)
     resource.setrlimit(resource.RLIMIT_CORE, (hard, hard))
     env = os.environ.copy()
-    env.update(RUST_BACKTRACE="full", LIGHTCRAFT_GPU="1", LIGHTCRAFT_GPU_BACKEND="vulkan",
+    env.update(RUST_BACKTRACE="full", LIGHTCRAFT_GPU="1", LOCAL_IMAGE_GPU_BACKEND="vulkan",
                WGPU_BACKEND="vulkan", WGPU_POWER_PREF="high",
                WGPU_ADAPTER_NAME="NVIDIA GeForce RTX 5090", LC_REQUIRE_GPU="1",
                LOCAL_IMAGE_REQUIRE_GPU="1")

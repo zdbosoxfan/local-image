@@ -114,7 +114,7 @@ fn built_in_sets_cannot_be_deleted_or_edited() {
 }
 
 #[test]
-fn sets_round_trip_through_the_saved_prefs_and_old_toolbars_migrate() {
+fn sets_round_trip_through_the_saved_prefs_and_hidden_tools_leave_the_toolbar() {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
     app.run("toolset.save", json!({"name": "Mine", "tools": ["Move", "Brush"]})).unwrap();
     let saved = app.session.prefs_to_json();
@@ -122,7 +122,7 @@ fn sets_round_trip_through_the_saved_prefs_and_old_toolbars_migrate() {
     other.session.load_prefs_json(&saved).unwrap();
     assert_eq!(other.session.prefs().toolbar.active().name, "Mine");
     let mut old = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-    old.session.load_prefs_json(r#"{"toolbar": {"hidden": ["Sponge"]}}"#).unwrap();
+    old.session.execute("edit.toolbar", json!({"hidden": ["Sponge"]})).unwrap();
     let a = old.session.prefs().toolbar.active();
     assert_eq!(a.name, "My Tools");
     assert!(!a.tools.iter().any(|t| t == "Sponge"));
@@ -142,7 +142,7 @@ fn window_menu_lists_the_sets_and_marks_the_active_one() {
 #[test]
 fn toolsets_custom_order_changes_the_toolbar_and_dialog_buttons_reorder() {
     let mut h = harness();
-    h.state_mut().session.load_prefs_json(r#"{"toolbar":{"order":["Zoom","Brush"],"hidden":["Move"]}}"#).unwrap();
+    h.state_mut().session.execute("edit.toolbar", json!({"order":["Zoom","Brush"],"hidden":["Move"]})).unwrap();
     let shown = shown_tools(h.state());
     assert_eq!(shown[0], Tool::Zoom);
     assert_eq!(shown[1], Tool::Brush);

@@ -36,12 +36,10 @@ pub struct ShortcutProfile {
 pub struct ShortcutProfiles {
     pub library: ShortcutWorkspace,
     pub editor: ShortcutWorkspace,
-    /// Distinguishes first-run migration from a deliberately selected built-in.
-    pub migrated: bool,
 }
 impl Default for ShortcutProfiles {
     fn default() -> Self {
-        Self { library: ShortcutWorkspace { active: "Lightroom".into(), ..Default::default() }, editor: ShortcutWorkspace::default(), migrated: false }
+        Self { library: ShortcutWorkspace { active: "Lightroom".into(), ..Default::default() }, editor: ShortcutWorkspace::default() }
     }
 }
 impl ShortcutWorkspace {
@@ -70,6 +68,21 @@ impl ShortcutWorkspace {
         self.active = name.into();
         Ok(())
     }
+    /// The active profile, ready to edit. With a built-in active it first becomes a copy,
+    /// "Custom (<built-in>)", like Photoshop's "Photoshop Defaults (modified)".
+    pub fn editable(&mut self) -> &mut ShortcutProfile {
+        if !self.custom.contains_key(&self.active) {
+            let mut name = format!("Custom ({})", self.active);
+            while self.custom.contains_key(&name) {
+                name.push('2');
+            }
+            let parent = self.active.clone();
+            self.custom.insert(name.clone(), ShortcutProfile { parent, overrides: BTreeMap::new() });
+            self.active = name;
+        }
+        let parent = self.parent().to_string();
+        self.custom.entry(self.active.clone()).or_insert_with(|| ShortcutProfile { parent, overrides: BTreeMap::new() })
+    }
     pub fn delete_active(&mut self) {
         if let Some(profile) = self.custom.remove(&self.active) {
             self.active = profile.parent;
@@ -83,20 +96,35 @@ impl ShortcutProfiles {
     pub fn workspace_mut(&mut self, library: bool) -> &mut ShortcutWorkspace {
         if library { &mut self.library } else { &mut self.editor }
     }
-    pub fn migrate(&mut self, legacy: &BTreeMap<String, String>) {
-        if self.migrated || legacy.is_empty() {
-            return;
-        }
-        for library in [false, true] {
-            let overrides: BTreeMap<_, _> =
-                legacy.iter().filter(|(id, _)| id.starts_with("library::") == library).map(|(k, v)| (k.clone(), v.clone())).collect();
-            let workspace = self.workspace_mut(library);
-            if !overrides.is_empty() && workspace.custom.is_empty() {
-                workspace.custom.insert("Custom (migrated)".into(), ShortcutProfile { parent: workspace.parent().into(), overrides });
-                workspace.active = "Custom (migrated)".into();
+    /// The active profile's own bindings (empty while a built-in is active).
+    pub fn overrides(&self, library: bool) -> &BTreeMap<String, String> {
+        static EMPTY: std::sync::LazyLock<BTreeMap<String, String>> = std::sync::LazyLock::new(BTreeMap::new);
+        let workspace = self.workspace(library);
+        workspace.custom.get(&workspace.active).map_or(&*EMPTY, |profile| &profile.overrides)
+    }
+    /// Bind `id` in the active profile of its workspace (`library::` ids belong to Library):
+    /// `Some("")` disables the default, `None` returns to it. Binding while a built-in is
+    /// active first copies it ([`ShortcutWorkspace::editable`]).
+    pub fn set_override(&mut self, id: &str, chord: Option<&str>) {
+        let workspace = self.workspace_mut(id.starts_with("library::"));
+        match chord {
+            Some(chord) => {
+                workspace.editable().overrides.insert(id.into(), chord.into());
+            }
+            None => {
+                if let Some(profile) = workspace.custom.get_mut(&workspace.active) {
+                    profile.overrides.remove(id);
+                }
             }
         }
-        self.migrated = true;
+    }
+    /// Remove every binding of the active profiles (built-ins have none).
+    pub fn clear_overrides(&mut self) {
+        for workspace in [&mut self.library, &mut self.editor] {
+            if let Some(profile) = workspace.custom.get_mut(&workspace.active) {
+                profile.overrides.clear();
+            }
+        }
     }
     pub fn validate(&self, previous: &Self) -> std::result::Result<(), String> {
         for library in [false, true] {

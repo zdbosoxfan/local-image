@@ -95,7 +95,7 @@ fn bugfix_vector_path_dialog_drawn_with_text_focus() {
 fn bugfix_vector_printed_command_and_tool_bindings_match_dispatch() {
     let mut app = app();
     app.session.edit_prefs(|p| {
-        p.shortcuts.insert("select.deselect".into(), "Cmd+D".into());
+        p.set_shortcut("select.deselect", Some("Cmd+D"));
     });
     let bindings = crate::shortcut_dispatch::binding_strings(&app);
     assert!(bindings.iter().any(|(id, sc)| id == "select.deselect" && sc == "Cmd+D"));
@@ -410,8 +410,8 @@ fn bugfix_vector_preferences_preset_apply_cancel_and_custom_keys() {
     assert_eq!(h.state().session.prefs().toolbar.vector_keyboard.preset, Preset::Affinity);
     let mut app = self::app();
     app.session.edit_prefs(|p| {
-        p.shortcuts.insert("tools.select.Pen".into(), "M".into());
-        p.shortcuts.insert("select.deselect".into(), "Cmd+D".into());
+        p.set_shortcut("tools.select.Pen", Some("M"));
+        p.set_shortcut("select.deselect", Some("Cmd+D"));
     });
     let mut h = Harness::builder().build_ui_state(
         |ui, app| {

@@ -1,33 +1,35 @@
 use super::*;
-use std::collections::BTreeMap;
 
 #[test]
-fn j20_profile_json_golden_and_migration() {
-    let legacy = BTreeMap::from([
-        ("edit.copy".into(), "Cmd+F19".into()),
-        ("library::tool.brush".into(), String::new()),
-        ("library::unknown".into(), "old unusual spelling".into()),
-    ]);
+fn j20_profile_json_golden_and_editing() {
     let mut profiles = ShortcutProfiles::default();
-    profiles.migrate(&legacy);
+    profiles.set_override("edit.copy", Some("Cmd+F19"));
+    profiles.set_override("library::tool.brush", Some(""));
+    profiles.set_override("library::unknown", Some("Alt+FutureKey"));
     let golden = serde_json::json!({
-        "library": { "active": "Custom (migrated)", "custom": { "Custom (migrated)": {
-            "parent": "Lightroom", "overrides": { "library::tool.brush": "", "library::unknown": "old unusual spelling" }
+        "library": { "active": "Custom (Lightroom)", "custom": { "Custom (Lightroom)": {
+            "parent": "Lightroom", "overrides": { "library::tool.brush": "", "library::unknown": "Alt+FutureKey" }
         }}},
-        "editor": { "active": "Custom (migrated)", "custom": { "Custom (migrated)": {
+        "editor": { "active": "Custom (Photoshop)", "custom": { "Custom (Photoshop)": {
             "parent": "Photoshop", "overrides": { "edit.copy": "Cmd+F19" }
-        }}}, "migrated": true
+        }}}
     });
     assert_eq!(serde_json::to_value(&profiles).unwrap(), golden);
+    assert_eq!(profiles.overrides(false)["edit.copy"], "Cmd+F19");
     let mut restored: ShortcutProfiles = serde_json::from_value(golden).unwrap();
     restored.validate(&profiles).unwrap();
+    restored.set_override("library::unknown", None);
+    assert!(!restored.overrides(true).contains_key("library::unknown"));
     restored.library.duplicate("My bindings").unwrap();
     restored.library.rename("Renamed").unwrap();
     restored.library.delete_active();
     assert_eq!(restored.library.active, "Lightroom");
-    restored.migrate(&legacy);
-    assert_eq!(restored.library.active, "Lightroom", "migration cannot resurrect deleted profiles");
-    assert_eq!(restored.editor, profiles.editor);
+    assert!(restored.overrides(true).is_empty(), "a built-in has no bindings of its own");
+    restored.set_override("library::tool.brush", None);
+    assert_eq!(restored.library.active, "Lightroom", "returning to a default never creates a profile");
+    restored.clear_overrides();
+    assert!(restored.overrides(false).is_empty());
+    assert_eq!(restored.editor.active, "Custom (Photoshop)");
     let defaults: ShortcutProfiles = serde_json::from_str("{}").unwrap();
     assert_eq!(defaults, ShortcutProfiles::default());
 }

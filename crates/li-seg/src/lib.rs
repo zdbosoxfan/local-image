@@ -6,8 +6,8 @@
 //! AI server. Smart Sort uses a paired CLIP image/text bundle through [`Clip`].
 //!
 //! Pre-processing uses premultiplied square resize and the model's RGB mean/std. The new
-//! subject tiers use x/255 and clamped probabilities; legacy/custom IS-Net and U²-Net
-//! models retain peak scaling and min–max output. Maps are bilinearly resized to the photo.
+//! subject tiers use x/255 and clamped probabilities; custom IS-Net and U²-Net style
+//! models use peak scaling and min–max output. Maps are bilinearly resized to the photo.
 
 /// Shared edge refinement without an inference-runtime dependency for classical callers.
 pub use li_matte as matte;
@@ -486,16 +486,6 @@ pub const MODELS: &[ModelSpec] = &[
     },
 ];
 
-/// Files of models the app used to offer (U²-Net small and full, TinySkyNet, MiDaS small): no
-/// longer used, left on disk until the user removes them. (file name, label)
-pub const LEGACY: &[(&str, &str)] = &[
-    ("isnet-general-use.onnx", "IS-Net general"),
-    ("u2netp.onnx", "U²-Net small"),
-    ("u2net.onnx", "U²-Net"),
-    ("tinyskynet_skyseg_256.onnx", "TinySkyNet"),
-    ("midas_v21_small_256.onnx", "MiDaS v2.1 small"),
-];
-
 pub fn spec(id: &str) -> Option<&'static ModelSpec> {
     MODELS.iter().find(|m| m.id == id)
 }
@@ -537,7 +527,7 @@ fn never() -> bool {
     false
 }
 
-/// Subject output contract. Legacy IS-Net/U²-Net and custom models use min–max;
+/// Subject output contract. Custom IS-Net/U²-Net style models use min–max;
 /// the two background-removal tiers already output probabilities.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Post {
@@ -1208,27 +1198,6 @@ pub fn clear_custom(models_dir: &Path, group: Group, dispose: &dyn Fn(&Path) -> 
     write_customs(models_dir, &all)?;
     forget_group(group);
     Ok(bytes)
-}
-
-// -------------------------------------------------------------------------------- old models
-
-/// Files of the models the app no longer offers that are still on disk, with their sizes.
-pub fn legacy_installed(models_dir: &Path) -> Vec<(PathBuf, u64)> {
-    LEGACY
-        .iter()
-        .map(|(file, _)| models_dir.join("segmentation").join(file))
-        .filter_map(|p| std::fs::metadata(&p).ok().filter(|m| m.is_file()).map(|m| (p, m.len())))
-        .collect()
-}
-
-/// Puts the old models' files away with `dispose` (the Trash). Returns the bytes freed.
-pub fn remove_legacy_with(models_dir: &Path, dispose: &dyn Fn(&Path) -> std::io::Result<()>) -> Result<u64> {
-    let mut freed = 0;
-    for (p, bytes) in legacy_installed(models_dir) {
-        dispose(&p).with_context(|| format!("Could not remove {}", p.display()))?;
-        freed += bytes;
-    }
-    Ok(freed)
 }
 
 // ------------------------------------------------------------------------- which model runs

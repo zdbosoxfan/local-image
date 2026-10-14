@@ -1,6 +1,6 @@
 //! The mirror adapter over `li-ai::download` against a local HTTP server (std `TcpListener`;
 //! never the internet): mirror fallback, redirects, chunked bodies, hash mismatches, size caps,
-//! unpinned files, stale files from the old client, cancel. (J8: resume, Range/416 and stall
+//! unpinned files, damaged files, cancel. (J8: resume, Range/416 and stall
 //! tests went with the hand-written client; see docs/wip/CLAUDE-REPORT-j08-sam-defeature.md.)
 
 use std::io::{BufRead, BufReader, Write};
@@ -200,13 +200,12 @@ fn j08_a_hash_mismatch_is_deleted_and_the_next_mirror_used() {
 }
 
 #[test]
-fn j08_damaged_files_and_old_part_files_are_replaced() {
+fn j08_damaged_files_are_replaced() {
     let srv = server();
     let dir = tmp("stale");
     std::fs::create_dir_all(&dir).unwrap();
-    // a damaged copy under the real name (right size, wrong bytes) and the old client's resume file
+    // a damaged copy under the real name (right size, wrong bytes)
     std::fs::write(dir.join("model.bin"), vec![1u8; 300_000]).unwrap();
-    std::fs::write(dir.join("model.bin.part"), &payload()[..100_000]).unwrap();
     run(&[pinned()], &[format!("{}/good", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
     assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
     only(&dir, &["model.bin"]);

@@ -144,7 +144,6 @@ fn choose_recovery(app: &mut PhotocraftApp, retry: bool) -> Result<(), String> {
         "prefs.set",
         json!({"values": {
             "performance.renderingMode": if retry { "gpu" } else { "cpu" },
-            "performance.useGpu": retry,
             "performance.gpuBackend": "auto"
         }}),
     )?;
@@ -251,13 +250,13 @@ mod tests {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
         queue_fallback_notice(&mut app, "device unavailable");
         choose_recovery(&mut app, false).unwrap();
-        assert!(!app.session.prefs().performance.use_gpu);
+        assert_eq!(app.session.prefs().performance.rendering_mode, photocraft_engine::prefs::RenderingMode::Cpu);
         assert_eq!(app.session.prefs().get("performance.renderingMode"), Some(json!("cpu")));
         assert!(app.ui.gpu_fallback_notice.is_none());
         crate::prefs_ui::tick(&mut app, &egui::Context::default());
         assert_eq!(saves.get(), 1, "recovery choice writes once");
         choose_recovery(&mut app, true).unwrap();
-        assert!(app.session.prefs().performance.use_gpu);
+        assert_eq!(app.session.prefs().performance.rendering_mode, photocraft_engine::prefs::RenderingMode::Gpu);
         assert_eq!(app.session.prefs().get("performance.renderingMode"), Some(json!("gpu")));
         assert!(app.gpu.is_none());
         crate::prefs_ui::tick(&mut app, &egui::Context::default());

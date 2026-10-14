@@ -36,7 +36,7 @@ impl Chord {
             return None;
         }
         let mut c = Self { cmd: false, ctrl: false, alt: false, shift: false, key: String::new() };
-        // A trailing + key is written Cmd++; retain the legacy normalization vocabulary.
+        // A trailing + key is written Cmd++; the normalized spelling keeps it.
         let plus = s == "+" || s.ends_with("++");
         let body = if plus { s.trim_end_matches('+') } else { s };
         for part in body.split('+').filter(|p| !p.is_empty()) {

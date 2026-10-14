@@ -463,10 +463,10 @@ mod tests {
         }
         assert_eq!(tip_label(&app, "Rulers", "view.rulers"), format!("Rulers  ({})", pretty("Cmd+R")));
         // A user override is picked up…
-        app.session.prefs.edit(|p| p.shortcuts.insert("file.new".into(), "Cmd+Shift+N".into()));
+        app.session.prefs.edit(|p| p.set_shortcut("file.new", Some("Cmd+Shift+N")));
         assert_eq!(command_label(&app, "New document…", "file.new"), format!("New document…     {}", pretty("Cmd+Shift+N")));
         // …and a removed binding hides the shortcut entirely.
-        app.session.prefs.edit(|p| p.shortcuts.insert("file.new".into(), String::new()));
+        app.session.prefs.edit(|p| p.set_shortcut("file.new", Some("")));
         assert_eq!(command_label(&app, "New document…", "file.new"), "New document…");
     }
 

@@ -464,10 +464,9 @@ pub struct Performance {
     pub cache_levels: u32,
     /// Side of the GPU canvas texture tiles, in pixels (applies at next launch).
     pub cache_tile_size: u32,
-    /// Draw the canvas with the GPU (applies at next launch).
-    pub use_gpu: bool,
-    /// Explicit rendering policy. None preserves older useGpu/gpuBackend preferences.
-    pub rendering_mode: Option<RenderingMode>,
+    /// Rendering policy: Automatic, GPU or CPU / Compatibility (applies at next launch). It wins
+    /// over a CPU [`Performance::gpu_backend`].
+    pub rendering_mode: RenderingMode,
     /// Graphics backend (applies at next launch; see [`GpuBackend`]).
     pub gpu_backend: GpuBackend,
     /// Memory budget of the layer-effect cache, in MB.
@@ -492,11 +491,6 @@ pub struct SystemResources {
 }
 
 impl Performance {
-    /// Resolve old preferences without allowing legacy flags to override an explicit mode.
-    pub fn effective_rendering_mode(&self) -> RenderingMode {
-        self.rendering_mode.unwrap_or_else(|| if !self.use_gpu || self.gpu_backend == GpuBackend::Cpu { RenderingMode::Cpu } else { RenderingMode::Auto })
-    }
-
     /// Pixel memory a document and its History may hold (Memory Usage), in bytes: beyond it
     /// the oldest history states are dropped.
     pub fn history_budget_bytes(&self) -> usize {
@@ -511,8 +505,7 @@ impl Default for Performance {
             history_states: 50,
             cache_levels: 4,
             cache_tile_size: 8192,
-            use_gpu: true,
-            rendering_mode: None,
+            rendering_mode: RenderingMode::Auto,
             gpu_backend: GpuBackend::Auto,
             effect_cache_mb: 768,
             legacy_compositing: false,
@@ -809,16 +802,11 @@ pub struct MenuCustomization {
 #[serde(default, rename_all = "camelCase")]
 pub struct ToolbarCustomization {
     pub vector_keyboard: crate::vector_toolbar_layout::Settings,
-    /// Before tool sets: hidden tools. Read once and turned into the set "My Tools"
-    /// ([`ToolbarCustomization::migrate`]); cleared after migration.
-    pub hidden: Vec<String>,
-    /// Before tool sets: a custom order (see `hidden`).
-    pub order: Vec<String>,
     /// Id of the tool set in use (`""` = All Tools, the default).
     pub active_set: String,
     /// The user's own tool sets (the built-ins are in [`crate::toolsets`]).
     pub sets: Vec<crate::toolsets::ToolSet>,
-    /// Global Compositing persona. Old settings start in Pixel.
+    /// Global Compositing persona (Pixel by default).
     #[serde(default)]
     pub persona: crate::toolsets::Persona,
     /// Vector's last set; `active_set` continues to store Pixel's original set id.
@@ -830,8 +818,7 @@ pub struct ToolbarCustomization {
     pub vector_tool: String,
 }
 
-// Compatibility path for existing callers and persisted Preferences.
-pub use li_keys::{GLOBAL_SHORTCUTS, ShortcutProfile, ShortcutProfiles, ShortcutWorkspace};
+use li_keys::{GLOBAL_SHORTCUTS, ShortcutProfiles, conflicts, normalize_shortcut};
 
 fn get_path_mut_profile<'a>(root: &'a mut Value, path: &str) -> std::result::Result<&'a mut Value, String> {
     let (scope, rest) = path.split_once(".custom.").ok_or("Unknown profile path")?;
@@ -843,11 +830,11 @@ fn get_path_mut_profile<'a>(root: &'a mut Value, path: &str) -> std::result::Res
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Preferences {
-    /// Namespaced Library/Develop UI and preferences; old stores start with an empty section.
+    /// Namespaced Library/Develop UI and preferences (empty until the Library saves them).
     pub library: BTreeMap<String, Value>,
     /// All AI configuration (including unknown provider/browser fields) in the one store.
     pub ai: li_ai::settings::AiSettings,
-    /// Shared application palette; old preferences start with an empty book.
+    /// Shared application palette (an empty book by default).
     #[serde(default)]
     pub user_swatches: photocraft_doc::vector_design::swatches::UserSwatches,
     pub general: General,
@@ -869,9 +856,8 @@ pub struct Preferences {
     pub enhanced_controls: EnhancedControls,
     pub raw_defaults: RawDefaults,
     pub integrations: Integrations,
-    /// Edit › Keyboard Shortcuts: command id → shortcut (`Cmd+Shift+N` notation); an empty
-    /// string removes the default shortcut.
-    pub shortcuts: BTreeMap<String, String>,
+    /// Edit › Keyboard Shortcuts: the Library and Editor shortcut profiles. A custom profile maps
+    /// command id → shortcut (`Cmd+Shift+N` notation); an empty string removes the default.
     pub shortcut_profiles: ShortcutProfiles,
     pub menus: MenuCustomization,
     pub toolbar: ToolbarCustomization,
@@ -885,7 +871,7 @@ pub struct Preferences {
     /// as the user changes it and restored at launch when Workspace › Remember Workspace
     /// Changes is on. JSON owned by the shell.
     pub panel_layout: Value,
-    /// Independent editor studio layouts, keyed by Pixel/Vector. Missing in old settings.
+    /// Independent editor studio layouts, keyed by Pixel/Vector.
     pub persona_layouts: BTreeMap<String, Value>,
     /// The last choices of dialogs that remember them across restarts, by command id (Edit ›
     /// Fill…: `"edit.fill"` → its params). JSON owned by the shell.
@@ -923,7 +909,7 @@ pub const SECTIONS: [(&str, &str); 18] = [
 /// When you implement one, remove it here; the `prefs_usage` test fails while a listed
 /// preference is read anywhere outside `prefs.rs`, and while an unlisted one is read nowhere.
 pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
-    // Legacy AI compatibility key: round-tripped, but there is no automatic-start consumer/UI.
+    // Round-tripped, but there is no automatic-start consumer/UI yet.
     "ai.auto_start_comfy",
     "general.colorPicker",
     "general.beepWhenDone",
@@ -1108,7 +1094,7 @@ fn get_path<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
     path.split('.').try_fold(root, |v, k| v.get(k))
 }
 
-/// Set `value` at `path` (creating keys only inside free-form maps such as `shortcuts`).
+/// Set `value` at `path` (creating keys only inside free-form maps such as `menus.colors`).
 fn set_path(root: &mut Value, path: &str, value: Value) -> std::result::Result<(), String> {
     if let Some((map, id)) = keyed(path) {
         let mut cur = &mut *root;
@@ -1124,7 +1110,7 @@ fn set_path(root: &mut Value, path: &str, value: Value) -> std::result::Result<(
     for k in parents {
         cur = cur.get_mut(*k).ok_or_else(|| format!("unknown preference `{path}`"))?;
     }
-    let free_map = matches!(parents.first(), Some(&"shortcuts")) || (parents.len() == 2 && parents[0] == "menus" && parents[1] == "colors");
+    let free_map = parents.len() == 2 && parents[0] == "menus" && parents[1] == "colors";
     let obj = cur.as_object_mut().ok_or_else(|| format!("`{path}` is not inside a section"))?;
     if !obj.contains_key(*last) && !free_map {
         return Err(format!("unknown preference `{path}`"));
@@ -1136,7 +1122,7 @@ fn set_path(root: &mut Value, path: &str, value: Value) -> std::result::Result<(
 /// Validate one value for `path` before it is stored (choices, ranges, colours).
 fn check_value(path: &str, v: &Value) -> std::result::Result<(), String> {
     // PhotoCraft 8d23c622: direct edits require 2..16 unit-square point pairs.
-    // Whole-section/legacy loads remain lenient; PressureCurve sanitizes their data.
+    // Whole-section loads remain lenient; PressureCurve sanitizes their data.
     if path == "tools.penPressureCurve" {
         let valid = v.as_array().is_some_and(|points| {
             (2..=photocraft_paint::pressure::MAX_POINTS).contains(&points.len())
@@ -1147,9 +1133,6 @@ fn check_value(path: &str, v: &Value) -> std::result::Result<(), String> {
         if !valid {
             return Err("`tools.penPressureCurve` needs 2..16 [input, output] pairs within 0..1".into());
         }
-    }
-    if path == "performance.renderingMode" && v.is_null() {
-        return Ok(()); // Legacy policy, resolved from useGpu and gpuBackend.
     }
     if let Some(c) = choices(path) {
         let s = v.as_str().ok_or_else(|| format!("`{path}` must be one of {}", c.join("|")))?;
@@ -1172,12 +1155,6 @@ fn check_value(path: &str, v: &Value) -> std::result::Result<(), String> {
     if is_color(path) && v.as_str().and_then(parse_hex).is_none() {
         return Err(format!("`{path}` must be a #rrggbb colour"));
     }
-    if let Some(sc) = path.strip_prefix("shortcuts.") {
-        let s = v.as_str().ok_or_else(|| format!("shortcut for `{sc}` must be a string"))?;
-        if !s.is_empty() && normalize_shortcut(s).is_none() {
-            return Err(format!("`{s}` is not a valid shortcut (e.g. Cmd+Shift+N, F7)"));
-        }
-    }
     Ok(())
 }
 
@@ -1189,6 +1166,13 @@ impl Preferences {
 
     /// Read a value by dotted path (`""` = everything).
     pub fn get(&self, path: &str) -> Option<Value> {
+        // `shortcuts` is a read-only view of the active profiles' bindings (both workspaces).
+        if path == "shortcuts" {
+            return Some(json!(self.shortcut_overrides(false).iter().chain(self.shortcut_overrides(true)).collect::<BTreeMap<_, _>>()));
+        }
+        if let Some(id) = path.strip_prefix("shortcuts.") {
+            return self.shortcut_overrides(id.starts_with("library::")).get(id).map(|chord| json!(chord));
+        }
         let root = self.to_json();
         if let Some(rest) = path.strip_prefix("shortcutProfiles.") {
             if let Some((prefix, command)) = rest.split_once(".overrides.") {
@@ -1208,15 +1192,9 @@ impl Preferences {
     }
 
     /// Set a value by dotted path, validating it. Unknown paths and wrong types are errors.
+    /// `shortcuts.<command id>` binds a shortcut in the active profile of the command's
+    /// workspace (see [`Preferences::set_shortcut`]).
     pub fn set(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
-        let previous = self.shortcuts.clone();
-        self.set_unmigrated(path, value)?;
-        self.adopt_legacy_changes(&previous);
-        self.toolbar.migrate();
-        Ok(())
-    }
-
-    fn set_unmigrated(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
         if path == "ai" {
             self.ai = serde_json::from_value(value).map_err(|error| error.to_string())?;
             return Ok(());
@@ -1267,7 +1245,6 @@ impl Preferences {
             }
             let mut next: ShortcutProfiles = serde_json::from_value(root).map_err(|e| e.to_string())?;
             next.validate(&self.shortcut_profiles)?;
-            next.migrated = true;
             for workspace in [&mut next.library, &mut next.editor] {
                 for profile in workspace.custom.values_mut() {
                     for chord in profile.overrides.values_mut() {
@@ -1284,28 +1261,8 @@ impl Preferences {
             if id.is_empty() {
                 return Err("missing shortcut command id".into());
             }
-            match checked_shortcut(&value, self.shortcuts.get(id))? {
-                Some(value) => {
-                    self.shortcuts.insert(id.into(), value);
-                }
-                None => {
-                    self.shortcuts.remove(id);
-                }
-            }
-            return Ok(());
-        }
-        if path == "shortcuts" {
-            let values = value.as_object().ok_or("shortcuts needs an object")?;
-            let mut next = BTreeMap::new();
-            for (id, value) in values {
-                if id.is_empty() {
-                    return Err("missing shortcut command id".into());
-                }
-                if let Some(value) = checked_shortcut(value, self.shortcuts.get(id))? {
-                    next.insert(id.clone(), value);
-                }
-            }
-            self.shortcuts = next;
+            let chord = checked_shortcut(&value, self.shortcut_overrides(id.starts_with("library::")).get(id))?;
+            self.set_shortcut(id, chord.as_deref());
             return Ok(());
         }
         check_value(path, &value)?;
@@ -1326,11 +1283,7 @@ impl Preferences {
                 return Err(format!("missing command id in `{path}`"));
             }
             match section {
-                "shortcuts" => {
-                    let previous = self.shortcuts.clone();
-                    self.shortcuts.remove(id);
-                    self.adopt_legacy_changes(&previous);
-                }
+                "shortcuts" => self.set_shortcut(id, None),
                 "menus.colors" => {
                     self.menus.colors.remove(id);
                 }
@@ -1338,68 +1291,27 @@ impl Preferences {
             }
             return Ok(());
         }
-        let def = Preferences::default().get(path).ok_or_else(|| format!("unknown preference `{path}`"))?;
         if path == "shortcuts" {
-            let previous = self.shortcuts.clone();
-            self.shortcuts.clear();
-            self.adopt_legacy_changes(&previous);
+            self.shortcut_profiles.clear_overrides();
             return Ok(());
         }
+        let def = Preferences::default().get(path).ok_or_else(|| format!("unknown preference `{path}`"))?;
         let mut root = self.to_json();
         set_path(&mut root, path, def)?;
         *self = serde_json::from_value(root).map_err(|e| e.to_string())?;
         Ok(())
     }
 
-    /// Keep older automation and workspace-layout writes useful after migration.
-    /// The legacy map remains serializable; only workspaces changed by that write move.
-    fn adopt_legacy_changes(&mut self, previous: &BTreeMap<String, String>) {
-        if !self.shortcut_profiles.migrated {
-            self.shortcut_profiles.migrate(&self.shortcuts);
-            return;
-        }
-        for library in [false, true] {
-            let scoped = |map: &BTreeMap<String, String>| -> BTreeMap<String, String> {
-                map.iter().filter(|(id, _)| id.starts_with("library::") == library).map(|(id, key)| (id.clone(), key.clone())).collect()
-            };
-            let overrides = scoped(&self.shortcuts);
-            if overrides == scoped(previous) {
-                continue;
-            }
-            let workspace = self.shortcut_profiles.workspace_mut(library);
-            if !workspace.custom.contains_key(&workspace.active) && !overrides.is_empty() {
-                let mut name = format!("Custom ({})", workspace.active);
-                while workspace.custom.contains_key(&name) {
-                    name.push('2');
-                }
-                let _ = workspace.duplicate(&name);
-            }
-            if let Some(profile) = workspace.custom.get_mut(&workspace.active) {
-                for id in scoped(previous).keys() {
-                    if !overrides.contains_key(id) {
-                        profile.overrides.remove(id);
-                    }
-                }
-                for (id, key) in overrides {
-                    if previous.get(&id) != Some(&key) {
-                        profile.overrides.insert(id, key);
-                    }
-                }
-            }
-        }
+    /// The active profile's own bindings for the Library (`true`) or Editor workspace.
+    pub fn shortcut_overrides(&self, library: bool) -> &BTreeMap<String, String> {
+        self.shortcut_profiles.overrides(library)
     }
 
-    /// Active custom bindings, with the legacy map readable until migration.
-    pub fn shortcut_overrides(&self, library: bool) -> &BTreeMap<String, String> {
-        let workspace = self.shortcut_profiles.workspace(library);
-        if let Some(profile) = workspace.custom.get(&workspace.active) {
-            &profile.overrides
-        } else if !self.shortcut_profiles.migrated {
-            &self.shortcuts
-        } else {
-            static EMPTY: std::sync::LazyLock<BTreeMap<String, String>> = std::sync::LazyLock::new(BTreeMap::new);
-            &EMPTY
-        }
+    /// Bind `id` in the active profile of its workspace: `Some("")` disables the default,
+    /// `None` returns to it. With a built-in profile active, it first becomes a copy,
+    /// "Custom (<built-in>)". The chord is stored as given (callers validate).
+    pub fn set_shortcut(&mut self, id: &str, chord: Option<&str>) {
+        self.shortcut_profiles.set_override(id, chord);
     }
 
     /// The shortcut in effect for a command: the user's override, else its default.
@@ -1425,8 +1337,8 @@ fn global_shortcut_owner(chord: &str) -> Option<&'static str> {
     li_keys::global_shortcut_owner(chord)
 }
 
-// Unchanged legacy spellings may survive a full dialog round trip; newly introduced
-// invalid keys are refused. Null means remove the override, empty means disable it.
+// A spelling this build cannot parse (a newer build's key name) survives a round trip
+// unchanged; newly introduced invalid keys are refused. Null means remove the override, empty means disable it.
 fn checked_shortcut(value: &Value, previous: Option<&String>) -> std::result::Result<Option<String>, String> {
     match value {
         Value::Null => Ok(None),
@@ -1437,8 +1349,6 @@ fn checked_shortcut(value: &Value, previous: Option<&String>) -> std::result::Re
         _ => Err("shortcut must be a string or null".into()),
     }
 }
-
-pub use li_keys::normalize_shortcut;
 
 /// Hold-and-release gestures (#249): temporary tools that last while their key is held and give
 /// the previous tool back on release. They are bound like shortcuts (Edit › Keyboard Shortcuts ›
@@ -1494,8 +1404,6 @@ fn bindable() -> impl Iterator<Item = (&'static str, Option<&'static str>)> {
     }
     ids.into_iter()
 }
-
-pub use li_keys::conflicts;
 
 // ------------------------------------------------------------------ store
 
@@ -1566,31 +1474,19 @@ impl Session {
     }
 
     /// Restore preferences saved by [`Session::prefs_to_json`]. Missing keys keep their
-    /// defaults and unknown keys are ignored, so files from older and newer versions load.
+    /// defaults and unknown keys are ignored.
     pub fn load_prefs_json(&mut self, s: &str) -> std::result::Result<(), String> {
         let mut v: Value = serde_json::from_str(s).map_err(|e| format!("preferences: {e}"))?;
         let color = v.as_object_mut().and_then(|m| m.remove("colorSettings"));
         let presets = v.as_object_mut().and_then(|m| m.remove("presets"));
         let (mut prefs, mut rejected) = lenient::<Preferences>(v).map_err(|e| format!("preferences: {e}"))?;
-        // Repair old mixed-case named keys while retaining disabled or unrecognised user
-        // entries. Validation of new assignments is strict; loading never discards a binding.
-        for shortcut in prefs.shortcuts.values_mut() {
-            if let Some(normalized) = normalize_shortcut(shortcut) {
-                *shortcut = normalized;
-            }
-        }
-        prefs.shortcut_profiles.migrate(&prefs.shortcuts);
+        // A damaged profile falls back to its workspace's first built-in; bindings are kept.
         for library in [false, true] {
             let builtins = if library { ["Lightroom", "Capture One"] } else { ["Photoshop", "Affinity Photo"] };
             let workspace = prefs.shortcut_profiles.workspace_mut(library);
             for profile in workspace.custom.values_mut() {
                 if !builtins.contains(&profile.parent.as_str()) {
                     profile.parent = builtins[0].into();
-                }
-                for chord in profile.overrides.values_mut() {
-                    if let Some(normalized) = normalize_shortcut(chord) {
-                        *chord = normalized;
-                    }
                 }
             }
             if !builtins.contains(&workspace.active.as_str()) && !workspace.custom.contains_key(&workspace.active) {
@@ -1603,10 +1499,7 @@ impl Session {
             rejected.extend(bad.into_iter().map(|p| format!("colorSettings.{p}")));
             photocraft_compose::psblend::set_text_gamma(self.color.settings.blend_text_gamma);
         }
-        self.prefs.edit(|p| {
-            *p = prefs;
-            p.toolbar.migrate();
-        });
+        self.prefs.edit(|p| *p = prefs);
         if let Some(v) = presets {
             self.load_presets_json(v);
         }
@@ -1639,7 +1532,7 @@ impl Session {
             return Ok(());
         }
         let mut next = self.prefs().clone();
-        if path.is_empty() || SECTIONS.iter().any(|(id, _)| *id == path) || matches!(path, "shortcuts" | "menus" | "toolbar" | "library" | "ai") {
+        if path.is_empty() || SECTIONS.iter().any(|(id, _)| *id == path) || matches!(path, "menus" | "toolbar" | "library" | "ai") {
             // Whole section (or everything): merge the object key by key so each value is checked.
             let obj = value.as_object().ok_or_else(|| format!("`{path}` needs an object"))?;
             for (k, v) in obj {
@@ -1648,23 +1541,17 @@ impl Session {
                     self.set_pref("colorSettings", v.clone())?;
                     continue;
                 }
-                if v.is_object()
-                    && p != "shortcutProfiles"
-                    && !p.starts_with("shortcuts")
-                    && !p.ends_with(".colors")
-                    && next.get(&p).is_some_and(|c| c.is_object())
-                {
+                if v.is_object() && p != "shortcutProfiles" && !p.ends_with(".colors") && next.get(&p).is_some_and(|c| c.is_object()) {
                     for (k2, v2) in v.as_object().into_iter().flatten() {
-                        next.set_unmigrated(&format!("{p}.{k2}"), v2.clone())?;
+                        next.set(&format!("{p}.{k2}"), v2.clone())?;
                     }
                 } else {
-                    next.set_unmigrated(&p, v.clone())?;
+                    next.set(&p, v.clone())?;
                 }
             }
         } else {
-            next.set_unmigrated(path, value)?;
+            next.set(path, value)?;
         }
-        next.adopt_legacy_changes(&self.prefs().shortcuts);
         self.prefs.edit(|p| *p = next);
         Ok(())
     }
@@ -1707,10 +1594,10 @@ fn prefs_set(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(bad(cmd, e));
         }
     }
-    s.prefs.edit(|p| p.toolbar.migrate());
     s.apply_prefs();
     let view = s.prefs_view();
-    let out: Map<String, Value> = changes.iter().map(|(k, _)| (k.clone(), get_path(&view, k).cloned().unwrap_or(Value::Null))).collect();
+    let out: Map<String, Value> =
+        changes.iter().map(|(k, _)| (k.clone(), s.prefs().get(k).or_else(|| get_path(&view, k).cloned()).unwrap_or(Value::Null))).collect();
     Ok(Value::Object(out))
 }
 
@@ -1733,7 +1620,6 @@ fn prefs_reset(s: &mut Session, p: &Value) -> Result<Value> {
         Some(path) => {
             let mut next = s.prefs().clone();
             next.reset(Some(path)).map_err(|e| bad("prefs.reset", e))?;
-            next.adopt_legacy_changes(&s.prefs().shortcuts);
             s.edit_prefs(|p| *p = next);
         }
     }
@@ -1764,13 +1650,13 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(r) = p.get("reset") {
         match r {
             Value::Bool(true) => {
-                next.shortcuts.clear();
+                next.shortcut_profiles.clear_overrides();
                 changed = true;
             }
             Value::Array(ids) => {
                 changed = true;
                 for id in ids.iter().filter_map(Value::as_str) {
-                    next.shortcuts.remove(id);
+                    next.set_shortcut(id, None);
                 }
             }
             _ => {}
@@ -1782,14 +1668,8 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
             if !bindable().any(|(b, _)| b == id) && !p.get("allowUnknown").and_then(Value::as_bool).unwrap_or(false) {
                 return Err(bad(cmd, format!("unknown command `{id}`")));
             }
-            match checked_shortcut(v, before.shortcuts.get(id)).map_err(|e| bad(cmd, e))? {
-                Some(value) => {
-                    next.shortcuts.insert(id.clone(), value);
-                }
-                None => {
-                    next.shortcuts.remove(id);
-                }
-            }
+            let chord = checked_shortcut(v, before.shortcut_overrides(id.starts_with("library::")).get(id)).map_err(|e| bad(cmd, e))?;
+            next.set_shortcut(id, chord.as_deref());
         }
         // Like Photoshop, a shortcut moved to a new command is taken away from the old one.
         if p.get("removeConflicts").and_then(Value::as_bool).unwrap_or(true) {
@@ -1808,14 +1688,13 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
                     }
                     if next.shortcut(c, def).is_some_and(|key| li_keys::Chord::parse(key).zip(li_keys::Chord::parse(&sc)).is_some_and(|(a, b)| a.overlaps(&b)))
                     {
-                        next.shortcuts.insert(c.to_string(), String::new());
+                        next.set_shortcut(c, Some(""));
                     }
                 }
             }
         }
     }
     if changed {
-        next.adopt_legacy_changes(&before.shortcuts);
         s.edit_prefs(|p| *p = next);
     }
     let prefs = s.prefs();
@@ -1827,7 +1706,11 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
         .chain(temporary)
         .chain(TOOL_SHORTCUTS.iter().map(|t| (t.0, t.1, &["Tools"][..], t.2, false)))
         .filter(|c| filter.as_ref().is_none_or(|f| c.0.to_ascii_lowercase().contains(f) || c.1.to_ascii_lowercase().contains(f)))
-        .filter(|c| p.get("list").and_then(Value::as_bool).unwrap_or(false) || filter.is_some() || prefs.shortcuts.contains_key(c.0))
+        .filter(|c| {
+            p.get("list").and_then(Value::as_bool).unwrap_or(false)
+                || filter.is_some()
+                || prefs.shortcut_overrides(c.0.starts_with("library::")).contains_key(c.0)
+        })
         .map(|(id, label, menu, def, hold)| {
             let mut v = json!({"id": id, "label": label, "menu": menu, "default": def, "shortcut": prefs.shortcut(id, def)});
             if hold {
@@ -1848,7 +1731,8 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
     }
-    Ok(json!({"overrides": prefs.shortcuts, "commands": list, "conflicts": conflicts}))
+    let overrides: BTreeMap<&String, &String> = prefs.shortcut_overrides(false).iter().chain(prefs.shortcut_overrides(true)).collect();
+    Ok(json!({"overrides": overrides, "commands": list, "conflicts": conflicts}))
 }
 
 /// Edit › Menus: hide/show items and give them colours.
@@ -2036,44 +1920,32 @@ mod shortcut_profile_tests {
     use super::*;
 
     #[test]
-    fn keys_profiles_migrate_legacy_and_downgrade_read() {
-        let file = r#"{"shortcuts":{"library::view.develop":"F6","tools.select.Brush":"Shift+B","future.command":"Alt+FutureKey"}}"#;
+    fn keys_edits_land_in_the_active_profile_and_old_flat_maps_are_ignored() {
         let mut session = Session::new();
-        session.load_prefs_json(file).unwrap();
+        session.execute("edit.keyboardShortcuts", json!({"set": {"tools.select.Brush": "Shift+B"}})).unwrap();
+        session.execute("prefs.set", json!({"path": "shortcuts.library::view.develop", "value": "f6"})).unwrap();
         let prefs = session.prefs();
-        assert_eq!(prefs.shortcut_profiles.library.active, "Custom (migrated)");
-        assert_eq!(prefs.shortcut_profiles.editor.active, "Custom (migrated)");
-        assert_eq!(
-            prefs.shortcuts,
-            serde_json::from_str::<Value>(file).unwrap()["shortcuts"]
-                .as_object()
-                .unwrap()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.as_str().unwrap().into()))
-                .collect()
-        );
+        assert_eq!(prefs.shortcut_profiles.editor.active, "Custom (Photoshop)");
+        assert_eq!(prefs.shortcut_profiles.library.active, "Custom (Lightroom)");
+        assert_eq!(prefs.shortcut_profiles.library.custom["Custom (Lightroom)"].overrides["library::view.develop"], "F6");
         assert_eq!(prefs.shortcut("tools.select.Brush", Some("B")), Some("Shift+B"));
-        // Frozen pre-profile shape: serde's old reader ignores the new field and still
-        // sees the exact legacy command map. This does not depend on the new resolver.
-        #[derive(Deserialize)]
-        struct OldPreferences {
-            shortcuts: BTreeMap<String, String>,
-        }
+        assert_eq!(prefs.get("shortcuts.library::view.develop"), Some(json!("F6")));
         let saved = session.prefs_to_json();
-        let old: OldPreferences = serde_json::from_str(&saved).unwrap();
-        assert_eq!(old.shortcuts, prefs.shortcuts);
-        session.edit_prefs(|p| p.shortcut_profiles.editor.delete_active());
-        let saved = session.prefs_to_json();
-        session.load_prefs_json(&saved).unwrap();
-        assert_eq!(session.prefs().shortcut_profiles.editor.active, "Photoshop", "stale legacy map must not re-migrate");
-        assert_eq!(session.prefs().shortcuts, old.shortcuts);
+        assert!(!saved.contains("\"shortcuts\""), "only the profiles are stored");
+        let mut restored = Session::new();
+        restored.load_prefs_json(&saved).unwrap();
+        assert_eq!(restored.prefs().shortcut_profiles, session.prefs().shortcut_profiles);
+        // A flat command map from an earlier build is not read.
+        let mut old = Session::new();
+        old.load_prefs_json(r#"{"shortcuts":{"tools.select.Brush":"Shift+B"}}"#).unwrap();
+        assert_eq!(old.prefs().shortcut_profiles, ShortcutProfiles::default());
+        assert_eq!(old.prefs().shortcut("tools.select.Brush", Some("B")), Some("B"));
     }
 
     #[test]
     fn keys_profiles_validation_paths_names_and_atomicity() {
         let mut session = Session::new();
         let mut profiles = ShortcutProfiles::default();
-        profiles.migrate(&BTreeMap::new());
         profiles.library.active = "Capture One".into();
         profiles.library.duplicate("My C1.2").unwrap();
         session.execute("prefs.set", serde_json::json!({"path":"shortcutProfiles", "value":profiles})).unwrap();
@@ -2100,8 +1972,8 @@ mod shortcut_profile_tests {
     #[test]
     fn keys_profiles_global_cannot_be_rebound_even_by_hold_keys() {
         let mut prefs = Preferences::default();
-        prefs.shortcuts.insert("edit.undo".into(), "F6".into());
-        prefs.shortcuts.insert("tools.temporary.hand".into(), "Cmd+Q".into());
+        prefs.set_shortcut("edit.undo", Some("F6"));
+        prefs.set_shortcut("tools.temporary.hand", Some("Cmd+Q"));
         assert_eq!(prefs.shortcut("edit.undo", None), Some("Cmd+Z"));
         assert_eq!(prefs.shortcut("tools.temporary.hand", Some("Space")), None);
         assert!(global_shortcut_conflict("Cmd+Alt+1"));
@@ -2147,12 +2019,14 @@ mod battery_compatibility_tests {
 mod j20_tests {
     use super::*;
     #[test]
-    fn j20_legacy_settings_roundtrip_and_overlapping_transfer() {
+    fn j20_settings_roundtrip_and_overlapping_transfer() {
         let mut session = Session::new();
-        session.load_prefs_json(r#"{"shortcuts":{"edit.copy":"ctrl+f19","library::old":"ancient spelling","library::tool.brush":""}}"#).unwrap();
+        session.execute("edit.keyboardShortcuts", json!({"set": {"edit.copy": "ctrl+f19"}})).unwrap();
+        session.execute("prefs.set", json!({"values": {"shortcuts.library::old": "Alt+FutureKey", "shortcuts.library::tool.brush": ""}})).unwrap_err();
+        session.execute("prefs.set", json!({"values": {"shortcuts.library::tool.brush": ""}})).unwrap();
         let prefs = session.prefs();
-        assert_eq!(prefs.shortcuts["edit.copy"], "Ctrl+F19");
-        assert_eq!(prefs.shortcut_profiles.library.custom["Custom (migrated)"].overrides["library::old"], "ancient spelling");
+        assert_eq!(prefs.shortcut_overrides(false)["edit.copy"], "Ctrl+F19");
+        assert_eq!(prefs.shortcut_profiles.library.custom["Custom (Lightroom)"].overrides["library::tool.brush"], "");
         let saved = session.prefs_to_json();
         let mut restored = Session::new();
         restored.load_prefs_json(&saved).unwrap();

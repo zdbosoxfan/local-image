@@ -527,8 +527,7 @@ fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::P
 }
 
 /// Settings › Local AI › On-device models: one row per function, including Smart Sort tagging.
-/// Mask/depth rows offer a custom ONNX flow; tagging uses its official bundle. "Remove old models"
-/// appears when models the app no longer uses are still on disk.
+/// Mask/depth rows offer a custom ONNX flow; tagging uses its official bundle.
 #[cfg(test)]
 fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir: &std::path::Path) {
     for group in li_seg::Group::ALL {
@@ -539,28 +538,6 @@ fn seg_rows(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download>, dir
     }
     if let Some(spec) = li_seg::spec("inspyrenet") {
         model_function_row(ui, t, dls, dir, li_seg::Group::Subject, spec, false);
-    }
-    legacy_cleanup(ui, dir);
-}
-
-fn legacy_cleanup(ui: &mut egui::Ui, dir: &std::path::Path) {
-    let old = li_seg::legacy_installed(dir);
-    if !old.is_empty() {
-        let size = li_ai::download::human_bytes(old.iter().map(|(_, b)| b).sum());
-        let r = widgets::secondary_button(ui, &crate::i18n::fmt(tl!("Remove old models ({size})"), &[("size", &size)]), 0.0)
-            .on_hover_text(tl!("Moves the models the app no longer uses (U²-Net, TinySkyNet, MiDaS) to the Trash."));
-        if r.clicked() {
-            let note = match li_seg::remove_legacy_with(dir, &dispose) {
-                Ok(freed) => (
-                    crate::i18n::fmt(tl!("Removed {name} ({size} freed)"), &[("name", tl!("the old models")), ("size", &li_ai::download::human_bytes(freed))]),
-                    false,
-                ),
-                Err(e) => (crate::i18n::fmt(tl!("Couldn't remove {name}: {error}"), &[("name", tl!("the old models")), ("error", &format!("{e:#}"))]), true),
-            };
-            if let Ok(mut n) = REMOVE_NOTE.lock() {
-                *n = Some(note);
-            }
-        }
     }
 }
 
@@ -1409,7 +1386,7 @@ pub(crate) fn enhance_controls(ui: &mut egui::Ui, method: &mut li_ai::enhance::M
     if !matches!(*scale, 2.0 | 4.0) {
         *scale = 2.0;
     }
-    // Legacy CPU selections still deserialize, but all enlargement routes require GPU/NPU.
+    // All enlargement routes require a GPU/NPU.
     *backend = Backend::Gpu;
     ui.label(tl!("AI enlargement requires a GPU/NPU."));
 }
@@ -1843,7 +1820,6 @@ mod tests {
             h.get_by_label(title);
         }
         assert_eq!(h.get_all_by_label("Change…").count(), 5);
-        assert!(h.query_by_label_contains("Remove old models").is_none());
         assert!(h.query_by_label_contains("Finds the main subject").is_some());
         assert!(h.query_by_label_contains("Finds the sky.").is_some());
         assert!(h.query_by_label_contains("Estimates how far away").is_some());
@@ -1969,33 +1945,6 @@ mod tests {
         settle(&mut h, &dir, li_seg::Group::Sky);
         let c = li_seg::custom(&dir, li_seg::Group::Sky).expect("class 2 of 3 fits");
         assert_eq!((c.classes, c.class), (3, 2));
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    /// Models the app no longer offers are never used; a button moves them out of the way.
-    #[test]
-    fn old_models_can_be_removed_from_settings() {
-        let dir = temp_dir("old");
-        let seg = dir.join("segmentation");
-        std::fs::write(seg.join("u2net.onnx"), vec![0u8; 3 * 1024 * 1024]).unwrap();
-        std::fs::write(seg.join("midas_v21_small_256.onnx"), vec![0u8; 1024 * 1024]).unwrap();
-        for file in li_seg::Group::Tagging.official().files() {
-            std::fs::write(li_seg::companion_path(&dir, file.file), b"clip file").unwrap();
-        }
-        let mut h = seg_harness(&dir, None);
-        assert!(li_seg::Group::ALL.iter().all(|g| g.in_use(&dir).is_none()), "old files serve nothing");
-        h.get_by_label_contains("Remove old models (").click();
-        h.run_steps(3);
-        assert!(li_seg::legacy_installed(&dir).is_empty());
-        for file in li_seg::Group::Tagging.official().files() {
-            assert_eq!(std::fs::read(li_seg::companion_path(&dir, file.file)).unwrap(), b"clip file");
-        }
-        assert!(h.query_by_label_contains("Remove old models").is_none());
-        // The status note is process-global; another test drawing the full app (which shows and consumes it) may run
-        // in parallel and take it first. The removal itself is asserted above; check the wording when it is still here.
-        if let Some(note) = REMOVE_NOTE.lock().unwrap().take() {
-            assert!(!note.1 && note.0.contains("the old models"), "{note:?}");
-        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -6,11 +6,11 @@
 //! same settings on both and bound the difference in 8-bit previews and 16-bit output. Stages
 //! without a kernel run on the CPU inside the same render (per-stage hybrid); see `docs/gpu-pipeline.md`.
 //!
-//! Which backends wgpu may load (DX12 only on Windows; `LIGHTCRAFT_GPU_BACKEND`, `WGPU_BACKEND`) and
+//! Which backends wgpu may load (DX12 only on Windows; `LOCAL_IMAGE_GPU_BACKEND`, `WGPU_BACKEND`) and
 //! the crash sentinel around device creation: [`backend`] (issue #136).
 //!
 //! Use [`render`]: it returns `None` when the GPU is unavailable, disabled (`LIGHTCRAFT_GPU=0`,
-//! `LIGHTCRAFT_GPU_BACKEND=off` or [`set_enabled`]), the render does not fit the device, or the device reported an error, ran out
+//! `LOCAL_IMAGE_GPU_BACKEND=off` or [`set_enabled`]), the render does not fit the device, or the device reported an error, ran out
 //! of memory or returned an incomplete image — callers then render on the CPU. [`unavailable_reason`]
 //! and [`last_fallback`] say why (`ui.inspect` → `perf.gpuReason` / `perf.gpuFallback`).
 //! The browser build has no GPU path yet (WebGPU device creation is asynchronous): everything here
@@ -62,7 +62,7 @@ pub fn unavailable_reason() -> Option<String> {
     if env_disabled() {
         #[cfg(not(target_arch = "wasm32"))]
         if backend::env_off() {
-            return Some("disabled by LIGHTCRAFT_GPU_BACKEND=off".into());
+            return Some("disabled by LOCAL_IMAGE_GPU_BACKEND=off".into());
         }
         return Some("disabled by LIGHTCRAFT_GPU=0".into());
     }
@@ -186,7 +186,7 @@ pub fn enabled() -> bool {
     }
 }
 
-/// `LIGHTCRAFT_GPU=0` (or `LIGHTCRAFT_GPU_BACKEND=off`): no GPU for the whole process.
+/// `LIGHTCRAFT_GPU=0` (or `LOCAL_IMAGE_GPU_BACKEND=off`): no GPU for the whole process.
 fn env_disabled() -> bool {
     static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *OFF.get_or_init(|| {
@@ -316,7 +316,7 @@ pub(crate) fn device() -> Option<Arc<ctx::Gpu>> {
     GENERATION.fetch_add(1, Ordering::AcqRel);
     drop(old);
     let result = (|| {
-        let Some(backends) = backend::compute_backends() else { return Err("disabled by LIGHTCRAFT_GPU_BACKEND=off".into()) };
+        let Some(backends) = backend::compute_backends() else { return Err("disabled by LOCAL_IMAGE_GPU_BACKEND=off".into()) };
         std::panic::catch_unwind(|| ctx::Gpu::new(backends, health.clone())).unwrap_or_else(|_| Err("device creation panicked".into()))
     })()
     .map(Arc::new)

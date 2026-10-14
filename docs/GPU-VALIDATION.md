@@ -32,7 +32,7 @@ from environment flags. These are numerical/correctness gates, not performance m
 
 ```sh
 export LC_REQUIRE_GPU=1 LOCAL_IMAGE_REQUIRE_GPU=1 LIGHTCRAFT_GPU=1
-export LIGHTCRAFT_GPU_BACKEND=vulkan WGPU_BACKEND=vulkan
+export LOCAL_IMAGE_GPU_BACKEND=vulkan WGPU_BACKEND=vulkan
 export CARGO_BUILD_JOBS=4 RUST_TEST_THREADS=1
 
 cargo +1.98.1 test --offline --frozen -p lightcraft-gpu --lib \

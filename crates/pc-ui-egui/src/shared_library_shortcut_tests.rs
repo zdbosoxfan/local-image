@@ -36,13 +36,13 @@ fn shared_shell_namespace_does_not_shadow_editor_commands_or_tools() {
     for persona in [photocraft_engine::toolsets::Persona::Pixel, photocraft_engine::toolsets::Persona::Vector] {
         a.session.edit_prefs(|p| {
             p.toolbar.persona = persona;
-            p.shortcuts.clear();
+            p.shortcut_profiles.clear_overrides();
         });
         let before = crate::shortcut_dispatch::binding_strings(&a);
         let tool = crate::shortcuts::tool_shortcut(&a.session, crate::state::Tool::Move);
         a.session.edit_prefs(|p| {
-            p.shortcuts.insert("library::file.open".into(), "Cmd+N".into());
-            p.shortcuts.insert("library::unknown-legacy".into(), "V".into());
+            p.set_shortcut("library::file.open", Some("Cmd+N"));
+            p.set_shortcut("library::unknown-legacy", Some("V"));
         });
         assert_eq!(crate::shortcut_dispatch::binding_strings(&a), before);
         assert_eq!(crate::shortcuts::tool_shortcut(&a.session, crate::state::Tool::Move), tool);
@@ -59,19 +59,19 @@ fn shared_shell_shortcut_catalog_confirm_restart_cancel_and_failed_save() {
     assert_eq!(a.ui.dialog_mut(id).unwrap().fields["__hostShortcuts"][0][1], "Develop");
     a.ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!({"library::view.develop":"Cmd+N"}));
     crate::dialogs::confirm(&mut a, id).unwrap();
-    assert_eq!(a.session.prefs().shortcuts["library::view.develop"], "Cmd+N");
-    assert!(!a.session.prefs().shortcuts.contains_key("file.new"), "disjoint module command must keep its default");
+    assert_eq!(a.session.prefs().shortcut_overrides(true)["library::view.develop"], "Cmd+N");
+    assert!(!a.session.prefs().shortcut_overrides(false).contains_key("file.new"), "disjoint module command must keep its default");
     for time in [0., 2., 4.] {
         let _ = persist(&mut a, time);
     }
     let saved = store.lock().unwrap().clone().unwrap();
     let mut restarted = app(&store, &fail);
-    assert_eq!(restarted.session.prefs().shortcuts["library::view.develop"], "Cmd+N");
+    assert_eq!(restarted.session.prefs().shortcut_overrides(true)["library::view.develop"], "Cmd+N");
     let id = open_shortcuts(&mut restarted, 0);
     set_host_shortcut_catalog(&mut restarted, &ctx, rows());
     restarted.ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!({"library::view.develop":"F6"}));
     crate::dialogs::cancel(&mut restarted, id).unwrap();
-    assert_eq!(restarted.session.prefs().shortcuts["library::view.develop"], "Cmd+N");
+    assert_eq!(restarted.session.prefs().shortcut_overrides(true)["library::view.develop"], "Cmd+N");
     let id = open_shortcuts(&mut a, 0);
     set_host_shortcut_catalog(&mut a, &ctx, rows());
     a.ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!({"library::view.develop":"F7"}));
@@ -197,10 +197,10 @@ fn shared_shell_reserved_host_chords_refuse_new_conflicts_and_keep_defaults() {
     let ctx = egui::Context::default();
     let dialog = open_shortcuts(&mut a, 0);
     set_host_shortcut_catalog(&mut a, &ctx, rows());
-    let before = a.session.prefs().shortcuts.clone();
+    let before = a.session.prefs().shortcut_profiles.clone();
     a.ui.dialog_mut(dialog).unwrap().fields.insert("overrides".into(), json!({id:"Cmd+S"}));
     assert!(crate::dialogs::confirm(&mut a, dialog).unwrap_err().contains("reserved"));
-    assert_eq!(a.session.prefs().shortcuts, before);
+    assert_eq!(a.session.prefs().shortcut_profiles, before);
     // Generic confirm removes the dialog before applying; the actual capture UI
     // refuses a reserved chord before insertion (covered by the input test).
     assert!(a.ui.dialog_mut(dialog).is_none());
@@ -209,17 +209,17 @@ fn shared_shell_reserved_host_chords_refuse_new_conflicts_and_keep_defaults() {
     assert_eq!(a.ui.dialog_mut(dialog).unwrap().fields["__hostShortcuts"][0][1], "Develop");
     a.ui.dialog_mut(dialog).unwrap().fields.insert("overrides".into(), json!({id:"F6"}));
     crate::dialogs::cancel(&mut a, dialog).unwrap();
-    assert_eq!(a.session.prefs().shortcuts, before, "cancelling a valid new draft after the failed apply still leaves bindings unchanged");
+    assert_eq!(a.session.prefs().shortcut_profiles, before, "cancelling a valid new draft after the failed apply still leaves bindings unchanged");
     // Already persisted values survive unrelated preference review; users can see and repair them.
     a.session.edit_prefs(|p| {
-        p.shortcuts.insert(id.into(), "Cmd+S".into());
+        p.set_shortcut(id, Some("Cmd+S"));
     });
     let dialog = open_shortcuts(&mut a, 0);
     set_host_shortcut_catalog(&mut a, &ctx, rows());
     crate::dialogs::confirm(&mut a, dialog).unwrap();
-    assert_eq!(a.session.prefs().shortcuts[id], "Cmd+S");
+    assert_eq!(a.session.prefs().shortcut_overrides(true)[id], "Cmd+S");
     assert!(
-        !a.session.prefs().shortcuts.contains_key("library::photo.saveMetadataToFile"),
-        "reviewing retained legacy bindings must not disable a genuine default"
+        !a.session.prefs().shortcut_overrides(true).contains_key("library::photo.saveMetadataToFile"),
+        "reviewing retained bindings must not disable a genuine default"
     );
 }

@@ -173,25 +173,25 @@ fn rotate_view_default_r_saved_overrides_and_vector_object_rotate_are_distinct()
     key(&mut h, Key::R);
     assert_eq!(h.state().ui.tool, Tool::RotateView);
     h.state_mut().session.edit_prefs(|p| {
-        p.shortcuts.insert("tools.select.AiRemove".into(), "R".into());
+        p.set_shortcut("tools.select.AiRemove", Some("R"));
     });
     key(&mut h, Key::V);
     key(&mut h, Key::R);
     assert_eq!(h.state().ui.tool, Tool::AiRemove);
-    assert_eq!(h.state().session.prefs().shortcuts["tools.select.AiRemove"], "R");
+    assert_eq!(h.state().session.prefs().shortcut_overrides(false)["tools.select.AiRemove"], "R");
     // AI Remove is a J healing-group member (Photoshop), but its own saved key still shows and wins.
     assert_eq!(crate::shortcuts::tool_shortcut_id(Tool::AiRemove), "tools.select.SpotHealing");
     assert_eq!(crate::shortcuts::tool_shortcut(&h.state().session, Tool::AiRemove), Some("R".into()));
     h.state_mut().session.edit_prefs(|p| {
-        p.shortcuts.remove("tools.select.AiRemove");
-        p.shortcuts.insert("tools.select.RotateView".into(), String::new());
+        p.set_shortcut("tools.select.AiRemove", None);
+        p.set_shortcut("tools.select.RotateView", Some(""));
     });
     assert_eq!(crate::shortcuts::tool_shortcut(&h.state().session, Tool::AiRemove), Some("J".into()));
     key(&mut h, Key::V);
     key(&mut h, Key::R);
     assert_eq!(h.state().ui.tool, Tool::Move, "explicit disable remains authoritative");
     h.state_mut().session.edit_prefs(|p| {
-        p.shortcuts.remove("tools.select.RotateView");
+        p.set_shortcut("tools.select.RotateView", None);
     });
     h.get_by_label("Vector persona").click();
     h.run_steps(3);
@@ -199,7 +199,7 @@ fn rotate_view_default_r_saved_overrides_and_vector_object_rotate_are_distinct()
     assert_eq!(h.state().ui.tool, Tool::Rotate, "Vector R retains object rotation");
     near(angle(&h), 0.0);
     h.state_mut().session.edit_prefs(|p| {
-        p.shortcuts.insert("tools.select.RotateView".into(), "F13".into());
+        p.set_shortcut("tools.select.RotateView", Some("F13"));
     });
     key(&mut h, Key::F13);
     assert_eq!(h.state().ui.tool, Tool::RotateView);

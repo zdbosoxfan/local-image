@@ -188,7 +188,7 @@ fn new_workspace(app: &mut PhotocraftApp, p: &Value) -> Result<Value, String> {
     let prefs = app.session.prefs().clone();
     let mut ws = json!({"panels": app.ui.panels, "dockTabs": app.ui.dock_tabs, "dock": app.ui.dock});
     if p.get("keyboardShortcuts").and_then(Value::as_bool) == Some(true) {
-        ws["shortcuts"] = json!(prefs.shortcuts);
+        ws["shortcutProfiles"] = serde_json::to_value(&prefs.shortcut_profiles).unwrap_or_default();
     }
     if p.get("menus").and_then(Value::as_bool) == Some(true) {
         ws["menus"] = serde_json::to_value(&prefs.menus).unwrap_or_default();
@@ -274,11 +274,11 @@ pub fn apply_custom(app: &mut PhotocraftApp) -> bool {
     // Workspaces saved before the dock layout existed get the default heights.
     app.ui.dock = Default::default();
     crate::dock::apply(app, &ws);
-    let (sc, menus, toolbar) = (ws.get("shortcuts").cloned(), ws.get("menus").cloned(), ws.get("toolbar").cloned());
+    let (sc, menus, toolbar) = (ws.get("shortcutProfiles").cloned(), ws.get("menus").cloned(), ws.get("toolbar").cloned());
     if sc.is_some() || menus.is_some() || toolbar.is_some() {
         app.session.prefs.edit(|p| {
             if let Some(v) = sc.and_then(|v| serde_json::from_value(v).ok()) {
-                p.shortcuts = v;
+                p.shortcut_profiles = v;
             }
             if let Some(v) = menus.and_then(|v| serde_json::from_value(v).ok()) {
                 p.menus = v;
@@ -581,7 +581,7 @@ mod tests {
         app.ui.panels.history = true;
         app.ui.panels.navigator = true;
         app.session.prefs.edit(|p| {
-            p.shortcuts.insert("filter.blur.gaussian".into(), "Cmd+Alt+G".into());
+            p.set_shortcut("filter.blur.gaussian", Some("Cmd+Alt+G"));
         });
         inv(&mut app, "window.workspace.newWorkspace", json!({"name": "Retouch", "keyboardShortcuts": true})).unwrap();
         assert_eq!(app.ui.workspace, "Retouch");
@@ -591,11 +591,11 @@ mod tests {
         assert!(inv(&mut app, "window.workspace.deleteWorkspace", json!({"name": "Retouch"})).is_err());
         inv(&mut app, "window.workspace.painting", json!({})).unwrap();
         assert!(!app.ui.panels.history);
-        app.session.prefs.edit(|p| p.shortcuts.clear());
+        app.session.prefs.edit(|p| p.shortcut_profiles.clear_overrides());
         // Switching back restores the panels and the captured shortcuts.
         inv(&mut app, "window.workspace.select", json!({"name": "Retouch"})).unwrap();
         assert!(app.ui.panels.history && app.ui.panels.navigator);
-        assert_eq!(app.session.prefs().shortcuts.get("filter.blur.gaussian").map(String::as_str), Some("Cmd+Alt+G"));
+        assert_eq!(app.session.prefs().shortcut_overrides(false).get("filter.blur.gaussian").map(String::as_str), Some("Cmd+Alt+G"));
         // Reset Workspace re-applies the saved layout.
         app.ui.panels.history = false;
         inv(&mut app, "window.workspace.resetWorkspace", json!({})).unwrap();
