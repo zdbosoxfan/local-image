@@ -375,3 +375,78 @@ fn ai_denoise_real_app_preview_and_strength_latency() {
     );
     assert!(lightcraft_engine::gpu::adapter_name().unwrap().contains("5090"));
 }
+
+/// Actual headless app gestures exercise both automatic tools and patch opacity without an AI host.
+#[test]
+fn j13_heal_and_remove_ui_drag_use_one_local_patch_workflow() {
+    use lightcraft_catalog::{Op, Photo, Source};
+    use std::time::Instant;
+    let mut session = lightcraft_engine::Session::new();
+    session.media.file_loader = Some(Arc::new(|_, _| {
+        let img = lightcraft_raster::Rgb32f::from_fn(64, 48, |x, y| {
+            if x.abs_diff(32) < 3 && y.abs_diff(24) < 3 { [0.01; 3] } else { [0.25 + ((x + y) % 4) as f32 * 0.03; 3] }
+        });
+        Ok((img, lightcraft_pipeline::SourceInfo::default()))
+    }));
+    let id = session.catalog.alloc_photo_id();
+    let mut photo = Photo::new(id, Source::File { path: "/synthetic/j13-ui.tif".into() }, "j13-ui.tif", "TIFF", 64, 48, "2026-10-14");
+    photo.content_hash = Some("j13-ui-fixture".into());
+    session.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+    session.execute("library.select", &json!({"ids":[id.0]})).unwrap();
+    let mut h = Headless::new(LightcraftApp::new(session, Services::default()), [1200., 800.], 1.);
+    assert_eq!(h.request("ui.set", json!({"view":"detail"}), T)["ok"], true);
+    exec(&mut h, "panel.remove", json!({}));
+    for (index, mode) in ["heal", "remove"].into_iter().enumerate() {
+        click(&mut h, &format!("button:removeMode-{mode}"));
+        h.app.ui.remove_size = 0.07;
+        h.app.ui.remove_feather = 40.;
+        let start = Instant::now();
+        let x = 0.5 + index as f64 * 0.1;
+        let response = h.request(
+            "ui.pointer",
+            json!({"events":[
+                {"kind":"down","x":x,"y":0.5}, {"kind":"drag","x":x+0.03,"y":0.5},
+                {"kind":"up","x":x+0.03,"y":0.5}
+            ]}),
+            T,
+        );
+        let gesture_ms = start.elapsed().as_secs_f64() * 1000.;
+        assert_eq!(response["ok"], true, "{response}");
+        assert!(h.app.ui.remove_draft.is_none());
+        assert!(h.step_until(T, |h| spots(h).len() == index + 1));
+        let arrival_ms = start.elapsed().as_secs_f64() * 1000.;
+        let sp = spots(&h)[index].clone();
+        assert!(sp.is_ai() && sp.patch.as_ref().is_some_and(|p| p.engine == "local"));
+        assert_eq!(sp.source_offset, None);
+        assert_eq!(h.app.session.active_spot, Some(index));
+        assert_eq!(h.app.session.undo.last().unwrap().label, "Heal");
+        h.settle(T);
+        let rect = h.app.widgets.iter().find(|(id, _)| id == "slider:ui.removeOpacity").map(|(_, r)| *r);
+        let rect = rect.expect("selected patch opacity slider");
+        let drag = Instant::now();
+        let response = h.request(
+            "ui.drag",
+            json!({"x":rect.center().x,"y":rect.center().y,"toX":rect.left()+rect.width()*0.25,"toY":rect.center().y,"steps":3}),
+            T,
+        );
+        let opacity_ms = drag.elapsed().as_secs_f64() * 1000.;
+        assert_eq!(response["ok"], true, "{response}");
+        assert!(spots(&h)[index].opacity < 100.);
+        assert_eq!(spots(&h)[index].patch, sp.patch, "opacity reuses the stored solution");
+        eprintln!(
+            "J13 {mode}: brush gesture {gesture_ms:.2} ms, patch arrival {arrival_ms:.2} ms, opacity drag {opacity_ms:.2} ms, render adapter {:?}",
+            lightcraft_engine::gpu::adapter_name()
+        );
+        exec(&mut h, "spot.select", json!({"index":null}));
+        h.step();
+    }
+    // The owner's AI Remove interaction remains brush -> adjust -> confirm.
+    h.app.session.enhance.host = Some(Arc::new(Mock));
+    click(&mut h, "button:removeMode-ai");
+    brush(&mut h, (0.2, 0.2), (0.25, 0.2), false);
+    assert!(h.app.ui.remove_draft.is_some());
+    assert!(h.app.session.enhance.jobs().is_empty());
+    assert_eq!(spots(&h).len(), 2);
+    click(&mut h, "button:removeDraftCancel");
+    assert!(h.app.ui.remove_draft.is_none());
+}
